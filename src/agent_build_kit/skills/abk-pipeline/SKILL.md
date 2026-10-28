@@ -316,7 +316,8 @@ At each planning pass a planned unit that never started, whose change no longer 
 `unplanned`, and a unit waiting on it stops waiting; a started unit is left as it is.
 
 A test that fails e2e-test on the base as well is pre-existing: it is recorded in
-`preexisting-failures.jsonl` and gets one `fix-failing-<test>` change, written without a
+`preexisting-failures.jsonl` and gets one `fix-test-<test>` change (the name every test-fix change takes; an open
+`fix-flaky-` or `fix-failing-` one is still found), written without a
 model (a successor only once the earlier one is merged and archived). `abk status` lists
 each as `pre-existing:` with its count and fix change. The fix changes of both kinds are
 written at `Priority: 1`. `abk tick --dry-run` prints `exists: <change>` or

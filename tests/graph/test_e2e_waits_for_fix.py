@@ -130,8 +130,8 @@ def test_two_units_meeting_one_failure_make_one_change_and_two_needs_lines(
     fixes = [on_preexisting(u, verdict, failed, wait=True) for u in (first, second)]
 
     assert fixes[0] == fixes[1]
-    assert fixes[0] is not None and fixes[0].startswith("fix-failing-")
-    assert [c for c in changes(installation) if c.startswith("fix-failing")] == [fixes[0]]
+    assert fixes[0] is not None and fixes[0].startswith("fix-test-")
+    assert [c for c in changes(installation) if c.startswith("fix-test")] == [fixes[0]]
     assert waits_on(installation, "feature") == [fixes[0]]
     assert waits_on(installation, "other") == [fixes[0]]
     assert [(e.unit, e.test, e.change) for e in preexisting_record(installation).entries()] == [
@@ -204,7 +204,7 @@ def test_the_needs_line_names_the_failing_test_on_the_base(installation: Install
     assert f"Needs: {fix} group 1 — failing test {RECORDED} on the base" in tasks
 
 
-def test_a_flake_fix_for_the_same_test_is_another_change_and_does_not_stand_in(
+def test_an_open_flake_fix_for_the_same_test_is_the_change_waited_on(
     installation: Installation,
 ) -> None:
     store, (first, _) = two_units(installation)
@@ -215,5 +215,5 @@ def test_a_flake_fix_for_the_same_test_is_another_change_and_does_not_stand_in(
 
     fix = on_preexisting(first, verdict, failed, wait=True)
 
-    assert fix is not None and flake_fix is not None and fix != flake_fix
-    assert set(waits_on(installation, "feature")) == {flake_fix, fix}, "waits on both"
+    assert fix is not None and fix == flake_fix
+    assert waits_on(installation, "feature") == [flake_fix]

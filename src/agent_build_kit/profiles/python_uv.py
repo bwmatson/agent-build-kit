@@ -76,6 +76,8 @@ TYPE_HOOKS = frozenset({"pyrefly-check", "pyrefly", "mypy", "pyright"})
 _PYTEST = re.compile(r"\bpytest\b")
 # pytest's short summary: `FAILED path::test - why` and `ERROR path::test - why`.
 _FAILED_TEST = re.compile(r"^(?:FAILED|ERROR) (\S+::\S+)", re.MULTILINE)
+# The same line when the reason is a test's time limit (the pytest-timeout plugin's message).
+_TIME_LIMIT_FAILURE = re.compile(r"^(?:FAILED|ERROR) (\S+::\S+) - .*Timeout >", re.MULTILINE)
 # The `FAILURES` part of pytest's console output ends at the rule of the section that follows
 # it, not at any `=== ... ===` line, which a failing test's captured output may print; each
 # failed test's block in it starts at a `___ name ___` line, padded with as little as one
@@ -486,6 +488,10 @@ class PythonUvProfile:
         command's output; empty when it was not a test run."""
         found = _FAILED_TEST.findall(output)
         return list(dict.fromkeys(found))
+
+    def time_limit_tests(self, output: str) -> list[str]:
+        """The identifiers of the failed tests whose failure is the test's own time limit."""
+        return list(dict.fromkeys(_TIME_LIMIT_FAILURE.findall(output)))
 
     def failure_sections(self, output: str) -> dict[str, str]:
         """Each failed test's own section of `output` (its `___ name ___` block), by the

@@ -25,8 +25,11 @@ from agent_build_kit.pipeline.work_graph import GROUP_HEADING, group_needs
 
 # The longest a change's name gets before it is cut and given a hash of the whole.
 NAME_LIMIT = 70
-# What the name of the change that fixes a flaky test starts with.
+# What the names of changes that fixed a flaky or a failing test started with, still found.
 FLAKY_PREFIX = "fix-flaky"
+FAILING_PREFIX = "fix-failing"
+# What the name of every new change that fixes a failing test starts with, whatever its kind.
+FIX_PREFIX = "fix-test"
 # Where a module imported by a test may sit in the code repo, relative to its root.
 SOURCE_ROOTS = ("", "src")
 # How many of a storm's tests its row names.
@@ -47,11 +50,15 @@ class Flake(Recorded):
     # Where unit-test ran it (a project below the repo root, or the root), which its
     # identifier is relative to; empty when unknown.
     directory: str = ""
+    # Set for a test that failed and is not a flake (it fails on the base, by its time limit,
+    # or has an open fix): it is said as a failing test and is not recorded as a flake.
+    failing: bool = False
 
 
-def waiting_note(tests: list[str]) -> str:
-    """What a unit parked for these flaky tests is waiting for, in a person's words."""
-    return f"waiting for the fix of the flaky test {', '.join(tests)}"
+def waiting_note(tests: list[str], *, failing: bool = False) -> str:
+    """What a unit parked for these tests is waiting for, in a person's words."""
+    kind = "failing" if failing else "flaky"
+    return f"waiting for the fix of the {kind} test {', '.join(tests)}"
 
 
 class FlakeFound(Exception):
@@ -63,6 +70,16 @@ class FlakeFound(Exception):
         super().__init__(", ".join(flake.test for flake in flakes))
         self.flakes = flakes
         self.scoped = scoped
+
+
+class FailedOnBase(Exception):
+    """Raised by unit-test when a failed test the unit did not write fails alone and on the
+    unit's own base too, or fails alone by its time limit: the failure is not the unit's, and
+    the regression agent writes the change that fixes it."""
+
+    def __init__(self, failures: tuple[Flake, ...]) -> None:
+        super().__init__(", ".join(failure.test for failure in failures))
+        self.failures = tuple(failure.model_copy(update={"failing": True}) for failure in failures)
 
 
 @runtime_checkable
@@ -103,7 +120,7 @@ def record_storm(unit: str, tests: list[str], command: str, failures: list[str])
 
 def flake_change_name(test: str) -> str:
     """The name of the change that fixes the flaky `test`."""
-    return fix_change_name(test, FLAKY_PREFIX)
+    return fix_change_name(test, FIX_PREFIX)
 
 
 def fix_change_name(test: str, prefix: str) -> str:
@@ -125,14 +142,15 @@ def wait_on_fix(
     Returns the change's name, or None for a unit of that change itself, which waits on
     nothing."""
     with file_lock(inst.state_dir / "flakes.lock"):
-        name, earlier = open_fix_change(inst, flake.test, FLAKY_PREFIX)
+        name, earlier = open_fix_change(inst, flake.test)
         if name is None:
-            name = next_fix_name(inst, flake.test, FLAKY_PREFIX)
+            name = next_fix_name(inst, flake.test)
             _write_change(inst, name, flake, unit, earlier=earlier)
         if unit.change == name:
             return None
         if wait:
-            add_needs_to_unit(inst, unit, name, f"flaky test {flake.test}")
+            kind = "failing" if flake.failing else "flaky"
+            add_needs_to_unit(inst, unit, name, f"{kind} test {flake.test}")
         return name
 
 
@@ -140,11 +158,14 @@ def wait_on_fix(
 
 
 def _candidates(test: str, prefix: str):
-    base = fix_change_name(test, prefix)
-    yield base
+    """Each attempt's names for `test`: one per prefix looked under, the one new changes take
+    first. Without `prefix` the test-fix prefixes are all looked under."""
+    prefixes = (prefix,) if prefix else (FIX_PREFIX, FLAKY_PREFIX, FAILING_PREFIX)
+    bases = [fix_change_name(test, p) for p in prefixes]
+    yield bases
     attempt = 2
     while True:
-        yield f"{base}-{attempt}"
+        yield [f"{base}-{attempt}" for base in bases]
         attempt += 1
 
 
@@ -152,26 +173,38 @@ def _archived(inst: Installation, name: str) -> bool:
     return any((inst.changes_dir / "archive").glob(f"*-{name}"))
 
 
-def open_fix_change(inst: Installation, test: str, prefix: str) -> tuple[str | None, str]:
-    """The open change named for `test` under `prefix`, or None and the last archived
-    attempt (or "")."""
+def open_fix_change(inst: Installation, test: str, prefix: str = "") -> tuple[str | None, str]:
+    """The open change that fixes `test` under `prefix` (any test-fix prefix when empty), or
+    None and the last archived attempt (or "")."""
     earlier = ""
-    for name in _candidates(test, prefix):
-        if (inst.changes_dir / name).is_dir():
-            return name, earlier
-        if not _archived(inst, name):
+    for names in _candidates(test, prefix):
+        for name in names:
+            if (inst.changes_dir / name).is_dir():
+                return name, earlier
+        archived = [name for name in names if _archived(inst, name)]
+        if not archived:
             return None, earlier
-        earlier = name
+        earlier = archived[0]
     raise AssertionError("unreachable")
 
 
-def next_fix_name(inst: Installation, test: str, prefix: str) -> str:
-    """The name the next change for `test` under `prefix` gets: the first neither open
-    nor archived."""
-    for name in _candidates(test, prefix):
-        if not (inst.changes_dir / name).exists() and not _archived(inst, name):
-            return name
+def next_fix_name(inst: Installation, test: str, prefix: str = "") -> str:
+    """The name the next change for `test` gets: the first attempt with no change open or
+    archived under any prefix looked under, named with `prefix` or `FIX_PREFIX`."""
+    for names in _candidates(test, prefix):
+        if not any((inst.changes_dir / n).exists() or _archived(inst, n) for n in names):
+            return names[0]
     raise AssertionError("unreachable")
+
+
+def covered_tests(tests: list[str]) -> list[str]:
+    """The `tests` that an open fix change covers, of any prefix. Empty when no workspace is
+    loaded."""
+    root = active_root()
+    if root is None:
+        return []
+    inst = Installation(active(), root)
+    return [test for test in tests if open_fix_change(inst, test)[0] is not None]
 
 
 # --- the Needs: line -------------------------------------------------------------
@@ -216,7 +249,24 @@ def _write_change(
     (root / "proposal.md").write_text(_proposal(inst, flake, unit, earlier))
     (root / "design.md").write_text(_design(flake))
     (root / "tasks.md").write_text(_tasks(flake, unit))
-    (root / "specs" / CAPABILITY / "spec.md").write_text(_spec(flake, successor=bool(earlier)))
+    shipped = requirement_shipped(inst, CAPABILITY, _requirement(flake))
+    (root / "specs" / CAPABILITY / "spec.md").write_text(_spec(flake, successor=shipped))
+
+
+def requirement_shipped(inst: Installation, capability: str, requirement: str) -> bool:
+    """Whether the shipped spec of `capability` already holds the requirement titled
+    `requirement`, which an archive refuses to add again. An earlier change of another kind
+    that was archived added a different requirement to a different capability, so only the
+    spec itself says."""
+    try:
+        text = (inst.specs_dir / "specs" / capability / "spec.md").read_text()
+    except OSError:
+        return False
+    return f"### Requirement: {requirement}\n" in text
+
+
+def _requirement(flake: Flake) -> str:
+    return f"`{flake.test}` is deterministic"
 
 
 def _proposal(inst: Installation, flake: Flake, unit: StoredUnit, earlier: str) -> str:
@@ -284,7 +334,7 @@ def _spec(flake: Flake, *, successor: bool) -> str:
     verb = "MODIFIED" if successor else "ADDED"
     return (
         f"## {verb} Requirements\n\n"
-        f"### Requirement: `{flake.test}` is deterministic\n\n"
+        f"### Requirement: {_requirement(flake)}\n\n"
         "The test SHALL give the same result however loaded the machine running it is.\n\n"
         "#### Scenario: Run repeatedly under load\n\n"
         "- **WHEN** the test is run repeatedly under parallel load\n"

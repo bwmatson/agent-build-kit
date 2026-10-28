@@ -49,7 +49,7 @@ def test_a_failing_test_of_the_split_is_recorded_with_it_and_fixed_by_one_change
     assert outcome.status == RunStatus.HELD
     (entry,) = preexisting_record(run.inst).entries()
     assert (entry.test, entry.split) == (TESTS[split], split)
-    (fix,) = [c for c in changes(run.inst) if c.startswith("fix-failing")]
+    (fix,) = [c for c in changes(run.inst) if c.startswith("fix-test")]
     assert waits_on(run.inst, run.subject.change) == [fix]
     assert (run.stored.state, run.stored.cause) == (PLANNED, Cause.GATED)
 

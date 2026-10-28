@@ -48,7 +48,7 @@ from agent_build_kit.forges import Forge, PullRequest, RepoId, ReviewNote
 from agent_build_kit.forges.base import cancelled_names, failing_names
 from agent_build_kit.model import Frozen
 from agent_build_kit.pipeline import spans
-from agent_build_kit.pipeline.flakes import FlakeFound, OnFlake, waiting_note
+from agent_build_kit.pipeline.flakes import FailedOnBase, FlakeFound, OnFlake, waiting_note
 from agent_build_kit.pipeline.landing_intent import clear_intent, has_intent
 from agent_build_kit.pipeline.pr_poller import (  # noqa: F401 — FAILING_CHECKS_REASON re-exported
     CONFLICT_REASON,
@@ -2150,8 +2150,9 @@ def build_restack(
                     base=local_ref(new_base, repo=child.repo),
                     moved_from=old_base,
                 )
-        except FlakeFound as found:
-            if found.scoped:
+        except (FlakeFound, FailedOnBase) as found:
+            flakes = found.flakes if isinstance(found, FlakeFound) else found.failures
+            if isinstance(found, FlakeFound) and found.scoped:
                 # Not this branch's fault, and the suite runs in CI: recorded, and the
                 # branch goes on to its push without waiting for the fix.
                 recorded = (
@@ -2170,17 +2171,19 @@ def build_restack(
             else:
                 # Not this branch's fault: it waits, gated, for the test's fix, as a unit
                 # that met the flake building does, and is moved when it resumes.
-                fixes = [on_flake(child, flake) for flake in found.flakes] if on_flake else []
+                fixes = [on_flake(child, flake) for flake in flakes] if on_flake else []
                 if not any(fixes):
                     raise RuntimeError(
                         f"{branch} moved onto {new_base} but its checks fail — "
                         f"left unpushed, with the reviewable head still on the remote:\n"
-                        f"{found.flakes[0].output}"
+                        f"{flakes[0].output}"
                     ) from found
                 store.set_state(
                     child.id,
                     PLANNED,
-                    note=waiting_note([flake.test for flake in found.flakes]),
+                    note=waiting_note(
+                        [flake.test for flake in flakes], failing=isinstance(found, FailedOnBase)
+                    ),
                     cause=Cause.GATED,
                 )
                 store.set_gated_requeue(child.id, RequeueReason.RESUME)

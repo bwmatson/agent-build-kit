@@ -98,9 +98,11 @@ from agent_build_kit.pipeline.environment import (
 )
 from agent_build_kit.pipeline.file_lock import file_lock
 from agent_build_kit.pipeline.flakes import (
+    FailedOnBase,
     Flake,
     FlakeFound,
     OnFlake,
+    covered_tests,
     flake_record,
     record_storm,
     wait_on_fix,
@@ -108,7 +110,12 @@ from agent_build_kit.pipeline.flakes import (
 from agent_build_kit.pipeline.gateway_usage import Spend, attribution, configured_source
 from agent_build_kit.pipeline.lease import Leases, lease_dir
 from agent_build_kit.pipeline.moved_base import moved_base_scope
-from agent_build_kit.pipeline.own_tests import defined_tests_in_range, tests_in
+from agent_build_kit.pipeline.own_tests import (
+    defined_tests_in_range,
+    failed_ids,
+    tests_in,
+    written_by_unit,
+)
 from agent_build_kit.pipeline.pending import describe, pending_projects
 from agent_build_kit.pipeline.planning_repo import current_branch
 from agent_build_kit.pipeline.planning_sync import in_repo_name
@@ -225,7 +232,7 @@ E2E_SMALLEST_TAIL = 200
 def _failure_digest(toolchain: ToolchainProfile, text: str) -> str:
     """Each failed test's identifier and the end of its own section, where the error is;
     empty when the profile cannot read the failed tests."""
-    tests = _failed_ids(toolchain, text)
+    tests = failed_ids(toolchain, text)
     if not tests:
         return ""
     found = _failure_sections(toolchain, text)
@@ -1566,7 +1573,7 @@ def build_unit_test(
                 if is_test:
                     figures.append((spans.clock.monotonic() - started, _counted(toolchain, result)))
                 if not toolchain.tolerates_exit(command, result.returncode):
-                    if isolate(command, result, where, toolchain, log=log):
+                    if isolate(command, result, where, toolchain, log=log, base=base):
                         continue
                     return False, _failure(command, result, where)
             ran_tests.append((where, toolchain, test_commands))
@@ -1643,19 +1650,19 @@ def build_unit_test(
         plan = []
         for where, toolchain, files in work:
             # The identifiers are relative to the project whose command failed.
-            failed_ids = (
-                _failed_ids(toolchain, failed_output)
+            named = (
+                failed_ids(toolchain, failed_output)
                 if len(work) == 1 or failed_in(where) in failed_output
                 else []
             )
             if affected.mode == "command":
-                tests = [expand_template(affected.command or "", files, failed_ids)]
+                tests = [expand_template(affected.command or "", files, named)]
             else:
                 tests = (
                     toolchain.affected_test_commands(
                         where,
                         files,
-                        failed_ids,
+                        named,
                         seed=selection_seed(where),
                         root_extras=root_extras or [],
                     )
@@ -1733,11 +1740,16 @@ def build_unit_test(
         toolchain: ToolchainProfile,
         log: Callable[[str], None] | None = None,
         own: list[str] | None = None,
+        base: str | None = None,
     ) -> bool:
-        """Run the failed tests again, alone and serially, twice. Raises `FlakeFound` when
+        """Run the failed tests again, alone and serially, twice. Raises `FailedOnBase`, before
+        any rerun, for tests an open change already fixes. Raises `FlakeFound` when
         they pass both times, marked scoped when `own` (the tests the unit added or changed,
         given by a moved base's run) is given, unless one of them is the unit's own, which
-        is never excused: that is a failure. Returns False when any fails again, or the
+        is never excused: that is a failure. A test that fails alone is run on `base` (the
+        unit's own, given by a full run) unless the unit wrote it: `FailedOnBase` when every
+        one fails there too, and so does a failure of the time limit alone, which the base
+        cannot tell apart. Returns False when any fails again, or the
         profile cannot say which tests failed, so the failure stands. Returns True when more than
         `global_limits.max_flakes_per_run` tests failed and passed both reruns: a disturbed run, not
         that many flaky tests, so it is recorded as one storm, no fix change is written, and the
@@ -1747,16 +1759,50 @@ def build_unit_test(
             return False
         output = f"{result.stdout}\n{result.stderr}".strip()
         stored = redact_text(output, where="unit-test output")
-        tests = _failed_ids(toolchain, output)
+        tests = failed_ids(toolchain, output)
         if not tests:
             return False
         # Read from the redacted text, so what is kept of a section holds no secret.
         sections = _failure_sections(toolchain, stored)
+        at = datetime.now(UTC)
+
+        def flakes_of(names: list[str]) -> tuple[Flake, ...]:
+            return tuple(
+                Flake(
+                    test=test,
+                    command=shlex.join(command),
+                    output=cut_tail(stored, 4000),
+                    failure=cut_tail(sections.get(test, ""), FLAKE_FAILURE_CHARS),
+                    at=at,
+                    directory=str(where),
+                )
+                for test in names
+            )
+
+        if covered := covered_tests(tests):
+            raise FailedOnBase(flakes_of(covered))
         rerun = rerun_command(command, tests)
+        timed_out: list[str] = []
+        timeouts = 0
         for _ in range(FLAKE_RERUNS):
             again = ran(rerun, where, toolchain)
-            if not toolchain.tolerates_exit(rerun, again.returncode):
+            if toolchain.tolerates_exit(rerun, again.returncode):
+                continue
+            again_output = f"{again.stdout}\n{again.stderr}"
+            failed_again = failed_ids(toolchain, again_output)
+            limit = getattr(toolchain, "time_limit_tests", lambda text: [])(again_output)
+            if not failed_again or not set(failed_again) <= set(limit):
+                if base is not None and not wrote(tests, where, base):
+                    if fails_on_base(rerun, tests, where, toolchain, base):
+                        raise FailedOnBase(flakes_of(tests))
                 return False
+            timed_out = failed_again
+            timeouts += 1
+        if timeouts:
+            # By its time limit alone, every time: the base cannot tell it apart.
+            if timeouts == FLAKE_RERUNS and base is not None and not wrote(timed_out, where, base):
+                raise FailedOnBase(flakes_of(timed_out))
+            return False
         if own is not None and any(test in own for test in tests):
             return False
         if len(tests) > active().global_limits.max_flakes_per_run:
@@ -1771,29 +1817,47 @@ def build_unit_test(
                 "as one storm, no fix changes" + "".join(f"\n{failure}" for failure in failures),
             )
             return True
-        at = datetime.now(UTC)
-        raise FlakeFound(
-            tuple(
-                Flake(
-                    test=test,
-                    command=shlex.join(command),
-                    output=cut_tail(stored, 4000),
-                    failure=cut_tail(sections.get(test, ""), FLAKE_FAILURE_CHARS),
-                    at=at,
-                    directory=str(where),
-                )
-                for test in tests
-            ),
-            scoped=own is not None,
-        )
+        raise FlakeFound(flakes_of(tests), scoped=own is not None)
+
+    def wrote(tests: list[str], where: Path, base: str) -> bool:
+        """Whether the unit wrote any of `tests`: its file, or the `conftest.py` beside it,
+        changed against `base`. True when that cannot be read, so the failure stays the unit's."""
+        root = checkout["root"]
+        try:
+            files = set(changed(root, base))
+        except (subprocess.CalledProcessError, OSError):
+            return True
+        for test in tests:
+            path = where / test.partition("::")[0]
+            shown = path.relative_to(root) if path.is_relative_to(root) else path
+            if written_by_unit(shown, files):
+                return True
+        return False
+
+    def fails_on_base(
+        rerun: list[str], tests: list[str], where: Path, toolchain: ToolchainProfile, base: str
+    ) -> bool:
+        """Whether every one of `tests` fails alone on `base`, in a clean worktree of it. A base
+        run that cannot be made proves nothing."""
+        root = checkout["root"]
+        try:
+            with worktree_at(root, base) as tree:
+                done = ran(rerun, tree / where.relative_to(root), toolchain, root=tree)
+        except (subprocess.CalledProcessError, OSError, ValueError) as error:
+            logger.warning("unit-test base run could not be made, so it proves nothing: %s", error)
+            return False
+        named = failed_ids(toolchain, f"{done.stdout or ''}\n{done.stderr or ''}")
+        return all(test in named for test in tests)
 
     def ran(
-        command: list[str], where: Path, toolchain: ToolchainProfile
+        command: list[str], where: Path, toolchain: ToolchainProfile, root: Path | None = None
     ) -> subprocess.CompletedProcess:
+        """Run `command` in `where`, spanned and logged; `root` is the checkout `where` is in
+        when that is not the unit's (a worktree of its base)."""
         started = time.monotonic()
         mark = spans.Mark()
         outcome = "error"
-        command = located(toolchain, command, where, checkout.get("root", where))
+        command = located(toolchain, command, where, root or checkout.get("root", where))
         try:
             result = run(command, cwd=where)
             ok = toolchain.tolerates_exit(command, result.returncode)
@@ -1830,11 +1894,12 @@ def build_on_flake(
     def on_flake(unit: Unit, flake: Flake, *, wait: bool = True) -> str | None:
         met = flake.model_copy(update={"unit": unit.id})
         fix = wait_on_fix(installation, met, store.get(unit.id), wait=wait)
-        flake_record(installation).append(met.model_copy(update={"change": fix or ""}))
+        if not flake.failing:
+            flake_record(installation).append(met.model_copy(update={"change": fix or ""}))
         outcome = (
             "no wait" if not fix else f"waits for {fix}" if wait else f"recorded as {fix}, no wait"
         )
-        log(f"{unit.id}: flaky test {flake.test} — {outcome}")
+        log(f"{unit.id}: {'failing' if flake.failing else 'flaky'} test {flake.test} — {outcome}")
         return fix
 
     return on_flake
@@ -1986,12 +2051,6 @@ def _counted(toolchain: ToolchainProfile, result: subprocess.CompletedProcess) -
     """How many tests a test run's output says it ran."""
     passed, failed, skipped, _ = toolchain.parse_test_summary(f"{result.stdout}\n{result.stderr}")
     return passed + failed + skipped
-
-
-def _failed_ids(toolchain: ToolchainProfile, output: str) -> list[str]:
-    """The tests a failed check's output names, as the profile reads them; none when it cannot."""
-    reader = getattr(toolchain, "failed_tests", None)
-    return reader(output) if reader is not None else []
 
 
 def _failure_sections(toolchain: ToolchainProfile, output: str) -> dict[str, str]:
@@ -3297,9 +3356,8 @@ class E2eSession:
         own: list[TestFailure] = []
         untouched: list[TestFailure] = []
         for failure in self.result.failures:
-            path = Path(failure.test.partition("::")[0])
-            is_own = failure.split == UNKNOWN_SPLIT or (
-                path.as_posix() in changed or (path.parent / "conftest.py").as_posix() in changed
+            is_own = failure.split == UNKNOWN_SPLIT or written_by_unit(
+                Path(failure.test.partition("::")[0]), changed
             )
             (own if is_own else untouched).append(failure)
         return E2eClassification(own=own, untouched=untouched)

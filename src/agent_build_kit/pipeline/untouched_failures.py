@@ -21,11 +21,17 @@ from agent_build_kit.model import Frozen, TestTier
 from agent_build_kit.pipeline.e2e import E2eVerdict
 from agent_build_kit.pipeline.failure_record import FailureRecord, Recorded, TestCount
 from agent_build_kit.pipeline.file_lock import file_lock
-from agent_build_kit.pipeline.flakes import add_needs_to_unit, next_fix_name, open_fix_change
+from agent_build_kit.pipeline.flakes import (
+    FIX_PREFIX,
+    add_needs_to_unit,
+    next_fix_name,
+    open_fix_change,
+    requirement_shipped,
+)
 from agent_build_kit.pipeline.unit_store import StoredUnit
 from agent_build_kit.pipeline.work_graph import group_needs
 
-PREFIX = "fix-failing"
+PREFIX = FIX_PREFIX
 CAPABILITY = "failing-tests"
 
 
@@ -92,7 +98,7 @@ def preview_fix(inst: Installation, test: str, prefix: str) -> Exists | Write:
 
 def preview(inst: Installation, test: str) -> Exists | Write:
     """What the ensure step would do for `test`; reads the changes directory only."""
-    return preview_fix(inst, test, PREFIX)
+    return preview_fix(inst, test, "")
 
 
 def ensure_fix_change(
@@ -148,7 +154,7 @@ def ensure_fix(
     return ensure_fix_change(
         inst,
         entry.test,
-        PREFIX,
+        "",
         lock=inst.state_dir / "preexisting.lock",
         write=lambda found: _write_change(inst, found, entry, unit),
         say=say,
@@ -231,7 +237,10 @@ def _write_change(inst: Installation, found: Write, entry: PreExisting, unit: St
         proposal=_proposal(inst, entry, unit, found.earlier),
         design=_design(entry),
         tasks=_tasks(entry, unit),
-        spec=_spec(entry, successor=bool(found.earlier)),
+        spec=_spec(
+            entry,
+            successor=requirement_shipped(inst, CAPABILITY, _requirement(entry)),
+        ),
     )
 
 
@@ -292,13 +301,17 @@ def _tasks(entry: PreExisting, unit: StoredUnit) -> str:
     )
 
 
+def _requirement(entry: PreExisting) -> str:
+    return f"`{entry.test}` passes on the base"
+
+
 def _spec(entry: PreExisting, *, successor: bool) -> str:
     # The earlier attempt's archive added this requirement to the capability, and an
     # archive refuses to add one that exists: a successor restates it.
     verb = "MODIFIED" if successor else "ADDED"
     return (
         f"## {verb} Requirements\n\n"
-        f"### Requirement: `{entry.test}` passes on the base\n\n"
+        f"### Requirement: {_requirement(entry)}\n\n"
         "The test SHALL pass on the base.\n\n"
         "#### Scenario: Run on the base\n\n"
         "- **WHEN** the test is run on the base under the e2e-test marker\n"
