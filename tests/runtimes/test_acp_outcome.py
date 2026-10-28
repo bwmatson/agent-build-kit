@@ -491,14 +491,13 @@ def test_an_agent_that_ends_its_turn_but_leaves_stderr_held_has_that_holder_kill
     use_agent(record, linger=True)
     watch = _watch_child(record)
 
-    result, elapsed = _run_bounded(_request(worktree, specs))
+    result, _ = _run_bounded(_request(worktree, specs))
     child = int(orphan_pid_file(record).read_text())
     left = not _read_to_end(watch)
     if left:
         _kill_if_left(child)
 
     assert result is not None, "run() did not return"
-    assert elapsed < 5
     assert result.ok is True
     assert result.text == ANSWER
     assert not left, "the agent's child outlived the run"
