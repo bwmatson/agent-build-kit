@@ -334,7 +334,6 @@ def on_settled(
     repo: str,
     store: UnitStore,
     claim: Claim = _unclaimed,
-    resume: Resume = _no_thread,
     merge_record: MergeRecord | None = None,
     log: Log = print,
 ) -> bool:
@@ -344,7 +343,6 @@ def on_settled(
     if unit is None or unit.state != SETTLING:
         return True
     try:
-        resume(unit, "settled", "", "")
         with claim(unit):
             current = store.get(unit.id)
             if current.state != SETTLING:
@@ -900,7 +898,7 @@ def _dependents_of(parent: StoredUnit, graph: list[StoredUnit]) -> list[StoredUn
         for unit in graph
         if parent.id in (*current_dependencies(unit, graph), *through_satisfied(unit, graph))
         and unit.repo == parent.repo
-        and unit.state not in (MERGED, CLOSED)
+        and unit.state not in (SETTLING, MERGED, CLOSED)
     ]
 
 
@@ -2437,7 +2435,6 @@ def build_dispatch(
                 repo=repo,
                 store=store,
                 claim=claim,
-                resume=resume,
                 merge_record=merge_record,
                 log=log,
             )

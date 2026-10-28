@@ -38,6 +38,7 @@ from agent_build_kit.pipeline.units import (
     PLANNED,
     RUNNING,
     SATISFIED,
+    SETTLING,
     dependency_wait,
     failed_waiting,
     merge_parents,
@@ -82,7 +83,7 @@ def _project_id(repo: str, project: str) -> str:
 # Everything else is history. Failed is here because it is the state that most
 # needs seeing: left out, a unit vanishes from the graph on failing e2e-test,
 # and takes a merged parent with it when it was the only unit built on it.
-ACTIVE = (PLANNED, RUNNING, IN_REVIEW, HELD, "failed")
+ACTIVE = (PLANNED, RUNNING, IN_REVIEW, SETTLING, HELD, "failed")
 
 
 def in_view(units: list[StoredUnit]) -> list[StoredUnit]:

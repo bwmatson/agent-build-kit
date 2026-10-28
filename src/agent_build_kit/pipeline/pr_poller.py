@@ -160,6 +160,16 @@ def _with_status(checks: dict[str, str], status: CheckStatus) -> set[str]:
     return {name for name, held in checks.items() if held == status}
 
 
+def _newly_cancelled(before: dict | None, after: dict) -> set[str]:
+    """The checks cancelled in `after` that `before` did not have cancelled. A snapshot from
+    before the list of checks has no statuses to compare with, so no check is news."""
+    if before is None or "checks" not in before:
+        return set()
+    return _with_status(after["checks"], CheckStatus.CANCELLED) - _with_status(
+        before["checks"] or {}, CheckStatus.CANCELLED
+    )
+
+
 def _keep_unseen(before: dict, after: dict, labels: list[str]) -> None:
     """Record `before` as what the poll saw, with `labels`, in place of `after`.
 
@@ -280,10 +290,10 @@ class Poller(BaseModel):
                 # events, so the first poll of a repo only records.
                 continue
 
-            if self._merged_unit(int(number), current):
+            if merged_unit := self._merged_unit(int(number), current):
                 # A merged pull request is never reworked in place: its unit waits for
                 # its checks, or is done with them.
-                self._dispatch_settling(int(number), known.get(number), current, pull)
+                self._dispatch_settling(merged_unit, known.get(number), current, pull)
                 continue
 
             if number not in known:
@@ -324,20 +334,17 @@ class Poller(BaseModel):
         return None
 
     def _dispatch_settling(
-        self, number: int, before: dict | None, current: dict, pull: PullRequest
+        self, unit: StoredUnit, before: dict | None, current: dict, pull: PullRequest
     ) -> None:
         """Report where a settling unit's merged pull request stands, on every poll while
         it settles: `settled` once every check is complete, `late_check` once one has failed
         and none is still running. A cancelled check is re-run and waited for; nothing
         here has a time limit."""
-        unit = self.unit_of(number)
-        if unit is None or unit.state != SETTLING:
+        if unit.state != SETTLING:
             return
+        number = pull.number
         checks: dict[str, str] = current["checks"]
-        before_checks: dict[str, str] = (before or {}).get("checks") or {}
-        if _with_status(checks, CheckStatus.CANCELLED) - _with_status(
-            before_checks, CheckStatus.CANCELLED
-        ):
+        if _newly_cancelled(before, current):
             self.dispatch("rerun_checks", number, pull=pull)
         if _with_status(checks, CheckStatus.CANCELLED) or _with_status(checks, CheckStatus.PENDING):
             return
@@ -424,13 +431,7 @@ class Poller(BaseModel):
         # with: it is recorded afresh below, and no check is news until the next.
         known_checks = "checks" in before
         before_checks: dict[str, str] = before.get("checks") or {}
-        newly_cancelled = (
-            _with_status(after["checks"], CheckStatus.CANCELLED)
-            - _with_status(before_checks, CheckStatus.CANCELLED)
-            if known_checks
-            else set()
-        )
-        if newly_cancelled:
+        if newly_cancelled := _newly_cancelled(before, after):
             # Before anything that returns, so a comment arriving with it does
             # not swallow it. A check that is re-run leaves the list, so being
             # cancelled again is new, which is how the handler counts to its bound.

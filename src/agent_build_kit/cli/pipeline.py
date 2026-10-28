@@ -2836,7 +2836,12 @@ def _requeue_ended_wait(
     inst: Installation, store: UnitStore, unit: StoredUnit, landed: list[StoredUnit]
 ) -> None:
     mode = _wait_end_mode(unit, inst.config.global_limits.wait_end_requeue)
-    states = {MERGED: "merged", SATISFIED: "satisfied", IN_REVIEW: "in review"}
+    states = {
+        MERGED: "merged",
+        SATISFIED: "satisfied",
+        IN_REVIEW: "in review",
+        SETTLING: "merged, its checks still running",
+    }
     named = " and ".join(
         f"{group_names([parent])} is now {states[parent.state]}" for parent in landed
     )
@@ -3677,7 +3682,15 @@ def _blocked_lines(
 
 
 # How near done a unit is, by state: the nearer, the less likely it is the one to retire.
-_PROGRESS = {UNPLANNED: 0, PLANNED: 1, FAILED: 2, HELD: 2, RUNNING: 3, IN_REVIEW: 3}
+_PROGRESS = {
+    UNPLANNED: 0,
+    PLANNED: 1,
+    FAILED: 2,
+    HELD: 2,
+    RUNNING: 3,
+    IN_REVIEW: 3,
+    SETTLING: 4,
+}
 
 
 def _collision_lines(units: list[StoredUnit]) -> list[str]:
@@ -4608,7 +4621,7 @@ def declared_needs(
 
 # Units a plan is made around and never changes: their groups are built or being
 # built, a failed or held unit's too, which wait for a person and keep their branch.
-_STARTED = (*IN_FLIGHT, FAILED, HELD, MERGED, SATISFIED)
+_STARTED = (*IN_FLIGHT, FAILED, HELD, SETTLING, MERGED, SATISFIED)
 
 # Why a change needs no plan, as `plan_all` logs it and `abk replan` prints it.
 ALL_TAKEN = (
@@ -5002,7 +5015,7 @@ def plan_all(
         # plan: they are counted in one line, not listed.
         # Once a round: the plan check, the prompt and the figures stored all use one set.
         units = store.all()
-        landed = {MERGED, SATISFIED}
+        landed = {SETTLING, MERGED, SATISFIED}
         context = _plan_context(units, change)
         omitted = sum(1 for u in units if u.state in landed and u.change != change)
         ratios = calibrations(units)
@@ -5225,7 +5238,7 @@ def plan_all(
 def _plan_context(units: Sequence[StoredUnit], change: str) -> list[dict]:
     """The units a plan of `change` is shown: those started, the planned ones of other changes,
     the unplanned ones of the change with what replaced them and its retired ids."""
-    landed = {MERGED, SATISFIED}
+    landed = {SETTLING, MERGED, SATISFIED}
     return [
         in_flight_item(u, units)
         for u in units
@@ -5371,8 +5384,9 @@ def text_digest(text: str, recorded: str | None, resolved: Mapping[int, str]) ->
 
 # Units that still need a tick: being built, waiting to be, or open for review
 # (whose CI, comments and merge only a poll notices). Merged and closed are
-# done; failed and held wait for a person, and a tick changes nothing for them.
-NEEDS_TICKS = (PLANNED, RUNNING, IN_REVIEW)
+# done; failed and held wait for a person, and a tick changes nothing for them. A
+# settling unit is merged but waits for its checks, which only a poll notices.
+NEEDS_TICKS = (PLANNED, RUNNING, IN_REVIEW, SETTLING)
 
 
 def has_work(inst: Installation, store: UnitStore) -> bool:
