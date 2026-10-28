@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import subprocess
+import sys
 from collections.abc import Mapping
 
 import pytest
@@ -38,4 +40,20 @@ def run_scenario(
 def collect_listing(*targets: str) -> ChildRun:
     """The `--collect-only -q` listing of a child pytest run on `targets` (paths below the
     repository root), so a test of what is collected reads a few files, never the whole suite."""
-    raise NotImplementedError
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "pytest",
+            "--collect-only",
+            "-q",
+            "-p",
+            "no:cacheprovider",
+            *targets,
+        ],
+        cwd=ROOT,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    return ChildRun(code=result.returncode, output=result.stdout + result.stderr)

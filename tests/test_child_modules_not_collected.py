@@ -2,12 +2,11 @@
 
 from __future__ import annotations
 
-import subprocess
-import sys
-
+from tests.child_pytest import collect_listing
 from tests.tracked_files import ROOT, guarded_files
 
 FOLDER = "tests/child_modules"
+SIBLING = "tests/test_child_modules_not_collected.py"
 
 
 def scenario_files() -> list[str]:
@@ -18,17 +17,11 @@ def scenario_files() -> list[str]:
 
 
 def test_the_repos_own_collection_lists_nothing_of_the_folder() -> None:
-    result = subprocess.run(
-        [sys.executable, "-m", "pytest", "--collect-only", "-q", "-p", "no:cacheprovider", "tests"],
-        cwd=ROOT,
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-    output = result.stdout + result.stderr
+    result = collect_listing(FOLDER, SIBLING)
+    output = result.output
 
     assert any(name.endswith("/conftest.py") for name in scenario_files()), scenario_files()
-    assert result.returncode == 0, output
+    assert result.code == 0, output
     assert [line for line in output.splitlines() if "child_modules/" in line] == []
 
 
