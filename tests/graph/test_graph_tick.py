@@ -258,7 +258,7 @@ def test_a_merged_parent_tells_its_childs_thread_its_base_moved(graph: Setup) ->
 
     assert graph.poll(("merged", {})) == [True]
 
-    assert graph.store.get(UNIT).state == "merged"
+    assert graph.store.get(UNIT).state == "settling"
     assert graph.next(OTHER) == (Node.PREPARE,)
     assert graph.store.get(OTHER).state == RUNNING
     assert restacked == [], "the classic restack did not move it"
