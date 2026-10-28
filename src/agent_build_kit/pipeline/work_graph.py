@@ -328,6 +328,14 @@ class ProjectSource(StrEnum):
     ROOT = "root"
 
 
+class GroupMode(StrEnum):
+    """How a group is built: tests first then code, tests only, or no code at all."""
+
+    TESTS_AND_CODE = "tests_and_code"
+    TESTS_ONLY = "tests_only"
+    NO_CODE = "no_code"
+
+
 class TaskGroup(Frozen):
     """One `## N. [repo] [tier] Title` group and the tasks under it."""
 
@@ -370,6 +378,11 @@ class TaskGroup(Frozen):
     def tag(self) -> str:
         """The first tag of the heading: the repo, and `/project` unless it is the root project."""
         return project_tag(self.repo, self.project)
+
+    @property
+    def mode(self) -> GroupMode:
+        """The group's floor build mode, from its tier, the paths it names and its `Tests:` line."""
+        raise NotImplementedError
 
     @property
     def test_only(self) -> bool:
