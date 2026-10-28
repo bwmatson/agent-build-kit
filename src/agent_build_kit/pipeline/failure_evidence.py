@@ -10,7 +10,6 @@ from __future__ import annotations
 import os
 import subprocess
 from collections.abc import Callable
-from datetime import UTC, datetime
 from pathlib import Path
 
 from agent_build_kit.profiles.base import ToolchainProfile
@@ -21,10 +20,6 @@ LISTING_CAP = 5000
 _SKIPPED = frozenset(["node_modules", "__pycache__"])
 
 Run = Callable[..., subprocess.CompletedProcess]
-
-# When this process began. A tick is one process that loads the kit's code once, so this names
-# the tick a bundle was made in, beside the pid.
-PROCESS_STARTED = datetime.now(UTC)
 
 
 def probe_output(run: Run, where: Path, probe: list[str]) -> str:

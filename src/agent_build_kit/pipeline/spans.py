@@ -7,6 +7,7 @@ time pass without waiting.
 from __future__ import annotations
 
 import time
+import uuid
 from collections.abc import Callable
 from contextvars import ContextVar
 from datetime import UTC, datetime
@@ -40,6 +41,10 @@ class SystemClock:
 
 
 clock: Clock = SystemClock()
+
+# Told in the decision log with each record, and in the evidence of a failing run, so the
+# records of one process (a tick) read together.
+PROCESS_TICK = uuid.uuid4().hex[:8]
 
 # The unit, change, node and round whose step is running, for what runs inside
 # it (a unit-test command) and cannot be told them otherwise.

@@ -88,7 +88,8 @@
   its time limit.
 
 - A failing unit-test run now saves a bundle under `runs/test-failures/` holding its whole
-  redacted output, the command, times, commits and tool versions, the machine's load and
+  redacted output, the command, times, commits, the tick it ran in (the id the decision log
+  carries) and tool versions, the machine's load and
   memory at the start and end, and the worktree's state before and after (naming test files
   that vanished or appeared). The last three per unit are kept. The unit-test command also
   prints the slowest tests and a short summary of what failed.

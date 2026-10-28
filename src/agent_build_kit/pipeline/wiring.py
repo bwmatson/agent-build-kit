@@ -1278,7 +1278,6 @@ def build_unit_test(
     failures_dir: Path | None = None,
     now: Callable[[], datetime] | None = None,
     machine: Callable[[], dict[str, object]] | None = None,
-    tick: int | None = None,
 ) -> Callable[..., tuple[bool, str]]:
     """Lint the unit's own diff, then test the members it reaches.
 
@@ -1630,7 +1629,10 @@ def build_unit_test(
         unit, change, _, round_number = spans.current_unit.get()
         facts: dict[str, object] = {}
         if isinstance(toolchain, ReportsRunFacts):
-            probe = toolchain.version_probe(command)
+            # The query runs as the test did, with the check configuration `ran` found for it.
+            probe = toolchain.version_probe(
+                located(toolchain, command, where, checkout.get("root", where))
+            )
             facts = toolchain.run_facts(
                 command, failure_evidence.probe_output(run, where, probe) if probe else ""
             )
@@ -1641,9 +1643,8 @@ def build_unit_test(
             "seconds": (ended - started).total_seconds(),
             "unit": unit,
             "round": round_number,
-            "tick": tick,
+            "tick": spans.PROCESS_TICK,
             "pid": os.getpid(),
-            "process_started": failure_evidence.PROCESS_STARTED.isoformat(),
             "cpus": os.cpu_count(),
             **failure_evidence.shas(run, where, base),
             **facts,

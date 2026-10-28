@@ -36,13 +36,9 @@ from tests.redaction_fakes import NAME, SECRET, known
 
 RECORDED = Path(__file__).resolve().parents[1] / "fixtures" / "external" / "pytest"
 START = datetime(2026, 10, 11, 12, 0, 0, tzinfo=UTC)
-# What `pytest --version --version` prints, which the profile queries because a `-q` run prints
-# no header.
-VERSIONS = (
-    "pytest 8.3.3\n"
-    "registered third-party plugins:\n"
-    "  pytest-xdist-3.6.1 at /env/lib/xdist/plugin.py\n"
-)
+# What `pytest --version --version` printed, as recorded: the profile queries it because a `-q`
+# run prints no header.
+VERSIONS = (RECORDED / "version_verbose.txt").read_text()
 
 
 def _bundle(
@@ -246,7 +242,6 @@ def _run(scratch: Path, machine: _Machine, directory: Path) -> tuple[bool, str] 
         failures_dir=directory,
         now=lambda: next(clock),
         machine=lambda: {"load": [float(next(loads))] * 3},
-        tick=7,
     )
     try:
         return unit_test(cwd=scratch, base="main")
@@ -286,34 +281,32 @@ def test_the_context_names_the_command_the_times_the_shas_and_the_versions(
     assert "auto" in command and "--maxprocesses=8" in command, "the profile's own command"
     assert context["command"] == shlex.join(command)
     assert context["unit"] == "add-marker/1"
-    assert context["tick"] == 7
     assert context["round"] == 1
-    assert datetime.fromisoformat(context["process_started"]) <= datetime.now(UTC)
     assert context["workers_setting"] == "auto"
-    assert context["workers"] == min(os.cpu_count() or 1, 8)
+    assert context["max_workers"] == 8
+    assert "workers" not in context, "`auto` is the runner's to resolve, not guessed"
+    assert context["cpus"] == os.cpu_count()
     assert context["base"] == "b" * 7
     assert context["head"] == "a" * 7
     assert datetime.fromisoformat(context["started"]) < datetime.fromisoformat(context["ended"])
-    assert context["versions"] == {"pytest": "8.3.3", "pytest-xdist": "3.6.1"}
+    recorded = VERSIONS.splitlines()[0].removeprefix("This is pytest version ").split(",")[0]
+    assert context["versions"]["pytest"] == recorded
+    assert "pytest-xdist" in context["versions"], "a plugin by its dist's name"
     assert "env" not in context, "no environment variables"
 
 
-def test_a_run_given_no_tick_records_none_and_not_a_made_up_number(
+def test_the_bundle_records_the_tick_the_decision_log_records(
     scratch: Path, tmp_path: Path
 ) -> None:
+    """One identity per process: the id the decision log and the admission records carry."""
     directory = tmp_path / "bundles"
-    unit_test = build_unit_test(
-        profile=cast(ToolchainProfile, _Profile()),
-        run=_Machine(scratch, reruns=[1, 1]),
-        changed=lambda *a: ["tests/test_one.py"],
-        failures_dir=directory,
-    )
-    unit_test(cwd=scratch, base="main")
+    _run(scratch, _Machine(scratch, reruns=[1, 1]), directory)
 
     context = json.loads((_only(directory) / "context.json").read_text())
 
-    assert context["tick"] is None
+    assert context["tick"] == spans.PROCESS_TICK
     assert context["pid"] == os.getpid()
+    assert "process_started" not in context, "no second identity beside the tick"
 
 
 def test_the_machine_is_sampled_at_the_start_and_again_at_the_end(

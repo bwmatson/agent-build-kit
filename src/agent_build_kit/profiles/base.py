@@ -248,9 +248,10 @@ class ReportsRunFacts(Protocol):
         ...
 
     def run_facts(self, command: list[str], probe_output: str) -> dict[str, object]:
-        """`{"workers": the worker count, "workers_setting": what the command asked for,
-        "versions": {name: version}}`, the workers read from `command` and the versions from
-        what `version_probe` printed; a key it cannot fill is left out."""
+        """`{"workers_setting": what the command asked for, "workers": the count when the command
+        fixes it, "max_workers": its cap, "versions": {name: version}}`, the workers read from
+        `command` and the versions from what `version_probe` printed; a key it cannot fill is
+        left out, and a setting the runner resolves itself is not guessed."""
         ...
 
 

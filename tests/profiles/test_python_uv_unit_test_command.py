@@ -3,7 +3,6 @@
 
 from __future__ import annotations
 
-import os
 from pathlib import Path
 
 import pytest
@@ -46,12 +45,9 @@ def test_the_whole_repo_commands_carry_them_too(tmp_path: Path) -> None:
 
 # --- what a failing run's evidence says of its conditions --------------------------------
 
-VERSIONS = (
-    "pytest 8.3.3\n"
-    "registered third-party plugins:\n"
-    "  pytest-xdist-3.6.1 at /env/lib/xdist/plugin.py\n"
-    "  pytest_timeout-2.3.1 at /env/lib/pytest_timeout.py\n"
-)
+# What `pytest --version --version` printed, as recorded (tests/fixtures/external/record_pytest.py).
+RECORDED = Path(__file__).resolve().parents[1] / "fixtures" / "external" / "pytest"
+VERSIONS = (RECORDED / "version_verbose.txt").read_text()
 
 
 def _parallel(tmp_path: Path) -> list[str]:
@@ -76,13 +72,20 @@ def test_the_facts_are_read_from_the_probe_and_the_command_not_from_a_header(
     """A `-q` run prints no header, so a header is not where the versions are."""
     facts = PythonUvProfile().run_facts(_parallel(tmp_path), VERSIONS)
 
-    assert facts["versions"] == {
-        "pytest": "8.3.3",
-        "pytest-xdist": "3.6.1",
-        "pytest_timeout": "2.3.1",
-    }
-    assert facts["workers_setting"] == "auto"
-    assert facts["workers"] == min(os.cpu_count() or 1, 8), "auto, capped at --maxprocesses"
+    first, *plugins = VERSIONS.splitlines()
+    recorded = first.removeprefix("This is pytest version ").split(",")[0]
+    xdist = next(line.split()[0] for line in plugins if line.strip().startswith("pytest-xdist-"))
+    versions = facts["versions"]
+    assert isinstance(versions, dict)
+    assert versions["pytest"] == recorded
+    assert versions["pytest-xdist"] == xdist.removeprefix("pytest-xdist-"), "the dist's own name"
+    assert "registered" not in versions, "only the plugin lines are read"
+
+
+def test_a_setting_the_runner_resolves_is_not_guessed(tmp_path: Path) -> None:
+    facts = PythonUvProfile().run_facts(_parallel(tmp_path), "")
+
+    assert facts == {"workers_setting": "auto", "max_workers": 8}
 
 
 def test_a_fixed_worker_count_is_recorded_as_given() -> None:

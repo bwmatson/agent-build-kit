@@ -63,9 +63,9 @@ UNIT_REPORT_FLAGS = ["--durations=15", "--durations-min=3.0", "-rfE"]
 DURATIONS_RULE = re.compile(r"^=+ slowest (?:\d+ )?durations =+\s*$")
 DURATION_ENTRY = re.compile(r"^(\d+(?:\.\d+)?)s +(setup|call|teardown) +(\S.*)$")
 SUMMARY_MARK = "short test summary info"
-# The first line of `pytest --version --version`, and each plugin line after it:
-# `  pytest-xdist-3.6.1 at /path/to/plugin.py`.
-_PYTEST_VERSION = re.compile(r"^(?:This is )?pytest(?: version)? (?P<version>\d[\w.]*)")
+# The first line of `pytest --version --version`, `This is pytest version 9.1.1, imported from
+# /path/pytest/__init__.py`, and each plugin line after it: `  pytest-xdist-3.8.0 at /path`.
+_PYTEST_VERSION = re.compile(r"^This is pytest version (?P<version>\d[\w.]*)")
 _PLUGIN_VERSION = re.compile(
     r"^\s+(?P<name>[A-Za-z][\w.]*(?:-[A-Za-z][\w.]*)*)-(?P<version>\d[\w.]*) at "
 )
@@ -362,6 +362,10 @@ class PythonUvProfile:
         if "-n" in words[:-1]:
             setting = words[words.index("-n") + 1]
             facts["workers_setting"] = setting
+            if setting.isdigit():
+                facts["workers"] = int(setting)
+            # A setting such as `auto` is the runner's to resolve, from the host: it is not
+            # guessed here, and the context holds the CPU count beside it.
             cap = next(
                 (
                     int(word.partition("=")[2])
@@ -370,11 +374,8 @@ class PythonUvProfile:
                 ),
                 None,
             )
-            if setting.isdigit():
-                facts["workers"] = int(setting)
-            else:
-                cpus = os.cpu_count() or 1
-                facts["workers"] = min(cpus, cap) if cap else cpus
+            if cap is not None:
+                facts["max_workers"] = cap
         versions: dict[str, str] = {}
         for line in probe_output.splitlines():
             if match := _PYTEST_VERSION.match(line):

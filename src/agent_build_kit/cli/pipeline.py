@@ -27,7 +27,6 @@ import subprocess
 import sys
 import tempfile
 import time
-import uuid
 from collections.abc import (
     Callable,
     Collection,
@@ -2576,7 +2575,7 @@ def _write_admissions(
                 at=now,
                 kind=kind,
                 unit=unit.id,
-                tick=_PROCESS_TICK,
+                tick=spans.PROCESS_TICK,
                 slot=_slot_label(slot),
                 limit=limit_of(slot),
                 counted=found_counted,
@@ -2598,7 +2597,7 @@ def _write_admissions(
             path,
             TickCounts(
                 at=now,
-                tick=_PROCESS_TICK,
+                tick=spans.PROCESS_TICK,
                 fingerprint=fingerprint,
                 slots=tuple(
                     SlotCount(
@@ -8089,8 +8088,6 @@ def register(sub: argparse._SubParsersAction) -> None:
     gate.set_defaults(func=cmd_gate, needs_installation="optional")
 
 
-# Told in the decision log with each record, so the records of one process read together.
-_PROCESS_TICK = uuid.uuid4().hex[:8]
 
 
 def wait_reasons(
@@ -8266,7 +8263,7 @@ def _record_waits(
             _RECORDERS[path] = WaitRecorder(path, log)
         left_out = [unit.id for unit in units if only and unit.id not in only]
         reasons = waits()
-        _RECORDERS[path].record(reasons, tick=_PROCESS_TICK, keep=left_out)
+        _RECORDERS[path].record(reasons, tick=spans.PROCESS_TICK, keep=left_out)
         # Where reasons are decided, so a tick that starts nothing still dates a unit's readiness.
         unstamped = {unit.id for unit in units if unit.ready_at is None}
         for unit_id, wait in reasons.items():
