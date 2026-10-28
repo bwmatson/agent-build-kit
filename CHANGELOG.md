@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- A branch lock now records its holder's process start time beside the pid, so a lock left
+  by a process whose pid was later reused by an unrelated one is recognised as stale and
+  taken over instead of blocking the branch. Locks written before this, holding only a pid,
+  are still honoured while that process lives. Two runs finding the same stale lock can no
+  longer both take it.
+
 - `abk doctor` and `abk status` report a repo's work tracker when it has a `tracker`
   section: the target and who the credential acts as (a refused credential is one warning
   naming the cause, and an invalid section shows its error), and say nothing about a repo
