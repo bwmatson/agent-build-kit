@@ -947,7 +947,7 @@ The kernel confines what an agent step can write and reach. Keys:
 
 The config guard reads `abk.yaml` and `abk.local.yaml` before an agent step and again after it. A
 person may edit them at any time: a difference during a step is a warning, logged with its diff and
-shown by `abk status`, and the unit continues. For a step that was not confined the warning adds
+shown by `abk status`, and the unit continues, as it does during a confined run. For a step that was not confined the warning adds
 that an agent may have written the file, so read the diff.
 
 The guards by class: the config guard and the text fence on these two files are location guards, so
