@@ -58,6 +58,9 @@ SELF = {
     "test_split_scrub_references.py",
     "test_repo_wide_guards_documented.py",
 }
+# Generated track reports quote the third-party projects their research compared, so they are
+# not read: what a track writes there changes between runs and is not the framework's text.
+GENERATED = Path("docs/reports")
 # Fixture owners, and the placeholder words a regex's own documentation uses.
 FIXTURE_OWNERS = ("example", "acme", "octo", "owner", "o")
 # Upstream projects the framework builds on and credits; not installations.
@@ -102,7 +105,13 @@ def files(root: Path, dirs: PlanningDirs | None = None) -> list[Path]:
     found = guarded_files(
         root, under=SCANNED, names=ROOT_FILES, suffixes=TEXT, specs=True, dirs=dirs
     )
-    return [path for path in found if path.name not in SELF and path.name != "package-lock.json"]
+    return [
+        path
+        for path in found
+        if path.name not in SELF
+        and path.name != "package-lock.json"
+        and GENERATED not in path.relative_to(root).parents
+    ]
 
 
 def file_hits(root: Path, path: Path, found: re.Pattern | Callable[[str], object]) -> list[str]:

@@ -17,6 +17,7 @@ from agent_build_kit.pipeline.shell import git
 ROOT = Path(__file__).resolve().parents[1]
 # Vendored and built folders, skipped wherever they sit below the folder a guard reads.
 SKIPPED_DIRS = frozenset({"node_modules", ".venv", "__pycache__", "dist"})
+LISTING_RETRIES = 3
 BUILT_WEB = Path("src/agent_build_kit/serve/static")
 
 
@@ -43,11 +44,20 @@ def planning_dirs(root: Path) -> PlanningDirs:
 
 
 def tracked(root: Path) -> list[Path]:
-    """The paths under `root` git tracks, relative to it; the walked tree outside a repository."""
+    """The paths under `root` git tracks, relative to it; the walked tree outside a repository.
+    Inside one a failed listing is tried again and then raised, never answered with the walked
+    tree, which holds files git does not track."""
     listed = git(root, "ls-files", "-z", check=False)
-    if listed.returncode == 0:
-        return [Path(name) for name in listed.stdout.split("\0") if name]
-    return [path.relative_to(root) for path in root.rglob("*") if path.is_file()]
+    if listed.returncode != 0 and (
+        git(root, "rev-parse", "--is-inside-work-tree", check=False).returncode != 0
+    ):
+        return [path.relative_to(root) for path in root.rglob("*") if path.is_file()]
+    for _ in range(LISTING_RETRIES):
+        if listed.returncode == 0:
+            break
+        listed = git(root, "ls-files", "-z", check=False)
+    listed.check_returncode()
+    return [Path(name) for name in listed.stdout.split("\0") if name]
 
 
 def skipped(path: Path, below: Path) -> bool:

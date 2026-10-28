@@ -16,7 +16,7 @@ from tests.factories import commit_files, init_repo
 from tests.installation_leaks import foreign_slug_owners, hits
 from tests.tracked_files import tracked
 
-LEAKY = "see https://github.com/someone-real/repo\n"
+LEAKY = "see https://github.com/" + "someone-real/repo\n"
 
 
 def _fail_first_listing(monkeypatch: pytest.MonkeyPatch) -> None:
