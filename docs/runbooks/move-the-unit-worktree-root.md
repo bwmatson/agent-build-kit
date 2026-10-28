@@ -8,7 +8,7 @@ For the person who changes `planning.worktree_root`. Unit worktrees live at `<ro
 
 ## 1. Stop the timers
 - [ ] `abk install-timers --remove`, or `systemctl --user disable --now` of the tick and track timers.
-- [ ] Wait for the tick and track services to be inactive and `abk status` to show no running unit. Never kill a running one: an unconfined step or a track fails with `ConfigChanged` when `abk.local.yaml` changes.
+- [ ] Wait for the tick and track services to be inactive and `abk status` to show no running unit. Never kill a running one: a running unit's worktree must not be moved. An edit of `abk.local.yaml` during a step is only a warning with its diff.
 
 ## 2. Note what is there
 - [ ] `git worktree list` in each repo; note the unit worktrees under the old root.

@@ -429,9 +429,10 @@ verify:
       key: SERVICE_TOKEN
 ```
 
-Both files are a person's to change. A step that was not confined fails with `ConfigChanged` if
-either differs afterwards; during a confined run a person may edit them, and the difference is a
-warning shown by `abk status`, not a failure.
+Both files are a person's to change, at any time. The sandbox is on by default; set
+`sandbox.enabled: false` to turn it off. A machine with no backend runs unconfined and says so.
+A difference during a step is a warning with its diff, shown by `abk status`, never a failure; for
+an unconfined step it adds that an agent may have written the file.
 
 The guards by class: the text fence on these two files is a location guard, so it stands down for
 a confined step and applies to one that is not; guards about meaning (no merge, no push) apply

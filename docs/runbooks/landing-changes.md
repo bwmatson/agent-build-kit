@@ -30,10 +30,9 @@ It is almost always something the builder cannot do:
 
 ## 2. Editing `abk.yaml` or `abk.local.yaml`
 
-The two files are a person's to change; agents and tracks are refused them. The pipeline reads both before an agent step and again after it, and a step after which either differs **fails the unit with `ConfigChanged`**, whoever made the change, naming the file and showing the difference. The file is left as it is, and the unit's work is not lost.
+The two files are a person's to change; agents and tracks are refused them. The sandbox is on by default (`sandbox.enabled: false` turns it off; a machine with no backend runs unconfined and says so). The pipeline reads both before an agent step and again after it.
 
-- **Edit with no agent step running.** Stop the timer first (`systemctl --user stop abk-<planning repo>-tick.timer`), edit, check with `abk doctor`, then start it again. A tick already running keeps its own copy of the configuration and does not notice.
-- **Recover a unit that failed with `ConfigChanged`.** Its worktree usually holds the step's uncommitted work: `abk attach release <unit> --commit "<message>"`, which puts it back to `running`. If the worktree is clean, `abk requeue <unit>`.
+- **Edit at any time.** A difference during a step is a warning, logged with its diff and shown by `abk status`; the unit continues. For an unconfined step the warning says an agent may have written the file, so read the diff. Check an edit with `abk doctor`.
 - **A file that does not load stops every `abk` command and every tick.** `abk doctor` or any command names the key; fix it before anything else. An account accepts its own `max_units_in_progress` and `limits`, not the workspace-wide `project_limits` keys.
 - Which file holds what is in [configuration.md](../configuration.md#which-file-holds-what): `abk.yaml` reads the same on every machine, and `abk.local.yaml` holds checkout paths, accounts, usage thresholds, `project_limits`, which e2e values this machine has, and holds.
 

@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- The documents, the `abk-config` and `abk-pipeline` skills and the landing runbook now say the
+  sandbox is on by default (`sandbox.enabled: false` turns it off, and a machine with no
+  backend runs unconfined and says so), and that `abk.yaml` and `abk.local.yaml` may be edited
+  at any time: a change during a step is a warning with its diff, so there is no need to stop
+  the timer first.
+
 - A unit whose pull request is merged now settles before it counts as merged: it waits, with
   no time limit, until every check of the pull request has completed, and the poller keeps
   reading the merged pull request meanwhile. A settling unit counts as in progress and holds

@@ -1198,11 +1198,10 @@ and `abk status` list which is which from `runtimes/guards.py`; the table is in
 [sandbox-design.md](designs/sandbox-design.md).
 
 **The config guard** (`config_guard.py`). `abk.yaml` and `abk.local.yaml` are read before an agent
-step and after it. When the step was not confined a difference fails the unit with
-`ConfigChanged`. During a confined run a person may edit them: with coverage `process` or
-`files` the step could not have written them, so the difference is a warning with its diff,
-shown by `abk status`, and the unit continues. The track runner passes no coverage and still
-fails.
+step and after it. The sandbox is on by default (`sandbox.enabled: false` turns it off; with no
+backend for the platform the step runs unconfined and says so). A person may edit the two files at
+any time: a difference is a warning with its diff, shown by `abk status`, and the unit continues,
+confined or not. For an unconfined step the warning adds that an agent may have written the file.
 
 **The usage guard** (`usage_guard.py`, `pause.py`). The account is a
 subscription with a usage window shared with the user's own sessions, and

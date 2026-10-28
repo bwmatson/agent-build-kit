@@ -28,11 +28,11 @@ For the person running an in-repo planning repo (a repository that is its own pl
 ## 5. Check
 - [ ] `abk doctor` in the worktree: the `machine files` check is ok, and nothing else regressed.
 - [ ] `abk --config <worktree>/abk.yaml config --show`: the values that come from `abk.local.yaml` are in force (the worktree root, the usage limits, the models, `verify.env`).
-- [ ] An edit to a machine file in the working copy shows in the worktree at once (it is the same file); the ConfigChanged fence treats an edit made during a run as a person's edit, as before.
+- [ ] An edit to a machine file in the working copy shows in the worktree at once (it is the same file); the config guard treats an edit made during a run as a person's edit (a warning, not a failure).
 
 ## 6. Resume
 - [ ] `abk install-timers` (this time enabling), or re-enable the four timers by hand.
-- [ ] Watch one tick: no `ConfigChanged`, no defaults where your settings should be.
+- [ ] Watch one tick: no config-changed warning, no defaults where your settings should be.
 
 ## Notes
 - `abk config --migrate` run **inside** the worktree replaces a link with a regular file. Run it from the working copy. `abk doctor` reports the replacement and `abk install-timers` repairs it.
