@@ -99,7 +99,6 @@ _AFTER_FAILURES = re.compile(
 )
 # A test that errored in a fixture has its block in the `ERRORS` part, headed `ERROR at setup of`.
 _ERRORS_START = re.compile(r"^={3,} ERRORS ={3,}[ \t]*$", re.MULTILINE)
-_AFTER_ERRORS = re.compile(r"^={3,} FAILURES ={3,}[ \t]*$", re.MULTILINE)
 _ERROR_BLOCK_NAME = re.compile(r"^ERROR at (?:setup|teardown) of ")
 _BLOCK_HEADER = re.compile(r"^_+ (?P<name>.+?) _+[ \t]*$", re.MULTILINE)
 # pre-commit prints `<hook name>....Passed|Failed|(no files to check)Skipped` for every
@@ -563,7 +562,7 @@ class PythonUvProfile:
             part = output[start.end() :]
             # A part ends at the rule of the section that follows it.
             ends = [
-                m.start() for m in (_AFTER_FAILURES.search(part), _AFTER_ERRORS.search(part)) if m
+                m.start() for m in (_AFTER_FAILURES.search(part), _FAILURES_START.search(part)) if m
             ]
             if ends:
                 part = part[: min(ends)]
