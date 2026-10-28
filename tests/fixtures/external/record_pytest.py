@@ -1,6 +1,7 @@
 """Re-record `tests/fixtures/external/pytest/*.xml`, and `console_failures.txt` and
 `console_long_titles.txt` (pytest's console output for runs with failures, which the
-flake hooks read), from the installed pytest.
+flake hooks read), and `version_verbose.txt` (what `pytest --version --version` prints, which
+the failure bundle's version query reads), from the installed pytest.
 
     uv run python tests/fixtures/external/record_pytest.py
 
@@ -17,6 +18,8 @@ import subprocess
 import sys
 import tempfile
 from pathlib import Path
+
+import pytest
 
 OUT = Path(__file__).resolve().parent / "pytest"
 
@@ -107,8 +110,23 @@ def record_console(
     (OUT / out).write_text(header + command + text)
 
 
+def record_versions() -> None:
+    """`version_verbose.txt`: what `pytest --version --version` prints, which the profile's
+    version query reads, with only the environment's directory redacted."""
+    done = subprocess.run(
+        [sys.executable, "-m", "pytest", "--version", "--version"],
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    packages = str(Path(pytest.__file__).resolve().parent.parent)
+    text = (done.stdout + done.stderr).replace(packages, "/env/site-packages")
+    (OUT / "version_verbose.txt").write_text("".join(f"{x.rstrip()}\n" for x in text.splitlines()))
+
+
 def main() -> None:
     OUT.mkdir(exist_ok=True)
+    record_versions()
     record_console()
     record_console(
         {**LONG_TITLE_FILES, "test_params.py": LONG_TITLE_PARAMS}, "console_long_titles.txt"

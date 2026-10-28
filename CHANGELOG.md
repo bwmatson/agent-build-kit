@@ -87,6 +87,13 @@
   failure when it passes there, and waits for a fix when it fails there too or fails only by
   its time limit.
 
+- A failing unit-test run now saves a bundle under `runs/test-failures/` holding its whole
+  redacted output, the command, times, commits, the tick it ran in (the id the decision log
+  carries) and tool versions, the machine's load and
+  memory at the start and end, and the worktree's state before and after (naming test files
+  that vanished or appeared). The last three per unit are kept. The unit-test command also
+  prints the slowest tests and a short summary of what failed.
+
 - `abk external hand-off`, `list`, `done` and `release` hand a change, or some of its groups,
   to someone who builds it by hand. The kit never starts held work, units that need it wait
   for its merge, and `done` checks a merged pull request or a commit on the default branch

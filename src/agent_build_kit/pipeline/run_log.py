@@ -8,7 +8,8 @@ from __future__ import annotations
 
 import json
 import re
-from collections.abc import Callable
+import shutil
+from collections.abc import Callable, Collection
 from datetime import datetime, timedelta
 from pathlib import Path
 
@@ -60,6 +61,62 @@ def append_e2e_output(directory: Path, unit: Unit, started: datetime, text: str)
     except (OSError, ValueError):
         pass
     return path
+
+
+# The most of a failing run's output a bundle keeps, in bytes.
+FAILURE_OUTPUT_CAP = 5_000_000
+
+
+def failure_bundles_dir(state_dir: Path) -> Path:
+    """The directory of the bundles of failing unit-test runs, under the state directory."""
+    return state_dir / "test-failures"
+
+
+def write_failure_bundle(
+    directory: Path,
+    unit_id: str,
+    change: str,
+    started: datetime,
+    *,
+    output: str,
+    context: dict[str, object],
+    machine: dict[str, object],
+    worktree: dict[str, object],
+    pointed: Collection[Path] = (),
+    cap: int = FAILURE_OUTPUT_CAP,
+) -> Path:
+    """Save a failing unit-test run as `<directory>/<unit prefix><stamp>/` and return it:
+    `output.txt` (redacted, cut at `cap` bytes with a note), `context.json`, `machine.json` and
+    `worktree.json` (redacted). The unit's bundles beyond `RUNS_KEPT` go, except those in
+    `pointed`. The bundle is a diagnostic copy, so a write that fails is dropped."""
+    path = directory / f"{unit_file_prefix(unit_id, change)}{started:%Y%m%d-%H%M%S}"
+    text = redact_text(output, where="failure bundle")
+    encoded = text.encode()
+    if len(encoded) > cap:
+        text = (
+            encoded[:cap].decode(errors="ignore")
+            + f"\n[output cut at {cap} bytes; {len(encoded) - cap} more were dropped]\n"
+        )
+    try:
+        path.mkdir(parents=True, exist_ok=True)
+        (path / "output.txt").write_text(text)
+        for name, facts in (("context", context), ("machine", machine), ("worktree", worktree)):
+            body = redact_text(json.dumps(facts, indent=2, default=str), where="failure bundle")
+            (path / f"{name}.json").write_text(body)
+        _prune_bundles(directory, unit_file_prefix(unit_id, change), pointed)
+    except (OSError, ValueError):
+        pass
+    return path
+
+
+def _prune_bundles(directory: Path, prefix: str, pointed: Collection[Path]) -> None:
+    """Remove the unit's bundles beyond the newest `RUNS_KEPT`, except those pointed at."""
+    keep = {p.resolve() for p in pointed}
+    named = re.compile(re.escape(prefix) + r"\d{8}-\d{6}$")
+    bundles = sorted(path for path in directory.glob(f"{prefix}*") if named.match(path.name))
+    for old in bundles[:-RUNS_KEPT]:
+        if old.resolve() not in keep:
+            shutil.rmtree(old, ignore_errors=True)
 
 
 def _unit_prefix(unit: Unit) -> str:

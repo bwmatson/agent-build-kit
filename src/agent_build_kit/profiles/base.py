@@ -237,6 +237,25 @@ class RepeatsTests(Protocol):
 
 
 @runtime_checkable
+class ReportsRunFacts(Protocol):
+    """The optional hooks a profile adds to say what a test run's own command and a query of the
+    runner tell of the conditions it ran under, for the evidence kept of a failing run. A runner
+    prints no versions at the verbosity the profile runs it at, so they come from a query."""
+
+    def version_probe(self, command: list[str]) -> list[str] | None:
+        """A command that prints the versions of the runner and its plugins in the environment
+        `command` (one of the profile's test runs) uses; None when there is none."""
+        ...
+
+    def run_facts(self, command: list[str], probe_output: str) -> dict[str, object]:
+        """`{"workers_setting": what the command asked for, "workers": the count when the command
+        fixes it, "max_workers": its cap, "versions": {name: version}}`, the workers read from
+        `command` and the versions from what `version_probe` printed; a key it cannot fill is
+        left out, and a setting the runner resolves itself is not guessed."""
+        ...
+
+
+@runtime_checkable
 class AppliesE2eSelection(Protocol):
     """The optional hooks a profile adds to apply an e2e-test selection: the kinds of selector
     it can apply, the text its test runner takes for a selection, and a listing of the tests

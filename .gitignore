@@ -14,6 +14,7 @@ src/agent_build_kit/serve/static/
 runs/*.lock
 runs/locks/
 runs/unit-logs/
+runs/test-failures/
 runs/usage-ledger.jsonl
 runs/decisions.jsonl
 runs/usage-calls.jsonl

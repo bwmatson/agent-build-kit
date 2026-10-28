@@ -27,7 +27,6 @@ import subprocess
 import sys
 import tempfile
 import time
-import uuid
 from collections.abc import (
     Callable,
     Collection,
@@ -240,6 +239,7 @@ from agent_build_kit.pipeline.review_rates import recorded_gates
 from agent_build_kit.pipeline.run_log import (
     RunLog,
     e2e_output_dir,
+    failure_bundles_dir,
     remove_change_logs,
     remove_old_logs,
     run_log_dir,
@@ -2575,7 +2575,7 @@ def _write_admissions(
                 at=now,
                 kind=kind,
                 unit=unit.id,
-                tick=_PROCESS_TICK,
+                tick=spans.PROCESS_TICK,
                 slot=_slot_label(slot),
                 limit=limit_of(slot),
                 counted=found_counted,
@@ -2597,7 +2597,7 @@ def _write_admissions(
             path,
             TickCounts(
                 at=now,
-                tick=_PROCESS_TICK,
+                tick=spans.PROCESS_TICK,
                 fingerprint=fingerprint,
                 slots=tuple(
                     SlotCount(
@@ -5992,6 +5992,7 @@ def build_stack_moves(
                 projects=repo.projects,
                 repo=repo,
                 log=log,
+                failures_dir=failure_bundles_dir(installation.state_dir),
             )(cwd=cwd, base=base, moved_from=moved_from)
         raise ValueError(f"{cwd} is not a checkout of any repo or a worktree of one")
 
@@ -8087,10 +8088,6 @@ def register(sub: argparse._SubParsersAction) -> None:
     gate.set_defaults(func=cmd_gate, needs_installation="optional")
 
 
-# Told in the decision log with each record, so the records of one process read together.
-_PROCESS_TICK = uuid.uuid4().hex[:8]
-
-
 def wait_reasons(
     inst: Installation,
     units: list[StoredUnit],
@@ -8264,7 +8261,7 @@ def _record_waits(
             _RECORDERS[path] = WaitRecorder(path, log)
         left_out = [unit.id for unit in units if only and unit.id not in only]
         reasons = waits()
-        _RECORDERS[path].record(reasons, tick=_PROCESS_TICK, keep=left_out)
+        _RECORDERS[path].record(reasons, tick=spans.PROCESS_TICK, keep=left_out)
         # Where reasons are decided, so a tick that starts nothing still dates a unit's readiness.
         unstamped = {unit.id for unit in units if unit.ready_at is None}
         for unit_id, wait in reasons.items():

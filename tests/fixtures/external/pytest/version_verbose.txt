@@ -1,0 +1,7 @@
+This is pytest version 9.1.1, imported from /env/site-packages/pytest/__init__.py
+registered third-party plugins:
+  anyio-4.15.1 at /env/site-packages/anyio/pytest_plugin.py
+  pytest-xdist-3.8.0 at /env/site-packages/xdist/plugin.py
+  pytest-xdist-3.8.0 at /env/site-packages/xdist/looponfail.py
+  platformdirs-4.12.1 at /env/site-packages/platformdirs/pytest_plugin.py
+  langsmith-0.14.2 at /env/site-packages/langsmith/pytest_plugin.py

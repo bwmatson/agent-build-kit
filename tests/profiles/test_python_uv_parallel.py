@@ -7,11 +7,15 @@ import subprocess
 from pathlib import Path
 
 from agent_build_kit.pipeline.wiring import build_unit_test
-from agent_build_kit.profiles.python_uv import PROFILE
+from agent_build_kit.profiles.python_uv import PROFILE, UNIT_REPORT_FLAGS
 
-PLAIN = ["uv", "run", "pytest", "-q"]
-PARALLEL = ["uv", "run", "pytest", "-n", "auto", "--maxprocesses=8", "-m", "not serial", "-q"]
-SERIAL = ["uv", "run", "pytest", "-m", "serial", "-q"]
+REPORT = UNIT_REPORT_FLAGS
+PLAIN = ["uv", "run", "pytest", "-q", *REPORT]
+PARALLEL = [
+    *["uv", "run", "pytest", "-n", "auto", "--maxprocesses=8", "-m", "not serial", "-q"],
+    *REPORT,
+]
+SERIAL = ["uv", "run", "pytest", "-m", "serial", "-q", *REPORT]
 
 
 def repo_with(tmp_path: Path, pyproject: str) -> Path:
@@ -76,9 +80,9 @@ def test_a_workspace_member_that_declares_xdist_runs_both_passes(tmp_path: Path)
 
     head = ["uv", "run", "--package", "svc-a", "--isolated", "pytest", "svc-a"]
     assert commands == [
-        [*head, "-n", "auto", "--maxprocesses=8", "-m", "not serial", "-q"],
-        [*head, "-m", "serial", "-q"],
-        ["uv", "run", "--package", "svc-b", "--isolated", "pytest", "svc-b", "-q"],
+        [*head, "-n", "auto", "--maxprocesses=8", "-m", "not serial", "-q", *REPORT],
+        [*head, "-m", "serial", "-q", *REPORT],
+        ["uv", "run", "--package", "svc-b", "--isolated", "pytest", "svc-b", "-q", *REPORT],
     ]
 
 
