@@ -7,6 +7,7 @@
   taken over instead of blocking the branch. Locks written before this, holding only a pid,
   are still honoured while that process lives. Two runs finding the same stale lock can no
   longer both take it.
+
 - A new `regression` model role names the model that writes the fix for a failing test. It
   is set like the other roles (`models.regression`, `runtimes.<name>.models.regression` or
   `ABK_REGRESSION_MODEL`) and defaults to Opus under Claude Code. `global_limits` takes
