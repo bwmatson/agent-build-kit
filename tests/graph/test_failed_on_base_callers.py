@@ -6,6 +6,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import Any
 
 from agent_build_kit.installation import Installation
 from agent_build_kit.pipeline import events
@@ -48,11 +49,10 @@ def test_a_group_already_built_whose_run_raises_it_parks_the_unit_gated(tmp_path
     recorder, _ = prepared(tmp_path, silent_groups=(1, 2, 3))
     told = Told()
 
-    outcome = build(
-        tmp_path,
-        recorder,
-        **{**recorder.overrides(tmp_path), "run_unit_test": raising, "on_flake": told},
-    )
+    overrides: dict[str, Any] = recorder.overrides(tmp_path)
+    overrides.update(run_unit_test=raising, on_flake=told)
+
+    outcome = build(tmp_path, recorder, **overrides)
 
     assert outcome.status == RunStatus.HELD
     stored = recorder.store.get(UNIT)
