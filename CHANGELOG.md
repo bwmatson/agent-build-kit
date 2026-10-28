@@ -195,6 +195,13 @@
   backend runs unconfined and says so), and that `abk.yaml` and `abk.local.yaml` may be edited
   at any time: a change during a step is a warning with its diff, so there is no need to stop
   the timer first.
+- A repo's `tracker` section now says how its board is shaped: `levels` (any ordered subset of
+  `change`, `group` and `task`), an optional manual `epic` level, `pr_links` (which levels get
+  a merged unit's pull request, default the lowest), and the connection, types and states in a
+  block named for the provider (`azure_devops:` or `github:`). A two-level board, such as a
+  Basic process one, is now valid. The old flat keys (`story_type`, `labels`, a flat
+  `state_map`) still work and read as the old three levels; mixing them with a provider block
+  is refused naming both.
 
 - The planner now has a model role of its own, `plan`, defaulting to `opus`. Set it in
   `models:` or under a runtime's `models:`, or per machine with `ABK_PLAN_MODEL`. The
