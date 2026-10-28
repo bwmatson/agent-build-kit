@@ -164,7 +164,8 @@ def test_a_paused_tick_resumes_as_soon_as_the_guard_allows(
         reason="session at 76%",
         marker=tmp_path / "paused.json",
     )
-    monkeypatch.setattr(cli, "current_usage", lambda: reading(session_pct=76))
+    # Room for the unit's own forecast too, which the start check now adds as the gate does.
+    monkeypatch.setattr(cli, "current_usage", lambda: reading(session_pct=50))
     monkeypatch.setattr(cli, "may_start_unit", lambda r: Decision(may_start=True, reason="room"))
     archived: list[str] = []
     monkeypatch.setattr(

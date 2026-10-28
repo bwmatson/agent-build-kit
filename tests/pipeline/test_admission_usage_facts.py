@@ -20,6 +20,7 @@ from agent_build_kit.pipeline.admission_record import (
     read_admissions,
 )
 from agent_build_kit.pipeline.unit_store import UnitStore
+from agent_build_kit.pipeline.usage_guard import claude_limits
 from tests.cli.test_admission_asks_own_account import isolated, round_of, unit  # noqa: F401
 from tests.conftest import make_installation
 from tests.usage_host import Host, payload, refused
@@ -90,7 +91,8 @@ def test_a_start_on_an_estimate_records_the_estimate_and_the_starts_made_on_it(
     inst, store = workspace(
         tmp_path, host, session={"usage_pause_pct": 92}, weekly={"usage_pause_pct": 80}
     )
-    host.keep_reading(180 * MINUTE, payload(session=70.0, weekly=6.0))
+    # Low enough that the unit's forecast (the flat allowance, there being no history) fits too.
+    host.keep_reading(180 * MINUTE, payload(session=60.0, weekly=6.0))
     refused(host, cooling=3 * MINUTE)
     kept = json.loads(host.cache.read_text())
     host.cache.write_text(json.dumps({**kept, "estimate_units": ["feature/1"]}))
@@ -106,6 +108,10 @@ def test_a_start_on_an_estimate_records_the_estimate_and_the_starts_made_on_it(
     assert usage.age_seconds is not None
     assert usage.age_seconds >= 170 * 60
     assert usage.threshold == 92
+    # The estimate forecast the unit and kept the configured margin, and the record says so.
+    assert usage.forecast is not None
+    assert usage.forecast > 0
+    assert usage.margin == claude_limits().usage_headroom_margin_pct
 
 
 def test_two_units_admitted_on_one_estimate_in_a_round_record_successive_start_counts(
@@ -115,7 +121,8 @@ def test_two_units_admitted_on_one_estimate_in_a_round_record_successive_start_c
         tmp_path, host, session={"usage_pause_pct": 92}, weekly={"usage_pause_pct": 80}
     )
     store.upsert([unit("one/2", "app")])
-    host.keep_reading(180 * MINUTE, payload(session=70.0, weekly=6.0))
+    # Each unit admitted is spent on the estimate for the next, with its own forecast besides.
+    host.keep_reading(180 * MINUTE, payload(session=56.0, weekly=6.0))
     refused(host, cooling=3 * MINUTE)
     kept = json.loads(host.cache.read_text())
     host.cache.write_text(json.dumps({**kept, "estimate_units": ["feature/1"]}))

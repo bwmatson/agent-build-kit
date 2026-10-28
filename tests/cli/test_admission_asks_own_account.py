@@ -205,10 +205,11 @@ def test_the_decision_for_an_account_is_made_once_a_round_however_many_units_are
         tmp_path,
         [unit("one/1", "app"), *(unit(f"unit{n}/1", "platform") for n in range(3))],
     )
-    accounts.full = {PERSONAL}
 
     round_of(inst, store)
 
+    # An allowance names no unit, so units of one tier and size share it. A refusal names the
+    # unit it was asked for, so each refused unit is asked for itself.
     assert accounts.asked == {None: 1, PERSONAL: 1}
 
 

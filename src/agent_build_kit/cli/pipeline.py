@@ -384,10 +384,12 @@ from agent_build_kit.pipeline.usage_guard import (
     held_forecast_line,
     held_usage,
     may_start_unit,
+    not_recording,
     on_account,
     reading_as,
     refreshed_usage,
     rejected_login_note,
+    starting,
     threshold_at,
 )
 from agent_build_kit.pipeline.usage_ledger import LEDGER_NAME
@@ -1785,36 +1787,82 @@ def _lowest_tier(units: Sequence[StoredUnit]) -> ReviewTier | None:
 
 
 def _round_ask(startable: Sequence[StoredUnit], *, planning: bool) -> Ask:
-    """What the round asks the guard: the lowest tier that could start, and the plan call when
-    planning is due, which is the whole ask when no unit could start."""
+    """What the round asks the guard: the lowest tier that could start, the size of the smallest
+    unit of that tier, and the plan call when planning is due, which is the whole ask when no
+    unit could start."""
+    tier = _lowest_tier(startable)
+    cheapest = min(
+        (unit for unit in startable if ReviewTier.parse(unit.review_tier) is tier),
+        key=lambda unit: unit.estimated_lines,
+        default=None,
+    )
     return Ask(
-        tier=_lowest_tier(startable),
+        tier=tier,
+        lines=cheapest.estimated_lines if cheapest else None,
         step=OverheadNode.PLAN.value if planning and not startable else None,
         plan_due=planning,
     )
+
+
+def _decision_key(
+    account: claude_account.Account, tier: ReviewTier | None, lines: int, *, plan_due: bool = False
+) -> str:
+    """Where `decided` keeps the decision for a start of this tier and size on `account`: units
+    of one tier and size are asked of the guard once. A start that reserves the plan call is not
+    the start a unit's gate asks for, so it is kept apart."""
+    return f"{claude_account.account_key(account)}|{tier}|{lines}|{plan_due}"
 
 
 def _account_decision(
     account: claude_account.Account,
     decided: dict[str | None, Decision] | None,
     ask: Ask | None = None,
+    *,
+    unit: StoredUnit | None = None,
 ) -> Decision:
     """The guard's decision for `account`, asked once for each account `decided` holds, for
-    what the round asks (see `_round_ask`) when it names one."""
+    what the round asks (see `_round_ask`) when it names one. For a `unit` it is the decision
+    the gate before the unit's first agent step takes, for the unit's own review tier and
+    estimated lines. A unit's decision is kept under its id, since a refusal names the unit it
+    was asked for; an allowance names none and is shared by units of that tier and size."""
     key = claude_account.account_key(account)
-    if decided is not None and key in decided:
-        return decided[key]
     named = ask or Ask()
-    decision = decide_start(
-        read=current_usage,
-        decide=may_start_unit,
-        account=account,
-        review_tier=named.tier,
-        step=named.step,
-        plan_due=named.plan_due,
+    if unit is not None:
+        named = Ask(
+            unit=unit.id, tier=ReviewTier.parse(unit.review_tier), lines=unit.estimated_lines
+        )
+    sized = (
+        _decision_key(account, named.tier, named.lines, plan_due=named.plan_due)
+        if named.lines is not None and named.step is None
+        else None
     )
     if decided is not None:
-        decided[key] = decision
+        kept = [unit.id, sized] if unit is not None and sized is not None else [key]
+        for found in kept:
+            if found in decided:
+                return decided[found]
+    # A unit's ask is made as the gate makes it: the unit is named, so its id is in the reason
+    # and an allowance on an estimate is kept under it. The round's ask names no unit.
+    scope = (
+        starting(unit.id, review_tier=named.tier, estimated_lines=named.lines)
+        if unit is not None
+        else nullcontext()
+    )
+    with scope:
+        decision = decide_start(
+            read=current_usage,
+            decide=may_start_unit,
+            account=account,
+            review_tier=named.tier,
+            estimated_lines=named.lines,
+            step=named.step,
+            plan_due=named.plan_due,
+        )
+    if decided is not None:
+        decided[key if unit is None else unit.id] = decision
+        # Only an allowance not made on an estimate names no unit, so only it is shared.
+        if sized is not None and decision.may_start and not decision.estimate:
+            decided[sized] = decision
     return decision
 
 
@@ -2348,7 +2396,14 @@ def run_round(
         for unit in evaluated:
             if stored_by_id[unit.id].branch or unit.id in refused:
                 continue
-            decision = _account_decision(claude_account.for_repo(inst.config, unit.repo), decided)
+            # A dry run only learns what the guard would say: it keeps no allowance for a unit
+            # it does not build.
+            with not_recording() if dry_run else nullcontext():
+                decision = _account_decision(
+                    claude_account.for_repo(inst.config, unit.repo),
+                    decided,
+                    unit=stored_by_id[unit.id],
+                )
             if not decision.may_start:
                 refused[unit.id] = decision.reason
     evaluated = [unit for unit in evaluated if unit.id not in refused]
@@ -2415,8 +2470,14 @@ def _usage_facts(inst: Installation, unit: StoredUnit, decided: dict[str | None,
     asked from here: an account the round did not ask about says so."""
     if not runtimes.active().supports_usage_tracking:
         return UsageFacts(may_start=True, reason="runtime has no usage window")
-    decision = decided.get(
-        claude_account.account_key(claude_account.for_repo(inst.config, unit.repo))
+    account = claude_account.for_repo(inst.config, unit.repo)
+    # A unit the round decided for has the decision for its tier and size.
+    decision = (
+        decided.get(unit.id)
+        or decided.get(
+            _decision_key(account, ReviewTier.parse(unit.review_tier), unit.estimated_lines)
+        )
+        or decided.get(claude_account.account_key(account))
     )
     if decision is None:
         return UsageFacts(may_start=None, reason="not asked this round")
@@ -2499,14 +2560,6 @@ def _write_admissions(
         slot = slot_of(unit)
         found_counted = counted(slot, unit.id, started)
         usage = _usage_facts(inst, unit, decided)
-        if kind == "admitted" and usage.estimate:
-            # The round asked the guard naming no unit: this unit is the next start on the
-            # estimate after those the guard counted and those admitted before it on the account.
-            def account_of(each: StoredUnit) -> str | None:
-                return claude_account.account_key(claude_account.for_repo(inst.config, each.repo))
-
-            place = 1 + sum(1 for uid in started if account_of(by_id[uid]) == account_of(unit))
-            usage = usage.model_copy(update={"estimate_starts": usage.estimate_starts + place})
         before = last.get(unit.id)
         if (
             kind == "slot"
