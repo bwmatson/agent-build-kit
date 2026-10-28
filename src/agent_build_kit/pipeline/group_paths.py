@@ -7,6 +7,8 @@ import re
 from collections.abc import Sequence
 from typing import TYPE_CHECKING
 
+from agent_build_kit.pipeline.commit_order import CONFIG_SUFFIXES, classify_paths
+
 if TYPE_CHECKING:
     from agent_build_kit.pipeline.work_graph import TaskGroup
 
@@ -89,3 +91,13 @@ def named_paths(group: TaskGroup, projects: Sequence[str]) -> list[str]:
         return [_glob_prefix(entry) or entry.rstrip("/") for entry in group.paths]
     found = [path for line in group.body for path in changed_paths(line, projects)]
     return list(dict.fromkeys(found))
+
+
+def allows_no_code(paths: Sequence[str]) -> bool:
+    """Whether the paths a group names are all documents or configuration, so the group may be
+    built without code. No path at all cannot be classified and allows nothing."""
+    labels = classify_paths(list(paths))
+    return bool(paths) and all(
+        label == "docs" or (label == "code" and path.endswith(CONFIG_SUFFIXES))
+        for path, label in labels.items()
+    )

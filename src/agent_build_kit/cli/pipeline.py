@@ -7069,7 +7069,7 @@ def cmd_tags(args: argparse.Namespace, inst: Installation) -> int:
                 urgency = ""
             print(
                 f"  {group.number}. [{group.tag}] [{group.tier}] {group.title}{urgency}"
-                f"{project_source_note(group)}"
+                f"{project_source_note(group)} [{group.mode}]"
             )
     return 1 if failed else 0
 
