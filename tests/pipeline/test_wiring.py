@@ -44,12 +44,11 @@ from agent_build_kit.pipeline.wiring import (
 )
 from agent_build_kit.profiles.base import ProfileUnsupported
 from agent_build_kit.profiles.python_uv import UNIT_REPORT_FLAGS, PythonUvProfile
-
-REPORT = UNIT_REPORT_FLAGS
 from tests.conftest import make_installation
 from tests.factories import git, init_repo, unit
 from tests.forges.stand_in import StandInForge, lookup
 
+REPORT = UNIT_REPORT_FLAGS
 MODEL = "m"
 
 
@@ -541,9 +540,7 @@ def test_a_plain_repo_still_runs_pytest_at_the_root(tmp_path: Path) -> None:
 
     build_unit_test(run=run, changed=lambda *a: ["tests/test_x.py"])(cwd=repo, base="main")
 
-    assert [c for c, _ in calls if "pytest" in c] == [
-        ["uv", "run", "pytest", "-q", *REPORT]
-    ]
+    assert [c for c, _ in calls if "pytest" in c] == [["uv", "run", "pytest", "-q", *REPORT]]
 
 
 def test_whole_repo_mode_lints_and_tests_everything_regardless_of_the_diff(

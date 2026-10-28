@@ -1621,6 +1621,7 @@ def build_unit_test(
         assert failures_dir is not None
         started, machine_before, tree_before = before
         ended = clock()
+        sampled = machine or failure_evidence.machine_sample
         output = f"{result.stdout}\n{result.stderr}".strip()
         unit, change, _, _ = spans.current_unit.get()
         facts = (
@@ -1645,10 +1646,7 @@ def build_unit_test(
             started,
             output=output,
             context=context,
-            machine={
-                "start": machine_before,
-                "end": (machine or failure_evidence.machine_sample)(),
-            },
+            machine={"start": machine_before, "end": sampled()},
             worktree=failure_evidence.worktree_changes(
                 tree_before, failure_evidence.worktree_state(run, where, toolchain)
             ),
