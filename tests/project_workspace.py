@@ -34,3 +34,13 @@ def tasks_with(*headings: str) -> str:
     for number, heading in enumerate(headings, start=1):
         text += f"## {number}. {heading}\n\n- [ ] {number}.1 Test: it.\n- [ ] {number}.2 Do it.\n\n"
     return text
+
+
+def tasks_editing(*groups: tuple[str, str]) -> str:
+    """A `tasks.md` whose groups are each a heading (the text after `## <n>. `) and the file its
+    second task edits: the path the group names."""
+    text = f"# Tasks\n\n{OPT_OUT}\n"
+    for number, (heading, path) in enumerate(groups, start=1):
+        text += f"## {number}. {heading}\n\n- [ ] {number}.1 Test: it.\n"
+        text += f"- [ ] {number}.2 Edit `{path}`.\n\n"
+    return text

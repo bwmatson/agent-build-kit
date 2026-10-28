@@ -22,6 +22,7 @@ from __future__ import annotations
 import argparse
 import re
 import sys
+import tempfile
 from collections.abc import Callable, Iterable, Mapping, Sequence
 from enum import StrEnum
 from pathlib import Path
@@ -388,6 +389,16 @@ def resolved_project(group: TaskGroup, projects: Sequence[str]) -> tuple[str, Pr
     return ".", ProjectSource.ROOT
 
 
+def project_source_note(group: TaskGroup) -> str:
+    """What a display adds after a group's tag when the project was not simply written in the
+    heading: ` (resolved)`, or ` (explicit root)` for `[repo/<root>]`; nothing otherwise."""
+    if group.source == ProjectSource.RESOLVED:
+        return " (resolved)"
+    if group.source == ProjectSource.EXPLICIT and group.project == ".":
+        return " (explicit root)"
+    return ""
+
+
 def _resolved(group: TaskGroup, projects: Sequence[str]) -> TaskGroup:
     project, source = resolved_project(group, projects)
     return group.model_copy(update={"project": project, "source": source})
@@ -475,6 +486,23 @@ def _split_problem(number: int, repo: str, tier: str, value: str, declared: tupl
         f'group {number} is in split "{value}" but repo "{repo}" declares {named} and '
         f"`{declared[-1]}`"
     )
+
+
+def validate_tasks_text(
+    text: str,
+    change: str,
+    *,
+    repos: tuple[str, ...] | None = None,
+    projects: Mapping[str, tuple[str, ...]] | None = None,
+    splits: Mapping[str, tuple[str, ...]] | None = None,
+) -> tuple[list[TaskGroup], list[ValidationError]]:
+    """`validate_tasks` of `text` as the tasks of the change `change`, which it is written to
+    under a scratch directory of that name, where the parse reads the name of its own change."""
+    with tempfile.TemporaryDirectory() as scratch:
+        probe = Path(scratch) / change / "tasks.md"
+        probe.parent.mkdir()
+        probe.write_bytes(text.encode())
+        return validate_tasks(probe, repos=repos, projects=projects, splits=splits)
 
 
 def validate_tasks(

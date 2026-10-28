@@ -114,12 +114,15 @@ def render_mermaid(
     gated: Collection[str] = (),
     restacking: Mapping[str, str] | None = None,
     projects: Mapping[str, Collection[str]] | None = None,
+    unit_notes: Mapping[str, str] | None = None,
 ) -> str:
     """Draw `units`. `graph` is the whole store when `units` is a subset of it:
     whether a unit is blocked depends on parents that may not be drawn. `restacking` names
     the base of each unit the restack lane holds. `projects` maps a repo to the project paths it
     declares, as `declared_projects` returns them (the root may be left out; it counts whenever
-    a repo declares another path). It only decides whether a repo is drawn nested."""
+    a repo declares another path). It only decides whether a repo is drawn nested.
+    `unit_notes` maps a unit id to a note added after the id on the unit's node, such as
+    `(resolved)`."""
     graph = graph if graph is not None else units
     index = {unit.id: unit for unit in units}
     ordered = sorted(units, key=lambda unit: (unit.repo, unit.project, unit.id))
@@ -159,7 +162,8 @@ def render_mermaid(
                 name = f"{name}, {dependency_wait(waits, merging=merging)}"
             if wait := second_parent_wait(unit, graph):
                 name = f"{name}, {wait}"
-            head = f"{unit.id}<br/>{unit.title}<br/>{_carried(unit)}"
+            where = (unit_notes or {}).get(unit.id, "")
+            head = f"{unit.id}{where}<br/>{unit.title}<br/>{_carried(unit)}"
             urgency = f" · {note}" if (note := priority_note(unit, graph)) else ""
             waiting = _waiting(unit)
             label = f"{head}<small>{unit.tier} · {name}{waiting}{pr}{urgency}</small>"
@@ -215,6 +219,7 @@ def render_markdown(
     gated: Collection[str] = (),
     restacking: Mapping[str, str] | None = None,
     projects: Mapping[str, Collection[str]] | None = None,
+    unit_notes: Mapping[str, str] | None = None,
 ) -> str:
     """The committed page: the diagram, a legend, and what awaits review."""
     shown = in_view(units)
@@ -239,6 +244,7 @@ def render_markdown(
         gated=gated,
         restacking=restacking,
         projects=projects,
+        unit_notes=unit_notes,
     )
     gate_legend = (
         "\n  A unit may also wait on a held e2e-test split: it is not started until the split\n"
@@ -320,6 +326,7 @@ def write_page(
     gated: Collection[str] = (),
     restacking: Mapping[str, str] | None = None,
     projects: Mapping[str, Collection[str]] | None = None,
+    unit_notes: Mapping[str, str] | None = None,
 ) -> None:
     """Rewrite the page, keeping the old timestamp when nothing else changed.
 
@@ -333,6 +340,7 @@ def write_page(
         gated=gated,
         restacking=restacking,
         projects=projects,
+        unit_notes=unit_notes,
     )
     if out.exists() and _body(out.read_text()) == _body(page):
         return
@@ -349,7 +357,7 @@ def main(argv: list[str] | None = None) -> int:
     import argparse
     from pathlib import Path
 
-    from agent_build_kit.cli.pipeline import gated_units, parked_units
+    from agent_build_kit.cli.pipeline import gated_units, parked_units, project_source_notes
     from agent_build_kit.installation import load_installation
     from agent_build_kit.pipeline.pr_poller import recorded_checks
     from agent_build_kit.pipeline.unit_store import UnitStore
@@ -369,6 +377,7 @@ def main(argv: list[str] | None = None) -> int:
         paused=parked_units(installation, units),
         gated=gated_units(installation, units),
         projects=declared_projects(installation.repos),
+        unit_notes=project_source_notes(installation, units),
     )
     print(f"{args.out}: {len(units)} unit(s)")
     return 0

@@ -22,6 +22,8 @@ def test_a_moved_plan_is_hashed_under_the_projects_the_destination_declares(tmp_
     carry_out(source, destination, plan_split(source, "app"))
 
     moved = destination.changes_dir / "moves" / "tasks.md"
-    written = json.loads((destination.state_dir / "planned.json").read_text())["moves"]["hash"]
-    assert written == plan_digest(moved, inst=destination)
-    assert written != plan_digest(moved, inst=source)
+    record = json.loads((destination.state_dir / "planned.json").read_text())["moves"]
+    assert record["hash"] == plan_digest(moved, inst=destination)
+    assert record["hash"] != plan_digest(moved, inst=source)
+    # The resolution the plan was made under is kept, as `plan_all` keeps it.
+    assert record["resolved"] == {"1": "web"}
