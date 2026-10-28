@@ -119,6 +119,7 @@ class Cause(StrEnum):
     ATTACHED = "attached"
     ADOPTED = "adopted"
     MERGED = "merged"
+    LATE_FAILURE = "late_failure"
     AUTO_LANDED = "auto_landed"
     CLOSED = "closed"
     RETIRED = "retired"
@@ -1394,6 +1395,10 @@ class UnitStore:
 
     def set_pulls(self, unit_id: str, pulls: Sequence[Pull]) -> None:
         self._update(unit_id, pulls=tuple(pulls))
+
+    def clear_pr(self, unit_id: str) -> None:
+        """Forget the active pull request: a late fix has none until it is opened."""
+        self._update(unit_id, pr=None)
 
     def set_close_pending(self, unit_id: str, pending: ClosePending | None) -> None:
         """The close a satisfied unit still owes its pull request, or None once done."""

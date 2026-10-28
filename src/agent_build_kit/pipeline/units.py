@@ -263,7 +263,14 @@ def branch_name(unit: Unit) -> str:
     the same branch, or the work already committed there is orphaned. The one
     place a unit's branch is spelled; the prefix is the setting the command
     policy and the poller use to recognise these branches.
+
+    A unit with a merged pull request builds its late fix on the branch recorded for it
+    (`<name>-fix<k>`), so the one name every builder reads follows the unit to its second pull
+    request.
     """
+    recorded = getattr(unit, "branch", "")
+    if recorded and getattr(unit, "pulls", ()):
+        return recorded
     return f"{active().git.branch_prefix}{unit.id}"
 
 

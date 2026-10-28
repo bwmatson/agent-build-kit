@@ -390,6 +390,19 @@ fully merges early in a long pass is verified live and archived by the next
 round, not the next pass; verification takes the live-stack lock without
 waiting, and is skipped and logged for that round while an e2e-test run holds it.
 
+A merged pull request settles before its unit is merged. The `merged` event moves the unit
+to `settling` (the merge commit and `pulls[0]` recorded, no `merged_tick`), the poller keeps
+reading the pull request, and `settled` makes the unit `merged` once every check has
+completed, with no time limit; a cancelled check is re-run and waited for. A merged pull
+request is never reworked in place. When a check failed, `late_check` runs its tests on the
+current default branch in a detached worktree (`events.build_base_passes`): passing there, the
+unit is `merged` and the failure is recorded as fixed on the base; failing there, the same unit
+goes `planned` with the cause `late_failure` on `<branch>-fix<k>` off the default branch,
+built through the rework path with the check's log. Its pull request is titled
+`<unit>: late fix for #<n>`, joins `pulls` and becomes `pr`, and the unit settles again when it
+merges. After two late fixes a further failure holds the unit for a person, and `abk settle
+<unit> --accept` ends a wait that cannot finish.
+
 Those mid-pass polls run while other builds are still going, so an event can
 name a unit being built. Each handler takes the unit's branch lock first, as
 the build does; if a build holds it, the handler changes nothing and the
@@ -766,7 +779,7 @@ reaching review and being satisfied carry none. A cause is one of two kinds, and
 two sets (`STANDING_CAUSES` and `EVENT_CAUSES`) together are exactly the members of `Cause`.
 A standing cause names a situation that lasts until a state change passes another cause: `rework`,
 `base_changed`, `upstream_went_back`, `usage`, `depth`, `toolchain`, `review_escalated_class`,
-`review_escalated_disagreement`, `needs_human`, `reviewer_hold`, `gated`, `restack_conflict`,
+`review_escalated_disagreement`, `late_failure`, `needs_human`, `reviewer_hold`, `gated`, `restack_conflict`,
 `restack_deferred`, `restack_handed_back`, `dirty_worktree`, `attached`, `host_unavailable`,
 `network_unavailable`, `service_unavailable`, `environment`, `split_held`, `manual_step` and
 `too_big_for_tier`.

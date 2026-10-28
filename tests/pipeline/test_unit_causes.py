@@ -55,6 +55,7 @@ def test_the_causes_are_the_fixed_set_the_design_names() -> None:
         "attached",
         "adopted",
         "merged",
+        "late_failure",
         "closed",
         "retired",
         "failed",

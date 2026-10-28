@@ -589,6 +589,13 @@ A commit with nothing to commit exits 1 and keeps the lease. A commit already ma
 by a live server is left for that server to deliver. A clean tree is simply released.
 A unit the tick held as `attached` stays held; `abk requeue` returns it.
 
+### `abk settle UNIT --accept [--reason TEXT]`
+
+Ends the wait of a `settling` unit (its pull request is merged and a check has not completed)
+and records it as `merged`, with the reason in its note. For a check that will never finish.
+Refuses a unit that is not settling. A unit is never requeued while settling or merged: a
+failed check starts a late fix on its own.
+
 ### `abk requeue UNIT [--restart | --rework] [--note TEXT | --note-file PATH]`
 
 Gives a `failed` or `held` unit another go. Three different things, and the

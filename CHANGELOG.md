@@ -45,7 +45,14 @@
   reading the merged pull request meanwhile. A settling unit counts as in progress and holds
   a dependent that waits for its merge, not one that waits only for its review. A merged pull
   request is never sent back to rework in place, and requeueing a settling or merged unit is
-  refused with a message pointing at `abk settle` and the late-fix route.
+  refused with a message pointing at `abk settle` and the late-fix route. When a check of a
+  merged pull request fails, its tests are run on the current default branch: if they pass
+  there the unit is merged and the failure is recorded as fixed on the base, and if they fail
+  there the same unit builds a second pull request (`<unit>: late fix for #<n>`) on a new
+  branch from the default branch, with the check's log in its prompt. After two late fixes a
+  further failure holds the unit for a person. `abk settle <unit> --accept [--reason TEXT]`
+  ends the wait of a check that will never finish, and `abk status` and `abk explain` show
+  what a settling unit waits for and the late fix.
 
 - Starting a unit now asks the usage guard the question the gate before its first agent
   step asks, with the unit's own review tier, size and forecast, so a unit admitted is one

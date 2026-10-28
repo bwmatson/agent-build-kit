@@ -49,6 +49,7 @@ from agent_build_kit.cli.e2e_cmd import held_status_lines
 from agent_build_kit.cli.policy_cmd import coverage_line
 from agent_build_kit.cli.retire_cmd import cmd_retire
 from agent_build_kit.compat_names import old_tag
+from agent_build_kit.forges.base import CheckStatus
 from agent_build_kit.forges.transport import HostUnavailable
 from agent_build_kit.graph.state import EventKind, Node, ResumeEvent, UnitRun
 from agent_build_kit.installation import Installation
@@ -121,6 +122,7 @@ from agent_build_kit.pipeline.e2e_schedule import any_due, write_due
 from agent_build_kit.pipeline.e2e_scope import product_path_warnings
 from agent_build_kit.pipeline.events import (
     Restack,
+    build_base_passes,
     build_base_tip,
     build_claim,
     build_delete_branch,
@@ -397,6 +399,7 @@ from agent_build_kit.pipeline.verdict import ReviewTier, SplitRequest
 from agent_build_kit.pipeline.verdict_record import VERDICTS
 from agent_build_kit.pipeline.verify import SplitHeld, Verification, VerifyRecord, verify_change
 from agent_build_kit.pipeline.vocabulary import (
+    ChecksOf,
     OverheadNode,
     WaitReason,
     effective_state,
@@ -1005,6 +1008,7 @@ def cmd_status(args: argparse.Namespace, inst: Installation) -> int:
         *_failed_waiting_lines(units),
         *_wait_ended_lines(inst, units),
         *_second_parent_lines(units),
+        *_settling_lines(units, checks_of),
         *_earlier_wait_lines(units),
         *_replaced_lines(units),
     ]:
@@ -3802,6 +3806,37 @@ def _second_parent_lines(units: list[StoredUnit]) -> list[str]:
     ]
 
 
+def late_fix_phrase(unit: StoredUnit) -> str:
+    """`late fix #<second> after #<first>` for a unit that has a late fix, else empty."""
+    fixes = [pull for pull in unit.pulls if pull.role == "late-fix"]
+    if not fixes:
+        return ""
+    earlier = [pull for pull in unit.pulls if pull.number != fixes[-1].number]
+    return f"late fix #{fixes[-1].number} after #{earlier[-1].number}" if earlier else ""
+
+
+def _settling_lines(units: list[StoredUnit], checks_of: ChecksOf) -> list[str]:
+    """A settling unit with the checks it waits for and since when it has been merged, and a
+    unit on a late fix with both pull requests."""
+    lines = []
+    for unit in units:
+        if unit.state == SETTLING:
+            open_checks = sorted(
+                check.name
+                for check in checks_of(unit)
+                if check.status in (CheckStatus.PENDING, CheckStatus.CANCELLED)
+            )
+            merged = [pull.merged_at for pull in unit.pulls if pull.merged_at]
+            since = f" since {merged[-1]:%Y-%m-%d %H:%M} UTC" if merged else ""
+            lines.append(
+                f"  {unit.id} ({unit_label(unit)}) #{unit.pr or '?'} settling: waiting for "
+                f"{', '.join(open_checks) or 'its checks'}{since}"
+            )
+        if phrase := late_fix_phrase(unit):
+            lines.append(f"  {unit.id} ({unit_label(unit)}) {phrase}")
+    return lines
+
+
 def _earlier_wait_lines(units: list[StoredUnit]) -> list[str]:
     """One line for each unit that has never started and waits on an earlier unit of its change
     (an acceptance or narrow unit), with what it waits on."""
@@ -6057,6 +6092,7 @@ def _dispatch(
         ),
         fetch_checks=build_fetch_check_logs(),
         rerun_checks=build_rerun_checks(),
+        base_passes=build_base_passes(inst.checkouts),
         # A pass polls between builds, so an event may name a unit still
         # building; the handlers leave it to a later poll. See `events`.
         waiting_path=inst.state_dir / "held-waiting.json",
