@@ -7,6 +7,7 @@
   backend runs unconfined and says so), and that `abk.yaml` and `abk.local.yaml` may be edited
   at any time: a change during a step is a warning with its diff, so there is no need to stop
   the timer first.
+
 - The planner now has a model role of its own, `plan`, defaulting to `opus`. Set it in
   `models:` or under a runtime's `models:`, or per machine with `ABK_PLAN_MODEL`. The
   planner used to run on whatever model the account defaulted to, so installations could
