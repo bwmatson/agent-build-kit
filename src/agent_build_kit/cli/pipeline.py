@@ -260,7 +260,6 @@ from agent_build_kit.pipeline.ui_review import (
     ui_listing,
     ui_notes_of,
     ui_reply_writer,
-    unit_of,
     unit_patch_of,
 )
 from agent_build_kit.pipeline.unit_size import (
@@ -6146,7 +6145,9 @@ def poll_all(inst: Installation, *, store: UnitStore, lane: Lane | None = None) 
             list_prs=ui_listing(inst, index, repo),
             unit_of=lambda number, repo=repo: index.unit_of(repo, number),
             ignore=lambda number, slug=slug: ignored(inst.state_dir, slug, number),
-            human_activity=lambda number, repo=repo: _note_human_activity(store, repo, number),
+            human_activity=lambda number, repo=repo: _note_human_activity(
+                store, index, repo, number
+            ),
             consume=lambda number, name, repo=repo: labels.consume(repo, number, name),
             log=log,
         ).poll()
@@ -6154,9 +6155,9 @@ def poll_all(inst: Installation, *, store: UnitStore, lane: Lane | None = None) 
     _refresh_graph_page(inst, store)
 
 
-def _note_human_activity(store: UnitStore, repo: str, number: int) -> None:
+def _note_human_activity(store: UnitStore, index: PrIndex, repo: str, number: int) -> None:
     """Stamp the unit whose pull request a person has answered, once."""
-    if unit := unit_of(store, repo, number):
+    if unit := index.unit_of(repo, number):
         store.mark_human_activity(unit.id)
 
 

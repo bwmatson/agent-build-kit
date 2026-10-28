@@ -255,34 +255,46 @@ def ui_listing(inst: Installation, store: UnitStore | PrIndex, repo: str) -> Lis
 class PrIndex:
     """The unit store's units by (repo name, pull request number). It reads the store when first
     asked and again only when the store's file has changed on disk (modification time, size
-    and inode; the store writes by atomic rename, so any write changes them), so a poll that
-    asks once per pull request reads the store once, and a unit written during it is still seen."""
+    and inode; the store writes by atomic rename, so a write changes them in practice), so a
+    poll that asks once per pull request reads the store once, and a unit written during it is
+    still seen."""
 
     def __init__(self, store: UnitStore) -> None:
-        self.store = store
+        self._store = store
         self._key: tuple[int, int, int] | None = None
         self._built = False
-        self._units: dict[tuple[str, int], StoredUnit] = {}
+        self._all: list[StoredUnit] = []
+        self._by_pr: dict[tuple[str, int], StoredUnit] = {}
 
     def _stat(self) -> tuple[int, int, int] | None:
         try:
-            seen = self.store.path.stat()
+            seen = self._store.path.stat()
         except FileNotFoundError:
             return None
         return (seen.st_mtime_ns, seen.st_size, seen.st_ino)
 
-    def unit_of(self, repo: str, pr: int) -> StoredUnit | None:
-        """The unit whose pull request is number `pr` of the repo named `repo`."""
+    def _refresh(self) -> None:
         # The stat comes first: a write landing during the read leaves a stale key, which the
         # next lookup rebuilds on.
         key = self._stat()
-        if not self._built or key != self._key:
-            units: dict[tuple[str, int], StoredUnit] = {}
-            for unit in self.store.all():
-                if unit.pr is not None:
-                    units.setdefault((unit.repo, unit.pr), unit)
-            self._units, self._key, self._built = units, key, True
-        return self._units.get((repo, pr))
+        if self._built and key == self._key:
+            return
+        every = self._store.all()
+        by_pr: dict[tuple[str, int], StoredUnit] = {}
+        for unit in every:
+            if unit.pr is not None:
+                by_pr.setdefault((unit.repo, unit.pr), unit)
+        self._all, self._by_pr, self._key, self._built = every, by_pr, key, True
+
+    def unit_of(self, repo: str, pr: int) -> StoredUnit | None:
+        """The unit whose pull request is number `pr` of the repo named `repo`."""
+        self._refresh()
+        return self._by_pr.get((repo, pr))
+
+    def units(self) -> list[StoredUnit]:
+        """Every unit in the store, as of the last change to its file."""
+        self._refresh()
+        return list(self._all)
 
 
 def indexed(store: UnitStore | PrIndex) -> PrIndex:
@@ -325,9 +337,7 @@ def unit_patch_of(inst: Installation, store: UnitStore | PrIndex) -> Callable[[s
         if unit is None or checkout is None or not checkout.is_dir() or not unit.branch:
             return ""
         try:
-            return unit_diff(
-                checkout, base=base_of(unit, index.store.all()), branch=unit.branch
-            ).patch
+            return unit_diff(checkout, base=base_of(unit, index.units()), branch=unit.branch).patch
         except NoDiff:
             return ""
 

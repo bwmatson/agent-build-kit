@@ -25,19 +25,19 @@ PULLS = 500
 
 
 class ReadSpy:
-    """Counts `UnitStore._read` calls, except those made inside `quiet()` (a test's own writes)."""
+    """Counts `UnitStore.all` calls, except those made inside `quiet()` (a test's own writes)."""
 
     def __init__(self, monkeypatch: pytest.MonkeyPatch) -> None:
         self.reads = 0
         self._muted = False
-        original = UnitStore._read
+        original = UnitStore.all
 
         def counted(store: UnitStore):
             if not self._muted:
                 self.reads += 1
             return original(store)
 
-        monkeypatch.setattr(UnitStore, "_read", counted)
+        monkeypatch.setattr(UnitStore, "all", counted)
 
     @contextmanager
     def quiet(self) -> Iterator[None]:
@@ -90,7 +90,7 @@ def test_a_listing_of_many_pull_requests_reads_the_store_at_most_twice(
     listed = listing(inst, store, monkeypatch, [1000 + n for n in range(PULLS)])()
 
     assert len(listed) == PULLS
-    assert spy.reads <= 2
+    assert 1 <= spy.reads <= 2
 
 
 def test_a_unit_written_between_two_listings_is_found_by_the_second(
@@ -115,7 +115,7 @@ def test_a_unit_written_between_two_listings_is_found_by_the_second(
 
     assert thread.id not in before[-1].conversation
     assert thread.id in after[-1].conversation
-    assert spy.reads <= 2
+    assert spy.reads == 2
 
 
 def test_pull_requests_with_no_unit_get_no_review_without_a_read_per_pull_request(
@@ -127,7 +127,7 @@ def test_pull_requests_with_no_unit_get_no_review_without_a_read_per_pull_reques
 
     assert [pull.number for pull in listed] == numbers
     assert all(pull.conversation == () for pull in listed)
-    assert spy.reads <= 2
+    assert 1 <= spy.reads <= 2
 
 
 def test_a_store_file_that_does_not_exist_gives_no_review_without_a_read_per_pull_request(
@@ -140,7 +140,7 @@ def test_a_store_file_that_does_not_exist_gives_no_review_without_a_read_per_pul
 
     assert [pull.number for pull in listed] == numbers
     assert all(pull.conversation == () for pull in listed)
-    assert spy.reads <= 2
+    assert spy.reads == 1
 
 
 def test_the_review_notes_for_many_pull_requests_read_the_store_at_most_twice(
@@ -151,7 +151,7 @@ def test_the_review_notes_for_many_pull_requests_read_the_store_at_most_twice(
     answers = [notes("app", 1000 + n) for n in range(100)]
 
     assert answers == [[]] * 100
-    assert spy.reads <= 2
+    assert 1 <= spy.reads <= 2
 
 
 def test_the_reply_writer_for_many_pull_requests_reads_the_store_at_most_twice(
@@ -162,4 +162,4 @@ def test_the_reply_writer_for_many_pull_requests_reads_the_store_at_most_twice(
     answers = [write("app", 1000 + n, []) for n in range(100)]
 
     assert answers == [[]] * 100
-    assert spy.reads <= 2
+    assert 1 <= spy.reads <= 2
