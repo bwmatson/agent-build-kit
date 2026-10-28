@@ -202,6 +202,8 @@ class ModelsConfig(Frozen):
     # The regression agent works out why a test fails and writes the fix change; it reasons
     # across history, so it gets the strongest model.
     regression: str = "opus"
+    # The planner's graph call (stub: the default is the implementation's).
+    plan: str = ""
 
 
 class RuntimeModelsConfig(Frozen):
@@ -213,6 +215,7 @@ class RuntimeModelsConfig(Frozen):
     review: str | None = None
     rework_review: str | None = None
     regression: str | None = None
+    plan: str | None = None
 
 
 # Points a unit is assumed to spend of each window before the history says otherwise.
