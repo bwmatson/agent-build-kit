@@ -38,6 +38,8 @@ class UnitState(StrEnum):
     RUNNING = "running"
     IN_REVIEW = "in_review"
     MERGED = "merged"
+    # The pull request is merged and the unit waits for its checks to complete.
+    SETTLING = "settling"
     CLOSED = "closed"
     FAILED = "failed"
     HELD = "held"
@@ -57,6 +59,7 @@ PLANNED = UnitState.PLANNED
 RUNNING = UnitState.RUNNING
 IN_REVIEW = UnitState.IN_REVIEW
 MERGED = UnitState.MERGED
+SETTLING = UnitState.SETTLING
 CLOSED = UnitState.CLOSED
 
 # Stopped on something it could not get past; its feedback says what. Nothing
