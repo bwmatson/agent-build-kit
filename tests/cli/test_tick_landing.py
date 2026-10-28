@@ -9,7 +9,7 @@ from typing import Any
 import pytest
 
 from agent_build_kit.cli import pipeline as cli
-from agent_build_kit.pipeline.units import IN_REVIEW, MERGED
+from agent_build_kit.pipeline.units import IN_REVIEW, SETTLING
 from tests.factories import new_unit
 from tests.forges.stand_in import StandInForge
 from tests.landing_support import apply_review, listed_review, make_landable
@@ -80,4 +80,4 @@ def test_an_error_landing_one_unit_is_logged_and_the_others_are_still_tried(
     assert len(tick.forge.merge_calls) == 2, "the unit after the one that failed was tried"
     assert "the host fell over" in capsys.readouterr().out
     states = {unit: tick.store.get(unit).state for unit in (FIRST, SECOND)}
-    assert sorted(states.values()) == [IN_REVIEW, MERGED]
+    assert sorted(states.values()) == [IN_REVIEW, SETTLING]

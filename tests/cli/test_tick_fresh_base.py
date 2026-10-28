@@ -15,7 +15,7 @@ from agent_build_kit.cli import pipeline as cli
 from agent_build_kit.forges.base import PullRequest
 from agent_build_kit.pipeline.stack_runner import UnitRunner
 from agent_build_kit.pipeline.unit_store import UnitStore
-from agent_build_kit.pipeline.units import IN_REVIEW, MERGED
+from agent_build_kit.pipeline.units import IN_REVIEW, MERGED, SETTLING
 from agent_build_kit.pipeline.wiring import (
     build_base_moved,
     build_fresh_base,
@@ -90,7 +90,7 @@ def test_a_parent_merged_on_the_forge_but_not_in_the_store_is_recorded_during_th
 
     assert tick(inst) == 0
 
-    assert store.get("chain/1").state == MERGED
+    assert store.get("chain/1").state == SETTLING
     assert retargeted == [("chain/2", "main")], "its build holds its branch: only the PR moves"
     assert removed == ["spec/chain/1"]
     assert deleted == [], "the branch stays while the child's build is on it"

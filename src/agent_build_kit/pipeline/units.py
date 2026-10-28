@@ -38,6 +38,8 @@ class UnitState(StrEnum):
     RUNNING = "running"
     IN_REVIEW = "in_review"
     MERGED = "merged"
+    # The pull request is merged and the unit waits for its checks to complete.
+    SETTLING = "settling"
     CLOSED = "closed"
     FAILED = "failed"
     HELD = "held"
@@ -57,6 +59,7 @@ PLANNED = UnitState.PLANNED
 RUNNING = UnitState.RUNNING
 IN_REVIEW = UnitState.IN_REVIEW
 MERGED = UnitState.MERGED
+SETTLING = UnitState.SETTLING
 CLOSED = UnitState.CLOSED
 
 # Stopped on something it could not get past; its feedback says what. Nothing
@@ -90,7 +93,7 @@ FINISHED_STATES = (MERGED, SATISFIED, CLOSED, UnitState.RETIRED)
 # had reviewed and which might not exist yet. The review loop, which can send a
 # unit back three times, makes that window much wider. A satisfied unit belongs
 # here too: it has nothing left to do and nothing that will change under it.
-REVIEWED = (IN_REVIEW, MERGED, SATISFIED)
+REVIEWED = (IN_REVIEW, SETTLING, MERGED, SATISFIED)
 
 
 class Priority(IntEnum):
@@ -1160,7 +1163,7 @@ def in_progress(unit: Unit, graph: Sequence[Unit] = ()) -> bool:
         return False
     if unit.state == FAILED:
         return not failed_waiting(unit, graph)
-    if unit.state in (RUNNING, IN_REVIEW):
+    if unit.state in (RUNNING, IN_REVIEW, SETTLING):
         return True
     if parked_on_split(unit):
         return False

@@ -30,6 +30,7 @@ EVERY_STATE = {
     "held",
     "in_review",
     "checking",
+    "settling",
     "merged",
     "satisfied",
     "closed",

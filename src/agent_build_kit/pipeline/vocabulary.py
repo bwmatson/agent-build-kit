@@ -26,6 +26,7 @@ from agent_build_kit.pipeline.units import (
     PLANNED,
     RUNNING,
     SATISFIED,
+    SETTLING,
     UnitState,
     waiting_on,
 )
@@ -104,6 +105,7 @@ STATES: Mapping[str, StateStyle] = {
     HELD: _style("held", "#fae8ff", "#a21caf", "#4a044e"),
     IN_REVIEW: _style("in-review", "#dbeafe", "#2563eb", "#172554"),
     "checking": _style("checking", "#e0f2fe", "#0284c7", "#082f49", "stroke-dasharray:3 3"),
+    SETTLING: _style("settling", "#ecfccb", "#65a30d", "#1a2e05", "stroke-dasharray:3 3"),
     MERGED: _style("merged", "#dcfce7", "#16a34a", "#052e16"),
     SATISFIED: _style("satisfied", "#d1fae5", "#059669", "#022c22"),
     CLOSED: _style("closed", "#fee2e2", "#dc2626", "#450a0a"),
@@ -129,6 +131,7 @@ _DESCRIPTIONS = {
     "held": "A person has taken this over; the pipeline will not touch it",
     "in_review": "Built and waiting for human review",
     "checking": "In review, but its checks are still running",
+    "settling": "Merged; waiting for its checks to complete",
     "failed": "Stopped on something it could not get past",
 }
 

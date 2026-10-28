@@ -9,7 +9,7 @@ from pathlib import Path
 
 from agent_build_kit.pipeline import events
 from agent_build_kit.pipeline.unit_store import Cause, UnitStore
-from agent_build_kit.pipeline.units import HELD, IN_REVIEW, MERGED
+from agent_build_kit.pipeline.units import HELD, IN_REVIEW, MERGED, SETTLING
 from tests.factories import deep_store
 
 
@@ -47,7 +47,7 @@ def test_the_unit_is_recorded_merged_with_the_cause_auto_landed(tmp_path: Path) 
     land(store, 1, Cause.AUTO_LANDED)
 
     stored = store.get("c/1")
-    assert stored.state == MERGED
+    assert stored.state == SETTLING
     assert stored.cause == Cause.AUTO_LANDED
     assert stored.history[-1]["cause"] == "auto_landed"
 

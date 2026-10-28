@@ -285,6 +285,17 @@ class StoredSplitRequest(Frozen):
     drivers: tuple[int, ...] = ()
 
 
+class Pull(Frozen):
+    """One pull request of a unit: the original, or a late fix after a merge."""
+
+    number: int
+    branch: str = ""
+    role: str = "original"
+    opened_at: datetime | None = None
+    merged_at: datetime | None = None
+    merge_sha: str | None = None
+
+
 class StoredUnit(Unit):
     """A unit plus what has happened to it."""
 
@@ -294,6 +305,7 @@ class StoredUnit(Unit):
     # merged, and for a unit merged before they were kept.
     merge_sha: str | None = None
     merged_tick: int | None = None
+    pulls: tuple[Pull, ...] = ()
     # The pull request's changed lines as the reviewer sees them, generated
     # files left out; None until it has a pull request.
     actual_lines: int | None = None
@@ -1379,6 +1391,9 @@ class UnitStore:
         self, unit_id: str, merge_sha: str | None, merged_tick: int | None
     ) -> None:
         self._update(unit_id, merge_sha=merge_sha, merged_tick=merged_tick)
+
+    def set_pulls(self, unit_id: str, pulls: Sequence[Pull]) -> None:
+        self._update(unit_id, pulls=tuple(pulls))
 
     def set_close_pending(self, unit_id: str, pending: ClosePending | None) -> None:
         """The close a satisfied unit still owes its pull request, or None once done."""

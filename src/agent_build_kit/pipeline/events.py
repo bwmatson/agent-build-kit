@@ -73,8 +73,10 @@ from agent_build_kit.pipeline.shell import git
 from agent_build_kit.pipeline.stack_runner import PREDECESSOR_NOTE, Comment
 from agent_build_kit.pipeline.ui_review import attach_hunks
 from agent_build_kit.pipeline.unit_store import (
+    KEEP,
     Cause,
     HeldBy,
+    Pull,
     RequeueReason,
     ReworkKind,
     StoredUnit,
@@ -90,6 +92,7 @@ from agent_build_kit.pipeline.units import (
     PLANNED,
     RUNNING,
     SATISFIED,
+    SETTLING,
     UnitState,
     base_of,
     branch_name,
@@ -282,7 +285,7 @@ def on_merged(
         # we don't know moves the wrong branch, so do nothing at all.
         log(f"merged #{pr}: no unit recorded for it in {repo}, ignoring")
         return True
-    if merged.state == MERGED:
+    if merged.state in (MERGED, SETTLING):
         # The landing and the poller both report a merge, in either order: the
         # second finds it recorded and moves, cleans and records nothing again.
         log(f"merged #{pr}: {merged.id} already recorded merged, nothing to do")
@@ -322,6 +325,34 @@ def on_merged(
             clear_intent(landing_path, repo=repo, pr=pr)
     except BranchBusy as error:
         return _deferred(f"merged #{pr}", merged, error, log)
+    return True
+
+
+def on_settled(
+    pr: int,
+    *,
+    repo: str,
+    store: UnitStore,
+    claim: Claim = _unclaimed,
+    merge_record: MergeRecord | None = None,
+    log: Log = print,
+) -> bool:
+    """Every check of a settling unit's merged pull request has completed clean: the unit
+    becomes merged, with the tick that saw it settle. A unit not settling changes nothing."""
+    unit = _find(store, repo, pr)
+    if unit is None or unit.state != SETTLING:
+        return True
+    try:
+        with claim(unit):
+            current = store.get(unit.id)
+            if current.state != SETTLING:
+                return True
+            sha, tick = merge_record(current) if merge_record is not None else (None, None)
+            store.set_merge_record(current.id, current.merge_sha or sha, tick)
+            store.set_state(current.id, MERGED, cause=KEEP)
+            log(f"settled #{pr}: {current.id} merged, every check complete")
+    except BranchBusy as error:
+        return _deferred(f"settled #{pr}", unit, error, log)
     return True
 
 
@@ -661,10 +692,26 @@ def _record_merge(
     merge_record: MergeRecord | None,
     log: Log,
 ) -> None:
+    sha = None
     if merge_record is not None:
-        store.set_merge_record(merged.id, *merge_record(merged))
-    store.set_state(merged.id, MERGED, cause=cause)
-    log(f"merged #{merged.pr}: {merged.id}")
+        # The tick is set when the unit settles, not when its pull request merges.
+        sha, _ = merge_record(merged)
+        store.set_merge_record(merged.id, sha, None)
+    if merged.pr is not None:
+        store.set_pulls(
+            merged.id,
+            (
+                Pull(
+                    number=merged.pr,
+                    branch=merged.branch,
+                    role="original",
+                    merged_at=spans.clock.now(),
+                    merge_sha=sha,
+                ),
+            ),
+        )
+    store.set_state(merged.id, SETTLING, cause=cause)
+    log(f"merged #{merged.pr}: {merged.id} settling, waiting for its checks")
 
     release_children(
         merged,
@@ -851,7 +898,7 @@ def _dependents_of(parent: StoredUnit, graph: list[StoredUnit]) -> list[StoredUn
         for unit in graph
         if parent.id in (*current_dependencies(unit, graph), *through_satisfied(unit, graph))
         and unit.repo == parent.repo
-        and unit.state not in (MERGED, CLOSED)
+        and unit.state not in (SETTLING, MERGED, CLOSED)
     ]
 
 
@@ -2379,6 +2426,15 @@ def build_dispatch(
                 resume=resume,
                 lane=lane,
                 landing_path=landing_path,
+                merge_record=merge_record,
+                log=log,
+            )
+        if event == "settled":
+            return on_settled(
+                number,
+                repo=repo,
+                store=store,
+                claim=claim,
                 merge_record=merge_record,
                 log=log,
             )

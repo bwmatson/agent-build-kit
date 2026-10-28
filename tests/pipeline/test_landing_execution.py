@@ -13,7 +13,7 @@ import pytest
 from agent_build_kit.forges.base import PullRequest
 from agent_build_kit.pipeline.pr_poller import HOLD_LABEL
 from agent_build_kit.pipeline.unit_store import Cause
-from agent_build_kit.pipeline.units import IN_REVIEW, MERGED
+from agent_build_kit.pipeline.units import IN_REVIEW, SETTLING
 from agent_build_kit.serve.review import ReviewStore
 from tests.forges.stand_in import StandInForge
 from tests.landing_support import HEAD, PR, UNIT, landing, make_landable
@@ -37,7 +37,7 @@ def test_it_is_recorded_merged_with_the_cause_auto_landed_and_its_intent_removed
     landed.land()
 
     unit = landed.store.get(UNIT)
-    assert (unit.state, unit.cause) == (MERGED, Cause.AUTO_LANDED), "\n".join(landed.logged)
+    assert (unit.state, unit.cause) == (SETTLING, Cause.AUTO_LANDED), "\n".join(landed.logged)
     assert not landed.intent()
 
 
@@ -101,7 +101,7 @@ def test_a_pull_request_a_person_already_merged_is_recorded_and_not_merged_again
 
     unit = landed.store.get(UNIT)
     assert landed.forge.merge_calls == []
-    assert (unit.state, unit.cause) == (MERGED, Cause.MERGED), "\n".join(landed.logged)
+    assert (unit.state, unit.cause) == (SETTLING, Cause.MERGED), "\n".join(landed.logged)
 
 
 def test_a_child_whose_parent_landed_in_the_same_pass_waits_for_the_next_tick(
@@ -113,7 +113,7 @@ def test_a_child_whose_parent_landed_in_the_same_pass_waits_for_the_next_tick(
     landed.land()
 
     assert landed.forge.merge_calls == [(PR, HEAD)]
-    assert landed.store.get(UNIT).state == MERGED
+    assert landed.store.get(UNIT).state == SETTLING
     assert landed.store.get("c/2").state == IN_REVIEW
 
 
