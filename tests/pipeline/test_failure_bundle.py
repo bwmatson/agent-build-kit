@@ -3,12 +3,15 @@
 
 The bundle writer is exercised directly for what it keeps and drops, and through
 `build_unit_test` for what a failing run puts in it. The runner answers as the processes would:
-git with its porcelain text, the test run with a pytest header and the recorded failure.
+git with its porcelain text, the test run with the recorded failure of a `-q` run, and the
+profile's own test commands.
 """
 
 from __future__ import annotations
 
 import json
+import os
+import shlex
 import subprocess
 from collections.abc import Collection, Iterator
 from datetime import UTC, datetime, timedelta
@@ -17,6 +20,7 @@ from typing import cast
 
 import pytest
 
+from agent_build_kit.config import RepoConfig
 from agent_build_kit.pipeline import spans
 from agent_build_kit.pipeline.flakes import FlakeFound
 from agent_build_kit.pipeline.run_log import (
@@ -32,12 +36,13 @@ from tests.redaction_fakes import NAME, SECRET, known
 
 RECORDED = Path(__file__).resolve().parents[1] / "fixtures" / "external" / "pytest"
 START = datetime(2026, 10, 11, 12, 0, 0, tzinfo=UTC)
-HEADER = (
-    "============================= test session starts ==============================\n"
-    "platform linux -- Python 3.13.1, pytest-8.3.3, pluggy-1.5.0\n"
-    "plugins: xdist-3.6.1\n"
+# What `pytest --version --version` prints, which the profile queries because a `-q` run prints
+# no header.
+VERSIONS = (
+    "pytest 8.3.3\n"
+    "registered third-party plugins:\n"
+    "  pytest-xdist-3.6.1 at /env/lib/xdist/plugin.py\n"
 )
-RUN = ["uv", "run", "pytest", "-n", "4", "-q"]
 
 
 def _bundle(
@@ -170,25 +175,21 @@ def test_the_bundles_of_another_unit_are_left_alone(tmp_path: Path) -> None:
 # --- a failing unit-test run ------------------------------------------------------
 
 
-def _one_run(
-    self: PythonUvProfile, repo: Path, changed: list[str], *, root_extras: list[str]
-) -> list[list[str]]:
-    return [RUN]
-
-
 class _Profile(PythonUvProfile):
-    """The python-uv profile running one lint command and one test command."""
+    """The python-uv profile with one lint command; its test commands are its own."""
 
     def lint_command(self, base: str) -> list[str]:
         return ["lint"]
 
-    # Assigned, not defined: a `def test_*` here would be taken for a test by a selection by name.
-    test_commands = _one_run
+
+def _tests_of(scratch: Path) -> list[list[str]]:
+    return _Profile().test_commands(scratch, ["tests/test_one.py"], root_extras=[])
 
 
 class _Machine:
-    """Git, lint and the test run as the processes answer; the run itself, when it is made,
-    removes one file under `tests/` and adds another, as something else on the host might."""
+    """Git, lint, the version query and the test run as the processes answer; the run itself,
+    when it is made, removes one file under `tests/` and adds another, as something else on the
+    host might. A test run prints what a `-q` run prints: no header."""
 
     def __init__(self, root: Path, *, reruns: list[int], passing: bool = False) -> None:
         self.root = root
@@ -209,18 +210,23 @@ class _Machine:
         if command[:2] == ["git", "rev-parse"]:
             sha = "b" * 7 if command[-1] == "main" else "a" * 7
             return subprocess.CompletedProcess(command, 0, sha + "\n", "")
+        if command[-2:] == ["--version", "--version"]:
+            return subprocess.CompletedProcess(command, 0, VERSIONS, "")
         if any("::" in argument for argument in command):
             return subprocess.CompletedProcess(command, self.reruns.pop(0), "1 passed\n", "")
         if self.passing:
-            return subprocess.CompletedProcess(command, 0, HEADER + "5 passed in 0.03s\n", "")
+            return subprocess.CompletedProcess(command, 0, "5 passed in 0.03s\n", "")
         (self.root / "tests" / "test_gone.py").unlink(missing_ok=True)
         (self.root / "tests" / "test_new.py").write_text("")
         failure = (RECORDED / "console_failures.txt").read_text().split("\n", 1)[1]
-        return subprocess.CompletedProcess(command, 1, HEADER + failure, "")
+        return subprocess.CompletedProcess(command, 1, failure, "")
 
 
 @pytest.fixture
 def scratch(tmp_path: Path) -> Iterator[Path]:
+    (tmp_path / "pyproject.toml").write_text(
+        '[project]\nname = "app"\nversion = "0"\ndependencies = ["pytest-xdist"]\n'
+    )
     (tmp_path / "tests").mkdir()
     (tmp_path / "tests" / "test_gone.py").write_text("")
     (tmp_path / "tests" / "test_kept.py").write_text("")
@@ -266,7 +272,6 @@ def test_a_failing_run_saves_its_whole_output(
     assert bundle.name.startswith("add-marker-01-")
     text = (bundle / "output.txt").read_text()
     assert "short test summary info" in text
-    assert "plugins: xdist-3.6.1" in text
 
 
 def test_the_context_names_the_command_the_times_the_shas_and_the_versions(
@@ -277,17 +282,38 @@ def test_the_context_names_the_command_the_times_the_shas_and_the_versions(
 
     context = json.loads((_only(directory) / "context.json").read_text())
 
-    assert context["command"] == "uv run pytest -n 4 -q"
+    command = _tests_of(scratch)[0]
+    assert "auto" in command and "--maxprocesses=8" in command, "the profile's own command"
+    assert context["command"] == shlex.join(command)
     assert context["unit"] == "add-marker/1"
     assert context["tick"] == 7
-    assert context["workers"] == 4
+    assert context["round"] == 1
+    assert datetime.fromisoformat(context["process_started"]) <= datetime.now(UTC)
+    assert context["workers_setting"] == "auto"
+    assert context["workers"] == min(os.cpu_count() or 1, 8)
     assert context["base"] == "b" * 7
     assert context["head"] == "a" * 7
     assert datetime.fromisoformat(context["started"]) < datetime.fromisoformat(context["ended"])
-    versions = json.dumps(context["versions"])
-    for version in ("3.13.1", "8.3.3", "3.6.1"):
-        assert version in versions
+    assert context["versions"] == {"pytest": "8.3.3", "pytest-xdist": "3.6.1"}
     assert "env" not in context, "no environment variables"
+
+
+def test_a_run_given_no_tick_records_none_and_not_a_made_up_number(
+    scratch: Path, tmp_path: Path
+) -> None:
+    directory = tmp_path / "bundles"
+    unit_test = build_unit_test(
+        profile=cast(ToolchainProfile, _Profile()),
+        run=_Machine(scratch, reruns=[1, 1]),
+        changed=lambda *a: ["tests/test_one.py"],
+        failures_dir=directory,
+    )
+    unit_test(cwd=scratch, base="main")
+
+    context = json.loads((_only(directory) / "context.json").read_text())
+
+    assert context["tick"] is None
+    assert context["pid"] == os.getpid()
 
 
 def test_the_machine_is_sampled_at_the_start_and_again_at_the_end(
@@ -317,6 +343,50 @@ def test_the_worktree_is_described_before_and_after_and_names_a_file_that_vanish
     assert "tests/test_gone.py" not in worktree["after"]["tests"]
     assert worktree["vanished"] == ["tests/test_gone.py"]
     assert worktree["appeared"] == ["tests/test_new.py"]
+
+
+def test_a_failing_selected_run_saves_a_bundle_too(scratch: Path, tmp_path: Path) -> None:
+    directory = tmp_path / "bundles"
+    unit_test = build_unit_test(
+        profile=cast(ToolchainProfile, _Profile()),
+        run=_Machine(scratch, reruns=[1, 1]),
+        changed=lambda *a: ["tests/test_one.py"],
+        repo=RepoConfig(
+            path=scratch,
+            changelog=None,
+            checks={"affected": {"mode": "command", "command": "select {changed_files}"}},
+        ),
+        failures_dir=directory,
+    )
+
+    passed, _ = unit_test(
+        cwd=scratch, base="main", failed_output="FAILED tests/test_one.py::test_a - boom"
+    )
+
+    assert not passed
+    context = json.loads((_only(directory) / "context.json").read_text())
+    assert context["command"] == "select tests/test_one.py", "the selected run, not a full one"
+
+
+def test_a_failing_repeat_of_the_units_own_tests_saves_a_bundle_too(
+    scratch: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(
+        "agent_build_kit.pipeline.wiring.touched_tests",
+        lambda tree, ref, head=None: [("tests/test_new.py", "test_added")],
+    )
+    directory = tmp_path / "bundles"
+
+    passed, _ = build_unit_test(
+        profile=cast(ToolchainProfile, _Profile()),
+        run=_Machine(scratch, reruns=[1], passing=True),
+        changed=lambda *a: ["tests/test_new.py"],
+        failures_dir=directory,
+    )(cwd=scratch, base="main")
+
+    assert not passed, "the full run passed and the repeat failed"
+    context = json.loads((_only(directory) / "context.json").read_text())
+    assert "tests/test_new.py::test_added" in context["command"]
 
 
 def test_a_passing_run_saves_no_bundle(scratch: Path, tmp_path: Path) -> None:

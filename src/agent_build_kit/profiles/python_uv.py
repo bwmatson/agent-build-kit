@@ -63,8 +63,12 @@ UNIT_REPORT_FLAGS = ["--durations=15", "--durations-min=3.0", "-rfE"]
 DURATIONS_RULE = re.compile(r"^=+ slowest (?:\d+ )?durations =+\s*$")
 DURATION_ENTRY = re.compile(r"^(\d+(?:\.\d+)?)s +(setup|call|teardown) +(\S.*)$")
 SUMMARY_MARK = "short test summary info"
-# `pytest-8.3.3` as the run's header prints it.
-_NAME_VERSION = re.compile(r"^(?P<name>[A-Za-z][\w.-]*?)-(?P<version>\d[\w.]*)$")
+# The first line of `pytest --version --version`, and each plugin line after it:
+# `  pytest-xdist-3.6.1 at /path/to/plugin.py`.
+_PYTEST_VERSION = re.compile(r"^(?:This is )?pytest(?: version)? (?P<version>\d[\w.]*)")
+_PLUGIN_VERSION = re.compile(
+    r"^\s+(?P<name>[A-Za-z][\w.]*(?:-[A-Za-z][\w.]*)*)-(?P<version>\d[\w.]*) at "
+)
 SUMMARY_ENTRY = re.compile(r"^(?:FAILED|ERROR) (.+?)(?: - (.*))?$")
 # The lock-freshness and environment-freshness commands a path-source draft's check starts with.
 DRIFT_CHECKS = "uv lock --check && uv sync --check"
@@ -343,25 +347,40 @@ class PythonUvProfile:
         parts = path.split("/")
         return "tests" in parts[:-1] or bool(_TEST_FILE.match(parts[-1]))
 
-    def run_facts(self, command: list[str], output: str) -> dict[str, object]:
+    def version_probe(self, command: list[str]) -> list[str] | None:
+        """pytest's own version query, run in the environment `command` uses: the test commands
+        run at `-q`, where pytest prints no header, and `--version --version` lists the plugins."""
+        program = _pytest_program(command)
+        if program is None:
+            return None
+        return [*command[: program + 1], "--version", "--version"]
+
+    def run_facts(self, command: list[str], probe_output: str) -> dict[str, object]:
         facts: dict[str, object] = {}
         program = _pytest_program(command)
         words = command[program + 1 :] if program is not None else []
-        if "-n" in words[:-1] and words[words.index("-n") + 1].isdigit():
-            facts["workers"] = int(words[words.index("-n") + 1])
+        if "-n" in words[:-1]:
+            setting = words[words.index("-n") + 1]
+            facts["workers_setting"] = setting
+            cap = next(
+                (
+                    int(word.partition("=")[2])
+                    for word in words
+                    if word.startswith("--maxprocesses=") and word.partition("=")[2].isdigit()
+                ),
+                None,
+            )
+            if setting.isdigit():
+                facts["workers"] = int(setting)
+            else:
+                cpus = os.cpu_count() or 1
+                facts["workers"] = min(cpus, cap) if cap else cpus
         versions: dict[str, str] = {}
-        for line in output.splitlines():
-            if line.startswith("platform "):
-                for item in line.partition(" -- ")[2].split(", "):
-                    name, _, version = item.strip().partition(" ")
-                    if version:
-                        versions[name] = version
-                    elif match := _NAME_VERSION.match(name):
-                        versions[match["name"]] = match["version"]
-            elif line.startswith("plugins: "):
-                for item in line[len("plugins: ") :].split(", "):
-                    if match := _NAME_VERSION.match(item.strip()):
-                        versions[match["name"]] = match["version"]
+        for line in probe_output.splitlines():
+            if match := _PYTEST_VERSION.match(line):
+                versions["pytest"] = match["version"]
+            elif match := _PLUGIN_VERSION.match(line):
+                versions[match["name"]] = match["version"]
         if versions:
             facts["versions"] = versions
         return facts

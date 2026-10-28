@@ -1278,7 +1278,7 @@ def build_unit_test(
     failures_dir: Path | None = None,
     now: Callable[[], datetime] | None = None,
     machine: Callable[[], dict[str, object]] | None = None,
-    tick: int = 0,
+    tick: int | None = None,
 ) -> Callable[..., tuple[bool, str]]:
     """Lint the unit's own diff, then test the members it reaches.
 
@@ -1377,7 +1377,7 @@ def build_unit_test(
             return full(cwd, base, work, whole_repo, lint=True)
         earlier = last_full.get(spans.current_unit.get()[0])
         figures: list[tuple[float, int]] = []
-        selected = run_selection(plan, figures)
+        selected = run_selection(plan, figures, base=base)
         if selected is not None and not selected[0]:
             record_selected(figures, "not_run", earlier)
             return selected
@@ -1411,7 +1411,7 @@ def build_unit_test(
         figures: list[tuple[float, int]] = []
         why: list[str] = []
         flaked: list[Flake] = []
-        outcome = run_selection(plan, figures, why, own_ids, flaked)
+        outcome = run_selection(plan, figures, why, own_ids, flaked, base=base)
         if outcome is None:
             _say(log, f"moved base: ran the full suite ({why[0]})")
             return None
@@ -1585,8 +1585,7 @@ def build_unit_test(
                 if is_test:
                     figures.append((spans.clock.monotonic() - started, _counted(toolchain, result)))
                 if not toolchain.tolerates_exit(command, result.returncode):
-                    if before is not None:
-                        save_bundle(before, command, result, where, toolchain, base)
+                    save_bundle(before, command, result, where, toolchain, base)
                     if isolate(command, result, where, toolchain, log=log, base=base):
                         continue
                     return False, _failure(command, result, where)
@@ -1610,31 +1609,41 @@ def build_unit_test(
         )
 
     def save_bundle(
-        before: tuple[datetime, dict[str, object], dict[str, object]],
+        before: tuple[datetime, dict[str, object], dict[str, object]] | None,
         command: list[str],
         result: subprocess.CompletedProcess,
         where: Path,
         toolchain: ToolchainProfile,
         base: str,
     ) -> None:
-        """Save the failing test run `before` began as a bundle, with its end sampled now."""
-        assert failures_dir is not None
+        """Save the test run `before` began as a bundle, with its end sampled now, when it
+        failed. Every place a test command is run calls this with what `begin_evidence` gave,
+        so no failing run is missed; None (no bundles kept) or a run that passed saves nothing."""
+        if before is None or failures_dir is None:
+            return
+        if toolchain.tolerates_exit(command, result.returncode):
+            return
         started, machine_before, tree_before = before
         ended = clock()
         sampled = machine or failure_evidence.machine_sample
         output = f"{result.stdout}\n{result.stderr}".strip()
-        unit, change, _, _ = spans.current_unit.get()
-        facts = (
-            toolchain.run_facts(command, output) if isinstance(toolchain, ReportsRunFacts) else {}
-        )
+        unit, change, _, round_number = spans.current_unit.get()
+        facts: dict[str, object] = {}
+        if isinstance(toolchain, ReportsRunFacts):
+            probe = toolchain.version_probe(command)
+            facts = toolchain.run_facts(
+                command, failure_evidence.probe_output(run, where, probe) if probe else ""
+            )
         context: dict[str, object] = {
             "command": shlex.join(command),
             "started": started.isoformat(),
             "ended": ended.isoformat(),
             "seconds": (ended - started).total_seconds(),
             "unit": unit,
+            "round": round_number,
             "tick": tick,
             "pid": os.getpid(),
+            "process_started": failure_evidence.PROCESS_STARTED.isoformat(),
             "cpus": os.cpu_count(),
             **failure_evidence.shas(run, where, base),
             **facts,
@@ -1698,6 +1707,7 @@ def build_unit_test(
                 if again is None:
                     continue
                 for _ in range(runs):
+                    before = begin_evidence(where, toolchain)
                     result = ran(again, where, toolchain)
                     nothing = (
                         result.returncode != 0
@@ -1705,6 +1715,7 @@ def build_unit_test(
                     )
                     if nothing:
                         break
+                    save_bundle(before, again, result, where, toolchain, base)
                     if not toolchain.tolerates_exit(again, result.returncode):
                         return False, _failure(again, result, where)
         return True, ""
@@ -1751,6 +1762,8 @@ def build_unit_test(
         why: list[str] | None = None,
         own: dict[Path, list[str]] | None = None,
         flaked: list[Flake] | None = None,
+        *,
+        base: str = "",
     ) -> tuple[bool, str] | None:
         """(passed, what failed), or None when a command could not start, with the reason
         added to `why`. The time and test count of each selected test command are added to
@@ -1760,6 +1773,7 @@ def build_unit_test(
         for where, toolchain, commands in plan:
             for index, command in enumerate(commands):
                 started = spans.clock.monotonic()
+                before = begin_evidence(where, toolchain) if index > 0 else None
                 try:
                     result = ran(command, where, toolchain)
                 except OSError as error:
@@ -1784,6 +1798,8 @@ def build_unit_test(
                     figures.append((spans.clock.monotonic() - started, _counted(toolchain, result)))
                 # The first command is lint; a selector that picks nothing is a pass.
                 nothing = index > 0 and result.returncode == toolchain.no_tests_collected_exit
+                if not nothing:
+                    save_bundle(before, command, result, where, toolchain, base)
                 if not nothing and not toolchain.tolerates_exit(command, result.returncode):
                     try:
                         if index > 0 and isolate(
