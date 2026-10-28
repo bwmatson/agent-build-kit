@@ -2389,9 +2389,12 @@ def build_dispatch(
     paused: Callable[[StoredUnit], bool] = lambda unit: False,
     landing_path: Path | None = None,
     merge_record: MergeRecord | None = None,
+    base_passes: Callable[[StoredUnit, str], bool] | None = None,
     log: Log = print,
 ) -> Callable[..., bool]:
     """The callable `pr_poller` hands each event to.
+
+    `base_passes` runs a late-failed check's tests, from its log, on the default branch.
 
     The event names are the poller's contract; an unhandled one is logged
     rather than dropped, because silence here is indistinguishable from a
