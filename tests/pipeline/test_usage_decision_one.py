@@ -20,13 +20,14 @@ from agent_build_kit.pipeline.admission_record import (
     AdmissionRecord,
     read_admissions,
 )
-from agent_build_kit.pipeline.unit_store import StoredUnit, UnitStore
+from agent_build_kit.pipeline.unit_store import HeldBy, StoredSplitRequest, StoredUnit, UnitStore
+from agent_build_kit.pipeline.units import HELD
 from agent_build_kit.pipeline.verdict import ReviewTier
-from agent_build_kit.pipeline.vocabulary import WaitReason
+from agent_build_kit.pipeline.vocabulary import OverheadNode, WaitReason
 from tests.cli.test_admission_asks_own_account import isolated, round_of, unit, waits  # noqa: F401
 from tests.conftest import make_installation
 from tests.usage_forecast_fixtures import spec_history
-from tests.usage_forecast_gate import EXACT, ask, keep_points, lay
+from tests.usage_forecast_gate import EXACT, ask, keep_points, lay, lay_calls
 from tests.usage_host import Host, payload
 
 MINUTE = timedelta(minutes=1)
@@ -129,3 +130,23 @@ def test_the_admission_record_carries_the_reading_the_forecast_the_margin_and_th
     assert usage.forecast > 0
     assert usage.forecast == pytest.approx(gate.forecast)
     assert (gate.threshold, gate.margin) == (THRESHOLD, MARGIN)
+
+
+def test_a_round_that_reserves_the_plan_call_leaves_a_units_record_as_the_gate_asks(
+    tmp_path: Path, host: Host
+) -> None:
+    """A unit held for its size is split by a plan call, so the round's ask reserves its cost.
+    The gate before the other unit's first step does not, and the record is the gate's."""
+    request = StoredSplitRequest(earned="full", planned="auto", lines=950, ceiling=750)
+    held = unit("held/1", "app").model_copy(
+        update={"state": HELD, "held_by": HeldBy.SIZE, "split_request": request}
+    )
+    inst, store = workspace(tmp_path, host, [held, tiered("two/1", ReviewTier.FULL)], session=40.0)
+    lay_calls(host, OverheadNode.PLAN.value, 0.4)
+
+    assert "two/1" in round_of(inst, store)
+    gate = ask(ReviewTier.FULL, "two/1")
+
+    usage = record_of(inst, "two/1").usage
+    assert usage.forecast is not None
+    assert usage.forecast == pytest.approx(gate.forecast)

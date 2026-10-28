@@ -20,6 +20,7 @@ from agent_build_kit.pipeline.admission_record import (
     read_admissions,
 )
 from agent_build_kit.pipeline.unit_store import UnitStore
+from agent_build_kit.pipeline.usage_guard import claude_limits
 from tests.cli.test_admission_asks_own_account import isolated, round_of, unit  # noqa: F401
 from tests.conftest import make_installation
 from tests.usage_host import Host, payload, refused
@@ -107,6 +108,10 @@ def test_a_start_on_an_estimate_records_the_estimate_and_the_starts_made_on_it(
     assert usage.age_seconds is not None
     assert usage.age_seconds >= 170 * 60
     assert usage.threshold == 92
+    # The estimate forecast the unit and kept the configured margin, and the record says so.
+    assert usage.forecast is not None
+    assert usage.forecast > 0
+    assert usage.margin == claude_limits().usage_headroom_margin_pct
 
 
 def test_two_units_admitted_on_one_estimate_in_a_round_record_successive_start_counts(

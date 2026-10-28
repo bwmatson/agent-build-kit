@@ -1609,10 +1609,19 @@ def _decide_on_estimate(
         "threshold": nearest.threshold,
         "ramp": _ramp_of(nearest.name, Limits.configured()),
     }
-    if not all(each.ample for each in estimates):
+    over = next((each for each in estimates if not each.ample), None)
+    if over is not None:
         return Decision(
-            may_start=False, reason=text + _forecast_note(estimates), resume_at=next_call, **facts
+            may_start=False,
+            reason=text + _forecast_note(estimates),
+            resume_at=next_call,
+            forecast=over.forecast,
+            margin=over.margin,
+            **facts,
         )
+    # The window with the least room left decides an allowance, as in `_forecasted`.
+    closest = min(estimates, key=lambda e: e.threshold - e.estimate - e.forecast)
+    facts |= {"forecast": closest.forecast, "margin": closest.margin}
     admitted = _admitted(cached)
     cap = claude_limits().usage_estimate_max_starts
     if (unit is None or unit not in admitted) and len(admitted) >= cap:

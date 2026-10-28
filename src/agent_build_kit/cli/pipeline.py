@@ -1796,7 +1796,6 @@ def _round_ask(startable: Sequence[StoredUnit], *, planning: bool) -> Ask:
         default=None,
     )
     return Ask(
-        unit=cheapest.id if cheapest else None,
         tier=tier,
         lines=cheapest.estimated_lines if cheapest else None,
         step=OverheadNode.PLAN.value if planning and not startable else None,
@@ -1804,10 +1803,13 @@ def _round_ask(startable: Sequence[StoredUnit], *, planning: bool) -> Ask:
     )
 
 
-def _decision_key(account: claude_account.Account, tier: ReviewTier | None, lines: int) -> str:
+def _decision_key(
+    account: claude_account.Account, tier: ReviewTier | None, lines: int, *, plan_due: bool = False
+) -> str:
     """Where `decided` keeps the decision for a start of this tier and size on `account`: units
-    of one tier and size are asked of the guard once."""
-    return f"{claude_account.account_key(account)}|{tier}|{lines}"
+    of one tier and size are asked of the guard once. A start that reserves the plan call is not
+    the start a unit's gate asks for, so it is kept apart."""
+    return f"{claude_account.account_key(account)}|{tier}|{lines}|{plan_due}"
 
 
 def _account_decision(
@@ -1827,23 +1829,19 @@ def _account_decision(
         named = Ask(
             unit=unit.id, tier=ReviewTier.parse(unit.review_tier), lines=unit.estimated_lines
         )
-        # The round asked for its cheapest start: an account that refused that refuses them all.
-        refusal = (decided or {}).get(key)
-        if refusal is not None and not refusal.may_start:
-            return refusal
     sized = (
-        _decision_key(account, named.tier, named.lines)
+        _decision_key(account, named.tier, named.lines, plan_due=named.plan_due)
         if named.lines is not None and named.step is None
         else None
     )
     found = sized if unit is not None else key
     if decided is not None and found in decided:
         return decided[found]
-    # Named as the gate names the unit it asks for: its id is in the reason, and no allowance on
-    # an estimate is kept under it, since no step is started.
+    # A unit's ask is made as the gate makes it: the unit is named, so its id is in the reason
+    # and an allowance on an estimate is kept under it. The round's ask names no unit.
     scope = (
-        starting(named.unit, review_tier=named.tier, estimated_lines=named.lines)
-        if named.unit is not None
+        starting(unit.id, review_tier=named.tier, estimated_lines=named.lines)
+        if unit is not None
         else nullcontext()
     )
     with scope:
@@ -1852,6 +1850,7 @@ def _account_decision(
             decide=may_start_unit,
             account=account,
             review_tier=named.tier,
+            estimated_lines=named.lines,
             step=named.step,
             plan_due=named.plan_due,
         )
