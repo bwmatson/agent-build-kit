@@ -7,10 +7,13 @@ a `-q` run prints: no header. It runs in the `scratch` checkout of `tests/pipeli
 
 from __future__ import annotations
 
+import json
 import subprocess
 from datetime import UTC, datetime
 from pathlib import Path
 
+from agent_build_kit.installation import Installation
+from agent_build_kit.pipeline.flakes import flake_record
 from agent_build_kit.profiles.python_uv import PythonUvProfile
 
 RECORDED = Path(__file__).resolve().parent / "fixtures" / "external" / "pytest"
@@ -18,6 +21,16 @@ START = datetime(2026, 10, 11, 12, 0, 0, tzinfo=UTC)
 # What `pytest --version --version` printed, as recorded: the profile queries it because a `-q`
 # run prints no header.
 VERSIONS = (RECORDED / "version_verbose.txt").read_text()
+
+
+def storms(installation: Installation) -> list[dict]:
+    """The storm rows of the flake record, as written."""
+    try:
+        lines = flake_record(installation).path.read_text(encoding="utf-8").splitlines()
+    except FileNotFoundError:
+        return []
+    rows = [json.loads(line) for line in lines if line.strip()]
+    return [row for row in rows if row.get("kind") == "storm"]
 
 
 class BundleProfile(PythonUvProfile):

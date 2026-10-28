@@ -98,11 +98,7 @@ def write_failure_bundle(
             + f"\n[output cut at {cap} bytes; {len(encoded) - cap} more were dropped]\n"
         )
     try:
-        path.mkdir(parents=True, exist_ok=True)
-        (path / "output.txt").write_text(text)
-        for name, facts in (("context", context), ("machine", machine), ("worktree", worktree)):
-            body = redact_text(json.dumps(facts, indent=2, default=str), where="failure bundle")
-            (path / f"{name}.json").write_text(body)
+        _write_evidence(path, text, context, machine, worktree)
         _prune_bundles(directory, unit_file_prefix(unit_id, change), pointed)
     except (OSError, ValueError):
         pass
@@ -121,15 +117,32 @@ def write_rerun_evidence(
     """Save serial rerun `number` of a failing run in `<bundle>/reruns/<number>/`: its redacted
     `output.txt`, `context.json`, `machine.json` and `worktree.json`. A diagnostic copy, so a
     write that fails is dropped."""
-    folder = bundle / "reruns" / str(number)
     try:
-        folder.mkdir(parents=True, exist_ok=True)
-        (folder / "output.txt").write_text(redact_text(output, where="failure bundle"))
-        for name, facts in (("context", context), ("machine", machine), ("worktree", worktree)):
-            body = redact_text(json.dumps(facts, indent=2, default=str), where="failure bundle")
-            (folder / f"{name}.json").write_text(body)
+        _write_evidence(
+            bundle / "reruns" / str(number),
+            redact_text(output, where="failure bundle"),
+            context,
+            machine,
+            worktree,
+        )
     except (OSError, ValueError):
         pass
+
+
+def _write_evidence(
+    folder: Path,
+    output: str,
+    context: dict[str, object],
+    machine: dict[str, object],
+    worktree: dict[str, object],
+) -> None:
+    """Write the four files of a run's evidence into `folder`: `output.txt` as given (already
+    redacted and cut) and the three fact files, redacted here."""
+    folder.mkdir(parents=True, exist_ok=True)
+    (folder / "output.txt").write_text(output)
+    for name, facts in (("context", context), ("machine", machine), ("worktree", worktree)):
+        body = redact_text(json.dumps(facts, indent=2, default=str), where="failure bundle")
+        (folder / f"{name}.json").write_text(body)
 
 
 def _prune_bundles(directory: Path, prefix: str, pointed: Collection[Path]) -> None:

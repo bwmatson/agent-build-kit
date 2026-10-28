@@ -17,27 +17,17 @@ from typing import cast
 import pytest
 
 from agent_build_kit.cli import pipeline as cli
-from agent_build_kit.installation import Installation
 from agent_build_kit.pipeline.flakes import Flake, FlakeFound, flake_record
 from agent_build_kit.pipeline.unit_store import UnitStore
 from agent_build_kit.pipeline.wiring import build_unit_test
 from agent_build_kit.profiles.base import ToolchainProfile
 from tests.conftest import make_installation
 from tests.factories import stored_unit
+from tests.failure_bundle_fakes import storms
 from tests.pipeline.test_flake_isolation import FAILED, HookedProfile, Runs
 from tests.storm_fakes import AfterTheStorm, ManyFailed, ThenFailing
 
 COMMAND = "uv run pytest -n auto -q"
-
-
-def storms(installation: Installation) -> list[dict]:
-    """The storm rows of the flake record, as written."""
-    try:
-        lines = flake_record(installation).path.read_text(encoding="utf-8").splitlines()
-    except FileNotFoundError:
-        return []
-    rows = [json.loads(line) for line in lines if line.strip()]
-    return [row for row in rows if row.get("kind") == "storm"]
 
 
 def unit_test(profile: object, runs: Runs, tmp_path: Path) -> tuple[bool, str]:

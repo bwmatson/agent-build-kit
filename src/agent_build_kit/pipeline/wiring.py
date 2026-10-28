@@ -1343,6 +1343,8 @@ def build_unit_test(
         follows no move), which says whether the run is scoped
         by what the move can affect; the line it logs says which it was and why."""
         checkout["root"] = cwd
+        # What an earlier run of this unit round stormed does not excuse this run's failures.
+        stormed.pop(spans.current_unit.get(), None)
         for project in pending_projects(cwd, projects):
             _say(log, describe(project))
         scope = None
@@ -1628,8 +1630,11 @@ def build_unit_test(
     ) -> Path | None:
         """Save the test run `before` began as a bundle, with its end sampled now, when it
         failed. Every place a test command is run calls this with what `begin_evidence` gave,
-        so no failing run is missed; None (no bundles kept) or a run that passed saves nothing.
-        Returns the bundle's folder, or None when nothing was saved."""
+        so no failing run is missed; None (no bundles kept) or a run that passed saves nothing,
+        and neither does a run whose failed tests are all ones this round already kept as a
+        storm's evidence: the same failure of a second command adds no new evidence. Bundles
+        a flake or storm record names are not pruned. Returns the bundle's folder, or None
+        when nothing was saved."""
         if before is None or failures_dir is None:
             return None
         if toolchain.tolerates_exit(command, result.returncode):
@@ -1676,6 +1681,7 @@ def build_unit_test(
             worktree=failure_evidence.worktree_changes(
                 tree_before, failure_evidence.worktree_state(run, where, toolchain)
             ),
+            pointed=_pointed_bundles(),
         )
 
     def root_checks(
@@ -1943,10 +1949,9 @@ def build_unit_test(
                         "seconds": seconds,
                     },
                     machine={"start": machine_before, "end": dict(last_sample)},
-                    worktree={
-                        "before": tree_before,
-                        "after": failure_evidence.worktree_state(run, where, toolchain),
-                    },
+                    worktree=failure_evidence.worktree_changes(
+                        tree_before, failure_evidence.worktree_state(run, where, toolchain)
+                    ),
                 )
             if toolchain.tolerates_exit(rerun, again.returncode):
                 continue
@@ -2046,6 +2051,16 @@ def build_unit_test(
         return result
 
     return unit_test
+
+
+def _pointed_bundles() -> set[Path]:
+    """The bundles the flake and storm rows name, which pruning keeps; none when no workspace
+    is loaded."""
+    root = active_root()
+    if root is None:
+        return set()
+    record = flake_record(Installation(active(), root))
+    return {Path(row.evidence) for row in [*record.entries(), *record.storms()] if row.evidence}
 
 
 def build_on_flake(

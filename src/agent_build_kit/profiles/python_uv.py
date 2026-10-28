@@ -553,7 +553,9 @@ class PythonUvProfile:
 
     def failure_sections(self, output: str) -> dict[str, str]:
         """Each failed test's own section of `output` (its `___ name ___` block), by the
-        identifier `failed_tests` gives it. A test with no block is left out."""
+        identifier `failed_tests` gives it. A test that errored in a fixture has its
+        `ERROR at setup of` (or `teardown of`) block from the `ERRORS` part; a test with both
+        gets the failure's block, which is read first. A test with no block is left out."""
         blocks: list[tuple[str, str]] = []
         for opener in (_FAILURES_START, _ERRORS_START):
             start = opener.search(output)

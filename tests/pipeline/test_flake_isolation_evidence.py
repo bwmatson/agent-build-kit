@@ -16,15 +16,16 @@ from typing import cast
 
 import pytest
 
-from agent_build_kit.pipeline.flakes import Flake, FlakeFound
+from agent_build_kit.installation import Installation
+from agent_build_kit.pipeline.flakes import Flake, FlakeFound, flake_record
+from agent_build_kit.pipeline.run_log import RUNS_KEPT
 from agent_build_kit.pipeline.untouched_failures import preexisting_record
 from agent_build_kit.pipeline.wiring import build_on_preexisting, build_unit_test
 from agent_build_kit.profiles.base import ToolchainProfile
 from tests.conftest import make_installation
 from tests.e2e_gate_fakes import Planning
 from tests.e2e_wait_fakes import OLD, verdict_of
-from tests.failure_bundle_fakes import START, BundleMachine, BundleProfile
-from tests.pipeline.test_flake_storm import storms
+from tests.failure_bundle_fakes import START, BundleMachine, BundleProfile, storms
 from tests.redaction_fakes import SECRET, known
 
 RERUN_FILES = {"output.txt", "context.json", "machine.json", "worktree.json"}
@@ -86,8 +87,10 @@ def test_each_rerun_keeps_its_command_output_exit_times_and_its_own_machine_and_
         assert context["seconds"] > 0
         assert "load" in read(folder / "machine.json")["start"]
         assert "load" in read(folder / "machine.json")["end"]
-        assert "status" in read(folder / "worktree.json")["before"]
-        assert "status" in read(folder / "worktree.json")["after"]
+        worktree = read(folder / "worktree.json")
+        assert "status" in worktree["before"]
+        assert "status" in worktree["after"]
+        assert {"vanished", "appeared"} <= set(worktree), "as the run's own worktree lines"
 
 
 def test_a_rerun_that_fails_is_kept_too_and_is_not_reduced_to_its_exit(
@@ -157,11 +160,84 @@ def test_a_flake_row_names_the_bundle_the_start_and_the_conditions_and_keeps_its
 
 
 def test_the_bundle_is_pointed_at_so_it_is_kept(scratch: Path, tmp_path: Path) -> None:
+    installation = make_installation(scratch)
     directory = tmp_path / "bundles"
-    (flake, *_) = flakes_of(scratch, directory, reruns=[0, 0])
-
-    assert Path(flake.evidence).is_dir()
+    unit_test = unit_test_of(
+        scratch, BundleMachine(scratch, reruns=[0, 0] * (RUNS_KEPT + 2)), directory
+    )
+    with pytest.raises(FlakeFound) as found:
+        unit_test(cwd=scratch, base="main")
+    (flake, *_) = found.value.flakes
     assert Path(flake.evidence).parent == directory
+    flake_record(installation).append(flake)
+
+    for _ in range(RUNS_KEPT + 1):
+        with pytest.raises(FlakeFound):
+            unit_test(cwd=scratch, base="main")
+
+    assert Path(flake.evidence).is_dir(), "the record's bundle outlives the newest ones"
+    assert len(list(directory.iterdir())) == RUNS_KEPT + 1, "and the newest are kept beside it"
+
+
+def test_a_second_run_of_the_same_round_that_storms_again_is_isolated_and_recorded_again(
+    scratch: Path, tmp_path: Path
+) -> None:
+    installation = make_installation(scratch, global_limits=dict(max_flakes_per_run=2))
+    machine = BundleMachine(scratch, reruns=[0, 0, 0, 0])
+    unit_test = unit_test_of(scratch, machine, tmp_path / "bundles")
+
+    for _ in range(2):
+        passed, _ = unit_test(cwd=scratch, base="main")
+        assert passed
+
+    assert len(storms(installation)) == 2
+    serial = [c for c in machine.commands if any("::" in argument for argument in c)]
+    assert len(serial) == 4, "each run issued its own serial reruns"
+
+
+def test_a_second_command_failing_the_stormed_tests_is_not_rerun_nor_recorded_again(
+    scratch: Path, tmp_path: Path
+) -> None:
+    installation = make_installation(scratch, global_limits=dict(max_flakes_per_run=2))
+    directory = tmp_path / "bundles"
+    machine = BundleMachine(scratch, reruns=[0, 0])
+
+    passed, _ = unit_test_of(scratch, machine, directory)(cwd=scratch, base="main")
+
+    assert passed
+    failing_runs = [
+        c for c in machine.commands if c[-4:-1] == ["-q", "--durations=15", "--durations-min=3.0"]
+    ]
+    assert len(failing_runs) == 2, "the profile's two test commands both ran and failed"
+    assert len(storms(installation)) == 1
+    serial = [c for c in machine.commands if any("::" in argument for argument in c)]
+    assert len(serial) == 2, "the reruns were issued once"
+    assert len(list(directory.iterdir())) == 1, "the repeat of the same failure adds no bundle"
+
+
+def test_a_row_written_before_the_evidence_existed_still_loads_with_it_empty(
+    installation: Installation,
+) -> None:
+    old = {
+        "test": "tests/test_a.py::test_x",
+        "change": "",
+        "command": "uv run pytest -n auto -q",
+        "output": "FAILED tests/test_a.py::test_x\n",
+        "failure": "",
+        "at": "2026-03-01T09:30:00Z",
+        "unit": "feature/1",
+        "directory": "",
+        "failing": False,
+    }
+    record = flake_record(installation)
+    record.path.parent.mkdir(parents=True, exist_ok=True)
+    record.path.write_text(json.dumps(old) + "\n")
+
+    (row,) = record.entries()
+
+    assert row.evidence == ""
+    assert row.ran_at is None
+    assert row.conditions == {}
 
 
 def test_a_storm_row_names_the_bundle_the_start_and_the_conditions(
