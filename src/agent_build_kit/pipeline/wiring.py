@@ -1922,12 +1922,10 @@ def build_unit_test(
         timed_out: list[str] = []
         timeouts = 0
         for number in range(1, FLAKE_RERUNS + 1):
-            if evidence is not None:
-                tree_before = failure_evidence.worktree_state(run, where, toolchain)
-                machine_before = (machine or failure_evidence.machine_sample)()
-                started = clock()
+            began = begin_evidence(where, toolchain) if evidence is not None else None
             again = ran(rerun, where, toolchain)
-            if evidence is not None:
+            if evidence is not None and began is not None:
+                started, machine_before, tree_before = began
                 ended = clock()
                 last_sample.update((machine or failure_evidence.machine_sample)())
                 seconds = (ended - started).total_seconds()
