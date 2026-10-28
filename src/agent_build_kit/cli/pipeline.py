@@ -256,6 +256,7 @@ from agent_build_kit.pipeline.stack_runner import (
 )
 from agent_build_kit.pipeline.transcript import remove_change_transcripts, transcript_dir
 from agent_build_kit.pipeline.ui_review import (
+    PrIndex,
     ui_listing,
     ui_notes_of,
     ui_reply_writer,
@@ -6128,6 +6129,7 @@ def poll_all(inst: Installation, *, store: UnitStore, lane: Lane | None = None) 
     dispatch = _dispatch(inst, store, lane=lane)
 
     labels = StateLabels(inst.forge_of, log=log)
+    index = PrIndex(store)
     for repo in checkouts:
         forge, repo_id = inst.forge_of(repo)
         # The identity as one string: what `own-posts.json` has always been
@@ -6141,8 +6143,8 @@ def poll_all(inst: Installation, *, store: UnitStore, lane: Lane | None = None) 
             dispatch=lambda event, number, repo=repo, **kwargs: dispatch(
                 event, number, repo=repo, **kwargs
             ),
-            list_prs=ui_listing(inst, store, repo),
-            unit_of=lambda number, repo=repo: unit_of(store, repo, number),
+            list_prs=ui_listing(inst, index, repo),
+            unit_of=lambda number, repo=repo: index.unit_of(repo, number),
             ignore=lambda number, slug=slug: ignored(inst.state_dir, slug, number),
             human_activity=lambda number, repo=repo: _note_human_activity(store, repo, number),
             consume=lambda number, name, repo=repo: labels.consume(repo, number, name),
