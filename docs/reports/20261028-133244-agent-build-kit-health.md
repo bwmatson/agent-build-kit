@@ -19,7 +19,7 @@
 ### pipeline-health
 - Units (via `abk status`; `runs/units.json` no longer exists, state is in `runs/unit-graphs.sqlite`): 496 merged, 83 unplanned, 8 satisfied, 4 planned, 4 closed, 3 retired. None failed or held in the ordinary sense. Five unit merges in the last 24h, latest 07:15 today.
 - The e2e-test split `acp` is held for a spent model budget with no deadline, while reported usage is low (session 3%, weekly 4%). Four units wait on it (`ui-chat-editing/6`, `dry-guidance/5`, `abk-web-ui/12`, `policy-check-asks-the-agents-own-matcher/6`). Worth a person's look; the cause is unconfirmed, so it is not raised as a candidate.
-- `tier2-tests-are-tagged-by-runtime/17` is unplanned and parked; its groups moved to `/19`, so `abk retire` is a safe cleanup.
+- The runtime-tagging change's unit `/17` is unplanned and parked; its groups moved to `/19`, so `abk retire` is a safe cleanup.
 - 12 flaky tests, each with a fix change open.
 - `runs/tick.json` shows tick #110 at 2026-10-27T00:59Z, yet commits keep landing; the subagent did not confirm whether ticks are stalled.
 
