@@ -402,12 +402,16 @@ def test_repeating_the_request_with_the_same_commit_delivers_nothing_again(
 
     assert first.status_code == again.status_code == 200
     subject = git(tree, "log", "-1", "--format=%s", made).strip()
-    assert first.json() == again.json() == {
-        "commit": made,
-        "state": RUNNING,
-        "delivered": True,
-        "subject": subject,
-    }
+    assert (
+        first.json()
+        == again.json()
+        == {
+            "commit": made,
+            "state": RUNNING,
+            "delivered": True,
+            "subject": subject,
+        }
+    )
     assert adoptions(inst) == 1
     assert attachment(inst) is None
     assert head(tree) == made, "no second commit"
