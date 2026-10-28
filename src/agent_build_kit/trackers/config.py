@@ -30,6 +30,12 @@ class TrackerSection(Frozen):
     # The tracker's own state names, by the kit's.
     state_map: dict[str, str] = {}
     marker_prefix: str = "abk"
+    # The kit entities that become board items, outermost first.
+    levels: tuple[str, ...] = ("change", "group")
+    # Whether a person-made top item may sit above the first level.
+    epic: bool = False
+    # Which levels get a merged unit's pull request: `lowest`, `all` or a list of entities.
+    pr_links: str | tuple[str, ...] = "lowest"
 
     @field_validator("token_env")
     @classmethod
@@ -43,6 +49,16 @@ class TrackerSection(Frozen):
         """Where the tracker is, for a person reading a report."""
         return self.kind
 
+    @property
+    def level_types(self) -> dict[str, str]:
+        """The board type of each level in use (and of the epic when set)."""
+        raise NotImplementedError
+
+    def parent_level(self, level: str) -> str | None:
+        """The level an item of this level hangs under: the previous level in use, `epic` for
+        the first when an epic is set, None for the first otherwise."""
+        raise NotImplementedError
+
 
 class AzureDevOpsTracker(TrackerSection):
     kind: Literal["azure_devops"]
@@ -52,8 +68,7 @@ class AzureDevOpsTracker(TrackerSection):
     area_path: str = Field(min_length=1)
     iteration_path: str = Field(min_length=1)
     story_type: str = Field(min_length=1)
-    # The levels in use, top down, and the work item type of each level (and of the epic).
-    levels: tuple[str, ...] = ("change", "group")
+    # The work item type of each level (and of the epic).
     types: dict[str, str] = {}
 
     @property
