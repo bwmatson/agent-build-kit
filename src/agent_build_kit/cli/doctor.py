@@ -2168,8 +2168,14 @@ def sandbox_check(loaded: WorkspaceConfig, inst: Installation | None = None) -> 
             "the backend did not apply the read rule for the running installation; "
             "try another `sandbox.backend` or update this one",
         )
+    repos = ", ".join(loaded.repos)
     if found.ok:
-        return _ok("sandbox", f"{backend.name}: confines {found.coverage.value} of a step")
+        return _ok(
+            "sandbox",
+            f"{backend.name}: confines {found.coverage.value} of a step in {repos}",
+        )
+    if sandboxes.no_backend(backend):
+        return _info("sandbox", f"{found.cause}: steps in {repos} run unconfined", found.fix)
     return _fail("sandbox", f"{backend.name}: {found.cause}", found.fix)
 
 

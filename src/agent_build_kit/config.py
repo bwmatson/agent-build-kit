@@ -1074,7 +1074,7 @@ class DeployConfig(Frozen):
 class SandboxConfig(Frozen):
     """Whether agent steps run confined by the kernel, and by which backend."""
 
-    enabled: bool = False
+    enabled: bool = True
     # `auto` picks the first backend whose probe passes on this machine.
     backend: str = "auto"
 

@@ -1,31 +1,26 @@
 """When the step was confined (`process` or `files`), a difference in `abk.yaml` or
 `abk.local.yaml` afterwards is logged with its diff and does not fail the unit, and `abk status`
-shows it (spec: sandbox-claude-code). A step that was not confined still fails with
-`ConfigChanged`: `test_config_unchanged_by_run.py` covers the plain cases, and the one below
-covers a step that was given a policy and still ran plain.
+shows it (spec: sandbox-claude-code). `test_config_unchanged_by_run.py` covers a step that was not
+confined, which warns the same way.
 """
 
 from __future__ import annotations
 
 import argparse
 import re
-import stat
 from collections.abc import Callable
 from pathlib import Path
 
 import pytest
 
-from agent_build_kit import sandboxes, skills
+from agent_build_kit import skills
 from agent_build_kit.cli import pipeline as cli
 from agent_build_kit.config import models
 from agent_build_kit.installation import load_installation
-from agent_build_kit.pipeline.config_guard import ConfigChanged
 from agent_build_kit.pipeline.wiring import build_run
-from agent_build_kit.runtimes import AgentRequest, AgentResult
-from agent_build_kit.runtimes.claude_code import ClaudeCodeRuntime, spawn
+from agent_build_kit.runtimes import AgentRateLimited, AgentRequest, AgentResult
 from agent_build_kit.sandboxes import Coverage
 from tests.pipeline.test_wiring_sandbox import Recording, install
-from tests.runtimes.test_claude_code_sandbox import no_backend
 
 # A person's edit that still loads, since `abk status` reads the files afterwards.
 EDITED = "project_limits: {max_units_in_progress: 3}\n"
@@ -98,28 +93,29 @@ def test_abk_status_shows_the_warning_of_a_confined_step_until_a_clean_one_ends(
     assert "changed during the run" not in shown.out + shown.err
 
 
-class Spawning(Recording):
-    """The real Claude Code runtime, started through the real launcher."""
+class Stopping(Recording):
+    """A step that stops (the usage window) without touching either file."""
 
     def run(self, request: AgentRequest) -> AgentResult:
-        return ClaudeCodeRuntime(execute=spawn).run(request)
+        raise AgentRateLimited("usage window spent")
 
 
-def test_a_step_that_ran_unconfined_under_required_none_still_fails_with_config_changed(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+def test_a_step_that_changes_neither_file_logs_nothing_about_them(tmp_path: Path) -> None:
+    root, main = install(tmp_path, enabled=True)
+    lines: list[str] = []
+
+    step(root, main, Editing(root / "abk.yaml", (root / "abk.yaml").read_text()), lines)
+
+    assert "changed during the run" not in "\n".join(lines)
+
+
+def test_a_step_that_stops_with_both_files_unchanged_raises_its_own_error(
+    tmp_path: Path,
 ) -> None:
-    program = tmp_path / "agent-stand-in"
-    target = tmp_path / "plan" / "abk.local.yaml"
-    program.write_text(
-        f"#!/bin/sh\ncat > /dev/null\nprintf '%s' '{EDITED}' > {target}\necho done\n"
-    )
-    program.chmod(program.stat().st_mode | stat.S_IXUSR)
-    root, main = install(tmp_path, enabled=True, required="none", command=[str(program)])
-    (root / "abk.local.yaml").write_text("runtime: claude_code\n")
-    monkeypatch.setattr(sandboxes, "probe", no_backend)
+    root, main = install(tmp_path, enabled=True)
 
-    with pytest.raises(ConfigChanged, match=r"abk\.local\.yaml changed during the run"):
-        step(root, main, Spawning(), [])
+    with pytest.raises(AgentRateLimited):
+        step(root, main, Stopping(), [])
 
 
 def skill_text() -> str:

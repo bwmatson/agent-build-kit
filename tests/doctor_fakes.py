@@ -12,7 +12,13 @@ from pathlib import Path
 from typing import Any
 
 from agent_build_kit import skills
-from agent_build_kit.config import EnvironmentConfig, RepoConfig, WorkspaceConfig, dump
+from agent_build_kit.config import (
+    EnvironmentConfig,
+    RepoConfig,
+    SandboxConfig,
+    WorkspaceConfig,
+    dump,
+)
 from agent_build_kit.init.scaffold import render_openspec_config
 from tests.factories import init_repo
 
@@ -36,6 +42,8 @@ def planning_with(tmp_path: Path, **repo_fields: Any) -> Path:
     environment = EnvironmentConfig(sync=["env-sync"], check=["env-check"])
     config = WorkspaceConfig(
         environment=environment,
+        # The sandbox is on unless the file says it is off; a test about it switches it on.
+        sandbox=SandboxConfig(enabled=False),
         repos={
             "app": RepoConfig(path=app, slug="example/app", environment=environment, **repo_fields)
         },

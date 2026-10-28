@@ -19,6 +19,7 @@ from agent_build_kit.config import (
     DeployRule,
     EnvironmentConfig,
     RepoConfig,
+    SandboxConfig,
     WorkspaceConfig,
     dump,
     load,
@@ -94,6 +95,8 @@ def workspace(tmp_path: Path) -> Path:
     environment = EnvironmentConfig(sync=["env-sync"], check=["env-check"])
     config = WorkspaceConfig(
         environment=environment,
+        # The sandbox is on unless the file says it is off; these tests are about other checks.
+        sandbox=SandboxConfig(enabled=False),
         repos={
             "platform": RepoConfig(path=platform, slug="example/platform", environment=environment),
             "app": RepoConfig(

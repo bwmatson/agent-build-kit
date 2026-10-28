@@ -1,5 +1,5 @@
 """The planning repo's configuration files are a person's to change, and a run that changes one
-fails.
+is warned about with the diff, never failed.
 
 The command policy refuses the routes it names to write them, but a command cannot be parsed for
 every route (an interpreter one-liner, a copy tool). So the code that runs an agent also reads
@@ -18,10 +18,6 @@ from agent_build_kit.config import CONFIG_FILENAME, overlay_path
 from agent_build_kit.sandboxes import Coverage
 
 WARNING_FILE = "config-changed-warning.txt"
-
-
-class ConfigChanged(RuntimeError):
-    """A configuration file differs after a run from what it was before."""
 
 
 def config_files(root: Path) -> tuple[Path, Path]:
@@ -51,8 +47,8 @@ def _difference(path: Path, before: bytes | None, after: bytes | None) -> str:
 
 
 def warning_lines(state_dir: Path) -> list[str]:
-    """The warning the last confined step left in `state_dir`, for `abk status`; empty when the
-    last confined step saw no change."""
+    """The warning the last step left in `state_dir`, for `abk status`; empty when the last step
+    saw no change."""
     try:
         return (state_dir / WARNING_FILE).read_text().splitlines()
     except FileNotFoundError:
@@ -67,17 +63,15 @@ def config_unchanged(
     state_dir: Path | None = None,
     warn: Callable[[str], None] = print,
 ) -> Iterator[None]:
-    """Run the block, then raise `ConfigChanged` if `abk.yaml` or `abk.local.yaml` under `root`
-    differs from what it was on entry, naming the file and showing the difference.
+    """Run the block, then warn if `abk.yaml` or `abk.local.yaml` under `root` differs from what
+    it was on entry, naming the file and showing the difference. A difference never raises.
 
-    When the step was confined (`coverage` is `process` or `files`) it cannot have written the
-    file, so a difference is a person's edit: it goes to `warn` with the diff, is kept in
-    `state_dir` for `abk status`, and the unit continues.
+    The warning goes to `warn` and is kept in `state_dir` for `abk status` until a step that sees
+    no change clears it. When the step was confined (`coverage` is `process` or `files`) it
+    cannot have written the file, so the difference is a person's edit; otherwise the message
+    says an agent may have written it and a person should read the diff.
 
-    A block that raised is compared too: a run that stops (the usage window, an interruption) is
-    often resumed, and the resumed run would take the changed file as its own start. When a file
-    differs, `ConfigChanged` replaces the error, chained from it, so the unit fails instead of
-    being parked; when nothing differs, the block's error propagates unchanged."""
+    A block that raised is compared too, and its own error propagates unchanged."""
     watched = config_files(root)
     before = {path: _read(path) for path in watched}
     raised: BaseException | None = None
@@ -90,24 +84,19 @@ def config_unchanged(
         for path in watched
         if (after := _read(path)) != before[path]
     ]
-    if coverage is not Coverage.NONE:
-        if problems:
-            message = (
-                "\n".join(problems) + "\nThe step was confined, so a person edited it; "
-                "the run goes on."
-            )
-            warn(message)
-            if state_dir is not None:
-                state_dir.mkdir(parents=True, exist_ok=True)
-                (state_dir / WARNING_FILE).write_text(message + "\n")
-            problems = []
-        elif state_dir is not None and (state_dir / WARNING_FILE).exists():
-            (state_dir / WARNING_FILE).unlink()
     if problems:
-        raise ConfigChanged(
-            "\n".join(problems)
-            + "\nThe file is a person's to change and is left as it is now. If a person edited it "
-            "while the run was in progress, requeue the unit once the edit is done."
-        ) from raised
+        note = (
+            "The step was confined, so a person edited it; the run goes on."
+            if coverage is not Coverage.NONE
+            else "The step was not confined, so an agent may have written it; a person should "
+            "read the diff. The run goes on."
+        )
+        message = "\n".join(problems) + "\n" + note
+        warn(message)
+        if state_dir is not None:
+            state_dir.mkdir(parents=True, exist_ok=True)
+            (state_dir / WARNING_FILE).write_text(message + "\n")
+    elif state_dir is not None and (state_dir / WARNING_FILE).exists():
+        (state_dir / WARNING_FILE).unlink()
     if raised is not None:
         raise raised

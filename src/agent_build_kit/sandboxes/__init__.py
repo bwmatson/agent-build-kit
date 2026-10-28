@@ -43,15 +43,30 @@ def names() -> list[str]:
     return sorted(_REGISTRY)
 
 
-def _detect(platform: str | None) -> tuple[SandboxBackend, Availability]:
+def no_backend(backend: SandboxBackend) -> bool:
+    """Whether `backend` is the answer for "no backend matches this platform" (`unavailable`),
+    not a backend that was tried and failed its probe."""
+    return backend.name == "unavailable"
+
+
+def _detect(
+    platform: str | None, *, keep_failed: bool = False
+) -> tuple[SandboxBackend, Availability]:
     _load_builtin()
     here = sys.platform if platform is None else platform
+    failed: tuple[SandboxBackend, Availability] | None = None
     for name in _ORDER:
         backend = _REGISTRY.get(name)
         if backend and here.startswith(backend.platform):
             found = backend.availability()
             if found.ok:
                 return backend, found
+            # `unavailable` matches every platform and always fails: it is the answer for "no
+            # backend", never a backend that was tried and broke.
+            if failed is None and not no_backend(backend):
+                failed = (backend, found)
+    if keep_failed and failed is not None:
+        return failed
     fallback = _REGISTRY["unavailable"]
     return fallback, fallback.availability()
 
@@ -63,9 +78,11 @@ def detect(platform: str | None = None) -> SandboxBackend:
 
 
 def probe(name: str = "auto") -> tuple[SandboxBackend, Availability]:
-    """The backend `name` picks (`auto` detects one) and the result of running its probe."""
+    """The backend `name` picks (`auto` detects one) and the result of running its probe. For
+    `auto`, a backend that matches the platform but fails its probe is returned with that failure,
+    and `unavailable` only where no backend matches."""
     if name == "auto":
-        return _detect(None)
+        return _detect(None, keep_failed=True)
     backend = get(name)
     return backend, backend.availability()
 
@@ -104,6 +121,7 @@ __all__ = [
     "get",
     "isolated",
     "names",
+    "no_backend",
     "probe",
     "register",
 ]

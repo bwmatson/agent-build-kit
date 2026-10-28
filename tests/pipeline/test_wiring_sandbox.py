@@ -57,8 +57,8 @@ def install(
     }
     if command is not None:
         document["runtimes"] = {"claude_code": {"command": command}}
-    if enabled:
-        document["sandbox"] = {"enabled": True}
+    # Written either way: the default is on, so `enabled=False` has to say so.
+    document["sandbox"] = {"enabled": enabled}
     (root / "abk.yaml").write_text(yaml.safe_dump(document))
     load_installation(root / "abk.yaml").activate()
     return root, main

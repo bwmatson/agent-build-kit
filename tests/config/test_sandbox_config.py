@@ -1,4 +1,4 @@
-"""The `sandbox` keys: off by default, a backend that exists, and a runtime policy slot."""
+"""The `sandbox` keys: the default (on), a backend that exists, and a runtime policy slot."""
 
 from __future__ import annotations
 
@@ -17,8 +17,14 @@ def write(tmp_path: Path, body: str = "") -> Path:
     return path
 
 
-def test_the_sandbox_is_off_and_picks_its_backend_by_probe_by_default(tmp_path: Path) -> None:
-    assert load(write(tmp_path)).model_dump()["sandbox"] == {"enabled": False, "backend": "auto"}
+def test_the_sandbox_is_on_with_no_block_and_off_when_the_workspace_says_so(
+    tmp_path: Path,
+) -> None:
+    assert load(write(tmp_path)).model_dump()["sandbox"] == {"enabled": True, "backend": "auto"}
+
+    off = load(write(tmp_path, "sandbox:\n  enabled: false\n"))
+
+    assert off.model_dump()["sandbox"] == {"enabled": False, "backend": "auto"}
 
 
 def test_a_backend_name_is_checked_at_load_and_the_known_ones_are_named(tmp_path: Path) -> None:

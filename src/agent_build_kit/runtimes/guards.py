@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from enum import StrEnum
 
+from agent_build_kit import sandboxes
 from agent_build_kit.installation import Installation
 from agent_build_kit.model import Frozen
 from agent_build_kit.runtimes.base import AgentRuntime
@@ -47,12 +48,13 @@ KEPT = "kept (meaning)"
 
 
 def confined_repos(runtime: AgentRuntime, installation: Installation) -> dict[str, bool]:
-    """Whether a step in each configured repo runs confined: the sandbox is on and the runtime
-    reaches what the repo requires (the pipeline's own rule, `step_confined`)."""
+    """Whether a step in each configured repo runs confined: the sandbox is on, a backend works
+    on this machine (a machine with none runs every step unconfined) and the runtime reaches
+    what the repo requires (the pipeline's own rule, `step_confined`)."""
     config = installation.config
+    working = config.sandbox.enabled and sandboxes.probe(config.sandbox.backend)[1].ok
     return {
-        name: config.sandbox.enabled
-        and step_confined(repo.sandbox.required, runtime.sandbox_coverage)
+        name: working and step_confined(repo.sandbox.required, runtime.sandbox_coverage)
         for name, repo in config.repos.items()
     }
 

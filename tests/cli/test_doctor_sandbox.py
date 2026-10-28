@@ -48,6 +48,10 @@ def test_a_sandbox_that_is_off_is_one_line_and_the_probe_is_not_run(
     workspace: Path,  # noqa: F811 — fixture
     stand_in: CountingBackend,  # noqa: F811 — fixture
 ) -> None:
+    # Named here because the default is on: this test is about `enabled: false`.
+    with (workspace / "abk.yaml").open("a") as handle:
+        handle.write("sandbox:\n  enabled: false\n")
+
     found = sandbox_checks(workspace / "abk.yaml")
 
     assert len(found) == 1
