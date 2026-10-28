@@ -1621,7 +1621,6 @@ def _decide_on_estimate(
         )
     # The window with the least room left decides an allowance, as in `_forecasted`.
     closest = min(estimates, key=lambda e: e.threshold - e.estimate - e.forecast)
-    facts |= {"forecast": closest.forecast, "margin": closest.margin}
     admitted = _admitted(cached)
     cap = claude_limits().usage_estimate_max_starts
     if (unit is None or unit not in admitted) and len(admitted) >= cap:
@@ -1632,6 +1631,8 @@ def _decide_on_estimate(
                 f"(at most {cap} for one reading)"
             ),
             resume_at=next_call or now + _stale_retry(),
+            forecast=closest.forecast,
+            margin=closest.margin,
             **facts,
         )
     if unit is not None:
@@ -1644,6 +1645,8 @@ def _decide_on_estimate(
         # The starts already made on this estimate, and this unit when one is named. A caller
         # that names none (the round's own ask) adds the unit's place among its starts itself.
         estimate_starts=len(admitted) + (1 if unit is not None and unit not in admitted else 0),
+        forecast=closest.forecast,
+        margin=closest.margin,
         **facts,
     )
 
