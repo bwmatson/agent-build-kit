@@ -26,6 +26,7 @@ from agent_build_kit.pipeline.flakes import (
     add_needs_to_unit,
     next_fix_name,
     open_fix_change,
+    requirement_shipped,
 )
 from agent_build_kit.pipeline.unit_store import StoredUnit
 from agent_build_kit.pipeline.work_graph import group_needs
@@ -236,7 +237,10 @@ def _write_change(inst: Installation, found: Write, entry: PreExisting, unit: St
         proposal=_proposal(inst, entry, unit, found.earlier),
         design=_design(entry),
         tasks=_tasks(entry, unit),
-        spec=_spec(entry, successor=bool(found.earlier)),
+        spec=_spec(
+            entry,
+            successor=requirement_shipped(inst, CAPABILITY, _requirement(entry)),
+        ),
     )
 
 
@@ -297,13 +301,17 @@ def _tasks(entry: PreExisting, unit: StoredUnit) -> str:
     )
 
 
+def _requirement(entry: PreExisting) -> str:
+    return f"`{entry.test}` passes on the base"
+
+
 def _spec(entry: PreExisting, *, successor: bool) -> str:
     # The earlier attempt's archive added this requirement to the capability, and an
     # archive refuses to add one that exists: a successor restates it.
     verb = "MODIFIED" if successor else "ADDED"
     return (
         f"## {verb} Requirements\n\n"
-        f"### Requirement: `{entry.test}` passes on the base\n\n"
+        f"### Requirement: {_requirement(entry)}\n\n"
         "The test SHALL pass on the base.\n\n"
         "#### Scenario: Run on the base\n\n"
         "- **WHEN** the test is run on the base under the e2e-test marker\n"

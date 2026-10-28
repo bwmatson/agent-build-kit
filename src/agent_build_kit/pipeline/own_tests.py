@@ -8,9 +8,14 @@ from __future__ import annotations
 
 import ast
 import re
+from collections.abc import Collection
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from agent_build_kit.pipeline.shell import git
+
+if TYPE_CHECKING:
+    from agent_build_kit.profiles.base import ToolchainProfile
 
 HUNK = re.compile(r"^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@", re.M)
 
@@ -73,3 +78,17 @@ def tests_in(tree: Path, ref: str = "") -> set[str]:
         check=False,
     ).stdout  # fmt: skip
     return {line.removeprefix("def ").strip() for line in out.splitlines() if line.strip()}
+
+
+def failed_ids(toolchain: ToolchainProfile, output: str) -> list[str]:
+    """The tests a failed check's output names, as the profile reads them; none when it cannot."""
+    reader = getattr(toolchain, "failed_tests", None)
+    return reader(output) if reader is not None else []
+
+
+def written_by_unit(test_file: Path, changed: Collection[str]) -> bool:
+    """Whether the unit wrote the test in `test_file` (relative to the checkout): the file is
+    among the paths its branch changed against its base, or a `conftest.py` beside it is."""
+    return (
+        test_file.as_posix() in changed or (test_file.parent / "conftest.py").as_posix() in changed
+    )

@@ -87,6 +87,7 @@ from agent_build_kit.pipeline.gateway_usage import attribution
 from agent_build_kit.pipeline.manual_steps import unmet_steps
 from agent_build_kit.pipeline.metric_records import emit_metric
 from agent_build_kit.pipeline.outside_commits import outside_commits_note
+from agent_build_kit.pipeline.own_tests import failed_ids
 from agent_build_kit.pipeline.pr_body import build_pr_body, satisfied_reason
 from agent_build_kit.pipeline.pr_replies import parse_answer
 from agent_build_kit.pipeline.product_defect import DefectRefused, read_product_defect
@@ -1682,6 +1683,10 @@ class BuildPath:
             ok, output = r.run_unit_test(cwd=tree, base=ref, whole_repo=True)
         except FlakeFound as found:
             ok, output = False, found.flakes[0].output
+        except FailedOnBase as failed:
+            if (parked := self.wait_for_fix(failed)) is not None:
+                return parked
+            ok, output = False, failed.failures[0].output
         if not ok:
             if (broken := self.failed_unit_test(output)) is not None:
                 return broken
@@ -1941,15 +1946,16 @@ class BuildPath:
         fixes = [r.on_flake(unit, flake) for flake in flakes]
         if not any(fixes):
             return None
-        return self.park_for_fix(waiting_note([flake.test for flake in flakes]))
+        return self.park_for_fix(
+            waiting_note([flake.test for flake in flakes], failing=isinstance(found, FailedOnBase))
+        )
 
     def wait_for_open_fix(self, output: str) -> Update | None:
         """A failed unit-test run whose failed tests include one that an open change already
         fixes: the unit waits on that change before anything runs again. None when no failed
         test has one."""
         config = active().repos.get(self.unit.repo)
-        failed = getattr(profiles.get(config.profile), "failed_tests", None) if config else None
-        tests = covered_tests(failed(output)) if failed is not None else []
+        tests = covered_tests(failed_ids(profiles.get(config.profile), output)) if config else []
         if not tests:
             return None
         at = datetime.now(UTC)

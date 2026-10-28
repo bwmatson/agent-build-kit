@@ -328,6 +328,10 @@ def test_a_successor_restates_the_requirement_the_archived_attempt_added(
     archive = installation.changes_dir / "archive"
     archive.mkdir()
     (installation.changes_dir / fix).rename(archive / f"2026-03-02-{fix}")
+    # What archiving does: the requirement joins the capability's shipped spec.
+    shipped = installation.specs_dir / "specs" / "test-determinism" / "spec.md"
+    shipped.parent.mkdir(parents=True)
+    shipped.write_text(added.replace("## ADDED Requirements", "## Requirements"))
 
     successor = str(wait_on_fix(installation, flaked(), unit))
 

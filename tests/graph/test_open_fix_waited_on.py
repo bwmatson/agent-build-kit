@@ -13,7 +13,7 @@ import pytest
 
 from agent_build_kit.graph.state import EventKind, ResumeEvent
 from agent_build_kit.installation import Installation
-from agent_build_kit.pipeline.flakes import fix_change_name
+from agent_build_kit.pipeline.flakes import fix_change_name, flake_record
 from agent_build_kit.pipeline.stack_runner import RunStatus
 from agent_build_kit.pipeline.unit_store import Cause, RequeueReason
 from agent_build_kit.pipeline.units import PLANNED
@@ -63,6 +63,10 @@ def test_a_failing_test_with_an_open_fix_parks_the_unit_gated_on_it(
     assert (stored.state, stored.cause) == (PLANNED, Cause.GATED)
     assert stored.gated_requeue is RequeueReason.RESUME
     assert waits_on(installation, "add-marker") == [fix]
+    tasks = (installation.changes_dir / "add-marker" / "tasks.md").read_text()
+    assert f"— failing test {TEST}" in tasks and "flaky test" not in tasks
+    assert "flaky" not in stored.note
+    assert flake_record(installation).entries() == [], "it did not flake"
     assert stored.feedback == "", "the test is not feedback for the unit's agent to fix"
     assert "claude:fix_checks" not in recorder.events
     assert len(recorder.unit_test_failed_outputs) == 1, "the test was not run again"

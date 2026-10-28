@@ -110,7 +110,12 @@ from agent_build_kit.pipeline.flakes import (
 from agent_build_kit.pipeline.gateway_usage import Spend, attribution, configured_source
 from agent_build_kit.pipeline.lease import Leases, lease_dir
 from agent_build_kit.pipeline.moved_base import moved_base_scope
-from agent_build_kit.pipeline.own_tests import defined_tests_in_range, tests_in
+from agent_build_kit.pipeline.own_tests import (
+    defined_tests_in_range,
+    failed_ids,
+    tests_in,
+    written_by_unit,
+)
 from agent_build_kit.pipeline.pending import describe, pending_projects
 from agent_build_kit.pipeline.planning_repo import current_branch
 from agent_build_kit.pipeline.planning_sync import in_repo_name
@@ -227,7 +232,7 @@ E2E_SMALLEST_TAIL = 200
 def _failure_digest(toolchain: ToolchainProfile, text: str) -> str:
     """Each failed test's identifier and the end of its own section, where the error is;
     empty when the profile cannot read the failed tests."""
-    tests = _failed_ids(toolchain, text)
+    tests = failed_ids(toolchain, text)
     if not tests:
         return ""
     found = _failure_sections(toolchain, text)
@@ -1645,19 +1650,19 @@ def build_unit_test(
         plan = []
         for where, toolchain, files in work:
             # The identifiers are relative to the project whose command failed.
-            failed_ids = (
-                _failed_ids(toolchain, failed_output)
+            named = (
+                failed_ids(toolchain, failed_output)
                 if len(work) == 1 or failed_in(where) in failed_output
                 else []
             )
             if affected.mode == "command":
-                tests = [expand_template(affected.command or "", files, failed_ids)]
+                tests = [expand_template(affected.command or "", files, named)]
             else:
                 tests = (
                     toolchain.affected_test_commands(
                         where,
                         files,
-                        failed_ids,
+                        named,
                         seed=selection_seed(where),
                         root_extras=root_extras or [],
                     )
@@ -1754,7 +1759,7 @@ def build_unit_test(
             return False
         output = f"{result.stdout}\n{result.stderr}".strip()
         stored = redact_text(output, where="unit-test output")
-        tests = _failed_ids(toolchain, output)
+        tests = failed_ids(toolchain, output)
         if not tests:
             return False
         # Read from the redacted text, so what is kept of a section holds no secret.
@@ -1784,7 +1789,7 @@ def build_unit_test(
             if toolchain.tolerates_exit(rerun, again.returncode):
                 continue
             again_output = f"{again.stdout}\n{again.stderr}"
-            failed_again = _failed_ids(toolchain, again_output)
+            failed_again = failed_ids(toolchain, again_output)
             limit = getattr(toolchain, "time_limit_tests", lambda text: [])(again_output)
             if not failed_again or not set(failed_again) <= set(limit):
                 if base is not None and not wrote(tests, where, base):
@@ -1825,7 +1830,7 @@ def build_unit_test(
         for test in tests:
             path = where / test.partition("::")[0]
             shown = path.relative_to(root) if path.is_relative_to(root) else path
-            if shown.as_posix() in files or (shown.parent / "conftest.py").as_posix() in files:
+            if written_by_unit(shown, files):
                 return True
         return False
 
@@ -1837,20 +1842,22 @@ def build_unit_test(
         root = checkout["root"]
         try:
             with worktree_at(root, base) as tree:
-                done = run(rerun, cwd=tree / where.relative_to(root))
+                done = ran(rerun, tree / where.relative_to(root), toolchain, root=tree)
         except (subprocess.CalledProcessError, OSError, ValueError) as error:
             logger.warning("unit-test base run could not be made, so it proves nothing: %s", error)
             return False
-        named = _failed_ids(toolchain, f"{done.stdout or ''}\n{done.stderr or ''}")
+        named = failed_ids(toolchain, f"{done.stdout or ''}\n{done.stderr or ''}")
         return all(test in named for test in tests)
 
     def ran(
-        command: list[str], where: Path, toolchain: ToolchainProfile
+        command: list[str], where: Path, toolchain: ToolchainProfile, root: Path | None = None
     ) -> subprocess.CompletedProcess:
+        """Run `command` in `where`, spanned and logged; `root` is the checkout `where` is in
+        when that is not the unit's (a worktree of its base)."""
         started = time.monotonic()
         mark = spans.Mark()
         outcome = "error"
-        command = located(toolchain, command, where, checkout.get("root", where))
+        command = located(toolchain, command, where, root or checkout.get("root", where))
         try:
             result = run(command, cwd=where)
             ok = toolchain.tolerates_exit(command, result.returncode)
@@ -1887,11 +1894,12 @@ def build_on_flake(
     def on_flake(unit: Unit, flake: Flake, *, wait: bool = True) -> str | None:
         met = flake.model_copy(update={"unit": unit.id})
         fix = wait_on_fix(installation, met, store.get(unit.id), wait=wait)
-        flake_record(installation).append(met.model_copy(update={"change": fix or ""}))
+        if not flake.failing:
+            flake_record(installation).append(met.model_copy(update={"change": fix or ""}))
         outcome = (
             "no wait" if not fix else f"waits for {fix}" if wait else f"recorded as {fix}, no wait"
         )
-        log(f"{unit.id}: flaky test {flake.test} — {outcome}")
+        log(f"{unit.id}: {'failing' if flake.failing else 'flaky'} test {flake.test} — {outcome}")
         return fix
 
     return on_flake
@@ -2043,12 +2051,6 @@ def _counted(toolchain: ToolchainProfile, result: subprocess.CompletedProcess) -
     """How many tests a test run's output says it ran."""
     passed, failed, skipped, _ = toolchain.parse_test_summary(f"{result.stdout}\n{result.stderr}")
     return passed + failed + skipped
-
-
-def _failed_ids(toolchain: ToolchainProfile, output: str) -> list[str]:
-    """The tests a failed check's output names, as the profile reads them; none when it cannot."""
-    reader = getattr(toolchain, "failed_tests", None)
-    return reader(output) if reader is not None else []
 
 
 def _failure_sections(toolchain: ToolchainProfile, output: str) -> dict[str, str]:
@@ -3354,9 +3356,8 @@ class E2eSession:
         own: list[TestFailure] = []
         untouched: list[TestFailure] = []
         for failure in self.result.failures:
-            path = Path(failure.test.partition("::")[0])
-            is_own = failure.split == UNKNOWN_SPLIT or (
-                path.as_posix() in changed or (path.parent / "conftest.py").as_posix() in changed
+            is_own = failure.split == UNKNOWN_SPLIT or written_by_unit(
+                Path(failure.test.partition("::")[0]), changed
             )
             (own if is_own else untouched).append(failure)
         return E2eClassification(own=own, untouched=untouched)

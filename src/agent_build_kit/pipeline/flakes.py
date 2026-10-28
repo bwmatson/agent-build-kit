@@ -50,11 +50,15 @@ class Flake(Recorded):
     # Where unit-test ran it (a project below the repo root, or the root), which its
     # identifier is relative to; empty when unknown.
     directory: str = ""
+    # Set for a test that failed and is not a flake (it fails on the base, by its time limit,
+    # or has an open fix): it is said as a failing test and is not recorded as a flake.
+    failing: bool = False
 
 
-def waiting_note(tests: list[str]) -> str:
-    """What a unit parked for these flaky tests is waiting for, in a person's words."""
-    return f"waiting for the fix of the flaky test {', '.join(tests)}"
+def waiting_note(tests: list[str], *, failing: bool = False) -> str:
+    """What a unit parked for these tests is waiting for, in a person's words."""
+    kind = "failing" if failing else "flaky"
+    return f"waiting for the fix of the {kind} test {', '.join(tests)}"
 
 
 class FlakeFound(Exception):
@@ -75,7 +79,7 @@ class FailedOnBase(Exception):
 
     def __init__(self, failures: tuple[Flake, ...]) -> None:
         super().__init__(", ".join(failure.test for failure in failures))
-        self.failures = failures
+        self.failures = tuple(failure.model_copy(update={"failing": True}) for failure in failures)
 
 
 @runtime_checkable
@@ -145,7 +149,8 @@ def wait_on_fix(
         if unit.change == name:
             return None
         if wait:
-            add_needs_to_unit(inst, unit, name, f"flaky test {flake.test}")
+            kind = "failing" if flake.failing else "flaky"
+            add_needs_to_unit(inst, unit, name, f"{kind} test {flake.test}")
         return name
 
 
@@ -244,7 +249,24 @@ def _write_change(
     (root / "proposal.md").write_text(_proposal(inst, flake, unit, earlier))
     (root / "design.md").write_text(_design(flake))
     (root / "tasks.md").write_text(_tasks(flake, unit))
-    (root / "specs" / CAPABILITY / "spec.md").write_text(_spec(flake, successor=bool(earlier)))
+    shipped = requirement_shipped(inst, CAPABILITY, _requirement(flake))
+    (root / "specs" / CAPABILITY / "spec.md").write_text(_spec(flake, successor=shipped))
+
+
+def requirement_shipped(inst: Installation, capability: str, requirement: str) -> bool:
+    """Whether the shipped spec of `capability` already holds the requirement titled
+    `requirement`, which an archive refuses to add again. An earlier change of another kind
+    that was archived added a different requirement to a different capability, so only the
+    spec itself says."""
+    try:
+        text = (inst.specs_dir / "specs" / capability / "spec.md").read_text()
+    except OSError:
+        return False
+    return f"### Requirement: {requirement}\n" in text
+
+
+def _requirement(flake: Flake) -> str:
+    return f"`{flake.test}` is deterministic"
 
 
 def _proposal(inst: Installation, flake: Flake, unit: StoredUnit, earlier: str) -> str:
@@ -312,7 +334,7 @@ def _spec(flake: Flake, *, successor: bool) -> str:
     verb = "MODIFIED" if successor else "ADDED"
     return (
         f"## {verb} Requirements\n\n"
-        f"### Requirement: `{flake.test}` is deterministic\n\n"
+        f"### Requirement: {_requirement(flake)}\n\n"
         "The test SHALL give the same result however loaded the machine running it is.\n\n"
         "#### Scenario: Run repeatedly under load\n\n"
         "- **WHEN** the test is run repeatedly under parallel load\n"

@@ -234,6 +234,10 @@ def test_a_successor_names_the_earlier_attempt_and_restates_the_spec_once_it_is_
     first, _ = ensured(installation, unit)
     added = next((installation.changes_dir / first / "specs").rglob("spec.md")).read_text()
     archive(installation, first)
+    # What archiving does: the requirement joins the capability's shipped spec.
+    shipped = installation.specs_dir / "specs" / "failing-tests" / "spec.md"
+    shipped.parent.mkdir(parents=True)
+    shipped.write_text(added.replace("## ADDED Requirements", "## Requirements"))
 
     successor, said = ensured(installation, unit)
 
