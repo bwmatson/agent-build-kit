@@ -351,6 +351,7 @@ from agent_build_kit.pipeline.units import (
     shown_dependencies,
     shown_waits,
     stack_age_source,
+    start_order,
     start_room,
     trunk_of,
     uncounted,
@@ -805,6 +806,13 @@ def _restack_lines(inst: Installation, units: list[StoredUnit]) -> list[str]:
     return lines
 
 
+def local_time(at: datetime) -> str:
+    """A time as the status reads it: local, `HH:MM`, with the day when it is not today."""
+    local = at.astimezone()
+    day = "" if local.date() == spans.clock.now().astimezone().date() else f"{local:%a %d %b} "
+    return f"{day}{local:%H:%M}"
+
+
 def _slots_line(inst: Installation, units: list[StoredUnit]) -> str | None:
     """`slots: 5/4, 1 restacking`: the occupancy over the cap, with the moved-base runs running
     in the lane. Nothing is printed when no slot is taken and no run is in the lane."""
@@ -1102,6 +1110,15 @@ def cmd_status(args: argparse.Namespace, inst: Installation) -> int:
             log(f"  {unit.id} ({where}) is over its ceiling and not split: {unit.unsplit_reason}")
         if unit.state == HELD and unit.cause is Cause.DIRTY_WORKTREE:
             log(f"  parked: {unit.id} ({where}) — {unit.note}")
+        if (
+            unit.state == RUNNING
+            and unit.paused_until is not None
+            and unit.paused_until > spans.clock.now()
+        ):
+            log(
+                f"  paused for usage: {unit.id} ({where}) "
+                f"until {local_time(unit.paused_until)}; it holds its place meanwhile"
+            )
         step = unit.step or "an unknown step"
         if unit.state == FAILED and unit.cause is Cause.ENVIRONMENT:
             log(f"  waiting for the environment: {unit.id} ({where}) at {step} — {unit.note}")
@@ -2352,7 +2369,7 @@ def run_round(
     if readmit:
         readmit.admit(units, in_flight)
     idle = _idle_units(inst, units, in_flight)
-    # A unit no run holds takes no slot while it waits; the runs in flight do, and so do the
+    # A unit no run holds takes no worker while it waits; the runs in flight do, and so do the
     # moved-base runs running in the lane, never those waiting behind its cap.
     # One this pass built that an event resumed is started again, within the
     # same budget as a readmission.
@@ -2373,16 +2390,33 @@ def run_round(
         """The pause of the model's refusal of the account a repo's units run on."""
         return model_refused.get(_label_of(claude_account.for_repo(inst.config, repo)))
 
-    resumable = _within_workers(
+    def waiting_out(unit: Unit) -> bool:
+        """Whether the unit is paused for usage, its time has not come and the guard still
+        refuses its step: a resume would only ask the guard again. The guard is asked as the
+        unit's own gate asks it, for its review tier and size."""
+        stored_unit = stored_by_id[unit.id]
+        until = stored_unit.paused_until
+        if until is None or until <= spans.clock.now():
+            return False
+        if not runtimes.active().supports_usage_tracking:
+            return False
+        account = claude_account.for_repo(inst.config, unit.repo)
+        # Only asking: a dry run keeps no allowance for a unit it does not build.
+        with not_recording() if dry_run else nullcontext():
+            return not _account_decision(account, decided, unit=stored_unit).may_start
+
+    stored_by_id = {unit.id: unit for unit in units}
+    waiting_to_resume = start_order(
         [
             unit
             for unit in resumable_units(inst, units, only=only, spared=in_flight, owed=owed)
             if model_refusal(unit.repo) is None
+            and not waiting_out(unit)
             and (readmit is None or unit.id not in started or readmit.may_resume(unit.id))
         ],
-        taken,
-        cap=inst.max_concurrent_stacks,
+        units,
     )
+    resumable = _within_workers(waiting_to_resume, taken, cap=inst.max_concurrent_stacks)
     resumed = {unit.id for unit in resumable}
     evaluated, view, _excluded, for_the_lane, lane_starts = _evaluate_round(
         inst,
@@ -2390,14 +2424,22 @@ def run_round(
         started=set(started),
         building=in_flight | resumed | lane_running,
         only=only,
-        # A running unit waiting behind the lane's cap holds no slot, as one no run holds does
-        # not; a planned one stays as it is, owed a restack.
+        # A running unit waiting behind the lane's cap holds no worker, as one no run holds
+        # does not (one with a recorded usage pause still counts toward `max_units_in_progress`,
+        # see `_evaluate_round`); a planned one stays as it is, owed a restack.
         idle=(idle - resumed)
         | {unit.id for unit in units if unit.id in lane_waiting and unit.state == RUNNING},
         owed=owed,
     )
+    # A unit still waiting to resume has its project's worker before a unit that has never
+    # started there, the emergency lane's starts among them; other projects' lane starts go on.
+    unplaced = {project_key(unit) for unit in waiting_to_resume if unit.id not in resumed}
+    held_back = {
+        unit.id for unit in evaluated if unit.id in lane_starts and project_key(unit) in unplaced
+    }
+    evaluated = [unit for unit in evaluated if unit.id not in held_back]
+    lane_starts = lane_starts - held_back
     # A unit not yet started waits when its own account refuses: no worktree, branch or lease.
-    stored_by_id = {unit.id: unit for unit in units}
     refused: dict[str, str] = {}
     for unit in evaluated:
         # The model's refusal holds its account's units, one already started among them.
@@ -2634,10 +2676,19 @@ def _write_admissions(
             store.record_event(unit.id, "usage_resume", account=account)
 
 
+def _is_paused_for_usage(unit: StoredUnit) -> bool:
+    """Whether the gate left the unit paused for usage: running, with a pause recorded. A pause
+    is recorded until the gate allows, so one whose time has passed and is waiting for a worker
+    still holds its place; `reclaim_stranded` ends it when its thread is gone."""
+    return unit.state == RUNNING and unit.paused_until is not None
+
+
 def _idle_units(
     inst: Installation, units: list[StoredUnit], in_flight: Collection[str]
 ) -> set[str]:
-    """Running units no run holds: not in flight, and their branch's lock free."""
+    """Running units no run holds: not in flight, and their branch's lock free. They take no
+    worker (the worker meaning). A unit with a recorded usage pause is among them: this function
+    does not keep it in progress, the round's view does (`_evaluate_round`)."""
     return idle_units(units, in_flight, lambda branch: branch_is_held(inst, branch))
 
 
@@ -3432,17 +3483,23 @@ def _evaluate_round(
     what this pass has already started, or `--only` excludes, as held. The
     answer is filtered again too: never handing a unit out twice is what
     guarantees the pass ends. `idle` names running units no run holds, which
-    take no slot: they show as held, still blocking their dependents.
+    take no worker: they show as held, still blocking their dependents, unless they record a
+    usage pause, which holds their place of the limit: those show as running.
     """
     view: list[Unit] = []
     excluded: set[str] = set()
     now = spans.clock.now()
+    # A unit no run holds that records a usage pause is in progress and holds its place, with no
+    # worker: it is shown running, never held (`ready_units`, `no_worker`).
+    paused = {unit.id for unit in units if unit.id in idle and _is_paused_for_usage(unit)}
     leases = Leases(lease_dir(inst.local_dir))
     owed = owed_units(inst, units) if owed is None else owed
     gates = split_gates(inst.config, inst.state_dir, units)
     external = held_units(inst.changes_dir, units)
     for unit in units:
         if unit.id in building:
+            unit = unit.model_copy(update={"state": RUNNING})
+        elif unit.id in paused:
             unit = unit.model_copy(update={"state": RUNNING})
         elif unit.id in idle:
             unit = unit.model_copy(update={"state": HELD})
@@ -3485,6 +3542,7 @@ def _evaluate_round(
             excluded=excluded,
             emergency_extra=extra,
             in_lane=lane,
+            no_worker=paused,
         )
 
     ready = ready_with(extra)
@@ -3494,7 +3552,9 @@ def _evaluate_round(
         normal = {unit.id for unit in ready_with(0)}
         in_the_lane = frozenset(unit.id for unit in ready if unit.id not in normal)
     # The lane's units take no worker of the project's own, as in `ready_units`.
-    running = count_by_project(view, lambda unit: unit.state == RUNNING and unit.id not in lane)
+    running = count_by_project(
+        view, lambda unit: unit.state == RUNNING and unit.id not in lane and unit.id not in paused
+    )
     startable = _within_workers(
         [unit for unit in ready if unit.id not in for_the_lane],
         running,

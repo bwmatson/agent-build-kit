@@ -1329,6 +1329,15 @@ def _start_key(
     return (rank, urgency, 0 if unit.id in handed_off else 1, effective_age(unit, graph, excluded))
 
 
+def start_order[U: Unit](
+    units: Sequence[U], graph: Sequence[Unit], excluded: Collection[str] = ()
+) -> list[U]:
+    """`units` in the order starts are chosen: existing work first, then by effective priority.
+    Units waiting to resume are taken in this order, so a free worker goes to the first of them
+    and not to the first the store lists."""
+    return sorted(units, key=lambda unit: _start_key(unit, graph, excluded, ())[:2])
+
+
 def handoff_units(
     ready: Sequence[Unit], graph: Sequence[Unit], excluded: Collection[str]
 ) -> list[Unit]:
@@ -1375,6 +1384,7 @@ def ready_units(
     extra_workers: Mapping[ProjectKey, int] | None = None,
     slot_of: Callable[[Unit], Hashable] = project_key,
     slot_limit: Callable[[Hashable], int] | None = None,
+    no_worker: Collection[str] = frozenset(),
 ) -> list[Unit]:
     """The planned units that may start right now, in the order to start them.
 
@@ -1411,8 +1421,12 @@ def ready_units(
     the lane's units count as in progress and running for the units that have never started,
     so ordinary starts wait; a unit already started is held to the workers without them.
     `extra_workers` adds workers to `max_concurrent` for the projects it names and no other.
+    `no_worker` names running units no run holds (a unit paused for usage): they are in progress
+    and hold a place of the limit, and they take no worker.
     """
-    running = count_by_project(graph, lambda unit: unit.state == RUNNING)
+    running = count_by_project(
+        graph, lambda unit: unit.state == RUNNING and unit.id not in no_worker
+    )
 
     # A unit that was blocked and no longer is draws on the room like a new one.
     counted = count_by(
@@ -1438,8 +1452,11 @@ def ready_units(
     ordered = sorted(ready, key=lambda unit: _start_key(unit, graph, excluded, handed_off))
 
     lane_use = count_by_project(graph, lambda unit: unit.id in in_lane and in_progress(unit, graph))
+    # A paused unit in the lane is in `no_worker`: it is not in `running`, so it is not taken
+    # off it either.
     lane_running = count_by_project(
-        graph, lambda unit: unit.id in in_lane and unit.state == RUNNING
+        graph,
+        lambda unit: unit.id in in_lane and unit.state == RUNNING and unit.id not in no_worker,
     )
     started: list[Unit] = []
     taken: dict[ProjectKey, int] = {}

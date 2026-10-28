@@ -95,6 +95,12 @@
   `Tests: required — <reason>` line in a group keeps tests first for it, and `abk tags` shows
   each group's mode.
 
+- A unit the usage guard pauses at the gate is now recorded as paused for usage until a
+  time, counts toward the limit of units in progress while it waits, and is not resumed
+  before that time unless the guard allows its step sooner. `abk status` and `abk explain`
+  name the pause. Units waiting to resume are resumed in start order (existing work, then
+  priority) and ahead of new starts of their project, the emergency lane's included.
+
 - A task group that names only test files or test-support modules under `tests/` (with
   documents, if any) is now `tests_only`: it commits one `test:` and no `feat:`, as an
   `[e2e-test]` group does. A source path, or no path, keeps tests first, and

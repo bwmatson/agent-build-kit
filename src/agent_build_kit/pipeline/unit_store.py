@@ -395,6 +395,9 @@ class StoredUnit(Unit):
     # Whether that run began and no attempt at its base's tip is recorded for it, because it
     # stopped before its first agent call: its resume is then the attempt.
     moved_base_uncounted: bool = False
+    # When the guard expects to allow a start again, while the unit is paused at the gate for
+    # usage (cause `Cause.USAGE`); None when it is not paused.
+    paused_until: datetime | None = None
     # Why the unit is held (see `HeldBy`).
     held_by: HeldBy = HeldBy.NONE
     # The branch a unit held for depth is still on.
@@ -831,6 +834,7 @@ class UnitStore:
                 first_human_activity_at=existing.first_human_activity_at if existing else None,
                 moved_base_run=existing.moved_base_run if existing else False,
                 moved_base_uncounted=existing.moved_base_uncounted if existing else False,
+                paused_until=existing.paused_until if existing else None,
                 history=existing.history if existing else ({"state": PLANNED, "at": _now()},),
             )
             if existing and not existing.unstarted:
@@ -1066,6 +1070,7 @@ class UnitStore:
         cause: Cause | None | Keep = None,
         held_base: str = "",
         by: str = "",
+        paused_until: datetime | None = None,
     ) -> None:
         """Record a state, optionally with why.
 
@@ -1076,7 +1081,9 @@ class UnitStore:
         `cause` is why the state changed, kept as a defined value for what
         decides from it; the note is prose for people and nothing reads it.
         `held_by` is who owns a hold and `held_base` the branch a depth hold is
-        still on; any other state forgets both.
+        still on; any other state forgets both. `paused_until` is when a usage pause (cause
+        `Cause.USAGE`, state `running`) ends, written with the cause; a state written without it
+        keeps a pause already recorded only while it carries the same cause.
         """
         record = functools.partial(
             self._record_state,
@@ -1089,6 +1096,7 @@ class UnitStore:
             cause=cause,
             held_base=held_base,
             by=by,
+            paused_until=paused_until,
         )
         try:
             unit, everything, opened = record()
@@ -1121,6 +1129,7 @@ class UnitStore:
         cause: Cause | None | Keep,
         held_base: str,
         by: str = "",
+        paused_until: datetime | None = None,
     ) -> tuple[StoredUnit, list[StoredUnit], bool]:
         state = UnitState(state)
         stored = self._read()
@@ -1137,6 +1146,10 @@ class UnitStore:
                 # The lane's run of the unit lasts while it is running.
                 "moved_base_run": unit.moved_base_run and state == RUNNING,
                 "moved_base_uncounted": unit.moved_base_uncounted and state == RUNNING,
+                # A usage pause lasts while the unit stays running for it.
+                "paused_until": (paused_until or unit.paused_until)
+                if state == RUNNING and resolved is Cause.USAGE
+                else None,
                 "held_base": held_base if state == HELD else "",
                 # The step belongs to the failure or parking it describes (recorded just
                 # before it); any other state forgets it.
@@ -1216,6 +1229,22 @@ class UnitStore:
         stored = self._read()
         stored[unit_id] = stored[unit_id].model_copy(update=fields)
         self._write(stored)
+
+    def set_usage_pause(self, unit_id: str, until: datetime | None) -> None:
+        """Record that the gate paused the unit for usage until `until` (its cause is then
+        `Cause.USAGE`, in the state it is in), or clear the pause with None, which also ends
+        that cause."""
+        unit = self.get(unit_id)
+        # One write each: the cause and the time are recorded together, so a pause never
+        # outlives the cause it belongs to.
+        if until is not None and unit.cause is not Cause.USAGE:
+            self.set_state(
+                unit_id, unit.state, cause=Cause.USAGE, note="paused for usage", paused_until=until
+            )
+        elif until is None and unit.cause is Cause.USAGE:
+            self.set_state(unit_id, unit.state, cause=None, note="usage pause over")
+        else:
+            self._update(unit_id, paused_until=until)
 
     def set_priority(self, unit_id: str, priority: int) -> None:
         """Set the priority of a unit that has not started; a started one keeps its own."""
@@ -1630,7 +1659,14 @@ def _record(unit: StoredUnit) -> dict:
         del record["story_superseded"]
     if not unit.bounces:
         del record["bounces"]
-    for name in ("ready_at", "first_human_activity_at", "review_tier", "bounce_cause", "bounce_at"):
+    for name in (
+        "ready_at",
+        "first_human_activity_at",
+        "review_tier",
+        "bounce_cause",
+        "bounce_at",
+        "paused_until",
+    ):
         if record[name] is None:
             del record[name]
     return record

@@ -6,7 +6,7 @@ import argparse
 import sys
 from datetime import UTC, datetime
 
-from agent_build_kit.cli.pipeline import late_fix_phrase, store_for
+from agent_build_kit.cli.pipeline import late_fix_phrase, local_time, store_for
 from agent_build_kit.installation import Installation
 from agent_build_kit.pipeline import spans
 from agent_build_kit.pipeline.admission_record import (
@@ -17,7 +17,7 @@ from agent_build_kit.pipeline.admission_record import (
 )
 from agent_build_kit.pipeline.external_file import external_reason, held_units
 from agent_build_kit.pipeline.unit_store import Cause
-from agent_build_kit.pipeline.units import PLANNED, history_stamp
+from agent_build_kit.pipeline.units import PLANNED, RUNNING, history_stamp
 
 
 def _usage_line(record: AdmissionRecord) -> str:
@@ -120,6 +120,22 @@ def cmd_explain(args: argparse.Namespace, inst: Installation) -> int:
         return 0
     if unit is not None and unit.state is PLANNED and unit.cause is Cause.GATED and unit.note:
         print(f"{args.unit} is {unit.state.value}: {unit.note}")
+        if record is None:
+            return 0
+    if (
+        unit is not None
+        and unit.state == RUNNING
+        and unit.paused_until is not None
+        # Not once its time has passed: it then waits for a worker.
+        and unit.paused_until > at
+        # Not before the gate paused it.
+        and (since := unit.cause_since) is not None
+        and since <= at
+    ):
+        print(
+            f"{args.unit} is paused for usage until {local_time(unit.paused_until)}: it holds "
+            "its place, and is resumed then or sooner when the guard allows the step"
+        )
         if record is None:
             return 0
     if record is None:
