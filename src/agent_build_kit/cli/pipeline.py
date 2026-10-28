@@ -8088,8 +8088,6 @@ def register(sub: argparse._SubParsersAction) -> None:
     gate.set_defaults(func=cmd_gate, needs_installation="optional")
 
 
-
-
 def wait_reasons(
     inst: Installation,
     units: list[StoredUnit],
