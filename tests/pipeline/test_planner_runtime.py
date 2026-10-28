@@ -54,7 +54,9 @@ def test_the_graph_call_runs_through_the_runtime_it_is_given() -> None:
     assert request.policy is None
 
 
-def test_under_claude_code_the_graph_call_sends_the_command_it_sent_before() -> None:
+def test_under_claude_code_the_graph_call_sends_the_command_it_sent_before_and_the_plan_model() -> (
+    None
+):
     fake = FakeClaude(stdout=json.dumps(PLAN))
 
     plan_round(changes=CHANGES, in_flight=IN_FLIGHT, runtime=ClaudeCodeRuntime(execute=fake))
@@ -63,6 +65,7 @@ def test_under_claude_code_the_graph_call_sends_the_command_it_sent_before() -> 
         "-p": None,
         "--output-format": "stream-json",
         "--verbose": None,
+        "--model": "opus",
         "--settings": json.dumps(
             {"attribution": {"commit": "", "pr": ""}, "includeCoAuthoredBy": False}
         ),

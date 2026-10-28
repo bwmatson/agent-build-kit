@@ -1297,7 +1297,7 @@ class AcpRuntime:
     # No name is this runtime's own — an empty role means the agent's own
     # default, which `_turn` reads as "select nothing" (docs/agent-runtimes.md).
     default_models: ModelsConfig = ModelsConfig(
-        implement="", rework="", review="", rework_review="", regression=""
+        implement="", rework="", review="", rework_review="", regression="", plan=""
     )
 
     def __init__(self) -> None:

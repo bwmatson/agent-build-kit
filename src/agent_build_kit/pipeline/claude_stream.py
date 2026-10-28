@@ -82,6 +82,17 @@ class ResultEvent(BaseModel):
         return None
 
 
+def started_model(stdout: str) -> str | None:
+    """The model the run's init event names: what `describe` prints as `claude started
+    (<model>)`. It is there before the first answer, so a run cut off early still has it."""
+    for line in stdout.splitlines():
+        event = _parse(line)
+        if event is not None and event.get("type") == "system" and event.get("subtype") == "init":
+            model = event.get("model")
+            return model if isinstance(model, str) and model else None
+    return None
+
+
 def request_fills(stdout: str) -> tuple[list[int], int, str | None]:
     """The main conversation's context fill at each model request of a streamed run, in
     order, how many times the run said it compacted, and the model id it ran on. An assistant

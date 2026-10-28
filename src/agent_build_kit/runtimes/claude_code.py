@@ -34,6 +34,7 @@ from agent_build_kit.pipeline.claude_stream import (
     records,
     request_fills,
     result_event,
+    started_model,
     stream_run,
 )
 from agent_build_kit.pipeline.usage_guard import (
@@ -438,6 +439,7 @@ class ClaudeCodeRuntime:
         if result.returncode < 0:
             raise AgentInterrupted(f"claude was killed by signal {-result.returncode}")
         ended = result_event(result.stdout)
+        reported_model = started_model(result.stdout)
         # An error-subtype result has no `result` text, and `final_text` would
         # then hand back the whole transcript; that belongs in `raw` alone.
         text = "" if ended is not None and ended.result is None else final_text(result.stdout)
@@ -466,6 +468,7 @@ class ClaudeCodeRuntime:
                 turns=ended.num_turns if ended is not None else None,
                 **_spent(ended),
                 context=_context(result.stdout, ended, request.model),
+                reported_model=reported_model,
             )
             strength = (
                 network_failure(said)
@@ -493,6 +496,7 @@ class ClaudeCodeRuntime:
             stop_reason=stop_reason,
             turns=ended.num_turns if ended is not None else None,
             context=_context(result.stdout, ended, request.model),
+            reported_model=reported_model,
             **_spent(ended),
         )
 

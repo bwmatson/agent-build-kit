@@ -159,7 +159,12 @@ def _cells(
     reached: dict[Cell, set[str]] = defaultdict(set)
     for unit in units:
         for call in unit.calls:
-            cell = Cell(role=call.role, node=call.node, round=call.round, model=call.model)
+            cell = Cell(
+                role=call.role,
+                node=call.node,
+                round=call.round,
+                model=call.model or call.reported_model,
+            )
             by_cell[cell].append(_usd(call))
             reached[cell].add(unit.unit)
     chances = {c: reach_rate(len(u), len(units), quantile) for c, u in reached.items()}

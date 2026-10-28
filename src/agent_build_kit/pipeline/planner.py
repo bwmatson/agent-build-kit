@@ -31,6 +31,7 @@ from agent_build_kit.config import (
     RepoConfig,
     active,
     ceilings_in_effect,
+    models,
     review_ceiling,
 )
 from agent_build_kit.model import Frozen, TestTier, pooled_kind
@@ -1487,7 +1488,13 @@ def _ask(
     runtime's safe size fails before the request is made, naming the size of each part."""
     agent = runtime or runtimes.active()
     request = recorded(
-        AgentRequest(prompt=prompt, permission_mode="allowed_tools_only", change=change),
+        AgentRequest(
+            prompt=prompt,
+            permission_mode="allowed_tools_only",
+            change=change,
+            role="plan",
+            model=models().plan or None,
+        ),
         agent,
         node=OverheadNode.PLAN,
         change=change,

@@ -21,7 +21,7 @@ def test_a_plan_round_writes_one_plan_row_naming_the_change_and_no_unit(
         "plan",
         "",
         "add-marker",
-        "generic",
+        "plan",
     )
     assert row["input_tokens"] == 1200
     assert row["cost"]["incremental_usd"] == 0.31

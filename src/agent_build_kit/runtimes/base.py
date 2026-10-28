@@ -39,7 +39,7 @@ PermissionMode = Literal["edit", "allowed_tools_only"]
 # The abk-level roles every call site resolves a model for today
 # (config.ModelsConfig). A runtime with no equivalent split may point every
 # role at the same model name.
-Role = Literal["implement", "review", "rework_review", "generic"]
+Role = Literal["implement", "review", "rework_review", "plan", "generic"]
 
 # How much of what an agent does abk can interpose on. `all_calls`: every
 # tool call reaches abk before it runs (Claude Code's hook; an ACP agent that
@@ -214,6 +214,7 @@ class AgentResult(Frozen):
     session_id: str | None = None
     usage_source: UsageSource = "none"
     context: Context | None = None  # the context window's use over the call, when it says
+    reported_model: str | None = None  # the model the runtime says ran, when it says
 
     @property
     def succeeded(self) -> bool:

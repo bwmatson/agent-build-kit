@@ -202,6 +202,9 @@ class ModelsConfig(Frozen):
     # The regression agent works out why a test fails and writes the fix change; it reasons
     # across history, so it gets the strongest model.
     regression: str = "opus"
+    # The planner's graph call judges as well as sorts (the review tier), so it gets the
+    # strongest model.
+    plan: str = "opus"
 
 
 class RuntimeModelsConfig(Frozen):
@@ -213,6 +216,7 @@ class RuntimeModelsConfig(Frozen):
     review: str | None = None
     rework_review: str | None = None
     regression: str | None = None
+    plan: str | None = None
 
 
 # Points a unit is assumed to spend of each window before the history says otherwise.
@@ -2376,4 +2380,5 @@ def models() -> ModelsConfig:
         review=pick("review", settings.review_model),
         rework_review=pick("rework_review", settings.rework_review_model),
         regression=pick("regression", settings.regression_model),
+        plan=pick("plan", settings.plan_model),
     )

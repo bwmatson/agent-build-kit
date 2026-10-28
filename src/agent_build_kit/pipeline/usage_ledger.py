@@ -115,6 +115,8 @@ class UsageRecord(BaseModel):
     tier: str = ""
     role: str = ""
     model: str | None = None
+    # The model the runtime reported; None for a row written before the field existed.
+    reported_model: str | None = None
     runtime: str = ""
     session_id: str | None = None
     resumed: bool = False

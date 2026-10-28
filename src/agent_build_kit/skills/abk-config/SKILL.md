@@ -85,6 +85,7 @@ runtimes:                     # only for a runtime needing a fact abk cannot
       rework_review: opus     # both reviews are made by a different model from
                               # the author; if the author is opus, set this to another
       regression: opus        # works out why a test fails and writes the fix change
+      plan: opus              # the planner's graph call
     limits:                   # with the same settings
       session:                # the 5-hour window
         usage_pause_pct: 70            # % at which no unit starts
