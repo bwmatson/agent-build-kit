@@ -66,6 +66,8 @@ from agent_build_kit.pipeline import (
     environment,
     landing_intent,
     loaded_code,
+    lock_probe,
+    mounts,
     network_probe,
     retirement,
     spans,
@@ -1371,6 +1373,18 @@ def _not_archived_reason(change: str, units: list, inst: Installation) -> str:
 # --- the tick ---------------------------------------------------------------------------
 
 
+def _state_locking_refusal(inst: Installation) -> str | None:
+    """What stops a tick whose state directory is on a share where locks do not exclude, or None.
+    A local state directory costs nothing: no probe, no cache."""
+    mount = mounts.mount_of(inst.state_dir)
+    if mount.local:
+        return None
+    result = lock_probe.cached_probe(inst.local_dir, inst.state_dir, mount)
+    if result.passed:
+        return None
+    return f"{result.detail}\n{result.fix}"
+
+
 def cmd_tick(args: argparse.Namespace, inst: Installation) -> int:
     """One pass of the loop. Safe to call at any time.
 
@@ -1379,6 +1393,9 @@ def cmd_tick(args: argparse.Namespace, inst: Installation) -> int:
     """
     if off := guard_off_line():
         log(off)
+    if (refusal := _state_locking_refusal(inst)) is not None:
+        print(refusal)
+        return 1
     forget_logged_failures()
     # Before the planning sync: it may pull the kit's own checkout, and the head recorded must
     # be the code this process imported, not what a pull brings after.

@@ -20,7 +20,10 @@
   directory, `planning.local_dir` or `ABK_LOCAL_DIR`, by default `<planning home>/local`, so
   the state directory can sit on a network drive. An existing checkpointer database is copied
   once; `abk doctor` warns about the old files left behind and fails a local directory on a
-  network filesystem.
+  network filesystem. When the state directory is on a network filesystem, `abk doctor` names
+  the mount and runs a lock probe that fails if two processes can hold one lock, and a tick
+  runs the same probe (cached for a day) and refuses to start on a failure. `docs/configuration.md`
+  has a "Network drive" section on what is supported.
 
 - Unit worktrees are now kept in a folder named for the repo's name in `abk.yaml`, not for
   its checkout's folder, so the folder no longer changes when the checkout moves or the

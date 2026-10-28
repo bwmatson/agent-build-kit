@@ -82,7 +82,7 @@ from agent_build_kit.notify.windows import (
     MODULE_CHECK_COMMAND,
 )
 from agent_build_kit.path_patterns import matches, normalize
-from agent_build_kit.pipeline import agent_commands
+from agent_build_kit.pipeline import agent_commands, lock_probe, mounts
 from agent_build_kit.pipeline.e2e import dimension_lines
 from agent_build_kit.pipeline.e2e_holds import HELD_FILE, current_holds, hold_text
 from agent_build_kit.pipeline.environment import matched_inputs
@@ -561,10 +561,6 @@ def _pipeline_worktree(inst: Installation) -> list[Check]:
 _LOCAL_LEFTOVERS = ("locks", "leases", E2E_LOCK_FILE, "environment.lock", "unit-graphs.sqlite")
 
 
-def _assumed_local(path: Path) -> Mount:
-    return Mount(fstype="unknown", source="", options="", local=True)
-
-
 def _local_dir(inst: Installation, mount_of: Callable[[Path], Mount]) -> list[Check]:
     """The local directory is on a local filesystem, and no machine-local file is left behind
     in the state directory."""
@@ -592,6 +588,35 @@ def _local_dir(inst: Installation, mount_of: Callable[[Path], Mount]) -> list[Ch
                     f"delete {old}",
                 )
             )
+    return checks
+
+
+def _state_locking(inst: Installation, mount_of: Callable[[Path], Mount]) -> list[Check]:
+    """Where the durable state is mounted, and whether locks taken there exclude a second
+    process. A local disk says nothing unless the probe fails."""
+    mount = mount_of(inst.state_dir)
+    checks: list[Check] = []
+    if not mount.local:
+        checks.append(
+            _info(
+                "state mount",
+                f"durable state on {mount.fstype} {mount.source}: one pipeline host only",
+            )
+        )
+        if "hard" in mount.options.split(","):
+            checks.append(
+                _warn(
+                    "state mount",
+                    f"{mount.fstype} {mount.source} is mounted `hard`: a share that stops "
+                    "answering blocks the pipeline in the kernel, past any lock timeout",
+                    "mount with `soft` and a `timeo`, or the `intr` equivalent for the share",
+                )
+            )
+    result = lock_probe.probe_locking(inst.state_dir, mount=mount)
+    if not result.passed:
+        checks.append(_fail("state locking", result.detail, result.fix))
+    elif not mount.local:
+        checks.append(_ok("state locking", result.detail))
     return checks
 
 
@@ -2161,6 +2186,7 @@ def run_doctor(
 ) -> list[Check]:
     run = run or subprocess.run
     which = which or shutil.which
+    mount_of = mount_of or mounts.mount_of
     try:
         path = config.locate(config_path, cwd=cwd)
         loaded: WorkspaceConfig = load_config(path)
@@ -2201,6 +2227,7 @@ def run_doctor(
     checks += _pipeline_worktree(inst)
     checks += _machine_files(inst)
     checks += _state_ignores(inst)
+    checks += _state_locking(inst, mount_of)
     checks += _legacy_state(inst)
     checks += _planning_view(inst)
     checks += _state_location(inst)
@@ -2219,7 +2246,7 @@ def run_doctor(
     checks += _verify_env(inst, run)
     checks += _public_content(inst)
     checks += _machine_keys(inst)
-    checks += _local_dir(inst, mount_of or _assumed_local)
+    checks += _local_dir(inst, mount_of)
     checks += _weak_secrets()
     checks += _environment(inst, run)
     checks.append(_rules_drift(inst))

@@ -887,6 +887,39 @@ derived term); `abk scrub-check` reads it. `abk doctor`'s `public content` check
 `abk.local.yaml` or `scrub.local` is tracked or not ignored, and when a committed `abk.yaml`
 holds a repo path outside the checkout, a home path or another account's repo.
 
+### Network drive
+
+`planning.state_dir` may sit on a network drive, so the durable state (the unit store, the
+reports, the usage ledger, the logs) survives the machine. One pipeline host is supported: two
+hosts running ticks, timers or `abk serve` against one state directory are not supported, because
+`units.json` is a read-modify-write of one file and two schedulers would start the same unit twice.
+
+The files tied to this machine's processes live in the local directory, `planning.local_dir` or
+`ABK_LOCAL_DIR` (default `<planning home>/local`): the checkpointer database, the branch, repo and
+change locks, the leases, the e2e-test lock and the environment lock. The local directory stays on
+local disk; `abk doctor` fails one on a network filesystem. An old copy of those files left in the
+state directory is ignored, and the doctor warns so you delete it; a checkpointer database is
+copied to the local directory once.
+
+The locks that guard shared files sit beside them, so they must work on the share. The lock probe
+holds a lock in the state directory and asks a second process for it; it passes only when that
+process is refused and then takes the lock once it is released. `abk doctor` runs it and reports
+the mount (`state mount`) and the result (`state locking`). A tick runs it first only when the
+state directory is not on a local filesystem, caches a pass for 24 hours per mount source, type and
+options in the local directory, and on a failure prints the detail and exits 1 before it writes
+anything. No setting runs the pipeline on a share the probe refused: fix the mount.
+
+What each mount considered does:
+
+- NFS passes with lock support (lockd and statd running, no `nolock`) or mounted `local_lock=all`.
+- SMB passes mounted with `nobrl`; plain SMB may be refused.
+- WSL's drvfs and 9p provide no locks and are refused, as are most FUSE filesystems.
+
+A lock that is not free within `ABK_LOCK_WAIT_SECONDS` (default 120) raises a `LockTimeout` naming
+the file; nothing is taken over or deleted, and the unit or pass is tried again on the next tick.
+That bound cannot end a call stuck in the kernel on a `hard`-mounted share that stopped answering,
+so the doctor warns about `hard` and the advice is `soft` with a `timeo`.
+
 ### `sandbox`
 
 The kernel confines what an agent step can write and reach. Keys:
