@@ -384,6 +384,7 @@ from agent_build_kit.pipeline.usage_guard import (
     held_forecast_line,
     held_usage,
     may_start_unit,
+    not_recording,
     on_account,
     reading_as,
     refreshed_usage,
@@ -1822,7 +1823,8 @@ def _account_decision(
     """The guard's decision for `account`, asked once for each account `decided` holds, for
     what the round asks (see `_round_ask`) when it names one. For a `unit` it is the decision
     the gate before the unit's first agent step takes, for the unit's own review tier and
-    estimated lines, held once for units of that tier and size."""
+    estimated lines. A unit's decision is kept under its id, since a refusal names the unit it
+    was asked for; an allowance names none and is shared by units of that tier and size."""
     key = claude_account.account_key(account)
     named = ask or Ask()
     if unit is not None:
@@ -1834,9 +1836,11 @@ def _account_decision(
         if named.lines is not None and named.step is None
         else None
     )
-    found = sized if unit is not None else key
-    if decided is not None and found in decided:
-        return decided[found]
+    if decided is not None:
+        kept = [unit.id, sized] if unit is not None and sized is not None else [key]
+        for found in kept:
+            if found in decided:
+                return decided[found]
     # A unit's ask is made as the gate makes it: the unit is named, so its id is in the reason
     # and an allowance on an estimate is kept under it. The round's ask names no unit.
     scope = (
@@ -1855,12 +1859,9 @@ def _account_decision(
             plan_due=named.plan_due,
         )
     if decided is not None:
-        if unit is None:
-            decided[key] = decision
-        # An allowance on an estimate is kept under the unit it was made for, so it is not shared.
-        if unit is not None and decision.estimate:
-            decided[unit.id] = decision
-        elif sized is not None and not decision.estimate:
+        decided[key if unit is None else unit.id] = decision
+        # Only an allowance not made on an estimate names no unit, so only it is shared.
+        if sized is not None and decision.may_start and not decision.estimate:
             decided[sized] = decision
     return decision
 
@@ -2395,9 +2396,14 @@ def run_round(
         for unit in evaluated:
             if stored_by_id[unit.id].branch or unit.id in refused:
                 continue
-            decision = _account_decision(
-                claude_account.for_repo(inst.config, unit.repo), decided, unit=stored_by_id[unit.id]
-            )
+            # A dry run only learns what the guard would say: it keeps no allowance for a unit
+            # it does not build.
+            with not_recording() if dry_run else nullcontext():
+                decision = _account_decision(
+                    claude_account.for_repo(inst.config, unit.repo),
+                    decided,
+                    unit=stored_by_id[unit.id],
+                )
             if not decision.may_start:
                 refused[unit.id] = decision.reason
     evaluated = [unit for unit in evaluated if unit.id not in refused]

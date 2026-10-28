@@ -932,6 +932,18 @@ def reading_as(caller: str) -> Iterator[None]:
 
 _starting: ContextVar[str | None] = ContextVar("usage_starting", default=None)
 _facts: ContextVar[Ask | None] = ContextVar("usage_starting_facts", default=None)
+_recording: ContextVar[bool] = ContextVar("usage_recording", default=True)
+
+
+@contextmanager
+def not_recording() -> Iterator[None]:
+    """Decide starts inside the block as usual, but keep nothing for them: no allowance on an
+    estimate and no step row, for a caller that only wants to know what the guard would say."""
+    token = _recording.set(False)
+    try:
+        yield
+    finally:
+        _recording.reset(token)
 
 
 @contextmanager
@@ -1472,7 +1484,14 @@ def _forecasted(decision: Decision, reading: UsageReading | None, ask: Ask | Non
     refused = [e for e in estimates if not e.ample]
     if not refused:
         nearest = min(estimates, key=lambda e: e.threshold - e.estimate - e.forecast)
-        return decision.model_copy(update={"forecast": nearest.forecast, "margin": nearest.margin})
+        return decision.model_copy(
+            update={
+                "threshold": nearest.threshold,
+                "ramp": _ramp_of(nearest.name, limits),
+                "forecast": nearest.forecast,
+                "margin": nearest.margin,
+            }
+        )
     window = next(each for each in reading.windows if each.name == refused[0].name)
     return Decision(
         may_start=False,
@@ -1602,52 +1621,53 @@ def _decide_on_estimate(
     asked. An allowance is recorded in the cache file under its lock."""
     estimates = _estimates(held, cached, cache_path, now, ask)
     text = _estimate_text(held, estimates, now)
-    nearest = min(estimates, key=lambda each: each.threshold - each.estimate)
-    facts = {
-        "source": held.source,
-        "age_seconds": (now - held.observed_at).total_seconds(),
-        "threshold": nearest.threshold,
-        "ramp": _ramp_of(nearest.name, Limits.configured()),
-    }
+    base = Decision(
+        may_start=False,
+        reason="",
+        source=held.source,
+        age_seconds=(now - held.observed_at).total_seconds(),
+    )
+
+    def made(window: WindowEstimate, **update: object) -> Decision:
+        """The decision with the facts of the window it was made on: its threshold and ramp, the
+        forecast it was judged with and the margin it was kept under."""
+        return base.model_copy(
+            update={
+                "threshold": window.threshold,
+                "ramp": _ramp_of(window.name, Limits.configured()),
+                "forecast": window.forecast,
+                "margin": window.margin,
+                **update,
+            }
+        )
+
     over = next((each for each in estimates if not each.ample), None)
     if over is not None:
-        return Decision(
-            may_start=False,
-            reason=text + _forecast_note(estimates),
-            resume_at=next_call,
-            forecast=over.forecast,
-            margin=over.margin,
-            **facts,
-        )
+        return made(over, reason=text + _forecast_note(estimates), resume_at=next_call)
     # The window with the least room left decides an allowance, as in `_forecasted`.
     closest = min(estimates, key=lambda e: e.threshold - e.estimate - e.forecast)
     admitted = _admitted(cached)
     cap = claude_limits().usage_estimate_max_starts
     if (unit is None or unit not in admitted) and len(admitted) >= cap:
-        return Decision(
-            may_start=False,
+        return made(
+            closest,
             reason=(
                 f"{text}; {len(admitted)} starts have been made on an estimate "
                 f"(at most {cap} for one reading)"
             ),
             resume_at=next_call or now + _stale_retry(),
-            forecast=closest.forecast,
-            margin=closest.margin,
-            **facts,
         )
-    if unit is not None:
+    if unit is not None and _recording.get():
         _record_admitted(cache_path, held, unit, step)
-    return Decision(
+    return made(
+        closest,
         may_start=True,
         reason=f"{text}, allowing starts",
         resets_at=held.resets_at,
         estimate=True,
-        # The starts already made on this estimate, and this unit when one is named. A caller
-        # that names none (the round's own ask) adds the unit's place among its starts itself.
+        # The starts already made on this estimate, and the named unit when it is not among
+        # them. An ask naming no unit (the round's) counts only the starts already made.
         estimate_starts=len(admitted) + (1 if unit is not None and unit not in admitted else 0),
-        forecast=closest.forecast,
-        margin=closest.margin,
-        **facts,
     )
 
 
@@ -1776,7 +1796,7 @@ def decide_start(
     )
     with on_account(account):
         decision = _decide_start(read=read, decide=decide, unit=unit, step=ask.step, ask=ask)
-        if decision.may_start and decision.source != "off":
+        if decision.may_start and decision.source != "off" and _recording.get():
             _record_step(ask)
     if account is not None and account.label is not None and not decision.may_start:
         return decision.model_copy(update={"reason": f"account {account.label}: {decision.reason}"})

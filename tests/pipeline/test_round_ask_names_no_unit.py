@@ -1,7 +1,7 @@
 # ruff: noqa: F811 — the imported fixture is requested by name
 """The round's own ask of the guard names no unit, so an allowance on an estimate is never kept
-under a unit that does not run on the account (spec: usage-pause-slots, starting a unit and the
-gate ask one question).
+under a unit that does not run on the account, and a dry run keeps none at all (spec:
+usage-pause-slots, starting a unit and the gate ask one question).
 
 `app` runs on the default account, whose reading is over its threshold, and `platform` on
 `personal`, whose reading is old enough that a start is decided on an estimate. The cheapest
@@ -15,6 +15,9 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 from agent_build_kit import claude_account
+from agent_build_kit.cli import pipeline as cli
+from agent_build_kit.installation import Installation
+from agent_build_kit.pipeline.unit_store import UnitStore
 from agent_build_kit.pipeline.usage_calls import calls_path
 from agent_build_kit.pipeline.verdict import ReviewTier
 from tests.cli.test_admission_asks_own_account import (  # noqa: F401
@@ -29,9 +32,9 @@ from tests.usage_host import Host, payload
 MINUTE = timedelta(minutes=1)
 
 
-def test_the_rounds_ask_keeps_no_unit_on_an_account_it_does_not_run_on(
-    tmp_path: Path, host: Host
-) -> None:
+def on_an_estimate(tmp_path: Path, host: Host) -> tuple[Installation, UnitStore, Path]:
+    """`one/1` (cheap, on the default account that refuses) and `two/1` (on `personal`, whose
+    start rests on an estimate); `personal`'s cache file is the third."""
     cheap = unit("one/1", "app").model_copy(update={"review_tier": ReviewTier.AUTO.value})
     dear = unit("two/1", "platform").model_copy(update={"review_tier": ReviewTier.FULL.value})
     inst, store = workspace(tmp_path, [cheap, dear])
@@ -65,9 +68,27 @@ def test_the_rounds_ask_keeps_no_unit_on_an_account_it_does_not_run_on(
         )
         + "\n"
     )
+    return inst, store, cache
+
+
+def test_the_rounds_ask_keeps_no_unit_on_an_account_it_does_not_run_on(
+    tmp_path: Path, host: Host
+) -> None:
+    inst, store, cache = on_an_estimate(tmp_path, host)
 
     round_of(inst, store)
 
     kept = json.loads(cache.read_text())
     # The account was on its estimate, and the unit that runs on it is the only one kept.
     assert kept.get("estimate_units") == ["two/1"]
+
+
+def test_a_dry_run_keeps_no_allowance_and_still_says_what_would_start(
+    tmp_path: Path, host: Host
+) -> None:
+    inst, store, cache = on_an_estimate(tmp_path, host)
+
+    ready = cli.run_round(inst, store, building=(), only=frozenset(), submit=True, dry_run=True)
+
+    assert [each.id for each in ready] == ["two/1"]
+    assert json.loads(cache.read_text()).get("estimate_units") is None

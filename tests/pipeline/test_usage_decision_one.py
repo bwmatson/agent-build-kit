@@ -14,6 +14,7 @@ from pathlib import Path
 
 import pytest
 
+from agent_build_kit.graph.state import Node
 from agent_build_kit.installation import Installation
 from agent_build_kit.pipeline.admission_record import (
     ADMISSIONS_NAME,
@@ -22,6 +23,7 @@ from agent_build_kit.pipeline.admission_record import (
 )
 from agent_build_kit.pipeline.unit_store import HeldBy, StoredSplitRequest, StoredUnit, UnitStore
 from agent_build_kit.pipeline.units import HELD
+from agent_build_kit.pipeline.usage_guard import Decision
 from agent_build_kit.pipeline.verdict import ReviewTier
 from agent_build_kit.pipeline.vocabulary import OverheadNode, WaitReason
 from tests.cli.test_admission_asks_own_account import isolated, round_of, unit, waits  # noqa: F401
@@ -66,6 +68,12 @@ def workspace(tmp_path: Path, host: Host, units: list[StoredUnit], *, session: f
     return inst, store
 
 
+def gate_answer(tier: ReviewTier, uid: str) -> Decision:
+    """What the gate before the unit's first agent step answers, as `UnitNodes.gate` asks: with
+    the step's node and its round."""
+    return ask(tier, uid, step=Node.TESTS.value, step_round=0)
+
+
 def record_of(inst: Installation, uid: str) -> AdmissionRecord:
     records = read_admissions(inst.state_dir / ADMISSIONS_NAME)
     return next(each for each in records if each.unit == uid)
@@ -85,7 +93,7 @@ def test_a_reading_under_the_threshold_with_a_forecast_over_it_refuses_as_the_ga
     )
 
     started = round_of(inst, store)
-    gate = ask(ReviewTier.FULL, "two/1")
+    gate = gate_answer(ReviewTier.FULL, "two/1")
 
     assert not gate.may_start
     assert started == ["one/1"]
@@ -93,6 +101,33 @@ def test_a_reading_under_the_threshold_with_a_forecast_over_it_refuses_as_the_ga
     assert wait.reason is WaitReason.USAGE_PAUSE
     assert gate.reason in wait.detail
     assert record_of(inst, "two/1").usage.reason == gate.reason
+
+
+def test_two_refused_units_of_one_tier_and_size_are_each_refused_in_their_own_name(
+    tmp_path: Path, host: Host
+) -> None:
+    """A refusal names the unit it was asked for, so one unit's is not another's."""
+    inst, store = workspace(
+        tmp_path,
+        host,
+        [
+            tiered("zero/1", ReviewTier.AUTO),
+            tiered("one/1", ReviewTier.FULL),
+            tiered("two/1", ReviewTier.FULL),
+        ],
+        session=67.0,
+    )
+
+    assert round_of(inst, store) == ["zero/1"]
+    gates = {uid: gate_answer(ReviewTier.FULL, uid) for uid in ("one/1", "two/1")}
+
+    found = waits(inst)
+    for uid, other in (("one/1", "two/1"), ("two/1", "one/1")):
+        assert not gates[uid].may_start
+        assert f"unit {uid}" in gates[uid].reason
+        assert found[uid].detail == gates[uid].reason
+        assert other not in found[uid].detail
+        assert record_of(inst, uid).usage.reason == gates[uid].reason
 
 
 def test_a_reading_with_room_admits_and_the_gate_then_passes(tmp_path: Path, host: Host) -> None:
@@ -104,7 +139,7 @@ def test_a_reading_with_room_admits_and_the_gate_then_passes(tmp_path: Path, hos
     )
 
     started = round_of(inst, store)
-    gate = ask(ReviewTier.FULL, "two/1")
+    gate = gate_answer(ReviewTier.FULL, "two/1")
 
     assert started == ["one/1", "two/1"]
     assert gate.may_start
@@ -119,7 +154,7 @@ def test_the_admission_record_carries_the_reading_the_forecast_the_margin_and_th
     inst, store = workspace(tmp_path, host, [tiered("two/1", ReviewTier.FULL)], session=40.0)
 
     round_of(inst, store)
-    gate = ask(ReviewTier.FULL, "two/1")
+    gate = gate_answer(ReviewTier.FULL, "two/1")
 
     usage = record_of(inst, "two/1").usage
     assert usage.source
@@ -145,7 +180,7 @@ def test_a_round_that_reserves_the_plan_call_leaves_a_units_record_as_the_gate_a
     lay_calls(host, OverheadNode.PLAN.value, 0.4)
 
     assert "two/1" in round_of(inst, store)
-    gate = ask(ReviewTier.FULL, "two/1")
+    gate = gate_answer(ReviewTier.FULL, "two/1")
 
     usage = record_of(inst, "two/1").usage
     assert usage.forecast is not None
