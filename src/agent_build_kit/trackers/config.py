@@ -52,6 +52,9 @@ class AzureDevOpsTracker(TrackerSection):
     area_path: str = Field(min_length=1)
     iteration_path: str = Field(min_length=1)
     story_type: str = Field(min_length=1)
+    # The levels in use, top down, and the work item type of each level (and of the epic).
+    levels: tuple[str, ...] = ("change", "group")
+    types: dict[str, str] = {}
 
     @property
     def target(self) -> str:
