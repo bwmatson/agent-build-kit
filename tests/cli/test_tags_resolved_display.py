@@ -101,19 +101,42 @@ def test_status_marks_a_unit_planned_from_a_resolved_group_and_not_one_written_f
     assert cli.cmd_status(argparse.Namespace(), run.inst) == 0
 
     lines = capsys.readouterr().out.splitlines()
+    heading = lines.index("projects set by resolution or an explicit root:")
+    assert "feature/1" in lines[heading + 1] and "(resolved)" in lines[heading + 1]
     assert any("feature/1" in line and "(resolved)" in line for line in lines)
     assert not any("feature/2" in line and "resolved" in line for line in lines)
 
 
-def test_the_graph_titles_the_subgraph_of_a_resolved_project_and_holds_the_unit_in_it(
+def node_line(page: str, unit_id: str) -> str:
+    """The line of the graph page that draws the node of `unit_id`."""
+    return next(line for line in page.splitlines() if f'["{unit_id}' in line)
+
+
+def test_the_graph_marks_each_unit_by_its_own_group_and_keeps_the_subgraph_titles_bare(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    run = run_with(tmp_path, monkeypatch, ("[app] [unit-test] Add it", "web/src/a.ts"))
-    run.store.import_units([new_unit("feature/1", groups=(1,), project="web")])
+    run = run_with(
+        tmp_path,
+        monkeypatch,
+        ("[app] [unit-test] Resolved", "web/src/a.ts"),
+        ("[app/web] [unit-test] Written", "web/src/b.ts"),
+        ("[app/<root>] [unit-test] Opted out", "web/src/c.ts"),
+        ("[app] [unit-test] Plain root", "CHANGELOG.md"),
+    )
+    run.store.import_units(
+        [
+            new_unit("feature/1", groups=(1,), project="web"),
+            new_unit("feature/2", groups=(2,), project="web"),
+            new_unit("feature/3", groups=(3,)),
+            new_unit("feature/4", groups=(4,)),
+        ]
+    )
 
     assert cli.cmd_graph(argparse.Namespace(), run.inst) == 0
 
     page = run.inst.graph_page.read_text()
-    title = 'subgraph app__project__web["web (resolved)"]'
-    assert title in page
-    assert "feature/1" in page[page.index(title) : page.index("        end", page.index(title))]
+    assert 'subgraph app__project__web["web"]' in page
+    assert "resolved" in node_line(page, "feature/1")
+    assert "resolved" not in node_line(page, "feature/2")
+    assert "explicit root" in node_line(page, "feature/3")
+    assert "explicit root" not in node_line(page, "feature/4")

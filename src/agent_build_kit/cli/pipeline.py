@@ -494,22 +494,14 @@ def project_source_notes(inst: Installation, units: Sequence[StoredUnit]) -> dic
     return notes
 
 
-def project_notes(inst: Installation, units: Sequence[StoredUnit]) -> dict[tuple[str, str], str]:
-    """The note for each (repo, project) the units in `units` were placed in by resolution, for
-    the graph to title the project's subgraph with."""
-    by_id = {u.id: u for u in units}
-    return {
-        (by_id[uid].repo, by_id[uid].project): note.strip()
-        for uid, note in project_source_notes(inst, units).items()
-    }
-
-
 def project_source_lines(inst: Installation, units: Sequence[StoredUnit]) -> list[str]:
-    """One line for each unit still to build or in progress whose project was resolved, or whose
-    group opted into the root, so the status says where its place came from."""
+    """A heading and one line for each unit still to build or in progress whose project was
+    resolved, or whose group opted into the root, so the status says where its place came from;
+    none when there is no such unit."""
     live = (*NEEDS_TICKS, FAILED, HELD)
     notes = project_source_notes(inst, [u for u in units if u.state in live])
-    return [f"  {u.id} ({unit_label(u)}){notes[u.id]}" for u in units if u.id in notes]
+    lines = [f"  {u.id} ({unit_label(u)}){notes[u.id]}" for u in units if u.id in notes]
+    return ["projects set by resolution or an explicit root:", *lines] if lines else []
 
 
 def store_for(inst: Installation) -> UnitStore:
@@ -524,7 +516,7 @@ def store_for(inst: Installation) -> UnitStore:
                 gated=gated_units(inst, units),
                 restacking=restacking_bases(inst),
                 projects=declared_projects(inst.repos),
-                project_notes=project_notes(inst, units),
+                unit_notes=project_source_notes(inst, units),
             )
         except Exception as error:  # noqa: BLE001
             log(f"graph not refreshed — {type(error).__name__}: {error}")
@@ -1188,7 +1180,7 @@ def cmd_graph(args: argparse.Namespace, inst: Installation) -> int:
         paused=parked_units(inst, units),
         restacking=restacking_bases(inst),
         projects=declared_projects(inst.repos),
-        project_notes=project_notes(inst, units),
+        unit_notes=project_source_notes(inst, units),
     )
     print(f"{inst.graph_page}: {len(units)} unit(s)")
     return 0
@@ -4989,7 +4981,7 @@ def plan_all(
                             "sizing": sizing,
                             "attempts": 0,
                             "ok": True,
-                            **_resolution_record(task_groups),
+                            **resolution_record(task_groups),
                         }
                     },
                 )
@@ -5219,7 +5211,7 @@ def plan_all(
                     "sizing": sizing,
                     "attempts": attempts_kept,
                     "ok": True,
-                    **_resolution_record(task_groups),
+                    **resolution_record(task_groups),
                 }
             },
         )
@@ -5464,11 +5456,16 @@ MOVED = "project_moved"
 RESOLVED_FIELD = "resolved"
 
 
-def _resolution_record(groups: Sequence[TaskGroup]) -> dict[str, dict[str, str]]:
+def resolution_record(groups: Sequence[TaskGroup]) -> dict[str, dict[str, str]]:
     """The field a plan record keeps of the projects `groups` resolved to: none when nothing
     resolved, which a record with no field already says."""
     resolved = {str(number): project for number, project in resolved_projects(groups).items()}
     return {RESOLVED_FIELD: resolved} if resolved else {}
+
+
+def tasks_resolution_record(tasks: Path, inst: Installation) -> dict[str, dict[str, str]]:
+    """`resolution_record` of a tasks file's groups, resolved under `inst`'s repos and projects."""
+    return resolution_record(_validated(inst, tasks)[0])
 
 
 def marked_for_moved_projects(inst: Installation, records: dict[str, dict]) -> dict[str, dict]:
@@ -6104,7 +6101,7 @@ def _refresh_graph_page(inst: Installation, store: UnitStore) -> None:
             paused=parked_units(inst, units),
             restacking=restacking_bases(inst),
             projects=declared_projects(inst.repos),
-            project_notes=project_notes(inst, units),
+            unit_notes=project_source_notes(inst, units),
         )
     except Exception as error:  # noqa: BLE001
         log(f"graph not refreshed — {type(error).__name__}: {error}")

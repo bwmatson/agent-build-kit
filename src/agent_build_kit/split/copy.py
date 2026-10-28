@@ -7,7 +7,12 @@ from collections.abc import Callable, Sequence
 from enum import StrEnum
 from pathlib import Path
 
-from agent_build_kit.cli.pipeline import plan_digest, planned_hashes, record_plans
+from agent_build_kit.cli.pipeline import (
+    plan_digest,
+    planned_hashes,
+    record_plans,
+    tasks_resolution_record,
+)
 from agent_build_kit.installation import Installation
 from agent_build_kit.model import Frozen
 from agent_build_kit.pipeline import loaded_code
@@ -224,6 +229,7 @@ def _plans_to_write(source: Installation, destination: Installation, plan: Split
             "sizing": recorded[name].get("sizing", ""),
             "attempts": 0,
             "ok": True,
+            **tasks_resolution_record(destination.changes_dir / name / "tasks.md", destination),
         }
         for name in moved_plan_records(source, plan)
     }
