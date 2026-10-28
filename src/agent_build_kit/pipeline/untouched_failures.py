@@ -19,7 +19,7 @@ from agent_build_kit.config import BASE_GROUP, REST_SPLIT
 from agent_build_kit.installation import Installation
 from agent_build_kit.model import Frozen, TestTier
 from agent_build_kit.pipeline.e2e import E2eVerdict
-from agent_build_kit.pipeline.failure_record import FailureRecord, Recorded, TestCount
+from agent_build_kit.pipeline.failure_record import Evidenced, FailureRecord, Recorded, TestCount
 from agent_build_kit.pipeline.file_lock import file_lock
 from agent_build_kit.pipeline.flakes import (
     FIX_PREFIX,
@@ -35,7 +35,7 @@ PREFIX = FIX_PREFIX
 CAPABILITY = "failing-tests"
 
 
-class PreExisting(Recorded):
+class PreExisting(Recorded, Evidenced):
     """One test that failed e2e-test for a unit and failed on the base as well."""
 
     unit: str

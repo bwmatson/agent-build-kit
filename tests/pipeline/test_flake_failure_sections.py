@@ -18,6 +18,7 @@ from agent_build_kit.pipeline.wiring import build_unit_test
 from agent_build_kit.profiles.base import ToolchainProfile
 from agent_build_kit.profiles.python_uv import PythonUvProfile
 from tests.conftest import make_installation
+from tests.failure_bundle_fakes import storms
 from tests.pipeline.test_flake_isolation import (
     FAILED,
     RECORDED,
@@ -25,7 +26,6 @@ from tests.pipeline.test_flake_isolation import (
     Runs,
     recorded_failure,
 )
-from tests.pipeline.test_flake_storm import storms
 from tests.redaction_fakes import NAME, SECRET, known
 from tests.storm_fakes import ManyFailed
 from tests.whole_lines import assert_tail_of_whole_lines, long_output_lines
@@ -113,6 +113,15 @@ def test_each_failed_test_has_its_own_block_and_no_other_tests_text() -> None:
     assert "assert 2 == 1" not in other, "the block ends at the next header"
     assert "short test summary info" not in other, "the block ends where the summary starts"
     assert set(sections) <= set(FAILED)
+
+
+def test_a_test_that_errored_at_setup_has_its_block_from_the_errors_part() -> None:
+    sections = PythonUvProfile().failure_sections(recorded_failure())
+
+    errored = sections["test_one.py::test_setup_error"]
+    assert "no database" in errored
+    assert "assert 1 == 2" not in errored, "none of a failed test's text"
+    assert "no database" not in sections["test_one.py::test_plain"]
 
 
 def long_titles() -> str:

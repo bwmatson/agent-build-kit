@@ -152,6 +152,7 @@ from agent_build_kit.pipeline.run_log import (
     e2e_output_dir,
     failure_bundles_dir,
     write_failure_bundle,
+    write_rerun_evidence,
 )
 from agent_build_kit.pipeline.scratch import run_folder, selection_seed
 from agent_build_kit.pipeline.shell import changed_files, git, git_out, has_origin, porcelain
@@ -1321,6 +1322,8 @@ def build_unit_test(
     )
     # Per unit: the test time and count of its last full run.
     last_full: dict[str, tuple[float, int]] = {}
+    # The tests of a round recorded as a storm, so a later command that fails them is not rerun.
+    stormed: dict[tuple[str, str, str, int], set[str]] = {}
     # The checkout the current run is in: where a check's configuration is looked for up to.
     checkout: dict[str, Path] = {}
 
@@ -1340,6 +1343,8 @@ def build_unit_test(
         follows no move), which says whether the run is scoped
         by what the move can affect; the line it logs says which it was and why."""
         checkout["root"] = cwd
+        # What an earlier run of this unit round stormed does not excuse this run's failures.
+        stormed.pop(spans.current_unit.get(), None)
         for project in pending_projects(cwd, projects):
             _say(log, describe(project))
         scope = None
@@ -1584,8 +1589,16 @@ def build_unit_test(
                 if is_test:
                     figures.append((spans.clock.monotonic() - started, _counted(toolchain, result)))
                 if not toolchain.tolerates_exit(command, result.returncode):
-                    save_bundle(before, command, result, where, toolchain, base)
-                    if isolate(command, result, where, toolchain, log=log, base=base):
+                    bundle = save_bundle(before, command, result, where, toolchain, base)
+                    if isolate(
+                        command,
+                        result,
+                        where,
+                        toolchain,
+                        log=log,
+                        base=base,
+                        evidence=(bundle, before) if bundle and before else None,
+                    ):
                         continue
                     return False, _failure(command, result, where)
             ran_tests.append((where, toolchain, test_commands))
@@ -1614,18 +1627,26 @@ def build_unit_test(
         where: Path,
         toolchain: ToolchainProfile,
         base: str,
-    ) -> None:
+    ) -> Path | None:
         """Save the test run `before` began as a bundle, with its end sampled now, when it
         failed. Every place a test command is run calls this with what `begin_evidence` gave,
-        so no failing run is missed; None (no bundles kept) or a run that passed saves nothing."""
+        so no failing run is missed; None (no bundles kept) or a run that passed saves nothing,
+        and neither does a run whose failed tests are all ones this round already kept as a
+        storm's evidence: the same failure of a second command adds no new evidence. Bundles
+        a flake or storm record names are not pruned. Returns the bundle's folder, or None
+        when nothing was saved."""
         if before is None or failures_dir is None:
-            return
+            return None
         if toolchain.tolerates_exit(command, result.returncode):
-            return
+            return None
+        output = f"{result.stdout}\n{result.stderr}".strip()
+        failed = failed_ids(toolchain, output)
+        if failed and set(failed) <= stormed.get(spans.current_unit.get(), set()):
+            # The same tests, already kept as a storm's evidence this round.
+            return None
         started, machine_before, tree_before = before
         ended = clock()
         sampled = machine or failure_evidence.machine_sample
-        output = f"{result.stdout}\n{result.stderr}".strip()
         unit, change, _, round_number = spans.current_unit.get()
         facts: dict[str, object] = {}
         if isinstance(toolchain, ReportsRunFacts):
@@ -1649,7 +1670,7 @@ def build_unit_test(
             **failure_evidence.shas(run, where, base),
             **facts,
         }
-        write_failure_bundle(
+        return write_failure_bundle(
             failures_dir,
             unit,
             change,
@@ -1660,6 +1681,7 @@ def build_unit_test(
             worktree=failure_evidence.worktree_changes(
                 tree_before, failure_evidence.worktree_state(run, where, toolchain)
             ),
+            pointed=_pointed_bundles(),
         )
 
     def root_checks(
@@ -1799,8 +1821,11 @@ def build_unit_test(
                     figures.append((spans.clock.monotonic() - started, _counted(toolchain, result)))
                 # The first command is lint; a selector that picks nothing is a pass.
                 nothing = index > 0 and result.returncode == toolchain.no_tests_collected_exit
-                if not nothing:
-                    save_bundle(before, command, result, where, toolchain, base)
+                bundle = (
+                    None
+                    if nothing
+                    else save_bundle(before, command, result, where, toolchain, base)
+                )
                 if not nothing and not toolchain.tolerates_exit(command, result.returncode):
                     try:
                         if index > 0 and isolate(
@@ -1810,6 +1835,7 @@ def build_unit_test(
                             toolchain,
                             log=log,
                             own=None if own is None else own.get(where, []),
+                            evidence=(bundle, before) if bundle and before else None,
                         ):
                             continue
                     except FlakeFound as found:
@@ -1828,6 +1854,7 @@ def build_unit_test(
         log: Callable[[str], None] | None = None,
         own: list[str] | None = None,
         base: str | None = None,
+        evidence: tuple[Path, tuple[datetime, dict[str, object], dict[str, object]]] | None = None,
     ) -> bool:
         """Run the failed tests again, alone and serially, twice. Raises `FailedOnBase`, before
         any rerun, for tests an open change already fixes. Raises `FlakeFound` when
@@ -1840,7 +1867,9 @@ def build_unit_test(
         profile cannot say which tests failed, so the failure stands. Returns True when more than
         `global_limits.max_flakes_per_run` tests failed and passed both reruns: a disturbed run, not
         that many flaky tests, so it is recorded as one storm, no fix change is written, and the
-        caller goes on to the checks that remain."""
+        caller goes on to the checks that remain. With `evidence` (the failing run's bundle and
+        how it began) each rerun is kept in the bundle, and the flakes and the storm name it with
+        the conditions the reruns ran under."""
         rerun_command = getattr(toolchain, "serial_rerun_command", None)
         if rerun_command is None:
             return False
@@ -1852,6 +1881,28 @@ def build_unit_test(
         # Read from the redacted text, so what is kept of a section holds no secret.
         sections = _failure_sections(toolchain, stored)
         at = datetime.now(UTC)
+        rerun_exits: list[int] = []
+        rerun_seconds: list[float] = []
+        last_sample: dict[str, object] = {}
+
+        def evidenced() -> dict[str, Any]:
+            """The bundle, when the first run started and the conditions the run and its reruns
+            went under (the load before and after, each rerun's exit and seconds); empty without
+            a bundle."""
+            if evidence is None:
+                return {}
+            conditions: dict[str, object] = {}
+            for key, sample in (("load_before", evidence[1][1]), ("load_after", last_sample)):
+                load = sample.get("load")
+                if isinstance(load, list) and load:
+                    conditions[key] = load[0]
+            conditions["rerun_exits"] = list(rerun_exits)
+            conditions["rerun_seconds"] = list(rerun_seconds)
+            return {
+                "evidence": str(evidence[0]),
+                "ran_at": evidence[1][0],
+                "conditions": conditions,
+            }
 
         def flakes_of(names: list[str]) -> tuple[Flake, ...]:
             return tuple(
@@ -1862,17 +1913,46 @@ def build_unit_test(
                     failure=cut_tail(sections.get(test, ""), FLAKE_FAILURE_CHARS),
                     at=at,
                     directory=str(where),
+                    **evidenced(),
                 )
                 for test in names
             )
 
         if covered := covered_tests(tests):
             raise FailedOnBase(flakes_of(covered))
+        if set(tests) <= stormed.get(spans.current_unit.get(), set()):
+            # Another command of this round failed these same tests, which passed alone and were
+            # recorded as a storm: they are not run again, nor recorded twice.
+            return True
         rerun = rerun_command(command, tests)
         timed_out: list[str] = []
         timeouts = 0
-        for _ in range(FLAKE_RERUNS):
+        for number in range(1, FLAKE_RERUNS + 1):
+            began = begin_evidence(where, toolchain) if evidence is not None else None
             again = ran(rerun, where, toolchain)
+            if evidence is not None and began is not None:
+                started, machine_before, tree_before = began
+                ended = clock()
+                last_sample.update((machine or failure_evidence.machine_sample)())
+                seconds = (ended - started).total_seconds()
+                rerun_exits.append(again.returncode)
+                rerun_seconds.append(seconds)
+                write_rerun_evidence(
+                    evidence[0],
+                    number,
+                    output=f"{again.stdout}\n{again.stderr}".strip(),
+                    context={
+                        "command": shlex.join(rerun),
+                        "exit": again.returncode,
+                        "started": started.isoformat(),
+                        "ended": ended.isoformat(),
+                        "seconds": seconds,
+                    },
+                    machine={"start": machine_before, "end": dict(last_sample)},
+                    worktree=failure_evidence.worktree_changes(
+                        tree_before, failure_evidence.worktree_state(run, where, toolchain)
+                    ),
+                )
             if toolchain.tolerates_exit(rerun, again.returncode):
                 continue
             again_output = f"{again.stdout}\n{again.stderr}"
@@ -1897,7 +1977,10 @@ def build_unit_test(
                 cut_tail(sections.get(test, ""), STORM_FAILURE_CHARS)
                 for test in tests[:STORM_FAILURES]
             ]
-            record_storm(spans.current_unit.get()[0], tests, shlex.join(command), failures)
+            record_storm(
+                spans.current_unit.get()[0], tests, shlex.join(command), failures, **evidenced()
+            )
+            stormed.setdefault(spans.current_unit.get(), set()).update(tests)
             _say(
                 log,
                 f"{len(tests)} tests failed the first pass and passed on the rerun; recorded "
@@ -1970,6 +2053,16 @@ def build_unit_test(
     return unit_test
 
 
+def _pointed_bundles() -> set[Path]:
+    """The bundles the flake and storm rows name, which pruning keeps; none when no workspace
+    is loaded."""
+    root = active_root()
+    if root is None:
+        return set()
+    record = flake_record(Installation(active(), root))
+    return {Path(row.evidence) for row in [*record.entries(), *record.storms()] if row.evidence}
+
+
 def build_on_flake(
     store: UnitStore, installation: Installation, *, log: Callable[[str], None] = print
 ) -> OnFlake:
@@ -2018,6 +2111,9 @@ def build_on_preexisting(
             at=datetime.now(UTC),
             base_output=verdict.base_output,
             split=split,
+            evidence=verdict.evidence,
+            ran_at=verdict.ran_at,
+            conditions=verdict.conditions,
         )
         fix = wait_on_preexisting(installation, met, store.get(unit.id), wait=wait, say=log)
         preexisting_record(installation).append(met.model_copy(update={"change": fix or ""}))

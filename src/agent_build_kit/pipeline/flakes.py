@@ -17,7 +17,13 @@ from typing import Protocol, runtime_checkable
 from agent_build_kit.config import active, active_root
 from agent_build_kit.installation import Installation
 from agent_build_kit.model import TestTier
-from agent_build_kit.pipeline.failure_record import FailureRecord, Recorded, Storm, TestCount
+from agent_build_kit.pipeline.failure_record import (
+    Evidenced,
+    FailureRecord,
+    Recorded,
+    Storm,
+    TestCount,
+)
 from agent_build_kit.pipeline.file_lock import change_lock, file_lock
 from agent_build_kit.pipeline.unit_store import StoredUnit
 from agent_build_kit.pipeline.units import Unit
@@ -37,7 +43,7 @@ STORM_TESTS = 10
 CAPABILITY = "test-determinism"
 
 
-class Flake(Recorded):
+class Flake(Recorded, Evidenced):
     """One test that failed under load and passed alone."""
 
     command: str
@@ -98,10 +104,20 @@ def flake_record(inst: Installation) -> FailureRecord[Flake]:
     return FailureRecord(inst.state_dir / "flakes.jsonl", Flake)
 
 
-def record_storm(unit: str, tests: list[str], command: str, failures: list[str]) -> None:
+def record_storm(
+    unit: str,
+    tests: list[str],
+    command: str,
+    failures: list[str],
+    *,
+    evidence: str = "",
+    ran_at: datetime | None = None,
+    conditions: dict[str, object] | None = None,
+) -> None:
     """Record one `storm` row for `unit`: `tests` failed a run's first pass and passed alone,
     more of them than `global_limits.max_flakes_per_run`. Names the first `STORM_TESTS` of them and
-    keeps `failures`, the failure sections of the first few. No
+    keeps `failures`, the failure sections of the first few, and the `evidence` bundle, the
+    time the run started and the `conditions` it ran under. No
     row is written when no workspace is loaded."""
     root = active_root()
     if root is None:
@@ -114,6 +130,9 @@ def record_storm(unit: str, tests: list[str], command: str, failures: list[str])
             tests=tests[:STORM_TESTS],
             command=command,
             failures=failures,
+            evidence=evidence,
+            ran_at=ran_at,
+            conditions=conditions or {},
         )
     )
 
