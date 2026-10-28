@@ -2058,7 +2058,8 @@ unit's transcript as a `user` event, so a reloaded tab shows the question before
   it does not hold a unit, is not discarded and is not listed as a leftover.
 
 - `abk attach release <unit>` ends an attachment without the server: `--commit MESSAGE`
-  commits every change and releases, `--discard` restores the tree to the branch head
+  commits every change (the subject follows the group progress, `MESSAGE` is the body) and
+  releases, `--discard` restores the tree to the branch head
   (tracked files reset, new files removed) and releases, and a dirty tree given neither is
   refused. Both refuse while a step holds the unit's branch, and a commit a hook rejects
   prints the hook's output and keeps the changes and the lease. A unit the tick held as

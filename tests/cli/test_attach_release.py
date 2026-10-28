@@ -57,7 +57,8 @@ def test_commit_commits_every_change_and_releases_the_lease_in_one_command(
     assert main(["attach", "release", UNIT, "--commit", "Rename the marker"]) == 0
 
     assert head(tree) != before
-    assert git(tree, "log", "-1", "--format=%s").strip() == "Rename the marker"
+    assert git(tree, "log", "-1", "--format=%s").strip() == "feat: Middle"
+    assert "Rename the marker" in git(tree, "log", "-1", "--format=%b")
     assert git(tree, "rev-parse", "HEAD~1").strip() == before
     assert sorted(git(tree, "show", "--name-only", "--format=", "HEAD").split()) == [
         "base.txt",

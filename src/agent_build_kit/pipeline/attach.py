@@ -4,16 +4,21 @@ both call these."""
 
 from __future__ import annotations
 
+import subprocess
 from collections.abc import Callable
 from pathlib import Path
 
+from agent_build_kit import profiles
+from agent_build_kit.config import active
 from agent_build_kit.installation import Installation
 from agent_build_kit.model import Frozen
+from agent_build_kit.pipeline.commit_order import adopted_subject, branch_subjects
 from agent_build_kit.pipeline.consequences import Consequence, consequences_of
 from agent_build_kit.pipeline.environment import repo_artifacts
 from agent_build_kit.pipeline.lease import Leases, lease_dir
 from agent_build_kit.pipeline.planning_sync import in_repo_name
 from agent_build_kit.pipeline.shell import git_out
+from agent_build_kit.pipeline.stack_runner import group_steps_of
 from agent_build_kit.pipeline.unit_store import StoredUnit, UnitStore
 from agent_build_kit.pipeline.units import base_of, local_ref
 from agent_build_kit.pipeline.workspaces import (
@@ -22,6 +27,7 @@ from agent_build_kit.pipeline.workspaces import (
     discard_changes,
     unit_tree,
 )
+from agent_build_kit.profiles.base import stubbed_build
 
 PLANNING = "planning"
 
@@ -37,6 +43,7 @@ class Adopted(Frozen):
     commit: str
     state: str
     delivered: bool
+    subject: str = ""  # the commit's subject; "" when the commit cannot be read
 
 
 def worktree_of(inst: Installation, unit: StoredUnit) -> Path | None:
@@ -83,12 +90,28 @@ def deliver(inst: Installation, unit: StoredUnit, commit: str) -> bool:
     return resumed is None or not resumed.raised
 
 
-def finish(inst: Installation, unit: StoredUnit, commit: str) -> Adopted:
-    """Deliver a commit made and not delivered, then remove the lease that recorded it."""
+def subject_of(inst: Installation, unit: StoredUnit, commit: str) -> str:
+    """The subject of `commit`, read from the unit's worktree; "" when it cannot be read."""
+    tree = worktree_of(inst, unit)
+    if tree is None:
+        return ""
+    try:
+        return git_out(tree, "log", "-1", "--format=%s", commit)
+    except subprocess.CalledProcessError:
+        return ""
+
+
+def finish(
+    inst: Installation, unit: StoredUnit, commit: str, subject: str | None = None
+) -> Adopted:
+    """Deliver a commit made and not delivered, then remove the lease that recorded it. The
+    result names the commit's `subject`, which is read from the commit when not given."""
+    if subject is None:
+        subject = subject_of(inst, unit, commit)
     delivered = deliver(inst, unit, commit)
     if delivered:
         leases_of(inst).drop(unit.id)
-    return Adopted(commit=commit, state=state_of(inst, unit), delivered=delivered)
+    return Adopted(commit=commit, state=state_of(inst, unit), delivered=delivered, subject=subject)
 
 
 def adopt(
@@ -113,13 +136,24 @@ def adopt(
     commit = build_commit(
         unit_id=unit.id, fix=fix, adopted_from=session, repo=inst.repo(unit.repo), base=base
     )
-    if not commit(message, cwd=tree):
+    subject = subject_for(inst, unit, tree, base)
+    if not commit(f"{subject}\n\n{message}", cwd=tree):
         raise NothingToCommit("nothing to commit")
     head = git_out(tree, "rev-parse", "HEAD")
     leases = leases_of(inst)
     if held := leases.attachment(unit.id):
         leases.mark_committed(unit.id, held.holder, head)
-    return finish(inst, unit, head)
+    return finish(inst, unit, head, subject)
+
+
+def subject_for(inst: Installation, unit: StoredUnit, tree: Path, base: str) -> str:
+    """The subject an adopted commit of `unit` takes, from its group progress."""
+    steps = (
+        group_steps_of(inst.root, unit)
+        if stubbed_build(active().builders, profiles.get(inst.repo(unit.repo).profile))
+        else ()
+    )
+    return adopted_subject(unit.title, steps, branch_subjects(tree, base))
 
 
 class PlanningCommit(Frozen):

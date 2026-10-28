@@ -841,7 +841,10 @@ def register(
         if held is None:
             if already_adopted(unit, body.commit):
                 done = attach.Adopted(
-                    commit=body.commit, state=attach.state_of(installation, unit), delivered=True
+                    commit=body.commit,
+                    state=attach.state_of(installation, unit),
+                    delivered=True,
+                    subject=attach.subject_of(installation, unit, body.commit),
                 )
                 return done.model_dump()
             raise _conflict("nothing is attached to the unit")

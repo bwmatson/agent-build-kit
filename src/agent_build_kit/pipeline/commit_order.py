@@ -35,6 +35,7 @@ if TYPE_CHECKING:
 
 TESTS_PREFIX = "test: "
 CODE_PREFIX = "feat: "
+FIX_PREFIX = "fix: "
 ALREADY_BUILT_TRAILER = "Already-built"  # the trailer key; its one value is `yes`
 STUB_BODY_HINT = "only `raise NotImplementedError`"
 
@@ -193,6 +194,22 @@ def group_progress(
             return GroupProgress(done=done, tests_made=True)
         position += 1
     return GroupProgress(done=len(titles), tests_made=False)
+
+
+def adopted_subject(unit_title: str, steps: Sequence[GroupStep], subjects: list[str]) -> str:
+    """The subject of the commit a person's adopted changes become, so the counter takes it for the
+    commit the build expected next: `test:` or `feat:` with the title of the group `subjects`
+    (oldest first) has reached, `fix: <last title> (adopted)` once every group has its commits.
+    `steps` is empty for a unit that is not built in stubbed groups, which takes `unit_title`."""
+    if not steps:
+        return f"{FIX_PREFIX}{unit_title} (adopted)" if subjects else f"{CODE_PREFIX}{unit_title}"
+    progress = group_progress(
+        subjects, [step.title for step in steps], [step.test_only for step in steps]
+    )
+    if progress.done >= len(steps):
+        return f"{FIX_PREFIX}{steps[-1].title} (adopted)"
+    prefix = CODE_PREFIX if progress.tests_made else TESTS_PREFIX
+    return f"{prefix}{steps[progress.done].title}"
 
 
 def superseded_pairs(

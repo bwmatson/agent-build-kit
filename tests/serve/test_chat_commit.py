@@ -136,13 +136,19 @@ def test_one_request_commits_releases_and_hands_the_unit_to_its_checks(
     made = head(tree)
     assert made != before
     assert git(tree, "rev-parse", "HEAD~1").strip() == before
-    assert answer.json() == {"commit": made, "state": RUNNING, "delivered": True}
+    assert answer.json() == {
+        "commit": made,
+        "state": RUNNING,
+        "delivered": True,
+        "subject": "feat: Middle",
+    }
     assert changed_files(tree) == []
     assert attachment(inst) is None, "released in the same request"
     assert waiting_at(inst) == (Node.CHECKS,), "the adopted event entered at the checks"
     assert adoptions(inst) == 1
     message = git(tree, "log", "-1", "--format=%B")
-    assert message.splitlines()[0] == "Add a note"
+    assert message.splitlines()[0] == "feat: Middle"
+    assert "Add a note" in message
     assert f"Unit: {UNIT}" in message
     assert f"Adopted-From: {build_session}" in message
 
@@ -395,7 +401,17 @@ def test_repeating_the_request_with_the_same_commit_delivers_nothing_again(
     again = commit(api, commit=made)
 
     assert first.status_code == again.status_code == 200
-    assert first.json() == again.json() == {"commit": made, "state": RUNNING, "delivered": True}
+    subject = git(tree, "log", "-1", "--format=%s", made).strip()
+    assert (
+        first.json()
+        == again.json()
+        == {
+            "commit": made,
+            "state": RUNNING,
+            "delivered": True,
+            "subject": subject,
+        }
+    )
     assert adoptions(inst) == 1
     assert attachment(inst) is None
     assert head(tree) == made, "no second commit"

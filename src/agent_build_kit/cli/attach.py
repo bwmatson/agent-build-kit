@@ -70,7 +70,9 @@ def cmd_attach_release(args: argparse.Namespace, inst: Installation) -> int:
             print(output.strip() or str(error))
             return 1
         delivery = "delivered" if done.delivered else "not delivered yet"
-        print(f"{unit.id}: committed {done.commit[:9]}; released; {delivery}")
+        print(
+            f"{unit.id}: committed {done.commit[:9]}; subject: {done.subject}; released; {delivery}"
+        )
     elif leases.attachment(unit.id) is None:
         print(f"{unit.id} is not attached")
     else:
