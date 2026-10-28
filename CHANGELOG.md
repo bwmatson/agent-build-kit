@@ -56,6 +56,7 @@
   message you typed as the body, so the commit counts toward the group's pair and the unit no
   longer stops for a missing one. The command prints the subject it used, and the web UI's
   response carries it. No model is called.
+
 - Every change that fixes a failing test is now named `fix-test-<test>`, whatever kind of
   failure it was, and one lookup by test finds an open fix of any older name. A unit whose
   test already has an open fix waits on it before anything is rerun, also after a requeue.
