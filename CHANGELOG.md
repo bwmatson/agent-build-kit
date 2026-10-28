@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- The guard against old test-kind names no longer fails when a tracked file is removed by
+  another process while the suite runs in parallel; it treats that file as absent.
+
 - The documents, the `abk-config` and `abk-pipeline` skills and the landing runbook now say the
   sandbox is on by default (`sandbox.enabled: false` turns it off, and a machine with no
   backend runs unconfined and says so), and that `abk.yaml` and `abk.local.yaml` may be edited
