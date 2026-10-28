@@ -46,19 +46,24 @@ def candidates(root: Path) -> list[Path]:
     return [p for p in found if not exempt(p)]
 
 
+def lines_of(path: Path) -> list[str]:
+    """The lines of a scanned file; none for one that is binary or that another process removed
+    after git listed it."""
+    try:
+        return path.read_text().splitlines()
+    except (UnicodeDecodeError, FileNotFoundError):
+        return []
+
+
 def old_spelling_problems(root: Path) -> list[str]:
     problems = []
     for path in candidates(root):
         name = path.relative_to(root).as_posix()
         if OLD_SPELLING.search(path.name):
             problems.append(f"{name}: the file name carries an old spelling")
-        try:
-            lines = path.read_text().splitlines()
-        except UnicodeDecodeError:
-            continue
         problems += [
             f"{name}:{number}: {line.strip()}"
-            for number, line in enumerate(lines, start=1)
+            for number, line in enumerate(lines_of(path), start=1)
             if OLD_SPELLING.search(line)
         ]
     return problems

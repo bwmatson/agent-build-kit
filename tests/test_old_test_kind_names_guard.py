@@ -10,7 +10,7 @@ from pathlib import Path
 
 import pytest
 
-from tests.old_test_kind_names import candidates, old_spelling_problems
+from tests.old_test_kind_names import candidates, lines_of, old_spelling_problems
 
 REPOSITORY = Path(__file__).resolve().parents[1]
 # Built in parts so this file carries no old spelling for the guard to find.
@@ -31,13 +31,9 @@ def naming_the_tool(root: Path) -> list[str]:
     """`path:line` of each line of the files the guard scans that names the rename tool."""
     found = []
     for path in candidates(root):
-        try:
-            lines = path.read_text().splitlines()
-        except UnicodeDecodeError:
-            continue
         found += [
             f"{path.relative_to(root).as_posix()}:{number}"
-            for number, line in enumerate(lines, start=1)
+            for number, line in enumerate(lines_of(path), start=1)
             if TOOL_MODULE in line
         ]
     return found
