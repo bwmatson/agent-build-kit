@@ -98,7 +98,11 @@
   carries) and tool versions, the machine's load and
   memory at the start and end, and the worktree's state before and after (naming test files
   that vanished or appeared). The last three per unit are kept. The unit-test command also
-  prints the slowest tests and a short summary of what failed.
+  prints the slowest tests and a short summary of what failed. Each serial rerun of a failed
+  test is kept in the bundle too, with its own output, exit, times and machine and worktree
+  state, and flake, storm and pre-existing records name the bundle, the time the run started
+  and the load and rerun results it ran under. A test that errors in a fixture now has its
+  own section kept like a failed one.
 
 - `abk external hand-off`, `list`, `done` and `release` hand a change, or some of its groups,
   to someone who builds it by hand. The kit never starts held work, units that need it wait

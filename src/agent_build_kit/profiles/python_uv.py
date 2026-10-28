@@ -97,6 +97,10 @@ _AFTER_FAILURES = re.compile(
     r"|.* in [\d.]+s(?: \([\d:]+\))?) ={3,}[ \t]*$",
     re.MULTILINE,
 )
+# A test that errored in a fixture has its block in the `ERRORS` part, headed `ERROR at setup of`.
+_ERRORS_START = re.compile(r"^={3,} ERRORS ={3,}[ \t]*$", re.MULTILINE)
+_AFTER_ERRORS = re.compile(r"^={3,} FAILURES ={3,}[ \t]*$", re.MULTILINE)
+_ERROR_BLOCK_NAME = re.compile(r"^ERROR at (?:setup|teardown) of ")
 _BLOCK_HEADER = re.compile(r"^_+ (?P<name>.+?) _+[ \t]*$", re.MULTILINE)
 # pre-commit prints `<hook name>....Passed|Failed|(no files to check)Skipped` for every
 # hook; a failed one is followed by `- hook id: <id>`. The name is free text a repo can
@@ -551,21 +555,28 @@ class PythonUvProfile:
     def failure_sections(self, output: str) -> dict[str, str]:
         """Each failed test's own section of `output` (its `___ name ___` block), by the
         identifier `failed_tests` gives it. A test with no block is left out."""
-        start = _FAILURES_START.search(output)
-        if start is None:
+        blocks: list[tuple[str, str]] = []
+        for opener in (_FAILURES_START, _ERRORS_START):
+            start = opener.search(output)
+            if start is None:
+                continue
+            part = output[start.end() :]
+            # A part ends at the rule of the section that follows it.
+            ends = [
+                m.start() for m in (_AFTER_FAILURES.search(part), _AFTER_ERRORS.search(part)) if m
+            ]
+            if ends:
+                part = part[: min(ends)]
+            headers = list(_BLOCK_HEADER.finditer(part))
+            blocks += [
+                (
+                    _ERROR_BLOCK_NAME.sub("", header["name"]),
+                    part[header.end() : headers[i + 1].start() if i + 1 < len(headers) else None],
+                )
+                for i, header in enumerate(headers)
+            ]
+        if not blocks:
             return {}
-        part = output[start.end() :]
-        end = _AFTER_FAILURES.search(part)
-        if end is not None:
-            part = part[: end.start()]
-        headers = list(_BLOCK_HEADER.finditer(part))
-        blocks = [
-            (
-                header["name"],
-                part[header.end() : headers[i + 1].start() if i + 1 < len(headers) else None],
-            )
-            for i, header in enumerate(headers)
-        ]
         sections: dict[str, str] = {}
         for test in self.failed_tests(output):
             # The header shows the class and test joined by dots, and any parametrisation.

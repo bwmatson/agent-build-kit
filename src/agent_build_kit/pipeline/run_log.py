@@ -109,6 +109,29 @@ def write_failure_bundle(
     return path
 
 
+def write_rerun_evidence(
+    bundle: Path,
+    number: int,
+    *,
+    output: str,
+    context: dict[str, object],
+    machine: dict[str, object],
+    worktree: dict[str, object],
+) -> None:
+    """Save serial rerun `number` of a failing run in `<bundle>/reruns/<number>/`: its redacted
+    `output.txt`, `context.json`, `machine.json` and `worktree.json`. A diagnostic copy, so a
+    write that fails is dropped."""
+    folder = bundle / "reruns" / str(number)
+    try:
+        folder.mkdir(parents=True, exist_ok=True)
+        (folder / "output.txt").write_text(redact_text(output, where="failure bundle"))
+        for name, facts in (("context", context), ("machine", machine), ("worktree", worktree)):
+            body = redact_text(json.dumps(facts, indent=2, default=str), where="failure bundle")
+            (folder / f"{name}.json").write_text(body)
+    except (OSError, ValueError):
+        pass
+
+
 def _prune_bundles(directory: Path, prefix: str, pointed: Collection[Path]) -> None:
     """Remove the unit's bundles beyond the newest `RUNS_KEPT`, except those pointed at."""
     keep = {p.resolve() for p in pointed}
