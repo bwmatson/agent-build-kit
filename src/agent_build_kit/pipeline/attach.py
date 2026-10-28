@@ -4,6 +4,7 @@ both call these."""
 
 from __future__ import annotations
 
+import subprocess
 from collections.abc import Callable
 from pathlib import Path
 
@@ -42,6 +43,7 @@ class Adopted(Frozen):
     commit: str
     state: str
     delivered: bool
+    subject: str = ""  # the commit's subject; "" when the commit cannot be read
 
 
 def worktree_of(inst: Installation, unit: StoredUnit) -> Path | None:
@@ -88,12 +90,28 @@ def deliver(inst: Installation, unit: StoredUnit, commit: str) -> bool:
     return resumed is None or not resumed.raised
 
 
-def finish(inst: Installation, unit: StoredUnit, commit: str) -> Adopted:
-    """Deliver a commit made and not delivered, then remove the lease that recorded it."""
+def subject_of(inst: Installation, unit: StoredUnit, commit: str) -> str:
+    """The subject of `commit`, read from the unit's worktree; "" when it cannot be read."""
+    tree = worktree_of(inst, unit)
+    if tree is None:
+        return ""
+    try:
+        return git_out(tree, "log", "-1", "--format=%s", commit)
+    except subprocess.CalledProcessError:
+        return ""
+
+
+def finish(
+    inst: Installation, unit: StoredUnit, commit: str, subject: str | None = None
+) -> Adopted:
+    """Deliver a commit made and not delivered, then remove the lease that recorded it. The
+    result names the commit's `subject`, which is read from the commit when not given."""
+    if subject is None:
+        subject = subject_of(inst, unit, commit)
     delivered = deliver(inst, unit, commit)
     if delivered:
         leases_of(inst).drop(unit.id)
-    return Adopted(commit=commit, state=state_of(inst, unit), delivered=delivered)
+    return Adopted(commit=commit, state=state_of(inst, unit), delivered=delivered, subject=subject)
 
 
 def adopt(
@@ -125,7 +143,7 @@ def adopt(
     leases = leases_of(inst)
     if held := leases.attachment(unit.id):
         leases.mark_committed(unit.id, held.holder, head)
-    return finish(inst, unit, head)
+    return finish(inst, unit, head, subject)
 
 
 def subject_for(inst: Installation, unit: StoredUnit, tree: Path, base: str) -> str:

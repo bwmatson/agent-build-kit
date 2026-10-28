@@ -34,5 +34,6 @@ def test_a_hand_made_commit_with_a_free_text_subject_is_not_counted_and_the_stop
     assert subjects(repo) == ["test: G3", HAND_MADE]
     group = GroupStep(change_dir="changes/add-marker", number=3, title="G3")
     assert adopted_subject("Add the marker", (group,), subjects(repo)) == "feat: G3", (
-        "the free-text commit does not stand in for the group's implementation"
+        "the free-text commit is not counted, and a feat: adopted after it cannot pair across it "
+        "either: the stop still raises"
     )
