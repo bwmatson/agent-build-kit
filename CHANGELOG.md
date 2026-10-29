@@ -4,6 +4,7 @@
 
 - The guard against old test-kind names no longer fails when a tracked file is removed by
   another process while the suite runs in parallel; it treats that file as absent.
+
 - A tick no longer spends minutes before planning: the pull-request poll, the review notes and
   the reply writer now look up the unit that owns a pull request in an index of the unit store,
   which is read again only when the store's file has changed, instead of reading and validating
