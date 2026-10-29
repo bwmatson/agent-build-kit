@@ -8,6 +8,7 @@ from pathlib import Path
 import pytest
 
 from tests.live_tag_drift import (
+    EVERY_LIVE_MODULE_TIME_LIMIT,
     claude_without_acp,
     collected,
     documented_gaps,
@@ -118,7 +119,7 @@ def test_a_list_that_matches_the_document_warns_of_nothing(
     assert warned(pytester, document, test_same=CLAUDE_ONLY) == []
 
 
-@pytest.mark.time_limit(300)  # collecting every live module takes minutes on a loaded host
+@pytest.mark.time_limit(EVERY_LIVE_MODULE_TIME_LIMIT)
 def test_the_kits_current_list_matches_the_documents_without_a_warning(
     pytester: pytest.Pytester,
 ) -> None:

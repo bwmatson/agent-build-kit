@@ -26,6 +26,7 @@ from agent_build_kit.runtimes.known_agents import KNOWN_AGENTS
 from tests.runtime_scratch import AGENT_COMMAND, RUNTIMES, TELEMETRY_VALUES
 from tests.runtime_tag_collection import ROOT
 from tests.runtime_tags import PREFIX, runtime_tags
+from tests.time_limit import DEFAULT_TEST_TIME_LIMIT
 
 REASONS_TABLE = "ACP_ONLY_REASONS"
 INTEGRATION = ROOT / "tests" / "integration"
@@ -38,6 +39,10 @@ CLAUDE_PROGRAM = "claude"
 CLAUDE_ACCOUNT = "claude_account"
 PROTOCOL_CLASS = "AcpRuntime"
 PROTOCOL_METHODS = {"detect", "list_models", "run"}
+# A test that collects every live module of the kit in-process (`find_live_modules` and then
+# `inline_genitems`) took over 60 s under parallel load, past the default limit, so it is marked
+# with five times the default.
+EVERY_LIVE_MODULE_TIME_LIMIT = DEFAULT_TEST_TIME_LIMIT * 5
 
 
 class AgentSignals(Frozen):
