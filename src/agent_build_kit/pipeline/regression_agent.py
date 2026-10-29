@@ -7,14 +7,27 @@ from __future__ import annotations
 from enum import StrEnum
 from pathlib import Path
 
-from agent_build_kit.config import models
+from agent_build_kit import openspec
+from agent_build_kit.config import CONFIG_FILENAME, active, models
+from agent_build_kit.init.propose import repair_once, validation_errors
 from agent_build_kit.installation import Installation
 from agent_build_kit.model import Frozen
 from agent_build_kit.pipeline.call_record import recorded
-from agent_build_kit.pipeline.flakes import Flake, flake_record, next_fix_name
+from agent_build_kit.pipeline.file_lock import file_lock
+from agent_build_kit.pipeline.flakes import (
+    Flake,
+    failure_history,
+    next_fix_name,
+    open_fix_change,
+)
 from agent_build_kit.pipeline.unit_store import StoredUnit
 from agent_build_kit.pipeline.vocabulary import OverheadNode
-from agent_build_kit.pipeline.work_graph import PRIORITY_LINE, validate_tasks
+from agent_build_kit.pipeline.work_graph import (
+    PRIORITY_LINE,
+    declared_projects,
+    declared_split_names,
+    validate_tasks,
+)
 from agent_build_kit.runtimes import AgentRequest, AgentRuntime
 from agent_build_kit.runtimes.base import ToolPolicy
 from agent_build_kit.sandboxes import Coverage, SandboxPolicy
@@ -66,7 +79,7 @@ class FixOutcome(Frozen):
     reason: str = ""
 
 
-def write_fix_change(
+def run_regression_agent(
     inst: Installation,
     failure: Flake,
     unit: StoredUnit,
@@ -76,16 +89,25 @@ def write_fix_change(
     base_output: str = "",
     runtime: AgentRuntime,
     cwd: Path,
+    run_openspec: openspec.Run | None = None,
 ) -> FixOutcome:
     """Run the agent for `failure` in `cwd`, a checkout of the unit's `base`, and check the
-    change it wrote."""
-    name = next_fix_name(inst, failure.test)
-    root = inst.changes_dir / name
+    change it wrote with what `abk check` and `abk tags` run, then its own checks: the files, a
+    `[contract]` group and a `Priority:` line. A change that fails is rewritten once, then held.
+    A run that fails, or that cannot decide, is held at once, with no second run.
+
+    The change's name is taken, and its directory made, under the flakes lock, and an open fix
+    of the test is reused: two units that meet one test get one change."""
+    with file_lock(inst.state_dir / "flakes.lock"):
+        name = open_fix_change(inst, failure.test)[0] or next_fix_name(inst, failure.test)
+        root = inst.changes_dir / name
+        root.mkdir(parents=True, exist_ok=True)
     on_base = (
         f"\nOutput of the same test on the base:\n{base_output.strip()}\n"
         if kind is not FixKind.FLAKY and base_output
         else ""
     )
+    earlier = failure_history(inst, failure.test, evidence=True)
     prompt = PROMPT.format(
         test=failure.test,
         directory=root,
@@ -99,27 +121,34 @@ def write_fix_change(
         evidence=failure.evidence or "none recorded",
         output=failure.output.strip(),
         base_section=on_base,
-        history=_history(inst, failure.test),
+        history="\nEarlier failures of this test:\n" + "\n".join(earlier) if earlier else "",
     )
-    problems: list[str] = []
-    for _ in range(2):
-        asked = prompt
-        if problems:
-            listed = "\n".join(f"- {problem}" for problem in problems)
-            asked += f"\nThe change you wrote was refused. Rewrite it to fix:\n{listed}\n"
+    stopped: FixOutcome | None = None
+
+    def attempt(asked: str) -> list[str]:
+        nonlocal stopped
         request = AgentRequest(
             prompt=asked,
             role="regression",
             change=name,
             cwd=cwd,
+            # The change is written in the planning repo, beside the checkout the agent works in.
+            add_dirs=(inst.specs_dir,),
             model=models().regression or None,
+            permission_mode="edit",
+            planning_repo=inst.root,
+            planning_change_dir=root,
             policy=ToolPolicy(
+                branch_prefix=active().git.branch_prefix,
+                # The checkout is the unit's base: nothing is committed there.
+                no_commit=True,
+                fenced_files=(inst.root / CONFIG_FILENAME,),
                 sandbox=SandboxPolicy(
                     write=(root,),
                     read=(cwd, inst.specs_dir),
                     hosts=(),
                     required=Coverage.NONE,
-                )
+                ),
             ),
         )
         result = runtime.run(
@@ -132,38 +161,56 @@ def write_fix_change(
                 say=print,
             )
         )
-        if UNDECIDED in result.text:
-            return FixOutcome(
+        if not result.succeeded:
+            reason = result.error or result.stop_reason or "no reason given"
+            stopped = FixOutcome(change=name, held=True, reason=f"the agent's run failed: {reason}")
+        elif UNDECIDED in result.text:
+            stopped = FixOutcome(
                 change=name, held=True, reason="the agent could not decide which side is wrong"
             )
-        problems = _problems(root)
-        if not problems:
-            return FixOutcome(change=name)
-    return FixOutcome(change=name, held=True, reason="; ".join(problems))
+        else:
+            return _problems(inst, name, run_openspec)
+        return []
 
-
-def _history(inst: Installation, test: str) -> str:
-    seen = [entry for entry in flake_record(inst).entries() if entry.test == test]
-    if not seen:
-        return ""
-    return "\nEarlier failures of this test:\n" + "\n".join(
-        f"- {entry.at:%Y-%m-%d %H:%M} UTC, unit {entry.unit}: {entry.evidence}" for entry in seen
+    problems = repair_once(
+        attempt,
+        prompt,
+        lambda found: (
+            "\nThe change you wrote was refused. Rewrite it to fix:\n"
+            + "\n".join(f"- {problem}" for problem in found)
+            + "\n"
+        ),
     )
+    if stopped is not None:
+        return stopped
+    if problems:
+        return FixOutcome(change=name, held=True, reason="; ".join(problems))
+    return FixOutcome(change=name)
 
 
-def _problems(root: Path) -> list[str]:
-    """What is wrong with the change at `root`: a file missing, a task group the tags check
+def _problems(inst: Installation, name: str, run_openspec: openspec.Run | None) -> list[str]:
+    """What is wrong with the change `name`: a file missing, what OpenSpec or the tags check
     refuses, no `[contract]` group or no `Priority:` line."""
-    missing = [name for name in CHANGE_FILES if not (root / name).is_file()]
+    root = inst.changes_dir / name
+    missing = [file for file in CHANGE_FILES if not (root / file).is_file()]
     if not any((root / "specs").glob("*/spec.md")):
         missing.append("a delta spec under specs/<capability>/spec.md")
     if missing:
         return [f"missing {', '.join(missing)}"]
+    repos = tuple(inst.repos)
+    projects = declared_projects(inst.repos)
+    splits = declared_split_names(inst.repos, inst.config)
+    found = validation_errors(
+        inst.root,
+        name,
+        repos=repos,
+        projects=projects,
+        splits=splits,
+        run_openspec=run_openspec,
+        specs_dir=inst.config.planning.specs_dir,
+    )
     tasks = root / "tasks.md"
-    groups, errors = validate_tasks(tasks)
-    # The fix is flagged [contract] for its priority in the graph; it widens nothing, so the
-    # rule that a widening ends with a [narrow] group does not apply to it.
-    found = [f"tasks.md:{error}" for error in errors if "[narrow]" not in error.message]
+    groups, _ = validate_tasks(tasks, repos=repos, projects=projects, splits=splits)
     if not any(group.flag == "contract" for group in groups):
         found.append("tasks.md: no task group is flagged [contract]")
     if not any(PRIORITY_LINE.match(line.strip()) for line in tasks.read_text().splitlines()):

@@ -27,15 +27,13 @@ from agent_build_kit.pipeline.failure_record import (
 from agent_build_kit.pipeline.file_lock import change_lock, file_lock
 from agent_build_kit.pipeline.unit_store import StoredUnit
 from agent_build_kit.pipeline.units import Unit
-from agent_build_kit.pipeline.work_graph import GROUP_HEADING, group_needs
+from agent_build_kit.pipeline.work_graph import FIX_PREFIX, GROUP_HEADING, group_needs
 
 # The longest a change's name gets before it is cut and given a hash of the whole.
 NAME_LIMIT = 70
 # What the names of changes that fixed a flaky or a failing test started with, still found.
 FLAKY_PREFIX = "fix-flaky"
 FAILING_PREFIX = "fix-failing"
-# What the name of every new change that fixes a failing test starts with, whatever its kind.
-FIX_PREFIX = "fix-test"
 # Where a module imported by a test may sit in the code repo, relative to its root.
 SOURCE_ROOTS = ("", "src")
 # How many of a storm's tests its row names.
@@ -288,9 +286,18 @@ def _requirement(flake: Flake) -> str:
     return f"`{flake.test}` is deterministic"
 
 
+def failure_history(inst: Installation, test: str, *, evidence: bool = False) -> list[str]:
+    """One line for each recorded failure of `test`, oldest first, with the evidence of its run
+    when `evidence` is set."""
+    return [
+        f"- {e.at:%Y-%m-%d %H:%M} UTC, unit {e.unit}" + (f": {e.evidence}" if evidence else "")
+        for e in flake_record(inst).entries()
+        if e.test == test
+    ]
+
+
 def _proposal(inst: Installation, flake: Flake, unit: StoredUnit, earlier: str) -> str:
-    history = [e for e in flake_record(inst).entries() if e.test == flake.test]
-    seen = [f"- {e.at:%Y-%m-%d %H:%M} UTC, unit {e.unit}" for e in history]
+    seen = failure_history(inst, flake.test)
     seen.append(f"- {flake.at:%Y-%m-%d %H:%M} UTC, unit {flake.unit or unit.id} (this one)")
     modules = _modules_of(inst, unit.repo, flake)
     exercised = (

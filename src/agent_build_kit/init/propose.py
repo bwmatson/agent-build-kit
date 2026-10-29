@@ -16,7 +16,7 @@ The agent runs in the planning repo with the code repo added read-only
 from __future__ import annotations
 
 import json
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from pathlib import Path
 from typing import Literal
 
@@ -212,6 +212,7 @@ def validation_errors(
     *,
     repos: tuple[str, ...],
     projects: Mapping[str, tuple[str, ...]],
+    splits: Mapping[str, tuple[str, ...]] | None = None,
     run_openspec: openspec.Run | None = None,
     specs_dir: str = "openspec",
 ) -> list[str]:
@@ -251,9 +252,24 @@ def validation_errors(
     if not tasks.is_file():
         errors.append(f"{tasks.relative_to(planning)} is missing")
     else:
-        # A workspace being set up declares no e2e-test splits yet, so only `rest` is accepted.
-        _groups, tag_errors = validate_tasks(tasks, repos=repos, projects=projects, splits={})
+        # Without `splits`, a workspace being set up declares no e2e-test splits yet, so only
+        # `rest` is accepted.
+        _groups, tag_errors = validate_tasks(
+            tasks, repos=repos, projects=projects, splits={} if splits is None else splits
+        )
         errors.extend(f"tasks.md line {error.line}: {error.message}" for error in tag_errors)
+    return errors
+
+
+def repair_once(
+    attempt: Callable[[str], list[str]], prompt: str, repair: Callable[[list[str]], str]
+) -> list[str]:
+    """Run `attempt` on `prompt`; when it finds errors, run it once more on `prompt` followed by
+    `repair` of them. The errors still found, or an empty list. An attempt that cannot be
+    repaired answers an empty list, which ends it."""
+    errors = attempt(prompt)
+    if errors:
+        errors = attempt(prompt + repair(errors))
     return errors
 
 
@@ -350,9 +366,9 @@ def write_change(
             planning, change, repos=repos, projects=projects, run_openspec=run_openspec
         )
 
-    errors = attempt(prompt)
-    if errors:
-        errors = attempt(prompt + REPAIR.format(change=change, errors="\n".join(errors)))
+    errors = repair_once(
+        attempt, prompt, lambda found: REPAIR.format(change=change, errors="\n".join(found))
+    )
     if errors:
         raise ProposeError(
             f"{change} did not validate after a repair round; its files are left in "
