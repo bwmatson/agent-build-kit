@@ -532,8 +532,11 @@ class FakeAgent:
         if self._linger or self._fail in ("orphan", "detach"):
             self._leave_child(new_session=self._fail == "detach")
         if self._fail in ("hang", "orphan", "detach"):
-            os.close(1)
+            # Written before stdout closes: the run starts its grace for the agent to
+            # exit when stdout closes, and a loaded machine may not get to a write
+            # after it before the agent is killed.
             print(STDERR_LINE, file=sys.stderr, flush=True)
+            os.close(1)
             time.sleep(HANG_SECONDS)
         if self._acts is not None:
             if not await self._work(session_id, prompt):
