@@ -159,7 +159,7 @@ def _created_by_profiles(repo: RepoConfig, root: Path) -> list[str]:
         for name in profile.created_files(root / folder):
             if name.startswith("/"):
                 continue
-            # Joined first: a project's `../uv.lock` is the workspace root's, still inside.
+            # Joined first: a project's `../<lock>` is its workspace root's, still inside.
             try:
                 path = normalize(posixpath.normpath(f"{where}/{name}"))
             except ValueError:
