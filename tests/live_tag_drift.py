@@ -363,7 +363,15 @@ def splits_by_syntax(tests_root: Path) -> dict[Path, set[str]]:
     """For every live module under `tests_root` (as `find_live_modules` finds them), the splits
     its `runtime_<name>` marks name in its syntax (`pytestmark`, a decorator, a class decorator,
     a `pytest.param` mark), `rest` when it names none. Nothing is imported or collected."""
-    raise NotImplementedError
+    found = {}
+    for path in find_live_modules(tests_root):
+        names = {
+            node.attr.removeprefix(PREFIX)
+            for node in ast.walk(parsed(path.read_text()))
+            if isinstance(node, ast.Attribute) and node.attr.startswith(PREFIX)
+        }
+        found[path] = names or {UNTAGGED_SPLIT}
+    return found
 
 
 def split_of(item: pytest.Item) -> str:
