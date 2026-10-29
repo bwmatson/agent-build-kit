@@ -43,6 +43,28 @@ def test_a_generated_track_report_quoting_an_old_unit_id_is_not_scanned(tmp_path
     assert old_spelling_problems(root) == []
 
 
+def test_a_report_under_the_configured_reports_folder_is_not_scanned(tmp_path: Path) -> None:
+    root = init_repo(tmp_path)
+    commit_files(
+        root,
+        "reports",
+        {
+            "abk.yaml": "planning:\n  reports_dir: docs/track-runs\n",
+            "docs/track-runs/health.md": f"- {OLD_GATE}\n",
+            "docs/reports/other.md": f"- {OLD_GATE}\n",
+        },
+    )
+
+    assert old_spelling_problems(root) == [f"docs/reports/other.md:1: - {OLD_GATE}"]
+
+
+def test_a_docs_reports_folder_below_another_folder_is_still_scanned(tmp_path: Path) -> None:
+    root = init_repo(tmp_path)
+    commit_files(root, "nested", {"tests/fixtures/docs/reports/case.py": f"NAME = '{OLD_GATE}'\n"})
+
+    assert old_spelling_problems(root) != []
+
+
 def test_a_tracked_file_missing_from_the_disk_does_not_fail_the_guard(tmp_path: Path) -> None:
     root = repo_with_a_vanished_file(tmp_path)
 

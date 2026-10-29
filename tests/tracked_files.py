@@ -24,12 +24,13 @@ BUILT_WEB = Path("src/agent_build_kit/serve/static")
 class PlanningDirs(Frozen):
     specs_dir: str
     state_dir: str
+    reports_dir: str
 
 
 def planning_dirs(root: Path) -> PlanningDirs:
-    """The specification and state folders of `root`'s `abk.yaml`; the default specification
-    folder of `PlanningConfig` and the legacy `runs` state folder where the file, the section or
-    the key is absent."""
+    """The specification, state and track-report folders of `root`'s `abk.yaml`; the default
+    specification folder of `PlanningConfig`, the legacy `runs` state folder and `docs/reports`
+    where the file, the section or the key is absent."""
     defaults = PlanningConfig()
     try:
         loaded = yaml.safe_load((root / "abk.yaml").read_text())
@@ -40,7 +41,14 @@ def planning_dirs(root: Path) -> PlanningDirs:
     return PlanningDirs(
         specs_dir=str(section.get("specs_dir") or defaults.specs_dir),
         state_dir=str(section.get("state_dir") or "runs"),
+        reports_dir=str(section.get("reports_dir") or "docs/reports"),
     )
+
+
+def inside_a_repository(root: Path) -> bool:
+    """Whether `root` or a parent holds a `.git` entry; read from the disk, so it cannot fail the
+    way a git command does under load."""
+    return any((folder / ".git").exists() for folder in (root, *root.parents))
 
 
 def tracked(root: Path) -> list[Path]:
@@ -48,16 +56,24 @@ def tracked(root: Path) -> list[Path]:
     Inside one a failed listing is tried again and then raised, never answered with the walked
     tree, which holds files git does not track."""
     listed = git(root, "ls-files", "-z", check=False)
-    if listed.returncode != 0 and (
-        git(root, "rev-parse", "--is-inside-work-tree", check=False).returncode != 0
-    ):
-        return [path.relative_to(root) for path in root.rglob("*") if path.is_file()]
     for _ in range(LISTING_RETRIES):
         if listed.returncode == 0:
             break
         listed = git(root, "ls-files", "-z", check=False)
-    listed.check_returncode()
+    if listed.returncode != 0:
+        if inside_a_repository(root):
+            listed.check_returncode()
+        return [path.relative_to(root) for path in root.rglob("*") if path.is_file()]
     return [Path(name) for name in listed.stdout.split("\0") if name]
+
+
+def lines_of(path: Path, errors: str = "strict") -> list[str]:
+    """The lines of a scanned file; none for one that is binary (under the default `errors`) or
+    that another process removed after git listed it."""
+    try:
+        return path.read_text(errors=errors).splitlines()
+    except (UnicodeDecodeError, FileNotFoundError):
+        return []
 
 
 def skipped(path: Path, below: Path) -> bool:

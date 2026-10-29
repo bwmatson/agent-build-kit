@@ -24,7 +24,7 @@ import yaml
 from agent_build_kit.config import OVERLAY_FILENAME
 from agent_build_kit.pipeline.shell import git
 from agent_build_kit.scrub_terms import ISSUE_REFERENCE, REPLACEMENT, TOOL_DIRS
-from tests.tracked_files import PlanningDirs, guarded_files, planning_dirs
+from tests.tracked_files import PlanningDirs, guarded_files, lines_of, planning_dirs
 
 SCANNED = ("src", "tests", "docs", "web", "openspec")
 # The root files read when present; `abk.yaml` and the tracked unit store are planning
@@ -58,9 +58,6 @@ SELF = {
     "test_split_scrub_references.py",
     "test_repo_wide_guards_documented.py",
 }
-# Generated track reports quote the third-party projects their research compared, so they are
-# not read: what a track writes there changes between runs and is not the framework's text.
-GENERATED = Path("docs/reports")
 # Fixture owners, and the placeholder words a regex's own documentation uses.
 FIXTURE_OWNERS = ("example", "acme", "octo", "owner", "o")
 # Upstream projects the framework builds on and credits; not installations.
@@ -105,13 +102,7 @@ def files(root: Path, dirs: PlanningDirs | None = None) -> list[Path]:
     found = guarded_files(
         root, under=SCANNED, names=ROOT_FILES, suffixes=TEXT, specs=True, dirs=dirs
     )
-    return [
-        path
-        for path in found
-        if path.name not in SELF
-        and path.name != "package-lock.json"
-        and GENERATED not in path.relative_to(root).parents
-    ]
+    return [path for path in found if path.name not in SELF and path.name != "package-lock.json"]
 
 
 def file_hits(root: Path, path: Path, found: re.Pattern | Callable[[str], object]) -> list[str]:
@@ -120,7 +111,7 @@ def file_hits(root: Path, path: Path, found: re.Pattern | Callable[[str], object
     matches = found.search if isinstance(found, re.Pattern) else found
     return [
         f"{path.relative_to(root)}:{number}: {line.strip()[:100]}"
-        for number, line in enumerate(path.read_text(errors="replace").splitlines(), start=1)
+        for number, line in enumerate(lines_of(path, errors="replace"), start=1)
         if matches(line)
     ]
 
