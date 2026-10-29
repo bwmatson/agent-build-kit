@@ -65,7 +65,7 @@ def test_the_value_is_frozen(tmp_path: Path) -> None:
 def test_python_uv_names_the_uv_folders_and_the_two_index_hosts(tmp_path: Path) -> None:
     found = paths_of("python-uv", tmp_path)
 
-    assert set(found.write) >= {f"{HOME_MARK}/.cache/uv", f"{HOME_MARK}/.local/share/uv"}
+    assert set(found.caches) >= {f"{HOME_MARK}/.cache/uv", f"{HOME_MARK}/.local/share/uv"}
     assert set(found.hosts) == {"pypi.org", "files.pythonhosted.org"}
 
 
@@ -98,7 +98,8 @@ def test_the_policy_lists_a_profiles_entries_with_the_profile_as_their_source(
     policy = build_policy(plan, "app", worktree, runtime=Silent(), profile=uv)
 
     from_profile = {(e.kind, e.value) for e in entries if e.source == "python-uv"}
-    assert ("write", f"{HOME_MARK}/.cache/uv") in from_profile
+    cache_entries = {(e.kind, e.value) for e in entries if e.source == "default (python-uv)"}
+    assert ("write", f"{HOME_MARK}/.cache/uv") in cache_entries
     assert ("hosts", "pypi.org") in from_profile
     assert (home / ".cache" / "uv").resolve() in policy.write
     assert {"pypi.org", "files.pythonhosted.org"} <= set(policy.hosts)

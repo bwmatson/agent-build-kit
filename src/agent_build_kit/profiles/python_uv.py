@@ -311,9 +311,13 @@ class PythonUvProfile:
         return [LOCK]
 
     def sandbox_paths(self, repo: Path) -> SandboxPaths:
-        """The uv cache and data folders and the two package index hosts."""
+        """The uv and pre-commit cache folders and the two package index hosts."""
         return SandboxPaths(
-            write=(f"{HOME}/.cache/uv", f"{HOME}/.local/share/uv"),
+            caches=(
+                f"{HOME}/.cache/uv",
+                f"{HOME}/.local/share/uv",
+                f"{HOME}/.cache/pre-commit",
+            ),
             hosts=("pypi.org", "files.pythonhosted.org"),
         )
 
