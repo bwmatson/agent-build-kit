@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- A repo's `sandbox` and each project's `sandbox` accept a `caches` list: the cache folders a
+  confined step may write. Unset, the toolchain profile's defaults apply; a list replaces them
+  and `caches: []` grants none. The project's list wins over the repo's, and `abk.local.yaml`
+  over `abk.yaml`.
+
 - The guard against old test-kind names no longer fails when a tracked file is removed by
   another process while the suite runs in parallel; it treats that file as absent.
 

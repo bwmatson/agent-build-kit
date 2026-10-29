@@ -98,6 +98,8 @@ class SandboxPaths(Frozen):
     read: tuple[str, ...] = ()
     write: tuple[str, ...] = ()
     hosts: tuple[str, ...] = ()
+    # The cache folders written by default; a `caches` list in abk.yaml replaces them.
+    caches: tuple[str, ...] = ()
 
 
 @runtime_checkable

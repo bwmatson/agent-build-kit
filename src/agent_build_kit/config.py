@@ -1104,6 +1104,9 @@ class ProjectSandboxConfig(Frozen):
     write: list[str] = []
     read: list[str] = []
     hosts: list[str] = []
+    # The cache folders a step may write. Unset follows the toolchain profile's defaults; a list
+    # replaces them and an empty one grants none.
+    caches: list[str] | None = None
 
 
 class RepoSandboxConfig(ProjectSandboxConfig):

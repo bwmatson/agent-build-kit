@@ -11,7 +11,12 @@ from typing import Any
 import agent_build_kit
 from agent_build_kit import config as config_module
 from agent_build_kit import profiles
-from agent_build_kit.config import E2eSandboxConfig, ProjectSandboxConfig, RepoSandboxConfig
+from agent_build_kit.config import (
+    E2eSandboxConfig,
+    ProjectConfig,
+    ProjectSandboxConfig,
+    RepoSandboxConfig,
+)
 from agent_build_kit.installation import Installation
 from agent_build_kit.model import Frozen, TestTier
 from agent_build_kit.profiles.base import SandboxPaths
@@ -179,12 +184,56 @@ def policy_entries(
         layers.extend((source, block) for block in _blocks(document or {}, repo))
         if tier is TestTier.E2E_TEST:
             layers.append((source, _e2e_block(document or {}, repo)))
-    return [
+    found = [
         PolicyEntry(kind=kind, value=str(value), source=source)
         for kind in ("write", "read", "hosts", "ports")
         for source, layer in layers
         for value in getattr(layer, kind, [])
     ]
+    projects = installation.config.repos[repo].projects
+    scopes = [(project, profiles.get(project.profile)) for project in projects] or [(None, profile)]
+    for project, toolchain in scopes:
+        found += caches_for(installation, repo, project, toolchain, worktree)
+    return found
+
+
+def caches_for(
+    installation: Installation,
+    repo: str,
+    project: ProjectConfig | None,
+    toolchain: object,
+    worktree: Path,
+) -> list[PolicyEntry]:
+    """The cache folders a step of `project` (None: the repo as a whole) may write, as `write`
+    entries with their source: the project's `caches` when set, else the repo's, else the
+    toolchain's defaults. At each level the overlay's list replaces the committed file's."""
+    path = installation.root / config_module.CONFIG_FILENAME
+    documents = (
+        (config_module.CONFIG_FILENAME, config_module.read_base(path) or {}),
+        (config_module.OVERLAY_FILENAME, config_module.read_overlay(path) or {}),
+    )
+    levels: list[tuple[str, list[str]] | None] = []
+    for scope in (project, None) if project else (None,):
+        chosen: tuple[str, list[str]] | None = None
+        for source, document in documents:
+            entry = (document.get("repos") or {}).get(repo) or {}
+            if scope is None:
+                block = entry.get("sandbox") or {}
+            else:
+                same = [p for p in entry.get("projects") or [] if p.get("path") == scope.path]
+                block = (same[0].get("sandbox") or {}) if same else {}
+            if block.get("caches") is not None:
+                chosen = (source, list(block["caches"]))
+        levels.append(chosen)
+    if given := next((level for level in levels if level is not None), None):
+        source, folders = given
+        return [PolicyEntry(kind="write", value=folder, source=source) for folder in folders]
+    name = getattr(toolchain, "name", type(toolchain).__name__)
+    paths = (
+        toolchain.sandbox_paths(worktree) if isinstance(toolchain, SandboxPathsProfile) else None
+    )
+    defaults = paths.caches if isinstance(paths, SandboxPaths) else ()
+    return [PolicyEntry(kind="write", value=f, source=f"default ({name})") for f in defaults]
 
 
 def _layer(given: SandboxPaths | dict[str, list[str]]) -> ProjectSandboxConfig:
