@@ -10,8 +10,10 @@ from pathlib import Path
 from agent_build_kit.config import models
 from agent_build_kit.installation import Installation
 from agent_build_kit.model import Frozen
+from agent_build_kit.pipeline.call_record import recorded
 from agent_build_kit.pipeline.flakes import Flake, flake_record, next_fix_name
 from agent_build_kit.pipeline.unit_store import StoredUnit
+from agent_build_kit.pipeline.vocabulary import OverheadNode
 from agent_build_kit.pipeline.work_graph import PRIORITY_LINE, validate_tasks
 from agent_build_kit.runtimes import AgentRequest, AgentRuntime
 from agent_build_kit.runtimes.base import ToolPolicy
@@ -105,21 +107,29 @@ def write_fix_change(
         if problems:
             listed = "\n".join(f"- {problem}" for problem in problems)
             asked += f"\nThe change you wrote was refused. Rewrite it to fix:\n{listed}\n"
+        request = AgentRequest(
+            prompt=asked,
+            role="regression",
+            change=name,
+            cwd=cwd,
+            model=models().regression or None,
+            policy=ToolPolicy(
+                sandbox=SandboxPolicy(
+                    write=(root,),
+                    read=(cwd, inst.specs_dir),
+                    hosts=(),
+                    required=Coverage.NONE,
+                )
+            ),
+        )
         result = runtime.run(
-            AgentRequest(
-                prompt=asked,
-                role="regression",
+            recorded(
+                request,
+                runtime,
+                node=OverheadNode.REGRESSION,
+                unit=unit.id,
                 change=name,
-                cwd=cwd,
-                model=models().regression or None,
-                policy=ToolPolicy(
-                    sandbox=SandboxPolicy(
-                        write=(root,),
-                        read=(cwd, inst.specs_dir),
-                        hosts=(),
-                        required=Coverage.NONE,
-                    )
-                ),
+                say=print,
             )
         )
         if UNDECIDED in result.text:

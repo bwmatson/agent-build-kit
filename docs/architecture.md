@@ -1825,7 +1825,8 @@ A call made outside the unit graph is recorded too, through the same helper
 moved as `unit`; the planner `plan`; a track phase `track_<phase>`; init `init_research` and
 `init_propose`; the login refresh `login_refresh` (no figures,
 its output is discarded); a chat turn `chat` and the attach flow's fix turn `chat_commit`, with the
-unit the session is attached to. The reader keeps every row of a node outside the unit graph's
+unit the session is attached to; the regression agent `regression`, with the unit that met the
+failing test. The reader keeps every row of a node outside the unit graph's
 call nodes (`tests`, `implement`, `review`, `rework`, `fix_checks`, `adapt`) as a call of its own,
 whatever its session, so two resolver calls for a unit both count. A blank `unit` means the call
 belongs to no unit; it is spend, and the usage estimate and its calibration never count it as a
