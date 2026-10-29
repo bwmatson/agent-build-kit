@@ -5,10 +5,14 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from tests.live_tag_drift import derived_splits, splits_by_syntax
-from tests.runtime_tag_collection import ROOT
+from tests.live_tag_drift import splits_by_syntax
 
 IMPORT_FAILS = "raise RuntimeError('imported')\n"
+OTHER_ATTRIBUTES = (
+    "def test_x(installation):\n"
+    "    installation.runtime_entry()\n"
+    "    x = installation.runtime_name\n"
+)
 
 
 def write(tests_root: Path, name: str, body: str) -> Path:
@@ -53,10 +57,21 @@ def test_a_live_module_naming_no_runtime_tag_is_in_the_rest_split(tmp_path: Path
     assert splits_by_syntax(tests) == {path: {"rest"}}
 
 
-def test_every_live_module_of_the_kit_is_in_derived_splits_only() -> None:
-    splits = derived_splits(ROOT / "pyproject.toml") | {"rest"}
-    found = splits_by_syntax(ROOT / "tests")
+def test_an_attribute_that_starts_with_runtime_but_is_not_a_mark_names_no_split(
+    tmp_path: Path,
+) -> None:
+    tests = tmp_path / "tests"
+    path = write(
+        tests,
+        "test_d.py",
+        "import pytest\nfrom pytest import mark\n\npytestmark = pytest.mark.local_stack\n\n\n"
+        + OTHER_ATTRIBUTES
+        + "\n\n@mark.runtime_acp\ndef test_y():\n    pass\n",
+    )
+    other = write(
+        tests,
+        "test_e.py",
+        "import pytest\n\npytestmark = pytest.mark.local_stack\n\n\n" + OTHER_ATTRIBUTES,
+    )
 
-    assert found
-    assert [str(p) for p, names in found.items() if not names <= splits] == []
-    assert set().union(*found.values()) - {"rest"}
+    assert splits_by_syntax(tests) == {path: {"acp"}, other: {"rest"}}

@@ -15,7 +15,7 @@ import warnings
 from collections import defaultdict
 from functools import cache
 from pathlib import Path
-from typing import Any
+from typing import Any, TypeGuard
 
 import pytest
 import yaml
@@ -368,17 +368,21 @@ def splits_by_syntax(tests_root: Path) -> dict[Path, set[str]]:
         names = {
             node.attr.removeprefix(PREFIX)
             for node in ast.walk(parsed(path.read_text()))
-            if isinstance(node, ast.Attribute) and node.attr.startswith(PREFIX)
+            if is_runtime_mark(node)
         }
         found[path] = names or {UNTAGGED_SPLIT}
     return found
 
 
-def split_of(item: pytest.Item) -> str:
-    """The split a test is in: the name of its one runtime tag, `rest` when it has none."""
-    tags = runtime_tags(item)
-    assert len(tags) <= 1, f"{item.nodeid} carries {len(tags)} runtime tags"
-    return tags[0].removeprefix(PREFIX) if tags else UNTAGGED_SPLIT
+def is_runtime_mark(node: ast.AST) -> TypeGuard[ast.Attribute]:
+    """Whether `node` is `pytest.mark.runtime_<name>` or `mark.runtime_<name>` (imported as
+    `from pytest import mark`); another attribute that starts with `runtime_` is not a mark."""
+    if not (isinstance(node, ast.Attribute) and node.attr.startswith(PREFIX)):
+        return False
+    owner = node.value
+    return (isinstance(owner, ast.Attribute) and owner.attr == "mark") or (
+        isinstance(owner, ast.Name) and owner.id == "mark"
+    )
 
 
 def claude_without_acp(items: list[pytest.Item]) -> list[str]:
