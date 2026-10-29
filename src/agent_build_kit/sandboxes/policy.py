@@ -172,19 +172,80 @@ def policy_entries(
         seen.add(name)
         layers.append((name, _layer(toolchain.sandbox_paths(worktree))))
     path = installation.root / config_module.CONFIG_FILENAME
-    for source, document in (
-        (config_module.CONFIG_FILENAME, config_module.read_base(path)),
-        (config_module.OVERLAY_FILENAME, config_module.read_overlay(path)),
-    ):
-        layers.extend((source, block) for block in _blocks(document or {}, repo))
+    documents = (
+        (config_module.CONFIG_FILENAME, config_module.read_base(path) or {}),
+        (config_module.OVERLAY_FILENAME, config_module.read_overlay(path) or {}),
+    )
+    for source, document in documents:
+        layers.extend((source, block) for block in _blocks(document, repo))
         if tier is TestTier.E2E_TEST:
-            layers.append((source, _e2e_block(document or {}, repo)))
-    return [
+            layers.append((source, _e2e_block(document, repo)))
+    found = [
         PolicyEntry(kind=kind, value=str(value), source=source)
         for kind in ("write", "read", "hosts", "ports")
         for source, layer in layers
         for value in getattr(layer, kind, [])
     ]
+    return found + _cache_entries(installation, repo, documents, profile, worktree)
+
+
+def _cache_entries(
+    installation: Installation,
+    repo: str,
+    documents: tuple[tuple[str, dict[str, Any]], ...],
+    profile: object,
+    worktree: Path,
+) -> list[PolicyEntry]:
+    """The cache folders a step may write, as `write` entries with their source. The repo's own
+    profile always counts: its defaults apply unless the repo sets `caches`, in which case that
+    list reaches the projects that set none. Each project takes its own `caches`, else the
+    repo's, else its profile's defaults. At each level the overlay's list replaces the
+    committed file's."""
+    repo_set = _set_caches(documents, repo, None)
+    projects = installation.config.repos[repo].projects
+    found = [] if projects and repo_set else _resolved_caches(repo_set, profile, worktree)
+    for project in projects:
+        given = _set_caches(documents, repo, project.path) or repo_set
+        found += _resolved_caches(given, profiles.get(project.profile), worktree)
+    return found
+
+
+def _set_caches(
+    documents: tuple[tuple[str, dict[str, Any]], ...], repo: str, project: str | None
+) -> tuple[str, list[str]] | None:
+    """The `caches` list set for the repo (or its project at path `project`) and the file that
+    set it; the overlay's wins. None when neither file sets one."""
+    chosen: tuple[str, list[str]] | None = None
+    for source, document in documents:
+        entry = _repo_entry(document, repo)
+        if project is None:
+            block = entry.get("sandbox") or {}
+        else:
+            same = [p for p in entry.get("projects") or [] if p.get("path") == project]
+            block = (same[0].get("sandbox") or {}) if same else {}
+        if block.get("caches") is not None:
+            chosen = (source, list(block["caches"]))
+    return chosen
+
+
+def _repo_entry(document: dict[str, Any], repo: str) -> dict[str, Any]:
+    """The repo's block in one file, empty when it has none."""
+    return (document.get("repos") or {}).get(repo) or {}
+
+
+def _resolved_caches(
+    given: tuple[str, list[str]] | None, toolchain: object, worktree: Path
+) -> list[PolicyEntry]:
+    """`given` as entries, or the toolchain's default caches when nothing is set."""
+    if given is not None:
+        source, folders = given
+        return [PolicyEntry(kind="write", value=folder, source=source) for folder in folders]
+    name = getattr(toolchain, "name", type(toolchain).__name__)
+    paths = (
+        toolchain.sandbox_paths(worktree) if isinstance(toolchain, SandboxPathsProfile) else None
+    )
+    defaults = paths.caches if isinstance(paths, SandboxPaths) else ()
+    return [PolicyEntry(kind="write", value=f, source=f"default ({name})") for f in defaults]
 
 
 def _layer(given: SandboxPaths | dict[str, list[str]]) -> ProjectSandboxConfig:
@@ -206,7 +267,7 @@ def proxy_environment(port: int) -> dict[str, str]:
 
 def _blocks(document: dict[str, Any], repo: str) -> list[ProjectSandboxConfig]:
     """The repo's sandbox block in one file and then each of its projects', validated."""
-    entry = (document.get("repos") or {}).get(repo) or {}
+    entry = _repo_entry(document, repo)
     blocks: list[ProjectSandboxConfig] = [
         RepoSandboxConfig.model_validate(entry.get("sandbox") or {})
     ]
@@ -217,7 +278,7 @@ def _blocks(document: dict[str, Any], repo: str) -> list[ProjectSandboxConfig]:
 
 def _e2e_block(document: dict[str, Any], repo: str) -> E2eSandboxConfig:
     """The repo's `tests.e2e_sandbox` in one file, validated."""
-    entry = (document.get("repos") or {}).get(repo) or {}
+    entry = _repo_entry(document, repo)
     return E2eSandboxConfig.model_validate((entry.get("tests") or {}).get("e2e_sandbox") or {})
 
 
