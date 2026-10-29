@@ -156,8 +156,15 @@ def _unsynchronised_threads(scope: ast.AST, threads: set[str]) -> list[int]:
     return [] if synchronised else made
 
 
+# What every hazard is made of; a file naming none of it is not parsed, which keeps a walk of
+# the whole tree inside the per-test time limit under load.
+HAZARD_TEXT = ("sleep", "Thread", "port=", "Server", *ADDRESS_CALLS)
+
+
 def _hazards(text: str) -> list[int]:
     """The lines of a file's hazards."""
+    if not any(word in text for word in HAZARD_TEXT):
+        return []
     tree = ast.parse(text)
     bare = _sleeps(tree)
     threads = _thread_names(tree)
