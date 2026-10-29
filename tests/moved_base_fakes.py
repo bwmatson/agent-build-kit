@@ -17,7 +17,12 @@ BASE_FILES = {"a.py": "a = 1\n", "b.py": "b = 1\n", "c.py": "c = 1\n"}
 
 
 def one_test_command(
-    self: PythonUvProfile, repo: Path, changed: list[str], *, root_extras: list[str]
+    self: PythonUvProfile,
+    repo: Path,
+    changed: list[str],
+    *,
+    root_extras: list[str],
+    **_workers: object,
 ) -> list[list[str]]:
     return [["tests"]]
 

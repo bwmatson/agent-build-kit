@@ -57,6 +57,7 @@ from agent_build_kit.config import (
     owning_project,
     stack_versions_for,
     unavailable_markers,
+    worker_options,
 )
 from agent_build_kit.forges import FileChange, Forge, RegistersStacks, RepoId, StackRefused
 from agent_build_kit.installation import Installation
@@ -1329,6 +1330,12 @@ def build_unit_test(
     affected = (
         repo.checks.affected if repo is not None and repo.checks.affected.mode != "off" else None
     )
+    # The repo's worker settings, handed to the profile beside `root_extras`.
+    worker_settings: dict[str, Any] = (
+        {"workers": repo.tests.workers, "max_workers": repo.tests.max_workers}
+        if repo is not None
+        else {}
+    )
     # Per unit: the test time and count of its last full run.
     last_full: dict[str, tuple[float, int]] = {}
     # The tests of a round recorded as a storm, so a later command that fails them is not rerun.
@@ -1492,6 +1499,7 @@ def build_unit_test(
                 [],
                 seed=selection_seed(where),
                 root_extras=root_extras or [],
+                **worker_settings,
             )
             if selected is None:
                 hint = (
@@ -1507,7 +1515,9 @@ def build_unit_test(
             own_ids[where] = ids
             own = []
             if ids and isinstance(toolchain, RepeatsTests):
-                for command in toolchain.test_commands(where, files, root_extras=root_extras or []):
+                for command in toolchain.test_commands(
+                    where, files, root_extras=root_extras or [], **worker_settings
+                ):
                     again = toolchain.repeat_command(command, ids)
                     if again is not None:
                         own.append(again)
@@ -1571,10 +1581,14 @@ def build_unit_test(
         for where, toolchain, files in work:
             if whole_repo:
                 lint_command = toolchain.lint_command_all_files()
-                test_commands = toolchain.test_commands_all(where, root_extras=root_extras or [])
+                test_commands = toolchain.test_commands_all(
+                    where, root_extras=root_extras or [], **worker_settings
+                )
             else:
                 lint_command = toolchain.lint_command(base)
-                test_commands = toolchain.test_commands(where, files, root_extras=root_extras or [])
+                test_commands = toolchain.test_commands(
+                    where, files, root_extras=root_extras or [], **worker_settings
+                )
 
             tests = len(test_commands)
             commands = [*([lint_command] if lint else []), *test_commands]
@@ -1774,7 +1788,7 @@ def build_unit_test(
                 else []
             )
             if affected.mode == "command":
-                tests = [expand_template(affected.command or "", files, named)]
+                tests = [expand_template(affected.command or "", files, named, **worker_settings)]
             else:
                 tests = (
                     toolchain.affected_test_commands(
@@ -1783,6 +1797,7 @@ def build_unit_test(
                         named,
                         seed=selection_seed(where),
                         root_extras=root_extras or [],
+                        **worker_settings,
                     )
                     if isinstance(toolchain, SelectsAffectedTests)
                     else None
@@ -2281,7 +2296,13 @@ def expand_template(
 ) -> list[str]:
     """The argv a `command`-mode template stands for: each placeholder, a word of its
     own, becomes one argument per file or identifier, whatever characters they hold."""
-    words = dict(zip(TEMPLATE_PLACEHOLDERS, (changed_files, failed_ids), strict=True))
+    words = dict(
+        zip(
+            TEMPLATE_PLACEHOLDERS,
+            (changed_files, failed_ids, worker_options(workers, max_workers)),
+            strict=True,
+        )
+    )
     return [arg for word in shlex.split(template) for arg in words.get(word, [word])]
 
 

@@ -46,7 +46,7 @@ class Profile(PythonUvProfile):
         return self.lint
 
     def _commands(
-        self, repo: Path, changed: list[str], *, root_extras: list[str]
+        self, repo: Path, changed: list[str], *, root_extras: list[str], **_workers: object
     ) -> list[list[str]]:
         return [["full-tests"]]
 
@@ -61,6 +61,7 @@ class Profile(PythonUvProfile):
         *,
         seed: Path,
         root_extras: list[str],
+        **_workers: object,
     ) -> list[list[str]] | None:
         self.asked.append((changed_files, failed_ids))
         return self.selected

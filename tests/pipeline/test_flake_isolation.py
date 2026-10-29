@@ -134,7 +134,7 @@ class HookedProfile(PythonUvProfile):
         return ["lint"]
 
     def test_commands(
-        self, repo: Path, changed: list[str], *, root_extras: list[str]
+        self, repo: Path, changed: list[str], *, root_extras: list[str], **_workers: object
     ) -> list[list[str]]:
         return [["uv", "run", "pytest", "-n", "auto", "-q"]]
 

@@ -162,10 +162,23 @@ class ToolchainProfile(Protocol):
     def lint_command_all_files(self) -> list[str]: ...
 
     def test_commands(
-        self, repo: Path, changed: list[str], *, root_extras: list[str]
+        self,
+        repo: Path,
+        changed: list[str],
+        *,
+        root_extras: list[str],
+        workers: str | int = "auto",
+        max_workers: int = 8,
     ) -> list[list[str]]: ...
 
-    def test_commands_all(self, repo: Path, *, root_extras: list[str]) -> list[list[str]]: ...
+    def test_commands_all(
+        self,
+        repo: Path,
+        *,
+        root_extras: list[str],
+        workers: str | int = "auto",
+        max_workers: int = 8,
+    ) -> list[list[str]]: ...
 
     def tolerates_exit(self, command: list[str], returncode: int) -> bool: ...
 
@@ -329,6 +342,8 @@ class SelectsAffectedTests(Protocol):
         *,
         seed: Path,
         root_extras: list[str],
+        workers: str | int = "auto",
+        max_workers: int = 8,
     ) -> list[list[str]] | None:
         """The commands that run the tests the change affects: an empty list when none
         is affected, None when the profile cannot say. `failed_ids` are the tests the

@@ -61,7 +61,7 @@ class ScriptProfile(PythonUvProfile):
         return [sys.executable, "-c", "pass"]
 
     def _commands(
-        self, repo: Path, changed: list[str], *, root_extras: list[str]
+        self, repo: Path, changed: list[str], *, root_extras: list[str], **_workers: object
     ) -> list[list[str]]:
         return [[sys.executable, "-c", self.script]]
 

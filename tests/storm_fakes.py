@@ -13,7 +13,12 @@ from tests.pipeline.test_flake_isolation import HookedProfile, Runs
 
 
 def _with_second_command(
-    self: HookedProfile, repo: Path, changed: list[str], *, root_extras: list[str]
+    self: HookedProfile,
+    repo: Path,
+    changed: list[str],
+    *,
+    root_extras: list[str],
+    **_workers: object,
 ) -> list[list[str]]:
     first = HookedProfile.test_commands(self, repo, changed, root_extras=root_extras)
     return [*first, ["second"]]

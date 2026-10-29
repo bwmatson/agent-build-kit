@@ -8,6 +8,11 @@
   under `runs/tmp/pytest` (a confined step may write it), and each tick removes such folders
   older than `global_limits.temp_keep_hours` (default 24) whose run is no longer alive, judged
   by the process's id and start time so a reused id does not keep one.
+- The worker count of the Python profile's test runs is a setting: `repos.<name>.tests.workers`
+  (`auto` or a positive integer, default `auto`) and `tests.max_workers` (default `8`). The
+  defaults keep today's `-n auto --maxprocesses=8`; a repo can lower them to ease the load of
+  several units' full suites. In a `checks.affected.command` template, `{workers}` expands to
+  the same options.
 
 - A repo's `sandbox` and each project's `sandbox` accept a `caches` list: the cache folders a
   confined step may write. Unset, the toolchain profile's defaults apply; a list replaces them
