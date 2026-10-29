@@ -16,9 +16,8 @@ def workspace_lock(
     """The nearest entry of `names` in the project's folder, or in a folder above it (up to the
     checkout) whose manifest, read by `members_of`, lists the project as a workspace member."""
     project = project.resolve()
-    stop = checkout_root(project)
-    if stop is None:
-        return None
+    # Outside a repository there is no checkout to search up to: only the project's own folder.
+    stop = checkout_root(project) or project
 
     def is_ours(candidate: Path) -> bool:
         folder = candidate.parent
