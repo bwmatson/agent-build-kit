@@ -33,6 +33,7 @@ overwritten by the state the build records when it ends.
 from __future__ import annotations
 
 import json
+import subprocess
 import threading
 from collections.abc import Callable, Mapping, Sequence
 from contextlib import AbstractContextManager, nullcontext
@@ -48,6 +49,7 @@ from agent_build_kit.forges import Forge, PullRequest, RepoId, ReviewNote
 from agent_build_kit.forges.base import cancelled_names, failing_names
 from agent_build_kit.model import Frozen
 from agent_build_kit.pipeline import spans
+from agent_build_kit.pipeline.check_runner import worktree_at
 from agent_build_kit.pipeline.flakes import FailedOnBase, FlakeFound, OnFlake, waiting_note
 from agent_build_kit.pipeline.landing_intent import clear_intent, has_intent
 from agent_build_kit.pipeline.pr_poller import (  # noqa: F401 — FAILING_CHECKS_REASON re-exported
@@ -69,7 +71,7 @@ from agent_build_kit.pipeline.restack import (
     retried_once,
 )
 from agent_build_kit.pipeline.restack import diff_id as restack_diff_id
-from agent_build_kit.pipeline.shell import git
+from agent_build_kit.pipeline.shell import git, git_out
 from agent_build_kit.pipeline.stack_runner import PREDECESSOR_NOTE, Comment
 from agent_build_kit.pipeline.ui_review import attach_hunks
 from agent_build_kit.pipeline.unit_store import (
@@ -347,12 +349,138 @@ def on_settled(
             current = store.get(unit.id)
             if current.state != SETTLING:
                 return True
-            sha, tick = merge_record(current) if merge_record is not None else (None, None)
-            store.set_merge_record(current.id, current.merge_sha or sha, tick)
-            store.set_state(current.id, MERGED, cause=KEEP)
+            settle_merged(store, current, merge_record)
             log(f"settled #{pr}: {current.id} merged, every check complete")
     except BranchBusy as error:
         return _deferred(f"settled #{pr}", unit, error, log)
+    return True
+
+
+def settle_merged(
+    store: UnitStore, unit: StoredUnit, merge_record: MergeRecord | None, *, note: str = ""
+) -> None:
+    """Record a settling unit as merged, with the merge commit and the tick that saw it settle:
+    the one way a unit leaves `settling` for `merged`, whether its checks completed, its
+    failure was fixed on the base, or a person accepted the wait."""
+    sha, tick = merge_record(unit) if merge_record is not None else (None, None)
+    store.set_merge_record(unit.id, unit.merge_sha or sha, tick)
+    store.set_state(unit.id, MERGED, note=note, cause=KEEP)
+
+
+def build_base_passes(
+    repos: dict[str, Path],
+    *,
+    unit_test_of: Callable[[str], Callable[..., tuple[bool, str]]],
+    turn: Callable[[str], AbstractContextManager[object]] = lambda repo: nullcontext(),
+    log: Log = print,
+) -> Callable[[StoredUnit, str], bool | None]:
+    """Run the unit-test tier on the current default branch of the unit's repo, in a detached
+    worktree, with the repo's own test command (`unit_test_of(repo name)`: its profile, projects
+    and settings). The whole tier runs, not a selection: the log names what failed, but the
+    framework cannot read test names out of it without knowing the toolchain.
+
+    The worktree is added and removed in the repo's `turn`, not the test run. True when the tier
+    passes there, False when it fails, and None when the base could not be reached (the unit
+    stays settling and is asked again at the next poll).
+    """
+
+    def passes(unit: StoredUnit, logs: str) -> bool | None:
+        repo = repos[unit.repo]
+        try:
+            with turn(unit.repo):
+                tip = git_out(repo, "rev-parse", local_ref(trunk_of(unit.repo), repo=unit.repo))
+            with worktree_at(repo, tip, turn=lambda: turn(unit.repo)) as tree:
+                ok, _ = unit_test_of(unit.repo)(cwd=tree, base=tip, whole_repo=True)
+        except (subprocess.CalledProcessError, OSError) as error:
+            log(f"{unit.id}: the default branch could not be checked: {error}")
+            return None
+        return ok
+
+    return passes
+
+
+LATE_FIXES_PER_UNIT = 2
+EXCERPT = 300
+
+
+def late_fix_prompt(pull: PullRequest | None, logs: str, number: int) -> str:
+    """What the late fix's build is told: the check's log, and that the first pull request
+    was merged while its check was failing."""
+    failing = ", ".join(failing_names(pull.checks)) if pull else ""
+    return (
+        f"Pull request #{number} was merged while its check was failing "
+        f"({failing or 'unknown'}); fix the failure on this new branch from the default "
+        "branch.\n\n"
+        f"{logs}"
+    ).strip()
+
+
+def on_late_check(
+    pr: int,
+    *,
+    repo: str,
+    pull: PullRequest | None,
+    store: UnitStore,
+    fetch_checks: Callable[[PullRequest | None], str] | None = None,
+    base_passes: Callable[[StoredUnit, str], bool | None] | None = None,
+    claim: Claim = _unclaimed,
+    merge_record: MergeRecord | None = None,
+    log: Log = print,
+) -> bool:
+    """A check of a settling unit's merged pull request failed and none is still running.
+
+    Its failing tests are run on the default branch. Passing there, the unit is merged and the
+    failure is recorded as fixed on the base. Failing there, the same unit goes to `planned` for
+    a late fix on a new branch from the default branch, built by the rework path with the
+    check's log. After `LATE_FIXES_PER_UNIT` late fixes the unit is held for a person instead.
+    """
+    unit = _find(store, repo, pr)
+    if unit is None or unit.state != SETTLING:
+        return True
+    try:
+        with claim(unit):
+            current = store.get(unit.id)
+            if current.state != SETTLING:
+                return True
+            fixes = sum(1 for p in current.pulls if p.role == "late-fix")
+            names = ", ".join(failing_names(pull.checks)) if pull else ""
+            if fixes >= LATE_FIXES_PER_UNIT:
+                note = f"check {names or 'unknown'} failed after {fixes} late fixes"
+                hold_for_conflict(current, store, note, log, label=f"late check #{pr}")
+                return True
+            logs = fetch_checks(pull) if fetch_checks else ""
+            on_base = base_passes(current, logs) if base_passes is not None else False
+            if on_base is None:
+                log(f"late check #{pr}: {current.id} could not be run on the base, waiting")
+                return True
+            if on_base:
+                excerpt = cut_head(logs, EXCERPT) if logs else ""
+                settle_merged(
+                    store,
+                    current,
+                    merge_record,
+                    note=f"late failure fixed on the base: check {names}: {excerpt}".strip(),
+                )
+                log(f"late check #{pr}: {current.id} merged, {names} fixed on the base")
+                return True
+            first = current.pulls[0].branch if current.pulls else current.branch
+            branch = f"{first or branch_name(current)}-fix{fixes + 1}"
+            store.set_feedback(
+                current.id,
+                late_fix_prompt(pull, logs, current.pr or pr),
+                source=feedback_source_of(ReworkKind.FAILING_CHECKS),
+            )
+            store.clear_first_branch(current.id)
+            store.set_state(
+                current.id,
+                PLANNED,
+                branch=branch,
+                note=f"late failure: check {names} failed on the base: {cut_head(logs, EXCERPT)}",
+                cause=Cause.LATE_FAILURE,
+            )
+            log(f"late check #{pr}: {current.id} late fix on {branch}")
+    except BranchBusy as error:
+        return _deferred(f"late check #{pr}", unit, error, log)
     return True
 
 
@@ -676,6 +804,23 @@ def _remove_leaving(
         log(f"{leaving.id}: branch {old_base} left in place — {error}")
 
 
+def _with_merge(unit: StoredUnit, sha: str | None) -> tuple[Pull, ...]:
+    """The unit's pull requests with the active one marked merged, listed if it was not yet."""
+    now = spans.clock.now()
+    done = [
+        pull.model_copy(update={"merged_at": now, "merge_sha": sha})
+        if pull.number == unit.pr
+        else pull
+        for pull in unit.pulls
+    ]
+    if all(pull.number != unit.pr for pull in unit.pulls) and unit.pr is not None:
+        role = "late-fix" if unit.pulls else "original"
+        done.append(
+            Pull(number=unit.pr, branch=unit.branch, role=role, merged_at=now, merge_sha=sha)
+        )
+    return tuple(done)
+
+
 def _record_merge(
     merged: StoredUnit,
     *,
@@ -698,18 +843,7 @@ def _record_merge(
         sha, _ = merge_record(merged)
         store.set_merge_record(merged.id, sha, None)
     if merged.pr is not None:
-        store.set_pulls(
-            merged.id,
-            (
-                Pull(
-                    number=merged.pr,
-                    branch=merged.branch,
-                    role="original",
-                    merged_at=spans.clock.now(),
-                    merge_sha=sha,
-                ),
-            ),
-        )
+        store.set_pulls(merged.id, _with_merge(merged, sha))
     store.set_state(merged.id, SETTLING, cause=cause)
     log(f"merged #{merged.pr}: {merged.id} settling, waiting for its checks")
 
@@ -2389,9 +2523,12 @@ def build_dispatch(
     paused: Callable[[StoredUnit], bool] = lambda unit: False,
     landing_path: Path | None = None,
     merge_record: MergeRecord | None = None,
+    base_passes: Callable[[StoredUnit, str], bool | None] | None = None,
     log: Log = print,
 ) -> Callable[..., bool]:
     """The callable `pr_poller` hands each event to.
+
+    `base_passes` runs a late-failed check's tests, from its log, on the default branch.
 
     The event names are the poller's contract; an unhandled one is logged
     rather than dropped, because silence here is indistinguishable from a
@@ -2434,6 +2571,18 @@ def build_dispatch(
                 number,
                 repo=repo,
                 store=store,
+                claim=claim,
+                merge_record=merge_record,
+                log=log,
+            )
+        if event == "late_check":
+            return on_late_check(
+                number,
+                repo=repo,
+                pull=kwargs.get("pull"),
+                store=store,
+                fetch_checks=_check_fetcher(store, repo, number, fetch_checks),
+                base_passes=base_passes,
                 claim=claim,
                 merge_record=merge_record,
                 log=log,

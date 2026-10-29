@@ -6,7 +6,7 @@ import argparse
 import sys
 from datetime import UTC, datetime
 
-from agent_build_kit.cli.pipeline import store_for
+from agent_build_kit.cli.pipeline import late_fix_phrase, store_for
 from agent_build_kit.installation import Installation
 from agent_build_kit.pipeline import spans
 from agent_build_kit.pipeline.admission_record import (
@@ -101,6 +101,13 @@ def cmd_explain(args: argparse.Namespace, inst: Installation) -> int:
         return 0
     if unit is not None and unit.unsplit_reason:
         print(f"{args.unit} is over its ceiling and not split: {unit.unsplit_reason}")
+    if unit is not None and (phrase := late_fix_phrase(unit)):
+        failure = next(
+            (e for e in reversed(unit.history) if e.get("cause") == Cause.LATE_FAILURE.value),
+            None,
+        )
+        print(f"{args.unit} is on its {phrase}: {failure['note'] if failure else unit.note}")
+        return 0
     paused = events[-1] if events and events[-1][1]["event"] == "usage_pause" else None
     if paused and (record is None or record.kind == "usage" or paused[0] >= record.at):
         stamp, entry = paused

@@ -29,6 +29,7 @@ WRITES_STATE = frozenset({"tick", "track", "verify", "archive"})
 COMMAND_MODULES = (
     "agent_build_kit.cli.pipeline",
     "agent_build_kit.cli.explain_cmd",
+    "agent_build_kit.cli.settle",
     "agent_build_kit.cli.attach",
     "agent_build_kit.cli.init",
     "agent_build_kit.cli.doctor",

@@ -160,7 +160,13 @@ from agent_build_kit.pipeline.stack_runner import FixResult, Restacked, UnitRunn
 from agent_build_kit.pipeline.transcript import Transcript, TranscriptEvent, transcript_dir
 from agent_build_kit.pipeline.ui_review import ui_notes_of, ui_reply_writer, unit_patch_of
 from agent_build_kit.pipeline.unit_size import actual_lines, branch_diff, over_ceiling, unit_ceiling
-from agent_build_kit.pipeline.unit_store import Cause, StoredUnit, UnitStore
+from agent_build_kit.pipeline.unit_store import (
+    Cause,
+    Pull,
+    StoredUnit,
+    UnitStore,
+    unit_id_of_branch,
+)
 from agent_build_kit.pipeline.units import (
     BUILDS_NOTHING,
     IN_REVIEW,
@@ -2341,7 +2347,7 @@ def build_push(
     adopt_head = adopt or adopt_host_head
 
     def do_push(branch: str, *, cwd: Path) -> str:
-        unit_id = branch.removeprefix(active().git.branch_prefix)
+        unit_id = unit_id_of_branch(store.all(), branch, active().git.branch_prefix)
         try:
             last_pushed = store.get(unit_id).pushed
         except KeyError:
@@ -2450,6 +2456,13 @@ def build_open_pr(
         forge, repo = for_repo(unit.repo)
         branch = branch_name(unit)
         number = forge.find_pr(repo, head=branch)
+        # A unit whose first pull request merged is opening its late fix.
+        merged_before = [p for p in _pulls_of(unit) if p.merged_at]
+        title = (
+            f"{unit.id}: late fix for #{merged_before[-1].number}"
+            if merged_before
+            else f"{unit.id}: {unit.title}"
+        )
 
         stacking = store is not None and forge.supports_stacks
         below = _below(unit, base) if stacking else None
@@ -2457,13 +2470,13 @@ def build_open_pr(
         chosen = stacked_body if expected and stacked_body is not None else body
 
         if number is None:
-            number = forge.create_pr(
-                repo, head=branch, base=base, title=f"{unit.id}: {unit.title}", body=chosen
-            )
+            number = forge.create_pr(repo, head=branch, base=base, title=title, body=chosen)
             fresh = True
         else:
             forge.update_pr(repo, number, base=base, body=chosen)
             fresh = False
+        if merged_before:
+            _list_late_fix(unit, number, branch)
 
         if stacking:
             stacked = _register_stack(forge, repo, unit, number, below=below, fresh=fresh)
@@ -2476,6 +2489,16 @@ def build_open_pr(
         except Exception as error:
             log(f"{unit.id}: could not read the size of PR #{number}: {error}")
         return number
+
+    def _pulls_of(unit: Unit) -> tuple[Pull, ...]:
+        return store.get(unit.id).pulls if store is not None else ()
+
+    def _list_late_fix(unit: Unit, number: int, branch: str) -> None:
+        listed = _pulls_of(unit)
+        if store is None or any(p.number == number for p in listed):
+            return
+        late = Pull(number=number, branch=branch, role="late-fix", opened_at=spans.clock.now())
+        store.set_pulls(unit.id, (*listed, late))
 
     def _record_size(unit: Unit, changes: list[FileChange]) -> None:
         """Record the size the reviewer sees now, and say so when it is over

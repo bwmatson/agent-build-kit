@@ -252,6 +252,15 @@ discard, or run `abk attach release <unit> --commit "MESSAGE"` to commit them or
 refused. The command refuses while a step is running on the unit. The unit stays held
 afterwards: `abk requeue <unit>` returns it.
 
+### Settling, and a late fix
+
+A merged pull request leaves its unit `settling` until every check has completed; `abk status`
+shows `settling: waiting for <checks> since <time>`. Do not requeue it. If a check will never
+finish, `abk settle <unit> --accept --reason "..."` records the unit as merged. A check that
+failed after the merge is run on the default branch: fixed there, the unit is merged; still
+failing, the same unit builds a second pull request (`late fix #<second> after #<first>`).
+After two late fixes it is `held` for a person.
+
 ### `failed`
 
 The run raised an exception, or its checks failed; its last log line in the
