@@ -104,6 +104,18 @@ def test_projects_on_two_profiles_each_get_their_own_defaults(scene: Scene) -> N
     }
 
 
+def test_the_repos_own_profile_counts_beside_its_projects_profiles(scene: Scene) -> None:
+    projects = [{"path": "web", "profile": "caches-two"}]
+
+    given = caches(scene, projects=projects)
+
+    assert given == {
+        ("~/.cache/one", "default (caches-one)"),
+        ("~/.cache/two-a", "default (caches-two)"),
+        ("~/.cache/two-b", "default (caches-two)"),
+    }
+
+
 def test_the_overlay_replaces_the_committed_list_at_the_same_level(scene: Scene) -> None:
     local = {"repos": {"app": {"sandbox": {"caches": ["~/.cache/local"]}}}}
 
@@ -125,4 +137,5 @@ def test_a_project_overlay_list_replaces_the_projects_committed_list(scene: Scen
 
     given = caches(scene, projects=projects, local=local)
 
-    assert given == {("~/.cache/b", "abk.local.yaml")}
+    # The repo sets no list, so its own profile's defaults count beside the project's list.
+    assert given == {("~/.cache/b", "abk.local.yaml"), ("~/.cache/one", "default (caches-one)")}
