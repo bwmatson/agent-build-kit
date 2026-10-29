@@ -4,12 +4,13 @@ the implementation is wrong, and writes the one change that fixes it (spec: regr
 
 from __future__ import annotations
 
+import contextlib
 from enum import StrEnum
 from pathlib import Path
 
 from agent_build_kit import openspec
 from agent_build_kit.config import CONFIG_FILENAME, active, models
-from agent_build_kit.init.propose import repair_once, validation_errors
+from agent_build_kit.init.propose import repair_once, validation_report
 from agent_build_kit.installation import Installation
 from agent_build_kit.model import Frozen
 from agent_build_kit.pipeline.call_record import recorded
@@ -26,7 +27,6 @@ from agent_build_kit.pipeline.work_graph import (
     PRIORITY_LINE,
     declared_projects,
     declared_split_names,
-    validate_tasks,
 )
 from agent_build_kit.runtimes import AgentRequest, AgentRuntime
 from agent_build_kit.runtimes.base import ToolPolicy
@@ -96,11 +96,18 @@ def run_regression_agent(
     `[contract]` group and a `Priority:` line. A change that fails is rewritten once, then held.
     A run that fails, or that cannot decide, is held at once, with no second run.
 
-    The change's name is taken, and its directory made, under the flakes lock, and an open fix
-    of the test is reused: two units that meet one test get one change."""
+    The change's name is taken, and its directory made, under the flakes lock. An open fix of the
+    test that holds a `tasks.md` is the change, whether it is in flight or held for a person, and
+    is answered without a run: two units that meet one test get one change, written once. A
+    directory without one was left by a run that failed, and is written again. The lock is not
+    held for the run, so the caller serialises the runs for one test. An exception of the runtime
+    (a rate limit, an interruption) propagates to the caller, after the directory made for the
+    run is removed if nothing was written in it."""
     with file_lock(inst.state_dir / "flakes.lock"):
         name = open_fix_change(inst, failure.test)[0] or next_fix_name(inst, failure.test)
         root = inst.changes_dir / name
+        if (root / "tasks.md").is_file():
+            return FixOutcome(change=name)
         root.mkdir(parents=True, exist_ok=True)
     on_base = (
         f"\nOutput of the same test on the base:\n{base_output.strip()}\n"
@@ -139,6 +146,9 @@ def run_regression_agent(
             planning_repo=inst.root,
             planning_change_dir=root,
             policy=ToolPolicy(
+                # The base checkout is read-only to the hook, whether or not a sandbox confines
+                # the run: editing it would corrupt the next comparison with the base.
+                specs_dir=cwd,
                 branch_prefix=active().git.branch_prefix,
                 # The checkout is the unit's base: nothing is committed there.
                 no_commit=True,
@@ -172,15 +182,20 @@ def run_regression_agent(
             return _problems(inst, name, run_openspec)
         return []
 
-    problems = repair_once(
-        attempt,
-        prompt,
-        lambda found: (
-            "\nThe change you wrote was refused. Rewrite it to fix:\n"
-            + "\n".join(f"- {problem}" for problem in found)
-            + "\n"
-        ),
-    )
+    try:
+        problems = repair_once(
+            attempt,
+            prompt,
+            lambda found: (
+                "\nThe change you wrote was refused. Rewrite it to fix:\n"
+                + "\n".join(f"- {problem}" for problem in found)
+                + "\n"
+            ),
+        )
+    except BaseException:
+        with contextlib.suppress(OSError):
+            root.rmdir()  # only an empty directory goes
+        raise
     if stopped is not None:
         return stopped
     if problems:
@@ -200,7 +215,7 @@ def _problems(inst: Installation, name: str, run_openspec: openspec.Run | None) 
     repos = tuple(inst.repos)
     projects = declared_projects(inst.repos)
     splits = declared_split_names(inst.repos, inst.config)
-    found = validation_errors(
+    groups, found = validation_report(
         inst.root,
         name,
         repos=repos,
@@ -210,7 +225,6 @@ def _problems(inst: Installation, name: str, run_openspec: openspec.Run | None) 
         specs_dir=inst.config.planning.specs_dir,
     )
     tasks = root / "tasks.md"
-    groups, _ = validate_tasks(tasks, repos=repos, projects=projects, splits=splits)
     if not any(group.flag == "contract" for group in groups):
         found.append("tasks.md: no task group is flagged [contract]")
     if not any(PRIORITY_LINE.match(line.strip()) for line in tasks.read_text().splitlines()):

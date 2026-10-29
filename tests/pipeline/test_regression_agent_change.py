@@ -7,6 +7,7 @@ one does; the planning repo and the code repo are folders under the test's tempo
 from __future__ import annotations
 
 import json
+import shutil
 import subprocess
 from datetime import UTC, datetime
 from pathlib import Path
@@ -21,6 +22,7 @@ from agent_build_kit.pipeline.flakes import Flake, flake_record, next_fix_name
 from agent_build_kit.pipeline.regression_agent import FixKind, FixOutcome, run_regression_agent
 from agent_build_kit.pipeline.work_graph import check_tags, declared_projects, declared_split_names
 from agent_build_kit.runtimes import AgentRequest
+from agent_build_kit.runtimes.base import AgentRateLimited
 from tests.factories import stored_unit
 from tests.runtimes.stand_in import StandInRuntime
 
@@ -279,11 +281,13 @@ def test_the_request_lets_the_hook_write_the_change_and_nothing_else_of_the_plan
             payload,
             planning_repo=request.planning_repo,
             planning_change_dir=request.planning_change_dir,
+            specs=request.policy.specs_dir,
             no_commit=request.policy.no_commit,
         )
 
     assert answer(installation.changes_dir / name / "proposal.md") is None
     assert answer(installation.changes_dir / "other" / "tasks.md") is not None
+    assert answer(tmp_path / "base-checkout" / "src" / "x.py") is not None, "the base is read-only"
     assert any(installation.changes_dir.is_relative_to(path) for path in request.add_dirs)
 
 
@@ -298,6 +302,7 @@ def test_a_delta_spec_openspec_refuses_is_sent_back_once_and_then_held(
     assert len(fixed.runtime.requests) == 2
     assert "no scenario" in fixed.runtime.requests[1].prompt
 
+    shutil.rmtree(installation.changes_dir / name)
     stuck = Attempts(installation, name, {"spec": unscened})
     outcome = run(installation, tmp_path, stuck.runtime)
     assert len(stuck.runtime.requests) == 2
@@ -345,13 +350,41 @@ def test_a_group_after_the_acceptance_group_is_sent_back(
 def test_a_run_that_failed_is_held_with_its_error_and_not_run_again(
     installation: Installation, tmp_path: Path
 ) -> None:
-    runtime = StandInRuntime(ok=False, error="usage limit reached")
+    runtime = StandInRuntime(ok=False, error="the agent exited 1")
 
     outcome = run(installation, tmp_path, runtime)
 
     assert len(runtime.requests) == 1
     assert outcome.held
-    assert "usage limit reached" in outcome.reason
+    assert "the agent exited 1" in outcome.reason
+
+
+def test_a_runtime_that_raises_leaves_no_empty_change_directory(
+    installation: Installation, tmp_path: Path
+) -> None:
+    name = next_fix_name(installation, TEST)
+
+    def limited(request: AgentRequest) -> None:
+        raise AgentRateLimited("usage limit reached")
+
+    with pytest.raises(AgentRateLimited):
+        run(installation, tmp_path, StandInRuntime(act=limited))
+
+    assert not (installation.changes_dir / name).exists()
+
+
+def test_a_change_with_tasks_already_open_is_answered_without_a_run(
+    installation: Installation, tmp_path: Path
+) -> None:
+    name = next_fix_name(installation, TEST)
+    writes(installation, name, flag="")
+    runtime = StandInRuntime()
+
+    outcome = run(installation, tmp_path, runtime)
+
+    assert outcome == FixOutcome(change=name)
+    assert runtime.requests == []
+    assert "[contract]" not in (installation.changes_dir / name / "tasks.md").read_text()
 
 
 def test_two_units_meeting_one_test_share_one_change(
@@ -364,3 +397,4 @@ def test_two_units_meeting_one_test_share_one_change(
     second = run(installation, tmp_path, agent.runtime)
 
     assert first.change == second.change == name
+    assert len(agent.runtime.requests) == 1
