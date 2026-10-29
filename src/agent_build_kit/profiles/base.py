@@ -82,8 +82,9 @@ class CreatedFiles(Protocol):
     def created_files(self, repo: Path) -> list[str]:
         """Paths or patterns relative to `repo`, `/` separated; `[]` for none. Not what a
         build produces (that is `environment.artifacts`). The pipeline owns them: it never
-        holds a unit for them or commits an untracked one. A path that is absolute, has `..`
-        or names `.git` is dropped."""
+        holds a unit for them or commits an untracked one. A path may climb out of `repo` with
+        `..` (a workspace root's lock); it is dropped when it is absolute, leaves the checkout
+        or names `.git`."""
         ...
 
 

@@ -42,6 +42,7 @@ from pydantic import (
 from agent_build_kit import forges, infra, path_patterns, runtimes, sandboxes
 from agent_build_kit.compat_names import Place, is_old_spelling, new_spelling, notice, old_spelling
 from agent_build_kit.model import Frozen, TestTier
+from agent_build_kit.path_discovery import find_up
 from agent_build_kit.replay.models import DEFAULT_KEYED_HEADERS, UpstreamKind
 from agent_build_kit.runtimes import known_agents, providers
 from agent_build_kit.sandboxes.base import Coverage
@@ -1864,9 +1865,9 @@ def locate(explicit: Path | None = None, *, cwd: Path | None = None) -> Path:
     if from_env:
         return Path(from_env).expanduser().resolve()
     here = (cwd or Path.cwd()).resolve()
-    for candidate in (here, *here.parents):
-        if (candidate / CONFIG_FILENAME).is_file():
-            return _not_a_unit_worktree(candidate / CONFIG_FILENAME)
+    found = find_up([CONFIG_FILENAME], here, stop=Path(here.anchor), accept=Path.is_file)
+    if found is not None:
+        return _not_a_unit_worktree(found)
     raise ConfigError(
         f"no {CONFIG_FILENAME} found in {here} or above it; pass --config, set "
         f"{CONFIG_ENV}, or run `abk init` to create one"

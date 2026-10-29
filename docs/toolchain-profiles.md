@@ -132,6 +132,9 @@ And what it knows:
   `tests/fixtures/external/pytest/`; re-record them with
   `uv run python tests/fixtures/external/record_pytest.py`.
 - `parse_test_summary` counts `N passed/failed/skipped/error` and `in Ns`.
+- A workspace member with no `uv.lock` of its own takes the workspace root's, when an
+  ancestor `pyproject.toml` lists it as a member (never above the git root): the lock is in
+  its environment inputs and among the files a build leaves alone.
 - `members` reads `[tool.uv.workspace].members` from the root `pyproject.toml`;
   `dependents` reads each other member's `[project].dependencies` and
   `optional-dependencies`, normalising names (`-`, `_`, `.` and case).
@@ -205,7 +208,8 @@ And what it knows:
   else the lock file present (`package-lock.json` npm, `pnpm-lock.yaml` pnpm, `yarn.lock`
   yarn), else npm. `sync` is the plain install (never a frozen one, which fails for the unit
   that changed a dependency), `check` a depth-0 listing, the manifest and lock files are
-  inputs, a `workspaces` field adds `<workspace>/package.json` patterns, and `node_modules`
+  inputs (a workspace member's lock may be the root's, under the same rule as for uv), a
+  `workspaces` field adds `<workspace>/package.json` patterns, and `node_modules`
   is an artifact.
 
 A profile method that raises `ProfileUnsupported` still makes `abk tick` log it and put the

@@ -85,11 +85,6 @@ def _branch_of(cwd: str) -> str | None:
 FILE_TOOLS = ("Edit", "Write", "MultiEdit", "NotebookEdit")
 
 
-def _checkout_of(path: Path) -> Path | None:
-    """The git checkout `path` is in (it need not exist yet), or None."""
-    return checkout_root(path)
-
-
 def _check_file_write(
     payload: dict,
     specs: Path | None,
@@ -129,7 +124,7 @@ def _check_file_write(
     #
     # "Belongs to its own git" and not merely "is beneath it": a code checkout
     # nested inside the planning repo is a checkout of its own.
-    if planning_repo is not None and _checkout_of(path) == planning_repo.resolve():
+    if planning_repo is not None and checkout_root(path) == planning_repo.resolve():
         if _may_write_planning(path, planning_reports_dir, planning_change_dir):
             return None
         return _deny(
@@ -144,7 +139,7 @@ def _check_file_write(
     # see them. An agent once edited a file in the user's own checkout of
     # another repo, which no commit picked up. Scratch files in the temp
     # directory are fine, as long as that isn't a way into another checkout.
-    worktree = _checkout_of(Path(cwd)) if isinstance(cwd, str) else None
+    worktree = checkout_root(Path(cwd)) if isinstance(cwd, str) else None
     if confined and worktree is not None and not path.is_relative_to(worktree):
         return None  # where a write may land is the sandbox's to say
     if worktree is None:
@@ -174,7 +169,7 @@ def _check_file_write(
     if (
         path.is_relative_to(scratch)
         and (beside is None or not path.is_relative_to(beside))
-        and _checkout_of(path) is None
+        and checkout_root(path) is None
     ):
         return None
     return _deny(
@@ -273,7 +268,7 @@ def decide(
             )
 
         # Only a checkout that carries a scratch folder is one a unit's run is in.
-        checkout = _checkout_of(Path(cwd))
+        checkout = checkout_root(Path(cwd))
         if checkout is not None and not carries_scratch(checkout):
             checkout = None
         verdict = check_command(
@@ -284,7 +279,7 @@ def decide(
             worktree=checkout,
             cwd=Path(cwd).resolve(),
             fenced=policy_files(
-                checkout=_checkout_of(Path(cwd)),
+                checkout=checkout_root(Path(cwd)),
                 planning_paths=planning_paths,
                 planning_repo=planning_repo,
                 fenced_files=fenced_files,

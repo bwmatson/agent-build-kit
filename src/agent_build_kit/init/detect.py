@@ -28,6 +28,7 @@ from agent_build_kit import forges, infra
 from agent_build_kit.forges import RepoId
 from agent_build_kit.forges.github import ORIGIN
 from agent_build_kit.model import Frozen
+from agent_build_kit.path_discovery import checkout_root
 
 Run = Callable[..., subprocess.CompletedProcess]
 
@@ -312,7 +313,7 @@ def detect_repo(
 ) -> RepoDetection:
     run = run or subprocess.run
     path = path.expanduser().resolve()
-    is_git = (path / ".git").exists()
+    is_git = checkout_root(path) == path
 
     slug = None
     identity = None
