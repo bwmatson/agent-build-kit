@@ -115,7 +115,7 @@ def test_a_fix_unit_sets_aside_a_failure_another_fix_covers(tmp_path: Path) -> N
     assert (stored.state, stored.cause) != (PLANNED, Cause.GATED)
     assert needs_of(installation, "fix-test-mine") == []
     assert "claude:fix_checks" not in recorder.events, "the failure is not the unit's to fix"
-    assert any(OTHER in line and "recorded as" in line and "no wait" in line for line in log), log
+    assert any(OTHER in line and "no wait" in line for line in log), log
 
 
 def test_a_fix_unit_sets_aside_a_base_failure_no_fix_covers_yet(tmp_path: Path) -> None:

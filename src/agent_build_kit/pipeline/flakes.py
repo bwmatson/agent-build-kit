@@ -26,7 +26,7 @@ from agent_build_kit.pipeline.failure_record import (
 )
 from agent_build_kit.pipeline.file_lock import change_lock, file_lock
 from agent_build_kit.pipeline.unit_store import StoredUnit
-from agent_build_kit.pipeline.units import Unit
+from agent_build_kit.pipeline.units import PRODUCT_DEFECT_PREFIX, Unit
 from agent_build_kit.pipeline.work_graph import FIX_PREFIX, GROUP_HEADING, group_needs
 
 # The longest a change's name gets before it is cut and given a hash of the whole.
@@ -34,6 +34,8 @@ NAME_LIMIT = 70
 # What the names of changes that fixed a flaky or a failing test started with, still found.
 FLAKY_PREFIX = "fix-flaky"
 FAILING_PREFIX = "fix-failing"
+# The names every change that fixes a failing test may start with, whatever its kind.
+FIX_PREFIXES = (FIX_PREFIX, FLAKY_PREFIX, FAILING_PREFIX, PRODUCT_DEFECT_PREFIX)
 # Where a module imported by a test may sit in the code repo, relative to its root.
 SOURCE_ROOTS = ("", "src")
 # How many of a storm's tests its row names.
@@ -163,7 +165,7 @@ def wait_on_fix(
         if name is None:
             name = next_fix_name(inst, flake.test)
             _write_change(inst, name, flake, unit, earlier=earlier)
-        if unit.change == name:
+        if is_fix_change(unit.change):
             return None
         if wait:
             kind = "failing" if flake.failing else "flaky"
@@ -212,6 +214,12 @@ def next_fix_name(inst: Installation, test: str, prefix: str = "") -> str:
         if not any((inst.changes_dir / n).exists() or _archived(inst, n) for n in names):
             return names[0]
     raise AssertionError("unreachable")
+
+
+def is_fix_change(change: str) -> bool:
+    """Whether `change` is a change that fixes a failing or flaky test. A unit of one waits on
+    no other fix: its checks set aside what fails on the base too."""
+    return change.startswith(FIX_PREFIXES)
 
 
 def covered_tests(tests: list[str]) -> list[str]:

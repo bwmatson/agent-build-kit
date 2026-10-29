@@ -81,6 +81,7 @@ from agent_build_kit.pipeline.flakes import (
     Flake,
     FlakeFound,
     covered_tests,
+    is_fix_change,
     waiting_note,
 )
 from agent_build_kit.pipeline.gateway_usage import attribution
@@ -1686,7 +1687,7 @@ class BuildPath:
         except FailedOnBase as failed:
             if (parked := self.wait_for_fix(failed)) is not None:
                 return parked
-            ok, output = False, failed.failures[0].output
+            ok, output = self.set_aside(failed)
         if not ok:
             if (broken := self.failed_unit_test(output)) is not None:
                 return broken
@@ -1805,7 +1806,7 @@ class BuildPath:
             except FailedOnBase as failed:
                 if (parked := self.wait_for_fix(failed)) is not None:
                     raise CheckParked({**parked, "checks_ok": False}) from failed
-                ok, output = False, failed.failures[0].output
+                ok, output = self.set_aside(failed)
             if not ok and (parked := self.wait_for_open_fix(output)) is not None:
                 raise CheckParked({**parked, "checks_ok": False})
             if not ok and (broken := self.environment_problem()) is not None:
@@ -1949,6 +1950,14 @@ class BuildPath:
         return self.park_for_fix(
             waiting_note([flake.test for flake in flakes], failing=isinstance(found, FailedOnBase))
         )
+
+    def set_aside(self, failed: FailedOnBase) -> tuple[bool, str]:
+        """The result of a unit-test run that failed only on tests that fail on the base too,
+        once they are recorded and fixed: a unit of a fix change passes for them, since they
+        are not its own and it waits on no other fix. Any other unit is failed for them."""
+        if is_fix_change(self.unit.change):
+            return True, ""
+        return False, failed.failures[0].output
 
     def wait_for_open_fix(self, output: str) -> Update | None:
         """A failed unit-test run whose failed tests include one that an open change already
@@ -2435,7 +2444,7 @@ class BuildPath:
         except FailedOnBase as failed:
             if (parked := self.wait_for_fix(failed)) is not None:
                 return parked
-            ok, output = False, failed.failures[0].output
+            ok, output = self.set_aside(failed)
         self.say(f"unit-test {'passed' if ok else 'failed'}")
         if not ok and (parked := self.wait_for_open_fix(output)) is not None:
             return parked
