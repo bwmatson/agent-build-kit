@@ -72,6 +72,7 @@ from agent_build_kit.init.scaffold import (
 )
 from agent_build_kit.installation import Installation, changes_dir_under, load_config
 from agent_build_kit.notify.windows import INSTALL_COMMAND
+from agent_build_kit.path_discovery import checkout_root
 from agent_build_kit.pipeline.planning_repo import common_dir, toplevel
 from agent_build_kit.pipeline.planning_view import (
     PlanningViewRefused,
@@ -187,7 +188,7 @@ def _read_yaml(path: Path) -> dict | None:
 
 
 def _tree_clean(planning: Path) -> bool:
-    if not (planning / ".git").exists():
+    if checkout_root(planning) != planning.resolve():
         return True
     result = git(planning, "status", "--porcelain", check=False)
     return result.returncode == 0 and not result.stdout.strip()

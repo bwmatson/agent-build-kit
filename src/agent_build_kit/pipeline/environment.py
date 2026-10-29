@@ -12,6 +12,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import posixpath
 from collections.abc import Callable
 from datetime import UTC, datetime
 from enum import StrEnum
@@ -154,14 +155,17 @@ def _created_by_profiles(repo: RepoConfig, root: Path) -> list[str]:
             continue
         if not isinstance(profile, CreatedFiles):
             continue
-        prefix = "" if normalize(folder) == "." else f"{normalize(folder)}/"
+        where = normalize(folder)
         for name in profile.created_files(root / folder):
+            if name.startswith("/"):
+                continue
+            # Joined first: a project's `../uv.lock` is the workspace root's, still inside.
             try:
-                path = normalize(name)
+                path = normalize(posixpath.normpath(f"{where}/{name}"))
             except ValueError:
                 continue
             if path.split("/")[0] != GIT_DIR and path != ".":
-                found.append(prefix + path)
+                found.append(path)
     return found
 
 

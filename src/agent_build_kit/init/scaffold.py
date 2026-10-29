@@ -52,6 +52,7 @@ from agent_build_kit.init.environment import detect_environment, lock_patterns, 
 from agent_build_kit.init.runtime_choice import merge_values
 from agent_build_kit.installation import Installation
 from agent_build_kit.model import Frozen
+from agent_build_kit.path_discovery import checkout_root
 from agent_build_kit.pipeline.changelog_convention import packaged_convention
 from agent_build_kit.pipeline.file_lock import append_missing_lines
 from agent_build_kit.pipeline.original_copy import COPY_PATTERN
@@ -788,7 +789,7 @@ def write_planning_repo(
     top = holding_repo(planning, config)
     blocks = _in_repo_blocks(planning, top, config) if top else []
 
-    if top is None and not (planning / ".git").exists():
+    if top is None and checkout_root(planning) != planning:
         result = git(planning, "init", "-q", "-b", "main", check=False)
         if result.returncode:
             raise ScaffoldError(f"git init failed in {planning}: {result.stderr.strip()}")

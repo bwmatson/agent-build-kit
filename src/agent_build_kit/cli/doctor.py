@@ -167,7 +167,7 @@ def _repos(inst: Installation, run: Run) -> list[Check]:
         if not path.is_dir():
             checks.append(_fail(f"repo {name}", f"{path} does not exist", "fix `path` in abk.yaml"))
             continue
-        if not (path / ".git").exists():
+        if checkout_root(path) != path.resolve():
             checks.append(
                 _fail(f"repo {name}", f"{path} is not a git checkout", "clone the repo there")
             )
@@ -1308,7 +1308,7 @@ def _missing_inputs(environment: EnvironmentConfig, root: Path) -> list[str]:
 
 def _tracked_artifacts(environment: EnvironmentConfig, root: Path) -> list[str]:
     """The artifact patterns that cover a file the repository tracks."""
-    if not environment.artifacts or not (root / ".git").exists():
+    if not environment.artifacts or checkout_root(root) != root.resolve():
         return []
     tracked = git_out(root, "ls-files", "-z").split("\0")
     return [
@@ -1620,6 +1620,8 @@ def _python_tools_in(name: str, root: Path, manifest: Path, hooks_file: Path) ->
         return []
     hooks_name = hooks_file.relative_to(root).as_posix()
     manifest_name = manifest.relative_to(root).as_posix()
+    # A manifest below the checkout root names its folder, so two projects' checks differ.
+    label = name if manifest.parent == root else f"{name} {manifest.parent.relative_to(root)}"
     locked, others = _pyproject_tools(manifest)
     pinned: set[str] = set()
     orphaned: set[str] = set()
@@ -1645,7 +1647,7 @@ def _python_tools_in(name: str, root: Path, manifest: Path, hooks_file: Path) ->
     for tool in sorted(pinned):
         checks.append(
             _warn(
-                f"{name} {tool} version",
+                f"{label} {tool} version",
                 f"{tool} is pinned in {manifest_name}'s dependency group and by a hook "
                 f"`rev` in {hooks_name}, so two versions can disagree",
                 f"run {tool} from a `repo: local`, `language: system` hook "
@@ -1655,7 +1657,7 @@ def _python_tools_in(name: str, root: Path, manifest: Path, hooks_file: Path) ->
     for tool in sorted(orphaned):
         checks.append(
             _warn(
-                f"{name} {tool} hook",
+                f"{label} {tool} hook",
                 f"a `language: system` hook in {hooks_name} runs `uv run {tool}`, "
                 f"but {tool} is not in {manifest_name}'s dependency groups, so it fails",
                 f"add {tool} to the dev dependency group, or fix the hook's entry",
