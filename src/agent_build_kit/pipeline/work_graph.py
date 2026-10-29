@@ -116,6 +116,11 @@ TEST_KIND_TAGS = tuple(member.value for member in TestTier)
 # real client finds in minutes (docs/architecture.md).
 FLAGS = ("contract", "narrow", "acceptance")
 
+# What the name of every new change that fixes a failing test starts with, whatever its kind.
+# Its group carries `contract` for the full review that flag floors, not for a shape it widens,
+# so it needs no `narrow` group after it.
+FIX_PREFIX = "fix-test"
+
 # "Acceptance: none — a refactor, nothing a consumer sees changes": a change
 # with no surface to exercise, and the reason, which is what gets reviewed.
 ACCEPTANCE_OPT_OUT = re.compile(r"^Acceptance:\s*none\b\s*[—–-]*\s*(?P<reason>.*?)\s*$", re.I)
@@ -866,7 +871,9 @@ def validate_tasks(
     # compatibility shim becomes the contract. Checked rather than left to
     # config.yaml's rules, because a rule is a prompt input and this one has a
     # cost that only shows up much later.
-    if any(g.flag == "contract" for g in groups):
+    if not path.parent.name.startswith(f"{FIX_PREFIX}-") and any(
+        g.flag == "contract" for g in groups
+    ):
         narrowing = [g for g in groups if g.flag == "narrow"]
         if not narrowing:
             errors.append(

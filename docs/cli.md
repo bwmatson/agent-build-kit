@@ -428,7 +428,8 @@ archive failed), when it passed but the change was not archived.
 
 Validates the task-group heading contract of one change's `tasks.md`, or
 every active change's with `--all`: tags present and known, groups numbered
-from 1, every group has tasks, `[contract]` paired with a last `[narrow]`,
+from 1, every group has tasks, `[contract]` paired with a last `[narrow]` (except in a change named
+`fix-test-*`, a test fix, which carries `[contract]` for the full review it floors),
 `[acceptance]` present (as `e2e-test`, after everything it exercises) or opted
 out with a reasoned `Acceptance: none — ...` line. Prints each problem with
 its line, then the groups when clean. Also warns, once per group and

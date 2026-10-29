@@ -16,7 +16,7 @@ The agent runs in the planning repo with the code repo added read-only
 from __future__ import annotations
 
 import json
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from pathlib import Path
 from typing import Literal
 
@@ -28,7 +28,7 @@ from agent_build_kit.init.scaffold import render_rules
 from agent_build_kit.installation import changes_dir_under
 from agent_build_kit.pipeline.call_record import recorded
 from agent_build_kit.pipeline.vocabulary import OverheadNode
-from agent_build_kit.pipeline.work_graph import project_tags, validate_tasks
+from agent_build_kit.pipeline.work_graph import TaskGroup, project_tags, validate_tasks
 from agent_build_kit.runtimes import AgentRequest, ToolPolicy
 from agent_build_kit.runtimes.base import AgentRuntime
 
@@ -212,16 +212,41 @@ def validation_errors(
     *,
     repos: tuple[str, ...],
     projects: Mapping[str, tuple[str, ...]],
+    splits: Mapping[str, tuple[str, ...]] | None = None,
     run_openspec: openspec.Run | None = None,
     specs_dir: str = "openspec",
 ) -> list[str]:
-    """Why `change` is not ready to be built, or an empty list.
+    """Why `change` is not ready to be built, or an empty list."""
+    return validation_report(
+        planning,
+        change,
+        repos=repos,
+        projects=projects,
+        splits=splits,
+        run_openspec=run_openspec,
+        specs_dir=specs_dir,
+    )[1]
+
+
+def validation_report(
+    planning: Path,
+    change: str,
+    *,
+    repos: tuple[str, ...],
+    projects: Mapping[str, tuple[str, ...]],
+    splits: Mapping[str, tuple[str, ...]] | None = None,
+    run_openspec: openspec.Run | None = None,
+    specs_dir: str = "openspec",
+) -> tuple[list[TaskGroup], list[str]]:
+    """The groups of `change`'s tasks that could be read, and why the change is not ready to be
+    built (an empty list when it is).
 
     `specs_dir` is where the workspace keeps its OpenSpec store; `abk.yaml` can
     move it, and a check that assumes `openspec/` would call every change in
     such a workspace missing its tasks.
     """
     errors: list[str] = []
+    groups: list[TaskGroup] = []
     result = openspec.validate(planning, run=run_openspec)
     try:
         report = json.loads(result.stdout or "{}")
@@ -251,9 +276,24 @@ def validation_errors(
     if not tasks.is_file():
         errors.append(f"{tasks.relative_to(planning)} is missing")
     else:
-        # A workspace being set up declares no e2e-test splits yet, so only `rest` is accepted.
-        _groups, tag_errors = validate_tasks(tasks, repos=repos, projects=projects, splits={})
+        # Without `splits`, a workspace being set up declares no e2e-test splits yet, so only
+        # `rest` is accepted.
+        groups, tag_errors = validate_tasks(
+            tasks, repos=repos, projects=projects, splits={} if splits is None else splits
+        )
         errors.extend(f"tasks.md line {error.line}: {error.message}" for error in tag_errors)
+    return groups, errors
+
+
+def repair_once(
+    attempt: Callable[[str], list[str]], prompt: str, repair: Callable[[list[str]], str]
+) -> list[str]:
+    """Run `attempt` on `prompt`; when it finds errors, run it once more on `prompt` followed by
+    `repair` of them. The errors still found, or an empty list. An attempt that cannot be
+    repaired answers an empty list, which ends it."""
+    errors = attempt(prompt)
+    if errors:
+        errors = attempt(prompt + repair(errors))
     return errors
 
 
@@ -350,9 +390,9 @@ def write_change(
             planning, change, repos=repos, projects=projects, run_openspec=run_openspec
         )
 
-    errors = attempt(prompt)
-    if errors:
-        errors = attempt(prompt + REPAIR.format(change=change, errors="\n".join(errors)))
+    errors = repair_once(
+        attempt, prompt, lambda found: REPAIR.format(change=change, errors="\n".join(found))
+    )
     if errors:
         raise ProposeError(
             f"{change} did not validate after a repair round; its files are left in "

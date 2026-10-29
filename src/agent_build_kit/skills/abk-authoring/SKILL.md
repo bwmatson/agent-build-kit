@@ -73,7 +73,9 @@ window: the widening lands alone, and something removes the old half later.
 
 **`[narrow]`** is that something. Required whenever a `[contract]` group
 exists, and it must be the last group of the change: its unit depends on
-every unit that migrates a consumer, and nothing depends on it. A unit stores only its direct
+every unit that migrates a consumer, and nothing depends on it. A change named `fix-test-*` (the
+fix of a failing test) is the one exception: it carries `[contract]` for the full review that
+flag floors and needs no `[narrow]` group. A unit stores only its direct
 dependencies (`direct_dependencies`: a dependency another one of its dependencies reaches is
 not stored), and a `[narrow]` unit waits for every earlier unit of its change, computed at run
 time and not from stored edges.

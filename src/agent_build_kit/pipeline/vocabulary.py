@@ -68,6 +68,7 @@ class OverheadNode(StrEnum):
     LOGIN_REFRESH = "login_refresh"
     CHAT = "chat"
     CHAT_COMMIT = "chat_commit"
+    REGRESSION = "regression"
 
 
 # The track phases that discover and then propose a change: each spends a `track_propose` call
