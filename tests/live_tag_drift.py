@@ -359,6 +359,13 @@ def split_name_drift(pyproject: Path, document: Path) -> list[str]:
     ]
 
 
+def splits_by_syntax(tests_root: Path) -> dict[Path, set[str]]:
+    """For every live module under `tests_root` (as `find_live_modules` finds them), the splits
+    its `runtime_<name>` marks name in its syntax (`pytestmark`, a decorator, a class decorator,
+    a `pytest.param` mark), `rest` when it names none. Nothing is imported or collected."""
+    raise NotImplementedError
+
+
 def split_of(item: pytest.Item) -> str:
     """The split a test is in: the name of its one runtime tag, `rest` when it has none."""
     tags = runtime_tags(item)
