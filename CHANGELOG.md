@@ -20,6 +20,11 @@
   defaults keep today's `-n auto --maxprocesses=8`; a repo can lower them to ease the load of
   several units' full suites. In a `checks.affected.command` template, `{workers}` expands to
   the same options.
+- A task group now has a build mode: `tests_and_code`, `tests_only` or `no_code`. A group
+  that names only documents, a changelog or configuration files may be built without a
+  tests-first step, while a group that names code, or no path, keeps it. A
+  `Tests: required — <reason>` line in a group keeps tests first for it, and `abk tags` shows
+  each group's mode.
 
 - A task group now has a build mode: `tests_and_code`, `tests_only` or `no_code`. A group
   that names only documents, a changelog or configuration files may be built without a
@@ -77,11 +82,6 @@
   `model`, the one that was asked for. A call made without a model used to leave the row
   with no model at all; the usage forecast now groups such a call by the model it reported.
   Rows written earlier read as before.
-- A task group now has a build mode: `tests_and_code`, `tests_only` or `no_code`. A group
-  that names only documents, a changelog or configuration files may be built without a
-  tests-first step, while a group that names code, or no path, keeps it. A
-  `Tests: required — <reason>` line in a group keeps tests first for it, and `abk tags` shows
-  each group's mode.
 
 - A unit whose pull request is merged now settles before it counts as merged: it waits, with
   no time limit, until every check of the pull request has completed, and the poller keeps
