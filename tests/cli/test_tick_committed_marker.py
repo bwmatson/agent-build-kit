@@ -19,7 +19,7 @@ from agent_build_kit.pipeline.units import IN_REVIEW, RUNNING
 from agent_build_kit.pipeline.usage_guard import Decision
 from tests.attach_driver import checked_out, head, leave_lease
 from tests.chat_serving import record_session
-from tests.conftest import make_installation
+from tests.conftest import make_private_trees_installation
 from tests.factories import git
 
 pytestmark = pytest.mark.usefixtures("scripted_engine")
@@ -79,11 +79,7 @@ def usage_reads(monkeypatch: pytest.MonkeyPatch) -> list[str]:
 
 @pytest.fixture
 def inst(tmp_path: Path) -> Installation:
-    return make_installation(
-        tmp_path,
-        planning={"state_dir": ".", "worktree_root": str(tmp_path.parent / "trees")},
-        project_limits={"max_units_in_progress": 50},
-    )
+    return make_private_trees_installation(tmp_path, project_limits={"max_units_in_progress": 50})
 
 
 def test_a_tick_delivers_a_commit_made_and_not_delivered_once_and_removes_the_lease(

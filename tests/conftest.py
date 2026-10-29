@@ -359,6 +359,15 @@ def make_installation(root: Path, **overrides) -> Installation:
     return installation
 
 
+def make_private_trees_installation(tmp_path: Path, **overrides) -> Installation:
+    """`make_installation` with the planning root and the worktree root both inside `tmp_path`,
+    side by side, so no worktree or branch lock is shared with another test of the worker
+    (`tmp_path.parent` is shared by every test the worker runs)."""
+    planning = dict(state_dir=".", worktree_root=str(tmp_path / "trees"))
+    planning.update(overrides.pop("planning", {}))
+    return make_installation(tmp_path / "planning", planning=planning, **overrides)
+
+
 QUEUE_LINE = re.compile(r"\d+\. \S+ \(\S+\) — .*")
 
 
