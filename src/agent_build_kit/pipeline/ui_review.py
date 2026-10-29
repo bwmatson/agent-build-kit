@@ -224,43 +224,99 @@ def _hunks(patch: str) -> dict[str, list[tuple[_Span, _Span, list[str]]]]:
 
 
 def ui_reply_writer(
-    state_dir: Path, units: UnitStore
+    state_dir: Path, units: UnitStore | PrIndex
 ) -> Callable[[str, int, Sequence[pr_replies.Reply]], list[str]]:
     """What `pr_replies.build_post_replies` hands the replies to UI comments: written into the
     review of the unit that owns the pull request (its repo name and number), and the ids
     written returned. A pull request with no unit takes none."""
     store = ReviewStore(state_dir / "reviews")
+    index = indexed(units)
 
     def write(repo: str, pr: int, replies: Sequence[pr_replies.Reply]) -> list[str]:
-        unit = unit_of(units, repo, pr)
+        unit = index.unit_of(repo, pr)
         return write_back_replies(store, unit.id, replies) if unit else []
 
     return write
 
 
-def ui_listing(inst: Installation, store: UnitStore, repo: str) -> ListPrs:
+def ui_listing(inst: Installation, store: UnitStore | PrIndex, repo: str) -> ListPrs:
     """The pull requests of `repo` as the poller and the landing pass both read them: the
     host's listing, each carrying the review made in the web UI of its unit."""
     forge, repo_id = inst.forge_of(repo)
+    index = indexed(store)
 
     def review_of(pull: PullRequest) -> Review | None:
-        unit = unit_of(store, repo, pull.number)
+        unit = index.unit_of(repo, pull.number)
         return ReviewStore(inst.state_dir / "reviews").read(unit.id) if unit else None
 
     return with_ui_review(lambda: forge.list_prs(repo_id), review_of=review_of)
 
 
+class PrIndex:
+    """The unit store's units by (repo name, pull request number). It reads the store when first
+    asked and again only when the store's file has changed on disk (modification time, size
+    and inode; the store writes by atomic rename, so a write changes them in practice), so a
+    poll that asks once per pull request reads the store once, and a unit written during it is
+    still seen."""
+
+    def __init__(self, store: UnitStore) -> None:
+        self._store = store
+        self._key: tuple[int, int, int] | None = None
+        self._built = False
+        self._all: list[StoredUnit] = []
+        self._by_pr: dict[tuple[str, int], StoredUnit] = {}
+
+    def _stat(self) -> tuple[int, int, int] | None:
+        try:
+            seen = self._store.path.stat()
+        except FileNotFoundError:
+            return None
+        return (seen.st_mtime_ns, seen.st_size, seen.st_ino)
+
+    def _refresh(self) -> None:
+        # The stat comes first: a write landing during the read leaves a stale key, which the
+        # next lookup rebuilds on.
+        key = self._stat()
+        if self._built and key == self._key:
+            return
+        every = self._store.all()
+        by_pr: dict[tuple[str, int], StoredUnit] = {}
+        for unit in every:
+            if unit.pr is not None:
+                by_pr.setdefault((unit.repo, unit.pr), unit)
+        self._all, self._by_pr, self._key, self._built = every, by_pr, key, True
+
+    def unit_of(self, repo: str, pr: int) -> StoredUnit | None:
+        """The unit whose pull request is number `pr` of the repo named `repo`."""
+        self._refresh()
+        return self._by_pr.get((repo, pr))
+
+    def units(self) -> list[StoredUnit]:
+        """Every unit in the store, as of the last change to its file."""
+        self._refresh()
+        return list(self._all)
+
+
+def indexed(store: UnitStore | PrIndex) -> PrIndex:
+    """`store` as an index: itself if it is one, else a new one over the store."""
+    return store if isinstance(store, PrIndex) else PrIndex(store)
+
+
 def unit_of(store: UnitStore, repo: str, pr: int) -> StoredUnit | None:
-    """The unit whose pull request is number `pr` of the repo named `repo`."""
-    return next((u for u in store.all() if u.repo == repo and u.pr == pr), None)
+    """The unit whose pull request is number `pr` of the repo named `repo`, for a caller with
+    no index; one read of the store, so not for a loop."""
+    return PrIndex(store).unit_of(repo, pr)
 
 
-def ui_notes_of(inst: Installation, store: UnitStore) -> Callable[[str, int], list[ReviewNote]]:
+def ui_notes_of(
+    inst: Installation, store: UnitStore | PrIndex
+) -> Callable[[str, int], list[ReviewNote]]:
     """The notes of the review made in the web UI on a pull request (its repo name and number),
     placed at the unit's branch tip; none for a pull request with no unit or no review."""
+    index = indexed(store)
 
     def notes(repo: str, pr: int) -> list[ReviewNote]:
-        unit = unit_of(store, repo, pr)
+        unit = index.unit_of(repo, pr)
         checkout = inst.checkouts.get(repo)
         if unit is None or checkout is None or not checkout.is_dir():
             return []
@@ -270,17 +326,18 @@ def ui_notes_of(inst: Installation, store: UnitStore) -> Callable[[str, int], li
     return notes
 
 
-def unit_patch_of(inst: Installation, store: UnitStore) -> Callable[[str, int], str]:
+def unit_patch_of(inst: Installation, store: UnitStore | PrIndex) -> Callable[[str, int], str]:
     """The unit's own diff, taken against the base it builds on, as the review tab shows it;
     empty where the unit, its checkout or its branch is not there to diff."""
+    index = indexed(store)
 
     def patch(repo: str, pr: int) -> str:
-        unit = unit_of(store, repo, pr)
+        unit = index.unit_of(repo, pr)
         checkout = inst.checkouts.get(repo)
         if unit is None or checkout is None or not checkout.is_dir() or not unit.branch:
             return ""
         try:
-            return unit_diff(checkout, base=base_of(unit, store.all()), branch=unit.branch).patch
+            return unit_diff(checkout, base=base_of(unit, index.units()), branch=unit.branch).patch
         except NoDiff:
             return ""
 
