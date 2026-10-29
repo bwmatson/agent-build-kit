@@ -9,7 +9,13 @@ import tomllib
 
 import pytest
 
-from tests.live_tag_drift import DIMENSIONS, collected, find_live_modules, value_name_drift
+from tests.live_tag_drift import (
+    DIMENSIONS,
+    EVERY_LIVE_MODULE_TIME_LIMIT,
+    collected,
+    find_live_modules,
+    value_name_drift,
+)
 from tests.prompt_text import flat
 from tests.runtime_tag_collection import ROOT
 
@@ -39,6 +45,7 @@ def test_telemetry_local_is_registered_beside_telemetry_otel() -> None:
     assert {"telemetry_otel", "telemetry_local"} <= names
 
 
+@pytest.mark.time_limit(EVERY_LIVE_MODULE_TIME_LIMIT)
 def test_no_two_live_tests_of_the_kit_differ_in_name_only_by_a_dimension_value(
     pytester: pytest.Pytester,
 ) -> None:

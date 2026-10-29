@@ -8,6 +8,7 @@ import warnings
 import pytest
 
 from tests.live_tag_drift import (
+    EVERY_LIVE_MODULE_TIME_LIMIT,
     INTEGRATION,
     agent_start_notes,
     drift,
@@ -75,6 +76,7 @@ def test_the_init_conventions_module_which_starts_no_agent_passes_untagged(
     assert INIT_CONVENTIONS in find_live_modules(ROOT / "tests")
 
 
+@pytest.mark.time_limit(EVERY_LIVE_MODULE_TIME_LIMIT)
 def test_every_test_of_the_kits_live_modules_that_starts_an_agent_has_exactly_one_tag(
     pytester: pytest.Pytester,
 ) -> None:
