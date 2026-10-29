@@ -118,6 +118,7 @@ def test_a_list_that_matches_the_document_warns_of_nothing(
     assert warned(pytester, document, test_same=CLAUDE_ONLY) == []
 
 
+@pytest.mark.time_limit(300)  # collecting every live module takes minutes on a loaded host
 def test_the_kits_current_list_matches_the_documents_without_a_warning(
     pytester: pytest.Pytester,
 ) -> None:
