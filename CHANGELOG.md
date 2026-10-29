@@ -7,6 +7,7 @@
   and `caches: []` grants none. The project's list wins over the repo's, and `abk.local.yaml`
   over `abk.yaml`. The Python profile's defaults now include the pre-commit cache, so a
   confined step can run `pre-commit`.
+
 - A failing test the unit did not write now has an agent that writes the change fixing it. It
   is told the failure, the evidence of each run and the earlier failures of the test, writes
   only into the new change's directory, and its change is checked as `abk check` and
