@@ -9,9 +9,11 @@ dependency.
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 
 from agent_build_kit.config import EnvironmentConfig, EnvironmentInputs
+from agent_build_kit.profiles.workspace_lock import workspace_lock
 
 MANIFEST = "package.json"
 # Lock file by manager, in the order a lock file decides the manager.
@@ -67,7 +69,11 @@ def detect_environment(root: Path) -> EnvironmentConfig | None:
     if not (root / MANIFEST).is_file():
         return None
     manifest = read_manifest(root)
-    locks = [name for name in LOCKS.values() if (root / name).is_file()]
+    shared = workspace_lock(
+        root, tuple(LOCKS.values()), lambda folder: workspace_patterns(read_manifest(folder))
+    )
+    locks = [name for name in LOCKS.values() if shared and (shared.parent / name).is_file()]
+    lock_files = [os.path.relpath(shared.parent / name, root) for name in locks] if shared else []
     declared = _declared(manifest)
     if declared:
         manager, major = declared
@@ -78,6 +84,6 @@ def detect_environment(root: Path) -> EnvironmentConfig | None:
     return EnvironmentConfig(
         sync=[manager, "install"],
         check=_check(manager, major),
-        inputs=EnvironmentInputs(dependencies=dependencies, lock=locks),
+        inputs=EnvironmentInputs(dependencies=dependencies, lock=lock_files),
         artifacts=list(ARTIFACTS),
     )

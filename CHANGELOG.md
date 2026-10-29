@@ -110,7 +110,12 @@
 
 - Every lookup of the git checkout a path is in now goes through one shared module, which also
   offers the nearest existing folder of a path and a search for the nearest file above a
-  folder, so the lookups answer the same way.
+  folder, so the lookups answer the same way. The pre-commit configuration, `abk.yaml`,
+  workspace lock, checkout and project lookups use it too. A workspace member now takes the
+  workspace root's lock (uv or npm) as its own, and a build leaves that lock alone; a lock above
+  the checkout is still ignored. `abk doctor` and `abk init` look for the pre-commit
+  configuration and manifest from each project's folder up to the checkout root, and a folder
+  with a stray `.git` that is not a repository is no longer taken for a checkout.
 
 - The kit's own time-limit tests hold their child pytest code in files that the linters
   check, not in strings, and a test fails a new module that builds a child's source as a

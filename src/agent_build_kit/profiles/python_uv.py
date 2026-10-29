@@ -29,6 +29,7 @@ from agent_build_kit.config import (
     EnvironmentInputs,
     RepoConfig,
 )
+from agent_build_kit.path_discovery import find_up
 from agent_build_kit.pipeline.commit_order import stub_violations as _stub_violations
 from agent_build_kit.pipeline.e2e import (
     E2eSelection,
@@ -39,6 +40,7 @@ from agent_build_kit.pipeline.e2e import (
 )
 from agent_build_kit.pipeline.red_check import judge_red, split_report, wrap_report_command
 from agent_build_kit.profiles.base import HOME, PromptWords, SandboxPaths, is_doc_path
+from agent_build_kit.profiles.workspace_lock import workspace_lock
 
 # pytest's exit status when every test was deselected: "nothing to run here",
 # not a failure — most members carry no e2e tests.
@@ -127,6 +129,16 @@ def _pyproject(path: Path) -> dict:
         return tomllib.loads((path / "pyproject.toml").read_text())
     except (OSError, tomllib.TOMLDecodeError):
         return {}
+
+
+def _members_of(folder: Path) -> list[str]:
+    members = _pyproject(folder).get("tool", {}).get("uv", {}).get("workspace", {}).get("members")
+    return [str(member) for member in members] if isinstance(members, list) else []
+
+
+def _lock_of(project: Path) -> Path | None:
+    """The project's own `uv.lock`, else its workspace root's."""
+    return workspace_lock(project, (LOCK,), _members_of)
 
 
 def _path_sources(root: Path) -> list[Path]:
@@ -284,8 +296,9 @@ class PythonUvProfile:
         if not (root / MANIFEST).is_file():
             return None
         dependencies, lock = [MANIFEST], []
-        if (root / LOCK).is_file():
-            lock.append(LOCK)
+        found = _lock_of(root)
+        if found is not None:
+            lock.append(os.path.relpath(found, root))
         word = "import agent_build_kit" if framework else "pass"
         inputs = EnvironmentInputs(dependencies=dependencies, lock=lock)
         if not _path_sources(root):
@@ -307,8 +320,11 @@ class PythonUvProfile:
         )
 
     def created_files(self, repo: Path) -> list[str]:
-        """The lock file `uv run` creates where the repository has none."""
-        return [LOCK]
+        """The lock file `uv run` creates where the repository has none, and the workspace
+        root's when the project is a member."""
+        found = _lock_of(repo)
+        shared = [os.path.relpath(found, repo.resolve())] if found is not None else []
+        return list(dict.fromkeys([LOCK, *shared]))
 
     def sandbox_paths(self, repo: Path) -> SandboxPaths:
         """The uv and pre-commit cache folders and the two package index hosts."""
@@ -416,16 +432,8 @@ class PythonUvProfile:
         return ["uv", "run", "pre-commit", "run", "--files", *files] if files else None
 
     def with_check_config(self, command: list[str], where: Path, root: Path) -> list[str]:
-        found = next(
-            (
-                folder / _PRE_COMMIT_CONFIG
-                for folder in (where, *where.parents)
-                if (folder / _PRE_COMMIT_CONFIG).is_file()
-                # Never above the git root; a folder outside it is not the repo's.
-                and (folder == root or root in folder.parents)
-            ),
-            None,
-        )
+        # Never above the git root; a folder outside it is not the repo's.
+        found = find_up([_PRE_COMMIT_CONFIG], where, stop=root, accept=Path.is_file)
         if found is None:
             return command
         argument = f"--config {shlex.quote(os.path.relpath(found, where))}"

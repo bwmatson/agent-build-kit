@@ -59,6 +59,7 @@ from agent_build_kit.forges.transport import TransportError
 from agent_build_kit.init.propose import validation_errors
 from agent_build_kit.installation import Installation
 from agent_build_kit.model import Frozen
+from agent_build_kit.path_discovery import checkout_root
 from agent_build_kit.pipeline import shell
 from agent_build_kit.pipeline.call_record import recorded
 from agent_build_kit.pipeline.config_guard import config_unchanged
@@ -218,7 +219,7 @@ def eligible_projects(inst: Installation, only: str | None = None) -> list[Proje
         if only and name != only:
             continue
         path = inst.checkouts[name].resolve()
-        if not (path / ".git").exists():
+        if checkout_root(path) != path:
             log(f"skip {name}: {path} is not a git checkout")
             continue
         remote = _git(["remote", "get-url", "origin"], path)

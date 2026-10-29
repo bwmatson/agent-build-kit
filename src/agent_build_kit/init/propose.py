@@ -26,6 +26,7 @@ from agent_build_kit.init.claude_call import RunClaude, runtime_for, succeeded
 from agent_build_kit.init.detect import RepoDetection
 from agent_build_kit.init.scaffold import render_rules
 from agent_build_kit.installation import changes_dir_under
+from agent_build_kit.path_discovery import find_up
 from agent_build_kit.pipeline.call_record import recorded
 from agent_build_kit.pipeline.vocabulary import OverheadNode
 from agent_build_kit.pipeline.work_graph import TaskGroup, project_tags, validate_tasks
@@ -93,7 +94,14 @@ def repo_summary(detection: RepoDetection) -> str:
     # pyproject.toml two levels down with a web app beside it, and a summary
     # built from the root alone describes none of it.
     searched = [root, *(root / project.path for project in detection.projects)]
-    tooling = [directory / name for directory in dict.fromkeys(searched) for name in TOOLING_FILES]
+    # The nearest file of each name from each, so one in a folder between the root and a
+    # project is found too.
+    found = (
+        find_up([name], directory, stop=root, accept=Path.is_file)
+        for directory in dict.fromkeys(searched)
+        for name in TOOLING_FILES
+    )
+    tooling = list(dict.fromkeys(path for path in found if path is not None))
     tooling += sorted((root / ".github" / "workflows").glob("*.y*ml"))
     for path in tooling:
         if path.is_file():

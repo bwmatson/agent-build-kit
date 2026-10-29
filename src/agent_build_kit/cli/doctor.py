@@ -81,7 +81,7 @@ from agent_build_kit.notify.windows import (
     INSTALL_COMMAND,
     MODULE_CHECK_COMMAND,
 )
-from agent_build_kit.path_discovery import checkout_root
+from agent_build_kit.path_discovery import checkout_root, find_up
 from agent_build_kit.path_patterns import matches, normalize
 from agent_build_kit.pipeline import agent_commands, lock_probe, mounts
 from agent_build_kit.pipeline.e2e import dimension_lines
@@ -1600,55 +1600,67 @@ def _python_tools(inst: Installation) -> list[Check]:
     checks = []
     for name in inst.repos:
         path = inst.checkouts[name]
-        hooks_file = path / ".pre-commit-config.yaml"
-        if not (path / "pyproject.toml").is_file() or not hooks_file.is_file():
-            continue
-        try:
-            hook_repos = (yaml.safe_load(hooks_file.read_text()) or {}).get("repos") or []
-        except (OSError, yaml.YAMLError):
-            continue
-        locked, others = _pyproject_tools(path / "pyproject.toml")
-        pinned: set[str] = set()
-        orphaned: set[str] = set()
-        for hook_repo in hook_repos:
-            if not isinstance(hook_repo, dict):
+        folders = [path, *(path / project.path for project in inst.config.repos[name].projects)]
+        seen = set()
+        for folder in folders:
+            manifest = find_up(["pyproject.toml"], folder, stop=path)
+            hooks_file = find_up([".pre-commit-config.yaml"], folder, stop=path)
+            if manifest is None or hooks_file is None or (manifest, hooks_file) in seen:
                 continue
-            hook_list = hook_repo.get("hooks")
-            hooks = (
-                [h for h in hook_list if isinstance(h, dict)] if isinstance(hook_list, list) else []
+            seen.add((manifest, hooks_file))
+            checks += _python_tools_in(name, path, manifest, hooks_file)
+    return checks
+
+
+def _python_tools_in(name: str, root: Path, manifest: Path, hooks_file: Path) -> list[Check]:
+    """The `_python_tools` checks of one repo's manifest and the hook file that goes with it."""
+    try:
+        hook_repos = (yaml.safe_load(hooks_file.read_text()) or {}).get("repos") or []
+    except (OSError, yaml.YAMLError):
+        return []
+    hooks_name = hooks_file.relative_to(root).as_posix()
+    manifest_name = manifest.relative_to(root).as_posix()
+    locked, others = _pyproject_tools(manifest)
+    pinned: set[str] = set()
+    orphaned: set[str] = set()
+    for hook_repo in hook_repos:
+        if not isinstance(hook_repo, dict):
+            continue
+        hook_list = hook_repo.get("hooks")
+        hooks = [h for h in hook_list if isinstance(h, dict)] if isinstance(hook_list, list) else []
+        if hook_repo.get("repo") == "local":
+            for hook in hooks:
+                tool = _uv_run_tool(str(hook.get("entry", "")))
+                runnable = locked | others
+                if (
+                    hook.get("language") == "system"
+                    and tool
+                    and tool not in runnable
+                    and not _is_python(tool)
+                ):
+                    orphaned.add(tool)
+        elif hook_repo.get("rev"):
+            pinned |= locked & _hook_repo_tools(hook_repo, hooks)
+    checks = []
+    for tool in sorted(pinned):
+        checks.append(
+            _warn(
+                f"{name} {tool} version",
+                f"{tool} is pinned in {manifest_name}'s dependency group and by a hook "
+                f"`rev` in {hooks_name}, so two versions can disagree",
+                f"run {tool} from a `repo: local`, `language: system` hook "
+                f"(`uv run --frozen {tool} ...`) and drop the hook's `rev`",
             )
-            if hook_repo.get("repo") == "local":
-                for hook in hooks:
-                    tool = _uv_run_tool(str(hook.get("entry", "")))
-                    runnable = locked | others
-                    if (
-                        hook.get("language") == "system"
-                        and tool
-                        and tool not in runnable
-                        and not _is_python(tool)
-                    ):
-                        orphaned.add(tool)
-            elif hook_repo.get("rev"):
-                pinned |= locked & _hook_repo_tools(hook_repo, hooks)
-        for tool in sorted(pinned):
-            checks.append(
-                _warn(
-                    f"{name} {tool} version",
-                    f"{tool} is pinned in pyproject.toml's dependency group and by a hook "
-                    f"`rev` in .pre-commit-config.yaml, so two versions can disagree",
-                    f"run {tool} from a `repo: local`, `language: system` hook "
-                    f"(`uv run --frozen {tool} ...`) and drop the hook's `rev`",
-                )
+        )
+    for tool in sorted(orphaned):
+        checks.append(
+            _warn(
+                f"{name} {tool} hook",
+                f"a `language: system` hook in {hooks_name} runs `uv run {tool}`, "
+                f"but {tool} is not in {manifest_name}'s dependency groups, so it fails",
+                f"add {tool} to the dev dependency group, or fix the hook's entry",
             )
-        for tool in sorted(orphaned):
-            checks.append(
-                _warn(
-                    f"{name} {tool} hook",
-                    f"a `language: system` hook in .pre-commit-config.yaml runs `uv run {tool}`, "
-                    f"but {tool} is not in pyproject.toml's dependency groups, so it fails",
-                    f"add {tool} to the dev dependency group, or fix the hook's entry",
-                )
-            )
+        )
     return checks
 
 
