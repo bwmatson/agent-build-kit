@@ -16,9 +16,9 @@ from pathlib import Path
 import yaml
 
 from agent_build_kit.installation import Installation
+from agent_build_kit.path_discovery import checkout_root
 from agent_build_kit.pipeline.file_lock import atomic_write_bytes
 from agent_build_kit.pipeline.install_record import ALWAYS_INSTALLABLE, STAGING, install_line
-from agent_build_kit.pipeline.shell import git
 
 YAML_SUFFIXES = (".yaml", ".yml")
 
@@ -28,10 +28,10 @@ class Refused(Exception):
 
 
 def worktree_root() -> Path:
-    top = git(Path.cwd(), "rev-parse", "--show-toplevel", check=False)
-    if top.returncode or not top.stdout.strip():
+    top = checkout_root(Path.cwd())
+    if top is None:
         raise Refused("the working directory is not in a git worktree")
-    return Path(top.stdout.strip()).resolve()
+    return top
 
 
 def _staged(worktree: Path, staged: str) -> Path:

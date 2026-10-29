@@ -14,6 +14,7 @@ from pathlib import Path
 
 from agent_build_kit.config import active_state_dir
 from agent_build_kit.model import Frozen
+from agent_build_kit.path_discovery import checkout_root
 from agent_build_kit.pipeline.file_lock import atomic_write_text
 from agent_build_kit.pipeline.shell import git
 
@@ -95,8 +96,7 @@ def current() -> TickRecord | None:
 
 def kit_checkout() -> Path | None:
     """The work tree the package was imported from; None when it is not in one."""
-    found = git(PACKAGE_DIR, "rev-parse", "--show-toplevel", check=False)
-    return Path(found.stdout.strip()).resolve() if found.returncode == 0 else None
+    return checkout_root(PACKAGE_DIR)
 
 
 def start_record(state_dir: Path, checkouts: Mapping[str, Path]) -> TickRecord:

@@ -35,6 +35,7 @@ import sys
 import tempfile
 from pathlib import Path
 
+from agent_build_kit.path_discovery import checkout_root
 from agent_build_kit.pipeline.command_policy import (
     Verdict,
     check_command,
@@ -86,24 +87,7 @@ FILE_TOOLS = ("Edit", "Write", "MultiEdit", "NotebookEdit")
 
 def _checkout_of(path: Path) -> Path | None:
     """The git checkout `path` is in (it need not exist yet), or None."""
-    existing = path
-    while not existing.exists():
-        if existing.parent == existing:
-            return None
-        existing = existing.parent
-    try:
-        result = subprocess.run(
-            ["git", "rev-parse", "--show-toplevel"],
-            cwd=existing if existing.is_dir() else existing.parent,
-            capture_output=True,
-            text=True,
-            timeout=10,
-            check=True,
-        )
-    except (OSError, subprocess.SubprocessError):
-        return None
-    top = result.stdout.strip()
-    return Path(top).resolve() if top else None
+    return checkout_root(path)
 
 
 def _check_file_write(

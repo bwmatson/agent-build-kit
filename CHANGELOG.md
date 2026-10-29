@@ -101,6 +101,10 @@
   instead of sharing a folder. `abk doctor` notes worktrees under another folder and warns
   about registered ones whose directory is gone, and a runbook describes moving the root.
 
+- Every lookup of the git checkout a path is in now goes through one shared module, which also
+  offers the nearest existing folder of a path and a search for the nearest file above a
+  folder, so the lookups answer the same way.
+
 - The kit's own time-limit tests hold their child pytest code in files that the linters
   check, not in strings, and a test fails a new module that builds a child's source as a
   string.
