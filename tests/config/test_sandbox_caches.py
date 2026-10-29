@@ -25,7 +25,10 @@ def test_a_repo_accepts_a_caches_list_with_a_tilde_path(tmp_path: Path) -> None:
 
 
 def test_a_project_accepts_a_caches_list(tmp_path: Path) -> None:
-    body = "    projects:\n      - path: web\n        sandbox:\n          caches: [~/.cache/web-tool]\n"
+    body = (
+        "    projects:\n      - path: web\n        sandbox:\n"
+        "          caches: [~/.cache/web-tool]\n"
+    )
 
     repo = loaded(tmp_path, body)
 
@@ -48,5 +51,6 @@ def test_a_caches_value_that_is_not_a_list_is_refused_naming_the_key(tmp_path: P
     with pytest.raises(ConfigError, match="caches"):
         loaded(
             tmp_path,
-            "    projects:\n      - path: web\n        sandbox:\n          caches: ~/.cache/web-tool\n",
+            "    projects:\n      - path: web\n        sandbox:\n"
+            "          caches: ~/.cache/web-tool\n",
         )
