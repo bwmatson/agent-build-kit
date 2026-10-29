@@ -2271,7 +2271,14 @@ def _failure_sections(toolchain: ToolchainProfile, output: str) -> dict[str, str
     return reader(output) if reader is not None else {}
 
 
-def expand_template(template: str, changed_files: list[str], failed_ids: list[str]) -> list[str]:
+def expand_template(
+    template: str,
+    changed_files: list[str],
+    failed_ids: list[str],
+    *,
+    workers: str | int = "auto",
+    max_workers: int = 8,
+) -> list[str]:
     """The argv a `command`-mode template stands for: each placeholder, a word of its
     own, becomes one argument per file or identifier, whatever characters they hold."""
     words = dict(zip(TEMPLATE_PLACEHOLDERS, (changed_files, failed_ids), strict=True))
