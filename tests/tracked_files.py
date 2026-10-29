@@ -17,18 +17,20 @@ from agent_build_kit.pipeline.shell import git
 ROOT = Path(__file__).resolve().parents[1]
 # Vendored and built folders, skipped wherever they sit below the folder a guard reads.
 SKIPPED_DIRS = frozenset({"node_modules", ".venv", "__pycache__", "dist"})
+LISTING_RETRIES = 3
 BUILT_WEB = Path("src/agent_build_kit/serve/static")
 
 
 class PlanningDirs(Frozen):
     specs_dir: str
     state_dir: str
+    reports_dir: str
 
 
 def planning_dirs(root: Path) -> PlanningDirs:
-    """The specification and state folders of `root`'s `abk.yaml`; the default specification
-    folder of `PlanningConfig` and the legacy `runs` state folder where the file, the section or
-    the key is absent."""
+    """The specification, state and track-report folders of `root`'s `abk.yaml`; the default
+    specification folder of `PlanningConfig`, the legacy `runs` state folder and `docs/reports`
+    where the file, the section or the key is absent."""
     defaults = PlanningConfig()
     try:
         loaded = yaml.safe_load((root / "abk.yaml").read_text())
@@ -39,15 +41,39 @@ def planning_dirs(root: Path) -> PlanningDirs:
     return PlanningDirs(
         specs_dir=str(section.get("specs_dir") or defaults.specs_dir),
         state_dir=str(section.get("state_dir") or "runs"),
+        reports_dir=str(section.get("reports_dir") or "docs/reports"),
     )
 
 
+def inside_a_repository(root: Path) -> bool:
+    """Whether `root` or a parent holds a `.git` entry; read from the disk, so it cannot fail the
+    way a git command does under load."""
+    return any((folder / ".git").exists() for folder in (root, *root.parents))
+
+
 def tracked(root: Path) -> list[Path]:
-    """The paths under `root` git tracks, relative to it; the walked tree outside a repository."""
+    """The paths under `root` git tracks, relative to it; the walked tree outside a repository.
+    Inside one a failed listing is tried again and then raised, never answered with the walked
+    tree, which holds files git does not track."""
     listed = git(root, "ls-files", "-z", check=False)
-    if listed.returncode == 0:
-        return [Path(name) for name in listed.stdout.split("\0") if name]
-    return [path.relative_to(root) for path in root.rglob("*") if path.is_file()]
+    for _ in range(LISTING_RETRIES):
+        if listed.returncode == 0:
+            break
+        listed = git(root, "ls-files", "-z", check=False)
+    if listed.returncode != 0:
+        if inside_a_repository(root):
+            listed.check_returncode()
+        return [path.relative_to(root) for path in root.rglob("*") if path.is_file()]
+    return [Path(name) for name in listed.stdout.split("\0") if name]
+
+
+def lines_of(path: Path, errors: str = "strict") -> list[str]:
+    """The lines of a scanned file; none for one that is binary (under the default `errors`) or
+    that another process removed after git listed it."""
+    try:
+        return path.read_text(errors=errors).splitlines()
+    except (UnicodeDecodeError, FileNotFoundError):
+        return []
 
 
 def skipped(path: Path, below: Path) -> bool:
@@ -69,7 +95,8 @@ def guarded_files(
     """The tracked files below each folder of `under` (the whole tree when empty), plus the root
     files of `names` that exist, filtered by `suffixes` when given. The specification folder is
     left out unless `specs`; the state folder is always left out (name a file of it in `names`).
-    Hidden, vendored and built folders below a folder of `under` are skipped. Sorted. A caller that
+    Hidden, vendored and built folders below a folder of `under` are skipped, as is a tracked
+    file already gone from the disk (another test or a checkout removed it). Sorted. A caller that
     already read the planning folders passes them as `dirs`."""
     dirs = dirs or planning_dirs(root)
     left_out = [Path(dirs.state_dir)] + ([] if specs else [Path(dirs.specs_dir)])
@@ -78,7 +105,11 @@ def guarded_files(
         if any(folder in (relative, *relative.parents) for folder in left_out):
             continue
         for top in [Path(name) for name in under] or [Path()]:
-            if top in relative.parents and not skipped(relative, top):
+            if (
+                top in relative.parents
+                and not skipped(relative, top)
+                and (root / relative).exists()
+            ):
                 found.add(root / relative)
                 break
     found.update(root / name for name in names if (root / name).is_file())

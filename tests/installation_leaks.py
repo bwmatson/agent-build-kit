@@ -24,7 +24,7 @@ import yaml
 from agent_build_kit.config import OVERLAY_FILENAME
 from agent_build_kit.pipeline.shell import git
 from agent_build_kit.scrub_terms import ISSUE_REFERENCE, REPLACEMENT, TOOL_DIRS
-from tests.tracked_files import PlanningDirs, guarded_files, planning_dirs
+from tests.tracked_files import PlanningDirs, guarded_files, lines_of, planning_dirs
 
 SCANNED = ("src", "tests", "docs", "web", "openspec")
 # The root files read when present; `abk.yaml` and the tracked unit store are planning
@@ -111,7 +111,7 @@ def file_hits(root: Path, path: Path, found: re.Pattern | Callable[[str], object
     matches = found.search if isinstance(found, re.Pattern) else found
     return [
         f"{path.relative_to(root)}:{number}: {line.strip()[:100]}"
-        for number, line in enumerate(path.read_text(errors="replace").splitlines(), start=1)
+        for number, line in enumerate(lines_of(path, errors="replace"), start=1)
         if matches(line)
     ]
 

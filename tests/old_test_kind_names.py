@@ -11,7 +11,7 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
-from tests.tracked_files import guarded_files
+from tests.tracked_files import guarded_files, lines_of, planning_dirs
 
 # Built in parts so this file carries no old spelling for the guard to find.
 OLD_SPELLING = re.compile("ti" + "er[-_ ]?([12]|one|two)", re.IGNORECASE)
@@ -36,23 +36,22 @@ EXEMPT_NAMES = frozenset(
 EXEMPT_PREFIXES = ("test_config_migrate_test_kind_keys",)
 
 
-def exempt(path: Path) -> bool:
-    return path.name in EXEMPT_NAMES or path.name.startswith(EXEMPT_PREFIXES)
+def exempt(path: Path, reports: Path) -> bool:
+    """A named file, or a track report under the root-relative `reports` folder: those record
+    what the tracks saw, unit ids included."""
+    return (
+        reports in path.parents
+        or path.name in EXEMPT_NAMES
+        or path.name.startswith(EXEMPT_PREFIXES)
+    )
 
 
 def candidates(root: Path) -> list[Path]:
-    found = guarded_files(root, under=SCANNED, names=["pyproject.toml"])
-    found += [p for p in guarded_files(root, suffixes=[".md"]) if p.parent == root]
-    return [p for p in found if not exempt(p)]
-
-
-def lines_of(path: Path) -> list[str]:
-    """The lines of a scanned file; none for one that is binary or that another process removed
-    after git listed it."""
-    try:
-        return path.read_text().splitlines()
-    except (UnicodeDecodeError, FileNotFoundError):
-        return []
+    dirs = planning_dirs(root)
+    reports = root / dirs.reports_dir
+    found = guarded_files(root, under=SCANNED, names=["pyproject.toml"], dirs=dirs)
+    found += [p for p in guarded_files(root, suffixes=[".md"], dirs=dirs) if p.parent == root]
+    return [p for p in found if not exempt(p, reports)]
 
 
 def old_spelling_problems(root: Path) -> list[str]:
