@@ -50,7 +50,13 @@ from agent_build_kit.forges.base import cancelled_names, failing_names
 from agent_build_kit.model import Frozen
 from agent_build_kit.pipeline import spans
 from agent_build_kit.pipeline.check_runner import worktree_at
-from agent_build_kit.pipeline.flakes import FailedOnBase, FlakeFound, OnFlake, waiting_note
+from agent_build_kit.pipeline.flakes import (
+    FailedOnBase,
+    FlakeFound,
+    OnFlake,
+    is_fix_change,
+    waiting_note,
+)
 from agent_build_kit.pipeline.landing_intent import clear_intent, has_intent
 from agent_build_kit.pipeline.pr_poller import (  # noqa: F401 — FAILING_CHECKS_REASON re-exported
     CONFLICT_REASON,
@@ -2333,20 +2339,19 @@ def build_restack(
                 )
         except (FlakeFound, FailedOnBase) as found:
             flakes = found.flakes if isinstance(found, FlakeFound) else found.failures
-            if isinstance(found, FlakeFound) and found.scoped:
+            if (isinstance(found, FlakeFound) and found.scoped) or is_fix_change(child.change):
                 # Not this branch's fault, and the suite runs in CI: recorded, and the
-                # branch goes on to its push without waiting for the fix.
+                # branch goes on to its push without waiting for the fix. A unit of a fix
+                # change waits on no other fix, so it goes on for any such failure.
                 recorded = (
-                    [on_flake(child, flake, wait=False) for flake in found.flakes]
-                    if on_flake
-                    else []
+                    [on_flake(child, flake, wait=False) for flake in flakes] if on_flake else []
                 )
                 if not all(recorded) and on_flake:
                     # A unit of the flake's own fix change: its fix did not work.
                     raise RuntimeError(
                         f"{branch} moved onto {new_base} but its checks fail — "
                         f"left unpushed, with the reviewable head still on the remote:\n"
-                        f"{found.flakes[0].output}"
+                        f"{flakes[0].output}"
                     ) from found
                 passed, output = True, ""
             else:

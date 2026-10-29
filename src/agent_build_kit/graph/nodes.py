@@ -1683,7 +1683,7 @@ class BuildPath:
         try:
             ok, output = r.run_unit_test(cwd=tree, base=ref, whole_repo=True)
         except FlakeFound as found:
-            ok, output = False, found.flakes[0].output
+            ok, output = self.set_aside(found)
         except FailedOnBase as failed:
             if (parked := self.wait_for_fix(failed)) is not None:
                 return parked
@@ -1802,7 +1802,7 @@ class BuildPath:
             except FlakeFound as found:
                 if (parked := self.wait_for_fix(found)) is not None:
                     raise CheckParked({**parked, "checks_ok": False}) from found
-                ok, output = False, found.flakes[0].output
+                ok, output = self.set_aside(found)
             except FailedOnBase as failed:
                 if (parked := self.wait_for_fix(failed)) is not None:
                     raise CheckParked({**parked, "checks_ok": False}) from failed
@@ -1940,9 +1940,12 @@ class BuildPath:
         """Unit-test failed only on tests that passed alone, or on tests that are not the
         unit's: the unit is not failed for them. It waits, gated, for the change that fixes
         them, and runs unit-test again once that has merged. None when there is nothing to
-        wait on, because the unit builds that fix: the failure is then a unit-test failure
-        the unit's agent is told of."""
+        wait on: the unit builds that fix, so the failure is a unit-test failure its agent
+        is told of, or the unit is a unit of a fix change, which waits on no other fix and
+        is handled by `set_aside`."""
         r, unit = self.runner, self.unit
+        if is_fix_change(unit.change):
+            return None
         flakes = found.flakes if isinstance(found, FlakeFound) else found.failures
         fixes = [r.on_flake(unit, flake) for flake in flakes]
         if not any(fixes):
@@ -1951,13 +1954,18 @@ class BuildPath:
             waiting_note([flake.test for flake in flakes], failing=isinstance(found, FailedOnBase))
         )
 
-    def set_aside(self, failed: FailedOnBase) -> tuple[bool, str]:
-        """The result of a unit-test run that failed only on tests that fail on the base too,
-        once they are recorded and fixed: a unit of a fix change passes for them, since they
-        are not its own and it waits on no other fix. Any other unit is failed for them."""
+    def set_aside(self, found: FlakeFound | FailedOnBase) -> tuple[bool, str]:
+        """The result of a unit-test run whose failed tests are all ones that passed alone or
+        fail on the base (`found`), after `wait_for_fix` has not parked the unit. A unit of a
+        fix change records each through `on_flake` without waiting, and passes only when every
+        one has a fix change that is not its own; a test its own change fixes still fails it.
+        Any other unit is failed for them."""
+        flakes = found.flakes if isinstance(found, FlakeFound) else found.failures
         if is_fix_change(self.unit.change):
-            return True, ""
-        return False, failed.failures[0].output
+            fixes = [self.runner.on_flake(self.unit, flake, wait=False) for flake in flakes]
+            if all(fixes):
+                return True, ""
+        return False, flakes[0].output
 
     def wait_for_open_fix(self, output: str) -> Update | None:
         """A failed unit-test run whose failed tests include one that an open change already
@@ -2440,7 +2448,7 @@ class BuildPath:
             elif (parked := self.wait_for_fix(found)) is not None:
                 return parked
             else:
-                ok, output = False, found.flakes[0].output
+                ok, output = self.set_aside(found)
         except FailedOnBase as failed:
             if (parked := self.wait_for_fix(failed)) is not None:
                 return parked

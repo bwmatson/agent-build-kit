@@ -1863,13 +1863,13 @@ def build_unit_test(
         evidence: tuple[Path, tuple[datetime, dict[str, object], dict[str, object]]] | None = None,
     ) -> bool:
         """Run the failed tests again, alone and serially, twice. Raises `FailedOnBase`, before
-        any rerun, for tests an open change already fixes. Raises `FlakeFound` when
-        they pass both times, marked scoped when `own` (the tests the unit added or changed,
-        given by a moved base's run) is given, unless one of them is the unit's own, which
-        is never excused: that is a failure. A test that fails alone is run on `base` (the
-        unit's own, given by a full run) unless the unit wrote it: `FailedOnBase` when every
-        one fails there too, and so does a failure of the time limit alone, which the base
-        cannot tell apart. Returns False when any fails again, or the
+        any rerun, when an open change already fixes every one of the failed tests. Raises
+        `FlakeFound` when they pass both times, marked scoped when `own` (the tests the unit
+        added or changed, given by a moved base's run) is given, unless one of them is the
+        unit's own, which is never excused: that is a failure. A test that fails alone is run
+        on `base` (the unit's own, given by a full run) unless the unit wrote it:
+        `FailedOnBase` when every one fails there too, and so does a failure of the time
+        limit alone, which the base cannot tell apart. Returns False when any fails again, or the
         profile cannot say which tests failed, so the failure stands. Returns True when more than
         `global_limits.max_flakes_per_run` tests failed and passed both reruns: a disturbed run, not
         that many flaky tests, so it is recorded as one storm, no fix change is written, and the
@@ -1924,7 +1924,10 @@ def build_unit_test(
                 for test in names
             )
 
-        if covered := covered_tests(tests):
+        covered = covered_tests(tests)
+        if covered and len(covered) == len(tests):
+            # Only when every failed test has a fix: one that has none is rerun and checked
+            # on the base, so it is not lost behind the others.
             raise FailedOnBase(flakes_of(covered))
         if set(tests) <= stormed.get(spans.current_unit.get(), set()):
             # Another command of this round failed these same tests, which passed alone and were
@@ -2073,9 +2076,9 @@ def build_on_flake(
     store: UnitStore, installation: Installation, *, log: Callable[[str], None] = print
 ) -> OnFlake:
     """Record a flake a unit met and make sure the one change that fixes it exists; with
-    `wait` (the default) the unit waits on that change, without it no `Needs:` line is
-    added. Returns that change, or None for a unit of the change itself, which has nothing
-    to wait on."""
+    `wait` (the default) the unit waits on that change, without it, or for a unit of a fix
+    change, no `Needs:` line is added. Returns that change, or None for a unit of the change
+    itself, which has nothing to wait on."""
 
     def on_flake(unit: Unit, flake: Flake, *, wait: bool = True) -> str | None:
         met = flake.model_copy(update={"unit": unit.id})

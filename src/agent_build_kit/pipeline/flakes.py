@@ -91,8 +91,9 @@ class FailedOnBase(Exception):
 @runtime_checkable
 class OnFlake(Protocol):
     """Told the unit and a flake it met: records it and makes sure the one change that fixes
-    it exists, and with `wait` has the unit wait on that change. Answers the change, or None
-    for a unit of the change itself, which has nothing to wait on."""
+    it exists, and with `wait` has the unit wait on that change, unless it is a unit of a fix
+    change, which waits on no other fix. Answers the change, or None for a unit of the
+    change itself, which has nothing to wait on."""
 
     def __call__(self, unit: Unit, flake: Flake, *, wait: bool = True) -> str | None: ...
 
@@ -157,17 +158,17 @@ def wait_on_fix(
     inst: Installation, flake: Flake, unit: StoredUnit, *, wait: bool = True
 ) -> str | None:
     """Make sure the one open change that fixes `flake.test` exists, under the state
-    directory's lock, and with `wait` give each group of `unit` a `Needs:` line on it.
-    Returns the change's name, or None for a unit of that change itself, which waits on
-    nothing."""
+    directory's lock, and with `wait` give each group of `unit` a `Needs:` line on it, unless
+    `unit` is of a fix change: that waits on no other fix. Returns the change's name, or None
+    for a unit of that change itself, which waits on nothing."""
     with file_lock(inst.state_dir / "flakes.lock"):
         name, earlier = open_fix_change(inst, flake.test)
         if name is None:
             name = next_fix_name(inst, flake.test)
             _write_change(inst, name, flake, unit, earlier=earlier)
-        if is_fix_change(unit.change):
+        if unit.change == name:
             return None
-        if wait:
+        if wait and not is_fix_change(unit.change):
             kind = "failing" if flake.failing else "flaky"
             add_needs_to_unit(inst, unit, name, f"{kind} test {flake.test}")
         return name

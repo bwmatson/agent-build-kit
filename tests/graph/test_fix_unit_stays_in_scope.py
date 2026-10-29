@@ -13,7 +13,13 @@ from pathlib import Path
 from typing import Any
 
 from agent_build_kit.installation import Installation
-from agent_build_kit.pipeline.flakes import FailedOnBase, Flake, fix_change_name
+from agent_build_kit.pipeline.flakes import (
+    FailedOnBase,
+    Flake,
+    FlakeFound,
+    fix_change_name,
+    flake_record,
+)
 from agent_build_kit.pipeline.stack_runner import RunStatus
 from agent_build_kit.pipeline.unit_store import Cause
 from agent_build_kit.pipeline.units import PLANNED
@@ -23,7 +29,8 @@ from tests.conftest import make_installation
 from tests.e2e_base_fakes import pytest_output
 from tests.factories import stored_unit, unit
 from tests.graph_driver import fresh, tick
-from tests.pipeline.test_flake_fix_change import TASKS, TEST
+from tests.pipeline.test_flake_fix_change import TASKS, TEST, code_repo
+from tests.pipeline.test_moved_base_flake import restacking
 from tests.runner_fakes import Recorder
 
 OTHER = "tests/test_gadget.py::test_draws_the_frame"
@@ -178,3 +185,58 @@ def test_two_fix_units_for_different_tests_both_complete_their_checks(tmp_path: 
     assert needs_of(installation, second_change) == []
     for uid in (f"{first_change}/1", f"{second_change}/1"):
         assert recorder.store.get(uid).cause is not Cause.GATED
+
+
+def raises(error: Exception):
+    def run(**kwargs: Any):
+        raise error
+
+    return run
+
+
+def test_a_fix_unit_still_fails_for_the_test_its_own_change_fixes(tmp_path: Path) -> None:
+    own_change = fix_change_name(OWN, "fix-test")
+    installation, recorder, subject, log = checked(tmp_path, own_change)
+
+    run(tmp_path, recorder, subject, installation, log, on_base(OWN))
+
+    assert "claude:fix_checks" in recorder.events, "its fix did not work: its agent is told"
+    assert recorder.store.get(f"{own_change}/1").cause is not Cause.GATED
+
+
+def test_a_fix_unit_passes_for_another_tests_flake_and_the_record_names_its_fix(
+    tmp_path: Path,
+) -> None:
+    installation, recorder, subject, log = checked(tmp_path, "fix-test-mine")
+
+    outcome = run(
+        tmp_path, recorder, subject, installation, log, raises(FlakeFound((failure(OTHER),)))
+    )
+
+    assert outcome.status != RunStatus.HELD
+    assert "claude:fix_checks" not in recorder.events
+    assert needs_of(installation, "fix-test-mine") == []
+    (recorded,) = flake_record(installation).entries()
+    assert recorded.change == fix_change_name(OTHER, "fix-test"), "the row carries the fix change"
+
+
+def restacked(installation: Installation, error: Exception) -> list[str]:
+    """The pushes of a restack of a unit of `fix-test-mine` whose unit-test run raises `error`."""
+    code_repo(installation)
+    store, pushed, run_restack = restacking(installation, "fix-test-mine", raises(error))
+    run_restack()
+    assert needs_of(installation, "fix-test-mine") == []
+    assert store.get("fix-test-mine/1").cause is not Cause.GATED
+    return pushed
+
+
+def test_a_restacked_fix_unit_goes_on_for_a_scoped_flake_of_another_test(
+    installation: Installation,
+) -> None:
+    assert restacked(installation, FlakeFound((failure(TEST),), scoped=True)) == ["pushed"]
+
+
+def test_a_restacked_fix_unit_goes_on_for_a_failure_that_fails_on_the_base(
+    installation: Installation,
+) -> None:
+    assert restacked(installation, FailedOnBase((failure(TEST),))) == ["pushed"]
