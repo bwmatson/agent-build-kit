@@ -21,7 +21,7 @@ from collections.abc import Callable, Collection, Hashable, Iterable, Mapping, S
 from datetime import datetime
 from enum import IntEnum, StrEnum
 from pathlib import Path
-from typing import Self
+from typing import Protocol, Self, runtime_checkable
 
 from pydantic import Field
 
@@ -256,6 +256,15 @@ def count_by[K: Hashable](
     return totals
 
 
+@runtime_checkable
+class Recorded(Protocol):
+    """A unit as the store records it: the branch it is on and the pull requests it has had
+    (`StoredUnit`, which this module cannot import)."""
+
+    branch: str
+    pulls: tuple[object, ...]
+
+
 def branch_name(unit: Unit) -> str:
     """`spec/<change>/<n>` — deterministic, so a re-run reuses the branch.
 
@@ -268,9 +277,8 @@ def branch_name(unit: Unit) -> str:
     (`<name>-fix<k>`), so the one name every builder reads follows the unit to its second pull
     request.
     """
-    recorded = getattr(unit, "branch", "")
-    if recorded and getattr(unit, "pulls", ()):
-        return recorded
+    if isinstance(unit, Recorded) and unit.branch and unit.pulls:
+        return unit.branch
     return f"{active().git.branch_prefix}{unit.id}"
 
 

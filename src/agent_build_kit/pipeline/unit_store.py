@@ -22,7 +22,7 @@ from __future__ import annotations
 import functools
 import json
 import time
-from collections.abc import Callable, Collection, Mapping, Sequence
+from collections.abc import Callable, Collection, Iterable, Mapping, Sequence
 from contextlib import AbstractContextManager
 from datetime import datetime, timedelta
 from enum import StrEnum
@@ -208,6 +208,12 @@ class E2eState(StrEnum):
     DEFERRED = "deferred"
     FAILED = "failed"
     NOT_REQUIRED = "not-required"
+
+
+def unit_id_of_branch(units: Iterable[StoredUnit], branch: str, prefix: str) -> str:
+    """The id of the unit that has `branch` recorded as its own (a late fix's branch is not
+    spelled from its id), else the id the branch's name spells after `prefix`."""
+    return next((unit.id for unit in units if unit.branch == branch), branch.removeprefix(prefix))
 
 
 def feedback_source_of(rework: ReworkKind | None) -> FeedbackSource:
@@ -1396,9 +1402,24 @@ class UnitStore:
     def set_pulls(self, unit_id: str, pulls: Sequence[Pull]) -> None:
         self._update(unit_id, pulls=tuple(pulls))
 
-    def clear_pr(self, unit_id: str) -> None:
-        """Forget the active pull request: a late fix has none until it is opened."""
-        self._update(unit_id, pr=None)
+    def clear_first_branch(self, unit_id: str) -> None:
+        """Forget what describes the head of the branch a late fix leaves: its pull request,
+        what was pushed and approved, the check re-runs, the conflict attempts and the e2e-test
+        state. The late fix's own branch starts with none of them."""
+        self._update(
+            unit_id,
+            pr=None,
+            pushed=None,
+            pushed_at=None,
+            approved="",
+            check_rerun_head="",
+            check_reruns=0,
+            conflict_tip="",
+            conflict_head="",
+            conflict_attempts=0,
+            conflict_at=None,
+            e2e_state=None,
+        )
 
     def set_close_pending(self, unit_id: str, pending: ClosePending | None) -> None:
         """The close a satisfied unit still owes its pull request, or None once done."""

@@ -17,7 +17,7 @@ import json
 import subprocess
 import tempfile
 from collections.abc import Callable
-from contextlib import contextmanager
+from contextlib import AbstractContextManager, contextmanager, nullcontext
 from pathlib import Path
 
 from agent_build_kit.model import Frozen
@@ -52,20 +52,30 @@ def patch_id(repo: Path, sha: str) -> str | None:
 
 
 @contextmanager
-def worktree_at(repo: Path, sha: str):
+def worktree_at(
+    repo: Path,
+    sha: str,
+    *,
+    turn: Callable[[], AbstractContextManager[object]] = nullcontext,
+):
     """A detached worktree at `sha`, removed however the block exits.
 
     Cleanup matters more than it looks: a leaked worktree makes every later
     run fail with "already exists", turning one bad run into all of them.
+
+    `turn` is entered around adding and around removing the worktree, not around the block,
+    for a caller that shares the repository with others whose git locks fail rather than wait.
     """
     with tempfile.TemporaryDirectory(prefix=WORKTREE_PREFIX) as tmp:
         path = Path(tmp) / "tree"
-        git_out(repo, "worktree", "add", "--detach", "-q", str(path), sha)
+        with turn():
+            git_out(repo, "worktree", "add", "--detach", "-q", str(path), sha)
         try:
             yield path
         finally:
-            git(repo, "worktree", "remove", "--force", str(path), check=False)
-            git_out(repo, "worktree", "prune")
+            with turn():
+                git(repo, "worktree", "remove", "--force", str(path), check=False)
+                git_out(repo, "worktree", "prune")
 
 
 def run_at_commit(

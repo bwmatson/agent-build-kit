@@ -18,15 +18,15 @@ from agent_build_kit.cli.pipeline import evaluate_manual_waits, store_for
 from agent_build_kit.installation import Installation
 from agent_build_kit.pipeline.manual_steps import MANUAL_FOLDER, unmet_steps
 from agent_build_kit.pipeline.shell import git
-from agent_build_kit.pipeline.unit_store import StoredUnit
+from agent_build_kit.pipeline.unit_store import StoredUnit, unit_id_of_branch
 from agent_build_kit.pipeline.units import BUILDS_NOTHING, FINISHED_STATES, ManualStep
 
 
-def _unit_id(worktree: Path, prefix: str) -> str:
+def _unit_id(worktree: Path, prefix: str, units: list[StoredUnit]) -> str:
     branch = git(worktree, "rev-parse", "--abbrev-ref", "HEAD", check=False).stdout.strip()
     if not branch.startswith(prefix):
         raise Refused(f"the worktree is on `{branch}`, not on a unit's {prefix}<change>/<n>")
-    return branch.removeprefix(prefix)
+    return unit_id_of_branch(units, branch, prefix)
 
 
 def _script(worktree: Path, check: str) -> Path:
@@ -60,8 +60,8 @@ def _runs_in_time(script: Path, worktree: Path, seconds: int) -> None:
 def cmd_manual_raise(args: argparse.Namespace, inst: Installation) -> int:
     try:
         worktree = worktree_root()
-        unit_id = _unit_id(worktree, inst.config.git.branch_prefix)
         store = store_for(inst)
+        unit_id = _unit_id(worktree, inst.config.git.branch_prefix, store.all())
         try:
             held = store.get(unit_id)
         except KeyError:

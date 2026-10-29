@@ -11,8 +11,9 @@ import argparse
 import sys
 
 from agent_build_kit.installation import Installation
-from agent_build_kit.pipeline.unit_store import KEEP
-from agent_build_kit.pipeline.units import MERGED, SETTLING
+from agent_build_kit.pipeline.events import build_claim, settle_merged
+from agent_build_kit.pipeline.units import SETTLING
+from agent_build_kit.pipeline.workspaces import BranchBusy
 
 
 def cmd_settle(args: argparse.Namespace, inst: Installation) -> int:
@@ -32,13 +33,24 @@ def cmd_settle(args: argparse.Namespace, inst: Installation) -> int:
             file=sys.stderr,
         )
         return 2
-    if unit.state != SETTLING:
-        print(f"abk settle: {unit.id} is {unit.state}, not settling", file=sys.stderr)
+    try:
+        # The unit's branch lock, as the poller's handlers take it: a tick running the failed
+        # check's tests on the base holds it and writes the unit's next state.
+        with build_claim(inst.locks_dir)(unit):
+            current = store.get(unit.id)
+            if current.state != SETTLING:
+                print(f"abk settle: {current.id} is {current.state}, not settling", file=sys.stderr)
+                return 1
+            why = f": {args.reason}" if args.reason else ""
+            settle_merged(
+                store,
+                current,
+                lambda each: pipe.merge_record_of(inst, each),
+                note=f"accepted as merged by a person{why}",
+            )
+    except BranchBusy:
+        print(f"abk settle: a tick is handling {unit.id}; try again shortly", file=sys.stderr)
         return 1
-    sha, tick = pipe._merge_record(inst, unit)  # noqa: SLF001 — the one reader of a merge's record
-    store.set_merge_record(unit.id, unit.merge_sha or sha, tick)
-    why = f": {args.reason}" if args.reason else ""
-    store.set_state(unit.id, MERGED, note=f"accepted as merged by a person{why}", cause=KEEP)
     print(f"{unit.id}: merged (accepted while settling)")
     return 0
 

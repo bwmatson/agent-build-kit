@@ -11,8 +11,9 @@ import pytest
 
 from agent_build_kit.cli.explain_cmd import cmd_explain
 from agent_build_kit.installation import Installation
+from agent_build_kit.pipeline.pr_poller import PrState, state_path
 from agent_build_kit.pipeline.unit_store import Cause, Pull, UnitStore
-from agent_build_kit.pipeline.units import IN_REVIEW, SETTLING
+from agent_build_kit.pipeline.units import IN_REVIEW, MERGED, PLANNED, SETTLING
 from tests.conftest import make_installation, run_status
 from tests.factories import new_unit
 
@@ -81,7 +82,7 @@ def test_explain_names_the_failure_that_began_the_late_fix(
         IN_REVIEW,
         pr=9,
         branch=FIX_BRANCH,
-        cause=Cause("late_failure"),
+        cause=Cause.LATE_FAILURE,
         note="late failure: check unit-suite failed on the base: tests/test_marker.py::test_a",
     )
     capsys.readouterr()
@@ -93,3 +94,57 @@ def test_explain_names_the_failure_that_began_the_late_fix(
     assert "late fix" in out
     assert "unit-suite" in out
     assert "#4" in out
+
+
+def test_the_settling_line_names_the_checks_still_running_and_not_the_ones_that_passed(
+    inst: Installation,
+    store: UnitStore,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    store.set_state("add-marker/1", SETTLING, pr=4, branch="spec/add-marker/1")
+    store.set_pulls("add-marker/1", (original(),))
+    PrState.save(
+        state_path(inst.state_dir, "app"),
+        {"4": {"checks": {"test": "pending", "lint": "passed"}}},
+    )
+
+    lines = run_status(inst, monkeypatch, capsys)
+
+    line = next(line for line in lines if "settling: waiting for" in line)
+    assert "waiting for test" in line
+    assert "lint" not in line
+
+
+def test_a_merged_unit_that_had_a_late_fix_shows_no_late_fix_line_and_explain_says_nothing_of_it(
+    inst: Installation,
+    store: UnitStore,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    on_late_fix(store)
+    store.set_state("add-marker/1", MERGED)
+
+    lines = run_status(inst, monkeypatch, capsys)
+    code = cmd_explain(argparse.Namespace(unit="add-marker/1", at=None), inst)
+
+    assert not any("late fix" in line for line in lines)
+    assert code == 0
+    assert "is on its late fix" not in capsys.readouterr().out
+
+
+def test_a_unit_waiting_to_build_its_late_fix_is_shown_as_one(
+    inst: Installation,
+    store: UnitStore,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    store.set_state("add-marker/1", SETTLING, pr=4, branch="spec/add-marker/1")
+    store.set_pulls("add-marker/1", (original(),))
+    store.set_state(
+        "add-marker/1", PLANNED, branch=FIX_BRANCH, cause=Cause.LATE_FAILURE, note="late failure"
+    )
+
+    lines = run_status(inst, monkeypatch, capsys)
+
+    assert any("late fix after #4, not opened yet" in line for line in lines)

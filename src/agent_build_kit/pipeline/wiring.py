@@ -160,7 +160,13 @@ from agent_build_kit.pipeline.stack_runner import FixResult, Restacked, UnitRunn
 from agent_build_kit.pipeline.transcript import Transcript, TranscriptEvent, transcript_dir
 from agent_build_kit.pipeline.ui_review import ui_notes_of, ui_reply_writer, unit_patch_of
 from agent_build_kit.pipeline.unit_size import actual_lines, branch_diff, over_ceiling, unit_ceiling
-from agent_build_kit.pipeline.unit_store import Cause, Pull, StoredUnit, UnitStore
+from agent_build_kit.pipeline.unit_store import (
+    Cause,
+    Pull,
+    StoredUnit,
+    UnitStore,
+    unit_id_of_branch,
+)
 from agent_build_kit.pipeline.units import (
     BUILDS_NOTHING,
     IN_REVIEW,
@@ -2341,7 +2347,7 @@ def build_push(
     adopt_head = adopt or adopt_host_head
 
     def do_push(branch: str, *, cwd: Path) -> str:
-        unit_id = branch.removeprefix(active().git.branch_prefix)
+        unit_id = unit_id_of_branch(store.all(), branch, active().git.branch_prefix)
         try:
             last_pushed = store.get(unit_id).pushed
         except KeyError:

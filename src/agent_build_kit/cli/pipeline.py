@@ -299,6 +299,7 @@ from agent_build_kit.pipeline.units import (
     CLOSED,
     EVERY_SLOT,
     FAILED,
+    FINISHED_STATES,
     HELD,
     IN_FLIGHT,
     IN_REVIEW,
@@ -414,6 +415,7 @@ from agent_build_kit.pipeline.wait_log import (
     trim_decision_log,
 )
 from agent_build_kit.pipeline.wiring import (
+    Run,
     build_close_pr,
     build_on_flake,
     build_resume_at,
@@ -3807,9 +3809,15 @@ def _second_parent_lines(units: list[StoredUnit]) -> list[str]:
 
 
 def late_fix_phrase(unit: StoredUnit) -> str:
-    """`late fix #<second> after #<first>` for a unit that has a late fix, else empty."""
+    """`late fix #<second> after #<first>` while a unit is between a late failure and the late
+    fix's settle (`late fix after #<first>, not opened yet` before its pull request exists);
+    empty for any other unit, and for one that has finished."""
+    if unit.state in FINISHED_STATES:
+        return ""
     fixes = [pull for pull in unit.pulls if pull.role == "late-fix"]
     if not fixes:
+        if unit.cause is Cause.LATE_FAILURE and unit.pulls:
+            return f"late fix after #{unit.pulls[-1].number}, not opened yet"
         return ""
     earlier = [pull for pull in unit.pulls if pull.number != fixes[-1].number]
     return f"late fix #{fixes[-1].number} after #{earlier[-1].number}" if earlier else ""
@@ -5718,6 +5726,30 @@ def repo_turn(installation: Installation, repo: str) -> AbstractContextManager[N
     return file_lock(installation.locks_dir / f"repo-{repo}.lock")
 
 
+def build_repo_unit_test(
+    installation: Installation,
+    name: str,
+    *,
+    log: Callable[[str], None],
+    run: Run | None = None,
+) -> Callable[..., tuple[bool, str]]:
+    """The unit-test as repo `name` builds it: its toolchain profile, root extras, projects and
+    settings, and where failure bundles are kept. The one place that is assembled from a repo's
+    configuration, for a unit's own checks, a moved-base run and the default-branch check of a
+    late failure."""
+    repo = installation.repo(name)
+    make = partial(
+        build_unit_test,
+        profile=profiles.get(repo.profile),
+        root_extras=repo.tests.root_extras,
+        projects=repo.projects,
+        repo=repo,
+        log=log,
+        failures_dir=failure_bundles_dir(installation.state_dir),
+    )
+    return make() if run is None else make(run=run)
+
+
 class StackMoves(TypedDict):
     """What moves and cleans up after a unit that leaves the stack, merged or
     satisfied, by the names `build_dispatch` and `release_children`
@@ -6020,15 +6052,9 @@ def build_stack_moves(
                 None,
             ) or repo_sharing(checkouts, cwd)
         if name is not None:
-            repo = installation.repo(name)
-            return build_unit_test(
-                profile=profiles.get(repo.profile),
-                root_extras=repo.tests.root_extras,
-                projects=repo.projects,
-                repo=repo,
-                log=log,
-                failures_dir=failure_bundles_dir(installation.state_dir),
-            )(cwd=cwd, base=base, moved_from=moved_from)
+            return build_repo_unit_test(installation, name, log=log)(
+                cwd=cwd, base=base, moved_from=moved_from
+            )
         raise ValueError(f"{cwd} is not a checkout of any repo or a worktree of one")
 
     return {
@@ -6092,17 +6118,22 @@ def _dispatch(
         ),
         fetch_checks=build_fetch_check_logs(),
         rerun_checks=build_rerun_checks(),
-        base_passes=build_base_passes(inst.checkouts),
+        base_passes=build_base_passes(
+            inst.checkouts,
+            unit_test_of=lambda name: build_repo_unit_test(inst, name, log=say),
+            turn=lambda name: repo_turn(inst, name),
+            log=say,
+        ),
         # A pass polls between builds, so an event may name a unit still
         # building; the handlers leave it to a later poll. See `events`.
         waiting_path=inst.state_dir / "held-waiting.json",
         landing_path=inst.state_dir / landing_intent.LANDING,
-        merge_record=lambda unit: _merge_record(inst, unit),
+        merge_record=lambda unit: merge_record_of(inst, unit),
         log=say,
     )
 
 
-def _merge_record(inst: Installation, unit: StoredUnit) -> tuple[str | None, int | None]:
+def merge_record_of(inst: Installation, unit: StoredUnit) -> tuple[str | None, int | None]:
     """The merge commit of a unit just seen merged and the number of the tick that saw it;
     None for what cannot be read (a forge that answers nothing, no tick record yet)."""
     sha = unit.merge_sha

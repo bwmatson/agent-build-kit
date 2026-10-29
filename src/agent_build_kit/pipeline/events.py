@@ -33,6 +33,7 @@ overwritten by the state the build records when it ends.
 from __future__ import annotations
 
 import json
+import subprocess
 import threading
 from collections.abc import Callable, Mapping, Sequence
 from contextlib import AbstractContextManager, nullcontext
@@ -348,25 +349,51 @@ def on_settled(
             current = store.get(unit.id)
             if current.state != SETTLING:
                 return True
-            sha, tick = merge_record(current) if merge_record is not None else (None, None)
-            store.set_merge_record(current.id, current.merge_sha or sha, tick)
-            store.set_state(current.id, MERGED, cause=KEEP)
+            settle_merged(store, current, merge_record)
             log(f"settled #{pr}: {current.id} merged, every check complete")
     except BranchBusy as error:
         return _deferred(f"settled #{pr}", unit, error, log)
     return True
 
 
-def build_base_passes(repos: dict[str, Path]) -> Callable[[StoredUnit, str], bool]:
-    """Run a late-failed check's tests on the current default branch of the unit's repo, in a
-    detached worktree, with the repo's own test command (narrowed by the check's log where the
-    repo's affected-tests mode is on; the whole tier otherwise)."""
+def settle_merged(
+    store: UnitStore, unit: StoredUnit, merge_record: MergeRecord | None, *, note: str = ""
+) -> None:
+    """Record a settling unit as merged, with the merge commit and the tick that saw it settle:
+    the one way a unit leaves `settling` for `merged`, whether its checks completed, its
+    failure was fixed on the base, or a person accepted the wait."""
+    sha, tick = merge_record(unit) if merge_record is not None else (None, None)
+    store.set_merge_record(unit.id, unit.merge_sha or sha, tick)
+    store.set_state(unit.id, MERGED, note=note, cause=KEEP)
 
-    def passes(unit: StoredUnit, logs: str) -> bool:
+
+def build_base_passes(
+    repos: dict[str, Path],
+    *,
+    unit_test_of: Callable[[str], Callable[..., tuple[bool, str]]],
+    turn: Callable[[str], AbstractContextManager[object]] = lambda repo: nullcontext(),
+    log: Log = print,
+) -> Callable[[StoredUnit, str], bool | None]:
+    """Run the unit-test tier on the current default branch of the unit's repo, in a detached
+    worktree, with the repo's own test command (`unit_test_of(repo name)`: its profile, projects
+    and settings). The whole tier runs, not a selection: the log names what failed, but the
+    framework cannot read test names out of it without knowing the toolchain.
+
+    The worktree is added and removed in the repo's `turn`, not the test run. True when the tier
+    passes there, False when it fails, and None when the base could not be reached (the unit
+    stays settling and is asked again at the next poll).
+    """
+
+    def passes(unit: StoredUnit, logs: str) -> bool | None:
         repo = repos[unit.repo]
-        tip = git_out(repo, "rev-parse", local_ref(trunk_of(unit.repo), repo=unit.repo))
-        with worktree_at(repo, tip) as tree:
-            ok, _ = build_unit_test()(cwd=tree, base=tip, whole_repo=True, failed_output=logs)
+        try:
+            with turn(unit.repo):
+                tip = git_out(repo, "rev-parse", local_ref(trunk_of(unit.repo), repo=unit.repo))
+            with worktree_at(repo, tip, turn=lambda: turn(unit.repo)) as tree:
+                ok, _ = unit_test_of(unit.repo)(cwd=tree, base=tip, whole_repo=True)
+        except (subprocess.CalledProcessError, OSError) as error:
+            log(f"{unit.id}: the default branch could not be checked: {error}")
+            return None
         return ok
 
     return passes
@@ -381,7 +408,7 @@ def late_fix_prompt(pull: PullRequest | None, logs: str, number: int) -> str:
     was merged while its check was failing."""
     failing = ", ".join(failing_names(pull.checks)) if pull else ""
     return (
-        f"The first pull request (#{number}) was merged while its check was failing "
+        f"Pull request #{number} was merged while its check was failing "
         f"({failing or 'unknown'}); fix the failure on this new branch from the default "
         "branch.\n\n"
         f"{logs}"
@@ -395,7 +422,7 @@ def on_late_check(
     pull: PullRequest | None,
     store: UnitStore,
     fetch_checks: Callable[[PullRequest | None], str] | None = None,
-    base_passes: Callable[[StoredUnit, str], bool] | None = None,
+    base_passes: Callable[[StoredUnit, str], bool | None] | None = None,
     claim: Claim = _unclaimed,
     merge_record: MergeRecord | None = None,
     log: Log = print,
@@ -422,15 +449,17 @@ def on_late_check(
                 hold_for_conflict(current, store, note, log, label=f"late check #{pr}")
                 return True
             logs = fetch_checks(pull) if fetch_checks else ""
-            if base_passes is not None and base_passes(current, logs):
-                sha, tick = merge_record(current) if merge_record is not None else (None, None)
-                store.set_merge_record(current.id, current.merge_sha or sha, tick)
+            on_base = base_passes(current, logs) if base_passes is not None else False
+            if on_base is None:
+                log(f"late check #{pr}: {current.id} could not be run on the base, waiting")
+                return True
+            if on_base:
                 excerpt = cut_head(logs, EXCERPT) if logs else ""
-                store.set_state(
-                    current.id,
-                    MERGED,
+                settle_merged(
+                    store,
+                    current,
+                    merge_record,
                     note=f"late failure fixed on the base: check {names}: {excerpt}".strip(),
-                    cause=KEEP,
                 )
                 log(f"late check #{pr}: {current.id} merged, {names} fixed on the base")
                 return True
@@ -441,7 +470,7 @@ def on_late_check(
                 late_fix_prompt(pull, logs, current.pr or pr),
                 source=feedback_source_of(ReworkKind.FAILING_CHECKS),
             )
-            store.clear_pr(current.id)
+            store.clear_first_branch(current.id)
             store.set_state(
                 current.id,
                 PLANNED,
@@ -2494,7 +2523,7 @@ def build_dispatch(
     paused: Callable[[StoredUnit], bool] = lambda unit: False,
     landing_path: Path | None = None,
     merge_record: MergeRecord | None = None,
-    base_passes: Callable[[StoredUnit, str], bool] | None = None,
+    base_passes: Callable[[StoredUnit, str], bool | None] | None = None,
     log: Log = print,
 ) -> Callable[..., bool]:
     """The callable `pr_poller` hands each event to.
