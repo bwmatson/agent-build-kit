@@ -94,8 +94,11 @@ def test_a_linked_worktree_with_everything_ignored_is_ok(tmp_path: Path) -> None
 def test_a_state_directory_outside_the_repository_holds_nothing_to_commit(
     tmp_path: Path,
 ) -> None:
+    # Relative to the planning root, not `str(tmp_path / ...)`: the doctor reads a committed value
+    # that starts `/home/<name>` as a home-directory path, and a temp root under the home
+    # directory (the kit's own, for a pipeline run) would make this value one.
     elsewhere = tmp_path / "elsewhere"
-    config = planning(tmp_path / "plan", ignore="scrub.local\n", state_dir=str(elsewhere))
+    config = planning(tmp_path / "plan", ignore="scrub.local\n", state_dir="../elsewhere")
     put(elsewhere, "units.json.pre-redact")
 
     assert [c.status for c in public_content(config)] == ["ok"]

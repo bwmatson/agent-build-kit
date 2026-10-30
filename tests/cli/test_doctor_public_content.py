@@ -27,11 +27,14 @@ def inside(name: str = "app", slug: str = "example/app") -> dict[str, RepoConfig
 def test_a_repo_path_outside_the_checkout_warns_naming_the_key_not_the_value(
     tmp_path: Path,
 ) -> None:
-    sibling = tmp_path / "sibling-checkout"
-    sibling.mkdir()
+    (tmp_path / "sibling-checkout").mkdir()
+    # Relative to the planning root: an absolute `tmp_path` under the home directory would also
+    # read as a home-directory path, and the check would warn of that as well.
     config = planning(
         tmp_path / "plan",
-        repos={"app": RepoConfig(path=sibling, slug="example/app", changelog=None)},
+        repos={
+            "app": RepoConfig(path=Path("../sibling-checkout"), slug="example/app", changelog=None)
+        },
     )
 
     found = public_content(config)
