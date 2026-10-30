@@ -101,11 +101,13 @@ def repo_config(
     command: str | None = None,
     tests: Mapping[str, object] | None = None,
 ) -> RepoConfig:
-    return RepoConfig(
-        path=tmp_path,
-        changelog=None,
-        checks={"affected": {"mode": mode, **({"command": command} if command else {})}},
-        **({"tests": dict(tests)} if tests else {}),
+    return RepoConfig.model_validate(
+        {
+            "path": tmp_path,
+            "changelog": None,
+            "checks": {"affected": {"mode": mode, **({"command": command} if command else {})}},
+            **({"tests": dict(tests)} if tests else {}),
+        }
     )
 
 
