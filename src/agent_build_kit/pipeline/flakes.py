@@ -26,7 +26,7 @@ from agent_build_kit.pipeline.failure_record import (
 )
 from agent_build_kit.pipeline.file_lock import change_lock, file_lock
 from agent_build_kit.pipeline.unit_store import StoredUnit
-from agent_build_kit.pipeline.units import Unit
+from agent_build_kit.pipeline.units import PRODUCT_DEFECT_PREFIX, Unit
 from agent_build_kit.pipeline.work_graph import FIX_PREFIX, GROUP_HEADING, group_needs
 
 # The longest a change's name gets before it is cut and given a hash of the whole.
@@ -34,6 +34,8 @@ NAME_LIMIT = 70
 # What the names of changes that fixed a flaky or a failing test started with, still found.
 FLAKY_PREFIX = "fix-flaky"
 FAILING_PREFIX = "fix-failing"
+# The names every change that fixes a failing test may start with, whatever its kind.
+FIX_PREFIXES = (FIX_PREFIX, FLAKY_PREFIX, FAILING_PREFIX, PRODUCT_DEFECT_PREFIX)
 # Where a module imported by a test may sit in the code repo, relative to its root.
 SOURCE_ROOTS = ("", "src")
 # How many of a storm's tests its row names.
@@ -89,8 +91,9 @@ class FailedOnBase(Exception):
 @runtime_checkable
 class OnFlake(Protocol):
     """Told the unit and a flake it met: records it and makes sure the one change that fixes
-    it exists, and with `wait` has the unit wait on that change. Answers the change, or None
-    for a unit of the change itself, which has nothing to wait on."""
+    it exists, and with `wait` has the unit wait on that change, unless it is a unit of a fix
+    change, which waits on no other fix. Answers the change, or None for a unit of the
+    change itself, which has nothing to wait on."""
 
     def __call__(self, unit: Unit, flake: Flake, *, wait: bool = True) -> str | None: ...
 
@@ -155,9 +158,9 @@ def wait_on_fix(
     inst: Installation, flake: Flake, unit: StoredUnit, *, wait: bool = True
 ) -> str | None:
     """Make sure the one open change that fixes `flake.test` exists, under the state
-    directory's lock, and with `wait` give each group of `unit` a `Needs:` line on it.
-    Returns the change's name, or None for a unit of that change itself, which waits on
-    nothing."""
+    directory's lock, and with `wait` give each group of `unit` a `Needs:` line on it, unless
+    `unit` is of a fix change: that waits on no other fix. Returns the change's name, or None
+    for a unit of that change itself, which waits on nothing."""
     with file_lock(inst.state_dir / "flakes.lock"):
         name, earlier = open_fix_change(inst, flake.test)
         if name is None:
@@ -165,7 +168,7 @@ def wait_on_fix(
             _write_change(inst, name, flake, unit, earlier=earlier)
         if unit.change == name:
             return None
-        if wait:
+        if wait and not is_fix_change(unit.change):
             kind = "failing" if flake.failing else "flaky"
             add_needs_to_unit(inst, unit, name, f"{kind} test {flake.test}")
         return name
@@ -212,6 +215,12 @@ def next_fix_name(inst: Installation, test: str, prefix: str = "") -> str:
         if not any((inst.changes_dir / n).exists() or _archived(inst, n) for n in names):
             return names[0]
     raise AssertionError("unreachable")
+
+
+def is_fix_change(change: str) -> bool:
+    """Whether `change` is a change that fixes a failing or flaky test. A unit of one waits on
+    no other fix: its checks set aside what fails on the base too."""
+    return change.startswith(FIX_PREFIXES)
 
 
 def covered_tests(tests: list[str]) -> list[str]:

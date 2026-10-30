@@ -1499,7 +1499,13 @@ approved.
   does: `PLANNED`, cause `gated`, a `resume` requeue. It resumes restacked at e2e-test, which runs
   in full again. A unit of the fix change, or one with a failure of its own or broken by it, is
   failed as today; its pre-existing failures are still recorded and fixed, without a `Needs:`
-  line. The feedback saved on a failure drops the lines and output of pre-existing tests
+  line. A unit of any fix change (`flakes.is_fix_change`) never gets a `Needs:` on another fix
+  from a unit-test run. A test that fails there and on the base too, or that passes alone and
+  flakes, is recorded and its fix written, and the node (`Nodes.set_aside`) passes the unit for
+  it, but only when every such test has a fix change that is not the unit's own and nothing
+  else failed; a test the unit's own change fixes, one that passes on the base, or one in the
+  unit's own tests still fails it. A restack of such a unit goes on to its push likewise. The
+  feedback saved on a failure drops the lines and output of pre-existing tests
   (`untouched_failures.feedback_snapshot`) and names them once.
 - **A unit about to run a full e2e-test run waits for an open fix.** Before `run_e2e`, and only
   when the runner's `e2e_runs_whole` says the run executes the whole marker, the node asks

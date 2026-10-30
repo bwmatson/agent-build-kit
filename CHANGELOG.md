@@ -22,6 +22,11 @@
   check refuses it. A change still refused, one the agent could not judge, and a run that
   failed are held for a person. A `[contract]` group in a change that fixes a failing test no
   longer needs a `[narrow]` group after it.
+- A unit of a fix change no longer waits on another fix change. A test that fails in its
+  checks and also fails on the base is recorded as pre-existing and set aside, and its fix
+  change is still written, so two fixes for different red tests cannot park each other.
+  A failure that passes on the base, or is in the unit's own test, still fails the unit,
+  and units of other changes still wait on the fix.
 
 - The guard against old test-kind names no longer fails when a tracked file is removed by
   another process while the suite runs in parallel; it treats that file as absent.
