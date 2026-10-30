@@ -54,12 +54,16 @@ def add(a, b):
 
 def mul(a, b):
     return a * b
+
+
+def only_serial(x):
+    return x + 0
 """
 
 TESTS = """\
 import pytest
 
-from calc import add, mul
+from calc import add, mul, only_serial
 
 
 def test_add():
@@ -86,6 +90,7 @@ def test_slow_add():
 @pytest.mark.serial
 def test_serial_add():
     assert add(3, 3) == 6
+    assert only_serial(3) == 3
 """
 
 BROKEN_CALC = CALC.replace("a + b", "a - b")
@@ -181,16 +186,36 @@ def test_a_slow_test_stays_out_even_when_it_reaches_the_changed_function(tiny: T
 
     selected = tiny.select([*tiny.parallel, "-v"])
 
+    assert {"test_add", "test_both"} <= ran(selected.stdout)
     assert "test_slow_add" not in selected.stdout
     assert "test_serial_add" not in selected.stdout
 
 
+def empty(output: str) -> bool:
+    return ("deselected" in output or "no tests ran" in output) and "passed" not in output
+
+
 def test_a_full_run_in_two_passes_leaves_data_for_both(tiny: Tiny) -> None:
-    tiny.break_add()
+    # With no data a pass selects every test, so each pass is shown to hold data by a change
+    # that only the other pass's tests reach: it must select nothing.
+    (tiny.root / "calc.py").write_text(CALC.replace("a * b", "a * b + 1"))
 
-    parallel = tiny.select([*tiny.parallel, "-v"])
     serial = tiny.select([*tiny.serial, "-v"])
+    parallel = tiny.select([*tiny.parallel, "-v"])
 
-    assert "test_add" in ran(parallel.stdout)
-    assert failed(serial.stdout) == {"test_serial_add"}
+    assert empty(serial.stdout), serial.stdout
+    assert {"test_mul", "test_both"} <= ran(parallel.stdout)
     assert "deactivated" not in parallel.stdout + serial.stdout
+
+
+def test_a_change_only_the_serial_pass_reaches_selects_nothing_in_the_parallel_pass(
+    tiny: Tiny,
+) -> None:
+    (tiny.root / "calc.py").write_text(CALC.replace("x + 0", "x + 1"))
+
+    # The serial pass goes first: a run that executes tests updates the data it shares.
+    serial = tiny.select([*tiny.serial, "-v"])
+    parallel = tiny.select([*tiny.parallel, "-v"])
+
+    assert empty(parallel.stdout), parallel.stdout
+    assert failed(serial.stdout) == {"test_serial_add"}
