@@ -70,21 +70,25 @@ def test_a_streamed_run_answers_with_the_result_event_s_text(tmp_path: Path) -> 
     assert result.error == ""
 
 
-def test_each_step_of_a_streamed_run_reaches_the_progress_callback(tmp_path: Path) -> None:
+def test_each_step_of_a_streamed_run_reaches_the_progress_callback() -> None:
     """The tick log shows what a twenty-minute run is doing: what the model
     says and which tool it calls on what, relative to the worktree, whose
     absolute path would be the same long prefix on every line."""
     lines: list[str] = []
-    fake = FakeClaude(stdout=finished_build(tmp_path, "done"))
+    # A fixed short worktree, not `tmp_path`: a log line is clipped at its width before the
+    # worktree prefix is removed, so a deep temp root (the planning home's) would leave the
+    # clipped absolute path in the line. The fake runs nothing, so the folder need not exist.
+    worktree = Path("/worktree")
+    fake = FakeClaude(stdout=finished_build(worktree, "done"))
 
-    ClaudeCodeRuntime(execute=fake).run(_request(tmp_path, on_event=lines.append))
+    ClaudeCodeRuntime(execute=fake).run(_request(worktree, on_event=lines.append))
 
     said = [line.strip() for line in lines]
     assert said[0] == "claude started (claude-opus-5-5)"
     assert "says: I'll add the marker to the app module." in said
     assert "Edit src/app.py" in said
     assert said[-1] == "claude done — 3 turns, 1m21s"
-    assert not any(str(tmp_path) in line for line in lines)
+    assert not any(str(worktree) in line for line in lines)
 
 
 def test_a_spent_usage_window_raises_with_its_reset_time(tmp_path: Path) -> None:
