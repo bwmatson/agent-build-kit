@@ -14,7 +14,7 @@ from agent_build_kit import profiles
 from agent_build_kit.config import E2eSandboxConfig, ProjectSandboxConfig, RepoSandboxConfig
 from agent_build_kit.installation import Installation
 from agent_build_kit.model import Frozen, TestTier
-from agent_build_kit.profiles.base import SandboxPaths
+from agent_build_kit.profiles.base import SandboxPaths, SetsTestEnvironment
 from agent_build_kit.sandboxes.base import (
     SandboxPathsProfile,
     SandboxPathsRuntime,
@@ -171,6 +171,11 @@ def policy_entries(
             continue
         seen.add(name)
         layers.append((name, _layer(toolchain.sandbox_paths(worktree))))
+        if isinstance(toolchain, SetsTestEnvironment):
+            # A profile that sets the test step's temp root also gets to write it: the one part
+            # of `runs` a confined step writes.
+            temp = ProjectSandboxConfig(write=[str(installation.pytest_temp_root)])
+            layers.append((name, temp))
     path = installation.root / config_module.CONFIG_FILENAME
     documents = (
         (config_module.CONFIG_FILENAME, config_module.read_base(path) or {}),

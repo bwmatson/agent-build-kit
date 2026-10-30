@@ -49,7 +49,9 @@ def restack_wiring(
     unit-test it builds would run in place of a real one."""
     ran: list[list[str]] = []
 
-    def run(command: list[str], *, cwd: Path) -> subprocess.CompletedProcess:
+    def run(
+        command: list[str], *, cwd: Path, env: dict[str, str] | None = None
+    ) -> subprocess.CompletedProcess:
         ran.append(command)
         return subprocess.CompletedProcess(command, 0, "", "")
 

@@ -26,6 +26,7 @@ import re
 import shlex
 import subprocess
 import time
+import uuid
 from collections.abc import Callable, Collection, Iterable, Iterator, Mapping, Sequence
 from contextlib import AbstractContextManager, contextmanager, nullcontext
 from datetime import UTC, datetime
@@ -204,6 +205,7 @@ from agent_build_kit.profiles.base import (
     RepeatsTests,
     ReportsRunFacts,
     SelectsAffectedTests,
+    SetsTestEnvironment,
     ToolchainProfile,
     is_doc_path,
     located,
@@ -1285,6 +1287,7 @@ def build_unit_test(
     failures_dir: Path | None = None,
     now: Callable[[], datetime] | None = None,
     machine: Callable[[], dict[str, object]] | None = None,
+    installation: Installation | None = None,
 ) -> Callable[..., tuple[bool, str]]:
     """Lint the unit's own diff, then test the members it reaches.
 
@@ -1332,6 +1335,9 @@ def build_unit_test(
     stormed: dict[tuple[str, str, str, int], set[str]] = {}
     # The checkout the current run is in: where a check's configuration is looked for up to.
     checkout: dict[str, Path] = {}
+    # This run's token, and the environment each profile that sets one gave its commands.
+    run_token: dict[str, str] = {}
+    run_environments: dict[str, dict[str, str]] = {}
 
     def unit_test(
         *,
@@ -1349,6 +1355,8 @@ def build_unit_test(
         follows no move), which says whether the run is scoped
         by what the move can affect; the line it logs says which it was and why."""
         checkout["root"] = cwd
+        run_token["id"] = uuid.uuid4().hex[:8]
+        run_environments.clear()
         # What an earlier run of this unit round stormed does not excuse this run's failures.
         stormed.pop(spans.current_unit.get(), None)
         for project in pending_projects(cwd, projects):
@@ -2025,6 +2033,17 @@ def build_unit_test(
         named = failed_ids(toolchain, f"{done.stdout or ''}\n{done.stderr or ''}")
         return all(test in named for test in tests)
 
+    def test_env(toolchain: ToolchainProfile) -> dict[str, dict[str, str]]:
+        """The `env` argument for a command of `toolchain`: the profile's test environment for
+        this run, made once; nothing for a profile that sets none."""
+        if installation is None or not isinstance(toolchain, SetsTestEnvironment):
+            return {}
+        name = type(toolchain).__name__
+        if name not in run_environments:
+            unit = spans.current_unit.get()[0]
+            run_environments[name] = toolchain.test_environment(installation, unit, run_token["id"])
+        return {"env": {**os.environ, **run_environments[name]}}
+
     def ran(
         command: list[str], where: Path, toolchain: ToolchainProfile, root: Path | None = None
     ) -> subprocess.CompletedProcess:
@@ -2035,7 +2054,7 @@ def build_unit_test(
         outcome = "error"
         command = located(toolchain, command, where, root or checkout.get("root", where))
         try:
-            result = run(command, cwd=where)
+            result = run(command, cwd=where, **test_env(toolchain))
             ok = toolchain.tolerates_exit(command, result.returncode)
             outcome = "ok" if ok else f"exit {result.returncode}"
         finally:
@@ -4459,6 +4478,7 @@ def build_runner(
             log=log,
             repo=repo,
             failures_dir=failure_bundles_dir(installation.state_dir),
+            installation=installation,
         ),
         on_flake=build_on_flake(store, installation, log=log),
         run_e2e=e2e.run,

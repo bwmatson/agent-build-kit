@@ -256,6 +256,7 @@ from agent_build_kit.pipeline.stack_runner import (
     UnitRunner,
     group_steps_of,
 )
+from agent_build_kit.pipeline.temp_sweep import sweep_temp_folders
 from agent_build_kit.pipeline.transcript import remove_change_transcripts, transcript_dir
 from agent_build_kit.pipeline.ui_review import (
     PrIndex,
@@ -1526,6 +1527,8 @@ def _tick(args: argparse.Namespace, inst: Installation, tick: _Tick) -> int:
             now=datetime.now(UTC),
             accounts=claude_account.in_use(inst.config),
         )
+        # What a killed unit-test run left; a failure is logged and the tick goes on.
+        sweep_temp_folders(inst, now=datetime.now(UTC), log=log)
         if not environment.ensure(inst, say=log):
             tick.outcome = "environment"
             return 1
@@ -5746,6 +5749,7 @@ def build_repo_unit_test(
         repo=repo,
         log=log,
         failures_dir=failure_bundles_dir(installation.state_dir),
+        installation=installation,
     )
     return make() if run is None else make(run=run)
 
@@ -8327,7 +8331,9 @@ def _record_waits(
     A unit `--only` leaves out is not looked at, so its wait is neither changed nor closed."""
     try:
         path = inst.state_dir / DECISIONS_NAME
-        if path not in _RECORDERS:
+        # A log that is gone (a temp folder deleted and its name reused) starts a new recorder:
+        # what the old one remembers was written to a file that no longer exists.
+        if path not in _RECORDERS or not path.exists():
             _RECORDERS[path] = WaitRecorder(path, log)
         left_out = [unit.id for unit in units if only and unit.id not in only]
         reasons = waits()

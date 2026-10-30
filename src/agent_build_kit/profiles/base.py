@@ -11,11 +11,14 @@ from __future__ import annotations
 import subprocess
 from collections.abc import Callable
 from pathlib import Path
-from typing import Protocol, runtime_checkable
+from typing import TYPE_CHECKING, Protocol, runtime_checkable
 
 from agent_build_kit.config import AgentCommand, BuildersConfig, EnvironmentConfig, RepoConfig
 from agent_build_kit.model import Frozen
 from agent_build_kit.pipeline.e2e import E2eSelection, TestFailure, TestTime
+
+if TYPE_CHECKING:
+    from agent_build_kit.installation import Installation
 
 
 class ProfileUnsupported(NotImplementedError):
@@ -299,6 +302,17 @@ class ListsRegisteredSelectors(Protocol):
     ) -> list[str] | None:
         """The selectors (for a marker kind, the marker names) the runner of `command`
         registers, read from the runner itself. None when the listing fails."""
+        ...
+
+
+@runtime_checkable
+class SetsTestEnvironment(Protocol):
+    """The optional hook a profile adds to give the unit-test step's commands an environment
+    of their own. A profile without it sets nothing and is granted no write access for it."""
+
+    def test_environment(self, installation: Installation, unit: str, run: str) -> dict[str, str]:
+        """The variables for one run of `unit`. It creates the run's folder under the
+        installation's `pytest_temp_root` and writes the run's pid file there."""
         ...
 
 
