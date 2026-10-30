@@ -20,8 +20,8 @@ from agent_build_kit.installation import Installation
 from agent_build_kit.pipeline import retirement
 from agent_build_kit.pipeline.lease import Leases, lease_dir
 from agent_build_kit.pipeline.shell import git, git_out
-from agent_build_kit.pipeline.unit_store import ClosePending, StoredUnit, UnitStore
-from agent_build_kit.pipeline.units import base_of
+from agent_build_kit.pipeline.unit_store import IDLE_NOTE, ClosePending, StoredUnit, UnitStore
+from agent_build_kit.pipeline.units import RUNNING, base_of, branch_name
 from agent_build_kit.pipeline.workspaces import (
     BranchBusy,
     branch_lock,
@@ -119,20 +119,52 @@ def retire(
             say("--discard-unpushed accepts losing them")
             return 1
 
+    # A `running` unit is idle, as the scheduler counts it, exactly when no live process holds
+    # its branch's lock, so taking the lock is that test: a grant means the unit is idle, and
+    # `BranchBusy` names the holder. The holders lock the recorded branch or the computed one,
+    # so both are taken, in a fixed order. The command's own lock is why the scheduler's
+    # function is not called here: it would read that lock as a holder.
+    names = {unit.branch} if unit.branch else set()
+    if unit.state == RUNNING:
+        names.add(branch_name(unit))
     with ExitStack() as held:
-        if unit.branch:
+        for name in sorted(names):
             try:
-                held.enter_context(branch_lock(unit.branch, root=inst.locks_dir))
+                held.enter_context(branch_lock(name, root=inst.locks_dir))
             except BranchBusy as error:
                 say(f"{unit_id}: {error}; stop it first")
                 return 1
+        # What happened between the first read and the lock: a run may have finished, or a
+        # lease been taken. Everything that follows is decided from a fresh read, and a unit
+        # that changed in a way the decisions above depend on is turned away, nothing changed.
+        units = store.all()
+        current = next((u for u in units if u.id == unit_id), None)
+        if current is None:
+            say(f"{unit_id} is gone; run abk retire again")
+            return 1
+        fresh = retirement.assess(unit_id, units)
+        if fresh != assessment or (current.state, current.pr, current.branch, current.pushed) != (
+            unit.state,
+            unit.pr,
+            unit.branch,
+            unit.pushed,
+        ):
+            say(
+                f"{unit_id} changed while it was being checked (now {current.state}); "
+                "run abk retire again"
+            )
+            return 1
+        if holder := Leases(lease_dir(inst.local_dir)).holder(unit_id):
+            say(f"{unit_id} has a live lease held by {holder}; stop it first")
+            return 1
         return _retire(
             inst,
             store,
-            unit,
-            assessment,
+            current,
+            fresh,
             say=say,
             reason=reason,
+            idle=unit.state == RUNNING,
             branch=(repo, tree) if delete_branch and unit.branch else None,
             dry_run=dry_run,
         )
@@ -146,6 +178,7 @@ def _retire(
     *,
     say: Callable[..., None],
     reason: str,
+    idle: bool,
     branch: tuple[Path, Path | None] | None,
     dry_run: bool,
 ) -> int:
@@ -155,6 +188,8 @@ def _retire(
 
     would = "would " if dry_run else ""
     say(f"{would}retire {unit.id}: {unit.state} -> retired" + (f" ({reason})" if reason else ""))
+    if idle:
+        say(f"  {unit.id} {IDLE_NOTE}")
     for fate in assessment.groups:
         where = f"group {fate.group} of {fate.change}"
         if not fate.carried_by:
@@ -181,7 +216,7 @@ def _retire(
         return 0
 
     released = {fate.change for fate in assessment.groups if not fate.carried_by}
-    store.retire(unit.id, reason)
+    store.retire(unit.id, reason, idle=idle)
     failed = False
     try:
         if pipe.has_thread(inst, unit.id):

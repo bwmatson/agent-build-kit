@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- `abk retire` now accepts a unit stored as `running` that nothing holds (no live process on
+  its branch and no live lease), for the case where a crash or a killed tick left it that way
+  with no command to end it. A unit counts as idle when its branch lock can be taken, which is the
+  scheduler's own test for one; the history notes that the unit was idle, and the command still refuses a `running` unit a live process or lease
+  holds, naming the holder.
+
 - The kit's own test runs now delete the temp folder of every passing test and keep only the
   folders of failed tests, for the last two runs, so a finished run no longer leaves a large
   tree of temporary repositories behind. The unit-test step also gets a temp folder of its own
