@@ -1689,6 +1689,12 @@ class UnitRunner(BaseModel):
     push: Callable[..., str]
     open_pr: Callable[..., int]
     post_status: Callable[[str, bool], None]
+    # The forge's state of a pull request a unit already records: "open", "merged" or
+    # "closed". Read before `open_pr` puts the unit in review.
+    forge_state: Callable[[Unit, int], str] = lambda unit, pr: "open"
+    # The poller's dispatch, handed `merged` or `closed` for a pull request that is no
+    # longer open. A no-op default.
+    dispatch: Callable[..., bool] = lambda event, number, **kwargs: True
     # Posts the reason on a satisfied unit's already-open pull request, then
     # closes it. A no-op default: most units never reach `satisfied` holding
     # one. See `wiring.build_close_pr`.
