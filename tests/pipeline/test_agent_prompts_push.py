@@ -19,7 +19,15 @@ def test_every_prompt_says_the_pipeline_pushes_and_the_agent_never_does(prompt: 
     assert "never push" in prompt or "you never do" in prompt
 
 
-@pytest.mark.parametrize("prompt", [REVIEW_FEEDBACK_PROMPT, REWORK_PROMPT])
-def test_a_rework_adds_commits_and_never_rewrites_history(prompt: str) -> None:
+@pytest.mark.parametrize(
+    "prompt",
+    [
+        pytest.param(REVIEW_FEEDBACK_PROMPT, id="review-feedback"),
+        pytest.param(REWORK_PROMPT, id="rework"),
+    ],
+)
+def test_a_rework_never_rewrites_history_and_leaves_the_commit_to_the_pipeline(
+    prompt: str,
+) -> None:
     assert "Do not rewrite history" in prompt
-    assert "new commits" in prompt
+    assert "new commits" not in prompt
