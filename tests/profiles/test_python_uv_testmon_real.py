@@ -4,6 +4,12 @@ The profile records what each test executes with one command and selects with an
 claim "a selection selects" is only as good as what the real tools do with those commands, so
 a small project is built, recorded and changed here. The tool is fetched with `--with`, so the
 tests need the network and carry the `integration` marker (run them with `-m integration`).
+
+Found, on Python 3.14.7 with coverage 7.17.0 and pytest-testmon 2.2.0: the commands as the
+profile builds them print no "Dynamic contexts aren't supported" warning and miss no selection,
+so `COVERAGE_CORE=ctrace` is not pinned. Forcing `COVERAGE_CORE=sysmon` in the environment does
+make the warning appear, so the check below can see it. An empty selection exits 0 ("deselected"
+or, under xdist, "no tests ran"), not 5; the pipeline counts both as a pass.
 """
 
 from __future__ import annotations

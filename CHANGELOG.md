@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- A test of the profile's selection now runs a real pytest and pytest-testmon on a small project
+  (an `integration` test): a change selects the tests that reach it, a marked test stays out, and
+  both passes of a full run leave data. It showed that coverage's default core on Python 3.14
+  needs no pin for the selection to work, so none is set.
 - The Python profile's selection of the tests a change affects now passes
   `--testmon-forceselect`, so the repo's own `-m` expression, and the `serial` split, no longer
   switch the selection off and run the whole suite as the "selection".
