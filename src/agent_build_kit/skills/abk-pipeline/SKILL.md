@@ -373,6 +373,16 @@ Only to read its own pull request, by the commands its repo's forge declares
 and the raw API escapes are refused on every repo, whatever its forge. On Azure
 DevOps, stacked pull requests are unsupported and units serialise per repo.
 
+### What a build agent may do with git
+
+It leaves its changes in the working tree and the pipeline commits them, with the lint gate, the
+unit-id trailer and the group's own subject. A `git commit` is refused, and so is any other
+command that makes a commit or moves the branch (`cherry-pick`, `revert`, `merge`, `rebase`, `am`,
+`pull`, a `reset` to another commit); `cherry-pick -n`, `merge --no-commit`, `reset -- <path>` and
+the `--abort` and `--quit` of any of them are allowed. If a unit fails with "the branch holds no
+tests commit for group N" and its branch has a commit with a different subject, an agent
+committed before this refusal existed: reword the commit to `test: <group title>` by hand.
+
 ### What the build prompts tell an agent to run
 
 A build agent runs headless and a command outside its tool list is refused, so the

@@ -461,6 +461,26 @@ worktree's own branch (an ancestor of its HEAD). An unreadable remote, or a head
 fails the step. A repo with no `origin` has no push to catch, so the
 check is skipped there.
 
+
+## Only the pipeline commits
+
+A build run never makes a commit either. The pipeline commits what a step leaves in the
+worktree (`git add -A`, the lint gate, the unit-id trailer, the subject `test:` or `feat:` and
+the group's title, and the handling of lock and artifact files); a commit of the agent's own
+skips all of it, and one whose subject differs from the group's title is not counted as the
+group's commit. So `build_run` sets `ToolPolicy.no_commit`, and both runtimes refuse
+(`command_policy.check_no_commit`; the `acp` broker applies it itself, Claude Code's hook is
+registered with `--no-commit`) every git command that makes a commit or moves the branch:
+`commit` in any form, `cherry-pick`, `revert`, `merge`, `rebase`, `am`, `pull`, `commit-tree`,
+`update-ref`, and a `reset` that has a revision or one of `--soft`, `--mixed`, `--hard` and
+`--keep`. What leaves its result in the working tree stays allowed: `cherry-pick` and `revert`
+with `-n` or `--no-commit`, `merge --no-commit`, a bare `reset` or one of paths after `--`, and
+the `--abort` and `--quit` of any of them; the step that ports a unit onto a moved base works
+this way. The refusal reason tells the agent the pipeline commits the work. The first prompt of
+each session says the same once; a prompt that continues a session does not repeat it. The
+restack resolver has no shell and is not affected. A regression run and a chat turn that set
+`no_commit` get the same refusal.
+
 ## Where a redirect may land
 
 A policed run is given `ABK_OUT`, the path of its own scratch folder

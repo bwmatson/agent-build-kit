@@ -148,6 +148,14 @@ The pipeline pushes this branch, after review and unit-test; you never do. Run n
 `git push`, to any remote or branch, however it is spelled.
 """
 
+# Said once, in the prompt that starts a session: the one that continues it does not repeat it.
+PIPELINE_COMMITS_NOTE = """\
+The pipeline commits your work: leave your changes in the working tree and run no command that
+makes a commit (`git commit`, or a `cherry-pick`, `merge`, `rebase` or `reset` that makes or moves
+one). It stages everything, runs the lint gate and writes the subject and the unit trailer; a
+commit of your own is refused, and would skip all three.
+"""
+
 OUTPUT_NOTE = "\n" + output_convention()
 
 # What a builder does for a config file the harness will not let it write (`abk install-config`).
@@ -172,9 +180,9 @@ neither name in a step nor list as possible.
 """
 
 NO_REWRITE_NOTE = """\
-Do not rewrite history either: no amend, rebase, squash, reset or force. Your
-work is new commits on top of what is already here, and the commits that exist
-stay as they are.
+Do not rewrite history either (no amend, rebase, squash, reset or force): the
+commits that exist stay as they are, and your changes go on top of them in the
+working tree.
 """
 
 LEFTOVERS_NOTE = """\
@@ -393,6 +401,7 @@ the unit has passed review, unit-test and been pushed.
 """
     + "{changelog}"
     + PIPELINE_PUSHES_NOTE
+    + PIPELINE_COMMITS_NOTE
     + OUTPUT_NOTE
     + REUSE_NOTE
     + INSTALL_NOTE
@@ -436,6 +445,7 @@ the unit has passed review, unit-test and been pushed.
 """
     + "{changelog}"
     + PIPELINE_PUSHES_NOTE
+    + PIPELINE_COMMITS_NOTE
     + OUTPUT_NOTE
     + REUSE_NOTE
     + INSTALL_NOTE
@@ -851,6 +861,7 @@ the unit has passed review, unit-test and been pushed.
 """
     + "{changelog}"
     + PIPELINE_PUSHES_NOTE
+    + PIPELINE_COMMITS_NOTE
     + OUTPUT_NOTE
     + REUSE_NOTE
     + INSTALL_NOTE
@@ -875,6 +886,7 @@ the unit has passed review, unit-test and been pushed.
 """
     + "{changelog}"
     + PIPELINE_PUSHES_NOTE
+    + PIPELINE_COMMITS_NOTE
     + OUTPUT_NOTE
     + REUSE_NOTE
     + INSTALL_NOTE
@@ -997,6 +1009,7 @@ or edit anything under {change_dir}.
 
 """
     + PIPELINE_PUSHES_NOTE
+    + PIPELINE_COMMITS_NOTE
     + OUTPUT_NOTE
     + INSTALL_NOTE
     + """
