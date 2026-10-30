@@ -109,7 +109,9 @@
   that names only documents, a changelog or configuration files may be built without a
   tests-first step, while a group that names code, or no path, keeps it. A
   `Tests: required — <reason>` line in a group keeps tests first for it, and `abk tags` shows
-  each group's mode.
+  each group's mode. The planner chooses the mode of each group that may be `no_code`, never
+  below the group's floor; a unit keeps its modes once started, and `abk replan` prints a
+  changed mode.
 
 - A unit the usage guard pauses at the gate is now recorded as paused for usage until a
   time, counts toward the limit of units in progress while it waits, and is not resumed

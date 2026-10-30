@@ -846,6 +846,7 @@ class UnitStore:
                         "project": existing.project,
                         "split": existing.split,
                         "review_tier": existing.review_tier,
+                        "group_modes": existing.group_modes,
                     }
                 )
             if existing and existing.joined and not fresh.joined:
@@ -1045,6 +1046,7 @@ class UnitStore:
             members,
             estimated_lines=added,
             kinds=[*group_kinds, *([taken.tier] if taken is not None else [])],
+            group_modes=taken.group_modes if taken is not None else None,
         )
         stored[onto.id] = grown.model_copy(
             update={
@@ -1344,8 +1346,17 @@ class UnitStore:
         # One piece with the old unit's groups takes its Story; any other split leaves it behind.
         heir = pieces[0].id if len(pieces) == 1 and pieces[0].groups == old.groups else None
         for piece in pieces:
+            held = {
+                f"{member.change}/{n}": old.group_modes[f"{member.change}/{n}"]
+                for member in piece.members()
+                for n in member.groups
+                if f"{member.change}/{n}" in old.group_modes
+            }
             stored[piece.id] = StoredUnit(
-                **piece.model_dump(include=set(Unit.model_fields) - {"superseded_by", "state"}),
+                **piece.model_dump(
+                    include=set(Unit.model_fields) - {"superseded_by", "state", "group_modes"}
+                ),
+                group_modes={**held, **piece.group_modes},
                 story=old.story if piece.id == heir else None,
                 state=PLANNED,
                 split_from=unit_id,

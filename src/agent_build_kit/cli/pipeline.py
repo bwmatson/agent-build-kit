@@ -7710,6 +7710,9 @@ def _replan_differences(
             lines.append(f"{uid}: tier {old.tier} -> {unit.tier}")
         if unit.review_tier != old.review_tier:
             lines.append(f"{uid}: review tier {old.review_tier or 'full'} -> {review}")
+        for key, mode in unit.group_modes.items():
+            if old.group_modes.get(key, mode) != mode:
+                lines.append(f"{uid}: mode of group {key} {old.group_modes[key]} -> {mode}")
     return lines
 
 

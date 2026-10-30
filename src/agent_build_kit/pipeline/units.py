@@ -191,7 +191,12 @@ class Unit(Frozen):
         return (Member(change=self.change, groups=self.groups), *self.joined)
 
     def taking(
-        self, taken: Sequence[Member], *, estimated_lines: int, kinds: Iterable[TestTier] = ()
+        self,
+        taken: Sequence[Member],
+        *,
+        estimated_lines: int,
+        kinds: Iterable[TestTier] = (),
+        group_modes: Mapping[str, str] | None = None,
     ) -> Self:
         """This unit with `taken` built after its own members, its estimate grown by
         `estimated_lines` and its kind the widest of its own and `kinds`, those of the work
@@ -210,13 +215,18 @@ class Unit(Frozen):
                 "joined": tuple(members[1:]),
                 "estimated_lines": self.estimated_lines + estimated_lines,
                 "tier": widest_kind([self.tier, *kinds]),
+                "group_modes": {**self.group_modes, **(group_modes or {})},
             }
         )
 
     def mode_of(self, change: str, group: TaskGroup) -> GroupMode:
         """The build mode of `group` of `change` in this unit: the stored one, else `tests_only`
         for an e2e group and `tests_and_code` for any other."""
-        raise NotImplementedError
+        from agent_build_kit.pipeline.work_graph import GroupMode
+
+        if stored := self.group_modes.get(f"{change}/{group.number}"):
+            return GroupMode(stored)
+        return GroupMode.TESTS_ONLY if group.tier == TestTier.E2E_TEST else GroupMode.TESTS_AND_CODE
 
     def carries(self, change: str) -> bool:
         """Does this unit build any of `change`'s groups, its own or carried?"""
