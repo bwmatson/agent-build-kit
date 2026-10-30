@@ -20,11 +20,6 @@
   defaults keep today's `-n auto --maxprocesses=8`; a repo can lower them to ease the load of
   several units' full suites. In a `checks.affected.command` template, `{workers}` expands to
   the same options.
-- A task group now has a build mode: `tests_and_code`, `tests_only` or `no_code`. A group
-  that names only documents, a changelog or configuration files may be built without a
-  tests-first step, while a group that names code, or no path, keeps it. A
-  `Tests: required — <reason>` line in a group keeps tests first for it, and `abk tags` shows
-  each group's mode.
 
 - A task group now has a build mode: `tests_and_code`, `tests_only` or `no_code`. A group
   that names only documents, a changelog or configuration files may be built without a
