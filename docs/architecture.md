@@ -1517,6 +1517,19 @@ approved.
   A same-repo fix releases the unit once its unit is in review, not only when it has merged.
   A closed fix change keeps the unit waiting until a person clears it. `abk status` ends each
   `pre-existing:` line with the number of units waiting on its fix.
+- **A fix unit checks that its test still fails before it builds.** Before the first build of a
+  unit of a fix change (`flakes.is_fix_change`; not a product-defect change, not a rework, not a
+  build started with a person's note, and only once per thread), `prepare` routes to the
+  `reproduce` node, which sits between `prepare` and `tests`. It reads the test from the
+  change's group 1 heading ("Make `<test>` deterministic"; a change with none builds as before)
+  and runs it on the unit's base `global_limits.fix_reproduction_runs` times, alone and under load
+  (alone: serially, by id; under load: the whole file it is in, on the repo's parallel workers),
+  through `wiring.build_reproduce`. A test that fails on any run goes on to `tests`. A test that
+  is no longer in the tree, or one whose fix change merged since this change was written, makes
+  the unit `satisfied` with that reason. A test that never fails holds the unit for a person
+  (`needs_human`, held by the review lane) with the note "not reproduced: 0 of N runs alone, 0 of
+  N under load", because a rare flake cannot be ruled out by a few runs: `abk retire` ends the
+  unit and `abk requeue --restart --note` builds it anyway, without the check. 0 turns it off.
 - **New tests are repeated under load.** After unit-test passes, the tests the unit added or
   changed (`tests_changed`) are run `global_limits.unit_test_repeat_runs` times (three by default, 0
   turns it off) with each test command's own workers, narrowed to exactly those tests (`path::Class::name`) by the
