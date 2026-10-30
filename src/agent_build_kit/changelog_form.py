@@ -1,6 +1,8 @@
 """The shape a changelog must have, as a list of what is wrong with it."""
 
 import re
+from collections.abc import Callable
+from pathlib import Path
 
 CONFLICT_MARKER = re.compile(r"^(<{7}|={7}|>{7})(\s|$)")
 VERSION_HEADING = re.compile(r"^## (\d+(?:\.\d+)*)\b")
@@ -74,3 +76,10 @@ def changelog_problems(text: str, name: str = "CHANGELOG.md") -> list[str]:
             close_bullet()
     close_bullet()
     return problems
+
+
+def changelog_file_problems(
+    path: Path, read: Callable[[Path], str] = lambda path: path.read_text()
+) -> list[str]:
+    """`changelog_problems` of the file at `path`, read until two reads in a row agree."""
+    raise NotImplementedError
