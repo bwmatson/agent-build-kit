@@ -339,7 +339,10 @@
   test is kept in the bundle too, with its own output, exit, times and machine and worktree
   state, and flake and storm records name the bundle, the time the run started and the load
   and rerun results it ran under; a bundle a record names is not pruned. A test that errors in a fixture now has its
-  own section kept like a failed one.
+  own section kept like a failed one. Every unit-test run, passing or not, also adds a row to
+  `runs/test-runs.jsonl` (start, seconds, outcome, failed tests, load, workers, tick, units
+  running; no output), rotated at a size limit. The kit's own test suite now shows the stack
+  of every thread when a test is stopped by its time limit.
 
 - `abk external hand-off`, `list`, `done` and `release` hand a change, or some of its groups,
   to someone who builds it by hand. The kit never starts held work, units that need it wait

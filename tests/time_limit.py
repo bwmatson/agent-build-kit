@@ -15,6 +15,7 @@ from __future__ import annotations
 import signal
 import sys
 import threading
+import traceback
 
 import pytest
 
@@ -28,7 +29,25 @@ DEFAULT_E2E_TEST_TIME_LIMIT = 30 * 60
 
 
 class TimedOut(BaseException):
-    """Raised in the main thread when the running test passes its limit."""
+    """Raised in the main thread when the running test passes its limit; carries the stack
+    of every thread as it was then."""
+
+    def __init__(self, stacks: str = "") -> None:
+        super().__init__(stacks)
+        self.stacks = stacks
+
+
+def thread_stacks() -> str:
+    """The stack of every thread now, the calling thread's from the frame it was interrupted in."""
+    names = {thread.ident: thread.name for thread in threading.enumerate()}
+    current = threading.get_ident()
+    blocks = []
+    for ident, frame in sys._current_frames().items():
+        if ident == current and frame.f_back is not None:
+            frame = frame.f_back
+        header = f"Thread {names.get(ident, '?')} ({ident}):"
+        blocks.append(header + "\n" + "".join(traceback.format_stack(frame)))
+    return "\n".join(blocks)
 
 
 # The flag under the kind's old spelling, still accepted with a notice.
@@ -83,7 +102,7 @@ def _under_limit(item: pytest.Item, phase: str):
 
     def interrupt(signum, frame) -> None:
         if running:
-            raise TimedOut
+            raise TimedOut(thread_stacks())
 
     previous = signal.signal(signal.SIGUSR2, interrupt)
     main = threading.get_ident()
@@ -92,9 +111,14 @@ def _under_limit(item: pytest.Item, phase: str):
     try:
         timer.start()
         return (yield)
-    except TimedOut:
+    except TimedOut as stopped:
         what = "test" if phase == "call" else f"test {phase}"
-        pytest.fail(f"{what} exceeded the {kind}time limit of {limit:g} seconds", pytrace=False)
+        # Raised from None: the stacks are in the text, once, after the limit it names.
+        raise pytest.fail.Exception(
+            f"{what} exceeded the {kind}time limit of {limit:g} seconds\n\n"
+            f"The stack of every thread:\n{stopped.stacks}",
+            pytrace=False,
+        ) from None
     finally:
         running = False
         timer.cancel()
