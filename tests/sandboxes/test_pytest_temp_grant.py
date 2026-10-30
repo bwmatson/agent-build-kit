@@ -23,7 +23,7 @@ def test_the_policy_for_a_python_repo_writes_a_run_folder_under_the_pytest_temp_
     installation = scene.installation()
     policy = scene.policy(profile=profiles.get("python-uv"))
 
-    run_folder = installation.state_dir / "tmp" / "pytest" / "add-marker-1-run1"
+    run_folder = installation.pytest_temp_root / "add-marker-1-run1"
     run_folder.mkdir(parents=True)
 
     assert writes(policy, run_folder)
@@ -35,7 +35,7 @@ def test_the_policy_grants_no_other_part_of_runs(scene: Scene) -> None:
     policy = scene.policy(profile=profiles.get("python-uv"))
     runs = installation.state_dir
 
-    assert writes(policy, runs / "tmp" / "pytest" / "add-marker-1-run1")
+    assert writes(policy, installation.pytest_temp_root / "add-marker-1-run1")
     assert not writes(policy, runs)
     assert not writes(policy, runs / "units.json")
     assert not writes(policy, runs / "tmp")

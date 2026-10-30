@@ -334,7 +334,7 @@ global_limits:
                                 # alone is one recorded storm, no fix change per test
   checks_register_seconds: 120  # seconds after a push in which a pull request with no
                                 # checks yet still reads `checking`
-  temp_keep_hours: 24           # hours a unit-test run's temp folder under runs/tmp/pytest
+  temp_keep_hours: 24           # hours a unit-test run's temp folder under <planning home>/tmp/pytest
                                 # lives; a tick removes older ones whose process is gone
   wait_end_requeue: auto        # how a failed unit is requeued once when its wait ends:
                                 # auto (default; the mode follows its record), resume,

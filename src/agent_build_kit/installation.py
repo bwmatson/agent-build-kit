@@ -137,8 +137,10 @@ class Installation:
 
     @property
     def pytest_temp_root(self) -> Path:
-        """Where the unit-test step's runs keep their pytest temp folders, one per run."""
-        return self.state_dir / "tmp" / "pytest"
+        """Where the unit-test step's runs keep their pytest temp folders, one per run. It is in the
+        planning home, outside the planning repository: a test that makes a folder here and expects
+        no enclosing git repository would otherwise find the planning repository above it."""
+        return self.planning_home / "tmp" / "pytest"
 
     @property
     def local_dir(self) -> Path:

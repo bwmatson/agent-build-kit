@@ -1,5 +1,5 @@
 """The Python profile's test environment points pytest's temp root at a folder of the
-installation's `runs/tmp/pytest` named for the unit and the run (spec:
+installation's `<planning home>/tmp/pytest` named for the unit and the run (spec:
 test-temp-folders-clean-up)."""
 
 from __future__ import annotations
@@ -25,7 +25,7 @@ def test_the_environment_names_a_folder_under_the_pytest_temp_root(
     found = environment(installation)
 
     folder = Path(found[VARIABLE])
-    assert folder.parent == installation.state_dir / "tmp" / "pytest"
+    assert folder.parent == installation.pytest_temp_root
 
 
 def test_the_folder_is_named_for_the_unit_and_the_run(installation: Installation) -> None:
@@ -50,3 +50,12 @@ def test_two_runs_get_two_folders(installation: Installation) -> None:
 
 def test_the_environment_sets_nothing_else(installation: Installation) -> None:
     assert set(environment(installation)) == {VARIABLE}
+
+
+def test_the_temp_root_is_outside_the_planning_repository(installation: Installation) -> None:
+    """A test that makes a folder there and expects no enclosing git repository must not find the
+    planning repository above it, which it did while the root sat under `runs/`."""
+    root = installation.pytest_temp_root.resolve()
+
+    assert not root.is_relative_to(installation.root.resolve())
+    assert root == (installation.planning_home / "tmp" / "pytest").resolve()
