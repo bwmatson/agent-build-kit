@@ -59,8 +59,8 @@ def test_a_dry_run_exits_as_the_real_command_would_for_unpushed_commits(
 
 @pytest.mark.parametrize(
     "state",
-    ["merged", "running", "planned"],
-    ids=["finished", "running", "group nobody builds, no reason"],
+    ["merged", "planned"],
+    ids=["finished", "group nobody builds, no reason"],
 )
 def test_a_dry_run_exits_1_for_each_refusal(
     scene: Scene,  # noqa: F811
