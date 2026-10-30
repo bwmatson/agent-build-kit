@@ -1,5 +1,5 @@
 """The Python profile's test environment points pytest's temp root at a folder of the
-installation's `runs/tmp/pytest` named for the unit and the run (spec:
+installation's `<planning home>/tmp/pytest` named for the unit and the run (spec:
 test-temp-folders-clean-up)."""
 
 from __future__ import annotations

@@ -1,5 +1,5 @@
-"""The sweep at the start of a tick removes the run folders of `runs/tmp/pytest` that are old and
-whose process is gone, and nothing else (spec: test-temp-folders-clean-up)."""
+"""The sweep at the start of a tick removes the run folders of `<planning home>/tmp/pytest` that
+are old and whose process is gone, and nothing else (spec: test-temp-folders-clean-up)."""
 
 from __future__ import annotations
 

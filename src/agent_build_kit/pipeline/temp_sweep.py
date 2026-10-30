@@ -1,4 +1,5 @@
-"""The sweep at the start of a tick of what a killed unit-test run left in `<planning home>/tmp/pytest`."""
+"""The sweep at the start of a tick of what a killed unit-test run left in the pytest temp root
+(`<planning home>/tmp/pytest`)."""
 
 from __future__ import annotations
 
@@ -30,9 +31,10 @@ def sweep_temp_folders(
     remove: Callable[[Path], None] = shutil.rmtree,
     log: Callable[[str], None],
 ) -> list[Path]:
-    """Remove the run folders of `<planning home>/tmp/pytest` older than `global_limits.temp_keep_hours`
-    whose pid file names a process that is not alive; return the folders removed. A folder that
-    cannot be removed is logged and left, and nothing outside `<planning home>/tmp/pytest` is touched."""
+    """Remove the run folders of the pytest temp root (`<planning home>/tmp/pytest`) older than
+    `global_limits.temp_keep_hours` whose pid file names a process that is not alive; return the
+    folders removed. A folder that cannot be removed is logged and left, and nothing outside the
+    root is touched."""
     root = installation.pytest_temp_root
     oldest = now.timestamp() - installation.config.global_limits.temp_keep_hours * 3600
     removed: list[Path] = []
