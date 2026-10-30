@@ -137,9 +137,19 @@ class Installation:
 
     @property
     def pytest_temp_root(self) -> Path:
-        """Where the unit-test step's runs keep their pytest temp folders, one per run. It is in the
-        planning home, outside the planning repository: a test that makes a folder here and expects
-        no enclosing git repository would otherwise find the planning repository above it."""
+        """Where the unit-test step's runs keep their pytest temp folders, one per run, named by
+        the run's token. It is outside the planning repository, which a test that makes a folder
+        here and expects no enclosing git repository would otherwise find above it, and it is
+        close to the base: pytest adds about 70 characters under it and a worktree a test makes
+        there has its path flattened into one file name of at most 255. A sibling of the planning
+        home (`<data home>/<repo name>/tmp`), or `tmp` in a configured planning home."""
+        base = self.planning_home if self._configured_home else self.planning_home.parent
+        return base / "tmp"
+
+    @property
+    def legacy_pytest_temp_root(self) -> Path:
+        """The temp root runs wrote to before folders were named by their run: the sweep still
+        clears what is left there."""
         return self.planning_home / "tmp" / "pytest"
 
     @property

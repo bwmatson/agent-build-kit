@@ -41,3 +41,15 @@ def test_the_policy_grants_no_other_part_of_runs(scene: Scene) -> None:
     assert not writes(policy, runs / "tmp")
     assert not writes(policy, runs / "tmp" / "other")
     assert not writes(policy, runs / "logs")
+
+
+def test_the_policy_grants_the_root_the_step_writes_and_not_the_one_it_had_before(
+    scene: Scene,
+) -> None:
+    installation = scene.installation()
+    policy = scene.policy(profile=profiles.get("python-uv"))
+    legacy = installation.planning_home / "tmp" / "pytest"
+    legacy.mkdir(parents=True)
+
+    assert writes(policy, installation.pytest_temp_root / "63611807")
+    assert not writes(policy, legacy)

@@ -1,8 +1,10 @@
-"""The sweep at the start of a tick removes the run folders of `<planning home>/tmp/pytest` that
-are old and whose process is gone, and nothing else (spec: test-temp-folders-clean-up)."""
+"""The sweep at the start of a tick removes the run folders of the pytest temp root, and of the
+root it had before, that are old and whose process is gone, and nothing else (spec:
+test-temp-folders-clean-up, unit-test-temp-root-short-paths)."""
 
 from __future__ import annotations
 
+import json
 import os
 import shutil
 from datetime import UTC, datetime, timedelta
@@ -27,10 +29,14 @@ def run_folder(
     pid: int,
     age_hours: float,
     started: str | None = STARTED,
+    root: Path | None = None,
+    record: str | None = None,
 ) -> Path:
-    folder = installation.pytest_temp_root / name
+    folder = (root or installation.pytest_temp_root) / name
     (folder / "pytest-of-user" / "pytest-0").mkdir(parents=True)
     (folder / PID_FILE).write_text(f"{pid}\n{started}\n" if started else str(pid))
+    if record is not None:
+        (folder / "run.json").write_text(record)
     stamp = (NOW - timedelta(hours=age_hours)).timestamp()
     os.utime(folder, (stamp, stamp))
     return folder
@@ -46,7 +52,7 @@ def sweep(installation: Installation, messages: list[str], **kw) -> list[Path]:
 
 
 def test_an_old_folder_of_a_dead_process_is_removed(installation: Installation) -> None:
-    folder = run_folder(installation, "feature-1-a", pid=DEAD, age_hours=30)
+    folder = run_folder(installation, "a1b2c3d4", pid=DEAD, age_hours=30)
 
     removed = sweep(installation, [])
 
@@ -55,7 +61,7 @@ def test_an_old_folder_of_a_dead_process_is_removed(installation: Installation) 
 
 
 def test_a_folder_of_a_live_process_is_kept_however_old(installation: Installation) -> None:
-    folder = run_folder(installation, "feature-1-a", pid=LIVE, age_hours=300)
+    folder = run_folder(installation, "a1b2c3d4", pid=LIVE, age_hours=300)
 
     sweep(installation, [])
 
@@ -65,7 +71,7 @@ def test_a_folder_of_a_live_process_is_kept_however_old(installation: Installati
 def test_a_folder_whose_pid_was_reused_by_another_process_is_removed(
     installation: Installation,
 ) -> None:
-    folder = run_folder(installation, "feature-1-a", pid=LIVE, age_hours=30, started="999")
+    folder = run_folder(installation, "a1b2c3d4", pid=LIVE, age_hours=30, started="999")
 
     sweep(installation, [])
 
@@ -75,8 +81,8 @@ def test_a_folder_whose_pid_was_reused_by_another_process_is_removed(
 def test_a_pid_file_without_a_start_time_is_judged_by_the_pid_alone(
     installation: Installation,
 ) -> None:
-    live = run_folder(installation, "feature-1-a", pid=LIVE, age_hours=30, started=None)
-    dead = run_folder(installation, "feature-1-b", pid=DEAD, age_hours=30, started=None)
+    live = run_folder(installation, "a1b2c3d4", pid=LIVE, age_hours=30, started=None)
+    dead = run_folder(installation, "b1b2c3d4", pid=DEAD, age_hours=30, started=None)
 
     sweep(installation, [])
 
@@ -87,7 +93,7 @@ def test_a_pid_file_without_a_start_time_is_judged_by_the_pid_alone(
 def test_the_pid_file_a_run_writes_names_this_process_and_is_kept_by_the_sweep(
     installation: Installation,
 ) -> None:
-    folder = run_folder(installation, "feature-1-a", pid=DEAD, age_hours=30)
+    folder = run_folder(installation, "a1b2c3d4", pid=DEAD, age_hours=30)
     write_pid_file(folder)
 
     assert sweep_temp_folders(installation, now=NOW, log=print) == []
@@ -97,7 +103,7 @@ def test_the_pid_file_a_run_writes_names_this_process_and_is_kept_by_the_sweep(
 def test_a_folder_younger_than_the_limit_is_kept_though_its_process_is_gone(
     installation: Installation,
 ) -> None:
-    folder = run_folder(installation, "feature-1-a", pid=DEAD, age_hours=23)
+    folder = run_folder(installation, "a1b2c3d4", pid=DEAD, age_hours=23)
 
     sweep(installation, [])
 
@@ -106,7 +112,7 @@ def test_a_folder_younger_than_the_limit_is_kept_though_its_process_is_gone(
 
 def test_the_limit_is_global_limits_temp_keep_hours(tmp_path: Path) -> None:
     short = make_installation(tmp_path, global_limits={"temp_keep_hours": 2})
-    folder = run_folder(short, "feature-1-a", pid=DEAD, age_hours=3)
+    folder = run_folder(short, "a1b2c3d4", pid=DEAD, age_hours=3)
 
     sweep(short, [])
 
@@ -122,7 +128,7 @@ def test_nothing_outside_the_pytest_temp_root_is_touched(installation: Installat
     long_ago = (NOW - timedelta(days=30)).timestamp()
     for path in (beside, state):
         os.utime(path, (long_ago, long_ago))
-    old = run_folder(installation, "feature-1-a", pid=DEAD, age_hours=30)
+    old = run_folder(installation, "a1b2c3d4", pid=DEAD, age_hours=30)
 
     sweep(installation, [])
 
@@ -138,8 +144,8 @@ def test_a_missing_pytest_temp_root_is_not_an_error(installation: Installation) 
 def test_a_failing_removal_is_logged_and_the_other_folders_are_still_swept(
     installation: Installation,
 ) -> None:
-    stuck = run_folder(installation, "feature-1-a", pid=DEAD, age_hours=30)
-    other = run_folder(installation, "feature-1-b", pid=DEAD, age_hours=30)
+    stuck = run_folder(installation, "a1b2c3d4", pid=DEAD, age_hours=30)
+    other = run_folder(installation, "b1b2c3d4", pid=DEAD, age_hours=30)
     messages: list[str] = []
 
     def remove(path: Path) -> None:
@@ -152,11 +158,11 @@ def test_a_failing_removal_is_logged_and_the_other_folders_are_still_swept(
     assert stuck.is_dir()
     assert not other.exists()
     assert removed == [other]
-    assert any("device busy" in line and "feature-1-a" in line for line in messages)
+    assert any("device busy" in line and "a1b2c3d4" in line for line in messages)
 
 
 def test_a_failing_removal_does_not_raise(installation: Installation) -> None:
-    folder = run_folder(installation, "feature-1-a", pid=DEAD, age_hours=30)
+    folder = run_folder(installation, "a1b2c3d4", pid=DEAD, age_hours=30)
     messages: list[str] = []
 
     def remove(path: Path) -> None:
@@ -167,3 +173,84 @@ def test_a_failing_removal_does_not_raise(installation: Installation) -> None:
     assert removed == []
     assert folder.is_dir()
     assert any("denied" in line for line in messages)
+
+
+def test_a_folder_with_a_run_record_is_logged_with_its_unit_and_start(
+    installation: Installation,
+) -> None:
+    record = json.dumps(
+        {"unit": "add-marker/1", "run": "63611807", "started": "2026-10-27T05:00:00Z"}
+    )
+    folder = run_folder(installation, "63611807", pid=DEAD, age_hours=30, record=record)
+    messages: list[str] = []
+
+    sweep(installation, messages)
+
+    assert not folder.exists()
+    assert "temp sweep: removed 63611807 (add-marker/1, started 2026-10-27T05:00:00Z)" in messages
+
+
+def test_a_folder_without_a_run_record_is_removed_and_logged_by_its_name(
+    installation: Installation,
+) -> None:
+    folder = run_folder(installation, "a1b2c3d4", pid=DEAD, age_hours=30)
+    messages: list[str] = []
+
+    sweep(installation, messages)
+
+    assert not folder.exists()
+    assert "temp sweep: removed a1b2c3d4" in messages
+
+
+def test_a_run_record_that_cannot_be_read_does_not_stop_the_removal(
+    installation: Installation,
+) -> None:
+    folder = run_folder(installation, "63611807", pid=DEAD, age_hours=30, record="{not json")
+
+    removed = sweep(installation, [])
+
+    assert removed == [folder]
+
+
+def test_the_folders_of_the_root_it_had_before_are_swept_by_the_same_rules(
+    installation: Installation,
+) -> None:
+    legacy = installation.planning_home / "tmp" / "pytest"
+    old = run_folder(installation, "a1b2c3d4", pid=DEAD, age_hours=30, root=legacy)
+    young = run_folder(installation, "b1b2c3d4", pid=DEAD, age_hours=2, root=legacy)
+    live = run_folder(installation, "c1b2c3d4", pid=LIVE, age_hours=300, root=legacy)
+
+    removed = sweep(installation, [])
+
+    assert removed == [old]
+    assert young.is_dir()
+    assert live.is_dir()
+
+
+def test_the_old_root_inside_a_configured_homes_temp_root_is_not_taken_for_a_run_folder(
+    tmp_path: Path,
+) -> None:
+    configured = make_installation(tmp_path / "root", planning={"home": str(tmp_path / "home")})
+    legacy = configured.planning_home / "tmp" / "pytest"
+    live = run_folder(configured, "a1b2c3d4", pid=LIVE, age_hours=300, root=legacy)
+    os.utime(legacy, (NOW.timestamp() - 30 * 3600,) * 2)
+
+    sweep(configured, [])
+
+    assert live.is_dir(), "the folder of a live run in the old root survives"
+
+
+def test_a_folder_of_the_temp_root_that_is_not_a_run_folder_is_left_alone(
+    installation: Installation,
+) -> None:
+    """A configured planning home's `tmp` may hold other things: only a folder named by a run
+    token is judged, however old and however little it holds."""
+    other = installation.pytest_temp_root / "scratch"
+    other.mkdir(parents=True)
+    os.utime(other, (NOW.timestamp() - 90 * 3600,) * 2)
+    run = run_folder(installation, "a1b2c3d4", pid=DEAD, age_hours=30)
+
+    removed = sweep(installation, [])
+
+    assert removed == [run]
+    assert other.is_dir()

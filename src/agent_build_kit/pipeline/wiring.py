@@ -205,6 +205,7 @@ from agent_build_kit.pipeline.usage_guard import (
 from agent_build_kit.pipeline.vocabulary import effective_state
 from agent_build_kit.pipeline.workspaces import BranchBusy, prepare_detached, prepare_worktree
 from agent_build_kit.profiles.base import (
+    TEMP_ROOT_VARIABLE,
     AppliesE2eSelection,
     AppliesFixers,
     ProjectChecks,
@@ -1287,6 +1288,10 @@ def branch_commits(repo: Path, base: str, head: str = "HEAD") -> int:
     return int(git_out(repo, "rev-list", "--count", f"{base}..{head}"))
 
 
+# How many tokens a run draws before it gives up finding one whose folder is free.
+RUN_TOKEN_TRIES = 20
+
+
 def build_unit_test(
     *,
     run: Run | None = None,
@@ -1357,6 +1362,16 @@ def build_unit_test(
     run_token: dict[str, str] = {}
     run_environments: dict[str, dict[str, str]] = {}
 
+    def fresh_run_token() -> str:
+        """A token for this run whose folder in the temp root does not exist, so two runs never
+        share a folder: the second would overwrite the first's pid file and `run.json`, and a
+        sweep could judge the first run by the second's process."""
+        for _ in range(RUN_TOKEN_TRIES):
+            token = uuid.uuid4().hex[:8]
+            if installation is None or not (installation.pytest_temp_root / token).exists():
+                return token
+        raise RuntimeError(f"no free run token in {RUN_TOKEN_TRIES} tries; the temp root is full")
+
     def unit_test(
         *,
         cwd: Path,
@@ -1373,7 +1388,7 @@ def build_unit_test(
         follows no move), which says whether the run is scoped
         by what the move can affect; the line it logs says which it was and why."""
         checkout["root"] = cwd
-        run_token["id"] = uuid.uuid4().hex[:8]
+        run_token["id"] = fresh_run_token()
         run_environments.clear()
         # What an earlier run of this unit round stormed does not excuse this run's failures.
         stormed.pop(spans.current_unit.get(), None)
@@ -1696,6 +1711,8 @@ def build_unit_test(
             facts = toolchain.run_facts(
                 command, failure_evidence.probe_output(run, where, probe) if probe else ""
             )
+        folder = temp_folder()
+        temp = {"temp_run": run_token["id"], "temp_folder": folder} if folder else {}
         context: dict[str, object] = {
             "command": shlex.join(command),
             "started": started.isoformat(),
@@ -1706,6 +1723,7 @@ def build_unit_test(
             "tick": spans.PROCESS_TICK,
             "pid": os.getpid(),
             "cpus": os.cpu_count(),
+            **temp,
             **failure_evidence.shas(run, where, base),
             **facts,
         }
@@ -2071,7 +2089,18 @@ def build_unit_test(
         if name not in run_environments:
             unit = spans.current_unit.get()[0]
             run_environments[name] = toolchain.test_environment(installation, unit, run_token["id"])
+            if folder := run_environments[name].get(TEMP_ROOT_VARIABLE):
+                # The folder's name is the run's token alone: this line is how a unit is found
+                # from a path in a failure.
+                _say(log, f"temp folder {folder} (run {run_token['id']})")
         return {"env": {**os.environ, **run_environments[name]}}
+
+    def temp_folder() -> str | None:
+        """The temp folder this run's commands were given, when a profile gave one."""
+        for given in run_environments.values():
+            if TEMP_ROOT_VARIABLE in given:
+                return given[TEMP_ROOT_VARIABLE]
+        return None
 
     def ran(
         command: list[str], where: Path, toolchain: ToolchainProfile, root: Path | None = None
