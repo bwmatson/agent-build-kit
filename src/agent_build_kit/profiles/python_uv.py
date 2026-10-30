@@ -769,11 +769,13 @@ class PythonUvProfile:
     def seeding_command(self, command: list[str], seed: Path, *, select: bool = False) -> list[str]:
         """`command`, a test run, as one run with the coverage plugin in its isolated
         environment, keeping its data at `seed`: it selects the tests the change affects
-        when `select`, and otherwise runs them all and records what each executed."""
+        when `select`, and otherwise runs them all and records what each executed. A selection
+        is forced so that the repo's own `-m`, `-k` and test-id selectors apply with it instead
+        of switching it off."""
         program = _pytest_program(command)
         if program is None:
             return command
-        flag = "--testmon" if select else "--testmon-noselect"
+        flag = "--testmon-forceselect" if select else "--testmon-noselect"
         return [
             "env",
             f"TESTMON_DATAFILE={seed}",

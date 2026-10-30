@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- The Python profile's selection of the tests a change affects now passes
+  `--testmon-forceselect`, so the repo's own `-m` expression, and the `serial` split, no longer
+  switch the selection off and run the whole suite as the "selection".
 - The kit's own test runs now delete the temp folder of every passing test and keep only the
   folders of failed tests, for the last two runs, so a finished run no longer leaves a large
   tree of temporary repositories behind. The unit-test step also gets a temp folder of its own
