@@ -318,6 +318,11 @@ class ListsRegisteredSelectors(Protocol):
         ...
 
 
+# The variable that points pytest's temp root at a run's folder; the unit-test step logs the folder
+# and records it in a failure bundle when a profile's test environment sets it.
+TEMP_ROOT_VARIABLE = "PYTEST_DEBUG_TEMPROOT"
+
+
 @runtime_checkable
 class SetsTestEnvironment(Protocol):
     """The optional hook a profile adds to give the unit-test step's commands an environment
@@ -325,8 +330,8 @@ class SetsTestEnvironment(Protocol):
 
     def test_environment(self, installation: Installation, unit: str, run: str) -> dict[str, str]:
         """The variables for one run of `unit`. It creates the run's folder under the
-        installation's `pytest_temp_root`, named by `run`, and writes the run's pid file and `run.json`
-        there."""
+        installation's `pytest_temp_root`, named by `run`, and writes the run's pid file and
+        `run.json` there."""
         ...
 
 

@@ -6,7 +6,7 @@
   8-character token alone, where it was `<planning home>/tmp/pytest/<unit>-<run>`. A fix unit's id
   carries the name of its test, which made a `tmp_path` of 227 characters: the name Claude makes of
   a worktree under it passed 255 characters, so eight `tests/serve/test_chat_*` tests failed with
-  `File name too long` in those units' runs. The folder keeps a `run.json` (unit, run, tick, start,
+  `File name too long` in those units' runs. The folder keeps a `run.json` (unit, run, tick, start time,
   process), the unit's log has a `temp folder <path> (run <token>)` line, and the failure bundle's
   `context.json` has `temp_run` and `temp_folder`, so a unit is still found from a path. The tick's
   sweep logs each removed folder with its unit and also clears what is left under the old root.

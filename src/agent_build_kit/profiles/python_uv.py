@@ -42,7 +42,13 @@ from agent_build_kit.pipeline.e2e import (
 )
 from agent_build_kit.pipeline.red_check import judge_red, split_report, wrap_report_command
 from agent_build_kit.pipeline.temp_sweep import write_pid_file, write_run_file
-from agent_build_kit.profiles.base import HOME, PromptWords, SandboxPaths, is_doc_path
+from agent_build_kit.profiles.base import (
+    HOME,
+    TEMP_ROOT_VARIABLE,
+    PromptWords,
+    SandboxPaths,
+    is_doc_path,
+)
 from agent_build_kit.profiles.workspace_lock import workspace_lock
 
 # pytest's exit status when every test was deselected: "nothing to run here",
@@ -349,7 +355,7 @@ class PythonUvProfile:
         folder.mkdir(parents=True, exist_ok=True)
         write_pid_file(folder)
         write_run_file(folder, unit, run)
-        return {"PYTEST_DEBUG_TEMPROOT": str(folder)}
+        return {TEMP_ROOT_VARIABLE: str(folder)}
 
     def member_of(self, repo: Path, path: str) -> str | None:
         for member in self.members(repo):

@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import shutil
 from collections.abc import Callable
 from datetime import UTC, datetime
@@ -20,6 +21,9 @@ PID_FILE = "pid"
 # The file that says which unit, run and tick a folder belongs to, since the folder's name is
 # the run's token alone.
 RUN_FILE = "run.json"
+# A run folder of the current temp root is named by its run's token: 8 hex characters. Anything
+# else in that root (a configured planning home's `tmp` may hold other things) is not the sweep's.
+RUN_FOLDER = re.compile(r"[0-9a-f]{8}")
 
 
 def write_pid_file(folder: Path) -> None:
@@ -55,9 +59,16 @@ def sweep_temp_folders(
     two roots is touched."""
     legacy = installation.legacy_pytest_temp_root
     removed: list[Path] = []
-    for root in (installation.pytest_temp_root, legacy):
+    for root, named in ((installation.pytest_temp_root, RUN_FOLDER), (legacy, None)):
         removed += _sweep_root(
-            root, installation, now=now, alive=alive, remove=remove, log=log, skip=legacy
+            root,
+            installation,
+            now=now,
+            alive=alive,
+            remove=remove,
+            log=log,
+            skip=legacy,
+            named=named,
         )
     return removed
 
@@ -71,16 +82,21 @@ def _sweep_root(
     remove: Callable[[Path], None],
     log: Callable[[str], None],
     skip: Path,
+    named: re.Pattern[str] | None,
 ) -> list[Path]:
-    """The run folders of one root. `skip` is the old root, which a configured planning home puts
-    inside the new one: it is swept as a root, not judged as a run folder."""
+    """The run folders of one root: those whose name matches `named`, or any when it is None.
+    `skip` is the old root, which a configured planning home puts inside the new one: it is swept
+    as a root, not judged as a run folder."""
     oldest = now.timestamp() - installation.config.global_limits.temp_keep_hours * 3600
     removed: list[Path] = []
     try:
         folders = sorted(
             path
             for path in root.iterdir()
-            if path.is_dir() and not path.is_symlink() and path != skip
+            if path.is_dir()
+            and not path.is_symlink()
+            and path != skip
+            and (named is None or named.fullmatch(path.name))
         )
     except FileNotFoundError:
         return removed

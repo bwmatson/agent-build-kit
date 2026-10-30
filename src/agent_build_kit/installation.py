@@ -140,9 +140,9 @@ class Installation:
         """Where the unit-test step's runs keep their pytest temp folders, one per run, named by
         the run's token. It is outside the planning repository, which a test that makes a folder
         here and expects no enclosing git repository would otherwise find above it, and it is
-        close to the base: pytest adds 71 characters under it and a worktree a test makes there
-        has its path flattened into one file name of at most 255. A sibling of the planning home
-        (`<data home>/<repo name>/tmp`), or `tmp` in a configured planning home."""
+        close to the base: pytest adds about 70 characters under it and a worktree a test makes
+        there has its path flattened into one file name of at most 255. A sibling of the planning
+        home (`<data home>/<repo name>/tmp`), or `tmp` in a configured planning home."""
         base = self.planning_home if self._configured_home else self.planning_home.parent
         return base / "tmp"
 

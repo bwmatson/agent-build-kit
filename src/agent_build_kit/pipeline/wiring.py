@@ -205,6 +205,7 @@ from agent_build_kit.pipeline.usage_guard import (
 from agent_build_kit.pipeline.vocabulary import effective_state
 from agent_build_kit.pipeline.workspaces import BranchBusy, prepare_detached, prepare_worktree
 from agent_build_kit.profiles.base import (
+    TEMP_ROOT_VARIABLE,
     AppliesE2eSelection,
     AppliesFixers,
     ProjectChecks,
@@ -1287,10 +1288,6 @@ def branch_commits(repo: Path, base: str, head: str = "HEAD") -> int:
     return int(git_out(repo, "rev-list", "--count", f"{base}..{head}"))
 
 
-# The variable a profile's test environment points pytest's temp root with.
-TEMP_ROOT_VARIABLE = "PYTEST_DEBUG_TEMPROOT"
-
-
 def build_unit_test(
     *,
     run: Run | None = None,
@@ -1700,6 +1697,8 @@ def build_unit_test(
             facts = toolchain.run_facts(
                 command, failure_evidence.probe_output(run, where, probe) if probe else ""
             )
+        folder = temp_folder()
+        temp = {"temp_run": run_token["id"], "temp_folder": folder} if folder else {}
         context: dict[str, object] = {
             "command": shlex.join(command),
             "started": started.isoformat(),
@@ -1710,11 +1709,7 @@ def build_unit_test(
             "tick": spans.PROCESS_TICK,
             "pid": os.getpid(),
             "cpus": os.cpu_count(),
-            **(
-                {"temp_run": run_token["id"], "temp_folder": folder}
-                if (folder := temp_folder())
-                else {}
-            ),
+            **temp,
             **failure_evidence.shas(run, where, base),
             **facts,
         }
