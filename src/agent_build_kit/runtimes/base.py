@@ -95,7 +95,8 @@ class ToolPolicy(Frozen):
 
     specs_dir: Path | None = None  # read-only; None when this run is meant to write there
     branch_prefix: str = "spec/"
-    no_commit: bool = False  # refuse `git commit` too: the person commits, not the turn
+    no_commit: bool = False  # refuse any command that makes or moves a commit: the pipeline or
+    # the person commits, not the turn
     planning_paths: tuple[str, ...] = ()  # unwritable in the worktree: the pipeline's own
     # Files no command may write, wherever they are: the planning repo's abk.yaml, which holds
     # the review policy a person owns.
