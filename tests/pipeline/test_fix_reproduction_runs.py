@@ -8,6 +8,7 @@ planning folder; `build_reproduce` runs the profile's commands through a fake `r
 from __future__ import annotations
 
 import subprocess
+from datetime import UTC, datetime
 from pathlib import Path
 
 from agent_build_kit import profiles
@@ -100,6 +101,22 @@ def test_a_merged_fix_of_the_same_test_is_found_only_when_newer(tmp_path: Path) 
     assert merged_fix_since(installation, own.name, "tests/test_other.py::test_x") is None
 
 
+def test_a_fix_archived_the_day_the_change_was_written_is_not_newer(tmp_path: Path) -> None:
+    installation = make_installation(tmp_path)
+    own = installation.changes_dir / "fix-test-tests-test-widget-py-test-renders-the-label-2"
+    own.mkdir(parents=True)
+    (own / "proposal.md").write_text("## Why\n")
+    today = f"{datetime.now(UTC):%Y-%m-%d}"
+    earlier = (
+        installation.changes_dir
+        / "archive"
+        / (f"{today}-fix-test-tests-test-widget-py-test-renders-the-label")
+    )
+    earlier.mkdir(parents=True)
+
+    assert merged_fix_since(installation, own.name, TEST) is None
+
+
 def reproducing(tmp_path: Path, outputs: dict[str, subprocess.CompletedProcess]):
     """A `reproduce_test` over a worktree holding the test, and the commands it ran."""
     tree = tmp_path / "tree"
@@ -146,10 +163,49 @@ def test_a_run_that_names_the_test_failed_reproduces_it(tmp_path: Path) -> None:
     assert reproduce(cwd=tree, test=TEST, runs=2).outcome is Outcome.FAILS
 
 
-def test_a_test_missing_from_its_file_is_gone_without_a_run(tmp_path: Path) -> None:
-    tree, reproduce, commands = reproducing(tmp_path, {"alone": done(0), "loaded": done(0)})
+NOT_FOUND = "ERROR: not found: tests/test_widget.py::test_was_renamed (no match in any of [])"
+
+
+def test_a_test_the_collection_does_not_find_is_gone(tmp_path: Path) -> None:
+    tree, reproduce, commands = reproducing(
+        tmp_path, {"alone": done(4, NOT_FOUND), "loaded": done(0)}
+    )
 
     found = reproduce(cwd=tree, test="tests/test_widget.py::test_was_renamed", runs=2)
 
     assert found.outcome is Outcome.GONE
+    assert len(commands) == 1, "the first run says so"
+
+
+def test_a_name_the_file_does_not_hold_is_not_gone_when_collection_finds_it(
+    tmp_path: Path,
+) -> None:
+    # Inherited from a base class in another file, or made up at collection time.
+    for name in ("test_inherited_from_a_base", "test_made_up[param]"):
+        tree, reproduce, _ = reproducing(
+            tmp_path / name[:12], {"alone": done(0), "loaded": done(0)}
+        )
+
+        found = reproduce(cwd=tree, test=f"tests/test_widget.py::{name}", runs=2)
+
+        assert found.outcome is Outcome.NOT_REPRODUCED, name
+
+
+def test_a_file_not_found_under_the_root_is_skipped_not_gone(tmp_path: Path) -> None:
+    tree, reproduce, commands = reproducing(tmp_path, {"alone": done(0), "loaded": done(0)})
+
+    found = reproduce(
+        cwd=tree, test="elsewhere/tests/test_widget.py::test_renders_the_label", runs=2
+    )
+
+    assert found.outcome is Outcome.SKIPPED
     assert commands == []
+
+
+def test_a_profile_that_cannot_run_one_test_is_skipped(tmp_path: Path) -> None:
+    tree = tmp_path / "tree"
+    (tree / "tests").mkdir(parents=True)
+    (tree / "tests" / "test_widget.py").write_text("")
+    reproduce = build_reproduce(profile=profiles.get("node-npm"), run=lambda *a, **k: done(0))
+
+    assert reproduce(cwd=tree, test=TEST, runs=2).outcome is Outcome.SKIPPED

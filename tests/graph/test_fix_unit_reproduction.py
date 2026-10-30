@@ -117,6 +117,30 @@ def test_a_restart_with_a_note_builds_the_held_unit_without_the_check(tmp_path: 
     assert len(answer.calls) == 1, "the restarted build is not checked again"
 
 
+def test_a_plain_requeue_after_the_hold_builds_without_the_check(tmp_path: Path) -> None:
+    _, recorder, subject = fix_unit(tmp_path)
+    answer = Asked(Outcome.NOT_REPRODUCED, NOT_REPRODUCED)
+    tick(tmp_path, recorder, subject=subject, reproduce_test=answer)
+    requeue = ResumeEvent(
+        kind=EventKind.REQUEUE, requeue=RequeueReason.FROM_FAILURE, reason="requeued"
+    )
+
+    tick(tmp_path, recorder, subject=subject, event=requeue, reproduce_test=answer)
+    tick(tmp_path, recorder, subject=subject, reproduce_test=answer)
+
+    assert built(recorder)
+    assert len(answer.calls) == 1
+
+
+def test_a_skipped_check_builds_as_today(tmp_path: Path) -> None:
+    _, recorder, subject = fix_unit(tmp_path)
+
+    tick(tmp_path, recorder, subject=subject, reproduce_test=Asked(Outcome.SKIPPED))
+
+    assert built(recorder)
+    assert recorder.store.get(subject.id).state != HELD
+
+
 def test_a_test_gone_from_the_tree_satisfies_the_unit_with_the_reason(tmp_path: Path) -> None:
     _, recorder, subject = fix_unit(tmp_path)
     why = f"{TEST} is no longer in the tree"
