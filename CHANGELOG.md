@@ -8,6 +8,7 @@
   pytest and pytest-testmon (an `integration` test) checks that a change selects the tests that
   reach it, a marked test stays out and both passes of a full run leave data; it showed that
   coverage's default core on Python 3.14 needs no pin, so none is set.
+
 - `abk retire` now accepts a unit stored as `running` that nothing holds (no live process on
   its branch and no live lease), for the case where a crash or a killed tick left it that way
   with no command to end it. A unit counts as idle when its branch lock can be taken, which is the
