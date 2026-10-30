@@ -8,11 +8,13 @@
   under `runs/tmp/pytest` (a confined step may write it), and each tick removes such folders
   older than `global_limits.temp_keep_hours` (default 24) whose run is no longer alive, judged
   by the process's id and start time so a reused id does not keep one.
+
 - The worker count of the Python profile's test runs is a setting: `repos.<name>.tests.workers`
   (`auto` or a positive integer, default `auto`) and `tests.max_workers` (default `8`). The
   defaults keep today's `-n auto --maxprocesses=8`; a repo can lower them to ease the load of
   several units' full suites. In a `checks.affected.command` template, `{workers}` expands to
   the same options.
+
 - A task group now has a build mode: `tests_and_code`, `tests_only` or `no_code`. A group
   that names only documents, a changelog or configuration files may be built without a
   tests-first step, while a group that names code, or no path, keeps it. A
@@ -32,6 +34,7 @@
   check refuses it. A change still refused, one the agent could not judge, and a run that
   failed are held for a person. A `[contract]` group in a change that fixes a failing test no
   longer needs a `[narrow]` group after it.
+
 - A unit of a fix change no longer waits on another fix change. A test that fails in its
   checks and also fails on the base is recorded as pre-existing and set aside, and its fix
   change is still written, so two fixes for different red tests cannot park each other.
