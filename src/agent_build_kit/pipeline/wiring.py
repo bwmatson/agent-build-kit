@@ -99,6 +99,7 @@ from agent_build_kit.pipeline.environment import (
     unstage_untracked_locks,
 )
 from agent_build_kit.pipeline.file_lock import file_lock
+from agent_build_kit.pipeline.fix_reproduction import Reproduction
 from agent_build_kit.pipeline.flakes import (
     FailedOnBase,
     Flake,
@@ -4545,3 +4546,14 @@ def build_runner(
         log=log,
         log_reaches_run_log=log_reaches_run_log,
     )
+
+
+def build_reproduce(
+    *,
+    profile: ToolchainProfile,
+    run: Run | None = None,
+    projects: list[ProjectConfig] | None = None,
+    root_extras: list[str] | None = None,
+) -> Callable[..., Reproduction]:
+    """The runs of a fix unit's reproduction check, given `cwd=`, `test=` and `runs=`."""
+    raise NotImplementedError

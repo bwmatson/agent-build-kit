@@ -416,3 +416,14 @@ def _modules_of(inst: Installation, repo: str, flake: Flake) -> list[str]:
                 continue
             break
     return found
+
+
+def fix_change_test(inst: Installation, change: str) -> str | None:
+    """The test the fix change `change` is named for, read from its group 1 heading."""
+    raise NotImplementedError
+
+
+def merged_fix_since(inst: Installation, change: str, test: str) -> str | None:
+    """The archived fix change for `test`, other than `change`, merged since `change` was
+    written, or None."""
+    raise NotImplementedError

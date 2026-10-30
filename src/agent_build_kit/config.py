@@ -802,6 +802,9 @@ class LimitsConfig(TestKindSettings):
     # How many times the tests a unit added or changed are run again, under the same
     # load, after unit-test passes; 0 turns the check off.
     unit_test_repeat_runs: Annotated[int, Field(ge=0, alias="unit_test_repeat_runs")] = 3
+    # How many times, alone and again under load, the first build of a unit of a fix change runs
+    # the test the change is named for on the unit's base to see it still fails; 0 turns it off.
+    fix_reproduction_runs: Annotated[int, Field(ge=0, alias="fix_reproduction_runs")] = 5
     # What unit-test runs after a clean move onto a moved base: `affected` scopes it by the
     # files the move brought in, `full` runs the whole suite as before.
     restack_check: RestackCheck = RestackCheck.AFFECTED
