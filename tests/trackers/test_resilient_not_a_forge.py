@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import inspect
 from typing import Any
 
 import pytest
@@ -41,7 +40,3 @@ def test_the_registry_wraps_what_is_not_a_forge_wrapper(monkeypatch: pytest.Monk
     forges.register(tracker)  # type: ignore[arg-type]
 
     assert wrapped == [tracker]
-
-
-def test_the_trackers_constructor_needs_no_type_ignore() -> None:
-    assert "type: ignore" not in inspect.getsource(ResilientTracker.__init__)

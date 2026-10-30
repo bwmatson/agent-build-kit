@@ -66,9 +66,6 @@ class Widget(ResilientBase[Widgets]):
     _subject = "widget"
     _retries_counter = "abk.widget.retries"
 
-    def _can_ask(self, spec: OperationSpec, args: tuple[Any, ...], kwargs: dict[str, Any]) -> bool:
-        return spec.lands is not None
-
     def _landed(self, spec: OperationSpec, args: tuple[Any, ...], kwargs: dict[str, Any]) -> Any:
         return getattr(self._inner, str(spec.lands))(args[0])
 

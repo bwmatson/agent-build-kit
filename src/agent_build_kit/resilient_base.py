@@ -37,8 +37,8 @@ class ResilientBase[Inner]:
     """Applies a table of operations to every call it delegates to `inner`.
 
     Anything that is not an operation is the inner object's own. A subclass names
-    what its logs and counter call the inner object, and supplies the two hooks:
-    whether a create can be looked up after a failure, and the look-up."""
+    what its logs and counter call the inner object, and supplies the look-up of a create
+    (`_landed`); it may narrow `_can_ask`, whether a failed create can be looked up at all."""
 
     _subject = "object"
     _retries_counter = "abk.object.retries"
@@ -114,8 +114,9 @@ class ResilientBase[Inner]:
         return self._neutral(self._table[name])
 
     def _can_ask(self, spec: OperationSpec, args: tuple[Any, ...], kwargs: dict[str, Any]) -> bool:
-        """Whether a create that failed can be looked up before it is repeated."""
-        raise NotImplementedError
+        """Whether a create that failed can be looked up before it is repeated: its table
+        entry names a read, and the inner object has it."""
+        return spec.lands is not None and callable(getattr(self._inner, spec.lands, None))
 
     def _landed(self, spec: OperationSpec, args: tuple[Any, ...], kwargs: dict[str, Any]) -> Any:
         """What the create made, or None when nothing shows it landed."""

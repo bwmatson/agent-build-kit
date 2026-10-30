@@ -55,9 +55,6 @@ class ResilientForge(ResilientBase[Forge]):
     ) -> None:
         super().__init__(inner, policy, clock, sleeper, table=table)
 
-    def _can_ask(self, spec: OperationSpec, args: tuple[Any, ...], kwargs: dict[str, Any]) -> bool:
-        return spec.lands is not None and callable(getattr(self._inner, spec.lands, None))
-
     def _landed(self, spec: OperationSpec, args: tuple[Any, ...], kwargs: dict[str, Any]) -> Any:
         assert spec.lands is not None
         read_args, read_kwargs = _landing_call(spec.lands, args, kwargs)

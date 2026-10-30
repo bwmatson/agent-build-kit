@@ -33,11 +33,7 @@ class ResilientTracker(ResilientBase[Tracker]):
 
     def _can_ask(self, spec: OperationSpec, args: tuple[Any, ...], kwargs: dict[str, Any]) -> bool:
         # Without a marker there is nothing to look for, so a create is not repeated blind.
-        return (
-            bool(kwargs.get("markers"))
-            and spec.lands is not None
-            and callable(getattr(self._inner, spec.lands, None))
-        )
+        return bool(kwargs.get("markers")) and super()._can_ask(spec, args, kwargs)
 
     def _landed(self, spec: OperationSpec, args: tuple[Any, ...], kwargs: dict[str, Any]) -> Any:
         markers = kwargs.get("markers") or ()
