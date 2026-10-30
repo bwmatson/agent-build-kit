@@ -4577,13 +4577,13 @@ def build_reproduce(
 
     A file not under the root is `SKIPPED`. The test is `GONE` only when the runner's own
     collection says it does not find the id (no tests collected, or "not found"), never from
-    reading the file, since a name may be inherited or made up at collection. Alone, it is run by id, serially, through the profile's single-test
-    command. Under load, the whole file it is in is run with the repo's parallel workers (the profile's
-    repeat command, which keeps them), so the file's other tests are running beside it, and the
-    run counts as a failure only when the output names the test. A run alone counts as a failure
-    when it exits as a failure for any reason: the test failing, erroring or timing out. A
-    profile without the single-test or the repeat command cannot make the check, which is
-    `SKIPPED`."""
+    reading the file, since a name may be inherited or made up at collection. Alone, it is run
+    by id, serially, through the profile's single-test command. Under load, the whole file it
+    is in is run with the repo's parallel workers (the profile's repeat command, which keeps
+    them), so the file's other tests are running beside it, and the run counts as a failure
+    only when the output names the test. A run alone counts as a failure when it exits as a
+    failure for any reason: the test failing, erroring or timing out. A profile without the
+    single-test or the repeat command cannot make the check, which is `SKIPPED`."""
     run = run or _run_limited
 
     def reproduce_test(*, cwd: Path, test: str, runs: int) -> Reproduction:
