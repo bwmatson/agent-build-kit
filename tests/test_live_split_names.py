@@ -10,9 +10,8 @@ from tests.live_tag_drift import (
     EVERY_LIVE_MODULE_TIME_LIMIT,
     derived_splits,
     documented_splits,
-    find_live_modules,
     split_name_drift,
-    split_of,
+    splits_by_syntax,
 )
 from tests.runtime_tag_collection import ROOT
 
@@ -71,13 +70,10 @@ def test_an_extra_split_is_named(tmp_path: Path) -> None:
 
 
 @pytest.mark.time_limit(EVERY_LIVE_MODULE_TIME_LIMIT)
-def test_every_tagged_live_test_of_the_kit_is_in_one_derived_split(
-    pytester: pytest.Pytester,
-) -> None:
-    modules = find_live_modules(ROOT / "tests")
-    items, _ = pytester.inline_genitems(*(str(m) for m in modules))
+def test_every_tagged_live_test_of_the_kit_is_in_one_derived_split() -> None:
     splits = derived_splits(PYPROJECT) | {"rest"}
+    found = splits_by_syntax(ROOT / "tests")
 
-    assert items
-    assert {split_of(item) for item in items} <= splits
-    assert {split_of(item) for item in items} - {"rest"}
+    assert found
+    assert [str(p) for p, names in found.items() if not names <= splits] == []
+    assert set().union(*found.values()) - {"rest"}
