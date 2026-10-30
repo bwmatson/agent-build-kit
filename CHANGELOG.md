@@ -8,6 +8,11 @@
   pytest and pytest-testmon (an `integration` test) checks that a change selects the tests that
   reach it, a marked test stays out and both passes of a full run leave data; it showed that
   coverage's default core on Python 3.14 needs no pin, so none is set.
+- `abk retire` now accepts a unit stored as `running` that nothing holds (no live process on
+  its branch and no live lease), for the case where a crash or a killed tick left it that way
+  with no command to end it. A unit counts as idle when its branch lock can be taken, which is the
+  scheduler's own test for one; the history notes that the unit was idle, and the command still refuses a `running` unit a live process or lease
+  holds, naming the holder.
 
 - The kit's own test runs now delete the temp folder of every passing test and keep only the
   folders of failed tests, for the last two runs, so a finished run no longer leaves a large
@@ -27,6 +32,13 @@
   tests-first step, while a group that names code, or no path, keeps it. A
   `Tests: required — <reason>` line in a group keeps tests first for it, and `abk tags` shows
   each group's mode.
+
+- A task group that names only test files or test-support modules under `tests/` (with
+  documents, if any) is now `tests_only`: it commits one `test:` and no `feat:`, as an
+  `[e2e-test]` group does. A source path, or no path, keeps tests first, and
+  `Tests: required — <reason>` raises it again. An edit to a test-support module pytest does
+  not collect is checked by the full run, since the repeat check re-runs only collected
+  `test_*.py` files.
 
 - A repo's `sandbox` and each project's `sandbox` accept a `caches` list: the cache folders a
   confined step may write. Unset, the toolchain profile's defaults apply; a list replaces them

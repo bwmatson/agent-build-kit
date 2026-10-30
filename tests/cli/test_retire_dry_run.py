@@ -3,8 +3,11 @@ command would; a real run records who did it and why (spec: a-started-unit-keeps
 
 from __future__ import annotations
 
+import os
+
 import pytest
 
+from tests.branch_lock_fakes import lock_held_by
 from tests.retire_scene import Scene, scene  # noqa: F401
 
 UNIT = "feature/3"
@@ -59,8 +62,8 @@ def test_a_dry_run_exits_as_the_real_command_would_for_unpushed_commits(
 
 @pytest.mark.parametrize(
     "state",
-    ["merged", "running", "planned"],
-    ids=["finished", "running", "group nobody builds, no reason"],
+    ["merged", "planned"],
+    ids=["finished", "group nobody builds, no reason"],
 )
 def test_a_dry_run_exits_1_for_each_refusal(
     scene: Scene,  # noqa: F811
@@ -73,6 +76,21 @@ def test_a_dry_run_exits_1_for_each_refusal(
     code, _ = scene.retire(capsys, UNIT, "--dry-run")
 
     assert code == 1
+    assert scene.snapshot() == before
+
+
+def test_a_dry_run_exits_1_for_a_running_unit_a_live_process_holds(
+    scene: Scene,  # noqa: F811
+    capsys,
+) -> None:
+    scene.add(UNIT, "running", groups=(2,))
+    lock_held_by(scene.inst, BRANCH, os.getpid())
+    before = scene.snapshot()
+
+    code, out = scene.retire(capsys, UNIT, "--dry-run", "--reason", "x")
+
+    assert code == 1
+    assert str(os.getpid()) in out
     assert scene.snapshot() == before
 
 

@@ -42,10 +42,10 @@ def test_a_finished_unit_is_refused_as_finished(state: UnitState) -> None:
     assert "finished" in found.refusal
 
 
-def test_a_running_unit_is_refused() -> None:
+def test_a_running_unit_is_not_refused_here_the_command_asks_who_holds_it() -> None:
     found = assess("app/3", [target(state=RUNNING)])
 
-    assert "running" in found.refusal
+    assert found.refusal == ""
 
 
 @pytest.mark.parametrize("state", [PLANNED, UNPLANNED, FAILED, HELD, IN_REVIEW])

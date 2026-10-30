@@ -151,6 +151,7 @@ from agent_build_kit.pipeline.file_lock import (
 )
 from agent_build_kit.pipeline.flakes import flake_record
 from agent_build_kit.pipeline.gate_holds import evaluate_gates, gate_status_lines
+from agent_build_kit.pipeline.idle import idle_units
 from agent_build_kit.pipeline.joins import JoinContext
 from agent_build_kit.pipeline.label_sweep import sweep_finished
 from agent_build_kit.pipeline.labels import StateLabels
@@ -2636,13 +2637,7 @@ def _idle_units(
     inst: Installation, units: list[StoredUnit], in_flight: Collection[str]
 ) -> set[str]:
     """Running units no run holds: not in flight, and their branch's lock free."""
-    return {
-        unit.id
-        for unit in units
-        if unit.state == RUNNING
-        and unit.id not in in_flight
-        and not branch_is_held(inst, unit.branch or branch_name(unit))
-    }
+    return idle_units(units, in_flight, lambda branch: branch_is_held(inst, branch))
 
 
 def reclaim_stranded(

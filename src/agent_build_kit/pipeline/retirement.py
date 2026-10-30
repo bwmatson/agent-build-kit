@@ -15,7 +15,6 @@ from agent_build_kit.pipeline.unit_store import StoredUnit
 from agent_build_kit.pipeline.units import (
     FINISHED_STATES,
     MERGED,
-    RUNNING,
     SATISFIED,
     UnitState,
     current_dependencies,
@@ -73,8 +72,6 @@ def _fate(unit: StoredUnit, change: str, group: int, others: Sequence[StoredUnit
 def _refusal(unit: StoredUnit, units: Sequence[StoredUnit]) -> str:
     if unit.state in FINISHED_STATES:
         return f"{unit.id} is finished ({unit.state})"
-    if unit.state == RUNNING:
-        return f"{unit.id} is running; stop it first"
     for other in units:
         if (
             unit.id in current_dependencies(other, units)

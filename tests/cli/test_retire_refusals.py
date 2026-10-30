@@ -39,14 +39,15 @@ def test_a_finished_unit_is_refused(scene: Scene, capsys, state: str) -> None:  
     assert scene.untouched()
 
 
-def test_a_running_unit_is_refused(scene: Scene, capsys) -> None:  # noqa: F811
+def test_a_running_unit_a_live_process_holds_is_refused(scene: Scene, capsys) -> None:  # noqa: F811
     scene.add(UNIT, "running")
+    lock_held_by(scene.inst, f"spec/{UNIT}", os.getpid())
     before = scene.snapshot()
 
     code, out = scene.retire(capsys, UNIT, "--reason", "x")
 
     assert code == 1
-    assert "running" in out
+    assert str(os.getpid()) in out
     assert scene.snapshot() == before
 
 
