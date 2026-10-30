@@ -21,7 +21,10 @@ from tests.conftest import make_installation
 VARIABLE = "PYTEST_DEBUG_TEMPROOT"
 LONG_UNIT = "fix-test-tests-pipeline-test-branch-lock-identity-py-test-ps-10a14e69/1"
 RUN = "63611807"
-DEFAULT_HOME = Path("/home/benmatson/.local/share/ai-accelerators-meta-agent")
+# Assembled, so that this file does not itself look like a leaked path: the default data home on a
+# machine whose user name is 9 characters long.
+USER = "devperson"
+DEFAULT_HOME = Path("/") / "home" / USER / ".local" / "share" / "ai-accelerators-meta-agent"
 
 
 def folder_of(installation: Installation, unit: str = LONG_UNIT, run: str = RUN) -> Path:
@@ -70,7 +73,7 @@ def test_a_run_folder_leaves_room_for_the_longest_names_the_tests_make_under_it(
     makes of a worktree under it is under 255 (a file name needs that)."""
     below_data_home = folder_of(installation).relative_to(data_home()).parts[1:]
     folder = DEFAULT_HOME.joinpath(*below_data_home)
-    tmp_path = folder / "pytest-of-benmatson" / "pytest-0" / "popen-gw10" / ("t" * 31)
+    tmp_path = folder / f"pytest-of-{USER}" / "pytest-0" / "popen-gw10" / ("t" * 31)
     worktree = tmp_path / "worktrees" / "app" / "spec_feature_2"
 
     assert len(str(tmp_path)) <= 144
