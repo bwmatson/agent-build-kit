@@ -206,7 +206,17 @@
   `abk tags` check it, then for a `[contract]` group and a priority, and rewritten once if the
   check refuses it. A change still refused, one the agent could not judge, and a run that
   failed are held for a person. A `[contract]` group in a change that fixes a failing test no
-  longer needs a `[narrow]` group after it.
+  longer needs a `[narrow]` group after it. A flaky test, a pre-existing e2e failure and a
+  unit-test failure start the agent once per test, and the unit waits on the change it
+  writes, and no change is written from a template any more. The agent works in a detached
+  worktree of the failure's own base (the parent's branch tip for a stacked unit), reads the
+  git history (`log`, `show`, `blame`, `diff`) and runs the repo's own test commands, and
+  nothing that moves the checkout or reaches the code host. Its proposal states which side is
+  wrong on a `Judgement:` line, which `abk status` and `abk explain` show beside the change,
+  and each failure is recorded with its kind and linked to the change. A unit whose run
+  `global_limits.max_regression_runs_per_hour` holds back waits, not failed, and goes on once
+  the hour has room. A change held for a person is waited on and the agent is not run again
+  for it, while a change directory a dead run left is written again.
 
 - A unit of a fix change no longer waits on another fix change. A test that fails in its
   checks and also fails on the base is recorded as pre-existing and set aside, and its fix

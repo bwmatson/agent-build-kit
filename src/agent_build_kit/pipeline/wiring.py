@@ -34,7 +34,7 @@ from functools import partial
 from pathlib import Path
 from typing import Any, Protocol
 
-from agent_build_kit import claude_account, forges, infra, profiles, runtimes, sandboxes
+from agent_build_kit import claude_account, forges, infra, openspec, profiles, runtimes, sandboxes
 from agent_build_kit.budget import Section, cut_head, cut_tail, fit
 from agent_build_kit.config import (
     BASE_GROUP,
@@ -113,7 +113,6 @@ from agent_build_kit.pipeline.flakes import (
     covered_tests,
     flake_record,
     record_storm,
-    wait_on_fix,
 )
 from agent_build_kit.pipeline.gateway_usage import Spend, attribution, configured_source
 from agent_build_kit.pipeline.lease import Leases, lease_dir
@@ -138,6 +137,11 @@ from agent_build_kit.pipeline.product_defect import (
     ProductDefectEntry,
     product_defect_record,
     wait_on_product_defect,
+)
+from agent_build_kit.pipeline.regression_agent import (
+    FixKind,
+    RegressionRunCapped,
+    wait_on_regression,
 )
 from agent_build_kit.pipeline.restack import (
     EmptyBranchBlocked,
@@ -197,7 +201,7 @@ from agent_build_kit.pipeline.untouched_failures import (
     PreExisting,
     holding_fixes,
     preexisting_record,
-    wait_on_preexisting,
+    wait_on_change,
 )
 from agent_build_kit.pipeline.usage_guard import (
     Decision,
@@ -2037,7 +2041,7 @@ def build_unit_test(
                 "conditions": conditions,
             }
 
-        def flakes_of(names: list[str]) -> tuple[Flake, ...]:
+        def flakes_of(names: list[str], base_output: str = "") -> tuple[Flake, ...]:
             return tuple(
                 Flake(
                     test=test,
@@ -2046,6 +2050,8 @@ def build_unit_test(
                     failure=cut_tail(sections.get(test, ""), FLAKE_FAILURE_CHARS),
                     at=at,
                     directory=str(where),
+                    base=base or "",
+                    base_output=base_output,
                     **evidenced(),
                 )
                 for test in names
@@ -2096,8 +2102,8 @@ def build_unit_test(
             limit = getattr(toolchain, "time_limit_tests", lambda text: [])(again_output)
             if not failed_again or not set(failed_again) <= set(limit):
                 if base is not None and not wrote(tests, where, base):
-                    if fails_on_base(rerun, tests, where, toolchain, base):
-                        raise FailedOnBase(flakes_of(tests))
+                    if (on_base := fails_on_base(rerun, tests, where, toolchain, base)) is not None:
+                        raise FailedOnBase(flakes_of(tests, on_base))
                 return False
             timed_out = failed_again
             timeouts += 1
@@ -2142,18 +2148,21 @@ def build_unit_test(
 
     def fails_on_base(
         rerun: list[str], tests: list[str], where: Path, toolchain: ToolchainProfile, base: str
-    ) -> bool:
-        """Whether every one of `tests` fails alone on `base`, in a clean worktree of it. A base
-        run that cannot be made proves nothing."""
+    ) -> str | None:
+        """The output of the base run when every one of `tests` fails alone on `base`, in a clean
+        worktree of it; None when one passes there. A base run that cannot be made proves
+        nothing."""
         root = checkout["root"]
         try:
             with worktree_at(root, base) as tree:
                 done = ran(rerun, tree / where.relative_to(root), toolchain, root=tree)
         except (subprocess.CalledProcessError, OSError, ValueError) as error:
             logger.warning("unit-test base run could not be made, so it proves nothing: %s", error)
-            return False
-        named = failed_ids(toolchain, f"{done.stdout or ''}\n{done.stderr or ''}")
-        return all(test in named for test in tests)
+            return None
+        text = f"{done.stdout or ''}\n{done.stderr or ''}"
+        if not all(test in failed_ids(toolchain, text) for test in tests):
+            return None
+        return redact_text(cut_tail(text.strip(), 4000), where="unit-test base output")
 
     def test_env(toolchain: ToolchainProfile) -> dict[str, dict[str, str]]:
         """The `env` argument for a command of `toolchain`: the profile's test environment for
@@ -2250,8 +2259,17 @@ def _pointed_bundles() -> set[Path]:
     return {Path(row.evidence) for row in [*record.entries(), *record.storms()] if row.evidence}
 
 
+# What the evidence of a pre-existing failure starts with: the e2e-test split it failed in.
+SPLIT_EVIDENCE = "e2e-test split: "
+
+
 def build_on_flake(
-    store: UnitStore, installation: Installation, *, log: Callable[[str], None] = print
+    store: UnitStore,
+    installation: Installation,
+    *,
+    runtime: AgentRuntime | None = None,
+    run_openspec: openspec.Run | None = None,
+    log: Callable[[str], None] = print,
 ) -> OnFlake:
     """Record a flake a unit met and make sure the one change that fixes it exists; with
     `wait` (the default) the unit waits on that change, without it, or for a unit of a fix
@@ -2260,9 +2278,34 @@ def build_on_flake(
 
     def on_flake(unit: Unit, flake: Flake, *, wait: bool = True) -> str | None:
         met = flake.model_copy(update={"unit": unit.id})
-        fix = wait_on_fix(installation, met, store.get(unit.id), wait=wait)
-        if not flake.failing:
-            flake_record(installation).append(met.model_copy(update={"change": fix or ""}))
+        stored = store.get(unit.id)
+        # A failure the base run shows was already failing there is a pre-existing one; one by its
+        # time limit alone was never run on the base, and is a regression.
+        kind = (
+            FixKind.FLAKY
+            if not flake.failing
+            else FixKind.PRE_EXISTING
+            if flake.base_output
+            else FixKind.REGRESSION
+        )
+        row = met.model_copy(update={"fix_kind": kind.value})
+        try:
+            fix = wait_on_regression(
+                installation,
+                met,
+                stored,
+                kind=kind,
+                runtime=runtime,
+                base_output=flake.base_output,
+                run_openspec=run_openspec,
+                wait=wait,
+                say=log,
+            )
+        except RegressionRunCapped:
+            # Held back by the hour's cap: recorded without a change, which a later run links.
+            flake_record(installation).append(row)
+            raise
+        flake_record(installation).append(row.model_copy(update={"change": fix or ""}))
         outcome = (
             "no wait" if not fix else f"waits for {fix}" if wait else f"recorded as {fix}, no wait"
         )
@@ -2273,7 +2316,12 @@ def build_on_flake(
 
 
 def build_on_preexisting(
-    store: UnitStore, installation: Installation, *, log: Callable[[str], None] = print
+    store: UnitStore,
+    installation: Installation,
+    *,
+    runtime: AgentRuntime | None = None,
+    run_openspec: openspec.Run | None = None,
+    log: Callable[[str], None] = print,
 ) -> Callable[..., str | None]:
     """Record a test that failed on the base too and make sure one change fixes it; with
     `wait`, give each group of the unit a `Needs:` line on that change. Returns the
@@ -2302,8 +2350,36 @@ def build_on_preexisting(
             ran_at=verdict.ran_at,
             conditions=verdict.conditions,
         )
-        fix = wait_on_preexisting(installation, met, store.get(unit.id), wait=wait, say=log)
-        preexisting_record(installation).append(met.model_copy(update={"change": fix or ""}))
+        stored = store.get(unit.id)
+        row = met.model_copy(update={"fix_kind": FixKind.PRE_EXISTING.value})
+        try:
+            fix = wait_on_regression(
+                installation,
+                Flake(
+                    test=met.test,
+                    unit=unit.id,
+                    command=met.command,
+                    output=met.line,
+                    at=met.at,
+                    evidence=f"{SPLIT_EVIDENCE}{split}\n{met.evidence}",
+                    ran_at=met.ran_at,
+                    conditions=met.conditions,
+                    failing=True,
+                    base=verdict.base,
+                ),
+                stored,
+                kind=FixKind.PRE_EXISTING,
+                runtime=runtime,
+                base_output=met.base_output,
+                run_openspec=run_openspec,
+                wait=wait,
+                say=log,
+            )
+        except RegressionRunCapped:
+            # Held back by the hour's cap: recorded without a change, which a later run links.
+            preexisting_record(installation).append(row)
+            raise
+        preexisting_record(installation).append(row.model_copy(update={"change": fix or ""}))
         log(f"{unit.id}: failing test {failure.test} — " + (f"fix {fix}" if fix else "no wait"))
         return fix
 
@@ -2359,7 +2435,9 @@ def build_on_e2e_gate(
     def on_e2e_gate(unit: Unit, splits: Collection[str] | None = None) -> list[str]:
         stored = store.get(unit.id)
         held = [
-            wait_on_preexisting(installation, entry, stored, wait=True, say=log)
+            wait_on_change(
+                installation, stored, entry.change, f"failing test {entry.test} on the base"
+            )
             for entry in holding_fixes(installation, stored, store.all(), splits=splits)
         ]
         fixes = [fix for fix in held if fix]
@@ -3835,6 +3913,7 @@ class E2eSession:
             broken=[f for f in classified.untouched if f.test not in failing],
             pre_existing=[f for f in classified.untouched if f.test in failing],
             command="; ".join(commands),
+            base=base,
             base_output=redact_text(
                 cut_tail("\n".join(outputs), 4000), where="e2e-test base output"
             ),

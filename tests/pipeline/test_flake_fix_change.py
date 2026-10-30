@@ -1,8 +1,9 @@
-"""One change fixes a flaky test, and every unit that meets the flake waits on it
-(spec: flaky-tests).
+"""One change, written by the regression agent, fixes a flaky test, and every unit that meets the
+flake waits on it (spec: flaky-tests, regression-agent).
 
-The planning repo is a folder under the test's temporary path; the code repo the flaky
-test lives in is a folder with the test file and the module it imports.
+The planning repo is a folder under the test's temporary path; the agent is the stand-in every
+test gets (`tests/regression_agent_fakes.py`), which writes a complete change. What the agent
+writes is tested in `test_regression_agent_change.py`.
 """
 
 from __future__ import annotations
@@ -20,15 +21,11 @@ import pytest
 from agent_build_kit.cli import pipeline as cli
 from agent_build_kit.installation import Installation
 from agent_build_kit.pipeline import file_lock as file_lock_module
-from agent_build_kit.pipeline.flakes import (
-    Flake,
-    flake_change_name,
-    flake_record,
-    wait_on_fix,
-)
+from agent_build_kit.pipeline.flakes import Flake, flake_change_name
 from agent_build_kit.pipeline.unit_store import StoredUnit, UnitStore
-from agent_build_kit.pipeline.work_graph import group_needs, old_test_kind_warnings, validate_tasks
+from agent_build_kit.pipeline.work_graph import group_needs
 from tests.factories import stored_unit
+from tests.regression_agent_fakes import waited_on as wait_on_fix
 
 TEST = "tests/test_widget.py::test_renders_the_label"
 OUTPUT = "FAILED tests/test_widget.py::test_renders_the_label - assert 'a' == 'b'\n"
@@ -87,7 +84,7 @@ def waits_on(inst: Installation, change: str) -> list[str]:
     return [need.change for need in needs]
 
 
-# --- the change that is written -----------------------------------------------------
+# --- the change ----------------------------------------------------------------------
 
 
 def test_the_change_is_named_from_the_tests_identifier() -> None:
@@ -99,61 +96,15 @@ def test_the_change_is_named_from_the_tests_identifier() -> None:
     assert flake_change_name("tests/test_widget.py::test_other") != name
 
 
-def test_the_proposal_gives_the_test_how_it_failed_its_history_and_the_module_it_exercises(
-    installation: Installation,
-) -> None:
+def test_the_agent_writes_the_change_a_flake_waits_on(installation: Installation) -> None:
     code_repo(installation)
     unit = change_with_unit(installation, "feature", "feature/1")
-    record = flake_record(installation)
-    for earlier in ("older/1", "oldest/2"):
-        record.append(flaked(unit=earlier, output="an earlier failure\n"))
 
     name = str(wait_on_fix(installation, flaked(), unit))
 
     assert name == flake_change_name(TEST)
-    proposal = (installation.changes_dir / name / "proposal.md").read_text()
-    assert TEST in proposal
-    assert "assert 'a' == 'b'" in proposal, "how it failed"
-    assert "passed alone" in proposal.lower()
-    assert "older/1" in proposal and "oldest/2" in proposal, "its history from the record"
-    assert "app.widget" in proposal or "app/widget.py" in proposal, (
-        "the module found from what the test imports"
-    )
-
-
-def test_the_design_stub_asks_whether_the_test_or_the_code_is_racy(
-    installation: Installation,
-) -> None:
-    code_repo(installation)
-    unit = change_with_unit(installation, "feature", "feature/1")
-
-    name = wait_on_fix(installation, flaked(), unit)
-
-    design = (installation.changes_dir / str(name) / "design.md").read_text().lower()
-    assert "racy" in design
-    assert "test" in design and "code" in design
-
-
-def test_the_group_reproduces_the_race_first_and_runs_the_repeat_check(
-    installation: Installation,
-) -> None:
-    code_repo(installation)
-    unit = change_with_unit(installation, "feature", "feature/1")
-
-    name = wait_on_fix(installation, flaked(), unit)
-
-    tasks = installation.changes_dir / str(name) / "tasks.md"
-    groups, errors = validate_tasks(tasks, repos=tuple(installation.repos))
-    assert errors == []
-    assert [(g.number, g.repo, g.tier) for g in groups] == [(1, "app", "unit-test")]
-    assert old_test_kind_warnings(tasks) == []
-    text = tasks.read_text()
-    first, second = re.findall(r"^- \[ \] 1\.\d+ (.*)$", text, re.MULTILINE)[:2]
-    assert first.startswith("Test:"), "tests first"
-    assert "deterministic" in first.lower()
-    assert not second.startswith("Test:")
-    assert TEST in text
-    assert "repeat" in text.lower(), "the repeat check"
+    root = installation.changes_dir / name
+    assert {"proposal.md", "design.md", "tasks.md"} <= {p.name for p in root.iterdir()}
 
 
 def test_the_written_change_passes_abk_tags(installation: Installation) -> None:
@@ -261,9 +212,6 @@ def test_once_the_fix_is_merged_and_archived_a_flake_writes_a_successor(
 
     assert successor and successor != fix
     assert "test-renders-the-label" in successor, "named from the same test"
-    assert fix in (installation.changes_dir / successor / "proposal.md").read_text(), (
-        "it names the earlier attempt"
-    )
     assert waits_on(installation, "other") == [successor]
 
 
@@ -309,45 +257,6 @@ def test_the_needs_line_links_the_unit_to_the_fix_changes_unit_through_the_exist
 
     stored = store.get("feature/1")
     assert stored.depends_on == (f"{fix}/1",)
-
-
-def test_the_module_is_found_from_the_project_the_test_ran_in(installation: Installation) -> None:
-    project = installation.checkouts["app"] / "proj"
-    (project / "tests").mkdir(parents=True)
-    (project / "tests" / "test_widget.py").write_text("from app.widget import label\n")
-    (project / "src" / "app").mkdir(parents=True)
-    (project / "src" / "app" / "widget.py").write_text("def label():\n    return 1\n")
-    unit = change_with_unit(installation, "feature", "feature/1")
-
-    name = str(wait_on_fix(installation, flaked(directory=str(project)), unit))
-
-    proposal = (installation.changes_dir / name / "proposal.md").read_text()
-    assert "proj/src/app/widget.py" in proposal
-
-
-def test_a_successor_restates_the_requirement_the_archived_attempt_added(
-    installation: Installation,
-) -> None:
-    code_repo(installation)
-    unit = change_with_unit(installation, "feature", "feature/1")
-    fix = str(wait_on_fix(installation, flaked(), unit))
-    first = (installation.changes_dir / fix / "specs").rglob("spec.md")
-    added = next(first).read_text()
-    archive = installation.changes_dir / "archive"
-    archive.mkdir()
-    (installation.changes_dir / fix).rename(archive / f"2026-03-02-{fix}")
-    # What archiving does: the requirement joins the capability's shipped spec.
-    shipped = installation.specs_dir / "specs" / "test-determinism" / "spec.md"
-    shipped.parent.mkdir(parents=True)
-    shipped.write_text(added.replace("## ADDED Requirements", "## Requirements"))
-
-    successor = str(wait_on_fix(installation, flaked(), unit))
-
-    delta = next((installation.changes_dir / successor / "specs").rglob("spec.md")).read_text()
-    assert "## ADDED Requirements" in added
-    header = next(line for line in added.splitlines() if line.startswith("### Requirement:"))
-    assert "## ADDED Requirements" not in delta, "the archive refuses to add it a second time"
-    assert "## MODIFIED Requirements" in delta and header in delta
 
 
 def test_the_needs_line_is_added_under_the_lock_that_ticking_boxes_takes(

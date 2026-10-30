@@ -16,6 +16,7 @@ import pytest
 
 from agent_build_kit.installation import Installation
 from agent_build_kit.pipeline.flakes import next_fix_name
+from agent_build_kit.pipeline.regression_agent import TOOLS
 from agent_build_kit.pipeline.stack_runner import (
     IMPLEMENTATION_PROMPT,
     REVIEW_FEEDBACK_PROMPT,
@@ -99,8 +100,13 @@ def test_the_agent_is_not_asked_to_run_the_tests_and_is_given_no_tool_that_does(
     request = agent_request(installation, tmp_path)
 
     assert re.search(r"do not run|never run|not run", flat(request.prompt).lower())
-    for granted in request.allowed_tools.replace(",", " ").split():
+    # What follows `TOOLS` is the repo's own commands for running the one failing test (spec:
+    # regression-agent); the listed tests are searched, not run, so nothing broader is granted.
+    assert request.allowed_tools.startswith(TOOLS)
+    for granted in TOOLS.split():
         assert not RUNNERS.search(granted), f"{granted} would run the listed tests"
+    for granted in request.allowed_tools.removeprefix(TOOLS).split():
+        assert not re.search(r"Bash\(\*\)|^Bash$", granted), f"{granted} would run anything"
     assert request.policy is not None and request.policy.sandbox is not None
     assert request.policy.sandbox.write == (request.planning_change_dir,)
 

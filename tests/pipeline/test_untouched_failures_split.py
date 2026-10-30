@@ -11,6 +11,7 @@ from agent_build_kit.pipeline.wiring import build_on_e2e_gate, build_on_preexist
 from tests.e2e_gate_fakes import Planning
 from tests.e2e_wait_fakes import OLD, verdict_of
 from tests.factories import stored_unit
+from tests.regression_agent_fakes import DefaultAgent
 from tests.untouched_failure_fakes import failing
 
 ACP = "acp"
@@ -62,13 +63,14 @@ def test_an_entry_recorded_before_the_runtime_existed_reads_as_rest(tmp_path: Pa
     assert written_as(Planning(tmp_path)) == ["rest"]
 
 
-def test_the_fix_change_names_the_split_in_its_proposal(tmp_path: Path) -> None:
+def test_the_agent_is_told_the_split_the_test_failed_in(
+    tmp_path: Path, no_real_regression_agent: DefaultAgent
+) -> None:
     planning = Planning(tmp_path)
-    fix = planning.open_fix(OLD, split=ACP)
 
-    proposal = (planning.installation.changes_dir / fix / "proposal.md").read_text()
+    planning.open_fix(OLD, split=ACP)
 
-    assert "`acp` split" in proposal
+    assert f"e2e-test split: {ACP}" in no_real_regression_agent.runtime.request.prompt
 
 
 def test_two_failures_of_one_test_in_two_splits_are_two_entries(tmp_path: Path) -> None:

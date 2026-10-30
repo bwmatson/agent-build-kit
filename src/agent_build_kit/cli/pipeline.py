@@ -222,6 +222,7 @@ from agent_build_kit.pipeline.pr_poller import (
 from agent_build_kit.pipeline.pr_replies import build_post_replies, ignored, parse_answer
 from agent_build_kit.pipeline.product_defect import preview as preview_defect
 from agent_build_kit.pipeline.product_defect import product_defect_record
+from agent_build_kit.pipeline.regression_agent import CAPPED_NOTE, judgement_of, run_room
 from agent_build_kit.pipeline.restack import (
     ConflictSession,
     Moved,
@@ -993,9 +994,19 @@ def cmd_status(args: argparse.Namespace, inst: Installation) -> int:
             f"passed alone ({storm.at:%Y-%m-%d %H:%M} UTC), no fix changes"
         )
 
-    for flaky in flake_record(inst).counts():
+    for failed in flake_record(inst).counts(lambda entry: entry.failing):
+        times = f"{failed.count} time{'' if failed.count == 1 else 's'}"
+        log(
+            f"  failing: {failed.test} — failed on its base {times}, "
+            f"fix {failed.change or 'not written yet'}" + _judged(inst, failed.change)
+        )
+
+    for flaky in flake_record(inst).counts(lambda entry: not entry.failing):
         times = f"{flaky.count} time{'' if flaky.count == 1 else 's'}"
-        log(f"  flaky: {flaky.test} — flaked {times}, fix {flaky.change or 'not written yet'}")
+        log(
+            f"  flaky: {flaky.test} — flaked {times}, fix {flaky.change or 'not written yet'}"
+            + _judged(inst, flaky.change)
+        )
 
     for failing in preexisting_record(inst).counts():
         times = f"{failing.count} time{'' if failing.count == 1 else 's'}"
@@ -1008,7 +1019,7 @@ def cmd_status(args: argparse.Namespace, inst: Installation) -> int:
         count = f", {waiting} unit{'' if waiting == 1 else 's'} waiting" if waiting else ""
         log(
             f"  pre-existing: {failing.test} — failed on the base {times}, "
-            f"fix {failing.change or 'not written yet'}{count}"
+            f"fix {failing.change or 'not written yet'}{count}" + _judged(inst, failing.change)
         )
 
     # What the last poll of each repo saw: an entry that cannot be merged is not
@@ -2928,6 +2939,8 @@ def release_gated(inst: Installation, store: UnitStore, *, in_flight: Collection
             or unit.id in in_flight
             or waiting_on(unit, units)
             or awaiting_planning(inst, unit, units)
+            # Held for the hour's cap on agent runs: it goes on once the hour has room.
+            or (unit.note.startswith(CAPPED_NOTE) and not run_room(inst, spans.clock.now()))
         ):
             continue
         why = unit.gated_requeue
@@ -3922,6 +3935,12 @@ def _second_parent_lines(units: list[StoredUnit]) -> list[str]:
         for unit in units
         if (wait := second_parent_wait(unit, units))
     ]
+
+
+def _judged(inst: Installation, change: str) -> str:
+    """`, <the regression agent's judgement>` of the fix `change`, or nothing."""
+    found = judgement_of(inst, change) if change else ""
+    return f", {found}" if found else ""
 
 
 def late_fix_phrase(unit: StoredUnit) -> str:

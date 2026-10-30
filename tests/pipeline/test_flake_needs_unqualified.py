@@ -6,9 +6,10 @@ from __future__ import annotations
 from datetime import UTC, datetime
 
 from agent_build_kit.installation import Installation
-from agent_build_kit.pipeline.flakes import Flake, wait_on_fix
+from agent_build_kit.pipeline.flakes import Flake
 from agent_build_kit.pipeline.work_graph import group_needs
 from tests.factories import stored_unit
+from tests.regression_agent_fakes import waited_on as wait_on_fix
 
 TEST = "tests/test_widget.py::test_renders_the_label"
 TASKS = (

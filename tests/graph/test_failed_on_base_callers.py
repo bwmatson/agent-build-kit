@@ -104,5 +104,6 @@ def test_a_restack_whose_run_raises_it_waits_gated_for_the_fix_and_records_no_fl
     assert stored.gated_requeue is RequeueReason.RESUME
     assert "failing test" in stored.note and "flaky" not in stored.note
     assert len(group_needs(installation.changes_dir / "feature" / "tasks.md")[1]) == 1
-    assert flake_record(installation).entries() == [], "it did not flake"
+    assert [e for e in flake_record(installation).entries() if not e.failing] == [], "no flake"
+    assert [e.fix_kind for e in flake_record(installation).entries()] == ["regression"]
     assert pushed == []

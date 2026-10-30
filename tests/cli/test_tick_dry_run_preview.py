@@ -14,7 +14,7 @@ from agent_build_kit.installation import Installation
 from agent_build_kit.pipeline import wiring
 from agent_build_kit.pipeline.flakes import fix_change_name
 from agent_build_kit.pipeline.unit_store import UnitStore
-from agent_build_kit.pipeline.untouched_failures import ensure_fix, preexisting_record
+from agent_build_kit.pipeline.untouched_failures import preexisting_record, preview
 from agent_build_kit.pipeline.usage_guard import Decision
 from tests.conftest import make_installation
 from tests.factories import stored_unit
@@ -95,7 +95,6 @@ def test_a_dry_run_previews_each_recorded_failure_and_writes_nothing(
 def test_a_dry_run_with_nothing_pending_still_previews_and_says_what_the_ensure_step_says(
     inst: Installation, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    unit = stored_unit("feature/1", change="feature")
     preexisting_record(inst).append(failing(TEST))
     before = tree_bytes(inst)
     capsys.readouterr()
@@ -105,6 +104,4 @@ def test_a_dry_run_with_nothing_pending_still_previews_and_says_what_the_ensure_
     lines = capsys.readouterr().out.splitlines()
     assert len(lines) == 1, "an idle tick says nothing else"
     assert tree_bytes(inst) == before
-    said: list[str] = []
-    ensure_fix(inst, failing(TEST), unit, say=said.append)
-    assert lines[0].endswith(said[0]), "the same line the ensure step reports"
+    assert lines[0].endswith(preview(inst, TEST).line), "the line the preview gives"

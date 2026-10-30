@@ -9,7 +9,7 @@ from typing import Any
 import pytest
 
 from agent_build_kit.cli import pipeline as cli
-from agent_build_kit.pipeline.flakes import fix_change_name, flake_record, wait_on_fix
+from agent_build_kit.pipeline.flakes import fix_change_name, flake_record
 from agent_build_kit.pipeline.stack_runner import RunStatus
 from agent_build_kit.pipeline.unit_store import Cause, RequeueReason
 from agent_build_kit.pipeline.units import CLOSED, PLANNED
@@ -20,6 +20,7 @@ from tests.e2e_gate_fakes import OLD, OTHER_OLD, Planning
 from tests.e2e_wait_fakes import OWN, Failing, snapshot_of, verdict_of
 from tests.factories import stored_unit
 from tests.pipeline.test_flake_fix_change import code_repo, flaked
+from tests.regression_agent_fakes import waited_on as wait_on_fix
 
 
 def second_unit(planning: Planning) -> Any:

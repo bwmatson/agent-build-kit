@@ -1481,9 +1481,10 @@ approved.
   optional `failed_tests` and `serial_rerun_command` hooks give the failed identifiers and a
   serial command for just them, and `build_unit_test` runs that twice. A rerun that fails leaves
   the failure as it was. Both passing raises `FlakeFound`: the unit's node calls the runner's
-  `on_flake`, which has `flakes.wait_on_fix` make sure, under `flakes.lock` in the state
-  directory, that one open change exists for the test (a successor, `-2` and on, only after
-  the earlier one is archived) and add a plain `Needs: <change> group 1` line to each of
+  `on_flake`, which has `regression_agent.wait_on_regression` make sure, under a lock of the
+  test's own in the state directory, that one open change exists for the test (written by the
+  regression agent; a successor, `-2` and on, only after the earlier one is archived) and add
+  a plain `Needs: <change> group 1` line to each of
   the unit's groups, and appends the flake to `flakes.jsonl`. The unit is held `planned`,
   cause `gated`, with a `resume` requeue waiting, so `release_gated` resumes it once the fix
   has merged: it restacks and runs unit-test again. A unit of the fix change itself does not
@@ -1493,18 +1494,15 @@ approved.
   failure line, time, the base run's result and output, the `split` it failed in (`rest` or a
   declared split; an older entry's `runtime` is read as the split, `base` as `rest`) and the
   fix change), through the
-  same `FailureRecord` the flake record uses. `untouched_failures.ensure_fix` makes sure,
-  under `preexisting.lock`, that one open `fix-test-<slug>` change exists for the test id
-  (name capped with a hash; a flake of the same test is the same change, and an open
-  `fix-flaky-` or `fix-failing-` one is found by the same lookup), and writes
-  it without a model: a proposal, a design stub, one `[e2e-test]` group with its tests first,
-  `Priority: 1` and an acceptance opt-out, and a spec. A successor (`-2` and on, its spec
-  MODIFIED, the proposal naming the earlier attempt) is written only once the earlier change
-  is merged and archived. It reports `exists: <change>`, or `would write: <change>` then
-  `wrote: <change>`; `abk tick --dry-run` prints the same first line for each recorded test,
-  even when no unit is pending, and writes nothing. The flake fix change is also written at
-  `Priority: 1`: a unit waits on either kind until it merges. `abk status` lists each as
-  `pre-existing:` with its count and fix change.
+  same `FailureRecord` the flake record uses. `regression_agent.wait_on_regression` makes sure
+  that one open `fix-test-<slug>` change exists for the test id (name capped with a hash; a
+  flake of the same test is the same change, and an open `fix-flaky-` or `fix-failing-` one is
+  found by the same lookup), and has the regression agent write it. A successor (`-2` and on,
+  the earlier attempt named to the agent) is written only once the earlier change is merged
+  and archived. `abk tick --dry-run` prints `exists: <change>` or `would write: <change>` for
+  each recorded test, even when no unit is pending, and writes nothing. A unit waits on a
+  flake's fix and on a pre-existing one until it merges. `abk status` lists each as
+  `pre-existing:` with its count, fix change and the agent's judgement.
 - **A unit behind a fix waits, and is told only of its own failures.** When every failure of a
   e2e-test run is pre-existing, the node (`Nodes.wait_for_preexisting`) records each through the
   runner's `on_preexisting` (`wiring.build_on_preexisting`), gives each group of the unit a
@@ -1525,8 +1523,9 @@ approved.
   `on_e2e_gate` (`wiring.build_on_e2e_gate`). `untouched_failures.holding_fixes` returns
   the recorded fix changes that are open, were recorded by a unit of the same repo, are not the
   unit's own change, carry no `Needs:` from it and were recorded for a split the run executes
-  (a fix for a test in a held or unexecuted split does not hold it); each gets a `Needs:` line through
-  `wait_on_preexisting`, and the unit is parked as above before the stack lock or any test.
+  (a fix for a test in a held or unexecuted split does not hold it); each gets a `Needs:` line
+  (`untouched_failures.wait_on_change`; the gate writes no change and starts no agent), and the
+  unit is parked as above before the stack lock or any test.
   A same-repo fix releases the unit once its unit is in review, not only when it has merged.
   A closed fix change keeps the unit waiting until a person clears it. `abk status` ends each
   `pre-existing:` line with the number of units waiting on its fix.

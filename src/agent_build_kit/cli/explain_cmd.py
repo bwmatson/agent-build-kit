@@ -16,6 +16,7 @@ from agent_build_kit.pipeline.admission_record import (
     read_admissions,
 )
 from agent_build_kit.pipeline.external_file import external_reason, held_units
+from agent_build_kit.pipeline.regression_agent import waited_fixes
 from agent_build_kit.pipeline.unit_store import Cause
 from agent_build_kit.pipeline.units import PLANNED, RUNNING, history_stamp
 
@@ -120,6 +121,8 @@ def cmd_explain(args: argparse.Namespace, inst: Installation) -> int:
         return 0
     if unit is not None and unit.state is PLANNED and unit.cause is Cause.GATED and unit.note:
         print(f"{args.unit} is {unit.state.value}: {unit.note}")
+        for fix, judged in waited_fixes(inst, unit):
+            print(f"  waits on {fix}" + (f": {judged}" if judged else ""))
         if record is None:
             return 0
     if (

@@ -12,7 +12,7 @@ import pytest
 
 from agent_build_kit.pipeline.e2e_schedule import scheduled_name, scheduled_parts, write_due
 from agent_build_kit.pipeline.units import UnitState
-from agent_build_kit.pipeline.untouched_failures import ensure_fix, preexisting_record
+from agent_build_kit.pipeline.untouched_failures import preexisting_record
 from tests.e2e_schedule_fakes import (
     TODAY,
     ago,
@@ -22,6 +22,7 @@ from tests.e2e_schedule_fakes import (
     scheduled_changes,
     store_of,
 )
+from tests.regression_agent_fakes import ensure_fix
 from tests.untouched_failure_fakes import failing
 
 
@@ -216,7 +217,7 @@ def test_off_still_reads_the_record_of_pre_existing_failures_and_writes_their_fi
     preexisting_record(inst).append(entry)
 
     assert round_of(inst, store) == ([], [])
-    fix = ensure_fix(inst, entry, store.get("app-work/1"), say=lambda line: None)
+    fix = ensure_fix(inst, entry, store.get("app-work/1"))
 
     assert fix.startswith("fix-test-")
     assert [e.test for e in preexisting_record(inst).entries()] == [entry.test]

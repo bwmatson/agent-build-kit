@@ -6,7 +6,6 @@ from __future__ import annotations
 from pathlib import Path
 
 from agent_build_kit.installation import Installation
-from agent_build_kit.pipeline.flakes import wait_on_fix
 from agent_build_kit.pipeline.stack_runner import RunStatus
 from agent_build_kit.pipeline.unit_store import Cause, RequeueReason, StoredUnit, UnitStore
 from agent_build_kit.pipeline.units import PLANNED
@@ -31,6 +30,7 @@ from tests.pipeline.test_flake_fix_change import (
     flaked,
     waits_on,
 )
+from tests.regression_agent_fakes import waited_on as wait_on_fix
 from tests.untouched_failure_fakes import TEST as RECORDED
 
 

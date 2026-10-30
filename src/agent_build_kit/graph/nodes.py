@@ -97,6 +97,7 @@ from agent_build_kit.pipeline.pause import UNKNOWN_RETRY
 from agent_build_kit.pipeline.pr_body import build_pr_body, satisfied_reason
 from agent_build_kit.pipeline.pr_replies import parse_answer
 from agent_build_kit.pipeline.product_defect import DefectRefused, read_product_defect
+from agent_build_kit.pipeline.regression_agent import meet_all
 from agent_build_kit.pipeline.restack import (
     RESOLVER_TOOLS,
     BranchMoved,
@@ -2057,7 +2058,9 @@ class BuildPath:
         if is_fix_change(unit.change):
             return None
         flakes = found.flakes if isinstance(found, FlakeFound) else found.failures
-        fixes = [r.on_flake(unit, flake) for flake in flakes]
+        fixes, _, capped = meet_all(partial(r.on_flake, unit, flake) for flake in flakes)
+        if capped is not None:
+            return self.park_for_fix(capped.note)
         if not any(fixes):
             return None
         return self.park_for_fix(
@@ -2072,8 +2075,11 @@ class BuildPath:
         Any other unit is failed for them."""
         flakes = found.flakes if isinstance(found, FlakeFound) else found.failures
         if is_fix_change(self.unit.change):
-            fixes = [self.runner.on_flake(self.unit, flake, wait=False) for flake in flakes]
-            if all(fixes):
+            fixes, held, _ = meet_all(
+                partial(self.runner.on_flake, self.unit, flake, wait=False) for flake in flakes
+            )
+            # One the hour's cap holds back is recorded without a change and does not fail it.
+            if all(fix for fix, capped in zip(fixes, held, strict=True) if not capped):
                 return True, ""
         return False, flakes[0].output
 
@@ -2551,10 +2557,17 @@ class BuildPath:
         except FlakeFound as found:
             if found.scoped:
                 # The move did not cause it: recorded, and the unit goes on without waiting.
-                fixes = [r.on_flake(unit, flake, wait=False) for flake in found.flakes]
+                fixes, held, _ = meet_all(
+                    partial(r.on_flake, unit, flake, wait=False) for flake in found.flakes
+                )
                 # A unit of the flake's own fix change has no fix to lean on: the flake is
-                # a unit-test failure its agent is told of.
-                ok, output = (True, "") if all(fixes) else (False, found.flakes[0].output)
+                # a unit-test failure its agent is told of. One the hour's cap holds back is
+                # recorded without a change and does not count against the unit.
+                ok, output = (
+                    (True, "")
+                    if all(fix for fix, capped in zip(fixes, held, strict=True) if not capped)
+                    else (False, found.flakes[0].output)
+                )
             elif (parked := self.wait_for_fix(found)) is not None:
                 return parked
             else:
@@ -2671,9 +2684,12 @@ class BuildPath:
         fix, or it builds the fix itself."""
         r, unit = self.runner, self.unit
         wait = not (verdict.own or verdict.broken)
-        fixes = [
-            r.on_preexisting(unit, verdict, failure, wait=wait) for failure in verdict.pre_existing
-        ]
+        fixes, _, capped = meet_all(
+            partial(r.on_preexisting, unit, verdict, failure, wait=wait)
+            for failure in verdict.pre_existing
+        )
+        if capped is not None:
+            return self.park_for_fix(capped.note) if wait else None
         if not wait or not any(fixes):
             return None
         # Only the tests that got a fix change: one the record refused (an unknown or blocked

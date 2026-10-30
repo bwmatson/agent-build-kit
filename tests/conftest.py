@@ -38,6 +38,7 @@ from agent_build_kit.forges.transport import clear_credentials
 from agent_build_kit.installation import Installation
 from agent_build_kit.pipeline.unit_store import StoredUnit, UnitStore
 from agent_build_kit.runtimes import claude_code
+from tests import regression_agent_fakes
 from tests.checkout_env import without_checkout_env
 from tests.forges.github_server import FakeGitHub
 from tests.forges.mock_host import MockHost, ok, recorded
@@ -306,6 +307,16 @@ def no_real_github() -> Iterator[None]:
     forges.register(GitHubForge(http=MockHost(ok({"message": "Not Found"}, 404))))
     yield
     forges.register(github.FORGE)
+
+
+@pytest.fixture(autouse=True)
+def no_real_regression_agent(
+    monkeypatch: pytest.MonkeyPatch,
+) -> regression_agent_fakes.DefaultAgent:
+    """A fix handler given no runtime runs the regression agent step against a stand-in that
+    writes a valid change, so no test starts a real agent or needs node. A test that asks for
+    the fixture gets the stand-in, to read what the agent was asked."""
+    return regression_agent_fakes.install(monkeypatch)
 
 
 @pytest.fixture(autouse=True)

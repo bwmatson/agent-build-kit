@@ -5,11 +5,11 @@ from __future__ import annotations
 
 from agent_build_kit.cli import pipeline as cli
 from agent_build_kit.installation import Installation
-from agent_build_kit.pipeline.flakes import wait_on_fix
 from agent_build_kit.pipeline.unit_store import Cause, RequeueReason, UnitStore
 from agent_build_kit.pipeline.units import IN_REVIEW, MERGED, PLANNED
 from tests.factories import stored_unit
 from tests.pipeline.test_flake_fix_change import change_with_unit, code_repo, flaked
+from tests.regression_agent_fakes import waited_on as wait_on_fix
 
 
 def test_the_gate_holds_while_the_fix_change_has_no_unit_and_until_it_is_merged(

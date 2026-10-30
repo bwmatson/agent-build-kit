@@ -7,6 +7,7 @@ pre-existing): the entry model differs, how it is stored and counted does not.
 from __future__ import annotations
 
 import json
+from collections.abc import Callable
 from datetime import datetime
 from pathlib import Path
 from typing import Literal
@@ -14,7 +15,7 @@ from typing import Literal
 from pydantic import Field
 
 from agent_build_kit.model import Frozen
-from agent_build_kit.pipeline.file_lock import file_lock
+from agent_build_kit.pipeline.file_lock import atomic_write_text, file_lock
 
 
 class Evidenced(Frozen):
@@ -32,6 +33,9 @@ class Recorded(Frozen):
 
     test: str
     change: str = ""
+    # What kind of failure the regression agent was asked to fix: `flaky`, `pre-existing` or
+    # `regression`; empty on a row written before the agent, or before it ran.
+    fix_kind: str = ""
 
 
 class TestCount(Frozen):
@@ -75,6 +79,20 @@ class FailureRecord[T: Recorded]:
             with self.path.open("a", encoding="utf-8") as handle:
                 handle.write(entry.model_dump_json() + "\n")
 
+    def link(self, test: str, change: str) -> None:
+        """Name `change` as the fix on each earlier entry of `test` that has none."""
+        with file_lock(self.path.with_suffix(".lock")):
+            lines = self._lines()
+            linked = []
+            for line in lines:
+                row = json.loads(line)
+                if row.get("kind") != "storm" and row.get("test") == test and not row.get("change"):
+                    row["change"] = change
+                    line = json.dumps(row)
+                linked.append(line)
+            if linked != lines:
+                atomic_write_text(self.path, "\n".join(linked) + "\n")  # readers take no lock
+
     def _lines(self) -> list[str]:
         try:
             lines = self.path.read_text(encoding="utf-8").splitlines()
@@ -97,11 +115,12 @@ class FailureRecord[T: Recorded]:
         fixes the test now."""
         return {entry.test: entry for entry in self.entries() if entry.change}
 
-    def counts(self) -> list[TestCount]:
-        """Each test once, with how often it was recorded and its latest fix change."""
+    def counts(self, only: Callable[[T], bool] = lambda entry: True) -> list[TestCount]:
+        """Each test once, with how often it was recorded and its latest fix change; `only`
+        picks the entries counted."""
         fixing = {test: entry.change for test, entry in self.latest_with_change().items()}
         counted: dict[str, int] = {}
-        for entry in self.entries():
+        for entry in filter(only, self.entries()):
             counted[entry.test] = counted.get(entry.test, 0) + 1
         return [
             TestCount(test=test, count=count, change=fixing.get(test, ""))

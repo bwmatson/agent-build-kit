@@ -5,12 +5,12 @@ from __future__ import annotations
 
 from typing import Any
 
-from agent_build_kit.pipeline.flakes import wait_on_fix
 from agent_build_kit.pipeline.unit_store import Cause, RequeueReason
 from agent_build_kit.pipeline.units import HELD, IN_REVIEW, MERGED, PLANNED
 from tests.factories import new_unit
 from tests.graph.test_flake_parking import FLAKE, Flaking
 from tests.pipeline.test_flake_fix_change import TASKS, code_repo
+from tests.regression_agent_fakes import waited_on as wait_on_fix
 from tests.tick_driver import UNIT, Setup
 
 
