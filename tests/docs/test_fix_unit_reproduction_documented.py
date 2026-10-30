@@ -10,6 +10,9 @@ from tests.prompt_text import flat
 ROOT = Path(__file__).resolve().parents[2]
 ARCHITECTURE = flat((ROOT / "docs" / "architecture.md").read_text())
 CONFIGURATION = (ROOT / "docs" / "configuration.md").read_text()
+CHECK = ARCHITECTURE[ARCHITECTURE.index("A fix unit checks that its test still fails") :].split(
+    "**New tests are repeated under load.**", 1
+)[0]
 SKILL = (ROOT / "src" / "agent_build_kit" / "skills" / "abk-config" / "SKILL.md").read_text()
 
 
@@ -27,7 +30,7 @@ def test_the_architecture_names_the_check_and_its_three_outcomes() -> None:
     assert "not reproduced" in ARCHITECTURE
     assert "whether the cause is already gone" in ARCHITECTURE, "the build judges it"
     assert "as the change wrote it" in ARCHITECTURE
-    assert "not held" in ARCHITECTURE and "needs_human" not in ARCHITECTURE
+    assert "not held" in CHECK and "needs_human" not in CHECK
 
 
 def test_the_architecture_says_which_units_are_not_checked() -> None:
