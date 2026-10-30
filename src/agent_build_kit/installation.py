@@ -136,6 +136,11 @@ class Installation:
         return self.planning_home / "state" if self.in_repo else self.root / "runs"
 
     @property
+    def pytest_temp_root(self) -> Path:
+        """Where the unit-test step's runs keep their pytest temp folders, one per run."""
+        return self.state_dir / "tmp" / "pytest"
+
+    @property
     def local_dir(self) -> Path:
         """Where the files tied to this machine's processes live: `planning.local_dir`, else
         `<planning home>/local` in an in-repo installation, else the state directory."""

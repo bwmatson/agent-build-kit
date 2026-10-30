@@ -101,6 +101,9 @@ markers = [
     "dev_stack: needs the repo's dev stack up; left out of acceptance runs",
 ]
 addopts = "--strict-markers -m 'not integration and not local_stack'"
+# A passing test's temp folder is deleted and a failing run keeps its folders, up to the count.
+tmp_path_retention_policy = "failed"
+tmp_path_retention_count = 2
 
 [tool.poe.tasks]
 format = { sequence = [

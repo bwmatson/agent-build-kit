@@ -29,6 +29,7 @@ from agent_build_kit.config import (
     EnvironmentInputs,
     RepoConfig,
 )
+from agent_build_kit.installation import Installation
 from agent_build_kit.path_discovery import find_up
 from agent_build_kit.pipeline.commit_order import stub_violations as _stub_violations
 from agent_build_kit.pipeline.e2e import (
@@ -39,6 +40,7 @@ from agent_build_kit.pipeline.e2e import (
     parse_pytest_summary,
 )
 from agent_build_kit.pipeline.red_check import judge_red, split_report, wrap_report_command
+from agent_build_kit.pipeline.temp_sweep import write_pid_file
 from agent_build_kit.profiles.base import HOME, PromptWords, SandboxPaths, is_doc_path
 from agent_build_kit.profiles.workspace_lock import workspace_lock
 
@@ -336,6 +338,15 @@ class PythonUvProfile:
             ),
             hosts=("pypi.org", "files.pythonhosted.org"),
         )
+
+    def test_environment(self, installation: Installation, unit: str, run: str) -> dict[str, str]:
+        """The variables the unit-test step's commands run with: `PYTEST_DEBUG_TEMPROOT` names a
+        folder under the installation's `runs/tmp/pytest` for this unit and run, created here.
+        The run's pid file lets a later tick tell a live run from a killed one."""
+        folder = installation.pytest_temp_root / f"{unit.replace('/', '-')}-{run}"
+        folder.mkdir(parents=True, exist_ok=True)
+        write_pid_file(folder)
+        return {"PYTEST_DEBUG_TEMPROOT": str(folder)}
 
     def member_of(self, repo: Path, path: str) -> str | None:
         for member in self.members(repo):

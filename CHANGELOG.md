@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- The kit's own test runs now delete the temp folder of every passing test and keep only the
+  folders of failed tests, for the last two runs, so a finished run no longer leaves a large
+  tree of temporary repositories behind. The unit-test step also gets a temp folder of its own
+  under `runs/tmp/pytest` (a confined step may write it), and each tick removes such folders
+  older than `global_limits.temp_keep_hours` (default 24) whose run is no longer alive, judged
+  by the process's id and start time so a reused id does not keep one.
+
 - A repo's `sandbox` and each project's `sandbox` accept a `caches` list: the cache folders a
   confined step may write. Unset, the toolchain profile's defaults apply; a list replaces them
   and `caches: []` grants none. The project's list wins over the repo's, and `abk.local.yaml`
