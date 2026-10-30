@@ -438,8 +438,11 @@ def fix_change_test(inst: Installation, change: str) -> str | None:
 
 
 def merged_fix_since(inst: Installation, change: str, test: str) -> str | None:
-    """The archived fix change for `test`, other than `change`, merged on or after the day
-    `change` was written, or None. The day is the date of the change's proposal."""
+    """The archived fix change for `test`, other than `change`, archived on a day strictly
+    after the day `change` was written, or None. An archive name holds only a date, so a fix
+    archived the same day is not taken as newer (the change may be its own successor, written
+    after that fix flaked again); the day is that of the change's proposal file, and a checkout
+    that moves it later only makes the answer None."""
     for name in ("proposal.md", "tasks.md"):
         try:
             written = datetime.fromtimestamp(
@@ -458,7 +461,7 @@ def merged_fix_since(inst: Installation, change: str, test: str) -> str | None:
             found = found or (inst.changes_dir / name).is_dir()
             for merged in sorted(archive.glob(f"*-{name}")):
                 found = True
-                if merged.name[11:] == name and name != change and merged.name[:10] >= day:
+                if merged.name[11:] == name and name != change and merged.name[:10] > day:
                     return name
         if not found and attempt:
             break

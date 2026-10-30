@@ -103,7 +103,6 @@ from agent_build_kit.pipeline.fix_reproduction import (
     Attempt,
     Outcome,
     Reproduction,
-    gone_note,
 )
 from agent_build_kit.pipeline.fix_reproduction import check as check_reproduction
 from agent_build_kit.pipeline.flakes import (
@@ -4561,6 +4560,10 @@ def build_runner(
     )
 
 
+# What a test runner says when it is given an id that collection does not find.
+NOT_FOUND = "not found:"
+
+
 def build_reproduce(
     *,
     profile: ToolchainProfile,
@@ -4572,9 +4575,10 @@ def build_reproduce(
 ) -> Callable[..., Reproduction]:
     """The runs of a fix unit's reproduction check, as `reproduce_test(cwd=, test=, runs=)`.
 
-    The test is looked for in its file first: a file or a name that is gone is `GONE` with no
-    run. Alone, it is run by id, serially, through the profile's single-test command. Under
-    load, the whole file it is in is run with the repo's parallel workers (the profile's
+    A file not under the root is `SKIPPED`. The test is `GONE` only when the runner's own
+    collection says it does not find the id (no tests collected, or "not found"), never from
+    reading the file, since a name may be inherited or made up at collection. Alone, it is run by id, serially, through the profile's single-test
+    command. Under load, the whole file it is in is run with the repo's parallel workers (the profile's
     repeat command, which keeps them), so the file's other tests are running beside it, and the
     run counts as a failure only when the output names the test. A run alone counts as a failure
     when it exits as a failure for any reason: the test failing, erroring or timing out. A
@@ -4583,19 +4587,16 @@ def build_reproduce(
     run = run or _run_limited
 
     def reproduce_test(*, cwd: Path, test: str, runs: int) -> Reproduction:
-        file, _, name = test.partition("::")
+        file = test.partition("::")[0]
         where, toolchain = cwd, profile
         for project in projects or []:
             if (cwd / project.path / file).is_file():
                 where, toolchain = cwd / project.path, profiles.get(project.profile)
                 break
-        bare = name.rsplit("::", 1)[-1].partition("[")[0]
-        try:
-            gone = bool(bare) and bare not in (where / file).read_text()
-        except (OSError, UnicodeDecodeError):
-            gone = True
-        if gone:
-            return Reproduction(outcome=Outcome.GONE, note=gone_note(test))
+        if not (where / file).is_file():
+            # The id is not under this root (or its file is unreadable): the check cannot be
+            # made, and a guess is not a reason to satisfy the unit.
+            return Reproduction(outcome=Outcome.SKIPPED, note=f"{file} is not under {where}")
         rerun = getattr(toolchain, "serial_rerun_command", None)
         if rerun is None or not isinstance(toolchain, RepeatsTests):
             return Reproduction(outcome=Outcome.SKIPPED, note="the profile cannot run one test")
@@ -4621,7 +4622,10 @@ def build_reproduce(
             output = f"{result.stdout}\n{result.stderr}"
             if test in failed_ids(toolchain, output):
                 return Attempt.FAILED
-            if result.returncode != 0 and result.returncode == toolchain.no_tests_collected_exit:
+            if result.returncode != 0 and (
+                result.returncode == toolchain.no_tests_collected_exit
+                or NOT_FOUND in output.lower()
+            ):
                 return Attempt.NOT_COLLECTED
             if not whole_file and not toolchain.tolerates_exit(argv, result.returncode):
                 return Attempt.FAILED
