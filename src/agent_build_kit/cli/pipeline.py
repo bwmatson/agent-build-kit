@@ -178,6 +178,7 @@ from agent_build_kit.pipeline.pause import (
     pauses_in_force,
     record_pause,
 )
+from agent_build_kit.pipeline.plan_previews import save_preview
 from agent_build_kit.pipeline.planner import (
     GroupTooLarge,
     Pin,
@@ -2222,6 +2223,7 @@ def run_round(
                 only=only,
                 usage_paused=True,
             ),
+            dry_run=dry_run,
         )
         return []
     # A usage refusal only withholds builds: the round still fetches and polls,
@@ -2242,10 +2244,11 @@ def run_round(
             "landing", land_units, inst, store, dispatch=_dispatch(inst, store, lane=lane), say=log
         )
     _step("finishing chat commits", deliver_committed, inst, store)
-    _step("creating the thread store", _create_thread_store, inst)
+    if not dry_run:
+        _step("creating the thread store", _create_thread_store, inst)
     # Planning runs on the default account: not while the model has refused it.
     if admitted and None not in model_refused:
-        _step("planning", plan_all, inst, store=store)
+        _step("planning", plan_all, inst, store=store, dry_run=dry_run)
         for line in stale_plan_lines(inst):
             log(line)
     _step("recording successors", record_successors, store)
@@ -2332,6 +2335,7 @@ def run_round(
                 only=only,
                 usage_paused=True,
             ),
+            dry_run=dry_run,
         )
     if not submit or not (admitted or may == "idle"):
         return []
@@ -2357,6 +2361,7 @@ def run_round(
                 building=set(building),
                 only=only,
             ),
+            dry_run=dry_run,
         )
         return []
     in_flight = set(building)
@@ -2483,7 +2488,7 @@ def run_round(
         usage_paused=False,
         refused=refused,
     )
-    _record_waits(inst, store, units, only, lambda: waits)
+    _record_waits(inst, store, units, only, lambda: waits, dry_run=dry_run)
     if not dry_run:
         _record_admissions(
             inst,
@@ -5076,6 +5081,7 @@ def plan_all(
     store: UnitStore,
     only: Collection[str] | None = None,
     force: bool = False,
+    dry_run: bool = False,
 ) -> dict[str, PlanResult]:
     """Turn each OpenSpec change into units, when it needs it.
 
@@ -5088,6 +5094,9 @@ def plan_all(
     `only` limits it to those changes, and `force` plans them whatever the
     recorded plan says, with their failed attempts counted from none: what
     `abk replan` asks for. The result has an entry for each change visited.
+
+    `dry_run` asks the planner as usual but writes nothing to the store or the plan records:
+    it logs what it would plan and saves the planner's answer as a plan preview.
     """
     planned = planned_hashes(inst)
     max_attempts = inst.max_plan_attempts
@@ -5098,7 +5107,7 @@ def plan_all(
     # A change removed from the planning repo is never planned again, so its units that never
     # started would outlive it and hold the units that wait on them. A planning repo with no
     # changes directory at all is misconfigured, not empty, and drops nothing.
-    if inst.changes_dir.is_dir():
+    if inst.changes_dir.is_dir() and not dry_run:
         existing = {path.name for path in inst.changes_dir.iterdir() if path.is_dir()}
         if gone := store.unplan_vanished(existing):
             log(f"unplanned, their change no longer exists: {', '.join(gone)}")
@@ -5138,6 +5147,9 @@ def plan_all(
                 for line in why:
                     log(f"{change}: {line}")
                 results[change] = PlanResult(status="refused")
+            elif dry_run:
+                log(f"would record {change} as planned: {why}")
+                results[change] = PlanResult(status="planned", recorded_only=True)
             else:
                 # A planned unit of another change that carries a group has its priority
                 # from the edited line, as the planning path gives it.
@@ -5174,6 +5186,7 @@ def plan_all(
         context = _plan_context(units, change)
         omitted = sum(1 for u in units if u.state in landed and u.change != change)
         ratios = calibrations(units)
+        answers: list[str] = []
         try:
             catalog = _task_catalog(inst)
             # The groups go in so the plan is checked against the tags, which
@@ -5198,6 +5211,7 @@ def plan_all(
                 in_flight=context,
                 omitted=omitted,
                 previous_refusal=_previous_refusal(planned.get(change), digest),
+                on_answer=answers.append,
                 groups=task_groups,
                 built=built,
                 # Units the store already has: a dependency naming one of
@@ -5225,12 +5239,17 @@ def plan_all(
                 "attempts": max_attempts,
                 "ok": False,
             }
-            record_plans(inst, {change: failure | _refusal(error)})
+            if not dry_run:
+                record_plans(inst, {change: failure | _refusal(error)})
             log(f"not planning {change}: {error}")
             results[change] = PlanResult(status="failed")
             continue
         except Exception as error:  # noqa: BLE001
             previous = record if record.get("hash") == digest else {}
+            if dry_run:
+                log(f"planning {change} failed — {type(error).__name__}: {error}")
+                results[change] = PlanResult(status="failed")
+                continue
             if (wait := _plan_wait(inst, error, previous)) is not None:
                 kind, fields = wait
                 # The plan that stands keeps the policy it was made under, so a change
@@ -5298,6 +5317,11 @@ def plan_all(
                 f"{change}: cannot be ordered, a cycle of Needs: and stored dependencies: "
                 f"{' -> '.join(drops.cycle)}"
             )
+        if dry_run:
+            log(f"would plan {change}: {len(units)} unit(s)")
+            save_preview(inst.state_dir, change, answer=answers[-1], tasks=digest, sizing=sizing)
+            results[change] = PlanResult(status="planned", cycle=drops.cycle)
+            continue
         before = {u.id: u for u in store.all()}
         try:
             store.upsert(units, change=change)
@@ -5385,7 +5409,7 @@ def plan_all(
             },
         )
         results[change] = PlanResult(status="planned", cycle=drops.cycle, kept=left_out)
-    if any(result.status == "planned" for result in results.values()):
+    if not dry_run and any(result.status == "planned" for result in results.values()):
         _promote(inst, store)
     return results
 
@@ -8070,7 +8094,14 @@ def cmd_gate(args: argparse.Namespace, inst: Installation | None) -> int:
 
 def register(sub: argparse._SubParsersAction) -> None:
     tick = sub.add_parser("tick", help="one pass: usage, poll, plan, verify, archive, build")
-    tick.add_argument("--dry-run", action="store_true", help="report without building")
+    tick.add_argument(
+        "--dry-run",
+        action="store_true",
+        help=(
+            "report without building: a change that needs planning is planned in memory, "
+            "logged and saved under plan-previews/; nothing else is written"
+        ),
+    )
     tick.add_argument(
         "--only",
         action="append",
@@ -8389,9 +8420,14 @@ def _record_waits(
     units: Sequence[StoredUnit],
     only: frozenset[str],
     waits: Callable[[], dict[str, Wait]],
+    *,
+    dry_run: bool = False,
 ) -> None:
     """Log each unit's reason for waiting where it changed; a pass is never failed by it.
-    A unit `--only` leaves out is not looked at, so its wait is neither changed nor closed."""
+    A unit `--only` leaves out is not looked at, so its wait is neither changed nor closed.
+    A dry run records nothing."""
+    if dry_run:
+        return
     try:
         path = inst.state_dir / DECISIONS_NAME
         # A log that is gone (a temp folder deleted and its name reused) starts a new recorder:

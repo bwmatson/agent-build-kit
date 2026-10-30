@@ -11,6 +11,7 @@ import pytest
 from agent_build_kit.cli import pipeline as cli
 from agent_build_kit.pipeline.units import IN_REVIEW
 from agent_build_kit.pipeline.usage_guard import Decision
+from agent_build_kit.pipeline.usage_ledger import LEDGER_NAME
 from agent_build_kit.runtimes import AgentRequest
 from tests.cli.replan_driver import Replan, answer, planned, tasks_md, tick, ticking_replan
 from tests.factories import unit
@@ -18,6 +19,7 @@ from tests.factories import unit
 pytestmark = pytest.mark.usefixtures("scripted_engine")
 
 PREVIEWS = "plan-previews"
+THREAD_STORE = "unit-graphs.sqlite"
 GROUPS = {"feature": 2, "other": 1}
 
 
@@ -38,12 +40,18 @@ def preview_file(run: Replan, change: str) -> Path:
 
 
 def state_bytes(run: Replan) -> dict[str, str]:
-    """Every file under the state folder, previews aside, as a digest of its bytes."""
+    """Every file under the state folder as a digest of its bytes, but for the previews, the
+    empty `.lock` handles and thread database a read opens, and the usage ledger, which every
+    tick appends its spans and metrics to (and records the planner call a dry run makes in, as
+    any spend is)."""
     root = run.inst.state_dir
     return {
         str(path.relative_to(root)): hashlib.sha1(path.read_bytes()).hexdigest()
         for path in sorted(root.rglob("*"))
-        if path.is_file() and PREVIEWS not in path.relative_to(root).parts
+        if path.is_file()
+        and path.suffix != ".lock"
+        and path.name not in (LEDGER_NAME, THREAD_STORE)
+        and PREVIEWS not in path.relative_to(root).parts
     }
 
 
