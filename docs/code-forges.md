@@ -335,7 +335,9 @@ GitHub repo, calls `GET /user` and reports the account, or the source that faile
 ## The retry layer
 
 `forges/resilient.py` is the one place a forge call is repeated, for every host; the
-registry returns each forge wrapped in a `ResilientForge`. `forges/operations.py`
+registry returns each forge wrapped in a `ResilientForge`. The retry engine itself is
+`resilient_base.py`'s `ResilientBase`, which the tracker wrapper extends too; the forge wrapper
+supplies only its landing reads and names. `forges/operations.py`
 declares a kind for every protocol method, and a test fails when one has no entry:
 
 - `read` and `idempotent_write`: repeated on a transient failure (`HostError`,

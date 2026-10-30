@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- The retry engine of the forge and tracker wrappers now lives in one shared base
+  (`resilient_base.py`), and a tracker wrapper is no longer a forge wrapper. Retries, waits,
+  log lines and counters are unchanged.
+
 - The unit-test step's pytest temp folders now live in the planning home
   (`<planning home>/tmp/pytest`) instead of under `runs/tmp/pytest`, outside the planning
   repository. Under `runs/` they sat inside it, so the roughly 110 tests that make a folder and
