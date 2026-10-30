@@ -18,7 +18,6 @@ from pathlib import Path
 
 from agent_build_kit.installation import Installation
 from agent_build_kit.pipeline import retirement
-from agent_build_kit.pipeline.idle import idle_units
 from agent_build_kit.pipeline.lease import Leases, lease_dir
 from agent_build_kit.pipeline.shell import git, git_out
 from agent_build_kit.pipeline.unit_store import IDLE_NOTE, ClosePending, StoredUnit, UnitStore
@@ -120,43 +119,47 @@ def retire(
             say("--discard-unpushed accepts losing them")
             return 1
 
-    # The scheduler's own test of a running unit no run holds. `in_flight` is empty because
-    # `abk retire` is its own process: a build running elsewhere shows itself only through its
-    # branch lock. The test is read before the lock is taken, since our own lock would read as
-    # a holder.
-    idle = unit.state == RUNNING and unit_id in idle_units(
-        units, (), lambda branch: pipe.branch_is_held(inst, branch)
-    )
-    # A running unit is locked even when no branch is recorded, under the name the scheduler
-    # tests, so the same holder is seen and named.
-    lock_name = unit.branch or (branch_name(unit) if unit.state == RUNNING else "")
+    # A `running` unit is idle, as the scheduler counts it, exactly when no live process holds
+    # its branch's lock, so taking the lock is that test: a grant means the unit is idle, and
+    # `BranchBusy` names the holder. The holders lock the recorded branch or the computed one,
+    # so both are taken, in a fixed order. The command's own lock is why the scheduler's
+    # function is not called here: it would read that lock as a holder.
+    names = {unit.branch} if unit.branch else set()
+    if unit.state == RUNNING:
+        names.add(branch_name(unit))
     with ExitStack() as held:
-        if lock_name:
+        for name in sorted(names):
             try:
-                held.enter_context(branch_lock(lock_name, root=inst.locks_dir))
+                held.enter_context(branch_lock(name, root=inst.locks_dir))
             except BranchBusy as error:
                 say(f"{unit_id}: {error}; stop it first")
                 return 1
-        # What happened between the first read and the lock: the lock is ours now, so no run
-        # holds the unit, but a run that finished first has left it in another state, and a
-        # lease may have been taken. Nothing is changed before this.
-        current = store.get(unit_id)
-        if current.state != unit.state:
-            say(f"{unit_id} is now {current.state}, not {unit.state}; run abk retire again")
+        # What happened between the first read and the lock: a run may have finished, or a
+        # lease been taken. Everything that follows is decided from a fresh read, and a unit
+        # that changed in a way the decisions above depend on is turned away, nothing changed.
+        units = store.all()
+        current = next((u for u in units if u.id == unit_id), None)
+        fresh = retirement.assess(unit_id, units) if current is not None else None
+        if (
+            current is None
+            or fresh != assessment
+            or (current.state, current.pr, current.branch, current.pushed)
+            != (unit.state, unit.pr, unit.branch, unit.pushed)
+        ):
+            now = current.state if current is not None else "gone"
+            say(f"{unit_id} changed while it was being checked (now {now}); run abk retire again")
             return 1
         if holder := Leases(lease_dir(inst.local_dir)).holder(unit_id):
             say(f"{unit_id} has a live lease held by {holder}; stop it first")
             return 1
-        # A holder that exited after the first read left the lock free to take: idle.
-        idle = unit.state == RUNNING
         return _retire(
             inst,
             store,
-            unit,
-            assessment,
+            current,
+            fresh,
             say=say,
             reason=reason,
-            idle=idle,
+            idle=unit.state == RUNNING,
             branch=(repo, tree) if delete_branch and unit.branch else None,
             dry_run=dry_run,
         )

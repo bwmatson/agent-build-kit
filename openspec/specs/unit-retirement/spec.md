@@ -68,7 +68,7 @@ thread SHALL be deleted. The command SHALL decide every refusal before it change
 
 #### Scenario: A running unit a live process holds is refused
 
-- **GIVEN** a unit that is `running`, or whose branch lock names a live process
+- **GIVEN** a unit that is `running` and whose branch lock names a live process, or that has a live lease
 - **WHEN** `abk retire` runs on it
 - **THEN** it exits 1, names the holder, and the unit is unchanged
 
