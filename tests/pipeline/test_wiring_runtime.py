@@ -49,7 +49,10 @@ def test_a_build_asks_the_runtime_for_a_policed_run_in_the_worktree(tmp_path: Pa
     assert request.cwd == tree
     assert request.add_dirs == (specs,)
     assert request.policy == ToolPolicy(
-        specs_dir=specs, branch_prefix="unit/", fenced_files=(planning / "abk.yaml",)
+        specs_dir=specs,
+        branch_prefix="unit/",
+        fenced_files=(planning / "abk.yaml",),
+        no_commit=True,
     )
     assert request.permission_mode == "edit"
     assert request.allowed_tools == "Read Edit"

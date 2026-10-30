@@ -321,17 +321,56 @@ def check_no_push(command: str) -> Verdict:
 
 
 COMMIT_REASON = (
-    "nothing is committed until the person says so — leave the changes in the working tree"
+    "this run makes no commit and moves no branch: the pipeline (or the person, in a chat) commits "
+    "what it leaves in the working tree, with the gate and the trailer — leave the changes there"
 )
+
+# The git subcommands that make a commit, or move the branch to another one, unless asked to
+# leave the result in the working tree.
+_ALWAYS_COMMITS = frozenset({"commit", "commit-tree", "update-ref", "am", "pull"})
+# `-n` is `--no-commit` for these two; for `merge` it is `--no-stat`, so `merge` takes the long
+# form only.
+_NO_COMMIT_SHORT = frozenset({"cherry-pick", "revert"})
+_NO_COMMIT_LONG = frozenset({"cherry-pick", "revert", "merge"})
+# The cleanup of a step already in progress: it undoes, it makes no commit.
+_CLEANUPS = frozenset({"--abort", "--quit"})
+_RESET_MODES = frozenset({"--soft", "--mixed", "--hard", "--keep", "--merge"})
+
+
+def _moves_commits(args: list[str]) -> bool:
+    """A git command, from its subcommand on, that makes a commit or moves the branch.
+
+    What leaves its result in the working tree is not one: `cherry-pick`, `revert` and `merge`
+    with `--no-commit`, `reset` of nothing or of paths after `--`, and the `--abort` and `--quit`
+    of any of them."""
+    if not args:
+        return False
+    sub, rest = args[0], args[1:]
+    if sub == "commit":
+        return True
+    if sub in _ALWAYS_COMMITS or sub in _NO_COMMIT_LONG or sub == "rebase":
+        if any(arg in _CLEANUPS for arg in rest):
+            return False
+        if sub in _ALWAYS_COMMITS or sub == "rebase":
+            return True
+        return not ("--no-commit" in rest or (sub in _NO_COMMIT_SHORT and "-n" in rest))
+    if sub == "reset":
+        # A revision moves HEAD, and so does a mode: only a bare `reset` or paths after `--` do not.
+        before = rest[: rest.index("--")] if "--" in rest else rest
+        return any(arg in _RESET_MODES or not arg.startswith("-") for arg in before)
+    return False
 
 
 def check_no_commit(command: str) -> Verdict:
-    """Refuse a command in which any segment is a `git commit`."""
+    """Refuse a command in which any segment makes a commit or moves the branch: a `git commit`
+    in any form, and the other commands that do (`cherry-pick`, `revert`, `merge`, `rebase`, `am`,
+    `pull`, `commit-tree`, `update-ref`, and a `reset` that moves HEAD). The forms that leave
+    the result in the working tree stay allowed (`_moves_commits`)."""
     for segment in SEGMENT_SPLIT.split(command):
         tokens = _strip_wrappers(_tokens(segment.strip()))
         if tokens and tokens[0] == "git":
             _, args = _git_target(tokens, None)
-            if args[:1] == ["commit"]:
+            if _moves_commits(args):
                 return Verdict(allowed=False, reason=COMMIT_REASON)
     return Verdict(allowed=True)
 

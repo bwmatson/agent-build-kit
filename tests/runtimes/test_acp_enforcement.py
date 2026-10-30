@@ -812,7 +812,7 @@ COMMITS = [
     pytest.param("git add -A && git commit -m wip", [], id="behind-another-command"),
     pytest.param("git", ["rebase", "main"], id="rebase"),
     pytest.param("git", ["cherry-pick", "HEAD"], id="cherry-pick"),
-    pytest.param("git", ["reset", "--hard", "HEAD~1"], id="reset"),
+    pytest.param("git", ["reset", "--soft", "HEAD~1"], id="reset"),
 ]
 
 
