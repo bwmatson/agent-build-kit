@@ -60,7 +60,7 @@ class Runner:
 
     @staticmethod
     def is_selected(command: list[str]) -> bool:
-        return "--testmon" in command or any("::" in word for word in command)
+        return "--testmon-forceselect" in command or any("::" in word for word in command)
 
     def full_runs(self) -> list[list[str]]:
         return [c for c in self.ran if "pytest" in c and not self.is_selected(c)]
@@ -233,7 +233,8 @@ def test_a_seeded_selection_runs_with_the_plugin_and_its_count_reaches_the_ledge
 
     assert passed
     (selected,) = runner.selected_runs()
-    assert "--testmon" in selected and "--testmon-noselect" not in selected
+    assert "--testmon-forceselect" in selected and "--testmon" not in selected
+    assert "--testmon-noselect" not in selected
     (line,) = affected_lines(workspace)
     assert line["selected"] == 4
 

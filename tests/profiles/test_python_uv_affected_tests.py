@@ -68,7 +68,7 @@ def test_seed_data_selects_by_changed_source_with_the_plugin_in_the_isolated_env
     for command in commands:
         assert "--isolated" in command
         assert command[command.index("--with") + 1].startswith("pytest-testmon")
-        assert "--testmon" in command
+        assert "--testmon-forceselect" in command and "--testmon" not in command
         assert any(str(seed) in word for word in command)
         assert command[command.index("--package") + 1] == "svc-a"
     assert "svc-b" not in " ".join(words(commands))
@@ -81,7 +81,8 @@ def test_seed_data_in_a_repo_that_is_not_a_workspace_selects_by_changed_source(
 
     commands = ask(repo, ["src/x.py"], [], seeded(tmp_path))
 
-    assert "--testmon" in words(commands)
+    assert "--testmon-forceselect" in words(commands)
+    assert "--testmon" not in words(commands)
 
 
 def test_without_seed_data_the_failed_tests_run_first_and_alone(tmp_path: Path) -> None:
@@ -130,3 +131,25 @@ def test_the_root_tests_carry_the_repos_root_extras_seeded_and_not(tmp_path: Pat
         for command in root:
             withs = [command[i + 1] for i, word in enumerate(command) if word == "--with"]
             assert "httpx" in withs
+
+
+def test_the_select_form_forces_the_selection_between_the_plugin_and_the_paths() -> None:
+    command = ["uv", "run", "pytest", "-m", "not slow", "tests"]
+
+    selected = PROFILE.seeding_command(command, Path("/seed"), select=True)
+
+    assert "--testmon" not in selected and "--testmon-noselect" not in selected
+    assert selected.index("--with") < selected.index("--testmon-forceselect")
+    assert selected.index("--testmon-forceselect") < selected.index("-m")
+    assert selected[selected.index("-m") + 1] == "not slow"
+    assert selected[-1] == "tests"
+
+
+def test_the_recording_form_still_runs_every_test() -> None:
+    command = ["uv", "run", "pytest", "-m", "not slow", "tests"]
+
+    recording = PROFILE.seeding_command(command, Path("/seed"))
+
+    assert "--testmon-noselect" in recording
+    assert "--testmon-forceselect" not in recording and "--testmon" not in recording
+    assert recording[recording.index("-m") + 1] == "not slow"
