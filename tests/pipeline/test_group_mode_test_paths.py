@@ -77,6 +77,16 @@ def test_an_e2e_group_stays_tests_only_beside_a_source_path(tmp_path: Path) -> N
         ([], False),
         (["tests/test_foo.py", "src/pkg/foo.py"], False),
         (["tests/test_foo.py", "pyproject.toml"], False),
+        (["tests/test_foo.py", "CHANGELOG.md"], True),
+        (["tests/conftest.py"], True),
+        (["web/src/__tests__/a.tsx"], True),
+        (["web/src/App.test.tsx"], True),
+        (["web/src/App.spec.ts"], True),
+        (["src/app/tests/x.py"], True),
+        (["src/app/testing/x.py"], False),
+        (["src/app/testing/mock_server.py"], False),
+        (["src/app/test/x.py"], False),
+        (["tests/test_foo.py", "src/app/testing/x.py"], False),
     ],
 )
 def test_allows_tests_only_reads_the_labels_of_the_paths(paths: list[str], expected: bool) -> None:
@@ -97,3 +107,59 @@ def test_abk_tags_prints_the_tests_only_mode(tmp_path: Path, capsys: pytest.Capt
     assert code == 0
     line = next(x for x in capsys.readouterr().out.splitlines() if x.strip().startswith("1."))
     assert GroupMode.TESTS_ONLY.value in line
+
+
+@pytest.mark.parametrize(
+    "task",
+    [
+        "- [ ] 1.1 Fix `src/app/testing/mock_server.py`.\n",
+        "- [ ] 1.1 Fix `src/app/test/x.py`.\n",
+    ],
+)
+def test_a_product_module_in_a_testing_folder_keeps_the_code_floor(
+    task: str, tmp_path: Path
+) -> None:
+    assert unit_group(task, tmp_path).mode is GroupMode.TESTS_AND_CODE
+
+
+@pytest.mark.parametrize(
+    "task",
+    [
+        "- [ ] 1.1 Edit `tests/test_a.py` and `*.py`.\n",
+        "- [ ] 1.1 Edit `tests/test_a.py` and `**/*.py`.\n",
+    ],
+)
+def test_a_glob_with_no_folder_may_change_any_source_file(task: str, tmp_path: Path) -> None:
+    assert unit_group(task, tmp_path).mode is GroupMode.TESTS_AND_CODE
+
+
+def test_a_glob_under_tests_is_test_code(tmp_path: Path) -> None:
+    group = unit_group("- [ ] 1.1 Edit `tests/pipeline/**`.\n", tmp_path)
+
+    assert group.mode is GroupMode.TESTS_ONLY
+
+
+def test_a_paths_line_of_test_paths_is_tests_only(tmp_path: Path) -> None:
+    group = unit_group(
+        "Paths: `tests/test_foo.py`, `tests/helpers.py`\n\n- [ ] 1.1 Make it faster.\n", tmp_path
+    )
+
+    assert group.mode is GroupMode.TESTS_ONLY
+
+
+def test_a_paths_line_with_a_source_path_keeps_the_code_floor(tmp_path: Path) -> None:
+    group = unit_group(
+        "Paths: `tests/test_foo.py`, `src/pkg/foo.py`\n\n- [ ] 1.1 Make it faster.\n", tmp_path
+    )
+
+    assert group.mode is GroupMode.TESTS_AND_CODE
+
+
+def test_an_e2e_group_stays_tests_only_when_tests_are_required(tmp_path: Path) -> None:
+    group = read(
+        "1. [app] [e2e-test] Drive it",
+        "- [ ] 1.1 Edit `src/app/main.py`.\n\nTests: required — it is read at start\n",
+        tmp_path,
+    )
+
+    assert group.mode is GroupMode.TESTS_ONLY

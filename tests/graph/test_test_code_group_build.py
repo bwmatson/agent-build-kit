@@ -56,9 +56,12 @@ def test_a_test_path_group_is_passed_over_by_the_implement_step(tmp_path: Path) 
     assert commits == ["test: G1", "test: G2"]
 
 
-def test_the_repeat_check_still_reruns_the_tests_a_test_only_group_changed(
-    tmp_path: Path,
-) -> None:
+def test_the_repeat_check_reruns_the_tests_a_test_path_group_committed(tmp_path: Path) -> None:
+    """Build a test-path group through the graph driver, then run the repeat check over the
+    tests that group's `test:` commit changed."""
+    calls, status, commits, _ = run(tmp_path / "graph", {1: "tests"})
+    assert (status, calls, commits) == ("open", ["claude:tests"], ["test: G1"])
+
     repo, base = checkout(tmp_path, {"test_new.py": ADDED})
     runs = Runs()
 
