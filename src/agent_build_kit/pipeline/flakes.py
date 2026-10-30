@@ -466,3 +466,9 @@ def merged_fix_since(inst: Installation, change: str, test: str) -> str | None:
         if not found and attempt:
             break
     return None
+
+
+def reproduction_evidence(inst: Installation, test: str) -> str:
+    """What the flake record holds of the first recorded failure of `test`, for a build to
+    judge by; empty when none is recorded."""
+    raise NotImplementedError

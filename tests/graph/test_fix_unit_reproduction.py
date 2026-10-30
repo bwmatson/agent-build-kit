@@ -7,15 +7,16 @@ the graph sends the unit by each outcome, and for which units the check runs at 
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
 from agent_build_kit.graph.state import EventKind, ResumeEvent
 from agent_build_kit.installation import Installation
 from agent_build_kit.pipeline.fix_reproduction import Outcome, Reproduction
-from agent_build_kit.pipeline.flakes import fix_change_name
+from agent_build_kit.pipeline.flakes import Flake, fix_change_name, flake_record
 from agent_build_kit.pipeline.stack_runner import RunStatus
-from agent_build_kit.pipeline.unit_store import Cause, RequeueReason
+from agent_build_kit.pipeline.unit_store import RequeueReason
 from agent_build_kit.pipeline.units import HELD, SATISFIED
 from tests.conftest import make_installation
 from tests.factories import stored_unit, unit
@@ -85,50 +86,122 @@ def test_the_number_of_runs_is_the_setting(tmp_path: Path) -> None:
     assert answer.calls == [(TEST, 2)]
 
 
-def test_a_test_that_never_fails_holds_the_unit_for_a_person(tmp_path: Path) -> None:
-    _, recorder, subject = fix_unit(tmp_path)
+def record_first_failure(installation: Installation, tmp_path: Path) -> Path:
+    """The flake record holds the test's first failure, whose bundle is a folder on disk."""
+    bundle = tmp_path / "state" / "test-failures" / "bundle-1"
+    bundle.mkdir(parents=True)
+    flake_record(installation).append(
+        Flake(
+            test=TEST,
+            command="uv run pytest",
+            output=f"FAILED {TEST} - assert 3 == 0 (a 3-second gap in ps start times)",
+            at=datetime(2026, 10, 1, 9, 0, tzinfo=UTC),
+            unit="other/1",
+            evidence=str(bundle),
+        )
+    )
+    return bundle
+
+
+def prompts_of(recorder: Recorder) -> str:
+    return "\n".join(recorder.prompts)
+
+
+def test_a_test_that_never_fails_builds_with_guidance_and_is_not_held(tmp_path: Path) -> None:
+    installation, recorder, subject = fix_unit(tmp_path)
+    bundle = record_first_failure(installation, tmp_path)
     answer = Asked(Outcome.NOT_REPRODUCED, NOT_REPRODUCED)
 
     outcome = tick(tmp_path, recorder, subject=subject, reproduce_test=answer)
 
-    assert outcome.status == RunStatus.HELD
+    assert outcome.status != RunStatus.HELD
     stored = recorder.store.get(subject.id)
-    assert stored.state == HELD and stored.state != SATISFIED
-    assert stored.cause is Cause.NEEDS_HUMAN
-    assert NOT_REPRODUCED in stored.note
-    assert not built(recorder), "nothing is built for a test that does not fail"
+    assert stored.state not in (HELD, SATISFIED), "neither held nor satisfied by the check"
+    assert built(recorder)
+    text = prompts_of(recorder)
+    assert NOT_REPRODUCED in text, "the counts"
+    assert "a 3-second gap in ps start times" in text, "the first failure's output"
+    assert str(bundle) in text, "the failing run's bundle"
+    assert "whether the cause is already gone" in text
+    assert "make no change" in text and "no red-first" in text
 
 
-def test_a_restart_with_a_note_builds_the_held_unit_without_the_check(tmp_path: Path) -> None:
-    _, recorder, subject = fix_unit(tmp_path)
-    answer = Asked(Outcome.NOT_REPRODUCED, NOT_REPRODUCED)
-    tick(tmp_path, recorder, subject=subject, reproduce_test=answer)
-    restart = ResumeEvent(
-        kind=EventKind.REQUEUE,
-        requeue=RequeueReason.RESTART,
-        reason="restart",
-        guidance="a rare race: build the fix anyway",
+def test_the_bundle_is_left_out_when_there_is_none(tmp_path: Path) -> None:
+    installation, recorder, subject = fix_unit(tmp_path)
+    flake_record(installation).append(
+        Flake(
+            test=TEST,
+            command="c",
+            output="FAILED x - boom",
+            at=datetime(2026, 10, 1, 9, 0, tzinfo=UTC),
+            evidence=str(tmp_path / "not-there"),
+        )
     )
 
-    tick(tmp_path, recorder, subject=subject, event=restart, reproduce_test=answer)
-    tick(tmp_path, recorder, subject=subject, reproduce_test=answer)
+    tick(
+        tmp_path,
+        recorder,
+        subject=subject,
+        reproduce_test=Asked(Outcome.NOT_REPRODUCED, NOT_REPRODUCED),
+    )
 
-    assert built(recorder)
-    assert len(answer.calls) == 1, "the restarted build is not checked again"
+    assert "boom" in prompts_of(recorder)
+    assert "not-there" not in prompts_of(recorder)
 
 
-def test_a_plain_requeue_after_the_hold_builds_without_the_check(tmp_path: Path) -> None:
+def test_a_build_that_makes_a_change_is_built_as_a_fix(tmp_path: Path) -> None:
+    _, recorder, subject = fix_unit(tmp_path)
+
+    outcome = tick(
+        tmp_path,
+        recorder,
+        subject=subject,
+        reproduce_test=Asked(Outcome.NOT_REPRODUCED, NOT_REPRODUCED),
+    )
+
+    assert outcome.status != RunStatus.SATISFIED
+    assert recorder.store.get(subject.id).state != SATISFIED
+    assert "claude:impl" in recorder.events and recorder.made > 0
+
+
+def test_a_build_that_makes_no_change_and_says_why_is_satisfied_with_its_statement(
+    tmp_path: Path,
+) -> None:
+    _, recorder, subject = fix_unit(tmp_path)
+    cause = "the race was removed by commit 4f2a9c1, which stopped stepping the clock"
+
+    def say_why(prompt: str, **kwargs: Any) -> str:
+        recorder.claude(prompt, **kwargs)
+        return cause
+
+    outcome = tick(
+        tmp_path,
+        recorder,
+        subject=subject,
+        reproduce_test=Asked(Outcome.NOT_REPRODUCED, NOT_REPRODUCED),
+        run=say_why,
+        commit=lambda message, **kwargs: 0,
+    )
+
+    assert outcome.status == RunStatus.SATISFIED
+    stored = recorder.store.get(subject.id)
+    assert stored.state == SATISFIED
+    assert cause in stored.note
+    assert NOT_REPRODUCED in stored.note
+
+
+def test_a_requeue_after_the_check_does_not_repeat_it(tmp_path: Path) -> None:
     _, recorder, subject = fix_unit(tmp_path)
     answer = Asked(Outcome.NOT_REPRODUCED, NOT_REPRODUCED)
-    tick(tmp_path, recorder, subject=subject, reproduce_test=answer)
+    nothing: dict[str, Any] = dict(commit=lambda message, **kwargs: 0)
+    tick(tmp_path, recorder, subject=subject, reproduce_test=answer, **nothing)
     requeue = ResumeEvent(
         kind=EventKind.REQUEUE, requeue=RequeueReason.FROM_FAILURE, reason="requeued"
     )
 
-    tick(tmp_path, recorder, subject=subject, event=requeue, reproduce_test=answer)
-    tick(tmp_path, recorder, subject=subject, reproduce_test=answer)
+    tick(tmp_path, recorder, subject=subject, event=requeue, reproduce_test=answer, **nothing)
+    tick(tmp_path, recorder, subject=subject, reproduce_test=answer, **nothing)
 
-    assert built(recorder)
     assert len(answer.calls) == 1
 
 
@@ -139,6 +212,7 @@ def test_a_skipped_check_builds_as_today(tmp_path: Path) -> None:
 
     assert built(recorder)
     assert recorder.store.get(subject.id).state != HELD
+    assert "reproduction check" not in prompts_of(recorder)
 
 
 def test_a_test_gone_from_the_tree_satisfies_the_unit_with_the_reason(tmp_path: Path) -> None:

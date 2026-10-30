@@ -12,8 +12,19 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from agent_build_kit import profiles
-from agent_build_kit.pipeline.fix_reproduction import Attempt, Outcome, check
-from agent_build_kit.pipeline.flakes import fix_change_test, merged_fix_since
+from agent_build_kit.pipeline.fix_reproduction import (
+    Attempt,
+    Outcome,
+    check,
+    unreproduced_guidance,
+)
+from agent_build_kit.pipeline.flakes import (
+    Flake,
+    fix_change_test,
+    flake_record,
+    merged_fix_since,
+    reproduction_evidence,
+)
 from agent_build_kit.pipeline.wiring import build_reproduce
 from tests.conftest import make_installation
 
@@ -209,3 +220,39 @@ def test_a_profile_that_cannot_run_one_test_is_skipped(tmp_path: Path) -> None:
     reproduce = build_reproduce(profile=profiles.get("node-npm"), run=lambda *a, **k: done(0))
 
     assert reproduce(cwd=tree, test=TEST, runs=2).outcome is Outcome.SKIPPED
+
+
+def test_the_guidance_carries_the_counts_the_evidence_and_the_instruction() -> None:
+    text = unreproduced_guidance(
+        TEST, "not reproduced: 0 of 5 runs alone, 0 of 5 under load", "E-V"
+    )
+
+    assert "not reproduced: 0 of 5 runs alone, 0 of 5 under load" in text
+    assert "E-V" in text and TEST in text
+    assert "whether the cause is already gone" in text
+    assert "make no change" in text and "concrete cause" in text
+    assert "no red-first" in text
+
+
+def test_the_evidence_is_the_first_failure_and_names_a_bundle_only_when_it_exists(
+    tmp_path: Path,
+) -> None:
+    installation = make_installation(tmp_path)
+    bundle = tmp_path / "bundle"
+    bundle.mkdir()
+    for output, evidence in (("first failure output", str(bundle)), ("later one", "/nope")):
+        flake_record(installation).append(
+            Flake(
+                test=TEST,
+                command="c",
+                output=output,
+                at=datetime(2026, 10, 1, tzinfo=UTC),
+                evidence=evidence,
+            )
+        )
+
+    found = reproduction_evidence(installation, TEST)
+
+    assert "first failure output" in found and str(bundle) in found
+    assert "later one" not in found
+    assert reproduction_evidence(installation, "tests/other.py::t") == ""

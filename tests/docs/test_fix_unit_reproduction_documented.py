@@ -24,12 +24,14 @@ def test_the_architecture_names_the_check_and_its_three_outcomes() -> None:
     assert "alone and under load" in ARCHITECTURE
     assert "no longer in the tree" in ARCHITECTURE, "the test is gone: satisfied"
     assert "merged since" in ARCHITECTURE, "the test was fixed elsewhere: satisfied"
-    assert "not reproduced" in ARCHITECTURE and "needs_human" in ARCHITECTURE
-    assert "abk requeue --restart --note" in ARCHITECTURE and "abk retire" in ARCHITECTURE
+    assert "not reproduced" in ARCHITECTURE
+    assert "whether the cause is already gone" in ARCHITECTURE, "the build judges it"
+    assert "no red-first" in ARCHITECTURE
+    assert "not held" in ARCHITECTURE and "needs_human" not in ARCHITECTURE
 
 
 def test_the_architecture_says_which_units_are_not_checked() -> None:
-    for skipped in ("rework", "product-defect", "restart"):
+    for skipped in ("rework", "product-defect", "requeue"):
         assert skipped in ARCHITECTURE
 
 

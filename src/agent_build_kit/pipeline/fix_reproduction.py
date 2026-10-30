@@ -54,3 +54,8 @@ def check(
 def gone_note(test: str) -> str:
     """Why a unit whose test is not collected on its base is satisfied."""
     return f"{test} is no longer in the tree"
+
+
+def unreproduced_guidance(test: str, note: str, evidence: str) -> str:
+    """The guidance a build of a unit whose test never failed is given."""
+    raise NotImplementedError
