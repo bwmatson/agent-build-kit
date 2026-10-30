@@ -122,21 +122,32 @@ def same_process(pid: int, started: str | None) -> bool:
     return proc_identity(pid) == started
 
 
+PS_ATTEMPTS = 3
+
+
 def ps_start_time(pid: int) -> str | None:
     """The start time `ps` reports for the process, or None if there is none. It runs under a
     fixed time zone and locale, so every process names the same process by the same string
-    whatever its own environment."""
-    try:
-        out = subprocess.run(
-            ["ps", "-o", "lstart=", "-p", str(pid)],
-            capture_output=True,
-            text=True,
-            check=False,
-            env={"TZ": "UTC", "LC_ALL": "C", "PATH": "/usr/bin:/bin"},
-        ).stdout.strip()
-    except OSError:
-        return None
-    return out or None
+    whatever its own environment. `ps` works the time out from an estimated boot time that can
+    shift by a second between runs under load, so the seconds are dropped; and a run that
+    succeeds but prints nothing is tried again, since a live process always has a start time."""
+    for _ in range(PS_ATTEMPTS):
+        try:
+            result = subprocess.run(
+                ["ps", "-o", "lstart=", "-p", str(pid)],
+                capture_output=True,
+                text=True,
+                check=False,
+                env={"TZ": "UTC", "LC_ALL": "C", "PATH": "/usr/bin:/bin"},
+            )
+        except OSError:
+            return None
+        out = result.stdout.strip()
+        if out:
+            return re.sub(r"(\d\d:\d\d):\d\d", r"\1", out)
+        if result.returncode != 0:
+            return None  # `ps` says there is no such process.
+    return None
 
 
 @contextmanager
