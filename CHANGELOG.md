@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- The regression agent now searches the test tree, read-only, for other tests that share the cause
+  of a failing test when the cause is a pattern, and lists them in a `Same exposure` section of
+  its proposal, each marked `confirmed` or `possible`. A proposal without the section is rewritten
+  once and then held for a person. The builder may fix a listed `possible` test when it shows the
+  test shares the cause, with the evidence in the commit body, and the reviewer accepts that edit.
+  This stops one shared cause from costing a fix change for each test it flakes.
+
 - The unit-test step's pytest temp folders now live in the planning home
   (`<planning home>/tmp/pytest`) instead of under `runs/tmp/pytest`, outside the planning
   repository. Under `runs/` they sat inside it, so the roughly 110 tests that make a folder and

@@ -162,6 +162,15 @@ names (or one the installation lists under `builders.installable_files`), inside
 # Part of a full prompt only: a continued session already holds it.
 REUSE_NOTE = "\n" + reuse_guidance() + "\n"
 
+# Said in the prompts that edit tests: the line a regression change carries for tests that share
+# its cause only possibly (spec: regression-same-exposure).
+POSSIBLE_TESTS_NOTE = """
+If the tasks carry a line naming tests as possible, each listed possible test is yours to fix
+when you show it and the failing test share the cause: name the test and the evidence (the same
+helper call, the same walk of the directory) in the commit body. Do not edit a test the tasks
+neither name in a step nor list as possible.
+"""
+
 NO_REWRITE_NOTE = """\
 Do not rewrite history either: no amend, rebase, squash, reset or force. Your
 work is new commits on top of what is already here, and the commits that exist
@@ -387,6 +396,7 @@ the unit has passed review, unit-test and been pushed.
     + OUTPUT_NOTE
     + REUSE_NOTE
     + INSTALL_NOTE
+    + POSSIBLE_TESTS_NOTE
 )
 
 _REVIEW_FEEDBACK_ASK = """\
@@ -430,6 +440,7 @@ the unit has passed review, unit-test and been pushed.
     + REUSE_NOTE
     + INSTALL_NOTE
     + NO_REWRITE_NOTE
+    + POSSIBLE_TESTS_NOTE
 )
 
 # What unit-test's output is saved under, for people reading it: which step it came
@@ -844,6 +855,7 @@ the unit has passed review, unit-test and been pushed.
     + REUSE_NOTE
     + INSTALL_NOTE
     + NO_REWRITE_NOTE
+    + POSSIBLE_TESTS_NOTE
 )
 
 IMPLEMENTATION_PROMPT = PromptTemplate(
@@ -866,6 +878,7 @@ the unit has passed review, unit-test and been pushed.
     + OUTPUT_NOTE
     + REUSE_NOTE
     + INSTALL_NOTE
+    + POSSIBLE_TESTS_NOTE
 )
 
 # Given to every build-side prompt above, only when this change has units

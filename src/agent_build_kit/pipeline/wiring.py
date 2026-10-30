@@ -771,6 +771,11 @@ Every round you ask for costs a rework and another review, so:
   and per-variant copies (two hosts, backends or runtimes) are the common
   cases. This states the consequence a required finding needs. Duplication the
   change neither adds to nor extends is not yours to report.
+- **Tests listed `possible` under Same exposure.** When the change's tasks carry a line naming
+  tests as possible, an edit to one of those tests is in scope if the commit body names the test
+  and the evidence that it shares the cause. It is a required change when that evidence is
+  missing, and an edit to a test that the tasks neither name in a step nor list as possible is a
+  required change to remove it.
 - **Hold the tests to the determinism rules.** """
     + determinism_guidance()
     + """ A use of
