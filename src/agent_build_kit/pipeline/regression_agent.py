@@ -5,6 +5,7 @@ the implementation is wrong, and writes the one change that fixes it (spec: regr
 from __future__ import annotations
 
 import contextlib
+import re
 from enum import StrEnum
 from pathlib import Path
 
@@ -37,6 +38,15 @@ from agent_build_kit.sandboxes import Coverage, SandboxPolicy
 UNDECIDED = "JUDGEMENT: undecided"
 # The files a complete change holds besides its delta specs.
 CHANGE_FILES = ("proposal.md", "design.md", "tasks.md")
+# The proposal's section naming the tests that share the cause, and the line of a cause that is not
+# a pattern (spec: regression-same-exposure).
+EXPOSURE_HEADING = "## Same exposure"
+NONE_FORM = "Same exposure: none, the cause is specific to this test"
+POSSIBLE_LINE = (
+    "Possible, in scope if you show they share the cause: <test ids>. "
+    "Say which in the commit body and what showed it."
+)
+_EXPOSURE_LINE = re.compile(r"^- \S.* — (confirmed|possible)$")
 
 PROMPT = """\
 You are the regression agent. The test `{test}` fails and the unit that met it did not write it.
@@ -48,6 +58,22 @@ design.md, tasks.md and a delta spec under specs/<capability>/spec.md.
 The change is named `{change}`. Its tasks.md carries a `Priority:` line and a task group
 flagged `[contract]`. If you cannot decide which side is wrong, end your answer with the line
 `{undecided}` and write the change anyway.
+
+Same exposure. Once you have judged the cause, say whether it is a pattern: a helper or fixture
+many tests call that repeats work or is slow, a test that reads or walks a directory the run or
+another test can change, a fixed time budget on a call whose cost depends on the machine, or
+shared mutable state. If it is, name the pattern in one line, then search the test tree for other
+tests with the same shape, with read-only tools only (grep, reading files). Do not run the tests
+you find. Mark each one `confirmed` (the shared code or the same call is visible) or `possible`
+(you cannot show it). There is no limit on how many you list; list every one.
+
+Write them in proposal.md under a `## Same exposure` heading, one line per test:
+`- <test id> — <the line that shows the shared cause> — confirmed` (or `possible`). If the cause
+is not a pattern, write the line `{none_form}` under that heading instead.
+
+In tasks.md, name the shared cause (or the shared helper, which covers all its users) and put only
+the `confirmed` tests in the steps. Add one standing line to the task group naming the `possible`
+tests, exactly: `{possible_line}`
 
 Kind of failure: {kind}
 Checkout (the unit's base, {base}): {cwd}
@@ -120,6 +146,8 @@ def run_regression_agent(
         directory=root,
         change=name,
         undecided=UNDECIDED,
+        none_form=NONE_FORM,
+        possible_line=POSSIBLE_LINE,
         kind=kind.value,
         base=base,
         cwd=cwd,
@@ -229,4 +257,30 @@ def _problems(inst: Installation, name: str, run_openspec: openspec.Run | None) 
         found.append("tasks.md: no task group is flagged [contract]")
     if not any(PRIORITY_LINE.match(line.strip()) for line in tasks.read_text().splitlines()):
         found.append("tasks.md: no `Priority:` line")
-    return found
+    return found + _exposure_problems((root / "proposal.md").read_text())
+
+
+def _exposure_problems(proposal: str) -> list[str]:
+    """What is wrong with the proposal's `Same exposure` section: it is missing or empty, or a
+    line is neither the `none` form nor `- <test id> — <evidence> — confirmed|possible`. The
+    content of the lines is not judged."""
+    lines = proposal.splitlines()
+    starts = [n for n, line in enumerate(lines) if line.strip() == EXPOSURE_HEADING]
+    if not starts:
+        return [
+            f"proposal.md: no `{EXPOSURE_HEADING}` section (see the Same exposure instructions)"
+        ]
+    body: list[str] = []
+    for line in lines[starts[0] + 1 :]:
+        if line.startswith("## "):
+            break
+        if line.strip():
+            body.append(line.strip())
+    if not body:
+        return ["proposal.md: the Same exposure section is empty"]
+    return [
+        f"proposal.md: Same exposure line is neither `{NONE_FORM}` nor "
+        f"`- <test id> — <evidence> — confirmed|possible`: {line}"
+        for line in body
+        if not (line.startswith(NONE_FORM) or _EXPOSURE_LINE.match(line))
+    ]
