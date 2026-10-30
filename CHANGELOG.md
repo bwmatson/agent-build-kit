@@ -21,6 +21,13 @@
   `Tests: required — <reason>` line in a group keeps tests first for it, and `abk tags` shows
   each group's mode.
 
+- A task group that names only test files or test-support modules under `tests/` (with
+  documents, if any) is now `tests_only`: it commits one `test:` and no `feat:`, as an
+  `[e2e-test]` group does. A source path, or no path, keeps tests first, and
+  `Tests: required — <reason>` raises it again. An edit to a test-support module pytest does
+  not collect is checked by the full run, since the repeat check re-runs only collected
+  `test_*.py` files.
+
 - A repo's `sandbox` and each project's `sandbox` accept a `caches` list: the cache folders a
   confined step may write. Unset, the toolchain profile's defaults apply; a list replaces them
   and `caches: []` grants none. The project's list wins over the repo's, and `abk.local.yaml`
