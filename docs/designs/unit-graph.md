@@ -1083,3 +1083,13 @@ that has not finished, started or not, to its live successors (only those a `Nee
 refuses one that would close a cycle, and logs `<unit>: dependency <old> is now <new> (replaced
 by a replan)`; units replaced before the field existed get theirs once, logged as `successors
 recorded: <n> unit(s)`. A recorded wait (`waited_on`) follows the successor too.
+
+## A group's project
+
+A group whose heading names no project resolves to the declared project that owns every path it
+names (`resolved_project`); a path outside every declared project, paths of two projects, no paths
+or a repo with no projects leaves it in the root, and `[repo/<root>]` opts out. A `Paths:` line is
+authoritative when present, so only its entries decide the project; a `Reads:` line is not a change
+and is ignored, as are `Not changed:` and `Planning note:` lines. The resolved project is part of
+the plan's digest, so adding a project makes the plan stale, and `abk tags --fix-projects` writes it
+into the headings of groups whose units have not started.

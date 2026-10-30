@@ -189,6 +189,21 @@ def retag_headings(text: str, spell: Callable[[str], str]) -> tuple[str, int]:
     return "".join(out), count
 
 
+def retag_projects(text: str, projects: Mapping[int, str]) -> tuple[str, int]:
+    """`text` with the repo tag of each group heading numbered in `projects` naming that project,
+    and how many changed; every other byte, line endings included, comes back as it was."""
+    out: list[str] = []
+    count = 0
+    for line in text.splitlines(keepends=True):
+        found = GROUP_HEADING.match(line.splitlines()[0])
+        if found and (project := projects.get(int(found["number"]))):
+            start, end = found.span("repo")
+            line = line[:start] + repo_tag(found["repo"], project)[1:-1] + line[end:]
+            count += 1
+        out.append(line)
+    return "".join(out), count
+
+
 def current_tag(tag: str) -> str:
     """A test-kind tag in its current spelling."""
     return new_spelling(Place.TAG, tag)

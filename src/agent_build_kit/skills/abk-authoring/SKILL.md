@@ -129,6 +129,17 @@ group where that would be wrong. A group that really edits only test code, and h
 (deleting the originals, noting something in the pull request), lists its files in a `Paths:` line, which says
 what the group names and turns the rule off.
 
+## Which project a group is in
+
+When a repo declares projects and the heading names none (`[app]`), the group resolves to the project that
+owns every path its tasks name. A path outside every declared project, paths of two projects, no paths, or a repo
+with no projects leaves the group in the root. Name the project (`[app/web]`), add a `Paths:` line, or let it
+resolve; `[app/<root>]` opts out and keeps the group in the root. A `Paths:` line lists backticked paths and is
+authoritative when present: only its entries decide the project. A `Reads:` line lists files the group only reads;
+it is not a change, so it does not decide the project. `abk tags` shows `(resolved)` beside a resolved group and
+warns when a change mixes written and resolved projects; `abk tags --fix-projects` writes the resolved project
+into the heading of each group whose unit has not started.
+
 ## `Manual:` lines
 
 Declare `Manual: <slug> — <what to do> — runbook: <path>#<heading>`, with an optional

@@ -475,6 +475,15 @@ a `Test:`, documentation, changelog or `Support:` task and begins with fix, chan
 implement, update, refactor, remove, rename or make. The warning names the two routes: a
 `product-defect` block, or a `[unit-test]` group first that the e2e group `Needs:`. Exit 1 if any change has a problem or no `tasks.md`.
 
+A group whose heading names no project resolves to the declared project that owns every path it
+names; anything outside every project, two projects, or no paths leaves it in the root, and
+`[repo/<root>]` opts out. A `Paths:` line is authoritative when present, and `Reads:` lines are not
+changes. `abk tags` marks a resolved group `(resolved)` and warns of a change that mixes written and
+resolved projects. `abk tags --fix-projects [CHANGE | --all] [--dry-run]` writes the resolved
+project into the repo part of the heading of each group whose unit has not started, under the
+refusals of `--fix`; it lists groups that stayed in the root, does not rehash the plan (so unstarted
+units are re-planned), and with `--dry-run` prints "would tag N group(s)" and writes nothing.
+
 `abk tags --fix [CHANGE | --all] [--dry-run]` rewrites the old test-kind tags in the group
 headings of open changes to `[unit-test]` and `[e2e-test]`. It edits the text of `tasks.md` and
 changes nothing else: prose, code spans and titles that mention an old name, line endings and a

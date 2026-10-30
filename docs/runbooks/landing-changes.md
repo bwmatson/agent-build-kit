@@ -59,3 +59,11 @@ For spreading builds over two plans, or keeping one repo's usage apart. Applies 
 ## 5. Merged changes that need nothing from you
 
 Some changes need no person step. Re-install the skills once after pulling a kit that changed them (`abk install-skills`), and re-run `abk install-timers` only if `abk doctor` reports the timer units out of date.
+
+## 6. A repo gains a project
+
+A group tagged `[repo]` resolves to a declared project when every path it names is inside it, and
+anything outside a project stays in the root. To place a group yourself, name the project in the
+heading, add a `Paths:` line, or let it resolve; `[repo/<root>]` keeps it in the root. After adding
+the project, `abk status` reports the plans that moved as stale; replan them. A unit already started
+keeps its project. `abk tags --fix-projects --dry-run` shows which headings would be written.
