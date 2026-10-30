@@ -8,6 +8,7 @@ import os
 import pytest
 
 from agent_build_kit.cli import pipeline as cli
+from agent_build_kit.pipeline.units import UnitState
 from tests.attach_driver import leave_lease
 from tests.branch_lock_fakes import dead_pid, lock_held_by
 from tests.retire_scene import Scene, scene  # noqa: F401
@@ -186,4 +187,74 @@ def test_an_idle_running_unit_with_a_group_nobody_builds_still_needs_a_reason(
 
     assert code == 1
     assert "--reason" in out
+    assert scene.snapshot() == before
+
+
+# The idle test is read before the command's own lock, so what happens between the read and the
+# lock is checked again.
+
+
+def held_then(scene: Scene, monkeypatch: pytest.MonkeyPatch, *answers: bool, between=None) -> None:  # noqa: F811
+    """`branch_is_held` as the command reads it: each call gives the next answer, and the first
+    also runs `between`, as a run would between the read and the lock."""
+    from agent_build_kit.cli import pipeline as pipe
+
+    remaining = list(answers)
+
+    def held(inst, branch) -> bool:
+        if between is not None and len(remaining) == len(answers):
+            between()
+        return remaining.pop(0) if len(remaining) > 1 else remaining[0]
+
+    monkeypatch.setattr(pipe, "branch_is_held", held)
+
+
+def test_a_run_that_finished_between_the_read_and_the_lock_is_not_retired_as_idle(
+    scene: Scene,  # noqa: F811
+    capsys,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    scene.add(UNIT, "running", pr=4)
+    scene.built_elsewhere(UNIT)
+    held_then(
+        scene, monkeypatch, False, between=lambda: scene.store.set_state(UNIT, UnitState.IN_REVIEW)
+    )
+
+    code, out = scene.retire(capsys, UNIT)
+
+    assert code == 1
+    assert UNIT in out and "in_review" in out
+    assert scene.unit(UNIT).state == "in_review"
+    assert not any("idle" in str(entry.get("note", "")) for entry in scene.unit(UNIT).history)
+    assert scene.untouched()
+
+
+def test_a_holder_that_exits_between_the_read_and_the_lock_leaves_the_unit_idle(
+    scene: Scene,  # noqa: F811
+    capsys,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    running(scene)
+    held_then(scene, monkeypatch, True, False)
+
+    code, _ = scene.retire(capsys, UNIT)
+
+    assert code == 0
+    assert scene.unit(UNIT).state == "retired"
+    assert "idle" in scene.unit(UNIT).history[-1]["note"]
+
+
+def test_a_running_unit_with_no_recorded_branch_is_judged_by_the_branch_it_would_use(
+    scene: Scene,  # noqa: F811
+    capsys,
+) -> None:
+    scene.add(UNIT, "running", branch=False)
+    scene.built_elsewhere(UNIT)
+    lock_held_by(scene.inst, BRANCH, os.getpid())
+    before = scene.snapshot()
+
+    code, out = scene.retire(capsys, UNIT)
+
+    assert code == 1
+    assert str(os.getpid()) in out
     assert scene.snapshot() == before
