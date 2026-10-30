@@ -142,6 +142,9 @@
   once and then held for a person. The builder may fix a listed `possible` test when it shows the
   test shares the cause, with the evidence in the commit body, and the reviewer accepts that edit.
   This stops one shared cause from costing a fix change for each test it flakes.
+- The retry engine of the forge and tracker wrappers now lives in one shared base
+  (`resilient_base.py`), and a tracker wrapper is no longer a forge wrapper. Retries, waits,
+  log lines and counters are unchanged.
 
 - `abk doctor` and `abk status` now show the size of the unit-test step's temp folder and the
   number of run folders left in it, and warn above `global_limits.temp_warn_mb` (default 2048).

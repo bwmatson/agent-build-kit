@@ -6,16 +6,16 @@ from collections.abc import Callable, Mapping
 from typing import Any
 
 from agent_build_kit.forges.operations import OperationSpec
-from agent_build_kit.forges.resilient import Clock, ResilientForge, RetryPolicy, delegating
+from agent_build_kit.resilient_base import Clock, ResilientBase, RetryPolicy, delegating
 from agent_build_kit.trackers.base import Tracker
 from agent_build_kit.trackers.operations import OPERATIONS
 
 RETRIES_COUNTER = "abk.tracker.retries"
 
 
-class ResilientTracker(ResilientForge):
+class ResilientTracker(ResilientBase[Tracker]):
     """A tracker that applies `OPERATIONS` to every call it delegates to `inner`, with the
-    forge wrapper's backoff and rate-limit rules; a create is looked up by its marker."""
+    shared backoff and rate-limit rules; a create is looked up by its marker."""
 
     _subject = "tracker"
     _retries_counter = RETRIES_COUNTER
@@ -29,11 +29,15 @@ class ResilientTracker(ResilientForge):
         *,
         table: Mapping[str, OperationSpec] = OPERATIONS,
     ) -> None:
-        super().__init__(inner, policy, clock, sleeper, table=table)  # type: ignore[arg-type]
+        super().__init__(inner, policy, clock, sleeper, table=table)
 
     def _can_ask(self, spec: OperationSpec, args: tuple[Any, ...], kwargs: dict[str, Any]) -> bool:
         # Without a marker there is nothing to look for, so a create is not repeated blind.
-        return bool(kwargs.get("markers")) and super()._can_ask(spec, args, kwargs)
+        return (
+            bool(kwargs.get("markers"))
+            and spec.lands is not None
+            and callable(getattr(self._inner, spec.lands, None))
+        )
 
     def _landed(self, spec: OperationSpec, args: tuple[Any, ...], kwargs: dict[str, Any]) -> Any:
         markers = kwargs.get("markers") or ()
