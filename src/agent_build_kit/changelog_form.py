@@ -82,4 +82,7 @@ def changelog_file_problems(
     path: Path, read: Callable[[Path], str] = lambda path: path.read_text()
 ) -> list[str]:
     """`changelog_problems` of the file at `path`, read until two reads in a row agree."""
-    raise NotImplementedError
+    text = read(path)
+    while (again := read(path)) != text:
+        text = again
+    return changelog_problems(text, path.name)

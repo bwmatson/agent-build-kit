@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from agent_build_kit.changelog_form import changelog_problems
+from agent_build_kit.changelog_form import changelog_file_problems, changelog_problems
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -49,7 +49,7 @@ def test_this_repositorys_section_is_the_packaged_text_or_marked_as_an_override(
 
 
 def test_the_changelog_in_this_repository_passes() -> None:
-    assert changelog_problems((ROOT / "CHANGELOG.md").read_text()) == []
+    assert changelog_file_problems(ROOT / "CHANGELOG.md") == []
 
 
 @pytest.mark.parametrize("marker", ["<<<<<<< HEAD", "=======", ">>>>>>> spec/feature/1"])
