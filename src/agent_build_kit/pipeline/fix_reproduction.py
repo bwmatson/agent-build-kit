@@ -60,9 +60,10 @@ GUIDANCE = """\
 The reproduction check ran `{test}` on this unit's base and it never failed ({note}).
 {evidence}
 Build the change as it is written, but judge whether the cause is already gone. If it is,
-make no change (write no tests and no code) and say why with a concrete cause, such as the
-commit that removed the race, not only that the test passed: your statement becomes the unit's
-note. If the defect is still there, fix it.
+make no change: write nothing, in the tests step or the implementation step (no tests, no
+code, whatever the step's instructions say about new tests), and state why with a
+concrete cause, such as the commit that removed the race, not only that the test passed: your
+statement becomes the unit's note. If the defect is still there, fix it.
 """
 
 

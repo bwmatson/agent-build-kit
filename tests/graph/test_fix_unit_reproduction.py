@@ -375,7 +375,10 @@ def test_a_change_whose_test_cannot_be_read_builds_as_today(tmp_path: Path) -> N
 def test_a_no_change_build_of_a_test_only_group_keeps_the_statement_and_the_counts(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    # The recorder's planning repo is not the installation's: the lookups are faked.
     monkeypatch.setattr(nodes, "is_fix_change", lambda change: True)
+    monkeypatch.setattr(nodes, "fix_change_test", lambda inst, change: TEST)
+    monkeypatch.setattr(nodes, "merged_fix_since", lambda inst, change, test: None)
     cause = "the race was removed by commit 4f2a9c1"
     recorder, _ = prepared(
         tmp_path,

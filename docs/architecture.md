@@ -1526,13 +1526,13 @@ approved.
   (alone: serially, by id; under load: the whole file it is in, on the repo's parallel workers),
   through `wiring.build_reproduce`. A test that fails on any run goes on to `tests`. A test that
   is no longer in the tree, or one whose fix change merged since this change was written, makes
-  the unit `satisfied` with that reason. A test that never fails does not hold the unit (it is not held)
-  and the check does not satisfy it: the unit builds the change as the change wrote it (a regression
+  the unit `satisfied` with that reason. A test that never fails is not held and the check
+  does not satisfy it: the unit builds the change as the change wrote it (a regression
   agent's groups already say test-only or test and code), with guidance carrying "not
   reproduced: 0 of N runs alone, 0 of N under load", the first recorded failure's evidence (the
   flake record's output and conditions, and the failing run's bundle when it exists) and the
-  instruction to judge whether the cause is already gone and, if it is, to make no change and states a
-  concrete cause. A build that makes no change takes the `satisfied` route and the builder's
+  instruction to judge whether the cause is already gone and, if it is, to make no change and
+  state a concrete cause. A build that makes no change takes the `satisfied` route and the builder's
   statement is the unit's note. A change written from the old template still carries its "Test:
   reproduce" task and builds as that task says. A later requeue does not repeat the check. 0
   turns it off.

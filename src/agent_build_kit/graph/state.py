@@ -160,6 +160,7 @@ class UnitRun(Frozen):
     reproduce: bool = False  # `prepare` found a first build of a fix unit: `reproduce` runs first
     reproduced: bool = False  # the reproduction check has been made for this thread: not again
     unreproduced: bool = False  # the check did not reproduce the test: the build may find nothing
+    reproduction_guidance: str = ""  # what the builder prompts say of it, until the last group
     unreproduced_note: str = ""  # what the check found, for the note of a build that finds nothing
     satisfied_because: str = ""  # why `reproduce` found the unit satisfied, for its note
     scheduled_note: str = ""  # what its passing run says of itself, once e2e-test has passed

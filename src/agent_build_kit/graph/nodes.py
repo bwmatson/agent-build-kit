@@ -1249,13 +1249,17 @@ class BuildPath:
             case Outcome.GONE:
                 return {**done, "satisfied_because": found.note}
             case Outcome.NOT_REPRODUCED:
-                # Built with the check's findings as the guidance both build prompts carry,
-                # as a person's note on a restart is; the build judges whether the cause is gone.
-                r.store.set_guidance(
-                    unit.id,
-                    unreproduced_guidance(test, found.note, reproduction_evidence(inst, test)),
-                )
-                return {**done, "unreproduced": True, "unreproduced_note": found.note}
+                # Built with the check's findings in a block of its own that both build prompts
+                # carry, worded as the pipeline's and not a person's, so the reviewer is not
+                # told a person asked for it; the build judges whether the cause is gone.
+                return {
+                    **done,
+                    "unreproduced": True,
+                    "unreproduced_note": found.note,
+                    "reproduction_guidance": unreproduced_guidance(
+                        test, found.note, reproduction_evidence(inst, test)
+                    ),
+                }
         return done
 
     def reuse_superseded(self, parent_id: str, tree: Path, ref: str) -> None:
@@ -1505,6 +1509,7 @@ class BuildPath:
         if fault is not None and fault.environment:
             return self.blocked(fault.output)
         stubbed = self.stubbed()
+        account = ""
         if r.head(tree) != state.head:
             self.say("the tests commit is already on the branch")
         else:
@@ -1523,15 +1528,19 @@ class BuildPath:
             prompt = self.told(prompt, self.scope_note())
             if note := r.follow_ups_note(unit):
                 prompt = f"{note}\n\n{prompt}"
+            if state.reproduction_guidance:
+                prompt = f"{state.reproduction_guidance}\n\n{prompt}"
             account = self.agent(r.run, prompt, cwd=tree, state=state, model=models().implement)
             if stubbed:
                 # Committed by `stub_checks`, once the stubs and tests pass the static checks.
                 step = self.group_step(state)
                 kept = account if step is not None and step.test_only else ""
+                kept = account if state.unreproduced else kept
                 return {"head": r.head(tree), "stub_loop": True, "tests_account": kept}
             self.apply_fixers()
             r.commit(self.message(TESTS_PREFIX, True, state), cwd=tree, base=self.ref(state))
-        return {"head": r.head(tree), "stub_loop": False}
+        kept_account = {"tests_account": account} if state.unreproduced and account else {}
+        return {"head": r.head(tree), "stub_loop": False, **kept_account}
 
     def apply_fixers(self) -> None:
         """Run the profile's fixers over the unit's own files, with no agent, and log what they
@@ -1580,7 +1589,14 @@ class BuildPath:
         settled = self.settle_group(state, ref, commits)
         if "stopped" in settled:
             return settled
-        return {**done, **settled, "test_only_done": True, "produced_nothing": commits == 0}
+        return {
+            **done,
+            **settled,
+            "test_only_done": True,
+            "produced_nothing": commits == 0,
+            **self.found_nothing(state, commits, ""),
+            **self.findings_done(settled),
+        }
 
     def record_no_new_tests(self, state: UnitRun, ref: str, made: int) -> bool:
         """A group of a branch with commits whose tests step committed nothing gets an empty
@@ -1811,6 +1827,8 @@ class BuildPath:
             prompt = self.told(prompt, self.scope_note())
             if note := r.follow_ups_note(unit):
                 prompt = f"{note}\n\n{prompt}"
+            if state.reproduction_guidance:
+                prompt = f"{state.reproduction_guidance}\n\n{prompt}"
             account = self.agent(
                 r.run,
                 prompt,
@@ -1842,7 +1860,14 @@ class BuildPath:
             "head": r.head(tree),
             "produced_nothing": commits == 0,
             **self.found_nothing(state, commits, statement),
+            **self.findings_done(kept),
         }
+
+    @staticmethod
+    def findings_done(settled: Update) -> Update:
+        """The reproduction check's findings are said to the builder until the last group is
+        built; then they are cleared, so no later step or review is told them."""
+        return {} if settled.get("more_groups") else {"reproduction_guidance": ""}
 
     def found_nothing(self, state: UnitRun, commits: int, statement: str) -> Update:
         """For a unit whose test the check could not reproduce: the note a build that made no
@@ -1852,7 +1877,8 @@ class BuildPath:
             return {}
         if commits:
             return {"satisfied_because": ""}
-        said = cut_head(" ".join(statement.split()), 600, "char") or "no reason was given"
+        given = statement or state.tests_account
+        said = cut_head(" ".join(given.split()), 600, "char") or "no reason was given"
         return {
             "satisfied_because": f"{state.unreproduced_note}; the builder made no change: {said}"
         }

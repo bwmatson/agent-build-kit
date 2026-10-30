@@ -4560,8 +4560,11 @@ def build_runner(
     )
 
 
-# What a test runner says when it is given an id that collection does not find.
-NOT_FOUND = "not found:"
+# What a test runner says, and the exit status it gives, for an id that collection does not find
+# (pytest: "ERROR: not found: ..." and a usage error). Any other output that merely says "not
+# found" is a crash, not a missing test.
+NOT_FOUND = "ERROR: not found:"
+NOT_FOUND_EXIT = 4
 
 
 def build_reproduce(
@@ -4624,7 +4627,7 @@ def build_reproduce(
                 return Attempt.FAILED
             if result.returncode != 0 and (
                 result.returncode == toolchain.no_tests_collected_exit
-                or NOT_FOUND in output.lower()
+                or (result.returncode == NOT_FOUND_EXIT and NOT_FOUND in output)
             ):
                 return Attempt.NOT_COLLECTED
             if not whole_file and not toolchain.tolerates_exit(argv, result.returncode):
