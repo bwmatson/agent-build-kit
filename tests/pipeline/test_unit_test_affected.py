@@ -14,6 +14,7 @@ from __future__ import annotations
 import shlex
 import subprocess
 import sys
+from collections.abc import Mapping
 from pathlib import Path
 
 import pytest
@@ -41,13 +42,15 @@ class Profile(PythonUvProfile):
         self.selected = selected
         self.lint = lint or ["lint"]
         self.asked: list[tuple[list[str], list[str]]] = []
+        self.worker_kwargs: list[dict[str, object]] = []
 
     def lint_command(self, base: str) -> list[str]:
         return self.lint
 
     def _commands(
-        self, repo: Path, changed: list[str], *, root_extras: list[str], **_workers: object
+        self, repo: Path, changed: list[str], *, root_extras: list[str], **workers: object
     ) -> list[list[str]]:
+        self.worker_kwargs.append(workers)
         return [["full-tests"]]
 
     # Assigned, not defined: a scan for changed tests takes any `def test_*` for one.
@@ -61,8 +64,9 @@ class Profile(PythonUvProfile):
         *,
         seed: Path,
         root_extras: list[str],
-        **_workers: object,
+        **workers: object,
     ) -> list[list[str]] | None:
+        self.worker_kwargs.append(workers)
         self.asked.append((changed_files, failed_ids))
         return self.selected
 
@@ -91,11 +95,17 @@ class Commands:
         return [command[0] for command in self.ran]
 
 
-def repo_config(tmp_path: Path, mode: str = "profile", command: str | None = None) -> RepoConfig:
+def repo_config(
+    tmp_path: Path,
+    mode: str = "profile",
+    command: str | None = None,
+    tests: Mapping[str, object] | None = None,
+) -> RepoConfig:
     return RepoConfig(
         path=tmp_path,
         changelog=None,
         checks={"affected": {"mode": mode, **({"command": command} if command else {})}},
+        **({"tests": dict(tests)} if tests else {}),
     )
 
 
@@ -110,12 +120,13 @@ def fix_round(
     projects: list[ProjectConfig] | None = None,
     failed_output: str = FAILED_OUTPUT,
     changed: list[str] = CHANGED,
+    tests: Mapping[str, object] | None = None,
 ) -> tuple[bool, str]:
     unit_test = build_unit_test(
         run=commands,
         changed=lambda *a: changed,
         profile=profile or Profile([["selected"]]),
-        repo=repo_config(tmp_path, mode, command),
+        repo=repo_config(tmp_path, mode, command, tests),
         projects=projects,
         log=log.append if log is not None else None,
     )
@@ -451,3 +462,31 @@ def test_the_documented_unquoted_off_loads_from_yaml() -> None:
     assert repo.checks.affected == AffectedConfig(mode="off")
     with pytest.raises(ValidationError):
         AffectedConfig.model_validate(yaml.safe_load("mode: true"))
+
+
+WORKERS: dict[str, int] = {"workers": 4, "max_workers": 6}
+
+
+def test_the_repos_worker_settings_reach_the_command_template(tmp_path: Path) -> None:
+    commands = Commands()
+
+    fix_round(
+        tmp_path,
+        commands,
+        mode="command",
+        command="select {workers} {changed_files}",
+        tests=WORKERS,
+    )
+
+    assert ["select", "-n", "4", "--maxprocesses=6", "src/a b.py", "src/c.py"] in commands.ran
+
+
+def test_the_repos_worker_settings_reach_the_profile_for_the_selection_and_the_full_run(
+    tmp_path: Path,
+) -> None:
+    profile = Profile([["selected"]])
+
+    fix_round(tmp_path, Commands(), profile=profile, tests=WORKERS)
+
+    # The selection, then the full run that confirms it.
+    assert profile.worker_kwargs == [WORKERS, WORKERS]

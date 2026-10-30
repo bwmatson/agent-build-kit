@@ -31,17 +31,17 @@ def test_a_positive_integer_and_auto_are_read_as_given() -> None:
     assert read(load(workers="auto", max_workers=6))["max_workers"] == 6
 
 
-@pytest.mark.parametrize("workers", [0, -2, "many", "4", 1.5, None, []])
+@pytest.mark.parametrize("workers", [0, -2, "many", "4", 1.5, None, [], True, False])
 def test_workers_other_than_auto_or_a_positive_integer_is_refused(workers: Any) -> None:
-    assert read(load(max_workers=6))["max_workers"] == 6
-
-    with pytest.raises(ValidationError, match="workers"):
+    with pytest.raises(ValidationError) as refused:
         load(workers=workers)
 
+    assert {error["loc"][3] for error in refused.value.errors()} == {"workers"}
 
-@pytest.mark.parametrize("max_workers", [0, -1, "auto", "8", 2.5, None])
+
+@pytest.mark.parametrize("max_workers", [0, -1, "auto", "8", 2.5, None, True, False])
 def test_max_workers_other_than_a_positive_integer_is_refused(max_workers: Any) -> None:
-    assert read(load(workers=4))["workers"] == 4
-
-    with pytest.raises(ValidationError, match="max_workers"):
+    with pytest.raises(ValidationError) as refused:
         load(max_workers=max_workers)
+
+    assert {error["loc"][3] for error in refused.value.errors()} == {"max_workers"}

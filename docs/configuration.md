@@ -521,7 +521,8 @@ repos:                          # ordered: deploy order is derived from
                                 # every workspace member) need
       workers: auto             # pytest-xdist `-n` of the Python profile's test runs:
                                 # `auto` or a positive integer
-      max_workers: 8            # its `--maxprocesses` cap (a positive integer)
+      max_workers: 8            # its `--maxprocesses` cap (a positive integer); xdist
+                                # starts no more than this, whatever `workers` says
       e2e_marker: local_stack   # the pytest marker on tests needing the real
                                 # stack (e2e-test, and post-merge verify); for a
                                 # node project a file-name segment instead:

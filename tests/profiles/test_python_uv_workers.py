@@ -4,12 +4,10 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any
 
 from agent_build_kit.profiles import python_uv
 
-# Typed loosely until the profile's signatures take the two settings.
-PROFILE: Any = python_uv.PROFILE
+PROFILE = python_uv.PROFILE
 
 XDIST_PROJECT = '[project]\nname = "x"\n[dependency-groups]\ndev = ["pytest-xdist"]\n'
 PLAIN_PROJECT = '[project]\nname = "x"\n'

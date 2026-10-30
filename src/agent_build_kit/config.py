@@ -1024,6 +1024,9 @@ class E2eSandboxConfig(Frozen):
     ports: list[int] = []
 
 
+StrictPositiveInt = Annotated[StrictInt, Field(gt=0)]
+
+
 class TestsConfig(TestKindSettings):
     # Extra packages the repo-root tests (outside every workspace member) need.
     root_extras: list[str] = []
@@ -1078,7 +1081,6 @@ class RuntimeTestsConfig(TestKindSettings):
 
 
 # A whole number above zero, as written: a quoted number is not one.
-StrictPositiveInt = Annotated[StrictInt, Field(gt=0)]
 
 # The words of a `command` template that stand for a list of arguments.
 TEMPLATE_PLACEHOLDERS = ("{changed_files}", "{failed_ids}", "{workers}")
