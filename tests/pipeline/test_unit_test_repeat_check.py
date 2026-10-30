@@ -38,7 +38,7 @@ class Profile(PythonUvProfile):
         return LINT
 
     def _commands(
-        self, repo: Path, changed: list[str], *, root_extras: list[str]
+        self, repo: Path, changed: list[str], *, root_extras: list[str], **_workers: object
     ) -> list[list[str]]:
         return [RUN]
 
@@ -96,7 +96,7 @@ class NodeProfile(Profile):
     no_tests_collected_exit = 0
 
     def _commands(
-        self, repo: Path, changed: list[str], *, root_extras: list[str]
+        self, repo: Path, changed: list[str], *, root_extras: list[str], **_workers: object
     ) -> list[list[str]]:
         return [NPM_TEST]
 
@@ -117,7 +117,7 @@ class WorkspaceProfile(Profile):
     """A workspace of two members, each with its own test command."""
 
     def _commands(
-        self, repo: Path, changed: list[str], *, root_extras: list[str]
+        self, repo: Path, changed: list[str], *, root_extras: list[str], **_workers: object
     ) -> list[list[str]]:
         return MEMBERS
 

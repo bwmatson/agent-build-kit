@@ -519,6 +519,10 @@ repos:                          # ordered: deploy order is derived from
     tests:
       root_extras: []           # extra packages the repo-root tests/ (outside
                                 # every workspace member) need
+      workers: auto             # pytest-xdist `-n` of the Python profile's test runs:
+                                # `auto` or a positive integer
+      max_workers: 8            # its `--maxprocesses` cap (a positive integer); xdist
+                                # starts no more than this, whatever `workers` says
       e2e_marker: local_stack   # the pytest marker on tests needing the real
                                 # stack (e2e-test, and post-merge verify); for a
                                 # node project a file-name segment instead:
@@ -567,7 +571,9 @@ repos:                          # ordered: deploy order is derived from
                                 # does a selection that cannot be made or run
         command: null           # required for `command`: a template whose words
                                 # `{changed_files}` and `{failed_ids}` each become
-                                # one argument per file or test identifier, run in
+                                # one argument per file or test identifier, and
+                                # `{workers}` becomes `-n <workers> --maxprocesses=<max>`
+                                # from `tests.workers` and `tests.max_workers`, run in
                                 # the project directory under the unit-test time limit;
                                 # the profile's "no tests collected" exit counts as
                                 # a pass, and the full run still confirms it

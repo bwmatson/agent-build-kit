@@ -133,10 +133,13 @@ class HookedProfile(PythonUvProfile):
     def lint_command(self, base: str) -> list[str]:
         return ["lint"]
 
-    def test_commands(
-        self, repo: Path, changed: list[str], *, root_extras: list[str]
+    def _commands(
+        self, repo: Path, changed: list[str], *, root_extras: list[str], **_workers: object
     ) -> list[list[str]]:
         return [["uv", "run", "pytest", "-n", "auto", "-q"]]
+
+    # Assigned, not defined: a scan for changed tests takes any `def test_*` for one.
+    test_commands = _commands
 
 
 class WithoutHooks:

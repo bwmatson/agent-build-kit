@@ -298,7 +298,9 @@ def test_the_repos_root_extras_reach_the_profiles_selection(
     class Asked(PythonUvProfile):
         extras: list[str] | None = None
 
-        def affected_test_commands(self, repo, changed_files, failed_ids, *, seed, root_extras):
+        def affected_test_commands(
+            self, repo, changed_files, failed_ids, *, seed, root_extras, **_workers
+        ):
             self.extras = root_extras
             return None
 

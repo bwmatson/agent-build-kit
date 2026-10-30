@@ -279,6 +279,8 @@ repos:                        # ordered; a task group's [repo] tag is a key here
     relationships: ""         # prose for the planner about the other repos
     tests:
       root_extras: []         # extra packages the repo-root tests need
+      workers: auto           # pytest-xdist `-n` of the Python profile's test runs
+      max_workers: 8          # its `--maxprocesses` cap
       fix_command: null       # repos.<name>.tests.fix_command: the argv that applies the repo's
                               # formatters and fixers (file names appended) before each commit;
                               # unset follows the profile, [] turns the pass off. Policy, so it
@@ -312,7 +314,8 @@ repos:                        # ordered; a task group's [repo] tag is a key here
                               # check and a fix runs first; the full suite always confirms
                               # a pass, and every other check is full
         command: null         # `command` mode needs a template whose words
-                              # `{changed_files}` and `{failed_ids}` each expand to
+                              # `{changed_files}`, `{failed_ids}` and `{workers}`
+                              # (`-n <workers> --maxprocesses=<max>`) each expand to
                               # separate arguments (a word of its own, not `--f={...}`)
     dev_stack: null           # {script: scripts/dev-stack.sh} — a script with
                               # up/test/down; e2e-test runs on it, not live

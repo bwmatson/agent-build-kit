@@ -33,6 +33,7 @@ from pydantic import (
     ConfigDict,
     Field,
     StrictBool,
+    StrictInt,
     ValidationError,
     ValidationInfo,
     field_validator,
@@ -1023,9 +1024,16 @@ class E2eSandboxConfig(Frozen):
     ports: list[int] = []
 
 
+StrictPositiveInt = Annotated[StrictInt, Field(gt=0)]
+
+
 class TestsConfig(TestKindSettings):
     # Extra packages the repo-root tests (outside every workspace member) need.
     root_extras: list[str] = []
+    # The pytest-xdist worker count of the profile's test runs (`-n`), `auto` or a number,
+    # and the cap on it (`--maxprocesses`).
+    workers: Literal["auto"] | StrictPositiveInt = "auto"
+    max_workers: StrictPositiveInt = 8
     # The command that applies this repo's fixers, to which the file names are appended; None
     # follows the profile and the empty list turns the fixer pass off.
     fix_command: list[str] | None = None
@@ -1072,16 +1080,23 @@ class RuntimeTestsConfig(TestKindSettings):
     e2e_available: dict[str, list[str]] = {}
 
 
+# A whole number above zero, as written: a quoted number is not one.
+
 # The words of a `command` template that stand for a list of arguments.
-TEMPLATE_PLACEHOLDERS = ("{changed_files}", "{failed_ids}")
+TEMPLATE_PLACEHOLDERS = ("{changed_files}", "{failed_ids}", "{workers}")
+
+
+def worker_options(workers: str | int, max_workers: int) -> list[str]:
+    """The xdist options of a test run for `tests.workers` and `tests.max_workers`."""
+    return ["-n", str(workers), f"--maxprocesses={max_workers}"]
 
 
 class AffectedConfig(Frozen):
     # How a fix round picks the tests it runs: `off` runs the full tests, `profile`
     # asks the toolchain profile, `command` runs `command`.
     mode: Literal["off", "profile", "command"] = "off"
-    # In `command` mode: a template whose `{changed_files}` and `{failed_ids}` are
-    # each replaced by separate quoted arguments.
+    # In `command` mode: a template whose `{changed_files}`, `{failed_ids}` and `{workers}`
+    # are each replaced by separate arguments.
     command: str | None = None
 
     mode_off = field_validator("mode", mode="before")(_unquoted_off)

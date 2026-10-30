@@ -28,6 +28,7 @@ from agent_build_kit.config import (
     EnvironmentConfig,
     EnvironmentInputs,
     RepoConfig,
+    worker_options,
 )
 from agent_build_kit.installation import Installation
 from agent_build_kit.path_discovery import find_up
@@ -54,7 +55,6 @@ _DEP_NAME = re.compile(r"^\s*([A-Za-z0-9][A-Za-z0-9._-]*)")
 XDIST = "pytest-xdist"
 MANIFEST = "pyproject.toml"
 LOCK = "uv.lock"
-WORKERS = ["-n", "auto", "--maxprocesses=8"]
 # A FAILED/ERROR line for each failed test, with a short traceback each. `-vv` as well:
 # below it pytest cuts each summary message to the terminal width, and drops it when the
 # test id fills the line.
@@ -514,17 +514,17 @@ class PythonUvProfile:
         start, end, _ = _durations_section(lines)
         return "".join(lines[:start] + lines[end:])
 
-    def _root_tests(self, repo: Path, root_extras: list[str]) -> list[list[str]]:
+    def _root_tests(self, repo: Path, root_extras: list[str], xdist: list[str]) -> list[list[str]]:
         # The repo-root tests/, which belongs to no member, in the same
         # environment its CI job uses: pytest plus whatever it declares.
         withs = [arg for extra in ["pytest", *root_extras] for arg in ("--with", extra)]
         head = ["uv", "run", "--no-project", "--isolated", *withs]
         # The environment holds only what root_extras names, so workers need it there.
         workers = any(_normalize(extra.split("[")[0]) == XDIST for extra in root_extras)
-        return self._passes(head, ["tests"], parallel=workers, repo=repo)
+        return self._passes(head, ["tests"], parallel=workers, repo=repo, xdist=xdist)
 
     def _passes(
-        self, head: list[str], target: list[str], *, parallel: bool, repo: Path
+        self, head: list[str], target: list[str], *, parallel: bool, repo: Path, xdist: list[str]
     ) -> list[list[str]]:
         """One pytest command, or — where xdist is declared — what `poe test`
         runs: a parallel pass, then the tests marked `serial` on their own."""
@@ -534,7 +534,7 @@ class PythonUvProfile:
         return [
             [
                 *command,
-                *WORKERS,
+                *xdist,
                 "-m",
                 _marker_selection(repo, "not serial"),
                 "-q",
@@ -734,11 +734,15 @@ class PythonUvProfile:
         *,
         seed: Path,
         root_extras: list[str],
+        workers: str | int = "auto",
+        max_workers: int = 8,
     ) -> list[list[str]] | None:
         """The test commands of the change, selecting by the source each test executed when
         the seed data of an earlier full run is there; otherwise the failed tests alone,
         and None when none is named, so that the full suite stands in."""
-        commands = self.test_commands(repo, changed_files, root_extras=root_extras)
+        commands = self.test_commands(
+            repo, changed_files, root_extras=root_extras, workers=workers, max_workers=max_workers
+        )
         if seed.is_file():
             if not all(self._places(path) for path in changed_files):
                 return None
@@ -780,15 +784,17 @@ class PythonUvProfile:
             *command[program + 1 :],
         ]
 
-    def _whole_repo_tests(self, repo: Path) -> list[list[str]]:
+    def _whole_repo_tests(self, repo: Path, xdist: list[str]) -> list[list[str]]:
         # A repo that is not a workspace: no members to run one at a time.
         # No tests/ at all is intentional too — the satisfied verdict then
         # rests on lint alone, since there is nothing here to run.
         if not (repo / "tests").is_dir():
             return []
-        return self._passes(["uv", "run"], [], parallel=_declares_xdist(repo), repo=repo)
+        return self._passes(
+            ["uv", "run"], [], parallel=_declares_xdist(repo), repo=repo, xdist=xdist
+        )
 
-    def _member_commands(self, repo: Path, members: list[str]) -> list[list[str]]:
+    def _member_commands(self, repo: Path, members: list[str], xdist: list[str]) -> list[list[str]]:
         # `--package` names the package; the trailing path names the directory.
         # They differ more often than not.
         return [
@@ -799,11 +805,18 @@ class PythonUvProfile:
                 [member],
                 parallel=_declares_xdist(repo / member),
                 repo=repo / member,
+                xdist=xdist,
             )
         ]
 
     def test_commands(
-        self, repo: Path, changed: list[str], *, root_extras: list[str]
+        self,
+        repo: Path,
+        changed: list[str],
+        *,
+        root_extras: list[str],
+        workers: str | int = "auto",
+        max_workers: int = 8,
     ) -> list[list[str]]:
         """How to run this repo's tests, matching what its CI does.
 
@@ -812,9 +825,10 @@ class PythonUvProfile:
         it tests all of them. Documentation is the one root change that cannot
         affect a test run.
         """
+        xdist = worker_options(workers, max_workers)
         members = self.members(repo)
         if not members:
-            return self._whole_repo_tests(repo)
+            return self._whole_repo_tests(repo, xdist)
 
         testable = [member for member in members if (repo / member / "tests").is_dir()]
         touched = {
@@ -831,10 +845,17 @@ class PythonUvProfile:
         chosen = testable if outside else [m for m in testable if m in touched]
         root: list[list[str]] = []
         if (repo / "tests").is_dir() and (outside or any(p.startswith("tests/") for p in changed)):
-            root = self._root_tests(repo, root_extras)
-        return self._member_commands(repo, chosen) + root
+            root = self._root_tests(repo, root_extras, xdist)
+        return self._member_commands(repo, chosen, xdist) + root
 
-    def test_commands_all(self, repo: Path, *, root_extras: list[str]) -> list[list[str]]:
+    def test_commands_all(
+        self,
+        repo: Path,
+        *,
+        root_extras: list[str],
+        workers: str | int = "auto",
+        max_workers: int = 8,
+    ) -> list[list[str]]:
         """Every testable member plus the root tests/, unconditionally.
 
         The whole-repo counterpart to `test_commands`: for a unit that
@@ -842,13 +863,14 @@ class PythonUvProfile:
         scope to, so this runs everything `test_commands` would run for a
         change that reached outside every member.
         """
+        xdist = worker_options(workers, max_workers)
         members = self.members(repo)
         if not members:
-            return self._whole_repo_tests(repo)
+            return self._whole_repo_tests(repo, xdist)
 
         testable = [member for member in members if (repo / member / "tests").is_dir()]
-        root = self._root_tests(repo, root_extras) if (repo / "tests").is_dir() else []
-        return self._member_commands(repo, testable) + root
+        root = self._root_tests(repo, root_extras, xdist) if (repo / "tests").is_dir() else []
+        return self._member_commands(repo, testable, xdist) + root
 
     def extra_checks(self, repo: RepoConfig) -> list[list[str]]:
         """The changelog's form, for a repo that keeps one. Run by the interpreter

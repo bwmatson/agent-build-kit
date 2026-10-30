@@ -19,7 +19,12 @@ def _tests(word: str) -> Callable[..., list[list[str]]]:
     the pipeline would take for a test of this file."""
 
     def commands(
-        self: PythonUvProfile, repo: Path, changed: list[str], *, root_extras: list[str]
+        self: PythonUvProfile,
+        repo: Path,
+        changed: list[str],
+        *,
+        root_extras: list[str],
+        **_workers: object,
     ) -> list[list[str]]:
         return [[word]]
 

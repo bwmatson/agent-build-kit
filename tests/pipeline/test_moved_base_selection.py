@@ -49,6 +49,7 @@ class Selecting(Profile):
         *,
         seed: Path,
         root_extras: list[str],
+        **_workers: object,
     ) -> list[list[str]] | None:
         self.asked.append((repo.name, changed_files, failed_ids))
         if repo.name == self.cannot_place:
@@ -58,7 +59,7 @@ class Selecting(Profile):
 
 
 def real_test_commands(
-    self: Profile, repo: Path, changed: list[str], *, root_extras: list[str]
+    self: Profile, repo: Path, changed: list[str], *, root_extras: list[str], **_workers: object
 ) -> list[list[str]]:
     return [[sys.executable, "-c", "pass"]]
 
@@ -199,6 +200,7 @@ def test_a_semantic_conflict_with_no_textual_overlap_fails_the_selected_run(
             *,
             seed: Path,
             root_extras: list[str],
+            **_workers: object,
         ) -> list[list[str]] | None:
             self.asked.append((repo.name, changed_files, failed_ids))
             modules = {Path(name).stem for name in changed_files}
@@ -398,7 +400,7 @@ def test_a_document_outside_every_project_stays_scoped(tmp_path: Path) -> None:
 
 
 def seeded_tests(
-    self: Profile, repo: Path, changed: list[str], *, root_extras: list[str]
+    self: Profile, repo: Path, changed: list[str], *, root_extras: list[str], **_workers: object
 ) -> list[list[str]]:
     return [["uv", "run", "pytest", "tests"]]
 

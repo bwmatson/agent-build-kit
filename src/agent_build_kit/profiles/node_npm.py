@@ -204,7 +204,13 @@ class NodeNpmProfile:
         return ["sh", "-c", _LINT_ALL]
 
     def test_commands(
-        self, repo: Path, changed: list[str], *, root_extras: list[str]
+        self,
+        repo: Path,
+        changed: list[str],
+        *,
+        root_extras: list[str],
+        workers: str | int = "auto",
+        max_workers: int = 8,
     ) -> list[list[str]]:
         """The project's Vitest run, whatever changed: it reads its own configuration. In a
         workspace, one run in each member a changed path is under, and in every member when
@@ -223,7 +229,14 @@ class NodeNpmProfile:
             commands.append(["sh", "-c", _FILTERED, "sh", _HERE, *root_tests])
         return commands
 
-    def test_commands_all(self, repo: Path, *, root_extras: list[str]) -> list[list[str]]:
+    def test_commands_all(
+        self,
+        repo: Path,
+        *,
+        root_extras: list[str],
+        workers: str | int = "auto",
+        max_workers: int = 8,
+    ) -> list[list[str]]:
         """Every member's tests; the workspace root's own, if it has any, are not run."""
         members = self.members(repo)
         return [_member_command(m) for m in members] if members else [list(_TEST_COMMAND)]
