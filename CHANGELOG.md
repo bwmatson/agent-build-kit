@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+- The unit-test step's temp folder is now `<data home>/<repo name>/tmp/<run>`, named by the run's
+  8-character token alone, where it was `<planning home>/tmp/pytest/<unit>-<run>`. A fix unit's id
+  carries the name of its test, which made a `tmp_path` of 227 characters: the name Claude makes of
+  a worktree under it passed 255 characters, so eight `tests/serve/test_chat_*` tests failed with
+  `File name too long` in those units' runs. The folder keeps a `run.json` (unit, run, tick, start,
+  process), the unit's log has a `temp folder <path> (run <token>)` line, and the failure bundle's
+  `context.json` has `temp_run` and `temp_folder`, so a unit is still found from a path. The tick's
+  sweep logs each removed folder with its unit and also clears what is left under the old root.
+
 - The regression agent now searches the test tree, read-only, for other tests that share the cause
   of a failing test when the cause is a pattern, and lists them in a `Same exposure` section of
   its proposal, each marked `confirmed` or `possible`. A proposal without the section is rewritten

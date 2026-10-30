@@ -325,7 +325,8 @@ class SetsTestEnvironment(Protocol):
 
     def test_environment(self, installation: Installation, unit: str, run: str) -> dict[str, str]:
         """The variables for one run of `unit`. It creates the run's folder under the
-        installation's `pytest_temp_root` and writes the run's pid file there."""
+        installation's `pytest_temp_root`, named by `run`, and writes the run's pid file and `run.json`
+        there."""
         ...
 
 

@@ -41,7 +41,7 @@ from agent_build_kit.pipeline.e2e import (
     parse_pytest_summary,
 )
 from agent_build_kit.pipeline.red_check import judge_red, split_report, wrap_report_command
-from agent_build_kit.pipeline.temp_sweep import write_pid_file
+from agent_build_kit.pipeline.temp_sweep import write_pid_file, write_run_file
 from agent_build_kit.profiles.base import HOME, PromptWords, SandboxPaths, is_doc_path
 from agent_build_kit.profiles.workspace_lock import workspace_lock
 
@@ -341,11 +341,14 @@ class PythonUvProfile:
 
     def test_environment(self, installation: Installation, unit: str, run: str) -> dict[str, str]:
         """The variables the unit-test step's commands run with: `PYTEST_DEBUG_TEMPROOT` names a
-        folder under the installation's `<planning home>/tmp/pytest` for this unit and run, created
-        here. The run's pid file lets a later tick tell a live run from a killed one."""
-        folder = installation.pytest_temp_root / f"{unit.replace('/', '-')}-{run}"
+        folder under the installation's temp root for this run, named by the run's token alone
+        so the path does not grow with the unit's id, and created here. It holds the run's pid
+        file, which lets a later tick tell a live run from a killed one, and `run.json`, which
+        says whose it is."""
+        folder = installation.pytest_temp_root / run
         folder.mkdir(parents=True, exist_ok=True)
         write_pid_file(folder)
+        write_run_file(folder, unit, run)
         return {"PYTEST_DEBUG_TEMPROOT": str(folder)}
 
     def member_of(self, repo: Path, path: str) -> str | None:

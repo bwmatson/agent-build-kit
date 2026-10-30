@@ -1287,6 +1287,10 @@ def branch_commits(repo: Path, base: str, head: str = "HEAD") -> int:
     return int(git_out(repo, "rev-list", "--count", f"{base}..{head}"))
 
 
+# The variable a profile's test environment points pytest's temp root with.
+TEMP_ROOT_VARIABLE = "PYTEST_DEBUG_TEMPROOT"
+
+
 def build_unit_test(
     *,
     run: Run | None = None,
@@ -1706,6 +1710,11 @@ def build_unit_test(
             "tick": spans.PROCESS_TICK,
             "pid": os.getpid(),
             "cpus": os.cpu_count(),
+            **(
+                {"temp_run": run_token["id"], "temp_folder": folder}
+                if (folder := temp_folder())
+                else {}
+            ),
             **failure_evidence.shas(run, where, base),
             **facts,
         }
@@ -2071,7 +2080,18 @@ def build_unit_test(
         if name not in run_environments:
             unit = spans.current_unit.get()[0]
             run_environments[name] = toolchain.test_environment(installation, unit, run_token["id"])
+            if folder := run_environments[name].get(TEMP_ROOT_VARIABLE):
+                # The folder's name is the run's token alone: this line is how a unit is found
+                # from a path in a failure.
+                _say(log, f"temp folder {folder} (run {run_token['id']})")
         return {"env": {**os.environ, **run_environments[name]}}
+
+    def temp_folder() -> str | None:
+        """The temp folder this run's commands were given, when a profile gave one."""
+        for given in run_environments.values():
+            if TEMP_ROOT_VARIABLE in given:
+                return given[TEMP_ROOT_VARIABLE]
+        return None
 
     def ran(
         command: list[str], where: Path, toolchain: ToolchainProfile, root: Path | None = None
