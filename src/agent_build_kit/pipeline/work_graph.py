@@ -46,7 +46,12 @@ from agent_build_kit.config import (
     owning_project,
 )
 from agent_build_kit.model import Frozen, TestTier
-from agent_build_kit.pipeline.group_paths import allows_no_code, allows_tests_only, named_paths
+from agent_build_kit.pipeline.group_paths import (
+    allows_no_code,
+    allows_tests_only,
+    named_paths,
+    names_unplaced_glob,
+)
 from agent_build_kit.pipeline.units import ManualStep, Priority, project_tag, reachable
 
 
@@ -442,7 +447,7 @@ def _resolved(group: TaskGroup, projects: Sequence[str]) -> TaskGroup:
             "project": project,
             "source": source,
             "code_free": allows_no_code(named),
-            "test_code": allows_tests_only(named),
+            "test_code": allows_tests_only(named) and not names_unplaced_glob(group),
         }
     )
 

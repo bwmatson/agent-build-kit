@@ -5,6 +5,8 @@ from __future__ import annotations
 
 import re
 from collections.abc import Sequence
+from fnmatch import fnmatch
+from pathlib import PurePosixPath
 from typing import TYPE_CHECKING
 
 from agent_build_kit.pipeline.commit_order import CONFIG_SUFFIXES, classify_paths
@@ -12,6 +14,8 @@ from agent_build_kit.pipeline.commit_order import CONFIG_SUFFIXES, classify_path
 if TYPE_CHECKING:
     from agent_build_kit.pipeline.work_graph import TaskGroup
 
+TEST_FOLDERS = frozenset({"tests", "__tests__"})
+TEST_FILE_PATTERNS = ("test_*.py", "*_test.py", "*.test.*", "*.spec.*")
 _TICKED = re.compile(r"`([^`]+)`")
 _LINE_SUFFIX = re.compile(r":\d+$")
 _EXTENSION = re.compile(r"\.[A-Za-z0-9]+$")
@@ -103,12 +107,39 @@ def allows_no_code(paths: Sequence[str]) -> bool:
     )
 
 
+def _is_test_code(path: str) -> bool:
+    """Whether `path` is test code for the tests-only rule: under a `tests` or `__tests__` folder,
+    or a test file by name. A `test` or `testing` folder alone does not count: it may hold a
+    product module."""
+    pure = PurePosixPath(path)
+    return bool(TEST_FOLDERS.intersection(pure.parts)) or any(
+        fnmatch(pure.name, pattern) for pattern in TEST_FILE_PATTERNS
+    )
+
+
 def allows_tests_only(paths: Sequence[str]) -> bool:
-    """Whether the paths a group names are test code (test files and test-support modules, the
-    paths `classify_paths` labels "test"), at least one of them, with documents beside them. A
-    source or configuration path, or no path at all, allows nothing.
+    """Whether the paths a group names are test code (test files and test-support modules), at
+    least one of them, with documents beside them. A source or configuration path, or no path at
+    all, allows nothing.
 
     The repeat check re-runs only the collected `test_*.py` files a unit changed, so an edit to
     a test-support module pytest does not collect relies on the full run."""
-    labels = set(classify_paths(list(paths)).values())
-    return "test" in labels and labels <= {"test", "docs"}
+    labels = classify_paths(list(paths))
+    if not paths or any(labels[path] != "docs" and not _is_test_code(path) for path in paths):
+        return False
+    return any(labels[path] != "docs" for path in paths)
+
+
+def names_unplaced_glob(group: TaskGroup) -> bool:
+    """Whether a line of `group` names a glob with no folder before it (`*.py`, `**/*.py`), which
+    may change any file: `named_paths` skips it, so a caller that must be conservative asks."""
+    if group.paths:
+        return False
+    for line in group.body:
+        if _NOT_CHANGES.match(line):
+            continue
+        for sentence in _SENTENCE_END.split(_VERIFY.sub("", line)):
+            for token in _TICKED.findall(_NOT_A_CHANGE.sub("", sentence)):
+                if _is_path_token(token) and "*" in token and _glob_prefix(token) is None:
+                    return True
+    return False
