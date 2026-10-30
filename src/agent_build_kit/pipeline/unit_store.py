@@ -67,6 +67,7 @@ UNPLANNED = UnitState.UNPLANNED
 
 # What `abk requeue` writes as `by`: a person's requeue ends a unit's run of bounces.
 REQUEUE_BY = "abk requeue"
+IDLE_NOTE = "was idle (running with no holder)"
 
 # Writing a unit into one of these ends its run of bounces: it is in review, failed or finished.
 _ENDS_BOUNCES = (
@@ -899,17 +900,21 @@ class UnitStore:
             raise GroupOwned(collisions)
         self._write(stored)
 
-    def retire(self, unit_id: str, reason: str = "") -> None:
+    def retire(self, unit_id: str, reason: str = "", *, idle: bool = False) -> None:
         """End a unit: state `retired`, cause `retired` and one history entry with the reason
         (`retired` when none is given) and `by: abk retire`, in one write. The branch and the
         pull request stay as they are. The write is made under the store's lock by
-        `_record_state`, as `set_state` does; the lock is not re-entrant."""
+        `_record_state`, as `set_state` does; the lock is not re-entrant. `idle` adds that the
+        unit was `running` with no holder when it ended."""
+        note = reason or "retired"
+        if idle:
+            note += f"{' — ' if reason else ': '}{IDLE_NOTE}"
         unit, everything, opened = self._record_state(
             unit_id,
             UnitState.RETIRED,
             pr=None,
             branch=None,
-            note=reason or "retired",
+            note=note,
             held_by=HeldBy.NONE,
             cause=Cause.RETIRED,
             held_base="",

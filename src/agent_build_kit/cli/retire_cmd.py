@@ -18,10 +18,11 @@ from pathlib import Path
 
 from agent_build_kit.installation import Installation
 from agent_build_kit.pipeline import retirement
+from agent_build_kit.pipeline.idle import idle_units
 from agent_build_kit.pipeline.lease import Leases, lease_dir
 from agent_build_kit.pipeline.shell import git, git_out
-from agent_build_kit.pipeline.unit_store import ClosePending, StoredUnit, UnitStore
-from agent_build_kit.pipeline.units import base_of
+from agent_build_kit.pipeline.unit_store import IDLE_NOTE, ClosePending, StoredUnit, UnitStore
+from agent_build_kit.pipeline.units import RUNNING, base_of
 from agent_build_kit.pipeline.workspaces import (
     BranchBusy,
     branch_lock,
@@ -119,6 +120,12 @@ def retire(
             say("--discard-unpushed accepts losing them")
             return 1
 
+    # The scheduler's own test of a running unit no run holds. It is read before the lock is
+    # taken, since our own lock would read as a holder; the lock then keeps a tick from starting
+    # the unit between this read and the retire, and a run that took it first turns us away.
+    idle = unit.state == RUNNING and unit_id in idle_units(
+        units, (), lambda branch: pipe.branch_is_held(inst, branch)
+    )
     with ExitStack() as held:
         if unit.branch:
             try:
@@ -126,6 +133,9 @@ def retire(
             except BranchBusy as error:
                 say(f"{unit_id}: {error}; stop it first")
                 return 1
+        if unit.state == RUNNING and not idle:
+            say(f"{unit_id} is running and a run holds it; stop it first")
+            return 1
         return _retire(
             inst,
             store,
@@ -133,6 +143,7 @@ def retire(
             assessment,
             say=say,
             reason=reason,
+            idle=idle,
             branch=(repo, tree) if delete_branch and unit.branch else None,
             dry_run=dry_run,
         )
@@ -146,6 +157,7 @@ def _retire(
     *,
     say: Callable[..., None],
     reason: str,
+    idle: bool,
     branch: tuple[Path, Path | None] | None,
     dry_run: bool,
 ) -> int:
@@ -155,6 +167,8 @@ def _retire(
 
     would = "would " if dry_run else ""
     say(f"{would}retire {unit.id}: {unit.state} -> retired" + (f" ({reason})" if reason else ""))
+    if idle:
+        say(f"  {unit.id} {IDLE_NOTE}")
     for fate in assessment.groups:
         where = f"group {fate.group} of {fate.change}"
         if not fate.carried_by:
@@ -181,7 +195,7 @@ def _retire(
         return 0
 
     released = {fate.change for fate in assessment.groups if not fate.carried_by}
-    store.retire(unit.id, reason)
+    store.retire(unit.id, reason, idle=idle)
     failed = False
     try:
         if pipe.has_thread(inst, unit.id):
