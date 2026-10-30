@@ -28,7 +28,7 @@ def run_folder(
     age_hours: float,
     started: str | None = STARTED,
 ) -> Path:
-    folder = installation.state_dir / "tmp" / "pytest" / name
+    folder = installation.pytest_temp_root / name
     (folder / "pytest-of-user" / "pytest-0").mkdir(parents=True)
     (folder / PID_FILE).write_text(f"{pid}\n{started}\n" if started else str(pid))
     stamp = (NOW - timedelta(hours=age_hours)).timestamp()
