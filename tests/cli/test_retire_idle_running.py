@@ -4,6 +4,7 @@ holds, and agrees with the scheduler on which is which (spec: retire-takes-an-id
 from __future__ import annotations
 
 import os
+from collections.abc import Callable
 
 import pytest
 
@@ -194,19 +195,21 @@ def test_an_idle_running_unit_with_a_group_nobody_builds_still_needs_a_reason(
 # lock is checked again.
 
 
-def held_then(scene: Scene, monkeypatch: pytest.MonkeyPatch, *answers: bool, between=None) -> None:  # noqa: F811
-    """`branch_is_held` as the command reads it: each call gives the next answer, and the first
-    also runs `between`, as a run would between the read and the lock."""
-    from agent_build_kit.cli import pipeline as pipe
+def before_lock(monkeypatch: pytest.MonkeyPatch, action: Callable[[], None]) -> None:
+    """Run `action` just before the command takes its lock, as a run would between the command's
+    first read of the store and the lock."""
+    from agent_build_kit.cli import retire_cmd
 
-    remaining = list(answers)
+    real = retire_cmd.branch_lock
+    done: list[bool] = []
 
-    def held(inst, branch) -> bool:
-        if between is not None and len(remaining) == len(answers):
-            between()
-        return remaining.pop(0) if len(remaining) > 1 else remaining[0]
+    def lock(branch: str, *, root):
+        if not done:
+            done.append(True)
+            action()
+        return real(branch, root=root)
 
-    monkeypatch.setattr(pipe, "branch_is_held", held)
+    monkeypatch.setattr(retire_cmd, "branch_lock", lock)
 
 
 def test_a_run_that_finished_between_the_read_and_the_lock_is_not_retired_as_idle(
@@ -216,9 +219,7 @@ def test_a_run_that_finished_between_the_read_and_the_lock_is_not_retired_as_idl
 ) -> None:
     scene.add(UNIT, "running", pr=4)
     scene.built_elsewhere(UNIT)
-    held_then(
-        scene, monkeypatch, False, between=lambda: scene.store.set_state(UNIT, UnitState.IN_REVIEW)
-    )
+    before_lock(monkeypatch, lambda: scene.store.set_state(UNIT, UnitState.IN_REVIEW))
 
     code, out = scene.retire(capsys, UNIT)
 
@@ -229,19 +230,55 @@ def test_a_run_that_finished_between_the_read_and_the_lock_is_not_retired_as_idl
     assert scene.untouched()
 
 
-def test_a_holder_that_exits_between_the_read_and_the_lock_leaves_the_unit_idle(
+def test_a_unit_changed_between_the_read_and_the_lock_is_not_retired_on_stale_data(
     scene: Scene,  # noqa: F811
     capsys,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     running(scene)
-    held_then(scene, monkeypatch, True, False)
+    before_lock(monkeypatch, lambda: scene.store.set_state(UNIT, UnitState.RUNNING, pr=7))
 
-    code, _ = scene.retire(capsys, UNIT)
+    code, out = scene.retire(capsys, UNIT)
 
-    assert code == 0
-    assert scene.unit(UNIT).state == "retired"
-    assert "idle" in scene.unit(UNIT).history[-1]["note"]
+    assert code == 1
+    assert "again" in out
+    assert scene.unit(UNIT).state == "running"
+    assert scene.untouched()
+
+
+def test_a_lease_taken_between_the_read_and_the_lock_refuses(
+    scene: Scene,  # noqa: F811
+    capsys,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from agent_build_kit.pipeline.lease import Leases
+
+    running(scene)
+    answers = iter([None, "tab:late"])
+    monkeypatch.setattr(Leases, "holder", lambda self, unit_id: next(answers))
+    before = scene.snapshot()
+
+    code, out = scene.retire(capsys, UNIT)
+
+    assert code == 1
+    assert "tab:late" in out
+    assert scene.snapshot() == before
+
+
+def test_a_live_holder_of_the_unit_s_computed_branch_is_seen_when_another_is_recorded(
+    scene: Scene,  # noqa: F811
+    capsys,
+) -> None:
+    running(scene)
+    scene.store.set_state(UNIT, UnitState.RUNNING, branch="spec/recorded-elsewhere")
+    lock_held_by(scene.inst, BRANCH, os.getpid())
+    before = scene.snapshot()
+
+    code, out = scene.retire(capsys, UNIT)
+
+    assert code == 1
+    assert str(os.getpid()) in out
+    assert scene.snapshot() == before
 
 
 def test_a_running_unit_with_no_recorded_branch_is_judged_by_the_branch_it_would_use(
