@@ -31,6 +31,30 @@ def test_required_with_a_reason_raises_a_documents_group_to_the_code_floor(
     assert groups[0].mode is GroupMode.TESTS_AND_CODE
 
 
+@pytest.mark.parametrize(
+    "line",
+    [
+        "Tests: required - the setting keeps the disk bounded",
+        "Tests: required -- the setting keeps the disk bounded",
+        "Tests: required \N{EN DASH} the setting keeps the disk bounded",
+        "tests: Required \N{EM DASH} the setting keeps the disk bounded",
+        "TESTS: REQUIRED \N{EM DASH} the setting keeps the disk bounded",
+    ],
+)
+def test_the_dash_and_the_case_of_the_line_do_not_matter(line: str, tmp_path: Path) -> None:
+    groups, errors = validate_tasks(write(tmp_path, f"{DOC_TASK}\n{line}\n"))
+
+    assert errors == []
+    assert groups[0].mode is GroupMode.TESTS_AND_CODE
+
+
+@pytest.mark.parametrize("line", ["Tests: required \N{EM DASH}", "Tests: required \N{EM DASH}   "])
+def test_a_dash_with_an_empty_reason_is_an_error(line: str, tmp_path: Path) -> None:
+    _, errors = validate_tasks(write(tmp_path, f"{DOC_TASK}\n{line}\n"))
+
+    assert any("Tests:" in error.message and "reason" in error.message for error in errors)
+
+
 def test_the_line_without_a_reason_is_an_error(tmp_path: Path) -> None:
     path = write(tmp_path, f"{DOC_TASK}\nTests: required\n")
 
@@ -55,7 +79,8 @@ def test_abk_tags_reports_a_line_without_a_reason(
     code = cli.cmd_tags(argparse.Namespace(all=False, change="feature"), inst)
 
     assert code == 1
-    assert "Tests:" in capsys.readouterr().out
+    out = capsys.readouterr().out
+    assert "Tests:" in out and "reason" in out
 
 
 def test_abk_tags_shows_the_floor_mode_of_each_group(

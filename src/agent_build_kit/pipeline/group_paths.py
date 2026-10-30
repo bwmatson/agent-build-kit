@@ -19,7 +19,7 @@ _NOT_A_PATH = re.compile(r"[\s=(<]")
 # Lines of a group that say something other than which paths it changes.
 _NOT_CHANGES = re.compile(
     r"^\s*(?:Not changed|Planning note|Reads|Paths|Needs|Support|Check|Manual|Separate|"
-    r"Independent|Split|Priority|Acceptance):",
+    r"Independent|Split|Priority|Acceptance|Tests):",
     re.I,
 )
 _VERIFY = re.compile(r"\bVerify:.*", re.I)

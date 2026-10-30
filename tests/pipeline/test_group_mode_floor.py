@@ -4,6 +4,7 @@ from pathlib import Path
 
 import pytest
 
+from agent_build_kit.pipeline.group_paths import named_paths
 from agent_build_kit.pipeline.work_graph import GroupMode, TaskGroup, validate_tasks
 
 OPT_OUT = "Acceptance: none — a fixture about the mode of a group\n"
@@ -40,7 +41,6 @@ def test_an_e2e_group_is_tests_only_whatever_its_text(heading: str, tmp_path: Pa
     "task",
     [
         "- [ ] 1.1 Edit `src/app/main.py` to read the setting.\n",
-        "- [ ] 1.1 Test: `tests/test_main.py` covers it.\n",
         "- [ ] 1.1 Edit `web/src/App.tsx`.\n",
     ],
 )
@@ -106,3 +106,14 @@ def test_test_only_is_true_exactly_for_the_tests_only_mode(tmp_path: Path) -> No
         GroupMode.TESTS_AND_CODE,
     ]
     assert [g.test_only for g in (e2e, docs, code)] == [True, False, False]
+
+
+def test_a_tests_line_names_no_path_even_when_its_reason_quotes_one(tmp_path: Path) -> None:
+    group = unit_group(
+        "- [ ] 1.1 Describe the mode in `docs/cli.md`.\n\n"
+        "Tests: required — it guards `src/app/main.py` reading the mode\n",
+        tmp_path,
+    )
+
+    assert named_paths(group, []) == ["docs/cli.md"]
+    assert group.mode is GroupMode.TESTS_AND_CODE
