@@ -55,8 +55,8 @@ A collision already in the store SHALL NOT make a plan fail. Reshaping, joining 
 
 `abk retire UNIT [--reason TEXT] [--delete-branch] [--discard-unpushed] [--dry-run]` SHALL end a unit that is `planned`, `unplanned`, `failed`, `held`
 or `in_review` by setting it to the state `retired` with the cause `retired`. It SHALL refuse, changing nothing and exiting 1, a unit that is merged,
-closed, satisfied or retired, a unit that is `running`, a unit whose branch lock is held by a live process or that has a live lease (naming the holder,
-since the person stops it first), and a unit that a started same-repo dependent is stacked on (naming the dependent). It SHALL exit 2 for an unknown unit.
+closed, satisfied or retired, a unit whose branch lock is held by a live process or that has a live lease (naming the holder,
+since the person stops it first; a unit that is `running` is refused only for that, and a `running` unit nothing holds is retired, its history noting it was idle), and a unit that a started same-repo dependent is stacked on (naming the dependent). It SHALL exit 2 for an unknown unit.
 The history SHALL record the state, the cause, the reason when one is given and that the command did it, and SHALL NOT record a person's name. The unit's
 thread SHALL be deleted. The command SHALL decide every refusal before it changes anything.
 
@@ -66,7 +66,7 @@ thread SHALL be deleted. The command SHALL decide every refusal before it change
 - **WHEN** `abk retire app/3 --reason "built in app/4"` runs
 - **THEN** the unit is `retired`, its branch and worktree are untouched, and the history has the reason and the cause `retired`
 
-#### Scenario: A running unit is refused
+#### Scenario: A running unit a live process holds is refused
 
 - **GIVEN** a unit that is `running`, or whose branch lock names a live process
 - **WHEN** `abk retire` runs on it

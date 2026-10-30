@@ -67,6 +67,7 @@ UNPLANNED = UnitState.UNPLANNED
 
 # What `abk requeue` writes as `by`: a person's requeue ends a unit's run of bounces.
 REQUEUE_BY = "abk requeue"
+# What `abk retire` adds to the note of a unit it ended while `running` with no holder.
 IDLE_NOTE = "was idle (running with no holder)"
 
 # Writing a unit into one of these ends its run of bounces: it is in review, failed or finished.

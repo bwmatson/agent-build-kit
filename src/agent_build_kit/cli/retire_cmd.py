@@ -22,7 +22,7 @@ from agent_build_kit.pipeline.idle import idle_units
 from agent_build_kit.pipeline.lease import Leases, lease_dir
 from agent_build_kit.pipeline.shell import git, git_out
 from agent_build_kit.pipeline.unit_store import IDLE_NOTE, ClosePending, StoredUnit, UnitStore
-from agent_build_kit.pipeline.units import RUNNING, base_of
+from agent_build_kit.pipeline.units import RUNNING, base_of, branch_name
 from agent_build_kit.pipeline.workspaces import (
     BranchBusy,
     branch_lock,
@@ -120,22 +120,35 @@ def retire(
             say("--discard-unpushed accepts losing them")
             return 1
 
-    # The scheduler's own test of a running unit no run holds. It is read before the lock is
-    # taken, since our own lock would read as a holder; the lock then keeps a tick from starting
-    # the unit between this read and the retire, and a run that took it first turns us away.
+    # The scheduler's own test of a running unit no run holds. `in_flight` is empty because
+    # `abk retire` is its own process: a build running elsewhere shows itself only through its
+    # branch lock. The test is read before the lock is taken, since our own lock would read as
+    # a holder.
     idle = unit.state == RUNNING and unit_id in idle_units(
         units, (), lambda branch: pipe.branch_is_held(inst, branch)
     )
+    # A running unit is locked even when no branch is recorded, under the name the scheduler
+    # tests, so the same holder is seen and named.
+    lock_name = unit.branch or (branch_name(unit) if unit.state == RUNNING else "")
     with ExitStack() as held:
-        if unit.branch:
+        if lock_name:
             try:
-                held.enter_context(branch_lock(unit.branch, root=inst.locks_dir))
+                held.enter_context(branch_lock(lock_name, root=inst.locks_dir))
             except BranchBusy as error:
                 say(f"{unit_id}: {error}; stop it first")
                 return 1
-        if unit.state == RUNNING and not idle:
-            say(f"{unit_id} is running and a run holds it; stop it first")
+        # What happened between the first read and the lock: the lock is ours now, so no run
+        # holds the unit, but a run that finished first has left it in another state, and a
+        # lease may have been taken. Nothing is changed before this.
+        current = store.get(unit_id)
+        if current.state != unit.state:
+            say(f"{unit_id} is now {current.state}, not {unit.state}; run abk retire again")
             return 1
+        if holder := Leases(lease_dir(inst.local_dir)).holder(unit_id):
+            say(f"{unit_id} has a live lease held by {holder}; stop it first")
+            return 1
+        # A holder that exited after the first read left the lock free to take: idle.
+        idle = unit.state == RUNNING
         return _retire(
             inst,
             store,

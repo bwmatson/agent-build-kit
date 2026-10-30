@@ -459,8 +459,8 @@ resumes. `abk manual list` shows every outstanding step with its runbook and las
   the state `retired`: finished, in no place, nothing waits on it, its groups free. A group no
   unit builds needs `--reason` and is planned again; an open pull request is closed with the
   reason; the branch and worktree are kept unless `--delete-branch` is given, and commits never
-  pushed need `--discard-unpushed` as well. It refuses a running or finished unit, a live branch
-  lock or lease, and a unit a started dependent is stacked on. A replan keeps a started unit the
+  pushed need `--discard-unpushed` as well. It refuses a finished unit, a live branch
+  lock or lease (a `running` unit nothing holds is retired and its history says it was idle), and a unit a started dependent is stacked on. A replan keeps a started unit the
   plan omits and prints `kept: <unit> has work; not in the plan`, and it refuses a plan that
   gives a group to a second unit while a started one carries it, naming both: retire the
   owner, or edit `tasks.md` to keep the group with it.
