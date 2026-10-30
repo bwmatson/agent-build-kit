@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+- A build agent no longer makes commits. The build run's policy refuses a `git commit` and every
+  other git command that makes a commit or moves a branch (`cherry-pick`, `revert`, `merge`,
+  `rebase`, `am`, `pull`, a `reset` to another commit, `checkout -B`, `branch -f`), in both
+  runtimes, and the first prompt of each session says the pipeline commits the work.
+  `cherry-pick -n`, `merge --squash`, `merge --no-commit --no-ff`, `reset -- <path>` and a lone
+  `--abort` or `--quit` stay allowed. A chat turn has the same refusal, so it cannot rebase, pull
+  or merge a unit's branch. An agent commit skipped the lint gate and the unit trailer, and a
+  subject that differs from the group's title is not counted as the group's commit, which failed
+  `register-report-operations/2` with "no tests commit".
+
 - The unit-test step's temp folder is now `<data home>/<repo name>/tmp/<run>`, named by the run's
   8-character token alone, where it was `<planning home>/tmp/pytest/<unit>-<run>`. A fix unit's id
   carries the name of its test, which made a `tmp_path` of 227 characters: the name Claude makes of
