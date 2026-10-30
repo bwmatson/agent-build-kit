@@ -434,7 +434,8 @@ def test_a_full_run_records_the_data_a_later_moved_run_selects_by(tmp_path: Path
     )
 
     assert passed
-    assert "--testmon" in runner.ran[-1] and "--testmon-noselect" not in runner.ran[-1]
+    assert "--testmon-forceselect" in runner.ran[-1] and "--testmon" not in runner.ran[-1]
+    assert "--testmon-noselect" not in runner.ran[-1]
     (line,) = moved_base_lines(logged)
     assert "full suite" not in line
 
