@@ -458,11 +458,11 @@ def test_an_unknown_setting_in_a_window_is_refused() -> None:
 def test_the_usage_settings_belong_to_the_claude_runtime() -> None:
     """Set on another runtime they would be read by nothing, which looks like a
     limit and is not one."""
-    with pytest.raises(ValidationError, match=r"runtimes\.acp\.limits"):
+    with pytest.raises(ValidationError, match=r"runtimes\.acp\.usage_limits"):
         WorkspaceConfig(
             runtimes={
                 "acp": RuntimeConfig(
-                    limits=ClaudeLimitsConfig(session=UsageWindowConfig(usage_pause_pct=80))
+                    usage_limits=ClaudeLimitsConfig(session=UsageWindowConfig(usage_pause_pct=80))
                 )
             }
         )
@@ -489,7 +489,7 @@ def test_the_sections_load_from_a_mapping() -> None:
             }
         )
         .runtimes[CLAUDE_CODE]
-        .limits
+        .usage_limits
     )
 
     assert (claude.session.usage_pause_pct, claude.session.usage_ceiling_pct) == (85, 92)

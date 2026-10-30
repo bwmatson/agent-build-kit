@@ -512,7 +512,7 @@ def refresh_allowances(
                 calibrated_allowances(
                     calls,
                     ledger,
-                    limits=limits if account is None else account.limits,
+                    limits=limits if account is None else account.usage_limits,
                     now=now,
                     account=account,
                 ),

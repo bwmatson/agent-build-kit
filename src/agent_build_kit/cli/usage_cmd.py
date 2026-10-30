@@ -163,7 +163,7 @@ def _verdict(window: Window, kept: Calibrated | None, limits: ClaudeLimitsConfig
 def cmd_usage_replay(args: argparse.Namespace, inst: Installation) -> int:
     """Re-run the estimate over each usable gap of the record; writes and asks nothing."""
     account = claude_account.resolve(inst, args.account)
-    limits = account.limits
+    limits = account.usage_limits
     # Only the readings of the account asked about (the default one without the flag).
     calls, ledger = of_account(
         read_calls(calls_path(inst.state_dir, account)),

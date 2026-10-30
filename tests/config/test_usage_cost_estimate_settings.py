@@ -18,15 +18,15 @@ WINDOWS = ("session", "weekly")
 def write(root: Path, name: str, limits: dict[str, Any], *, account: bool = False) -> None:
     """Write `root/name` with `limits` under the runtime, or under an account's own block."""
     if account:
-        runtime: dict[str, Any] = {"accounts": {"main": {"limits": limits}}}
+        runtime: dict[str, Any] = {"accounts": {"main": {"usage_limits": limits}}}
     else:
-        runtime = {"limits": limits}
+        runtime = {"usage_limits": limits}
     document = {"version": 1, "runtimes": {"claude_code": runtime}}
     (root / name).write_text(yaml.safe_dump(document))
 
 
 def loaded(root: Path) -> ClaudeLimitsConfig:
-    return config.load(root / "abk.yaml").runtimes["claude_code"].limits
+    return config.load(root / "abk.yaml").runtimes["claude_code"].usage_limits
 
 
 def test_the_defaults() -> None:
@@ -98,7 +98,7 @@ def test_an_accounts_own_limits_block_sets_them(tmp_path: Path) -> None:
         account=True,
     )
 
-    own = config.load(tmp_path / "abk.yaml").runtimes["claude_code"].accounts["main"].limits
+    own = config.load(tmp_path / "abk.yaml").runtimes["claude_code"].accounts["main"].usage_limits
 
     assert own.weekly.usage_estimate_basis == "units"
     assert own.session.usage_estimate_basis == "cost"

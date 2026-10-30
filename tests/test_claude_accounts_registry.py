@@ -89,14 +89,14 @@ def test_a_label_with_a_config_dir_resolves_to_that_account(tmp_path: Path) -> N
     assert inst.config.repos["app"].account == "kit"
     loaded = inst.config.runtimes[CLAUDE_CODE].accounts["kit"]
     assert loaded.config_dir == directory
-    assert loaded.limits.weekly.usage_pause_pct == 40
+    assert loaded.usage_limits.weekly.usage_pause_pct == 40
     assert loaded.max_units_in_progress == 2
 
     account = claude_account.resolve(inst, "kit")
 
     assert account.label == "kit"
     assert account.config_dir == directory
-    assert account.limits.weekly.usage_pause_pct == 40
+    assert account.usage_limits.weekly.usage_pause_pct == 40
     assert account.max_units_in_progress == 2
 
 
@@ -130,7 +130,7 @@ def test_no_label_is_the_default_account_with_the_runtimes_limits(tmp_path: Path
     account = claude_account.resolve(inst, None)
 
     assert account.label is None
-    assert account.limits == inst.config.runtimes[CLAUDE_CODE].limits
+    assert account.usage_limits == inst.config.runtimes[CLAUDE_CODE].usage_limits
 
 
 @pytest.mark.parametrize("name", FUNCTIONS)

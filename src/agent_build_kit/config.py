@@ -300,7 +300,7 @@ class UsageWindowConfig(WindowLimits):
 
 
 class ClaudeLimitsConfig(Frozen):
-    """The Claude subscription's two usage windows (`runtimes.claude_code.limits`).
+    """The Claude subscription's two usage windows (`runtimes.claude_code.usage_limits`).
     They fill independently, so each has its own section."""
 
     session: UsageWindowConfig = UsageWindowConfig(usage_estimate_intercept=True)
@@ -518,13 +518,66 @@ class PolicyMarker(StrEnum):
     UNCHECKED = "unchecked"  # carried on without the check; doctor says so rather than probing
 
 
+USAGE_LIMITS = "usage_limits"
+# `usage_limits` was called `limits` under a runtime and under each of its accounts.
+DEPRECATED_USAGE_LIMITS = "limits"
+
+
+def alias_usage_limits(data: dict[str, Any]) -> dict[str, Any]:
+    """`data` with the deprecated key `limits` renamed to `usage_limits`; a mapping that sets
+    both spellings is refused."""
+    if DEPRECATED_USAGE_LIMITS not in data:
+        return data
+    if USAGE_LIMITS in data:
+        raise ValueError(
+            f"`{DEPRECATED_USAGE_LIMITS}` and `{USAGE_LIMITS}` are both set; "
+            f"`{DEPRECATED_USAGE_LIMITS}` is the deprecated name of `{USAGE_LIMITS}`, keep one"
+        )
+    renamed = dict(data)
+    renamed[USAGE_LIMITS] = renamed.pop(DEPRECATED_USAGE_LIMITS)
+    return renamed
+
+
+def _usage_limits_paths(document: dict[str, Any]) -> Iterator[tuple[str, ...]]:
+    """The key path of each mapping in a raw document that may hold usage windows: every runtime
+    and every account of a runtime. The one place that says where the key may be."""
+    runtimes = document.get("runtimes")
+    for name, entry in (runtimes if isinstance(runtimes, dict) else {}).items():
+        if not isinstance(entry, dict):
+            continue
+        yield ("runtimes", name)
+        accounts = entry.get("accounts")
+        for label, account in (accounts if isinstance(accounts, dict) else {}).items():
+            if isinstance(account, dict):
+                yield ("runtimes", name, "accounts", label)
+
+
+def _updated_at(node: dict[str, Any], path: tuple[str, ...]) -> dict[str, Any]:
+    """A copy of `node` with the mapping at `path` passed through `alias_usage_limits`."""
+    if not path:
+        return alias_usage_limits(node)
+    return {**node, path[0]: _updated_at(node[path[0]], path[1:])}
+
+
+def _alias_runtimes_usage_limits(document: dict[str, Any]) -> dict[str, Any]:
+    """`document` with `limits` renamed to `usage_limits` under each runtime and account."""
+    for path in _usage_limits_paths(document):
+        document = _updated_at(document, path)
+    return document
+
+
 class AccountConfig(Frozen):
     """One Claude account by label (`runtimes.claude_code.accounts.<label>`), set per person."""
 
     # The account's Claude Code config directory: an absolute path, never in the committed file.
     config_dir: Path | None = None
-    limits: ClaudeLimitsConfig = ClaudeLimitsConfig()
+    usage_limits: ClaudeLimitsConfig = ClaudeLimitsConfig()
     max_units_in_progress: Annotated[int, Field(gt=0)] | None = None
+
+    @model_validator(mode="before")
+    @classmethod
+    def _limits_alias(cls, data: object) -> object:
+        return alias_usage_limits(data) if isinstance(data, dict) else data
 
     @field_validator("config_dir")
     @classmethod
@@ -579,7 +632,13 @@ class RuntimeConfig(Frozen):
     context_windows: dict[str, int] = {}
 
     # Claude's usage windows (`runtimes.claude_code` only): see ClaudeLimitsConfig.
-    limits: ClaudeLimitsConfig = ClaudeLimitsConfig()
+    usage_limits: ClaudeLimitsConfig = ClaudeLimitsConfig()
+
+    @model_validator(mode="before")
+    @classmethod
+    def _limits_alias(cls, data: object) -> object:
+        return alias_usage_limits(data) if isinstance(data, dict) else data
+
     # The accounts a repo may name by label (`runtimes.claude_code` only).
     accounts: dict[str, AccountConfig] = {}
 
@@ -871,7 +930,8 @@ class ProviderLimitsConfig(WindowLimits):
                     )
                 if key in only_claude:
                     raise ValueError(
-                        f"gate.provider.limits.{key}: belongs to runtimes.{CLAUDE_CODE}.limits, "
+                        f"gate.provider.limits.{key}: belongs to "
+                        f"runtimes.{CLAUDE_CODE}.usage_limits, "
                         "the only runtime with subscription usage windows"
                     )
         return data
@@ -1415,6 +1475,8 @@ def deprecation_notice(key: str) -> str:
             f"`{key}` is deprecated for `builders.{BUILDERS_KEY}`; "
             "`abk config --migrate` renames it"
         )
+    if key.startswith("runtimes.") and key.endswith(f".{DEPRECATED_USAGE_LIMITS}"):
+        return f"`{key}` is renamed `{USAGE_LIMITS}`; `abk config --migrate` renames it"
     return (
         f"`{key}` is deprecated for `global_limits`; "
         "`abk config --migrate` moves it to the new names"
@@ -1822,9 +1884,9 @@ class WorkspaceConfig(Frozen):
         """The usage windows are Claude's. Set on another runtime they would be
         read by nothing, which looks like a limit and is not one."""
         for name, entry in self.runtimes.items():
-            if name != CLAUDE_CODE and "limits" in entry.model_fields_set:
+            if name != CLAUDE_CODE and USAGE_LIMITS in entry.model_fields_set:
                 raise ValueError(
-                    f"runtimes.{name}.limits: the usage thresholds belong to "
+                    f"runtimes.{name}.usage_limits: the usage thresholds belong to "
                     f"runtimes.{CLAUDE_CODE}, the only runtime with usage windows"
                 )
         return self
@@ -2084,7 +2146,7 @@ def _renamed(document: dict[str, Any] | None, file: Path) -> dict[str, Any] | No
         return None
     try:
         _refuse_moved_settings(document)
-        renamed = read_new_settings(_alias_limits(document))
+        renamed = read_new_settings(_alias_limits(_alias_runtimes_usage_limits(document)))
         if isinstance(renamed.get("builders"), dict):
             renamed = {**renamed, "builders": rename_builders_key(renamed["builders"])}
         return renamed
@@ -2110,6 +2172,10 @@ def load(path: Path) -> WorkspaceConfig:
         if any(document and DEPRECATED_ROOT_KEY in document for document in spelled):
             # Name a setting as the file spells it.
             message = re.sub(r"(?m)^global_limits\b", DEPRECATED_ROOT_KEY, message)
+        if any(
+            key.startswith("runtimes.") for document in spelled for key in deprecations_of(document)
+        ):
+            message = re.sub(rf"\b{USAGE_LIMITS}\b", DEPRECATED_USAGE_LIMITS, message)
         if any(DEPRECATED_BUILDERS_SETTING in deprecations_of(document) for document in spelled):
             message = re.sub(rf"\b{BUILDERS_KEY}\b", DEPRECATED_BUILDERS_KEY, message)
         for document in spelled:
@@ -2142,6 +2208,14 @@ def deprecations_of(*documents: dict[str, Any] | None) -> list[str]:
         found.append(REMOVED_REVIEW_ENABLED)
     if any(DEPRECATED_ROOT_KEY in raw for raw in raws):
         found.append(DEPRECATED_ROOT_KEY)
+    for raw in raws:
+        for path in _usage_limits_paths(raw):
+            mapping = raw
+            for step in path:
+                mapping = mapping[step]
+            key = ".".join((*path, DEPRECATED_USAGE_LIMITS))
+            if DEPRECATED_USAGE_LIMITS in mapping and key not in found:
+                found.append(key)
     builders = [raw.get("builders") for raw in raws]
     if any(isinstance(block, dict) and DEPRECATED_BUILDERS_KEY in block for block in builders):
         found.append(DEPRECATED_BUILDERS_SETTING)

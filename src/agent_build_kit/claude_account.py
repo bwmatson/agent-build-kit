@@ -148,7 +148,7 @@ class Account(Frozen):
 
     label: str | None = None
     config_dir: Path | None = None
-    limits: ClaudeLimitsConfig = ClaudeLimitsConfig()
+    usage_limits: ClaudeLimitsConfig = ClaudeLimitsConfig()
     max_units_in_progress: int | None = None
 
     @classmethod
@@ -185,11 +185,11 @@ def resolve_in(config: WorkspaceConfig, label: str | None) -> Account:
     entry = runtime_entry(config, name=CLAUDE_CODE)
     named = entry.accounts.get(label) if label is not None else None
     if named is None or named.config_dir is None:
-        return Account(limits=entry.limits)
+        return Account(usage_limits=entry.usage_limits)
     return Account(
         label=label,
         config_dir=named.config_dir,
-        limits=named.limits,
+        usage_limits=named.usage_limits,
         max_units_in_progress=named.max_units_in_progress,
     )
 

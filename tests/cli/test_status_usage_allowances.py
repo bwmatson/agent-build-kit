@@ -21,7 +21,7 @@ def status_lines(
     **limits: object,
 ) -> list[str]:
     """The lines of `abk status` with a reading held, the endpoint refusing and `found` kept."""
-    runtimes = {"claude_code": {"limits": limits}}
+    runtimes = {"claude_code": {"usage_limits": limits}}
     inst = make_installation(tmp_path / "planning", planning={"state_dir": "."}, runtimes=runtimes)
     inst.state_dir.mkdir(parents=True, exist_ok=True)
     host.keep_in(inst.state_dir)

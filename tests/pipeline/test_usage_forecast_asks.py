@@ -44,7 +44,7 @@ def inst(tmp_path: Path, host: Host) -> Installation:
     inst = make_installation(
         tmp_path / "planning",
         planning={"state_dir": "."},
-        runtimes={"claude_code": {"limits": LIMITS}},
+        runtimes={"claude_code": {"usage_limits": LIMITS}},
     )
     inst.state_dir.mkdir(parents=True, exist_ok=True)
     host.keep_in(inst.state_dir)

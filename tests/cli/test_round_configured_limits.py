@@ -30,7 +30,7 @@ def inst(tmp_path: Path, host: Host) -> Installation:
         tmp_path / "planning",
         planning={"state_dir": "."},
         runtimes={
-            "claude_code": {"limits": {"session": {"usage_pause_pct": CONFIGURED_PAUSE_PCT}}}
+            "claude_code": {"usage_limits": {"session": {"usage_pause_pct": CONFIGURED_PAUSE_PCT}}}
         },
     )
     inst.state_dir.mkdir(parents=True, exist_ok=True)

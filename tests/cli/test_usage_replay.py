@@ -21,7 +21,7 @@ DAY = timedelta(days=1)
 
 
 def installation(tmp_path: Path, **limits: object) -> Installation:
-    runtimes = {"claude_code": {"limits": limits}}
+    runtimes = {"claude_code": {"usage_limits": limits}}
     inst = make_installation(tmp_path / "planning", planning={"state_dir": "."}, runtimes=runtimes)
     inst.state_dir.mkdir(parents=True, exist_ok=True)
     return inst

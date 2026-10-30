@@ -190,6 +190,12 @@
   is over its ceiling and why it was not split. `review.unsplittable: hold` keeps the old
   behaviour.
 
+- The usage windows are now configured under `usage_limits`, in `runtimes.<runtime>` and in
+  each account, so they are no longer confused with `global_limits` and `project_limits`, which
+  count units. The old `limits` key there still loads, `abk config` and `abk doctor` show a
+  deprecation notice that names the new key, and a file that sets both is refused.
+  `abk config --migrate` renames the key; the old key is dropped one release after this one.
+
 - An installation whose planning repo is also one of its code repos now keeps its pipeline
   state in a planning home outside the repository, `<data home>/<repository name>/planning`,
   and its pipeline worktree at `<planning home>/worktree`. The same state is read from the

@@ -14,9 +14,9 @@ from agent_build_kit.config import ClaudeLimitsConfig, ConfigError
 
 
 def loaded(root: Path, limits: dict[str, Any]) -> ClaudeLimitsConfig:
-    document = {"version": 1, "runtimes": {"claude_code": {"limits": limits}}}
+    document = {"version": 1, "runtimes": {"claude_code": {"usage_limits": limits}}}
     (root / "abk.yaml").write_text(yaml.safe_dump(document))
-    return config.load(root / "abk.yaml").runtimes["claude_code"].limits
+    return config.load(root / "abk.yaml").runtimes["claude_code"].usage_limits
 
 
 def test_the_defaults() -> None:
