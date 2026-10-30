@@ -139,15 +139,20 @@ def retire(
         # that changed in a way the decisions above depend on is turned away, nothing changed.
         units = store.all()
         current = next((u for u in units if u.id == unit_id), None)
-        fresh = retirement.assess(unit_id, units) if current is not None else None
-        if (
-            current is None
-            or fresh != assessment
-            or (current.state, current.pr, current.branch, current.pushed)
-            != (unit.state, unit.pr, unit.branch, unit.pushed)
+        if current is None:
+            say(f"{unit_id} is gone; run abk retire again")
+            return 1
+        fresh = retirement.assess(unit_id, units)
+        if fresh != assessment or (current.state, current.pr, current.branch, current.pushed) != (
+            unit.state,
+            unit.pr,
+            unit.branch,
+            unit.pushed,
         ):
-            now = current.state if current is not None else "gone"
-            say(f"{unit_id} changed while it was being checked (now {now}); run abk retire again")
+            say(
+                f"{unit_id} changed while it was being checked (now {current.state}); "
+                "run abk retire again"
+            )
             return 1
         if holder := Leases(lease_dir(inst.local_dir)).holder(unit_id):
             say(f"{unit_id} has a live lease held by {holder}; stop it first")
