@@ -231,7 +231,7 @@ def test_the_guidance_carries_the_counts_the_evidence_and_the_instruction() -> N
     assert "E-V" in text and TEST in text
     assert "whether the cause is already gone" in text
     assert "make no change" in text and "concrete cause" in text
-    assert "no red-first" in text
+    assert "red-first" not in text, "the build is the change as written"
 
 
 def test_the_evidence_is_the_first_failure_and_names_a_bundle_only_when_it_exists(

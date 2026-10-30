@@ -123,7 +123,7 @@ def test_a_test_that_never_fails_builds_with_guidance_and_is_not_held(tmp_path: 
     assert "a 3-second gap in ps start times" in text, "the first failure's output"
     assert str(bundle) in text, "the failing run's bundle"
     assert "whether the cause is already gone" in text
-    assert "make no change" in text and "no red-first" in text
+    assert "make no change" in text and "red-first" not in text
 
 
 def test_the_bundle_is_left_out_when_there_is_none(tmp_path: Path) -> None:
@@ -192,8 +192,9 @@ def test_a_build_that_makes_no_change_and_says_why_is_satisfied_with_its_stateme
 
 def test_a_requeue_after_the_check_does_not_repeat_it(tmp_path: Path) -> None:
     _, recorder, subject = fix_unit(tmp_path)
+    recorder.unit_test_ok = False  # the first build does not finish, so its thread stays
     answer = Asked(Outcome.NOT_REPRODUCED, NOT_REPRODUCED)
-    nothing: dict[str, Any] = dict(commit=lambda message, **kwargs: 0)
+    nothing: dict[str, Any] = {}
     tick(tmp_path, recorder, subject=subject, reproduce_test=answer, **nothing)
     requeue = ResumeEvent(
         kind=EventKind.REQUEUE, requeue=RequeueReason.FROM_FAILURE, reason="requeued"

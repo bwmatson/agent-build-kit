@@ -26,7 +26,7 @@ def test_the_architecture_names_the_check_and_its_three_outcomes() -> None:
     assert "merged since" in ARCHITECTURE, "the test was fixed elsewhere: satisfied"
     assert "not reproduced" in ARCHITECTURE
     assert "whether the cause is already gone" in ARCHITECTURE, "the build judges it"
-    assert "no red-first" in ARCHITECTURE
+    assert "as the change wrote it" in ARCHITECTURE
     assert "not held" in ARCHITECTURE and "needs_human" not in ARCHITECTURE
 
 
