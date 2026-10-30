@@ -101,3 +101,8 @@ def allows_no_code(paths: Sequence[str]) -> bool:
         label == "docs" or (label == "code" and path.endswith(CONFIG_SUFFIXES))
         for path, label in labels.items()
     )
+
+
+def allows_tests_only(paths: Sequence[str]) -> bool:
+    """Stub: whether the paths a group names are all test code (with documents)."""
+    return False
