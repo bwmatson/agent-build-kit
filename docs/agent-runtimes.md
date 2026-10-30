@@ -472,14 +472,19 @@ group's commit. So `build_run` sets `ToolPolicy.no_commit`, and both runtimes re
 (`command_policy.check_no_commit`; the `acp` broker applies it itself, Claude Code's hook is
 registered with `--no-commit`) every git command that makes a commit or moves the branch:
 `commit` in any form, `cherry-pick`, `revert`, `merge`, `rebase`, `am`, `pull`, `commit-tree`,
-`update-ref`, and a `reset` that has a revision or one of `--soft`, `--mixed`, `--hard` and
-`--keep`. What leaves its result in the working tree stays allowed: `cherry-pick` and `revert`
-with `-n` or `--no-commit`, `merge --no-commit`, a bare `reset` or one of paths after `--`, and
-the `--abort` and `--quit` of any of them; the step that ports a unit onto a moved base works
-this way. The refusal reason tells the agent the pipeline commits the work. The first prompt of
-each session says the same once; a prompt that continues a session does not repeat it. The
-restack resolver has no shell and is not affected. A regression run and a chat turn that set
-`no_commit` get the same refusal.
+`update-ref`, a `reset` that has a revision or one of `--soft`, `--mixed`, `--hard`, `--keep` and
+`--merge`, and the commands that force a branch to another commit (`checkout -B`, `switch -C`,
+`branch -f`, `symbolic-ref` with a target, `filter-branch`). What leaves its result in the
+working tree stays allowed: `cherry-pick` and `revert` with `-n` or `--no-commit`, `merge
+--squash`, `merge --no-commit` together with `--no-ff` (alone it can fast-forward, which moves
+the branch), a bare `reset` or one of paths after `--`, and an `--abort` or `--quit` that is the
+whole of the command. The step that ports a unit onto a moved base works from the previous work's
+diff (`git diff <old base> <old ref>`) and is not affected. The refusal reason tells the agent the
+pipeline commits the work. The first prompt of each session says the same once; a prompt that
+continues a session does not repeat it. The restack resolver has no shell and is not affected.
+A regression run and a chat turn that set
+`no_commit` get the same refusal, so a chat turn cannot rebase, pull or merge a unit's branch
+either: the person does that outside the chat.
 
 ## Where a redirect may land
 

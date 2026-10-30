@@ -2076,7 +2076,8 @@ unit's transcript as a `user` event, so a reloaded tab shows the question before
   the directory it runs in. The unit's own session, resumed, carries the pipeline's policy
   (worktree only, never the specs) plus `no_commit` beside `no_push`; any other session,
   started here or in an editor, carries `ToolPolicy(scoped=False, no_commit=True)`: none of
-  the pipeline's rules, but `git commit` and `git push` refused, since the server started it.
+  the pipeline's rules, but `git push` and every command that makes or moves a commit (`git
+  commit`, `rebase`, `pull`, `merge`, ...) refused, since the server started it.
   Under Claude the hook runs with `--no-commit`, and `--refusals-only` for the second kind;
   the ACP broker applies the same two.
 - A free session may change the unit's worktree and the planning checkout together; after

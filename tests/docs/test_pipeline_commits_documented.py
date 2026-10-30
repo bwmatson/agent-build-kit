@@ -19,11 +19,11 @@ def test_the_runtimes_document_has_a_section_on_the_pipeline_being_the_only_comm
     text = section(RUNTIMES.read_text(encoding="utf-8"), "## Only the pipeline commits")
 
     assert "check_no_commit" in text
-    assert "--no-commit" in text
     assert "cherry-pick" in text and "rebase" in text and "reset" in text
-    for allowed in ("--no-commit", "--abort", "--quit"):
+    # What stays allowed, including that a merge needs --no-ff to be safe, and what is not affected.
+    for allowed in ("--no-commit", "--squash", "--no-ff", "--abort", "--quit"):
         assert allowed in text
-    assert "restack" in text.lower() or "resolver" in text.lower()
+    assert "restack resolver has no shell" in text
 
 
 def test_the_skill_says_what_the_build_agent_may_not_commit() -> None:
