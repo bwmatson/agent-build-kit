@@ -99,6 +99,12 @@ from agent_build_kit.pipeline.environment import (
     unstage_untracked_locks,
 )
 from agent_build_kit.pipeline.file_lock import file_lock
+from agent_build_kit.pipeline.fix_reproduction import (
+    Attempt,
+    Outcome,
+    Reproduction,
+)
+from agent_build_kit.pipeline.fix_reproduction import check as check_reproduction
 from agent_build_kit.pipeline.flakes import (
     FailedOnBase,
     Flake,
@@ -4512,6 +4518,13 @@ def build_runner(
             installation=installation,
         ),
         on_flake=build_on_flake(store, installation, log=log),
+        reproduce_test=build_reproduce(
+            profile=profile,
+            projects=repo.projects,
+            root_extras=repo.tests.root_extras,
+            workers=repo.tests.workers,
+            max_workers=repo.tests.max_workers,
+        ),
         run_e2e=e2e.run,
         e2e_verdict=lambda: e2e.verdict,
         e2e_result=lambda: e2e.result,
@@ -4545,3 +4558,87 @@ def build_runner(
         log=log,
         log_reaches_run_log=log_reaches_run_log,
     )
+
+
+# What a test runner says, and the exit status it gives, for an id that collection does not find
+# (pytest: "ERROR: not found: ..." and a usage error). Any other output that merely says "not
+# found" is a crash, not a missing test.
+NOT_FOUND = "ERROR: not found:"
+NOT_FOUND_EXIT = 4
+
+
+def build_reproduce(
+    *,
+    profile: ToolchainProfile,
+    run: Run | None = None,
+    projects: list[ProjectConfig] | None = None,
+    root_extras: list[str] | None = None,
+    workers: str | int = "auto",
+    max_workers: int = 8,
+) -> Callable[..., Reproduction]:
+    """The runs of a fix unit's reproduction check, as `reproduce_test(cwd=, test=, runs=)`.
+
+    A file not under the root is `SKIPPED`. The test is `GONE` only when the runner's own
+    collection says it does not find the id (no tests collected, or "not found"), never from
+    reading the file, since a name may be inherited or made up at collection. Alone, it is run
+    by id, serially, through the profile's single-test command. Under load, the whole file it
+    is in is run with the repo's parallel workers (the profile's repeat command, which keeps
+    them), so the file's other tests are running beside it, and the run counts as a failure
+    only when the output names the test. A run alone counts as a failure when it exits as a
+    failure for any reason: the test failing, erroring or timing out. A profile without the
+    single-test or the repeat command cannot make the check, which is `SKIPPED`."""
+    run = run or _run_limited
+
+    def reproduce_test(*, cwd: Path, test: str, runs: int) -> Reproduction:
+        file = test.partition("::")[0]
+        where, toolchain = cwd, profile
+        for project in projects or []:
+            if (cwd / project.path / file).is_file():
+                where, toolchain = cwd / project.path, profiles.get(project.profile)
+                break
+        if not (where / file).is_file():
+            # The id is not under this root (or its file is unreadable): the check cannot be
+            # made, and a guess is not a reason to satisfy the unit.
+            return Reproduction(outcome=Outcome.SKIPPED, note=f"{file} is not under {where}")
+        rerun = getattr(toolchain, "serial_rerun_command", None)
+        if rerun is None or not isinstance(toolchain, RepeatsTests):
+            return Reproduction(outcome=Outcome.SKIPPED, note="the profile cannot run one test")
+        base = toolchain.test_commands_all(
+            where, root_extras=root_extras or [], workers=workers, max_workers=max_workers
+        )
+        found = next(
+            (
+                (command, again)
+                for command in base
+                if (again := toolchain.repeat_command(command, [test])) is not None
+            ),
+            None,
+        )
+        if found is None:
+            return Reproduction(outcome=Outcome.SKIPPED, note="no test command runs the test")
+        command, _ = found
+        alone = rerun(command, [test])
+        loaded = toolchain.repeat_command(command, [file]) or alone
+
+        def attempt(argv: list[str], *, whole_file: bool) -> Attempt:
+            result = run(argv, cwd=where)
+            output = f"{result.stdout}\n{result.stderr}"
+            if test in failed_ids(toolchain, output):
+                return Attempt.FAILED
+            if result.returncode != 0 and (
+                result.returncode == toolchain.no_tests_collected_exit
+                or (result.returncode == NOT_FOUND_EXIT and NOT_FOUND in output)
+            ):
+                return Attempt.NOT_COLLECTED
+            if not whole_file and not toolchain.tolerates_exit(argv, result.returncode):
+                return Attempt.FAILED
+            return Attempt.PASSED
+
+        return check_reproduction(
+            test,
+            runs,
+            alone=lambda: attempt(alone, whole_file=False),
+            loaded=lambda: attempt(loaded, whole_file=True),
+        )
+
+    return reproduce_test

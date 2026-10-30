@@ -416,3 +416,75 @@ def _modules_of(inst: Installation, repo: str, flake: Flake) -> list[str]:
                 continue
             break
     return found
+
+
+FIX_TITLE = re.compile(r"^Make `(?P<test>[^`]+)` deterministic$")
+FIRST_ATTEMPTS = 20  # how many successive names of one test's fix change are looked under
+
+
+def fix_change_test(inst: Installation, change: str) -> str | None:
+    """The test the fix change `change` is named for, read from the title of its group 1
+    ("Make `<test>` deterministic"); None when the change has no such group."""
+    try:
+        lines = (inst.changes_dir / change / "tasks.md").read_text().splitlines()
+    except OSError:
+        return None
+    for line in lines:
+        heading = GROUP_HEADING.match(line)
+        if heading and int(heading["number"]) == 1:
+            title = FIX_TITLE.match(heading["title"])
+            return title["test"] if title else None
+    return None
+
+
+def merged_fix_since(inst: Installation, change: str, test: str) -> str | None:
+    """The archived fix change for `test`, other than `change`, archived on a day strictly
+    after the day `change` was written, or None. An archive name holds only a date, so a fix
+    archived the same day is not taken as newer (the change may be its own successor, written
+    after that fix flaked again); the day is that of the change's proposal file, and a checkout
+    that moves it later only makes the answer None."""
+    for name in ("proposal.md", "tasks.md"):
+        try:
+            written = datetime.fromtimestamp(
+                (inst.changes_dir / change / name).stat().st_mtime, UTC
+            )
+            break
+        except OSError:
+            continue
+    else:
+        return None
+    day = f"{written:%Y-%m-%d}"
+    archive = inst.changes_dir / "archive"
+    for attempt, names in zip(range(FIRST_ATTEMPTS), _candidates(test, ""), strict=False):
+        found = False
+        for name in names:
+            found = found or (inst.changes_dir / name).is_dir()
+            for merged in sorted(archive.glob(f"*-{name}")):
+                found = True
+                if merged.name[11:] == name and name != change and merged.name[:10] > day:
+                    return name
+        if not found and attempt:
+            break
+    return None
+
+
+EVIDENCE_CHARS = 1500
+
+
+def reproduction_evidence(inst: Installation, test: str) -> str:
+    """What the flake record holds of the first recorded failure of `test`, for a build to
+    judge by: when it ran, its output and conditions, and the failing run's bundle when that
+    folder exists. Empty when none is recorded."""
+    for entry in flake_record(inst).entries():
+        if entry.test != test:
+            continue
+        lines = [f"- {entry.at:%Y-%m-%d %H:%M} UTC, unit {entry.unit or 'unknown'}"]
+        output = (entry.failure or entry.output).strip()
+        if output:
+            lines.append(output[-EVIDENCE_CHARS:])
+        if entry.conditions:
+            lines.append(f"conditions: {entry.conditions}")
+        if entry.evidence and Path(entry.evidence).exists():
+            lines.append(f"bundle of the failing run: {entry.evidence}")
+        return "\n".join(lines)
+    return ""

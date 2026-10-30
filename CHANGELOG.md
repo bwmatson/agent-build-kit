@@ -15,6 +15,13 @@
   scheduler's own test for one; the history notes that the unit was idle, and the command still refuses a `running` unit a live process or lease
   holds, naming the holder.
 
+- A unit of a fix change now runs the test it is named for on its base, alone and under load
+  (`global_limits.fix_reproduction_runs`, default 5, 0 turns it off), before its first build. A
+  test that is gone, or already fixed by a change merged since, makes the unit satisfied. A
+  test that never fails does not stop the unit: it builds the change as written, told how many
+  runs did not reproduce it and the first recorded failure's evidence, and a build that makes
+  no change and states why the cause is gone is satisfied with that statement as its note.
+
 - The kit's own test runs now delete the temp folder of every passing test and keep only the
   folders of failed tests, for the last two runs, so a finished run no longer leaves a large
   tree of temporary repositories behind. The unit-test step also gets a temp folder of its own

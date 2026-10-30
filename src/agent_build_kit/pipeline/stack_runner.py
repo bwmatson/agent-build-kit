@@ -44,6 +44,7 @@ from agent_build_kit.pipeline.determinism_guidance import determinism_guidance
 from agent_build_kit.pipeline.e2e import E2eResult, E2eVerdict, latest_full_output
 from agent_build_kit.pipeline.e2e_holds import Holds
 from agent_build_kit.pipeline.file_lock import change_lock
+from agent_build_kit.pipeline.fix_reproduction import Outcome, Reproduction
 from agent_build_kit.pipeline.flakes import OnFlake
 from agent_build_kit.pipeline.install_record import ALWAYS_INSTALLABLE, STAGING
 from agent_build_kit.pipeline.lease import Leases
@@ -1623,6 +1624,12 @@ class UnitRunner(BaseModel):
     # `Needs:` line is added), and answers that change, or None when there is nothing for
     # the unit to wait on (it builds the fix). See `wiring.build_on_flake`.
     on_flake: OnFlake = lambda unit, flake, *, wait=True: None
+    # Runs the test a fix change is named for on the unit's tree, given `cwd=`, `test=` and `runs=`:
+    # whether it fails, is not reproduced or is gone. A runner given none skips the check. See
+    # `wiring.build_reproduce`.
+    reproduce_test: Callable[..., Reproduction] = lambda *, cwd, test, runs: Reproduction(
+        outcome=Outcome.SKIPPED
+    )
     run_e2e: Callable[..., tuple[bool, str]]
     # What the last e2e-test run found of whose each failed test is (None when nothing was
     # classified), and what to do with each test that failed on the base too: told the

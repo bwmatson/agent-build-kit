@@ -13,6 +13,7 @@ from agent_build_kit.pipeline.unit_store import FeedbackSource, RequeueReason, R
 
 class Node(StrEnum):
     PREPARE = "prepare"
+    REPRODUCE = "reproduce"
     TESTS = "tests"
     STUB_CHECKS = "stub_checks"
     FIX_STUB_CHECKS = "fix_stub_checks"
@@ -156,6 +157,12 @@ class UnitRun(Frozen):
     e2e: bool = False  # the unit is an e2e-test unit
     e2e_deferred: bool = False  # its repo defers e2e-test to verify, so the node is skipped
     scheduled: bool = False  # the unit is a scheduled run of the whole suite
+    reproduce: bool = False  # `prepare` found a first build of a fix unit: `reproduce` runs first
+    reproduced: bool = False  # the reproduction check has been made for this thread: not again
+    unreproduced: bool = False  # the check did not reproduce the test: the build may find nothing
+    reproduction_guidance: str = ""  # what the builder prompts say of it, until the last group
+    unreproduced_note: str = ""  # what the check found, for the note of a build that finds nothing
+    satisfied_because: str = ""  # why `reproduce` found the unit satisfied, for its note
     scheduled_note: str = ""  # what its passing run says of itself, once e2e-test has passed
     conflict: Restacked | None = None  # a restack that could not be merged, for `adapt` to port
     spent: bool = False  # the review rounds ran out with points outstanding

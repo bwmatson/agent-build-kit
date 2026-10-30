@@ -76,12 +76,16 @@ from agent_build_kit.pipeline.events import (
     restore_depth_hold,
     takeover_note,
 )
+from agent_build_kit.pipeline.fix_reproduction import Outcome, unreproduced_guidance
 from agent_build_kit.pipeline.flakes import (
     FailedOnBase,
     Flake,
     FlakeFound,
     covered_tests,
+    fix_change_test,
     is_fix_change,
+    merged_fix_since,
+    reproduction_evidence,
     waiting_note,
 )
 from agent_build_kit.pipeline.gateway_usage import attribution
@@ -156,6 +160,7 @@ from agent_build_kit.pipeline.units import (
     HELD,
     IN_REVIEW,
     PLANNED,
+    PRODUCT_DEFECT_PREFIX,
     RUNNING,
     SATISFIED,
     Member,
@@ -326,6 +331,7 @@ class BuildPath:
         """Each node's body, wrapped in its span and run off the event loop."""
         bodies = {
             Node.PREPARE: self.prepare,
+            Node.REPRODUCE: self.reproduce,
             Node.TESTS: self.tests,
             Node.IMPLEMENT: self.implement,
             Node.CHECKS: self.checks,
@@ -1197,7 +1203,64 @@ class BuildPath:
             "start": start,
             "e2e": unit.tier == TestTier.E2E_TEST,
             "e2e_deferred": unit.tier == TestTier.E2E_TEST and self.e2e_deferred(),
+            "reproduce": not existing and self.reproduction_due(state, saved.guidance),
         }
+
+    def reproduction_due(self, state: UnitRun, guidance: str) -> bool:
+        """Whether this is the first build of a unit of a fix change, which checks that its test
+        still fails before the tests are written: not a unit of another change or of a product
+        defect change, not a check already made for this thread (a requeue builds on), not a
+        build started with a person's note, not an e2e-test unit, and not with the setting 0."""
+        unit = self.unit
+        return (
+            is_fix_change(unit.change)
+            and not unit.change.startswith(PRODUCT_DEFECT_PREFIX)
+            and unit.tier != TestTier.E2E_TEST
+            and not is_scheduled(unit.change)
+            and not state.reproduced
+            and not guidance
+            and active().global_limits.fix_reproduction_runs > 0
+        )
+
+    def reproduce(self, state: UnitRun) -> Update:
+        """Before the first build of a fix unit: run the test the change is named for on the unit's
+        base, alone and under load. Fails on any run: the build goes on. No longer collected, or
+        fixed by a change merged since this one was written: satisfied, with the reason. Never
+        fails: the build goes on with guidance to judge whether the cause is already gone; one
+        that makes no change and says why takes the satisfied route (see `implement`). A change
+        whose test cannot be read builds as today."""
+        r, unit = self.runner, self.unit
+        done: Update = {"reproduce": False, "reproduced": True}
+        root = active_root()
+        test = fix_change_test(Installation(active(), root), unit.change) if root else None
+        if root is None or test is None:
+            self.say("no test to reproduce is named by the change; building as usual")
+            return done
+        inst = Installation(active(), root)
+        if merged := merged_fix_since(inst, unit.change, test):
+            why = f"{test} was fixed by {merged}, merged since this change was written"
+            self.say(why)
+            return {**done, "satisfied_because": why}
+        runs = active().global_limits.fix_reproduction_runs
+        self.say(f"running {test} {runs} times alone and {runs} under load on the base")
+        found = r.reproduce_test(cwd=self.tree(), test=test, runs=runs)
+        self.say(f"reproduction: {found.outcome.value} {found.note}".strip())
+        match found.outcome:
+            case Outcome.GONE:
+                return {**done, "satisfied_because": found.note}
+            case Outcome.NOT_REPRODUCED:
+                # Built with the check's findings in a block of its own that both build prompts
+                # carry, worded as the pipeline's and not a person's, so the reviewer is not
+                # told a person asked for it; the build judges whether the cause is gone.
+                return {
+                    **done,
+                    "unreproduced": True,
+                    "unreproduced_note": found.note,
+                    "reproduction_guidance": unreproduced_guidance(
+                        test, found.note, reproduction_evidence(inst, test)
+                    ),
+                }
+        return done
 
     def reuse_superseded(self, parent_id: str, tree: Path, ref: str) -> None:
         """Pick the commit pair of each of this piece's groups from the superseded unit's kept
@@ -1446,6 +1509,7 @@ class BuildPath:
         if fault is not None and fault.environment:
             return self.blocked(fault.output)
         stubbed = self.stubbed()
+        account = ""
         if r.head(tree) != state.head:
             self.say("the tests commit is already on the branch")
         else:
@@ -1464,15 +1528,19 @@ class BuildPath:
             prompt = self.told(prompt, self.scope_note())
             if note := r.follow_ups_note(unit):
                 prompt = f"{note}\n\n{prompt}"
+            if state.reproduction_guidance:
+                prompt = f"{state.reproduction_guidance}\n\n{prompt}"
             account = self.agent(r.run, prompt, cwd=tree, state=state, model=models().implement)
             if stubbed:
                 # Committed by `stub_checks`, once the stubs and tests pass the static checks.
                 step = self.group_step(state)
                 kept = account if step is not None and step.test_only else ""
+                kept = account if state.unreproduced else kept
                 return {"head": r.head(tree), "stub_loop": True, "tests_account": kept}
             self.apply_fixers()
             r.commit(self.message(TESTS_PREFIX, True, state), cwd=tree, base=self.ref(state))
-        return {"head": r.head(tree), "stub_loop": False}
+        kept_account = {"tests_account": account} if state.unreproduced and account else {}
+        return {"head": r.head(tree), "stub_loop": False, **kept_account}
 
     def apply_fixers(self) -> None:
         """Run the profile's fixers over the unit's own files, with no agent, and log what they
@@ -1521,7 +1589,14 @@ class BuildPath:
         settled = self.settle_group(state, ref, commits)
         if "stopped" in settled:
             return settled
-        return {**done, **settled, "test_only_done": True, "produced_nothing": commits == 0}
+        return {
+            **done,
+            **settled,
+            "test_only_done": True,
+            "produced_nothing": commits == 0,
+            **self.found_nothing(state, commits, ""),
+            **self.findings_done(settled),
+        }
 
     def record_no_new_tests(self, state: UnitRun, ref: str, made: int) -> bool:
         """A group of a branch with commits whose tests step committed nothing gets an empty
@@ -1730,6 +1805,7 @@ class BuildPath:
         r, unit = self.runner, self.unit
         tree, ref = self.tree(), self.ref(state)
         kept: Update = {}
+        statement = ""
         if r.head(tree) != state.head and not (
             self.group_step(state) is not None
             and self.half_recorded(state, self.branch_progress(ref))
@@ -1751,6 +1827,8 @@ class BuildPath:
             prompt = self.told(prompt, self.scope_note())
             if note := r.follow_ups_note(unit):
                 prompt = f"{note}\n\n{prompt}"
+            if state.reproduction_guidance:
+                prompt = f"{state.reproduction_guidance}\n\n{prompt}"
             account = self.agent(
                 r.run,
                 prompt,
@@ -1761,6 +1839,7 @@ class BuildPath:
                     changelog=changelog_note(tree, r.repo_config)
                 ),
             )
+            statement = account
             self.apply_fixers()
             made = r.commit(self.message(CODE_PREFIX, False, state), cwd=tree, base=ref)
             if (stopped := self.record_built(state, ref, made, account)) is not None:
@@ -1776,7 +1855,33 @@ class BuildPath:
             kept = self.settle_group(state, ref, commits)
             if "stopped" in kept:
                 return kept
-        return {**kept, "head": r.head(tree), "produced_nothing": commits == 0}
+        return {
+            **kept,
+            "head": r.head(tree),
+            "produced_nothing": commits == 0,
+            **self.found_nothing(state, commits, statement),
+            **self.findings_done(kept),
+        }
+
+    @staticmethod
+    def findings_done(settled: Update) -> Update:
+        """The reproduction check's findings are said to the builder until the last group is
+        built; then they are cleared, so no later step or review is told them."""
+        return {} if settled.get("more_groups") else {"reproduction_guidance": ""}
+
+    def found_nothing(self, state: UnitRun, commits: int, statement: str) -> Update:
+        """For a unit whose test the check could not reproduce: the note a build that made no
+        change takes when the unit is satisfied, the builder's own statement of why. Nothing for
+        any other unit."""
+        if not state.unreproduced:
+            return {}
+        if commits:
+            return {"satisfied_because": ""}
+        given = statement or state.tests_account
+        said = cut_head(" ".join(given.split()), 600, "char") or "no reason was given"
+        return {
+            "satisfied_because": f"{state.unreproduced_note}; the builder made no change: {said}"
+        }
 
     def checks(self, state: UnitRun) -> Update:
         """Unit-test on the committed branch, before a reviewer is asked."""
@@ -2579,8 +2684,9 @@ class BuildPath:
         the work its groups called for arrived another way. Judged on the branch
         and the checks, never on a step's report of itself."""
         r, unit = self.runner, self.unit
-        why = state.scheduled_note or "already implemented; unit-test passed"
-        self.say(why if state.scheduled_note else "nothing to add and unit-test passes — satisfied")
+        given = state.satisfied_because or state.scheduled_note
+        why = given or "already implemented; unit-test passed"
+        self.say(why if given else "nothing to add and unit-test passes — satisfied")
         r.store.set_state(unit.id, SATISFIED, note=why)
         # A satisfied unit is done: nothing here should look like a build in progress.
         if r.store.get(unit.id).predecessor_note:
@@ -3110,11 +3216,17 @@ def after_prepare(state: UnitRun) -> Node:
     if state.had_feedback:
         return Node.REWORK
     if not state.base_commits:
-        return Node.TESTS
+        return Node.REPRODUCE if state.reproduce else Node.TESTS
     if state.head_approved:
         # Review approved exactly this commit: nothing was written since.
         return Node.E2E if runs_e2e(state) else Node.VERIFY_BASE
     return Node.CHECKS
+
+
+def after_reproduce(state: UnitRun) -> Node:
+    if stop := halted(state):
+        return stop
+    return Node.SATISFIED if state.satisfied_because else Node.TESTS
 
 
 def after_tests(state: UnitRun) -> Node:
@@ -3258,6 +3370,7 @@ PREPARED: tuple[Target, ...] = (
     Node.REWORK,
     Node.FIX_STUB_CHECKS,
     Node.CHECKS,
+    Node.REPRODUCE,
     Node.TESTS,
     Node.IMPLEMENT,
     Node.E2E,
@@ -3273,6 +3386,7 @@ ROUTES: Mapping[Node, tuple[Callable[[UnitRun], Target], tuple[Target, ...]]] = 
         after_prepare,
         PREPARED,
     ),
+    Node.REPRODUCE: (after_reproduce, (Node.HELD, Node.FAILED, Node.TESTS, Node.SATISFIED)),
     Node.TESTS: (after_tests, (Node.HELD, Node.FAILED, Node.STUB_CHECKS, Node.IMPLEMENT)),
     Node.STUB_CHECKS: (
         after_stub_checks,

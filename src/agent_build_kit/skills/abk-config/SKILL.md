@@ -199,6 +199,7 @@ global_limits:
   unit_test_command_seconds: 3600   # longest a unit-test command may run before it is aborted
   unit_test_abort_grace_seconds: 10  # how long an aborted command has to exit before it is killed
   unit_test_repeat_runs: 3          # times the tests a unit added or changed are run again under load (0: off)
+  fix_reproduction_runs: 5          # times a fix unit runs its test alone and under load before its first build (0: off)
   restack_check: affected           # unit-test after a clean move: scoped by the files the move brought in (affected) or the whole suite (full)
   e2e_base_runs: 1                  # run the untouched failed e2e-test tests once on the base (0: off)
   e2e_unit_scope: own               # e2e-test per unit: only the tests it added or changed (own) or the whole marker (full); tests.e2e_unit_scope overrides per repo
