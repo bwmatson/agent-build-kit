@@ -4,8 +4,8 @@
 
 - `abk retire` now accepts a unit stored as `running` that nothing holds (no live process on
   its branch and no live lease), for the case where a crash or a killed tick left it that way
-  with no command to end it. It uses the scheduler's own test for an idle unit, notes in the
-  history that the unit was idle, and still refuses a `running` unit a live process or lease
+  with no command to end it. A unit counts as idle when its branch lock can be taken, which is the
+  scheduler's own test for one; the history notes that the unit was idle, and the command still refuses a `running` unit a live process or lease
   holds, naming the holder.
 
 - The kit's own test runs now delete the temp folder of every passing test and keep only the

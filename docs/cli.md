@@ -174,9 +174,9 @@ the limit on units in progress, waited on by nothing, and never revived by a pla
 released; the history records the state, the cause `retired`, the reason and `by: abk retire`,
 never a person's name. The unit's thread is deleted.
 
-- **A `running` unit** is retired when no run holds it: the same test the scheduler uses for a
-  running unit no run holds (its branch lock is free or names a process that is gone), and no
-  lease is live. The history note then says `was idle (running with no holder)`, after the
+- **A `running` unit** is retired when no run holds it: the command takes the unit's branch lock, and a lock that can
+  be taken is the scheduler's test for a running unit no run holds (the lock is free or names a
+  process that is gone), and no lease may be live. The history note then says `was idle (running with no holder)`, after the
   reason when one is given. One a live process or lease holds is refused, the holder named.
 - **What it refuses**, changing nothing and exiting 1: a merged, closed, satisfied or retired
   unit, a unit whose branch lock a live process holds or that has a live lease
