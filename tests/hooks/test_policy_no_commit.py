@@ -46,7 +46,7 @@ def test_other_commands_are_not_refused_by_the_no_commit_option(repo: Path) -> N
 
 
 @pytest.mark.parametrize(
-    "command", ["git rebase main", "git cherry-pick abc123", "git reset --hard HEAD~1"]
+    "command", ["git rebase main", "git cherry-pick abc123", "git reset --soft HEAD~1"]
 )
 def test_a_command_that_moves_the_branch_is_refused_when_the_run_may_not_commit(
     repo: Path, command: str
