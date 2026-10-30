@@ -46,7 +46,7 @@ POSSIBLE_LINE = (
     "Possible, in scope if you show they share the cause: <test ids>. "
     "Say which in the commit body and what showed it."
 )
-_EXPOSURE_LINE = re.compile(r"^- \S.* — (confirmed|possible)$")
+_EXPOSURE_LINE = re.compile(r"^- \S.*? — \S.* — (confirmed|possible)$")
 
 PROMPT = """\
 You are the regression agent. The test `{test}` fails and the unit that met it did not write it.

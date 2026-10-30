@@ -16,7 +16,12 @@ import pytest
 
 from agent_build_kit.installation import Installation
 from agent_build_kit.pipeline.flakes import next_fix_name
-from agent_build_kit.pipeline.stack_runner import IMPLEMENTATION_PROMPT, TESTS_PROMPT
+from agent_build_kit.pipeline.stack_runner import (
+    IMPLEMENTATION_PROMPT,
+    REVIEW_FEEDBACK_PROMPT,
+    REWORK_PROMPT,
+    TESTS_PROMPT,
+)
 from agent_build_kit.pipeline.wiring import REVIEW_PROMPT
 from agent_build_kit.runtimes import AgentRequest
 from tests.prompt_text import flat
@@ -105,6 +110,8 @@ def test_the_agent_is_not_asked_to_run_the_tests_and_is_given_no_tool_that_does(
 BUILDER = [
     pytest.param(TESTS_PROMPT, id="tests"),
     pytest.param(IMPLEMENTATION_PROMPT, id="implementation"),
+    pytest.param(REWORK_PROMPT, id="rework"),
+    pytest.param(REVIEW_FEEDBACK_PROMPT, id="review-feedback"),
 ]
 
 
@@ -123,7 +130,10 @@ def test_the_builder_may_fix_a_listed_possible_test_it_shows_shares_the_cause(
 def test_the_builder_may_not_edit_a_test_that_is_not_listed(prompt: str) -> None:
     rule = paragraphs(prompt, "possible")
 
-    assert re.search(r"(not|never) edit a test that is not listed", rule)
+    assert re.search(r"(not|never) edit a test the tasks neither name in a step nor list", rule)
+    assert rule.startswith("if the tasks carry a line naming tests as possible"), (
+        "the prohibition sits in the conditional paragraph, not on a line of its own"
+    )
 
 
 def test_the_reviewer_accepts_an_edit_to_a_listed_possible_test_with_its_evidence() -> None:
@@ -138,5 +148,5 @@ def test_the_reviewer_requires_a_change_for_missing_evidence_or_an_unlisted_test
     rule = paragraphs(REVIEW_PROMPT, "possible")
 
     assert re.search(r"(evidence|commit body)[^.]*(missing|absent|does not name)", rule)
-    assert re.search(r"not listed", rule)
+    assert re.search(r"neither name in a step nor list as possible", rule)
     assert "required" in rule

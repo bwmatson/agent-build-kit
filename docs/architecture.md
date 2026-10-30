@@ -1546,9 +1546,9 @@ approved.
   builder takes the `confirmed` tests from the tasks; the `possible` ones are named on one standing
   line, and the builder may fix a listed one when it shows the test shares the cause, with the
   evidence in the commit body. The reviewer accepts that edit as in scope, and requires a change
-  when the evidence is missing or the test is not listed. A person decides about the `possible`
-  tests the builder did not take in, and the agent is shown the section with the earlier changes
-  when the same test fails again. The list has no cap, and nothing builds a unit from the section.
+  when the evidence is missing or the test is neither named in a task step nor listed as possible. A person decides about the `possible`
+  tests the builder did not take in. The list has no cap, and nothing builds a unit from the
+  section.
 - **New tests are repeated under load.** After unit-test passes, the tests the unit added or
   changed (`tests_changed`) are run `global_limits.unit_test_repeat_runs` times (three by default, 0
   turns it off) with each test command's own workers, narrowed to exactly those tests (`path::Class::name`) by the

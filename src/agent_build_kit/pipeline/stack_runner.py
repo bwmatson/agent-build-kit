@@ -167,8 +167,8 @@ REUSE_NOTE = "\n" + reuse_guidance() + "\n"
 POSSIBLE_TESTS_NOTE = """
 If the tasks carry a line naming tests as possible, each listed possible test is yours to fix
 when you show it and the failing test share the cause: name the test and the evidence (the same
-helper call, the same walk of the directory) in the commit body.
-Do not edit a test that is not listed.
+helper call, the same walk of the directory) in the commit body. Do not edit a test the tasks
+neither name in a step nor list as possible.
 """
 
 NO_REWRITE_NOTE = """\
@@ -440,6 +440,7 @@ the unit has passed review, unit-test and been pushed.
     + REUSE_NOTE
     + INSTALL_NOTE
     + NO_REWRITE_NOTE
+    + POSSIBLE_TESTS_NOTE
 )
 
 # What unit-test's output is saved under, for people reading it: which step it came
@@ -854,6 +855,7 @@ the unit has passed review, unit-test and been pushed.
     + REUSE_NOTE
     + INSTALL_NOTE
     + NO_REWRITE_NOTE
+    + POSSIBLE_TESTS_NOTE
 )
 
 IMPLEMENTATION_PROMPT = PromptTemplate(

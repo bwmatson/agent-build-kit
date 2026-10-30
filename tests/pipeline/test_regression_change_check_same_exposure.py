@@ -37,6 +37,7 @@ def listed(count: int) -> str:
 
 MALFORMED = {
     "no-marker": section("- tests/test_a.py::test_one looks like the same shape"),
+    "no-evidence": section("- tests/test_a.py::test_one — confirmed"),
     "unknown-marker": section("- tests/test_a.py::test_one — tests/helpers.py:12 — likely"),
     "one-bad-among-good": section(
         "- tests/test_a.py::test_one — tests/helpers.py:12 calls the helper — confirmed",
