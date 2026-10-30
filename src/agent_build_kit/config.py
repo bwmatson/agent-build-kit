@@ -733,7 +733,7 @@ class LimitsConfig(TestKindSettings):
     # Most tests that may fail a run's first pass and pass the serial rerun before the run
     # is recorded as one flake storm (a disturbed host), with no fix change per test.
     max_flakes_per_run: Annotated[int, Field(ge=1)] = 5
-    # Hours a unit-test run's temp folder under `runs/tmp/pytest` lives before a tick may
+    # Hours a unit-test run's temp folder under `<planning home>/tmp/pytest` lives before a tick may
     # sweep it, if its process is gone.
     temp_keep_hours: Annotated[int, Field(ge=1)] = 24
     # Seconds after a push in which a pull request with no checks yet still reads

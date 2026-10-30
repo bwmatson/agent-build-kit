@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- The unit-test step's pytest temp folders now live in the planning home
+  (`<planning home>/tmp/pytest`) instead of under `runs/tmp/pytest`, outside the planning
+  repository. Under `runs/` they sat inside it, so the roughly 110 tests that make a folder and
+  expect no enclosing git repository failed in every unit-test run of a pipeline unit.
+
 - The Python profile's selection of the tests a change affects now passes
   `--testmon-forceselect`, so the repo's own `-m` expression, and the `serial` split, no longer
   switch the selection off and run the whole suite as the "selection". A test against a real

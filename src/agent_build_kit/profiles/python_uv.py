@@ -341,7 +341,7 @@ class PythonUvProfile:
 
     def test_environment(self, installation: Installation, unit: str, run: str) -> dict[str, str]:
         """The variables the unit-test step's commands run with: `PYTEST_DEBUG_TEMPROOT` names a
-        folder under the installation's `runs/tmp/pytest` for this unit and run, created here.
+        folder under the installation's `<planning home>/tmp/pytest` for this unit and run, created here.
         The run's pid file lets a later tick tell a live run from a killed one."""
         folder = installation.pytest_temp_root / f"{unit.replace('/', '-')}-{run}"
         folder.mkdir(parents=True, exist_ok=True)
