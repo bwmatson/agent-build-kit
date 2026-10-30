@@ -12,10 +12,11 @@ including in a blocking call. The test fails (or errors, in setup or teardown) w
 
 from __future__ import annotations
 
+import faulthandler
 import signal
 import sys
+import tempfile
 import threading
-import traceback
 
 import pytest
 
@@ -38,16 +39,13 @@ class TimedOut(BaseException):
 
 
 def thread_stacks() -> str:
-    """The stack of every thread now, the calling thread's from the frame it was interrupted in."""
-    names = {thread.ident: thread.name for thread in threading.enumerate()}
-    current = threading.get_ident()
-    blocks = []
-    for ident, frame in sys._current_frames().items():
-        if ident == current and frame.f_back is not None:
-            frame = frame.f_back
-        header = f"Thread {names.get(ident, '?')} ({ident}):"
-        blocks.append(header + "\n" + "".join(traceback.format_stack(frame)))
-    return "\n".join(blocks)
+    """The stack of every thread now. It runs in a signal handler, which may have interrupted
+    code holding a lock of `threading`, so it takes none: `faulthandler` reads the frames
+    itself."""
+    with tempfile.TemporaryFile("w+") as dump:
+        faulthandler.dump_traceback(dump, all_threads=True)
+        dump.seek(0)
+        return dump.read()
 
 
 # The flag under the kind's old spelling, still accepted with a notice.
