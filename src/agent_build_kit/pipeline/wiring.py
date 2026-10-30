@@ -1288,6 +1288,10 @@ def branch_commits(repo: Path, base: str, head: str = "HEAD") -> int:
     return int(git_out(repo, "rev-list", "--count", f"{base}..{head}"))
 
 
+# How many tokens a run draws before it gives up finding one whose folder is free.
+RUN_TOKEN_TRIES = 20
+
+
 def build_unit_test(
     *,
     run: Run | None = None,
@@ -1358,6 +1362,16 @@ def build_unit_test(
     run_token: dict[str, str] = {}
     run_environments: dict[str, dict[str, str]] = {}
 
+    def fresh_run_token() -> str:
+        """A token for this run whose folder in the temp root does not exist, so two runs never
+        share a folder: the second would overwrite the first's pid file and `run.json`, and a
+        sweep could judge the first run by the second's process."""
+        for _ in range(RUN_TOKEN_TRIES):
+            token = uuid.uuid4().hex[:8]
+            if installation is None or not (installation.pytest_temp_root / token).exists():
+                return token
+        raise RuntimeError(f"no free run token in {RUN_TOKEN_TRIES} tries; the temp root is full")
+
     def unit_test(
         *,
         cwd: Path,
@@ -1374,7 +1388,7 @@ def build_unit_test(
         follows no move), which says whether the run is scoped
         by what the move can affect; the line it logs says which it was and why."""
         checkout["root"] = cwd
-        run_token["id"] = uuid.uuid4().hex[:8]
+        run_token["id"] = fresh_run_token()
         run_environments.clear()
         # What an earlier run of this unit round stormed does not excuse this run's failures.
         stormed.pop(spans.current_unit.get(), None)

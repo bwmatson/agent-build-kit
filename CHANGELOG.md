@@ -10,6 +10,7 @@
   process), the unit's log has a `temp folder <path> (run <token>)` line, and the failure bundle's
   `context.json` has `temp_run` and `temp_folder`, so a unit is still found from a path. The tick's
   sweep logs each removed folder with its unit and also clears what is left under the old root.
+  A run draws a new token when its token's folder already exists, so two runs never share one.
 
 - The regression agent now searches the test tree, read-only, for other tests that share the cause
   of a failing test when the cause is a pattern, and lists them in a `Same exposure` section of
