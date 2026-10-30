@@ -51,6 +51,9 @@ TEST_FILE_SUFFIXES = ("_test.py", ".test.ts", ".spec.ts")
 # would just push authors to skip the rule.
 DOC_SUFFIXES = (".md", ".rst", ".txt")
 
+# Configuration a group may change without writing code.
+CONFIG_SUFFIXES = (".yml", ".yaml", ".toml", ".json", ".ini", ".cfg")
+
 
 def classify_paths(
     paths: list[str], is_test: Callable[[str], bool] | None = None

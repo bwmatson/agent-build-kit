@@ -46,7 +46,7 @@ from agent_build_kit.config import (
     owning_project,
 )
 from agent_build_kit.model import Frozen, TestTier
-from agent_build_kit.pipeline.group_paths import named_paths
+from agent_build_kit.pipeline.group_paths import allows_no_code, named_paths
 from agent_build_kit.pipeline.units import ManualStep, Priority, project_tag, reachable
 
 
@@ -226,6 +226,11 @@ def specification_text(
 # what review agrees to, as with `Acceptance: none`.
 SEPARATE_LINE = re.compile(r"^Separate:\s*(?P<reason>.*?)\s*$", re.I)
 
+# "Tests: required — the setting keeps the disk bounded", inside a group: it is built tests first
+# even when it touches no code. The reason is what review agrees to.
+TESTS_LINE = re.compile(r"^Tests:\s*(?P<rest>.*?)\s*$", re.I)
+TESTS_REQUIRED = re.compile(r"^required\s*[—–-]+\s*(?P<reason>\S.*)$", re.I)
+
 # "Independent: only adds a receiver", inside a group: it depends on no earlier
 # group of its change. The reason is what review agrees to.
 INDEPENDENT_LINE = re.compile(r"^Independent:\s*(?P<reason>.*?)\s*$", re.I)
@@ -328,6 +333,14 @@ class ProjectSource(StrEnum):
     ROOT = "root"
 
 
+class GroupMode(StrEnum):
+    """How a group is built: tests first then code, tests only, or no code at all."""
+
+    TESTS_AND_CODE = "tests_and_code"
+    TESTS_ONLY = "tests_only"
+    NO_CODE = "no_code"
+
+
 class TaskGroup(Frozen):
     """One `## N. [repo] [tier] Title` group and the tasks under it."""
 
@@ -356,6 +369,10 @@ class TaskGroup(Frozen):
     independent: bool = False
     # 0 (emergency) to 5, from a `Priority:` line in the group or above the first.
     priority: int = Priority.NORMAL
+    # A `Tests: required — <reason>` line in the group.
+    tests_required: bool = False
+    # Whether the paths the group names are all documents or configuration, so it may be no_code.
+    code_free: bool = False
     # The "Done when" sentence under the heading, "" when the group has none.
     goal: str = ""
     # The e2e-test split of an e2e-test group, from its `Split:` line; `rest` when it has none.
@@ -372,9 +389,18 @@ class TaskGroup(Frozen):
         return project_tag(self.repo, self.project)
 
     @property
+    def mode(self) -> GroupMode:
+        """The group's floor build mode, from its tier, the paths it names and its `Tests:` line."""
+        if self.tier == TestTier.E2E_TEST:
+            return GroupMode.TESTS_ONLY
+        if self.code_free and not self.tests_required:
+            return GroupMode.NO_CODE
+        return GroupMode.TESTS_AND_CODE
+
+    @property
     def test_only(self) -> bool:
-        """Whether the group builds no implementation: it is tagged `[e2e-test]`."""
-        return self.tier == TestTier.E2E_TEST
+        """Whether the group builds no implementation: its mode is `tests_only`."""
+        return self.mode is GroupMode.TESTS_ONLY
 
 
 def resolved_project(group: TaskGroup, projects: Sequence[str]) -> tuple[str, ProjectSource]:
@@ -406,7 +432,8 @@ def project_source_note(group: TaskGroup) -> str:
 
 def _resolved(group: TaskGroup, projects: Sequence[str]) -> TaskGroup:
     project, source = resolved_project(group, projects)
-    return group.model_copy(update={"project": project, "source": source})
+    code_free = allows_no_code(named_paths(group, projects))
+    return group.model_copy(update={"project": project, "source": source, "code_free": code_free})
 
 
 def _listed(body: Iterable[str], pattern: re.Pattern[str]) -> tuple[str, ...]:
@@ -533,6 +560,7 @@ def validate_tasks(
     tasks_seen: list[int] = []
     heading_lines: list[int] = []
     separate: set[int] = set()
+    tests_required: set[int] = set()
     independent: dict[int, int] = {}
     manual: dict[int, list[ManualStep]] = {}
     manual_slugs: set[str] = set()
@@ -638,6 +666,17 @@ def validate_tasks(
                         ValidationError(
                             line=index,
                             message="`Separate:` needs a reason after it — the reason is "
+                            "what review agrees to",
+                        )
+                    )
+            if current is not None and (said := TESTS_LINE.match(text.strip())):
+                if TESTS_REQUIRED.match(said["rest"]):
+                    tests_required.add(current)
+                else:
+                    errors.append(
+                        ValidationError(
+                            line=index,
+                            message="`Tests:` takes `required — <reason>`; the reason is "
                             "what review agrees to",
                         )
                     )
@@ -820,6 +859,7 @@ def validate_tasks(
             split=REST_SPLIT if g.line in split_refused else split_of.get(g.line, REST_SPLIT),
             goal=_goal(lines, g.line),
             separate=g.line in separate,
+            tests_required=g.line in tests_required,
             independent=g.line in independent,
             manual_steps=tuple(manual.get(g.line, ())),
             support=tuple(support.get(g.line, ())),
