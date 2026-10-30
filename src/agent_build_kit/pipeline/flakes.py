@@ -468,7 +468,23 @@ def merged_fix_since(inst: Installation, change: str, test: str) -> str | None:
     return None
 
 
+EVIDENCE_CHARS = 1500
+
+
 def reproduction_evidence(inst: Installation, test: str) -> str:
     """What the flake record holds of the first recorded failure of `test`, for a build to
-    judge by; empty when none is recorded."""
-    raise NotImplementedError
+    judge by: when it ran, its output and conditions, and the failing run's bundle when that
+    folder exists. Empty when none is recorded."""
+    for entry in flake_record(inst).entries():
+        if entry.test != test:
+            continue
+        lines = [f"- {entry.at:%Y-%m-%d %H:%M} UTC, unit {entry.unit or 'unknown'}"]
+        output = (entry.failure or entry.output).strip()
+        if output:
+            lines.append(output[-EVIDENCE_CHARS:])
+        if entry.conditions:
+            lines.append(f"conditions: {entry.conditions}")
+        if entry.evidence and Path(entry.evidence).exists():
+            lines.append(f"bundle of the failing run: {entry.evidence}")
+        return "\n".join(lines)
+    return ""

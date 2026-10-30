@@ -76,16 +76,16 @@ from agent_build_kit.pipeline.events import (
     restore_depth_hold,
     takeover_note,
 )
-from agent_build_kit.pipeline.fix_reproduction import Outcome
+from agent_build_kit.pipeline.fix_reproduction import Outcome, unreproduced_guidance
 from agent_build_kit.pipeline.flakes import (
     FailedOnBase,
     Flake,
     FlakeFound,
     covered_tests,
-    failure_history,
     fix_change_test,
     is_fix_change,
     merged_fix_since,
+    reproduction_evidence,
     waiting_note,
 )
 from agent_build_kit.pipeline.gateway_usage import attribution
@@ -1226,8 +1226,9 @@ class BuildPath:
         """Before the first build of a fix unit: run the test the change is named for on the unit's
         base, alone and under load. Fails on any run: the build goes on. No longer collected, or
         fixed by a change merged since this one was written: satisfied, with the reason. Never
-        fails: held for a person, who retires the unit or builds it anyway with a restart and a
-        note. A change whose test cannot be read builds as today."""
+        fails: the build goes on with guidance to judge whether the cause is already gone; one
+        that makes no change and says why takes the satisfied route (see `implement`). A change
+        whose test cannot be read builds as today."""
         r, unit = self.runner, self.unit
         done: Update = {"reproduce": False, "reproduced": True}
         root = active_root()
@@ -1248,23 +1249,13 @@ class BuildPath:
             case Outcome.GONE:
                 return {**done, "satisfied_because": found.note}
             case Outcome.NOT_REPRODUCED:
-                note = (
-                    f"{found.note}. A rare flake cannot be ruled out by a few runs: "
-                    "`abk retire` ends this unit, `abk requeue --restart --note` builds it anyway"
+                # Built with the check's findings as the guidance both build prompts carry,
+                # as a person's note on a restart is; the build judges whether the cause is gone.
+                r.store.set_guidance(
+                    unit.id,
+                    unreproduced_guidance(test, found.note, reproduction_evidence(inst, test)),
                 )
-                history = failure_history(inst, test)
-                if history:
-                    note += f". Recorded failures: {'; '.join(history[:3])}"
-                return {
-                    **done,
-                    **self.hold(
-                        HELD,
-                        note,
-                        found.note,
-                        cause=Cause.NEEDS_HUMAN,
-                        held_by=HeldBy.REVIEW,
-                    ),
-                }
+                return {**done, "unreproduced": True, "unreproduced_note": found.note}
         return done
 
     def reuse_superseded(self, parent_id: str, tree: Path, ref: str) -> None:
@@ -1798,6 +1789,7 @@ class BuildPath:
         r, unit = self.runner, self.unit
         tree, ref = self.tree(), self.ref(state)
         kept: Update = {}
+        statement = ""
         if r.head(tree) != state.head and not (
             self.group_step(state) is not None
             and self.half_recorded(state, self.branch_progress(ref))
@@ -1829,6 +1821,7 @@ class BuildPath:
                     changelog=changelog_note(tree, r.repo_config)
                 ),
             )
+            statement = account
             self.apply_fixers()
             made = r.commit(self.message(CODE_PREFIX, False, state), cwd=tree, base=ref)
             if (stopped := self.record_built(state, ref, made, account)) is not None:
@@ -1844,7 +1837,25 @@ class BuildPath:
             kept = self.settle_group(state, ref, commits)
             if "stopped" in kept:
                 return kept
-        return {**kept, "head": r.head(tree), "produced_nothing": commits == 0}
+        return {
+            **kept,
+            "head": r.head(tree),
+            "produced_nothing": commits == 0,
+            **self.found_nothing(state, commits, statement),
+        }
+
+    def found_nothing(self, state: UnitRun, commits: int, statement: str) -> Update:
+        """For a unit whose test the check could not reproduce: the note a build that made no
+        change takes when the unit is satisfied, the builder's own statement of why. Nothing for
+        any other unit."""
+        if not state.unreproduced:
+            return {}
+        if commits:
+            return {"satisfied_because": ""}
+        said = cut_head(" ".join(statement.split()), 600, "char") or "no reason was given"
+        return {
+            "satisfied_because": f"{state.unreproduced_note}; the builder made no change: {said}"
+        }
 
     def checks(self, state: UnitRun) -> Update:
         """Unit-test on the committed branch, before a reviewer is asked."""

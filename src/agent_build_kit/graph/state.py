@@ -159,6 +159,8 @@ class UnitRun(Frozen):
     scheduled: bool = False  # the unit is a scheduled run of the whole suite
     reproduce: bool = False  # `prepare` found a first build of a fix unit: `reproduce` runs first
     reproduced: bool = False  # the reproduction check has been made for this thread: not again
+    unreproduced: bool = False  # the check did not reproduce the test: the build may find nothing
+    unreproduced_note: str = ""  # what the check found, for the note of a build that finds nothing
     satisfied_because: str = ""  # why `reproduce` found the unit satisfied, for its note
     scheduled_note: str = ""  # what its passing run says of itself, once e2e-test has passed
     conflict: Restacked | None = None  # a restack that could not be merged, for `adapt` to port

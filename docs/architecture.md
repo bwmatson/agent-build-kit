@@ -1526,10 +1526,16 @@ approved.
   (alone: serially, by id; under load: the whole file it is in, on the repo's parallel workers),
   through `wiring.build_reproduce`. A test that fails on any run goes on to `tests`. A test that
   is no longer in the tree, or one whose fix change merged since this change was written, makes
-  the unit `satisfied` with that reason. A test that never fails holds the unit for a person
-  (`needs_human`, held by the review lane) with the note "not reproduced: 0 of N runs alone, 0 of
-  N under load", because a rare flake cannot be ruled out by a few runs: `abk retire` ends the
-  unit and `abk requeue --restart --note` builds it anyway, without the check. 0 turns it off.
+  the unit `satisfied` with that reason. A test that never fails does not hold the unit (it is not held)
+  and the check does not satisfy it: the unit builds the change as the change wrote it (a regression
+  agent's groups already say test-only or test and code), with guidance carrying "not
+  reproduced: 0 of N runs alone, 0 of N under load", the first recorded failure's evidence (the
+  flake record's output and conditions, and the failing run's bundle when it exists) and the
+  instruction to judge whether the cause is already gone and, if it is, to make no change and states a
+  concrete cause. A build that makes no change takes the `satisfied` route and the builder's
+  statement is the unit's note. A change written from the old template still carries its "Test:
+  reproduce" task and builds as that task says. A later requeue does not repeat the check. 0
+  turns it off.
 - **New tests are repeated under load.** After unit-test passes, the tests the unit added or
   changed (`tests_changed`) are run `global_limits.unit_test_repeat_runs` times (three by default, 0
   turns it off) with each test command's own workers, narrowed to exactly those tests (`path::Class::name`) by the
