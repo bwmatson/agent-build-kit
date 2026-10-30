@@ -1,9 +1,10 @@
 """The Python profile's test environment points pytest's temp root at a folder of the
-installation's `<planning home>/tmp/pytest` named for the unit and the run (spec:
-test-temp-folders-clean-up)."""
+installation's temp root named for the run (spec: test-temp-folders-clean-up,
+unit-test-temp-root-short-paths)."""
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 from agent_build_kit import profiles
@@ -28,11 +29,13 @@ def test_the_environment_names_a_folder_under_the_pytest_temp_root(
     assert folder.parent == installation.pytest_temp_root
 
 
-def test_the_folder_is_named_for_the_unit_and_the_run(installation: Installation) -> None:
+def test_the_folder_is_named_for_the_run_and_the_unit_is_recorded_inside(
+    installation: Installation,
+) -> None:
     folder = Path(environment(installation, "add-marker/1", "run7")[VARIABLE])
 
-    assert "add-marker" in folder.name
-    assert "run7" in folder.name
+    assert folder.name == "run7"
+    assert json.loads((folder / "run.json").read_text())["unit"] == "add-marker/1"
 
 
 def test_the_folder_exists_before_the_run(installation: Installation) -> None:
@@ -58,4 +61,4 @@ def test_the_temp_root_is_outside_the_planning_repository(installation: Installa
     root = installation.pytest_temp_root.resolve()
 
     assert not root.is_relative_to(installation.root.resolve())
-    assert root == (installation.planning_home / "tmp" / "pytest").resolve()
+    assert root == (installation.planning_home.parent / "tmp").resolve()
