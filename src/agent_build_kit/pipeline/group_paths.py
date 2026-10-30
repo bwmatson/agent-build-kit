@@ -104,5 +104,11 @@ def allows_no_code(paths: Sequence[str]) -> bool:
 
 
 def allows_tests_only(paths: Sequence[str]) -> bool:
-    """Stub: whether the paths a group names are all test code (with documents)."""
-    return False
+    """Whether the paths a group names are test code (test files and test-support modules, the
+    paths `classify_paths` labels "test"), at least one of them, with documents beside them. A
+    source or configuration path, or no path at all, allows nothing.
+
+    The repeat check re-runs only the collected `test_*.py` files a unit changed, so an edit to
+    a test-support module pytest does not collect relies on the full run."""
+    labels = set(classify_paths(list(paths)).values())
+    return "test" in labels and labels <= {"test", "docs"}

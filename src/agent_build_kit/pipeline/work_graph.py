@@ -46,7 +46,7 @@ from agent_build_kit.config import (
     owning_project,
 )
 from agent_build_kit.model import Frozen, TestTier
-from agent_build_kit.pipeline.group_paths import allows_no_code, named_paths
+from agent_build_kit.pipeline.group_paths import allows_no_code, allows_tests_only, named_paths
 from agent_build_kit.pipeline.units import ManualStep, Priority, project_tag, reachable
 
 
@@ -373,6 +373,8 @@ class TaskGroup(Frozen):
     tests_required: bool = False
     # Whether the paths the group names are all documents or configuration, so it may be no_code.
     code_free: bool = False
+    # Whether the paths the group names are all test code (with documents), so it is tests_only.
+    test_code: bool = False
     # The "Done when" sentence under the heading, "" when the group has none.
     goal: str = ""
     # The e2e-test split of an e2e-test group, from its `Split:` line; `rest` when it has none.
@@ -392,6 +394,8 @@ class TaskGroup(Frozen):
     def mode(self) -> GroupMode:
         """The group's floor build mode, from its tier, the paths it names and its `Tests:` line."""
         if self.tier == TestTier.E2E_TEST:
+            return GroupMode.TESTS_ONLY
+        if self.test_code and not self.tests_required:
             return GroupMode.TESTS_ONLY
         if self.code_free and not self.tests_required:
             return GroupMode.NO_CODE
@@ -432,8 +436,15 @@ def project_source_note(group: TaskGroup) -> str:
 
 def _resolved(group: TaskGroup, projects: Sequence[str]) -> TaskGroup:
     project, source = resolved_project(group, projects)
-    code_free = allows_no_code(named_paths(group, projects))
-    return group.model_copy(update={"project": project, "source": source, "code_free": code_free})
+    named = named_paths(group, projects)
+    return group.model_copy(
+        update={
+            "project": project,
+            "source": source,
+            "code_free": allows_no_code(named),
+            "test_code": allows_tests_only(named),
+        }
+    )
 
 
 def _listed(body: Iterable[str], pattern: re.Pattern[str]) -> tuple[str, ...]:
