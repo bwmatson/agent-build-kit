@@ -107,7 +107,9 @@ def reproducing(tmp_path: Path, outputs: dict[str, subprocess.CompletedProcess])
     (tree / "tests" / "test_widget.py").write_text(
         "def test_renders_the_label():\n    assert True\n"
     )
-    (tree / "pyproject.toml").write_text('[project]\nname = "app"\nversion = "0"\n')
+    (tree / "pyproject.toml").write_text(
+        '[project]\nname = "app"\nversion = "0"\ndependencies = ["pytest-xdist"]\n'
+    )
     commands: list[list[str]] = []
 
     def run(args: list[str], **kwargs: object) -> subprocess.CompletedProcess:

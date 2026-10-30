@@ -319,6 +319,7 @@ OUTSIDE_A_MOVED_BASE_RUN = (
     Node.REWORK,
     Node.FIX_CHECKS,
     Node.E2E,
+    Node.REPRODUCE,
     Node.TESTS,
     Node.STUB_CHECKS,
     Node.FIX_STUB_CHECKS,

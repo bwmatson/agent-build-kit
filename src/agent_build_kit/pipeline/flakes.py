@@ -418,12 +418,48 @@ def _modules_of(inst: Installation, repo: str, flake: Flake) -> list[str]:
     return found
 
 
+FIX_TITLE = re.compile(r"^Make `(?P<test>[^`]+)` deterministic$")
+FIRST_ATTEMPTS = 20  # how many successive names of one test's fix change are looked under
+
+
 def fix_change_test(inst: Installation, change: str) -> str | None:
-    """The test the fix change `change` is named for, read from its group 1 heading."""
-    raise NotImplementedError
+    """The test the fix change `change` is named for, read from the title of its group 1
+    ("Make `<test>` deterministic"); None when the change has no such group."""
+    try:
+        lines = (inst.changes_dir / change / "tasks.md").read_text().splitlines()
+    except OSError:
+        return None
+    for line in lines:
+        heading = GROUP_HEADING.match(line)
+        if heading and int(heading["number"]) == 1:
+            title = FIX_TITLE.match(heading["title"])
+            return title["test"] if title else None
+    return None
 
 
 def merged_fix_since(inst: Installation, change: str, test: str) -> str | None:
-    """The archived fix change for `test`, other than `change`, merged since `change` was
-    written, or None."""
-    raise NotImplementedError
+    """The archived fix change for `test`, other than `change`, merged on or after the day
+    `change` was written, or None. The day is the date of the change's proposal."""
+    for name in ("proposal.md", "tasks.md"):
+        try:
+            written = datetime.fromtimestamp(
+                (inst.changes_dir / change / name).stat().st_mtime, UTC
+            )
+            break
+        except OSError:
+            continue
+    else:
+        return None
+    day = f"{written:%Y-%m-%d}"
+    archive = inst.changes_dir / "archive"
+    for attempt, names in zip(range(FIRST_ATTEMPTS), _candidates(test, ""), strict=False):
+        found = False
+        for name in names:
+            found = found or (inst.changes_dir / name).is_dir()
+            for merged in sorted(archive.glob(f"*-{name}")):
+                found = True
+                if merged.name[11:] == name and name != change and merged.name[:10] >= day:
+                    return name
+        if not found and attempt:
+            break
+    return None
