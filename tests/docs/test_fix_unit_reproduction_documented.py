@@ -30,7 +30,9 @@ def test_the_architecture_names_the_check_and_its_three_outcomes() -> None:
     assert "not reproduced" in ARCHITECTURE
     assert "whether the cause is already gone" in ARCHITECTURE, "the build judges it"
     assert "as the change wrote it" in ARCHITECTURE
-    assert "not held" in CHECK and "needs_human" not in CHECK
+    assert "is not held" in CHECK and "(it is not held)" not in CHECK
+    assert "needs_human" not in CHECK
+    assert "to make no change and state a concrete cause" in CHECK
 
 
 def test_the_architecture_says_which_units_are_not_checked() -> None:

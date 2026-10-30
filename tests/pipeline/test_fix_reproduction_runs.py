@@ -202,6 +202,17 @@ def test_a_name_the_file_does_not_hold_is_not_gone_when_collection_finds_it(
         assert found.outcome is Outcome.NOT_REPRODUCED, name
 
 
+def test_a_crash_whose_output_merely_says_not_found_is_not_gone(tmp_path: Path) -> None:
+    for code, out in ((1, "uv: command not found: pytest"), (4, "usage: not found: --bad-flag")):
+        tree, reproduce, _ = reproducing(
+            tmp_path / str(code), {"alone": done(code, out), "loaded": done(0)}
+        )
+
+        found = reproduce(cwd=tree, test=TEST, runs=2)
+
+        assert found.outcome is not Outcome.GONE, out
+
+
 def test_a_file_not_found_under_the_root_is_skipped_not_gone(tmp_path: Path) -> None:
     tree, reproduce, commands = reproducing(tmp_path, {"alone": done(0), "loaded": done(0)})
 
@@ -220,6 +231,13 @@ def test_a_profile_that_cannot_run_one_test_is_skipped(tmp_path: Path) -> None:
     reproduce = build_reproduce(profile=profiles.get("node-npm"), run=lambda *a, **k: done(0))
 
     assert reproduce(cwd=tree, test=TEST, runs=2).outcome is Outcome.SKIPPED
+
+
+def test_the_guidance_tells_the_tests_step_too() -> None:
+    text = unreproduced_guidance(TEST, "N", "E")
+
+    assert "write nothing" in text and "state why" in text
+    assert "write no tests" not in text
 
 
 def test_the_guidance_carries_the_counts_the_evidence_and_the_instruction() -> None:

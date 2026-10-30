@@ -7,11 +7,17 @@ the graph sends the unit by each outcome, and for which units the check runs at 
 
 from __future__ import annotations
 
+import asyncio
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+import pytest
+
+from agent_build_kit.graph import nodes
+from agent_build_kit.graph.checkpointer import open_checkpointer, unit_graphs_path
 from agent_build_kit.graph.state import EventKind, ResumeEvent
+from agent_build_kit.graph.unit import thread_position
 from agent_build_kit.installation import Installation
 from agent_build_kit.pipeline.fix_reproduction import Outcome, Reproduction
 from agent_build_kit.pipeline.flakes import Flake, fix_change_name, flake_record
@@ -20,6 +26,8 @@ from agent_build_kit.pipeline.unit_store import RequeueReason
 from agent_build_kit.pipeline.units import HELD, SATISFIED
 from tests.conftest import make_installation
 from tests.factories import stored_unit, unit
+from tests.graph.branch_fakes import prepared
+from tests.graph.test_build_path import build as build_on_branch
 from tests.graph_driver import fresh, tick
 from tests.runner_fakes import Recorder
 
@@ -126,6 +134,50 @@ def test_a_test_that_never_fails_builds_with_guidance_and_is_not_held(tmp_path: 
     assert "make no change" in text and "red-first" not in text
 
 
+def test_the_findings_are_not_a_persons_request_and_are_cleared_after_the_build(
+    tmp_path: Path,
+) -> None:
+    _, recorder, subject = fix_unit(tmp_path)
+
+    tick(
+        tmp_path,
+        recorder,
+        subject=subject,
+        reproduce_test=Asked(Outcome.NOT_REPRODUCED, NOT_REPRODUCED),
+    )
+
+    builders = [p for p in recorder.prompts if NOT_REPRODUCED in p]
+    assert len(builders) >= 2, "the tests and the implementation prompts carry it"
+    assert all("A person asked for this" not in p for p in builders)
+    reviews = "\n".join(recorder.contexts)
+    assert NOT_REPRODUCED not in reviews and "reproduction check" not in reviews
+    assert "A person asked" not in reviews
+    assert recorder.store.get(subject.id).guidance == ""
+    assert thread_state(tmp_path, subject.id).reproduction_guidance == ""
+
+
+def thread_state(tmp_path: Path, unit_id: str) -> Any:
+    async def go() -> Any:
+        async with open_checkpointer(unit_graphs_path(tmp_path / "state")) as saver:
+            return (await thread_position(saver, unit_id)).state
+
+    return asyncio.run(go())
+
+
+def test_the_tests_step_is_told_what_to_do_when_the_cause_is_gone(tmp_path: Path) -> None:
+    _, recorder, subject = fix_unit(tmp_path)
+
+    tick(
+        tmp_path,
+        recorder,
+        subject=subject,
+        reproduce_test=Asked(Outcome.NOT_REPRODUCED, NOT_REPRODUCED),
+    )
+
+    tests_prompt = next(p for p in recorder.prompts if "test tasks" in p)
+    assert "write nothing" in tests_prompt and "state why" in tests_prompt
+
+
 def test_the_bundle_is_left_out_when_there_is_none(tmp_path: Path) -> None:
     installation, recorder, subject = fix_unit(tmp_path)
     flake_record(installation).append(
@@ -162,6 +214,7 @@ def test_a_build_that_makes_a_change_is_built_as_a_fix(tmp_path: Path) -> None:
     assert outcome.status != RunStatus.SATISFIED
     assert recorder.store.get(subject.id).state != SATISFIED
     assert "claude:impl" in recorder.events and recorder.made > 0
+    assert NOT_REPRODUCED in prompts_of(recorder), "built with the check's findings"
 
 
 def test_a_build_that_makes_no_change_and_says_why_is_satisfied_with_its_statement(
@@ -194,14 +247,26 @@ def test_a_requeue_after_the_check_does_not_repeat_it(tmp_path: Path) -> None:
     _, recorder, subject = fix_unit(tmp_path)
     recorder.unit_test_ok = False  # the first build does not finish, so its thread stays
     answer = Asked(Outcome.NOT_REPRODUCED, NOT_REPRODUCED)
-    nothing: dict[str, Any] = {}
-    tick(tmp_path, recorder, subject=subject, reproduce_test=answer, **nothing)
+    tick(tmp_path, recorder, subject=subject, reproduce_test=answer)
     requeue = ResumeEvent(
         kind=EventKind.REQUEUE, requeue=RequeueReason.FROM_FAILURE, reason="requeued"
     )
 
-    tick(tmp_path, recorder, subject=subject, event=requeue, reproduce_test=answer, **nothing)
-    tick(tmp_path, recorder, subject=subject, reproduce_test=answer, **nothing)
+    tick(tmp_path, recorder, subject=subject, event=requeue, reproduce_test=answer)
+    tick(tmp_path, recorder, subject=subject, reproduce_test=answer)
+
+    assert len(answer.calls) == 1
+
+
+def test_a_restart_without_a_note_does_not_repeat_the_check(tmp_path: Path) -> None:
+    _, recorder, subject = fix_unit(tmp_path)
+    recorder.unit_test_ok = False
+    answer = Asked(Outcome.NOT_REPRODUCED, NOT_REPRODUCED)
+    tick(tmp_path, recorder, subject=subject, reproduce_test=answer)
+    restart = ResumeEvent(kind=EventKind.REQUEUE, requeue=RequeueReason.RESTART, reason="again")
+
+    tick(tmp_path, recorder, subject=subject, event=restart, reproduce_test=answer)
+    tick(tmp_path, recorder, subject=subject, reproduce_test=answer)
 
     assert len(answer.calls) == 1
 
@@ -305,3 +370,28 @@ def test_a_change_whose_test_cannot_be_read_builds_as_today(tmp_path: Path) -> N
 
     assert answer.calls == []
     assert built(recorder)
+
+
+def test_a_no_change_build_of_a_test_only_group_keeps_the_statement_and_the_counts(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(nodes, "is_fix_change", lambda change: True)
+    cause = "the race was removed by commit 4f2a9c1"
+    recorder, _ = prepared(
+        tmp_path,
+        groups={"add-marker": {1: (f"Make `{TEST}` deterministic", "")}},
+        e2e=(1,),
+        no_tests_for="1",
+        tests_accounts={"1": cause},
+    )
+
+    outcome = build_on_branch(
+        tmp_path,
+        recorder,
+        **recorder.overrides(tmp_path),
+        reproduce_test=Asked(Outcome.NOT_REPRODUCED, NOT_REPRODUCED),
+    )
+
+    assert outcome.status == RunStatus.SATISFIED, outcome.detail
+    note = recorder.store.get(unit().id).note
+    assert cause in note and NOT_REPRODUCED in note
