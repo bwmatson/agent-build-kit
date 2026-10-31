@@ -80,9 +80,10 @@ def test_a_supersede_gives_each_piece_the_modes_of_the_groups_it_holds(tmp_path:
         ]
     )
     store.set_state("app/3", HELD, held_by=HeldBy.SIZE)
+    # A piece arrives with the floor the planner filled in, which may differ from the held value.
     pieces = [
-        unit("app/3-s1", change="app", groups=(3,)),
-        unit("app/3-s2", change="app", groups=(4,)),
+        unit("app/3-s1", change="app", groups=(3,), group_modes={"app/3": "tests_and_code"}),
+        unit("app/3-s2", change="app", groups=(4,), group_modes={"app/4": "tests_and_code"}),
     ]
 
     store.supersede("app/3", pieces)
@@ -90,3 +91,29 @@ def test_a_supersede_gives_each_piece_the_modes_of_the_groups_it_holds(tmp_path:
     assert store.get("app/3-s1").group_modes == {"app/3": "no_code"}
     assert store.get("app/3-s2").group_modes == {"app/4": "tests_and_code"}
     assert store.get("app/3").state is UnitState.CLOSED
+
+
+def test_a_join_of_a_changes_groups_stores_the_modes_the_join_carries(tmp_path: Path) -> None:
+    store = UnitStore(tmp_path / "units.json")
+    store.upsert([unit(ID, group_modes={"add-marker/1": "tests_and_code"})])
+    join = Join(onto=ID, change="other", groups=(1,), group_modes={"other/1": "no_code"})
+
+    assert store.join(join, group_kinds=[]) is not None
+
+    assert store.get(ID).group_modes == {
+        "add-marker/1": "tests_and_code",
+        "other/1": "no_code",
+    }
+
+
+def test_a_replan_of_an_unstarted_unit_keeps_the_modes_of_the_groups_it_carries(
+    tmp_path: Path,
+) -> None:
+    store = UnitStore(tmp_path / "units.json")
+    store.upsert([unit(ID, group_modes={"add-marker/1": "tests_and_code"})])
+    join = Join(onto=ID, change="other", groups=(1,), group_modes={"other/1": "no_code"})
+    assert store.join(join, group_kinds=[]) is not None
+
+    store.upsert([unit(ID, group_modes={"add-marker/1": "no_code"})], change="add-marker")
+
+    assert store.get(ID).group_modes == {"add-marker/1": "no_code", "other/1": "no_code"}

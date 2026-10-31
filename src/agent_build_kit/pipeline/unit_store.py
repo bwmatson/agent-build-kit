@@ -860,6 +860,15 @@ class UnitStore:
                         "estimated_lines": existing.estimated_lines,
                         # Nor is the kind a joined group widened it to.
                         "tier": widest_kind([fresh.tier, existing.tier]),
+                        # Nor the modes of those groups.
+                        "group_modes": {
+                            **fresh.group_modes,
+                            **{
+                                key: mode
+                                for key, mode in existing.group_modes.items()
+                                if not key.startswith(f"{fresh.change}/")
+                            },
+                        },
                     }
                 )
             if existing:
@@ -1046,7 +1055,7 @@ class UnitStore:
             members,
             estimated_lines=added,
             kinds=[*group_kinds, *([taken.tier] if taken is not None else [])],
-            group_modes=taken.group_modes if taken is not None else None,
+            group_modes=taken.group_modes if taken is not None else join.group_modes,
         )
         stored[onto.id] = grown.model_copy(
             update={
@@ -1356,7 +1365,7 @@ class UnitStore:
                 **piece.model_dump(
                     include=set(Unit.model_fields) - {"superseded_by", "state", "group_modes"}
                 ),
-                group_modes={**held, **piece.group_modes},
+                group_modes={**piece.group_modes, **held},
                 story=old.story if piece.id == heir else None,
                 state=PLANNED,
                 split_from=unit_id,

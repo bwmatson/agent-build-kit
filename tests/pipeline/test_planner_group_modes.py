@@ -8,7 +8,9 @@ from pathlib import Path
 
 import pytest
 
-from agent_build_kit.pipeline.planner import PlannerError, parse_graph, plan_round
+from agent_build_kit.model import TestTier
+from agent_build_kit.pipeline.joins import JoinContext
+from agent_build_kit.pipeline.planner import Plan, PlannerError, parse_graph, parse_plan, plan_round
 from agent_build_kit.pipeline.units import Unit
 from agent_build_kit.pipeline.work_graph import TaskGroup
 from tests.cli.replan_driver import Replan, answer, planned
@@ -138,3 +140,75 @@ def test_replan_prints_a_changed_mode(
     assert code == 0, out
     line = next(ln for ln in out.splitlines() if "feature/1" in ln and "mode" in ln)
     assert "tests_and_code" in line and "no_code" in line
+
+
+@pytest.mark.parametrize(
+    ("floor_group", "asked"),
+    [
+        ({"tier": TestTier.E2E_TEST}, "tests_and_code"),
+        ({"test_code": True}, "tests_and_code"),
+        ({"code_free": True}, "tests_only"),
+        ({}, "tests_only"),
+    ],
+    ids=["e2e", "test-paths", "documents", "code"],
+)
+def test_a_mode_the_floor_does_not_allow_is_refused(floor_group: dict, asked: str) -> None:
+    group = groups_at(3)[0].model_copy(update=floor_group)
+
+    with pytest.raises(PlannerError, match=r"feature/1.*group 1"):
+        parse_graph(reply({"1": asked}, 1), groups=[group], tasks=tasks_text(CODE_TASK))
+
+
+@pytest.mark.parametrize("modes", ["no_code", {"1": None}, {"1": 3}])
+def test_a_malformed_group_modes_is_a_planner_error(modes: object) -> None:
+    with pytest.raises(PlannerError, match="group_modes"):
+        plan(modes, True)  # pyrefly: ignore[bad-argument-type]
+
+
+def test_an_unknown_mode_is_refused_even_without_groups() -> None:
+    with pytest.raises(PlannerError, match="no_cod"):
+        parse_graph(reply({"1": "no_cod"}, 1))
+
+
+def test_the_reply_shape_names_group_modes() -> None:
+    shape = prompt().split("Respond with exactly this shape", 1)[1]
+
+    assert '"group_modes"' in shape
+
+
+def join_plan(modes: dict[str, str] | None, update: dict | None = None) -> Plan:
+    """A plan whose unit builds group 1 of `feature` and whose join brings group 2 onto `base/1`."""
+    first, second = groups_at(3, 3)
+    second = second.model_copy(update=update or {})
+    join: dict = {"onto": "base/1", "change": "feature", "groups": [2], "estimated_lines": 40}
+    if modes is not None:
+        join["group_modes"] = modes
+    record = json.loads(reply(None, 1))
+    record["joins"] = [join]
+    onto = stored_unit(
+        "base/1", change="base", groups=(1,), estimated_lines=100, review_tier="auto"
+    )
+    return parse_plan(
+        json.dumps(record),
+        groups=[first, second],
+        change="feature",
+        context=JoinContext(stored=(onto,), catalog={"base": (groups_at(3)[0],)}),
+        tasks=tasks_text(CODE_TASK, DOC_TASK),
+    )
+
+
+def test_a_join_of_a_change_stores_the_floor_of_its_groups_when_the_reply_gives_none() -> None:
+    plan_ = join_plan(None, {"test_code": True})
+
+    assert plan_.joins[0].group_modes == {"feature/2": "tests_only"}
+
+
+def test_a_join_of_a_change_stores_the_planners_mode() -> None:
+    plan_ = join_plan({"2": "no_code"}, {"code_free": True})
+
+    assert plan_.joins[0].group_modes == {"feature/2": "no_code"}
+
+
+def test_a_join_below_the_floor_is_refused() -> None:
+    with pytest.raises(PlannerError, match=r"join onto base/1.*group 2"):
+        join_plan({"2": "no_code"})

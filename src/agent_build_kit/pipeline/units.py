@@ -128,6 +128,8 @@ class Join(Frozen):
     change: str = ""
     groups: tuple[int, ...] = ()
     estimated_lines: int = 0
+    # The mode of each of `groups`, keyed `<change>/<number>`.
+    group_modes: dict[str, str] = Field(default_factory=dict)
 
 
 class ManualStep(Frozen):
