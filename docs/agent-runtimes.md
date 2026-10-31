@@ -486,7 +486,6 @@ A regression run and a chat turn that set
 `no_commit` get the same refusal, so a chat turn cannot rebase, pull or merge a unit's branch
 either: the person does that outside the chat.
 
-
 ## A confined Claude Code step can renew its own login
 
 An access token for a Claude account lasts 8 hours, and the `claude` CLI renews it itself: it posts the
@@ -499,7 +498,7 @@ failed with `401 OAuth access token has expired`.
 
 The proxy tells the runtime each host it refuses (`Proxy(on_refused=...)`, passed through `confinement` and
 `spawn`), and the unit's log says so once for each host in each step: `sandbox: the step reached for <host>,
-which is not on its allowed list`. The `claude` process's own refused requests never reach a tool's output, so
+which is not on its allowed list`. The `claude` process's own refused requests do not show in a tool's output, so
 this line is where they show. `refresh_login`, the tick's own small call that renews a login when a usage read
 finds the token expired, runs outside the sandbox and is unchanged.
 

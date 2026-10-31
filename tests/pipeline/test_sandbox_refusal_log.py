@@ -128,6 +128,7 @@ def test_a_host_the_log_failed_to_say_is_said_the_next_time(tmp_path: Path) -> N
         lines.append(line)
 
     def execute(argv, *, on_refused=None, **_):
+        assert on_refused is not None
         for _ in range(2):
             try:
                 on_refused("example.test", 443)

@@ -71,7 +71,10 @@ class _Handler(socketserver.StreamRequestHandler):
             url = urlsplit(target)
             host, port = url.hostname or "", url.port or 80
         if not host_allowed(host, self._hosts()):
-            self._report_refused(host or target, port)
+            # A target with no host is not reported: it would put the whole request line, a
+            # credential in a URL among it, in a log.
+            if host:
+                self._report_refused(host, port)
             self._answer(403, f"sandbox: the host {host or target} is not on the allowed list\n")
             return
         try:

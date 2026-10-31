@@ -725,7 +725,15 @@ def _refusal_log(request: AgentRequest) -> Callable[[str, int], None]:
             if host in said or request.on_event is None:
                 return
             said.add(host)
-        request.on_event(f"sandbox: the step reached for {host}, which is not on its allowed list")
+        try:
+            request.on_event(
+                f"sandbox: the step reached for {host}, which is not on its allowed list"
+            )
+        except Exception:
+            # A log that failed has not said it: the next refusal of the host may.
+            with lock:
+                said.discard(host)
+            raise
 
     return report
 
