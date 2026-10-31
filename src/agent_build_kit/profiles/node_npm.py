@@ -311,13 +311,14 @@ class NodeNpmProfile:
         does not exist yet is the expected state at the tests commit."""
         return f"{_LINT_ALL} && {shlex.join(_TYPE_CHECK_ARGV)}" if types else _LINT_ALL
 
-    def red_command(self, files: list[str]) -> str:
+    def red_command(self, files: list[str], ids: list[str] | None = None) -> str:
         """Vitest with `files` as its filters, its JUnit report printed after the marker so it
         outlives the worktree; the exit status is Vitest's own. Vitest takes each file as a
         filter that matches by substring (an absolute path is turned back into the relative
         one), so `src/index.test.ts` also selects `packages/ui/src/index.test.ts` and no
         argument selects one file exactly: the report names each test suite by its file, which
-        is how a reader keeps only the files it was given."""
+        is how a reader keeps only the files it was given. `ids` are ignored: a test cannot be
+        selected by name here, so the files run whole."""
         run = f"npx {_TEST_RUNNER} run {shlex.join(files)} --reporter=junit"
         listed = "printf '%s\\n' " + shlex.join(_RED_FILE + file for file in files) + "; "
         return listed + wrap_report_command(run, "--outputFile")

@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- The red check at a tests commit now runs only the tests the commit added or changed (by
+  `path::name`) and rejects the commit if any of them passes, so a new failing case can be added to
+  the existing test file for its subject beside passing tests. A commit with no test to select, such
+  as a helper edit, still runs its files whole, and the Node npm profile keeps whole files.
+
 - A step that fails because the account's Claude login was rejected (`Failed to authenticate`
   with a 401, or an expired OAuth token) is now recognised as that and recorded against the
   account, so `abk status` names the account and the command that renews its login.

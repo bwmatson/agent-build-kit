@@ -474,11 +474,12 @@ class PythonUvProfile:
             return "uv run pre-commit run --all-files"
         return "SKIP=pyrefly-check uv run pre-commit run --all-files"
 
-    def red_command(self, files: list[str]) -> str:
+    def red_command(self, files: list[str], ids: list[str] | None = None) -> str:
         # The report is printed after the console so it outlives the worktree
         # the command runs in; the exit status is pytest's own. It goes to a
         # fresh temp file, so a file already in the tree is never read as it.
-        pytest = f"uv run pytest {' '.join(files)} -p no:cacheprovider --tb=line -q"
+        # `ids` (`path::name`, or a bare path to run a file whole) take the files' place.
+        pytest = f"uv run pytest {' '.join(ids or files)} -p no:cacheprovider --tb=line -q"
         return wrap_report_command(pytest, "--junitxml")
 
     def interpret_red(

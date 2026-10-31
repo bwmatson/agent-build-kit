@@ -25,9 +25,11 @@ work it is judging is no longer a gate.
 from __future__ import annotations
 
 import argparse
+import inspect
 import sys
 from collections.abc import Callable, Sequence
 from pathlib import Path
+from typing import Any
 
 from agent_build_kit import profiles
 from agent_build_kit.budget import cut_tail
@@ -40,6 +42,7 @@ from agent_build_kit.pipeline.commit_order import (
 )
 from agent_build_kit.pipeline.shell import git
 from agent_build_kit.pipeline.stack_runner import GroupStep
+from agent_build_kit.pipeline.wiring import touched_tests
 from agent_build_kit.profiles.base import ToolchainProfile, located
 
 
@@ -61,6 +64,26 @@ def _tests_commits(repo: Path, base: str, is_test: Callable[[str], bool]) -> lis
 def _test_files_in(repo: Path, sha: str, is_test: Callable[[str], bool]) -> list[str]:
     files = _files_of(repo, sha)
     return [path for path, kind in classify_paths(files, is_test).items() if kind == "test"]
+
+
+def _red_command(
+    toolchain: ToolchainProfile, owned: list[str], touched: list[tuple[str, str]], prefix: str
+) -> str:
+    """The red command for `owned` (the project's test files at a tests commit), narrowed to
+    the tests the commit added or changed (`touched`, from the checkout's root).
+
+    A file with no touched test (a helper edit) stays whole in the selection. With nothing
+    touched in any file, or a toolchain whose command takes no ids, it is the whole-file run.
+    """
+    by_file: dict[str, list[str]] = {}
+    for path, name in touched:
+        if path.startswith(prefix):
+            file = path.removeprefix(prefix)
+            by_file.setdefault(file, []).append(f"{file}::{name}")
+    command: Any = toolchain.red_command
+    if not by_file or "ids" not in inspect.signature(command).parameters:
+        return command(owned)
+    return command(owned, [i for file in owned for i in by_file.get(file, [file])])
 
 
 def check_branch(
@@ -143,7 +166,8 @@ def check_branch(
 
             commands: list[str | Callable[[Path], str]] = [clean_in]
             if sha not in test_only:
-                commands.append(toolchain.red_command(owned))
+                touched = touched_tests(repo, f"{sha}^", sha)
+                commands.append(_red_command(toolchain, owned, touched, prefix))
             clean, *red_run = run_at_commit(repo, sha, commands, subdir=prefix or ".")
             if not clean.ok:
                 commit_problems.append(

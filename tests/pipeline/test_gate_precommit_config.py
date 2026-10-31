@@ -26,7 +26,7 @@ class Printing(PythonUvProfile):
     def clean_command(self, *, types: bool = False) -> str:
         return "echo ran: pre-commit run --all-files; exit 1"
 
-    def red_command(self, files: list[str]) -> str:
+    def red_command(self, files: list[str], ids: list[str] | None = None) -> str:
         return "exit 1"
 
     def interpret_red(self, output: str, exit_code: int, *, stubbed: bool = False):
