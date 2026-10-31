@@ -463,16 +463,32 @@ repos:                          # ordered: deploy order is derived from
                                 # with no `kind` is an error, not off. Names only;
                                 # a credential is the NAME of an environment variable in
                                 # `token_env`, and a token-shaped value is refused.
-      kind: azure_devops        # azure_devops: organization, project, team, area_path,
-                                # iteration_path, story_type (all required), and
-                                # optional `levels` (the levels in use, top down; default
-                                # change, group) and `types` (the work item type of each
-                                # of epic, change, group, task; a `group` here wins over
-                                # story_type, which is the group's type when `types` names
-                                # none).
-                                # github: owner, repo, labels (a label for each of
-                                # feature, story, task; all required), host and
-                                # project_number optional.
+      kind: azure_devops        # azure_devops or github; the board's shape is common:
+      # levels: [change, group]   # which kit entities become board items, outermost first:
+                                # any non-empty ordered subset of change, group, task.
+      # epic: true                # a person-made top item above the first level; needs a
+                                # type for `epic`.
+      # pr_links: lowest          # which levels get a merged unit's pull request: lowest
+                                # (default), all, or a list of entities in `levels`.
+      # azure_devops:             # the block named for the kind holds the connection, the
+                                # board type of each level in use (`types`) and the state
+                                # names (`states`, kit state -> board state):
+      #   organization: ""        # azure_devops: organization, project, team, area_path,
+      #   project: ""             # iteration_path, types, states, states_by_type.
+      #   types: {epic: Epic, change: Issue, group: Task}
+      #   states: {new: To Do, active: Doing, done: Done}
+      # github:                   # github: owner, repo, host, project_number, types (a
+                                # label or issue type for each level in use), states.
+                                # Only the block matching `kind` is accepted, and every
+                                # level in use needs a type. Two levels may not share a
+                                # type.
+                                # The old flat keys still work and are read as
+                                # `levels: [change, group, task]`: the connection keys
+                                # directly under `tracker`, `story_type` (the group's type,
+                                # with Feature and Task for the others), `labels` (a label
+                                # for each of feature, story, task) and a flat `state_map`.
+                                # Each logs a warning naming its new place, and they are
+                                # dropped in 0.3.0. Mixing them with a block is refused.
       # token_env: MY_TRACKER_TOKEN
                                 # optional override, the NAME of an environment variable,
                                 # never the credential. Left out, the tracker uses the

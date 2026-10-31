@@ -24,14 +24,11 @@ from agent_build_kit.trackers.azure_work_item_models import (
     WorkItemsDoc,
 )
 from agent_build_kit.trackers.base import Item, ItemKind
-from agent_build_kit.trackers.config import AzureDevOpsTracker
+from agent_build_kit.trackers.config import KIND_LEVELS, AzureDevOpsTracker
 
 PARENT_LINK = "System.LinkTypes.Hierarchy-Reverse"
 CHILD_LINK = "System.LinkTypes.Hierarchy-Forward"
 PATCH = "application/json-patch+json"
-
-# The kit's level, by the kind the protocol names it.
-_LEVELS: dict[ItemKind, str] = {"feature": "change", "story": "group", "task": "task"}
 
 
 class UnknownWorkItemType(ValueError):
@@ -43,7 +40,7 @@ class AzureDevOpsWorkItems:
         self._section = section
         self._rest = AzureRest(http)
         types = section.level_types
-        self._types = {kind: types[level] for kind, level in _LEVELS.items() if level in types}
+        self._types = {kind: types[level] for kind, level in KIND_LEVELS.items() if level in types}
         self._kinds = {type_: kind for kind, type_ in self._types.items()}
 
     def create(
