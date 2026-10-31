@@ -121,10 +121,13 @@ names the groups that drove its tier (its drivers), the pipeline splits those gr
 Name the file a task changes. A group whose test task names a test file and whose implementation task
 names nothing used to read as one that edits only test code, so `abk tags` showed it as `tests_only` and the
 build wrote its tests and no implementation. A task that is not a `Test:` task and not a check (a task that
-begins `Confirm`, `Check`, `Verify`, `Read` or `Run`) must name a path in backticks, or the group is built with
-tests first and then code. The rule reads whether a task names a path, not what the path is: a task that
-describes code in prose and also names a document or a test file reads as placed. On a group where that would
-be wrong, say `Tests: required — <reason>`.
+begins `Confirm`, `Check`, `Verify` or `Read`) must name a path, in backticks or as a word of a backticked
+command, or the group is built with tests first and then code. The rule reads whether a task names a path, not
+what the path is: a task that describes code in prose and also names a document or a test file reads as
+placed, and so does a backticked name with a dot (`tracker.start`). Say `Tests: required — <reason>` on a
+group where that would be wrong. A group that really edits only test code, and has a task that names no path
+(deleting the originals, noting something in the pull request), lists its files in a `Paths:` line, which says
+what the group names and turns the rule off.
 
 ## `Manual:` lines
 

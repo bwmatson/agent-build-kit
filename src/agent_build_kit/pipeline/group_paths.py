@@ -27,11 +27,10 @@ _NOT_CHANGES = re.compile(
     re.I,
 )
 _VERIFY = re.compile(r"\bVerify:.*", re.I)
-# A task line of a group: `- [ ] 1.2 text`. The text may go on over the lines that follow it.
-_TASK_LINE = re.compile(r"^\s*-\s*\[[ xX]\]\s*\d+\.\d+\s+(?P<text>.*)$")
-# A task that asks for tests, not code, or that only checks something, adds no implementation.
-_TEST_TASK = re.compile(r"tests?\b", re.I)
-CHECK_VERBS = ("Confirm", "Check", "Verify", "Read", "Run")
+# A task that asks for tests, not code (`Test: ...`), or that only checks something, adds no
+# implementation. `Run` is not a check: "Run the tracker through a new parent" is code.
+_TEST_TASK = re.compile(r"tests?:", re.I)
+CHECK_VERBS = ("Confirm", "Check", "Verify", "Read")
 _CHECK_TASK = re.compile(rf"(?:{'|'.join(CHECK_VERBS)})\b", re.I)
 _SENTENCE_END = re.compile(r"(?<=\.)\s+")
 _NOT_A_CHANGE = re.compile(r"\b(?:unchanged|must not|do not)\b.*", re.I)
@@ -136,32 +135,41 @@ def allows_tests_only(paths: Sequence[str]) -> bool:
     return any(labels[path] != "docs" for path in paths)
 
 
-def _tasks(group: TaskGroup) -> list[tuple[str, str]]:
-    """Each task of `group` as (its first line's text, the task whole): the task line and the
-    lines that go on from it, up to the next task or a blank line."""
+def _tasks(group: TaskGroup) -> list[tuple[str, list[str]]]:
+    """Each task of `group` as (its first line's text, its lines): the task line and the lines
+    that go on from it, up to the next task, a blank line or a line that is not about changes
+    (`Needs:`, `Not changed:` ...)."""
+    from agent_build_kit.pipeline.work_graph import TASK_LINE
+
     found: list[tuple[str, list[str]]] = []
     following = False
     for line in group.body:
-        if (task := _TASK_LINE.match(line)) is not None:
+        if (task := TASK_LINE.match(line)) is not None:
             found.append((task["text"], [line]))
             following = True
-        elif following and line.strip():
+        elif following and line.strip() and not _NOT_CHANGES.match(line):
             found[-1][1].append(line)
         else:
             following = False
-    return [(first, "\n".join(lines)) for first, lines in found]
+    return found
 
 
-def _names_a_path(task: str, projects: Sequence[str]) -> bool:
-    """Whether a task names a path: one `changed_paths` finds, or a word of a backticked command
-    (`git mv tests/a.py tests/b.py`) that is a path, which a token with spaces is not to
-    `line_paths`."""
-    if any(changed_paths(line, projects) for line in task.split("\n")):
-        return True
-    return any(
-        line_paths(" ".join(f"`{word}`" for word in token.split()))
-        for token in _TICKED.findall(_VERIFY.sub("", task))
-    )
+def _command_paths(line: str) -> list[str]:
+    """The paths among the words of the backticked commands of `line` (`git mv a/b.py c/d.py`),
+    which `line_paths` skips because a token with spaces is not a path. A `Verify:` segment and a
+    sentence from "unchanged", "must not" or "do not" on are left out, as `changed_paths` does."""
+    if _NOT_CHANGES.match(line):
+        return []
+    found: list[str] = []
+    for sentence in _SENTENCE_END.split(_VERIFY.sub("", line)):
+        for token in _TICKED.findall(_NOT_A_CHANGE.sub("", sentence)):
+            found += line_paths(" ".join(f"`{word}`" for word in token.split()))
+    return found
+
+
+def _names_a_path(lines: Sequence[str], projects: Sequence[str]) -> bool:
+    """Whether a task names a path: one `changed_paths` finds, or a word of a backticked command."""
+    return any(changed_paths(line, projects) or _command_paths(line) for line in lines)
 
 
 def names_unplaced_work(group: TaskGroup, projects: Sequence[str]) -> bool:
@@ -172,8 +180,8 @@ def names_unplaced_work(group: TaskGroup, projects: Sequence[str]) -> bool:
         return False
     return any(
         not (_TEST_TASK.match(first) or _CHECK_TASK.match(first))
-        and not _names_a_path(task, projects)
-        for first, task in _tasks(group)
+        and not _names_a_path(lines, projects)
+        for first, lines in _tasks(group)
     )
 
 
