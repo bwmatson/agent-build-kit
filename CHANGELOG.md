@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+- A task group is read as tests-only or no-code only when each of its tasks is placed: a `Test:`
+  task, a check (it begins `Confirm`, `Check`, `Verify` or `Read`), or a task that names a path.
+  A group whose test task named a test file and whose implementation task named nothing used to
+  read as "names only test files" and was built without its implementation (85 unit and
+  integration groups in 54 changes on 2026-10-30); it is now built with tests first and then
+  code. The rule reads whether a task names a path, not what the path is, so a prose task that
+  also names a document or a test file still needs `Tests: required — <reason>`, and a group that
+  really edits only test code but has a task naming no path lists its files in a `Paths:` line.
+
 - A build agent no longer makes commits. The build run's policy refuses a `git commit` and every
   other git command that makes a commit or moves a branch (`cherry-pick`, `revert`, `merge`,
   `rebase`, `am`, `pull`, a `reset` to another commit, `checkout -B`, `branch -f`), in both

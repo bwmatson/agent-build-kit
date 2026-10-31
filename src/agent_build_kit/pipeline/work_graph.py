@@ -51,6 +51,7 @@ from agent_build_kit.pipeline.group_paths import (
     allows_tests_only,
     named_paths,
     names_unplaced_glob,
+    names_unplaced_work,
 )
 from agent_build_kit.pipeline.units import ManualStep, Priority, project_tag, reachable
 
@@ -442,12 +443,16 @@ def project_source_note(group: TaskGroup) -> str:
 def _resolved(group: TaskGroup, projects: Sequence[str]) -> TaskGroup:
     project, source = resolved_project(group, projects)
     named = named_paths(group, projects)
+    # A task that changes code and names no file makes the group code, whatever the rest name.
+    unplaced = names_unplaced_work(group, projects)
     return group.model_copy(
         update={
             "project": project,
             "source": source,
-            "code_free": allows_no_code(named),
-            "test_code": allows_tests_only(named) and not names_unplaced_glob(group),
+            "code_free": allows_no_code(named) and not unplaced,
+            "test_code": allows_tests_only(named)
+            and not names_unplaced_glob(group)
+            and not unplaced,
         }
     )
 

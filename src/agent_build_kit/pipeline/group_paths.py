@@ -27,6 +27,11 @@ _NOT_CHANGES = re.compile(
     re.I,
 )
 _VERIFY = re.compile(r"\bVerify:.*", re.I)
+# A task that asks for tests, not code (`Test: ...`), or that only checks something, adds no
+# implementation. `Run` is not a check: "Run the tracker through a new parent" is code.
+_TEST_TASK = re.compile(r"tests?:", re.I)
+CHECK_VERBS = ("Confirm", "Check", "Verify", "Read")
+_CHECK_TASK = re.compile(rf"(?:{'|'.join(CHECK_VERBS)})\b", re.I)
 _SENTENCE_END = re.compile(r"(?<=\.)\s+")
 _NOT_A_CHANGE = re.compile(r"\b(?:unchanged|must not|do not)\b.*", re.I)
 
@@ -128,6 +133,56 @@ def allows_tests_only(paths: Sequence[str]) -> bool:
     if not paths or any(labels[path] != "docs" and not _is_test_code(path) for path in paths):
         return False
     return any(labels[path] != "docs" for path in paths)
+
+
+def _tasks(group: TaskGroup) -> list[tuple[str, list[str]]]:
+    """Each task of `group` as (its first line's text, its lines): the task line and the lines
+    that go on from it, up to the next task, a blank line or a line that is not about changes
+    (`Needs:`, `Not changed:` ...)."""
+    from agent_build_kit.pipeline.work_graph import TASK_LINE
+
+    found: list[tuple[str, list[str]]] = []
+    following = False
+    for line in group.body:
+        if (task := TASK_LINE.match(line)) is not None:
+            found.append((task["text"], [line]))
+            following = True
+        elif following and line.strip() and not _NOT_CHANGES.match(line):
+            found[-1][1].append(line)
+        else:
+            following = False
+    return found
+
+
+def _command_paths(line: str) -> list[str]:
+    """The paths among the words of the backticked commands of `line` (`git mv a/b.py c/d.py`),
+    which `line_paths` skips because a token with spaces is not a path. A `Verify:` segment and a
+    sentence from "unchanged", "must not" or "do not" on are left out, as `changed_paths` does."""
+    if _NOT_CHANGES.match(line):
+        return []
+    found: list[str] = []
+    for sentence in _SENTENCE_END.split(_VERIFY.sub("", line)):
+        for token in _TICKED.findall(_NOT_A_CHANGE.sub("", sentence)):
+            found += line_paths(" ".join(f"`{word}`" for word in token.split()))
+    return found
+
+
+def _names_a_path(lines: Sequence[str], projects: Sequence[str]) -> bool:
+    """Whether a task names a path: one `changed_paths` finds, or a word of a backticked command."""
+    return any(changed_paths(line, projects) or _command_paths(line) for line in lines)
+
+
+def names_unplaced_work(group: TaskGroup, projects: Sequence[str]) -> bool:
+    """Whether a task of `group` is implementation work that names no path: not a test task, not
+    a check (`CHECK_VERBS`), and no path in it. Such a group reads as code, whatever the paths
+    its other tasks name. A `Paths:` line says what the group names, so the text is not read."""
+    if group.paths:
+        return False
+    return any(
+        not (_TEST_TASK.match(first) or _CHECK_TASK.match(first))
+        and not _names_a_path(lines, projects)
+        for first, lines in _tasks(group)
+    )
 
 
 def names_unplaced_glob(group: TaskGroup) -> bool:
