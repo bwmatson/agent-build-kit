@@ -13,7 +13,7 @@ import pytest
 from agent_build_kit.sandboxes import Coverage, SandboxPolicy
 from agent_build_kit.sandboxes import confinement as confinement_module
 from agent_build_kit.sandboxes.proxy import Proxy
-from tests.sandboxes.proxy_support import connect, plain_get, upstream
+from tests.sandboxes.proxy_support import connect, plain_get, send_raw, upstream
 
 
 def test_a_refused_plain_request_reports_its_host_and_port() -> None:
@@ -96,3 +96,17 @@ def test_confinement_gives_the_proxy_the_refusal_callback(monkeypatch: pytest.Mo
         pass
 
     assert seen == {"hosts": ("api.anthropic.com",), "on_refused": callback}
+
+
+def test_a_request_with_no_host_is_refused_without_reporting_its_target() -> None:
+    """A target with no host (a path alone, or credentials and a query with the host left out)
+    would otherwise put the whole request line, secrets included, in the log."""
+    refused: list[tuple[str, int]] = []
+
+    with Proxy(["pypi.org"], on_refused=lambda host, port: refused.append((host, port))) as proxy:
+        code, _ = send_raw(
+            proxy.port, "GET http://user:pw@/x?token=abc HTTP/1.1\r\nHost: x\r\n\r\n"
+        )
+
+    assert code == 403
+    assert refused == []

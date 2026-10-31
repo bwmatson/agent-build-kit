@@ -14,6 +14,8 @@ import pytest
 from agent_build_kit.runtimes import AgentRequest, ToolPolicy, claude_code
 from agent_build_kit.runtimes.claude_code import ClaudeCodeRuntime, spawn
 from agent_build_kit.sandboxes import Coverage, SandboxPolicy
+from agent_build_kit.sandboxes.proxy import Proxy
+from tests.sandboxes.proxy_support import plain_get
 
 
 class Refusing:
@@ -113,3 +115,45 @@ def test_spawn_gives_confinement_the_callback(
     spawn(["claude"], cwd=tmp_path, sandbox=policy, on_refused=callback)
 
     assert got["on_refused"] is callback
+
+
+def test_a_host_the_log_failed_to_say_is_said_the_next_time(tmp_path: Path) -> None:
+    lines: list[str] = []
+    calls = {"n": 0}
+
+    def flaky(line: str) -> None:
+        calls["n"] += 1
+        if calls["n"] == 1:
+            raise OSError("the log is full")
+        lines.append(line)
+
+    def execute(argv, *, on_refused=None, **_):
+        for _ in range(2):
+            try:
+                on_refused("example.test", 443)
+            except OSError:
+                pass  # the proxy keeps a failing callback from changing its answer
+        return subprocess.CompletedProcess(argv, 0, "done\n", "")
+
+    request = confined(tmp_path, []).model_copy(update={"on_event": flaky})
+
+    ClaudeCodeRuntime(execute=execute).run(request)
+
+    assert len(said(lines)) == 1
+
+
+def test_a_refusal_by_the_real_proxy_reaches_the_log(tmp_path: Path) -> None:
+    """The callback the runtime hands the executor works from the proxy's own threads."""
+    lines: list[str] = []
+
+    def execute(argv, *, sandbox=None, on_refused=None, **_):
+        assert sandbox is not None
+        with Proxy(sandbox.hosts, on_refused=on_refused) as proxy:
+            code, _ = plain_get(proxy.port, "http://refused.test/")
+        assert code == 403
+        return subprocess.CompletedProcess(argv, 0, "done\n", "")
+
+    ClaudeCodeRuntime(execute=execute).run(confined(tmp_path, lines))
+
+    (found,) = said(lines)
+    assert "refused.test" in found
