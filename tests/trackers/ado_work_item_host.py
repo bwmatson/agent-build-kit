@@ -99,11 +99,7 @@ class WorkItemHost(httpx.MockTransport):
         doc = self.items[number]
         for name, value in fields.items():
             if name == "assigned_to":
-                doc["fields"]["System.AssignedTo"] = {
-                    "displayName": value,
-                    "uniqueName": value,
-                    "id": f"id-{value}",
-                }
+                doc["fields"]["System.AssignedTo"] = _person(value)
             else:
                 doc["fields"][_FIELDS.get(name, name)] = value
         doc["rev"] += 1
@@ -130,10 +126,9 @@ class WorkItemHost(httpx.MockTransport):
         doc["fields"].update(
             {"System.WorkItemType": type, "System.State": "To Do", "System.Description": ""}
         )
-        doc["fields"].update({k: v for k, v in fields.items() if k != "System.AssignedTo"})
+        doc["fields"].update(fields)
         if "System.AssignedTo" in fields:
-            who = fields["System.AssignedTo"]
-            doc["fields"]["System.AssignedTo"] = who if isinstance(who, dict) else _person(who)
+            doc["fields"]["System.AssignedTo"] = _person(fields["System.AssignedTo"])
         for relation in relations:
             doc["relations"].append(
                 {"rel": relation["value"]["rel"], "url": relation["value"]["url"]}
@@ -161,13 +156,21 @@ class WorkItemHost(httpx.MockTransport):
             return self._create(request, created[1], body)
         one = re.fullmatch(r"wit/workitems/(\d+)", rest, re.IGNORECASE)
         if one and method == "GET":
-            return answer(self.items[int(one[1])])
+            return answer(self._shown(self.items[int(one[1])], params))
         if one and method == "PATCH":
-            return self._patch(int(one[1]), body)
+            return self._patch(int(one[1]), body, params)
         if rest.lower() == "wit/workitems" and method == "GET":
             ids = [int(i) for i in params["ids"].split(",")]
-            return answer({"count": len(ids), "value": [self.items[i] for i in ids]})
+            shown = [self._shown(self.items[i], params) for i in ids]
+            return answer({"count": len(ids), "value": shown})
         if rest.lower() == "connectiondata" and method == "GET":
+            if "-preview" not in params.get("api-version", ""):
+                return refusal(
+                    400,
+                    "VS402863: The requested version is in preview; the -preview flag "
+                    "must be supplied in the api-version for such requests.",
+                    "VssInvalidPreviewVersionException",
+                )
             return answer(load("connection_data").body)
         if rest.lower() == "wit/wiql" and method == "POST":
             return self._query(body["query"])
@@ -195,7 +198,16 @@ class WorkItemHost(httpx.MockTransport):
             return httpx.Response(500, text="The service is unavailable.")
         return answer(made)
 
-    def _patch(self, number: int, ops: list[dict[str, Any]]) -> httpx.Response:
+    @staticmethod
+    def _shown(doc: dict[str, Any], params: httpx.QueryParams) -> dict[str, Any]:
+        """The item as the service answers it: its relations only when `$expand` asks."""
+        if "relations" in params.get("$expand", "").lower():
+            return doc
+        return {key: value for key, value in doc.items() if key != "relations"}
+
+    def _patch(
+        self, number: int, ops: list[dict[str, Any]], params: httpx.QueryParams
+    ) -> httpx.Response:
         """An update: a `test` on `/rev` that fails changes nothing; field and relation
         operations are applied and the revision moves on once."""
         if number in self._races:
@@ -215,7 +227,7 @@ class WorkItemHost(httpx.MockTransport):
                 name, value = op["path"].removeprefix("/fields/"), op["value"]
                 doc["fields"][name] = _person(value) if name == "System.AssignedTo" else value
         doc["rev"] += 1
-        return answer(doc)
+        return answer(self._shown(doc, params))
 
     def _query(self, query: str) -> httpx.Response:
         """A query on one string field by substring; the service refuses `Contains` on a

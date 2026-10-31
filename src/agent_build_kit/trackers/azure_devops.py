@@ -34,6 +34,8 @@ ARTIFACT_LINK = "ArtifactLink"
 PATCH = "application/json-patch+json"
 # What the service answers a failed revision test with, by its version.
 STALE_STATUSES = (409, 412)
+# The version `connectionData` is served at.
+PREVIEW_VERSION = "7.1-preview.1"
 
 
 class UnknownWorkItemType(ValueError):
@@ -44,6 +46,7 @@ class AzureDevOpsWorkItems:
     def __init__(self, section: AzureDevOpsTracker, *, http: httpx.BaseTransport | None = None):
         self._section = section
         self._rest = AzureRest(http)
+        self._identity: Identity | None = None
         types = section.level_types
         self._types: dict[ItemKind, str] = {
             cast(ItemKind, level): type_
@@ -92,12 +95,15 @@ class AzureDevOpsWorkItems:
 
     def identity(self) -> Identity:
         """The authenticated user, by the unique name an assignment uses."""
-        response = self._call("GET", "connectionData")
-        data = validated(ConnectionDataDoc, response.data, "connectionData", response.text)
-        account = data.authenticated_user.properties.get("Account")
-        if account is None or not account.value:
-            raise TransportError("connectionData: the authenticated user has no account name")
-        return Identity(name=account.value)
+        if self._identity is None:
+            # Preview only: the service refuses the plain version for this route.
+            response = self._call("GET", "connectionData", version=PREVIEW_VERSION)
+            data = validated(ConnectionDataDoc, response.data, "connectionData", response.text)
+            account = data.authenticated_user.properties.get("Account")
+            if account is None or not account.value:
+                raise TransportError("connectionData: the authenticated user has no account name")
+            self._identity = Identity(name=account.value)
+        return self._identity
 
     def update(
         self, item_id: str, changes: Mapping[str, str], expected_revision: str | None = None
@@ -119,14 +125,14 @@ class AzureDevOpsWorkItems:
         return self._patch(item_id, values, expected_revision or item.revision)
 
     def set_assignee(self, item_id: str, who: str, expected_revision: str | None = None) -> Item:
-        revision = expected_revision or str(self._read(item_id).rev)
+        revision = expected_revision or str(self._read_level(item_id).rev)
         return self._patch(item_id, {"System.AssignedTo": who}, revision)
 
     def claim(self, item_id: str) -> bool:
         """Assign the item to the sync identity if nobody holds it; True when it is held by
         it, False when another identity holds it or won the race."""
         me = self.identity().name
-        doc = self._read(item_id)
+        doc = self._read_level(item_id)
         if doc.fields.assigned_to is not None:
             return doc.fields.assigned_to.unique_name == me
         try:
@@ -137,7 +143,7 @@ class AzureDevOpsWorkItems:
 
     def set_tag(self, item_id: str, tag: str, present: bool) -> Item:
         """Add or remove one tag (the blocked and in-review markers), leaving the state."""
-        doc = self._read(item_id)
+        doc = self._read_level(item_id)
         tags = [t.strip() for t in doc.fields.tags.split(";") if t.strip()]
         if (tag in tags) == present:
             return self._to_item(doc)
@@ -145,13 +151,12 @@ class AzureDevOpsWorkItems:
         return self._patch(item_id, {"System.Tags": "; ".join(tags)}, str(doc.rev))
 
     def get(self, item_id: str) -> Item:
-        return self._item(self._call("GET", f"wit/workitems/{item_id}", {"$expand": "relations"}))
+        return self._to_item(self._read(item_id))
 
     def children(self, item_id: str) -> Sequence[Item]:
         """The children of an item that are of a configured level; a person's Bug, or any
         other type no level uses, is left out."""
-        response = self._call("GET", f"wit/workitems/{item_id}", {"$expand": "relations"})
-        parent = validated(WorkItemDoc, response.data, "workitems", response.text)
+        parent = self._read(item_id)
         ids = [r.url.rsplit("/", 1)[-1] for r in parent.relations if r.rel == CHILD_LINK]
         if not ids:
             return ()
@@ -165,7 +170,7 @@ class AzureDevOpsWorkItems:
         """Attach a pull request to a work item as an artifact link; False when it already
         is attached and nothing was sent."""
         artifact = f"vstfs:///Git/PullRequestId/{project_id}%2F{repository_id}%2F{pull_request_id}"
-        doc = self._read(item_id)
+        doc = self._read_level(item_id)
         if any(r.rel == ARTIFACT_LINK and r.url == artifact for r in doc.relations):
             return False
         link = {"rel": ARTIFACT_LINK, "url": artifact, "attributes": {"name": "Pull Request"}}
@@ -192,6 +197,13 @@ class AzureDevOpsWorkItems:
         response = self._call("GET", f"wit/workitems/{item_id}", {"$expand": "relations"})
         return validated(WorkItemDoc, response.data, "workitems", response.text)
 
+    def _read_level(self, item_id: str) -> WorkItemDoc:
+        """An item of a configured level, read before anything is written to it; an epic or
+        any other type no level uses is refused here, with nothing sent."""
+        doc = self._read(item_id)
+        self._to_item(doc)
+        return doc
+
     def _patch(self, item_id: str, values: Mapping[str, str], expected_revision: str) -> Item:
         """One JSON Patch that tests the revision first; a conflict is a stale revision."""
         patch: list[dict[str, object]] = [
@@ -200,7 +212,11 @@ class AzureDevOpsWorkItems:
         ]
         try:
             response = self._call(
-                "PATCH", f"wit/workitems/{item_id}", json=patch, content_type=PATCH
+                "PATCH",
+                f"wit/workitems/{item_id}",
+                {"$expand": "relations"},
+                json=patch,
+                content_type=PATCH,
             )
         except TransportError as error:
             if error.status in STALE_STATUSES:
@@ -219,7 +235,9 @@ class AzureDevOpsWorkItems:
         """Read the parent, never write it, and refuse one that is not of the level above
         (the manual epic above the first level)."""
         above = self._section.parent_level(kind)
-        expected = self._section.level_types.get(above) if above else None
+        if above is None:
+            raise ValueError(f"a {kind} item is at the top and has no parent level; got {parent}")
+        expected = self._section.level_types.get(above)
         if expected is None:
             return
         actual = self._read(parent).fields.type
@@ -239,6 +257,7 @@ class AzureDevOpsWorkItems:
         *,
         json: object = None,
         content_type: str | None = None,
+        version: str | None = None,
     ) -> Response:
         section = self._section
         return self._rest.call(
@@ -249,6 +268,7 @@ class AzureDevOpsWorkItems:
             params=params,
             json=json,
             content_type=content_type,
+            version=version,
         )
 
     def _url_of(self, item_id: str) -> str:

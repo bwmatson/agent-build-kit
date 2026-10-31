@@ -4,25 +4,17 @@ the blocked and in-review markers are tags."""
 
 from __future__ import annotations
 
-from typing import Any
-
 import pytest
 
-from agent_build_kit.trackers.azure_devops import AzureDevOpsWorkItems
+from agent_build_kit.trackers.azure_devops import AzureDevOpsWorkItems, UnknownWorkItemType
 from agent_build_kit.trackers.base import StaleRevision
-from tests.trackers.ado_support import section
+from tests.trackers.ado_support import section, tracker_on
 from tests.trackers.ado_work_item_host import WorkItemHost
 
 pytestmark = pytest.mark.usefixtures("rest_env")
 
 SYNC = "sync@example.com"
 OTHER = "other@example.com"
-
-
-def tracker_on(
-    host: WorkItemHost, process: str = "basic", **overrides: Any
-) -> AzureDevOpsWorkItems:
-    return AzureDevOpsWorkItems(section(process, **overrides), http=host)
 
 
 def field(host: WorkItemHost, item_id: str, name: str) -> object:
@@ -199,3 +191,76 @@ def test_the_configured_states_win_over_the_process_defaults() -> None:
     tracker_on(host, state_map={"active": "In Progress"}).update(issue, {"state": "active"})
 
     assert field(host, issue, "System.State") == "In Progress"
+
+
+def test_an_update_returns_the_item_with_its_parent() -> None:
+    host = WorkItemHost()
+    change = host.seed("Issue", "Change")
+    group = host.seed("Task", "Group", parent=change)
+
+    updated = tracker_on(host).update(group, {"title": "Renamed"})
+
+    assert updated.parent_id == change
+    assert host.calls("PATCH", f"wit/workitems/{group}")[-1].params["$expand"] == "relations"
+
+
+def test_a_body_update_keeps_the_item_findable_by_its_marker() -> None:
+    host = WorkItemHost()
+    tracker = tracker_on(host)
+    created = tracker.create("group", "Group", "First", markers=("feature:g1",))
+
+    tracker.update(created.id, {"body": "Second"})
+
+    found = tracker.find_by_marker("feature:g1")
+    assert found is not None
+    assert (found.id, found.body) == (created.id, "Second")
+
+
+def test_a_claim_of_an_item_the_sync_identity_holds_is_held_and_sends_no_patch() -> None:
+    host = WorkItemHost()
+    group = host.seed("Task", "Group", assigned_to=SYNC)
+
+    assert tracker_on(host).claim(group) is True
+
+    assert host.calls("PATCH") == []
+
+
+def test_a_state_unmapped_for_the_process_is_refused_and_sends_no_patch() -> None:
+    host = WorkItemHost()
+    issue = host.seed("Issue", "Change", state="To Do")
+
+    with pytest.raises(ValueError, match="active"):
+        AzureDevOpsWorkItems(
+            section("basic").model_copy(update={"process": "cmmi"}), http=host
+        ).update(issue, {"state": "active"})
+
+    assert host.calls("PATCH") == []
+
+
+def test_an_epic_is_never_written_to() -> None:
+    host = WorkItemHost()
+    epic = host.seed("Epic", "Roadmap")
+    tracker = tracker_on(host)
+
+    with pytest.raises(UnknownWorkItemType):
+        tracker.claim(epic)
+    with pytest.raises(UnknownWorkItemType):
+        tracker.set_assignee(epic, SYNC)
+    with pytest.raises(UnknownWorkItemType):
+        tracker.set_tag(epic, "blocked", True)
+    with pytest.raises(UnknownWorkItemType):
+        tracker.update(epic, {"title": "Mine"})
+
+    assert host.calls("PATCH") == []
+
+
+def test_the_identity_is_read_once_and_asked_for_at_the_preview_version() -> None:
+    host = WorkItemHost()
+    tracker = tracker_on(host)
+
+    tracker.claim(host.seed("Task", "A"))
+    tracker.claim(host.seed("Task", "B"))
+
+    asked = host.calls("GET", "connectiondata")
+    assert len(asked) == 1
+    assert "-preview" in asked[0].params["api-version"]

@@ -4,7 +4,9 @@ from __future__ import annotations
 
 from typing import Any
 
+from agent_build_kit.trackers.azure_devops import AzureDevOpsWorkItems
 from agent_build_kit.trackers.config import AzureDevOpsTracker
+from tests.trackers.ado_work_item_host import WorkItemHost
 
 # Process -> the work item type of each level.
 PROCESS_TYPES: dict[str, dict[str, str]] = {
@@ -37,3 +39,10 @@ def section(process: str = "basic", **overrides: Any) -> AzureDevOpsTracker:
         types=types,
     )
     return made.model_copy(update={"process": process, **overrides})
+
+
+def tracker_on(
+    host: WorkItemHost, process: str = "basic", **overrides: Any
+) -> AzureDevOpsWorkItems:
+    """The tracker of a process configuration, talking to the in-memory host."""
+    return AzureDevOpsWorkItems(section(process, **overrides), http=host)

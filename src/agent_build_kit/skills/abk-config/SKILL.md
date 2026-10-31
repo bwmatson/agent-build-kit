@@ -265,7 +265,10 @@ repos:                        # ordered; a task group's [repo] tag is a key here
                               # top item) and `pr_links` (lowest, all, or a list of levels)
       # azure_devops:         # the block named for the kind: organization, project, team,
                               # area_path, iteration_path, types (board type of each level
-                              # in use and of epic), states (kit state -> board state);
+                              # in use and of epic), states (kit state -> board state),
+                              # process (basic, agile, scrum or cmmi: supplies the default
+                              # states, basic when left out), states_by_type (a type whose
+                              # states differ: {type: {kit state: board state}});
                               # github: owner, repo, host, project_number, types, states.
                               # Every level in use needs a type, none may share one.
                               # The old flat keys (connection keys under `tracker`,

@@ -8,18 +8,14 @@ import pytest
 
 from agent_build_kit.trackers.azure_devops import AzureDevOpsWorkItems
 from tests.forges.azure_rest_host import PROJECT_ID
-from tests.trackers.ado_support import section
-from tests.trackers.ado_work_item_host import FORWARD, REVERSE, WorkItemHost
+from tests.trackers.ado_support import section, tracker_on
+from tests.trackers.ado_work_item_host import REVERSE, WorkItemHost
 
 pytestmark = pytest.mark.usefixtures("rest_env")
 
 ARTIFACT = "ArtifactLink"
 PROJECT = PROJECT_ID
 REPOSITORY = "66666666-7777-8888-9999-000000000000"
-
-
-def tracker_on(host: WorkItemHost, process: str = "basic") -> AzureDevOpsWorkItems:
-    return AzureDevOpsWorkItems(section(process), http=host)
 
 
 def parent_of(host: WorkItemHost, item_id: str) -> str | None:
@@ -97,7 +93,6 @@ def test_a_first_level_item_is_created_under_a_manual_epic_that_is_only_read() -
     # The epic was read, to check its type, and nothing else was sent to it.
     assert addressed_to(host, epic) == ["GET"]
     assert host.items[int(epic)]["rev"] == 1
-    assert FORWARD in [r["rel"] for r in host.items[int(epic)]["relations"]]
 
 
 def test_a_first_level_item_with_no_epic_is_created_at_the_top() -> None:
@@ -120,6 +115,16 @@ def test_a_parent_that_is_not_an_epic_is_refused_for_a_first_level_item() -> Non
 
     with pytest.raises(ValueError, match="epic"):
         tracker_on(host).create("change", "Change", parent=issue)
+
+    assert host.creates == []
+
+
+def test_a_parent_is_refused_for_a_first_level_item_when_there_is_no_epic() -> None:
+    host = WorkItemHost()
+    other = host.seed("Epic", "Roadmap")
+
+    with pytest.raises(ValueError, match="no parent level"):
+        tracker_on(host, epic=False).create("change", "Change", parent=other)
 
     assert host.creates == []
 

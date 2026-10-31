@@ -11,17 +11,19 @@ import pytest
 from agent_build_kit.forges.transport import HostError
 from agent_build_kit.trackers.azure_devops import AzureDevOpsWorkItems, UnknownWorkItemType
 from agent_build_kit.trackers.base import Item, ItemKind
-from tests.trackers.ado_support import AREA_PATH, ITERATION_PATH, PROCESS_TYPES, section
+from tests.trackers.ado_support import (
+    AREA_PATH,
+    ITERATION_PATH,
+    PROCESS_TYPES,
+    section,
+    tracker_on,
+)
 from tests.trackers.ado_work_item_host import WorkItemHost
 
 pytestmark = pytest.mark.usefixtures("rest_env")
 
 PARENT = "System.LinkTypes.Hierarchy-Reverse"
 LEVELS: tuple[ItemKind, ...] = ("change", "group", "task")
-
-
-def tracker_on(host: WorkItemHost, process: str = "basic") -> AzureDevOpsWorkItems:
-    return AzureDevOpsWorkItems(section(process), http=host)
 
 
 def test_a_group_item_is_created_under_a_change_item_in_one_request() -> None:
