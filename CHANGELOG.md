@@ -5,6 +5,7 @@
 - A step that fails because the account's Claude login was rejected (`Failed to authenticate`
   with a 401, or an expired OAuth token) is now recognised as that and recorded against the
   account, so `abk status` names the account and the command that renews its login.
+
 - The telemetry marker split test (`tests/test_telemetry_marker.py`) runs under the live-module time
   limit, as the other tests that collect the live modules do. It takes about 50 seconds alone and
   failed in full parallel runs against the 60-second default; it passed alone.
