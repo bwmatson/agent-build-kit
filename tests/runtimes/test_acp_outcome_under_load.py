@@ -13,19 +13,22 @@ import pytest
 from tests.child_pytest import run_scenario
 from tests.tracked_files import ROOT
 
-HOLDER_TEST = (
-    f"{ROOT}/tests/runtimes/test_acp_outcome.py"
-    "::test_an_agent_that_ends_its_turn_but_leaves_stderr_held_has_that_holder_killed"
+MODULE = f"{ROOT}/tests/runtimes/test_acp_outcome.py"
+RUN_BOUNDED_TESTS = (
+    "test_an_agent_that_ends_its_turn_but_leaves_stderr_held_has_that_holder_killed",
+    "test_an_agent_that_leaves_a_process_holding_its_pipes_still_ends_the_run",
+    "test_a_process_out_of_reach_of_the_kill_does_not_hold_the_run_open",
 )
 
 
-def test_the_stderr_holder_test_passes_when_the_run_seems_to_take_long(
-    pytester: pytest.Pytester, monkeypatch: pytest.MonkeyPatch
+@pytest.mark.parametrize("name", RUN_BOUNDED_TESTS)
+def test_a_test_that_runs_the_adapter_passes_when_the_run_seems_to_take_long(
+    name: str, pytester: pytest.Pytester, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     run = run_scenario(
         pytester,
         "loaded_machine",
-        HOLDER_TEST,
+        f"{MODULE}::{name}",
         "-p",
         "tests.child_modules.loaded_machine.skewed_clock",
         "-rA",

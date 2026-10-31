@@ -440,14 +440,13 @@ def test_an_agent_that_leaves_a_process_holding_its_pipes_still_ends_the_run(
     use_agent(record, fail="orphan")
     watch = _watch_child(record)
 
-    result, elapsed = _run_bounded(_request(worktree, specs))
+    result, _ = _run_bounded(_request(worktree, specs))
     orphan = int(orphan_pid_file(record).read_text())
     left = not _read_to_end(watch)
     if left:
         _kill_if_left(orphan)
 
     assert result is not None, "run() did not return"
-    assert elapsed < 5
     assert result.ok is False
     assert "killed" in result.error
     assert STDERR_LINE in result.error
@@ -464,7 +463,7 @@ def test_a_process_out_of_reach_of_the_kill_does_not_hold_the_run_open(
     record = tmp_path / "agent.jsonl"
     use_agent(record, fail="detach")
 
-    result, elapsed = _run_bounded(_request(worktree, specs))
+    result, _ = _run_bounded(_request(worktree, specs))
     # Out of abk's reach by design, so the test cleans it up itself.
     detached = orphan_pid_file(record)
     if detached.exists():
@@ -474,7 +473,6 @@ def test_a_process_out_of_reach_of_the_kill_does_not_hold_the_run_open(
             pass
 
     assert result is not None, "run() did not return"
-    assert elapsed < 5
     assert result.ok is False
     assert "killed" in result.error
     assert STDERR_LINE in result.error

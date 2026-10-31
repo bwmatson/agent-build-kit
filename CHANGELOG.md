@@ -6,6 +6,14 @@
   with a 401, or an expired OAuth token) is now recognised as that and recorded against the
   account, so `abk status` names the account and the command that renews its login.
 
+- The tests of how the ACP adapter ends a run (`tests/runtimes/test_acp_outcome.py`) no longer assert
+  that a run took under five seconds. Two of them did, and one failed in a loaded full run
+  (`assert elapsed < 5`) while passing alone; a run that never returns still fails its test, through
+  the join in `_run_bounded`. The under-load test now runs all three tests that read the run's
+  duration against a clock that makes each run look eight seconds long, and a test fails if a
+  function other than the timer reads a clock, compares `elapsed` or keeps the duration. A run that
+  returns late but within the join's ten seconds now passes; only one that never returns fails.
+
 - The telemetry marker split test (`tests/test_telemetry_marker.py`) runs under the live-module time
   limit, as the other tests that collect the live modules do. It takes about 50 seconds alone and
   failed in full parallel runs against the 60-second default; it passed alone.
