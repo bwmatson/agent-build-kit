@@ -1371,6 +1371,9 @@ def build_unit_test(
     run_environments: dict[str, dict[str, str]] = {}
     # What the current run's test commands asked for, for its ledger row.
     run_facts: dict[str, object] = {}
+    # The tests the current run's failed commands named, each read by the profile of the
+    # command (a project has its own), for its ledger row.
+    run_failed: list[str] = []
 
     def fresh_run_token() -> str:
         """A token for this run whose folder in the temp root does not exist, so two runs never
@@ -1398,6 +1401,7 @@ def build_unit_test(
         started = clock()
         load_start = _first_load(sample())
         run_facts.clear()
+        run_failed.clear()
         outcome = "failed"
         failed: list[str] = []
         try:
@@ -1410,7 +1414,7 @@ def build_unit_test(
             raise
         else:
             outcome = "passed" if passed else "failed"
-            failed = [] if passed else failed_ids(profile, output)
+            failed = [] if passed else list(run_failed)
             return passed, output
         finally:
             ended = clock()
@@ -2201,6 +2205,9 @@ def build_unit_test(
                 outcome=outcome,
                 command=" ".join(command),
             )
+        if test_runs is not None and not ok:
+            named = failed_ids(toolchain, f"{result.stdout or ''}\n{result.stderr or ''}")
+            run_failed.extend(test for test in named if test not in run_failed)
         if log is not None:
             passed = "passed" if ok else f"exit {result.returncode}"
             seconds = time.monotonic() - started
@@ -2217,9 +2224,7 @@ def _first_load(sample: dict[str, object]) -> float | None:
 
 
 def _running_units(installation: Installation | None) -> list[str]:
-    """The ids of the units running now, from the store of `installation`, else of the loaded
-    workspace; none when there is neither."""
-    installation = installation or _active_installation()
+    """The ids of the units running now, from the store of `installation`; none without one."""
     if installation is None:
         return []
     try:

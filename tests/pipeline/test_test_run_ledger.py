@@ -7,12 +7,15 @@ row a passing, failing or flaky run adds. The runner answers as in `tests/failur
 from __future__ import annotations
 
 import json
+import subprocess
 from datetime import timedelta
 from pathlib import Path
 from typing import cast
 
 import pytest
 
+from agent_build_kit import profiles
+from agent_build_kit.config import ProjectConfig
 from agent_build_kit.installation import Installation
 from agent_build_kit.pipeline import spans
 from agent_build_kit.pipeline.flakes import FailedOnBase, FlakeFound
@@ -22,7 +25,7 @@ from agent_build_kit.pipeline.wiring import build_unit_test
 from agent_build_kit.profiles.base import ToolchainProfile
 from tests.e2e_base_fakes import branch
 from tests.factories import stored_unit
-from tests.failure_bundle_fakes import START, BundleMachine, BundleProfile
+from tests.failure_bundle_fakes import RECORDED, START, BundleMachine, BundleProfile
 from tests.pipeline.test_flake_isolation import HookedProfile
 from tests.pipeline.test_unit_test_base_check import TEST, Runs
 
@@ -101,7 +104,12 @@ def test_a_ledger_under_its_limit_is_not_rotated(tmp_path: Path) -> None:
 # --- a unit-test run ----------------------------------------------------------------
 
 
-def _run(scratch: Path, machine: BundleMachine, ledger: Path) -> tuple[bool, str] | None:
+def _run(
+    scratch: Path,
+    machine: BundleMachine,
+    ledger: Path,
+    installation: Installation | None = None,
+) -> tuple[bool, str] | None:
     """The unit-test run, its ledger at `ledger`; None when it found a flake."""
     loads = iter(range(1, 100))
     clock = iter(START + timedelta(seconds=10 * n) for n in range(100))
@@ -111,6 +119,7 @@ def _run(scratch: Path, machine: BundleMachine, ledger: Path) -> tuple[bool, str
         changed=lambda *a: ["tests/test_one.py"],
         failures_dir=ledger.parent / "bundles",
         test_runs=ledger,
+        installation=installation,
         now=lambda: next(clock),
         machine=lambda: {"load": [float(next(loads))] * 3},
     )
@@ -223,7 +232,7 @@ def test_units_running_holds_the_ids_of_the_running_units_of_the_store_and_no_ot
     )
     ledger = tmp_path / "test-runs.jsonl"
 
-    _run(scratch, BundleMachine(scratch, reruns=[], passing=True), ledger)
+    _run(scratch, BundleMachine(scratch, reruns=[], passing=True), ledger, workspace)
 
     (row,) = _rows(ledger)
     assert row["units_running"] == ["busy/1"]
@@ -238,3 +247,39 @@ def test_a_ledger_that_cannot_be_written_does_not_change_the_runs_result(
     result = _run(scratch, BundleMachine(scratch, reruns=[], passing=True), ledger)
 
     assert result == (True, "")
+
+
+class ProjectMachine:
+    """Every command passes but the test run, which fails as a recorded pytest run does."""
+
+    def __call__(self, command: list[str], **kwargs: object) -> subprocess.CompletedProcess:
+        if "pytest" not in " ".join(command):
+            return subprocess.CompletedProcess(command, 0, "", "")
+        failure = (RECORDED / "console_failures.txt").read_text().split("\n", 1)[1]
+        return subprocess.CompletedProcess(command, 1, failure, "")
+
+
+def test_the_failed_tests_are_read_by_the_profile_of_the_project_that_ran_them(
+    tmp_path: Path,
+) -> None:
+    """The repo's profile (a node one) cannot read pytest's output; the project's can."""
+    (tmp_path / "svc" / "tests").mkdir(parents=True)
+    (tmp_path / "svc" / "pyproject.toml").write_text(
+        '[project]\nname = "svc"\nversion = "0"\ndependencies = ["pytest-xdist"]\n'
+    )
+    ledger = tmp_path / "test-runs.jsonl"
+    unit_test = build_unit_test(
+        profile=profiles.get("node-npm"),
+        projects=[ProjectConfig(path="svc", profile="python-uv")],
+        run=ProjectMachine(),
+        changed=lambda *a: ["svc/tests/test_one.py"],
+        test_runs=ledger,
+    )
+
+    passed, _ = unit_test(cwd=tmp_path, base="main")
+
+    assert not passed
+    (row,) = _rows(ledger)
+    assert row["outcome"] == "failed"
+    assert "test_one.py::test_plain" in row["failed"]
+    assert "test_two.py::test_other" in row["failed"]

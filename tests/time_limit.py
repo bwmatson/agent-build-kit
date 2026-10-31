@@ -41,11 +41,15 @@ class TimedOut(BaseException):
 def thread_stacks() -> str:
     """The stack of every thread now. It runs in a signal handler, which may have interrupted
     code holding a lock of `threading`, so it takes none: `faulthandler` reads the frames
-    itself."""
-    with tempfile.TemporaryFile("w+") as dump:
-        faulthandler.dump_traceback(dump, all_threads=True)
-        dump.seek(0)
-        return dump.read()
+    itself. A host that cannot make the file (no temp folder, no descriptors) says so and the
+    limit is still the failure."""
+    try:
+        with tempfile.TemporaryFile("w+") as dump:
+            faulthandler.dump_traceback(dump, all_threads=True)
+            dump.seek(0)
+            return dump.read()
+    except OSError as error:
+        return f"(the stacks could not be read: {error})"
 
 
 # The flag under the kind's old spelling, still accepted with a notice.
