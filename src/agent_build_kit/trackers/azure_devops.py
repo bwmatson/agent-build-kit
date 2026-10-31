@@ -13,6 +13,7 @@ from __future__ import annotations
 import html
 import re
 from collections.abc import Mapping, Sequence
+from typing import cast, get_args
 from urllib.parse import quote
 
 import httpx
@@ -24,7 +25,7 @@ from agent_build_kit.trackers.azure_work_item_models import (
     WorkItemsDoc,
 )
 from agent_build_kit.trackers.base import Item, ItemKind
-from agent_build_kit.trackers.config import KIND_LEVELS, AzureDevOpsTracker
+from agent_build_kit.trackers.config import AzureDevOpsTracker
 
 PARENT_LINK = "System.LinkTypes.Hierarchy-Reverse"
 CHILD_LINK = "System.LinkTypes.Hierarchy-Forward"
@@ -40,8 +41,12 @@ class AzureDevOpsWorkItems:
         self._section = section
         self._rest = AzureRest(http)
         types = section.level_types
-        self._types = {kind: types[level] for kind, level in KIND_LEVELS.items() if level in types}
-        self._kinds = {type_: kind for kind, type_ in self._types.items()}
+        self._types: dict[ItemKind, str] = {
+            cast(ItemKind, level): type_
+            for level, type_ in types.items()
+            if level in get_args(ItemKind)
+        }
+        self._kinds: dict[str, ItemKind] = {type_: kind for kind, type_ in self._types.items()}
 
     def create(
         self,

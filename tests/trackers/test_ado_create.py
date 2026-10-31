@@ -17,8 +17,7 @@ from tests.trackers.ado_work_item_host import WorkItemHost
 pytestmark = pytest.mark.usefixtures("rest_env")
 
 PARENT = "System.LinkTypes.Hierarchy-Reverse"
-# The kit's level, by the kind the protocol names it.
-KINDS: dict[str, ItemKind] = {"change": "feature", "group": "story", "task": "task"}
+LEVELS: tuple[ItemKind, ...] = ("change", "group", "task")
 
 
 def tracker_on(host: WorkItemHost, process: str = "basic") -> AzureDevOpsWorkItems:
@@ -29,7 +28,7 @@ def test_a_group_item_is_created_under_a_change_item_in_one_request() -> None:
     host = WorkItemHost()
     change = host.seed("Issue", "Change")
 
-    item = tracker_on(host).create("story", "Group one", "Do it", change, markers=("feature:g1",))
+    item = tracker_on(host).create("group", "Group one", "Do it", change, markers=("feature:g1",))
 
     assert len(host.creates) == 1
     made = host.creates[0]
@@ -40,7 +39,7 @@ def test_a_group_item_is_created_under_a_change_item_in_one_request() -> None:
     assert made.fields["System.AreaPath"] == AREA_PATH
     assert made.fields["System.IterationPath"] == ITERATION_PATH
     assert [(r["rel"], r["url"].rsplit("/", 1)[-1]) for r in made.relations] == [(PARENT, change)]
-    assert (item.kind, item.parent_id) == ("story", change)
+    assert (item.kind, item.parent_id) == ("group", change)
     assert item.revision
     assert item.url
 
@@ -49,7 +48,7 @@ def test_the_description_is_escaped_text_and_the_body_reads_back_as_written() ->
     host = WorkItemHost()
     tracker = tracker_on(host)
 
-    made = tracker.create("feature", "Change", "a < b & c", markers=("feature",))
+    made = tracker.create("change", "Change", "a < b & c", markers=("feature",))
 
     description = host.creates[0].fields["System.Description"]
     assert "a &lt; b &amp; c" in description
@@ -72,10 +71,10 @@ def test_the_type_of_a_level_follows_the_configuration(
     host = WorkItemHost()
     tracker = tracker_on(host, process)
     parent: str | None = None
-    for above in ("change", "group", "task"):
+    for above in LEVELS:
         if above not in PROCESS_TYPES[process]:
             continue
-        made = tracker.create(KINDS[above], f"{above} item", parent=parent)
+        made = tracker.create(above, f"{above} item", parent=parent)
         if above == level:
             break
         parent = made.id
@@ -87,8 +86,8 @@ def test_each_level_carries_its_marker_key_and_its_parent() -> None:
     host = WorkItemHost()
     tracker = tracker_on(host, "scrum")
 
-    change = tracker.create("feature", "Change", markers=("add-marker",))
-    group = tracker.create("story", "Group", parent=change.id, markers=("add-marker:g1",))
+    change = tracker.create("change", "Change", markers=("add-marker",))
+    group = tracker.create("group", "Group", parent=change.id, markers=("add-marker:g1",))
     task = tracker.create("task", "Task", parent=group.id, markers=("add-marker:g1.t1",))
 
     assert (change.markers, group.markers, task.markers) == (
@@ -103,7 +102,7 @@ def test_each_level_carries_its_marker_key_and_its_parent() -> None:
 def test_a_created_item_is_found_by_its_marker() -> None:
     host = WorkItemHost()
     tracker = tracker_on(host)
-    made = tracker.create("feature", "Change", markers=("add-marker",))
+    made = tracker.create("change", "Change", markers=("add-marker",))
 
     found = tracker.find_by_marker("add-marker")
 
@@ -117,7 +116,7 @@ def test_an_item_whose_create_answer_was_lost_is_found_and_not_created_twice() -
     tracker = tracker_on(host)
 
     with pytest.raises(HostError):
-        tracker.create("feature", "Change", markers=("add-marker",))
+        tracker.create("change", "Change", markers=("add-marker",))
     found = tracker.find_by_marker("add-marker")
 
     assert isinstance(found, Item)
@@ -135,8 +134,8 @@ def test_the_children_of_a_change_item_come_from_the_forward_link() -> None:
     found = tracker_on(host).children(change)
 
     assert [(item.id, item.kind, item.parent_id) for item in found] == [
-        (first, "story", change),
-        (second, "story", change),
+        (first, "group", change),
+        (second, "group", change),
     ]
 
 
@@ -144,8 +143,8 @@ def test_a_marker_is_found_exactly_and_not_as_part_of_a_longer_one() -> None:
     host = WorkItemHost()
     tracker = tracker_on(host, "scrum")
     # The longer marker is made first, so a substring match would find it first.
-    group = tracker.create("story", "Group", markers=("add-marker:g1",))
-    change = tracker.create("feature", "Change", markers=("add-marker",))
+    group = tracker.create("group", "Group", markers=("add-marker:g1",))
+    change = tracker.create("change", "Change", markers=("add-marker",))
 
     found = tracker.find_by_marker("add-marker")
 
@@ -158,7 +157,7 @@ def test_a_marker_is_found_exactly_and_not_as_part_of_a_longer_one() -> None:
 def test_the_marker_is_searched_by_a_field_the_query_language_matches_by_substring() -> None:
     host = WorkItemHost()
     tracker = tracker_on(host)
-    tracker.create("feature", "Change", markers=("add-marker",))
+    tracker.create("change", "Change", markers=("add-marker",))
 
     tracker.find_by_marker("add-marker")
 
@@ -203,7 +202,7 @@ def test_a_multi_line_body_keeps_its_line_breaks_on_the_board_and_reads_back_exa
     tracker = tracker_on(host)
     body = "first\nsecond <b>\n\n- third"
 
-    made = tracker.create("feature", "Change", body, markers=("add-marker",))
+    made = tracker.create("change", "Change", body, markers=("add-marker",))
 
     description = host.creates[0].fields["System.Description"]
     assert "first<br>second &lt;b&gt;<br><br>- third" in description
@@ -214,7 +213,7 @@ def test_a_group_type_left_to_story_type_is_the_type_of_the_group_level() -> Non
     host = WorkItemHost()
     plain = section("basic").model_copy(update={"types": {"change": "Issue"}})
 
-    AzureDevOpsWorkItems(plain, http=host).create("story", "Group")
+    AzureDevOpsWorkItems(plain, http=host).create("group", "Group")
 
     assert host.creates[0].type == plain.story_type
 

@@ -188,6 +188,15 @@ def test_a_key_that_is_not_a_block_key_is_refused_naming_it_and_the_block(
     assert key in str(raised.value) and block_name in str(raised.value)
 
 
+def test_a_block_states_that_is_not_a_mapping_is_reported_under_states() -> None:
+    configure(app={**BASIC, "azure_devops": {**AZURE_BLOCK, "states": ["To Do"]}})
+
+    with pytest.raises(TrackerConfigError) as raised:
+        section_for("app")
+
+    assert "states" in str(raised.value) and "state_map" not in str(raised.value)
+
+
 def test_a_story_type_shared_with_the_task_level_is_refused_naming_the_levels() -> None:
     configure(app={**AZURE, "story_type": "Task"})
 

@@ -17,63 +17,63 @@ def protocol_methods() -> list[str]:
     )
 
 
-def test_a_story_has_the_same_shape_as_every_other_item() -> None:
+def test_a_group_has_the_same_shape_as_every_other_item() -> None:
     tracker = LocalTracker()
-    feature = tracker.create("feature", "Feature")
+    change = tracker.create("change", "Change")
 
-    story = tracker.get(tracker.create("story", "Story", "the body", feature.id).id)
+    group = tracker.get(tracker.create("group", "Group", "the body", change.id).id)
 
-    assert isinstance(story.id, str) and story.id
-    assert story.kind == "story"
-    assert (story.title, story.body) == ("Story", "the body")
-    assert story.state
-    assert story.assignees == ()
-    assert story.parent_id == feature.id
-    assert story.revision
-    assert story.url
+    assert isinstance(group.id, str) and group.id
+    assert group.kind == "group"
+    assert (group.title, group.body) == ("Group", "the body")
+    assert group.state
+    assert group.assignees == ()
+    assert group.parent_id == change.id
+    assert group.revision
+    assert group.url
 
 
 def test_every_kind_is_read_back_with_its_own_kind() -> None:
     tracker = LocalTracker()
-    feature = tracker.create("feature", "F")
-    story = tracker.create("story", "S", parent=feature.id)
-    task = tracker.create("task", "T", parent=story.id)
+    change = tracker.create("change", "F")
+    group = tracker.create("group", "S", parent=change.id)
+    task = tracker.create("task", "T", parent=group.id)
 
-    kinds = [tracker.get(item.id).kind for item in (feature, story, task)]
+    kinds = [tracker.get(item.id).kind for item in (change, group, task)]
 
-    assert kinds == ["feature", "story", "task"]
-    assert tracker.get(feature.id).parent_id is None
+    assert kinds == ["change", "group", "task"]
+    assert tracker.get(change.id).parent_id is None
 
 
-def test_the_children_of_a_feature_and_of_a_story_are_what_was_created_under_them() -> None:
+def test_the_children_of_a_change_and_of_a_group_are_what_was_created_under_them() -> None:
     tracker = LocalTracker()
-    feature = tracker.create("feature", "F")
-    stories = [tracker.create("story", f"S{n}", parent=feature.id) for n in range(2)]
-    tasks = [tracker.create("task", f"T{n}", parent=stories[0].id) for n in range(3)]
+    change = tracker.create("change", "F")
+    groups = [tracker.create("group", f"S{n}", parent=change.id) for n in range(2)]
+    tasks = [tracker.create("task", f"T{n}", parent=groups[0].id) for n in range(3)]
 
-    under_feature = tracker.children(feature.id)
-    under_story = tracker.children(stories[0].id)
+    under_change = tracker.children(change.id)
+    under_group = tracker.children(groups[0].id)
 
-    assert sorted((item.id, item.kind) for item in under_feature) == sorted(
-        (item.id, "story") for item in stories
+    assert sorted((item.id, item.kind) for item in under_change) == sorted(
+        (item.id, "group") for item in groups
     )
-    assert sorted((item.id, item.kind) for item in under_story) == sorted(
+    assert sorted((item.id, item.kind) for item in under_group) == sorted(
         (item.id, "task") for item in tasks
     )
-    assert list(tracker.children(stories[1].id)) == []
+    assert list(tracker.children(groups[1].id)) == []
 
 
 def test_an_item_created_with_a_marker_is_found_after_a_create_whose_answer_was_lost() -> None:
     tracker = LocalTracker()
-    feature = tracker.create("feature", "F")
+    change = tracker.create("change", "F")
 
-    tracker.create("story", "S", parent=feature.id, markers=("abk:story-1",))  # answer dropped
-    found = tracker.find_by_marker("abk:story-1")
+    tracker.create("group", "S", parent=change.id, markers=("abk:group-1",))  # answer dropped
+    found = tracker.find_by_marker("abk:group-1")
 
     assert found is not None
     assert found.title == "S"
-    assert "abk:story-1" in found.markers
-    assert [item.id for item in tracker.children(feature.id)] == [found.id]
+    assert "abk:group-1" in found.markers
+    assert [item.id for item in tracker.children(change.id)] == [found.id]
     assert tracker.find_by_marker("abk:other") is None
 
 

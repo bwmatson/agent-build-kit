@@ -4,13 +4,12 @@ from __future__ import annotations
 
 import logging
 import re
-from typing import Annotated, Any, Literal, Self, get_args
+from typing import Annotated, Any, Literal, Self
 
 from pydantic import Field, TypeAdapter, ValidationError, field_validator, model_validator
 
 from agent_build_kit import config
 from agent_build_kit.model import Frozen
-from agent_build_kit.trackers.base import ItemKind
 
 # The only shape a credential may take in abk.yaml: the name of an environment variable.
 _ENV_NAME = re.compile(r"[A-Z_][A-Z0-9_]*")
@@ -22,8 +21,8 @@ logger = logging.getLogger(__name__)
 # The kit entities a board can hold, outermost first.
 LEVEL_ORDER = ("change", "group", "task")
 _PR_LINK_WORDS = ("lowest", "all")
-# The level each protocol kind stands for.
-KIND_LEVELS: dict[ItemKind, str] = {"feature": "change", "story": "group", "task": "task"}
+# The words an old section's `labels` used for the three levels.
+_OLD_LABEL_WORDS = {"change": "feature", "group": "story", "task": "task"}
 
 
 class TrackerConfigError(Exception):
@@ -148,8 +147,8 @@ class GithubTracker(TrackerSection):
     kind: Literal["github"]
     owner: str = Field(min_length=1)
     repo: str = Field(min_length=1)
-    # The label that stands for each logical kind.
-    labels: dict[ItemKind, str] | None = None
+    # The old setting: the label that stands for each of feature, story and task.
+    labels: dict[str, str] | None = None
     host: str | None = None
     project_number: int | None = None
 
@@ -159,33 +158,23 @@ class GithubTracker(TrackerSection):
 
     @field_validator("labels")
     @classmethod
-    def _every_kind_has_a_label(
-        cls, labels: dict[ItemKind, str] | None
-    ) -> dict[ItemKind, str] | None:
+    def _every_kind_has_a_label(cls, labels: dict[str, str] | None) -> dict[str, str] | None:
         if labels is None:
             return labels
-        missing = [kind for kind in get_args(ItemKind) if not labels.get(kind)]
+        missing = [word for word in _OLD_LABEL_WORDS.values() if not labels.get(word)]
         if missing:
             raise ValueError(f"needs a non-empty label for {', '.join(missing)}")
         return labels
-
-
-_SECTIONS: TypeAdapter[AzureDevOpsTracker | GithubTracker] = TypeAdapter(
-    Annotated[AzureDevOpsTracker | GithubTracker, Field(discriminator="kind")]
-)
-# The protocol kind each level stood for, for reading an old section's labels.
-_LABEL_KINDS = {level: kind for kind, level in KIND_LEVELS.items()}
-_KINDS = tuple(
-    kind
-    for model in (AzureDevOpsTracker, GithubTracker)
-    for kind in get_args(model.model_fields["kind"].annotation)
-)
 
 
 _MODELS: dict[str, type[AzureDevOpsTracker | GithubTracker]] = {
     "azure_devops": AzureDevOpsTracker,
     "github": GithubTracker,
 }
+_SECTIONS: TypeAdapter[AzureDevOpsTracker | GithubTracker] = TypeAdapter(
+    Annotated[AzureDevOpsTracker | GithubTracker, Field(discriminator="kind")]
+)
+_KINDS = tuple(_MODELS)
 # The old flat keys that name a type, which a block's `types` replaces.
 _OLD_ONLY_KEYS = {"azure_devops": ("story_type",), "github": ("labels",)}
 _OLD_REPLACEMENTS = {"story_type": "types.group", "labels": "types", "state_map": "states"}
@@ -204,7 +193,7 @@ def _block_keys(kind: str) -> tuple[str, ...]:
     return (*connection, "types", "states")
 
 
-# The section whose old keys were last warned about, and which of them: the active
+# The configuration whose old keys were last warned about, and which of them: the active
 # configuration is one object for the life of a run, so each key is warned of once.
 _warned: tuple[object, set[tuple[str, str]]] | None = None
 
@@ -251,7 +240,7 @@ def _expand(raw: dict[str, Any], repo: str, kind: str) -> dict[str, Any]:
         if kind == "azure_devops":
             types = {"change": "Feature", "group": old.get("story_type"), "task": "Task"}
         else:
-            types = {level: labels.get(name) for level, name in _LABEL_KINDS.items()}
+            types = {level: labels.get(word) for level, word in _OLD_LABEL_WORDS.items()}
         old.setdefault("levels", list(LEVEL_ORDER))
         old["types"] = {**{k: v for k, v in types.items() if v}, **written}
         return old
@@ -263,6 +252,8 @@ def _expand(raw: dict[str, Any], repo: str, kind: str) -> dict[str, Any]:
         raise refuse(
             f"{', '.join(flat_old)}: old keys that cannot be combined with the {kind} block"
         )
+    if "states" in block and not isinstance(block["states"], dict):
+        raise refuse(f"{kind}.states: must be a mapping")
     foreign = [key for key in block if key not in _block_keys(kind)]
     if foreign:
         raise refuse(f"{', '.join(foreign)}: not a key of the {kind} block")

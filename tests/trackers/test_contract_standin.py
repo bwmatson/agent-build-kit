@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from agent_build_kit.trackers.base import Capabilities
+from agent_build_kit.trackers.base import Capabilities, ItemKind
 from agent_build_kit.trackers.local import LocalTracker
 from tests.trackers import contract
 
@@ -20,7 +20,7 @@ def typed(request: pytest.FixtureRequest) -> bool:
 
 
 @pytest.fixture(params=list(contract.LEVEL_SETS))
-def levels(request: pytest.FixtureRequest) -> tuple[str, ...]:
+def levels(request: pytest.FixtureRequest) -> tuple[ItemKind, ...]:
     return contract.LEVEL_SETS[request.param]
 
 
@@ -31,11 +31,10 @@ def with_epic(request: pytest.FixtureRequest) -> bool:
 
 @pytest.fixture
 def shape(
-    revision_check: bool, typed: bool, levels: tuple[str, ...], with_epic: bool
+    revision_check: bool, typed: bool, levels: tuple[ItemKind, ...], with_epic: bool
 ) -> contract.Shape:
     capabilities = Capabilities(revision_check=revision_check, typed=typed)
-    kinds = [contract.LEVEL_KINDS[level] for level in levels]
-    tracker = LocalTracker(capabilities, levels=kinds)
+    tracker = LocalTracker(capabilities, levels=levels)
     epic = tracker.add_epic("Epic") if with_epic else None
     return contract.shape_of(tracker, tracker.as_identity("someone-else"), levels, epic)
 
@@ -46,7 +45,7 @@ def test_the_stand_in_passes_every_scenario(scenario: str, shape: contract.Shape
 
 
 def test_the_stand_in_refuses_a_kind_outside_its_levels() -> None:
-    tracker = LocalTracker(levels=["feature"])
+    tracker = LocalTracker(levels=["change"])
 
-    with pytest.raises(ValueError, match="story"):
-        tracker.create("story", "Story")
+    with pytest.raises(ValueError, match="group"):
+        tracker.create("group", "Story")

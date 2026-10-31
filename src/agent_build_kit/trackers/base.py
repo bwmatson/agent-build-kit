@@ -12,7 +12,7 @@ from typing import Literal, Protocol
 
 from agent_build_kit.model import Frozen
 
-ItemKind = Literal["feature", "story", "task"]
+ItemKind = Literal["change", "group", "task"]
 
 
 class Identity(Frozen):
