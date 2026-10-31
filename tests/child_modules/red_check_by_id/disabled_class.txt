@@ -1,0 +1,9 @@
+class TestDisabled:
+    __test__ = False
+
+    def test_a(self):
+        raise AssertionError()
+
+
+def test_real():
+    raise AssertionError()

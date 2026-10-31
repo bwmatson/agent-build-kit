@@ -211,7 +211,8 @@ class ToolchainProfile(Protocol):
         """The command that runs `files`, the test files of a tests commit, to see them fail.
         `ids`, when given, are the identifiers of the tests the commit added or changed (a file
         named alone stands for all its tests) and replace `files` for a runner that selects by
-        identifier; a runner that cannot runs the files whole."""
+        identifier; a runner that cannot runs the files whole. An id the runner turns out not to
+        collect must not fail the run: the command falls back to the files whole."""
         ...
 
     def interpret_red(

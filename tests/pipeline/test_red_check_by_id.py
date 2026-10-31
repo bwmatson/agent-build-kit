@@ -2,7 +2,7 @@
 (spec: red-check-by-id).
 
 Over real git repositories and a real pytest: the Python profile's report reading judges
-the run, and only its command is changed to use this interpreter instead of `uv`. The test
+the run, and its command is the profile's own with this interpreter instead of `uv`. The test
 files each commit holds are the `.txt` files under `tests/child_modules/red_check_by_id/`,
 kept as text so the suite's own selection of tests by id never takes them for tests.
 """
@@ -18,7 +18,7 @@ import pytest
 from agent_build_kit import profiles
 from agent_build_kit.config import ProjectConfig
 from agent_build_kit.pipeline.gate import check_branch
-from agent_build_kit.pipeline.red_check import passed_problem, wrap_report_command
+from agent_build_kit.pipeline.red_check import passed_problem
 from agent_build_kit.profiles.python_uv import PROFILE as PYTHON
 from tests.factories import commit_files, git, init_repo
 from tests.stub_gate_support import ModeProfile, judged
@@ -48,9 +48,9 @@ class IdProfile(ModeProfile):
 
     def red_command(self, files: list[str], ids: list[str] | None = None) -> str:
         self.asked.append((files, ids))
-        targets = shlex.join(ids or files)
-        run = f"{shlex.quote(sys.executable)} -m pytest {targets} -p no:cacheprovider --tb=line -q"
-        return wrap_report_command(run, "--junitxml")
+        # The Python profile's own command, run with this interpreter in place of `uv run`.
+        command = PYTHON.red_command(files, ids)
+        return command.replace("uv run pytest", f"{shlex.quote(sys.executable)} -m pytest")
 
 
 def branch_with(tmp_path: Path, base_files: dict[str, str]) -> Path:
@@ -152,17 +152,40 @@ def test_a_failing_test_on_a_base_class_the_runner_does_not_collect_is_accepted(
     problems = judged(repo, profile)
 
     assert problems == []
-    assert profile.asked == [(["tests/test_base.py"], None)]
+    assert profile.asked == [(["tests/test_base.py"], ["tests/test_base.py::Base::test_shared"])]
 
 
-def test_a_fixture_named_like_a_test_is_not_selected(repo: Path) -> None:
-    commit_cases(repo, {SUBJECT: source("fixture_named_test")})
+def test_a_fixture_named_like_a_test_beside_a_new_failing_test_is_accepted(repo: Path) -> None:
+    commit_cases(repo, {"tests/test_fixture.py": source("fixture_named_test")})
+
+    assert judged(repo, IdProfile()) == []
+
+
+def test_a_class_that_opts_out_of_collection_beside_a_new_failing_test_is_accepted(
+    repo: Path,
+) -> None:
+    commit_cases(repo, {"tests/test_disabled.py": source("disabled_class")})
+
+    assert judged(repo, IdProfile()) == []
+
+
+def test_a_class_with_an_init_beside_a_new_failing_test_is_accepted(repo: Path) -> None:
+    commit_cases(repo, {"tests/test_init.py": source("class_with_init")})
+
+    assert judged(repo, IdProfile()) == []
+
+
+def test_a_passing_test_in_a_unittest_class_not_named_test_is_counted(repo: Path) -> None:
+    commit_cases(repo, {"tests/test_mixed.py": source("mixed_classes")})
     profile = IdProfile()
 
     problems = judged(repo, profile)
 
-    assert problems == []
-    assert profile.asked == [([SUBJECT], [NEW])]
+    assert profile.asked[0][1] == [
+        "tests/test_mixed.py::TestA::test_x",
+        "tests/test_mixed.py::WidgetTests::test_y",
+    ]
+    assert any(passed_problem(1) in problem for problem in problems), problems
 
 
 def test_a_function_inside_a_new_test_is_not_selected(repo: Path) -> None:

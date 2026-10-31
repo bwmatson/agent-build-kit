@@ -15,9 +15,12 @@ def test_ids_are_passed_as_path_and_name_arguments_in_place_of_the_files() -> No
 
     command = profile.red_command(FILES, IDS)
 
-    assert "pytest tests/test_a.py::test_new tests/test_a.py::TestGroup::test_changed " in command
-    assert "tests/test_b.py" not in command
-    assert "-p no:cacheprovider --tb=line -q" in command
+    first, _, after = command.partition('if [ "$status" -eq 4 ]; then ')
+    assert "pytest tests/test_a.py::test_new tests/test_a.py::TestGroup::test_changed " in first
+    assert "tests/test_b.py" not in first
+    assert "-p no:cacheprovider --tb=line -q" in first
+    # On pytest's usage error (an id it did not collect) the files run whole in its place.
+    assert after.startswith("uv run pytest tests/test_a.py tests/test_b.py -p no:cacheprovider")
 
 
 def test_without_ids_the_command_is_the_whole_file_run_and_with_them_it_is_not() -> None:

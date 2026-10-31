@@ -4021,14 +4021,6 @@ def moving_onto(unit: StoredUnit, base: str, store: UnitStore) -> StoredUnit:
     return predecessor(unit, base, store) or unit.model_copy(update={"id": base, "title": base})
 
 
-def _is_fixture(function: ast.FunctionDef | ast.AsyncFunctionDef) -> bool:
-    """Whether the function is decorated as a pytest fixture, with or without arguments."""
-    return any(
-        ast.unparse(d.func if isinstance(d, ast.Call) else d).endswith("fixture")
-        for d in function.decorator_list
-    )
-
-
 def _test_bodies(source: str, *, qualified: bool = False) -> dict[str, list[str]]:
     """Each `test_*` function's own source text, by name, decorators included.
 
@@ -4049,13 +4041,8 @@ def _test_bodies(source: str, *, qualified: bool = False) -> dict[str, list[str]
 
     def visit(node: ast.AST, classes: tuple[str, ...]) -> None:
         if qualified and isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef):
-            return  # nothing inside a function is collected
+            return  # nothing inside a function is collected by name; a function in it is no test id
         for child in ast.iter_child_nodes(node):
-            if qualified and (
-                (isinstance(child, ast.FunctionDef | ast.AsyncFunctionDef) and _is_fixture(child))
-                or (isinstance(child, ast.ClassDef) and not child.name.startswith("Test"))
-            ):
-                continue  # a fixture, and a class the runner does not collect, have no test ids
             if isinstance(child, ast.FunctionDef | ast.AsyncFunctionDef) and child.name.startswith(
                 "test_"
             ):

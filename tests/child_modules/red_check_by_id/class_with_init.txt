@@ -1,0 +1,10 @@
+class TestWithInit:
+    def __init__(self):
+        self.ready = True
+
+    def test_a(self):
+        raise AssertionError()
+
+
+def test_real():
+    raise AssertionError()

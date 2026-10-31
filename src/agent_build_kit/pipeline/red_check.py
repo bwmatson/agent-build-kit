@@ -182,14 +182,22 @@ def split_report(output: str) -> tuple[str | None, str]:
     return report or None, console
 
 
-def wrap_report_command(command: str, report_flag: str) -> str:
+def wrap_report_command(
+    command: str, report_flag: str, *, retry: str | None = None, retry_on: int = 0
+) -> str:
     """`command` run so that its JUnit report is printed after `REPORT_MARK`, where
     `split_report` reads it, and outlives the worktree the command runs in. `report_flag`
     is the runner's option naming the report file; the file is a fresh temporary one, so a
     file already in the tree is never read as the report, and the exit status is the
-    runner's own."""
+    runner's own. When `retry` is given and `command` exits with `retry_on`, `retry` runs
+    in its place with the same report file, and the report and status are its."""
+    again = (
+        f'if [ "$status" -eq {retry_on} ]; then {retry} {report_flag}="$report"; status=$?; fi; '
+        if retry
+        else ""
+    )
     return (
-        f'report=$(mktemp); {command} {report_flag}="$report"; status=$?; '
+        f'report=$(mktemp); {command} {report_flag}="$report"; status=$?; {again}'
         f'echo \'{REPORT_MARK}\'; cat "$report" 2>/dev/null; rm -f "$report"; '
         "exit $status"
     )
