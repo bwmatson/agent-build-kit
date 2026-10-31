@@ -529,7 +529,8 @@ release could move. The steps:
    unit of its own: the join check refuses to put it with another group, the plan check
    refuses a plan that does, and no `Separate:` line is needed. `abk tags` warns of one
    anyway. It also warns of a backticked product path in such a group, unless the path is
-   a test path, a doc, the changelog or declared by a `Support:` line.
+   a test path, a doc, the changelog or declared by a `Support:` line, and of a task that names
+   no path but asks for a product change in words (it begins with fix, change, add and the like).
 
    **The scope guard and the product-defect path.** The top of `checks` holds a guard: an
    e2e-test unit whose branch changes product code, meaning anything other than tests, test support, docs, the changelog

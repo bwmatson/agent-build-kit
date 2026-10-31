@@ -7058,7 +7058,7 @@ def _tag_warnings(inst: Installation, path: Path) -> list[str]:
         *old_test_kind_warnings(path),
         *redundant_separate_warnings(path),
         *product_path_warnings(path, _validated(inst, path)[0], inst.repos),
-        *task_wording_warnings(path, _validated(inst, path)[0], inst.repos),
+        *task_wording_warnings(path, _validated(inst, path)[0]),
         *manual_runbook_warnings(path, inst.root),
         *inverted_group_warnings(
             path,

@@ -59,6 +59,8 @@ def unscoped_task_paths(
 _CHANGING_VERBS = frozenset(
     {"fix", "change", "add", "implement", "update", "refactor", "remove", "rename", "make"}
 )
+# A documentation word exempts a task only as the object of the verb, near the start of the line.
+_OBJECT_WORDS = 5
 _NOT_A_CHANGE = re.compile(r"\b(docs?|documentation|changelog|readme)\b", re.I)
 
 
@@ -78,20 +80,20 @@ def _e2e_task_lines(
             yield index, group, matched
 
 
-def task_wording_warnings(
-    path: Path, groups: Sequence[TaskGroup], repos: Mapping[str, RepoConfig]
-) -> list[str]:
+def task_wording_warnings(path: Path, groups: Sequence[TaskGroup]) -> list[str]:
     """One warning per task of an `[e2e-test]` group that asks in words for a change to the
     product: not a `Test:`, `Support:`, documentation or changelog task, it begins with a
-    changing verb. A task that names a product path is left to `product_path_warnings`."""
+    changing verb. A task that names any path is placed by it: a product path is left to
+    `product_path_warnings`, and a test, doc or support path is not a product change."""
     warnings: list[str] = []
     for index, group, matched in _e2e_task_lines(path, groups):
         text = matched["text"]
-        if text.split(maxsplit=1)[0].lower() not in _CHANGING_VERBS:
+        words = text.split()
+        if not words or words[0].lower().rstrip(":,;.") not in _CHANGING_VERBS:
             continue
-        if _NOT_A_CHANGE.search(text):
+        if _NOT_A_CHANGE.search(" ".join(words[:_OBJECT_WORDS])):
             continue
-        if unscoped_task_paths(changed_paths(text, ()), repos.get(group.repo), group.support):
+        if changed_paths(text, ()):
             continue
         warnings.append(
             f"{path}:line {index}: warning: group {group.number}: task "

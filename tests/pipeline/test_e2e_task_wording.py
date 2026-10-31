@@ -95,6 +95,62 @@ def test_a_test_a_documentation_a_changelog_and_a_support_task_are_not_warned(
     assert wording_warnings(out) == [], out
 
 
+def test_a_changing_verb_task_that_names_a_test_or_support_path_is_not_warned(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    run = Replan(tmp_path, monkeypatch)
+    run.write(
+        "live",
+        tasks(
+            group(
+                1,
+                "e2e-test",
+                "Add `tests/test_run.py` for the live run.",
+                "Add `compose.e2e.yml` for the stack.",
+                support="Support: `compose.e2e.yml` — the live tests start the stack\n",
+            )
+        ),
+    )
+
+    code, out = tags(run, capsys, "live")
+
+    assert code == 0
+    assert wording_warnings(out) == [], out
+
+
+def test_a_changing_verb_task_that_names_a_product_path_gets_only_the_path_warning(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    run = Replan(tmp_path, monkeypatch)
+    run.write("live", tasks(group(1, "e2e-test", "Fix `src/app/cli.py`.")))
+
+    code, out = tags(run, capsys, "live")
+
+    assert code == 0
+    assert wording_warnings(out) == [], out
+    assert "src/app/cli.py" in out
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "Fix: the entry point so the run starts.",
+        "Update, then rerun the entry point.",
+        "Fix the entry point and note it in the changelog.",
+    ],
+)
+def test_punctuation_after_the_verb_and_a_late_documentation_word_are_still_warned(
+    text: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    run = Replan(tmp_path, monkeypatch)
+    run.write("live", tasks(group(1, "e2e-test", text)))
+
+    code, out = tags(run, capsys, "live")
+
+    assert code == 0
+    assert len(wording_warnings(out)) == 1, out
+
+
 def test_the_same_words_in_a_unit_test_group_are_not_warned(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
