@@ -45,6 +45,27 @@ def test_other_commands_are_not_refused_by_the_no_commit_option(repo: Path) -> N
     assert decide(payload("git status", repo), no_commit=True) is None
 
 
+@pytest.mark.parametrize(
+    "command", ["git rebase main", "git cherry-pick abc123", "git reset --soft HEAD~1"]
+)
+def test_a_command_that_moves_the_branch_is_refused_when_the_run_may_not_commit(
+    repo: Path, command: str
+) -> None:
+    answer = decide(payload(command, repo), no_commit=True)
+
+    assert answer is not None
+    assert answer["hookSpecificOutput"]["permissionDecision"] == "deny"
+
+
+@pytest.mark.parametrize(
+    "command", ["git cherry-pick -n abc123", "git rebase --abort", "git reset -- a.py"]
+)
+def test_the_forms_that_leave_the_result_in_the_tree_are_not_refused(
+    repo: Path, command: str
+) -> None:
+    assert decide(payload(command, repo), no_commit=True) is None
+
+
 def test_the_hook_is_registered_with_committing_refused_only_when_asked() -> None:
     assert "--no-commit" not in command_of(hook_settings(Path("/repo"), no_push=True))
     assert " --no-commit" in command_of(hook_settings(Path("/repo"), no_push=True, no_commit=True))

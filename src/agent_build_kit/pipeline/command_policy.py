@@ -220,11 +220,12 @@ def _check_segment(segment: str, branch: str, protected: Collection[str] = ()) -
         return Verdict(
             allowed=False,
             reason="amending would fold the implementation into the tests commit and erase "
-            "the evidence that the tests failed first — add a new commit instead",
+            "the evidence that the tests failed first — leave the change as a separate one",
         )
     if _is_git(tokens, "amend"):
         return Verdict(
-            allowed=False, reason="amending a unit branch is denied — add a new commit instead"
+            allowed=False,
+            reason="amending a unit branch is denied — leave the change as a separate one",
         )
 
     if _is_git(tokens, "reset") and "--hard" in tokens:
@@ -321,17 +322,74 @@ def check_no_push(command: str) -> Verdict:
 
 
 COMMIT_REASON = (
-    "nothing is committed until the person says so — leave the changes in the working tree"
+    "this run makes no commit and moves no branch: the pipeline (or the person, in a chat) commits "
+    "what it leaves in the working tree, with the gate and the trailer — leave the changes there"
 )
+
+# The git subcommands that make a commit, or move a branch to another one; each is refused unless
+# it is only the cleanup of a step in progress.
+_COMMITS = frozenset(
+    {"commit", "commit-tree", "update-ref", "am", "pull", "rebase", "filter-branch", "filter-repo"}
+)
+# The cleanup of a step already in progress: it undoes, it makes no commit.
+_CLEANUPS = ({"--abort"}, {"--quit"})
+_RESET_MODES = frozenset({"--soft", "--mixed", "--hard", "--keep", "--merge"})
+# `-n` is `--no-commit` for these two, alone or in a cluster such as `-nx`.
+_NO_COMMIT_CLUSTER = re.compile(r"-[a-zA-Z]*n[a-zA-Z]*")
+
+
+def _only_cleanup(rest: list[str]) -> bool:
+    return any(set(rest) == cleanup and len(rest) == 1 for cleanup in _CLEANUPS)
+
+
+def _moves_commits(args: list[str]) -> bool:
+    """A git command, from its subcommand on, that makes a commit or moves a branch.
+
+    What leaves its result in the working tree is not one: `cherry-pick` and `revert` with
+    `--no-commit`, `merge` with `--squash` (it only stages) or with `--no-commit` and `--no-ff`
+    (without `--no-ff` a fast-forward moves the branch and ignores `--no-commit`), `reset` of
+    nothing or of paths after `--`, and the `--abort` or `--quit` that stands alone."""
+    if not args:
+        return False
+    sub, rest = args[0], args[1:]
+    if sub == "commit":
+        return True
+    if sub in _COMMITS:
+        return not _only_cleanup(rest)
+    if sub in ("cherry-pick", "revert"):
+        no_commit = any(
+            arg == "--no-commit" or (_NO_COMMIT_CLUSTER.fullmatch(arg) and not arg.startswith("-X"))
+            for arg in rest
+        )
+        return not (no_commit or _only_cleanup(rest))
+    if sub == "merge":
+        staged_only = "--squash" in rest or ("--no-commit" in rest and "--no-ff" in rest)
+        return not (staged_only or _only_cleanup(rest))
+    if sub == "reset":
+        # A revision moves HEAD, and so does a mode: only a bare `reset` or paths after `--` do not.
+        before = rest[: rest.index("--")] if "--" in rest else rest
+        return any(arg in _RESET_MODES or not arg.startswith("-") for arg in before)
+    if sub in ("checkout", "switch"):
+        # Creating a branch is fine; forcing one to another commit moves it.
+        return any(arg in ("-B", "-C", "--force-create") for arg in rest)
+    if sub == "branch":
+        return any(arg in ("-f", "--force", "-M", "-C") for arg in rest)
+    if sub == "symbolic-ref":
+        # `symbolic-ref HEAD` reads; naming a target writes.
+        return len([arg for arg in rest if not arg.startswith("-")]) > 1
+    return False
 
 
 def check_no_commit(command: str) -> Verdict:
-    """Refuse a command in which any segment is a `git commit`."""
+    """Refuse a command in which any segment makes a commit or moves the branch: a `git commit`
+    in any form, and the other commands that do (`cherry-pick`, `revert`, `merge`, `rebase`, `am`,
+    `pull`, `commit-tree`, `update-ref`, and a `reset` that moves HEAD). The forms that leave
+    the result in the working tree stay allowed (`_moves_commits`)."""
     for segment in SEGMENT_SPLIT.split(command):
         tokens = _strip_wrappers(_tokens(segment.strip()))
         if tokens and tokens[0] == "git":
             _, args = _git_target(tokens, None)
-            if args[:1] == ["commit"]:
+            if _moves_commits(args):
                 return Verdict(allowed=False, reason=COMMIT_REASON)
     return Verdict(allowed=True)
 

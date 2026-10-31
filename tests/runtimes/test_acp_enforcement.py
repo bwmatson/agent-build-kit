@@ -810,6 +810,9 @@ def _run_with(record: Path, worktree: Path, specs: Path, policy: ToolPolicy, **a
 COMMITS = [
     pytest.param("git", ["commit", "-am", "wip"], id="plain"),
     pytest.param("git add -A && git commit -m wip", [], id="behind-another-command"),
+    pytest.param("git", ["rebase", "main"], id="rebase"),
+    pytest.param("git", ["cherry-pick", "HEAD"], id="cherry-pick"),
+    pytest.param("git", ["reset", "--soft", "HEAD~1"], id="reset"),
 ]
 
 
@@ -820,6 +823,7 @@ def test_a_turn_that_may_not_commit_edits_the_worktree_and_commits_nothing(
     record = tmp_path / "agent.jsonl"
     target = worktree / "src" / "marker.py"
     before = git(worktree, "rev-parse", "HEAD")
+    assert not check_no_commit(" ".join([command, *args])).allowed
 
     _run_with(
         record,
