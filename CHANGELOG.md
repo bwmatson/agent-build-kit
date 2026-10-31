@@ -196,6 +196,16 @@
   at any time: a change during a step is a warning with its diff, so there is no need to stop
   the timer first.
 
+- A repo's `tracker` section now says how its board is shaped: `levels` (any ordered subset of
+  `change`, `group` and `task`), an optional manual `epic` level, `pr_links` (which levels get
+  a merged unit's pull request, default the lowest), and the connection, types and states in a
+  block named for the provider (`azure_devops:` or `github:`). A two-level board, such as a
+  Basic process one, is now valid. The old flat keys (`story_type`, `labels`, a flat
+  `state_map`, and the connection keys directly under `tracker`) still work and read as the
+  old three levels, with a warning naming each key and its new place; release 0.3.0 drops
+  them. Mixing them with a provider block, a key a block does not hold, a level with no
+  type, or two levels sharing a type is refused naming the key.
+
 - The planner now has a model role of its own, `plan`, defaulting to `opus`. Set it in
   `models:` or under a runtime's `models:`, or per machine with `ABK_PLAN_MODEL`. The
   planner used to run on whatever model the account defaulted to, so installations could

@@ -14,37 +14,7 @@ from agent_build_kit.config import RepoConfig
 from agent_build_kit.trackers.config import TrackerConfigError, TrackerSection, section_for
 from agent_build_kit.trackers.local import LocalTracker
 from tests.tick_driver import make_setup
-
-AZURE = {
-    "kind": "azure_devops",
-    "organization": "example-org",
-    "project": "Example Project",
-    "team": "Example Team",
-    "area_path": "Example Project\\Area",
-    "iteration_path": "Example Project\\Iteration 1",
-    "story_type": "User Story",
-    "token_env": "TRACKER_PAT",
-}
-LABELS = {"feature": "type:feature", "story": "type:story", "task": "type:task"}
-GITHUB = {
-    "kind": "github",
-    "owner": "example",
-    "repo": "app",
-    "labels": LABELS,
-    "token_env": "TRACKER_TOKEN",
-}
-# Shaped like a real personal access token, which a section must never hold.
-TOKEN_SHAPED = "ghp_" + "a1B2c3D4e5F6g7H8i9J0k1L2m3N4o5P6q7R8"
-
-
-def configure(**trackers_by_repo: dict[str, Any] | None) -> None:
-    """Activate the default workspace with these repos' `tracker` sections set."""
-    current = config_module.active()
-    repos = {
-        name: repo.model_copy(update={"tracker": trackers_by_repo.get(name, repo.tracker)})
-        for name, repo in current.repos.items()
-    }
-    config_module.activate(current.model_copy(update={"repos": repos}), config_module.active_root())
+from tests.trackers.tracker_section_support import AZURE, GITHUB, LABELS, TOKEN_SHAPED, configure
 
 
 def test_a_repo_with_no_section_is_off() -> None:

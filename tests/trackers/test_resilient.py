@@ -73,7 +73,7 @@ def down() -> HostError:
 
 def test_a_read_is_retried_through_a_transient_error(waits: Waits) -> None:
     store = LocalTracker()
-    item = store.create("story", "Story")
+    item = store.create("group", "Story")
     inner = Flaky(store, {"get": [down()]})
 
     assert layer(inner, waits).get(item.id) == item
@@ -84,7 +84,7 @@ def test_a_read_is_retried_through_a_transient_error(waits: Waits) -> None:
 
 def test_an_idempotent_write_is_retried_through_a_transient_error(waits: Waits) -> None:
     store = LocalTracker()
-    item = store.create("story", "Story")
+    item = store.create("group", "Story")
     inner = Flaky(store, {"update": [down()]})
 
     updated = layer(inner, waits).update(item.id, {"title": "New"})
@@ -95,7 +95,7 @@ def test_an_idempotent_write_is_retried_through_a_transient_error(waits: Waits) 
 
 def test_a_rate_limit_waits_as_the_forge_wrapper_does(waits: Waits) -> None:
     store = LocalTracker()
-    item = store.create("story", "Story")
+    item = store.create("group", "Story")
     inner = Flaky(store, {"get": [RateLimited("GET /x: rate limited", retry_after=9)]})
 
     assert layer(inner, waits).get(item.id) == item
@@ -105,7 +105,7 @@ def test_a_rate_limit_waits_as_the_forge_wrapper_does(waits: Waits) -> None:
 
 def test_a_network_failure_is_retried(waits: Waits) -> None:
     store = LocalTracker()
-    item = store.create("story", "Story")
+    item = store.create("group", "Story")
     timeout = HostError(f"GET /x: {httpx.ReadTimeout('timed out')!r}")
     inner = Flaky(store, {"children": [timeout, timeout]})
 
@@ -118,11 +118,11 @@ def test_a_create_after_a_timeout_looks_for_the_marker_and_does_not_create_twice
     waits: Waits,
 ) -> None:
     store = LocalTracker()
-    feature = store.create("feature", "Feature")
+    feature = store.create("change", "Feature")
     inner = Flaky(store, {"create": [down()]}, lost=frozenset({"create"}))
 
     created = layer(inner, waits).create(
-        "story", "Story", parent=feature.id, markers=("abk:story-1",)
+        "group", "Story", parent=feature.id, markers=("abk:story-1",)
     )
 
     assert inner.made("create") == 1
@@ -133,11 +133,11 @@ def test_a_create_after_a_timeout_looks_for_the_marker_and_does_not_create_twice
 
 def test_a_create_with_no_marker_is_not_repeated_after_a_timeout(waits: Waits) -> None:
     store = LocalTracker()
-    feature = store.create("feature", "Feature")
+    feature = store.create("change", "Feature")
     inner = Flaky(store, {"create": [down()]}, lost=frozenset({"create"}))
 
     with pytest.raises(HostError):
-        layer(inner, waits).create("story", "Story", parent=feature.id)
+        layer(inner, waits).create("group", "Story", parent=feature.id)
 
     assert inner.made("create") == 1
     assert inner.made("find_by_marker") == 0
@@ -146,11 +146,11 @@ def test_a_create_with_no_marker_is_not_repeated_after_a_timeout(waits: Waits) -
 
 def test_a_rate_limited_create_with_no_marker_is_still_retried(waits: Waits) -> None:
     store = LocalTracker()
-    feature = store.create("feature", "Feature")
+    feature = store.create("change", "Feature")
     limited = RateLimited("POST /x: rate limited", retry_after=3)
     inner = Flaky(store, {"create": [limited]})
 
-    created = layer(inner, waits).create("story", "Story", parent=feature.id)
+    created = layer(inner, waits).create("group", "Story", parent=feature.id)
 
     assert inner.made("create") == 2
     assert waits.slept == [3]
@@ -163,7 +163,7 @@ def test_tracker_retries_are_counted_under_their_own_name(
     lines: list[str] = []
     monkeypatch.setattr(telemetry, "count", lambda name, *a, **k: lines.append(name))
     store = LocalTracker()
-    item = store.create("story", "Story")
+    item = store.create("group", "Story")
 
     layer(Flaky(store, {"get": [down()]}), waits).get(item.id)
 
@@ -174,11 +174,11 @@ def test_a_create_that_did_not_land_is_made_again_once_the_marker_is_not_found(
     waits: Waits,
 ) -> None:
     store = LocalTracker()
-    feature = store.create("feature", "Feature")
+    feature = store.create("change", "Feature")
     inner = Flaky(store, {"create": [down()]})
 
     created = layer(inner, waits).create(
-        "story", "Story", parent=feature.id, markers=("abk:story-1",)
+        "group", "Story", parent=feature.id, markers=("abk:story-1",)
     )
 
     assert inner.made("create") == 2
@@ -187,7 +187,7 @@ def test_a_create_that_did_not_land_is_made_again_once_the_marker_is_not_found(
 
 def test_a_claim_is_called_once_and_its_error_returned(waits: Waits) -> None:
     store = LocalTracker()
-    item = store.create("story", "Story")
+    item = store.create("group", "Story")
     failure = down()
     inner = Flaky(store, {"claim": [failure]})
 
@@ -201,7 +201,7 @@ def test_a_claim_is_called_once_and_its_error_returned(waits: Waits) -> None:
 
 def test_a_claim_that_works_is_passed_through(waits: Waits) -> None:
     store = LocalTracker()
-    item = store.create("story", "Story")
+    item = store.create("group", "Story")
     inner = Flaky(store, {})
 
     assert layer(inner, waits).claim(item.id) is True

@@ -14,9 +14,7 @@ import pytest
 
 from agent_build_kit.trackers.base import Item, ItemKind, StaleRevision, Tracker
 
-# The kit's levels, by the kind the protocol names them today.
-LEVEL_KINDS: dict[str, ItemKind] = {"change": "feature", "group": "story", "task": "task"}
-LEVEL_SETS: dict[str, tuple[str, ...]] = {
+LEVEL_SETS: dict[str, tuple[ItemKind, ...]] = {
     "change": ("change",),
     "change-group": ("change", "group"),
     "change-group-task": ("change", "group", "task"),
@@ -59,7 +57,7 @@ class Shape:
         self,
         tracker: Tracker,
         competitor: Tracker,
-        levels: Sequence[str],
+        levels: Sequence[ItemKind],
         epic: Item | None,
     ) -> None:
         self.epic = epic
@@ -67,7 +65,7 @@ class Shape:
         epic_id = epic.id if epic else None
         self.tracker = cast(Tracker, Watched(tracker, epic_id, self.epic_writes))
         self.competitor = cast(Tracker, Watched(competitor, epic_id, self.epic_writes))
-        self.kinds = [LEVEL_KINDS[level] for level in levels]
+        self.kinds = list(levels)
 
     def top(self, title: str = "Top") -> Item:
         """An item of the first level, under the epic when there is one."""
@@ -75,7 +73,10 @@ class Shape:
 
 
 def shape_of(
-    tracker: Tracker, competitor: Tracker, levels: Sequence[str], epic: Item | None = None
+    tracker: Tracker,
+    competitor: Tracker,
+    levels: Sequence[ItemKind],
+    epic: Item | None = None,
 ) -> Shape:
     return Shape(tracker, competitor, levels, epic)
 

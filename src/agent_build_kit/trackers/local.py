@@ -42,7 +42,7 @@ class LocalTracker:
 
     def add_epic(self, title: str) -> Item:
         """A manual epic: the read-only parent of the first level, made by a person."""
-        return self._add("feature", title, "", None, ())
+        return self._add("change", title, "", None, ())
 
     def capabilities(self) -> Capabilities:
         return self._capabilities

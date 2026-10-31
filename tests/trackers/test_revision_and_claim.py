@@ -27,7 +27,7 @@ def tracker(request: pytest.FixtureRequest) -> LocalTracker:
 
 
 def test_a_stale_revision_is_refused_and_changes_nothing(checked: LocalTracker) -> None:
-    story = checked.create("story", "Story")
+    story = checked.create("group", "Story")
     read_at = story.revision
     checked.as_identity(OTHER).update(story.id, {"title": "Theirs"})
     left_by_other = checked.get(story.id)
@@ -42,7 +42,7 @@ def test_a_stale_revision_is_refused_and_changes_nothing(checked: LocalTracker) 
 
 
 def test_a_stale_assignment_is_refused_and_changes_nothing(checked: LocalTracker) -> None:
-    story = checked.create("story", "Story")
+    story = checked.create("group", "Story")
     checked.as_identity(OTHER).update(story.id, {"body": "edited"})
     left_by_other = checked.get(story.id)
 
@@ -55,7 +55,7 @@ def test_a_stale_assignment_is_refused_and_changes_nothing(checked: LocalTracker
 def test_the_current_revision_is_accepted_and_moves_the_revision_on(
     checked: LocalTracker,
 ) -> None:
-    story = checked.create("story", "Story")
+    story = checked.create("group", "Story")
     checked.as_identity(OTHER).update(story.id, {"body": "edited"})
     current = checked.get(story.id)
 
@@ -66,7 +66,7 @@ def test_the_current_revision_is_accepted_and_moves_the_revision_on(
 
 
 def test_without_revision_checks_a_stale_update_is_applied(unchecked: LocalTracker) -> None:
-    story = unchecked.create("story", "Story")
+    story = unchecked.create("group", "Story")
     unchecked.as_identity(OTHER).update(story.id, {"title": "Theirs"})
 
     updated = unchecked.update(story.id, {"title": "Mine"}, expected_revision=story.revision)
@@ -76,7 +76,7 @@ def test_without_revision_checks_a_stale_update_is_applied(unchecked: LocalTrack
 
 
 def test_a_claim_on_an_unassigned_story_is_held(tracker: LocalTracker) -> None:
-    story = tracker.create("story", "Story")
+    story = tracker.create("group", "Story")
 
     assert tracker.claim(story.id) is True
 
@@ -85,7 +85,7 @@ def test_a_claim_on_an_unassigned_story_is_held(tracker: LocalTracker) -> None:
 
 
 def test_a_claim_on_a_story_assigned_to_someone_else_is_not_held(tracker: LocalTracker) -> None:
-    story = tracker.create("story", "Story")
+    story = tracker.create("group", "Story")
     tracker.as_identity(OTHER).claim(story.id)
     assigned = tracker.get(story.id)
 
@@ -100,7 +100,7 @@ def test_without_revision_checks_a_claim_reads_back_and_reports_what_it_finds(
 ) -> None:
     """The stand-in is single-threaded and cannot interleave a competing write inside a claim,
     so this pins only the reported result; the read-back itself belongs to the contract suite."""
-    story = unchecked.create("story", "Story")
+    story = unchecked.create("group", "Story")
     assert unchecked.claim(story.id) is True
 
     # Nothing stops the other identity from writing over it: the next claim says so.
@@ -113,7 +113,7 @@ def test_without_revision_checks_a_claim_reads_back_and_reports_what_it_finds(
 def test_with_revision_checks_the_other_identity_cannot_write_over_a_claim_it_has_not_read(
     checked: LocalTracker,
 ) -> None:
-    story = checked.create("story", "Story")
+    story = checked.create("group", "Story")
     assert checked.claim(story.id) is True
 
     with pytest.raises(StaleRevision):

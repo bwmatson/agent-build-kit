@@ -259,13 +259,18 @@ repos:                        # ordered; a task group's [repo] tag is a key here
     tracker:                  # the work tracker, independent of the forge. Off only when the
                               # section is absent or `kind: none`; a section without `kind`
                               # is an error, and so is any missing or invalid field
-      kind: azure_devops      # azure_devops (organization, project, team, area_path,
-                              # iteration_path, story_type: all required; optional `levels`
-                              # (levels in use, default change, group) and `types` (the work
-                              # item type of each of epic, change, group, task; story_type is
-                              # the group's when `types` has none)) or github (owner,
-                              # repo, labels: a label for each of feature, story and task;
-                              # host and project_number optional) or none
+      kind: azure_devops      # azure_devops or github or none
+      # levels: [change, group]  # kit entities that become items: any ordered subset of
+                              # change, group, task; optional `epic: true` (a person-made
+                              # top item) and `pr_links` (lowest, all, or a list of levels)
+      # azure_devops:         # the block named for the kind: organization, project, team,
+                              # area_path, iteration_path, types (board type of each level
+                              # in use and of epic), states (kit state -> board state);
+                              # github: owner, repo, host, project_number, types, states.
+                              # Every level in use needs a type, none may share one.
+                              # The old flat keys (connection keys under `tracker`,
+                              # story_type, labels, state_map) still work as the three
+                              # levels, warn, and are dropped in 0.3.0
       # token_env: MY_TRACKER_TOKEN  # optional override: the NAME of an environment variable,
                               # never a credential. Left out, the forge's credential is used:
                               # AZURE_DEVOPS_EXT_PAT (or ABK_ADO_PAT), then `az login`; or
