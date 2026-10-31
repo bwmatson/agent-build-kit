@@ -1,8 +1,9 @@
-"""The tests that collect the live modules give the same result however loaded the host is.
+"""The tests that collect the live modules, or drive the unit graph many times, are load-proof.
 
-Each collects every live module of the kit in-process, which under parallel load takes longer
-than the default per-test time limit, so the limit would interrupt it at random. They are judged
-here on the limit they run under, not on how long a host took to collect.
+Each collects every live module of the kit in-process, or compiles the unit graph for every step
+of a pass, which under parallel load takes longer than the default per-test time limit, so the
+limit would interrupt it at random. They are judged here on the limit they run under, not on how
+long a host took.
 """
 
 from __future__ import annotations
@@ -25,6 +26,14 @@ COLLECTING_TESTS = [
     (
         "test_live_split_names.py",
         "test_every_tagged_live_test_of_the_kit_is_in_one_derived_split",
+    ),
+    (
+        "cli/test_lane_hand_back_readmit.py",
+        "test_a_pass_starts_a_handed_back_unit_in_a_build_worker_and_the_lane_does_not_list_it",
+    ),
+    (
+        "cli/test_lane_hand_back_readmit.py",
+        "test_a_unit_handed_back_with_no_feedback_is_not_the_lanes_and_a_build_worker_takes_it",
     ),
     (
         "test_live_tests_across_dimensions.py",
