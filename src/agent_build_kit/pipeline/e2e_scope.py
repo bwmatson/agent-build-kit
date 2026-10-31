@@ -5,7 +5,7 @@ the build's checks guard, and the warning itself."""
 from __future__ import annotations
 
 import re
-from collections.abc import Mapping, Sequence
+from collections.abc import Iterator, Mapping, Sequence
 from pathlib import Path
 
 from agent_build_kit import profiles
@@ -56,20 +56,62 @@ def unscoped_task_paths(
     ]
 
 
+_CHANGING_VERBS = frozenset(
+    {"fix", "change", "add", "implement", "update", "refactor", "remove", "rename", "make"}
+)
+_NOT_A_CHANGE = re.compile(r"\b(docs?|documentation|changelog|readme)\b", re.I)
+
+
+def _e2e_task_lines(
+    path: Path, groups: Sequence[TaskGroup]
+) -> Iterator[tuple[int, TaskGroup, re.Match[str]]]:
+    """The task lines of the `[e2e-test]` groups of a tasks file: line number, group, match."""
+    headings = {g.line: g for g in groups}
+    group = None
+    for index, text in enumerate(path.read_text().splitlines(), start=1):
+        if text.startswith("## "):
+            group = headings.get(index)
+        if group is None or group.tier != TestTier.E2E_TEST:
+            continue
+        matched = TASK_LINE.match(text)
+        if matched:
+            yield index, group, matched
+
+
+def task_wording_warnings(
+    path: Path, groups: Sequence[TaskGroup], repos: Mapping[str, RepoConfig]
+) -> list[str]:
+    """One warning per task of an `[e2e-test]` group that asks in words for a change to the
+    product: not a `Test:`, `Support:`, documentation or changelog task, it begins with a
+    changing verb. A task that names a product path is left to `product_path_warnings`."""
+    warnings: list[str] = []
+    for index, group, matched in _e2e_task_lines(path, groups):
+        text = matched["text"]
+        if text.split(maxsplit=1)[0].lower() not in _CHANGING_VERBS:
+            continue
+        if _NOT_A_CHANGE.search(text):
+            continue
+        if unscoped_task_paths(changed_paths(text, ()), repos.get(group.repo), group.support):
+            continue
+        warnings.append(
+            f"{path}:line {index}: warning: group {group.number}: task "
+            f"{group.number}.{matched['number']} asks for a change to the product ({text!r}); "
+            "an [e2e-test] unit changes no product code. Report a product fault as a "
+            "product-defect block, or, when the defect is already known, write the "
+            "[unit-test] group first and have this group Needs: it"
+        )
+    return warnings
+
+
 def product_path_warnings(
     path: Path, groups: Sequence[TaskGroup], repos: Mapping[str, RepoConfig]
 ) -> list[str]:
     """One warning per path and `[e2e-test]` group of a tasks file that names product code,
     as `abk tags` and `abk check` print it; `groups` are the file's as validated."""
-    headings = {g.line: g for g in groups}
     warnings: list[str] = []
     seen: set[tuple[int, str]] = set()
-    group = None
-    for index, text in enumerate(path.read_text().splitlines(), start=1):
-        if text.startswith("## "):
-            group = headings.get(index)
-        if group is None or group.tier != TestTier.E2E_TEST or not TASK_LINE.match(text):
-            continue
+    for index, group, matched in _e2e_task_lines(path, groups):
+        text = matched.string
         number = _TASK_NUMBER.search(text)
         repo = repos.get(group.repo)
         paths = changed_paths(text, ())

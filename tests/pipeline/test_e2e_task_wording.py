@@ -83,8 +83,8 @@ def test_a_test_a_documentation_a_changelog_and_a_support_task_are_not_warned(
                 "Document the run in the architecture docs.",
                 "Update the docs for the live run.",
                 "Add a changelog line for the live run.",
-                "Support: add the stack file the live tests start.",
-                support="Support: the stack file — the live tests start the stack\n",
+                "Support: `compose.e2e.yml` — add the stack file the live tests start.",
+                support="Support: `compose.e2e.yml` — the live tests start the stack\n",
             )
         ),
     )
