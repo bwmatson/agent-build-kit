@@ -23,6 +23,7 @@ from agent_build_kit.pipeline.file_lock import atomic_write_text
 from agent_build_kit.pipeline.task_progress import first_line_hash, tasks_lock
 from agent_build_kit.pipeline.work_graph import Task
 from agent_build_kit.trackers.config import TrackerSection
+from agent_build_kit.trackers.levels import task_group_key
 
 FILE_NAME = "tracker.yaml"
 SCHEMA_VERSION = 2
@@ -178,7 +179,6 @@ def parent_item(tracker: TrackerFile, section: TrackerSection, level: str, key: 
     if parent == "change":
         return tracker.change.id if tracker.change else None
     if parent == "group":
-        # A task key is `<change>:<group>.<task>`; its group's key is the part before the dot.
-        found = tracker.groups.get(key.rsplit(".", 1)[0])
+        found = tracker.groups.get(task_group_key(key))
         return found.id if found else None
     return None

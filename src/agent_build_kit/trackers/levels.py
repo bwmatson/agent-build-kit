@@ -15,6 +15,11 @@ def task_key(change: str, group: int, number: int) -> str:
     return f"{group_key(change, group)}.{number}"
 
 
+def task_group_key(key: str) -> str:
+    """The group key of a task key made by `task_key`."""
+    return key.rsplit(".", 1)[0]
+
+
 def link_targets(
     levels: Sequence[str],
     pr_links: str | Sequence[str],
