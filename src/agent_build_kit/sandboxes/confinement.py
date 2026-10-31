@@ -6,7 +6,7 @@ from __future__ import annotations
 
 import logging
 import os
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 
 from agent_build_kit import config, sandboxes
@@ -79,8 +79,11 @@ class Confinement:
 
 
 @contextmanager
-def confinement(sandbox: SandboxPolicy) -> Iterator[Confinement]:
-    """The confinement of one run under `sandbox`: its allowlist proxy is up for the block."""
+def confinement(
+    sandbox: SandboxPolicy, on_refused: Callable[[str, int], None] | None = None
+) -> Iterator[Confinement]:
+    """The confinement of one run under `sandbox`: its allowlist proxy is up for the block, and
+    tells `on_refused` each host it refuses."""
     backend, found = sandboxes.probe(config.active().sandbox.backend)
     if not found.ok:
         yield Confinement(backend, sandbox, None, f"{found.cause}: {found.fix}")
@@ -91,5 +94,5 @@ def confinement(sandbox: SandboxPolicy) -> Iterator[Confinement]:
             f"{backend.name} confines {found.coverage.value} of a step, less than the "
             f"{sandbox.required.value} this repo requires: {found.cause} ({found.fix})"
         )
-    with Proxy(sandbox.hosts) as proxy:
+    with Proxy(sandbox.hosts, on_refused=on_refused) as proxy:
         yield Confinement(backend, sandbox, proxy.port, "")

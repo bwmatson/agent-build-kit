@@ -15,6 +15,7 @@ import logging
 import shlex
 import shutil
 import subprocess
+import threading
 import time
 from collections.abc import Callable, Sequence
 from pathlib import Path
@@ -100,6 +101,9 @@ logger = logging.getLogger(__name__)
 
 # The host Claude Code's connectors need besides the API host.
 MCP_PROXY_HOST = "mcp-proxy.anthropic.com"
+# Where the CLI renews an expired access token: it posts the refresh token to this host's OAuth
+# endpoint. A step that cannot reach it cannot renew its own login and fails with a 401.
+OAUTH_HOST = "platform.claude.com"
 
 # Passed beside the hook on every policed run, on top of every registered
 # forge's own merge commands. Redundant by design: two independent things have
@@ -136,17 +140,19 @@ def spawn(
     environment: dict[str, str] | None = None,
     input: str = "",
     sandbox: SandboxPolicy | None = None,
+    on_refused: Callable[[str, int], None] | None = None,
 ) -> subprocess.CompletedProcess[str]:
     """The real `claude` process: streamed when there is someone to tell. `env`
     is added to `environment` when given, else to this process's own. `input` is
     the prompt, on its standard input. `sandbox` starts it through the backend's command,
-    behind the allowlist proxy and without abk's own credentials."""
+    behind the allowlist proxy and without abk's own credentials; `on_refused` is told each
+    host the proxy refuses it."""
     if sandbox is None:
         return _spawn(argv, cwd, on_event, child_environment(environment, env or {}), input)
     merged = scrubbed_environment(full_environment(environment, env or {}))
     try:
         # The proxy runs only for a step that is confined.
-        with confinement(sandbox) as confined:
+        with confinement(sandbox, on_refused=on_refused) as confined:
             wrapped = confined.wrap(argv)
             return _spawn(wrapped, cwd, on_event, {**merged, **confined.environment}, input)
     except SandboxRefused as refused:
@@ -400,7 +406,7 @@ class ClaudeCodeRuntime:
         return {
             "write": [*mine, "/tmp", "/dev"],
             "read": [*mine, *_program_folders()],
-            "hosts": [API_HOST, MCP_PROXY_HOST],
+            "hosts": [API_HOST, MCP_PROXY_HOST, OAUTH_HOST],
         }
 
     def run(self, request: AgentRequest) -> AgentResult:
@@ -422,6 +428,7 @@ class ClaudeCodeRuntime:
             host, _ = _api_endpoint(request)
             hosts = tuple(dict.fromkeys([*request.policy.sandbox.hosts, host]))
             extra["sandbox"] = request.policy.sandbox.model_copy(update={"hosts": hosts})
+            extra["on_refused"] = _refusal_log(request)
         result = execute(
             build_argv(request),
             cwd=request.cwd,
@@ -706,6 +713,31 @@ def _spent(ended: ResultEvent | None) -> dict:
     }
 
 
+def _refusal_log(request: AgentRequest) -> Callable[[str, int], None]:
+    """Says in the request's log, once for each host, that the sandbox refused the step it: the
+    proxy refuses on the `claude` process's own behalf, which no tool's output shows. Called from
+    the proxy's threads, so the hosts already said are kept under a lock."""
+    said: set[str] = set()
+    lock = threading.Lock()
+
+    def report(host: str, port: int) -> None:
+        with lock:
+            if host in said or request.on_event is None:
+                return
+            said.add(host)
+        try:
+            request.on_event(
+                f"sandbox: the step reached for {host}, which is not on its allowed list"
+            )
+        except Exception:
+            # A log that failed has not said it: the next refusal of the host may.
+            with lock:
+                said.discard(host)
+            raise
+
+    return report
+
+
 def _progress(request: AgentRequest) -> Callable[[dict], None] | None:
     """Each event worth reading, as a log line for the request's callback, and
     the session's id for its session callback the moment the init event gives it."""
@@ -755,6 +787,7 @@ def through(run: Callable[..., subprocess.CompletedProcess[str]]) -> ClaudeCodeR
         env=None,
         input=None,
         sandbox: SandboxPolicy | None = None,
+        on_refused=None,
     ):
         if sandbox is not None:
             # Dropping the policy would run the step unconfined without a word.

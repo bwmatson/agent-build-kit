@@ -6,7 +6,7 @@ import select
 import socket
 import socketserver
 import threading
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from types import TracebackType
 from urllib.parse import urlsplit
 
@@ -71,6 +71,10 @@ class _Handler(socketserver.StreamRequestHandler):
             url = urlsplit(target)
             host, port = url.hostname or "", url.port or 80
         if not host_allowed(host, self._hosts()):
+            # A target with no host is not reported: it would put the whole request line, a
+            # credential in a URL among it, in a log.
+            if host:
+                self._report_refused(host, port)
             self._answer(403, f"sandbox: the host {host or target} is not on the allowed list\n")
             return
         try:
@@ -92,6 +96,18 @@ class _Handler(socketserver.StreamRequestHandler):
                 )
                 upstream.sendall(head.encode("latin-1"))
             self._relay(upstream)
+
+    def _report_refused(self, host: str, port: int) -> None:
+        """Tell the run's callback which host was refused; a callback that fails does not change
+        the answer."""
+        server = self.server
+        assert isinstance(server, _Server)
+        if server.on_refused is None:
+            return
+        try:
+            server.on_refused(host, port)
+        except Exception:  # noqa: BLE001, S110
+            pass
 
     def _answer(self, code: int, text: str) -> None:
         body = text.encode()
@@ -119,17 +135,23 @@ class _Server(socketserver.ThreadingTCPServer):
     allow_reuse_address = True
     daemon_threads = False  # closing the server joins its handlers, so none outlives `Proxy`
 
-    def __init__(self, hosts: Sequence[str]) -> None:
+    def __init__(
+        self, hosts: Sequence[str], on_refused: Callable[[str, int], None] | None = None
+    ) -> None:
         super().__init__((LOCALHOST, 0), _Handler)
         self.hosts = tuple(hosts)
+        self.on_refused = on_refused
 
 
 class Proxy:
     """Listens on a free local port; passes a request to an allowed host (exact or `*.suffix`)
-    and answers 403 naming the host for any other. A context manager: leaving stops and joins it."""
+    and answers 403 naming the host for any other, first telling `on_refused` the host and port.
+    A context manager: leaving stops and joins it."""
 
-    def __init__(self, hosts: Sequence[str]) -> None:
-        self._server = _Server(hosts)
+    def __init__(
+        self, hosts: Sequence[str], on_refused: Callable[[str, int], None] | None = None
+    ) -> None:
+        self._server = _Server(hosts, on_refused)
         self._thread = threading.Thread(target=self._server.serve_forever, daemon=True)
 
     @property
