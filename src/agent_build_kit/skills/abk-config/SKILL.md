@@ -320,7 +320,9 @@ repos:                        # ordered; a task group's [repo] tag is a key here
       affected:
         mode: off             # off | profile | command: the tests the check after a failed
                               # check and a fix runs first; the full suite always confirms
-                              # a pass, and every other check is full
+                              # a pass, and every other check is full; selectors such as `-m`
+                              # are applied together with the selection, and a selection
+                              # testmon deactivated falls back to the full suite once
         command: null         # `command` mode needs a template whose words
                               # `{changed_files}`, `{failed_ids}` and `{workers}`
                               # (`-n <workers> --maxprocesses=<max>`) each expand to

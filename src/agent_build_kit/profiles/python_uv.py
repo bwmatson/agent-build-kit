@@ -248,6 +248,11 @@ _PRE_COMMIT_RUN = re.compile(r"\bpre-commit run\b")
 
 # The plugin that records, for each test, the source it executed, and selects by it.
 TESTMON = "pytest-testmon"
+# What the plugin prints when something switches its selection off, up to the end of the
+# reason: `testmon: selection automatically deactivated because -m was used`.
+_SELECTION_DEACTIVATED = re.compile(
+    r"selection automatically deactivated because (.+?)(?:,|\s*$)", re.MULTILINE
+)
 
 
 class PythonUvProfile:
@@ -795,6 +800,9 @@ class PythonUvProfile:
         if program is None:
             return command
         flag = "--testmon-forceselect" if select else "--testmon-noselect"
+        # testmon says it switched the selection off in pytest's report header, which `-q`
+        # hides: a selection nets its `-q` words back to the default verbosity.
+        louder = ["-v"] * command[program + 1 :].count("-q") if select else []
         return [
             "env",
             f"TESTMON_DATAFILE={seed}",
@@ -803,7 +811,14 @@ class PythonUvProfile:
             *command[program : program + 1],
             flag,
             *command[program + 1 :],
+            *louder,
         ]
+
+    def selection_deactivated(self, output: str) -> str | None:
+        """The reason the run's output gives for testmon switching its selection off, which
+        then selected everything; None when it did not."""
+        found = _SELECTION_DEACTIVATED.search(output)
+        return found.group(1) if found else None
 
     def _whole_repo_tests(self, repo: Path, xdist: list[str]) -> list[list[str]]:
         # A repo that is not a workspace: no members to run one at a time.

@@ -27,6 +27,10 @@ pytestmark = pytest.mark.integration
 
 NO_TESTS_COLLECTED = 5
 DYNAMIC_CONTEXTS = "Dynamic contexts aren't supported"
+# The header line pytest-testmon 2.2.0 printed when `-m` switched its selection off.
+DEACTIVATED_HEADER = (
+    "testmon: selection automatically deactivated because -m was used, environment: default"
+)
 
 PYPROJECT = """\
 [project]
@@ -189,6 +193,21 @@ def test_a_slow_test_stays_out_even_when_it_reaches_the_changed_function(tiny: T
     assert {"test_add", "test_both"} <= ran(selected.stdout)
     assert "test_slow_add" not in selected.stdout
     assert "test_serial_add" not in selected.stdout
+
+
+def test_a_deactivated_selection_says_so_in_the_output_the_pipeline_reads(tiny: Tiny) -> None:
+    # The profile's own commands carry `-q`, which hides pytest's report header; the bare
+    # `--testmon` is what `-m` switches off, so the profile's reading of the output is proved
+    # against the real text.
+    tiny.break_add()
+    select = PROFILE.seeding_command(tiny.parallel, tiny.seed, select=True)
+    deactivating = ["--testmon" if word == "--testmon-forceselect" else word for word in select]
+
+    done = tiny.run(deactivating)
+
+    output = f"{done.stdout}\n{done.stderr}"
+    assert DEACTIVATED_HEADER in output, output
+    assert PROFILE.selection_deactivated(output) == "-m was used", output
 
 
 def empty(output: str) -> bool:

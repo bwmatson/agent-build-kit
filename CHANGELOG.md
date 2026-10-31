@@ -7,6 +7,19 @@
   the existing test file for its subject beside passing tests. A commit with no test to select, such
   as a helper edit, still runs its files whole, and the Node npm profile keeps whole files.
 
+- A selected run of affected tests whose output says testmon automatically deactivated the
+  selection (for example because `-m` was used) is now logged with its reason and replaced by
+  the full suite once, instead of passing as a selection that selected everything. A moved base
+  adds the reason to the line it logs. The docs say that selectors such as `-m` are applied
+  together with the selection.
+
+- A selected run of affected tests whose output says the selection was deactivated, despite the
+  forced selection, is now logged with its reason and replaced by the full suite once, instead
+  of passing as a selection that selected everything. The Python profile's selection runs at
+  default verbosity so that the plugin's message reaches the output. A moved base adds the
+  reason to the line it logs. The docs say that selectors such as `-m` are applied together
+  with the selection.
+
 - The two tests of `tests/cli/test_lane_hand_back_readmit.py` run under the live-module time limit.
   Each compiles the unit graph for every step of a pass: 7 to 9 seconds alone and 132 seconds in a
 

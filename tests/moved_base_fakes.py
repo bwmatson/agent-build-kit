@@ -36,6 +36,29 @@ class Profile(PythonUvProfile):
     test_commands = one_test_command
 
 
+def seeded_tests(
+    self: PythonUvProfile,
+    repo: Path,
+    changed: list[str],
+    *,
+    root_extras: list[str],
+    **_workers: object,
+) -> list[list[str]]:
+    return [["uv", "run", "pytest", "tests"]]
+
+
+class SeedProfile(Profile):
+    """The python-uv profile's own selection, over one pytest command."""
+
+    test_commands = seeded_tests
+
+
+def record_seed(command: list[str]) -> None:
+    """What a seeded run leaves behind: the selection data, where the command says."""
+    if command[0] == "env":
+        Path(command[1].split("=", 1)[1]).write_bytes(b"recorded")
+
+
 def passing(command: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
     return subprocess.CompletedProcess(command, 0, "5 passed\n", "")
 
