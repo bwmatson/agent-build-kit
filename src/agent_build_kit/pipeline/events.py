@@ -122,6 +122,7 @@ from agent_build_kit.pipeline.workspaces import remove_worktree as drop_worktree
 from agent_build_kit.runtimes.base import (
     AgentInterrupted,
     AgentRateLimited,
+    LoginRejected,
     NetworkUnavailable,
     ServiceUnavailable,
 )
@@ -2264,6 +2265,7 @@ def build_restack(
         except (
             AgentRateLimited,
             AgentInterrupted,
+            LoginRejected,
             NetworkUnavailable,
             ServiceUnavailable,
         ) as error:
@@ -2278,6 +2280,7 @@ def build_restack(
                         (AgentRateLimited, "a rate limit"),
                         (NetworkUnavailable, "a network outage"),
                         (ServiceUnavailable, "the model service being unavailable"),
+                        (LoginRejected, "a rejected login"),
                     )
                     if isinstance(error, kind)
                 ),

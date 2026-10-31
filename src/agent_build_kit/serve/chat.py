@@ -49,6 +49,7 @@ from agent_build_kit.pipeline.workspaces import changed_paths
 from agent_build_kit.runtimes.base import (
     AgentRequest,
     AgentResult,
+    LoginRejected,
     PermissionAsk,
     SessionUnavailable,
     ToolPolicy,
@@ -905,7 +906,7 @@ def register(
             return attach.adopt(
                 installation, unit, body.message, session=session, fix=fix
             ).model_dump()
-        except (CommitRejected, attach.NothingToCommit) as error:
+        except (CommitRejected, attach.NothingToCommit, LoginRejected) as error:
             raise _conflict(str(error)) from None
 
     @app.post("/api/permissions/{ask_id}")

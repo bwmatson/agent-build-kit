@@ -469,10 +469,6 @@ class ClaudeCodeRuntime:
             # A non-zero exit contradicts a success event: read the words.
             failure = agent_failure(None, said)
         if result.returncode or failure.kind != "none":
-            if login_rejection(said):
-                account = request.account or claude_account.Account.default()
-                record_login_rejected(account)
-                raise LoginRejected(account, said)
             if request.resume_session and failure.kind == "session_unavailable":
                 raise SessionUnavailable(said)
             failed = AgentResult(
@@ -486,6 +482,13 @@ class ClaudeCodeRuntime:
                 context=_context(result.stdout, ended, request.model),
                 reported_model=reported_model,
             )
+            if login_rejection(said):
+                # Raised, so `_run` never sees it: the spend of the call is told here.
+                if request.on_result is not None:
+                    request.on_result(failed.model_copy(update={"error": said}))
+                account = request.account or claude_account.Account.default()
+                record_login_rejected(account)
+                raise LoginRejected(account, said)
             strength = (
                 network_failure(said)
                 if failure.kind not in ("rate_limited", "service_unavailable")
