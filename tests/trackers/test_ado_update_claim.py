@@ -247,6 +247,10 @@ def test_an_epic_is_never_written_to() -> None:
     with pytest.raises(UnknownWorkItemType):
         tracker.set_assignee(epic, SYNC)
     with pytest.raises(UnknownWorkItemType):
+        tracker.set_assignee(epic, SYNC, expected_revision="1")
+    with pytest.raises(UnknownWorkItemType):
+        tracker.link_pull_request(epic, project_id="p", repository_id="r", pull_request_id=7)
+    with pytest.raises(UnknownWorkItemType):
         tracker.set_tag(epic, "blocked", True)
     with pytest.raises(UnknownWorkItemType):
         tracker.update(epic, {"title": "Mine"})

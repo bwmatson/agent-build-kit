@@ -267,7 +267,8 @@ repos:                        # ordered; a task group's [repo] tag is a key here
                               # area_path, iteration_path, types (board type of each level
                               # in use and of epic), states (kit state -> board state),
                               # process (basic, agile, scrum or cmmi: supplies the default
-                              # states, basic when left out), states_by_type (a type whose
+                              # states, basic when left out; cmmi has none, so map its
+                              # states in `states`), states_by_type (a type whose
                               # states differ: {type: {kit state: board state}});
                               # github: owner, repo, host, project_number, types, states.
                               # Every level in use needs a type, none may share one.

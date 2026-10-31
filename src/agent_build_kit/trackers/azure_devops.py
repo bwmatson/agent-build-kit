@@ -125,8 +125,8 @@ class AzureDevOpsWorkItems:
         return self._patch(item_id, values, expected_revision or item.revision)
 
     def set_assignee(self, item_id: str, who: str, expected_revision: str | None = None) -> Item:
-        revision = expected_revision or str(self._read_level(item_id).rev)
-        return self._patch(item_id, {"System.AssignedTo": who}, revision)
+        doc = self._read_level(item_id)
+        return self._patch(item_id, {"System.AssignedTo": who}, expected_revision or str(doc.rev))
 
     def claim(self, item_id: str) -> bool:
         """Assign the item to the sync identity if nobody holds it; True when it is held by
@@ -136,7 +136,7 @@ class AzureDevOpsWorkItems:
         if doc.fields.assigned_to is not None:
             return doc.fields.assigned_to.unique_name == me
         try:
-            self.set_assignee(item_id, me, str(doc.rev))
+            self._patch(item_id, {"System.AssignedTo": me}, str(doc.rev))
         except StaleRevision:
             return False
         return True
@@ -237,9 +237,7 @@ class AzureDevOpsWorkItems:
         above = self._section.parent_level(kind)
         if above is None:
             raise ValueError(f"a {kind} item is at the top and has no parent level; got {parent}")
-        expected = self._section.level_types.get(above)
-        if expected is None:
-            return
+        expected = self._section.level_types[above]
         actual = self._read(parent).fields.type
         if actual != expected:
             raise ValueError(
