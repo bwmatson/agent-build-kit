@@ -64,8 +64,13 @@ comment resumes, is started again in the same pass, at most twice; a unit stoppe
 any other cause waits for the next pass. A refresh whose usage guard refuses
 starts nothing and skips planning, but still fetches, polls and archives (below).
 
-- `--dry-run` runs everything up to the build and reports what is ready
-  without building. For each recorded pre-existing e2e-test failure it also prints
+- `--dry-run` reports what is ready without building, and writes no state: the unit store,
+  the plan records, the pause markers and the decision log are as they were. It does not fetch,
+  poll, land, archive or move a unit, so it reads the store as the last real tick left it.
+  A change that needs planning is still planned by the model, in memory (one planner call
+  each, and none while the usage guard refuses): the tick prints `would plan <change>: N unit(s)`
+  and saves the answer under `plan-previews/` in the state folder, the only thing it writes
+  besides the usage ledger and empty lock files. For each recorded pre-existing e2e-test failure it also prints
   `exists: <change>` (the open fix change) or `would write: <change>` (a change, or the
   successor of an archived one), even when no unit is pending; it writes nothing and runs
   no base run.

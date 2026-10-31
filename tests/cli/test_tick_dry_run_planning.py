@@ -9,12 +9,16 @@ from pathlib import Path
 import pytest
 
 from agent_build_kit.cli import pipeline as cli
+from agent_build_kit.pipeline.pause import PAUSE_MARKER, pause_until
 from agent_build_kit.pipeline.units import IN_REVIEW
 from agent_build_kit.pipeline.usage_guard import Decision
 from agent_build_kit.pipeline.usage_ledger import LEDGER_NAME
 from agent_build_kit.runtimes import AgentRequest
 from tests.cli.replan_driver import Replan, answer, planned, tasks_md, tick, ticking_replan
 from tests.factories import unit
+from tests.split_step_support import correct, scene
+from tests.split_step_support import reply as split_reply
+from tests.tick_pass import isolate
 
 pytestmark = pytest.mark.usefixtures("scripted_engine")
 
@@ -115,6 +119,7 @@ def test_a_dry_round_under_a_usage_refusal_makes_no_planner_call(
     monkeypatch.setattr(
         cli, "may_start_unit", lambda r, **_: Decision(may_start=False, reason="window used up")
     )
+    before = state_bytes(run)
 
     code, out = tick(run, capsys, dry_run=True)
 
@@ -122,3 +127,57 @@ def test_a_dry_round_under_a_usage_refusal_makes_no_planner_call(
     assert run.calls == 1, "a refused round plans nothing"
     assert "would plan" not in out
     assert not list(preview_file(run, "other").parent.glob("*.json"))
+    assert state_bytes(run) == before, "no pause marker is written for the refusal"
+    assert not (run.inst.state_dir / PAUSE_MARKER).exists()
+
+
+def test_a_dry_round_does_not_end_a_pause_that_stands_when_the_guard_allows(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    run = ticking_replan(tmp_path, monkeypatch, {"feature": tasks_md(2)})
+    answering_per_change(run)
+    run.runtime.supports_usage_tracking = True
+    marker = run.inst.state_dir / PAUSE_MARKER
+    pause_until(None, reason="session at 99%", marker=marker)
+    before = state_bytes(run)
+
+    code, _out = tick(run, capsys, dry_run=True)
+
+    assert code == 0
+    assert marker.is_file(), "a command run only to look does not end a pause"
+    assert state_bytes(run) == before
+
+
+def test_a_dry_round_over_a_populated_store_changes_no_stored_state_and_splits_nothing(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    # `feature/1` is held for its size with a split to make and `feature/6` waits on it;
+    # `other` is edited to need `feature` group 1, so a real round would link `other/1` to it.
+    run = scene(tmp_path, monkeypatch)
+    run.record("feature")
+    run.write("other", tasks_md(1, needs={1: "feature group 1 merged"}))
+    run.store.upsert([unit("other/1", change="other", groups=(1,))])
+    plan_all = cli.plan_all
+    isolate(monkeypatch)
+    monkeypatch.setattr(cli, "plan_all", plan_all)
+    requests: list[str] = []
+
+    def reply_to(request: AgentRequest) -> None:
+        requests.append(request.change)
+        run.runtime.answer = (
+            answer(planned("other/1", (1,)))
+            if request.change == "other"
+            else split_reply(*correct())
+        )
+
+    run.runtime.act = reply_to
+    before = state_bytes(run)
+    stored = run.store.all()
+
+    code, out = tick(run, capsys, dry_run=True)
+
+    assert code == 0
+    assert requests == ["other"], "one planner call for the changed change and no split call"
+    assert "would plan other: 1 unit(s)" in out
+    assert state_bytes(run) == before, "units.json, planned.json, markers and logs untouched"
+    assert run.store.all() == stored
