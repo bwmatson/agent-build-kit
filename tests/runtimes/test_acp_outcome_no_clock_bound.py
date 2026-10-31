@@ -39,6 +39,9 @@ def test_no_test_of_the_outcome_compares_the_duration_of_a_run() -> None:
 
 
 def test_the_scan_names_a_test_that_compares_the_duration() -> None:
-    source = "def test_slow():\n    elapsed = 1\n    assert elapsed < 5\n\ndef test_fine():\n    assert 1\n"
+    source = (
+        "def test_slow():\n    elapsed = 1\n    assert elapsed < 5\n\n"
+        "def test_fine():\n    assert 1\n"
+    )
 
     assert functions_comparing_the_clock(source) == ["test_slow"]
