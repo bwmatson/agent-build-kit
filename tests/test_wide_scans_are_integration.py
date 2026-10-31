@@ -1,7 +1,7 @@
 """A test that scans the whole repository is an integration test, so the default unit run skips it.
 
 Such a scan reads every test file; alone it takes seconds and under parallel load it is the test
-that runs past its time limit (spec: fix-test-tests-test-live-modules-are-found-py-test-every-modu-eff7bdd2).
+that runs past its time limit (`test_live_modules_are_found` took 10 to 24 seconds, loaded).
 Add a scan here when it is found; CI's `integration` check still runs it before a merge.
 """
 

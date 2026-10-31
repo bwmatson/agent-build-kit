@@ -6,6 +6,11 @@
   `path::name`) and rejects the commit if any of them passes, so a new failing case can be added to
   the existing test file for its subject beside passing tests. A commit with no test to select, such
   as a helper edit, still runs its files whole, and the Node npm profile keeps whole files.
+- `tests/test_live_modules_are_found.py::test_every_module_the_old_glob_and_text_match_found_is_still_found`
+  is an integration test. It parses every test file of the repository, which takes 10 to 24 seconds
+  under parallel load and failed units that did not touch it; the default unit run now skips it and
+  CI's `integration` check still runs it. `tests/test_wide_scans_are_integration.py` lists such scans
+  and fails when one is not marked.
 
 - A step that fails because the account's Claude login was rejected (`Failed to authenticate`
   with a 401, or an expired OAuth token) is now recognised as that and recorded against the
