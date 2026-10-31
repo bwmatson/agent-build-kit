@@ -47,7 +47,6 @@ def test_a_group_whose_every_task_names_test_files_stays_tests_only(tmp_path: Pa
         "Check that the suite passes",
         "Verify the repeat run passes",
         "Read the output and note what ran",
-        "Run the repeat check on the changed tests",
     ],
 )
 def test_a_check_that_names_no_path_does_not_make_a_test_only_group_code(
@@ -155,3 +154,71 @@ def test_abk_tags_prints_tests_and_code_for_a_group_with_an_unplaced_task(
     assert code == 0
     line = next(x for x in capsys.readouterr().out.splitlines() if x.strip().startswith("1."))
     assert GroupMode.TESTS_AND_CODE.value in line
+
+
+def test_a_path_on_a_line_that_goes_on_from_the_task_places_it(tmp_path: Path) -> None:
+    group = unit_group(
+        "- [ ] 1.1 Fix `tests/test_a.py`.\n- [ ] 1.2 Update the shared helper\n"
+        "      in `tests/helpers.py`.\n",
+        tmp_path,
+    )
+
+    assert group.mode is GroupMode.TESTS_ONLY
+
+
+def test_a_directive_line_after_a_task_does_not_place_it(tmp_path: Path) -> None:
+    group = unit_group(
+        TEST_TASK
+        + "- [ ] 1.2 Add the parenting to the tracker.\nNot changed: `docs/x.md` is untouched\n",
+        tmp_path,
+    )
+
+    assert group.mode is GroupMode.TESTS_AND_CODE
+
+
+def test_a_path_in_a_sentence_about_what_must_not_change_does_not_place_a_task(
+    tmp_path: Path,
+) -> None:
+    group = unit_group(
+        TEST_TASK
+        + "- [ ] 1.2 Add the parenting to the tracker; it must not touch `tests/helpers.py`.\n",
+        tmp_path,
+    )
+
+    assert group.mode is GroupMode.TESTS_AND_CODE
+
+
+def test_run_is_not_a_check(tmp_path: Path) -> None:
+    group = unit_group(
+        TEST_TASK + "- [ ] 1.2 Run the tracker through a new level-aware parent.\n", tmp_path
+    )
+
+    assert group.mode is GroupMode.TESTS_AND_CODE
+
+
+@pytest.mark.parametrize(
+    "task",
+    [
+        "Tests of the tracker now run in order; add the ordering.",
+        "Test harness gets a new fixture builder.",
+    ],
+)
+def test_only_a_task_that_begins_test_with_a_colon_is_a_test_task(
+    task: str, tmp_path: Path
+) -> None:
+    group = unit_group(f"- [ ] 1.1 Fix `tests/test_a.py`.\n- [ ] 1.2 {task}\n", tmp_path)
+
+    assert group.mode is GroupMode.TESTS_AND_CODE
+
+
+def test_a_group_of_test_moves_with_pathless_tasks_says_its_paths_in_a_paths_line(
+    tmp_path: Path,
+) -> None:
+    group = unit_group(
+        "Paths: `tests/test_a.py`, `tests/test_b.py`\n\n"
+        "- [ ] 1.1 Fix `tests/test_a.py`.\n"
+        "- [ ] 1.2 Delete the originals and note it in the PR description.\n",
+        tmp_path,
+    )
+
+    assert group.mode is GroupMode.TESTS_ONLY
