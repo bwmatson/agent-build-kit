@@ -64,12 +64,14 @@ def occupied(
     leases: Collection[str],
     now: datetime,
     lane: Collection[str] = (),
+    held: Collection[str] = (),
     account_of: Callable[[Unit], str | None] = no_account,
 ) -> Occupancy:
     """The occupancy of `units`: those whose branch is in `locks` (the branches live locks name),
     whose id is in `leases` (the units live leases name), whose `starting` marker has not lapsed
-    at `now`, or that record a usage pause. Those also in `lane` count in their project's
-    emergency lane."""
+    at `now`, that record a usage pause, or that a run the caller knows of holds (`held`: its
+    builds in flight and the runs of its restack lane, which have not all written a lock yet).
+    Those also in `lane` count in their project's emergency lane."""
     projects: Counter[ProjectKey] = Counter()
     workers: Counter[ProjectKey] = Counter()
     accounts: Counter[str | None] = Counter()
@@ -78,6 +80,7 @@ def occupied(
         if not (
             (unit.branch or branch_name(unit)) in locks
             or unit.id in leases
+            or unit.id in held
             or marker_live(unit, now)
             or usage_paused(unit)
         ):

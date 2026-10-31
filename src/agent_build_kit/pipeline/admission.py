@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Collection, Sequence
 from datetime import datetime, timedelta
 
 from agent_build_kit import claude_account
@@ -23,6 +23,10 @@ from agent_build_kit.pipeline.slots import account_labels
 from agent_build_kit.pipeline.unit_store import Starting, StoredUnit, UnitStore
 from agent_build_kit.pipeline.units import Unit, branch_name, in_progress, project_key
 from agent_build_kit.pipeline.workspaces import branch_held
+
+# The admission lock's file in the locks folder. It is not a `*.lock` file: those are branch locks,
+# which are removed when released, and this one stays, as the claim lock does.
+ADMISSION_LOCK = ".admission"
 
 # How long a unit admitted to a worker holds its place before the worker takes the branch's lock.
 STARTING_TTL = timedelta(minutes=10)
@@ -48,9 +52,11 @@ def account_of(inst: Installation) -> Callable[[Unit], str | None]:
     return lambda unit: claude_account.for_repo(inst.config, unit.repo).label
 
 
-def current_occupancy(inst: Installation, units: Sequence[StoredUnit], now: datetime) -> Occupancy:
+def current_occupancy(
+    inst: Installation, units: Sequence[StoredUnit], now: datetime, *, held: Collection[str] = ()
+) -> Occupancy:
     """The occupancy the durable facts show: live branch locks, live leases, live markers and
-    recorded usage pauses."""
+    recorded usage pauses, and the units of `held` (the runs the caller knows are going)."""
     leases = Leases(inst.leases_dir)
     return occupied(
         units,
@@ -62,6 +68,7 @@ def current_occupancy(inst: Installation, units: Sequence[StoredUnit], now: date
         leases={unit.id for unit in units if leases.holder(unit.id) is not None},
         now=now,
         lane=lane_units(inst.state_dir),
+        held=held,
         account_of=account_of(inst),
     )
 
@@ -76,7 +83,7 @@ def admit(
     ttl: timedelta,
 ) -> list[StoredUnit]:
     """The leading `candidates` that fit the free places, each marked `starting` for `worker`
-    until `now + ttl` before the admission lock (`admission.lock` in the locks folder) is
+    until `now + ttl` before the admission lock (`ADMISSION_LOCK` in the locks folder) is
     released. A candidate fits when its project has a free worker and, if it has never started,
     room in the units in progress of its project or account. A candidate the round entered in
     the emergency lane (by the `ready_units` rule) instead fits while the lane has a place,
@@ -84,7 +91,7 @@ def admit(
     limits = limits_of(inst)
     account = account_of(inst)
     admitted: list[str] = []
-    with file_lock(inst.locks_dir / "admission.lock"):
+    with file_lock(inst.locks_dir / ADMISSION_LOCK):
         for candidate in candidates:
             units = store.all()
             current = store.get(candidate.id)

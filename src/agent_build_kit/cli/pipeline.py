@@ -828,7 +828,14 @@ def _slots_line(inst: Installation, units: list[StoredUnit]) -> str | None:
     in the lane. Nothing is printed when no slot is taken and no run is in the lane."""
     held = lane_record(inst.state_dir)
     restacking = {entry["unit"] for entry in held if entry["status"] == "running"}
-    taken = sum(current_occupancy(inst, units, spans.clock.now()).workers.values())
+    waiting = {entry["unit"] for entry in held} - restacking
+    unheld = {
+        unit.id
+        for unit in units
+        if unit.state == RUNNING and not branch_is_held(inst, unit.branch or branch_name(unit))
+    }
+    occupied = slot_occupancy(units, (), restacking, lane_waiting=waiting, idle=unheld)
+    taken = sum(len(ids) for ids in occupied.values())
     if not (taken or restacking):
         return None
     cap = inst.max_concurrent_stacks * max(1, len(_unfinished_projects(units)))
@@ -4352,7 +4359,9 @@ def _schedule(
             units = store.all()
             states = [unit.state for unit in units]
             in_flight = {unit.id for unit in building.values()}
-            occupied = current_occupancy(inst, units, spans.clock.now())
+            occupied = current_occupancy(
+                inst, units, spans.clock.now(), held=in_flight | set(lane.running)
+            )
             # Totals over the projects with a unit not yet finished, for reporting only.
             live = _unfinished_projects(units)
             limits = limits_of(inst)

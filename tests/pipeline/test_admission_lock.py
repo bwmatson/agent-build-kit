@@ -15,7 +15,7 @@ import pytest
 from agent_build_kit.cli.pipeline import reclaim_stranded
 from agent_build_kit.installation import Installation
 from agent_build_kit.pipeline import emergency_lane
-from agent_build_kit.pipeline.admission import admit
+from agent_build_kit.pipeline.admission import ADMISSION_LOCK, admit
 from agent_build_kit.pipeline.file_lock import LockTimeout, file_lock
 from agent_build_kit.pipeline.unit_store import UnitStore
 from agent_build_kit.pipeline.units import PLANNED, RUNNING
@@ -67,7 +67,7 @@ def test_admission_waits_on_the_admission_lock_and_marks_nothing_without_it(
     store = store_of(inst, "a/1")
     monkeypatch.setattr(settings, "lock_wait_seconds", 0.2)
 
-    with file_lock(inst.locks_dir / "admission.lock"):
+    with file_lock(inst.locks_dir / ADMISSION_LOCK):
         with pytest.raises(LockTimeout):
             admit(inst, store, store.all(), worker="w1", now=datetime.now(UTC), ttl=TTL)
 
