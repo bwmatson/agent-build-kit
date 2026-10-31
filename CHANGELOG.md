@@ -8,6 +8,8 @@
   as a helper edit, still runs its files whole, and the Node npm profile keeps whole files.
 - The two tests of `tests/cli/test_lane_hand_back_readmit.py` run under the live-module time limit.
   Each compiles the unit graph for every step of a pass: 7 to 9 seconds alone and 132 seconds in a
+- The two tests of `tests/cli/test_lane_hand_back_readmit.py` run under a loaded-host time limit (`LOADED_TEST_TIME_LIMIT`, five times the default, which
+  the live-module limit now equals) and are listed with the other load-proof tests. Each compiles the unit graph for every step of a pass: 7 to 9 seconds alone and 132 seconds in a
   loaded full run, which hit the 60-second default and failed units that did not touch them.
 
 - `tests/test_live_modules_are_found.py::test_every_module_the_old_glob_and_text_match_found_is_still_found`

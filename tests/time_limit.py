@@ -22,6 +22,8 @@ from agent_build_kit.compat_names import old_spelling
 from agent_build_kit.model import TestTier
 
 DEFAULT_TEST_TIME_LIMIT = 60
+# For a test whose work (a repo scan, a unit-graph pass) takes several times longer when loaded.
+LOADED_TEST_TIME_LIMIT = DEFAULT_TEST_TIME_LIMIT * 5
 DEFAULT_E2E_TEST_TIME_LIMIT = 30 * 60
 
 
