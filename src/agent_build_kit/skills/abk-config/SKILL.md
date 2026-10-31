@@ -169,6 +169,8 @@ global_limits:
   stack_depth_rebase_cap:     # deepest a merge restacks a dependent; unset = the build cap
   max_flakes_per_run: 5       # more flaky tests than this in one run are one recorded storm, no fix change each
   checks_register_seconds: 120  # secs after a push a PR with no checks yet reads `checking`
+  temp_keep_hours: 24         # hours a unit-test run's temp folder lives before a tick may sweep it, its process gone (>= 1)
+  temp_warn_mb: 2048          # megabytes the pytest temp root may hold before `abk doctor` and `abk status` warn (>= 1)
   wait_end_requeue: auto      # auto (default), resume, rework or off: how a failed unit that waited on another unit is requeued once when its wait ends; off leaves it to a person
   max_regression_runs_per_hour: 10  # most regression-agent runs the pipeline starts in an hour (>= 1)
   bounce_limit: 3             # a unit put back from running this many times in a row with one cause is named looping (>= 2)

@@ -67,6 +67,9 @@
   test shares the cause, with the evidence in the commit body, and the reviewer accepts that edit.
   This stops one shared cause from costing a fix change for each test it flakes.
 
+- `abk doctor` and `abk status` now show the size of the unit-test step's temp folder and the
+  number of run folders left in it, and warn above `global_limits.temp_warn_mb` (default 2048).
+
 - The unit-test step's pytest temp folders now live in the planning home
   (`<planning home>/tmp/pytest`) instead of under `runs/tmp/pytest`, outside the planning
   repository. Under `runs/` they sat inside it, so the roughly 110 tests that make a folder and

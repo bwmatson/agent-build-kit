@@ -112,6 +112,10 @@ so. A tick prints the fingerprint when it starts.
 
 ### `abk status`
 
+`abk status` prints a `pytest temp:` line with the size of the run folders the unit-test step
+left in its pytest temp root and in the root it had before, and their number, warning above
+`global_limits.temp_warn_mb`; nothing when neither root exists.
+
 A wait on a dependency is worded by what is missing: `waiting for <change> group <n> to merge`
 while the parent is not merged; `waiting for the next tick to load <change> group <n>'s merge`
 when it is merged, the last tick's code lacks the merge and the kit checkout's head has it; and
@@ -981,6 +985,7 @@ Is this installation in a state the pipeline can run in? Each check prints
 | merge guard `<name>` | | *note, not a warning:* nothing server-side refuses a merge on the default branch (no branch protection or policy), so the command policy hook is the only guard. A free private repo cannot have one, and a warning there would be permanent and unfixable |
 | linger | the timers are installed and enabled but lingering is off, so they stop with the last login session; the fix is `sudo loginctl enable-linger <user>`. Nothing when it is on, no timers are installed, or `loginctl` is missing |
 | timers | | the units are installed but a timer is not enabled, or one is missing, out of date, or left over from an earlier version (each named). A note when none are installed — something else may run `abk tick` — or when `systemctl` cannot be asked |
+| pytest temp | | the run folders in the pytest temp root (`<data home>/<repo name>/tmp`, or `tmp` in a configured planning home) and in its old root (`<planning home>/tmp/pytest`) hold more than `global_limits.temp_warn_mb` megabytes in total. Nothing when neither root exists |
 | stale timer units | | a unit this framework wrote, for any installation, points at a directory that no longer exists. Nobody is left to remove it, and `systemctl enable` accepted it without complaint |
 | node, openspec | `node`/`npx` are not on PATH, or the OpenSpec CLI does not run | |
 | runtime | the selected runtime is not implemented, or its agent command (`runtimes.<name>.command`, else the adapter's own, `claude` for `claude_code`; the one every run spawns) is not on PATH | |

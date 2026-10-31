@@ -736,6 +736,8 @@ class LimitsConfig(TestKindSettings):
     # Hours a unit-test run's temp folder under the installation's temp root lives before a tick may
     # sweep it, if its process is gone.
     temp_keep_hours: Annotated[int, Field(ge=1)] = 24
+    # Megabytes the pytest temp root may hold before `abk doctor` and `abk status` warn.
+    temp_warn_mb: Annotated[int, Field(ge=1)] = 2048
     # Seconds after a push in which a pull request with no checks yet still reads
     # `checking`: CI may not have registered.
     checks_register_seconds: int = 120
