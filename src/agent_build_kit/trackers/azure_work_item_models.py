@@ -22,6 +22,7 @@ class FieldsDoc(_Doc):
     title: str = Field(alias="System.Title")
     state: str = Field(alias="System.State")
     description: str = Field(default="", alias="System.Description")
+    tags: str = Field(default="", alias="System.Tags")
     assigned_to: IdentityDoc | None = Field(default=None, alias="System.AssignedTo")
 
 
@@ -57,3 +58,15 @@ class WiqlRefDoc(_Doc):
 
 class WiqlDoc(_Doc):
     work_items: tuple[WiqlRefDoc, ...] = Field(default=(), alias="workItems")
+
+
+class PropertyDoc(_Doc):
+    value: str = Field(default="", alias="$value")
+
+
+class AuthenticatedUserDoc(_Doc):
+    properties: dict[str, PropertyDoc] = {}
+
+
+class ConnectionDataDoc(_Doc):
+    authenticated_user: AuthenticatedUserDoc = Field(alias="authenticatedUser")

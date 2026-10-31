@@ -25,6 +25,14 @@ _PR_LINK_WORDS = ("lowest", "all")
 _OLD_LABEL_WORDS = {"change": "feature", "group": "story", "task": "task"}
 
 
+# The kit's states on each process template's board; CMMI's differ by type, so it names none.
+_PROCESS_STATES: dict[str, dict[str, str]] = {
+    "basic": {"new": "To Do", "active": "Doing", "done": "Done"},
+    "agile": {"new": "New", "active": "Active", "done": "Closed"},
+    "scrum": {"new": "New", "active": "Committed", "done": "Done"},
+}
+
+
 class TrackerConfigError(Exception):
     """A tracker section that is present and incomplete or invalid, scoped to one repo."""
 
@@ -131,8 +139,21 @@ class AzureDevOpsTracker(TrackerSection):
     iteration_path: str = Field(min_length=1)
     # The old setting: the type of the group level when `types` does not name one.
     story_type: str | None = Field(default=None, min_length=1)
-    # The states whose board names differ for a type, by type.
+    # The process template, whose states are the defaults; the kit's state to the board's is
+    # `state_map` (the block's `states`), overridden for one work item type by `states_by_type`.
+    process: Literal["basic", "agile", "scrum", "cmmi"] = "basic"
     states_by_type: dict[str, dict[str, str]] = {}
+
+    def board_state(self, work_item_type: str, state: str) -> str:
+        """The board's state for a kit state on one work item type: the type's own mapping,
+        then `states`, then the process default."""
+        mapped = self.states_by_type.get(work_item_type, {}).get(state) or self.state_map.get(state)
+        mapped = mapped or _PROCESS_STATES.get(self.process, {}).get(state)
+        if mapped is None:
+            raise ValueError(
+                f"no board state for {state!r} on {work_item_type!r}: map it in `states`"
+            )
+        return mapped
 
     def _declared_types(self) -> dict[str, str]:
         """`types` wins over `story_type`, which is the group level's type when it names none."""
