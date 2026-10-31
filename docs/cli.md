@@ -118,6 +118,14 @@ when it is merged, the last tick's code lacks the merge and the kit checkout's h
 `waiting for the kit checkout to include <change> group <n>'s merge` when neither has it. A merge
 edge's wait ends `(merge: <reason>)`. The pipeline log and the graph use the same wording.
 
+Under each account's usage reading, status prints a `login:` line: when the account's saved token
+expires (`token expires 06:00Z (in 4h47m)`), that it has (`token expired 12m ago`) or that its expiry
+cannot be read, then the age of the account's last real usage reading (`last real usage read 89m ago`,
+or `no real usage read yet`). It reads the credentials file and the cache and makes no call, and an
+account other than the default says which it is. A token lasts 8 hours and is renewed only when
+something talks to the API, so a line that says a token has expired with no recent real read is a
+login nothing has yet noticed.
+
 Beside the usage reading, status prints a `usage allowances:` line: for each window its cost fit,
 as `session 2.65 points/$ + 5.1 points/h (31 pairs with cost, scale 1.2)`, or the reason the
 cost basis is not in force and the flat per-unit allowance stands. A held estimate on a cost

@@ -520,6 +520,56 @@ def token_expires_at(
     return expires if isinstance(expires, (int, float)) else None
 
 
+def _span(delta: timedelta) -> str:
+    """A length of time in whole minutes, as `4h47m` or `12m`, and `<1m` under a minute."""
+    hours, minutes = divmod(int(delta.total_seconds() // 60), 60)
+    if hours:
+        return f"{hours}h{minutes:02d}m"
+    return f"{minutes}m" if minutes else "<1m"
+
+
+def last_live_read_at(account: claude_account.Account) -> datetime | None:
+    """When the usage endpoint was last really asked for `account` and answered (the cache file's
+    `fetched_at`), None when it has not been or the file says nothing readable."""
+    with on_account(account):
+        fetched = _load_cache(_cache_file()).get("fetched_at")
+    try:
+        read = datetime.fromisoformat(fetched) if isinstance(fetched, str) else None
+    except ValueError:
+        return None
+    # A time written without a zone (by hand, or by another tool) is taken as UTC.
+    return read.replace(tzinfo=UTC) if read is not None and read.tzinfo is None else read
+
+
+def login_line(account: claude_account.Account) -> str:
+    """The `login:` line of `abk status` for `account`: when its saved token expires, or that it
+    has, and the age of its last real usage reading. It reads the credentials file and the cache
+    and makes no call."""
+    now = datetime.now(UTC)
+    expires = token_expires_at(account=account)
+    # Milliseconds since the epoch, between 2001 and 2286; anything else (seconds, NaN, a boolean)
+    # is not read as a time.
+    if isinstance(expires, bool) or not (
+        isinstance(expires, (int, float)) and 1e12 <= expires < 1e13
+    ):
+        token = "token expiry unknown"
+    else:
+        at = datetime.fromtimestamp(expires / 1000, tz=UTC)
+        token = (
+            f"token expires {at:%H:%M}Z (in {_span(at - now)})"
+            if at > now
+            else f"token expired {_span(now - at)} ago"
+        )
+    read = last_live_read_at(account)
+    # In minutes, as the usage line gives a reading's age (`135m old`).
+    seen = (
+        f"last real usage read {max(0, int((now - read).total_seconds() // 60))}m ago"
+        if read
+        else "no real usage read yet"
+    )
+    return f"login: {token}; {seen}"
+
+
 def refresh_login(account: claude_account.Account | None = None) -> None:
     """Have Claude Code refresh the OAuth token, with the smallest call it takes.
 

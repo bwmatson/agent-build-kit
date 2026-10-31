@@ -11,6 +11,12 @@
   also names a document or a test file still needs `Tests: required — <reason>`, and a group that
   really edits only test code but has a task naming no path lists its files in a `Paths:` line.
 
+- A `login_refresh` row of the usage ledger now names the account it refreshed (`account`, the
+  same key the usage cache and calls files use; none for the default account), where nine of
+  fourteen rows could not be matched to an account. `abk status` prints a `login:` line under
+  each account's usage reading: when its token expires (or that it has expired, or that the
+  expiry cannot be read) and the age of its last real usage reading, with no call made.
+
 - A build agent no longer makes commits. The build run's policy refuses a `git commit` and every
   other git command that makes a commit or moves a branch (`cherry-pick`, `revert`, `merge`,
   `rebase`, `am`, `pull`, a `reset` to another commit, `checkout -B`, `branch -f`), in both
