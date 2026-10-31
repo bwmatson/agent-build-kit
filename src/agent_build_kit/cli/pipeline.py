@@ -1972,7 +1972,6 @@ def _held_by_the_model(
     pauses: Iterable[Pause],
     *,
     spared: Collection[str],
-    dry_run: bool = False,
 ) -> Literal["rate_limit"]:
     """A round held by the model's own pauses, one for each account it cannot start on: say so,
     and read stranded units as planned."""
@@ -1980,8 +1979,7 @@ def _held_by_the_model(
         log(_pause_report(inst, paused))
     # A pause builds nothing, so a unit no run holds should read `planned`
     # for as long as it lasts. Not otherwise: a round that goes on resumes it.
-    if not dry_run:
-        _step("reclaiming stranded units", reclaim_stranded, inst, store, in_flight=spared)
+    _step("reclaiming stranded units", reclaim_stranded, inst, store, in_flight=spared)
     return "rate_limit"
 
 
@@ -1999,7 +1997,6 @@ def _may_build(
     only: frozenset[str] = frozenset(),
     decided: dict[str | None, Decision] | None = None,
     held: dict[str | None, Pause] | None = None,
-    dry_run: bool = False,
 ) -> Literal["yes", "usage", "rate_limit", "idle"]:
     """The pause checks: whether this round may start builds. "usage" means the
     guard refused; "rate_limit" means the model's own pause holds every account a unit could
@@ -2015,11 +2012,9 @@ def _may_build(
     ends it at the next one. Only the model's own refusal is kept to its
     deadline. See `pause`. Builds in flight are never touched by it. `quiet`
     leaves out the line saying why a build may start: the tick's own round
-    says it, the refreshes of a pass would repeat it. A `dry_run` says what it would do and
-    writes, clears and counts nothing: no pause marker, no reclaimed unit.
+    says it, the refreshes of a pass would repeat it.
     """
-    if not dry_run:
-        _step("reconciling running units", reconcile_running, inst, store, in_flight=spared)
+    _step("reconciling running units", reconcile_running, inst, store, in_flight=spared)
     held = {} if held is None else held
     if paused := network_pause(inst.state_dir):
         if not network_probe.control_reachable(inst):
@@ -2027,15 +2022,11 @@ def _may_build(
             # plans nothing, which costs no model call.
             if not quiet:
                 log(pause_line(paused))
-            if not dry_run:
-                _step("reclaiming stranded units", reclaim_stranded, inst, store, in_flight=spared)
+            _step("reclaiming stranded units", reclaim_stranded, inst, store, in_flight=spared)
             return "usage"
-        if dry_run:
-            log("the network is back; a real tick would resume")
-        else:
-            end_network_pause(inst.state_dir)
-            _release_network_waits(inst)
-            log("the network is back; resuming")
+        end_network_pause(inst.state_dir)
+        _release_network_waits(inst)
+        log("the network is back; resuming")
 
     # The usage window is Claude Code's. A runtime without one is not held by it:
     # the account's window says nothing about an on-demand agent. Its own
@@ -2058,11 +2049,7 @@ def _may_build(
     open_accounts = [each for each in accounts if _label_of(each) not in held]
     if not open_accounts:
         return _held_by_the_model(
-            inst,
-            store,
-            [held[_label_of(each)] for each in accounts],
-            spared=spared,
-            dry_run=dry_run,
+            inst, store, [held[_label_of(each)] for each in accounts], spared=spared
         )
 
     if runtime.supports_usage_tracking:
@@ -2075,9 +2062,6 @@ def _may_build(
                 refusal = _account_decision(each, decided)
                 marker = _paused_marker(inst, each)
                 before = is_paused(marker)
-                if dry_run:
-                    log(f"usage refused, a real tick would pause: {refusal.reason}")
-                    continue
                 state = pause_until(
                     refusal.resume_at,
                     reason=refusal.reason,
@@ -2088,8 +2072,7 @@ def _may_build(
                 if not before:
                     # A new pause; the rounds that find it still in force are not more of them.
                     emit_metric("count", "abk.usage.pauses", 1, log, kind="usage")
-            if not dry_run:
-                _step("reclaiming stranded units", reclaim_stranded, inst, store, in_flight=spared)
+            _step("reclaiming stranded units", reclaim_stranded, inst, store, in_flight=spared)
             return "usage"
         reason = decision.reason
     else:
@@ -2099,8 +2082,6 @@ def _may_build(
     for each in open_accounts:
         marker = _paused_marker(inst, each)
         before = is_paused(marker)
-        if dry_run:
-            continue
         if (
             before is not None
             and runtime.supports_usage_tracking
@@ -2115,7 +2096,7 @@ def _may_build(
             log(f"resuming a pause that was to last until {before.until.astimezone():%H:%M}{whose}")
     open_accounts = [each for each in open_accounts if _label_of(each) not in held]
     if not open_accounts:
-        return _held_by_the_model(inst, store, held.values(), spared=spared, dry_run=dry_run)
+        return _held_by_the_model(inst, store, held.values(), spared=spared)
     if not quiet:
         log(reason)
     return "yes"
@@ -2228,8 +2209,8 @@ def run_round(
             raise ValueError("pass `started` or `readmit`, not both")
         started = readmit.started
     spared = {*building, *started}
-    # A dry run changes no stored state: it reads the store as it stands, so every step below
-    # that writes one (the store, a log, a marker, a thread) is behind `if not dry_run`.
+    # A dry run leaves the unit store and the plan records as they are, so the steps below that
+    # write them are behind `if not dry_run`. Polling, archiving and the pause markers still run.
     if not dry_run:
         _step("bounding the logs", _bound_logs, inst)
         # Before anything reads a unit's dependencies: waits, bases and restacks go by direct
@@ -2267,7 +2248,6 @@ def run_round(
         only=only,
         decided=decided,
         held=model_refused,
-        dry_run=dry_run,
     )
     # The guard is not asked of a refused account; its admission record says why it holds.
     for label, refusal in model_refused.items():
@@ -2304,8 +2284,7 @@ def run_round(
     # planning against the pre-poll graph builds against a stale picture.
     # Before polling: a merge the poll finds restacks the units above it
     # straight away, and they must land on the trunk as it now is.
-    if not dry_run:
-        _refresh(inst, store=store, lane=lane)
+    _refresh(inst, store=store, lane=lane)
     # Once per tick, in its first round: the rounds beside builds in flight are quiet, and a
     # dry run merges nothing.
     if not quiet and not dry_run:
@@ -2356,13 +2335,12 @@ def run_round(
         _step("reconciling notifications", _reconcile_notifications, inst, store)
     units = store.all()
 
-    if not dry_run:
-        _verify_and_archive(inst, store, units)
-        _step("closing satisfied pull requests", _retry_pending_closes, inst, store)
-        _step("posting owed replies", _retry_pending_replies, inst, store)
-        _step("sweeping state labels", _sweep_labels, inst, store)
-        _step("sweeping review outcomes", _sweep_outcomes, inst, store)
-        _step("evaluating demotions", _evaluate_demotions, inst, store)
+    _verify_and_archive(inst, store, units)
+    _step("closing satisfied pull requests", _retry_pending_closes, inst, store)
+    _step("posting owed replies", _retry_pending_replies, inst, store)
+    _step("sweeping state labels", _sweep_labels, inst, store)
+    _step("sweeping review outcomes", _sweep_outcomes, inst, store)
+    _step("evaluating demotions", _evaluate_demotions, inst, store)
     if submit and may == "usage":
         units = store.all()
         _record_waits(
@@ -8145,9 +8123,9 @@ def register(sub: argparse._SubParsersAction) -> None:
         "--dry-run",
         action="store_true",
         help=(
-            "report without building and without writing state (no fetch, poll, archive or "
-            "pause); a change that needs planning is planned in memory, logged and saved "
-            "under plan-previews/"
+            "report without building; a change that needs planning is planned in memory, "
+            "logged and saved under plan-previews/, and the unit store and plan records are "
+            "not changed (polls, archiving and usage pauses still happen)"
         ),
     )
     tick.add_argument(

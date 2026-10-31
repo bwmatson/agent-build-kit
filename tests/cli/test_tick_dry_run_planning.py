@@ -9,7 +9,6 @@ from pathlib import Path
 import pytest
 
 from agent_build_kit.cli import pipeline as cli
-from agent_build_kit.pipeline.pause import PAUSE_MARKER, pause_until
 from agent_build_kit.pipeline.units import IN_REVIEW
 from agent_build_kit.pipeline.usage_guard import Decision
 from agent_build_kit.pipeline.usage_ledger import LEDGER_NAME
@@ -119,7 +118,6 @@ def test_a_dry_round_under_a_usage_refusal_makes_no_planner_call(
     monkeypatch.setattr(
         cli, "may_start_unit", lambda r, **_: Decision(may_start=False, reason="window used up")
     )
-    before = state_bytes(run)
 
     code, out = tick(run, capsys, dry_run=True)
 
@@ -127,25 +125,6 @@ def test_a_dry_round_under_a_usage_refusal_makes_no_planner_call(
     assert run.calls == 1, "a refused round plans nothing"
     assert "would plan" not in out
     assert not list(preview_file(run, "other").parent.glob("*.json"))
-    assert state_bytes(run) == before, "no pause marker is written for the refusal"
-    assert not (run.inst.state_dir / PAUSE_MARKER).exists()
-
-
-def test_a_dry_round_does_not_end_a_pause_that_stands_when_the_guard_allows(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
-) -> None:
-    run = ticking_replan(tmp_path, monkeypatch, {"feature": tasks_md(2)})
-    answering_per_change(run)
-    run.runtime.supports_usage_tracking = True
-    marker = run.inst.state_dir / PAUSE_MARKER
-    pause_until(None, reason="session at 99%", marker=marker)
-    before = state_bytes(run)
-
-    code, _out = tick(run, capsys, dry_run=True)
-
-    assert code == 0
-    assert marker.is_file(), "a command run only to look does not end a pause"
-    assert state_bytes(run) == before
 
 
 def test_a_dry_round_over_a_populated_store_changes_no_stored_state_and_splits_nothing(
