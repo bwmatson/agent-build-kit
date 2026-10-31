@@ -93,6 +93,7 @@ from agent_build_kit.pipeline.manual_steps import unmet_steps
 from agent_build_kit.pipeline.metric_records import emit_metric
 from agent_build_kit.pipeline.outside_commits import outside_commits_note
 from agent_build_kit.pipeline.own_tests import failed_ids
+from agent_build_kit.pipeline.pause import UNKNOWN_RETRY
 from agent_build_kit.pipeline.pr_body import build_pr_body, satisfied_reason
 from agent_build_kit.pipeline.pr_replies import parse_answer
 from agent_build_kit.pipeline.product_defect import DefectRefused, read_product_defect
@@ -583,6 +584,8 @@ class BuildPath:
         ):
             allowed, why = await asyncio.to_thread(self.runner.may_start)
         if allowed:
+            if self.runner.store.get(self.unit.id).paused_until is not None:
+                self.runner.store.set_usage_pause(self.unit.id, None)
             if self.paused_since is not None:
                 self._node = node.value
                 spans.record_span(
@@ -597,6 +600,8 @@ class BuildPath:
                 self.paused_since = None
             return
         until = await asyncio.to_thread(self.runner.resume_at)
+        # Recorded on the unit, which stays `running` and counts as in progress while it waits.
+        self.runner.store.set_usage_pause(self.unit.id, until or spans.clock.now() + UNKNOWN_RETRY)
         self._node = node.value
         self.say(f"paused before the agent step: {why}")
         # Carried in the interrupt, which outlives the process: the run that
