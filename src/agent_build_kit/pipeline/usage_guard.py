@@ -942,6 +942,11 @@ def rejected_login_note(account: claude_account.Account | None = None) -> str | 
         return claude_code.rejected_login_line(account_in_force())
 
 
+def record_login_rejected(account: claude_account.Account | None = None) -> None:
+    """Keep the account's login as rejected, with the credentials' current `expiresAt`."""
+    raise NotImplementedError
+
+
 def rate_limit_note(cache_path: Path | None = None) -> str | None:
     """Words for an endpoint cool-down in force and when it ends, else None."""
     until = _cooldown_until(_load_cache(cache_path or _cache_file()))

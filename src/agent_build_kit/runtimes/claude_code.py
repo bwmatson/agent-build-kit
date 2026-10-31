@@ -592,6 +592,11 @@ def login_command(account: claude_account.Account) -> str:
     )
 
 
+def login_rejection(said: str) -> bool:
+    """Whether the CLI's words say the account's login was rejected."""
+    raise NotImplementedError
+
+
 def rejected_login_line(account: claude_account.Account) -> str:
     """What is said of a login the usage endpoint rejected after a refresh."""
     return (
