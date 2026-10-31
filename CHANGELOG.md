@@ -259,8 +259,9 @@
   mark lasts until the unit's build takes its branch lock (or ten minutes), and a unit
   marked this way is neither taken for idle nor reclaimed meanwhile. The workers, the units
   in progress of a project or account and the emergency lane are counted from the locks,
-  leases, marks and usage pauses on disk, the same way for starting a unit and for the slot
-  report.
+  marks and usage pauses on disk (a pause alone holds a place and no worker; a chat's lease
+  holds neither), the same way for starting a unit and for the slot samples a tick records.
+  The `slots:` line of `abk status` is counted as before.
 
 - A new `regression` model role names the model that writes the fix for a failing test. It
   is set like the other roles (`models.regression`, `runtimes.<name>.models.regression` or

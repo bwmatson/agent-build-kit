@@ -10,9 +10,11 @@ from pathlib import Path
 
 import pytest
 
+from agent_build_kit.cli import pipeline as cli
 from agent_build_kit.cli.pipeline import slot_occupancy
 from agent_build_kit.installation import Installation
 from agent_build_kit.pipeline.admission import admit, current_occupancy, limits_of
+from agent_build_kit.pipeline.lease import Leases
 from agent_build_kit.pipeline.occupancy import Limits, free, occupied
 from agent_build_kit.pipeline.unit_store import StoredUnit
 from agent_build_kit.pipeline.units import IN_REVIEW, PLANNED, RUNNING, UnitState, project_key
@@ -130,6 +132,40 @@ def test_a_paused_unit_holds_a_place_and_no_worker_for_ready_units_and_for_admis
 
     # It takes no worker, and one place of the two: one more unit starts, and no more.
     assert [unit.id for unit in admitted] == started == ["wait0/1"]
+
+
+@pytest.mark.parametrize(
+    ("name", "workers", "places", "chat"),
+    [
+        ("a leased unit in review at one worker", 1, 5, build("chat/1", IN_REVIEW)),
+        ("a leased unit never started at the units in progress limit", 4, 1, fresh("chat/1")),
+    ],
+)
+def test_a_chat_on_a_unit_stops_neither_the_round_nor_admission_starting_the_next(
+    tmp_path: Path, name: str, workers: int, places: int, chat: Unit
+) -> None:
+    inst = lane_workspace(tmp_path, workers=workers, places=places, extra=0)
+    store = seeded(inst, tmp_path, [chat, fresh("next/1")])
+    Leases(inst.leases_dir).take("chat/1", "tab:a")
+
+    started = started_by_round(inst, store, building=[])
+    admitted = admit(inst, store, [store.get("next/1")], worker="w1", now=NOW, ttl=TTL)
+
+    assert started == [unit.id for unit in admitted] == ["next/1"], name
+
+
+def test_a_paused_lane_unit_with_a_thread_is_resumed_by_the_round_and_admitted(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    inst = lane_workspace(tmp_path, workers=1, places=5, extra=1)
+    monkeypatch.setattr(cli, "has_thread", lambda inst, unit_id: unit_id == "lane/1")
+    store = seeded(inst, tmp_path, [build("lane/1", priority=0)], lane=["lane/1"])
+    store.set_usage_pause("lane/1", NOW - timedelta(minutes=1))
+
+    started = started_by_round(inst, store, building=[])
+    admitted = admit(inst, store, [store.get("lane/1")], worker="w1", now=NOW, ttl=TTL)
+
+    assert started == [unit.id for unit in admitted] == ["lane/1"]
 
 
 def test_per_project_counts_match_the_pools_in_memory_counts() -> None:

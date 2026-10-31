@@ -1,8 +1,9 @@
 """Slot occupancy from durable facts, as a pure function of plain data.
 
-A unit occupies a place while a live branch lock, a live lease, an unexpired `starting` marker or a
-recorded usage pause names it. Of those, the ones that are not paused and not in the emergency lane
-also hold a worker. Nothing here reads a file or the clock.
+A unit occupies a place while a live branch lock, an unexpired `starting` marker, a run the caller
+knows of or a recorded usage pause names it. Of those, the ones a run holds (everything but a
+pause alone) also hold a worker. A live lease is recorded and takes neither. Nothing here reads a
+file or the clock.
 """
 
 from __future__ import annotations
@@ -19,13 +20,15 @@ from agent_build_kit.pipeline.units import RUNNING, ProjectKey, Unit, branch_nam
 class Occupancy(Frozen):
     """Units occupying places, each counted once. `projects` and `accounts` count the units in
     progress here (a paused unit among them) in each project and under each account label (None
-    for the default account); `workers` counts those of them holding a worker in each project (a
-    paused unit does not); `emergency` counts the lane's units."""
+    for the default account); `workers` counts those of them a run holds in each project (a unit
+    named only by its usage pause does not); `emergency` counts the lane's units; `leased` counts
+    the units a person holds a lease on, which take no place or worker by that."""
 
     projects: Mapping[ProjectKey, int] = {}
     workers: Mapping[ProjectKey, int] = {}
     accounts: Mapping[str | None, int] = {}
     emergency: Mapping[ProjectKey, int] = {}
+    leased: Mapping[ProjectKey, int] = {}
 
 
 class Limits(Frozen):
@@ -52,8 +55,8 @@ def marker_live(unit: StoredUnit, now: datetime) -> bool:
 def usage_paused(unit: StoredUnit) -> bool:
     """Whether the gate left the unit paused for usage: running, with a pause recorded. A pause
     is recorded until the gate allows, so one whose time has passed and is waiting for a worker
-    still holds its place; `reclaim_stranded` ends it when its thread is gone. It holds its place
-    with no run and no worker."""
+    still holds its place; `reclaim_stranded` ends it when its thread is gone. With no run on it,
+    it holds its place and no worker."""
     return unit.state == RUNNING and unit.paused_until is not None
 
 
@@ -67,36 +70,39 @@ def occupied(
     held: Collection[str] = (),
     account_of: Callable[[Unit], str | None] = no_account,
 ) -> Occupancy:
-    """The occupancy of `units`: those whose branch is in `locks` (the branches live locks name),
-    whose id is in `leases` (the units live leases name), whose `starting` marker has not lapsed
-    at `now`, that record a usage pause, or that a run the caller knows of holds (`held`: its
-    builds in flight and the runs of its restack lane, which have not all written a lock yet).
-    Those also in `lane` count in their project's emergency lane."""
+    """The occupancy of `units`: those a run holds, which hold a worker and a place: whose branch
+    is in `locks` (the branches live locks name), whose `starting` marker has not lapsed at
+    `now`, or that a run the caller knows of holds (`held`: its builds in flight and the runs of
+    its restack lane, which have not all written a lock yet). A unit that records a usage pause
+    and no run holds a place and no worker. A unit whose id is in `leases` (the units live
+    leases name) is recorded as leased, and a lease alone takes neither: a person chatting with a
+    unit is not a build. Those also in `lane` count in their project's emergency lane."""
     projects: Counter[ProjectKey] = Counter()
     workers: Counter[ProjectKey] = Counter()
     accounts: Counter[str | None] = Counter()
     emergency: Counter[ProjectKey] = Counter()
+    leased: Counter[ProjectKey] = Counter()
     for unit in units:
-        if not (
-            (unit.branch or branch_name(unit)) in locks
-            or unit.id in leases
-            or unit.id in held
-            or marker_live(unit, now)
-            or usage_paused(unit)
-        ):
-            continue
         key = project_key(unit)
+        if unit.id in leases:
+            leased[key] += 1
+        runs = (
+            (unit.branch or branch_name(unit)) in locks or unit.id in held or marker_live(unit, now)
+        )
+        if not (runs or usage_paused(unit)):
+            continue
         projects[key] += 1
         accounts[account_of(unit)] += 1
         if unit.id in lane:
             emergency[key] += 1
-        if not usage_paused(unit):
+        if runs:
             workers[key] += 1
     return Occupancy(
         projects=dict(projects),
         workers=dict(workers),
         accounts=dict(accounts),
         emergency=dict(emergency),
+        leased=dict(leased),
     )
 
 

@@ -17,8 +17,9 @@ from agent_build_kit.installation import Installation
 from agent_build_kit.pipeline import emergency_lane
 from agent_build_kit.pipeline.admission import ADMISSION_LOCK, admit
 from agent_build_kit.pipeline.file_lock import LockTimeout, file_lock
+from agent_build_kit.pipeline.lease import Leases
 from agent_build_kit.pipeline.unit_store import UnitStore
-from agent_build_kit.pipeline.units import PLANNED, RUNNING
+from agent_build_kit.pipeline.units import IN_REVIEW, PLANNED, RUNNING
 from agent_build_kit.pipeline.workspaces import branch_lock
 from agent_build_kit.settings import settings
 from tests.conftest import make_installation
@@ -192,6 +193,62 @@ def test_a_paused_unit_counts_toward_the_units_in_progress_and_takes_no_worker(t
     third = admit(inst, store, [store.get("c/1")], worker="w2", now=now, ttl=TTL)
 
     assert (second.id, third) == ("b/1", [])
+
+
+def test_a_lane_unit_resuming_from_a_lapsed_pause_is_admitted_whatever_its_own_place(tmp_path):
+    inst = lane_workspace(tmp_path, workers=1, places=5, extra=1)
+    store = UnitStore(tmp_path / "units.json")
+    store.upsert([new_unit("lane/1", priority=0)])
+    store.set_state("lane/1", RUNNING, branch="spec/lane/1")
+    store.set_usage_pause("lane/1", datetime.now(UTC) - timedelta(minutes=1))
+    emergency_lane.enter(inst.state_dir, store.get("lane/1"))
+
+    admitted = admit(
+        inst, store, [store.get("lane/1")], worker="w1", now=datetime.now(UTC), ttl=TTL
+    )
+
+    assert [unit.id for unit in admitted] == ["lane/1"]
+
+
+def test_a_lane_unit_in_progress_is_held_to_the_workers_alone_with_no_lane_places(tmp_path):
+    inst = lane_workspace(tmp_path, workers=2, places=5, extra=0)
+    store = UnitStore(tmp_path / "units.json")
+    store.upsert([new_unit("lane/1", priority=0)])
+    store.set_state("lane/1", RUNNING, branch="spec/lane/1")
+    store.set_usage_pause("lane/1", datetime.now(UTC) - timedelta(minutes=1))
+    emergency_lane.enter(inst.state_dir, store.get("lane/1"))
+
+    admitted = admit(
+        inst, store, [store.get("lane/1")], worker="w1", now=datetime.now(UTC), ttl=TTL
+    )
+
+    assert [unit.id for unit in admitted] == ["lane/1"]
+
+
+def test_a_paused_unit_once_admitted_takes_the_worker_from_a_new_unit(tmp_path):
+    inst = make_installation(
+        tmp_path, project_limits=dict(max_concurrent_stacks=1, max_units_in_progress=5)
+    )
+    store = store_of(inst, "p/1", "n/1")
+    store.set_state("p/1", RUNNING, branch="spec/p/1")
+    store.set_usage_pause("p/1", datetime.now(UTC) - timedelta(minutes=1))
+    now = datetime.now(UTC)
+
+    [resumed] = admit(inst, store, [store.get("p/1")], worker="w1", now=now, ttl=TTL)
+    later = admit(inst, store, [store.get("n/1")], worker="w2", now=now, ttl=TTL)
+
+    assert (resumed.id, later) == ("p/1", [])
+
+
+def test_a_chat_on_a_unit_takes_no_worker_from_the_next_one(tmp_path):
+    inst = one_slot(tmp_path)
+    store = store_of(inst, "chat/1", "n/1")
+    store.set_state("chat/1", IN_REVIEW, pr=3, branch="spec/chat/1")
+    Leases(inst.leases_dir).take("chat/1", "tab:a")
+
+    admitted = admit(inst, store, [store.get("n/1")], worker="w1", now=datetime.now(UTC), ttl=TTL)
+
+    assert [unit.id for unit in admitted] == ["n/1"]
 
 
 def test_the_emergency_lane_admits_exactly_its_extra_places_past_a_full_project(tmp_path):

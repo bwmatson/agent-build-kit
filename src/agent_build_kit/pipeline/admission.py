@@ -55,8 +55,9 @@ def account_of(inst: Installation) -> Callable[[Unit], str | None]:
 def current_occupancy(
     inst: Installation, units: Sequence[StoredUnit], now: datetime, *, held: Collection[str] = ()
 ) -> Occupancy:
-    """The occupancy the durable facts show: live branch locks, live leases, live markers and
-    recorded usage pauses, and the units of `held` (the runs the caller knows are going)."""
+    """The occupancy the durable facts show: live branch locks, live markers and recorded usage
+    pauses, and the units of `held` (the runs the caller knows are going); live leases are
+    recorded and take no place."""
     leases = Leases(inst.leases_dir)
     return occupied(
         units,
@@ -85,9 +86,9 @@ def admit(
     """The leading `candidates` that fit the free places, each marked `starting` for `worker`
     until `now + ttl` before the admission lock (`ADMISSION_LOCK` in the locks folder) is
     released. A candidate fits when its project has a free worker and, if it has never started,
-    room in the units in progress of its project or account. A candidate the round entered in
-    the emergency lane (by the `ready_units` rule) instead fits while the lane has a place,
-    whatever the workers and the units in progress."""
+    room in the units in progress of its project or account, its own place not counted against
+    it. Failing that, a candidate the round entered in the emergency lane (by the `ready_units`
+    rule) fits while the lane has a place, whatever the workers and the units in progress."""
     limits = limits_of(inst)
     account = account_of(inst)
     admitted: list[str] = []
@@ -97,13 +98,14 @@ def admit(
             current = store.get(candidate.id)
             if marker_live(current, now):
                 continue
-            found = current_occupancy(inst, units, now)
+            # The candidate's own place (a pause it resumes from, its lane entry) is not held
+            # against it: it is the unit being placed.
+            found = current_occupancy(inst, [u for u in units if u.id != current.id], now)
             key = project_key(current)
             new = not in_progress(current, units)
-            if current.id in lane_units(inst.state_dir):
-                fits = emergency_free(found, limits, key) > 0
-            else:
-                fits = free(found, limits, key, account(current), new=new) > 0
+            fits = free(found, limits, key, account(current), new=new) > 0 or (
+                current.id in lane_units(inst.state_dir) and emergency_free(found, limits, key) > 0
+            )
             if fits:
                 store.set_starting(current.id, Starting(worker=worker, until=now + ttl))
                 admitted.append(current.id)
