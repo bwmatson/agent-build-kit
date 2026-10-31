@@ -521,9 +521,11 @@ def token_expires_at(
 
 
 def _span(delta: timedelta) -> str:
-    """A length of time in whole minutes, as `4h47m` or `12m`."""
+    """A length of time in whole minutes, as `4h47m` or `12m`, and `<1m` under a minute."""
     hours, minutes = divmod(int(delta.total_seconds() // 60), 60)
-    return f"{hours}h{minutes:02d}m" if hours else f"{minutes}m"
+    if hours:
+        return f"{hours}h{minutes:02d}m"
+    return f"{minutes}m" if minutes else "<1m"
 
 
 def last_live_read_at(account: claude_account.Account) -> datetime | None:
@@ -532,9 +534,11 @@ def last_live_read_at(account: claude_account.Account) -> datetime | None:
     with on_account(account):
         fetched = _load_cache(_cache_file()).get("fetched_at")
     try:
-        return datetime.fromisoformat(fetched) if isinstance(fetched, str) else None
+        read = datetime.fromisoformat(fetched) if isinstance(fetched, str) else None
     except ValueError:
         return None
+    # A time written without a zone (by hand, or by another tool) is taken as UTC.
+    return read.replace(tzinfo=UTC) if read is not None and read.tzinfo is None else read
 
 
 def login_line(account: claude_account.Account) -> str:
@@ -543,7 +547,11 @@ def login_line(account: claude_account.Account) -> str:
     and makes no call."""
     now = datetime.now(UTC)
     expires = token_expires_at(account=account)
-    if expires is None:
+    # Milliseconds since the epoch, between 2001 and 2286; anything else (seconds, NaN, a boolean)
+    # is not read as a time.
+    if isinstance(expires, bool) or not (
+        isinstance(expires, (int, float)) and 1e12 <= expires < 1e13
+    ):
         token = "token expiry unknown"
     else:
         at = datetime.fromtimestamp(expires / 1000, tz=UTC)
@@ -555,7 +563,7 @@ def login_line(account: claude_account.Account) -> str:
     read = last_live_read_at(account)
     # In minutes, as the usage line gives a reading's age (`135m old`).
     seen = (
-        f"last real usage read {int((now - read).total_seconds() // 60)}m ago"
+        f"last real usage read {max(0, int((now - read).total_seconds() // 60))}m ago"
         if read
         else "no real usage read yet"
     )

@@ -25,11 +25,17 @@ def write_token(account: claude_account.Account, expires_at: object) -> None:
     )
 
 
-def write_cache(account: claude_account.Account, text: str) -> None:
+def write_raw_cache(account: claude_account.Account, text: str) -> None:
     with usage_guard.on_account(account):
         path = usage_guard._cache_file()
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(text)
+
+
+def write_cache(account: claude_account.Account, **fields: object) -> None:
+    """The account's usage cache as the kit writes it: carrying the account's key, which a reader
+    otherwise takes for another account's file and ignores."""
+    write_raw_cache(account, json.dumps({"account": claude_account.account_key(account), **fields}))
 
 
 @pytest.fixture
@@ -54,7 +60,7 @@ def test_a_timezone_less_reading_time_does_not_stop_the_line(
     account: claude_account.Account,
 ) -> None:
     write_token(account, int((datetime.now(UTC) + timedelta(hours=2)).timestamp() * 1000))
-    write_cache(account, json.dumps({"fetched_at": "2026-10-30T10:00:00"}))
+    write_cache(account, fetched_at="2026-10-30T10:00:00")
 
     line = login_line(account)
 
@@ -66,19 +72,34 @@ def test_a_reading_time_in_the_future_is_not_a_negative_age(
 ) -> None:
     write_token(account, int((datetime.now(UTC) + timedelta(hours=2)).timestamp() * 1000))
     ahead = (datetime.now(UTC) + timedelta(minutes=5)).isoformat()
-    write_cache(account, json.dumps({"fetched_at": ahead}))
+    write_cache(account, fetched_at=ahead)
 
     assert "last real usage read 0m ago" in login_line(account)
 
 
-@pytest.mark.parametrize("text", ["[]", "not json", '{"fetched_at": 12}', '{"fetched_at": "soon"}'])
-def test_a_cache_that_says_nothing_readable_says_no_read_yet(
-    account: claude_account.Account, text: str
+def test_a_cache_that_is_not_an_object_says_no_read_yet(account: claude_account.Account) -> None:
+    write_token(account, int((datetime.now(UTC) + timedelta(hours=2)).timestamp() * 1000))
+
+    for text in ("[]", "not json"):
+        write_raw_cache(account, text)
+        assert "no real usage read yet" in login_line(account)
+
+
+@pytest.mark.parametrize("fetched", [12, "soon", None], ids=["number", "text", "none"])
+def test_a_reading_time_that_is_not_a_time_says_no_read_yet(
+    account: claude_account.Account, fetched: object
 ) -> None:
     write_token(account, int((datetime.now(UTC) + timedelta(hours=2)).timestamp() * 1000))
-    write_cache(account, text)
+    write_cache(account, fetched_at=fetched)
 
     assert "no real usage read yet" in login_line(account)
+
+
+def test_a_reading_time_the_kit_wrote_is_read_back(account: claude_account.Account) -> None:
+    write_token(account, int((datetime.now(UTC) + timedelta(hours=2)).timestamp() * 1000))
+    write_cache(account, fetched_at=(datetime.now(UTC) - timedelta(minutes=89)).isoformat())
+
+    assert "last real usage read 89m ago" in login_line(account)
 
 
 def test_the_line_reads_the_account_it_is_asked_about(
