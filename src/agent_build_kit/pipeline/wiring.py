@@ -2325,9 +2325,6 @@ def _tooling_lost(
     )
 
 
-_DEACTIVATED = re.compile(r"automatically deactivated because ([^\r\n]+)")
-
-
 def _deactivated(
     toolchain: ToolchainProfile, command: list[str], result: subprocess.CompletedProcess
 ) -> str | None:
@@ -2340,8 +2337,7 @@ def _deactivated(
         and _counted(toolchain, result) > 0
     ):
         return None
-    found = _DEACTIVATED.search(f"{result.stdout}\n{result.stderr}")
-    return found.group(1).strip() if found else None
+    return toolchain.selection_deactivated(f"{result.stdout}\n{result.stderr}")
 
 
 def _counted(toolchain: ToolchainProfile, result: subprocess.CompletedProcess) -> int:

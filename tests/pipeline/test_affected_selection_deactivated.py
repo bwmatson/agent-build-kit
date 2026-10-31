@@ -11,15 +11,19 @@ from __future__ import annotations
 import subprocess
 from pathlib import Path
 
+import pytest
+
 from agent_build_kit.config import RepoConfig
 from agent_build_kit.pipeline.scratch import selection_seed
 from agent_build_kit.pipeline.wiring import build_unit_test
 from tests.conftest import make_installation
-from tests.moved_base_fakes import Profile, moved
+from tests.moved_base_fakes import SeedProfile, moved, record_seed
 
 ID = "tests/test_a.py::test_one"
 FAILED_OUTPUT = f"FAILED {ID} - assert 1 == 2"
-DEACTIVATED = "testmon: selection automatically deactivated because {reason}"
+# The header line pytest-testmon 2.2.0 prints, recorded from a real run
+# (tests/profiles/test_python_uv_testmon_real.py).
+DEACTIVATED = "testmon: selection automatically deactivated because {reason}, environment: default"
 DEACTIVATED_LINE = "affected tests: selection was deactivated ({reason}), running the full suite"
 
 
@@ -32,8 +36,7 @@ class Runner:
 
     def __call__(self, command: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
         self.ran.append(command)
-        if command[0] == "env":
-            Path(command[1].split("=", 1)[1]).write_bytes(b"recorded")
+        record_seed(command)
         if "--testmon-forceselect" in command:
             return subprocess.CompletedProcess(command, 0, self.selected_output, "")
         if "pytest" in command:
@@ -76,24 +79,31 @@ def test_a_deactivated_selection_in_a_fix_round_is_logged_and_the_full_suite_run
     assert len(runner.full_runs()) == 1, runner.ran
 
 
+@pytest.mark.parametrize(
+    "output",
+    [
+        "collected 10 items\n\n10 deselected in 0.1s",
+        DEACTIVATED.format(reason="-m was used") + "\n\n10 deselected in 0.1s",
+        "collection automatically deactivated because -m was used\n3 passed in 0.1s",
+    ],
+    ids=["nothing changed", "deactivation line, no test counted", "collection, not selection"],
+)
+def test_a_selection_that_selected_nothing_is_not_treated_as_deactivated(
+    tmp_path: Path, output: str
+) -> None:
+    passed, logged, runner = fix_round(tmp_path, output)
+
+    assert passed
+    assert not any("selection was deactivated" in line for line in logged), logged
+    assert len(runner.full_runs()) == 1, runner.ran
+
+
 def test_the_deactivated_line_names_the_reason_testmon_gave(tmp_path: Path) -> None:
     reason = "-k was used"
 
     _, logged, _ = fix_round(tmp_path, f"3 passed\n{DEACTIVATED.format(reason=reason)}")
 
     assert any(DEACTIVATED_LINE.format(reason=reason) in line for line in logged), logged
-
-
-def seeded_tests(
-    self: Profile, repo: Path, changed: list[str], *, root_extras: list[str], **_workers: object
-) -> list[list[str]]:
-    return [["uv", "run", "pytest", "tests"]]
-
-
-class SeedProfile(Profile):
-    """The python-uv profile's own selection, over one pytest command."""
-
-    test_commands = seeded_tests
 
 
 def moved_run(tmp_path: Path, selected_output: str) -> tuple[bool, list[str], Runner]:
