@@ -43,7 +43,7 @@ from tests.chat_serving import (
     use_claude,
 )
 from tests.factories import git, init_repo
-from tests.runtimes.claude_cli import FakeClaude, finished_build
+from tests.runtimes.claude_cli import FakeClaude, finished_build, refused
 from tests.serving import seed_pipeline
 
 REVIEW = "/api/units/feature/2"
@@ -343,6 +343,27 @@ def test_a_commit_still_rejected_after_the_bound_is_a_conflict_that_keeps_everyt
     assert kept is not None and kept.changed == 1 and not kept.stale
     assert waiting_at(inst) == (Node.AWAIT_REVIEW,), "nothing was delivered"
     assert adoptions(inst) == 0
+
+
+def test_a_login_rejected_while_fixing_the_commit_is_a_conflict_that_keeps_everything(
+    inst: Installation, tree: Path, api: httpx.Client, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    scripted(monkeypatch, tree, {"notes.txt": "a change\n"})
+    chat_edit(api)
+    pre_commit(tree, 'echo "lint: no way" >&2\nexit 1\n')
+    expired = "Failed to authenticate. API Error: 401 OAuth access token has expired"
+    rejecting = FakeClaude(stdout=refused(tree, expired, api_error_status=401), returncode=1)
+    monkeypatch.setitem(runtimes._REGISTRY, "claude_code", ClaudeCodeRuntime(execute=rejecting))
+    before = head(tree)
+
+    answer = commit(api)
+
+    assert answer.status_code == 409
+    assert "account default" in answer.text, "the account whose login is rejected"
+    assert head(tree) == before
+    assert "notes.txt" in git(tree, "status", "--porcelain"), "the changes stay uncommitted"
+    kept = attachment(inst)
+    assert kept is not None and kept.changed == 1 and not kept.stale
 
 
 def test_a_commit_with_nothing_to_commit_is_a_conflict_that_changes_nothing(

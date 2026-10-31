@@ -16,6 +16,7 @@ from typing import NamedTuple
 
 import pytest
 
+from agent_build_kit.claude_account import Account
 from agent_build_kit.pipeline.restack import (
     ConflictContext,
     Moved,
@@ -26,6 +27,7 @@ from agent_build_kit.pipeline.restack import (
 from agent_build_kit.runtimes.base import (
     AgentInterrupted,
     AgentRateLimited,
+    LoginRejected,
     NetworkUnavailable,
     ServiceUnavailable,
 )
@@ -198,8 +200,9 @@ def test_a_marker_left_after_the_second_call_ends_the_step_with_the_conflict(
         AgentInterrupted("claude was killed by signal 15"),
         NetworkUnavailable("could not reach the host", strength="strong", host="api.example.test"),
         ServiceUnavailable("overloaded", status=529),
+        LoginRejected(Account.default(), "OAuth access token has expired"),
     ],
-    ids=["rate-limited", "interrupted", "network", "service"],
+    ids=["rate-limited", "interrupted", "network", "service", "login"],
 )
 def test_a_refusal_of_the_second_call_is_raised_as_it_is_with_the_rebase_aborted(
     repo: Path, refusal: Exception
