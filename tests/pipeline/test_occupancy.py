@@ -38,12 +38,9 @@ def test_a_live_lock_a_live_lease_and_an_unexpired_marker_each_occupy_a_slot():
 
 
 def test_a_recorded_usage_pause_occupies_a_slot_with_no_lock_or_lease():
-    paused = new_unit("a/1").model_copy(
-        update={"state": RUNNING, "paused_until": NOW + timedelta(hours=1)}
-    )
     idle = new_unit("b/1").model_copy(update={"state": RUNNING})
 
-    found = occupied([paused, idle], locks=(), leases=(), now=NOW)
+    found = occupied([paused_unit("a/1"), idle], locks=(), leases=(), now=NOW)
 
     assert found.projects == {key(): 1}
 
@@ -105,10 +102,40 @@ def test_a_full_project_has_no_free_slot():
     assert free(found, Limits(stacks=1), key()) == 0
 
 
-def test_a_lane_unit_takes_no_worker_of_its_projects():
+def test_a_lane_unit_holds_a_worker_for_a_new_unit_and_none_for_one_already_in_progress():
     found = occupied([new_unit("a/1")], locks=(), leases={"a/1"}, now=NOW, lane={"a/1"})
+    limits = Limits(stacks=1, emergency_extra=1)
 
-    assert free(found, Limits(stacks=1, emergency_extra=1), key()) == 1
+    assert free(found, limits, key()) == 0
+    assert free(found, limits, key(), new=False) == 1
+
+
+def paused_unit(uid: str):
+    return new_unit(uid).model_copy(
+        update={"state": RUNNING, "paused_until": NOW + timedelta(hours=1)}
+    )
+
+
+def test_a_paused_unit_holds_a_place_and_no_worker():
+    found = occupied([paused_unit("a/1")], locks=(), leases=(), now=NOW)
+
+    assert found.projects == {key(): 1}
+    assert found.workers == {}
+    assert free(found, Limits(stacks=1), key()) == 1
+
+
+def test_with_the_units_in_progress_reached_a_paused_unit_keeps_a_new_one_out():
+    found = occupied([paused_unit("a/1")], locks=(), leases=(), now=NOW)
+    limits = Limits(stacks=3, in_progress=1)
+
+    assert free(found, limits, key()) == 0
+    assert free(found, limits, key(), new=False) == 3
+
+
+def test_the_units_in_progress_of_one_project_do_not_count_against_another():
+    found = occupied([paused_unit("a/1")], locks=(), leases=(), now=NOW)
+
+    assert free(found, Limits(stacks=3, in_progress=1), key("platform")) == 1
 
 
 def test_an_accounts_own_limit_caps_the_free_slots():

@@ -845,6 +845,7 @@ class UnitStore:
                 moved_base_run=existing.moved_base_run if existing else False,
                 moved_base_uncounted=existing.moved_base_uncounted if existing else False,
                 paused_until=existing.paused_until if existing else None,
+                starting=existing.starting if existing else None,
                 history=existing.history if existing else ({"state": PLANNED, "at": _now()},),
             )
             if existing and not existing.unstarted:
@@ -1700,6 +1701,7 @@ def _record(unit: StoredUnit) -> dict:
         "bounce_cause",
         "bounce_at",
         "paused_until",
+        "starting",
     ):
         if record[name] is None:
             del record[name]

@@ -1,7 +1,8 @@
 """Slot occupancy from durable facts, as a pure function of plain data.
 
-A unit occupies a slot while a live branch lock, a live lease, an unexpired `starting` marker or a
-recorded usage pause names it. Nothing here reads a file or the clock.
+A unit occupies a place while a live branch lock, a live lease, an unexpired `starting` marker or a
+recorded usage pause names it. Of those, the ones that are not paused and not in the emergency lane
+also hold a worker. Nothing here reads a file or the clock.
 """
 
 from __future__ import annotations
@@ -16,20 +17,25 @@ from agent_build_kit.pipeline.units import RUNNING, ProjectKey, Unit, branch_nam
 
 
 class Occupancy(Frozen):
-    """Units occupying slots, each counted once: in each project, under each account label
-    (None for the default account), and in each project's emergency lane."""
+    """Units occupying places, each counted once. `projects` and `accounts` count the units in
+    progress here (a paused unit among them) in each project and under each account label (None
+    for the default account); `workers` counts those of them holding a worker in each project (a
+    paused unit does not); `emergency` counts the lane's units."""
 
     projects: Mapping[ProjectKey, int] = {}
+    workers: Mapping[ProjectKey, int] = {}
     accounts: Mapping[str | None, int] = {}
     emergency: Mapping[ProjectKey, int] = {}
 
 
 class Limits(Frozen):
     """What occupancy is held to: build workers of one project, the lane's extra places in one
-    project, and the places of each account label that has its own."""
+    project, the units in progress of one project (None: not counted per project), and the
+    places of each account label that has its own."""
 
     stacks: int
     emergency_extra: int = 0
+    in_progress: int | None = None
     accounts: Mapping[str | None, int] = {}
 
 
@@ -43,9 +49,11 @@ def marker_live(unit: StoredUnit, now: datetime) -> bool:
     return unit.starting is not None and unit.starting.until > now
 
 
-def paused(unit: StoredUnit) -> bool:
-    """Whether the unit records a usage pause: running, with the time it waits until set. It
-    holds its place with no run and no worker until the gate lets it on."""
+def usage_paused(unit: StoredUnit) -> bool:
+    """Whether the gate left the unit paused for usage: running, with a pause recorded. A pause
+    is recorded until the gate allows, so one whose time has passed and is waiting for a worker
+    still holds its place; `reclaim_stranded` ends it when its thread is gone. It holds its place
+    with no run and no worker."""
     return unit.state == RUNNING and unit.paused_until is not None
 
 
@@ -63,6 +71,7 @@ def occupied(
     at `now`, or that record a usage pause. Those also in `lane` count in their project's
     emergency lane."""
     projects: Counter[ProjectKey] = Counter()
+    workers: Counter[ProjectKey] = Counter()
     accounts: Counter[str | None] = Counter()
     emergency: Counter[ProjectKey] = Counter()
     for unit in units:
@@ -70,7 +79,7 @@ def occupied(
             (unit.branch or branch_name(unit)) in locks
             or unit.id in leases
             or marker_live(unit, now)
-            or paused(unit)
+            or usage_paused(unit)
         ):
             continue
         key = project_key(unit)
@@ -78,21 +87,49 @@ def occupied(
         accounts[account_of(unit)] += 1
         if unit.id in lane:
             emergency[key] += 1
-    return Occupancy(projects=dict(projects), accounts=dict(accounts), emergency=dict(emergency))
+        if not usage_paused(unit):
+            workers[key] += 1
+    return Occupancy(
+        projects=dict(projects),
+        workers=dict(workers),
+        accounts=dict(accounts),
+        emergency=dict(emergency),
+    )
 
 
 def free(
-    occupancy: Occupancy, limits: Limits, project: ProjectKey, account: str | None = None
+    occupancy: Occupancy,
+    limits: Limits,
+    project: ProjectKey,
+    account: str | None = None,
+    *,
+    new: bool = True,
 ) -> int:
-    """How many more units of `project` may start: its free workers, the lane's units taking
-    none, and no more than the account's own limit leaves when `limits` names one for `account`."""
-    used = occupancy.projects.get(project, 0) - occupancy.emergency.get(project, 0)
-    room = limits.stacks - used
-    if account in limits.accounts:
-        room = min(room, limits.accounts[account] - occupancy.accounts.get(account, 0))
+    """How many more units of `project` may start: its free workers and, for a unit `new` to
+    progress, no more than the units in progress the project allows and the account's own limit
+    when `limits` names one. The lane's units hold a worker for a unit `new` to progress, so
+    ordinary starts wait; a unit already in progress is held to the workers without them
+    (`ready_units`)."""
+    busy = occupancy.workers.get(project, 0) - (0 if new else occupancy.emergency.get(project, 0))
+    room = limits.stacks - busy
+    if new:
+        if limits.in_progress is not None:
+            room = min(room, limits.in_progress - occupancy.projects.get(project, 0))
+        if account in limits.accounts:
+            room = min(room, limits.accounts[account] - occupancy.accounts.get(account, 0))
     return max(0, room)
+
+
+def free_workers(occupancy: Occupancy, limits: Limits, project: ProjectKey) -> int:
+    """How many of `project`'s workers hold no unit, for the report of the slots."""
+    return max(0, limits.stacks - occupancy.workers.get(project, 0))
 
 
 def emergency_free(occupancy: Occupancy, limits: Limits, project: ProjectKey) -> int:
     """How many more units may start in `project`'s emergency lane."""
     return max(0, limits.emergency_extra - occupancy.emergency.get(project, 0))
+
+
+def capacity(limits: Limits, projects: int) -> int:
+    """The workers and lane places of `projects` projects together."""
+    return (limits.stacks + limits.emergency_extra) * projects

@@ -2,20 +2,53 @@
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from datetime import datetime, timedelta
 
+from agent_build_kit import claude_account
 from agent_build_kit.installation import Installation
 from agent_build_kit.pipeline.emergency_lane import lane_units
 from agent_build_kit.pipeline.file_lock import file_lock
 from agent_build_kit.pipeline.lease import Leases
-from agent_build_kit.pipeline.occupancy import Limits, Occupancy, free, marker_live, occupied
+from agent_build_kit.pipeline.occupancy import (
+    Limits,
+    Occupancy,
+    emergency_free,
+    free,
+    marker_live,
+    no_account,
+    occupied,
+)
+from agent_build_kit.pipeline.slots import account_labels
 from agent_build_kit.pipeline.unit_store import Starting, StoredUnit, UnitStore
-from agent_build_kit.pipeline.units import branch_name, project_key
+from agent_build_kit.pipeline.units import Unit, branch_name, in_progress, project_key
 from agent_build_kit.pipeline.workspaces import branch_held
 
+# How long a unit admitted to a worker holds its place before the worker takes the branch's lock.
+STARTING_TTL = timedelta(minutes=10)
 
-def _occupancy(inst: Installation, units: Sequence[StoredUnit], now: datetime) -> Occupancy:
+
+def limits_of(inst: Installation) -> Limits:
+    """The limits the installation sets: workers and lane places of a project, and the units in
+    progress of a project or, when they are counted per account, of each account."""
+    accounts = account_labels(inst)
+    return Limits(
+        stacks=inst.max_concurrent_stacks,
+        emergency_extra=inst.emergency_extra,
+        in_progress=None if accounts else inst.max_units_in_progress,
+        accounts=accounts,
+    )
+
+
+def account_of(inst: Installation) -> Callable[[Unit], str | None]:
+    """The account label a unit counts under: its repo's, when units in progress are counted per
+    account, else the default account."""
+    if not account_labels(inst):
+        return no_account
+    return lambda unit: claude_account.for_repo(inst.config, unit.repo).label
+
+
+def current_occupancy(inst: Installation, units: Sequence[StoredUnit], now: datetime) -> Occupancy:
     """The occupancy the durable facts show: live branch locks, live leases, live markers and
     recorded usage pauses."""
     leases = Leases(inst.leases_dir)
@@ -29,22 +62,27 @@ def _occupancy(inst: Installation, units: Sequence[StoredUnit], now: datetime) -
         leases={unit.id for unit in units if leases.holder(unit.id) is not None},
         now=now,
         lane=lane_units(inst.state_dir),
+        account_of=account_of(inst),
     )
 
 
 def admit(
     inst: Installation,
     store: UnitStore,
-    candidates: Sequence[StoredUnit],
+    candidates: Sequence[Unit],
     *,
     worker: str,
     now: datetime,
     ttl: timedelta,
 ) -> list[StoredUnit]:
-    """The leading `candidates` that fit the free slots, each marked `starting` for `worker`
+    """The leading `candidates` that fit the free places, each marked `starting` for `worker`
     until `now + ttl` before the admission lock (`admission.lock` in the locks folder) is
-    released."""
-    limits = Limits(stacks=inst.max_concurrent_stacks, emergency_extra=inst.emergency_extra)
+    released. A candidate fits when its project has a free worker and, if it has never started,
+    room in the units in progress of its project or account. A candidate the round entered in
+    the emergency lane (by the `ready_units` rule) instead fits while the lane has a place,
+    whatever the workers and the units in progress."""
+    limits = limits_of(inst)
+    account = account_of(inst)
     admitted: list[str] = []
     with file_lock(inst.locks_dir / "admission.lock"):
         for candidate in candidates:
@@ -52,7 +90,14 @@ def admit(
             current = store.get(candidate.id)
             if marker_live(current, now):
                 continue
-            if free(_occupancy(inst, units, now), limits, project_key(current)) > 0:
+            found = current_occupancy(inst, units, now)
+            key = project_key(current)
+            new = not in_progress(current, units)
+            if current.id in lane_units(inst.state_dir):
+                fits = emergency_free(found, limits, key) > 0
+            else:
+                fits = free(found, limits, key, account(current), new=new) > 0
+            if fits:
                 store.set_starting(current.id, Starting(worker=worker, until=now + ttl))
                 admitted.append(current.id)
     return [store.get(unit_id) for unit_id in admitted]

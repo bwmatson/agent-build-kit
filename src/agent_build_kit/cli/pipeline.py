@@ -73,6 +73,12 @@ from agent_build_kit.pipeline import (
     spans,
     usage_report,
 )
+from agent_build_kit.pipeline.admission import (
+    STARTING_TTL,
+    admit,
+    current_occupancy,
+    limits_of,
+)
 from agent_build_kit.pipeline.admission_record import (
     ADMISSIONS_NAME,
     AdmissionRecord,
@@ -163,7 +169,7 @@ from agent_build_kit.pipeline.manual_steps import (
     unmet_steps,
 )
 from agent_build_kit.pipeline.metric_records import emit_metric
-from agent_build_kit.pipeline.occupancy import marker_live
+from agent_build_kit.pipeline.occupancy import capacity, free_workers, marker_live, usage_paused
 from agent_build_kit.pipeline.pause import (
     Pause,
     clear_pause,
@@ -250,6 +256,8 @@ from agent_build_kit.pipeline.run_log import (
     run_log_dir,
 )
 from agent_build_kit.pipeline.shell import git, has_origin
+from agent_build_kit.pipeline.slots import slot_limit as _slot_limit
+from agent_build_kit.pipeline.slots import slot_of as _slot_of
 from agent_build_kit.pipeline.stack_runner import (
     GroupStep,
     PauseInfo,
@@ -820,14 +828,7 @@ def _slots_line(inst: Installation, units: list[StoredUnit]) -> str | None:
     in the lane. Nothing is printed when no slot is taken and no run is in the lane."""
     held = lane_record(inst.state_dir)
     restacking = {entry["unit"] for entry in held if entry["status"] == "running"}
-    waiting = {entry["unit"] for entry in held} - restacking
-    unheld = {
-        unit.id
-        for unit in units
-        if unit.state == RUNNING and not branch_is_held(inst, unit.branch or branch_name(unit))
-    }
-    occupied = slot_occupancy(units, (), restacking, lane_waiting=waiting, idle=unheld)
-    taken = sum(len(ids) for ids in occupied.values())
+    taken = sum(current_occupancy(inst, units, spans.clock.now()).workers.values())
     if not (taken or restacking):
         return None
     cap = inst.max_concurrent_stacks * max(1, len(_unfinished_projects(units)))
@@ -2428,7 +2429,12 @@ def run_round(
     # same budget as a readmission.
     lane_running = set(lane.running) if lane else set()
     lane_waiting = set(lane.waiting) if lane else set()
-    occupied = slot_occupancy(units, in_flight, lane_running, lane_waiting=lane_waiting, idle=idle)
+    # A unit admission sent to another tick's worker, whose marker has not lapsed, holds its place
+    # as a run in flight does.
+    sent = {unit.id for unit in units if marker_live(unit, spans.clock.now())}
+    occupied = slot_occupancy(
+        units, in_flight | sent, lane_running, lane_waiting=lane_waiting, idle=idle
+    )
     workers = set().union(*occupied.values())
     # The emergency lane's units take no worker of the project's own: a rework or a resume
     # is held to the workers the lane leaves. A unit in flight is in progress for the record.
@@ -2730,20 +2736,15 @@ def _write_admissions(
             store.record_event(unit.id, "usage_resume", account=account)
 
 
-def _is_paused_for_usage(unit: StoredUnit) -> bool:
-    """Whether the gate left the unit paused for usage: running, with a pause recorded. A pause
-    is recorded until the gate allows, so one whose time has passed and is waiting for a worker
-    still holds its place; `reclaim_stranded` ends it when its thread is gone."""
-    return unit.state == RUNNING and unit.paused_until is not None
-
-
 def _idle_units(
     inst: Installation, units: list[StoredUnit], in_flight: Collection[str]
 ) -> set[str]:
-    """Running units no run holds: not in flight, and their branch's lock free. They take no
-    worker (the worker meaning). A unit with a recorded usage pause is among them: this function
-    does not keep it in progress, the round's view does (`_evaluate_round`)."""
-    return idle_units(units, in_flight, lambda branch: branch_is_held(inst, branch))
+    """Running units no run holds: not in flight, their branch's lock free and no live `starting`
+    marker. They take no worker (the worker meaning). A unit with a recorded usage pause is among
+    them: this function does not keep it in progress, the round's view does (`_evaluate_round`)."""
+    return idle_units(
+        units, in_flight, lambda branch: branch_is_held(inst, branch), now=spans.clock.now()
+    )
 
 
 def reclaim_stranded(
@@ -2757,6 +2758,7 @@ def reclaim_stranded(
     is left too, its worker still on the way to the lock; a lapsed marker is cleared."""
     now = spans.clock.now()
     for unit in store.all():
+        # A marker that lapsed is the worker's claim gone with no lock: the unit is no one's.
         if unit.starting is not None and not marker_live(unit, now):
             store.set_starting(unit.id, None)
         if (
@@ -2784,10 +2786,15 @@ def reconcile_running(
     Its run ended without recording an outcome, so `abk requeue` could not move
     it while it read `running`. One with a live holder is left, and so is one
     with no lock, which is reported: nothing says whether its run ever started.
-    A unit in `in_flight`, or with a thread, is left and not reported: its thread
-    resumes it, which is how a run killed in a node carries on."""
+    A unit in `in_flight`, with a live `starting` marker or with a thread, is left and not
+    reported: its thread resumes it, which is how a run killed in a node carries on."""
     for unit in store.all():
-        if unit.state != RUNNING or unit.id in in_flight or has_thread(inst, unit.id):
+        if (
+            unit.state != RUNNING
+            or unit.id in in_flight
+            or marker_live(unit, spans.clock.now())
+            or has_thread(inst, unit.id)
+        ):
             continue
         gone = lock_holder_gone(unit.branch or branch_name(unit), root=inst.locks_dir)
         if gone is None:
@@ -3550,13 +3557,16 @@ def _evaluate_round(
     now = spans.clock.now()
     # A unit no run holds that records a usage pause is in progress and holds its place, with no
     # worker: it is shown running, never held (`ready_units`, `no_worker`).
-    paused = {unit.id for unit in units if unit.id in idle and _is_paused_for_usage(unit)}
+    paused = {unit.id for unit in units if unit.id in idle and usage_paused(unit)}
+    # A unit admission sent to a worker that has not yet taken its lock is in progress as one in
+    # flight is: its marker has not lapsed.
+    marked = {unit.id for unit in units if marker_live(unit, now)}
     leases = Leases(lease_dir(inst.local_dir))
     owed = owed_units(inst, units) if owed is None else owed
     gates = split_gates(inst.config, inst.state_dir, units)
     external = held_units(inst.changes_dir, units)
     for unit in units:
-        if unit.id in building:
+        if unit.id in building or unit.id in marked:
             unit = unit.model_copy(update={"state": RUNNING})
         elif unit.id in paused:
             unit = unit.model_copy(update={"state": RUNNING})
@@ -3681,27 +3691,6 @@ def unit_label(unit: Unit) -> str:
     """How the status names a unit's place: its repo, and `repo/project` for a project beside
     the root of a repo."""
     return project_tag(unit.repo, unit.project)
-
-
-def _slot_of(inst: Installation) -> Callable[[Unit], Hashable]:
-    """What a unit's place in progress is counted under: its account's label (None for the
-    default account) when the installation uses accounts, else its project."""
-    if not claude_account.slots_per_account(inst.config):
-        return project_key
-    return lambda unit: claude_account.for_repo(inst.config, unit.repo).label
-
-
-def _slot_limit(inst: Installation) -> Callable[[Hashable], int]:
-    """The units in progress one slot of `_slot_of` allows: an account's own limit, else the
-    project limit."""
-    if not claude_account.slots_per_account(inst.config):
-        return lambda _slot: inst.max_units_in_progress
-
-    def limit(label: Hashable) -> int:
-        named = claude_account.resolve(inst, label if isinstance(label, str) else None)
-        return named.max_units_in_progress or inst.max_units_in_progress
-
-    return limit
 
 
 def _lane_has_room(
@@ -4363,36 +4352,28 @@ def _schedule(
             units = store.all()
             states = [unit.state for unit in units]
             in_flight = {unit.id for unit in building.values()}
-            occupied = slot_occupancy(
-                units,
-                in_flight,
-                lane.running,
-                lane_waiting=lane.waiting,
-                idle=_idle_units(inst, units, in_flight),
-            )
-            running = set().union(*occupied.values())
+            occupied = current_occupancy(inst, units, spans.clock.now())
             # Totals over the projects with a unit not yet finished, for reporting only.
             live = _unfinished_projects(units)
-            free = sum(
-                max(0, inst.max_concurrent_stacks - len(occupied.get(key, ()))) for key in live
-            )
+            limits = limits_of(inst)
+            spare = sum(free_workers(occupied, limits, key) for key in live)
             spans.record_sample(
                 spans.Sample(
                     at=spans.clock.now().isoformat(),
-                    running=len(running),
+                    running=sum(occupied.workers.values()),
                     in_review=states.count(IN_REVIEW),
                     blocked=sum(
                         1 for unit in units if unit.state == PLANNED and waiting_on(unit, units)
                     ),
                     queued=len(queued),
-                    free_workers=free,
+                    free_workers=spare,
                     limit=_slots_capacity(inst, units, live),
                     cap=inst.max_concurrent_stacks * len(live),
                 ),
                 log,
             )
-            telemetry.level("abk.slots.free", free)
-            telemetry.level("abk.slots.idle_with_ready", min(free, len(queued)))
+            telemetry.level("abk.slots.free", spare)
+            telemetry.level("abk.slots.idle_with_ready", min(spare, len(queued)))
             telemetry.level(
                 "abk.slots.emergency_used",
                 len(emergency_lane.users(inst.state_dir, _with_builds_running(units, in_flight))),
@@ -4401,7 +4382,20 @@ def _schedule(
             telemetry.level("abk.restacks.waiting", len(lane.waiting))
 
         def submit(units: list[Unit]) -> None:
-            for unit in units:
+            """Hand each unit admission lets start to a worker. Admission counts the places
+            from the durable facts and marks the unit under its lock, so another tick's count
+            sees it before its worker has taken the branch's lock; a unit it refuses is left for
+            a later round."""
+            chosen = {unit.id: unit for unit in units}
+            for marked in admit(
+                inst,
+                store,
+                units,
+                worker=f"tick-{os.getpid()}",
+                now=spans.clock.now(),
+                ttl=STARTING_TTL,
+            ):
+                unit = chosen[marked.id]
                 started[unit.id] = len(store.get(unit.id).history)
                 # The tick's span goes into the worker by its context: a
                 # pool's threads do not inherit it.
@@ -4435,6 +4429,8 @@ def _schedule(
                 if future not in building:
                     continue
                 ended = building.pop(future)
+                # Its worker is done with the claim, whether or not it ever took the lock.
+                _clear_starting(store, ended.id)
                 # A build the model refused returns False too, and pauses its own account: that
                 # stops the pass only when it leaves no account to start on (below).
                 if not future.result() and not _refused_by_model(inst, ended):
@@ -4494,7 +4490,17 @@ def _live_projects(inst: Installation, units: list[StoredUnit]) -> set[ProjectKe
 def _pool_size(inst: Installation, units: list[StoredUnit]) -> int:
     """Threads for every project's build workers together; each project's own count is the only
     limit on what starts."""
-    return (inst.max_concurrent_stacks + inst.emergency_extra) * len(_live_projects(inst, units))
+    return capacity(limits_of(inst), len(_live_projects(inst, units)))
+
+
+def _clear_starting(store: UnitStore, unit_id: str) -> None:
+    """Drop the unit's `starting` marker: its worker has taken the branch's lock, which holds the
+    place from then, or is done. A unit gone from the store has none."""
+    try:
+        if store.get(unit_id).starting is not None:
+            store.set_starting(unit_id, None)
+    except KeyError:
+        pass
 
 
 def _refresh(inst: Installation, *, store: UnitStore, lane: Lane | None = None) -> None:
@@ -6586,6 +6592,9 @@ def _build_unit(
         try:
             with ExitStack() as held:
                 held.enter_context(branch_lock(branch, root=inst.locks_dir))
+                # The lock holds the unit's place from here, so the marker admission left has
+                # done its work; the unit is counted through the lock without a gap.
+                _clear_starting(store, unit.id)
                 # Re-read under the lock. `ready` comes from the pass's latest
                 # evaluation, and ticks overlap to build in parallel: by the time
                 # this one reaches a unit, another may have built it and opened its
