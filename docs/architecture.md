@@ -514,6 +514,16 @@ release could move. The steps:
    needs no `feat:` commit after it, while an ordinary group with no implementation still
    stops the unit.
 
+   **What makes a group test-only.** The floor reads each task of a group, not only the paths the
+   group names together. A group is `tests_only` (or `no_code`) only when every task is a `Test:`
+   task, a check (it begins `Confirm`, `Check`, `Verify`, `Read` or `Run`), or names a path in
+   backticks (a command such as `git mv a b` names the paths of its arguments); a task that is none
+   of these is implementation work with no place named, and the group is built with tests first and
+   then code. A `Paths:` line still decides what the group names, `Tests: required — <reason>` still
+   raises the floor, and nothing lowers it. The rule reads whether a task names a path, not what the
+   path is, so a task that describes code in prose and also names a document or a test file reads as
+   placed: the author raises the floor there.
+
    **An e2e-test group is never joined.** Every `[e2e-test]` group, flagged or not, has a
    unit of its own: the join check refuses to put it with another group, the plan check
    refuses a plan that does, and no `Separate:` line is needed. `abk tags` warns of one
