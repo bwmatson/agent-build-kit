@@ -465,7 +465,11 @@ product path: one that is not a test path, a doc, the changelog or declared supp
 tokens with a `/` or a file extension are read, so a path in plain prose is missed, and URLs,
 flags, assignments, globs and symbols are skipped; a `scripts/` path passes only on a line that
 also names a test path. The reading has false positives (a path named only to say it must not
-change) and misses; the guard in `checks` judges the real diff. Exit 1 if any change has a problem or no `tasks.md`.
+change) and misses; the guard in `checks` judges the real diff. It likewise warns of a task in
+an `[e2e-test]` group that names no path but asks for a product change in words: one that is not
+a `Test:`, documentation, changelog or `Support:` task and begins with fix, change, add,
+implement, update, refactor, remove, rename or make. The warning names the two routes: a
+`product-defect` block, or a `[unit-test]` group first that the e2e group `Needs:`. Exit 1 if any change has a problem or no `tasks.md`.
 
 `abk tags --fix [CHANGE | --all] [--dry-run]` rewrites the old test-kind tags in the group
 headings of open changes to `[unit-test]` and `[e2e-test]`. It edits the text of `tasks.md` and

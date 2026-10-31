@@ -251,6 +251,22 @@ The reason is required, a trailing `/` covers a directory, a second `Support:`
 line adds paths, and `abk tags` rejects the line in any other kind of group
 or without a reason.
 
+### Word the tasks of an `[e2e-test]` group
+
+A task that asks for a fix is the usual cause of a failed e2e unit: the builder does as told,
+changes product code, and the scope guard fails the unit after the build was spent. `abk tags`
+and `abk check` warn of a task that begins with a changing verb (fix, change, add, implement,
+update, refactor, remove, rename, make) even when it names no path.
+
+- Bad: `Fix whatever the subprocess run shows that in-process calls could not (the entry point,
+  the working directory, the default workspace path).`
+- Good: `Test: run the entry point in a subprocess and make the test pass without changing
+  product code; report a product fault as a product-defect.`
+
+Checklist: for each task of an e2e group, ask whether it could change a product file; if so, it
+belongs in another group. A known defect goes in a `[unit-test]` group written first, which the
+e2e group `Needs:`; an unknown one is reported by the builder as a `product-defect` block.
+
 ## `Independent:` lines
 
 Groups of a change are built in order: each unit depends on the one before. A
