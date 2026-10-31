@@ -10,6 +10,7 @@
   code. The rule reads whether a task names a path, not what the path is, so a prose task that
   also names a document or a test file still needs `Tests: required — <reason>`, and a group that
   really edits only test code but has a task naming no path lists its files in a `Paths:` line.
+
 - A confined Claude Code step can now renew its own login. The sandbox's host list for the Claude
   Code runtime gains `platform.claude.com`, where the CLI posts the refresh token when its access
   token (8 hours) has expired; without it the step failed with `401 OAuth access token has
