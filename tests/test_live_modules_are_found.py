@@ -62,6 +62,7 @@ def test_a_module_that_cannot_be_parsed_is_named_in_a_failure(tmp_path: Path) ->
         find_live_modules(tmp_path / "tests")
 
 
+@pytest.mark.integration
 def test_every_module_the_old_glob_and_text_match_found_is_still_found() -> None:
     old = [
         path
