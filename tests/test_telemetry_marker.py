@@ -13,6 +13,7 @@ import pytest
 from agent_build_kit.config import E2eSplit
 from agent_build_kit.pipeline.e2e_exclusive import check_splits
 from agent_build_kit.profiles.python_uv import PROFILE
+from tests.live_tag_drift import EVERY_LIVE_MODULE_TIME_LIMIT
 from tests.runtime_tag_collection import ROOT
 
 MARKER = "telemetry_otel"
@@ -44,6 +45,7 @@ def test_every_otel_item_of_the_telemetry_module_carries_the_marker_and_no_other
     assert [i.nodeid for i in items if i not in otel and i.get_closest_marker(MARKER)] == []
 
 
+@pytest.mark.time_limit(EVERY_LIVE_MODULE_TIME_LIMIT)
 def test_a_split_on_the_marker_selects_the_otel_items_and_no_other_live_test(
     pytester: pytest.Pytester,
 ) -> None:
