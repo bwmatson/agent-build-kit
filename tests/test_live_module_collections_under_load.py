@@ -1,4 +1,4 @@
-"""The tests that collect every live module give the same result however loaded the host is.
+"""The tests that collect the live modules give the same result however loaded the host is.
 
 Each collects every live module of the kit in-process, which under parallel load takes longer
 than the default per-test time limit, so the limit would interrupt it at random. They are judged
@@ -29,6 +29,10 @@ COLLECTING_TESTS = [
     (
         "test_live_tests_across_dimensions.py",
         "test_no_two_live_tests_of_the_kit_differ_in_name_only_by_a_dimension_value",
+    ),
+    (
+        "test_telemetry_marker.py",
+        "test_a_split_on_the_marker_selects_the_otel_items_and_no_other_live_test",
     ),
 ]
 

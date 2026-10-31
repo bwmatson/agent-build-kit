@@ -7,7 +7,7 @@
   account, so `abk status` names the account and the command that renews its login.
 - The telemetry marker split test (`tests/test_telemetry_marker.py`) runs under the live-module time
   limit, as the other tests that collect the live modules do. It takes about 50 seconds alone and
-  failed in every full run on a loaded machine against the 60-second default; it passed alone.
+  failed in full parallel runs against the 60-second default; it passed alone.
 
 - A task group is read as tests-only or no-code only when each of its tasks is placed: a `Test:`
   task, a check (it begins `Confirm`, `Check`, `Verify` or `Read`), or a task that names a path.
