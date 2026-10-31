@@ -142,6 +142,27 @@ def test_a_lane_unit_holds_a_worker_for_a_new_unit_and_none_for_one_already_in_p
     assert free(found, limits, key(), new=False) == 1
 
 
+def test_a_paused_lane_unit_with_no_run_holds_a_lane_place_and_no_worker():
+    limits = Limits(stacks=1, emergency_extra=1)
+    alone = occupied([paused_unit("l/1")], locks=(), leases=(), now=NOW, lane={"l/1"})
+    beside = occupied(
+        [paused_unit("l/1"), on_branch("r/1")], locks=locks("r/1"), leases=(), now=NOW, lane={"l/1"}
+    )
+
+    assert alone.emergency == {key(): 1}
+    assert alone.workers == {}
+    assert emergency_free(alone, limits, key()) == 0
+    assert free(alone, limits, key(), new=False) == 1
+    assert free(beside, limits, key(), new=False) == 0
+
+
+def test_a_paused_lane_unit_a_run_holds_is_taken_off_the_workers_of_a_unit_in_progress():
+    found = occupied([paused_unit("l/1")], locks=locks("l/1"), leases=(), now=NOW, lane={"l/1"})
+
+    assert found.lane_workers == {key(): 1}
+    assert free(found, Limits(stacks=1, emergency_extra=1), key(), new=False) == 1
+
+
 def test_a_paused_unit_holds_a_place_and_no_worker():
     found = occupied([paused_unit("a/1")], locks=(), leases=(), now=NOW)
 

@@ -240,6 +240,23 @@ def test_a_paused_unit_once_admitted_takes_the_worker_from_a_new_unit(tmp_path):
     assert (resumed.id, later) == ("p/1", [])
 
 
+def test_a_paused_lane_unit_leaves_one_worker_to_the_units_in_progress(tmp_path):
+    inst = lane_workspace(tmp_path, workers=1, places=5, extra=1)
+    store = UnitStore(tmp_path / "units.json")
+    store.upsert([new_unit("lane/1", priority=0), new_unit("r/1"), new_unit("s/1")])
+    store.set_state("lane/1", RUNNING, branch="spec/lane/1")
+    store.set_usage_pause("lane/1", datetime.now(UTC) + timedelta(hours=1))
+    emergency_lane.enter(inst.state_dir, store.get("lane/1"))
+    for uid in ("r/1", "s/1"):  # two units already begun: held to the workers alone
+        store.set_state(uid, PLANNED, branch=f"spec/{uid}")
+    now = datetime.now(UTC)
+
+    [first] = admit(inst, store, [store.get("r/1")], worker="w1", now=now, ttl=TTL)
+    second = admit(inst, store, [store.get("s/1")], worker="w2", now=now, ttl=TTL)
+
+    assert (first.id, second) == ("r/1", [])
+
+
 def test_a_chat_on_a_unit_takes_no_worker_from_the_next_one(tmp_path):
     inst = one_slot(tmp_path)
     store = store_of(inst, "chat/1", "n/1")

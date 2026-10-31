@@ -3684,7 +3684,8 @@ def slot_occupancy(
     """The unit ids that occupy build slots in each project, each id once: the builds in
     flight, the moved-base runs running in the lane, and the units stored `running` that no
     run is shown to have left (`idle`: no run holds them) and that do not wait behind the
-    lane's cap (`lane_waiting`). Every count of build slots reads it."""
+    lane's cap (`lane_waiting`). The round and the `slots:` line of `abk status` read it;
+    admission and the tick's slot samples count through `admission.current_occupancy`."""
     ids = {*building, *lane_running}
     skipped = {*idle, *lane_waiting}
     occupied: dict[ProjectKey, set[str]] = {}

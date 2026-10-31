@@ -21,13 +21,16 @@ class Occupancy(Frozen):
     """Units occupying places, each counted once. `projects` and `accounts` count the units in
     progress here (a paused unit among them) in each project and under each account label (None
     for the default account); `workers` counts those of them a run holds in each project (a unit
-    named only by its usage pause does not); `emergency` counts the lane's units; `leased` counts
-    the units a person holds a lease on, which take no place or worker by that."""
+    named only by its usage pause does not); `emergency` counts the lane's units, each of which
+    holds a lane place; `lane_workers` counts those of them a run holds, which are also in
+    `workers`; `leased` counts the units a person holds a lease on, which take no place or
+    worker by that."""
 
     projects: Mapping[ProjectKey, int] = {}
     workers: Mapping[ProjectKey, int] = {}
     accounts: Mapping[str | None, int] = {}
     emergency: Mapping[ProjectKey, int] = {}
+    lane_workers: Mapping[ProjectKey, int] = {}
     leased: Mapping[ProjectKey, int] = {}
 
 
@@ -81,6 +84,7 @@ def occupied(
     workers: Counter[ProjectKey] = Counter()
     accounts: Counter[str | None] = Counter()
     emergency: Counter[ProjectKey] = Counter()
+    lane_workers: Counter[ProjectKey] = Counter()
     leased: Counter[ProjectKey] = Counter()
     for unit in units:
         key = project_key(unit)
@@ -97,11 +101,14 @@ def occupied(
             emergency[key] += 1
         if runs:
             workers[key] += 1
+            if unit.id in lane:
+                lane_workers[key] += 1
     return Occupancy(
         projects=dict(projects),
         workers=dict(workers),
         accounts=dict(accounts),
         emergency=dict(emergency),
+        lane_workers=dict(lane_workers),
         leased=dict(leased),
     )
 
@@ -118,8 +125,11 @@ def free(
     progress, no more than the units in progress the project allows and the account's own limit
     when `limits` names one. The lane's units hold a worker for a unit `new` to progress, so
     ordinary starts wait; a unit already in progress is held to the workers without them
-    (`ready_units`)."""
-    busy = occupancy.workers.get(project, 0) - (0 if new else occupancy.emergency.get(project, 0))
+    (`ready_units`); a lane unit named only by its pause holds a lane place and no worker, so
+    it is not taken off."""
+    busy = occupancy.workers.get(project, 0) - (
+        0 if new else occupancy.lane_workers.get(project, 0)
+    )
     room = limits.stacks - busy
     if new:
         if limits.in_progress is not None:
