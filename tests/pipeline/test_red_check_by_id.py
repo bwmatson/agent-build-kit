@@ -3,7 +3,8 @@
 
 Over real git repositories and a real pytest: the Python profile's report reading judges
 the run, and only its command is changed to use this interpreter instead of `uv`. The test
-files each commit holds are the files under `tests/child_modules/red_check_by_id/`.
+files each commit holds are the `.txt` files under `tests/child_modules/red_check_by_id/`,
+kept as text so the suite's own selection of tests by id never takes them for tests.
 """
 
 from __future__ import annotations
@@ -28,7 +29,7 @@ NEW = f"{SUBJECT}::test_new"
 
 
 def source(name: str) -> str:
-    return (SOURCES / f"{name}.py").read_text()
+    return (SOURCES / f"{name}.txt").read_text()
 
 
 class IdProfile(ModeProfile):
