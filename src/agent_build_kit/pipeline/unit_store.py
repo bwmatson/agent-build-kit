@@ -305,10 +305,20 @@ class Pull(Frozen):
     merge_sha: str | None = None
 
 
+class Starting(Frozen):
+    """The marker admission writes for a unit it let start: the worker it went to and when the
+    marker lapses if no run has taken the unit's branch lock by then."""
+
+    worker: str
+    until: datetime
+
+
 class StoredUnit(Unit):
     """A unit plus what has happened to it."""
 
     branch: str = ""
+    # Set by admission, cleared when the build takes the branch lock or the marker lapses.
+    starting: Starting | None = None
     pr: int | None = None
     # The merge commit and the tick number that first saw the unit merged; None before it
     # merged, and for a unit merged before they were kept.
@@ -1302,6 +1312,10 @@ class UnitStore:
             feedback_from_person=from_person and bool(feedback),
             feedback_source=source if feedback else FeedbackSource.NONE,
         )
+
+    def set_starting(self, unit_id: str, marker: Starting | None) -> None:
+        """The marker admission leaves on a unit it let start, or none once it lapses."""
+        self._update(unit_id, starting=marker)
 
     def set_moved_base_run(self, unit_id: str, flag: bool) -> None:
         """Whether the restack lane is making the unit's whole run."""

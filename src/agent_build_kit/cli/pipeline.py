@@ -163,6 +163,7 @@ from agent_build_kit.pipeline.manual_steps import (
     unmet_steps,
 )
 from agent_build_kit.pipeline.metric_records import emit_metric
+from agent_build_kit.pipeline.occupancy import marker_live
 from agent_build_kit.pipeline.pause import (
     Pause,
     clear_pause,
@@ -2752,11 +2753,16 @@ def reclaim_stranded(
     and no thread can resume: its run was killed before it reached a point to
     resume from. One a live process holds, or with a thread, is left, and so is
     one in `in_flight`: a unit the pass has just handed to a worker, which has
-    not yet taken the branch's lock."""
+    not yet taken the branch's lock. One whose `starting` marker admission left has not lapsed
+    is left too, its worker still on the way to the lock; a lapsed marker is cleared."""
+    now = spans.clock.now()
     for unit in store.all():
+        if unit.starting is not None and not marker_live(unit, now):
+            store.set_starting(unit.id, None)
         if (
             unit.state == RUNNING
             and unit.id not in in_flight
+            and not marker_live(unit, now)
             and not branch_is_held(inst, unit.branch or branch_name(unit))
             and not has_thread(inst, unit.id)
         ):
