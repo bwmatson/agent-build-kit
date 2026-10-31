@@ -1540,7 +1540,7 @@ def build_unit_test(
                     {},
                     f"the profile cannot say which tests {label} is affected in{hint}",
                 )
-            ids = _ids_for(touched, cwd, where, toolchain)
+            ids = ids_for(touched, cwd, where, toolchain)
             own_ids[where] = ids
             own = []
             if ids and isinstance(toolchain, RepeatsTests):
@@ -1784,7 +1784,7 @@ def build_unit_test(
                 continue
             # The profile selects by identifier, relative to where its command runs.
             # Only test files: a `test_*` method in a source file is not collected.
-            ids = _ids_for(touched, cwd, where, toolchain)
+            ids = ids_for(touched, cwd, where, toolchain)
             for command in commands if ids else []:
                 again = toolchain.repeat_command(command, ids)
                 if again is None:
@@ -2235,7 +2235,7 @@ def build_on_product_defect(
     return on_product_defect
 
 
-def _ids_for(
+def ids_for(
     touched: list[tuple[str, str]], cwd: Path, where: Path, toolchain: ToolchainProfile
 ) -> list[str]:
     """The identifiers of the touched tests that fall under `where`, as a runner started
@@ -3079,7 +3079,7 @@ def e2e_scope(
     for where, toolchain, commands in work:
         if not isinstance(toolchain, RepeatsTests):
             continue
-        here = _ids_for(touched, cwd, where, toolchain)
+        here = ids_for(touched, cwd, where, toolchain)
         narrowed = [toolchain.repeat_command(c, here) for c in commands]
         if commands := [command for command in narrowed if command is not None]:
             runs.append(E2eRun(where=where, commands=commands))
@@ -4021,6 +4021,14 @@ def moving_onto(unit: StoredUnit, base: str, store: UnitStore) -> StoredUnit:
     return predecessor(unit, base, store) or unit.model_copy(update={"id": base, "title": base})
 
 
+def _is_fixture(function: ast.FunctionDef | ast.AsyncFunctionDef) -> bool:
+    """Whether the function is decorated as a pytest fixture, with or without arguments."""
+    return any(
+        ast.unparse(d.func if isinstance(d, ast.Call) else d).endswith("fixture")
+        for d in function.decorator_list
+    )
+
+
 def _test_bodies(source: str, *, qualified: bool = False) -> dict[str, list[str]]:
     """Each `test_*` function's own source text, by name, decorators included.
 
@@ -4040,7 +4048,14 @@ def _test_bodies(source: str, *, qualified: bool = False) -> dict[str, list[str]
     bodies: dict[str, list[str]] = {}
 
     def visit(node: ast.AST, classes: tuple[str, ...]) -> None:
+        if qualified and isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef):
+            return  # nothing inside a function is collected
         for child in ast.iter_child_nodes(node):
+            if qualified and (
+                (isinstance(child, ast.FunctionDef | ast.AsyncFunctionDef) and _is_fixture(child))
+                or (isinstance(child, ast.ClassDef) and not child.name.startswith("Test"))
+            ):
+                continue  # a fixture, and a class the runner does not collect, have no test ids
             if isinstance(child, ast.FunctionDef | ast.AsyncFunctionDef) and child.name.startswith(
                 "test_"
             ):
@@ -4150,7 +4165,7 @@ def own_test_ids(
     ids: list[str] = []
     for where, toolchain, _ in work:
         prefix = f"{where.relative_to(tree).as_posix()}/" if where != tree else ""
-        ids += [f"{prefix}{id_}" for id_ in _ids_for(touched, tree, where, toolchain)]
+        ids += [f"{prefix}{id_}" for id_ in ids_for(touched, tree, where, toolchain)]
     return list(dict.fromkeys(ids))
 
 

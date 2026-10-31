@@ -41,7 +41,7 @@ def scripted_commands(monkeypatch: pytest.MonkeyPatch) -> None:
         def clean_command(self) -> str:
             return "exit 0"
 
-        def red_command(self, files: list[str]) -> str:
+        def red_command(self, files: list[str], ids: list[str] | None = None) -> str:
             return f"printf '{RED}' && exit 1"
 
         def __getattr__(self, name):

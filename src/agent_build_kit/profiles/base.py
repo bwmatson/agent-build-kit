@@ -207,7 +207,12 @@ class ToolchainProfile(Protocol):
 
     def clean_command(self, *, types: bool = False) -> str: ...
 
-    def red_command(self, files: list[str]) -> str: ...
+    def red_command(self, files: list[str], ids: list[str] | None = None) -> str:
+        """The command that runs `files`, the test files of a tests commit, to see them fail.
+        `ids`, when given, are the identifiers of the tests the commit added or changed (a file
+        named alone stands for all its tests) and replace `files` for a runner that selects by
+        identifier; a runner that cannot runs the files whole."""
+        ...
 
     def interpret_red(
         self, output: str, exit_code: int, *, stubbed: bool = False
