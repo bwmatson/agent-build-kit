@@ -587,7 +587,10 @@ repos:                          # ordered: deploy order is derived from
                                 # selected pass is confirmed by one full run, which
                                 # alone makes a unit green. The first check, a
                                 # rework's check and every gate run in full, and so
-                                # does a selection that cannot be made or run
+                                # does a selection that cannot be made or run or
+                                # that was deactivated. The Python profile's
+                                # selectors such as `-m` are applied together with
+                                # the selection
         command: null           # required for `command`: a template whose words
                                 # `{changed_files}` and `{failed_ids}` each become
                                 # one argument per file or test identifier, and

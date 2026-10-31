@@ -31,4 +31,4 @@ def test_the_checks_affected_comment_says_selectors_apply_together_with_the_sele
     path: Path,
 ) -> None:
     text = squashed(path)
-    assert re.search(r"checks\.affected.{0,3000}" + SELECTOR_SENTENCE, text, re.I | re.S)
+    assert re.search(r"affected: mode: off.{0,3000}" + SELECTOR_SENTENCE, text, re.I | re.S)
