@@ -114,32 +114,61 @@ def test_a_reply_naming_a_mode_for_one_group_gives_the_other_its_floor() -> None
     assert unit.group_modes == {"feature/1": "tests_and_code", "feature/2": "tests_and_code"}
 
 
-def test_replan_prints_a_changed_mode(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
-) -> None:
+def replan_modes(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    *,
+    stored: dict[str, str],
+    asked: str,
+) -> str:
+    """What `abk replan feature` prints for an unstarted `feature/1` stored with `stored` modes
+    when the planner gives its documents group `asked`."""
     tasks = (
         "# Tasks\n\nAcceptance: none — a fixture\n\n## 1. [app] [unit-test] Group 1\n\n"
         "- [ ] 1.1 Test: it reads.\n- [ ] 1.2 Update `docs/guide.md`.\n"
     )
     run = Replan(tmp_path, monkeypatch, feature=tasks)
-    run.store.upsert(
-        [
-            stored_unit(
-                "feature/1",
-                change="feature",
-                groups=(1,),
-                group_modes={"feature/1": "tests_and_code"},
-            )
-        ]
-    )
+    run.store.upsert([stored_unit("feature/1", change="feature", groups=(1,), group_modes=stored)])
     run.record("feature")
-    unit = {**planned("feature/1", (1,)), "group_modes": {"1": "no_code"}}
+    unit = {**planned("feature/1", (1,)), "group_modes": {"1": asked}}
 
     code, out = run.run(capsys, "feature", reply=answer(unit))
 
     assert code == 0, out
-    line = next(ln for ln in out.splitlines() if "feature/1" in ln and "mode" in ln)
+    return out
+
+
+def test_replan_prints_a_changed_mode(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    out = replan_modes(
+        tmp_path,
+        monkeypatch,
+        capsys,
+        stored={"feature/1": "tests_and_code"},
+        asked="no_code",
+    )
+
+    line = next(ln for ln in out.splitlines() if "mode of group feature/1" in ln)
     assert "tests_and_code" in line and "no_code" in line
+
+
+def test_replan_prints_the_first_mode_of_a_unit_planned_before_modes_when_it_is_no_code(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    out = replan_modes(tmp_path, monkeypatch, capsys, stored={}, asked="no_code")
+
+    line = next(ln for ln in out.splitlines() if "mode of group feature/1" in ln)
+    assert "tests_and_code" in line and "no_code" in line
+
+
+def test_replan_prints_no_mode_line_when_a_unit_planned_before_modes_stays_tests_and_code(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    out = replan_modes(tmp_path, monkeypatch, capsys, stored={}, asked="tests_and_code")
+
+    assert "mode of group" not in out
 
 
 @pytest.mark.parametrize(

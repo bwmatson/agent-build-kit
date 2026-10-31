@@ -7711,7 +7711,9 @@ def _replan_differences(
         if unit.review_tier != old.review_tier:
             lines.append(f"{uid}: review tier {old.review_tier or 'full'} -> {review}")
         for key, mode in unit.group_modes.items():
-            # A unit planned before modes existed built its groups as tests_and_code.
+            # A unit planned before modes existed built its groups as tests_and_code, so for it
+            # only a move to no_code is reported; any other first mode is not told from the
+            # default without the group.
             before_mode = old.group_modes.get(key, "tests_and_code")
             if before_mode != mode and (key in old.group_modes or mode == "no_code"):
                 lines.append(f"{uid}: mode of group {key} {before_mode} -> {mode}")
