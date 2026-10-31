@@ -60,11 +60,14 @@
   sweep logs each removed folder with its unit and also clears what is left under the old root.
   A run draws a new token when its token's folder already exists, so two runs never share one.
 
-- `abk tick --dry-run` no longer changes the unit store, the plan records or the decision log,
-  and no longer links, splits, promotes or moves a unit. A change that needs planning is still
-  planned by the model, in memory: the tick logs `would plan <change>: N unit(s)` and saves the
-  answer under `plan-previews/` in the state folder. A dry run still fetches and polls, records
-  merges, archives finished changes, and starts or ends a usage pause as a real tick does.
+- `abk tick --dry-run` no longer plans into the unit store or the plan records, and its other
+  steps (linking, splitting, promoting, reclaiming and gating units, pause markers, the decision
+  log, closing pull requests, posting replies, label and outcome sweeps) no longer write. A change
+  that needs planning is still planned by the model, in memory: the tick logs
+  `would plan <change>: N unit(s)` and saves the answer under `plan-previews/` in the state
+  folder. Three things still act as in a real tick: the fetch and poll (which record merges, send
+  units back and restack), the live verification (deploy and live tests) and the archiving of
+  finished changes. The usage ledger still gets its spans and the planner call's cost.
 
 - The regression agent now searches the test tree, read-only, for other tests that share the cause
   of a failing test when the cause is a pattern, and lists them in a `Same exposure` section of

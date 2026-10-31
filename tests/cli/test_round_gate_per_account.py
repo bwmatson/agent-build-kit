@@ -95,7 +95,13 @@ def test_a_round_pauses_when_every_account_with_a_unit_is_full_and_the_pause_nam
 ) -> None:
     inst = installation(tmp_path, host, default=99, kit=99)
 
-    assert cli.cmd_tick(argv_namespace(dry_run=True), inst) == 0
+    cli.run_round(
+        inst,
+        UnitStore(inst.state_dir / "units.json"),
+        building=(),
+        only=frozenset(),
+        submit=True,
+    )
 
     default = is_paused(inst.state_dir / "paused.json")
     kit = is_paused(inst.state_dir / "paused.kit.json")
