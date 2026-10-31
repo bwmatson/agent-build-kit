@@ -323,8 +323,8 @@ class StoredUnit(Unit):
     # `unit_size.calibration`); None for a record from before they were kept, or with
     # calibration off.
     flag: str = ""
-    # The unit's tracker Story, none with no tracker, and whether it was left behind by a
-    # supersession that carried different groups.
+    # Read from a store written before levels, never written, and nothing carries it: the group
+    # items of the mapping file hold what a Story did. `story_superseded` is the same.
     story: str | None = None
     story_superseded: bool = False
     calibrated_lines: Annotated[int, Field(strict=True, gt=0)] | None = None
@@ -786,8 +786,6 @@ class UnitStore:
                 pushed_at=existing.pushed_at if existing else None,
                 actual_lines=existing.actual_lines if existing else None,
                 flag=existing.flag if existing else "",
-                story=existing.story if existing else None,
-                story_superseded=existing.story_superseded if existing else False,
                 calibrated_lines=existing.calibrated_lines if existing else None,
                 check_rerun_head=existing.check_rerun_head if existing else "",
                 check_reruns=existing.check_reruns if existing else 0,
@@ -1352,8 +1350,6 @@ class UnitStore:
                 f"over the {request.ceiling}-line ceiling of its {request.earned} tier."
             )
 
-        # One piece with the old unit's groups takes its Story; any other split leaves it behind.
-        heir = pieces[0].id if len(pieces) == 1 and pieces[0].groups == old.groups else None
         for piece in pieces:
             held = {
                 f"{member.change}/{n}": old.group_modes[f"{member.change}/{n}"]
@@ -1366,7 +1362,6 @@ class UnitStore:
                     include=set(Unit.model_fields) - {"superseded_by", "state", "group_modes"}
                 ),
                 group_modes={**piece.group_modes, **held},
-                story=old.story if piece.id == heir else None,
                 state=PLANNED,
                 split_from=unit_id,
                 split_rounds_used=old.split_rounds_used,
@@ -1378,8 +1373,6 @@ class UnitStore:
                 "state": UnitState.CLOSED,
                 "held_by": HeldBy.NONE,
                 "superseded_by": tuple(piece.id for piece in pieces),
-                "story": None if heir else old.story,
-                "story_superseded": bool(old.story) and heir is None,
                 "close_pending": ClosePending(pr=old.pr, reason=reason) if old.pr else None,
                 "history": (
                     *old.history,
@@ -1675,8 +1668,7 @@ def _record(unit: StoredUnit) -> dict:
         del record["description"]
     # Read for a store from before levels, never written: the group items carry the mapping.
     del record["story"]
-    if not unit.story_superseded:
-        del record["story_superseded"]
+    del record["story_superseded"]
     if not unit.bounces:
         del record["bounces"]
     for name in (

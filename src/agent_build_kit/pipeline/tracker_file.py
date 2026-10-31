@@ -1,8 +1,10 @@
-"""The tracker file of a change: which tracker item belongs to the change and to each of its tasks
-(spec: tracker-mapping).
+"""The tracker file of a change: which tracker item belongs to the change, to each of its groups
+and to each of its tasks (spec: tracker-mapping, tracker-levels).
 
-`tracker.yaml` in a change's folder records the tracker kind and a target label, the Feature's
-item and a map from task key to item. It is not part of the plan hash and is written only by the
+`tracker.yaml` in a change's folder records the tracker kind and a target label carrying a hash
+of the level mapping (`mapping_target`), the change's item, the manual epic's id, a map from group
+key to item and a map from task key to item. A version 1 file is still read, its Feature as the
+change item. It is not part of the plan hash and is written only by the
 pipeline, whole and under the change's tasks lock, the one the checkbox writes take.
 """
 
@@ -73,7 +75,13 @@ class TrackerFile(Frozen):
 
 def mapping_target(target: str, section: TrackerSection) -> str:
     """`target` with a short hash of the section's level mapping (levels, types, epic setting)."""
-    mapping = {"levels": section.levels, "types": section.level_types, "epic": section.epic}
+    # An epic type is part of the mapping only when the epic level is on.
+    types = {
+        level: kind
+        for level, kind in section.level_types.items()
+        if level != "epic" or section.epic
+    }
+    mapping = {"levels": section.levels, "types": types, "epic": section.epic}
     digest = hashlib.sha256(json.dumps(mapping, sort_keys=True).encode()).hexdigest()
     return f"{target}@{digest[:8]}"
 

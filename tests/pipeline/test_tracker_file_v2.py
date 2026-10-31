@@ -35,13 +35,15 @@ def change_dir(tmp_path: Path) -> Path:
     return folder
 
 
-def section(levels: list[str]) -> TrackerSection:
+def section(
+    levels: list[str], *, epic: bool = True, types: dict[str, str] | None = None
+) -> TrackerSection:
     configure(
         app={
             "kind": "azure_devops",
             "levels": levels,
-            "epic": True,
-            "azure_devops": {**AZURE_BLOCK, "types": TYPES},
+            "epic": epic,
+            "azure_devops": {**AZURE_BLOCK, "types": types or TYPES},
         }
     )
     found = section_for("app")
@@ -123,6 +125,39 @@ def test_the_same_mapping_gives_the_same_target_and_another_gives_another() -> N
     assert mapping_target("example", two) == mapping_target("example", section(["change", "group"]))
     assert mapping_target("example", two) != mapping_target("example", section(["change"]))
     assert mapping_target("example", two).startswith("example")
+
+
+def test_a_changed_type_for_a_level_in_use_gives_another_target() -> None:
+    levels = ["change", "group"]
+    other = {**TYPES, "group": "User Story"}
+
+    assert mapping_target("example", section(levels)) != mapping_target(
+        "example", section(levels, types=other)
+    )
+
+
+def test_turning_the_epic_on_or_changing_its_type_gives_another_target() -> None:
+    levels = ["change", "group"]
+    renamed = {**TYPES, "epic": "Initiative"}
+
+    off = mapping_target("example", section(levels, epic=False))
+
+    assert off != mapping_target("example", section(levels, epic=True))
+    assert mapping_target("example", section(levels)) != mapping_target(
+        "example", section(levels, types=renamed)
+    )
+
+
+def test_an_unused_epic_type_does_not_change_the_target() -> None:
+    levels = ["change", "group"]
+    without = {name: kind for name, kind in TYPES.items() if name != "epic"}
+
+    found = mapping_target("example", section(levels, epic=False, types=TYPES))
+
+    assert found == mapping_target("example", section(levels, epic=False, types=without))
+    assert found == mapping_target(
+        "example", section(levels, epic=False, types={**TYPES, "epic": "Initiative"})
+    )
 
 
 def test_a_units_story_is_read_and_not_written_back(tmp_path: Path) -> None:
