@@ -599,8 +599,9 @@ def _pytest_temp(inst: Installation) -> list[Check]:
         return []
     if not found.warn:
         return [_ok("pytest temp", found.text)]
+    where = ", ".join(str(root) for root in found.roots)
     fix = (
-        f"remove the finished run folders under {inst.pytest_temp_root}, lower "
+        f"remove the finished run folders under {where}, lower "
         "global_limits.temp_keep_hours, or raise global_limits.temp_warn_mb"
     )
     return [_warn("pytest temp", found.text, fix)]

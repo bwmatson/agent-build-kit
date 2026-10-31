@@ -61,20 +61,32 @@ def sweep_temp_folders(
     alive; return the folders removed. A removal is logged with the unit and start time its
     `run.json` names. A folder that cannot be removed is logged and left, and nothing outside the
     two roots is touched."""
-    legacy = installation.legacy_pytest_temp_root
     removed: list[Path] = []
-    for root, named in ((installation.pytest_temp_root, RUN_FOLDER), (legacy, None)):
+    for root, named in _roots(installation):
         removed += _sweep_root(
-            root,
-            installation,
-            now=now,
-            alive=alive,
-            remove=remove,
-            log=log,
-            skip=legacy,
-            named=named,
+            root, installation, now=now, alive=alive, remove=remove, log=log, named=named
         )
     return removed
+
+
+def _roots(installation: Installation) -> tuple[tuple[Path, re.Pattern[str] | None], ...]:
+    """The roots the sweep clears and `temp_size` measures, each with the pattern a run folder's
+    name must match (None: any name). The old root's name is not a token, so a configured planning
+    home that puts it inside the new root does not make it a run folder of that root."""
+    return (
+        (installation.pytest_temp_root, RUN_FOLDER),
+        (installation.legacy_pytest_temp_root, None),
+    )
+
+
+def _run_folders(root: Path, named: re.Pattern[str] | None) -> list[Path]:
+    """The run folders of `root`, sorted: real directories whose name matches `named`. An OSError
+    reading the root propagates."""
+    return sorted(
+        path
+        for path in root.iterdir()
+        if path.is_dir() and not path.is_symlink() and (named is None or named.fullmatch(path.name))
+    )
 
 
 def _sweep_root(
@@ -85,23 +97,13 @@ def _sweep_root(
     alive: Callable[[int, str | None], bool],
     remove: Callable[[Path], None],
     log: Callable[[str], None],
-    skip: Path,
     named: re.Pattern[str] | None,
 ) -> list[Path]:
-    """The run folders of one root: those whose name matches `named`, or any when it is None.
-    `skip` is the old root, which a configured planning home puts inside the new one: it is swept
-    as a root, not judged as a run folder."""
+    """The run folders of one root that are old and whose process is gone, removed."""
     oldest = now.timestamp() - installation.config.global_limits.temp_keep_hours * 3600
     removed: list[Path] = []
     try:
-        folders = sorted(
-            path
-            for path in root.iterdir()
-            if path.is_dir()
-            and not path.is_symlink()
-            and path != skip
-            and (named is None or named.fullmatch(path.name))
-        )
+        folders = _run_folders(root, named)
     except FileNotFoundError:
         return removed
     except OSError as error:
@@ -132,11 +134,13 @@ def _whose(folder: Path) -> str:
 
 
 class TempSize(Frozen):
-    """What the pytest temp roots hold: the run folders left in them and their size in bytes."""
+    """What the pytest temp roots hold: the run folders left in them, their size in bytes and the
+    roots that hold any."""
 
     runs: int
     size: int
     warn: bool
+    roots: tuple[Path, ...]
 
     @property
     def text(self) -> str:
@@ -144,56 +148,40 @@ class TempSize(Frozen):
 
 
 def temp_size(installation: Installation) -> TempSize | None:
-    """The size of the run folders in the pytest temp root and in the root it had before (the two
-    the sweep clears), or None when neither exists or can be read. A path that goes away or cannot
-    be read while it is walked is skipped: a running unit-test step and a tick's sweep both delete
-    from the roots."""
-    legacy = installation.legacy_pytest_temp_root
-    found = [
-        _measure(installation.pytest_temp_root, RUN_FOLDER, skip=legacy),
-        _measure(legacy, None, skip=None),
-    ]
-    held = [each for each in found if each is not None]
-    if not held:
+    """The size of the run folders of the roots the sweep clears, or None when none of them can be
+    read. A path that goes away or cannot be read while it is walked is skipped: a running
+    unit-test step and a tick's sweep both delete from the roots."""
+    runs = size = 0
+    holding: list[Path] = []
+    readable = False
+    for root, named in _roots(installation):
+        try:
+            folders = _run_folders(root, named)
+        except OSError:
+            continue
+        readable = True
+        if folders:
+            holding.append(root)
+        runs += len(folders)
+        size += sum(_bytes_in(folder) for folder in folders)
+    if not readable:
         return None
-    size = sum(total for _, total in held)
     limit = installation.config.global_limits.temp_warn_mb
-    return TempSize(runs=sum(count for count, _ in held), size=size, warn=size > limit * MEGABYTE)
+    return TempSize(runs=runs, size=size, warn=size > limit * MEGABYTE, roots=tuple(holding))
 
 
-def _measure(
-    root: Path, named: re.Pattern[str] | None, *, skip: Path | None
-) -> tuple[int, int] | None:
-    """The number of run folders of `root` (those matching `named`, or any, but not `skip`) and
-    the bytes of the regular files in them; None when `root` cannot be read."""
-    try:
-        entries = list(root.iterdir())
-    except OSError:
-        return None
-    folders = [
-        path
-        for path in entries
-        if path != skip and (named is None or named.fullmatch(path.name)) and _is_real_dir(path)
-    ]
-    size = 0
-    for folder in folders:
-        for directory, _, names in os.walk(folder):
-            for name in names:
-                try:
-                    status = Path(directory, name).lstat()
-                except OSError:
-                    continue
-                if stat.S_ISREG(status.st_mode):
-                    size += status.st_size
-    return len(folders), size
-
-
-def _is_real_dir(path: Path) -> bool:
-    """Whether `path` is a directory itself, not a symlink to one; False if unreadable."""
-    try:
-        return stat.S_ISDIR(path.lstat().st_mode)
-    except OSError:
-        return False
+def _bytes_in(folder: Path) -> int:
+    """The bytes of the regular files under `folder`, not following links."""
+    total = 0
+    for directory, _, names in os.walk(folder):
+        for name in names:
+            try:
+                status = Path(directory, name).lstat()
+            except OSError:
+                continue
+            if stat.S_ISREG(status.st_mode):
+                total += status.st_size
+    return total
 
 
 def _run_alive(folder: Path, alive: Callable[[int, str | None], bool]) -> bool:
