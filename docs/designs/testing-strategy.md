@@ -36,8 +36,8 @@ which change delivers which part is kept outside the kit. Each recommended step 
 ## Vocabulary
 
 **Test kind.** A task group is tagged `[unit-test]`, `[integration-test]` or `[e2e-test]`. A unit's `tier` is the widest kind of its
-groups. An `[e2e-test]` group is always built as `tests_only` and is a unit of its own. `integration-test` runs as `unit-test` in
-the build (`pooled_kind`, `model.py`); it is a label for the author, and it is not the pytest `integration` marker.
+groups. An `[e2e-test]` group is always built as `tests_only` and is a unit of its own. The build treats `integration-test` and `unit-test` alike: only size and duration calibration pools them (`pooled_kind`, `model.py`), and nothing else
+runs an integration-tagged group differently. It is a label for the author, and it is not the pytest `integration` marker.
 
 **Group mode.** `tests_and_code` (a test commit, then a code commit), `tests_only` (a lone test commit, no code), `no_code` (a lone
 code commit, no tests: documents and configuration). A group's mode has a floor set by the paths its tasks name, and a
@@ -146,8 +146,8 @@ finding reads, for example, `T7 tests/serve/test_x.py:40 fixed port`.
 - **T2 Placement.** The test lives in the file named for the module it exercises. A case for an existing module joins that file; a
   new file exists only for a new logic file. Check: gate (the red check accepts a case by id); `none yet` (a warning for a new test
   file whose subject module already has one); review.
-- **T3 Name.** A test name states one behaviour as a sentence. File names are unique. Check: review; collection fails on a
-  duplicate.
+- **T3 Name.** A test name states one behaviour as a sentence. File names are unique, because test directories carry no `__init__.py`.
+  Check: review; `none yet` (a guard that no two test files share a base name).
 - **T4 Surface.** A test reaches a public surface and imports no private name. Check: `none yet`; review.
 
 **Determinism: the same result every time, in any order, under load**
@@ -156,7 +156,8 @@ finding reads, for example, `T7 tests/serve/test_x.py:40 fixed port`.
   Check: `none yet` (an AST rule for a clock difference in an assertion); review.
 - **T6 No sleep and no unbounded wait.** Wait on an event or a condition with a deadline. Check: guard.
 - **T7 No fixed port and no unjoined thread.** Ephemeral ports; every thread joined or signalled. Check: guard.
-- **T8 Per-test identity.** Session ids, paths and names come from fixtures, never constants shared between files. Check: guard.
+- **T8 Per-test identity.** Session ids, paths and names come from fixtures, never constants shared between files. Check: guard for
+  session ids (no id is defined in two files); review for paths and names.
 - **T8a Isolation lives in shared fixtures, not in each test.** Temporary directories, an ephemeral port, a fake clock and an
   environment and working-directory guard come from one shared fixture set, autouse where it applies to every test, so a test adds
   one fixture argument and nothing else. A rule that covers every test is one guard over the tree, never a repeated check or
@@ -177,7 +178,9 @@ finding reads, for example, `T7 tests/serve/test_x.py:40 fixed port`.
   `git`) is read until two reads agree, or rounded. Check: review.
 - **T14 The environment is set, not assumed.** A test sets what it reads. Check: guard (autouse fixtures clear the kit's
   variables); review.
-- **T15 Strict warnings stay on.** A coroutine never awaited and an unraisable exception are errors. Check: guard.
+- **T15 Strict warnings stay on.** A coroutine never awaited and an unraisable exception are errors, so a missing `await` fails the
+  test that has it. Check: guard for the one warning the kit turns into an error today (Pydantic serializer warnings) and for a
+  multi-threaded fork; `none yet` for the rest.
 
 **Cost: cheap enough to run under load**
 
@@ -302,7 +305,8 @@ no affected selection. A missing capability is therefore a defect, and two tests
 
 - **A conformance test over the profile registry.** Each registered profile must satisfy every capability the framework branches on,
   including the serial-rerun and failed-test methods, which are plain methods and become a protocol so `isinstance` can see them. A
-  profile that cannot support one says why by raising `ProfileUnsupported`, and the list of those may only shrink. A new capability
+  profile that cannot support one says why by raising `ProfileUnsupported` (it exists, and the doctor and the pipeline already hold a unit for it), and the list of
+  those may only shrink. A new capability
   protocol fails the test until every profile implements it.
 - **An integration scenario suite.** A tiny fixture project per profile runs the same scenario: red by id, a passing new test rejected,
   repeat by id, a serial rerun of a failed id, failed-test parsing, affected selection after a one-file change. Both profiles pass the
@@ -325,11 +329,13 @@ by-file selection applies.
 | the live-tag drift guard and runtime-tag plugin | T1: one runtime tag per e2e test |
 | the spawn guards and the autouse stand-ins for the agent, the code host and providers | T11 |
 | the autouse environment fixtures | T14 |
-| the strict warning filters and the fork-warning guard | T15 |
+| the Pydantic warning filter and the fork-warning guard | T15, for those two warnings only |
 | the red check, the repeat check, the push gate | T1, T2, T9, T20 |
 | the leak gate and the document guards | conformance tests: the framework names no installation; documents agree with behaviour |
 
-Rules enforced only by review today: T3, T4, T10, T13, T19, T22, T23, T25, and the parts of T2, T5, T9 and T12 that are `none yet`.
+Rules enforced only by review today: T3, T4, T10, T13, T19, T22, T23, T25, the parts of T2, T5, T9, T12 and T15 that are `none yet`, and
+the paths and names of T8. The `gate` class of T1, T2, T9 and T20 holds for the red check and the repeat check, and the red check does
+not yet run in the build (see below), so until it does these are checked by the push gate, which a person or a hook runs.
 
 ## Where it stands
 
@@ -346,14 +352,15 @@ These are facts about the code, not a status report.
 - No global limit bounds the workers of concurrent test runs: up to a few units per project each run their own pool.
 - About forty of the kit's own tests walk or parse the whole repository in the unit run; one is an integration test. One scan runs at
   import time.
-- The JavaScript profile has no repeat check, no serial rerun, no failure parsing and no affected selection, so a failing test in
-  it is always the unit's own failure.
+- The JavaScript profile parses a run's failures, but it has no repeat check, no serial rerun, no reader of failed test ids for
+  classification and no affected selection, so a failing test in it is always the unit's own failure.
 - The test-path definition differs between the commit-order rule, the group floor and the Python profile (they disagree on
   `test/` and `testing/` folders).
 - The builder's prompt says a new test goes in a file where every test fails, which pushes agents to new files, though the gate now
   selects by id.
 - The implementation agent receives no determinism guidance.
-- A rule the code cites, `flaky-tests`, has no spec, and the determinism spec grows one requirement per test.
+- The kit's tests cite a `flaky-tests` spec that no `specs` folder holds: the change of that name was never archived, so its rules
+  were never synced. The determinism spec grows one requirement per test.
 
 ## Recommended steps
 
@@ -371,7 +378,8 @@ Each step can become an OpenSpec change. Order follows dependency.
 8. **No test is serial.** Remove the serial pass; the guard.
 9. **The standards catalogue.** The data file, the generated renderings and the channels of delivery; the standards check before
    review; the guards for the `none yet` standards, each with its baseline; a one-off audit.
-10. **One rule for time assertions**, replacing per-test determinism requirements, and the missing `flaky-tests` spec.
+10. **One rule for time assertions**, replacing per-test determinism requirements, and a spec for what the unarchived `flaky-tests`
+    change holds.
 11. **One test-path definition.**
 12. **Documents that disagree with the code**, corrected once.
 
@@ -396,6 +404,6 @@ Each step can become an OpenSpec change. Order follows dependency.
 - **Is `integration` a required check** on every repository that adopts this? The design assumes it is.
 - **How much of the JavaScript profile's affected selection is possible** with its runner, and whether the conformance test needs an
   explicit "unsupported" entry for it until it is.
-- **Whether `integration-test`, as a group label, should map to the `integration` marker.** Today it is a label that runs as a unit
-  test.
+- **Whether `integration-test`, as a group label, should map to the `integration` marker.** Today it is a label that only calibration
+  treats as a unit test.
 - **How an agent's use of the full-text standards file is measured**, and what the compact table must carry so it is enough on its own.
