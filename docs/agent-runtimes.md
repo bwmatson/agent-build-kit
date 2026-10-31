@@ -486,6 +486,23 @@ A regression run and a chat turn that set
 `no_commit` get the same refusal, so a chat turn cannot rebase, pull or merge a unit's branch
 either: the person does that outside the chat.
 
+
+## A confined Claude Code step can renew its own login
+
+An access token for a Claude account lasts 8 hours, and the `claude` CLI renews it itself: it posts the
+refresh token to `platform.claude.com` (`OAUTH_HOST`) and writes the new token to the account's
+`.credentials.json`. A step runs behind the sandbox's allowlisting proxy, so the Claude Code runtime's host
+list is `api.anthropic.com`, `mcp-proxy.anthropic.com` and `platform.claude.com`
+(`ClaudeCodeRuntime.sandbox_paths`); the account's folder is already on its write list. The ACP runtime's
+list does not gain it. Without the host an expired token could not be renewed inside a step, and the step
+failed with `401 OAuth access token has expired`.
+
+The proxy tells the runtime each host it refuses (`Proxy(on_refused=...)`, passed through `confinement` and
+`spawn`), and the unit's log says so once for each host in each step: `sandbox: the step reached for <host>,
+which is not on its allowed list`. The `claude` process's own refused requests never reach a tool's output, so
+this line is where they show. `refresh_login`, the tick's own small call that renews a login when a usage read
+finds the token expired, runs outside the sandbox and is unchanged.
+
 ## Where a redirect may land
 
 A policed run is given `ABK_OUT`, the path of its own scratch folder

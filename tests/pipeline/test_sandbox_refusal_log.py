@@ -12,7 +12,7 @@ from types import SimpleNamespace
 import pytest
 
 from agent_build_kit.runtimes import AgentRequest, ToolPolicy, claude_code
-from agent_build_kit.runtimes.claude_code import ClaudeCodeRuntime
+from agent_build_kit.runtimes.claude_code import ClaudeCodeRuntime, spawn
 from agent_build_kit.sandboxes import Coverage, SandboxPolicy
 
 
@@ -110,6 +110,6 @@ def test_spawn_gives_confinement_the_callback(
     policy = SandboxPolicy(write=(), read=(), hosts=(), required=Coverage.NONE)
     callback = lambda host, port: None  # noqa: E731
 
-    claude_code.spawn(["claude"], cwd=tmp_path, sandbox=policy, on_refused=callback)
+    spawn(["claude"], cwd=tmp_path, sandbox=policy, on_refused=callback)
 
     assert got["on_refused"] is callback

@@ -10,6 +10,12 @@
   code. The rule reads whether a task names a path, not what the path is, so a prose task that
   also names a document or a test file still needs `Tests: required — <reason>`, and a group that
   really edits only test code but has a task naming no path lists its files in a `Paths:` line.
+- A confined Claude Code step can now renew its own login. The sandbox's host list for the Claude
+  Code runtime gains `platform.claude.com`, where the CLI posts the refresh token when its access
+  token (8 hours) has expired; without it the step failed with `401 OAuth access token has
+  expired` and only the tick's own refresh, run outside the sandbox, could renew it. The proxy now
+  reports each host it refuses, and the unit's log says once per host per step that the step reached
+  for it and that it is not on the allowed list. The ACP runtime's hosts are unchanged.
 
 - A `login_refresh` row of the usage ledger now names the account it refreshed (`account`, the
   same key the usage cache and calls files use; none for the default account), where nine of
