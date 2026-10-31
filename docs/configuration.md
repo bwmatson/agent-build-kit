@@ -336,6 +336,8 @@ global_limits:
                                 # checks yet still reads `checking`
   temp_keep_hours: 24           # hours a unit-test run's temp folder under <data home>/<repo name>/tmp
                                 # lives; a tick removes older ones whose process is gone
+  temp_warn_mb: 2048            # megabytes the pytest temp root may hold before `abk doctor` and
+                                # `abk status` warn
   wait_end_requeue: auto        # how a failed unit is requeued once when its wait ends:
                                 # auto (default; the mode follows its record), resume,
                                 # rework, or off (only a person requeues it)

@@ -7,13 +7,17 @@ import json
 import os
 import re
 import shutil
+import stat
 from collections.abc import Callable
 from datetime import UTC, datetime
 from pathlib import Path
 
 from agent_build_kit.installation import Installation
+from agent_build_kit.model import Frozen
 from agent_build_kit.pipeline import spans
 from agent_build_kit.pipeline.file_lock import proc_identity, same_process
+
+MEGABYTE = 1024 * 1024
 
 # The file in a run's folder that names the process the run belongs to: its id on the first line
 # and, on the second, when it began (the pair names one process; a pid alone can be reused).
@@ -125,6 +129,71 @@ def _whose(folder: Path) -> str:
         return f" ({record['unit']}, started {record['started']})"
     except (OSError, ValueError, KeyError, TypeError):
         return ""
+
+
+class TempSize(Frozen):
+    """What the pytest temp roots hold: the run folders left in them and their size in bytes."""
+
+    runs: int
+    size: int
+    warn: bool
+
+    @property
+    def text(self) -> str:
+        return f"{self.runs} run folder(s), {self.size / MEGABYTE:.1f} MB"
+
+
+def temp_size(installation: Installation) -> TempSize | None:
+    """The size of the run folders in the pytest temp root and in the root it had before (the two
+    the sweep clears), or None when neither exists or can be read. A path that goes away or cannot
+    be read while it is walked is skipped: a running unit-test step and a tick's sweep both delete
+    from the roots."""
+    legacy = installation.legacy_pytest_temp_root
+    found = [
+        _measure(installation.pytest_temp_root, RUN_FOLDER, skip=legacy),
+        _measure(legacy, None, skip=None),
+    ]
+    held = [each for each in found if each is not None]
+    if not held:
+        return None
+    size = sum(total for _, total in held)
+    limit = installation.config.global_limits.temp_warn_mb
+    return TempSize(runs=sum(count for count, _ in held), size=size, warn=size > limit * MEGABYTE)
+
+
+def _measure(
+    root: Path, named: re.Pattern[str] | None, *, skip: Path | None
+) -> tuple[int, int] | None:
+    """The number of run folders of `root` (those matching `named`, or any, but not `skip`) and
+    the bytes of the regular files in them; None when `root` cannot be read."""
+    try:
+        entries = list(root.iterdir())
+    except OSError:
+        return None
+    folders = [
+        path
+        for path in entries
+        if path != skip and (named is None or named.fullmatch(path.name)) and _is_real_dir(path)
+    ]
+    size = 0
+    for folder in folders:
+        for directory, _, names in os.walk(folder):
+            for name in names:
+                try:
+                    status = Path(directory, name).lstat()
+                except OSError:
+                    continue
+                if stat.S_ISREG(status.st_mode):
+                    size += status.st_size
+    return len(folders), size
+
+
+def _is_real_dir(path: Path) -> bool:
+    """Whether `path` is a directory itself, not a symlink to one; False if unreadable."""
+    try:
+        return stat.S_ISDIR(path.lstat().st_mode)
+    except OSError:
+        return False
 
 
 def _run_alive(folder: Path, alive: Callable[[int, str | None], bool]) -> bool:

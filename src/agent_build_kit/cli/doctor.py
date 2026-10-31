@@ -109,6 +109,7 @@ from agent_build_kit.pipeline.planning_view import (
     working_copy_view,
 )
 from agent_build_kit.pipeline.shell import git, git_out, is_ignored, is_tracked, tracked_toplevel
+from agent_build_kit.pipeline.temp_sweep import temp_size
 from agent_build_kit.pipeline.usage_guard import gate_result
 from agent_build_kit.pipeline.workspaces import worktree_entries, worktree_key
 from agent_build_kit.profiles.base import ProfileUnsupported
@@ -590,6 +591,19 @@ def _local_dir(inst: Installation, mount_of: Callable[[Path], Mount]) -> list[Ch
                 )
             )
     return checks
+
+
+def _pytest_temp(inst: Installation) -> list[Check]:
+    found = temp_size(inst)
+    if found is None:
+        return []
+    if not found.warn:
+        return [_ok("pytest temp", found.text)]
+    fix = (
+        f"remove the finished run folders under {inst.pytest_temp_root}, lower "
+        "global_limits.temp_keep_hours, or raise global_limits.temp_warn_mb"
+    )
+    return [_warn("pytest temp", found.text, fix)]
 
 
 def _state_locking(inst: Installation, mount_of: Callable[[Path], Mount]) -> list[Check]:
@@ -2248,6 +2262,7 @@ def run_doctor(
     checks += _machine_files(inst)
     checks += _state_ignores(inst)
     checks += _state_locking(inst, mount_of)
+    checks += _pytest_temp(inst)
     checks += _legacy_state(inst)
     checks += _planning_view(inst)
     checks += _state_location(inst)

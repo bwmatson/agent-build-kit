@@ -257,7 +257,7 @@ from agent_build_kit.pipeline.stack_runner import (
     UnitRunner,
     group_steps_of,
 )
-from agent_build_kit.pipeline.temp_sweep import sweep_temp_folders
+from agent_build_kit.pipeline.temp_sweep import sweep_temp_folders, temp_size
 from agent_build_kit.pipeline.transcript import remove_change_transcripts, transcript_dir
 from agent_build_kit.pipeline.ui_review import (
     PrIndex,
@@ -903,6 +903,9 @@ def cmd_status(args: argparse.Namespace, inst: Installation) -> int:
         elif calls := read_calls(calls_path(inst.state_dir, claude_account.Account.default())):
             log(rate_line(derive_rate(calls, now=datetime.now(UTC))))
 
+    if found := temp_size(inst):
+        warning = " — warning: above global_limits.temp_warn_mb" if found.warn else ""
+        log(f"pytest temp: {found.text}{warning}")
     if line := lock_status_line(inst.e2e_lock):
         log(line)
     for line in held_status_lines(inst):
