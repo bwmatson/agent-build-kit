@@ -18,6 +18,7 @@ from agent_build_kit.pipeline.file_lock import atomic_write_text
 from agent_build_kit.pipeline.task_progress import first_line_hash, tasks_lock
 from agent_build_kit.pipeline.units import Unit
 from agent_build_kit.pipeline.work_graph import Task
+from agent_build_kit.trackers.config import TrackerSection
 
 FILE_NAME = "tracker.yaml"
 SCHEMA_VERSION = 1
@@ -49,7 +50,16 @@ class TrackerFile(Frozen):
     kind: str
     target: str
     feature: Synced | None = None
+    # Version 2: the change's item, the manual epic's id and the group items by `<change>:<group>`.
+    change: Synced | None = None
+    epic: str | None = None
+    groups: dict[str, Synced] = {}
     tasks: dict[str, TaskEntry] = {}
+
+
+def mapping_target(target: str, section: TrackerSection) -> str:
+    """`target` with a short hash of the section's level mapping (levels, types, epic setting)."""
+    raise NotImplementedError
 
 
 def tracker_path(change_dir: Path) -> Path:
