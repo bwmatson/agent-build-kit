@@ -15,6 +15,7 @@ from agent_build_kit.pipeline.tracker_file import (
     TaskEntry,
     TrackerFile,
     mapping_target,
+    parent_item,
     read_for_target,
     read_tracker,
     write_tracker,
@@ -72,7 +73,7 @@ def by_level(target: str) -> TrackerFile:
 
 def test_a_version_2_file_records_every_level_and_round_trips_equal(tmp_path: Path) -> None:
     folder = change_dir(tmp_path)
-    written = by_level(mapping_target("example", section(["change", "group", "task"])))
+    written = by_level(mapping_target(section(["change", "group", "task"])))
 
     write_tracker(folder, written)
 
@@ -110,8 +111,8 @@ def test_a_version_1_file_is_read_with_its_feature_as_the_change_item(tmp_path: 
 
 def test_a_file_written_under_one_mapping_is_not_reused_under_another(tmp_path: Path) -> None:
     folder = change_dir(tmp_path)
-    two = mapping_target("example", section(["change", "group"]))
-    three = mapping_target("example", section(["change", "group", "task"]))
+    two = mapping_target(section(["change", "group"]))
+    three = mapping_target(section(["change", "group", "task"]))
     write_tracker(folder, by_level(two))
 
     assert read_for_target(folder, "azure_devops", two) is not None
@@ -122,41 +123,37 @@ def test_a_file_written_under_one_mapping_is_not_reused_under_another(tmp_path: 
 def test_the_same_mapping_gives_the_same_target_and_another_gives_another() -> None:
     two = section(["change", "group"])
 
-    assert mapping_target("example", two) == mapping_target("example", section(["change", "group"]))
-    assert mapping_target("example", two) != mapping_target("example", section(["change"]))
-    assert mapping_target("example", two).startswith("example")
+    assert mapping_target(two) == mapping_target(section(["change", "group"]))
+    assert mapping_target(two) != mapping_target(section(["change"]))
+    assert mapping_target(two).startswith(two.target)
 
 
 def test_a_changed_type_for_a_level_in_use_gives_another_target() -> None:
     levels = ["change", "group"]
     other = {**TYPES, "group": "User Story"}
 
-    assert mapping_target("example", section(levels)) != mapping_target(
-        "example", section(levels, types=other)
-    )
+    assert mapping_target(section(levels)) != mapping_target(section(levels, types=other))
 
 
 def test_turning_the_epic_on_or_changing_its_type_gives_another_target() -> None:
     levels = ["change", "group"]
     renamed = {**TYPES, "epic": "Initiative"}
 
-    off = mapping_target("example", section(levels, epic=False))
+    off = mapping_target(section(levels, epic=False))
 
-    assert off != mapping_target("example", section(levels, epic=True))
-    assert mapping_target("example", section(levels)) != mapping_target(
-        "example", section(levels, types=renamed)
-    )
+    assert off != mapping_target(section(levels, epic=True))
+    assert mapping_target(section(levels)) != mapping_target(section(levels, types=renamed))
 
 
 def test_an_unused_epic_type_does_not_change_the_target() -> None:
     levels = ["change", "group"]
     without = {name: kind for name, kind in TYPES.items() if name != "epic"}
 
-    found = mapping_target("example", section(levels, epic=False, types=TYPES))
+    found = mapping_target(section(levels, epic=False, types=TYPES))
 
-    assert found == mapping_target("example", section(levels, epic=False, types=without))
+    assert found == mapping_target(section(levels, epic=False, types=without))
     assert found == mapping_target(
-        "example", section(levels, epic=False, types={**TYPES, "epic": "Initiative"})
+        section(levels, epic=False, types={**TYPES, "epic": "Initiative"})
     )
 
 
@@ -173,3 +170,74 @@ def test_a_units_story_is_read_and_not_written_back(tmp_path: Path) -> None:
 
     raw = json.loads(store.path.read_text())["units"][0]
     assert "story" not in raw
+
+
+def test_a_version_1_file_without_a_feature_is_written_back_as_version_2(tmp_path: Path) -> None:
+    folder = change_dir(tmp_path)
+    (folder / "tracker.yaml").write_text(
+        yaml.safe_dump({"schema_version": 1, "kind": "azure_devops", "target": "example"})
+    )
+
+    found = read_tracker(folder)
+    assert found is not None
+    write_tracker(folder, found)
+
+    raw = yaml.safe_load((folder / "tracker.yaml").read_text())
+    assert raw["schema_version"] == 2
+    assert "feature" not in raw
+
+
+def test_a_version_1_file_with_a_feature_is_written_back_without_it(tmp_path: Path) -> None:
+    folder = change_dir(tmp_path)
+    (folder / "tracker.yaml").write_text(
+        yaml.safe_dump(
+            {
+                "schema_version": 1,
+                "kind": "azure_devops",
+                "target": "example",
+                "feature": {"id": "100"},
+            }
+        )
+    )
+
+    found = read_tracker(folder)
+    assert found is not None
+    write_tracker(folder, found)
+
+    raw = yaml.safe_load((folder / "tracker.yaml").read_text())
+    assert raw["schema_version"] == 2
+    assert raw["change"]["id"] == "100"
+    assert "feature" not in raw
+
+
+def test_a_tasks_parent_is_its_group_item_under_three_levels() -> None:
+    found = parent_item(by_level("t"), section(["change", "group", "task"]), "task", "feature:1.1")
+
+    assert found == "101"
+
+
+def test_a_tasks_parent_is_the_change_item_under_two_levels() -> None:
+    found = parent_item(by_level("t"), section(["change", "task"]), "task", "feature:1.1")
+
+    assert found == "100"
+
+
+def test_a_groups_parent_is_the_change_item() -> None:
+    found = parent_item(by_level("t"), section(["change", "group", "task"]), "group", "feature:2")
+
+    assert found == "100"
+
+
+def test_the_first_level_hangs_under_the_epic_when_one_is_set_and_nowhere_otherwise() -> None:
+    levels = ["change", "group"]
+
+    assert parent_item(by_level("t"), section(levels, epic=True), "change", "feature") == "259"
+    assert parent_item(by_level("t"), section(levels, epic=False), "change", "feature") is None
+
+
+def test_a_parent_that_is_not_recorded_gives_none() -> None:
+    bare = TrackerFile(kind="azure_devops", target="t")
+    levels = ["change", "group", "task"]
+
+    assert parent_item(bare, section(levels), "task", "feature:1.1") is None
+    assert parent_item(bare, section(levels), "group", "feature:1") is None

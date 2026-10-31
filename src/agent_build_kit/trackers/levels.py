@@ -5,6 +5,16 @@ from __future__ import annotations
 from collections.abc import Mapping, Sequence
 
 
+def group_key(change: str, group: int) -> str:
+    """The item key of a group: `<change>:<group>`."""
+    return f"{change}:{group}"
+
+
+def task_key(change: str, group: int, number: int) -> str:
+    """The item key of a task: `<change>:<group>.<task>`."""
+    return f"{group_key(change, group)}.{number}"
+
+
 def link_targets(
     levels: Sequence[str],
     pr_links: str | Sequence[str],
@@ -23,7 +33,7 @@ def link_targets(
     keys: list[str] = [change] if "change" in wanted else []
     for group, tasks in sorted(built.items()):
         if "group" in wanted:
-            keys.append(f"{change}:{group}")
+            keys.append(group_key(change, group))
         if "task" in wanted:
-            keys.extend(f"{change}:{group}.{task}" for task in tasks)
+            keys.extend(task_key(change, group, task) for task in tasks)
     return tuple(keys)

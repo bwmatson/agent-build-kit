@@ -54,6 +54,7 @@ from agent_build_kit.pipeline.group_paths import (
     names_unplaced_work,
 )
 from agent_build_kit.pipeline.units import ManualStep, Priority, project_tag, reachable
+from agent_build_kit.trackers.levels import task_key
 
 
 class HasPath(Protocol):
@@ -314,7 +315,7 @@ def read_tasks(tasks: Path, change: str) -> list[Task]:
             number = int(parsed["number"])
             found.append(
                 Task(
-                    key=f"{change}:{group}.{number}",
+                    key=task_key(change, group, number),
                     group=group,
                     number=number,
                     text=parsed["text"],

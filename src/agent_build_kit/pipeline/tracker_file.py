@@ -12,7 +12,6 @@ from __future__ import annotations
 
 import hashlib
 import json
-from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
@@ -22,7 +21,6 @@ from pydantic import model_validator
 from agent_build_kit.model import Frozen
 from agent_build_kit.pipeline.file_lock import atomic_write_text
 from agent_build_kit.pipeline.task_progress import first_line_hash, tasks_lock
-from agent_build_kit.pipeline.units import Unit
 from agent_build_kit.pipeline.work_graph import Task
 from agent_build_kit.trackers.config import TrackerSection
 
@@ -65,16 +63,17 @@ class TrackerFile(Frozen):
     @classmethod
     def _read_version_1(cls, raw: Any) -> Any:
         """A version 1 file's `feature` is the change item."""
-        if isinstance(raw, dict) and "feature" in raw:
+        if isinstance(raw, dict) and raw.get("schema_version") == 1:
             old = dict(raw)
-            old["change"] = old.pop("feature")
+            if "feature" in old:
+                old["change"] = old.pop("feature")
             old["schema_version"] = SCHEMA_VERSION
             return old
         return raw
 
 
-def mapping_target(target: str, section: TrackerSection) -> str:
-    """`target` with a short hash of the section's level mapping (levels, types, epic setting)."""
+def mapping_target(section: TrackerSection) -> str:
+    """The section's target with a short hash of its level mapping (levels, types, epic setting)."""
     # An epic type is part of the mapping only when the epic level is on.
     types = {
         level: kind
@@ -83,7 +82,7 @@ def mapping_target(target: str, section: TrackerSection) -> str:
     }
     mapping = {"levels": section.levels, "types": types, "epic": section.epic}
     digest = hashlib.sha256(json.dumps(mapping, sort_keys=True).encode()).hexdigest()
-    return f"{target}@{digest[:8]}"
+    return f"{section.target}@{digest[:8]}"
 
 
 def tracker_path(change_dir: Path) -> Path:
@@ -168,21 +167,18 @@ def reconcile_moves(tracker: TrackerFile, tasks: list[Task]) -> Reconciled:
     )
 
 
-class StoryMapping(Frozen):
-    """Where a unit's Story sits: the Feature of the unit's own change as its parent, and the
-    Features of the other changes whose groups the unit carries as related."""
-
-    parent: str
-    related: tuple[str, ...] = ()
-
-
-def story_mapping(unit: Unit, features: Mapping[str, str]) -> StoryMapping:
-    """The mapping for a unit's Story, from each change's Feature id."""
-    return StoryMapping(
-        parent=features[unit.change],
-        related=tuple(
-            features[member.change]
-            for member in unit.members()
-            if member.change != unit.change and member.change in features
-        ),
-    )
+def parent_item(tracker: TrackerFile, section: TrackerSection, level: str, key: str) -> str | None:
+    """The id of the recorded item that the item `key` of `level` hangs under, by the section's
+    levels: the group item for a level under the groups, the change item for a level under the
+    change, the epic for the first level when one is set. None when there is no parent or it is
+    not recorded."""
+    parent = section.parent_level(level)
+    if parent == "epic":
+        return tracker.epic
+    if parent == "change":
+        return tracker.change.id if tracker.change else None
+    if parent == "group":
+        # A task key is `<change>:<group>.<task>`; its group's key is the part before the dot.
+        found = tracker.groups.get(key.rsplit(".", 1)[0])
+        return found.id if found else None
+    return None
