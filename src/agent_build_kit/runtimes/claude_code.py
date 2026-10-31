@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 import shlex
 import shutil
 import subprocess
@@ -43,6 +44,7 @@ from agent_build_kit.pipeline.usage_guard import (
     UsageReading,
     read_cached_usage,
     read_live_usage,
+    record_login_rejected,
     rejected_login_note,
 )
 from agent_build_kit.pipeline.vocabulary import OverheadNode
@@ -54,6 +56,7 @@ from agent_build_kit.runtimes.base import (
     AgentResult,
     AgentRuntime,
     Candidate,
+    LoginRejected,
     Model,
     ModelList,
     ModelSource,
@@ -479,6 +482,13 @@ class ClaudeCodeRuntime:
                 context=_context(result.stdout, ended, request.model),
                 reported_model=reported_model,
             )
+            if login_rejection(said):
+                # Raised, so `_run` never sees it: the spend of the call is told here.
+                if request.on_result is not None:
+                    request.on_result(failed.model_copy(update={"error": said}))
+                account = request.account or claude_account.Account.default()
+                record_login_rejected(account)
+                raise LoginRejected(account, said)
             strength = (
                 network_failure(said)
                 if failure.kind not in ("rate_limited", "service_unavailable")
@@ -590,6 +600,19 @@ def login_command(account: claude_account.Account) -> str:
         [*(f"{name}={shlex.quote(value)}" for name, value in entry.items())]
         + [*map(shlex.quote, command()), "auth", "login"]
     )
+
+
+_LOGIN_REJECTION = re.compile(
+    r"OAuth access token has expired|Failed to authenticate\b[^\n]*\b401\b[^\n]*\bOAuth\b",
+    re.IGNORECASE,
+)
+
+
+def login_rejection(said: str) -> bool:
+    """Whether the CLI's words say the account's login was rejected: an expired OAuth access
+    token, or an authentication failure with a 401 about the OAuth login. A 401 about anything
+    else (a wrong API key) is not."""
+    return bool(_LOGIN_REJECTION.search(said))
 
 
 def rejected_login_line(account: claude_account.Account) -> str:

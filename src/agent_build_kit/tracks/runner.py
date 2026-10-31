@@ -91,6 +91,7 @@ from agent_build_kit.runtimes import (
     AgentInterrupted,
     AgentRateLimited,
     AgentRequest,
+    LoginRejected,
     NetworkUnavailable,
     ServiceUnavailable,
 )
@@ -768,6 +769,7 @@ def claude_phase(
     except (
         AgentRateLimited,
         AgentInterrupted,
+        LoginRejected,
         NetworkUnavailable,
         ServiceUnavailable,
     ) as error:

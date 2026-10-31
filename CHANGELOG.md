@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- A step that fails because the account's Claude login was rejected (`Failed to authenticate`
+  with a 401, or an expired OAuth token) is now recognised as that and recorded against the
+  account, so `abk status` names the account and the command that renews its login.
+
 - A task group is read as tests-only or no-code only when each of its tasks is placed: a `Test:`
   task, a check (it begins `Confirm`, `Check`, `Verify` or `Read`), or a task that names a path.
   A group whose test task named a test file and whose implementation task named nothing used to

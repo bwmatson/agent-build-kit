@@ -15,6 +15,7 @@ from agent_build_kit.runtimes.base import (
     AgentRateLimited,
     AgentRequest,
     AgentResult,
+    LoginRejected,
     NetworkUnavailable,
     ServiceUnavailable,
 )
@@ -41,6 +42,9 @@ def traced(runtime: str, request: AgentRequest, call: Callable[[], AgentResult])
             raise
         except AgentRateLimited:
             outcome = "rate_limited"
+            raise
+        except LoginRejected:
+            outcome = "login_rejected"
             raise
         except NetworkUnavailable:
             outcome = "network_unavailable"

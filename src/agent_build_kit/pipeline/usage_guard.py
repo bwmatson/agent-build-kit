@@ -651,6 +651,12 @@ def _write_cache(path: Path, body: dict) -> None:
     atomic_write_text(path, json.dumps(body, indent=2))
 
 
+def _with_login_rejected(cached: dict, account: claude_account.Account | None) -> dict:
+    """The cache body with the account's login kept as rejected, told by the `expiresAt` of the
+    credentials rejected. The caller holds the cache lock."""
+    return {**cached, "login_rejected": {"expires_at": token_expires_at(account=account)}}
+
+
 def _kept_reading(cached: dict) -> UsageReading | None:
     """The reading kept in the cache file, labelled as what it is: not live."""
     try:
@@ -788,8 +794,7 @@ def read_live_usage(
                     # credentials change (a new sign-in), told by the `expiresAt` they rejected.
                     try:
                         cache_path.parent.mkdir(parents=True, exist_ok=True)
-                        rejected = {"expires_at": token_expires_at(account=account)}
-                        _write_cache(cache_path, {**cached, "login_rejected": rejected})
+                        _write_cache(cache_path, _with_login_rejected(cached, account))
                     except (OSError, TypeError):
                         pass
                 if error.code == 429:
@@ -940,6 +945,18 @@ def rejected_login_note(account: claude_account.Account | None = None) -> str | 
         from agent_build_kit.runtimes import claude_code
 
         return claude_code.rejected_login_line(account_in_force())
+
+
+def record_login_rejected(account: claude_account.Account | None = None) -> None:
+    """Keep the account's login as rejected, with the credentials' current `expiresAt`."""
+    with on_account(account):
+        path = _cache_file()
+        try:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            with file_lock(path.with_name(path.name + ".lock")):
+                _write_cache(path, _with_login_rejected(_load_cache(path), account_in_force()))
+        except (OSError, TypeError):
+            pass
 
 
 def rate_limit_note(cache_path: Path | None = None) -> str | None:

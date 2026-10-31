@@ -24,6 +24,7 @@ from agent_build_kit.usage import Context, Usage, UsageSource
 
 if TYPE_CHECKING:
     # config imports this package to check a selection at load.
+    from agent_build_kit.claude_account import Account
     from agent_build_kit.config import ModelsConfig
 
 # abk's own vocabulary for what a run may do beyond its tool list — not a
@@ -310,6 +311,17 @@ class ServiceUnavailable(RuntimeError):
     def __init__(self, message: str, *, status: int) -> None:
         super().__init__(message)
         self.status = status
+
+
+class LoginRejected(RuntimeError):
+    """A run failed because the account's login is rejected; the message names the account."""
+
+    account: Account
+
+    def __init__(self, account: Account, said: str = "") -> None:
+        name = account.label or "default"
+        super().__init__(f"account {name}: the login is rejected: {said}".rstrip(": "))
+        self.account = account
 
 
 class UsageStatus(Frozen):

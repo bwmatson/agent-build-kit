@@ -59,6 +59,7 @@ from agent_build_kit.runtimes.base import (
     AgentInterrupted,
     AgentRateLimited,
     AgentRuntime,
+    LoginRejected,
     NetworkUnavailable,
     ServiceUnavailable,
     SessionUnavailable,
@@ -543,10 +544,16 @@ def move_branch_onto(
                 resolve(prompt, cwd=repo, **asking)
             finally:
                 _CONFLICT.reset(token)
-        except (AgentRateLimited, AgentInterrupted, NetworkUnavailable, ServiceUnavailable):
-            # Not a conflict nobody could resolve: the account is out of room, the
-            # network is down, or the run was killed. The branch goes back where it was, to be
-            # moved again once the tick can run.
+        except (
+            AgentRateLimited,
+            AgentInterrupted,
+            LoginRejected,
+            NetworkUnavailable,
+            ServiceUnavailable,
+        ):
+            # Not a conflict nobody could resolve: the account is out of room or its login is
+            # rejected, the network is down, or the run was killed. The branch goes back where
+            # it was, to be moved again once the tick can run.
             with turn():
                 git(repo, "rebase", "--abort", check=False)
             raise
