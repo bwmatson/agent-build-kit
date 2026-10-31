@@ -217,7 +217,12 @@
   `state_map`, and the connection keys directly under `tracker`) still work and read as the
   old three levels, with a warning naming each key and its new place; release 0.3.0 drops
   them. Mixing them with a provider block, a key a block does not hold, a level with no
-  type, or two levels sharing a type is refused naming the key.
+  type, or two levels sharing a type is refused naming the key. A change's `tracker.yaml` is
+  now written at version 2, by level (the change item, the epic, group items and task items),
+  still reads version 1, and records a hash of the level mapping with its target so a file
+  written under another mapping is not reused. A unit's `story` is still read and no longer
+  written. A pure rule names the items a merged unit's pull request attaches to from
+  `pr_links`.
 
 - The planner now has a model role of its own, `plan`, defaulting to `opus`. Set it in
   `models:` or under a runtime's `models:`, or per machine with `ABK_PLAN_MODEL`. The

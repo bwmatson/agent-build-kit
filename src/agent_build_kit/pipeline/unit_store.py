@@ -1673,8 +1673,8 @@ def _record(unit: StoredUnit) -> dict:
         del record["superseded_by"]
     if unit.description is None:
         del record["description"]
-    if unit.story is None:
-        del record["story"]
+    # Read for a store from before levels, never written: the group items carry the mapping.
+    del record["story"]
     if not unit.story_superseded:
         del record["story_superseded"]
     if not unit.bounces:

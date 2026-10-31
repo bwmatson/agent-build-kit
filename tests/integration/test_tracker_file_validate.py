@@ -37,7 +37,7 @@ def test_validate_passes_and_archive_keeps_the_file(installation: Installation) 
         "The system SHALL have a marker.\n\n#### Scenario: it exists\n\n"
         "- **WHEN** asked\n- **THEN** it is there\n"
     )
-    written = TrackerFile(kind="board", target="example-board", feature=Synced(id="100"))
+    written = TrackerFile(kind="board", target="example-board", change=Synced(id="100"))
     write_tracker(folder, written)
 
     require(openspec.run(["validate", "feature"], cwd=installation.root))

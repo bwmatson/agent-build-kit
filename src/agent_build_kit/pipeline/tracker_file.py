@@ -8,10 +8,14 @@ pipeline, whole and under the change's tasks lock, the one the checkbox writes t
 
 from __future__ import annotations
 
+import hashlib
+import json
 from collections.abc import Mapping
 from pathlib import Path
+from typing import Any
 
 import yaml
+from pydantic import model_validator
 
 from agent_build_kit.model import Frozen
 from agent_build_kit.pipeline.file_lock import atomic_write_text
@@ -21,7 +25,7 @@ from agent_build_kit.pipeline.work_graph import Task
 from agent_build_kit.trackers.config import TrackerSection
 
 FILE_NAME = "tracker.yaml"
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 
 
 class TargetMismatch(ValueError):
@@ -49,17 +53,29 @@ class TrackerFile(Frozen):
     schema_version: int = SCHEMA_VERSION
     kind: str
     target: str
-    feature: Synced | None = None
-    # Version 2: the change's item, the manual epic's id and the group items by `<change>:<group>`.
+    # The change's item, the manual epic's id and the group items by `<change>:<group>`.
     change: Synced | None = None
     epic: str | None = None
     groups: dict[str, Synced] = {}
     tasks: dict[str, TaskEntry] = {}
 
+    @model_validator(mode="before")
+    @classmethod
+    def _read_version_1(cls, raw: Any) -> Any:
+        """A version 1 file's `feature` is the change item."""
+        if isinstance(raw, dict) and "feature" in raw:
+            old = dict(raw)
+            old["change"] = old.pop("feature")
+            old["schema_version"] = SCHEMA_VERSION
+            return old
+        return raw
+
 
 def mapping_target(target: str, section: TrackerSection) -> str:
     """`target` with a short hash of the section's level mapping (levels, types, epic setting)."""
-    raise NotImplementedError
+    mapping = {"levels": section.levels, "types": section.level_types, "epic": section.epic}
+    digest = hashlib.sha256(json.dumps(mapping, sort_keys=True).encode()).hexdigest()
+    return f"{target}@{digest[:8]}"
 
 
 def tracker_path(change_dir: Path) -> Path:
