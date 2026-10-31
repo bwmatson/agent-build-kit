@@ -1,6 +1,6 @@
 def test_one():
-    assert False
+    raise AssertionError()
 
 
 def test_two():
-    assert False
+    raise AssertionError()

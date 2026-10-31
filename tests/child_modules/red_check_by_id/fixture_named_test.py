@@ -11,4 +11,4 @@ def test_repo():
 
 
 def test_new():
-    assert False
+    raise AssertionError()

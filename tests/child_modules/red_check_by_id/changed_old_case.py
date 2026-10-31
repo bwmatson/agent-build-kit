@@ -4,4 +4,4 @@ def test_old():
 
 
 def test_new():
-    assert False
+    raise AssertionError()

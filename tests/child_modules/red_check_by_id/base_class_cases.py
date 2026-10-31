@@ -1,6 +1,6 @@
 class Base:
     def test_shared(self):
-        assert False
+        raise AssertionError()
 
 
 class TestA(Base):

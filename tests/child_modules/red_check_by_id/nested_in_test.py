@@ -6,4 +6,4 @@ def test_new():
     def test_inner():
         pass
 
-    assert False
+    raise AssertionError()
