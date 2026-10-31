@@ -16,6 +16,7 @@ from tests.graph.test_restack_lane_prepare import Scene
 from tests.lane_hand_back_support import handed_back_at, resolved_move
 from tests.runner_fakes import rejecting
 from tests.tick_driver import OTHER, Setup, make_setup
+from tests.time_limit import LOADED_TEST_TIME_LIMIT
 
 
 @pytest.fixture
@@ -23,6 +24,7 @@ def graph(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Setup:
     return make_setup(tmp_path, monkeypatch)
 
 
+@pytest.mark.time_limit(LOADED_TEST_TIME_LIMIT)
 def test_a_pass_starts_a_handed_back_unit_in_a_build_worker_and_the_lane_does_not_list_it(
     graph: Setup, tmp_path: Path
 ) -> None:
@@ -44,6 +46,7 @@ def test_a_pass_starts_a_handed_back_unit_in_a_build_worker_and_the_lane_does_no
     assert after.state not in (FAILED, HELD)
 
 
+@pytest.mark.time_limit(LOADED_TEST_TIME_LIMIT)
 def test_a_unit_handed_back_with_no_feedback_is_not_the_lanes_and_a_build_worker_takes_it(
     graph: Setup, tmp_path: Path
 ) -> None:
