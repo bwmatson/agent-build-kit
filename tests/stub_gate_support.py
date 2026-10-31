@@ -46,7 +46,7 @@ class ModeProfile:
             return f"if test -f {self.bad_types}; then echo '{TYPE_ERROR}'; exit 1; fi"
         return "exit 0"
 
-    def red_command(self, files: list[str]) -> str:
+    def red_command(self, files: list[str], ids: list[str] | None = None) -> str:
         shown = f"if test -f {self.bad_red}; then echo '{MISSING}'; fi; " if self.bad_red else ""
         return f"{shown}echo 'FAILED tests'; exit 1"
 

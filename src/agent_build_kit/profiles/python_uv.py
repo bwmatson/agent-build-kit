@@ -54,6 +54,7 @@ from agent_build_kit.profiles.workspace_lock import workspace_lock
 # pytest's exit status when every test was deselected: "nothing to run here",
 # not a failure — most members carry no e2e tests.
 NO_TESTS_COLLECTED = 5
+USAGE_ERROR = 4
 
 _COLLECTED_FILE = re.compile(r"^(test_.*|.*_test)\.py$")
 _TEST_FILE = re.compile(r"^(test_.*|.*_test|conftest)\.py$")
@@ -278,6 +279,8 @@ class PythonUvProfile:
         stub="a signature whose body is only `raise NotImplementedError`, or a model field",
     )
     no_tests_collected_exit: int = NO_TESTS_COLLECTED
+    # pytest's exit when it cannot use its arguments, such as an id it did not collect.
+    usage_error_exit: int = USAGE_ERROR
 
     # --- workspace shape -------------------------------------------------------
 
@@ -474,12 +477,19 @@ class PythonUvProfile:
             return "uv run pre-commit run --all-files"
         return "SKIP=pyrefly-check uv run pre-commit run --all-files"
 
-    def red_command(self, files: list[str]) -> str:
+    def red_command(self, files: list[str], ids: list[str] | None = None) -> str:
         # The report is printed after the console so it outlives the worktree
         # the command runs in; the exit status is pytest's own. It goes to a
         # fresh temp file, so a file already in the tree is never read as it.
-        pytest = f"uv run pytest {' '.join(files)} -p no:cacheprovider --tb=line -q"
-        return wrap_report_command(pytest, "--junitxml")
+        # `ids` (`path::name`, or a bare path to run a file whole) take the files' place. An id
+        # pytest does not collect (a class it skips, a fixture) is a usage error that runs
+        # nothing, so that run is followed by the files whole, whose report and status stand.
+        options = "-p no:cacheprovider --tb=line -q"
+        pytest = f"uv run pytest {' '.join(ids or files)} {options}"
+        whole = f"uv run pytest {' '.join(files)} {options}" if ids else None
+        return wrap_report_command(
+            pytest, "--junitxml", retry=whole, retry_on=self.usage_error_exit
+        )
 
     def interpret_red(
         self, output: str, exit_code: int, *, stubbed: bool = False

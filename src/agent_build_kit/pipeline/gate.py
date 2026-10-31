@@ -25,6 +25,7 @@ work it is judging is no longer a gate.
 from __future__ import annotations
 
 import argparse
+import subprocess
 import sys
 from collections.abc import Callable, Sequence
 from pathlib import Path
@@ -40,6 +41,7 @@ from agent_build_kit.pipeline.commit_order import (
 )
 from agent_build_kit.pipeline.shell import git
 from agent_build_kit.pipeline.stack_runner import GroupStep
+from agent_build_kit.pipeline.wiring import ids_for, touched_tests
 from agent_build_kit.profiles.base import ToolchainProfile, located
 
 
@@ -63,6 +65,35 @@ def _test_files_in(repo: Path, sha: str, is_test: Callable[[str], bool]) -> list
     return [path for path, kind in classify_paths(files, is_test).items() if kind == "test"]
 
 
+def _touched_in(repo: Path, sha: str) -> list[tuple[str, str]]:
+    """The tests the commit adds or changes against its parent; none when they cannot be
+    listed (a root commit has no parent), so its files run whole."""
+    try:
+        return touched_tests(repo, f"{sha}^", sha)
+    except (subprocess.CalledProcessError, OSError):
+        return []
+
+
+def _red_command(
+    toolchain: ToolchainProfile,
+    owned: list[str],
+    touched: list[tuple[str, str]],
+    repo: Path,
+    prefix: str,
+) -> str:
+    """The red command for `owned` (the project's test files at a tests commit), narrowed to
+    the tests the commit added or changed (`touched`, from the checkout's root).
+
+    A file with no selected test (a helper edit) stays whole beside the selected ids. With no
+    test selected in any file the command is the whole-file run.
+    """
+    ids = ids_for(touched, repo, repo / prefix, toolchain)
+    if not ids:
+        return toolchain.red_command(owned)
+    chosen = {file: [i for i in ids if i.split("::")[0] == file] for file in owned}
+    return toolchain.red_command(owned, [i for file in owned for i in chosen[file] or [file]])
+
+
 def check_branch(
     repo: Path,
     base: str,
@@ -78,7 +109,8 @@ def check_branch(
     The clean and red commands, and how the red run's output is read, are the
     toolchain's: the lint and format at the tests commit with type
     checking skipped, since a test importing what does not exist yet is the
-    expected state there, and only the test files the commit touched run red.
+    expected state there, and only the tests the commit added or changed run red (by id; the
+    files whole where there is no test to select).
     Each test file is the toolchain's of the project it belongs to (`projects`),
     and each project's commands run in its directory; `profile` is the repo's own,
     for a file no project holds. A commit touching several projects passes when
@@ -124,6 +156,7 @@ def check_branch(
             continue
 
         commit_problems: list[str] = []
+        touched = [] if sha in test_only else _touched_in(repo, sha)
         for owner, owned in by_project(projects, files):
             toolchain = profiles.for_project(owner, profile)
             prefix = owner.prefix if owner else ""
@@ -143,7 +176,7 @@ def check_branch(
 
             commands: list[str | Callable[[Path], str]] = [clean_in]
             if sha not in test_only:
-                commands.append(toolchain.red_command(owned))
+                commands.append(_red_command(toolchain, owned, touched, repo, prefix))
             clean, *red_run = run_at_commit(repo, sha, commands, subdir=prefix or ".")
             if not clean.ok:
                 commit_problems.append(

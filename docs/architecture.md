@@ -1386,7 +1386,8 @@ status` shows `waiting for the network — <reason>`.
 pairs: the first substantive commit is tests (plus stubs with no logic —
 checked with `ast` for Python), no two tests commits in a row, at least one
 implementation commit. At each tests commit, in a throwaway worktree, lint
-and format pass with type checking skipped, and the new test files run
+and format pass with type checking skipped, and the tests the commit added or changed
+run (selected by id, the files whole where none can be selected)
 **red for an accepted reason**, read from pytest's JUnit report (the console
 is a logged fallback when no report could be read): an assertion or
 `NotImplementedError`, or a missing module or attribute raised inside a test

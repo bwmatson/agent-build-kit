@@ -38,7 +38,7 @@ class Toolchain:
     def clean_command(self) -> str:
         return f'test "$(basename "$PWD")" = {self.home}'
 
-    def red_command(self, files: list[str]) -> str:
+    def red_command(self, files: list[str], ids: list[str] | None = None) -> str:
         self.red_files.append(files)
         return 'printf "ran in %s" "$(basename "$PWD")"; exit 1'
 

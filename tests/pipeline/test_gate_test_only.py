@@ -30,7 +30,7 @@ class RedProfile(ModeProfile):
         super().__init__(bad_types=bad_types)
         self.red_files: list[list[str]] = []  # the files of each red command asked for
 
-    def red_command(self, files: list[str]) -> str:
+    def red_command(self, files: list[str], ids: list[str] | None = None) -> str:
         self.red_files.append(files)
         return f"echo '{' '.join(files)}'; exit {0 if 'test_pass' in ' '.join(files) else 1}"
 

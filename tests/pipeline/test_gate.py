@@ -47,7 +47,7 @@ def fake_commands(monkeypatch: pytest.MonkeyPatch):
             def clean_command(self) -> str:
                 return f"exit {clean_exit}"
 
-            def red_command(self, files: list[str]) -> str:
+            def red_command(self, files: list[str], ids: list[str] | None = None) -> str:
                 return f"printf '%s' {red_output!r} && exit {red_exit}"
 
             def __getattr__(self, name):
@@ -109,7 +109,7 @@ def test_the_lint_output_at_the_tests_commit_is_the_end_of_it_in_whole_lines(
         def clean_command(self) -> str:
             return f"printf '%s\\n' {shlex.join(printed)}; exit 1"
 
-        def red_command(self, files: list[str]) -> str:
+        def red_command(self, files: list[str], ids: list[str] | None = None) -> str:
             return f"printf '%s' {FAILED!r}; exit 1"
 
         def __getattr__(self, name):

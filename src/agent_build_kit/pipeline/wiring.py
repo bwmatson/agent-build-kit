@@ -1540,7 +1540,7 @@ def build_unit_test(
                     {},
                     f"the profile cannot say which tests {label} is affected in{hint}",
                 )
-            ids = _ids_for(touched, cwd, where, toolchain)
+            ids = ids_for(touched, cwd, where, toolchain)
             own_ids[where] = ids
             own = []
             if ids and isinstance(toolchain, RepeatsTests):
@@ -1784,7 +1784,7 @@ def build_unit_test(
                 continue
             # The profile selects by identifier, relative to where its command runs.
             # Only test files: a `test_*` method in a source file is not collected.
-            ids = _ids_for(touched, cwd, where, toolchain)
+            ids = ids_for(touched, cwd, where, toolchain)
             for command in commands if ids else []:
                 again = toolchain.repeat_command(command, ids)
                 if again is None:
@@ -2235,7 +2235,7 @@ def build_on_product_defect(
     return on_product_defect
 
 
-def _ids_for(
+def ids_for(
     touched: list[tuple[str, str]], cwd: Path, where: Path, toolchain: ToolchainProfile
 ) -> list[str]:
     """The identifiers of the touched tests that fall under `where`, as a runner started
@@ -3079,7 +3079,7 @@ def e2e_scope(
     for where, toolchain, commands in work:
         if not isinstance(toolchain, RepeatsTests):
             continue
-        here = _ids_for(touched, cwd, where, toolchain)
+        here = ids_for(touched, cwd, where, toolchain)
         narrowed = [toolchain.repeat_command(c, here) for c in commands]
         if commands := [command for command in narrowed if command is not None]:
             runs.append(E2eRun(where=where, commands=commands))
@@ -4040,6 +4040,8 @@ def _test_bodies(source: str, *, qualified: bool = False) -> dict[str, list[str]
     bodies: dict[str, list[str]] = {}
 
     def visit(node: ast.AST, classes: tuple[str, ...]) -> None:
+        if qualified and isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef):
+            return  # nothing inside a function is collected by name; a function in it is no test id
         for child in ast.iter_child_nodes(node):
             if isinstance(child, ast.FunctionDef | ast.AsyncFunctionDef) and child.name.startswith(
                 "test_"
@@ -4150,7 +4152,7 @@ def own_test_ids(
     ids: list[str] = []
     for where, toolchain, _ in work:
         prefix = f"{where.relative_to(tree).as_posix()}/" if where != tree else ""
-        ids += [f"{prefix}{id_}" for id_ in _ids_for(touched, tree, where, toolchain)]
+        ids += [f"{prefix}{id_}" for id_ in ids_for(touched, tree, where, toolchain)]
     return list(dict.fromkeys(ids))
 
 

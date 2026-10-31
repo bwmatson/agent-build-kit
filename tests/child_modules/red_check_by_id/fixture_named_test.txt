@@ -1,0 +1,10 @@
+import pytest
+
+
+@pytest.fixture
+def test_repo():
+    return 1
+
+
+def test_new():
+    raise AssertionError()

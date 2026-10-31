@@ -1,0 +1,11 @@
+import unittest
+
+
+class TestA:
+    def test_x(self):
+        raise AssertionError()
+
+
+class WidgetTests(unittest.TestCase):
+    def test_y(self):
+        pass
