@@ -102,7 +102,7 @@ def test_a_low_window_pauses_before_planning(
     )
     monkeypatch.setattr(cli, "plan_all", lambda inst, **kwargs: planned.append("plan"))
 
-    assert cli.cmd_tick(argv_namespace(dry_run=True), inst) == 0
+    assert cli_round(tmp_path) == []
     assert planned == []
     assert (tmp_path / "paused.json").exists()
 
@@ -120,7 +120,7 @@ def test_a_pause_lasts_until_the_ramp_offers_room_not_until_the_reset(
         cli, "may_start_unit", lambda r: Decision(may_start=False, reason="session", resume_at=ramp)
     )
 
-    assert cli.cmd_tick(argv_namespace(dry_run=True), inst) == 0
+    assert cli_round(tmp_path) == []
 
     state = is_paused(tmp_path / "paused.json")
     assert state is not None
@@ -172,7 +172,7 @@ def test_a_paused_tick_resumes_as_soon_as_the_guard_allows(
         cli, "archive_ready_changes", lambda *a, **k: archived.append("archive") or []
     )
 
-    assert cli.cmd_tick(argv_namespace(dry_run=True), inst) == 0
+    cli_round(tmp_path)
 
     assert is_paused(tmp_path / "paused.json") is None
     assert archived == ["archive"]
@@ -257,6 +257,13 @@ def test_status_marks_a_pull_request_that_cannot_be_merged(
 
 def listed_pr(number: int, head: str, *, mergeable: bool | None) -> PullRequest:
     return PullRequest(number=number, head=head, base="main", state="open", mergeable=mergeable)
+
+
+def cli_round(root: Path) -> list:
+    """One real round (not a dry run, which writes no pause), without the builds after it."""
+    return cli.run_round(
+        inst, UnitStore(root / "units.json"), building=(), only=frozenset(), submit=True
+    )
 
 
 def argv_namespace(**kwargs):

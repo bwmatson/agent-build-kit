@@ -1615,8 +1615,10 @@ def plan_round(
     held: StoredUnit | None = None,
     pins: Sequence[Pin] = (),
     external: Collection[int] = (),
+    on_answer: Callable[[str], None] | None = None,
 ) -> Plan:
-    """Ask for a graph and return it, or raise `PlannerError`.
+    """Ask for a graph and return it, or raise `PlannerError`. `on_answer` is given the raw
+    answer before it is parsed.
 
     An empty plan is a normal answer: every change may be waiting on review.
     Joins the planner proposes are checked against `context` and returned with
@@ -1643,6 +1645,8 @@ def plan_round(
         if run_claude
         else _ask(prompt, runtime, change=next(iter(changes), ""), parts=parts)
     )
+    if on_answer:
+        on_answer(answer)
     return parse_plan(
         answer,
         groups=groups,

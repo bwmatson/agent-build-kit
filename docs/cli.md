@@ -64,8 +64,14 @@ comment resumes, is started again in the same pass, at most twice; a unit stoppe
 any other cause waits for the next pass. A refresh whose usage guard refuses
 starts nothing and skips planning, but still fetches, polls and archives (below).
 
-- `--dry-run` runs everything up to the build and reports what is ready
-  without building. For each recorded pre-existing e2e-test failure it also prints
+- `--dry-run` reports what is ready without building. Its own steps write no state: it plans
+  into neither the unit store nor the plan records, links, splits, promotes, reclaims and gates
+  no unit, writes or ends no pause, and closes no pull request, posts no reply and sweeps no
+  label. Three things still act as in a real tick: the fetch and poll (which record merges, send
+  units back and restack), the live verification (deploy and live tests) and the archiving of
+  finished changes. The usage ledger still gets its spans and the planner call's cost. A change that needs planning is still planned by the model, in memory (one planner call
+  each, and none while the usage guard refuses): the tick prints `would plan <change>: N unit(s)`
+  and saves the answer under `plan-previews/` in the state folder. For each recorded pre-existing e2e-test failure it also prints
   `exists: <change>` (the open fix change) or `would write: <change>` (a change, or the
   successor of an archived one), even when no unit is pending; it writes nothing and runs
   no base run.

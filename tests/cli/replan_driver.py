@@ -180,10 +180,12 @@ def ticking_replan(
     return run
 
 
-def tick(run: Replan, capsys: pytest.CaptureFixture[str]) -> tuple[int, str]:
+def tick(
+    run: Replan, capsys: pytest.CaptureFixture[str], *, dry_run: bool = False
+) -> tuple[int, str]:
     """One tick over `run`'s planning repo: its exit status and everything it printed."""
     capsys.readouterr()
-    code = cli.cmd_tick(argparse.Namespace(dry_run=False), run.inst)
+    code = cli.cmd_tick(argparse.Namespace(dry_run=dry_run), run.inst)
     seen = capsys.readouterr()
     return code, seen.out + seen.err
 
