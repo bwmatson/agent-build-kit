@@ -6,11 +6,13 @@
   `path::name`) and rejects the commit if any of them passes, so a new failing case can be added to
   the existing test file for its subject beside passing tests. A commit with no test to select, such
   as a helper edit, still runs its files whole, and the Node npm profile keeps whole files.
+
 - A selected run of affected tests whose output says testmon automatically deactivated the
   selection (for example because `-m` was used) is now logged with its reason and replaced by
   the full suite once, instead of passing as a selection that selected everything. A moved base
   adds the reason to the line it logs. The docs say that selectors such as `-m` are applied
   together with the selection.
+
 - A selected run of affected tests whose output says the selection was deactivated, despite the
   forced selection, is now logged with its reason and replaced by the full suite once, instead
   of passing as a selection that selected everything. The Python profile's selection runs at
