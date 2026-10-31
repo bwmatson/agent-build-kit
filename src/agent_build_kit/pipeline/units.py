@@ -21,7 +21,7 @@ from collections.abc import Callable, Collection, Hashable, Iterable, Mapping, S
 from datetime import datetime
 from enum import IntEnum, StrEnum
 from pathlib import Path
-from typing import Protocol, Self, runtime_checkable
+from typing import TYPE_CHECKING, Protocol, Self, runtime_checkable
 
 from pydantic import Field
 
@@ -31,6 +31,9 @@ from agent_build_kit.model import Frozen, TestTier, widest_kind
 from agent_build_kit.pipeline import loaded_code
 from agent_build_kit.pipeline.loaded_code import LoadedCode
 from agent_build_kit.pipeline.shell import has_origin
+
+if TYPE_CHECKING:
+    from agent_build_kit.pipeline.work_graph import GroupMode, TaskGroup
 
 
 class UnitState(StrEnum):
@@ -125,6 +128,8 @@ class Join(Frozen):
     change: str = ""
     groups: tuple[int, ...] = ()
     estimated_lines: int = 0
+    # The mode of each of `groups`, keyed `<change>/<number>`.
+    group_modes: dict[str, str] = Field(default_factory=dict)
 
 
 class ManualStep(Frozen):
@@ -166,6 +171,9 @@ class Unit(Frozen):
     estimated_lines: int = 0
     # The planner's review tier (`auto`, `light` or `full`); None for a unit planned without one.
     review_tier: str | None = None
+    # The build mode (a `GroupMode` value) of each group the unit builds, keyed
+    # `<change>/<number>`; empty for a unit planned before modes existed.
+    group_modes: dict[str, str] = Field(default_factory=dict)
     state: UnitState = PLANNED
     issue: int | None = None
     groups: tuple[int, ...] = ()
@@ -185,7 +193,12 @@ class Unit(Frozen):
         return (Member(change=self.change, groups=self.groups), *self.joined)
 
     def taking(
-        self, taken: Sequence[Member], *, estimated_lines: int, kinds: Iterable[TestTier] = ()
+        self,
+        taken: Sequence[Member],
+        *,
+        estimated_lines: int,
+        kinds: Iterable[TestTier] = (),
+        group_modes: Mapping[str, str] | None = None,
     ) -> Self:
         """This unit with `taken` built after its own members, its estimate grown by
         `estimated_lines` and its kind the widest of its own and `kinds`, those of the work
@@ -204,8 +217,18 @@ class Unit(Frozen):
                 "joined": tuple(members[1:]),
                 "estimated_lines": self.estimated_lines + estimated_lines,
                 "tier": widest_kind([self.tier, *kinds]),
+                "group_modes": {**self.group_modes, **(group_modes or {})},
             }
         )
+
+    def mode_of(self, change: str, group: TaskGroup) -> GroupMode:
+        """The build mode of `group` of `change` in this unit: the stored one, else `tests_only`
+        for an e2e group and `tests_and_code` for any other."""
+        from agent_build_kit.pipeline.work_graph import GroupMode
+
+        if stored := self.group_modes.get(f"{change}/{group.number}"):
+            return GroupMode(stored)
+        return GroupMode.TESTS_ONLY if group.tier == TestTier.E2E_TEST else GroupMode.TESTS_AND_CODE
 
     def carries(self, change: str) -> bool:
         """Does this unit build any of `change`'s groups, its own or carried?"""

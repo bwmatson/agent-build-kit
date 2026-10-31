@@ -71,6 +71,7 @@ from agent_build_kit.pipeline.work_graph import (
     GROUP_HEADING,
     GROUP_NUMBER,
     TEST_KIND_TAGS,
+    GroupMode,
     TaskGroup,
     group_sections,
     known_repos,
@@ -99,6 +100,20 @@ Keep a group you expect to get full review in a unit with only such groups, and 
 ordinary work in a unit with one, because a person must read a full-review unit in full,
 and work that did not need it would be held up and made larger to read. A plan that mixes
 them is refused.
+
+"""
+
+GROUP_MODE_PROMPT = """\
+Group modes: give each unit a `group_modes` object that maps each of its group numbers to
+the mode that group is built in: `tests_and_code` (tests first, then the implementation),
+`no_code` or `tests_only`. Choose `no_code` only for a group that touches no code, one whose
+tasks name only documents, a changelog or configuration files, and only when a regression in
+the change would be neither costly nor hard to see: keep `tests_and_code` for a setting other
+code relies on, a file a tool reads at start or a rule a check enforces. A group that names a
+source path or no path is `tests_and_code`, and a group whose paths are all test files, like an
+`[e2e-test]` group, is `tests_only`; a mode below that floor is refused. A group you leave out
+takes its floor, which for a documents or configuration group is `no_code`, so name every group
+that must keep its tests as `tests_and_code`.
 
 """
 
@@ -259,12 +274,17 @@ def parse_plan(
                     groups=tuple(raw.get("groups") or ()),
                     # `_with_review_tier` checks the value.
                     review_tier=raw.get("review_tier"),
+                    # `_with_group_modes` checks the values and keys them by change.
+                    group_modes=_read_modes(raw, f"unit {raw['id']}"),
                     manual_steps=_manual_steps(tuple(raw.get("groups") or ()), groups),
                 )
             )
         unnamed = {unit.id for unit in units if not unit.review_tier}
         units = [_with_review_tier(unit, groups or [], tasks) for unit in units]
+        units = [_with_group_modes(unit, groups or []) for unit in units]
         joins = _read_joins(payload.get("joins"))
+        if groups is not None:
+            joins = [_with_join_modes(join, change, groups) for join in joins]
         _check_dependencies(units, known or set())
         if groups is not None:
             _check_priority_edges(units, excuses, groups, context, change)
@@ -343,6 +363,70 @@ def _with_review_tier(unit: Unit, groups: Sequence[TaskGroup], tasks: str) -> Un
             f"at {floor!r}: {why}"
         )
     return unit.model_copy(update={"review_tier": asked})
+
+
+def _group_modes(
+    label: str,
+    change: str,
+    numbers: Sequence[int],
+    groups: Sequence[TaskGroup],
+    asked: dict[str, str],
+) -> dict[str, str]:
+    """The mode of each of `numbers`, groups of `change`, keyed `<change>/<number>`: the planner's
+    (`asked`, by group number), never below the group's floor, and the floor when it gave none.
+    `label` names the unit or join in a refusal."""
+    by_number = {group.number: group for group in groups}
+    modes: dict[str, str] = {}
+    for n in numbers:
+        value = asked.get(str(n))
+        if value is not None and value not in {mode.value for mode in GroupMode}:
+            raise PlannerError(
+                f"{label} has unknown mode {value!r} for group {n} "
+                f"(expected {', '.join(mode.value for mode in GroupMode)})"
+            )
+        group = by_number.get(n)
+        if group is None:
+            if value is not None:
+                modes[f"{change}/{n}"] = value
+            continue
+        floor = group.mode
+        allowed = {
+            GroupMode.TESTS_ONLY: (GroupMode.TESTS_ONLY,),
+            GroupMode.NO_CODE: (GroupMode.NO_CODE, GroupMode.TESTS_AND_CODE),
+            GroupMode.TESTS_AND_CODE: (GroupMode.TESTS_AND_CODE,),
+        }[floor]
+        if value is not None and value not in allowed:
+            raise PlannerError(
+                f"{label} asks for mode {value!r} for group {n}, but its floor is {floor.value!r}"
+            )
+        modes[f"{change}/{n}"] = value or floor.value
+    return modes
+
+
+def _with_group_modes(unit: Unit, groups: Sequence[TaskGroup]) -> Unit:
+    """The unit with the mode of each group it builds."""
+    modes = _group_modes(f"unit {unit.id}", unit.change, unit.groups, groups, unit.group_modes)
+    return unit.model_copy(update={"group_modes": modes})
+
+
+def _with_join_modes(join: Join, change: str | None, groups: Sequence[TaskGroup]) -> Join:
+    """A join of a change's groups with the mode of each, checked as a unit's are."""
+    if join.unit:
+        return join
+    modes = _group_modes(
+        f"join onto {join.onto}", join.change or change or "", join.groups, groups, join.group_modes
+    )
+    return join.model_copy(update={"group_modes": modes})
+
+
+def _read_modes(raw: dict, label: str) -> dict[str, str]:
+    """The `group_modes` object of a unit or join object: group numbers to mode names."""
+    found = raw.get("group_modes") or {}
+    if not isinstance(found, dict) or not all(
+        isinstance(key, str) and isinstance(value, str) for key, value in found.items()
+    ):
+        raise PlannerError(f"{label} has `group_modes` that is not an object of mode names")
+    return dict(found)
 
 
 def _read_excuses(raw: dict) -> dict[str, str]:
@@ -474,6 +558,7 @@ def _read_joins(raw_joins: object) -> list[Join]:
                         change=raw["change"],
                         groups=tuple(int(n) for n in raw["groups"]),
                         estimated_lines=int(raw["estimated_lines"]),
+                        group_modes=_read_modes(raw, f"join {index} onto {raw['onto']}"),
                     )
                 )
         except (KeyError, TypeError, ValueError) as error:
@@ -1052,10 +1137,11 @@ label is never the id of a unit in flight that has started.
 {review}Respond with exactly this shape and nothing else (`joins` may be empty):
 {{"units": [{{"id": "<label>", "change": "...", "title": "...",
   "repo": "...", "tier": "unit-test|integration-test|e2e-test", "depends_on": ["<label or id>"],
-  "estimated_lines": 0, "groups": [1],
+  "estimated_lines": 0, "groups": [1], "group_modes": {{"1": "tests_and_code"}},
   "needs_less_urgent": {{"<label or id>": "<reason>"}}}}],
   "joins": [{{"onto": "<unit id>", "change": "<the change above>",
-  "groups": [1], "estimated_lines": 0}}, {{"onto": "<unit id>", "unit": "<unit id>"}}]}}
+  "groups": [1], "estimated_lines": 0, "group_modes": {{"1": "tests_and_code"}}}},
+  {{"onto": "<unit id>", "unit": "<unit id>"}}]}}
 """
 
 
@@ -1453,7 +1539,7 @@ def _prompt_and_parts(
         max_lines=f"the ceiling of its review tier ({_tier_figures(None)} changed lines)",
         relationships=relationships,
         calibration=calibration,
-        review=REVIEW_PROMPT + _ceilings_text(),
+        review=REVIEW_PROMPT + GROUP_MODE_PROMPT + _ceilings_text(),
         join_raw=_join_raw(calibrations, examples),
         changes=changes_text,
         in_flight=in_flight_text,
