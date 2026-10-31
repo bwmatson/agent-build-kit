@@ -319,7 +319,9 @@ class LoginRejected(RuntimeError):
     account: Account
 
     def __init__(self, account: Account, said: str = "") -> None:
-        raise NotImplementedError
+        name = account.label or "default"
+        super().__init__(f"account {name}: the login is rejected: {said}".rstrip(": "))
+        self.account = account
 
 
 class UsageStatus(Frozen):

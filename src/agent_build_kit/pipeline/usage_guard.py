@@ -944,7 +944,14 @@ def rejected_login_note(account: claude_account.Account | None = None) -> str | 
 
 def record_login_rejected(account: claude_account.Account | None = None) -> None:
     """Keep the account's login as rejected, with the credentials' current `expiresAt`."""
-    raise NotImplementedError
+    with on_account(account):
+        path = _cache_file()
+        try:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            rejected = {"expires_at": token_expires_at()}
+            _write_cache(path, {**_load_cache(path), "login_rejected": rejected})
+        except (OSError, TypeError):
+            pass
 
 
 def rate_limit_note(cache_path: Path | None = None) -> str | None:
