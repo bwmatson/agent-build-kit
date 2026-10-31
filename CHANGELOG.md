@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- A selected run of affected tests whose output says testmon automatically deactivated the
+  selection (for example because `-m` was used) is now logged with its reason and replaced by
+  the full suite once, instead of passing as a selection that selected everything. A moved base
+  adds the reason to the line it logs. The docs say that selectors such as `-m` are applied
+  together with the selection.
+
 - A step that fails because the account's Claude login was rejected (`Failed to authenticate`
   with a 401, or an expired OAuth token) is now recognised as that and recorded against the
   account, so `abk status` names the account and the command that renews its login.

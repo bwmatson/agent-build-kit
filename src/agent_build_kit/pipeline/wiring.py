@@ -1869,6 +1869,15 @@ def build_unit_test(
                     if why is not None:
                         why.append(f"{_program(command)} could not run ({error})")
                     return None
+                if index > 0 and (reason := _deactivated(toolchain, command, result)):
+                    _say(
+                        log,
+                        f"affected tests: selection was deactivated ({reason}), "
+                        "running the full suite",
+                    )
+                    if why is not None:
+                        why.append(f"selection was deactivated ({reason})")
+                    return None
                 if index > 0 and _tooling_lost(toolchain, command, result):
                     _say(
                         log,
@@ -2314,6 +2323,25 @@ def _tooling_lost(
         and result.returncode not in (0, toolchain.no_tests_collected_exit)
         and _counted(toolchain, result) == 0
     )
+
+
+_DEACTIVATED = re.compile(r"automatically deactivated because ([^\r\n]+)")
+
+
+def _deactivated(
+    toolchain: ToolchainProfile, command: list[str], result: subprocess.CompletedProcess
+) -> str | None:
+    """The reason a selected run's output gives for the selection being switched off, when the
+    run ran tests: it selected nothing, so the full suite is the answer. A run that selected
+    nothing for lack of a change prints no such line."""
+    if not (
+        isinstance(toolchain, RecordsSelectionData)
+        and toolchain.is_seeded(command)
+        and _counted(toolchain, result) > 0
+    ):
+        return None
+    found = _DEACTIVATED.search(f"{result.stdout}\n{result.stderr}")
+    return found.group(1).strip() if found else None
 
 
 def _counted(toolchain: ToolchainProfile, result: subprocess.CompletedProcess) -> int:
