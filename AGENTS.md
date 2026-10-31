@@ -141,7 +141,8 @@ src/agent_build_kit/
 web/               the web UI `abk serve` shows (React, TypeScript, Tailwind; Vite builds it into
                    src/agent_build_kit/serve/static, which is git-ignored and ships in the wheel)
 tests/             mirrors src/ (tests/pipeline/test_<module>.py, tests/hooks/, ...);
-                   tests/integration/ holds what needs node or the network (marked `integration`)
+                   tests/integration/ holds what needs node or the network (marked `integration`); a test
+                   that scans the whole repository is marked `integration` wherever it sits
 docs/              architecture, configuration, cli, toolchain-profiles, agent-runtimes, unit-graph,
                    init, tracks, runbooks/ (person-run migration procedures)
 ```
@@ -151,7 +152,8 @@ docs/              architecture, configuration, cli, toolchain-profiles, agent-r
 - **Tests mirror the source layout.** A module's tests sit in the folder
   matching its package path; only the folder has to match, not the file
   name. Tests needing node or the network go under `tests/integration/`,
-  marked `integration` (excluded by default). Tests driving a real agent on
+  marked `integration` (excluded by default); so is a test that scans the whole repository,
+  wherever it sits (`tests/test_wide_scans_are_integration.py` lists them). Tests driving a real agent on
   the host are `e2e-test` tests: they live under `tests/integration/` too, are marked
   `local_stack`, are excluded by default and run with `uv run pytest -m
   local_stack`. A `local_stack` test is the only one the guards let start a real

@@ -91,7 +91,7 @@ pytester_example_dir = "tests/child_modules"
 # A list held in a tuple field fails the test that serialises it; other warnings are only reported.
 filterwarnings = ["error:Pydantic serializer warnings:UserWarning"]
 markers = [
-    "integration: needs node (npx) and the network for the real OpenSpec CLI; excluded by default, run with `pytest -m integration`",
+    "integration: needs node (npx) and the network for the real OpenSpec CLI, or reads the whole repository (a wide scan); excluded by default, run with `pytest -m integration`",
     "local_stack: drives the real CLI against a real agent on this host, bills on demand and takes minutes; excluded by default, run with `pytest -m local_stack`",
     "runtime_claude_code: a live-stack test that drives the claude_code runtime; at most one runtime tag per test, none is the untagged base that always runs",
     "runtime_acp: a live-stack test that drives the protocol (acp) runtime; at most one runtime tag per test",
