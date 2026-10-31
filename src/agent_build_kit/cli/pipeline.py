@@ -388,6 +388,7 @@ from agent_build_kit.pipeline.usage_guard import (
     held_estimate_line,
     held_forecast_line,
     held_usage,
+    login_line,
     may_start_unit,
     not_recording,
     on_account,
@@ -838,7 +839,7 @@ def _account_usage_lines(
     the estimate, the allowances in force, the call rate and the cache interval, each from the
     account's own files and marked as its."""
     whose = _whose(account)
-    lines = [_account_usage_line(args, account)]
+    lines = [_account_usage_line(args, account), login_line(account) + whose]
     with on_account(account):
         if rejected := rejected_login_note():
             lines.append(rejected)

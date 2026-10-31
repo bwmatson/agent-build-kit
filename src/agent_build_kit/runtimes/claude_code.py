@@ -255,7 +255,9 @@ def refresh_login(
         **_account_run_kwargs(account),
     )
     # The output is discarded, so the row has no figures: a duration and the exit status.
-    call_recorder(OverheadNode.LOGIN_REFRESH, say=print)(
+    call_recorder(
+        OverheadNode.LOGIN_REFRESH, say=print, account=claude_account.account_key(account)
+    )(
         AgentResult(
             ok=getattr(done, "returncode", 0) == 0,
             text="",
