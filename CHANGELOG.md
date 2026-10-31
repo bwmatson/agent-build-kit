@@ -10,6 +10,7 @@
   code. The rule reads whether a task names a path, not what the path is, so a prose task that
   also names a document or a test file still needs `Tests: required — <reason>`, and a group that
   really edits only test code but has a task naming no path lists its files in a `Paths:` line.
+
 - A `login_refresh` row of the usage ledger now names the account it refreshed (`account`, the
   same key the usage cache and calls files use; none for the default account), where nine of
   fourteen rows could not be matched to an account. `abk status` prints a `login:` line under
