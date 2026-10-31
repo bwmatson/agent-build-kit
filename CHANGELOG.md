@@ -18,6 +18,12 @@
   limit, as the other tests that collect the live modules do. It takes about 50 seconds alone and
   failed in full parallel runs against the 60-second default; it passed alone.
 
+- `abk tags` and `abk check` warn, without failing, of a task in an `[e2e-test]` group that
+  asks for a product change in words (it begins `Fix`, `Add`, `Update` and the like) and names no
+  path. The warning says to report a product fault as a `product-defect`, or to write the
+  `[unit-test]` group first and `Needs:` it; the `abk-authoring` skill now shows how to word an
+  e2e group's tasks.
+
 - A task group is read as tests-only or no-code only when each of its tasks is placed: a `Test:`
   task, a check (it begins `Confirm`, `Check`, `Verify` or `Read`), or a task that names a path.
   A group whose test task named a test file and whose implementation task named nothing used to
