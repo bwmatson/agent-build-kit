@@ -20,7 +20,7 @@ from agent_build_kit.config import ProjectConfig, RepoConfig
 from agent_build_kit.installation import Installation
 from agent_build_kit.pipeline.wiring import build_unit_test
 from tests.conftest import make_installation
-from tests.moved_base_fakes import Profile, affected_lines, moved
+from tests.moved_base_fakes import Profile, SeedProfile, affected_lines, moved, record_seed
 
 LINE = "moved base:"
 OWN_TEST = "def test_six():\n    assert True\n"
@@ -399,24 +399,11 @@ def test_a_document_outside_every_project_stays_scoped(tmp_path: Path) -> None:
     assert "full suite" not in line
 
 
-def seeded_tests(
-    self: Profile, repo: Path, changed: list[str], *, root_extras: list[str], **_workers: object
-) -> list[list[str]]:
-    return [["uv", "run", "pytest", "tests"]]
-
-
-class SeedProfile(Profile):
-    """The python-uv profile's own selection, over one pytest command."""
-
-    test_commands = seeded_tests
-
-
 class SeedingRunner(Runner):
     """Writes the selection data a seeded run records, where the command says."""
 
     def __call__(self, command: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
-        if command[0] == "env":
-            Path(command[1].split("=", 1)[1]).write_bytes(b"recorded")
+        record_seed(command)
         return super().__call__(command, **kwargs)
 
 

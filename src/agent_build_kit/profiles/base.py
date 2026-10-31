@@ -373,6 +373,11 @@ class RecordsSelectionData(Protocol):
         means the selection's tooling could not run."""
         ...
 
+    def selection_deactivated(self, output: str) -> str | None:
+        """The reason a selected run's output gives for the plugin switching its selection off,
+        so that it ran everything; None when the output says no such thing."""
+        ...
+
 
 # Paths that are documentation. Never deploy anything, whatever the profile.
 DOC_SUFFIXES = (".md", ".rst", ".txt")
