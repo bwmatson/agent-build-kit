@@ -254,6 +254,15 @@
   are still honoured while that process lives. Two runs finding the same stale lock can no
   longer both take it.
 
+- Starting a unit now counts the free places, checks them and marks the unit under one lock,
+  so two ticks that overlap over the last free place can no longer both start a unit. The
+  mark lasts until the unit's build takes its branch lock (or ten minutes), and a unit
+  marked this way is neither taken for idle nor reclaimed meanwhile. The workers, the units
+  in progress of a project or account and the emergency lane are counted from the locks,
+  marks and usage pauses on disk (a pause alone holds a place and no worker; a chat's lease
+  holds neither), the same way for starting a unit and for the slot samples a tick records.
+  The `slots:` line of `abk status` is counted as before.
+
 - A new `regression` model role names the model that writes the fix for a failing test. It
   is set like the other roles (`models.regression`, `runtimes.<name>.models.regression` or
   `ABK_REGRESSION_MODEL`) and defaults to Opus under Claude Code. `global_limits` takes
