@@ -50,7 +50,7 @@ CHILD_LINK = "System.LinkTypes.Hierarchy-Forward"
 ARTIFACT_LINK = "ArtifactLink"
 PULL_REQUEST_RELATION = "pull_request"
 _PULL_REQUEST_URL = re.compile(
-    r"^https://dev\.azure\.com/[^/]+/(?P<project>[^/]+)/_git/(?P<repository>[^/]+)"
+    r"^https://dev\.azure\.com/(?P<organization>[^/]+)/(?P<project>[^/]+)/_git/(?P<repository>[^/]+)"
     r"/pullrequest/(?P<number>\d+)/?$"
 )
 PATCH = "application/json-patch+json"
@@ -216,8 +216,10 @@ class AzureDevOpsWorkItems:
         found = _PULL_REQUEST_URL.search(target_id)
         if found is None:
             raise NotLinkable(f"not a pull request hosted on Azure DevOps: {target_id!r}")
-        # The repository is read in the project the address names, which need not be the board's.
         section = self._section
+        if unquote(found["organization"]).casefold() != section.organization.casefold():
+            raise NotLinkable(f"a pull request of another organization: {target_id!r}")
+        # The repository is read in the project the address names, which need not be the board's.
         response = self._rest.call(
             section.organization,
             unquote(found["project"]),

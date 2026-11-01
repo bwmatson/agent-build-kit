@@ -21,7 +21,9 @@ from tests.trackers.reconciler_support import World
 
 pytestmark = pytest.mark.usefixtures("rest_env")
 
-PR_URL = "https://dev.azure.com/example/Some%20Project/_git/app/pullrequest/7"
+ORGANIZATION = "example-org"  # the board section's
+PR_URL = f"https://dev.azure.com/{ORGANIZATION}/Some%20Project/_git/app/pullrequest/7"
+OTHER_ORGANIZATION = "https://dev.azure.com/other/Some%20Project/_git/app/pullrequest/7"
 ARTIFACT = f"vstfs:///Git/PullRequestId/{PROJECT_ID}%2F{REPOSITORY_ID}%2F7"
 ELSEWHERE = "https://github.com/example/app/pull/5"
 
@@ -101,6 +103,31 @@ def test_a_pull_request_hosted_elsewhere_is_not_a_failure_and_is_not_retried(
     assert not [s for s in host.seen if s.route.startswith("git/")]
     recorded = json.loads((world.state_dir / ATTACHED_NAME).read_text())
     assert recorded == {ELSEWHERE: [f"{CHANGE}:1", f"{CHANGE}:2"]}
+
+
+def test_a_pull_request_of_another_organization_is_not_a_failure_and_is_not_retried(
+    tmp_path: Path,
+) -> None:
+    world, host = board(tmp_path)
+    patches = len(host.calls("PATCH"))
+    errors: list[str] = []
+
+    first = attach(world, OTHER_ORGANIZATION, errors)
+    second = attach(world, OTHER_ORGANIZATION, errors)
+
+    assert (first, second, errors) == ((), (), [])
+    assert len(host.calls("PATCH")) == patches
+    assert not [s for s in host.seen if s.route.startswith("git/")]
+    recorded = json.loads((world.state_dir / ATTACHED_NAME).read_text())
+    assert recorded == {OTHER_ORGANIZATION: [f"{CHANGE}:1", f"{CHANGE}:2"]}
+
+
+def test_an_organization_in_another_case_still_attaches(tmp_path: Path) -> None:
+    world, host = board(tmp_path)
+
+    attached = attach(world, PR_URL.replace(ORGANIZATION, ORGANIZATION.upper()))
+
+    assert sorted(attached) == [f"{CHANGE}:1", f"{CHANGE}:2"]
 
 
 def test_units_with_no_pull_request_address_are_recorded_apart(tmp_path: Path) -> None:
