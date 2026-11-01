@@ -6,7 +6,7 @@ lets the change archive. Holds are kept in `external.yaml` in the change's folde
 
 The hold is the path for work a person builds outside the kit. Where a repo names a tracker, the
 kit also skips a unit whose board item a person has taken (see "Work tracker" in
-`docs/architecture.md`); the hold is the way for a repo with no tracker.
+`docs/architecture.md`). The hold is the permanent path for a repo with no tracker.
 
 ## The order
 
