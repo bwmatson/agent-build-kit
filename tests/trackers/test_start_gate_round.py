@@ -9,17 +9,12 @@ import pytest
 from agent_build_kit import trackers
 from agent_build_kit.cli import pipeline as cli
 from agent_build_kit.forges.transport import HostUnavailable
-from agent_build_kit.installation import Installation
 from agent_build_kit.pipeline.vocabulary import WaitReason
-from tests.split_start_support import fresh, gate_round, installation, round_ids, store_of, worked
-from tests.trackers.board_support import CHANGE, board_section, covering
-from tests.trackers.reconciler_support import Call, RecordingTracker, World
-from tests.trackers.start_support import taken_by_person
+from tests.split_start_support import fresh, gate_round, round_ids, store_of, worked
+from tests.trackers.reconciler_support import Call
+from tests.trackers.start_support import FIRST, SECOND, board_in, taken_by_person
 
 pytestmark = pytest.mark.usefixtures("scripted_engine")
-
-FIRST = f"{CHANGE}/1"
-SECOND = f"{CHANGE}/2"
 
 
 @pytest.fixture(autouse=True)
@@ -27,17 +22,6 @@ def stubbed(monkeypatch: pytest.MonkeyPatch):  # noqa: ANN201
     gate_round(monkeypatch)
     yield
     trackers.unregister("azure_devops")
-
-
-def board_in(tmp_path: Path) -> tuple[World, Installation]:
-    """The installation of a repo with a tracker, and its board pushed into the changes folder
-    the round reads."""
-    inst = installation(tmp_path, acp=True, project_limits={"max_units_in_progress": 5})
-    folder = inst.changes_dir.parent
-    folder.mkdir(parents=True, exist_ok=True)
-    world = World(folder, board_section(["change", "group"]), RecordingTracker())
-    world.run([covering(FIRST, (1,)), covering(SECOND, (2,))])
-    return world, inst
 
 
 def test_a_planned_unit_whose_item_a_person_owns_is_not_ready_while_another_is(

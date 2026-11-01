@@ -5,12 +5,27 @@ from __future__ import annotations
 from collections.abc import Sequence
 from pathlib import Path
 
+from agent_build_kit.installation import Installation
 from agent_build_kit.pipeline.units import Unit
 from agent_build_kit.trackers.local import LocalTracker
+from tests.split_start_support import installation
 from tests.trackers.board_support import CHANGE, board_section, covering
 from tests.trackers.reconciler_support import RecordingTracker, World
 
 PERSON = "Alice Example"
+FIRST = f"{CHANGE}/1"
+SECOND = f"{CHANGE}/2"
+
+
+def board_in(tmp_path: Path) -> tuple[World, Installation]:
+    """The installation of a repo with a tracker, and its board pushed into the changes folder
+    the round reads."""
+    inst = installation(tmp_path, acp=True, project_limits={"max_units_in_progress": 5})
+    folder = inst.changes_dir.parent
+    folder.mkdir(parents=True, exist_ok=True)
+    world = World(folder, board_section(["change", "group"]), RecordingTracker())
+    world.run([covering(FIRST, (1,)), covering(SECOND, (2,))])
+    return world, inst
 
 
 def board(

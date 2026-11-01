@@ -23,6 +23,7 @@ class StartDecision(Frozen):
     outcome: Literal["start", "skip", "wait"]
     reason: str = ""
     items: tuple[str, ...] = ()
+    claimed: tuple[str, ...] = ()
 
 
 def _covered_ids(

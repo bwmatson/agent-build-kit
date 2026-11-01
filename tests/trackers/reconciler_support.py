@@ -9,7 +9,7 @@ from typing import Any, NamedTuple
 from agent_build_kit import trackers
 from agent_build_kit.pipeline.tracker_file import TrackerFile, mapping_target, write_tracker
 from agent_build_kit.pipeline.units import Unit
-from agent_build_kit.trackers.base import Item, ItemKind
+from agent_build_kit.trackers.base import Capabilities, Item, ItemKind
 from agent_build_kit.trackers.config import TrackerSection
 from agent_build_kit.trackers.local import LocalTracker
 from agent_build_kit.trackers.reconciler import PassReport, reconcile
@@ -32,8 +32,10 @@ class RecordingTracker(LocalTracker):
     return an error to raise instead; `lose_answer` names a marker whose create lands on the
     board and then raises, once."""
 
-    def __init__(self, levels: Sequence[ItemKind] | None = None) -> None:
-        super().__init__(levels=levels, who=SYNC)
+    def __init__(
+        self, levels: Sequence[ItemKind] | None = None, capabilities: Capabilities | None = None
+    ) -> None:
+        super().__init__(capabilities, SYNC, levels)
         self.calls: list[Call] = []
         self.fail: Callable[[Call], Exception | None] = lambda call: None
         self.lose_answer: str | None = None
