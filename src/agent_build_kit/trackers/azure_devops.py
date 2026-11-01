@@ -18,7 +18,13 @@ from urllib.parse import quote
 
 import httpx
 
-from agent_build_kit.forges.transport import AzureRest, Response, TransportError, validated
+from agent_build_kit.forges.transport import (
+    AzureRest,
+    NotFound,
+    Response,
+    TransportError,
+    validated,
+)
 from agent_build_kit.trackers.azure_work_item_models import (
     ConnectionDataDoc,
     WiqlDoc,
@@ -34,6 +40,7 @@ from agent_build_kit.trackers.base import (
     with_status_tags,
 )
 from agent_build_kit.trackers.config import AzureDevOpsTracker
+from agent_build_kit.trackers.manual_parent import ManualParent
 
 PARENT_LINK = "System.LinkTypes.Hierarchy-Reverse"
 CHILD_LINK = "System.LinkTypes.Hierarchy-Forward"
@@ -175,6 +182,23 @@ class AzureDevOpsWorkItems:
         found = validated(WorkItemsDoc, listed.data, "workitems", listed.text)
         return tuple(self._to_item(doc) for doc in found.value if doc.fields.type in self._kinds)
 
+    def read_manual_parent(self, item_id: str) -> ManualParent | None:
+        """The work item with this id, of any type (an epic is not one of the levels); none when
+        the text is not a work item id or the board has no such item. A read only."""
+        if not item_id.isdigit():
+            return None
+        try:
+            doc = self._read(item_id)
+        except NotFound:
+            return None
+        return ManualParent(id=str(doc.id), title=doc.fields.title, type=doc.fields.type)
+
+    def find_manual_parents(self, title: str) -> Sequence[ManualParent]:
+        """The work items whose whole title is `title`, in any case: the caller settles case."""
+        ids = self._ids_where("System.Title", "=", title)
+        candidates = (self.read_manual_parent(item_id) for item_id in ids)
+        return [candidate for candidate in candidates if candidate is not None]
+
     def link_pull_request(
         self, item_id: str, *, project_id: str, repository_id: str, pull_request_id: int
     ) -> bool:
@@ -190,19 +214,24 @@ class AzureDevOpsWorkItems:
         return True
 
     def find_by_marker(self, marker: str) -> Item | None:
-        tag = self._tag(marker).replace("'", "''")
-        query = (
-            "SELECT [System.Id] FROM WorkItems WHERE [System.TeamProject] = @project "
-            f"AND [System.Tags] Contains '{tag}'"
-        )
-        response = self._call("POST", "wit/wiql", json={"query": query})
-        found = validated(WiqlDoc, response.data, "wiql", response.text)
         # `Contains` is a substring match: `change` is also in `change:group`.
-        for candidate in found.work_items:
-            item = self.get(str(candidate.id))
+        for item_id in self._ids_where("System.Tags", "Contains", self._tag(marker)):
+            item = self.get(item_id)
             if marker in item.markers:
                 return item
         return None
+
+    def _ids_where(self, field: str, operator: str, text: str) -> list[str]:
+        """The ids of the project's work items whose `field` satisfies `operator` against `text`
+        (`=` for the whole value, `Contains` for a substring), by one query."""
+        escaped = text.replace("'", "''")
+        query = (
+            "SELECT [System.Id] FROM WorkItems WHERE [System.TeamProject] = @project "
+            f"AND [{field}] {operator} '{escaped}'"
+        )
+        response = self._call("POST", "wit/wiql", json={"query": query})
+        found = validated(WiqlDoc, response.data, "wiql", response.text)
+        return [str(candidate.id) for candidate in found.work_items]
 
     def _read(self, item_id: str) -> WorkItemDoc:
         response = self._call("GET", f"wit/workitems/{item_id}", {"$expand": "relations"})

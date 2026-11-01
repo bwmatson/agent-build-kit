@@ -220,11 +220,17 @@ def specification_text(
     # `Needs:` line comes with the blank line that sets it off.
     spelled, _ = retag_headings(text, spell)
     stripped = _CHECKBOX.sub(r"\1 \2", spelled)
-    kept = [
-        line
-        for line in stripped.splitlines()
-        if line.strip() and not NEEDS_LINE.match(line.strip())
-    ]
+    kept: list[str] = []
+    in_header = True
+    for line in stripped.splitlines():
+        in_header = in_header and not ANY_GROUP_HEADING.match(line)
+        # `Epic:` is left out like `Needs:`, but only above the first group, where it is read.
+        if (
+            line.strip()
+            and not NEEDS_LINE.match(line.strip())
+            and not (in_header and EPIC_LINE.match(line.strip()))
+        ):
+            kept.append(line)
     return "\n".join([*kept, *(f"resolved: group {n} in {p}" for n, p in (resolved or {}).items())])
 
 
@@ -270,6 +276,23 @@ CHECK_LINE = re.compile(r"^Check:\s*(?P<command>.*?)\s*$", re.I)
 # unsaid. Above the first group it is the default for the change's groups.
 PRIORITY_LINE = re.compile(r"^Priority:\s*(?P<value>.*?)\s*$", re.I)
 PRIORITY_VALUE = re.compile(r"[0-5]")
+
+# "Epic: 259" or "Epic: <exact title>" above the first group: the existing board item, made by a
+# person, that the change's top item is placed under.
+EPIC_LINE = re.compile(r"^Epic:\s*(?P<value>.*?)\s*$", re.I)
+
+
+def epic_reference(path: Path) -> str | None:
+    """The id or exact title a change's `Epic:` header line names, none when it has no line
+    above the first group."""
+    for line in path.read_text().splitlines():
+        if ANY_GROUP_HEADING.match(line):
+            break
+        found = EPIC_LINE.match(line.strip())
+        if found and found["value"]:
+            return found["value"]
+    return None
+
 
 # `Split: <name>` in an e2e-test group: the e2e-test split it runs in (`rest` when absent).
 SPLIT_LINE = re.compile(r"^Split:\s*(?P<value>.*?)\s*$", re.I)
@@ -597,6 +620,7 @@ def validate_tasks(
     split_of: dict[int, str] = {}
     split_refused: set[int] = set()
     root_lines: set[int] = set()
+    epic_seen = False
 
     own_merged_lines = {need.line for _, need in merged_needs(path) if names_own_change(need, path)}
     for index, text in enumerate(lines, start=1):
@@ -607,6 +631,30 @@ def validate_tasks(
 
         heading = ANY_GROUP_HEADING.match(text)
         if heading is None:
+            if found := EPIC_LINE.match(text.strip()):
+                if current is not None:
+                    errors.append(
+                        ValidationError(
+                            line=index,
+                            message="`Epic:` belongs above the first group — it names the "
+                            "change's manual parent, not a group's",
+                        )
+                    )
+                elif not found["value"]:
+                    errors.append(
+                        ValidationError(
+                            line=index,
+                            message="`Epic:` has no value — name a board item by id or exact title",
+                        )
+                    )
+                elif epic_seen:
+                    errors.append(
+                        ValidationError(
+                            line=index,
+                            message="a second `Epic:` line — a change has one manual parent",
+                        )
+                    )
+                epic_seen = epic_seen or (current is None and bool(found["value"]))
             if found := PRIORITY_LINE.match(text.strip()):
                 if not PRIORITY_VALUE.fullmatch(found["value"]):
                     errors.append(

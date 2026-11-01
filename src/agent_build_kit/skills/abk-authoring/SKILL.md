@@ -299,6 +299,20 @@ unit's group takes effect for a unit parked on a split: it is reworked once with
 the new split is held the rework is deferred until it is released. For any other started unit the
 stored split stays as it was.
 
+## `Epic:` line
+
+A change may name an existing board item, made by a person, that a board sync places the
+change's top item under. One line above the first group, beside `Priority:`, gives the item's id or its exact title:
+
+```
+Epic: 42
+Epic: Roadmap: Phase One
+```
+
+The kit only reads that item and never writes to it. A line with no value, a second line, or a line
+inside a group is refused by `abk tags`. The line is left out of the plan hash, so adding or changing
+it does not replan the change. A change without the line has no manual parent.
+
 ## `Priority:` lines
 
 A group says how urgent it is on a line inside it, and a line above the first
