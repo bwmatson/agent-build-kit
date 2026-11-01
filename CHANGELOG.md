@@ -7,6 +7,7 @@
   check, as a Python-only repository already does. A node test file a unit adds or changes is
   chosen by its path (the kit reads no test names from it), and an identifier's test name is
   ignored, since Vitest selects by file.
+
 - For a repo with a tracker, a planned unit is not started while a board item it covers (the
   group items, or the lowest level in use, and any task items under them) is assigned to
   someone other than the identity of the kit's tracker credential; it waits when the board has
