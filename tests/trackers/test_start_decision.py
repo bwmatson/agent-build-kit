@@ -11,7 +11,6 @@ from agent_build_kit import trackers
 from agent_build_kit.pipeline.units import ready_units
 from agent_build_kit.trackers.local import LocalTracker
 from agent_build_kit.trackers.start_decision import start_decision, start_view
-from tests.factories import unit as make_unit
 from tests.trackers.board_support import CHANGE, board_section, covering
 from tests.trackers.reconciler_support import RecordingTracker, World
 from tests.trackers.start_support import PERSON, board, item, taken_by_person
@@ -97,7 +96,7 @@ def test_a_skipped_unit_takes_no_slot_and_another_ready_unit_is_admitted(
 ) -> None:
     world, skipped = board(tmp_path, ["change", "group"])
     taken_by_person(world, "1")
-    other = make_unit("other-change/1", change="other-change")
+    other = covering(f"{CHANGE}/2", (2,))
 
     view = start_view([skipped, other], lambda each: decide(world, each))
     ready = ready_units(view, max_concurrent=5, depth_cap=10, max_units_in_progress=1)
