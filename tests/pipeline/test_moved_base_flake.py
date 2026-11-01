@@ -108,6 +108,13 @@ def test_a_scoped_test_that_passes_alone_raises_a_flake_marked_as_scoped(tmp_pat
     assert ["tests"] not in runner.ran, "the full suite did not stand in for the flake"
 
 
+def test_a_scoped_flake_carries_the_base_the_moved_run_was_made_against(tmp_path: Path) -> None:
+    (flake,) = scoped_flake(tmp_path).flakes
+
+    assert flake.base == "main", "the agent reads the unit's own base, though no test ran on it"
+    assert flake.base_output == "", "the test was not run on the base"
+
+
 class Breaking(Failing):
     """Also fails every run of `program`, alone or not, with a failed-test line."""
 

@@ -222,6 +222,7 @@ from agent_build_kit.pipeline.pr_poller import (
 from agent_build_kit.pipeline.pr_replies import build_post_replies, ignored, parse_answer
 from agent_build_kit.pipeline.product_defect import preview as preview_defect
 from agent_build_kit.pipeline.product_defect import product_defect_record
+from agent_build_kit.pipeline.regression_agent import CAPPED_NOTE, judgement_of, run_room
 from agent_build_kit.pipeline.restack import (
     ConflictSession,
     Moved,
@@ -993,9 +994,23 @@ def cmd_status(args: argparse.Namespace, inst: Installation) -> int:
             f"passed alone ({storm.at:%Y-%m-%d %H:%M} UTC), no fix changes"
         )
 
-    for flaky in flake_record(inst).counts():
+    on_base = {e.test for e in flake_record(inst).entries() if e.failing and e.base_output}
+    for failed in flake_record(inst).counts(lambda entry: entry.failing):
+        times = f"{failed.count} time{'' if failed.count == 1 else 's'}"
+        # "On its base" only where a base run showed it: a failure by its time limit alone, and
+        # a test an open change already covers, were not run there.
+        where = "failed on its base" if failed.test in on_base else "failed"
+        log(
+            f"  failing: {failed.test} — {where} {times}, "
+            f"fix {failed.change or 'not written yet'}" + _judged(inst, failed.change)
+        )
+
+    for flaky in flake_record(inst).counts(lambda entry: not entry.failing):
         times = f"{flaky.count} time{'' if flaky.count == 1 else 's'}"
-        log(f"  flaky: {flaky.test} — flaked {times}, fix {flaky.change or 'not written yet'}")
+        log(
+            f"  flaky: {flaky.test} — flaked {times}, fix {flaky.change or 'not written yet'}"
+            + _judged(inst, flaky.change)
+        )
 
     for failing in preexisting_record(inst).counts():
         times = f"{failing.count} time{'' if failing.count == 1 else 's'}"
@@ -1008,7 +1023,7 @@ def cmd_status(args: argparse.Namespace, inst: Installation) -> int:
         count = f", {waiting} unit{'' if waiting == 1 else 's'} waiting" if waiting else ""
         log(
             f"  pre-existing: {failing.test} — failed on the base {times}, "
-            f"fix {failing.change or 'not written yet'}{count}"
+            f"fix {failing.change or 'not written yet'}{count}" + _judged(inst, failing.change)
         )
 
     # What the last poll of each repo saw: an entry that cannot be merged is not
@@ -2895,8 +2910,8 @@ def deliver_committed(inst: Installation, store: UnitStore) -> None:
 def awaiting_planning(inst: Installation, unit: StoredUnit, units: list[StoredUnit]) -> list[str]:
     """The `Needs:` lines of the unit's groups whose target is an open change
     with no planned unit yet, as `change group N`: nothing exists to wait on, so a gate
-    that looked only at units would find it clear. A target that is no longer an open
-    change has been archived, which is merged."""
+    that looked only at units would find it clear. A target whose folder is gone has been
+    archived, which is merged."""
     planned = {
         (member.change, group)
         for other in units
@@ -2911,8 +2926,10 @@ def awaiting_planning(inst: Installation, unit: StoredUnit, units: list[StoredUn
             continue
         for group in member.groups:
             for need in group_needs(tasks).get(group, []):
-                target = inst.changes_dir / need.change / "tasks.md"
-                if (need.change, need.group) not in planned and target.is_file():
+                # An open change is a folder, with or without tasks yet: one held for a person
+                # has none, and its unit still waits.
+                target = inst.changes_dir / need.change
+                if (need.change, need.group) not in planned and target.is_dir():
                     waiting.append(f"{need.change} group {need.group}")
     return waiting
 
@@ -2928,6 +2945,8 @@ def release_gated(inst: Installation, store: UnitStore, *, in_flight: Collection
             or unit.id in in_flight
             or waiting_on(unit, units)
             or awaiting_planning(inst, unit, units)
+            # Held for the hour's cap on agent runs: it goes on once the hour has room.
+            or (unit.note.startswith(CAPPED_NOTE) and not run_room(inst, spans.clock.now()))
         ):
             continue
         why = unit.gated_requeue
@@ -3922,6 +3941,12 @@ def _second_parent_lines(units: list[StoredUnit]) -> list[str]:
         for unit in units
         if (wait := second_parent_wait(unit, units))
     ]
+
+
+def _judged(inst: Installation, change: str) -> str:
+    """`, <the regression agent's judgement>` of the fix `change`, or nothing."""
+    found = judgement_of(inst, change) if change else ""
+    return f", {found}" if found else ""
 
 
 def late_fix_phrase(unit: StoredUnit) -> str:

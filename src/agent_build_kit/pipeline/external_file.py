@@ -251,6 +251,27 @@ def release_holds(change_dir: Path, groups: Sequence[int]) -> tuple[int, ...]:
         return tuple(sorted(freed))
 
 
+def release_all(change_dir: Path) -> tuple[int, ...]:
+    """Give back every hold of the change that is still held, in one step under the lock, and
+    return the groups they covered. It works for a change that has no groups yet, whose `all`
+    hold covers none and so cannot be named by group. Raises `HoldRefused`, writing nothing,
+    when nothing is held."""
+    path = external_path(change_dir)
+    with file_lock(_lock(path)):
+        holds = read_holds(change_dir)
+        if not any(hold.status == HELD for hold in holds):
+            raise HoldRefused(f"change {change_dir.name} is not held")
+        freed: set[int] = set()
+        out = []
+        for hold, covered in _coverage(change_dir, holds):
+            if hold.status == HELD:
+                freed |= covered
+                hold = hold.model_copy(update={"status": RELEASED})
+            out.append(hold)
+        _write(path, out)
+        return tuple(sorted(freed))
+
+
 def release_hold(change_dir: Path, group: int) -> None:
     """Give back the work of the hold that has `group`; raises `HoldRefused` when none holds it
     or the hold is done."""

@@ -15,7 +15,6 @@ from agent_build_kit.pipeline.flakes import (
     fix_change_name,
     next_fix_name,
     open_fix_change,
-    wait_on_fix,
 )
 from agent_build_kit.pipeline.unit_store import UnitStore
 from agent_build_kit.pipeline.wiring import build_on_preexisting
@@ -28,6 +27,7 @@ from tests.pipeline.test_flake_fix_change import (
     flaked,
     waits_on,
 )
+from tests.regression_agent_fakes import waited_on as wait_on_fix
 from tests.untouched_failure_fakes import TEST as RECORDED
 
 PREFIXES = ["fix-test", "fix-flaky", "fix-failing"]

@@ -2,12 +2,13 @@
 
 When unit-test fails on tests, the failed tests are run again serially. A test that fails
 again is a failure. One that passes both reruns is a flake: it is recorded, it gets one
-change that makes it deterministic, and every unit that met it waits on that change.
+change that makes it deterministic, and every unit that met it waits on that change. The change
+is written by the regression agent (`pipeline/regression_agent.py`); this module holds the
+record, the lookup of the open change for a test and the `Needs:` line.
 """
 
 from __future__ import annotations
 
-import ast
 import hashlib
 import re
 from datetime import UTC, datetime
@@ -16,7 +17,6 @@ from typing import Protocol, runtime_checkable
 
 from agent_build_kit.config import active, active_root
 from agent_build_kit.installation import Installation
-from agent_build_kit.model import TestTier
 from agent_build_kit.pipeline.failure_record import (
     Evidenced,
     FailureRecord,
@@ -24,7 +24,7 @@ from agent_build_kit.pipeline.failure_record import (
     Storm,
     TestCount,
 )
-from agent_build_kit.pipeline.file_lock import change_lock, file_lock
+from agent_build_kit.pipeline.file_lock import change_lock
 from agent_build_kit.pipeline.unit_store import StoredUnit
 from agent_build_kit.pipeline.units import PRODUCT_DEFECT_PREFIX, Unit
 from agent_build_kit.pipeline.work_graph import FIX_PREFIX, GROUP_HEADING, group_needs
@@ -36,11 +36,8 @@ FLAKY_PREFIX = "fix-flaky"
 FAILING_PREFIX = "fix-failing"
 # The names every change that fixes a failing test may start with, whatever its kind.
 FIX_PREFIXES = (FIX_PREFIX, FLAKY_PREFIX, FAILING_PREFIX, PRODUCT_DEFECT_PREFIX)
-# Where a module imported by a test may sit in the code repo, relative to its root.
-SOURCE_ROOTS = ("", "src")
 # How many of a storm's tests its row names.
 STORM_TESTS = 10
-CAPABILITY = "test-determinism"
 
 
 class Flake(Recorded, Evidenced):
@@ -57,8 +54,15 @@ class Flake(Recorded, Evidenced):
     # identifier is relative to; empty when unknown.
     directory: str = ""
     # Set for a test that failed and is not a flake (it fails on the base, by its time limit,
-    # or has an open fix): it is said as a failing test and is not recorded as a flake.
+    # or has an open fix): the row is kept in the flake record, marked failing, and `abk status`
+    # lists it as failing and not as flaky.
     failing: bool = False
+    # The ref the failure is judged against: the unit's own base, the branch tip of its parent
+    # when it is stacked, which the agent reads. Empty when the run has no base.
+    base: str = ""
+    # The output of the test's run on `base`; empty when it was not run there (a failure by the
+    # time limit alone cannot be told apart on the base).
+    base_output: str = ""
 
 
 def waiting_note(tests: list[str], *, failing: bool = False) -> str:
@@ -154,26 +158,6 @@ def fix_change_name(test: str, prefix: str) -> str:
     return name
 
 
-def wait_on_fix(
-    inst: Installation, flake: Flake, unit: StoredUnit, *, wait: bool = True
-) -> str | None:
-    """Make sure the one open change that fixes `flake.test` exists, under the state
-    directory's lock, and with `wait` give each group of `unit` a `Needs:` line on it, unless
-    `unit` is of a fix change: that waits on no other fix. Returns the change's name, or None
-    for a unit of that change itself, which waits on nothing."""
-    with file_lock(inst.state_dir / "flakes.lock"):
-        name, earlier = open_fix_change(inst, flake.test)
-        if name is None:
-            name = next_fix_name(inst, flake.test)
-            _write_change(inst, name, flake, unit, earlier=earlier)
-        if unit.change == name:
-            return None
-        if wait and not is_fix_change(unit.change):
-            kind = "failing" if flake.failing else "flaky"
-            add_needs_to_unit(inst, unit, name, f"{kind} test {flake.test}")
-        return name
-
-
 # --- which change ----------------------------------------------------------------
 
 
@@ -264,169 +248,34 @@ def add_needs(inst: Installation, change: str, group: int, fix: str, reason: str
                 return
 
 
-# --- the change that is written --------------------------------------------------
+# --- what the agent is told ------------------------------------------------------
 
 
-def _write_change(
-    inst: Installation, name: str, flake: Flake, unit: StoredUnit, *, earlier: str
-) -> None:
-    root = inst.changes_dir / name
-    (root / "specs" / CAPABILITY).mkdir(parents=True)
-    (root / "proposal.md").write_text(_proposal(inst, flake, unit, earlier))
-    (root / "design.md").write_text(_design(flake))
-    (root / "tasks.md").write_text(_tasks(flake, unit))
-    shipped = requirement_shipped(inst, CAPABILITY, _requirement(flake))
-    (root / "specs" / CAPABILITY / "spec.md").write_text(_spec(flake, successor=shipped))
-
-
-def requirement_shipped(inst: Installation, capability: str, requirement: str) -> bool:
-    """Whether the shipped spec of `capability` already holds the requirement titled
-    `requirement`, which an archive refuses to add again. An earlier change of another kind
-    that was archived added a different requirement to a different capability, so only the
-    spec itself says."""
-    try:
-        text = (inst.specs_dir / "specs" / capability / "spec.md").read_text()
-    except OSError:
-        return False
-    return f"### Requirement: {requirement}\n" in text
-
-
-def _requirement(flake: Flake) -> str:
-    return f"`{flake.test}` is deterministic"
-
-
-def failure_history(inst: Installation, test: str, *, evidence: bool = False) -> list[str]:
-    """One line for each recorded failure of `test`, oldest first, with the evidence of its run
-    when `evidence` is set."""
-    return [
-        f"- {e.at:%Y-%m-%d %H:%M} UTC, unit {e.unit}" + (f": {e.evidence}" if evidence else "")
-        for e in flake_record(inst).entries()
-        if e.test == test
-    ]
-
-
-def _proposal(inst: Installation, flake: Flake, unit: StoredUnit, earlier: str) -> str:
-    seen = failure_history(inst, flake.test)
-    seen.append(f"- {flake.at:%Y-%m-%d %H:%M} UTC, unit {flake.unit or unit.id} (this one)")
-    modules = _modules_of(inst, unit.repo, flake)
-    exercised = (
-        "It exercises " + ", ".join(f"`{m}`" for m in modules) + "."
-        if modules
-        else "The module it exercises could not be found from its imports."
-    )
-    again = (
-        f"\nAn earlier change, `{earlier}`, fixed this test and was merged and archived; "
-        "it has flaked again.\n"
-        if earlier
-        else ""
-    )
-    return (
-        "## Why\n\n"
-        f"`{flake.test}` failed under load and passed alone, twice, when run again by itself. "
-        "A test like that fails units that did not touch it.\n"
-        f"{again}\n"
-        f"It ran as `{flake.command}` and failed with:\n\n```\n{flake.output.strip()}\n```\n\n"
-        f"{exercised}\n\n"
-        "Times it flaked:\n\n" + "\n".join(seen) + "\n\n"
-        "## What Changes\n\n"
-        f"- `{flake.test}` is made deterministic, whether the fault is in the test or in the "
-        "code it exercises.\n\n"
-        "## Impact\n\n"
-        f"- {unit.repo}: the test and, if it is the racy one, the module it exercises.\n"
-    )
-
-
-def _design(flake: Flake) -> str:
-    return (
-        "## Context\n\n"
-        f"`{flake.test}` passes alone and fails under load.\n\n"
-        "## Decisions\n\n"
-        "- Is the test racy, or is the code it exercises racy? Decide from the failure, "
-        "then fix that one.\n"
-        "- The fix leaves nothing to wait on by the clock: an injected clock, an event "
-        "waited on, or a step the test calls directly.\n"
-    )
-
-
-def _tasks(flake: Flake, unit: StoredUnit) -> str:
-    return (
-        "# Tasks\n\n"
-        "Acceptance: none — a flaky test is made deterministic; nothing a consumer sees "
-        "changes.\n\n"
-        f"## 1. [{unit.repo}] [{TestTier.UNIT_TEST}] Make `{flake.test}` deterministic\n\n"
-        "Priority: 1\n\n"
-        "Done when the test passes under load every time, and under the repeat check.\n\n"
-        f"- [ ] 1.1 Test: reproduce the race in `{flake.test}` deterministically, without "
-        "waiting on the clock, so it fails every time before the fix.\n"
-        "- [ ] 1.2 Make the test pass: decide whether the test or the code it exercises is "
-        "racy, fix that one, and run the test under the repeat check.\n"
-    )
-
-
-def _spec(flake: Flake, *, successor: bool) -> str:
-    # The earlier attempt's archive added this requirement to the capability, and an
-    # archive refuses to add one that exists: a successor restates it.
-    verb = "MODIFIED" if successor else "ADDED"
-    return (
-        f"## {verb} Requirements\n\n"
-        f"### Requirement: {_requirement(flake)}\n\n"
-        "The test SHALL give the same result however loaded the machine running it is.\n\n"
-        "#### Scenario: Run repeatedly under load\n\n"
-        "- **WHEN** the test is run repeatedly under parallel load\n"
-        "- **THEN** it passes every time\n"
-    )
-
-
-def _modules_of(inst: Installation, repo: str, flake: Flake) -> list[str]:
-    """The files of the code repo that the test file imports, found from its imports. The
-    identifier is relative to the directory unit-test ran in, else to the checkout's root."""
-    checkout = inst.checkouts.get(repo)
-    if checkout is None:
-        return []
-    file = flake.test.split("::", 1)[0]
-    where = [Path(flake.directory)] if flake.directory else []
-    for base in [*where, checkout]:
-        try:
-            tree = ast.parse((base / file).read_text())
-        except (OSError, SyntaxError):
-            continue
-        break
-    else:
-        return []
-    names: list[str] = []
-    for node in ast.walk(tree):
-        if isinstance(node, ast.Import):
-            names += [alias.name for alias in node.names]
-        elif isinstance(node, ast.ImportFrom) and node.module and not node.level:
-            names.append(node.module)
-    found: list[str] = []
-    for name in names:
-        relative = Path(*name.split("."))
-        for root in SOURCE_ROOTS:
-            for candidate in (relative.with_suffix(".py"), relative / "__init__.py"):
-                if (base / root / candidate).is_file():
-                    full = base / root / candidate
-                    shown = (
-                        full.relative_to(checkout) if full.is_relative_to(checkout) else full
-                    ).as_posix()
-                    if shown not in found:
-                        found.append(shown)
-                    break
-            else:
-                continue
-            break
-    return found
-
-
+# The line of a fix change's proposal that names the failing test the change is for, and the
+# pattern that reads it: what the regression agent writes in place of a group title.
+FAILING_TEST_LABEL = "Failing test:"
+FAILING_TEST_LINE = re.compile(
+    rf"^\W*{re.escape(FAILING_TEST_LABEL)}\s*`?(?P<test>[^`\s](?:[^`\n]*[^`\s])?)`?[ \t]*$",
+    re.MULTILINE,
+)
 FIX_TITLE = re.compile(r"^Make `(?P<test>[^`]+)` deterministic$")
 FIRST_ATTEMPTS = 20  # how many successive names of one test's fix change are looked under
 
 
 def fix_change_test(inst: Installation, change: str) -> str | None:
-    """The test the fix change `change` is named for, read from the title of its group 1
-    ("Make `<test>` deterministic"); None when the change has no such group."""
+    """The test the fix change `change` is for: the `Failing test:` line of its proposal, which
+    the regression agent writes and its check requires, or else the title of its group 1
+    ("Make `<test>` deterministic"), which the earlier templates wrote; None when the change has
+    neither."""
+    root = inst.changes_dir / change
     try:
-        lines = (inst.changes_dir / change / "tasks.md").read_text().splitlines()
+        named = FAILING_TEST_LINE.search((root / "proposal.md").read_text())
+    except OSError:
+        named = None
+    if named:
+        return named["test"]
+    try:
+        lines = (root / "tasks.md").read_text().splitlines()
     except OSError:
         return None
     for line in lines:

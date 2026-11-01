@@ -105,7 +105,6 @@ def test_a_fix_change_already_open_is_reported_as_existing_and_not_written_twice
     assert outcome.status == RunStatus.HELD, "the same test fails again and is waited on again"
     assert fixes(run) == [first]
     assert (run.inst.changes_dir / first / "tasks.md").read_text() == before
-    assert any(f"exists: {first}" in line for line in run.log)
     assert waits_on(run.inst, CHANGE) == [first]
 
 

@@ -69,8 +69,9 @@ def test_the_evidence_of_each_kind_reaches_the_agent(
 
 
 def test_the_agent_runs_as_the_regression_role_and_writes_only_its_change_directory(
-    installation: Installation, tmp_path: Path
+    confined_installation: Installation, tmp_path: Path
 ) -> None:
+    installation = confined_installation
     name = next_fix_name(installation, TEST)
     agent = Attempts(installation, name, {})
 
@@ -81,7 +82,21 @@ def test_the_agent_runs_as_the_regression_role_and_writes_only_its_change_direct
     assert request.model == models().regression
     assert request.cwd == tmp_path / "base-checkout"
     assert request.policy is not None and request.policy.sandbox is not None
-    assert request.policy.sandbox.write == (installation.changes_dir / name,)
+    sandbox = request.policy.sandbox
+    assert (installation.changes_dir / name).resolve() in sandbox.write
+    assert (tmp_path / "base-checkout").resolve() not in sandbox.write, "the checkout is read-only"
+    assert installation.root.resolve() not in sandbox.write
+
+
+def test_the_agent_has_no_sandbox_while_the_sandbox_is_off(
+    installation: Installation, tmp_path: Path
+) -> None:
+    agent = Attempts(installation, next_fix_name(installation, TEST), {})
+
+    run(installation, tmp_path, agent.runtime)
+
+    assert agent.runtime.request.policy is not None
+    assert agent.runtime.request.policy.sandbox is None
 
 
 @pytest.mark.parametrize(

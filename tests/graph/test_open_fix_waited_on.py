@@ -66,7 +66,7 @@ def test_a_failing_test_with_an_open_fix_parks_the_unit_gated_on_it(
     tasks = (installation.changes_dir / "add-marker" / "tasks.md").read_text()
     assert f"— failing test {TEST}" in tasks and "flaky test" not in tasks
     assert "flaky" not in stored.note
-    assert flake_record(installation).entries() == [], "it did not flake"
+    assert [e for e in flake_record(installation).entries() if not e.failing] == [], "no flake"
     assert stored.feedback == "", "the test is not feedback for the unit's agent to fix"
     assert "claude:fix_checks" not in recorder.events
     assert len(recorder.unit_test_failed_outputs) == 1, "the test was not run again"

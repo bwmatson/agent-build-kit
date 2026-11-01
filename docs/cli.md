@@ -549,8 +549,9 @@ Work handed to someone outside the kit (see `hand-off.md`). `abk external hand-o
 the kit never builds around, and refuses groups a unit has already started or a change with no
 folder; repeating it (or part of it) for the same holder changes nothing. `abk external list` shows each hold with its groups, holder, link,
 status, age and the units waiting on it. `abk external done CHANGE --groups N… (--pr N | --commit
-SHA)` checks the merge and records it. `abk external release CHANGE --groups N…` gives held work
-back, naming every group the released holds covered. Every form takes `--json` (a refusal prints
+SHA)` checks the merge and records it. `abk external release CHANGE (--groups N… | --all)` gives
+held work back, naming every group the released holds covered; `--all` gives back every hold
+still held, also of a change with no groups yet. Every form takes `--json` (a refusal prints
 `{"refused": REASON}` on stdout too), and `abk status` has an external holds section.
 
 ### `abk archive CHANGE`

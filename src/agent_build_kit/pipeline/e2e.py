@@ -246,6 +246,8 @@ class E2eVerdict(Evidenced):
     # The command the base run made and the tail of its output, kept for the record.
     command: str = ""
     base_output: str = ""
+    # The ref the base run was made on: the unit's own base, its parent's branch tip when stacked.
+    base: str = ""
 
 
 class E2eResult(Frozen):

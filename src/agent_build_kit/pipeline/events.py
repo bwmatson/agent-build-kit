@@ -63,6 +63,7 @@ from agent_build_kit.pipeline.pr_poller import (  # noqa: F401 — FAILING_CHECK
     FAILING_CHECKS_REASON,
 )
 from agent_build_kit.pipeline.pr_replies import MARKER, record_posts
+from agent_build_kit.pipeline.regression_agent import Met, meet_all
 from agent_build_kit.pipeline.restack import (
     BranchCheckedOut,
     BranchMoved,
@@ -2064,6 +2065,45 @@ def _latest_comment(pull: PullRequest | None) -> str:
     return comments[-1] if comments else ""
 
 
+# What stops an agent from running at all, which says nothing about the branch it was run for.
+AGENT_UNAVAILABLE = (
+    AgentRateLimited,
+    AgentInterrupted,
+    LoginRejected,
+    NetworkUnavailable,
+    ServiceUnavailable,
+)
+
+
+def defer_restack(
+    store: UnitStore, child: StoredUnit, new_base: str, error: BaseException
+) -> RestackOutcome:
+    """Leave `child` planned, its restack onto `new_base` deferred for the reason an agent that
+    could not run gives: the runner's own restack retries it, pausing the tick if the window is
+    still spent."""
+    why = next(
+        (
+            words
+            for kind, words in (
+                (AgentRateLimited, "a rate limit"),
+                (NetworkUnavailable, "a network outage"),
+                (ServiceUnavailable, "the model service being unavailable"),
+                (LoginRejected, "a rejected login"),
+            )
+            if isinstance(error, kind)
+        ),
+        "an interrupted run",
+    )
+    store.set_state(
+        child.id,
+        PLANNED,
+        note=f"restack onto {new_base} deferred for {why}; the runner retries it: "
+        f"{cut_head(str(error), 300, 'char')}",
+        cause=Cause.RESTACK_DEFERRED,
+    )
+    return RestackOutcome.DEFERRED
+
+
 def build_restack(
     *,
     repos: dict[str, Path],
@@ -2262,38 +2302,12 @@ def build_restack(
                 cause=Cause.RESTACK_CONFLICT,
             )
             return RestackOutcome.CONFLICT
-        except (
-            AgentRateLimited,
-            AgentInterrupted,
-            LoginRejected,
-            NetworkUnavailable,
-            ServiceUnavailable,
-        ) as error:
+        except AGENT_UNAVAILABLE as error:
             # The resolver could not run, which says nothing about the branch.
             # Not raised on: the merge is handled once, and the parent's branch
             # goes next, so the runner's own restack retries it — pausing the
             # tick if the window is still spent.
-            why = next(
-                (
-                    words
-                    for kind, words in (
-                        (AgentRateLimited, "a rate limit"),
-                        (NetworkUnavailable, "a network outage"),
-                        (ServiceUnavailable, "the model service being unavailable"),
-                        (LoginRejected, "a rejected login"),
-                    )
-                    if isinstance(error, kind)
-                ),
-                "an interrupted run",
-            )
-            store.set_state(
-                child.id,
-                PLANNED,
-                note=f"restack onto {new_base} deferred for {why}; the runner retries it: "
-                f"{cut_head(str(error), 300, 'char')}",
-                cause=Cause.RESTACK_DEFERRED,
-            )
-            return RestackOutcome.DEFERRED
+            return defer_restack(store, child, new_base, error)
 
         unchanged = (
             was_approved
@@ -2342,14 +2356,24 @@ def build_restack(
                 )
         except (FlakeFound, FailedOnBase) as found:
             flakes = found.flakes if isinstance(found, FlakeFound) else found.failures
-            if (isinstance(found, FlakeFound) and found.scoped) or is_fix_change(child.change):
+            goes_on = (isinstance(found, FlakeFound) and found.scoped) or is_fix_change(
+                child.change
+            )
+            try:
+                met = (
+                    meet_all(partial(on_flake, child, flake, wait=not goes_on) for flake in flakes)
+                    if on_flake
+                    else Met(answers=[], held_back=[])
+                )
+            except AGENT_UNAVAILABLE as error:
+                # The agent that writes the fix could not run: say nothing of the branch.
+                return defer_restack(store, child, new_base, error)
+            if goes_on:
                 # Not this branch's fault, and the suite runs in CI: recorded, and the
                 # branch goes on to its push without waiting for the fix. A unit of a fix
                 # change waits on no other fix, so it goes on for any such failure.
-                recorded = (
-                    [on_flake(child, flake, wait=False) for flake in flakes] if on_flake else []
-                )
-                if not all(recorded) and on_flake:
+                # One the hour's cap holds back is recorded without a change; the branch goes on.
+                if not met.all_answered:
                     # A unit of the flake's own fix change: its fix did not work.
                     raise RuntimeError(
                         f"{branch} moved onto {new_base} but its checks fail — "
@@ -2360,21 +2384,21 @@ def build_restack(
             else:
                 # Not this branch's fault: it waits, gated, for the test's fix, as a unit
                 # that met the flake building does, and is moved when it resumes.
-                fixes = [on_flake(child, flake) for flake in flakes] if on_flake else []
-                if not any(fixes):
+                if not met.capped and not any(met.answers):
                     raise RuntimeError(
                         f"{branch} moved onto {new_base} but its checks fail — "
                         f"left unpushed, with the reviewable head still on the remote:\n"
                         f"{flakes[0].output}"
                     ) from found
-                store.set_state(
-                    child.id,
-                    PLANNED,
-                    note=waiting_note(
+                # Waits for the fix, or for the hour's cap on agent runs to have room.
+                note = (
+                    met.note
+                    if met.capped
+                    else waiting_note(
                         [flake.test for flake in flakes], failing=isinstance(found, FailedOnBase)
-                    ),
-                    cause=Cause.GATED,
+                    )
                 )
+                store.set_state(child.id, PLANNED, note=note, cause=Cause.GATED)
                 store.set_gated_requeue(child.id, RequeueReason.RESUME)
                 return RestackOutcome.PLANNED
         finally:

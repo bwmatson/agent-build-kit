@@ -25,6 +25,7 @@ from agent_build_kit.pipeline.external_file import (
     check_not_started,
     hold_rows,
     hold_text,
+    release_all,
     release_holds,
 )
 
@@ -130,12 +131,13 @@ def cmd_done(args: argparse.Namespace, inst: Installation) -> int:
 
 def cmd_release(args: argparse.Namespace, inst: Installation) -> int:
     def run() -> int:
-        freed = release_holds(_change_folder(inst, args.change), args.groups)
-        shown = ", ".join(map(str, freed))
+        folder = _change_folder(inst, args.change)
+        freed = release_all(folder) if args.all else release_holds(folder, args.groups)
+        shown = f"groups {', '.join(map(str, freed))}" if freed else "all"
         _emit(
             args,
             {"change": args.change, "groups": list(freed)},
-            f"{args.change} groups {shown} released to the kit",
+            f"{args.change} {shown} released to the kit",
         )
         return 0
 
@@ -175,4 +177,10 @@ def register(sub: argparse._SubParsersAction) -> None:
 
     release = command("release", "give held work back to the kit", cmd_release)
     release.add_argument("change")
-    release.add_argument("--groups", type=int, nargs="+", required=True)
+    which = release.add_mutually_exclusive_group(required=True)
+    which.add_argument("--groups", type=int, nargs="+", help="the group numbers given back")
+    which.add_argument(
+        "--all",
+        action="store_true",
+        help="every hold still held, also of a change with no groups yet",
+    )
