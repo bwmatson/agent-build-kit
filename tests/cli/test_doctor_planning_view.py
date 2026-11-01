@@ -139,8 +139,9 @@ def test_a_state_directory_outside_the_repository_and_a_separate_repo_give_no_wa
     apart = separate(tmp_path / "plan", code)
 
     # The view check proves the checks ran; the location check stays quiet in both.
-    assert [c.status for c in named(checks_of(outside), VIEW)] == ["warn"]
-    assert named(checks_of(outside), LOCATION) == []
+    checks = checks_of(outside)
+    assert [c.status for c in named(checks, VIEW)] == ["warn"]
+    assert named(checks, LOCATION) == []
     assert named(checks_of(apart), LOCATION) == []
 
 

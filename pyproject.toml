@@ -99,6 +99,7 @@ markers = [
     "telemetry_local: a live-stack test that reads the telemetry its tick wrote to a local file instead of the shared stack",
     "time_limit(seconds): hold this test to its own time limit in place of --test-time-limit; for a test whose time is outside its control, such as a download",
     "dev_stack: needs the repo's dev stack up; left out of acceptance runs",
+    "sandbox_probe: a test of doctor's `sandbox` check: doctor runs the real probes instead of the suite's stand-in",
 ]
 addopts = "--strict-markers -m 'not integration and not local_stack'"
 # A passing test's temp folder is deleted and a failing run keeps its folders, up to the count.

@@ -4,12 +4,16 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+
 from agent_build_kit.cli.doctor import Check, run_doctor
 from tests.cli.sandbox_cli_support import CountingBackend, switch_on
 from tests.cli.sandbox_cli_support import broken_stand_in as broken_stand_in  # noqa: F401
 from tests.cli.sandbox_cli_support import stand_in as stand_in  # noqa: F401
 from tests.cli.test_doctor import Answers, workspace  # noqa: F401 — fixture
 from tests.factories import which_all
+
+pytestmark = pytest.mark.sandbox_probe
 
 
 def sandbox_checks(config: Path) -> list[Check]:
