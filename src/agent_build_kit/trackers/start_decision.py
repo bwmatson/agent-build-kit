@@ -6,7 +6,7 @@ from collections.abc import Callable, Sequence
 from pathlib import Path
 from typing import Literal
 
-from agent_build_kit import trackers
+from agent_build_kit import config, trackers
 from agent_build_kit.model import Frozen
 from agent_build_kit.pipeline.tracker_file import TrackerFile, read_tracker
 from agent_build_kit.pipeline.units import HELD, PLANNED, Unit
@@ -54,6 +54,8 @@ def _covered_ids(
 def start_decision(unit: Unit, *, changes_dir: Path) -> StartDecision:
     """The decision for `unit` against the tracker of its repo, whose tracker files are under
     `changes_dir`; a repo with no tracker section starts it and makes no call."""
+    if unit.repo not in config.active().repos:
+        return StartDecision(outcome="start")  # a repo the configuration lacks has no tracker
     section = section_for(unit.repo)
     if section is None:
         return StartDecision(outcome="start")
