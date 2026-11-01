@@ -74,8 +74,10 @@ def test_no_issue_or_pr_number_anecdotes() -> None:
 
 def test_no_dated_anecdotes() -> None:
     # A date beside "decided"/"confirmed"/... is a story about one
-    # installation. CHANGELOG entries are dated on purpose.
-    assert _hits(DATED_ANECDOTE, skip={"CHANGELOG.md"}) == []
+    # installation. CHANGELOG entries are dated on purpose, and so are the
+    # reports a track writes under docs/reports/: each one is a dated record.
+    found = _hits(DATED_ANECDOTE, skip={"CHANGELOG.md"})
+    assert [hit for hit in found if not hit.startswith("docs/reports/")] == []
 
 
 @pytest.mark.parametrize("pattern", [ENV_LITERAL])
