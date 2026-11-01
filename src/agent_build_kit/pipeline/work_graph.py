@@ -220,11 +220,17 @@ def specification_text(
     # `Needs:` line comes with the blank line that sets it off.
     spelled, _ = retag_headings(text, spell)
     stripped = _CHECKBOX.sub(r"\1 \2", spelled)
-    kept = [
-        line
-        for line in stripped.splitlines()
-        if line.strip() and not NEEDS_LINE.match(line.strip()) and not EPIC_LINE.match(line.strip())
-    ]
+    kept: list[str] = []
+    in_header = True
+    for line in stripped.splitlines():
+        in_header = in_header and not ANY_GROUP_HEADING.match(line)
+        # `Epic:` is left out like `Needs:`, but only above the first group, where it is read.
+        if (
+            line.strip()
+            and not NEEDS_LINE.match(line.strip())
+            and not (in_header and EPIC_LINE.match(line.strip()))
+        ):
+            kept.append(line)
     return "\n".join([*kept, *(f"resolved: group {n} in {p}" for n, p in (resolved or {}).items())])
 
 
@@ -277,8 +283,11 @@ EPIC_LINE = re.compile(r"^Epic:\s*(?P<value>.*?)\s*$", re.I)
 
 
 def epic_reference(path: Path) -> str | None:
-    """The id or exact title a change's `Epic:` header line names, none when it has no line."""
+    """The id or exact title a change's `Epic:` header line names, none when it has no line
+    above the first group."""
     for line in path.read_text().splitlines():
+        if ANY_GROUP_HEADING.match(line):
+            break
         found = EPIC_LINE.match(line.strip())
         if found and found["value"]:
             return found["value"]
@@ -623,7 +632,15 @@ def validate_tasks(
         heading = ANY_GROUP_HEADING.match(text)
         if heading is None:
             if found := EPIC_LINE.match(text.strip()):
-                if not found["value"]:
+                if current is not None:
+                    errors.append(
+                        ValidationError(
+                            line=index,
+                            message="`Epic:` belongs above the first group — it names the "
+                            "change's manual parent, not a group's",
+                        )
+                    )
+                elif not found["value"]:
                     errors.append(
                         ValidationError(
                             line=index,
@@ -637,7 +654,7 @@ def validate_tasks(
                             message="a second `Epic:` line — a change has one manual parent",
                         )
                     )
-                epic_seen = epic_seen or bool(found["value"])
+                epic_seen = epic_seen or (current is None and bool(found["value"]))
             if found := PRIORITY_LINE.match(text.strip()):
                 if not PRIORITY_VALUE.fullmatch(found["value"]):
                     errors.append(

@@ -18,7 +18,13 @@ from urllib.parse import quote
 
 import httpx
 
-from agent_build_kit.forges.transport import AzureRest, Response, TransportError, validated
+from agent_build_kit.forges.transport import (
+    AzureRest,
+    NotFound,
+    Response,
+    TransportError,
+    validated,
+)
 from agent_build_kit.trackers.azure_work_item_models import (
     ConnectionDataDoc,
     WiqlDoc,
@@ -34,6 +40,7 @@ from agent_build_kit.trackers.base import (
     with_status_tags,
 )
 from agent_build_kit.trackers.config import AzureDevOpsTracker
+from agent_build_kit.trackers.manual_parent import ManualParent
 
 PARENT_LINK = "System.LinkTypes.Hierarchy-Reverse"
 CHILD_LINK = "System.LinkTypes.Hierarchy-Forward"
@@ -174,6 +181,29 @@ class AzureDevOpsWorkItems:
         listed = self._call("GET", "wit/workitems", {"ids": ",".join(ids), "$expand": "relations"})
         found = validated(WorkItemsDoc, listed.data, "workitems", listed.text)
         return tuple(self._to_item(doc) for doc in found.value if doc.fields.type in self._kinds)
+
+    def read_manual_parent(self, item_id: str) -> ManualParent | None:
+        """The work item with this id, of any type (an epic is not one of the levels); none when
+        the text is not a work item id or the board has no such item. A read only."""
+        if not item_id.isdigit():
+            return None
+        try:
+            doc = self._read(item_id)
+        except NotFound:
+            return None
+        return ManualParent(id=str(doc.id), title=doc.fields.title, type=doc.fields.type)
+
+    def find_manual_parents(self, title: str) -> Sequence[ManualParent]:
+        """The work items whose title holds `title` (the query language matches a substring)."""
+        text = title.replace("'", "''")
+        query = (
+            "SELECT [System.Id] FROM WorkItems WHERE [System.TeamProject] = @project "
+            f"AND [System.Title] Contains '{text}'"
+        )
+        response = self._call("POST", "wit/wiql", json={"query": query})
+        found = validated(WiqlDoc, response.data, "wiql", response.text)
+        candidates = (self.read_manual_parent(str(c.id)) for c in found.work_items)
+        return [candidate for candidate in candidates if candidate is not None]
 
     def link_pull_request(
         self, item_id: str, *, project_id: str, repository_id: str, pull_request_id: int

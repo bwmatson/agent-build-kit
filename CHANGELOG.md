@@ -3,10 +3,10 @@
 ## Unreleased
 
 - A change's `tasks.md` may carry one `Epic: <board item id or exact title>` header line
-  naming an existing board item, made by a person, that the change's top item is placed
-  under. The kit only reads that item and never writes to it. A line with no value, or a
-  second line, is reported by `abk tags` naming the line, and the line does not trigger a
-  replan.
+  above its first group, naming an existing board item made by a person. `abk tags` reports a
+  line with no value, a second line, or one inside a group, naming the line, and the line does
+  not trigger a replan. The kit can read such an item from the local stand-in and from Azure
+  DevOps, by id or exact title, checks its board type and never writes to it.
 
 - The Azure DevOps work item tracker places each item under the level above it, reading
   the parent (and the manual epic above the first level) to check its type and never

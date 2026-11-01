@@ -16,6 +16,10 @@ from agent_build_kit.trackers.base import (
     split_tags,
     with_status_tags,
 )
+from agent_build_kit.trackers.manual_parent import ManualParent
+
+# The board type the stand-in gives an item a person made as the manual parent.
+EPIC_TYPE = "epic"
 
 # The fields `update` accepts, as on every tracker.
 UPDATABLE = frozenset({"title", "body", "state", "tags"})
@@ -35,6 +39,7 @@ class LocalTracker:
         self._log: list[Change] = []
         self._comments: dict[str, list[str]] = {}
         self._relations: list[Relation] = []
+        self._epics: set[str] = set()
 
     def as_identity(self, who: str) -> LocalTracker:
         """A view of the same items acting as another identity: the competing writer."""
@@ -43,11 +48,30 @@ class LocalTracker:
         view._log = self._log
         view._comments = self._comments
         view._relations = self._relations
+        view._epics = self._epics
         return view
 
     def add_epic(self, title: str) -> Item:
         """A manual epic: the read-only parent of the first level, made by a person."""
-        return self._add("change", title, "", None, ())
+        item = self._add("change", title, "", None, ())
+        self._epics.add(item.id)
+        return item
+
+    def read_manual_parent(self, item_id: str) -> ManualParent | None:
+        item = self._items.get(item_id)
+        return None if item is None else self._as_manual_parent(item)
+
+    def find_manual_parents(self, title: str) -> Sequence[ManualParent]:
+        """A loose search, as a board's is: any item whose title holds the text, in any case."""
+        return [
+            self._as_manual_parent(item)
+            for item in self._items.values()
+            if title.lower() in item.title.lower()
+        ]
+
+    def _as_manual_parent(self, item: Item) -> ManualParent:
+        type_ = EPIC_TYPE if item.id in self._epics else item.kind
+        return ManualParent(id=item.id, title=item.title, type=type_)
 
     def capabilities(self) -> Capabilities:
         return self._capabilities
