@@ -55,8 +55,8 @@ business (see "How a toolchain realises the selectors"). Where this document say
 
 A builder decides in this order.
 
-1. It needs a live service, credentials, a model, an agent, or an MCP or API call: **e2e**. It carries the repository's e2e selector
-   (named per repository by `tests.e2e_marker`; `local_stack` in the kit's own Python tests) and the runtime tag where a runtime applies.
+1. It needs a live service, credentials, a model, an agent, or an MCP or API call: **e2e**. It carries the repository's e2e selector,
+   named `e2e` (a repository may set another name through `tests.e2e_marker`) and the runtime tag where a runtime applies.
 2. Otherwise it needs only what a CI job can give it, or it reads the whole repository, or it collects other modules in a child
    run, or it checks something that is not code behaviour: **integration**. The last case is a *conformance test* of the repository:
    documents say what the code does, configuration files, CI templates, layout, names and selector registrations agree, a guard's
@@ -82,16 +82,17 @@ is the backstop for every other integration test the change might have broken.
 
 ### Kind selectors
 
-The names below are abstract. Every toolchain gives each one a spelling (next section), and the default run of a repository leaves
-out the `integration` and e2e selectors. The profile preserves the repository's own default and adds the selections below it.
+The names below are the canonical ones. Every toolchain gives each a spelling (next section), and the default run of a repository leaves
+out the `integration` and `e2e` selectors. The e2e selector is called `e2e` and never after how a stack is run (a name such as
+`local_stack` describes an implementation, and the kit moves off it). The profile preserves the repository's own default and adds the selections below it.
 
 | Selector | Meaning | In the default run | In CI |
 |---|---|---|---|
 | none (unit) | pure logic, fakes, temporary folders; deterministic on a loaded machine; does not walk the repository | yes | yes |
 | `integration` | runnable in CI: needs only what the CI job provides (the toolchain, public package hosts, local subprocesses), or reads the whole repository, or collects modules in a child run. No credentials, no live service, no model, no agent, no MCP or API call | no | **yes, all** |
-| the e2e selector | needs a live stack, credentials, a model, a real agent or an MCP or API call; bills or takes minutes | no | no |
-| runtime tags (an agent runtime an e2e test drives) | which runtime an e2e test drives; at most one per test | with the e2e selector | no |
-| stack tags (what an e2e test needs beside the stack) | a telemetry target, the dev stack | with the e2e selector | no |
+| `e2e` | needs a live stack, credentials, a model, a real agent or an MCP or API call; bills or takes minutes | no | no |
+| runtime tags (an agent runtime an e2e test drives) | which runtime an e2e test drives; at most one per test | with `e2e` | no |
+| stack tags (what an e2e test needs beside the stack) | a telemetry target, the dev stack | with `e2e` | no |
 | a per-test limit | a budget in place of the default, for a test whose cost is outside its control | any | any |
 
 ### How a toolchain realises the selectors
@@ -123,8 +124,12 @@ marked `integration` that loads such a setting, starts a real agent, or calls a 
 test. A guard over the integration tests finds these by reading the project's settings types and the tests' environment
 reads, in the project's own language, so it follows the types and needs no list.
 
-**One kind at most** from {unit, `integration`, the e2e selector}. An e2e test carries exactly one runtime tag where a runtime
+**One kind at most** from {unit, `integration`, `e2e`}. An e2e test carries exactly one runtime tag where a runtime
 applies. Each toolchain's registration text (for Python, the marker definitions in `pyproject.toml`) quotes the table above.
+
+**Every conformance test is an integration test**, whatever it checks: documents against behaviour, configuration, layout, names, selector
+registrations, or the structure of the code itself (the profile registry). It reads the tree or the registry and nothing live, so it
+runs in CI on every pull request and never in the unit gate unless the unit added or changed it.
 
 **Multi-project workspaces.** A project's conformance tests stay in that project and read only that project's files (standard T12a).
 A check that spans projects is a *workspace conformance test* at the repository root, marked `integration`, and is the only place
@@ -362,7 +367,7 @@ Every toolchain profile implements the same test capabilities. The framework bra
 `ListsRegisteredSelectors`). A profile that lacks one quietly loses the feature behind it: no repeat check, no flake classification,
 no affected selection. A missing capability is therefore a defect, and two tests keep it from being silent.
 
-- **A conformance test over the profile registry.** Each registered profile must satisfy every capability the framework branches on,
+- **A conformance test over the profile registry**, an integration test like every conformance test. Each registered profile must satisfy every capability the framework branches on,
   including the serial-rerun and failed-test methods, which are plain methods and become a protocol so `isinstance` can see them. A
   profile that cannot support one says why by raising `ProfileUnsupported` (it exists, and the doctor and the pipeline already hold a unit for it), and the list of
   those may only shrink. A new capability
@@ -419,6 +424,8 @@ These are facts about the code, not a status report.
   classification and no affected selection, so a failing test in it is always the unit's own failure.
 - The test-path definition differs between the commit-order rule, the group floor and the Python profile (they disagree on
   `test/` and `testing/` folders).
+- The kit's own e2e marker is named `local_stack` (the default of `tests.e2e_marker`, the marker registration and the default
+  deselection in `pyproject.toml`, the guards and the documents, over a hundred files), while the projects built with it already use `e2e`.
 - Nothing tells a reorganization from any other change. A group that names source files has a floor of `tests_and_code`, and the red
   check, once it runs in the build, would reject the unchanged tests of a reorganization.
 - The builder's prompt says a new test goes in a file where every test fails, which pushes agents to new files, though the gate now
@@ -449,6 +456,9 @@ Each step can become an OpenSpec change. Order follows dependency.
 12. **Documents that disagree with the code**, corrected once.
 13. **The reorganization mode.** The `refactor` group mode, the before-and-after comparison of changed test files, and the pull
     request text. It lands with step 1, since the red check would otherwise reject a reorganization.
+14. **Rename the e2e marker to `e2e`.** The default of `tests.e2e_marker`, the marker registration and the default deselection, the
+    guards that read the name, the documents and the tests; a repository that sets the old name gets a warning from the doctor, and a
+    guard fails if the old name reappears. No behaviour changes.
 
 ## Decisions made
 
@@ -463,6 +473,8 @@ Each step can become an OpenSpec change. Order follows dependency.
 - **Standing guidance is delivered by channel, never by skill, to the unattended pipeline**, and whatever a program can decide is
   decided before review.
 - **A project's tests touch only its own domain**; cross-project checks live at the root.
+- **The e2e marker is `e2e`.** Names that describe how a stack is run (`local_stack`) are an implementation detail and are retired.
+- **Every conformance test is an integration test.**
 - **A reorganization needs no new test.** The existing tests pass with only mechanical edits (T26); a characterization test is added
   only for moved code that has none; anything more is a behaviour change and is built tests first.
 
