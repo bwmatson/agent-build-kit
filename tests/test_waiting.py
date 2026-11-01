@@ -31,6 +31,7 @@ def test_it_names_what_it_waited_for_when_the_condition_never_holds() -> None:
 
 
 def test_the_bound_on_a_served_turn_outlasts_a_loaded_machine_starting_an_agent() -> None:
-    # The bound only ends a wait that never comes true, so a long one costs a passing test nothing.
-    # 15 seconds was passed by 3 of 44 copies of one test started at once on a 22-core machine.
+    # A regression pin for a flake: it checks the number, not a behaviour. The bound only ends a
+    # wait that never comes true, so a long one costs a passing test nothing. 15 seconds was too
+    # short for 3 of 44 copies of one test started at once on a 22-core machine.
     assert chat_serving.WAIT >= 60, "a turn's first event waits on a real process starting"
