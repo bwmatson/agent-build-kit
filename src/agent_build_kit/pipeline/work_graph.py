@@ -174,34 +174,42 @@ NEEDS_LINE = re.compile(
 _CHECKBOX = re.compile(r"^(\s*-\s*\[)[ xX](\])", re.MULTILINE)
 
 
-def retag_headings(text: str, spell: Callable[[str], str]) -> tuple[str, int]:
-    """`text` with the test-kind tag of each group heading spelled by `spell`, and how many
-    changed; every other byte, line endings included, comes back as it was."""
+def _respelled_headings(
+    text: str, group: str, respell: Callable[[re.Match[str]], str | None]
+) -> tuple[str, int]:
+    """`text` with the `group` capture of each group heading replaced by what `respell` returns
+    for its match (nothing returned leaves it), and how many changed; every other byte, line
+    endings included, comes back as it was."""
     out: list[str] = []
     count = 0
     for line in text.splitlines(keepends=True):
         found = GROUP_HEADING.match(line.splitlines()[0])
-        if found and (tag := spell(found["tier"])) != found["tier"]:
-            start, end = found.span("tier")
-            line = line[:start] + tag + line[end:]
+        if found and (new := respell(found)) is not None and new != found[group]:
+            start, end = found.span(group)
+            line = line[:start] + new + line[end:]
             count += 1
         out.append(line)
     return "".join(out), count
+
+
+def retag_headings(text: str, spell: Callable[[str], str]) -> tuple[str, int]:
+    """`text` with the test-kind tag of each group heading spelled by `spell`, and how many
+    changed; every other byte, line endings included, comes back as it was."""
+    return _respelled_headings(text, "tier", lambda found: spell(found["tier"]))
 
 
 def retag_projects(text: str, projects: Mapping[int, str]) -> tuple[str, int]:
     """`text` with the repo tag of each group heading numbered in `projects` naming that project,
     and how many changed; every other byte, line endings included, comes back as it was."""
-    out: list[str] = []
-    count = 0
-    for line in text.splitlines(keepends=True):
-        found = GROUP_HEADING.match(line.splitlines()[0])
-        if found and (project := projects.get(int(found["number"]))):
-            start, end = found.span("repo")
-            line = line[:start] + repo_tag(found["repo"], project)[1:-1] + line[end:]
-            count += 1
-        out.append(line)
-    return "".join(out), count
+    return _respelled_headings(
+        text,
+        "repo",
+        lambda found: (
+            project_tag(found["repo"], project)
+            if (project := projects.get(int(found["number"])))
+            else None
+        ),
+    )
 
 
 def current_tag(tag: str) -> str:

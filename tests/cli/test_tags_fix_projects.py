@@ -41,6 +41,34 @@ def test_fix_projects_rewrites_only_the_repo_part_of_the_heading_and_keeps_every
     assert path.read_bytes() == original.replace(b"## 1. [app] ", b"## 1. [app/web] ", 1)
 
 
+def test_fix_and_fix_projects_together_are_a_usage_error_and_write_nothing(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    run = planning_with_web(tmp_path, monkeypatch)
+    original = tasks_editing(RESOLVED).encode()
+    path = write_change(run, "feature", original)
+
+    code, out = run_tags(capsys, "--fix", "--fix-projects", "feature")
+
+    assert code == 2
+    assert "--fix-projects" in out
+    assert path.read_bytes() == original
+
+
+def test_fix_projects_with_all_tags_the_groups_of_every_change(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    run = planning_with_web(tmp_path, monkeypatch)
+    original = tasks_editing(RESOLVED).encode()
+    paths = [write_change(run, name, original) for name in ("alpha", "beta")]
+
+    code, out = run_tags(capsys, "--fix-projects", "--all")
+
+    assert code == 0, out
+    for path in paths:
+        assert path.read_bytes() == original.replace(b"## 1. [app] ", b"## 1. [app/web] ", 1)
+
+
 def test_fix_projects_lists_the_groups_that_stayed_in_the_root(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:

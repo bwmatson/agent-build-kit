@@ -7149,8 +7149,9 @@ def _tag_warnings(inst: Installation, path: Path) -> list[str]:
     mixed = (
         [
             f"warning: {path.parent.name} mixes groups with a project written in the heading and "
-            "groups that resolve to one from their paths; run `abk tags --fix-projects "
-            f"{path.parent.name}` to write the resolved ones, or name the project in every group"
+            "groups that resolve to one from their paths; name the project in every group "
+            f"(`abk tags --fix-projects {path.parent.name}` writes it for the groups whose "
+            "units have not started)"
         ]
         if sources == {ProjectSource.EXPLICIT, ProjectSource.RESOLVED}
         else []
@@ -7165,8 +7166,8 @@ def _tag_warnings(inst: Installation, path: Path) -> list[str]:
         ),
         *old_test_kind_warnings(path),
         *redundant_separate_warnings(path),
-        *product_path_warnings(path, _validated(inst, path)[0], inst.repos),
-        *task_wording_warnings(path, _validated(inst, path)[0]),
+        *product_path_warnings(path, groups, inst.repos),
+        *task_wording_warnings(path, groups),
         *manual_runbook_warnings(path, inst.root),
         *inverted_group_warnings(
             path,
@@ -7243,9 +7244,7 @@ def _fix_change_tags(
                 number
                 for unit in UnitStore(inst.state_dir / "units.json").all()
                 if unit.state in _STARTED
-                for member in unit.members()
-                if member.change == change
-                for number in member.groups
+                for number in _carried_groups(unit, change)
             }
             for group in before:
                 if group.source == ProjectSource.ROOT:
@@ -7298,7 +7297,8 @@ def _fix_change_tags(
 
 def cmd_tags(args: argparse.Namespace, inst: Installation) -> int:
     """Validate a change's task-group tags (or every change's), or with `--fix` rewrite the old
-    test-kind tags of the open changes."""
+    test-kind tags of the open changes, or with `--fix-projects` write the resolved projects into
+    their headings; `--dry-run` goes with either."""
     fix_projects = getattr(args, "fix_projects", False)
     fix = getattr(args, "fix", False) or fix_projects
     command = "abk tags --fix-projects" if fix_projects else "abk tags --fix" if fix else "abk tags"
@@ -7306,7 +7306,7 @@ def cmd_tags(args: argparse.Namespace, inst: Installation) -> int:
         print("abk tags: give --fix or --fix-projects, not both", file=sys.stderr)
         return 2
     if getattr(args, "dry_run", False) and not fix:
-        print("abk tags: --dry-run needs --fix", file=sys.stderr)
+        print("abk tags: --dry-run needs --fix or --fix-projects", file=sys.stderr)
         return 2
     if args.all and args.change:
         print(f"{command}: give a change or --all, not both", file=sys.stderr)

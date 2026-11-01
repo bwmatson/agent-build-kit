@@ -8,7 +8,8 @@ from pathlib import Path
 
 import pytest
 
-ROOT = Path(__file__).resolve().parents[1]
+from tests.doc_text import ROOT, squashed, unreleased_bullets
+
 DOCUMENTS = {
     "abk-authoring skill": ROOT
     / "src"
@@ -22,14 +23,15 @@ DOCUMENTS = {
 }
 
 
-def squashed(path: Path) -> str:
-    """The file's text on one line with the code ticks dropped, so a wrapped sentence matches."""
-    return " ".join(path.read_text(encoding="utf-8").replace("`", "").split())
+def document(name: str) -> str:
+    """The named document on one line, code ticks dropped."""
+    path: Path = DOCUMENTS[name]
+    return squashed(path.read_text(encoding="utf-8"))
 
 
 @pytest.mark.parametrize("name", DOCUMENTS)
 def test_each_document_says_a_group_resolves_to_a_project_or_stays_in_the_root(name: str) -> None:
-    text = squashed(DOCUMENTS[name])
+    text = document(name)
     assert re.search(r"resolv", text, re.I), f"{name} does not say a group resolves its project"
     assert "Paths:" in text, f"{name} lacks the Paths: line"
     assert re.search(r"outside (a|any|every) (declared )?project.{0,200}root", text, re.I), (
@@ -40,26 +42,24 @@ def test_each_document_says_a_group_resolves_to_a_project_or_stays_in_the_root(n
 
 @pytest.mark.parametrize("name", ["abk-authoring skill", "docs/designs/unit-graph.md"])
 def test_the_skill_and_the_graph_document_say_what_paths_and_reads_lines_are(name: str) -> None:
-    text = squashed(DOCUMENTS[name])
+    text = document(name)
     assert re.search(r"Paths:.{0,200}(authoritative|decides?|names?)", text), name
     assert re.search(r"Reads:.{0,200}(not (a )?change|does not|ignored|read)", text), name
 
 
 def test_the_cli_document_and_the_skill_describe_fix_projects() -> None:
     for name in ("docs/cli.md", "abk-authoring skill"):
-        text = squashed(DOCUMENTS[name])
+        text = document(name)
         assert "--fix-projects" in text, name
         assert re.search(r"--fix-projects.{0,300}(heading|repo)", text), name
 
 
 def test_the_runbook_says_to_name_the_project_or_add_a_paths_line_or_let_it_resolve() -> None:
-    text = squashed(DOCUMENTS["docs/runbooks/landing-changes.md"])
+    text = document("docs/runbooks/landing-changes.md")
     assert re.search(r"name the project", text, re.I)
     assert re.search(r"add a Paths: line", text, re.I)
     assert re.search(r"let it resolve", text, re.I)
 
 
 def test_the_changelog_has_one_bullet_for_the_resolution() -> None:
-    changelog = (ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
-    unreleased = changelog.split("\n## ", 2)[1]
-    assert len(re.findall(r"--fix-projects", unreleased)) == 1
+    assert len([b for b in unreleased_bullets() if "--fix-projects" in b]) == 1
