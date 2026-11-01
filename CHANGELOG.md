@@ -148,6 +148,12 @@
   units back and restack), the live verification (deploy and live tests) and the archiving of
   finished changes. The usage ledger still gets its spans and the planner call's cost.
 
+- A unit whose pull request has merged or closed on the forge is now recorded as such even when
+  the poller's report was missed or deferred while the unit was being built. Each tick compares
+  the poller's cached state of every running, in-review, failed or held unit's pull request with
+  the unit and hands a merge or close to the same handler the poller uses, and `open_pr` reads
+  the forge state of a pull request the unit already records before putting it in review.
+
 - The regression agent now searches the test tree, read-only, for other tests that share the cause
   of a failing test when the cause is a pattern, and lists them in a `Same exposure` section of
   its proposal, each marked `confirmed` or `possible`. A proposal without the section is rewritten

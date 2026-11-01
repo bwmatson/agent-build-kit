@@ -1552,6 +1552,10 @@ class RunOutcome(Frozen):
     # the note for the unit, which a build worker takes up from that step. `status` means
     # nothing then: a caller checks `handed_back` first.
     handed_back: str = ""
+    # `merged` or `closed` when the forge showed the unit's recorded pull request so at
+    # `open_pr`: the run ends without recording it, which the caller does once it has
+    # released the branch's lock, as the handlers cannot take it from inside the run.
+    pr_over: str = ""
 
 
 class Weighed(Frozen):
@@ -1689,6 +1693,11 @@ class UnitRunner(BaseModel):
     push: Callable[..., str]
     open_pr: Callable[..., int]
     post_status: Callable[[str, bool], None]
+    # The forge's state of a pull request a unit already records: "open", "merged" or
+    # "closed". Read before `open_pr` puts the unit in review.
+    forge_state: Callable[[Unit, int], str] = lambda unit, pr: "open"
+    # The merge commit of a merged pull request, None when the host has none to give.
+    merge_commit: Callable[[Unit, int], str | None] = lambda unit, pr: None
     # Posts the reason on a satisfied unit's already-open pull request, then
     # closes it. A no-op default: most units never reach `satisfied` holding
     # one. See `wiring.build_close_pr`.

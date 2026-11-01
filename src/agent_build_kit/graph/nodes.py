@@ -2823,6 +2823,37 @@ class BuildPath:
             return {"deferred": ()}
         return {}
 
+    def recorded_pr_over(self, pr: int) -> Update | None:
+        """The update ending the run for a recorded pull request the forge shows merged or
+        closed; None when it is open or the forge cannot say. Nothing is recorded here: the run
+        holds the branch's lock, which the handlers need, so the caller records the merge or
+        close from the outcome once the lock is released."""
+        r, unit = self.runner, self.unit
+        try:
+            shown = r.forge_state(unit, pr)
+        except Exception as error:  # noqa: BLE001
+            self.say(f"could not read the state of PR #{pr}: {error}")
+            return None
+        if shown not in ("merged", "closed"):
+            return None
+        line = f"PR #{pr} {shown} on the forge"
+        if shown == "merged":
+            # Work pushed after the merge is not on the base: both commits are said, so a
+            # person can see the difference.
+            line += f"; the unit's pushed commit {self.commit_read(lambda: r.head(self.tree()))}"
+            line += f", merge commit {self.commit_read(lambda: r.merge_commit(unit, pr))}"
+        self.say(line)
+        return {"pr_over": shown, "status": RunStatus.OK, "detail": f"#{pr} {shown}", "pr": pr}
+
+    @staticmethod
+    def commit_read(read: Callable[[], str | None]) -> str:
+        """A commit's short hash, or `unknown` for one that cannot be read."""
+        try:
+            sha = read()
+        except Exception:  # noqa: BLE001
+            return "unknown"
+        return sha[:9] if sha else "unknown"
+
     def open_pr(self, state: UnitRun) -> Update:
         r, unit = self.runner, self.unit
         tree, base = self.tree(), state.base or self.base
@@ -2830,6 +2861,8 @@ class BuildPath:
         if e2e_state_of(state, None) is E2eState.DEFERRED:
             r.store.record_e2e_state(unit.id, E2eState.DEFERRED)
         stored = r.store.get(unit.id)
+        if stored.pr is not None and (over := self.recorded_pr_over(stored.pr)):
+            return over
         recorded = latest_verdict(r.store.path.with_name(VERDICTS), unit.id)
         # A unit reaching a pull request has had its tests seen to fail first and its unit-test
         # pass: the same facts `record_round` hands the verdict.
@@ -2927,6 +2960,7 @@ class BuildPath:
         r.mark_tasks(unit, done=True)
         self.say(f"in review: PR #{pr}")
         return {
+            "pr_over": "",
             "status": RunStatus.OPEN,
             "detail": f"opened #{pr}",
             "pr": pr,
@@ -3335,7 +3369,9 @@ def after_push(state: UnitRun) -> Node:
     return halted(state) or Node.OPEN_PR
 
 
-def after_open_pr(state: UnitRun) -> Node:
+def after_open_pr(state: UnitRun) -> Node | str:
+    if state.pr_over:
+        return END
     return halted(state) or (Node.PREPARE if state.restack else Node.AWAIT_REVIEW)
 
 
@@ -3458,7 +3494,7 @@ ROUTES: Mapping[Node, tuple[Callable[[UnitRun], Target], tuple[Target, ...]]] = 
     ),
     Node.NEW_COMMENTS: (after_new_comments, (Node.HELD, Node.FAILED, Node.REWORK, Node.PUSH)),
     Node.PUSH: (after_push, (Node.HELD, Node.FAILED, Node.OPEN_PR)),
-    Node.OPEN_PR: (after_open_pr, (Node.HELD, Node.PREPARE, Node.AWAIT_REVIEW)),
+    Node.OPEN_PR: (after_open_pr, (Node.HELD, Node.PREPARE, Node.AWAIT_REVIEW, END)),
     Node.AWAIT_REVIEW: (
         after_await_review,
         (Node.REWORK, Node.PREPARE, Node.CHECKS, Node.HELD, Node.AWAIT_REVIEW, END),

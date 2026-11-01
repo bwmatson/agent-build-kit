@@ -60,6 +60,7 @@ from agent_build_kit.config import (
     worker_options,
 )
 from agent_build_kit.forges import FileChange, Forge, RegistersStacks, RepoId, StackRefused
+from agent_build_kit.forges.base import listed_pull
 from agent_build_kit.installation import Installation
 from agent_build_kit.model import Frozen, TestTier
 from agent_build_kit.path_patterns import matches_any
@@ -3001,6 +3002,36 @@ def build_remove_satisfied(
     return remove
 
 
+def build_forge_state(
+    *, for_repo: Callable[[str], tuple[Forge, RepoId]] | None = None
+) -> Callable[[Unit, int], str]:
+    """Read the forge's state of a unit's recorded pull request: `open`, `merged` or `closed`.
+    Raises when the host cannot answer or does not list the pull request."""
+    for_repo = for_repo or forges.for_repo
+
+    def forge_state(unit: Unit, pr: int) -> str:
+        forge, repo = for_repo(unit.repo)
+        pull = listed_pull(forge, repo, branch_name(unit), pr)
+        if pull is None:
+            raise LookupError(f"the forge does not list PR #{pr}")
+        return str(pull.state)
+
+    return forge_state
+
+
+def build_merge_commit(
+    *, for_repo: Callable[[str], tuple[Forge, RepoId]] | None = None
+) -> Callable[[Unit, int], str | None]:
+    """Read the merge commit of a unit's merged pull request; None when the host has none."""
+    for_repo = for_repo or forges.for_repo
+
+    def merge_commit(unit: Unit, pr: int) -> str | None:
+        forge, repo = for_repo(unit.repo)
+        return forge.merge_commit(repo, pr)
+
+    return merge_commit
+
+
 def build_close_pr(
     *, for_repo: Callable[[str], tuple[Forge, RepoId]] | None = None
 ) -> Callable[[Unit, int, str], None]:
@@ -4810,6 +4841,8 @@ def build_runner(
         linear=is_linear,
         post_status=e2e.post,
         close_pr=build_close_pr(),
+        forge_state=build_forge_state(),
+        merge_commit=build_merge_commit(),
         release_dependents=build_release_dependents(store, installation, log=log),
         remove_satisfied=build_remove_satisfied(store, installation, log=log),
         reply=build_post_replies(root=root, log=log, ui_replies=ui_reply_writer(root, store)),

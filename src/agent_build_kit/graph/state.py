@@ -175,6 +175,9 @@ class UnitRun(Frozen):
     held: str = ""
     hold_state: str = ""
     hold_note: str = ""
+    # `merged` or `closed` when the forge showed the unit's recorded pull request so: the run
+    # is over, and the caller records it once the run's lock is released.
+    pr_over: str = ""
     # How the run ended, as `RunOutcome` reports it.
     status: RunStatus | None = None
     detail: str = ""

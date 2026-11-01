@@ -479,6 +479,13 @@ class Forge(RegistersStacks, Protocol):
         ...
 
 
+def listed_pull(forge: Forge, repo: RepoId, branch: str, pr: int) -> PullRequest | None:
+    """The pull request numbered `pr` among those the host lists for `branch`, or None when
+    it is not listed. Matched by number: a listing by head prefix also holds the pull requests
+    of other branches that share the prefix. Raises what the host raises."""
+    return next((p for p in forge.list_prs(repo, head_prefix=branch) if p.number == pr), None)
+
+
 def key(repo: RepoId) -> str:
     """The identity as one string, for the keys already written to disk.
 

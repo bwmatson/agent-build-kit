@@ -37,7 +37,7 @@ from pydantic import BaseModel, ConfigDict, ValidationError, field_validator
 from agent_build_kit import forges
 from agent_build_kit.budget import cut_head
 from agent_build_kit.forges import Forge, RepoId
-from agent_build_kit.forges.base import COMMENT_MARKER
+from agent_build_kit.forges.base import COMMENT_MARKER, listed_pull
 from agent_build_kit.pipeline.ui_ids import THREAD_PREFIX
 
 MARKER = COMMENT_MARKER
@@ -223,9 +223,7 @@ def build_post_replies(
         except Exception as error:  # noqa: BLE001 - an unreadable host only costs the quotes
             log(f"could not read the notes replies answer: {error}")
         try:
-            pull = next(
-                (p for p in forge.list_prs(repo_id, head_prefix=branch) if p.number == pr), None
-            )
+            pull = listed_pull(forge, repo_id, branch, pr)
             for comment_id, body in pull.comments() if pull else ():
                 if comment_id:
                     quote(comment_id, body)
