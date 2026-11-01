@@ -1133,6 +1133,40 @@ rejected push is retried once after a rebase, then the commit is kept and logged
 `planning/archive-<change>-<run id>`, opens a pull request and resets HEAD. The copy is then
 removed. `abk verify <change>` archives the same way.
 
+## Work tracker
+
+A repo may name a work tracker in `abk.yaml` (`tracker:`), independent of its code host: the
+board a team already plans on. The kit mirrors its changes onto that board and reads who owns
+the items before it starts work. All of it lives in `trackers/`, behind a `Tracker` protocol
+beside the `Forge` one, and a repo with no section makes no tracker call.
+
+- **Wanted board** (`trackers/wanted_board.py`). A pure computation from the change's files, the
+  unit plan and the stored unit states: the items of each configured level with their titles,
+  bodies, states, markers and parents. It calls no tracker.
+- **Reconciler** (`trackers/reconciler.py`). Pushes the wanted board to the tracker, level by
+  level from the outermost. Each item is looked up by its marker before it is created, and
+  updated only where the wanted fields differ from the snapshot last synced and the tracker's
+  revision still equals the snapshot's. Every success is recorded before the next call. A
+  tracker failure is logged and counted, never raised.
+- **Mapping file by level** (`pipeline/tracker_file.py`, `trackers/levels.py`). `tracker.yaml`
+  in a change's folder records the tracker kind, a target label carrying a hash of the level
+  mapping, and the item of the change, of each group (`<change>:<group>`) and of each task
+  (`<change>:<group>.<task>`). It is written only by the pipeline, whole and under the change's
+  tasks lock. The levels in use also decide which items a merged unit's pull request attaches to.
+- **Epic header and manual parent** (`trackers/manual_parent.py`). A change may carry an
+  `Epic: <id or exact title>` line above its first group. It names an item a person made, the
+  manual parent: it is resolved by reads only, recorded once as `epic`, and never written or
+  changed by the kit. A line that names an item which cannot be the parent is an error that
+  says why.
+- **Claim and ownership read** (`trackers/start_decision.py`). Before a unit starts, the items
+  its groups cover are read. A unit whose items are assigned to anyone but the kit's own
+  identity is skipped and names them; a unit whose items do not exist yet waits, as does one
+  whose tracker cannot be read. A unit already in progress is the kit's and is not asked.
+
+`abk doctor` shows each tracker repo's target and who the credential acts as, and `abk status`
+prints a `tracker <repo>` line for it. A repo's hold (`docs/hand-off.md`) is the path for work
+a person builds, and covers a repo with no tracker.
+
 ## Cutting and fitting text
 
 `budget.py` is the one place text is cut to a size. `cut_head`, `cut_tail` and

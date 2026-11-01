@@ -4,8 +4,9 @@ A hold tells the kit that a change, or some of its groups, is being built by a p
 never starts a held unit, units that `Needs:` it wait for its merge, and a recorded hand merge
 lets the change archive. Holds are kept in `external.yaml` in the change's folder.
 
-The hold is the interim path to the tracker design's blocking, which blocks a unit whose board
-item a person has taken. It is the permanent path for a repo with no tracker.
+The hold is the path for work a person builds outside the kit. Where a repo names a tracker, the
+kit also skips a unit whose board item a person has taken (see "Work tracker" in
+`docs/architecture.md`); the hold is the way for a repo with no tracker.
 
 ## The order
 
