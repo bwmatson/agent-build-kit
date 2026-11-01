@@ -314,6 +314,21 @@ By role: the planner gets channel 1; the tests and implementation agents get 1, 
 standard's ID (1) and 5; the reviewer gets 1 (its checklist) and the result of 5; the rework agent 1 and 2; the regression agent 1 and
 2, and it cites IDs in the fix change; tracks and chat sessions 2 and 4; the restack resolver 1 only.
 
+**Guidance follows the group mode.** The prompts of the tests node and the review node are built from the unit's group modes, and each
+says only what applies to the groups in front of it. A rule that cannot apply is left out, so an agent is not told to write a failing
+test for a group that has no tests, or to check implementation standards on a lone tests commit.
+
+| Mode | The tests node is told | The review node is told |
+|---|---|---|
+| `tests_and_code` | the whole catalogue; the tests are committed first and must fail | the full `review`-class checklist |
+| `tests_only` | the catalogue; there is no implementation, so each test must pass | the checklist for tests alone, with no implementation questions |
+| `no_code` | nothing: the node does not run | documents and configuration only, with no test standards |
+| `refactor` | nothing: the node does not run | T26, and whether behaviour, public surface, output and configuration are unchanged; no new-test standards |
+
+A unit can carry groups of different modes, so a prompt is built per group where the node works one group at a time, and from the set of
+modes where the review sees the whole unit; the checklist then names the group each rule is for. The deterministic standards check and the
+red check key off the same mode, so the program and the prompt never disagree about what a group is held to.
+
 **One source.** The catalogue is a machine-readable file next to the packaged templates, one record per standard: ID, rule, reason,
 check class, the guard or check that enforces it, and whether it applies to new tests, existing tests or both. The reference page,
 the builder's table, the full-text file and the reviewer's checklist are all generated from it, and a test fails when a rendering
@@ -496,6 +511,7 @@ Each step can become an OpenSpec change. Order follows dependency.
 - **A test lives in the folder of its kind** (`integration`, `e2e`, or the mirrored tree for unit tests), and the folder and selector agree.
 - **The e2e marker is `e2e`.** Names that describe how a stack is run (`local_stack`) are an implementation detail and are retired.
 - **Every conformance test is an integration test.**
+- **Guidance follows the group mode.** The tests and review prompts are built from the unit's group modes and leave out what cannot apply.
 - **A reorganization needs no new test.** The existing tests pass with only mechanical edits (T26); a characterization test is added
   only for moved code that has none; anything more is a behaviour change and is built tests first.
 
