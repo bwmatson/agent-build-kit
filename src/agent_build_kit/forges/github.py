@@ -17,6 +17,7 @@ import threading
 from collections.abc import Callable, Collection, Iterator, Sequence
 from contextlib import contextmanager
 from typing import TYPE_CHECKING, Any
+from urllib.parse import quote
 
 import httpx
 from githubkit import GitHub, TokenAuthStrategy
@@ -217,6 +218,9 @@ class GitHubForge:
     def web_url(self, repo: RepoId, *, pr: int | None = None) -> str:
         base = f"https://github.com/{repo.account}/{repo.name}"
         return f"{base}/pull/{pr}" if pr else base
+
+    def browse_url(self, repo: RepoId, *, branch: str, path: str) -> str:
+        return f"{self.web_url(repo)}/tree/{quote(branch, safe='/')}/{quote(path.strip('/'))}"
 
     # --- the wire -------------------------------------------------------------------
 

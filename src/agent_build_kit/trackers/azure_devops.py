@@ -33,6 +33,7 @@ from agent_build_kit.trackers.azure_work_item_models import (
     WorkItemsDoc,
 )
 from agent_build_kit.trackers.base import (
+    PULL_REQUEST_RELATION,
     Identity,
     Item,
     ItemKind,
@@ -48,7 +49,6 @@ from agent_build_kit.trackers.manual_parent import ManualParent
 PARENT_LINK = "System.LinkTypes.Hierarchy-Reverse"
 CHILD_LINK = "System.LinkTypes.Hierarchy-Forward"
 ARTIFACT_LINK = "ArtifactLink"
-PULL_REQUEST_RELATION = "pull_request"
 _PULL_REQUEST_URL = re.compile(
     r"^https://dev\.azure\.com/(?P<organization>[^/]+)/(?P<project>[^/]+)/_git/(?P<repository>[^/]+)"
     r"/pullrequest/(?P<number>\d+)/?$"

@@ -45,6 +45,16 @@ def test_the_identity_key_is_the_slug_the_rest_of_the_kit_uses() -> None:
     assert forges.key(repo) == "example/app"
 
 
+def test_the_browse_url_is_the_tree_page_of_a_path_on_a_branch() -> None:
+    repo = FORGE.parse_remote("git@github.com:example/app.git")
+
+    assert repo is not None
+    assert (
+        FORGE.browse_url(repo, branch="main", path="openspec/changes/feature")
+        == "https://github.com/example/app/tree/main/openspec/changes/feature"
+    )
+
+
 def test_the_web_url_points_at_the_pull_request() -> None:
     """`diagram.py` links every unit to its PR; it hardcoded github.com."""
     repo = FORGE.parse_remote("git@github.com:example/app.git")

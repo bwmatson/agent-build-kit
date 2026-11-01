@@ -16,7 +16,7 @@ No LLM call sites of its own (it drives Claude Code as a subprocess), and no tra
 ### pipeline-health
 Unit store has 599 units: 496 merged, 83 unplanned, 8 satisfied, 4 planned, 4 closed, 3 retired, 1 failed. Nothing is held or in review.
 - The failed unit `agent-build-kit-track-20261028-133512/1` failed on 2026-10-28, outside the 24h window ("static checks failing and fix round 2 changed nothing"). It belongs to the change already pending as `agui-read-events-test`, so it is already in flight.
-- Four planned units have not moved after 2026-10-18/19: `policy-check-asks-the-agents-own-matcher/6` (parked on split_held, budget spent), `ui-chat-editing/6`, `dry-guidance/5` and `abk-web-ui/12`. Not a new failure, and noted only for visibility.
+- Four planned units last moved on 2026-10-18/19: `policy-check-asks-the-agents-own-matcher/6` (parked on split_held, budget spent), `ui-chat-editing/6`, `dry-guidance/5` and `abk-web-ui/12`. Not a new failure, and noted only for visibility.
 - Tick logs were not read.
 
 ### secrets-scan

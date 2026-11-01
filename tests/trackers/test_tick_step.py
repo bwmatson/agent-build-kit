@@ -3,19 +3,22 @@ and what it does for a repo with no tracker (spec: tracker-push)."""
 
 from __future__ import annotations
 
+import json
 from collections.abc import Iterator
 from pathlib import Path
 
 import pytest
 
-from agent_build_kit import telemetry, trackers
+from agent_build_kit import forges, telemetry, trackers
 from agent_build_kit.cli import pipeline as cli
+from agent_build_kit.forges import RepoId
 from agent_build_kit.forges.transport import HostUnavailable, RateLimited
 from agent_build_kit.installation import Installation
-from agent_build_kit.pipeline.tracker_file import read_tracker
+from agent_build_kit.pipeline.tracker_file import read_tracker, write_tracker
 from agent_build_kit.pipeline.unit_store import StoredUnit, UnitStore
 from agent_build_kit.pipeline.units import UnitState
 from agent_build_kit.pipeline.usage_guard import Decision
+from agent_build_kit.trackers import tick_step
 from agent_build_kit.trackers.config import TrackerSection
 from agent_build_kit.trackers.reconciler import ERRORS_COUNTER
 from agent_build_kit.trackers.tick_step import is_dirty, sync_trackers
@@ -132,7 +135,7 @@ def test_a_state_change_marks_the_mirror_dirty_and_makes_no_tracker_call(
 
     store.set_state(UNIT, UnitState.RUNNING, note="started")
 
-    assert is_dirty(inst.state_dir)
+    assert is_dirty(inst.state_dir, "app")
     assert not watching.touched
 
 
@@ -141,7 +144,37 @@ def test_a_state_change_with_no_tracker_section_marks_nothing(
 ) -> None:
     store.set_state(UNIT, UnitState.RUNNING, note="started")
 
-    assert not is_dirty(inst.state_dir)
+    assert not is_dirty(inst.state_dir, "app")
+
+
+def test_a_state_change_marks_only_the_repo_that_names_a_tracker(
+    inst: Installation, store: UnitStore
+) -> None:
+    Watching(board_section(["change", "group"]))
+    configure(app=raw_section(), platform=None)
+    upsert_merged(store, [stored_unit("other/1", change="other", repo="platform")])
+
+    store.set_state("other/1", UnitState.RUNNING, note="started")
+
+    assert not is_dirty(inst.state_dir, "platform")
+    assert not is_dirty(inst.state_dir, "app")
+    store.set_state(UNIT, UnitState.RUNNING, note="started")
+    assert is_dirty(inst.state_dir, "app")
+    assert not is_dirty(inst.state_dir, "platform")
+
+
+def test_the_step_clears_the_mark_and_keeps_the_rest_of_the_repo_file(
+    inst: Installation, store: UnitStore
+) -> None:
+    Watching(board_section(["change", "group"]))
+    write_change(inst.changes_dir)
+    store.set_state(UNIT, UnitState.RUNNING, note="started")
+    assert is_dirty(inst.state_dir, "app")
+
+    sync_trackers(inst, store.all())
+
+    assert not is_dirty(inst.state_dir, "app")
+    assert "items" in json.loads((inst.state_dir / "tracker-app.json").read_text())
 
 
 def test_with_no_tracker_section_the_step_calls_nothing_and_writes_nothing(
@@ -330,3 +363,112 @@ def test_a_change_archived_in_the_round_it_finishes_ends_done_without_new_items(
     assert state_of(watching.tracker, f"{CHANGE}:1") == "done"
     assert state_of(watching.tracker, CHANGE) == "done"
     assert len(watching.tracker.made("create")) == made
+    # The archive folder is committed: what the pass recorded after it is kept apart.
+    committed = read_tracker(archive / f"2026-10-01-{CHANGE}")
+    assert committed is not None and committed.change is not None
+    assert committed.change.fields["state"] == "active"
+    updates = len(watching.tracker.made("update"))
+
+    sync_trackers(inst, both)
+
+    assert len(watching.tracker.made("update")) == updates
+
+
+def test_a_group_the_plan_no_longer_wants_does_not_keep_an_archived_change_in_every_round(
+    inst: Installation, store: UnitStore
+) -> None:
+    watching = Watching(board_section(["change", "group"]))
+    write_change(inst.changes_dir)
+    both = [unit.model_copy(update={"groups": (1, 2)}) for unit in store.all()]
+    sync_trackers(inst, both)
+    archive = inst.changes_dir / "archive"
+    archive.mkdir()
+    (inst.changes_dir / CHANGE).rename(archive / f"2026-10-01-{CHANGE}")
+    # Group 2 is retired: the plan wants only group 1, so group 2's item never reads done.
+    only_first = [unit.model_copy(update={"groups": (1,)}) for unit in both]
+    sync_trackers(inst, only_first)
+    calls = len(watching.tracker.calls)
+
+    sync_trackers(inst, only_first)
+
+    assert len(watching.tracker.calls) == calls
+
+
+def test_an_archived_change_recorded_for_another_board_is_left_out(
+    inst: Installation, store: UnitStore
+) -> None:
+    watching = Watching(board_section(["change", "group"]))
+    write_change(inst.changes_dir)
+    sync_trackers(inst, store.all())
+    archive = inst.changes_dir / "archive"
+    archive.mkdir()
+    (inst.changes_dir / CHANGE).rename(archive / f"2026-10-01-{CHANGE}")
+    folder = archive / f"2026-10-01-{CHANGE}"
+    elsewhere = read_tracker(folder)
+    assert elsewhere is not None
+    write_tracker(folder, elsewhere.model_copy(update={"target": "other-board@00000000"}))
+    logged: list[str] = []
+    calls = len(watching.tracker.calls)
+
+    sync_trackers(inst, store.all(), log=logged.append)
+
+    assert not logged
+    assert len(watching.tracker.calls) == calls
+
+
+def test_the_change_item_links_through_the_hosts_own_address(
+    inst: Installation, store: UnitStore, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    host = forges.get("azure_devops")
+    repo_id = RepoId(forge="azure_devops", account="acme", project="Proj", name="repo")
+    monkeypatch.setattr(inst, "forge_of", lambda name: (host, repo_id))
+    monkeypatch.setattr(tick_step, "in_repo_name", lambda inst: "app")
+    watching = Watching(board_section(["change", "group"]))
+    write_change(inst.changes_dir)
+
+    sync_trackers(inst, store.all())
+
+    item = watching.tracker.find_by_marker(CHANGE)
+    assert item is not None
+    assert (
+        "Change folder: https://dev.azure.com/acme/Proj/_git/repo"
+        f"?path=/openspec/changes/{CHANGE}&version=GBmain"
+    ) in item.body
+    assert "/tree/" not in item.body
+
+
+def test_a_planning_repo_apart_from_the_code_repos_gives_the_change_item_no_links(
+    inst: Installation, store: UnitStore, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(tick_step, "in_repo_name", lambda inst: None)
+    watching = Watching(board_section(["change", "group"]))
+    write_change(inst.changes_dir)
+
+    sync_trackers(inst, store.all())
+
+    item = watching.tracker.find_by_marker(CHANGE)
+    assert item is not None
+    assert "Change folder" not in item.body
+
+
+def test_reaching_the_create_cap_still_sends_the_updates_that_follow(
+    inst: Installation, store: UnitStore
+) -> None:
+    watching = Watching(board_section(["change", "group"]))
+    write_change(inst.changes_dir)
+    sync_trackers(inst, store.all())
+    assert state_of(watching.tracker, f"{CHANGE}:1") == "done"
+    # A change that sorts first is new, and the cap lets it one create; its group waits, and the
+    # update to the mirrored change's group that follows in the order must still go out.
+    write_change(inst.changes_dir, "aaa-new")
+    configure(app=raw_section(create_cap=1))
+    reviewing = [unit.model_copy(update={"state": UnitState.IN_REVIEW}) for unit in store.all()]
+    made = len(watching.tracker.made("create"))
+    logged: list[str] = []
+
+    sync_trackers(inst, reviewing, log=logged.append)
+
+    assert state_of(watching.tracker, f"{CHANGE}:1") == "active"
+    assert len(watching.tracker.made("create")) == made + 1
+    assert watching.tracker.find_by_marker("aaa-new:1") is None
+    assert any("create cap reached" in line and "left" in line for line in logged)

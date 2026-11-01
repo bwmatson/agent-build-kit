@@ -18,21 +18,14 @@ from agent_build_kit.forges.transport import (
 from agent_build_kit.pipeline.tracker_file import TrackerFile, read_tracker, write_tracker
 from agent_build_kit.pipeline.units import UnitState
 from agent_build_kit.trackers.local import LocalTracker
-from tests.trackers.board_support import CHANGE, board_section, covering, write_change
+from tests.trackers.board_support import (
+    CHANGE,
+    board_section,
+    covering,
+    groups_tasks,
+    write_change,
+)
 from tests.trackers.reconciler_support import READS, SYNC, Call, RecordingTracker, World
-
-
-def groups_tasks(count: int) -> str:
-    """A `tasks.md` of `count` groups, each with a test task and an implementation task."""
-    parts = ["# Remember lanes between runs\n"]
-    for number in range(1, count + 1):
-        parts.append(
-            f"## {number}. [app] [unit-test] Group {number} work\n\n"
-            f"- [ ] {number}.1 Test: `tests/lanes/test_{number}.py` — it works. Verify: red.\n"
-            f"- [ ] {number}.2 Add the work in `src/app/lanes_{number}.py`. "
-            f"Verify: {number}.1 passes.\n"
-        )
-    return "\n".join(parts)
 
 
 def world_for(tmp_path: Path, levels: list[str], *, epic: bool = False) -> World:

@@ -82,6 +82,15 @@ def test_the_web_url_points_at_the_pull_request() -> None:
     assert FORGE.web_url(repo, pr=7).endswith("/pullrequest/7")
 
 
+def test_the_browse_url_names_the_path_and_the_branch_in_the_query() -> None:
+    repo = RepoId(forge="azure_devops", account="acme", project="Some Project", name="Some Repo")
+
+    assert FORGE.browse_url(repo, branch="main", path="openspec/changes/feature") == (
+        "https://dev.azure.com/acme/Some%20Project/_git/Some%20Repo"
+        "?path=/openspec/changes/feature&version=GBmain"
+    )
+
+
 def test_every_way_of_merging_is_denied_to_the_agent() -> None:
     """Wider than GitHub's one command: an update can complete a PR, a vote
     can approve one, and both `az rest` and `az devops invoke` reach the same

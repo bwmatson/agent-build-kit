@@ -21,6 +21,7 @@ from tests.trackers.board_support import (
     REPO_URL,
     TASKS,
     board_section,
+    browse_example,
     covering,
     write_change,
 )
@@ -41,7 +42,7 @@ def board(
         changes_dir,
         changes,
         units,
-        repo_url=REPO_URL,
+        browse=browse_example,
         epics=epics,
         archived=archived,
         tracking_dir=tracking_dir,
@@ -281,7 +282,7 @@ def test_the_items_come_outermost_level_first(changes_dir: Path) -> None:
         changes_dir,
         [CHANGE],
         [],
-        repo_url=REPO_URL,
+        browse=browse_example,
     )
 
     assert [item.level for item in items] == ["change", "group", "group"] + ["task"] * 4
@@ -391,6 +392,38 @@ def test_the_folder_link_follows_the_configured_specs_folder(changes_dir: Path) 
 
     assert f"{REPO_URL}/specs/changes/{CHANGE}" in body
     assert "openspec/changes" not in body
+
+
+def test_a_host_with_no_address_leaves_the_links_out(changes_dir: Path) -> None:
+    items = wanted_board(
+        board_section(["change", "group"]),
+        changes_dir,
+        [CHANGE],
+        [],
+        browse=lambda path: "",
+    )
+
+    body = items[0].body
+    assert "Change folder" not in body
+    assert "Design:" not in body
+    assert "Remember lanes by key" in body
+
+
+def test_the_links_are_the_hosts_own_addresses(changes_dir: Path) -> None:
+    azure = "https://dev.azure.com/acme/Proj/_git/repo"
+    items = wanted_board(
+        board_section(["change", "group"]),
+        changes_dir,
+        [CHANGE],
+        [],
+        browse=lambda path: f"{azure}?path=/{path}&version=GBmain",
+    )
+
+    body = items[0].body
+    assert f"Change folder: {azure}?path=/openspec/changes/{CHANGE}&version=GBmain" in body
+    assert (
+        f"Design: {azure}?path=/docs/designs/lane-design.md&version=GBmain#remembered-lanes" in body
+    )
 
 
 def test_a_design_link_is_found_in_any_folder_and_a_url_is_not_one(tmp_path: Path) -> None:

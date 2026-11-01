@@ -16,7 +16,7 @@ from pathlib import Path
 from agent_build_kit import telemetry, trackers
 from agent_build_kit.forges.transport import NotFound, RateLimited
 from agent_build_kit.model import Frozen
-from agent_build_kit.pipeline.file_lock import atomic_write_text
+from agent_build_kit.pipeline.file_lock import atomic_write_text, file_lock
 from agent_build_kit.pipeline.task_progress import first_line_hash
 from agent_build_kit.pipeline.tracker_file import (
     Synced,
@@ -36,7 +36,7 @@ from agent_build_kit.trackers.base import (
     Tracker,
 )
 from agent_build_kit.trackers.config import TrackerConfigError, TrackerSection, section_for
-from agent_build_kit.trackers.folders import change_folder
+from agent_build_kit.trackers.folders import tracker_read_dir, tracker_write_dir
 from agent_build_kit.trackers.wanted_board import WantedItem, wanted_board
 
 ERRORS_COUNTER = "abk.tracker.errors"
@@ -101,10 +101,12 @@ class _Pass:
         section: TrackerSection,
         files: dict[str, TrackerFile],
         changes_dir: Path,
+        state_dir: Path,
         *,
         create_cap: int | None = None,
         dry_run: bool = False,
     ) -> None:
+        self.state_dir = state_dir
         self.create_cap = create_cap
         self.dry_run = dry_run
         self.listed: list[str] = []
@@ -115,6 +117,8 @@ class _Pass:
         self.created = 0
         self.updated = 0
         self.awaiting: list[str] = []
+        # Set once a create was refused for the cap: no further item without a record is looked up.
+        self.capped = False
 
     def _list(self, item: WantedItem, name: str) -> None:
         """A dry run: name what would be created. It looks at the board and writes nothing."""
@@ -137,6 +141,8 @@ class _Pass:
         wanted = _fields(item)
         synced = _entries(self.files[name], name).get(item.marker)
         if synced is None:
+            if self.capped:
+                raise _CapReached
             synced = self._create_or_adopt(name, item, parent, wanted)
         changes = {key: value for key, value in wanted.items() if synced.fields.get(key) != value}
         if not changes:
@@ -169,6 +175,7 @@ class _Pass:
             synced = Synced(id=found.id, fields=snapshot, revision=found.revision)
         else:
             if self.create_cap is not None and self.created >= self.create_cap:
+                self.capped = True
                 raise _CapReached
             made = self.tracker.create(
                 item.level, item.title, item.body, parent, markers=(item.marker,)
@@ -193,24 +200,43 @@ class _Pass:
 
     def _record(self, change: str, item: WantedItem, synced: Synced) -> None:
         self.files[change] = _with(self.files[change], item, synced)
-        write_tracker(change_folder(self.changes_dir, change), self.files[change])
+        where = tracker_write_dir(self.changes_dir, self.state_dir, change)
+        write_tracker(where, self.files[change])
+
+
+def snapshot_path(state_dir: Path, repo: str) -> Path:
+    """The machine-local file of `repo`'s mirror: the snapshot and the dirty mark."""
+    return state_dir / f"tracker-{repo}.json"
+
+
+def read_snapshot(path: Path) -> dict[str, object]:
+    """The file's keys; none when it is missing or unreadable."""
+    try:
+        kept = json.loads(path.read_text())
+    except (OSError, ValueError):
+        return {}
+    return kept if isinstance(kept, dict) else {}
+
+
+def update_snapshot(path: Path, change: Callable[[dict[str, object]], None]) -> None:
+    """Apply `change` to the file's keys and write them back whole, under a lock: the pass and a
+    state change write the same file. Any key `change` leaves alone is kept."""
+    with file_lock(path.with_name(f"{path.name}.lock")):
+        kept = read_snapshot(path)
+        change(kept)
+        atomic_write_text(path, json.dumps(kept, indent=2, sort_keys=True))
 
 
 def _write_snapshot(path: Path, files: Mapping[str, TrackerFile]) -> None:
     """Record the ids and revisions the pass ended with, in the machine-local file. Nothing reads
     them to save calls yet; the pass trusts `tracker.yaml` and the marker search. Any other key
-    in the file is kept."""
-    try:
-        kept = json.loads(path.read_text())
-    except (OSError, ValueError):
-        kept = {}
-    kept = kept if isinstance(kept, dict) else {}
-    kept[SNAPSHOT_ITEMS] = {
+    in the file, such as the repo's dirty mark, is kept."""
+    items = {
         marker: {"id": entry.id, "revision": entry.revision}
         for change, tracker_file in files.items()
         for marker, entry in _entries(tracker_file, change).items()
     }
-    atomic_write_text(path, json.dumps(kept, indent=2, sort_keys=True))
+    update_snapshot(path, lambda kept: kept.update({SNAPSHOT_ITEMS: items}))
 
 
 def reconcile(
@@ -219,7 +245,7 @@ def reconcile(
     changes_dir: Path,
     changes: Sequence[str],
     units: Sequence[Unit],
-    repo_url: str,
+    browse: Callable[[str], str],
     state_dir: Path,
     tracking_dir: Path | None = None,
     archived: Collection[str] = (),
@@ -249,7 +275,8 @@ def reconcile(
     errors = 0
     for name in changes:
         try:
-            found = read_for_target(change_folder(changes_dir, name), section.kind, target)
+            where = tracker_read_dir(changes_dir, state_dir, name)
+            found = read_for_target(where, section.kind, target)
         except Exception as error:  # a mismatch, a conflicted file or a bad field: this change only
             errors += 1
             count_error()
@@ -262,14 +289,17 @@ def reconcile(
         changes_dir,
         list(files),
         units,
-        repo_url=repo_url,
+        browse=browse,
         epics=epics,
         archived=archived,
         tracking_dir=tracking_dir,
     )
 
-    run = _Pass(tracker, section, files, changes_dir, create_cap=create_cap, dry_run=dry_run)
+    run = _Pass(
+        tracker, section, files, changes_dir, state_dir, create_cap=create_cap, dry_run=dry_run
+    )
     stopped = failed = False
+    left = 0
     for item in wanted:
         # A group that is no longer wanted keeps what its item last showed: nothing is deleted.
         if item.state == "removed":
@@ -277,7 +307,10 @@ def reconcile(
         try:
             run.push(item)
         except _CapReached:
-            break
+            if dry_run:
+                break
+            left += 1  # the updates after the cap still go out; only creates wait
+            continue
         except RateLimited as error:
             log(f"tracker {repo}: rate limited, resuming next tick: {error}")
             stopped = True
@@ -292,8 +325,10 @@ def reconcile(
             errors += 1
             count_error()
             log(f"tracker {repo}: {item.marker}: {error}")
+    if left:
+        log(f"tracker {repo}: create cap reached, {left} items left to create on a later tick")
     if not failed and not dry_run:
-        _write_snapshot(state_dir / f"tracker-{repo}.json", run.files)
+        _write_snapshot(snapshot_path(state_dir, repo), run.files)
     return PassReport(
         created=run.created,
         updated=run.updated,

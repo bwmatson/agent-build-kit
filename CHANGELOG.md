@@ -24,8 +24,12 @@
   names a tracker. It takes effect for a tracker kind once that kind is registered; until then
   the tick logs the repo as skipped. A state change only marks the board for the next tick and
   never calls the tracker, a failure in the step cannot stop a tick, and one tick creates at
-  most `create_cap` items (default 50) per repo. A change archived in the round it finishes is
-  still closed on the board. A pull request description names the board items of the groups it
+  most `create_cap` items (default 50) per repo; items past the cap wait for a later tick while
+  updates to the rest still go out. A change archived in the round it finishes is still closed
+  on the board, and what the tick records for an archived change stays on the machine, so it
+  never leaves the planning checkout with an uncommitted file. The links in a change's item
+  point at the page the code host itself gives for the folder, and are left out when the
+  planning repo is not one of the listed repos. A pull request description names the board items of the groups it
   builds (`AB#<id>` or `Part of #<id>`) and the pull request is attached to each once; one
   hosted somewhere the tracker cannot link is left with the line alone. The code to mirror
   archived changes in a capped number of creates per run, with a dry run, is in place; a later

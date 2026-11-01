@@ -573,7 +573,7 @@ def store_for(inst: Installation) -> UnitStore:
         labels.follow_review(unit, inst.state_dir / VERDICTS)
         drafts.follow(unit, units, opened=opened)
         try:
-            note_state_change(inst)
+            note_state_change(inst, unit.repo)
         except Exception as error:  # noqa: BLE001
             log(f"tracker mirror not marked — {type(error).__name__}: {error}")
         # Equal, and only on the write that counted it (from `running`), so it is named once.

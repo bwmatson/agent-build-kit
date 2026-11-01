@@ -11,9 +11,15 @@ import pytest
 from agent_build_kit import trackers
 from agent_build_kit.pipeline.units import UnitState
 from agent_build_kit.trackers.backfill import backfill
-from tests.trackers.board_support import CHANGE, REPO_URL, board_section, covering, write_change
+from tests.trackers.board_support import (
+    CHANGE,
+    board_section,
+    browse_example,
+    covering,
+    groups_tasks,
+    write_change,
+)
 from tests.trackers.reconciler_support import RecordingTracker
-from tests.trackers.test_reconciler import groups_tasks
 
 DONE_TASKS = groups_tasks(2).replace("- [ ]", "- [x]")
 THREE = ["change", "group", "task"]
@@ -57,7 +63,7 @@ class Archive:
             changes_dir=self.changes_dir,
             changes=names if names is not None else self.names,
             units=self.units(),
-            repo_url=REPO_URL,
+            browse=browse_example,
             state_dir=self.state_dir,
             cap=cap,
             dry_run=dry_run,
@@ -77,7 +83,10 @@ def test_an_archived_change_is_mirrored_as_closed_and_done_items(tmp_path: Path)
         assert item is not None, marker
         assert (item.kit_state or item.state) == "done", marker
     assert report.created == 7
-    assert (archive.folder(CHANGE) / "tracker.yaml").is_file()
+    # The archive folder is committed, so the record is kept on the machine instead.
+    assert not (archive.folder(CHANGE) / "tracker.yaml").exists()
+    kept = archive.state_dir / "tracker-archived" / archive.folder(CHANGE).name
+    assert (kept / "tracker.yaml").is_file()
     assert not (archive.changes_dir / CHANGE).exists()
 
 

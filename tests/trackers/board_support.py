@@ -82,6 +82,24 @@ Needs: base-change group 2 merged — the lane table
 """
 
 
+def browse_example(path: str) -> str:
+    """The address a host gives for `path` of the planning repo, in the fixtures' shape."""
+    return f"{REPO_URL}/{path}"
+
+
+def groups_tasks(count: int) -> str:
+    """A `tasks.md` of `count` groups, each with a test task and an implementation task."""
+    parts = ["# Remember lanes between runs\n"]
+    for number in range(1, count + 1):
+        parts.append(
+            f"## {number}. [app] [unit-test] Group {number} work\n\n"
+            f"- [ ] {number}.1 Test: `tests/lanes/test_{number}.py` — it works. Verify: red.\n"
+            f"- [ ] {number}.2 Add the work in `src/app/lanes_{number}.py`. "
+            f"Verify: {number}.1 passes.\n"
+        )
+    return "\n".join(parts)
+
+
 def board_section(levels: Sequence[str], *, epic: bool = False) -> TrackerSection:
     configure(
         app={

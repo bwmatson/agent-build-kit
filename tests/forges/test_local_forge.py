@@ -294,6 +294,10 @@ def test_labels_drafts_statuses_and_checks_change_nothing(forge: LocalForge) -> 
     assert before.labels == () and not before.draft and before.checks == ()
 
 
+def test_the_local_forge_has_no_page_to_browse(forge: LocalForge) -> None:
+    assert forge.browse_url(REPO, branch="main", path="openspec/changes/feature") == ""
+
+
 def test_a_local_pull_request_has_no_labels_to_read(forge: LocalForge) -> None:
     number = open_pr(forge)
     forge.add_label(REPO, number, Label(name="needs-rework", color="ff0000"))

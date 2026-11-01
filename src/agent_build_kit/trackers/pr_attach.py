@@ -9,7 +9,7 @@ which a machine-local record keeps from repeating.
 from __future__ import annotations
 
 import json
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from pathlib import Path
 
 from agent_build_kit import trackers
@@ -19,13 +19,12 @@ from agent_build_kit.pipeline.task_progress import TASKS_FILE
 from agent_build_kit.pipeline.tracker_file import TrackerFile, mapping_target, read_for_target
 from agent_build_kit.pipeline.unit_store import StoredUnit
 from agent_build_kit.pipeline.work_graph import read_tasks
-from agent_build_kit.trackers.base import REPO_FAILURES, NotLinkable
+from agent_build_kit.trackers.base import PULL_REQUEST_RELATION, REPO_FAILURES, NotLinkable, Tracker
 from agent_build_kit.trackers.config import TrackerConfigError, section_for
-from agent_build_kit.trackers.folders import change_folder
+from agent_build_kit.trackers.folders import change_folder, tracker_read_dir
 from agent_build_kit.trackers.levels import link_targets
 
 ATTACHED_NAME = "tracker-pr-links.json"
-RELATION = "pull_request"
 
 
 def _recorded_id(found: TrackerFile, key: str) -> str | None:
@@ -35,10 +34,17 @@ def _recorded_id(found: TrackerFile, key: str) -> str | None:
     return entry.id if entry else None
 
 
-def link_items(unit: StoredUnit, changes_dir: Path) -> tuple[tuple[str, str], ...]:
+def link_items(
+    unit: StoredUnit,
+    changes_dir: Path,
+    state_dir: Path | None = None,
+    archive: Mapping[str, Path] | None = None,
+) -> tuple[tuple[str, str], ...]:
     """The key and recorded item id of each board item the unit's pull request links to; empty
     for a repo with no tracker. A change whose tracker file or tasks file cannot be used, or
-    records another board, has no links."""
+    records another board, has no links. With `state_dir`, an archived change's tracker file is
+    read from the machine-local copy a pass keeps once the archive is committed; `archive` is
+    the `archived_entries` a caller with many units read once."""
     try:
         section = section_for(unit.repo)
     except TrackerConfigError:
@@ -48,9 +54,14 @@ def link_items(unit: StoredUnit, changes_dir: Path) -> tuple[tuple[str, str], ..
     target = mapping_target(section)
     found: list[tuple[str, str]] = []
     for member in unit.members():
-        folder = change_folder(changes_dir, member.change)
+        folder = change_folder(changes_dir, member.change, archive)
         try:
-            recorded = read_for_target(folder, section.kind, target)
+            home = (
+                folder
+                if state_dir is None
+                else tracker_read_dir(changes_dir, state_dir, member.change, archive)
+            )
+            recorded = read_for_target(home, section.kind, target)
             tasks = (
                 read_tasks(folder / TASKS_FILE, member.change) if "task" in section.levels else []
             )
@@ -101,20 +112,24 @@ def attach_pull_request(
     state_dir: Path,
     pr_url: str,
     on_error: Callable[[str, Exception], None] | None = None,
+    tracker: Tracker | None = None,
+    archive: Mapping[str, Path] | None = None,
 ) -> tuple[str, ...]:
     """Attach the pull request to each item `pr_links` names for the groups the unit built,
     once each, recording it in the machine-local state; the keys attached this time.
 
     A failure of one item goes to `on_error` (with the item's key) and the others go on; a rate
     limit, or a failure of the tracker as a whole, is raised for the caller to end the pass on.
-    With no `on_error`, every failure is raised."""
-    items = link_items(unit, changes_dir)
+    With no `on_error`, every failure is raised. A caller attaching many units passes the
+    repo's `tracker` and the `archive` entries it built once, so neither is rebuilt for each."""
+    items = link_items(unit, changes_dir, state_dir, archive)
     if not items:
         return ()
-    try:
-        tracker = trackers.for_repo(unit.repo)
-    except TrackerConfigError:
-        return ()
+    if tracker is None:
+        try:
+            tracker = trackers.for_repo(unit.repo)
+        except TrackerConfigError:
+            return ()
     if tracker is None:
         return ()
     path = state_dir / ATTACHED_NAME
@@ -127,7 +142,7 @@ def attach_pull_request(
         if key in done.get(bucket, []):
             continue
         try:
-            tracker.link(item_id, RELATION, pr_url)
+            tracker.link(item_id, PULL_REQUEST_RELATION, pr_url)
         except NotLinkable:
             _record(path, bucket, key)  # nothing to retry: the line in the description stays
             continue

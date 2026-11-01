@@ -88,6 +88,10 @@ class Change(Frozen):
     when: str
 
 
+PULL_REQUEST_RELATION = "pull_request"
+"""The relation `Tracker.link` is given to attach a pull request to an item."""
+
+
 class NotLinkable(ValueError):
     """The tracker cannot relate an item to this target (a pull request hosted elsewhere): not a
     failure, and trying again changes nothing."""
