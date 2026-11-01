@@ -13,6 +13,7 @@ import re
 import subprocess
 from pathlib import Path
 from types import SimpleNamespace
+from typing import Any
 
 import pytest
 
@@ -52,11 +53,19 @@ def waited_on(
     kind: FixKind = FixKind.FLAKY,
     wait: bool = True,
     runtime: AgentRuntime | None = None,
+    **options: Any,
 ) -> str | None:
     """`wait_on_regression` as the handlers call it, with the default stand-in agent behind it
-    unless `runtime` is given."""
+    unless `runtime` is given; `options` (a `clock`) go through."""
     return wait_on_regression(
-        inst, failure, unit, kind=kind, runtime=runtime, wait=wait, say=lambda message: None
+        inst,
+        failure,
+        unit,
+        kind=kind,
+        runtime=runtime,
+        wait=wait,
+        say=lambda message: None,
+        **options,
     )
 
 

@@ -6,10 +6,13 @@ The lock is held by the test itself, as the run of another unit holds it: no thr
 
 from __future__ import annotations
 
+from collections.abc import Callable
+from contextlib import ExitStack
+
 import pytest
 
 from agent_build_kit.installation import Installation
-from agent_build_kit.pipeline.file_lock import file_lock
+from agent_build_kit.pipeline.file_lock import LockTimeout, file_lock
 from agent_build_kit.pipeline.flakes import fix_change_name, flake_change_name
 from agent_build_kit.pipeline.work_graph import FIX_PREFIX
 from tests.pipeline.test_flake_fix_change import change_with_unit, code_repo, flaked, waits_on
@@ -42,4 +45,68 @@ def test_a_second_unit_takes_the_open_change_while_the_lock_is_held_and_runs_not
 
     assert named == fix
     assert waits_on(installation, "feature") == [fix]
+    assert no_real_regression_agent.runtime.requests == []
+
+
+class PausingClock:
+    """A clock whose pause runs `during` and moves time on; it never sleeps."""
+
+    def __init__(self, during: Callable[[], None]) -> None:
+        self.during = during
+        self.now = 0.0
+        self.pauses = 0
+
+    def monotonic(self) -> float:
+        return self.now
+
+    def sleep(self, seconds: float, /) -> None:
+        self.pauses += 1
+        self.now += seconds
+        self.during()
+
+
+def test_a_unit_that_finds_no_folder_yet_waits_on_the_one_that_appears(
+    installation: Installation, no_real_regression_agent: DefaultAgent
+) -> None:
+    code_repo(installation)
+    unit = change_with_unit(installation, "feature", "feature/1")
+    fix = flake_change_name(TEST)
+    lock = installation.state_dir / f"regression-{fix_change_name(TEST, FIX_PREFIX)}.lock"
+
+    with file_lock(lock):
+        clock = PausingClock(lambda: write_change(installation.changes_dir / fix))
+        named = waited_on(installation, flaked(), unit, clock=clock)
+
+    assert named == fix
+    assert clock.pauses == 1
+    assert waits_on(installation, "feature") == [fix]
+    assert no_real_regression_agent.runtime.requests == []
+
+
+def test_a_unit_runs_the_agent_once_when_the_lock_is_freed_while_it_waits(
+    installation: Installation, no_real_regression_agent: DefaultAgent
+) -> None:
+    code_repo(installation)
+    unit = change_with_unit(installation, "feature", "feature/1")
+    lock = installation.state_dir / f"regression-{fix_change_name(TEST, FIX_PREFIX)}.lock"
+    with ExitStack() as stack:
+        stack.enter_context(file_lock(lock))
+        clock = PausingClock(stack.pop_all().close)
+
+        named = waited_on(installation, flaked(), unit, clock=clock)
+
+    assert named == flake_change_name(TEST)
+    assert len(no_real_regression_agent.runtime.requests) == 1
+
+
+def test_a_lock_held_with_no_folder_for_good_times_out_instead_of_hanging(
+    installation: Installation, no_real_regression_agent: DefaultAgent
+) -> None:
+    code_repo(installation)
+    unit = change_with_unit(installation, "feature", "feature/1")
+    lock = installation.state_dir / f"regression-{fix_change_name(TEST, FIX_PREFIX)}.lock"
+
+    with file_lock(lock), pytest.raises(LockTimeout):
+        waited_on(installation, flaked(), unit, clock=PausingClock(lambda: None))
+
     assert no_real_regression_agent.runtime.requests == []

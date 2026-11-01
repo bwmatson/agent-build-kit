@@ -221,8 +221,9 @@
   on a `Failing test:` line and the kind of failure on a `Kind:` line, and `abk status` and
   `abk explain` show the judgement beside the change. Each failure is recorded with its kind
   and linked to the change, and the agent is told the earlier failures of both records. A
-  unit that meets a test while another unit's agent run for it is going waits on its change at
-  once, and does not wait for a lock. A unit whose run
+  unit that meets a test while another unit's agent run for it is going waits on its change as
+  soon as the run has made it, checking again each second, and never waits on the run's lock. A
+  unit whose run
   `global_limits.max_regression_runs_per_hour` holds back waits, not failed, and goes on once
   the hour has room. A change the agent could not judge, or that failed its checks twice, is
   held like work handed to someone outside the kit: no unit of it starts, `abk status` says

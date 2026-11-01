@@ -7,6 +7,7 @@ from __future__ import annotations
 import contextlib
 import re
 import subprocess
+import time
 from collections.abc import Callable, Iterable
 from datetime import datetime, timedelta
 from enum import StrEnum
@@ -21,7 +22,13 @@ from agent_build_kit.pipeline import spans
 from agent_build_kit.pipeline.call_record import recorded
 from agent_build_kit.pipeline.check_runner import worktree_at
 from agent_build_kit.pipeline.external_file import HELD, Hold, add_hold, already_held, read_holds
-from agent_build_kit.pipeline.file_lock import atomic_write_text, file_lock, try_file_lock
+from agent_build_kit.pipeline.file_lock import (
+    Clock,
+    LockTimeout,
+    atomic_write_text,
+    file_lock,
+    try_file_lock,
+)
 from agent_build_kit.pipeline.flakes import (
     FAILING_TEST_LABEL,
     FAILING_TEST_LINE,
@@ -48,6 +55,7 @@ from agent_build_kit.runtimes import AgentRequest, AgentRuntime
 from agent_build_kit.runtimes.base import ToolPolicy
 from agent_build_kit.sandboxes import SandboxPolicy
 from agent_build_kit.sandboxes.policy import PolicyRefused, git_parts
+from agent_build_kit.settings import settings
 
 # What the agent ends its answer with when it cannot tell whether the test or the implementation
 # is wrong.
@@ -77,7 +85,9 @@ CAPPED_NOTE = "waiting for a regression-agent run: "
 TOOLS = "Read Edit Write Grep Glob Bash(git log*) Bash(git show*) Bash(git blame*) Bash(git diff*)"
 # The line of the proposal that names the kind of failure the change is for (a `FixKind`).
 KIND_LABEL = "Kind:"
-KIND_LINE = re.compile(rf"^\W*{re.escape(KIND_LABEL)}\s*(?P<kind>[\w-]+)[ \t]*$", re.MULTILINE)
+KIND_LINE = re.compile(rf"^\W*{re.escape(KIND_LABEL)}\s*(?P<kind>[\w-]+)[\s`.,;:*]*$", re.MULTILINE)
+# How long a unit waits between looks for the change of a run that is in flight.
+BUSY_RETRY_SECONDS = 1.0
 # The line of the proposal that says which side is wrong, and the two things it may say.
 JUDGEMENT_LABEL = "Judgement:"
 JUDGEMENTS = ("the test is wrong", "the implementation is wrong")
@@ -345,7 +355,7 @@ def agent_sandbox(
     no backend exists), but the checkout and its git directory are not granted for writing, as
     they are to a build, and the change directory `root` is the only path of the planning repo
     it writes. What the runtime or the profile grants (the Claude runtime grants the temp folder)
-    still covers a checkout inside it, such as the disposable worktree of a stacked unit's base."""
+    still covers a checkout inside it, such as the disposable worktree of the run."""
     from agent_build_kit.pipeline import wiring  # imports this module
 
     built = wiring.sandbox_policy(repo, cwd, runtime, None, changes=(root.name,))
@@ -514,14 +524,17 @@ def wait_on_regression(
     wait: bool = True,
     now: datetime | None = None,
     say: Callable[[str], None] = print,
+    clock: Clock = time,
 ) -> str | None:
     """Make sure one open change fixes `failure.test` and, with `wait`, give each group of `unit`
     a `Needs:` line on it, and name it on the earlier records of the test. An open change is
     waited on without a run, also while another unit's run of the agent for it is in flight (the
-    lock of the test is then busy and is not waited on). With none, the agent runs in a
-    disposable worktree of `failure.base` (the unit's own base: its parent's branch tip when
-    stacked) or, when the failure names none, of the default branch; only a worktree that cannot
-    be made leaves it in the repo's own checkout. `RegressionRunCapped` is raised when
+    lock of the test is then busy and is not waited on: the unit retries after a `clock` pause
+    until the run's folder appears, for up to `lock_wait_seconds`, then raises `LockTimeout`).
+    With none, the agent runs in a disposable worktree of `failure.base` (the unit's own base:
+    its parent's branch tip when stacked) or, when the failure names none, of the default
+    branch; only a worktree that cannot be made leaves it in the repo's own checkout.
+    `RegressionRunCapped` is raised when
     `global_limits.max_regression_runs_per_hour` runs have started in the last hour. Answers None
     for a unit of the change itself, which waits on nothing. The runs for one test are
     serialised, and the runs of different tests are not."""
@@ -565,15 +578,19 @@ def wait_on_regression(
         preexisting_record(inst).link(failure.test, outcome.change)
         return outcome.change
 
-    # A run of the agent can take minutes and the lock of the test is held for all of it: a unit
-    # that meets the test meanwhile takes the open change and waits on it, and does not wait for
-    # the lock, which would time out.
-    with try_file_lock(test_lock) as taken:
-        name = settled() if taken else open_fix_change(inst, failure.test)[0]
-    if name is None:
-        # Busy, and the run has not made its folder yet: that takes an instant.
-        with file_lock(test_lock):
-            name = settled()
+    # A run of the agent can take minutes and the lock of the test is held for all of it, so it is
+    # never waited on. A unit that meets the test meanwhile takes the open change and waits on it;
+    # when the run has not made its folder yet (it makes a worktree first), the unit looks again
+    # after a pause, until it takes the lock itself or the folder appears.
+    began = clock.monotonic()
+    while True:
+        with try_file_lock(test_lock) as taken:
+            name = settled() if taken else open_fix_change(inst, failure.test)[0]
+        if name is not None:
+            break
+        if clock.monotonic() - began >= settings.lock_wait_seconds:
+            raise LockTimeout(f"the run for {failure.test} made no change in time")
+        clock.sleep(BUSY_RETRY_SECONDS)
     if unit.change == name:
         return None
     if wait and not is_fix_change(unit.change):  # a unit of a fix change waits on no other fix
