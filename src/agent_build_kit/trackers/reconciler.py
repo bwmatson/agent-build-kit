@@ -14,13 +14,7 @@ from collections.abc import Callable, Collection, Mapping, Sequence
 from pathlib import Path
 
 from agent_build_kit import telemetry, trackers
-from agent_build_kit.forges.transport import (
-    AuthError,
-    HostError,
-    HostUnavailable,
-    NotFound,
-    RateLimited,
-)
+from agent_build_kit.forges.transport import NotFound, RateLimited
 from agent_build_kit.model import Frozen
 from agent_build_kit.pipeline.file_lock import atomic_write_text
 from agent_build_kit.pipeline.task_progress import first_line_hash
@@ -34,16 +28,19 @@ from agent_build_kit.pipeline.tracker_file import (
     write_tracker,
 )
 from agent_build_kit.pipeline.units import Unit
-from agent_build_kit.trackers.base import STATUS_TAGS, Item, StaleRevision, Tracker
+from agent_build_kit.trackers.base import (
+    REPO_FAILURES,
+    STATUS_TAGS,
+    Item,
+    StaleRevision,
+    Tracker,
+)
 from agent_build_kit.trackers.config import TrackerConfigError, TrackerSection, section_for
 from agent_build_kit.trackers.folders import change_folder
 from agent_build_kit.trackers.wanted_board import WantedItem, wanted_board
 
 ERRORS_COUNTER = "abk.tracker.errors"
 SNAPSHOT_ITEMS = "items"
-
-# What ends the whole pass: the tracker as a whole fails, so every item would fail the same way.
-_REPO_FAILURES = (AuthError, HostError, HostUnavailable)
 
 
 class PassReport(Frozen):
@@ -285,7 +282,7 @@ def reconcile(
             log(f"tracker {repo}: rate limited, resuming next tick: {error}")
             stopped = True
             break
-        except (*_REPO_FAILURES, _RepoFailed) as error:
+        except (*REPO_FAILURES, _RepoFailed) as error:
             errors += 1
             count_error()
             log(f"tracker {repo}: the tracker failed, no item pushed this tick: {error}")

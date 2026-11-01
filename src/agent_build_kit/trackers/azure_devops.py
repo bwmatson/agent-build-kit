@@ -14,7 +14,7 @@ import html
 import re
 from collections.abc import Mapping, Sequence
 from typing import cast, get_args
-from urllib.parse import quote
+from urllib.parse import quote, unquote
 
 import httpx
 
@@ -36,6 +36,7 @@ from agent_build_kit.trackers.base import (
     Identity,
     Item,
     ItemKind,
+    NotLinkable,
     Relation,
     StaleRevision,
     split_tags,
@@ -48,7 +49,10 @@ PARENT_LINK = "System.LinkTypes.Hierarchy-Reverse"
 CHILD_LINK = "System.LinkTypes.Hierarchy-Forward"
 ARTIFACT_LINK = "ArtifactLink"
 PULL_REQUEST_RELATION = "pull_request"
-_PULL_REQUEST_URL = re.compile(r"/_git/(?P<repository>[^/]+)/pullrequest/(?P<number>\d+)/?$")
+_PULL_REQUEST_URL = re.compile(
+    r"^https://dev\.azure\.com/[^/]+/(?P<project>[^/]+)/_git/(?P<repository>[^/]+)"
+    r"/pullrequest/(?P<number>\d+)/?$"
+)
 PATCH = "application/json-patch+json"
 # What the service answers a failed revision test with, by its version.
 STALE_STATUSES = (409, 412)
@@ -211,8 +215,15 @@ class AzureDevOpsWorkItems:
             raise ValueError(f"cannot link a work item by {relation!r}")
         found = _PULL_REQUEST_URL.search(target_id)
         if found is None:
-            raise ValueError(f"not a pull request address: {target_id}")
-        response = self._call("GET", f"git/repositories/{found['repository']}")
+            raise NotLinkable(f"not a pull request hosted on Azure DevOps: {target_id!r}")
+        # The repository is read in the project the address names, which need not be the board's.
+        section = self._section
+        response = self._rest.call(
+            section.organization,
+            unquote(found["project"]),
+            "GET",
+            f"git/repositories/{found['repository']}",
+        )
         repository = validated(RepositoryDoc, response.data, "repositories", response.text)
         self.link_pull_request(
             item_id,

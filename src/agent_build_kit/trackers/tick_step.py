@@ -11,7 +11,7 @@ from collections.abc import Callable, Sequence
 from pathlib import Path
 
 from agent_build_kit import telemetry, trackers
-from agent_build_kit.forges.transport import AuthError, HostError, HostUnavailable, RateLimited
+from agent_build_kit.forges.transport import RateLimited
 from agent_build_kit.installation import Installation
 from agent_build_kit.pipeline.file_lock import atomic_write_text
 from agent_build_kit.pipeline.planning_repo import repo_sharing
@@ -20,6 +20,7 @@ from agent_build_kit.pipeline.tracker_file import read_tracker
 from agent_build_kit.pipeline.unit_store import StoredUnit
 from agent_build_kit.pipeline.units import UnitState
 from agent_build_kit.pipeline.work_graph import validate_tasks
+from agent_build_kit.trackers.base import REPO_FAILURES
 from agent_build_kit.trackers.config import TrackerConfigError, section_for
 from agent_build_kit.trackers.folders import archived_entries
 from agent_build_kit.trackers.pr_attach import attach_pull_request
@@ -27,7 +28,6 @@ from agent_build_kit.trackers.reconciler import ERRORS_COUNTER, PassReport, reco
 
 DIRTY_NAME = "tracker-dirty"
 _WITH_PR = (UnitState.IN_REVIEW, UnitState.MERGED)
-_WHOLE_TRACKER = (AuthError, HostError, HostUnavailable)
 
 
 def mark_dirty(state_dir: Path) -> None:
@@ -118,7 +118,7 @@ def _attach_all(
         except RateLimited as error:
             log(f"tracker {repo}: rate limited, attaching resumes next tick: {error}")
             return
-        except _WHOLE_TRACKER as error:
+        except REPO_FAILURES as error:
             telemetry.count(ERRORS_COUNTER, repo=repo)
             log(f"tracker {repo}: the tracker failed, no pull request attached this tick: {error}")
             return

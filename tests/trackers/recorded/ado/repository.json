@@ -1,0 +1,29 @@
+{
+  "fixture": {
+    "source": "reference",
+    "page": "https://learn.microsoft.com/en-us/rest/api/azure/devops/git/repositories/get-repository?view=azure-devops-rest-7.1",
+    "date": "2026-10-30"
+  },
+  "body": {
+    "id": "cccccccc-0000-0000-0000-000000000003",
+    "name": "app",
+    "url": "https://dev.azure.com/example/dddddddd-0000-0000-0000-000000000004/_apis/git/repositories/cccccccc-0000-0000-0000-000000000003",
+    "project": {
+      "id": "dddddddd-0000-0000-0000-000000000004",
+      "name": "Some Project",
+      "description": "Where the code lives.",
+      "url": "https://dev.azure.com/example/_apis/projects/dddddddd-0000-0000-0000-000000000004",
+      "state": "wellFormed",
+      "revision": 11,
+      "visibility": "private",
+      "lastUpdateTime": "2026-10-01T00:00:00.000Z"
+    },
+    "defaultBranch": "refs/heads/main",
+    "size": 1048576,
+    "remoteUrl": "https://example@dev.azure.com/example/Some%20Project/_git/app",
+    "sshUrl": "git@ssh.dev.azure.com:v3/example/Some%20Project/app",
+    "webUrl": "https://dev.azure.com/example/Some%20Project/_git/app",
+    "isDisabled": false,
+    "isInMaintenance": false
+  }
+}

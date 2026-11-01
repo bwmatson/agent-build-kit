@@ -81,6 +81,16 @@ def test_an_archived_change_is_mirrored_as_closed_and_done_items(tmp_path: Path)
     assert not (archive.changes_dir / CHANGE).exists()
 
 
+def test_the_change_item_links_to_the_archived_folder(tmp_path: Path) -> None:
+    archive = Archive(tmp_path, ["change", "group"], [CHANGE])
+
+    archive.run(cap=50)
+
+    change = archive.tracker.find_by_marker(CHANGE)
+    assert change is not None
+    assert f"/changes/archive/2026-10-01-{CHANGE}" in change.body
+
+
 def test_without_a_task_level_no_task_items_are_made(tmp_path: Path) -> None:
     archive = Archive(tmp_path, ["change", "group"], [CHANGE])
 

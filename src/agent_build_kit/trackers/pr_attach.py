@@ -13,12 +13,13 @@ from collections.abc import Callable
 from pathlib import Path
 
 from agent_build_kit import trackers
-from agent_build_kit.forges.transport import AuthError, HostError, HostUnavailable, RateLimited
+from agent_build_kit.forges.transport import RateLimited
 from agent_build_kit.pipeline.file_lock import atomic_write_text, file_lock
 from agent_build_kit.pipeline.task_progress import TASKS_FILE
 from agent_build_kit.pipeline.tracker_file import TrackerFile, mapping_target, read_for_target
 from agent_build_kit.pipeline.unit_store import StoredUnit
 from agent_build_kit.pipeline.work_graph import read_tasks
+from agent_build_kit.trackers.base import REPO_FAILURES, NotLinkable
 from agent_build_kit.trackers.config import TrackerConfigError, section_for
 from agent_build_kit.trackers.folders import change_folder
 from agent_build_kit.trackers.levels import link_targets
@@ -117,21 +118,26 @@ def attach_pull_request(
     if tracker is None:
         return ()
     path = state_dir / ATTACHED_NAME
+    # A host with no address for pull requests answers an empty one: the unit is the record then.
+    bucket = pr_url or unit.id
     with file_lock(path.with_name(f"{path.name}.lock")):
         done = _recorded(path)
     attached: list[str] = []
     for key, item_id in items:
-        if key in done.get(pr_url, []):
+        if key in done.get(bucket, []):
             continue
         try:
             tracker.link(item_id, RELATION, pr_url)
-        except (RateLimited, AuthError, HostError, HostUnavailable):
+        except NotLinkable:
+            _record(path, bucket, key)  # nothing to retry: the line in the description stays
+            continue
+        except (RateLimited, *REPO_FAILURES):
             raise
         except Exception as error:  # noqa: BLE001 — one item's failure does not stop the others
             if on_error is None:
                 raise
             on_error(key, error)
             continue
-        _record(path, pr_url, key)
+        _record(path, bucket, key)
         attached.append(key)
     return tuple(attached)

@@ -83,7 +83,7 @@ def _change_title(name: str, folder: Path) -> str:
     return name
 
 
-def _change_body(folder: Path, name: str, repo_url: str) -> str:
+def _change_body(folder: Path, changes_dir: Path, repo_url: str) -> str:
     proposal = _read(folder / "proposal.md")
     decisions = _headed(_read(folder / "design.md"), "Decisions")
     parts = [_headed(proposal, "Why"), _headed(proposal, "What Changes"), decisions]
@@ -93,7 +93,8 @@ def _change_body(folder: Path, name: str, repo_url: str) -> str:
         if start >= 0:
             parts.append(text[start:].strip())
     specs_dir = active().planning.specs_dir.strip("/")
-    links = [f"Change folder: {repo_url}/{specs_dir}/changes/{name}"]
+    where = folder.relative_to(changes_dir).as_posix()
+    links = [f"Change folder: {repo_url}/{specs_dir}/changes/{where}"]
     named = dict.fromkeys(_DOCUMENT_LINK.findall(decisions))
     links += [f"Design: {repo_url}/{document}" for document in named]
     return "\n\n".join([*(part for part in parts if part), *links])
@@ -188,7 +189,7 @@ def wanted_board(
                     level="change",
                     marker=name,
                     title=_change_title(name, folder),
-                    body=_change_body(folder, name, repo_url),
+                    body=_change_body(folder, changes_dir, repo_url),
                     state=_change_state(
                         [state for state, _ in states.values()], archived=name in archived
                     ),

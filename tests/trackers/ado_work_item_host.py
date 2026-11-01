@@ -25,7 +25,9 @@ from tests.trackers.ado_recorded import load
 REVERSE = "System.LinkTypes.Hierarchy-Reverse"
 FORWARD = "System.LinkTypes.Hierarchy-Forward"
 BASE = "https://dev.azure.com/example/Some%20Project"
-PROJECT_ID = "project-guid"
+REPOSITORY = load("repository").body
+PROJECT_ID = REPOSITORY["project"]["id"]
+REPOSITORY_ID = REPOSITORY["id"]
 _ROUTE = re.compile(r"^/(?P<org>[^/]+)/(?P<project>[^/]+)/_apis/(?P<rest>.*)$")
 _CONDITION = re.compile(
     r"\[([\w.]+)\]\s+(Not Contains Words|Contains Words|Contains|=)\s+'((?:[^']|'')*)'",
@@ -182,13 +184,16 @@ class WorkItemHost(httpx.MockTransport):
             return answer(load("connection_data").body)
         repository = re.fullmatch(r"git/repositories/([^/]+)", rest, re.IGNORECASE)
         if repository and method == "GET":
-            return answer(
-                {
-                    "id": f"repo-{repository[1]}",
-                    "name": repository[1],
-                    "project": {"id": PROJECT_ID, "name": "Some Project"},
-                }
-            )
+            # The repository exists in its own project only, as on the service.
+            project = _ROUTE.match(unquote(request.url.path))["project"]  # type: ignore[index]
+            if (project, repository[1]) != (REPOSITORY["project"]["name"], REPOSITORY["name"]):
+                return refusal(
+                    404,
+                    f"TF401019: The Git repository with name or identifier {repository[1]} "
+                    f"does not exist in project {project}.",
+                    "GitRepositoryNotFoundException",
+                )
+            return answer(REPOSITORY)
         if rest.lower() == "wit/wiql" and method == "POST":
             return self._query(body["query"])
         raise AssertionError(f"the stand-in host was not expecting {method} {rest}")
