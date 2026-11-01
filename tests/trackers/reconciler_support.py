@@ -107,10 +107,10 @@ class RecordingTracker(LocalTracker):
 
 
 class World:
-    """One repo, its changes folder, its state folder and a recording tracker registered as the
-    tracker of the section's kind."""
+    """One repo, its changes folder, its state folder and a tracker registered as the tracker of
+    the section's kind. `tracker` is the stand-in or the Azure adapter over its HTTP stand-in."""
 
-    def __init__(self, tmp_path: Path, section: TrackerSection, tracker: RecordingTracker) -> None:
+    def __init__(self, tmp_path: Path, section: TrackerSection, tracker: Any) -> None:
         self.section = section
         self.tracker = tracker
         self.changes_dir = tmp_path / "changes"

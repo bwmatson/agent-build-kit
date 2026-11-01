@@ -155,6 +155,17 @@ class AzureDevOpsTracker(TrackerSection):
             )
         return mapped
 
+    def kit_state(self, work_item_type: str, board_word: str) -> str | None:
+        """The kit state a board state stands for on one work item type; None when none of the
+        kit's states maps to it."""
+        for state in ("new", "active", "done"):
+            try:
+                if self.board_state(work_item_type, state) == board_word:
+                    return state
+            except ValueError:
+                continue
+        return None
+
     def _declared_types(self) -> dict[str, str]:
         """`types` wins over `story_type`, which is the group level's type when it names none."""
         return {**({"group": self.story_type} if self.story_type else {}), **self.types}

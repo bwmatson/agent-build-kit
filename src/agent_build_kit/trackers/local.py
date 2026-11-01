@@ -13,7 +13,12 @@ from agent_build_kit.trackers.base import (
     ItemKind,
     Relation,
     StaleRevision,
+    split_tags,
+    with_status_tags,
 )
+
+# The fields `update` accepts, as on every tracker.
+UPDATABLE = frozenset({"title", "body", "state", "tags"})
 
 
 class LocalTracker:
@@ -90,8 +95,16 @@ class LocalTracker:
     def update(
         self, item_id: str, changes: Mapping[str, str], expected_revision: str | None = None
     ) -> Item:
+        unknown = sorted(set(changes) - UPDATABLE)
+        if unknown:
+            raise ValueError(f"cannot update {unknown} of an item")
         self._check_revision(self._items[item_id], expected_revision)
-        return self._change(item_id, **changes)
+        values: dict[str, object] = dict(changes)
+        if "tags" in changes:
+            values["tags"] = with_status_tags(
+                self._items[item_id].tags, split_tags(changes["tags"])
+            )
+        return self._change(item_id, **values)
 
     def children(self, item_id: str) -> Sequence[Item]:
         return [item for item in self._items.values() if item.parent_id == item_id]

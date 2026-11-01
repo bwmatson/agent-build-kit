@@ -8,11 +8,17 @@ from pathlib import Path
 import pytest
 
 from agent_build_kit import telemetry, trackers
-from agent_build_kit.forges.transport import AuthError, RateLimited
-from agent_build_kit.pipeline.tracker_file import read_tracker
+from agent_build_kit.forges.transport import (
+    AuthError,
+    HostError,
+    HostUnavailable,
+    NotFound,
+    RateLimited,
+)
+from agent_build_kit.pipeline.tracker_file import TrackerFile, read_tracker, write_tracker
 from agent_build_kit.pipeline.units import UnitState
 from agent_build_kit.trackers.local import LocalTracker
-from tests.trackers.board_support import CHANGE, board_section, covering
+from tests.trackers.board_support import CHANGE, board_section, covering, write_change
 from tests.trackers.reconciler_support import READS, SYNC, Call, RecordingTracker, World
 
 
@@ -277,26 +283,121 @@ def test_a_rate_limit_ends_the_pass_and_the_next_run_continues(tmp_path: Path) -
     assert second.created == 2
 
 
-def test_a_refused_credential_is_one_logged_line_for_the_repo(
-    tmp_path: Path, errors_counted: list[str]
+@pytest.mark.parametrize(
+    "failure",
+    [
+        AuthError("401: the token is refused"),
+        HostError("POST wiql: host answered 503"),
+        HostUnavailable("find_by_marker", "host answered 503", 4),
+        NotFound("404: no such project", account="example", source="TRACKER_PAT"),
+    ],
+    ids=["refused", "outage", "unavailable", "wrong-project"],
+)
+def test_a_failure_of_the_whole_tracker_is_one_logged_line_and_ends_the_pass(
+    tmp_path: Path, errors_counted: list[str], failure: Exception
 ) -> None:
     world = world_for(tmp_path, ["change", "group"])
     (world.change_dir / "tasks.md").write_text(groups_tasks(19))
     units = [covering(f"{CHANGE}/1", (1,), UnitState.RUNNING)]
+    world.tracker.fail = lambda call: failure
 
-    def refuse(call: Call) -> Exception | None:
-        return AuthError("401: the token is refused")
-
-    world.tracker.fail = refuse
-
-    world.run(units)
+    report = world.run(units)
 
     assert len(world.logs) == 1
     assert "app" in world.logs[0]
-    assert "refused" in world.logs[0]
     assert units[0].state is UnitState.RUNNING
     assert read_tracker(world.change_dir) is None
-    assert len(world.tracker.calls) <= 2, "the pass gives up on the first refusal"
+    assert len(world.tracker.calls) == 1, "the pass gives up on the first failure"
+    assert report.failed
+    assert report.errors == 1
+    assert errors_counted == ["abk.tracker.errors"]
+
+
+def test_an_item_that_is_gone_is_an_item_failure_not_a_repo_failure(
+    tmp_path: Path, errors_counted: list[str]
+) -> None:
+    world = world_for(tmp_path, ["change", "group"])
+    world.run([covering(f"{CHANGE}/1", (1, 2), UnitState.RUNNING)])
+    gone = world.item_id(f"{CHANGE}:1")
+    world.tracker.calls.clear()
+    world.tracker.fail = lambda call: (
+        NotFound("404: gone", account="example", source="TRACKER_PAT")
+        if call.name == "get" and call.args == (gone,)
+        else None
+    )
+
+    report = world.run([covering(f"{CHANGE}/1", (1, 2), UnitState.IN_REVIEW)])
+
+    assert not report.failed
+    assert report.errors == 1
+    assert errors_counted == ["abk.tracker.errors"]
+    assert [call.args[0] for call in world.tracker.made("update")] == [world.item_id(f"{CHANGE}:2")]
+
+
+def test_a_lost_create_of_an_item_in_review_gets_its_tag_written_once(tmp_path: Path) -> None:
+    world = world_for(tmp_path, ["change", "group"])
+    world.tracker.lose_answer = f"{CHANGE}:1"
+    units = [covering(f"{CHANGE}/1", (1,), UnitState.IN_REVIEW)]
+    world.run(units)
+    world.tracker.calls.clear()
+
+    world.run(units)
+
+    group = world.item_id(f"{CHANGE}:1")
+    assert [call.args[0] for call in world.tracker.made("update")] == [group]
+    assert world.tracker.get(group).tags == ("in-review",)
+    world.tracker.calls.clear()
+    world.run(units)
+    assert world.tracker.writes() == []
+
+
+def test_a_lost_tracker_file_with_the_tag_already_on_the_board_writes_nothing(
+    tmp_path: Path,
+) -> None:
+    world = world_for(tmp_path, ["change", "group"])
+    units = [covering(f"{CHANGE}/1", (1,), UnitState.IN_REVIEW)]
+    world.run(units)
+    assert world.tracker.get(world.item_id(f"{CHANGE}:1")).tags == ("in-review",)
+    (world.change_dir / "tracker.yaml").unlink()
+    world.tracker.calls.clear()
+
+    world.run(units)
+
+    assert world.tracker.writes() == []
+
+
+def test_a_change_with_an_unusable_tracker_file_does_not_stop_the_others(
+    tmp_path: Path, errors_counted: list[str]
+) -> None:
+    world = world_for(tmp_path, ["change", "group"])
+    for name in ("corrupt-change", "moved-change", "healthy-change"):
+        write_change(world.changes_dir, name)
+    (world.changes_dir / "corrupt-change" / "tracker.yaml").write_text("{ not: [valid")
+    write_tracker(
+        world.changes_dir / "moved-change",
+        TrackerFile(kind=world.section.kind, target="azure_devops other/project@00000000"),
+    )
+
+    report = world.run(changes=("corrupt-change", "moved-change", "healthy-change"))
+
+    assert report.errors == 2
+    assert errors_counted == ["abk.tracker.errors"] * 2
+    assert len(world.logs) == 2
+    markers = [marker for _, marker in creates(world)]
+    assert markers
+    assert all(marker.startswith("healthy-change") for marker in markers)
+
+
+def test_a_group_that_is_no_longer_wanted_keeps_what_its_item_showed(tmp_path: Path) -> None:
+    world = world_for(tmp_path, ["change", "group"])
+    world.run([covering(f"{CHANGE}/1", (1,), UnitState.IN_REVIEW)])
+    group = world.item_id(f"{CHANGE}:1")
+    world.tracker.calls.clear()
+
+    world.run([covering(f"{CHANGE}/1", (1,), UnitState.RETIRED)])
+
+    assert [call for call in world.tracker.writes() if call.args[0] == group] == []
+    assert world.tracker.get(group).tags == ("in-review",)
 
 
 def test_a_configuration_error_skips_the_repo(tmp_path: Path) -> None:
