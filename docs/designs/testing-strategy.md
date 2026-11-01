@@ -223,9 +223,10 @@ finding reads, for example, `T7 tests/serve/test_x.py:40 fixed port`.
 
 - **T1 Kind.** A test has exactly one kind by the decision procedure above. Check: guard (wide scans, runtime tags, the
   CI-runnability guard); review.
-- **T2 Placement.** The test lives in the file named for the module it exercises. A case for an existing module joins that file; a
-  new file exists only for a new logic file. Check: gate (the red check accepts a case by id); `none yet` (a warning for a new test
-  file whose subject module already has one); review.
+- **T2 Placement.** The test lives in the file named for the module it exercises, at the path that mirrors the module (in the toolchain's
+  convention). A case for an existing module joins that file; a new file exists only for a new logic file; one subject has one test file.
+  Check: gate (the red check accepts a case by id); `none yet` (a warning for a new test file whose subject module already has one, and a
+  guard for mirror paths with a baseline that may only shrink); review.
 - **T3 Name.** A test name states one behaviour as a sentence. File names are unique, because test directories carry no `__init__.py`.
   Check: review; `none yet` (a guard that no two test files share a base name).
 - **T4 Surface.** A test reaches a public surface and imports no private name. Check: `none yet`; review.
