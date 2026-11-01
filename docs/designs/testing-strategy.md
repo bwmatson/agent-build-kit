@@ -36,8 +36,8 @@ which change delivers which part is kept outside the kit. Each recommended step 
 ## Vocabulary
 
 **Test kind.** A task group is tagged `[unit-test]`, `[integration-test]` or `[e2e-test]`. A unit's `tier` is the widest kind of its
-groups. An `[e2e-test]` group is always built as `tests_only` and is a unit of its own. The build treats `integration-test` and `unit-test` alike: only size and duration calibration pools them (`pooled_kind`, `model.py`), and nothing else
-runs an integration-tagged group differently. It is a label for the author, and it is not the `integration` selector below.
+groups. An `[e2e-test]` group is always built as `tests_only` and is a unit of its own. The tests of an `[integration-test]` group carry the `integration` selector below, and the build checks it. Size and duration calibration still pools
+`integration-test` with `unit-test` groups (`pooled_kind`, `model.py`).
 
 **Group mode.** `tests_and_code` (a test commit, then a code commit), `tests_only` (a lone test commit, no code), `no_code` (a lone
 code commit, no tests: documents and configuration), `refactor` (a lone code commit that reorganizes code and edits existing tests
@@ -58,7 +58,8 @@ A builder decides in this order.
 1. It needs a live service, credentials, a model, an agent, or an MCP or API call: **e2e**. It carries the repository's e2e selector,
    named `e2e` (a repository may set another name through `tests.e2e_marker`) and the runtime tag where a runtime applies.
 2. Otherwise it needs only what a CI job can give it, or it reads the whole repository, or it collects other modules in a child
-   run, or it checks something that is not code behaviour: **integration**. The last case is a *conformance test* of the repository:
+   run, or it checks something that is not code behaviour: **integration**. It is wider than one file's behaviour: it exercises several modules together, a process or tree boundary, or the repository
+   itself, and it uses no live service. The last case is a *conformance test* of the repository:
    documents say what the code does, configuration files, CI templates, layout, names and selector registrations agree, a guard's
    list is current. Conformance tests have real value. They are integration tests because they read the tree, not because they are
    suspect.
@@ -176,13 +177,15 @@ modules, an extraction, an inlining. Its proof is the tests that already exist. 
 does not apply to it, and no new test is asked for.
 
 **The existing tests pass, with only mechanical edits.** A mechanical edit changes a name or a location and nothing a test says: an
-import path, a patch target named by a string, a module or attribute name, a fixture or helper moved with the code it serves, and a
+import path, a patch target named by a string, a module, function or attribute renamed or moved, a fixture or helper moved or renamed with the code it serves (its callers following), and a
 test file moved or renamed with its module so that placement (T2) still holds. A test's arrangement, its expected values and its
-assertions stay as they are. These are not mechanical: changing or deleting an assertion or an expected value, deleting a test,
+assertions stay as they are. These are not mechanical: changing or deleting an assertion or an expected value, changing what a function or fixture takes, returns or does
+(its parameters, its result, its behaviour), deleting a test,
 skipping it or marking it expected to fail, raising a time limit, and adding a case. A reorganization that needs one of them has
 changed behaviour. It is split, and the behaviour part is built tests first like any other change.
 
-- **A `refactor` mode.** A `refactor` group is one code commit that carries its mechanical test edits. It has no tests commit and no
+- **A `refactor` mode.** The planner declares it in its plan's `group_modes`, as it does `no_code` and `tests_only`, and a mode below a group's
+  floor is refused in the same way. A `refactor` group is one code commit that carries its mechanical test edits. It has no tests commit and no
   red check, and the pull request text says it was a reorganization and that no test was added. Without the mode, a group that names
   source files has a floor of `tests_and_code`, so the build would ask for a test commit, and once the red check runs in the build a
   test that already passes on the old code is rejected.
@@ -353,7 +356,7 @@ Three rules.
   recognisable. A test starved of CPU but under its budget passes.
 - **Gates share the machine.** A worker budget, the machine's CPU count by default, admits a unit's test run only when the workers it
   asks for fit, so several gates and many running units do not multiply their workers. A per-repository `tests.max_workers` still caps one
-  run.
+  run. The budget counts the runs the pipeline starts. A run a person starts by hand is not monitored and is not counted.
 - **Tests are designed for a loaded machine.** The cap lowers how often a heavy load happens. It does not excuse a test that passes
   only on a quiet machine. Standards T5, T6 and T17 are what make a test load-tolerant.
 
@@ -403,6 +406,17 @@ no affected selection. A missing capability is therefore a defect, and two tests
   repeat by id, a serial rerun of a failed id, failed-test parsing, affected selection after a one-file change. Every profile passes the
   same assertions, and a future profile adds one fixture and inherits the suite. It needs the toolchain and the network, so it is an
   integration test.
+
+**Affected selection in a JavaScript runner.** It is possible, and needs no recorded data. Vitest selects tests from the module graph that
+Vite builds from static and dynamic imports: `vitest related <files>` runs the tests that reach the named files, and `--changed [since]` does
+the same for the files a diff changed. That makes it an over-approximation with known gaps, so it speeds the unit's gate and does not prove it,
+and CI's full run stays the backstop. Gaps reported by the runner's own tracker: a dependency read from the file system or fetched, a
+module a `require()` in a setup file loads, a linked workspace package pre-bundled by the dependency optimizer, a mocked module whose factory
+hides its imports, and a deleted file (a fix in progress when this was written). An experimental dependency recorder exists in newer
+releases and has blind spots of its own. A profile therefore reports the runner's selection together with a conservative fallback: when
+the changed paths include a shared configuration, a setup file, a lock file or a workspace manifest, it runs the whole member (as the node
+profile already does, one run in each workspace member a changed path is under, and in every member for a path outside them all). The
+conformance test needs no "unsupported" entry for it; the scenario suite's affected-selection case runs against `related`.
 
 A toolchain with no markers (a JavaScript runner) realises the selectors by a file-name convention, and the same by-file selection
 applies (see "How a toolchain realises the selectors"). The conformance test also checks that each profile provides the six
@@ -478,7 +492,7 @@ Each step can become an OpenSpec change. Order follows dependency.
    first and repeated, and the ones whose covered code changed by the affected selection, which must also record data for integration tests.
 5. **The time limit counts CPU time** with a wall backstop; remove the raised limits.
 6. **Load is not a flake.** The `load` and `isolation` outcomes; consequence marking; three clean-base runs before a fix change.
-7. **Gates share the machine.** The global worker budget; decide whether hand-run gates count.
+7. **Gates share the machine.** The global worker budget, over the runs the pipeline starts; hand-run gates are not counted.
 8. **No test is serial.** Remove the serial pass; the guard.
 9. **The standards catalogue.** The data file, the generated renderings and the channels of delivery; the standards check before
    review; the guards for the `none yet` standards, each with its baseline; a one-off audit.
@@ -512,24 +526,24 @@ Each step can become an OpenSpec change. Order follows dependency.
 - **The e2e marker is `e2e`.** Names that describe how a stack is run (`local_stack`) are an implementation detail and are retired.
 - **Every conformance test is an integration test.**
 - **Guidance follows the group mode.** The tests and review prompts are built from the unit's group modes and leave out what cannot apply.
+- **An integration test is wider than one file's behaviour and uses no live service.** `[integration-test]` groups carry the `integration` selector.
+- **`integration` is a required check** on every repository that adopts this.
+- **Hand-run gates are outside the worker budget**, which counts only the runs the pipeline starts.
+- **The planner declares a reorganization as a group mode**, the way it declares `tests_only` and `no_code`.
+- **Renaming and moving functions, fixtures and imports is mechanical in a reorganization; changing an assertion or what a function takes, returns or does is not.**
 - **A reorganization needs no new test.** The existing tests pass with only mechanical edits (T26); a characterization test is added
   only for moved code that has none; anything more is a behaviour change and is built tests first.
 
 ## Open questions
 
-- **What an integration test covers.** The affected selection follows the code a test executes, which fits a unit test. A conformance test or
-  a wide scan reads the whole tree and so is affected by any change: either it always runs in the gate, which brings back the cost the scans
-  are being moved out of the unit run for, or it declares the files it reads and is selected by those. The design leans to declaring, and
-  to CI as the backstop for the rest.
-- **Hand-run gates and the worker budget.** An in-process budget does not see a gate a person runs; either the budget is a shared
-  slot count on disk or hand-run gates stay under a documented worker count.
-- **Is `integration` a required check** on every repository that adopts this? The design assumes it is.
-- **How much of the JavaScript profile's affected selection is possible** with its runner, and whether the conformance test needs an
-  explicit "unsupported" entry for it until it is.
-- **Whether `integration-test`, as a group label, should map to the `integration` selector.** Today it is a label that only calibration
-  treats as a unit test.
-- **How a planner declares a reorganization.** A line on the group beside `Tests: required`, or a tag, and who may set it: the
-  program's comparison catches an edit that is not mechanical, but not a behaviour change hidden in a move.
-- **How strictly "mechanical" is read for a fixture.** A shared fixture or helper that moves is mechanical; one that is rewritten as it
-  moves is not, and the comparison needs a rule for telling them apart.
+- **Which tests a tree-wide integration test is affected by.** The affected selection follows the code a test executes. A conformance test
+  or a wide scan reads the whole tree, so any change affects it: either it always runs in the gate, which brings back the cost the scans are
+  being moved out of the unit run for, or it declares the files it reads and is selected by those. The design leans to declaring, with CI as
+  the backstop for the rest. Integration tests that exercise several modules together follow the ordinary selection.
 - **How an agent's use of the full-text standards file is measured**, and what the compact table must carry so it is enough on its own.
+  Four measures are proposed. (1) *Read rate:* the share of tests and implementation runs in which the agent opened the file, from the
+  tool calls the runtime records. (2) *Outcome by read:* the standards-check violations per unit, by standard ID, split by whether the file
+  was opened, so a rule that is violated only when the file is skipped belongs in the compact table. (3) *Citations:* the prompt asks the
+  agent to cite an ID when a choice depends on one; citations against violations show whether the agent knew the rule. (4) *A replay
+  comparison:* the same sample of units built with the table alone and with the table and file, and the first-round pass rate of the standards
+  check compared. Until measured, the table carries every rule that matters most, and the file holds reasons and examples.
