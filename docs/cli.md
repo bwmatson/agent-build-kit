@@ -122,6 +122,10 @@ so. A tick prints the fingerprint when it starts.
 left in its pytest temp root and in the root it had before, and their number, warning above
 `global_limits.temp_warn_mb`; nothing when neither root exists.
 
+For each repo with a tracker section it prints `tracker <repo>: <target>`, without asking the
+host, or the configuration error when the section is invalid. A repo with no tracker prints
+nothing.
+
 A wait on a dependency is worded by what is missing: `waiting for <change> group <n> to merge`
 while the parent is not merged; `waiting for the next tick to load <change> group <n>'s merge`
 when it is merged, the last tick's code lacks the merge and the kit checkout's head has it; and
