@@ -219,6 +219,7 @@ from agent_build_kit.pipeline.pr_poller import (
     state_path,
     unmergeable,
 )
+from agent_build_kit.pipeline.pr_reconcile import reconcile
 from agent_build_kit.pipeline.pr_replies import build_post_replies, ignored, parse_answer
 from agent_build_kit.pipeline.product_defect import preview as preview_defect
 from agent_build_kit.pipeline.product_defect import product_defect_record
@@ -4561,6 +4562,10 @@ def _refresh(inst: Installation, *, store: UnitStore, lane: Lane | None = None) 
         # GitHub being unreachable is a reason to skip the update, not to stop
         # building units whose work doesn't depend on it.
         log(f"poll skipped — {type(error).__name__}: {error}")
+    try:
+        reconcile(store=store, state_dir=inst.state_dir, dispatch=_dispatch(inst, store), log=log)
+    except Exception as error:  # noqa: BLE001
+        log(f"reconcile skipped — {type(error).__name__}: {error}")
     # What the poll found, and what it left owed, whether or not the host answered.
     if lane is not None:
         lane.scan(store.all())
@@ -6715,6 +6720,7 @@ def _build_unit(
                     store=store,
                     installation=inst,
                     record_merge=lambda repo, pr: _dispatch(inst, store)("merged", pr, repo=repo),
+                    dispatch=_dispatch(inst, store),
                     log=say,
                     log_reaches_run_log=True,
                     journal=journal_only,
@@ -6949,6 +6955,7 @@ def _thread_runner(
             store=store,
             installation=inst,
             record_merge=lambda repo, pr: _dispatch(inst, store)("merged", pr, repo=repo),
+            dispatch=_dispatch(inst, store),
             log=say,
         )
 

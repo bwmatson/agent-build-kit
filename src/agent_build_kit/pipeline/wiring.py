@@ -3001,6 +3001,23 @@ def build_remove_satisfied(
     return remove
 
 
+def build_forge_state(
+    *, for_repo: Callable[[str], tuple[Forge, RepoId]] | None = None
+) -> Callable[[Unit, int], str]:
+    """Read the forge's state of a unit's recorded pull request: `open`, `merged` or `closed`.
+    Raises when the host cannot answer or does not list the pull request."""
+    for_repo = for_repo or forges.for_repo
+
+    def forge_state(unit: Unit, pr: int) -> str:
+        forge, repo = for_repo(unit.repo)
+        for pull in forge.list_prs(repo, head_prefix=branch_name(unit)):
+            if pull.number == pr:
+                return str(pull.state)
+        raise LookupError(f"the forge does not list PR #{pr}")
+
+    return forge_state
+
+
 def build_close_pr(
     *, for_repo: Callable[[str], tuple[Forge, RepoId]] | None = None
 ) -> Callable[[Unit, int, str], None]:
@@ -4626,6 +4643,7 @@ def build_runner(
     store: UnitStore,
     installation: Installation,
     record_merge: Callable[[str, int], object] = lambda repo, pr: None,
+    dispatch: Callable[..., bool] = lambda event, number, **kwargs: True,
     log: Callable[[str], None] = print,
     log_reaches_run_log: bool = False,
     journal: Callable[[str], None] | None = None,
@@ -4810,6 +4828,8 @@ def build_runner(
         linear=is_linear,
         post_status=e2e.post,
         close_pr=build_close_pr(),
+        forge_state=build_forge_state(),
+        dispatch=dispatch,
         release_dependents=build_release_dependents(store, installation, log=log),
         remove_satisfied=build_remove_satisfied(store, installation, log=log),
         reply=build_post_replies(root=root, log=log, ui_replies=ui_reply_writer(root, store)),

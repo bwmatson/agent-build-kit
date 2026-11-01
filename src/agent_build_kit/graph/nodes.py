@@ -2823,6 +2823,21 @@ class BuildPath:
             return {"deferred": ()}
         return {}
 
+    def recorded_pr_over(self, pr: int) -> Update | None:
+        """The update for a recorded pull request the forge shows merged or closed, after the
+        poller's handler has recorded it; None when it is open or the forge cannot say."""
+        r, unit = self.runner, self.unit
+        try:
+            shown = r.forge_state(unit, pr)
+        except Exception as error:  # noqa: BLE001
+            self.say(f"could not read the state of PR #{pr}: {error}")
+            return None
+        if shown not in ("merged", "closed"):
+            return None
+        deferred = not r.dispatch(shown, pr, repo=unit.repo)
+        self.say(f"PR #{pr} {shown} on the forge" + (", left for a later pass" if deferred else ""))
+        return {"pr_over": True, "status": RunStatus.OK, "detail": f"#{pr} {shown}"}
+
     def open_pr(self, state: UnitRun) -> Update:
         r, unit = self.runner, self.unit
         tree, base = self.tree(), state.base or self.base
@@ -2830,6 +2845,8 @@ class BuildPath:
         if e2e_state_of(state, None) is E2eState.DEFERRED:
             r.store.record_e2e_state(unit.id, E2eState.DEFERRED)
         stored = r.store.get(unit.id)
+        if stored.pr is not None and (over := self.recorded_pr_over(stored.pr)):
+            return over
         recorded = latest_verdict(r.store.path.with_name(VERDICTS), unit.id)
         # A unit reaching a pull request has had its tests seen to fail first and its unit-test
         # pass: the same facts `record_round` hands the verdict.
@@ -2927,6 +2944,7 @@ class BuildPath:
         r.mark_tasks(unit, done=True)
         self.say(f"in review: PR #{pr}")
         return {
+            "pr_over": False,
             "status": RunStatus.OPEN,
             "detail": f"opened #{pr}",
             "pr": pr,
@@ -3335,7 +3353,9 @@ def after_push(state: UnitRun) -> Node:
     return halted(state) or Node.OPEN_PR
 
 
-def after_open_pr(state: UnitRun) -> Node:
+def after_open_pr(state: UnitRun) -> Node | str:
+    if state.pr_over:
+        return END
     return halted(state) or (Node.PREPARE if state.restack else Node.AWAIT_REVIEW)
 
 
@@ -3458,7 +3478,7 @@ ROUTES: Mapping[Node, tuple[Callable[[UnitRun], Target], tuple[Target, ...]]] = 
     ),
     Node.NEW_COMMENTS: (after_new_comments, (Node.HELD, Node.FAILED, Node.REWORK, Node.PUSH)),
     Node.PUSH: (after_push, (Node.HELD, Node.FAILED, Node.OPEN_PR)),
-    Node.OPEN_PR: (after_open_pr, (Node.HELD, Node.PREPARE, Node.AWAIT_REVIEW)),
+    Node.OPEN_PR: (after_open_pr, (Node.HELD, Node.PREPARE, Node.AWAIT_REVIEW, END)),
     Node.AWAIT_REVIEW: (
         after_await_review,
         (Node.REWORK, Node.PREPARE, Node.CHECKS, Node.HELD, Node.AWAIT_REVIEW, END),

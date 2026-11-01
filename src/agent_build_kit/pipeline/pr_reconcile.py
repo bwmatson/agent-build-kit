@@ -12,7 +12,12 @@ from collections.abc import Callable
 from pathlib import Path
 
 from agent_build_kit.model import Frozen
+from agent_build_kit.pipeline.pr_poller import PrState, state_path
 from agent_build_kit.pipeline.unit_store import UnitStore
+from agent_build_kit.pipeline.units import CLOSED, FAILED, HELD, IN_REVIEW, MERGED, RUNNING
+
+# The states whose unit has not recorded how its pull request ended.
+RECONCILED = (RUNNING, IN_REVIEW, FAILED, HELD)
 
 
 class Correction(Frozen):
@@ -36,4 +41,19 @@ def reconcile(
     is merged or closed, through `dispatch` as the poller calls it; `only` limits the
     pass to one unit and `dry_run` writes nothing. A unit the dispatch defers because it
     is being built is not in the result."""
-    raise NotImplementedError
+    caches: dict[str, dict] = {}
+    corrections: list[Correction] = []
+    for unit in store.all():
+        if unit.pr is None or unit.state not in RECONCILED or (only and unit.id != only):
+            continue
+        if unit.repo not in caches:
+            caches[unit.repo] = PrState.load(state_path(state_dir, unit.repo))
+        shown = (caches[unit.repo].get(str(unit.pr)) or {}).get("state")
+        if shown not in (MERGED, CLOSED):
+            continue
+        event = "merged" if shown == MERGED else "closed"
+        if not dry_run and not dispatch(event, unit.pr, repo=unit.repo):
+            continue
+        corrections.append(Correction(unit=unit.id, pr=unit.pr, event=event))
+        log(f"reconciled: {unit.id} #{unit.pr} {event} on the forge")
+    return corrections

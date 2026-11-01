@@ -71,4 +71,4 @@ def test_an_open_pull_request_is_put_in_review_after_the_forge_is_asked(tmp_path
     assert forge.asked == [(UNIT, PR)], "the forge was asked about the recorded pull request"
     assert forge.dispatched == []
     assert recorder.store.get(UNIT).state == IN_REVIEW
-    assert f"in review: PR #{PR}" in recorder.logged
+    assert f"open_pr: in review: PR #{PR}" in recorder.logged

@@ -71,6 +71,7 @@ def cache(state_dir: Path, repo: str, **states: str) -> None:
             )
             for number, state in states.items()
         },
+        repo,
     )
 
 
