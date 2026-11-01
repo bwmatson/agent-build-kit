@@ -122,6 +122,13 @@ def _is_test_code(path: str) -> bool:
     )
 
 
+def named_test_paths(group: TaskGroup) -> list[str]:
+    """The test files the tasks of `group` name, continuation lines included, in the order
+    they first appear."""
+    found = (path for _, lines in _tasks(group) for line in lines for path in line_paths(line))
+    return list(dict.fromkeys(path for path in found if _is_test_code(path)))
+
+
 def allows_tests_only(paths: Sequence[str]) -> bool:
     """Whether the paths a group names are test code (test files and test-support modules), at
     least one of them, with documents beside them. A source or configuration path, or no path at
