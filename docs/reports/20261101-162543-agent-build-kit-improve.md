@@ -26,8 +26,8 @@ Clean: no dataclasses in `src`, no `__init__.py` in `tests/`, no private-name im
 
 ## Actionable candidates for the next propose run
 
-1. [not-yet-actioned] Document the work-tracker subsystem: add a "Work tracker" section to `docs/architecture.md` (reconciler, wanted board, mapping file by level, Epic header/manual parent, claim and ownership read gating unit start), mention it in `docs/cli.md`, and drop the "interim" wording in `docs/hand-off.md`.
-2. [not-yet-actioned] Complete the `AGENTS.md` layout block with `trackers/`, `forges/`, `runtimes/`, `sandboxes/`, `graph/`, `serve/` and `docs/designs/`.
+1. [proposed — agent-build-kit-track-20261101-162543] Document the work-tracker subsystem: add a "Work tracker" section to `docs/architecture.md` (reconciler, wanted board, mapping file by level, Epic header/manual parent, claim and ownership read gating unit start), mention it in `docs/cli.md`, and drop the "interim" wording in `docs/hand-off.md`.
+2. [proposed — agent-build-kit-track-20261101-162543] Complete the `AGENTS.md` layout block with `trackers/`, `forges/`, `runtimes/`, `sandboxes/`, `graph/`, `serve/` and `docs/designs/`.
 3. [not-yet-actioned] Move the named-variable `os.environ` reads (`config.py`, `claude_account.py`, `pipeline/usage_guard.py`, `init/detect.py`) into `settings.py`, and decide on a single process-environment helper for the pass-through sites.
 4. [not-yet-actioned] Resolve the git shell-out convention gap: route the direct `subprocess` git calls (notably `pipeline/wiring.py` `_run`, `pipeline/verify.py` including `git pull`) through `pipeline.shell`, or document an exception for local read-only calls.
 5. [not-yet-actioned] Resolve the `usage_guard.py:619` `Path.home()` cache path (and `claude_account.py` paths) through `Installation`/settings.
