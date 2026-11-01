@@ -36,7 +36,7 @@ def status(
     inst = make_installation(
         tmp_path, planning={"state_dir": ".", "worktree_root": str(tmp_path.parent / "trees")}
     )
-    PrState.save(state_path(tmp_path, "app"), {"4": seen})
+    PrState.save(state_path(tmp_path, "app"), {"4": seen}, "app")
     store = UnitStore(tmp_path / "units.json")
     store.upsert([stored_unit("add-marker/1")])
     store.set_state("add-marker/1", IN_REVIEW, pr=4, branch="spec/add-marker/1")

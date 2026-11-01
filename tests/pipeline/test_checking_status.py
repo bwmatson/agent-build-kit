@@ -195,10 +195,10 @@ def test_a_status_the_snapshot_does_not_know_reads_as_pending(
     unit = store.get(UID)
     path = state_path(inst.state_dir, unit.repo)
 
-    PrState.save(path, {"7": {"checks": {"CI": "weird"}}})
+    PrState.save(path, {"7": {"checks": {"CI": "weird"}}}, unit.repo)
     assert effective_state(unit, [unit], checks_of=recorded_checks(inst.state_dir)) == "checking"
 
-    PrState.save(path, {"7": "not a dict"})
+    PrState.save(path, {"7": "not a dict"}, unit.repo)
     assert effective_state(unit, [unit], checks_of=recorded_checks(inst.state_dir)) == IN_REVIEW
 
 

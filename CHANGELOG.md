@@ -9,6 +9,11 @@
   a claim reports whether it won, and the kit's states map to the board's through `states`
   and `states_by_type` (with defaults for the Basic, Agile and Scrum processes).
 
+- The pull-request snapshot (`prs-<repo>.json`) is now written under a file lock and replaced
+  whole, with each repo's section stamped with `collected_at`, so two writers can no longer lose
+  each other's section and a reader never sees a half-written file. Files written by earlier
+  releases still read.
+
 - The red check at a tests commit now runs only the tests the commit added or changed (by
   `path::name`) and rejects the commit if any of them passes, so a new failing case can be added to
   the existing test file for its subject beside passing tests. A commit with no test to select, such
