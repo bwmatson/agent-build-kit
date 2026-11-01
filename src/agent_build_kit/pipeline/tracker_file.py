@@ -1,26 +1,32 @@
-"""The tracker file of a change: which tracker item belongs to the change and to each of its tasks
-(spec: tracker-mapping).
+"""The tracker file of a change: which tracker item belongs to the change, to each of its groups
+and to each of its tasks (spec: tracker-mapping, tracker-levels).
 
-`tracker.yaml` in a change's folder records the tracker kind and a target label, the Feature's
-item and a map from task key to item. It is not part of the plan hash and is written only by the
+`tracker.yaml` in a change's folder records the tracker kind and a target label carrying a hash
+of the level mapping (`mapping_target`), the change's item, the manual epic's id, a map from group
+key to item and a map from task key to item. A version 1 file is still read, its Feature as the
+change item. It is not part of the plan hash and is written only by the
 pipeline, whole and under the change's tasks lock, the one the checkbox writes take.
 """
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+import hashlib
+import json
 from pathlib import Path
+from typing import Any
 
 import yaml
+from pydantic import model_validator
 
 from agent_build_kit.model import Frozen
 from agent_build_kit.pipeline.file_lock import atomic_write_text
 from agent_build_kit.pipeline.task_progress import first_line_hash, tasks_lock
-from agent_build_kit.pipeline.units import Unit
 from agent_build_kit.pipeline.work_graph import Task
+from agent_build_kit.trackers.config import TrackerSection
+from agent_build_kit.trackers.levels import task_group_key
 
 FILE_NAME = "tracker.yaml"
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 
 
 class TargetMismatch(ValueError):
@@ -48,8 +54,36 @@ class TrackerFile(Frozen):
     schema_version: int = SCHEMA_VERSION
     kind: str
     target: str
-    feature: Synced | None = None
+    # The change's item, the manual epic's id and the group items by `<change>:<group>`.
+    change: Synced | None = None
+    epic: str | None = None
+    groups: dict[str, Synced] = {}
     tasks: dict[str, TaskEntry] = {}
+
+    @model_validator(mode="before")
+    @classmethod
+    def _read_version_1(cls, raw: Any) -> Any:
+        """A version 1 file's `feature` is the change item."""
+        if isinstance(raw, dict) and raw.get("schema_version") == 1:
+            old = dict(raw)
+            if "feature" in old:
+                old["change"] = old.pop("feature")
+            old["schema_version"] = SCHEMA_VERSION
+            return old
+        return raw
+
+
+def mapping_target(section: TrackerSection) -> str:
+    """The section's target with a short hash of its level mapping (levels, types, epic setting)."""
+    # An epic type is part of the mapping only when the epic level is on.
+    types = {
+        level: kind
+        for level, kind in section.level_types.items()
+        if level != "epic" or section.epic
+    }
+    mapping = {"levels": section.levels, "types": types, "epic": section.epic}
+    digest = hashlib.sha256(json.dumps(mapping, sort_keys=True).encode()).hexdigest()
+    return f"{section.target}@{digest[:8]}"
 
 
 def tracker_path(change_dir: Path) -> Path:
@@ -134,21 +168,17 @@ def reconcile_moves(tracker: TrackerFile, tasks: list[Task]) -> Reconciled:
     )
 
 
-class StoryMapping(Frozen):
-    """Where a unit's Story sits: the Feature of the unit's own change as its parent, and the
-    Features of the other changes whose groups the unit carries as related."""
-
-    parent: str
-    related: tuple[str, ...] = ()
-
-
-def story_mapping(unit: Unit, features: Mapping[str, str]) -> StoryMapping:
-    """The mapping for a unit's Story, from each change's Feature id."""
-    return StoryMapping(
-        parent=features[unit.change],
-        related=tuple(
-            features[member.change]
-            for member in unit.members()
-            if member.change != unit.change and member.change in features
-        ),
-    )
+def parent_item(tracker: TrackerFile, section: TrackerSection, level: str, key: str) -> str | None:
+    """The id of the recorded item that the item `key` of `level` hangs under, by the section's
+    levels: the group item for a level under the groups, the change item for a level under the
+    change, the epic for the first level when one is set. None when there is no parent or it is
+    not recorded."""
+    parent = section.parent_level(level)
+    if parent == "epic":
+        return tracker.epic
+    if parent == "change":
+        return tracker.change.id if tracker.change else None
+    if parent == "group":
+        found = tracker.groups.get(task_group_key(key))
+        return found.id if found else None
+    return None

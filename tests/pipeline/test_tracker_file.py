@@ -41,7 +41,7 @@ def tracker(**fields: object) -> TrackerFile:
     base: dict[str, object] = {
         "kind": "board",
         "target": "example-board",
-        "feature": Synced(id="100", fields={"title": "Feature"}, revision="7"),
+        "change": Synced(id="100", fields={"title": "Feature"}, revision="7"),
         "tasks": {
             "feature:1.1": TaskEntry(
                 id="101", fields={"state": "open"}, revision="3", text_hash="abc123"
@@ -94,7 +94,7 @@ def test_writing_the_file_leaves_the_plan_digest_and_tasks_alone(tmp_path: Path)
 
     write_tracker(folder, tracker())
     assert cli.plan_digest(tasks, inst=inst) == digest
-    write_tracker(folder, tracker(feature=Synced(id="100", revision="8")))
+    write_tracker(folder, tracker(change=Synced(id="100", revision="8")))
 
     assert cli.plan_digest(tasks, inst=inst) == digest
     assert tasks.read_text() == text
