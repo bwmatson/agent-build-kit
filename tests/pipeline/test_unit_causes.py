@@ -17,6 +17,7 @@ from agent_build_kit.pipeline.unit_store import Cause, HeldBy, UnitStore
 from agent_build_kit.pipeline.units import HELD, IN_REVIEW, PLANNED, RUNNING
 from agent_build_kit.pipeline.vocabulary import effective_state
 from tests.factories import stored_unit, unit
+from tests.time_limit import LOADED_TEST_TIME_LIMIT
 
 UNIT = "add-marker/1"
 
@@ -218,12 +219,14 @@ def sources() -> list[tuple[Path, str]]:
 
 
 @pytest.mark.parametrize("name", DELETED_NAMES)
+@pytest.mark.time_limit(LOADED_TEST_TIME_LIMIT)
 def test_no_module_still_has_a_deleted_note_matcher(name: str) -> None:
     users = [path.name for path, text in sources() if re.search(rf"\b{name}\b", text)]
 
     assert users == []
 
 
+@pytest.mark.time_limit(LOADED_TEST_TIME_LIMIT)
 def test_no_module_tests_a_note_by_its_prefix() -> None:
     users = [path.name for path, text in sources() if NOTE_PREFIX_CHECKS.search(text)]
 

@@ -14,6 +14,7 @@ from tests.live_tag_drift import (
     drifted,
 )
 from tests.runtime_tag_collection import ROOT
+from tests.time_limit import LOADED_TEST_TIME_LIMIT
 
 HEADER = "import pytest\n\npytestmark = pytest.mark.local_stack\n"
 PLAIN = "\n\ndef test_plain():\n    pass\n"
@@ -168,6 +169,7 @@ def agent_calling_helpers() -> dict[str, Path]:
     return found
 
 
+@pytest.mark.time_limit(LOADED_TEST_TIME_LIMIT)
 def test_every_helper_module_that_starts_an_agent_is_in_the_table_or_excused_with_a_reason() -> (
     None
 ):

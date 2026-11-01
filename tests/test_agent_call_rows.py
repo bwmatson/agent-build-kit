@@ -31,6 +31,7 @@ from tests.pipeline.test_planner_runtime import CHANGES, IN_FLIGHT, PLAN
 from tests.pipeline.test_restack_conflict_rows import conflicting, move
 from tests.runtimes.acp_agent import use_agent
 from tests.runtimes.claude_cli import FakeClaude, record
+from tests.time_limit import LOADED_TEST_TIME_LIMIT
 from tests.tracks.test_runner import project
 
 CLAUDE = "claude_code"
@@ -142,5 +143,6 @@ def test_a_call_at_the_site_writes_exactly_one_row_named_for_it(
     assert {row["runtime"] for row in rows} == {kind}
 
 
+@pytest.mark.time_limit(LOADED_TEST_TIME_LIMIT)
 def test_the_guard_passes_over_the_real_source_with_an_empty_allowlist() -> None:
     assert check_sources(SRC_ROOT, allowlist={}) == []

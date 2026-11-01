@@ -4,7 +4,10 @@ migration, and the changelog's unreleased section has an entry for each change."
 import re
 from pathlib import Path
 
+import pytest
+
 from tests.repo_docs import repo_markdown
+from tests.time_limit import LOADED_TEST_TIME_LIMIT
 
 ROOT = Path(__file__).resolve().parents[2]
 HISTORY = (
@@ -44,6 +47,7 @@ def test_the_history_documents_open_with_a_status_note() -> None:
         assert STATUS.search(top), name
 
 
+@pytest.mark.time_limit(LOADED_TEST_TIME_LIMIT)
 def test_no_document_names_a_removed_key_outside_the_migration() -> None:
     found = [
         path.relative_to(ROOT).as_posix()

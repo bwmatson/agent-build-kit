@@ -11,6 +11,7 @@ from pathlib import Path
 import pytest
 
 from tests.old_test_kind_names import candidates, lines_of, old_spelling_problems
+from tests.time_limit import LOADED_TEST_TIME_LIMIT
 
 REPOSITORY = Path(__file__).resolve().parents[1]
 # Built in parts so this file carries no old spelling for the guard to find.
@@ -127,6 +128,7 @@ def test_a_file_naming_the_rename_tools_module_fails_a_source_search(
     assert naming_the_tool(root) == [f"{path}:1"]
 
 
+@pytest.mark.time_limit(LOADED_TEST_TIME_LIMIT)
 def test_no_file_of_the_repository_names_the_rename_tool() -> None:
     assert naming_the_tool(REPOSITORY) == []
 
@@ -144,5 +146,6 @@ def test_text_with_only_the_new_names_passes(tmp_path: Path) -> None:
     assert old_spelling_problems(root) == []
 
 
+@pytest.mark.time_limit(LOADED_TEST_TIME_LIMIT)
 def test_the_repository_carries_no_old_spelling() -> None:
     assert old_spelling_problems(REPOSITORY) == []

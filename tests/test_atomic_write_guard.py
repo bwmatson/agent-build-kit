@@ -10,7 +10,10 @@ from __future__ import annotations
 import ast
 import re
 
+import pytest
+
 from tests.ecosystem_names import SOURCE_ROOT
+from tests.time_limit import LOADED_TEST_TIME_LIMIT
 
 SHARED = "pipeline/file_lock.py"
 # Edits a user's own config file and must keep its mode, which a state-file write has no need to;
@@ -42,6 +45,7 @@ def replacements(tree: ast.AST) -> list[int]:
     return lines
 
 
+@pytest.mark.time_limit(LOADED_TEST_TIME_LIMIT)
 def test_no_module_but_the_shared_one_replaces_a_file_from_a_temporary() -> None:
     problems = []
     for path in sorted(SOURCE_ROOT.rglob("*.py")):

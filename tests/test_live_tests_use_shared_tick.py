@@ -10,6 +10,7 @@ import pytest
 
 from tests.live_tag_drift import find_live_modules
 from tests.runtime_tag_collection import ROOT
+from tests.time_limit import LOADED_TEST_TIME_LIMIT
 
 TESTS = Path(__file__).resolve().parent
 INTEGRATION = TESTS / "integration"
@@ -70,6 +71,7 @@ def offences(path: Path) -> list[str]:
     return found
 
 
+@pytest.mark.time_limit(LOADED_TEST_TIME_LIMIT)
 def test_no_live_test_defines_a_tick_result_runs_a_tick_or_reads_a_branch_with_bare_git() -> None:
     found = [offence for path in live_files() for offence in offences(path)]
 
@@ -98,6 +100,7 @@ def test_each_of_the_three_files_registers_its_scratch() -> None:
     assert missing == []
 
 
+@pytest.mark.time_limit(LOADED_TEST_TIME_LIMIT)
 def test_each_live_test_that_runs_a_tick_ends_it_through_the_guarded_branch_check() -> None:
     bypassing = []
     for path in live_files():

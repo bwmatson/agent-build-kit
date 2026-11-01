@@ -13,6 +13,7 @@ from agent_build_kit.pipeline.vocabulary import OverheadNode
 from agent_build_kit.runtimes import acp
 from agent_build_kit.runtimes.known_agents import KnownAgent
 from tests.ecosystem_names import SOURCE_ROOT
+from tests.time_limit import LOADED_TEST_TIME_LIMIT
 
 # The list of commands is the one thing of the probe that stays.
 KEPT = {"PROBE_CLASSES", "probe_branch", "probe_rows"}
@@ -37,6 +38,7 @@ def config_classes() -> list[type]:
     ]
 
 
+@pytest.mark.time_limit(LOADED_TEST_TIME_LIMIT)
 def test_the_live_probe_and_its_remains_are_gone() -> None:
     left = [f"acp.{name}" for name in probe_names(acp)]
     left += [f"AcpRuntime.{name}" for name in probe_names(acp.AcpRuntime)]

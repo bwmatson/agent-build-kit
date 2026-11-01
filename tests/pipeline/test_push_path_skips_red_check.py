@@ -12,11 +12,13 @@ import pytest
 import agent_build_kit
 from agent_build_kit.pipeline import gate
 from tests.graph.branch_fakes import built, subjects, titled
+from tests.time_limit import LOADED_TEST_TIME_LIMIT
 
 SRC = Path(agent_build_kit.__file__).parent
 CALL = re.compile(r"\bcheck_branch\(")
 
 
+@pytest.mark.time_limit(LOADED_TEST_TIME_LIMIT)
 def test_only_the_gate_command_calls_check_branch_so_a_real_test_and_an_empty_feat_can_push(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

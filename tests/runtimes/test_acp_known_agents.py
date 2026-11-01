@@ -5,8 +5,11 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
+import pytest
+
 from agent_build_kit.runtimes import known_agents
 from agent_build_kit.runtimes.base import DOCUMENTED_ONLY, Candidate
+from tests.time_limit import LOADED_TEST_TIME_LIMIT
 
 PACKAGE = Path(known_agents.__file__).resolve().parents[1]
 # Not source: caches, and the web UI's build output (git-ignored).
@@ -23,6 +26,7 @@ def test_every_entry_says_how_it_starts_and_how_far_it_is_verified() -> None:
         assert agent.source.strip(), agent.name
 
 
+@pytest.mark.time_limit(LOADED_TEST_TIME_LIMIT)
 def test_no_framework_file_outside_the_table_names_a_product_from_it() -> None:
     programs = "|".join(re.escape(agent.program) for agent in known_agents.KNOWN_AGENTS)
     assert programs

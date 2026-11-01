@@ -7,11 +7,15 @@ from __future__ import annotations
 import uuid
 from pathlib import Path
 
+import pytest
+
 from tests.session_id_constants import duplicated_session_ids
+from tests.time_limit import LOADED_TEST_TIME_LIMIT
 
 TESTS = Path(__file__).resolve().parent
 
 
+@pytest.mark.time_limit(LOADED_TEST_TIME_LIMIT)
 def test_no_session_id_is_defined_in_two_test_files() -> None:
     shared = duplicated_session_ids(TESTS)
 

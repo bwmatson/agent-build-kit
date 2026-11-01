@@ -12,6 +12,10 @@ import ast
 from collections import defaultdict
 from pathlib import Path
 
+import pytest
+
+from tests.time_limit import LOADED_TEST_TIME_LIMIT
+
 TESTS = Path(__file__).resolve().parent
 SHARED = {"factories.py", "conftest.py"}
 # Names that stand for one helper, so a definition outside the shared modules is a copy.
@@ -37,6 +41,7 @@ def helpers() -> list[tuple[str, Path, str]]:
     return found
 
 
+@pytest.mark.time_limit(LOADED_TEST_TIME_LIMIT)
 def test_each_merged_helper_is_defined_only_in_a_shared_module() -> None:
     where = defaultdict(list)
     for name, path, _ in helpers():
@@ -52,6 +57,7 @@ def test_each_merged_helper_is_defined_only_in_a_shared_module() -> None:
     assert not problems, f"each must be defined in {sorted(SHARED)} only: {problems}"
 
 
+@pytest.mark.time_limit(LOADED_TEST_TIME_LIMIT)
 def test_the_shared_commit_helper_is_not_copied_into_a_test_file() -> None:
     commits = [(path, shape) for name, path, shape in helpers() if name == "commit"]
     shared = {shape for path, shape in commits if path.name in SHARED}
@@ -64,6 +70,7 @@ def test_the_shared_commit_helper_is_not_copied_into_a_test_file() -> None:
     assert not restack, f"the restack tests import the shared commit: {restack}"
 
 
+@pytest.mark.time_limit(LOADED_TEST_TIME_LIMIT)
 def test_no_two_merged_helpers_share_a_name_and_a_body() -> None:
     seen = defaultdict(list)
     for name, path, shape in helpers():
@@ -75,6 +82,7 @@ def test_no_two_merged_helpers_share_a_name_and_a_body() -> None:
     assert not duplicated, f"define once in a shared module and import: {duplicated}"
 
 
+@pytest.mark.time_limit(LOADED_TEST_TIME_LIMIT)
 def test_no_test_file_repeats_the_body_of_a_shared_helper_under_any_name() -> None:
     found = helpers()
     shared = {shape: name for name, path, shape in found if path.name in SHARED}
