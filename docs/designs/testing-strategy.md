@@ -531,19 +531,16 @@ Each step can become an OpenSpec change. Order follows dependency.
 - **Hand-run gates are outside the worker budget**, which counts only the runs the pipeline starts.
 - **The planner declares a reorganization as a group mode**, the way it declares `tests_only` and `no_code`.
 - **Renaming and moving functions, fixtures and imports is mechanical in a reorganization; changing an assertion or what a function takes, returns or does is not.**
+- **A tree-wide integration test declares the files it reads**, and the affected selection chooses it when a declared file changes. A
+  conformance test or wide scan does not always run in the gate; CI runs it on every pull request and is the backstop for what the declaration
+  misses. The declaration lives where the test reads: the kit's tree-walk helper takes the files as an argument, and the selection reads the
+  same declaration, so the two cannot drift. A walk with no declaration is refused by the guard that already forbids walking the tree by hand.
+- **The full-text standards file is measured by four measures:** the share of runs that opened it, violations by standard ID split by whether it
+  was opened, the IDs the agent cites against the violations, and a replay comparison of the table alone against the table and the file.
+  Until they are measured the compact table carries every rule that matters most.
 - **A reorganization needs no new test.** The existing tests pass with only mechanical edits (T26); a characterization test is added
   only for moved code that has none; anything more is a behaviour change and is built tests first.
 
 ## Open questions
 
-- **Which tests a tree-wide integration test is affected by.** The affected selection follows the code a test executes. A conformance test
-  or a wide scan reads the whole tree, so any change affects it: either it always runs in the gate, which brings back the cost the scans are
-  being moved out of the unit run for, or it declares the files it reads and is selected by those. The design leans to declaring, with CI as
-  the backstop for the rest. Integration tests that exercise several modules together follow the ordinary selection.
-- **How an agent's use of the full-text standards file is measured**, and what the compact table must carry so it is enough on its own.
-  Four measures are proposed. (1) *Read rate:* the share of tests and implementation runs in which the agent opened the file, from the
-  tool calls the runtime records. (2) *Outcome by read:* the standards-check violations per unit, by standard ID, split by whether the file
-  was opened, so a rule that is violated only when the file is skipped belongs in the compact table. (3) *Citations:* the prompt asks the
-  agent to cite an ID when a choice depends on one; citations against violations show whether the agent knew the rule. (4) *A replay
-  comparison:* the same sample of units built with the table alone and with the table and file, and the first-round pass rate of the standards
-  check compared. Until measured, the table carries every rule that matters most, and the file holds reasons and examples.
+None open. The two that remained are decided below.
