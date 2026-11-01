@@ -13,7 +13,7 @@ from agent_build_kit.trackers.base import Item, ItemKind
 from agent_build_kit.trackers.config import TrackerSection
 from agent_build_kit.trackers.local import LocalTracker
 from agent_build_kit.trackers.reconciler import PassReport, reconcile
-from tests.trackers.board_support import CHANGE, REPO_URL, write_change
+from tests.trackers.board_support import CHANGE, browse_example, write_change
 
 READS = frozenset(
     {"capabilities", "identity", "get", "children", "changed_since", "find_by_marker"}
@@ -146,7 +146,7 @@ class World:
             changes_dir=self.changes_dir,
             changes=changes,
             units=units,
-            repo_url=REPO_URL,
+            browse=browse_example,
             state_dir=self.state_dir,
             log=self.logs.append,
         )

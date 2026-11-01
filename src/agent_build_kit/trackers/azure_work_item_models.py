@@ -60,6 +60,15 @@ class WiqlDoc(_Doc):
     work_items: tuple[WiqlRefDoc, ...] = Field(default=(), alias="workItems")
 
 
+class ProjectRefDoc(_Doc):
+    id: str
+
+
+class RepositoryDoc(_Doc):
+    id: str
+    project: ProjectRefDoc
+
+
 class PropertyDoc(_Doc):
     value: str = Field(default="", alias="$value")
 

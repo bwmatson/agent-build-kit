@@ -123,6 +123,9 @@ class LocalForge:
     def web_url(self, repo: RepoId, *, pr: int | None = None) -> str:
         return ""
 
+    def browse_url(self, repo: RepoId, *, branch: str, path: str) -> str:
+        return ""
+
     def check_access(self, repo: RepoId, *, run: Run | None = None) -> str:
         return ""
 

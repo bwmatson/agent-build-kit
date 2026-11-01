@@ -359,7 +359,10 @@ handed out, which is what lets a pass end. The caps apply to every
 evaluation, and `--only` narrows every one. The tick and each of those
 refreshes run the same round (`run_round`): the usage check, fetch and poll,
 planning, reclaim, the notification reconciliation, verification and archive, the
-closes and replies owed, the state-label sweep, then readiness. A change added or
+closes and replies owed, the state-label sweep, the tracker step (which pushes the wanted board of each repo that names
+a tracker, once its kind is registered; a state change only marks the mirror dirty and makes
+no tracker call, and a pull request description links the board items of the groups a unit
+built), then readiness. A change added or
 edited during a pass is planned by its next refresh (a change whose tasks are
 unchanged costs no model call), a unit sent back is let in again, and a step
 that raises is logged while the others still run. Only the model's own

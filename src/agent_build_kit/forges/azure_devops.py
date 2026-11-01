@@ -250,6 +250,12 @@ class AzureDevOpsForge:
         )
         return f"{base}/pullrequest/{pr}" if pr else base
 
+    def browse_url(self, repo: RepoId, *, branch: str, path: str) -> str:
+        return (
+            f"{self.web_url(repo)}?path={quote('/' + path.strip('/'))}"
+            f"&version=GB{quote(branch, safe='')}"
+        )
+
     # --- the wire -------------------------------------------------------------------
 
     def _call(

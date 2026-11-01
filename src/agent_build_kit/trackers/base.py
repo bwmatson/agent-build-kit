@@ -10,7 +10,11 @@ from __future__ import annotations
 from collections.abc import Mapping, Sequence
 from typing import Literal, Protocol
 
+from agent_build_kit.forges.transport import AuthError, HostError, HostUnavailable
 from agent_build_kit.model import Frozen
+
+# What ends a whole pass: the tracker as a whole fails, so every item would fail the same way.
+REPO_FAILURES = (AuthError, HostError, HostUnavailable)
 
 ItemKind = Literal["change", "group", "task"]
 
@@ -82,6 +86,15 @@ class Change(Frozen):
     fields: tuple[str, ...]
     who: str
     when: str
+
+
+PULL_REQUEST_RELATION = "pull_request"
+"""The relation `Tracker.link` is given to attach a pull request to an item."""
+
+
+class NotLinkable(ValueError):
+    """The tracker cannot relate an item to this target (a pull request hosted elsewhere): not a
+    failure, and trying again changes nothing."""
 
 
 class StaleRevision(RuntimeError):

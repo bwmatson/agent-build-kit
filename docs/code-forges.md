@@ -86,6 +86,7 @@ parts are free functions beside it rather than inherited behaviour.
 | `identity(repo)` | everything | a `RepoId` from the repo's abk.yaml entry |
 | `config_entry(repo)` | `abk init` | the keys to write for it — the other side of `requires` |
 | `web_url(repo, pr)` | `diagram` | where a human goes to look |
+| `browse_url(repo, branch, path)` | tracker tick step | the host's page for a path on a branch |
 | `check_access(repo, run)` | `doctor`, `tracks` | "" when this machine can act here |
 | `access_fix(repo)` | `doctor` | what an operator should run about it |
 | `merge_guard(repo, branch, run)` | `doctor` | what stops a merge on the server, "" when nothing does |

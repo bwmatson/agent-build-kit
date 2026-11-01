@@ -45,6 +45,7 @@ OPERATIONS: Mapping[str, OperationSpec] = {
     "identity": _READ,
     "config_entry": _READ,
     "web_url": _READ,
+    "browse_url": _READ,
     "check_access": _READ,
     "access_fix": _READ,
     "merge_guard": _READ,

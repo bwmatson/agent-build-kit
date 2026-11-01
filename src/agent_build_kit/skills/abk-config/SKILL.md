@@ -263,6 +263,8 @@ repos:                        # ordered; a task group's [repo] tag is a key here
       # levels: [change, group]  # kit entities that become items: any ordered subset of
                               # change, group, task; optional `epic: true` (a person-made
                               # top item) and `pr_links` (lowest, all, or a list of levels)
+      # create_cap: 50          # most items one tick creates (>= 1), so a board is built
+                              # over several ticks
       # azure_devops:         # the block named for the kind: organization, project, team,
                               # area_path, iteration_path, types (board type of each level
                               # in use and of epic), states (kit state -> board state),

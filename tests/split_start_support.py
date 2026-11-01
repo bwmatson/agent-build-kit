@@ -23,6 +23,8 @@ def gate_round(monkeypatch: pytest.MonkeyPatch) -> None:
     stub_round(monkeypatch)
     monkeypatch.setattr(cli, "verify_ready", lambda inst, units, **kwargs: lambda change: True)
     monkeypatch.setattr(cli, "has_thread", lambda inst, unit_id: True)
+    # The board push reads the tracker too; a round under test counts only the start gate's calls.
+    monkeypatch.setattr(cli, "sync_trackers", lambda *args, **kwargs: None)
 
 
 def fresh(store: UnitStore, uid: str, split: str = "rest", **overrides: Any) -> None:

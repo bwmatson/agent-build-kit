@@ -142,6 +142,9 @@ class StandInForge:
         base = f"https://stand-in.example/{repo.account}/{repo.name}"
         return f"{base}/pull/{pr}" if pr else base
 
+    def browse_url(self, repo: RepoId, *, branch: str, path: str) -> str:
+        return f"{self.web_url(repo)}/tree/{branch}/{path}"
+
     def check_access(self, repo: RepoId, *, run: Run | None = None) -> str:
         return self.access
 
