@@ -6,16 +6,19 @@ a small project is built, recorded and changed here. The tool is fetched with `-
 tests need the network and carry the `integration` marker (run them with `-m integration`).
 
 Found, on Python 3.14.7 with coverage 7.17.0 and pytest-testmon 2.2.0: the commands as the
-profile builds them print no "Dynamic contexts aren't supported" warning and miss no selection,
-so `COVERAGE_CORE=ctrace` is not pinned. Forcing `COVERAGE_CORE=sysmon` in the environment does
-make the warning appear, so the check below can see it. An empty selection exits 0 ("deselected"
-or, under xdist, "no tests ran"), not 5; the pipeline counts both as a pass.
+profile builds them print no "Dynamic contexts aren't supported" warning. That is not enough:
+under the default core a recording links fewer tests to a module than call it when several tests
+call one function in one process, so the selection under-selects, and `COVERAGE_CORE=ctrace` is
+pinned with a testmon environment of its own. Forcing `COVERAGE_CORE=sysmon` in the environment
+does make the warning appear, so the check below can see it. An empty selection exits 0
+("deselected" or, under xdist, "no tests ran"), not 5; the pipeline counts both as a pass.
 """
 
 from __future__ import annotations
 
 import os
 import re
+import sqlite3
 import subprocess
 from pathlib import Path
 
@@ -238,3 +241,110 @@ def test_a_change_only_the_serial_pass_reaches_selects_nothing_in_the_parallel_p
 
     assert empty(parallel.stdout), parallel.stdout
     assert failed(serial.stdout) == {"test_serial_add"}
+
+
+CORE = "COVERAGE_CORE=ctrace"
+TESTMON_ENV = "--testmon-env=ctrace"
+
+CROWD_CALC = """\
+def scale(x):
+    return x * 2
+"""
+
+CROWD_TESTS = """\
+from calc import scale
+
+
+def test_one():
+    assert scale(1) == 2
+
+
+def test_two():
+    assert scale(2) == 4
+
+
+def test_three():
+    assert scale(3) == 6
+
+
+def test_zero():
+    assert scale(0) == 0
+
+
+def test_negative():
+    assert scale(-1) == -2
+"""
+CROWD = {"test_one", "test_two", "test_three", "test_zero", "test_negative"}
+BROKEN_CROWD_CALC = CROWD_CALC.replace("x * 2", "x * 3")
+
+
+class Crowd:
+    """Several tests that call one function of one module, run in a single process."""
+
+    def __init__(self, project: Tiny) -> None:
+        self.project = project
+        project.root.joinpath("calc.py").write_text(CROWD_CALC)
+        project.root.joinpath("tests", "test_calc.py").write_text(CROWD_TESTS)
+
+    def record(self, *, strip: tuple[str, ...] = ()) -> None:
+        command = PROFILE.seeding_command(self.project.serial, self.project.seed)
+        done = self.project.run([word for word in command if word not in strip])
+        assert done.returncode == 0, done.stdout + done.stderr
+
+    def links(self) -> set[str]:
+        """The tests the data file links to calc.py, by the tables testmon keeps them in."""
+        with sqlite3.connect(self.project.seed) as data:
+            rows = data.execute(
+                "SELECT DISTINCT te.test_name FROM test_execution te"
+                " JOIN test_execution_file_fp tf ON tf.test_execution_id = te.id"
+                " JOIN file_fp f ON f.id = tf.fingerprint_id WHERE f.filename = 'calc.py'"
+            ).fetchall()
+        return {re.sub(r".*::", "", name) for (name,) in rows}
+
+    def environments(self) -> set[str]:
+        with sqlite3.connect(self.project.seed) as data:
+            return {name for (name,) in data.execute("SELECT environment_name FROM environment")}
+
+
+@pytest.fixture
+def crowd(tmp_path: Path) -> Crowd:
+    return Crowd(Tiny(tmp_path / "crowd"))
+
+
+@pytest.mark.parametrize("select", [False, True])
+def test_the_recording_and_the_selection_pin_the_coverage_core(crowd: Crowd, select: bool) -> None:
+    command = PROFILE.seeding_command(crowd.project.serial, crowd.project.seed, select=select)
+
+    assert CORE in command
+    assert TESTMON_ENV in command
+
+
+def test_every_test_that_calls_a_function_is_linked_to_its_module(crowd: Crowd) -> None:
+    crowd.record()
+
+    assert crowd.links() == CROWD
+
+
+def test_a_selection_after_a_behavioural_change_runs_every_test_a_full_run_fails(
+    crowd: Crowd,
+) -> None:
+    crowd.record()
+    crowd.project.root.joinpath("calc.py").write_text(BROKEN_CROWD_CALC)
+
+    everything = crowd.project.run([*crowd.project.serial, "-v"])
+    selected = crowd.project.select([*crowd.project.serial, "-v"])
+
+    assert len(failed(everything.stdout)) >= 3, everything.stdout
+    assert failed(everything.stdout) <= failed(selected.stdout), selected.stdout
+
+
+def test_data_recorded_in_another_environment_is_not_read_and_the_tests_run_in_full(
+    crowd: Crowd,
+) -> None:
+    crowd.record(strip=(CORE, TESTMON_ENV))
+    assert crowd.environments() == {"default"}
+
+    selected = crowd.project.select([*crowd.project.serial, "-v"])
+
+    assert ran(selected.stdout) == CROWD, selected.stdout
+    assert "ctrace" in crowd.environments()
