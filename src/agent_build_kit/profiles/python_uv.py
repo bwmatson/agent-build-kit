@@ -248,6 +248,10 @@ _PRE_COMMIT_RUN = re.compile(r"\bpre-commit run\b")
 
 # The plugin that records, for each test, the source it executed, and selects by it.
 TESTMON = "pytest-testmon"
+# The default coverage core records a test's dependencies incompletely when several tests call
+# one function in a process; the data of the pinned core is kept in an environment of its own.
+_COVERAGE_CORE = "COVERAGE_CORE=ctrace"
+_TESTMON_ENV = "--testmon-env=ctrace"
 # What the plugin prints when something switches its selection off, up to the end of the
 # reason: `testmon: selection automatically deactivated because -m was used`.
 _SELECTION_DEACTIVATED = re.compile(
@@ -806,10 +810,12 @@ class PythonUvProfile:
         return [
             "env",
             f"TESTMON_DATAFILE={seed}",
+            _COVERAGE_CORE,
             *command[:program],
             *["--with", TESTMON],
             *command[program : program + 1],
             flag,
+            _TESTMON_ENV,
             *command[program + 1 :],
             *louder,
         ]

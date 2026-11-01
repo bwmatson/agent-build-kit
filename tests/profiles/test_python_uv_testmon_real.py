@@ -32,7 +32,7 @@ NO_TESTS_COLLECTED = 5
 DYNAMIC_CONTEXTS = "Dynamic contexts aren't supported"
 # The header line pytest-testmon 2.2.0 printed when `-m` switched its selection off.
 DEACTIVATED_HEADER = (
-    "testmon: selection automatically deactivated because -m was used, environment: default"
+    "testmon: selection automatically deactivated because -m was used, environment: ctrace"
 )
 
 PYPROJECT = """\
@@ -251,8 +251,13 @@ def scale(x):
     return x * 2
 """
 
+# Marked serial so the profile's serial pass, one process without xdist, runs all of them.
 CROWD_TESTS = """\
+import pytest
+
 from calc import scale
+
+pytestmark = pytest.mark.serial
 
 
 def test_one():
