@@ -1,6 +1,6 @@
 """One HTTP transport for code hosts: credentials by owner, a timeout on every
 call, and the rules for answers that are not the expected one. It makes each call
-once and raises on the first failure; `resilient.py` decides what to repeat."""
+once and raises on the first failure; `resilient_base.py` decides what to repeat."""
 
 from __future__ import annotations
 
