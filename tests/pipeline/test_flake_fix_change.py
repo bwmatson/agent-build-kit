@@ -8,7 +8,6 @@ writes is tested in `test_regression_agent_change.py`.
 
 from __future__ import annotations
 
-import argparse
 import re
 import threading
 from collections.abc import Iterator
@@ -105,16 +104,6 @@ def test_the_agent_writes_the_change_a_flake_waits_on(installation: Installation
     assert name == flake_change_name(TEST)
     root = installation.changes_dir / name
     assert {"proposal.md", "design.md", "tasks.md"} <= {p.name for p in root.iterdir()}
-
-
-def test_the_written_change_passes_abk_tags(installation: Installation) -> None:
-    code_repo(installation)
-    unit = change_with_unit(installation, "feature", "feature/1")
-    name = wait_on_fix(installation, flaked(), unit)
-
-    args = argparse.Namespace(all=False, change=name)
-
-    assert cli.cmd_tags(args, installation) == 0
 
 
 # --- who waits ---------------------------------------------------------------------

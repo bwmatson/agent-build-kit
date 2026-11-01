@@ -6,11 +6,9 @@ The agent is the stand-in every test gets (`tests/regression_agent_fakes.py`).
 
 from __future__ import annotations
 
-import argparse
 import re
 import threading
 
-from agent_build_kit.cli import pipeline as cli
 from agent_build_kit.installation import Installation
 from agent_build_kit.pipeline.flakes import fix_change_name, flake_change_name
 from agent_build_kit.pipeline.regression_agent import FixKind
@@ -58,14 +56,6 @@ def test_a_long_id_is_capped_with_a_hash_of_the_whole() -> None:
     assert first.startswith("fix-test-") and len(first) <= 70
     assert first != second, "the hash tells the cut ones apart"
     assert re.search(r"-[0-9a-f]{8}$", first)
-
-
-def test_the_written_change_passes_abk_tags(installation: Installation) -> None:
-    code_repo(installation)
-    unit = change_with_unit(installation, "feature", "feature/1")
-    name = ensured(installation, unit)
-
-    assert cli.cmd_tags(argparse.Namespace(all=False, change=name), installation) == 0
 
 
 def test_an_open_flake_fix_of_the_same_test_is_the_change_found(

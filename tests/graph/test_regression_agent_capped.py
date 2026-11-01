@@ -29,7 +29,8 @@ from tests.graph.test_failed_on_base_callers import (
 from tests.graph.test_open_fix_waited_on import TASKS
 from tests.graph_driver import fresh, tick
 from tests.pipeline.test_flake_fix_change import waits_on
-from tests.regression_agent_fakes import DefaultAgent, openspec_checking
+from tests.regression_agent_fakes import DefaultAgent
+from tests.regression_agent_support import openspec_checking
 from tests.runner_fakes import Recorder
 
 REQUEUE = ResumeEvent(kind=EventKind.REQUEUE, requeue=RequeueReason.RESUME, reason="again")

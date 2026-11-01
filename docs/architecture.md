@@ -1502,7 +1502,11 @@ approved.
   and archived. `abk tick --dry-run` prints `exists: <change>` or `would write: <change>` for
   each recorded test, even when no unit is pending, and writes nothing. A unit waits on a
   flake's fix and on a pre-existing one until it merges. `abk status` lists each as
-  `pre-existing:` with its count, fix change and the agent's judgement.
+  `pre-existing:` with its count, fix change and the agent's judgement. A change the agent
+  could not judge, or whose checks it failed twice, is held as work handed to someone outside
+  the kit (`external.yaml`, holder `a person`): the planner leaves it alone, `abk status` says
+  why, and `abk external release <change> --groups <n>` gives it back. A unit that needs it
+  stays gated while its folder exists, tasks or not (`awaiting_planning`).
 - **A unit behind a fix waits, and is told only of its own failures.** When every failure of a
   e2e-test run is pre-existing, the node (`Nodes.wait_for_preexisting`) records each through the
   runner's `on_preexisting` (`wiring.build_on_preexisting`), gives each group of the unit a

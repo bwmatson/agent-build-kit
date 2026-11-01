@@ -431,7 +431,7 @@ def _recorder(
     )
 
 
-def _sandbox_policy(
+def sandbox_policy(
     repo: str,
     worktree: Path,
     runtime: AgentRuntime,
@@ -602,7 +602,7 @@ def build_run(
 
         gateway = {"gateway": spend} if source is not None else {}
         try:
-            sandbox = _sandbox_policy(
+            sandbox = sandbox_policy(
                 sandbox_repo, cwd, agent, account, sandbox_tier, sandbox_changes, log or print
             )
         except PolicyRefused as refused:
@@ -2279,8 +2279,9 @@ def build_on_flake(
     def on_flake(unit: Unit, flake: Flake, *, wait: bool = True) -> str | None:
         met = flake.model_copy(update={"unit": unit.id})
         stored = store.get(unit.id)
-        # A failure the base run shows was already failing there is a pre-existing one; one by its
-        # time limit alone was never run on the base, and is a regression.
+        # A failure the base run shows was already failing there is a pre-existing one. One by its
+        # time limit alone was never run on the base, and so is a test an open change already
+        # covers (it is not rerun at all): both are recorded as regressions.
         kind = (
             FixKind.FLAKY
             if not flake.failing

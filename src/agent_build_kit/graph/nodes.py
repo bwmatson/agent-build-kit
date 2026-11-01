@@ -2058,10 +2058,10 @@ class BuildPath:
         if is_fix_change(unit.change):
             return None
         flakes = found.flakes if isinstance(found, FlakeFound) else found.failures
-        fixes, _, capped = meet_all(partial(r.on_flake, unit, flake) for flake in flakes)
-        if capped is not None:
-            return self.park_for_fix(capped.note)
-        if not any(fixes):
+        met = meet_all(partial(r.on_flake, unit, flake) for flake in flakes)
+        if met.capped:
+            return self.park_for_fix(met.note)
+        if not any(met.answers):
             return None
         return self.park_for_fix(
             waiting_note([flake.test for flake in flakes], failing=isinstance(found, FailedOnBase))
@@ -2075,11 +2075,10 @@ class BuildPath:
         Any other unit is failed for them."""
         flakes = found.flakes if isinstance(found, FlakeFound) else found.failures
         if is_fix_change(self.unit.change):
-            fixes, held, _ = meet_all(
+            met = meet_all(
                 partial(self.runner.on_flake, self.unit, flake, wait=False) for flake in flakes
             )
-            # One the hour's cap holds back is recorded without a change and does not fail it.
-            if all(fix for fix, capped in zip(fixes, held, strict=True) if not capped):
+            if met.all_answered:
                 return True, ""
         return False, flakes[0].output
 
@@ -2557,17 +2556,13 @@ class BuildPath:
         except FlakeFound as found:
             if found.scoped:
                 # The move did not cause it: recorded, and the unit goes on without waiting.
-                fixes, held, _ = meet_all(
+                met = meet_all(
                     partial(r.on_flake, unit, flake, wait=False) for flake in found.flakes
                 )
                 # A unit of the flake's own fix change has no fix to lean on: the flake is
                 # a unit-test failure its agent is told of. One the hour's cap holds back is
                 # recorded without a change and does not count against the unit.
-                ok, output = (
-                    (True, "")
-                    if all(fix for fix, capped in zip(fixes, held, strict=True) if not capped)
-                    else (False, found.flakes[0].output)
-                )
+                ok, output = (True, "") if met.all_answered else (False, found.flakes[0].output)
             elif (parked := self.wait_for_fix(found)) is not None:
                 return parked
             else:
@@ -2684,12 +2679,13 @@ class BuildPath:
         fix, or it builds the fix itself."""
         r, unit = self.runner, self.unit
         wait = not (verdict.own or verdict.broken)
-        fixes, _, capped = meet_all(
+        met = meet_all(
             partial(r.on_preexisting, unit, verdict, failure, wait=wait)
             for failure in verdict.pre_existing
         )
-        if capped is not None:
-            return self.park_for_fix(capped.note) if wait else None
+        if met.capped:
+            return self.park_for_fix(met.note) if wait else None
+        fixes = met.answers
         if not wait or not any(fixes):
             return None
         # Only the tests that got a fix change: one the record refused (an unknown or blocked

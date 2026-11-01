@@ -210,13 +210,21 @@
   unit-test failure start the agent once per test, and the unit waits on the change it
   writes, and no change is written from a template any more. The agent works in a detached
   worktree of the failure's own base (the parent's branch tip for a stacked unit), reads the
-  git history (`log`, `show`, `blame`, `diff`) and runs the repo's own test commands, and
-  nothing that moves the checkout or reaches the code host. Its proposal states which side is
-  wrong on a `Judgement:` line, which `abk status` and `abk explain` show beside the change,
-  and each failure is recorded with its kind and linked to the change. A unit whose run
+  git history (`log`, `show`, `blame`, `diff`) and is granted the repo's own test commands,
+  and nothing that moves the checkout or reaches the code host. It runs under the same
+  sandbox as a build step (the system folders, the runtime's and the toolchain's paths and
+  hosts), writing only its change directory and never the checkout, so a test command it is
+  granted runs only where the toolchain can prepare its environment under those paths. Its
+  proposal states which side is wrong on a `Judgement:` line and the test on a
+  `Failing test:` line, and `abk status` and `abk explain` show the judgement beside the
+  change. Each failure is recorded with its kind and linked to the change, and the agent is
+  told the earlier failures of both records. A unit whose run
   `global_limits.max_regression_runs_per_hour` holds back waits, not failed, and goes on once
-  the hour has room. A change held for a person is waited on and the agent is not run again
-  for it, while a change directory a dead run left is written again.
+  the hour has room. A change the agent could not judge, or that failed its checks twice, is
+  held like work handed to someone outside the kit: the planner leaves it alone, `abk status`
+  says why and `abk external release <change> --groups <n>` gives it back; units waiting on it
+  stay gated, and the agent is not run again for it, while a change directory a dead run left
+  is written again.
 
 - A unit of a fix change no longer waits on another fix change. A test that fails in its
   checks and also fails on the base is recorded as pre-existing and set aside, and its fix

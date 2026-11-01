@@ -94,21 +94,26 @@ def test_the_list_has_no_cap(told: str) -> None:
     assert re.search(r"(no|not any) (limit|cap)|do not (limit|cap)|every test", told)
 
 
-def test_the_agent_is_not_asked_to_run_the_tests_and_is_given_no_tool_that_does(
-    installation: Installation, tmp_path: Path
+def test_the_prompt_forbids_running_the_listed_tests_and_the_fixed_tools_hold_no_runner(
+    confined_installation: Installation, tmp_path: Path
 ) -> None:
-    request = agent_request(installation, tmp_path)
+    request = agent_request(confined_installation, tmp_path)
 
     assert re.search(r"do not run|never run|not run", flat(request.prompt).lower())
-    # What follows `TOOLS` is the repo's own commands for running the one failing test (spec:
-    # regression-agent); the listed tests are searched, not run, so nothing broader is granted.
-    assert request.allowed_tools.startswith(TOOLS)
     for granted in TOOLS.split():
         assert not RUNNERS.search(granted), f"{granted} would run the listed tests"
-    for granted in request.allowed_tools.removeprefix(TOOLS).split():
-        assert not re.search(r"Bash\(\*\)|^Bash$", granted), f"{granted} would run anything"
+    # What follows `TOOLS` is exactly the repo's own commands for running the one failing test
+    # (spec: regression-agent), a test-purpose command of the python-uv profile here, and nothing
+    # that runs any other test.
+    assert request.allowed_tools.startswith(TOOLS)
+    assert request.allowed_tools.removeprefix(TOOLS).strip() == (
+        "Bash(uv run pytest -q*) Bash(uv run pytest -q *)"
+    )
     assert request.policy is not None and request.policy.sandbox is not None
-    assert request.policy.sandbox.write == (request.planning_change_dir,)
+    sandbox = request.policy.sandbox
+    assert request.planning_change_dir is not None
+    assert request.planning_change_dir.resolve() in sandbox.write
+    assert request.cwd is not None and request.cwd.resolve() not in sandbox.write
 
 
 # The builder and the reviewer

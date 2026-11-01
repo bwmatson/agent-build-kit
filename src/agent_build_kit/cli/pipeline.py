@@ -994,10 +994,14 @@ def cmd_status(args: argparse.Namespace, inst: Installation) -> int:
             f"passed alone ({storm.at:%Y-%m-%d %H:%M} UTC), no fix changes"
         )
 
+    on_base = {e.test for e in flake_record(inst).entries() if e.failing and e.base_output}
     for failed in flake_record(inst).counts(lambda entry: entry.failing):
         times = f"{failed.count} time{'' if failed.count == 1 else 's'}"
+        # "On its base" only where a base run showed it: a failure by its time limit alone, and
+        # a test an open change already covers, were not run there.
+        where = "failed on its base" if failed.test in on_base else "failed"
         log(
-            f"  failing: {failed.test} — failed on its base {times}, "
+            f"  failing: {failed.test} — {where} {times}, "
             f"fix {failed.change or 'not written yet'}" + _judged(inst, failed.change)
         )
 
@@ -2906,8 +2910,8 @@ def deliver_committed(inst: Installation, store: UnitStore) -> None:
 def awaiting_planning(inst: Installation, unit: StoredUnit, units: list[StoredUnit]) -> list[str]:
     """The `Needs:` lines of the unit's groups whose target is an open change
     with no planned unit yet, as `change group N`: nothing exists to wait on, so a gate
-    that looked only at units would find it clear. A target that is no longer an open
-    change has been archived, which is merged."""
+    that looked only at units would find it clear. A target whose folder is gone has been
+    archived, which is merged."""
     planned = {
         (member.change, group)
         for other in units
@@ -2922,8 +2926,10 @@ def awaiting_planning(inst: Installation, unit: StoredUnit, units: list[StoredUn
             continue
         for group in member.groups:
             for need in group_needs(tasks).get(group, []):
-                target = inst.changes_dir / need.change / "tasks.md"
-                if (need.change, need.group) not in planned and target.is_file():
+                # An open change is a folder, with or without tasks yet: one held for a person
+                # has none, and its unit still waits.
+                target = inst.changes_dir / need.change
+                if (need.change, need.group) not in planned and target.is_dir():
                     waiting.append(f"{need.change} group {need.group}")
     return waiting
 

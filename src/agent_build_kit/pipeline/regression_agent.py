@@ -20,11 +20,13 @@ from agent_build_kit.model import Frozen
 from agent_build_kit.pipeline import spans
 from agent_build_kit.pipeline.call_record import recorded
 from agent_build_kit.pipeline.check_runner import worktree_at
+from agent_build_kit.pipeline.external_file import HELD, Hold, add_hold, already_held, read_holds
 from agent_build_kit.pipeline.file_lock import atomic_write_text, file_lock
 from agent_build_kit.pipeline.flakes import (
+    FAILING_TEST_LABEL,
+    FAILING_TEST_LINE,
     Flake,
     add_needs_to_unit,
-    failure_history,
     fix_change_name,
     flake_record,
     is_fix_change,
@@ -43,8 +45,8 @@ from agent_build_kit.pipeline.work_graph import (
 )
 from agent_build_kit.runtimes import AgentRequest, AgentRuntime
 from agent_build_kit.runtimes.base import ToolPolicy
-from agent_build_kit.sandboxes import Coverage, SandboxPolicy
-from agent_build_kit.sandboxes.policy import git_directory, git_reads
+from agent_build_kit.sandboxes import SandboxPolicy
+from agent_build_kit.sandboxes.policy import PolicyRefused, git_parts
 
 # What the agent ends its answer with when it cannot tell whether the test or the implementation
 # is wrong.
@@ -53,6 +55,8 @@ UNDECIDED = "JUDGEMENT: undecided"
 CHANGE_FILES = ("proposal.md", "design.md", "tasks.md")
 # When each run was started, one timestamp a line, in the state directory.
 RUNS_FILE = "regression-runs.jsonl"
+# Who holds a change whose run ended for a person to look at (see `abk external`).
+HELD_HOLDER = "a person"
 # How long a run counts against `global_limits.max_regression_runs_per_hour`.
 RUN_WINDOW = timedelta(hours=1)
 # What the note of a unit held for the cap starts with.
@@ -62,7 +66,10 @@ CAPPED_NOTE = "waiting for a regression-agent run: "
 # none reaches the code host. A prefix pattern cannot refuse a flag, so `--output=<path>` and
 # `--ext-diff` are not kept out by this list: where a sandbox backend is available, its write
 # list (the change directory only) is what keeps the base checkout read-only; without one the
-# hook sees only the Edit and Write calls.
+# hook sees only the Edit and Write calls. The repo's test commands that follow `TOOLS` run in the
+# agent's checkout under that same sandbox, which writes nothing there: they run where the
+# toolchain can prepare its environment under the paths its profile grants, and are otherwise
+# refused, which the agent reads as a reason to search the code instead of running the test.
 TOOLS = "Read Edit Write Grep Glob Bash(git log*) Bash(git show*) Bash(git blame*) Bash(git diff*)"
 # The line of the proposal that says which side is wrong, and the two things it may say.
 JUDGEMENT_LABEL = "Judgement:"
@@ -111,7 +118,9 @@ and write the one change that fixes it, in the directory `{directory}`: proposal
 the cause, the commit it began at, the base and your judgement; What Changes; Impact),
 design.md, tasks.md and a delta spec under specs/<capability>/spec.md.
 
-State the judgement in proposal.md on a line of its own, worded exactly {judgements}.
+State the judgement in proposal.md on a line of its own, worded exactly {judgements}. Name the
+failing test on a line of its own too, exactly `{failing_label} {test}`: the kit reads it to
+reproduce the failure when the change is built.
 
 The change is named `{change}`. Its tasks.md carries a `Priority:` line and a task group
 flagged `[contract]`. If you cannot decide which side is wrong, end your answer with the line
@@ -194,7 +203,6 @@ def run_regression_agent(
         if (root / "tasks.md").is_file():
             return FixOutcome(change=name)
         root.mkdir(parents=True, exist_ok=True)
-        held_mark(inst, name).unlink(missing_ok=True)  # a run is made again: it is not held
     on_base = (
         f"\nOutput of the same test on the base:\n{base_output.strip()}\n"
         if kind is not FixKind.FLAKY and base_output
@@ -217,6 +225,7 @@ def run_regression_agent(
         output=failure.output.strip(),
         base_section=on_base,
         history="\nEarlier failures of this test:\n" + "\n".join(earlier) if earlier else "",
+        failing_label=FAILING_TEST_LABEL,
         judgements=" or ".join(f"`{JUDGEMENT_LABEL} {each}`" for each in JUDGEMENTS),
         again=(
             f"\nAn earlier change, `{archived}`, fixed this test and was merged and archived; "
@@ -231,6 +240,13 @@ def run_regression_agent(
 
     def attempt(asked: str) -> list[str]:
         nonlocal stopped
+        try:
+            confined = agent_sandbox(inst, unit.repo, cwd, root, runtime)
+        except PolicyRefused as refused:
+            stopped = FixOutcome(
+                change=name, held=True, reason=f"the sandbox policy was refused: {refused}"
+            )
+            return []
         request = AgentRequest(
             prompt=asked,
             role="regression",
@@ -251,15 +267,7 @@ def run_regression_agent(
                 # The checkout is the unit's base: nothing is committed there.
                 no_commit=True,
                 fenced_files=(inst.root / CONFIG_FILENAME,),
-                sandbox=SandboxPolicy(
-                    write=(root,),
-                    # What `git log` and `git blame` open in a linked worktree, read and never
-                    # written, so the history of the base can be searched.
-                    read=(cwd, inst.specs_dir, *git_reads(cwd)),
-                    hosts=(),
-                    required=Coverage.NONE,
-                    no_execute=git_directory(cwd),
-                ),
+                sandbox=confined,
             ),
         )
         result = runtime.run(
@@ -280,7 +288,7 @@ def run_regression_agent(
                 change=name, held=True, reason="the agent could not decide which side is wrong"
             )
         else:
-            return _problems(inst, name, run_openspec)
+            return _problems(inst, name, failure.test, run_openspec)
         return []
 
     try:
@@ -302,24 +310,66 @@ def run_regression_agent(
     )
     if held is None:
         return FixOutcome(change=name)
-    # The run is over and a person looks at it: a directory with no tasks.md is not then one a
-    # dead run left, and the agent is not run again for it.
-    mark = held_mark(inst, name)
-    mark.parent.mkdir(parents=True, exist_ok=True)
-    mark.write_text(held.reason + "\n")
+    # A person looks at it before the kit builds it: the whole change is held, as work handed to
+    # someone outside the kit is (`abk external release <change> --groups <n>` gives it back), so
+    # the planner leaves it alone, `abk status` and `abk explain` say why, and a directory with no
+    # tasks.md is not taken for one a dead run left.
+    hold = Hold(
+        scope="all",
+        holder=HELD_HOLDER,
+        link=held.reason,
+        since=spans.clock.now(),
+        note=held.reason,
+    )
+    if not already_held(root, hold):
+        add_hold(root, hold)
     return held
 
 
-def held_mark(inst: Installation, change: str) -> Path:
-    """The file in the state directory that says the run for `change` ended held for a person.
-    It is kept beside the pipeline's state and not in the change, which stays only what a
-    change holds."""
-    return inst.state_dir / "regression-held" / change
+def agent_sandbox(
+    inst: Installation, repo: str, cwd: Path, root: Path, runtime: AgentRuntime
+) -> SandboxPolicy | None:
+    """The sandbox the agent runs under, from the same parts as a build step's (the system
+    folders, the runtime's and the profile's paths and hosts, the files that load the
+    installation, git's reads) and the same gates (none while `sandbox.enabled` is false or where
+    no backend exists), but with the base checkout and its git directory unwritable: the change
+    directory `root` is the only path of the planning repo it writes."""
+    from agent_build_kit.pipeline import wiring  # imports this module
+
+    built = wiring.sandbox_policy(repo, cwd, runtime, None, changes=(root.name,))
+    if built is None:
+        return None
+    left_out = {cwd.resolve(), *git_parts(cwd)}
+    return built.model_copy(
+        update={
+            "write": (*(path for path in built.write if path not in left_out), root.resolve()),
+            "read": (*built.read, cwd.resolve(), inst.specs_dir.resolve()),
+        }
+    )
 
 
-def _problems(inst: Installation, name: str, run_openspec: openspec.Run | None) -> list[str]:
-    """What is wrong with the change `name`: a file missing, what OpenSpec or the tags check
-    refuses, no `[contract]` group, no `Priority:` line or no judgement line in the proposal."""
+def held_for_a_person(change_dir: Path) -> bool:
+    """Whether the run for the change in `change_dir` ended held for a person and no one has
+    given it back."""
+    return any(h.status == HELD and h.holder == HELD_HOLDER for h in read_holds(change_dir))
+
+
+def failure_history(inst: Installation, test: str, *, evidence: bool = False) -> list[str]:
+    """One line for each recorded failure of `test`, in the flake record and in the pre-existing
+    one, oldest first, with the evidence of its run when `evidence` is set."""
+    rows = [*flake_record(inst).entries(), *preexisting_record(inst).entries()]
+    return [
+        f"- {e.at:%Y-%m-%d %H:%M} UTC, unit {e.unit}" + (f": {e.evidence}" if evidence else "")
+        for e in sorted((row for row in rows if row.test == test), key=lambda row: row.at)
+    ]
+
+
+def _problems(
+    inst: Installation, name: str, test: str, run_openspec: openspec.Run | None
+) -> list[str]:
+    """What is wrong with the change `name` for `test`: a file missing, what OpenSpec or the
+    tags check refuses, no `[contract]` group, no `Priority:` line, no judgement line or no
+    `Failing test:` line naming `test` in the proposal."""
     root = inst.changes_dir / name
     missing = [file for file in CHANGE_FILES if not (root / file).is_file()]
     if not any((root / "specs").glob("*/spec.md")):
@@ -343,6 +393,9 @@ def _problems(inst: Installation, name: str, run_openspec: openspec.Run | None) 
         found.append("tasks.md: no task group is flagged [contract]")
     if not any(PRIORITY_LINE.match(line.strip()) for line in tasks.read_text().splitlines()):
         found.append("tasks.md: no `Priority:` line")
+    named = FAILING_TEST_LINE.search((root / "proposal.md").read_text())
+    if not named or named["test"] != test:
+        found.append(f"proposal.md: no line `{FAILING_TEST_LABEL} {test}` naming the failing test")
     if not JUDGEMENT_LINE.search((root / "proposal.md").read_text()):
         found.append(
             "proposal.md: no judgement line, worded "
@@ -363,24 +416,45 @@ class RegressionRunCapped(Exception):
         super().__init__(self.note)
 
 
-def meet_all[T](
-    calls: Iterable[Callable[[], T]],
-) -> tuple[list[T | None], list[bool], RegressionRunCapped | None]:
-    """Make every call, each of which may raise `RegressionRunCapped`: the answers (None for a
-    capped one), whether each was capped, and the first cap met. A failure the hour's cap holds
-    back does not stop the ones after it from being recorded and waited on."""
-    answers: list[T | None] = []
-    held: list[bool] = []
-    capped: RegressionRunCapped | None = None
+class Met(Frozen):
+    """What the failures of one run came to when each was told to the handler: the change each
+    one waits on (None for a unit of that change itself, and for one the cap held back), which
+    ones the cap held back, and the note of the first."""
+
+    answers: list[str | None]
+    held_back: list[bool]
+    note: str = ""
+
+    @property
+    def capped(self) -> bool:
+        """Whether the hour's cap held back any failure."""
+        return any(self.held_back)
+
+    @property
+    def all_answered(self) -> bool:
+        """Whether every failure the cap did not hold back has a change to lean on. A failure the
+        cap held back is recorded without one and does not count against the unit; one with no
+        change otherwise (the unit is of the change itself) does."""
+        return all(
+            answer for answer, held in zip(self.answers, self.held_back, strict=True) if not held
+        )
+
+
+def meet_all(calls: Iterable[Callable[[], str | None]]) -> Met:
+    """Make every call, each of which may raise `RegressionRunCapped`. A failure the hour's cap
+    holds back does not stop the ones after it from being recorded and waited on."""
+    answers: list[str | None] = []
+    held_back: list[bool] = []
+    note = ""
     for call in calls:
         try:
             answers.append(call())
-            held.append(False)
+            held_back.append(False)
         except RegressionRunCapped as stopped:
             answers.append(None)
-            held.append(True)
-            capped = capped or stopped
-    return answers, held, capped
+            held_back.append(True)
+            note = note or stopped.note
+    return Met(answers=answers, held_back=held_back, note=note)
 
 
 def _run_times(inst: Installation) -> list[datetime]:
@@ -440,7 +514,8 @@ def wait_on_regression(
         # A directory without a tasks.md was left by a run that died and is written again, unless
         # the run ended held for a person, which is waited on as it is.
         if name is None or not (
-            (inst.changes_dir / name / "tasks.md").is_file() or held_mark(inst, name).is_file()
+            (inst.changes_dir / name / "tasks.md").is_file()
+            or held_for_a_person(inst.changes_dir / name)
         ):
             _take_run(inst, failure.test, now or spans.clock.now())
             checkout = inst.checkouts[unit.repo]

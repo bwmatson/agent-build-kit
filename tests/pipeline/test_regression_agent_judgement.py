@@ -15,8 +15,7 @@ from agent_build_kit.pipeline.regression_agent import (
     FixOutcome,
     judgement_of,
 )
-from tests.pipeline.test_regression_agent_change import run
-from tests.regression_agent_fakes import PROPOSAL, TEST, Attempts
+from tests.regression_agent_support import PROPOSAL, TEST, Attempts, run
 
 WITHOUT_LINE = PROPOSAL.replace("- Judgement: the implementation is wrong.\n", "")
 IN_PROSE = WITHOUT_LINE.replace(

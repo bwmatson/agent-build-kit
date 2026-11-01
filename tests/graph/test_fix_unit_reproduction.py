@@ -39,7 +39,7 @@ NOT_REPRODUCED = "not reproduced: 0 of 5 runs alone, 0 of 5 under load"
 def tasks_of(test: str) -> str:
     return (
         "# Tasks\n\n"
-        f"## 1. [app] [unit-test] Make `{test}` deterministic\n\n"
+        f"## 1. [app] [unit-test] Read the label of {test.rpartition('::')[2]} when rendered\n\n"
         "- [ ] 1.1 Test: reproduce it\n- [ ] 1.2 Make it pass\n"
     )
 
@@ -65,6 +65,10 @@ def fix_unit(
     tasks = installation.changes_dir / change / "tasks.md"
     tasks.parent.mkdir(parents=True, exist_ok=True)
     tasks.write_text(text if text is not None else tasks_of(TEST))
+    # What the regression agent writes to name the test, whatever its group is titled; a test
+    # that gives its own tasks gives a change that names none.
+    named = f"- Failing test: {TEST}\n" if text is None else ""
+    (tasks.parent / "proposal.md").write_text(f"## Why\n\n{named}")
     recorder = fresh(tmp_path)
     uid = f"{change}/1"
     recorder.store.upsert([stored_unit(uid, change=change, groups=(1,))])
@@ -382,7 +386,7 @@ def test_a_no_change_build_of_a_test_only_group_keeps_the_statement_and_the_coun
     cause = "the race was removed by commit 4f2a9c1"
     recorder, _ = prepared(
         tmp_path,
-        groups={"add-marker": {1: (f"Make `{TEST}` deterministic", "")}},
+        groups={"add-marker": {1: ("Read the label when it is rendered", "")}},
         e2e=(1,),
         no_tests_for="1",
         tests_accounts={"1": cause},

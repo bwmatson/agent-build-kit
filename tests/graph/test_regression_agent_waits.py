@@ -28,13 +28,13 @@ from tests.graph.test_failed_on_base_callers import FAILING, raising
 from tests.graph.test_open_fix_waited_on import failing
 from tests.graph_driver import tick
 from tests.pipeline.test_flake_fix_change import TEST, waits_on
-from tests.regression_agent_fakes import Attempts, openspec_checking
+from tests.regression_agent_support import Attempts, openspec_checking
 
 AGENT_TASK = "Read the label at render time."
 
 
 def agent_for(inst: Installation, test: str) -> Attempts:
-    return Attempts(inst, next_fix_name(inst, test), {})
+    return Attempts(inst, next_fix_name(inst, test), {"test": test})
 
 
 def test_a_failure_on_the_base_starts_the_agent_once_and_parks_the_unit_on_its_change(

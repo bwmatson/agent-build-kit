@@ -22,9 +22,9 @@ from agent_build_kit.runtimes import AgentRequest
 from tests.e2e_base_fakes import branch, pytest_output
 from tests.factories import commit, git, init_repo, stored_unit
 from tests.pipeline.test_flake_isolation import HookedProfile
-from tests.pipeline.test_regression_agent_change import failure
 from tests.pipeline.test_unit_test_base_check import REASON, TEST, TIMEOUT
 from tests.regression_agent_fakes import DefaultAgent
+from tests.regression_agent_support import failure
 
 BASE_HEADING = "Output of the same test on the base"
 BASE_REASON = "assert on_the_base == 2"

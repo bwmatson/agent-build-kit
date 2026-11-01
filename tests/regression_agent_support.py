@@ -35,6 +35,7 @@ PROPOSAL = """\
 - Since: commit 3f9c2a1d, 2026-02-11.
 - Base: {base}
 - Judgement: the implementation is wrong.
+- Failing test: {test}
 
 ## What Changes
 
@@ -107,24 +108,30 @@ def openspec_checking(inst: Installation):
     return validate
 
 
-def writes(
-    inst: Installation,
-    name: str,
+def write_change(
+    root: Path,
     *,
     flag: str = " [contract]",
     priority: str = "Priority: 1\n\n",
     spec: str = SPEC,
     tasks: str = "",
     exposure: str = NO_EXPOSURE,
+    proposal: str = PROPOSAL,
+    test: str = TEST,
 ) -> None:
-    """The files of a complete change named `name`; `tasks` replaces the whole tasks.md and
-    `exposure` is the proposal's `Same exposure` section, left out when empty."""
-    root = inst.changes_dir / name
+    """The files of a complete change for `test` in `root`; `tasks` replaces the whole tasks.md,
+    `exposure` is the proposal's `Same exposure` section, left out when empty, and `proposal`
+    replaces the whole proposal."""
     (root / "specs" / "label").mkdir(parents=True, exist_ok=True)
-    (root / "proposal.md").write_text(PROPOSAL.format(test=TEST, base=BASE, exposure=exposure))
+    (root / "proposal.md").write_text(proposal.format(test=test, base=BASE, exposure=exposure))
     (root / "design.md").write_text("## Context\n\nThe label is read too early.\n")
     (root / "tasks.md").write_text(tasks or TASKS.format(flag=flag, priority=priority))
     (root / "specs" / "label" / "spec.md").write_text(spec)
+
+
+def writes(inst: Installation, name: str, **parts: str) -> None:
+    """The files of a complete change named `name` in the planning repo."""
+    write_change(inst.changes_dir / name, **parts)
 
 
 class Attempts:

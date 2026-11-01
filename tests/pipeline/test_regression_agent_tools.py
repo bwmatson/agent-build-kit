@@ -19,8 +19,14 @@ from agent_build_kit.pipeline.regression_agent import FixKind, run_regression_ag
 from agent_build_kit.runtimes import AgentRequest
 from tests.conftest import make_installation
 from tests.factories import commit, git, init_repo, stored_unit
-from tests.pipeline.test_regression_agent_change import failure, run
-from tests.regression_agent_fakes import BASE, TEST, Attempts, openspec_checking
+from tests.regression_agent_support import (
+    BASE,
+    TEST,
+    Attempts,
+    failure,
+    openspec_checking,
+    run,
+)
 from tests.sandboxes.policy_support import reads, writes
 
 READ_TOOLS = ("Read", "Grep", "Glob")
@@ -34,6 +40,11 @@ REFUSED = (
     "Bash(gh",
     "gh ",
 )
+
+
+def forge_hosts(hosts: tuple[str, ...]) -> list[str]:
+    """The hosts of `hosts` that are a code host's."""
+    return [host for host in hosts if "github" in host or "gitlab" in host]
 
 
 def request_of(installation: Installation, tmp_path: Path) -> AgentRequest:
@@ -111,8 +122,9 @@ def test_the_request_carries_no_command_that_moves_the_base_or_reaches_the_forge
 
 
 def test_the_sandbox_reads_what_git_log_and_blame_open_in_a_linked_worktree_and_writes_none(
-    installation: Installation, tmp_path: Path
+    confined_installation: Installation, tmp_path: Path
 ) -> None:
+    installation = confined_installation
     repo = init_repo(tmp_path / "history")
     commit(repo, "widget.py", "def label():\n    return 'a'\n")
     base = commit(repo, "widget.py", "def label():\n    return 'b'\n").strip()
@@ -150,7 +162,7 @@ def test_the_sandbox_reads_what_git_log_and_blame_open_in_a_linked_worktree_and_
             assert reads(sandbox, path), path
             assert not writes(sandbox, path), path
         assert not writes(sandbox, tree), "the base checkout is read-only"
-        assert sandbox.hosts == ()
+        assert not forge_hosts(sandbox.hosts)
     assert found == "write widget.py"
     assert "return 'b'" in blamed
 
@@ -180,9 +192,13 @@ def test_a_write_outside_the_change_directory_is_refused_in_the_base_checkout(
     assert answer(installation.changes_dir / "other" / "tasks.md") is not None
 
 
-def test_the_sandbox_has_no_network_host(installation: Installation, tmp_path: Path) -> None:
-    request = request_of(installation, tmp_path)
+def test_the_sandbox_grants_no_forge_host(
+    confined_installation: Installation, tmp_path: Path
+) -> None:
+    # Only the hosts of the runtime and of the toolchain (its package index) are granted, as for
+    # a build step; the history of pull requests and CI runs stays out of reach.
+    request = request_of(confined_installation, tmp_path)
 
     assert request.allowed_tools
     assert request.policy is not None and request.policy.sandbox is not None
-    assert request.policy.sandbox.hosts == ()
+    assert not forge_hosts(request.policy.sandbox.hosts)

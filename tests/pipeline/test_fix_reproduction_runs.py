@@ -78,15 +78,17 @@ def test_a_test_that_is_not_collected_is_gone() -> None:
     assert TEST in found.note and "no longer in the tree" in found.note
 
 
-def test_the_test_of_a_fix_change_is_read_from_its_first_group_heading(tmp_path: Path) -> None:
+def test_the_test_of_a_fix_change_is_read_from_the_failing_test_line_of_its_proposal(
+    tmp_path: Path,
+) -> None:
     installation = make_installation(tmp_path)
-    for name, heading in {
-        "fix-test-a": f"Make `{TEST}` deterministic",
-        "fix-test-b": "Do the work",
+    for name, line in {
+        "fix-test-a": f"- Failing test: {TEST}",
+        "fix-test-b": "- Cause: the label is read at import time.",
     }.items():
-        tasks = installation.changes_dir / name / "tasks.md"
-        tasks.parent.mkdir(parents=True)
-        tasks.write_text(f"# Tasks\n\n## 1. [app] [unit-test] {heading}\n\n- [ ] 1.1 Test: x\n")
+        proposal = installation.changes_dir / name / "proposal.md"
+        proposal.parent.mkdir(parents=True)
+        proposal.write_text(f"## Why\n\n{line}\n")
 
     assert fix_change_test(installation, "fix-test-a") == TEST
     assert fix_change_test(installation, "fix-test-b") is None

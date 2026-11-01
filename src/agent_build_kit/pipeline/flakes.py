@@ -252,33 +252,23 @@ def add_needs(inst: Installation, change: str, group: int, fix: str, reason: str
 # --- what the agent is told ------------------------------------------------------
 
 
-def failure_history(inst: Installation, test: str, *, evidence: bool = False) -> list[str]:
-    """One line for each recorded failure of `test`, oldest first, with the evidence of its run
-    when `evidence` is set."""
-    return [
-        f"- {e.at:%Y-%m-%d %H:%M} UTC, unit {e.unit}" + (f": {e.evidence}" if evidence else "")
-        for e in flake_record(inst).entries()
-        if e.test == test
-    ]
-
-
-FIX_TITLE = re.compile(r"^Make `(?P<test>[^`]+)` deterministic$")
+# The line of a fix change's proposal that names the failing test the change is for, and the
+# pattern that reads it: what the regression agent writes in place of a group title.
+FAILING_TEST_LABEL = "Failing test:"
+FAILING_TEST_LINE = re.compile(
+    rf"^\W*{re.escape(FAILING_TEST_LABEL)}\s*`?(?P<test>[^`\s]+)`?\s*$", re.MULTILINE
+)
 FIRST_ATTEMPTS = 20  # how many successive names of one test's fix change are looked under
 
 
 def fix_change_test(inst: Installation, change: str) -> str | None:
-    """The test the fix change `change` is named for, read from the title of its group 1
-    ("Make `<test>` deterministic"); None when the change has no such group."""
+    """The test the fix change `change` is for: the `Failing test:` line of its proposal, which
+    the regression agent writes and its check requires; None when the change has none."""
     try:
-        lines = (inst.changes_dir / change / "tasks.md").read_text().splitlines()
+        named = FAILING_TEST_LINE.search((inst.changes_dir / change / "proposal.md").read_text())
     except OSError:
         return None
-    for line in lines:
-        heading = GROUP_HEADING.match(line)
-        if heading and int(heading["number"]) == 1:
-            title = FIX_TITLE.match(heading["title"])
-            return title["test"] if title else None
-    return None
+    return named["test"] if named else None
 
 
 def merged_fix_since(inst: Installation, change: str, test: str) -> str | None:

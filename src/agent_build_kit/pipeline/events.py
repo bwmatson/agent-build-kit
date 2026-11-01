@@ -63,7 +63,7 @@ from agent_build_kit.pipeline.pr_poller import (  # noqa: F401 — FAILING_CHECK
     FAILING_CHECKS_REASON,
 )
 from agent_build_kit.pipeline.pr_replies import MARKER, record_posts
-from agent_build_kit.pipeline.regression_agent import meet_all
+from agent_build_kit.pipeline.regression_agent import Met, meet_all
 from agent_build_kit.pipeline.restack import (
     BranchCheckedOut,
     BranchMoved,
@@ -2347,15 +2347,13 @@ def build_restack(
                 # Not this branch's fault, and the suite runs in CI: recorded, and the
                 # branch goes on to its push without waiting for the fix. A unit of a fix
                 # change waits on no other fix, so it goes on for any such failure.
-                recorded, held, _ = (
+                met = (
                     meet_all(partial(on_flake, child, flake, wait=False) for flake in flakes)
                     if on_flake
-                    else ([], [], None)
+                    else Met(answers=[], held_back=[])
                 )
                 # One the hour's cap holds back is recorded without a change; the branch goes on.
-                if on_flake and not all(
-                    fix for fix, capped in zip(recorded, held, strict=True) if not capped
-                ):
+                if not met.all_answered:
                     # A unit of the flake's own fix change: its fix did not work.
                     raise RuntimeError(
                         f"{branch} moved onto {new_base} but its checks fail — "
@@ -2366,12 +2364,12 @@ def build_restack(
             else:
                 # Not this branch's fault: it waits, gated, for the test's fix, as a unit
                 # that met the flake building does, and is moved when it resumes.
-                fixes, _, capped = (
+                met = (
                     meet_all(partial(on_flake, child, flake) for flake in flakes)
                     if on_flake
-                    else ([], [], None)
+                    else Met(answers=[], held_back=[])
                 )
-                if capped is None and not any(fixes):
+                if not met.capped and not any(met.answers):
                     raise RuntimeError(
                         f"{branch} moved onto {new_base} but its checks fail — "
                         f"left unpushed, with the reviewable head still on the remote:\n"
@@ -2379,8 +2377,8 @@ def build_restack(
                     ) from found
                 # Waits for the fix, or for the hour's cap on agent runs to have room.
                 note = (
-                    capped.note
-                    if capped is not None
+                    met.note
+                    if met.capped
                     else waiting_note(
                         [flake.test for flake in flakes], failing=isinstance(found, FailedOnBase)
                     )

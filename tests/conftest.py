@@ -25,6 +25,7 @@ from collections.abc import Callable, Iterator, Sequence
 from pathlib import Path
 
 import pytest
+import yaml
 
 from agent_build_kit import claude_account, forges, sandboxes
 from agent_build_kit import config as config_module
@@ -35,7 +36,7 @@ from agent_build_kit.config import RepoConfig, WorkspaceConfig
 from agent_build_kit.forges import github
 from agent_build_kit.forges.github import GitHubForge
 from agent_build_kit.forges.transport import clear_credentials
-from agent_build_kit.installation import Installation
+from agent_build_kit.installation import Installation, load_installation
 from agent_build_kit.pipeline.unit_store import StoredUnit, UnitStore
 from agent_build_kit.runtimes import claude_code
 from tests import regression_agent_fakes
@@ -483,6 +484,23 @@ def installation(tmp_path: Path) -> Installation:
     """A workspace rooted at the test's own tmp_path (state, specs and graph
     page under it), for tests that write planning-repo files."""
     return make_installation(tmp_path)
+
+
+@pytest.fixture
+def confined_installation(tmp_path: Path) -> Installation:
+    """An installation on disk, as a real load gives it (a policy reads the files that load it),
+    with the sandbox on (the stand-in backend of the directory is behind it) and the repos of
+    `installation`, for a test of the policy a step is confined by."""
+    repos = {
+        name: {"path": str(tmp_path / "checkouts" / name), "slug": f"example/{name}"}
+        for name in ("platform", "app")
+    }
+    (tmp_path / "abk.yaml").write_text(
+        yaml.safe_dump({"repos": repos, "sandbox": {"enabled": True}})
+    )
+    loaded = load_installation(tmp_path / "abk.yaml")
+    loaded.activate()
+    return loaded
 
 
 @pytest.fixture
