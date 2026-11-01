@@ -506,6 +506,8 @@ def promote_ancestors(
     Returns each unit now promoted by this pass as (id, priority, waiter)."""
     promoted: list[tuple[str, int, str]] = []
     units = [unit for unit in store.all() if unit.state not in BUILDS_NOTHING]
+    # Read once: each `store.get` parses the whole file, and a promotion changes only its own unit.
+    recorded = {unit.id: unit for unit in units}
 
     def own_priority(unit: StoredUnit) -> int:
         known = any(
@@ -531,7 +533,7 @@ def promote_ancestors(
             priority, source = best.priority, best.id
         else:
             priority, source = own[unit.id], ""
-        stored = store.get(unit.id)
+        stored = recorded[unit.id]
         if (stored.priority, stored.promoted_from) != (priority, source):
             store.set_promotion(unit.id, priority, source)
             if source:
