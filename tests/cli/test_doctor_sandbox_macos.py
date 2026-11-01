@@ -15,6 +15,8 @@ from tests.cli.test_init_sandbox import rerun
 from tests.factories import which_all
 from tests.sandboxes.seatbelt_support import as_macos, fake_sandbox_exec, no_sandbox_exec
 
+pytestmark = pytest.mark.sandbox_probe
+
 
 def sandbox_checks(config: Path) -> list[Check]:
     checks = run_doctor(config, run=Answers(), which=which_all)

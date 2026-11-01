@@ -16,6 +16,8 @@ from tests.cli.test_doctor import Answers, workspace  # noqa: F401 — fixture
 from tests.factories import which_all
 from tests.sandboxes.policy_support import reads
 
+pytestmark = pytest.mark.sandbox_probe
+
 
 class Confining(CountingBackend):
     """Runs the confined command itself; `refuse` makes the read it carries fail as a sandbox's

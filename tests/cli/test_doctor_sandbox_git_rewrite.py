@@ -16,6 +16,8 @@ from tests.cli.sandbox_cli_support import CountingBackend, switch_on
 from tests.cli.test_doctor import Answers, workspace  # noqa: F401 — fixture
 from tests.factories import which_all
 
+pytestmark = pytest.mark.sandbox_probe
+
 
 class Replacing(CountingBackend):
     """Runs every command as it is. A step that replaces `packed-refs` is refused the new file

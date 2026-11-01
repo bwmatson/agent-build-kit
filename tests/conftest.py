@@ -186,6 +186,32 @@ def no_real_agent(request: pytest.FixtureRequest, monkeypatch: pytest.MonkeyPatc
     monkeypatch.setattr(claude_code, "spawn", refuse)
 
 
+@pytest.fixture(autouse=True)
+def no_sandbox_probes(request: pytest.FixtureRequest, monkeypatch: pytest.MonkeyPatch) -> None:
+    """The `sandbox` check of `abk doctor` starts real processes, one of them a cold `abk`
+    start, and most doctor tests are not about it: under the fixed time limit a run over a
+    configuration that leaves the sandbox on cost seconds it did not need. A doctor run in the
+    suite gets a stand-in that starts nothing; a test of the check marks itself `sandbox_probe`.
+
+    Not applied to a `sandbox_probe`, `local_stack` or `integration` test (on the test, its
+    class or its module): those mean the real check."""
+    if any(
+        request.node.get_closest_marker(name)
+        for name in ("sandbox_probe", "local_stack", "integration")
+    ):
+        return
+
+    def stand_in(*args: object, **kwargs: object) -> doctor.Check:
+        return doctor.Check(
+            name="sandbox",
+            status="info",
+            detail="the sandbox probes are not run in this test",
+            fix="mark the test `sandbox_probe` to run them",
+        )
+
+    monkeypatch.setattr(doctor, "sandbox_check", stand_in)
+
+
 SANDBOX_STAND_IN_DIRECTORIES = frozenset({"pipeline", "cli", "tracks", "config", "init"})
 
 

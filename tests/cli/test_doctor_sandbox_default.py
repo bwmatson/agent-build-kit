@@ -27,6 +27,8 @@ from tests.factories import recognised_planning, which_all
 from tests.runtimes.selectable import SelectableRuntime, select
 from tests.sandboxes.stand_in import StandInBackend
 
+pytestmark = pytest.mark.sandbox_probe
+
 ELSEWHERE = "no-such-platform"
 REPOS = ("app", "platform")
 

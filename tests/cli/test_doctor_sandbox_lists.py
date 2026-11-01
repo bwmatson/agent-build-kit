@@ -5,6 +5,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
 import yaml
 
 from agent_build_kit import claude_account
@@ -90,6 +91,7 @@ def test_a_repo_without_e2e_sandbox_lists_has_no_e2e_check(tmp_path: Path) -> No
     assert check.name == "policy lists app"
 
 
+@pytest.mark.sandbox_probe
 def test_only_one_line_is_printed_while_the_sandbox_is_off(tmp_path: Path) -> None:
     planning = planning_with(tmp_path, sandbox=RepoSandboxConfig(write=[str(tmp_path / "x")]))
 

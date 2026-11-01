@@ -20,6 +20,8 @@ from tests.cli.test_doctor import Answers, workspace  # noqa: F401 — fixture
 from tests.factories import which_all
 from tests.sandboxes.policy_support import reads
 
+pytestmark = pytest.mark.sandbox_probe
+
 REFUSED = "abk install-config: refused: .abk/proposed/none.yaml is not a regular file"
 
 
