@@ -63,11 +63,16 @@ def test_a_failure_the_base_run_showed_is_pre_existing_and_one_by_its_time_limit
         "pre-existing",
         "regression",
     ]
-    kinds = [
-        r.prompt.split("Kind of failure: ")[1].split()[0]
-        for r in no_real_regression_agent.runtime.requests
-    ]
-    assert kinds == ["pre-existing", "regression"]
+    # What each change's agent was told, however many requests it took to get the change
+    # accepted: a rewrite after a refusal asks again with the same kind.
+    told: dict[str | None, set[str]] = {}
+    for request in no_real_regression_agent.runtime.requests:
+        kind = request.prompt.split("Kind of failure: ")[1].split()[0]
+        told.setdefault(request.change, set()).add(kind)
+    assert told == {
+        fix_change_name(MET.test, "fix-test"): {"pre-existing"},
+        fix_change_name(by_time.test, "fix-test"): {"regression"},
+    }
 
 
 def test_a_failure_on_the_base_is_recorded_and_leaves_the_flake_list_alone(
