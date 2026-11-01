@@ -13,7 +13,7 @@ import pytest
 
 from agent_build_kit.forges import PullRequest
 from agent_build_kit.forges.base import Check, CheckStatus
-from agent_build_kit.pipeline.pr_poller import Poller
+from agent_build_kit.pipeline.pr_poller import Poller, PrState
 
 
 def pr(*listed: tuple[str, CheckStatus], number: int = 4) -> PullRequest:
@@ -124,7 +124,7 @@ def test_the_snapshot_records_each_checks_name_and_status(tmp_path: Path) -> Non
 
     poller.poll()
 
-    recorded = json.loads((tmp_path / "poll.json").read_text())["4"]
+    recorded = PrState.load(tmp_path / "poll.json")["4"]
     assert "failing_checks" not in recorded
     assert "cancelled_checks" not in recorded
     text = json.dumps(recorded)
@@ -155,7 +155,7 @@ def test_an_older_snapshot_is_recorded_afresh_and_nothing_is_sent_back(tmp_path:
     poller.poll()
 
     assert seen == []
-    recorded = json.loads((tmp_path / "poll.json").read_text())["4"]
+    recorded = PrState.load(tmp_path / "poll.json")["4"]
     assert "failing_checks" not in recorded
     assert "CI" in json.dumps(recorded)
 
@@ -231,5 +231,5 @@ def test_the_snapshot_keeps_the_most_severe_status_for_a_name(tmp_path: Path) ->
 
     poller.poll()
 
-    recorded = json.loads((tmp_path / "poll.json").read_text())["4"]["checks"]
+    recorded = PrState.load(tmp_path / "poll.json")["4"]["checks"]
     assert recorded == dict(a="pending", b="cancelled", c="failed")

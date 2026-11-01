@@ -27,6 +27,7 @@ from agent_build_kit.config import active
 from agent_build_kit.forges import PullRequest
 from agent_build_kit.forges.base import Check, CheckStatus
 from agent_build_kit.pipeline import spans
+from agent_build_kit.pipeline.file_lock import atomic_write_text, file_lock
 from agent_build_kit.pipeline.unit_store import ReworkKind, StoredUnit
 from agent_build_kit.pipeline.units import CLOSED, IN_REVIEW, MERGED, SETTLING
 from agent_build_kit.pipeline.vocabulary import ChecksOf
@@ -72,19 +73,46 @@ def conflicts(path: Path) -> dict[int, datetime]:
 
 
 class PrState:
-    """The snapshot a poll compares against."""
+    """The snapshot a poll compares against.
+
+    The file holds one section per repo, `{repo: {"collected_at": ..., "prs": {number: ...}}}`;
+    a file from before sections were kept is a bare `{number: ...}` and still reads.
+    """
 
     @staticmethod
-    def load(path: Path) -> dict:
+    def _read(path: Path) -> dict:
         try:
-            return json.loads(path.read_text())
+            raw = json.loads(path.read_text())
         except (OSError, ValueError):
             return {}
+        return raw if isinstance(raw, dict) else {}
 
     @staticmethod
-    def save(path: Path, state: dict) -> None:
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(json.dumps(state, indent=2) + "\n")
+    def _sections(raw: dict) -> dict[str, dict]:
+        return {
+            repo: section
+            for repo, section in raw.items()
+            if isinstance(section, dict) and isinstance(section.get("prs"), dict)
+        }
+
+    @staticmethod
+    def load(path: Path, repo: str | None = None) -> dict:
+        """The pull requests recorded for `repo`, or for every repo if none is named."""
+        raw = PrState._read(path)
+        sections = PrState._sections(raw)
+        if not sections:
+            return raw
+        if repo is not None:
+            return sections.get(repo, {}).get("prs", {})
+        return {n: seen for section in sections.values() for n, seen in section["prs"].items()}
+
+    @staticmethod
+    def save(path: Path, state: dict, repo: str = "") -> None:
+        """Replace `repo`'s section whole and keep the others, under the file's lock."""
+        with file_lock(path.with_name(f"{path.name}.lock")):
+            body = PrState._sections(PrState._read(path))
+            body[repo] = {"collected_at": spans.clock.now().isoformat(), "prs": state}
+            atomic_write_text(path, json.dumps(body, indent=2) + "\n")
 
 
 def _comment_ids(pull: PullRequest, ignore: Collection[str] = ()) -> list[str]:
@@ -262,7 +290,7 @@ class Poller(BaseModel):
         self.failures = 0
         self.quiet_until = None
 
-        known = PrState.load(self.state_path)
+        known = PrState.load(self.state_path, self.repo)
         # "Have we ever looked", not "do we know of any PRs". The file's
         # existence is the signal: a repo whose first spec/ PR appears after
         # an empty poll was otherwise treated as fresh forever, and every
@@ -324,7 +352,7 @@ class Poller(BaseModel):
                     read_at=datetime.fromisoformat(current["mergeable_at"]),
                 )
 
-        PrState.save(self.state_path, updated)
+        PrState.save(self.state_path, updated, self.repo)
 
     def _merged_unit(self, number: int, current: dict) -> StoredUnit | None:
         """The unit of a merged pull request, when it has already recorded the merge."""
