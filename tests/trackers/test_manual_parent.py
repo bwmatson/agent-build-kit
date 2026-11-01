@@ -58,7 +58,7 @@ def resolve(tracker: RecordingTracker, reference: str, *, in_scope: bool = True)
     return resolve_manual_parent(
         tracker,
         reference,
-        expected="feature",
+        expected="change",
         in_scope=lambda item: in_scope,
         find_by_title=titles.get,
     )
@@ -92,13 +92,13 @@ def test_a_part_of_a_title_does_not_resolve() -> None:
 
 def test_an_item_of_another_type_is_refused_naming_the_id_and_both_types() -> None:
     tracker, _ = with_epic()
-    other = tracker.create("story", "Not an epic")
+    other = tracker.create("group", "Not an epic")
 
     with pytest.raises(ManualParentError) as refused:
         resolve(tracker, other.id)
 
     message = str(refused.value)
-    assert other.id in message and "story" in message and "feature" in message
+    assert other.id in message and "group" in message and "change" in message
 
 
 def test_an_item_out_of_scope_is_refused() -> None:
@@ -113,7 +113,7 @@ def test_an_item_out_of_scope_is_refused() -> None:
 def test_the_change_item_is_created_under_the_manual_parent() -> None:
     tracker, epic = with_epic()
 
-    item = create_change_item(tracker, "feature", "Change", "body", resolve(tracker, epic.id))
+    item = create_change_item(tracker, "change", "Change", "body", resolve(tracker, epic.id))
 
     assert item.parent_id == epic.id
     assert [child.id for child in tracker.children(epic.id)] == [item.id]
@@ -123,7 +123,7 @@ def test_over_the_whole_run_the_only_calls_on_the_manual_item_are_reads() -> Non
     tracker, epic = with_epic()
 
     parent = resolve(tracker, epic.id)
-    create_change_item(tracker, "feature", "Change", "body", parent)
+    create_change_item(tracker, "change", "Change", "body", parent)
     tracker.children(epic.id)
 
     assert tracker.written(epic.id) == []
@@ -133,6 +133,6 @@ def test_over_the_whole_run_the_only_calls_on_the_manual_item_are_reads() -> Non
 def test_a_change_with_no_line_has_a_change_item_with_no_parent() -> None:
     tracker, _ = with_epic()
 
-    item = create_change_item(tracker, "feature", "Change", "body", None)
+    item = create_change_item(tracker, "change", "Change", "body", None)
 
     assert item.parent_id is None
