@@ -60,7 +60,7 @@ def test_a_listing_that_raises_runs_the_whole_marker_with_the_error_and_is_not_n
 ) -> None:
     repo, base = changes_no_test(tmp_path)
 
-    def unreadable(tree: Path, ref: str) -> list[tuple[str, str]]:
+    def unreadable(tree: Path, ref: str, head: str | None = None) -> list[tuple[str, str]]:
         raise OSError("the tree cannot be read")
 
     monkeypatch.setattr(wiring, "touched_tests", unreadable)

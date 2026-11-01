@@ -4173,6 +4173,44 @@ def _test_bodies(source: str, *, qualified: bool = False) -> dict[str, list[str]
     return {name: sorted(texts) for name, texts in bodies.items()}
 
 
+def _changed_paths(
+    tree: Path, ref: str, head: str | None, pathspecs: Sequence[str], *, deleted: bool
+) -> list[str]:
+    """The files matching `pathspecs` that differ between `ref` and the tree (untracked ones
+    included), or between `ref` and the commit `head` when one is given; sorted. A file the
+    change deletes is listed only with `deleted`."""
+    # `-z` so git does not C-quote paths; no `check=False`, since a failing
+    # listing must not read as "nothing changed".
+    diff = git(
+        tree,
+        "diff",
+        "-z",
+        "--name-only",
+        "--no-renames",
+        *([] if deleted else ["--diff-filter=d"]),
+        ref,
+        *([head] if head else []),
+        "--",
+        *pathspecs,
+        errors="surrogateescape",
+    )
+    new = (
+        git(
+            tree,
+            "ls-files",
+            "-z",
+            "--others",
+            "--exclude-standard",
+            "--",
+            *pathspecs,
+            errors="surrogateescape",
+        ).stdout
+        if head is None
+        else ""
+    )
+    return sorted({p for p in (diff.stdout + "\0" + new).split("\0") if p})
+
+
 def _changed_tests(
     tree: Path, ref: str, *, qualified: bool, head: str | None = None
 ) -> list[tuple[str, str, bool]]:
@@ -4184,37 +4222,8 @@ def _changed_tests(
     gone from the file it was in, even when the same name lives on in another
     file or in a string.
     """
-    # `-z` so git does not C-quote paths; no `check=False`, since a failing
-    # listing must not read as "nothing changed".
-    diff = git(
-        tree,
-        "diff",
-        "-z",
-        "--name-only",
-        "--no-renames",
-        ref,
-        *([head] if head else []),
-        "--",
-        "*.py",
-        errors="surrogateescape",
-    )
-    new = (
-        git(
-            tree,
-            "ls-files",
-            "-z",
-            "--others",
-            "--exclude-standard",
-            "--",
-            "*.py",
-            errors="surrogateescape",
-        ).stdout
-        if head is None
-        else ""
-    )
-    paths = {p for p in (diff.stdout + "\0" + new).split("\0") if p}
     changed: list[tuple[str, str, bool]] = []
-    for path in sorted(paths):
+    for path in _changed_paths(tree, ref, head, ["*.py"], deleted=True):
         if head is None:
             file = tree / path
             source = file.read_text(errors="replace") if file.is_file() else ""
@@ -4247,51 +4256,6 @@ def tests_changed(tree: Path, ref: str) -> set[str]:
     return {name for _, name, _ in _changed_tests(tree, ref, qualified=False)}
 
 
-def test_file_pathspecs(toolchains: Iterable[ToolchainProfile]) -> list[str]:
-    """The git pathspecs of the test files of the toolchains that select a test by its file
-    alone, for `touched_tests`."""
-    specs = {
-        spec
-        for tc in toolchains
-        if isinstance(tc, ListsTestFiles)
-        for spec in tc.test_file_pathspecs()
-    }
-    return sorted(specs)
-
-
-def _changed_files(tree: Path, ref: str, head: str | None, pathspecs: Sequence[str]) -> list[str]:
-    """The files matching `pathspecs` that the tree adds or changes against `ref` (or the commit
-    `head` does); a deleted file is not listed."""
-    diff = git(
-        tree,
-        "diff",
-        "-z",
-        "--name-only",
-        "--no-renames",
-        "--diff-filter=d",
-        ref,
-        *([head] if head else []),
-        "--",
-        *pathspecs,
-        errors="surrogateescape",
-    ).stdout
-    new = (
-        git(
-            tree,
-            "ls-files",
-            "-z",
-            "--others",
-            "--exclude-standard",
-            "--",
-            *pathspecs,
-            errors="surrogateescape",
-        ).stdout
-        if head is None
-        else ""
-    )
-    return sorted({p for p in (diff + "\0" + new).split("\0") if p})
-
-
 def touched_tests(tree: Path, ref: str, head: str | None = None) -> list[tuple[str, str]]:
     """(file, test) for each test the tree adds or changes against `ref` (or the commit
     `head` adds or changes against it), as a runner selects it: the file's path from the
@@ -4305,10 +4269,17 @@ def touched_in(
 ) -> list[tuple[str, str]]:
     """`touched_tests`, and with an empty name each test file the toolchains select by the file
     alone (`ListsTestFiles`) that the tree adds or changes, which has no test names to read."""
-    listed = touched_tests(tree, ref, head) if head else touched_tests(tree, ref)
-    pathspecs = test_file_pathspecs(toolchains)
+    listed = touched_tests(tree, ref, head)
+    pathspecs = sorted(
+        {
+            spec
+            for tc in toolchains
+            if isinstance(tc, ListsTestFiles)
+            for spec in tc.test_file_pathspecs()
+        }
+    )
     if pathspecs:
-        listed += [(path, "") for path in _changed_files(tree, ref, head, pathspecs)]
+        listed += [(path, "") for path in _changed_paths(tree, ref, head, pathspecs, deleted=False)]
     return listed
 
 
