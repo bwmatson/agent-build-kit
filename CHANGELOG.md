@@ -44,6 +44,8 @@
   each other's section and a reader never sees a half-written file. Files written by earlier
   releases still read.
 
+- `docs/designs/testing-strategy.md` states the kit's testing strategy: test kinds and the marker taxonomy (integration means runnable in CI), the red check as a proved step of the build, a numbered catalogue of test standards that a new test and an existing one are compared against, how a failing test is classified by cause, how standing guidance reaches each agent, and that every toolchain profile has the same test capabilities. It is a design; each recommended step becomes its own change.
+
 - The red check at a tests commit now runs only the tests the commit added or changed (by
   `path::name`) and rejects the commit if any of them passes, so a new failing case can be added to
   the existing test file for its subject beside passing tests. A commit with no test to select, such
