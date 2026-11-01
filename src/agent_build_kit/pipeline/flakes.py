@@ -36,8 +36,6 @@ FLAKY_PREFIX = "fix-flaky"
 FAILING_PREFIX = "fix-failing"
 # The names every change that fixes a failing test may start with, whatever its kind.
 FIX_PREFIXES = (FIX_PREFIX, FLAKY_PREFIX, FAILING_PREFIX, PRODUCT_DEFECT_PREFIX)
-# Where a module imported by a test may sit in the code repo, relative to its root.
-SOURCE_ROOTS = ("", "src")
 # How many of a storm's tests its row names.
 STORM_TESTS = 10
 
@@ -56,7 +54,8 @@ class Flake(Recorded, Evidenced):
     # identifier is relative to; empty when unknown.
     directory: str = ""
     # Set for a test that failed and is not a flake (it fails on the base, by its time limit,
-    # or has an open fix): it is said as a failing test and is not recorded as a flake.
+    # or has an open fix): the row is kept in the flake record, marked failing, and `abk status`
+    # lists it as failing and not as flaky.
     failing: bool = False
     # The ref the failure is judged against: the unit's own base, the branch tip of its parent
     # when it is stacked, which the agent reads. Empty when the run has no base.
@@ -259,17 +258,32 @@ FAILING_TEST_LINE = re.compile(
     rf"^\W*{re.escape(FAILING_TEST_LABEL)}\s*`?(?P<test>[^`\s](?:[^`\n]*[^`\s])?)`?[ \t]*$",
     re.MULTILINE,
 )
+FIX_TITLE = re.compile(r"^Make `(?P<test>[^`]+)` deterministic$")
 FIRST_ATTEMPTS = 20  # how many successive names of one test's fix change are looked under
 
 
 def fix_change_test(inst: Installation, change: str) -> str | None:
     """The test the fix change `change` is for: the `Failing test:` line of its proposal, which
-    the regression agent writes and its check requires; None when the change has none."""
+    the regression agent writes and its check requires, or else the title of its group 1
+    ("Make `<test>` deterministic"), which the earlier templates wrote; None when the change has
+    neither."""
+    root = inst.changes_dir / change
     try:
-        named = FAILING_TEST_LINE.search((inst.changes_dir / change / "proposal.md").read_text())
+        named = FAILING_TEST_LINE.search((root / "proposal.md").read_text())
+    except OSError:
+        named = None
+    if named:
+        return named["test"]
+    try:
+        lines = (root / "tasks.md").read_text().splitlines()
     except OSError:
         return None
-    return named["test"] if named else None
+    for line in lines:
+        heading = GROUP_HEADING.match(line)
+        if heading and int(heading["number"]) == 1:
+            title = FIX_TITLE.match(heading["title"])
+            return title["test"] if title else None
+    return None
 
 
 def merged_fix_since(inst: Installation, change: str, test: str) -> str | None:

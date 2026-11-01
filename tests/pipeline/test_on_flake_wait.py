@@ -39,7 +39,9 @@ def test_the_log_says_a_unit_that_does_not_wait_did_not_and_one_that_waits_did(
     fix = on_flake(going, flaked(unit=going.id), wait=False)
     on_flake(waiting, flaked(unit=waiting.id), wait=True)
 
-    assert logged == [
+    # The fixture's checkout is no git repository, so the agent step says it has no worktree.
+    waits = [line for line in logged if not line.startswith("no worktree")]
+    assert waits == [
         f"feature/1: flaky test {TEST} — recorded as {fix}, no wait",
         f"other/1: flaky test {TEST} — waits for {fix}",
     ]

@@ -209,19 +209,20 @@
   longer needs a `[narrow]` group after it. A flaky test, a pre-existing e2e failure and a
   unit-test failure start the agent once per test, and the unit waits on the change it
   writes, and no change is written from a template any more. The agent works in a detached
-  worktree of the failure's own base (the parent's branch tip for a stacked unit), reads the
+  worktree of the failure's own base (the parent's branch tip for a stacked unit, the default
+  branch when the failure names none), reads the
   git history (`log`, `show`, `blame`, `diff`) and is granted the repo's own test commands,
   and nothing that moves the checkout or reaches the code host. It runs under the same
   sandbox as a build step (the system folders, the runtime's and the toolchain's paths and
   hosts), but is granted no write to the repo's own checkout, and writes its change directory.
-  The worktree of a stacked unit's base is made in the temp folder, so it is writable where the
-  runtime grants that folder and is thrown away with the run; a test command it is granted can
-  prepare its environment there, and cannot in the repo's own checkout. Its
-  proposal states which side is wrong on a `Judgement:` line and the test on a
-  `Failing test:` line, and `abk status` and `abk explain` show the judgement beside the
-  change. A fix change written by the earlier templates and still open has no such line and
-  builds without the reproduction check. Each failure is recorded with its kind and linked to
-  the change, and the agent is told the earlier failures of both records. A unit whose run
+  The worktree is made in the temp folder, so it is writable where the runtime grants that
+  folder and is thrown away with the run; a test command it is granted can prepare its
+  environment there. Its proposal states which side is wrong on a `Judgement:` line, the test
+  on a `Failing test:` line and the kind of failure on a `Kind:` line, and `abk status` and
+  `abk explain` show the judgement beside the change. Each failure is recorded with its kind
+  and linked to the change, and the agent is told the earlier failures of both records. A
+  unit that meets a test while another unit's agent run for it is going waits on its change at
+  once, and does not wait for a lock. A unit whose run
   `global_limits.max_regression_runs_per_hour` holds back waits, not failed, and goes on once
   the hour has room. A change the agent could not judge, or that failed its checks twice, is
   held like work handed to someone outside the kit: no unit of it starts, `abk status` says

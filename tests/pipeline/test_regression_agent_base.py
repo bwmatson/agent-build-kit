@@ -132,32 +132,40 @@ def stacked(installation: Installation) -> tuple[Path, str]:
     return checkout, tip
 
 
-def test_a_stacked_units_agent_runs_in_a_worktree_of_its_parents_tip(
-    installation: Installation,
-) -> None:
-    checkout, tip = stacked(installation)
+def ran_looking(
+    installation: Installation, flake: Flake
+) -> tuple[DefaultAgent, list[tuple[Path, str]]]:
+    """The agent step run for `flake`, with where the agent worked and what that tree held read as
+    it ran: the worktree is gone when the run is over."""
     seen: list[tuple[Path, str]] = []
     agent = DefaultAgent()
     act = agent.runtime.act
 
     def look(request: AgentRequest) -> None:
-        # The worktree is gone when the run is over: what it held is read as it runs.
         assert request.cwd is not None
         seen.append((request.cwd, git(request.cwd, "rev-parse", "HEAD").strip()))
         assert act is not None
         act(request)
 
     agent.runtime.act = look
-
     wait_on_regression(
         installation,
-        failure(base="spec/parent/1"),
+        flake,
         stored_unit("feature/1", change="feature", groups=(1,)),
         kind=FixKind.REGRESSION,
         runtime=agent.runtime,
         wait=False,
         say=lambda message: None,
     )
+    return agent, seen
+
+
+def test_a_stacked_units_agent_runs_in_a_worktree_of_its_parents_tip(
+    installation: Installation,
+) -> None:
+    checkout, tip = stacked(installation)
+
+    agent, seen = ran_looking(installation, failure(base="spec/parent/1"))
 
     ((cwd, head),) = seen
     assert cwd != checkout and head == tip
@@ -165,12 +173,36 @@ def test_a_stacked_units_agent_runs_in_a_worktree_of_its_parents_tip(
     assert len(git(checkout, "worktree", "list").splitlines()) == 1, "the worktree was removed"
 
 
-def test_a_failure_with_no_base_ref_runs_the_agent_in_the_checkout_on_the_default_branch(
+def test_a_failure_with_no_base_ref_runs_the_agent_in_a_worktree_of_the_default_branch(
     installation: Installation,
 ) -> None:
     checkout, _ = stacked(installation)
+    trunk = git(checkout, "rev-parse", "main").strip()
 
-    request = asked(installation, failure())
+    agent, seen = ran_looking(installation, failure())
 
-    assert request.cwd == checkout
-    assert "main" in request.prompt
+    ((cwd, head),) = seen
+    assert cwd != checkout and head == trunk, "a scheduled run, say, names no base"
+    assert "main" in agent.runtime.request.prompt
+    assert len(git(checkout, "worktree", "list").splitlines()) == 1, "the worktree was removed"
+
+
+def test_a_worktree_that_cannot_be_made_leaves_the_agent_in_the_checkout(
+    installation: Installation,
+) -> None:
+    # The checkout is no git repository: there is nothing to make a worktree of.
+    checkout = installation.checkouts["app"]
+    checkout.mkdir(parents=True)
+    agent = DefaultAgent()
+
+    wait_on_regression(
+        installation,
+        failure(),
+        stored_unit("feature/1", change="feature", groups=(1,)),
+        kind=FixKind.REGRESSION,
+        runtime=agent.runtime,
+        wait=False,
+        say=lambda message: None,
+    )
+
+    assert agent.runtime.request.cwd == checkout

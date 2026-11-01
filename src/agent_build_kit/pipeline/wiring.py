@@ -1972,6 +1972,7 @@ def build_unit_test(
                             toolchain,
                             log=log,
                             own=None if own is None else own.get(where, []),
+                            ref=base,
                             evidence=(bundle, before) if bundle and before else None,
                         ):
                             continue
@@ -1991,6 +1992,7 @@ def build_unit_test(
         log: Callable[[str], None] | None = None,
         own: list[str] | None = None,
         base: str | None = None,
+        ref: str | None = None,
         evidence: tuple[Path, tuple[datetime, dict[str, object], dict[str, object]]] | None = None,
     ) -> bool:
         """Run the failed tests again, alone and serially, twice. Raises `FailedOnBase`, before
@@ -2050,7 +2052,9 @@ def build_unit_test(
                     failure=cut_tail(sections.get(test, ""), FLAKE_FAILURE_CHARS),
                     at=at,
                     directory=str(where),
-                    base=base or "",
+                    # `ref` is the unit's own base of a run that does not run the test on it (a
+                    # selected run): the agent still reads that tree.
+                    base=base or ref or "",
                     base_output=base_output,
                     **evidenced(),
                 )

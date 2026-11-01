@@ -5,6 +5,7 @@ back is counted (spec: regression-agent)."""
 from __future__ import annotations
 
 import argparse
+import shutil
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -129,6 +130,40 @@ def test_a_change_that_still_names_no_test_is_held(
     outcome = run(installation, tmp_path, agent.runtime)
 
     assert outcome.held and FAILING_TEST_LABEL in outcome.reason
+
+
+KIND = "- Kind: {kind}\n"
+
+
+@pytest.mark.parametrize("line", ["", "- Kind: flaky\n"], ids=["none", "another-kind"])
+def test_a_change_that_does_not_name_the_kind_of_failure_is_rewritten_once_and_then_held(
+    installation: Installation, tmp_path: Path, line: str
+) -> None:
+    name = next_fix_name(installation, TEST)
+    unnamed = PROPOSAL.replace(KIND, line)
+    rewritten = Attempts(installation, name, {"proposal": unnamed}, {})
+
+    assert run(installation, tmp_path, rewritten.runtime) == FixOutcome(change=name)
+    assert len(rewritten.runtime.requests) == 2
+    assert "Kind:" in rewritten.runtime.requests[1].prompt
+
+    shutil.rmtree(installation.changes_dir / name)
+    stuck = Attempts(installation, name, {"proposal": unnamed})
+    outcome = run(installation, tmp_path, stuck.runtime)
+    assert len(stuck.runtime.requests) == 2
+    assert outcome.held and "Kind:" in outcome.reason
+
+
+@pytest.mark.parametrize("kind", list(FixKind))
+def test_the_prompt_asks_for_the_kind_line_of_each_kind(
+    installation: Installation, tmp_path: Path, kind: FixKind
+) -> None:
+    agent = Attempts(installation, next_fix_name(installation, TEST), {})
+
+    outcome = run(installation, tmp_path, agent.runtime, kind=kind)
+
+    assert f"`Kind: {kind.value}`" in agent.runtime.request.prompt
+    assert outcome == FixOutcome(change=agent.name), "the stand-in names the kind it is asked for"
 
 
 def test_the_prompt_asks_for_the_failing_test_line(

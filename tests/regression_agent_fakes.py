@@ -24,7 +24,7 @@ from agent_build_kit.pipeline.regression_agent import FixKind, wait_on_regressio
 from agent_build_kit.pipeline.unit_store import StoredUnit
 from agent_build_kit.pipeline.untouched_failures import PreExisting
 from agent_build_kit.runtimes import AgentRequest, AgentRuntime
-from tests.regression_agent_support import TEST, write_change
+from tests.regression_agent_support import TEST, asked_kind, write_change
 from tests.runtimes.stand_in import StandInRuntime
 
 
@@ -95,7 +95,11 @@ class DefaultAgent:
         assert request.planning_change_dir is not None
         # The test the agent is asked about is the one its prompt tells it to name.
         asked = re.search(r"exactly `Failing test: ([^`]+)`", request.prompt)
-        write_change(request.planning_change_dir, test=asked[1] if asked else TEST)
+        write_change(
+            request.planning_change_dir,
+            test=asked[1] if asked else TEST,
+            kind=asked_kind(request),
+        )
 
 
 def install(monkeypatch: pytest.MonkeyPatch) -> DefaultAgent:

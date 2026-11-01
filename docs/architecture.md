@@ -1538,7 +1538,9 @@ approved.
   unit of a fix change (`flakes.is_fix_change`; not a product-defect change, not a rework, not a
   build started with a person's note, and only once per thread), `prepare` routes to the
   `reproduce` node, which sits between `prepare` and `tests`. It reads the test from the
-  change's group 1 heading ("Make `<test>` deterministic"; a change with none builds as before)
+  `Failing test:` line of the change's proposal, which the regression agent writes, or else
+  from the change's group 1 heading ("Make `<test>` deterministic", as the earlier templates
+  wrote it; a change with neither builds as before)
   and runs it on the unit's base `global_limits.fix_reproduction_runs` times, alone and under load
   (alone: serially, by id; under load: the whole file it is in, on the repo's parallel workers),
   through `wiring.build_reproduce`. A test that fails on any run goes on to `tests`. A test that

@@ -21,7 +21,7 @@ from agent_build_kit.pipeline import spans
 from agent_build_kit.pipeline.call_record import recorded
 from agent_build_kit.pipeline.check_runner import worktree_at
 from agent_build_kit.pipeline.external_file import HELD, Hold, add_hold, already_held, read_holds
-from agent_build_kit.pipeline.file_lock import atomic_write_text, file_lock
+from agent_build_kit.pipeline.file_lock import atomic_write_text, file_lock, try_file_lock
 from agent_build_kit.pipeline.flakes import (
     FAILING_TEST_LABEL,
     FAILING_TEST_LINE,
@@ -34,6 +34,7 @@ from agent_build_kit.pipeline.flakes import (
     open_fix_change,
 )
 from agent_build_kit.pipeline.unit_store import StoredUnit
+from agent_build_kit.pipeline.units import local_ref
 from agent_build_kit.pipeline.untouched_failures import preexisting_record
 from agent_build_kit.pipeline.vocabulary import OverheadNode
 from agent_build_kit.pipeline.work_graph import (
@@ -67,13 +68,16 @@ CAPPED_NOTE = "waiting for a regression-agent run: "
 # `--ext-diff` are not kept out by this list: where a sandbox backend is available, its write
 # list is what limits them; without one the hook sees only the Edit and Write calls. That list
 # grants the change directory and whatever the runtime and the profile grant (the Claude runtime
-# grants the temp folder). The checkout the agent reads is the repo's own one, outside those
-# grants and so read-only, or, for a failure with a base ref, a disposable worktree that
-# `worktree_at` makes under the temp folder: it is writable wherever the runtime grants that
-# folder, and thrown away with the run. The repo's test commands that follow `TOOLS` run there,
-# so they can prepare their environment in the worktree where it is writable; in the repo's own
-# checkout they cannot, and are refused.
+# grants the temp folder). The agent reads a disposable worktree of the unit's base (or of the
+# default branch when the failure names none) that `worktree_at` makes under the temp folder: it
+# is writable wherever the runtime grants that folder, and thrown away with the run. The repo's
+# test commands that follow `TOOLS` run there, so they can prepare their environment in it. Only
+# when no worktree can be made does it read the repo's own checkout, outside those grants and
+# so read-only, where those commands are refused.
 TOOLS = "Read Edit Write Grep Glob Bash(git log*) Bash(git show*) Bash(git blame*) Bash(git diff*)"
+# The line of the proposal that names the kind of failure the change is for (a `FixKind`).
+KIND_LABEL = "Kind:"
+KIND_LINE = re.compile(rf"^\W*{re.escape(KIND_LABEL)}\s*(?P<kind>[\w-]+)[ \t]*$", re.MULTILINE)
 # The line of the proposal that says which side is wrong, and the two things it may say.
 JUDGEMENT_LABEL = "Judgement:"
 JUDGEMENTS = ("the test is wrong", "the implementation is wrong")
@@ -123,7 +127,8 @@ design.md, tasks.md and a delta spec under specs/<capability>/spec.md.
 
 State the judgement in proposal.md on a line of its own, worded exactly {judgements}. Name the
 failing test on a line of its own too, exactly `{failing_label} {test}`: the kit reads it to
-reproduce the failure when the change is built.
+reproduce the failure when the change is built. And the kind of failure on a line of its own,
+exactly `{kind_label} {kind}`.
 
 The change is named `{change}`. Its tasks.md carries a `Priority:` line and a task group
 flagged `[contract]`. If you cannot decide which side is wrong, end your answer with the line
@@ -229,6 +234,7 @@ def run_regression_agent(
         base_section=on_base,
         history="\nEarlier failures of this test:\n" + "\n".join(earlier) if earlier else "",
         failing_label=FAILING_TEST_LABEL,
+        kind_label=KIND_LABEL,
         judgements=" or ".join(f"`{JUDGEMENT_LABEL} {each}`" for each in JUDGEMENTS),
         again=(
             f"\nAn earlier change, `{archived}`, fixed this test and was merged and archived; "
@@ -291,7 +297,7 @@ def run_regression_agent(
                 change=name, held=True, reason="the agent could not decide which side is wrong"
             )
         else:
-            return _problems(inst, name, failure.test, run_openspec)
+            return _problems(inst, name, failure.test, kind, run_openspec)
         return []
 
     try:
@@ -371,11 +377,11 @@ def failure_history(inst: Installation, test: str, *, evidence: bool = False) ->
 
 
 def _problems(
-    inst: Installation, name: str, test: str, run_openspec: openspec.Run | None
+    inst: Installation, name: str, test: str, kind: FixKind, run_openspec: openspec.Run | None
 ) -> list[str]:
     """What is wrong with the change `name` for `test`: a file missing, what OpenSpec or the
-    tags check refuses, no `[contract]` group, no `Priority:` line, no judgement line or no
-    `Failing test:` line naming `test` in the proposal."""
+    tags check refuses, no `[contract]` group, no `Priority:` line, no judgement line, no
+    `Failing test:` line naming `test` or no `Kind:` line naming `kind` in the proposal."""
     root = inst.changes_dir / name
     missing = [file for file in CHANGE_FILES if not (root / file).is_file()]
     if not any((root / "specs").glob("*/spec.md")):
@@ -402,6 +408,9 @@ def _problems(
     named = FAILING_TEST_LINE.search((root / "proposal.md").read_text())
     if not named or named["test"] != test:
         found.append(f"proposal.md: no line `{FAILING_TEST_LABEL} {test}` naming the failing test")
+    told = KIND_LINE.search((root / "proposal.md").read_text())
+    if not told or told["kind"] != kind.value:
+        found.append(f"proposal.md: no line `{KIND_LABEL} {kind.value}` naming the kind of failure")
     if not JUDGEMENT_LINE.search((root / "proposal.md").read_text()):
         found.append(
             "proposal.md: no judgement line, worded "
@@ -508,47 +517,63 @@ def wait_on_regression(
 ) -> str | None:
     """Make sure one open change fixes `failure.test` and, with `wait`, give each group of `unit`
     a `Needs:` line on it, and name it on the earlier records of the test. An open change is
-    waited on without a run. With none, the agent runs in a detached worktree of `failure.base`
-    (the unit's own base: its parent's branch tip when stacked; the repo's checkout when the
-    failure names none), and `RegressionRunCapped` is raised when
+    waited on without a run, also while another unit's run of the agent for it is in flight (the
+    lock of the test is then busy and is not waited on). With none, the agent runs in a
+    disposable worktree of `failure.base` (the unit's own base: its parent's branch tip when
+    stacked) or, when the failure names none, of the default branch; only a worktree that cannot
+    be made leaves it in the repo's own checkout. `RegressionRunCapped` is raised when
     `global_limits.max_regression_runs_per_hour` runs have started in the last hour. Answers None
     for a unit of the change itself, which waits on nothing. The runs for one test are
     serialised, and the runs of different tests are not."""
     test_lock = inst.state_dir / f"regression-{fix_change_name(failure.test, FIX_PREFIX)}.lock"
-    with file_lock(test_lock):
+
+    def settled() -> str:
+        """The change for the test, written by a run of the agent when there is none; the caller
+        holds the lock of the test."""
         name = open_fix_change(inst, failure.test)[0]
         # A directory without a tasks.md was left by a run that died and is written again, unless
         # the run ended held for a person, which is waited on as it is.
-        if name is None or not (
+        if name is not None and (
             (inst.changes_dir / name / "tasks.md").is_file()
             or held_for_a_person(inst.changes_dir / name)
         ):
-            _take_run(inst, failure.test, now or spans.clock.now())
-            checkout = inst.checkouts[unit.repo]
-            with contextlib.ExitStack() as stack:
-                cwd, base = checkout, inst.repo(unit.repo).default_branch
-                if failure.base:
-                    try:
-                        cwd = stack.enter_context(worktree_at(checkout, failure.base))
-                        base = failure.base
-                    except (subprocess.CalledProcessError, OSError) as error:
-                        say(f"no worktree of {failure.base}, using the checkout instead: {error}")
-                outcome = run_regression_agent(
-                    inst,
-                    failure,
-                    unit,
-                    kind=kind,
-                    base=base,
-                    base_output=base_output,
-                    runtime=runtime or runtimes.active(),
-                    cwd=cwd,
-                    run_openspec=run_openspec,
-                )
-            name = outcome.change
-            if outcome.held:
-                say(f"{name}: held for a person — {outcome.reason}")
-            flake_record(inst).link(failure.test, name)
-            preexisting_record(inst).link(failure.test, name)
+            return name
+        _take_run(inst, failure.test, now or spans.clock.now())
+        checkout = inst.checkouts[unit.repo]
+        ref = failure.base or local_ref(inst.repo(unit.repo).default_branch, repo=unit.repo)
+        with contextlib.ExitStack() as stack:
+            cwd, base = checkout, inst.repo(unit.repo).default_branch
+            try:
+                cwd = stack.enter_context(worktree_at(checkout, ref))
+                base = ref
+            except (subprocess.CalledProcessError, OSError) as error:
+                say(f"no worktree of {ref}, using the checkout instead: {error}")
+            outcome = run_regression_agent(
+                inst,
+                failure,
+                unit,
+                kind=kind,
+                base=base,
+                base_output=base_output,
+                runtime=runtime or runtimes.active(),
+                cwd=cwd,
+                run_openspec=run_openspec,
+            )
+        if outcome.held:
+            say(f"{outcome.change}: held for a person — {outcome.reason}")
+        flake_record(inst).link(failure.test, outcome.change)
+        preexisting_record(inst).link(failure.test, outcome.change)
+        return outcome.change
+
+    # A run of the agent can take minutes and the lock of the test is held for all of it: a unit
+    # that meets the test meanwhile takes the open change and waits on it, and does not wait for
+    # the lock, which would time out.
+    with try_file_lock(test_lock) as taken:
+        name = settled() if taken else open_fix_change(inst, failure.test)[0]
+    if name is None:
+        # Busy, and the run has not made its folder yet: that takes an instant.
+        with file_lock(test_lock):
+            name = settled()
     if unit.change == name:
         return None
     if wait and not is_fix_change(unit.change):  # a unit of a fix change waits on no other fix
