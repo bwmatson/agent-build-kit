@@ -176,7 +176,7 @@ async def _outcome(compiled: CompiledStateGraph, unit_id: str) -> RunOutcome:
         )
     if state is None or state.status is None:
         raise RuntimeError(f"the thread for {unit_id} ended without a status")
-    return RunOutcome(status=state.status, detail=state.detail, pr=state.pr)
+    return RunOutcome(status=state.status, detail=state.detail, pr=state.pr, pr_over=state.pr_over)
 
 
 async def resume_unit(

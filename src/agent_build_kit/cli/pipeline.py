@@ -4563,7 +4563,12 @@ def _refresh(inst: Installation, *, store: UnitStore, lane: Lane | None = None) 
         # building units whose work doesn't depend on it.
         log(f"poll skipped — {type(error).__name__}: {error}")
     try:
-        reconcile(store=store, state_dir=inst.state_dir, dispatch=_dispatch(inst, store), log=log)
+        reconcile(
+            store=store,
+            state_dir=inst.state_dir,
+            dispatch=_dispatch(inst, store, lane=lane),
+            log=log,
+        )
     except Exception as error:  # noqa: BLE001
         log(f"reconcile skipped — {type(error).__name__}: {error}")
     # What the poll found, and what it left owed, whether or not the host answered.
@@ -6720,7 +6725,6 @@ def _build_unit(
                     store=store,
                     installation=inst,
                     record_merge=lambda repo, pr: _dispatch(inst, store)("merged", pr, repo=repo),
-                    dispatch=_dispatch(inst, store),
                     log=say,
                     log_reaches_run_log=True,
                     journal=journal_only,
@@ -6814,6 +6818,14 @@ def _build_unit(
             fail(error)
             return True
 
+        if outcome.pr_over and outcome.pr is not None:
+            # The run ended on a pull request the forge shows merged or closed. The lock is
+            # released now, which the handlers need to deliver the event to the unit's thread.
+            try:
+                if not _dispatch(inst, store)(outcome.pr_over, outcome.pr, repo=unit.repo):
+                    say(f"#{outcome.pr} {outcome.pr_over}: left for a later pass")
+            except Exception as error:  # noqa: BLE001
+                say(f"#{outcome.pr} {outcome.pr_over} could not be recorded — {error}")
         end(f"{outcome.status} — {outcome.detail}", outcome.status)
         if outcome.status is UnitOutcome.PAUSED:
             forget_if_not_begun()
@@ -6955,7 +6967,6 @@ def _thread_runner(
             store=store,
             installation=inst,
             record_merge=lambda repo, pr: _dispatch(inst, store)("merged", pr, repo=repo),
-            dispatch=_dispatch(inst, store),
             log=say,
         )
 

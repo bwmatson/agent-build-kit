@@ -60,6 +60,7 @@ from agent_build_kit.config import (
     worker_options,
 )
 from agent_build_kit.forges import FileChange, Forge, RegistersStacks, RepoId, StackRefused
+from agent_build_kit.forges.base import listed_pull
 from agent_build_kit.installation import Installation
 from agent_build_kit.model import Frozen, TestTier
 from agent_build_kit.path_patterns import matches_any
@@ -3010,12 +3011,25 @@ def build_forge_state(
 
     def forge_state(unit: Unit, pr: int) -> str:
         forge, repo = for_repo(unit.repo)
-        for pull in forge.list_prs(repo, head_prefix=branch_name(unit)):
-            if pull.number == pr:
-                return str(pull.state)
-        raise LookupError(f"the forge does not list PR #{pr}")
+        pull = listed_pull(forge, repo, branch_name(unit), pr)
+        if pull is None:
+            raise LookupError(f"the forge does not list PR #{pr}")
+        return str(pull.state)
 
     return forge_state
+
+
+def build_merge_commit(
+    *, for_repo: Callable[[str], tuple[Forge, RepoId]] | None = None
+) -> Callable[[Unit, int], str | None]:
+    """Read the merge commit of a unit's merged pull request; None when the host has none."""
+    for_repo = for_repo or forges.for_repo
+
+    def merge_commit(unit: Unit, pr: int) -> str | None:
+        forge, repo = for_repo(unit.repo)
+        return forge.merge_commit(repo, pr)
+
+    return merge_commit
 
 
 def build_close_pr(
@@ -4643,7 +4657,6 @@ def build_runner(
     store: UnitStore,
     installation: Installation,
     record_merge: Callable[[str, int], object] = lambda repo, pr: None,
-    dispatch: Callable[..., bool] = lambda event, number, **kwargs: True,
     log: Callable[[str], None] = print,
     log_reaches_run_log: bool = False,
     journal: Callable[[str], None] | None = None,
@@ -4829,7 +4842,7 @@ def build_runner(
         post_status=e2e.post,
         close_pr=build_close_pr(),
         forge_state=build_forge_state(),
-        dispatch=dispatch,
+        merge_commit=build_merge_commit(),
         release_dependents=build_release_dependents(store, installation, log=log),
         remove_satisfied=build_remove_satisfied(store, installation, log=log),
         reply=build_post_replies(root=root, log=log, ui_replies=ui_reply_writer(root, store)),

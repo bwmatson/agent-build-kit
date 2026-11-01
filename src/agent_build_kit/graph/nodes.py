@@ -2824,8 +2824,10 @@ class BuildPath:
         return {}
 
     def recorded_pr_over(self, pr: int) -> Update | None:
-        """The update for a recorded pull request the forge shows merged or closed, after the
-        poller's handler has recorded it; None when it is open or the forge cannot say."""
+        """The update ending the run for a recorded pull request the forge shows merged or
+        closed; None when it is open or the forge cannot say. Nothing is recorded here: the run
+        holds the branch's lock, which the handlers need, so the caller records the merge or
+        close from the outcome once the lock is released."""
         r, unit = self.runner, self.unit
         try:
             shown = r.forge_state(unit, pr)
@@ -2834,9 +2836,23 @@ class BuildPath:
             return None
         if shown not in ("merged", "closed"):
             return None
-        deferred = not r.dispatch(shown, pr, repo=unit.repo)
-        self.say(f"PR #{pr} {shown} on the forge" + (", left for a later pass" if deferred else ""))
-        return {"pr_over": True, "status": RunStatus.OK, "detail": f"#{pr} {shown}"}
+        line = f"PR #{pr} {shown} on the forge"
+        if shown == "merged":
+            # Work pushed after the merge is not on the base: both commits are said, so a
+            # person can see the difference.
+            line += f"; the unit's pushed commit {self.commit_read(lambda: r.head(self.tree()))}"
+            line += f", merge commit {self.commit_read(lambda: r.merge_commit(unit, pr))}"
+        self.say(line)
+        return {"pr_over": shown, "status": RunStatus.OK, "detail": f"#{pr} {shown}", "pr": pr}
+
+    @staticmethod
+    def commit_read(read: Callable[[], str | None]) -> str:
+        """A commit's short hash, or `unknown` for one that cannot be read."""
+        try:
+            sha = read()
+        except Exception:  # noqa: BLE001
+            return "unknown"
+        return sha[:9] if sha else "unknown"
 
     def open_pr(self, state: UnitRun) -> Update:
         r, unit = self.runner, self.unit
@@ -2944,7 +2960,7 @@ class BuildPath:
         r.mark_tasks(unit, done=True)
         self.say(f"in review: PR #{pr}")
         return {
-            "pr_over": False,
+            "pr_over": "",
             "status": RunStatus.OPEN,
             "detail": f"opened #{pr}",
             "pr": pr,

@@ -46,7 +46,7 @@ from typing import TYPE_CHECKING, Any
 from agent_build_kit import forges, profiles
 from agent_build_kit.budget import cut_head
 from agent_build_kit.forges import Forge, PullRequest, RepoId, ReviewNote
-from agent_build_kit.forges.base import cancelled_names, failing_names
+from agent_build_kit.forges.base import cancelled_names, failing_names, listed_pull
 from agent_build_kit.model import Frozen
 from agent_build_kit.pipeline import spans
 from agent_build_kit.pipeline.check_runner import worktree_at
@@ -1170,9 +1170,7 @@ def build_fetch_comments(
                 words=note_words(note) if note.body.strip() else "",
                 own=note.id in mine or MARKER in note.body,
             )
-        pull = next(
-            (p for p in forge.list_prs(repo_id, head_prefix=branch) if p.number == pr), None
-        )
+        pull = listed_pull(forge, repo_id, branch, pr)
         if pull is not None:
             bodies = dict(pull.comments())
             for comment_id in pull.conversation:
@@ -2461,10 +2459,10 @@ def pr_based_on(unit: StoredUnit, base: str) -> bool:
         return True
     try:
         forge, repo_id = forges.for_repo(unit.repo)
-        pulls = forge.list_prs(repo_id, head_prefix=branch_name(unit))
+        pull = listed_pull(forge, repo_id, branch_name(unit), unit.pr)
     except Exception:  # noqa: BLE001
         return False
-    return any(pull.number == unit.pr and pull.base == base for pull in pulls)
+    return pull is not None and pull.base == base
 
 
 def build_settled(repos: dict[str, Path]) -> Callable[[StoredUnit, str], bool]:
