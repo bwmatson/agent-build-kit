@@ -52,7 +52,7 @@ class Settings(BaseSettings):
     github_api_url: str = "https://api.github.com"
 
     # Every call to a code host: the timeout in seconds (forges/transport.py),
-    # and, for the one layer that repeats calls (forges/resilient.py), how many
+    # and, for the one layer that repeats calls (resilient_base.py), how many
     # times a failed call is retried after the first attempt and the seconds
     # from the first call after which no further wait is made.
     forge_timeout_seconds: float = 30.0

@@ -40,8 +40,9 @@ class ResilientBase[Inner]:
     what its logs and counter call the inner object, and supplies the look-up of a create
     (`_landed`); it may narrow `_can_ask`, whether a failed create can be looked up at all."""
 
-    _subject = "object"
-    _retries_counter = "abk.object.retries"
+    # What the logs and the retry counter call the inner object: a subclass sets both.
+    _subject: str
+    _retries_counter: str
     _inner: Inner
 
     def __init__(

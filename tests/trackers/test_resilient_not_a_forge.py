@@ -26,9 +26,7 @@ def test_a_tracker_wrapper_is_not_a_forge_wrapper() -> None:
 
 
 def test_the_registry_wraps_what_is_not_a_forge_wrapper(monkeypatch: pytest.MonkeyPatch) -> None:
-    wrapped: list[object] = []
     monkeypatch.setattr(forges, "_REGISTRY", {})
-    monkeypatch.setattr(forges, "_resilient", lambda forge: wrapped.append(forge) or forge)
 
     class Named(LocalTracker):
         name = "stand-in"
@@ -39,4 +37,4 @@ def test_the_registry_wraps_what_is_not_a_forge_wrapper(monkeypatch: pytest.Monk
     )
     forges.register(tracker)  # type: ignore[arg-type]
 
-    assert wrapped == [tracker]
+    assert isinstance(forges.get("stand-in"), ResilientForge)

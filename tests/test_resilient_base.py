@@ -74,19 +74,13 @@ for _name in TABLE:
     setattr(Widget, _name, delegating(_name))
 
 
-class Counted:
-    def __init__(self) -> None:
-        self.lines: list[tuple[str, dict[str, Any]]] = []
+Lines = list[tuple[str, dict[str, Any]]]
 
-    def __call__(self, name: str, value: float = 1, **attributes: Any) -> None:
-        self.lines.append((name, attributes))
 
-    def outcomes(self, operation: str) -> list[str]:
-        return [
-            a["outcome"]
-            for n, a in self.lines
-            if n == "abk.widget.retries" and a["operation"] == operation
-        ]
+def outcomes(lines: Lines, operation: str) -> list[str]:
+    return [
+        a["outcome"] for n, a in lines if n == "abk.widget.retries" and a["operation"] == operation
+    ]
 
 
 @pytest.fixture
@@ -95,10 +89,12 @@ def waits() -> Waits:
 
 
 @pytest.fixture
-def counted(monkeypatch: pytest.MonkeyPatch) -> Counted:
-    counter = Counted()
-    monkeypatch.setattr(telemetry, "count", counter)
-    return counter
+def counted(monkeypatch: pytest.MonkeyPatch) -> Lines:
+    lines: Lines = []
+    monkeypatch.setattr(
+        telemetry, "count", lambda name, value=1, **attributes: lines.append((name, attributes))
+    )
+    return lines
 
 
 def layer(inner: Widgets, waits: Waits, *, attempts: int = 4, deadline: float = 1000.0) -> Any:
@@ -115,13 +111,13 @@ def down(hint: float | None = None) -> HostError:
     return HostError("GET /x: host answered 503", retry_after=hint)
 
 
-def test_a_read_is_retried_through_a_transient_error(waits: Waits, counted: Counted) -> None:
+def test_a_read_is_retried_through_a_transient_error(waits: Waits, counted: Lines) -> None:
     inner = Widgets({"fetch": [down()]})
 
     assert layer(inner, waits).fetch("a") == "value:a"
     assert inner.calls == ["fetch", "fetch"]
     assert len(waits.slept) == 1
-    assert counted.outcomes("fetch") == ["retried"]
+    assert outcomes(counted, "fetch") == ["retried"]
 
 
 def test_what_is_not_an_operation_is_the_inner_objects_own(waits: Waits) -> None:
@@ -146,13 +142,13 @@ def test_a_hint_beyond_the_ceiling_raises_the_error_itself(waits: Waits) -> None
     assert waits.slept == []
 
 
-def test_a_create_that_landed_is_found_and_not_repeated(waits: Waits, counted: Counted) -> None:
+def test_a_create_that_landed_is_found_and_not_repeated(waits: Waits, counted: Lines) -> None:
     inner = Widgets({"make": [down()]}, lost=True)
 
     assert layer(inner, waits).make("k") == "k"
     assert inner.calls == ["make", "find_made"]
     assert inner.made == ["k"]
-    assert counted.outcomes("make") == ["landed"]
+    assert outcomes(counted, "make") == ["landed"]
 
 
 def test_a_create_that_did_not_land_is_repeated(waits: Waits) -> None:
@@ -171,25 +167,25 @@ def test_a_rate_limited_create_is_repeated_without_a_look_up(waits: Waits) -> No
 
 
 def test_a_contained_operation_returns_its_neutral_value(
-    waits: Waits, counted: Counted, caplog: pytest.LogCaptureFixture
+    waits: Waits, counted: Lines, caplog: pytest.LogCaptureFixture
 ) -> None:
     inner = Widgets({"note": [down(), down(), down()]})
 
     with caplog.at_level(logging.INFO):
         assert layer(inner, waits, attempts=3).note("hi") == "nothing"
 
-    assert counted.outcomes("note") == ["retried", "retried", "contained"]
+    assert outcomes(counted, "note") == ["retried", "retried", "contained"]
     assert "widget note: contained after 3 attempts" in caplog.text
 
 
-def test_the_attempt_limit_stops_a_read(waits: Waits, counted: Counted) -> None:
+def test_the_attempt_limit_stops_a_read(waits: Waits, counted: Lines) -> None:
     inner = Widgets({"fetch": [down(), down(), down()]})
 
     with pytest.raises(HostUnavailable):
         layer(inner, waits, attempts=3).fetch("a")
 
     assert inner.calls == ["fetch"] * 3
-    assert counted.outcomes("fetch") == ["retried", "retried", "exhausted"]
+    assert outcomes(counted, "fetch") == ["retried", "retried", "exhausted"]
 
 
 def test_the_deadline_stops_a_read(waits: Waits) -> None:
@@ -203,7 +199,7 @@ def test_the_deadline_stops_a_read(waits: Waits) -> None:
 
 
 def test_the_subject_and_counter_are_the_ones_given(
-    waits: Waits, counted: Counted, caplog: pytest.LogCaptureFixture
+    waits: Waits, counted: Lines, caplog: pytest.LogCaptureFixture
 ) -> None:
     inner = Widgets({"fetch": [down()]})
 
@@ -211,7 +207,7 @@ def test_the_subject_and_counter_are_the_ones_given(
         layer(inner, waits).fetch("a")
 
     assert "widget fetch: attempt 1 of 4 failed" in caplog.text
-    assert {name for name, _ in counted.lines} == {"abk.widget.retries"}
+    assert {name for name, _ in counted} == {"abk.widget.retries"}
 
 
 def test_the_forge_module_re_exports_the_policy_and_the_clock() -> None:
