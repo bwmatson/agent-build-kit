@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- A planning pass no longer reads the unit store once for every unit when it gives a prerequisite
+  the priority of the units that wait on it: it reads the store once, so the pass no longer takes
+  time that grows with the square of the number of units (about half a minute of a pass over a
+  store of five hundred units).
+
 - The node profile can run chosen tests again by identifier, so a repository that declares a
   node project now narrows its units' e2e-test runs to the unit's own tests, and gets a repeat
   check, as a Python-only repository already does. A node test file a unit adds or changes is

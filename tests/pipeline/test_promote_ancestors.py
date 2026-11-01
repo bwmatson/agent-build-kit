@@ -5,10 +5,13 @@ holds the units as a plan left them, at the default priority.
 """
 
 from collections.abc import Mapping, Sequence
+from pathlib import Path
+
+import pytest
 
 from agent_build_kit.pipeline.planner import promote_ancestors
 from agent_build_kit.pipeline.unit_store import UnitStore
-from agent_build_kit.pipeline.units import CLOSED, MERGED, RUNNING, SATISFIED, UnitState
+from agent_build_kit.pipeline.units import CLOSED, MERGED, RUNNING, SATISFIED, Priority, UnitState
 from agent_build_kit.pipeline.work_graph import TaskGroup
 from tests.factories import groups_at, unit
 
@@ -196,3 +199,32 @@ def test_a_unit_that_started_while_promoted_keeps_the_promoted_priority_and_sour
     promote_ancestors(store, catalog(3, 1))
 
     assert result(store, 1) == (1, "c/2")
+
+
+def reads_by_a_pass(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, units: int) -> int:
+    """How many times a pass over `units` independent units, each already at the priority of
+    its group, reads the store file."""
+    folder = tmp_path / str(units)
+    folder.mkdir()
+    store = stored(folder, *((number, ()) for number in range(1, units + 1)))
+    reads: list[Path] = []
+    read_text = Path.read_text
+
+    def counting(path: Path, *args, **kwargs) -> str:
+        if path == store.path:
+            reads.append(path)
+        return read_text(path, *args, **kwargs)
+
+    with monkeypatch.context() as patched:
+        patched.setattr(Path, "read_text", counting)
+        promote_ancestors(store, catalog(*([Priority.NORMAL] * units)))
+    return len(reads)
+
+
+def test_a_pass_reads_the_store_once_however_many_units_it_holds(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    few = reads_by_a_pass(tmp_path, monkeypatch, 20)
+    many = reads_by_a_pass(tmp_path, monkeypatch, 200)
+
+    assert (few, many) == (1, 1), "the reads of the store file for 20 units and for 200"
