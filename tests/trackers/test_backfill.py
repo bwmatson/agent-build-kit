@@ -37,8 +37,13 @@ class Archive:
         self.state_dir = tmp_path / "state"
         self.state_dir.mkdir()
         self.names = names
+        self.archive_dir = self.changes_dir / "archive"
+        self.archive_dir.mkdir()
         for name in names:
-            write_change(self.changes_dir, name, tasks=DONE_TASKS)
+            write_change(self.archive_dir, f"2026-10-01-{name}", tasks=DONE_TASKS)
+
+    def folder(self, name: str) -> Path:
+        return self.archive_dir / f"2026-10-01-{name}"
 
     def units(self):  # noqa: ANN201
         return [
@@ -72,6 +77,8 @@ def test_an_archived_change_is_mirrored_as_closed_and_done_items(tmp_path: Path)
         assert item is not None, marker
         assert (item.kit_state or item.state) == "done", marker
     assert report.created == 7
+    assert (archive.folder(CHANGE) / "tracker.yaml").is_file()
+    assert not (archive.changes_dir / CHANGE).exists()
 
 
 def test_without_a_task_level_no_task_items_are_made(tmp_path: Path) -> None:
@@ -105,4 +112,4 @@ def test_a_dry_run_lists_the_creates_and_the_tracker_sees_no_write(tmp_path: Pat
     assert list(report.listed) == [CHANGE, f"{CHANGE}:1", f"{CHANGE}:2"]
     assert not archive.tracker.writes()
     assert not list(archive.state_dir.iterdir())
-    assert not (archive.changes_dir / CHANGE / "tracker.yaml").exists()
+    assert not (archive.folder(CHANGE) / "tracker.yaml").exists()

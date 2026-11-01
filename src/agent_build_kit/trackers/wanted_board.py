@@ -20,6 +20,7 @@ from agent_build_kit.pipeline.units import Unit, UnitState, carried_pairs
 from agent_build_kit.pipeline.work_graph import TaskGroup, read_tasks, validate_tasks
 from agent_build_kit.trackers.base import ItemKind
 from agent_build_kit.trackers.config import TrackerSection
+from agent_build_kit.trackers.folders import change_folder
 
 # The kit's state and tags for the state of the unit that covers a group.
 _UNIT_STATES: dict[UnitState, tuple[str, tuple[str, ...]]] = {
@@ -165,7 +166,7 @@ def wanted_board(
     epics = epics or {}
     per_level: dict[str, list[WantedItem]] = {level: [] for level in section.levels}
     for name in changes:
-        folder = changes_dir / name
+        folder = change_folder(changes_dir, name)
         tasks_file = folder / TASKS_FILE
         if tasks_file.is_file():
             groups, _ = validate_tasks(tasks_file)

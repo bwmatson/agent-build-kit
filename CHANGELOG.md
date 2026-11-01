@@ -25,6 +25,14 @@
   items of the groups it builds (`AB#<id>` or `Part of #<id>`) and is attached to each once.
   Archived changes can be mirrored in a capped number of creates per run, with a dry run that
   lists them.
+- Every tick now has a step, after the label sweep, that pushes the board of each repo that
+  names a tracker. It takes effect for a tracker kind once that kind is registered; until then
+  the tick logs the repo as skipped. A state change only marks the board for the next tick and
+  never calls the tracker, a failure in the step cannot stop a tick, and one tick creates at
+  most `create_cap` items (default 50) per repo. A change archived in the round it finishes is
+  still closed on the board. A pull request description names the board items of the groups it
+  builds (`AB#<id>` or `Part of #<id>`) and the pull request is attached to each once. Archived
+  changes can be mirrored in a capped number of creates per run, with a dry run that lists them.
 
 - For a repo with a tracker, a planned unit is not started while a board item it covers (the
   group items, or the lowest level in use, and any task items under them) is assigned to

@@ -27,6 +27,7 @@ from agent_build_kit.forges.transport import (
 )
 from agent_build_kit.trackers.azure_work_item_models import (
     ConnectionDataDoc,
+    RepositoryDoc,
     WiqlDoc,
     WorkItemDoc,
     WorkItemsDoc,
@@ -35,6 +36,7 @@ from agent_build_kit.trackers.base import (
     Identity,
     Item,
     ItemKind,
+    Relation,
     StaleRevision,
     split_tags,
     with_status_tags,
@@ -45,6 +47,8 @@ from agent_build_kit.trackers.manual_parent import ManualParent
 PARENT_LINK = "System.LinkTypes.Hierarchy-Reverse"
 CHILD_LINK = "System.LinkTypes.Hierarchy-Forward"
 ARTIFACT_LINK = "ArtifactLink"
+PULL_REQUEST_RELATION = "pull_request"
+_PULL_REQUEST_URL = re.compile(r"/_git/(?P<repository>[^/]+)/pullrequest/(?P<number>\d+)/?$")
 PATCH = "application/json-patch+json"
 # What the service answers a failed revision test with, by its version.
 STALE_STATUSES = (409, 412)
@@ -198,6 +202,25 @@ class AzureDevOpsWorkItems:
         ids = self._ids_where("System.Title", "=", title)
         candidates = (self.read_manual_parent(item_id) for item_id in ids)
         return [candidate for candidate in candidates if candidate is not None]
+
+    def link(self, item_id: str, relation: str, target_id: str) -> Relation:
+        """Relate a work item to a pull request, given as its web address
+        (`.../_git/<repository>/pullrequest/<number>`): the artifact link needs the ids of the
+        project and the repository, which one read of the repository gives."""
+        if relation != PULL_REQUEST_RELATION:
+            raise ValueError(f"cannot link a work item by {relation!r}")
+        found = _PULL_REQUEST_URL.search(target_id)
+        if found is None:
+            raise ValueError(f"not a pull request address: {target_id}")
+        response = self._call("GET", f"git/repositories/{found['repository']}")
+        repository = validated(RepositoryDoc, response.data, "repositories", response.text)
+        self.link_pull_request(
+            item_id,
+            project_id=repository.project.id,
+            repository_id=repository.id,
+            pull_request_id=int(found["number"]),
+        )
+        return Relation(kind=relation, source_id=item_id, target_id=target_id)
 
     def link_pull_request(
         self, item_id: str, *, project_id: str, repository_id: str, pull_request_id: int

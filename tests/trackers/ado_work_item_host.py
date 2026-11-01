@@ -25,6 +25,7 @@ from tests.trackers.ado_recorded import load
 REVERSE = "System.LinkTypes.Hierarchy-Reverse"
 FORWARD = "System.LinkTypes.Hierarchy-Forward"
 BASE = "https://dev.azure.com/example/Some%20Project"
+PROJECT_ID = "project-guid"
 _ROUTE = re.compile(r"^/(?P<org>[^/]+)/(?P<project>[^/]+)/_apis/(?P<rest>.*)$")
 _CONDITION = re.compile(
     r"\[([\w.]+)\]\s+(Not Contains Words|Contains Words|Contains|=)\s+'((?:[^']|'')*)'",
@@ -179,6 +180,15 @@ class WorkItemHost(httpx.MockTransport):
                     "VssInvalidPreviewVersionException",
                 )
             return answer(load("connection_data").body)
+        repository = re.fullmatch(r"git/repositories/([^/]+)", rest, re.IGNORECASE)
+        if repository and method == "GET":
+            return answer(
+                {
+                    "id": f"repo-{repository[1]}",
+                    "name": repository[1],
+                    "project": {"id": PROJECT_ID, "name": "Some Project"},
+                }
+            )
         if rest.lower() == "wit/wiql" and method == "POST":
             return self._query(body["query"])
         raise AssertionError(f"the stand-in host was not expecting {method} {rest}")

@@ -60,9 +60,14 @@ def tasks_lock(tasks: Path) -> AbstractContextManager[None]:
     return file_lock(change_lock_path(local, tasks.parent.name, TASKS_FILE))
 
 
+def progress_root(inst: Tracked) -> Path:
+    """The folder holding every change's tracking copy: `<state dir>/changes`."""
+    return inst.state_dir / "changes"
+
+
 def progress_dir(inst: Tracked, change: str) -> Path:
     """The folder holding `change`'s tracking copy: `<state dir>/changes/<change>`."""
-    return inst.state_dir / "changes" / change
+    return progress_root(inst) / change
 
 
 def _read(path: Path) -> str | None:

@@ -34,8 +34,9 @@ from agent_build_kit.pipeline.tracker_file import (
     write_tracker,
 )
 from agent_build_kit.pipeline.units import Unit
-from agent_build_kit.trackers.base import STATUS_TAGS, StaleRevision, Tracker
+from agent_build_kit.trackers.base import STATUS_TAGS, Item, StaleRevision, Tracker
 from agent_build_kit.trackers.config import TrackerConfigError, TrackerSection, section_for
+from agent_build_kit.trackers.folders import change_folder
 from agent_build_kit.trackers.wanted_board import WantedItem, wanted_board
 
 ERRORS_COUNTER = "abk.tracker.errors"
@@ -119,10 +120,10 @@ class _Pass:
         self.awaiting: list[str] = []
 
     def _list(self, item: WantedItem, name: str) -> None:
-        """A dry run: name what would be created, looking and writing nothing."""
+        """A dry run: name what would be created. It looks at the board and writes nothing."""
         if item.marker in _entries(self.files[name], name):
             return
-        if self.tracker.find_by_marker(item.marker) is not None:
+        if self._lookup(item.marker) is not None:
             return
         if self.create_cap is not None and len(self.listed) >= self.create_cap:
             raise _CapReached
@@ -160,10 +161,7 @@ class _Pass:
     ) -> Synced:
         """The item on the board for `item`: the one its marker finds, else a new one. The snapshot
         holds what the board shows in the kit's words, so the next diff compares like with like."""
-        try:
-            found = self.tracker.find_by_marker(item.marker)
-        except NotFound as error:
-            raise _RepoFailed(str(error)) from error
+        found = self._lookup(item.marker)
         if found is not None:
             snapshot = {
                 "title": found.title,
@@ -189,15 +187,22 @@ class _Pass:
         self._record(change, item, synced)
         return synced
 
+    def _lookup(self, marker: str) -> Item | None:
+        """The item that carries `marker`; a project that is not there fails the whole repo."""
+        try:
+            return self.tracker.find_by_marker(marker)
+        except NotFound as error:
+            raise _RepoFailed(str(error)) from error
+
     def _record(self, change: str, item: WantedItem, synced: Synced) -> None:
         self.files[change] = _with(self.files[change], item, synced)
-        write_tracker(self.changes_dir / change, self.files[change])
+        write_tracker(change_folder(self.changes_dir, change), self.files[change])
 
 
 def _write_snapshot(path: Path, files: Mapping[str, TrackerFile]) -> None:
     """Record the ids and revisions the pass ended with, in the machine-local file. Nothing reads
     them to save calls yet; the pass trusts `tracker.yaml` and the marker search. Any other key
-    in the file (the mirror's dirty mark) is kept."""
+    in the file is kept."""
     try:
         kept = json.loads(path.read_text())
     except (OSError, ValueError):
@@ -247,7 +252,7 @@ def reconcile(
     errors = 0
     for name in changes:
         try:
-            found = read_for_target(changes_dir / name, section.kind, target)
+            found = read_for_target(change_folder(changes_dir, name), section.kind, target)
         except Exception as error:  # a mismatch, a conflicted file or a bad field: this change only
             errors += 1
             count_error()

@@ -54,6 +54,8 @@ class TrackerSection(Frozen):
     pr_links: str | tuple[str, ...] = "lowest"
     # The board type of each level in use, and of the epic.
     types: dict[str, str] = {}
+    # The most items one tick creates, so a repo turning a tracker on is mirrored over several.
+    create_cap: Annotated[int, Field(ge=1)] = 50
 
     @field_validator("levels")
     @classmethod
@@ -107,6 +109,10 @@ class TrackerSection(Frozen):
     def target(self) -> str:
         """Where the tracker is, for a person reading a report."""
         return self.kind
+
+    def link_line(self, item_id: str) -> str:
+        """The words a pull request description uses so the host links the item."""
+        raise NotImplementedError(f"the {self.kind} section does not say how to link an item")
 
     @property
     def level_types(self) -> dict[str, str]:
@@ -170,6 +176,9 @@ class AzureDevOpsTracker(TrackerSection):
         """`types` wins over `story_type`, which is the group level's type when it names none."""
         return {**({"group": self.story_type} if self.story_type else {}), **self.types}
 
+    def link_line(self, item_id: str) -> str:
+        return f"AB#{item_id}"
+
     @property
     def target(self) -> str:
         return f"{self.kind} {self.organization}/{self.project}"
@@ -183,6 +192,9 @@ class GithubTracker(TrackerSection):
     labels: dict[str, str] | None = None
     host: str | None = None
     project_number: int | None = None
+
+    def link_line(self, item_id: str) -> str:
+        return f"Part of #{item_id}"
 
     @property
     def target(self) -> str:

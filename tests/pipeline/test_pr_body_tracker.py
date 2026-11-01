@@ -11,7 +11,13 @@ import pytest
 
 from agent_build_kit import trackers
 from agent_build_kit.pipeline.pr_body import build_pr_body
-from agent_build_kit.pipeline.tracker_file import Synced, TrackerFile, mapping_target, write_tracker
+from agent_build_kit.pipeline.tracker_file import (
+    Synced,
+    TaskEntry,
+    TrackerFile,
+    mapping_target,
+    write_tracker,
+)
 from agent_build_kit.trackers.config import section_for
 from agent_build_kit.trackers.pr_attach import attach_pull_request
 from tests.factories import stored_unit
@@ -180,3 +186,78 @@ def test_a_repo_with_no_tracker_gets_the_description_it_gets_today(tmp_path: Pat
     assert "Part of #" not in after
     assert attach(changes, state) == ()
     assert not tracker.calls
+
+
+def test_a_conflicted_tracker_file_gives_a_description_with_no_tracker_line(
+    tmp_path: Path,
+) -> None:
+    changes = board(tmp_path, azure(["change", "group"]))
+    tracker = watched()
+    state = tmp_path / "state"
+    state.mkdir()
+    (changes / CHANGE / "tracker.yaml").write_text("<<<<<<< ours\nkind: [\n=======\n>>>>>>> t\n")
+
+    text = body(changes)
+
+    assert "AB#" not in text
+    assert attach(changes, state) == ()
+    assert not tracker.calls
+
+
+def test_a_tracker_file_of_another_board_gives_no_line_and_no_attachment(
+    tmp_path: Path,
+) -> None:
+    changes = board(tmp_path, azure(["change", "group"]))
+    tracker = watched()
+    state = tmp_path / "state"
+    state.mkdir()
+    write_tracker(
+        changes / CHANGE,
+        TrackerFile(
+            kind="azure_devops",
+            target="azure_devops other/board@00000000",
+            change=Synced(id=CHANGE_ID),
+            groups={f"{CHANGE}:1": Synced(id=GROUP_1_ID)},
+        ),
+    )
+
+    text = body(changes)
+
+    assert "AB#" not in text
+    assert attach(changes, state) == ()
+    assert not tracker.calls
+
+
+def test_with_a_task_level_each_task_of_the_built_groups_gets_a_line_and_the_pull_request(
+    tmp_path: Path,
+) -> None:
+    changes = board(tmp_path, azure(["change", "group", "task"]))
+    tracker = watched()
+    state = tmp_path / "state"
+    state.mkdir()
+    section = section_for("app")
+    assert section is not None
+    ids = {
+        f"{CHANGE}:{group}.{task}": str(200 + group * 10 + task)
+        for group in BUILT
+        for task in (1, 2)
+    }
+    write_tracker(
+        changes / CHANGE,
+        TrackerFile(
+            kind=section.kind,
+            target=mapping_target(section),
+            change=Synced(id=CHANGE_ID),
+            groups={f"{CHANGE}:1": Synced(id=GROUP_1_ID), f"{CHANGE}:2": Synced(id=GROUP_2_ID)},
+            tasks={key: TaskEntry(id=item_id, text_hash="h") for key, item_id in ids.items()},
+        ),
+    )
+
+    text = body(changes)
+    attached = attach(changes, state)
+
+    for item_id in ids.values():
+        assert f"AB#{item_id}" in text
+    assert f"AB#{GROUP_1_ID}" not in text
+    assert sorted(attached) == sorted(ids)
+    assert sorted(call.args[0] for call in tracker.made("link")) == sorted(ids.values())
