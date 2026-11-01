@@ -147,6 +147,7 @@
   folder. Three things still act as in a real tick: the fetch and poll (which record merges, send
   units back and restack), the live verification (deploy and live tests) and the archiving of
   finished changes. The usage ledger still gets its spans and the planner call's cost.
+
 - A unit whose pull request has merged or closed on the forge is now recorded as such even when
   the poller's report was missed or deferred while the unit was being built. Each tick compares
   the poller's cached state of every running, in-review, failed or held unit's pull request with
