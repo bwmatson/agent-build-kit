@@ -8,9 +8,8 @@ from pathlib import Path
 import pytest
 
 from agent_build_kit import trackers
-from agent_build_kit.pipeline.units import ready_units
 from agent_build_kit.trackers.base import Tracker
-from agent_build_kit.trackers.start_decision import start_decision, start_view
+from agent_build_kit.trackers.start_decision import start_decision, start_gate
 from tests.factories import unit as make_unit
 from tests.trackers.tracker_section_support import AZURE_BLOCK, configure
 
@@ -40,18 +39,14 @@ def test_the_decision_for_a_repo_with_no_section_is_start_with_no_call(
     assert no_tracker_section == []
 
 
-def test_the_start_view_of_a_repo_with_no_section_is_the_graph_as_it_was(
+def test_the_gate_of_a_repo_with_no_section_starts_every_unit_with_no_call(
     tmp_path: Path, no_tracker_section: list[str]
 ) -> None:
     graph = [make_unit("add-marker/1"), make_unit("other-change/1", change="other-change")]
 
-    view = start_view(graph, lambda unit: start_decision(unit, changes_dir=tmp_path))
+    outcomes = [start_gate(unit, graph, changes_dir=tmp_path).outcome for unit in graph]
 
-    assert view == graph
-    assert [u.id for u in ready_units(view, max_concurrent=5, depth_cap=10)] == [
-        "add-marker/1",
-        "other-change/1",
-    ]
+    assert outcomes == ["start", "start"]
     assert no_tracker_section == []
 
 

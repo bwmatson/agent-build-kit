@@ -484,7 +484,7 @@ from agent_build_kit.runtimes import AgentRateLimited, NetworkUnavailable, Servi
 from agent_build_kit.runtimes.guards import guard_lines
 from agent_build_kit.serve.review import ReviewStore
 from agent_build_kit.trackers.report import standing
-from agent_build_kit.trackers.start_decision import start_decision
+from agent_build_kit.trackers.start_decision import start_gate
 from agent_build_kit.tracks.runner import RUN_ID, publish_commit
 
 if TYPE_CHECKING:
@@ -3617,10 +3617,7 @@ def _evaluate_round(
             or unit.id in external
             # Someone else owns what it covers on the board, or the board has no item yet; a
             # unit already in progress is the kit's and is not asked.
-            or (
-                not in_progress(unit, units)
-                and start_decision(unit, changes_dir=inst.changes_dir).outcome != "start"
-            )
+            or start_gate(unit, units, changes_dir=inst.changes_dir).outcome != "start"
         ):
             unit = unit.model_copy(update={"state": HELD})
             excluded.add(unit.id)

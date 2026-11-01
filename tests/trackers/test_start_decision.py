@@ -8,9 +8,9 @@ from pathlib import Path
 import pytest
 
 from agent_build_kit import trackers
-from agent_build_kit.pipeline.units import ready_units
+from agent_build_kit.pipeline.units import Member
 from agent_build_kit.trackers.local import LocalTracker
-from agent_build_kit.trackers.start_decision import start_decision, start_view
+from agent_build_kit.trackers.start_decision import start_decision
 from tests.trackers.board_support import CHANGE, board_section, covering
 from tests.trackers.reconciler_support import RecordingTracker, World
 from tests.trackers.start_support import PERSON, board, item, taken_by_person
@@ -91,17 +91,28 @@ def test_without_a_group_level_the_lowest_level_in_use_is_checked(tmp_path: Path
     assert decision.items == (taken,)
 
 
-def test_a_skipped_unit_takes_no_slot_and_another_ready_unit_is_admitted(
+def test_a_change_item_taken_by_a_person_skips_the_unit_on_a_change_only_board(
     tmp_path: Path,
 ) -> None:
-    world, skipped = board(tmp_path, ["change", "group"])
-    taken_by_person(world, "1")
-    other = covering(f"{CHANGE}/2", (2,))
+    world, unit = board(tmp_path, ["change"])
+    taken = world.item_id(CHANGE)
+    world.tracker.as_identity(PERSON).claim(taken)
 
-    view = start_view([skipped, other], lambda each: decide(world, each))
-    ready = ready_units(view, max_concurrent=5, depth_cap=10, max_units_in_progress=1)
+    decision = decide(world, unit)
 
-    assert [each.id for each in ready] == [other.id]
+    assert decision.outcome == "skip"
+    assert decision.items == (taken,)
+
+
+def test_a_group_taken_in_a_joined_member_skips_the_unit(tmp_path: Path) -> None:
+    world, own = board(tmp_path, ["change", "group"])
+    unit = own.model_copy(update={"joined": (Member(change=CHANGE, groups=(2,)),)})
+    taken = taken_by_person(world, "2")
+
+    decision = decide(world, unit)
+
+    assert decision.outcome == "skip"
+    assert decision.items == (taken,)
 
 
 def test_a_group_item_the_sync_has_not_mirrored_yet_makes_the_unit_wait(
