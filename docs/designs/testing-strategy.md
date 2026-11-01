@@ -69,6 +69,12 @@ file is created only when a new logic file is created for the unit under test. A
 in that module's existing test file, never a new file. Test directories carry no `__init__.py`, so file names are unique across the
 tree.
 
+**Folders say the kind.** Unit tests sit under the tests root, mirroring the source tree. Integration tests live in an `integration` folder and
+e2e tests in an `e2e` folder, each at the root of the project's tests, and inside them the files are grouped by subject. A reader can then tell a
+test's kind from its path, a run can be pointed at a folder as well as at a selector, and a test never needs its selector read to know where
+it belongs. The folder and the selector must agree: an e2e test in the integration folder is misfiled even when its selector is right, and the
+same holds for an integration test outside its folder. Helpers shared by a kind's tests live in that kind's folder.
+
 **Where each kind runs.**
 
 | Kind | Unit gate | CI | Elsewhere |
@@ -102,7 +108,7 @@ supported toolchains: a profile for another language chooses whatever its runner
 
 | Capability | A pytest project | An npm project with vitest | Another toolchain, for example |
 |---|---|---|---|
-| Declare a kind on a test | a registered marker | a file-name convention (`<name>.integration.test.ts`, `<name>.<e2e>.test.ts`) | a tag or category attribute, a build tag, a separate test directory or target |
+| Declare a kind on a test (and keep the file in the kind's folder) | a registered marker | a file-name convention (`<name>.integration.test.ts`, `<name>.<e2e>.test.ts`) | a tag or category attribute, a build tag, a separate test directory or target |
 | The default run leaves out `integration` and e2e | a deselecting `-m` expression in the repository's configuration | include and exclude patterns in the runner's configuration | the same, in the runner's configuration |
 | Select by id, overriding the default | the test's node id, with the marker expression overridden for it | a file path or a name filter, with the exclusion overridden for it | a name or tag filter that wins over the default |
 | Unknown kinds are refused | strict marker registration | a conformance test over the configured patterns | a conformance test, or the runner's own strictness |
@@ -207,6 +213,9 @@ finding reads, for example, `T7 tests/serve/test_x.py:40 fixed port`.
 - **T3 Name.** A test name states one behaviour as a sentence. File names are unique, because test directories carry no `__init__.py`.
   Check: review; `none yet` (a guard that no two test files share a base name).
 - **T4 Surface.** A test reaches a public surface and imports no private name. Check: `none yet`; review.
+- **T27 Kind folder.** An integration test lives in the project's `integration` folder and an e2e test in its `e2e` folder, and a unit test in
+  neither; the folder and the test's selector agree. Check: `none yet` (a guard that compares each test file's folder with its selectors, with a
+  baseline of today's misfiled files that may only shrink); review.
 
 **Determinism: the same result every time, in any order, under load**
 
@@ -402,8 +411,8 @@ Rules enforced only by review today: T3, T4, T10, T13, T19, T22, T23, T25, the p
 the paths and names of T8. The `gate` class of T1, T2, T9 and T20 holds for the red check and the repeat check, and the red check does
 not yet run in the build (see below), so until it does these are checked by the push gate, which a person or a hook runs.
 
-T26 has no check yet: the before-and-after comparison of changed test files is a step below, and until it exists a reorganization is
-checked by review alone.
+T26 and T27 have no check yet: the before-and-after comparison of changed test files and the folder-against-selector guard are steps
+below, and until they exist a reorganization and a test's folder are checked by review alone.
 
 ## Where it stands
 
@@ -426,6 +435,10 @@ These are facts about the code, not a status report.
   `test/` and `testing/` folders).
 - The kit's own e2e marker is named `local_stack` (the default of `tests.e2e_marker`, the marker registration and the default
   deselection in `pyproject.toml`, the guards and the documents, over a hundred files), while the projects built with it already use `e2e`.
+- Tests are not kept in the folder of their kind. In the kit, 13 of the 24 files under the integration folder carry the e2e selector, 11 carry
+  `integration`, one e2e file sits in the e2e folder, and about 26 more e2e-selected files and 4 integration-selected ones sit outside any kind
+  folder. A project built with the kit shows the same drift: every file in its integration folder carries the e2e selector. (A static count of
+  selector names in the files; the audit step makes it exact.)
 - Nothing tells a reorganization from any other change. A group that names source files has a floor of `tests_and_code`, and the red
   check, once it runs in the build, would reject the unchanged tests of a reorganization.
 - The builder's prompt says a new test goes in a file where every test fails, which pushes agents to new files, though the gate now
@@ -459,6 +472,9 @@ Each step can become an OpenSpec change. Order follows dependency.
 14. **Rename the e2e marker to `e2e`.** The default of `tests.e2e_marker`, the marker registration and the default deselection, the
     guards that read the name, the documents and the tests; a repository that sets the old name gets a warning from the doctor, and a
     guard fails if the old name reappears. No behaviour changes.
+15. **Put each test in the folder of its kind.** Audit every test file's folder against its selectors; move the misfiled ones (a move is a
+    reorganization, so a `refactor` group, with helpers moving beside their tests and the paths in guards, CI and documents following); add the
+    folder-against-selector guard with a baseline that may only shrink. It follows the e2e rename, so a file is moved once.
 
 ## Decisions made
 
@@ -473,6 +489,7 @@ Each step can become an OpenSpec change. Order follows dependency.
 - **Standing guidance is delivered by channel, never by skill, to the unattended pipeline**, and whatever a program can decide is
   decided before review.
 - **A project's tests touch only its own domain**; cross-project checks live at the root.
+- **A test lives in the folder of its kind** (`integration`, `e2e`, or the mirrored tree for unit tests), and the folder and selector agree.
 - **The e2e marker is `e2e`.** Names that describe how a stack is run (`local_stack`) are an implementation detail and are retired.
 - **Every conformance test is an integration test.**
 - **A reorganization needs no new test.** The existing tests pass with only mechanical edits (T26); a characterization test is added
