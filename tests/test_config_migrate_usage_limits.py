@@ -111,6 +111,15 @@ def test_an_account_already_on_the_new_key_is_left_as_it_is() -> None:
     assert migrate(before).text == before.replace("        limits:", "        usage_limits:")
 
 
+def test_accounts_merged_into_a_runtime_with_no_old_key_are_left_as_they_are() -> None:
+    before = (
+        "base: &base\n  accounts:\n    kit:\n      usage_limits: {}\n"
+        "runtimes:\n  claude_code:\n    <<: *base\n"
+    )
+
+    assert migrate(before).text == before
+
+
 def test_only_keys_are_renamed_never_values() -> None:
     before = "runtimes:\n  claude_code:\n    limits:\n      note: limits\n"
 

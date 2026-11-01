@@ -41,6 +41,24 @@ CASES = {
         r"runtimes|<<|limits",
         r"merge|anchor|alias",
     ),
+    "accounts merged into a runtime, one setting the old key": (
+        "base: &base\n  accounts:\n    kit:\n      limits: {}\nruntimes:\n  claude_code:\n"
+        "    <<: *base\n",
+        r"limits",
+        r"merge",
+    ),
+    "an account with a merge key bringing the old key": (
+        "base: &base\n  limits: {}\nruntimes:\n  claude_code:\n    accounts:\n      kit:\n"
+        "        <<: *base\n",
+        r"limits",
+        r"merge",
+    ),
+    "the old key under an account merged into the accounts mapping": (
+        "more: &more\n  kit:\n    limits: {}\nruntimes:\n  claude_code:\n    accounts:\n"
+        "      <<: *more\n",
+        r"limits",
+        r"merge",
+    ),
     "flow-style runtime": (
         "runtimes:\n  claude_code: {limits: {session: {}}}\n",
         r"claude_code|limits",

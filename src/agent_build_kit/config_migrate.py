@@ -533,28 +533,10 @@ def _rename_builders_key(text: str) -> str:
     return result
 
 
-def _loaded_holds_old(document: Any, path: tuple[str, ...]) -> bool:
-    """Whether the mapping at the key path `path` of the loaded `document` sets `limits`."""
-    node = document
-    for part in path:
-        node = node.get(part) if isinstance(node, dict) else None
-    return isinstance(node, dict) and DEPRECATED_USAGE_LIMITS in node
-
-
-def _loaded_has_accounts(document: Any, path: tuple[str, ...], holder: yaml.MappingNode) -> bool:
-    """Whether the runtime at `path` has accounts only through a merge key: its loaded mapping
-    holds them, its written one does not."""
-    if len(path) != 2 or pair(holder, "accounts") is not None:
-        return False
-    node = document
-    for part in path:
-        node = node.get(part) if isinstance(node, dict) else None
-    return isinstance(node, dict) and isinstance(node.get("accounts"), dict)
-
-
 def _rename_usage_limits(text: str) -> str:
     """`text` with `limits` renamed to `usage_limits` under each runtime and account, on its own
-    line; both spellings in one place, or a key that cannot be edited by lines, is refused."""
+    line; both spellings in one place, or a key that cannot be edited by lines (one that sits
+    behind a merge key or an alias, for example), is refused."""
     try:
         documents = list(yaml.compose_all(text))
     except yaml.YAMLError:
@@ -564,15 +546,10 @@ def _rename_usage_limits(text: str) -> str:
         return text
     lines = split_lines(text)
     before = yaml.safe_load(text)
-    renamed = False
     for path, holder_key, holder in usage_limits_holders(root):
         where = ".".join(path)
         found = pair(holder, DEPRECATED_USAGE_LIMITS)
         if found is None:
-            if any(k.tag == MERGE_TAG for k, _ in holder.value) and (
-                _loaded_holds_old(before, path) or _loaded_has_accounts(before, path, holder)
-            ):
-                opened(lines, holder_key, holder, where, "the block")
             continue
         old = f"{where}.{DEPRECATED_USAGE_LIMITS}"
         if pair(holder, USAGE_LIMITS) is not None:
@@ -581,18 +558,22 @@ def _rename_usage_limits(text: str) -> str:
             )
         opened(lines, holder_key, holder, where, "the block")
         rename_on_line(lines, found[0], DEPRECATED_USAGE_LIMITS, USAGE_LIMITS, old)
-        renamed = True
-    if not renamed:
-        return text
     result = joined(lines, text)
+    differs = refuse(
+        "abk.yaml",
+        "the edited text would differ from the file in more than the rename; a "
+        f"`{DEPRECATED_USAGE_LIMITS}` key behind a merge key or an alias cannot be edited by lines",
+    )
     try:
         written = yaml.safe_load(result)
     except yaml.YAMLError as error:
         raise refuse("abk.yaml", f"the edited text would not parse ({error})") from error
-    if written != alias_runtimes_usage_limits(before):
-        raise refuse(
-            "abk.yaml", "the edited text would differ from the file in more than the rename"
-        )
+    try:
+        expected = alias_runtimes_usage_limits(before)
+    except ValueError as error:
+        raise differs from error
+    if written != expected:
+        raise differs
     return result
 
 
