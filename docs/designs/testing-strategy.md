@@ -533,8 +533,8 @@ Each step can become an OpenSpec change. Order follows dependency.
 - **Renaming and moving functions, fixtures and imports is mechanical in a reorganization; changing an assertion or what a function takes, returns or does is not.**
 - **A tree-wide integration test declares the files it reads**, and the affected selection chooses it when a declared file changes. A
   conformance test or wide scan does not always run in the gate; CI runs it on every pull request and is the backstop for what the declaration
-  misses. The declaration lives where the test reads: the kit's tree-walk helper takes the files as an argument, and the selection reads the
-  same declaration, so the two cannot drift. A walk with no declaration is refused by the guard that already forbids walking the tree by hand.
+  misses. The declaration lives where the test reads: the kit's tree-walk helper takes the folders, names and suffixes it reads as arguments (none meaning
+  the whole tree, which every change affects), and the selection reads the same arguments, so the two cannot drift. A walk with no declaration is refused by the guard that already forbids walking the tree by hand.
 - **The full-text standards file is measured by four measures:** the share of runs that opened it, violations by standard ID split by whether it
   was opened, the IDs the agent cites against the violations, and a replay comparison of the table alone against the table and the file.
   Until they are measured the compact table carries every rule that matters most.
@@ -543,4 +543,4 @@ Each step can become an OpenSpec change. Order follows dependency.
 
 ## Open questions
 
-None open. The two that remained are decided below.
+None open. The two that remained are decided above.
