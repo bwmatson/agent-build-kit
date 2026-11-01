@@ -5,27 +5,15 @@ runs and the log says why; failing to narrow is never read as having no test of 
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any
 
 import pytest
 
 from agent_build_kit.config import E2eUnitScope
 from agent_build_kit.pipeline import wiring
 from agent_build_kit.profiles.python_uv import PROFILE
-from tests.e2e_scope_fakes import NEW, OLD, WHOLE, Ran, branch, session
+from tests.e2e_scope_fakes import NEW, OLD, WHOLE, Ran, Unselecting, branch, session
 
 SKIPPED = "e2e-test skipped"
-
-
-class Unselecting:
-    """The python profile as one that cannot select tests by identifier."""
-
-    name = "plain-profile"
-
-    def __getattr__(self, attribute: str) -> Any:
-        if attribute == "repeat_command":
-            raise AttributeError(attribute)
-        return getattr(PROFILE, attribute)
 
 
 def adds_one_test(tmp_path: Path) -> tuple[Path, str]:
@@ -59,7 +47,7 @@ def test_a_profile_that_cannot_select_by_identifier_runs_the_whole_marker_and_na
     ran = Ran()
     log: list[str] = []
 
-    session(tmp_path, ran, log=log, profile=Unselecting()).run(cwd=repo, base=base)
+    session(tmp_path, ran, log=log, profile=Unselecting(PROFILE)).run(cwd=repo, base=base)
 
     assert ran.commands == [WHOLE]
     [reason] = [line for line in log if "runs whole" in line]

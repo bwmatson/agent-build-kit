@@ -35,6 +35,20 @@ KIT_SPLITS = (
 )
 
 
+class Unselecting:
+    """`real`, a profile, as one that cannot select tests by identifier."""
+
+    name = "plain-profile"
+
+    def __init__(self, real: Any) -> None:
+        self.real = real
+
+    def __getattr__(self, attribute: str) -> Any:
+        if attribute == "repeat_command":
+            raise AttributeError(attribute)
+        return getattr(self.real, attribute)
+
+
 def branch(
     tmp_path: Path,
     changed: dict[str, str] | None,

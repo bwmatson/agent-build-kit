@@ -4,7 +4,6 @@ whose node profile lacks the repeat hook is still run whole (spec: node-npm-lint
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any
 
 import pytest
 
@@ -12,31 +11,19 @@ from agent_build_kit import profiles
 from agent_build_kit.config import E2eUnitScope, ProjectConfig
 from agent_build_kit.pipeline.wiring import E2eScope, e2e_scope
 from agent_build_kit.profiles.python_uv import PROFILE
-from tests.e2e_scope_fakes import NEW, OLD, branch
+from tests.e2e_scope_fakes import NEW, OLD, Unselecting, branch
 from tests.node_workspace import manifest
 
 CANNOT = "cannot select tests by identifier"
+SKIPPED = "e2e-test skipped"
+WEB_E2E = "web/src/a.local_stack.test.ts"
 
 
-class Unselecting:
-    """The node profile as one without the repeat hook."""
-
-    name = "plain-profile"
-
-    def __init__(self, real: Any) -> None:
-        self.real = real
-
-    def __getattr__(self, attribute: str) -> Any:
-        if attribute == "repeat_command":
-            raise AttributeError(attribute)
-        return getattr(self.real, attribute)
-
-
-def decide(tmp_path: Path) -> tuple[Path, E2eScope]:
+def decide(tmp_path: Path, changed: dict[str, str] | None = None) -> tuple[Path, E2eScope]:
     repo, base = branch(
         tmp_path,
-        {"api/tests/live/test_new.py": NEW},
-        base_files={"api/tests/live/test_old.py": OLD, "web/src/a.local_stack.test.ts": ""},
+        changed or {"api/tests/live/test_new.py": NEW},
+        base_files={"api/tests/live/test_old.py": OLD, WEB_E2E: ""},
     )
     manifest(repo / "web", "web")
     scope = e2e_scope(
@@ -72,3 +59,26 @@ def test_a_repository_is_narrowed_only_while_every_profile_in_it_has_the_hook(
     assert whole.mode is E2eUnitScope.FULL
     assert CANNOT in whole.reason
     assert "plain-profile" in whole.reason
+
+
+def test_a_unit_that_changed_only_a_node_e2e_test_runs_it_in_the_node_project(
+    tmp_path: Path,
+) -> None:
+    repo, scope = decide(tmp_path, {WEB_E2E: "// changed\n"})
+
+    assert scope.mode is E2eUnitScope.OWN
+    assert SKIPPED not in scope.reason
+    assert [run.where for run in scope.runs] == [repo / "web"]
+    [command] = scope.runs[0].commands
+    assert command[5:] == ["src/a.local_stack.test.ts"]
+    assert WEB_E2E in scope.ids
+
+
+def test_a_unit_that_changed_a_node_test_that_is_not_e2e_runs_nothing_and_says_why(
+    tmp_path: Path,
+) -> None:
+    _, scope = decide(tmp_path, {"web/src/b.test.ts": "// new\n"})
+
+    assert scope.mode is E2eUnitScope.OWN
+    assert scope.runs == []
+    assert SKIPPED in scope.reason

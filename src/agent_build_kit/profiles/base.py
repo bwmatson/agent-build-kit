@@ -262,6 +262,17 @@ class RepeatsTests(Protocol):
 
 
 @runtime_checkable
+class ListsTestFiles(Protocol):
+    """The optional hook of a profile whose runner selects a test by its file alone: the git
+    pathspecs of its test files, so a unit's added or changed file is an identifier although
+    the kit reads no test names from it."""
+
+    def test_file_pathspecs(self) -> list[str]:
+        """Pathspecs, from a project's root, that match the test files of the profile."""
+        ...
+
+
+@runtime_checkable
 class ReportsRunFacts(Protocol):
     """The optional hooks a profile adds to say what a test run's own command and a query of the
     runner tell of the conditions it ran under, for the evidence kept of a failing run. A runner

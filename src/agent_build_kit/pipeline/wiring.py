@@ -212,6 +212,7 @@ from agent_build_kit.profiles.base import (
     TEMP_ROOT_VARIABLE,
     AppliesE2eSelection,
     AppliesFixers,
+    ListsTestFiles,
     ProjectChecks,
     RecordsSelectionData,
     RepeatsTests,
@@ -1563,7 +1564,7 @@ def build_unit_test(
         length), the unit's own test ids by project, why not): the plan is None when the
         profile cannot select."""
         try:
-            touched = touched_tests(cwd, base)
+            touched = touched_in(cwd, base, (tc for _, tc, _ in work))
         except (subprocess.CalledProcessError, OSError) as error:
             return None, [], {}, f"the unit's tests could not be listed ({error})"
         if projects:
@@ -1837,7 +1838,7 @@ def build_unit_test(
         passed. A new test has no excuse to be flaky, so any failure fails unit-test."""
         runs = active().global_limits.unit_test_repeat_runs
         try:
-            touched = touched_tests(cwd, base) if runs else []
+            touched = touched_in(cwd, base, (tc for _, tc, _ in ran_tests)) if runs else []
         except (subprocess.CalledProcessError, OSError) as error:
             # What the unit touched cannot be read; the checks that ran stand.
             _say(log, f"repeat check skipped, the unit's tests could not be listed ({error})")
@@ -2343,7 +2344,7 @@ def ids_for(
     there selects them. Only files the runner collects: a `test_*` method in a source file or a
     helper module is not."""
     return [
-        f"{relative}::{name}"
+        f"{relative}::{name}" if name else relative
         for path, name in touched
         if toolchain.collects_path(path) and (relative := _under(cwd / path, where)) is not None
     ]
@@ -3187,7 +3188,7 @@ def e2e_scope(
     if base is None:
         return whole("there is no base to list the unit's tests against")
     try:
-        touched = touched_tests(cwd, base)
+        touched = touched_in(cwd, base, (tc for _, tc, _ in work))
     except (subprocess.CalledProcessError, OSError) as error:
         return whole(f"the unit's tests could not be listed ({error})")
     runs: list[E2eRun] = []
@@ -4246,12 +4247,69 @@ def tests_changed(tree: Path, ref: str) -> set[str]:
     return {name for _, name, _ in _changed_tests(tree, ref, qualified=False)}
 
 
+def test_file_pathspecs(toolchains: Iterable[ToolchainProfile]) -> list[str]:
+    """The git pathspecs of the test files of the toolchains that select a test by its file
+    alone, for `touched_tests`."""
+    specs = {
+        spec
+        for tc in toolchains
+        if isinstance(tc, ListsTestFiles)
+        for spec in tc.test_file_pathspecs()
+    }
+    return sorted(specs)
+
+
+def _changed_files(tree: Path, ref: str, head: str | None, pathspecs: Sequence[str]) -> list[str]:
+    """The files matching `pathspecs` that the tree adds or changes against `ref` (or the commit
+    `head` does); a deleted file is not listed."""
+    diff = git(
+        tree,
+        "diff",
+        "-z",
+        "--name-only",
+        "--no-renames",
+        "--diff-filter=d",
+        ref,
+        *([head] if head else []),
+        "--",
+        *pathspecs,
+        errors="surrogateescape",
+    ).stdout
+    new = (
+        git(
+            tree,
+            "ls-files",
+            "-z",
+            "--others",
+            "--exclude-standard",
+            "--",
+            *pathspecs,
+            errors="surrogateescape",
+        ).stdout
+        if head is None
+        else ""
+    )
+    return sorted({p for p in (diff + "\0" + new).split("\0") if p})
+
+
 def touched_tests(tree: Path, ref: str, head: str | None = None) -> list[tuple[str, str]]:
     """(file, test) for each test the tree adds or changes against `ref` (or the commit
     `head` adds or changes against it), as a runner selects it: the file's path from the
     tree's root and the test's name, with its classes (`Group::test_x`). A deleted test is
     not listed, since nothing is left to run."""
     return [(p, n) for p, n, there in _changed_tests(tree, ref, qualified=True, head=head) if there]
+
+
+def touched_in(
+    tree: Path, ref: str, toolchains: Iterable[ToolchainProfile], head: str | None = None
+) -> list[tuple[str, str]]:
+    """`touched_tests`, and with an empty name each test file the toolchains select by the file
+    alone (`ListsTestFiles`) that the tree adds or changes, which has no test names to read."""
+    listed = touched_tests(tree, ref, head) if head else touched_tests(tree, ref)
+    pathspecs = test_file_pathspecs(toolchains)
+    if pathspecs:
+        listed += [(path, "") for path in _changed_files(tree, ref, head, pathspecs)]
+    return listed
 
 
 def own_test_ids(
@@ -4264,7 +4322,7 @@ def own_test_ids(
     """The identifiers, from the tree's root, of the tests a unit adds or changes against
     `ref` (up to `head`): the definition the e2e-test run narrows to, for one that wants the
     unit's own tests without running them. `work` is `e2e_work`'s."""
-    touched = touched_tests(tree, ref, head)
+    touched = touched_in(tree, ref, (tc for _, tc, _ in work), head)
     ids: list[str] = []
     for where, toolchain, _ in work:
         prefix = f"{where.relative_to(tree).as_posix()}/" if where != tree else ""

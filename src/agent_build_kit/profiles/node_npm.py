@@ -262,6 +262,13 @@ class NodeNpmProfile:
                 files.append(relative)
         return ["sh", "-c", _FILTERED, "sh", directory, *files] if files else None
 
+    def test_file_pathspecs(self) -> list[str]:
+        """The `.test` and `.spec` files and those under `__tests__/`; Vitest selects by file."""
+        return [
+            *(f"*.{kind}.{ext}" for kind in ("test", "spec") for ext in _SOURCE),
+            *(f"*__tests__/*.{ext}" for ext in _SOURCE),
+        ]
+
     def tolerates_exit(self, command: list[str], returncode: int) -> bool:
         return returncode == 0
 
