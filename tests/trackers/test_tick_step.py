@@ -6,6 +6,7 @@ from __future__ import annotations
 import json
 from collections.abc import Iterator
 from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -20,7 +21,7 @@ from agent_build_kit.pipeline.units import UnitState
 from agent_build_kit.pipeline.usage_guard import Decision
 from agent_build_kit.trackers import tick_step
 from agent_build_kit.trackers.config import TrackerSection
-from agent_build_kit.trackers.reconciler import ERRORS_COUNTER
+from agent_build_kit.trackers.reconciler import ERRORS_COUNTER, PassReport
 from agent_build_kit.trackers.tick_step import is_dirty, sync_trackers
 from tests.conftest import make_installation
 from tests.factories import init_repo, stored_unit
@@ -375,23 +376,37 @@ def test_a_change_archived_in_the_round_it_finishes_ends_done_without_new_items(
 
 
 def test_a_group_the_plan_no_longer_wants_does_not_keep_an_archived_change_in_every_round(
-    inst: Installation, store: UnitStore
+    inst: Installation, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     watching = Watching(board_section(["change", "group"]))
     write_change(inst.changes_dir)
-    both = [unit.model_copy(update={"groups": (1, 2)}) for unit in store.all()]
-    sync_trackers(inst, both)
+    first = stored_unit(f"{CHANGE}/1", change=CHANGE, repo="app", groups=(1,))
+    second = stored_unit(f"{CHANGE}/2", change=CHANGE, repo="app", groups=(2,))
+    merged = first.model_copy(update={"state": UnitState.MERGED, "pr": 5})
+    reviewing = second.model_copy(update={"state": UnitState.IN_REVIEW, "pr": 6})
+    sync_trackers(inst, [merged, reviewing])
+    assert state_of(watching.tracker, f"{CHANGE}:2") == "active"
     archive = inst.changes_dir / "archive"
     archive.mkdir()
     (inst.changes_dir / CHANGE).rename(archive / f"2026-10-01-{CHANGE}")
-    # Group 2 is retired: the plan wants only group 1, so group 2's item never reads done.
-    only_first = [unit.model_copy(update={"groups": (1,)}) for unit in both]
-    sync_trackers(inst, only_first)
-    calls = len(watching.tracker.calls)
+    # The unit covering group 2 is retired: the group is no longer wanted, and its item keeps
+    # what it last showed (active) while the change ends done on the group that is.
+    retired = [merged, second.model_copy(update={"state": UnitState.RETIRED, "pr": 6})]
+    sync_trackers(inst, retired)
+    assert state_of(watching.tracker, CHANGE) == "done"
+    assert state_of(watching.tracker, f"{CHANGE}:2") == "active"
+    passes: list[list[str]] = []
+    real = tick_step.reconcile
 
-    sync_trackers(inst, only_first)
+    def spy(repo: str, **kwargs: Any) -> PassReport:
+        passes.append(list(kwargs["changes"]))
+        return real(repo, **kwargs)
 
-    assert len(watching.tracker.calls) == calls
+    monkeypatch.setattr(tick_step, "reconcile", spy)
+
+    sync_trackers(inst, retired)
+
+    assert passes == [[]]
 
 
 def test_an_archived_change_recorded_for_another_board_is_left_out(
