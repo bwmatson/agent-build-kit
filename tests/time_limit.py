@@ -12,8 +12,10 @@ including in a blocking call. The test fails (or errors, in setup or teardown) w
 
 from __future__ import annotations
 
+import faulthandler
 import signal
 import sys
+import tempfile
 import threading
 
 import pytest
@@ -28,7 +30,26 @@ DEFAULT_E2E_TEST_TIME_LIMIT = 30 * 60
 
 
 class TimedOut(BaseException):
-    """Raised in the main thread when the running test passes its limit."""
+    """Raised in the main thread when the running test passes its limit; carries the stack
+    of every thread as it was then."""
+
+    def __init__(self, stacks: str = "") -> None:
+        super().__init__(stacks)
+        self.stacks = stacks
+
+
+def thread_stacks() -> str:
+    """The stack of every thread now. It runs in a signal handler, which may have interrupted
+    code holding a lock of `threading`, so it takes none: `faulthandler` reads the frames
+    itself. A host that cannot make the file (no temp folder, no descriptors) says so and the
+    limit is still the failure."""
+    try:
+        with tempfile.TemporaryFile("w+") as dump:
+            faulthandler.dump_traceback(dump, all_threads=True)
+            dump.seek(0)
+            return dump.read()
+    except OSError as error:
+        return f"(the stacks could not be read: {error})"
 
 
 # The flag under the kind's old spelling, still accepted with a notice.
@@ -83,7 +104,7 @@ def _under_limit(item: pytest.Item, phase: str):
 
     def interrupt(signum, frame) -> None:
         if running:
-            raise TimedOut
+            raise TimedOut(thread_stacks())
 
     previous = signal.signal(signal.SIGUSR2, interrupt)
     main = threading.get_ident()
@@ -92,9 +113,14 @@ def _under_limit(item: pytest.Item, phase: str):
     try:
         timer.start()
         return (yield)
-    except TimedOut:
+    except TimedOut as stopped:
         what = "test" if phase == "call" else f"test {phase}"
-        pytest.fail(f"{what} exceeded the {kind}time limit of {limit:g} seconds", pytrace=False)
+        # Raised from None: the stacks are in the text, once, after the limit it names.
+        raise pytest.fail.Exception(
+            f"{what} exceeded the {kind}time limit of {limit:g} seconds\n\n"
+            f"The stack of every thread:\n{stopped.stacks}",
+            pytrace=False,
+        ) from None
     finally:
         running = False
         timer.cancel()

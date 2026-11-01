@@ -15,6 +15,7 @@ runs/*.lock
 runs/locks/
 runs/unit-logs/
 runs/test-failures/
+runs/test-runs.jsonl*
 runs/usage-ledger.jsonl
 runs/decisions.jsonl
 runs/usage-calls.jsonl

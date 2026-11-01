@@ -14,7 +14,8 @@ from datetime import datetime, timedelta
 from pathlib import Path
 
 from agent_build_kit.compat_names import moved_to_current_name, old_spelling
-from agent_build_kit.model import TestTier
+from agent_build_kit.model import Frozen, TestTier
+from agent_build_kit.pipeline.file_lock import file_lock
 from agent_build_kit.pipeline.units import Unit, unit_file_prefix
 from agent_build_kit.redaction import redact_text
 
@@ -65,6 +66,47 @@ def append_e2e_output(directory: Path, unit: Unit, started: datetime, text: str)
 
 # The most of a failing run's output a bundle keeps, in bytes.
 FAILURE_OUTPUT_CAP = 5_000_000
+
+
+# The size a ledger of unit-test runs reaches before it is rotated, in bytes.
+TEST_RUNS_MAX_BYTES = 1_000_000
+
+
+def run_ledger_path(state_dir: Path) -> Path:
+    """The ledger of every unit-test run, one JSON row each, under the state directory."""
+    return state_dir / "test-runs.jsonl"
+
+
+class TestRun(Frozen):
+    """One row of the ledger of unit-test runs: what ran and under what conditions, no output."""
+
+    __test__ = False  # not a test class, whatever pytest makes of the name
+
+    unit: str
+    # The run's start, an ISO 8601 time.
+    started: str
+    seconds: float
+    # `passed`, `failed` (also when the failure is not the unit's) or `flake`.
+    outcome: str
+    failed: list[str]
+    # The one-minute load average at the start and end, when the machine says.
+    load_start: float | None
+    load_end: float | None
+    # What the test command asked for (a count or `auto`), when it says.
+    workers: str | None
+    tick: str
+    units_running: list[str]
+
+
+def append_test_run(path: Path, run: TestRun, *, max_bytes: int = TEST_RUNS_MAX_BYTES) -> None:
+    """Add `run` to the ledger at `path`; a ledger already `max_bytes` long is moved to
+    `<name>.1` (replacing an older one) first."""
+    with file_lock(path.with_suffix(".lock")):
+        path.parent.mkdir(parents=True, exist_ok=True)
+        if path.exists() and path.stat().st_size >= max_bytes:
+            path.replace(path.with_name(path.name + ".1"))
+        with path.open("a", encoding="utf-8") as handle:
+            handle.write(run.model_dump_json() + "\n")
 
 
 def failure_bundles_dir(state_dir: Path) -> Path:

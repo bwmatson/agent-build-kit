@@ -253,6 +253,7 @@ from agent_build_kit.pipeline.run_log import (
     failure_bundles_dir,
     remove_change_logs,
     remove_old_logs,
+    run_ledger_path,
     run_log_dir,
 )
 from agent_build_kit.pipeline.shell import git, has_origin
@@ -5903,6 +5904,7 @@ def build_repo_unit_test(
         log=log,
         failures_dir=failure_bundles_dir(installation.state_dir),
         installation=installation,
+        test_runs=run_ledger_path(installation.state_dir),
     )
     return make() if run is None else make(run=run)
 

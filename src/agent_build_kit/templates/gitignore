@@ -17,6 +17,8 @@ runs/unit-logs/
 # The evidence a failing unit-test run leaves, a folder per run (in the state directory; move
 # this line if planning.state_dir is changed).
 runs/test-failures/
+# One line per unit-test run, and the rotated copy (same note).
+runs/test-runs.jsonl*
 # One line per agent call: the usage ledger (in the state directory; move this line
 # if planning.state_dir is changed).
 runs/usage-ledger.jsonl

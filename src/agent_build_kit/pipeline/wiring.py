@@ -156,9 +156,12 @@ from agent_build_kit.pipeline.restack import (
 )
 from agent_build_kit.pipeline.review_paths import is_protected
 from agent_build_kit.pipeline.run_log import (
+    TestRun,
     append_e2e_output,
+    append_test_run,
     e2e_output_dir,
     failure_bundles_dir,
+    run_ledger_path,
     write_failure_bundle,
     write_rerun_evidence,
 )
@@ -181,6 +184,7 @@ from agent_build_kit.pipeline.units import (
     MERGED,
     PLANNED,
     REVIEWED,
+    RUNNING,
     Unit,
     base_of,
     branch_name,
@@ -1308,6 +1312,7 @@ def build_unit_test(
     now: Callable[[], datetime] | None = None,
     machine: Callable[[], dict[str, object]] | None = None,
     installation: Installation | None = None,
+    test_runs: Path | None = None,
 ) -> Callable[..., tuple[bool, str]]:
     """Lint the unit's own diff, then test the members it reaches.
 
@@ -1364,6 +1369,11 @@ def build_unit_test(
     # This run's token, and the environment each profile that sets one gave its commands.
     run_token: dict[str, str] = {}
     run_environments: dict[str, dict[str, str]] = {}
+    # What the current run's test commands asked for, for its ledger row.
+    run_facts: dict[str, object] = {}
+    # The tests the current run's failed commands named, each read by the profile of the
+    # command (a project has its own), for its ledger row.
+    run_failed: list[str] = []
 
     def fresh_run_token() -> str:
         """A token for this run whose folder in the temp root does not exist, so two runs never
@@ -1382,6 +1392,59 @@ def build_unit_test(
         whole_repo: bool = False,
         failed_output: str = "",
         moved_from: str | None = None,
+    ) -> tuple[bool, str]:
+        """`tested`, with a row added to the ledger of unit-test runs when one is kept: the run
+        passing, failing or finding a flake."""
+        if test_runs is None:
+            return tested(cwd, base, whole_repo, failed_output, moved_from)
+        sample = machine or failure_evidence.machine_sample
+        started = clock()
+        load_start = _first_load(sample())
+        run_facts.clear()
+        run_failed.clear()
+        outcome = "failed"
+        failed: list[str] = []
+        try:
+            passed, output = tested(cwd, base, whole_repo, failed_output, moved_from)
+        except FlakeFound as found:
+            outcome, failed = "flake", [flake.test for flake in found.flakes]
+            raise
+        except FailedOnBase as found_on_base:
+            failed = [failure.test for failure in found_on_base.failures]
+            raise
+        else:
+            outcome = "passed" if passed else "failed"
+            failed = [] if passed else list(run_failed)
+            return passed, output
+        finally:
+            ended = clock()
+            workers = run_facts.get("workers_setting")
+            try:
+                append_test_run(
+                    test_runs,
+                    TestRun(
+                        unit=spans.current_unit.get()[0],
+                        started=started.isoformat(),
+                        seconds=(ended - started).total_seconds(),
+                        outcome=outcome,
+                        failed=failed,
+                        load_start=load_start,
+                        load_end=_first_load(sample()),
+                        workers=None if workers is None else str(workers),
+                        tick=spans.PROCESS_TICK,
+                        units_running=_running_units(installation),
+                    ),
+                )
+            except OSError as error:
+                # A record of the run must not replace the run's own result.
+                _say(log, f"unit-test: the run was not added to the ledger ({error})")
+
+    def tested(
+        cwd: Path,
+        base: str,
+        whole_repo: bool,
+        failed_output: str,
+        moved_from: str | None,
     ) -> tuple[bool, str]:
         """(passed, what failed) — the output is what makes a retry useful.
 
@@ -2123,6 +2186,9 @@ def build_unit_test(
         mark = spans.Mark()
         outcome = "error"
         command = located(toolchain, command, where, root or checkout.get("root", where))
+        if test_runs is not None and isinstance(toolchain, ReportsRunFacts):
+            for key, value in toolchain.run_facts(command, "").items():
+                run_facts.setdefault(key, value)
         try:
             result = run(command, cwd=where, **test_env(toolchain))
             ok = toolchain.tolerates_exit(command, result.returncode)
@@ -2139,6 +2205,9 @@ def build_unit_test(
                 outcome=outcome,
                 command=" ".join(command),
             )
+        if test_runs is not None and not ok:
+            named = failed_ids(toolchain, f"{result.stdout or ''}\n{result.stderr or ''}")
+            run_failed.extend(test for test in named if test not in run_failed)
         if log is not None:
             passed = "passed" if ok else f"exit {result.returncode}"
             seconds = time.monotonic() - started
@@ -2148,13 +2217,36 @@ def build_unit_test(
     return unit_test
 
 
+def _first_load(sample: dict[str, object]) -> float | None:
+    """The one-minute load average of a machine sample, when it has one."""
+    load = sample.get("load")
+    return float(load[0]) if isinstance(load, list) and load else None
+
+
+def _running_units(installation: Installation | None) -> list[str]:
+    """The ids of the units running now, from the store of `installation`; none without one."""
+    if installation is None:
+        return []
+    try:
+        stored = UnitStore(installation.state_dir / "units.json").all()
+    except (OSError, ValueError):
+        return []
+    return [unit.id for unit in stored if unit.state == RUNNING]
+
+
+def _active_installation() -> Installation | None:
+    """The installation of the loaded workspace, or None when none is loaded."""
+    root = active_root()
+    return None if root is None else Installation(active(), root)
+
+
 def _pointed_bundles() -> set[Path]:
     """The bundles the flake and storm rows name, which pruning keeps; none when no workspace
     is loaded."""
-    root = active_root()
-    if root is None:
+    installation = _active_installation()
+    if installation is None:
         return set()
-    record = flake_record(Installation(active(), root))
+    record = flake_record(installation)
     return {Path(row.evidence) for row in [*record.entries(), *record.storms()] if row.evidence}
 
 
@@ -4579,6 +4671,7 @@ def build_runner(
             repo=repo,
             failures_dir=failure_bundles_dir(installation.state_dir),
             installation=installation,
+            test_runs=run_ledger_path(installation.state_dir),
         ),
         on_flake=build_on_flake(store, installation, log=log),
         reproduce_test=build_reproduce(
