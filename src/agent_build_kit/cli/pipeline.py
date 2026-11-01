@@ -4447,6 +4447,7 @@ def _schedule(
                     unit,
                     store=store,
                     queued=queued.pop(unit.id, None),
+                    lane=lane,
                 )
                 building[pool.submit(work.run, run)] = unit
 
@@ -6052,6 +6053,7 @@ def build_restack_lane(inst: Installation, store: UnitStore) -> RestackLanes:
                 moved_base_run=True,
                 # A pause that stopped the run: the lane tries it again from the guard's time.
                 on_pause=lambda resume_at: lanes.defer_until(unit_id, resume_at),
+                lane=lanes,
             )
 
         return run
@@ -6494,8 +6496,12 @@ def build_unit(
     queued: spans.Mark | None = None,
     moved_base_run: bool = False,
     on_pause: Callable[[datetime | None], None] | None = None,
+    lane: Lane | None = None,
 ) -> bool:
     """`_build_unit` as a `unit` span below the tick's, with the run's duration.
+
+    `lane` is the tick's restack lane, which a merge or close recorded when the run ends is
+    handed to as the poller's is.
 
     `queued` is when the tick first saw the unit ready but for a free slot (see
     `note_queued`): the time from then to its branch lock is recorded as its
@@ -6529,6 +6535,7 @@ def build_unit(
                 queued=queued,
                 moved_base_run=moved_base_run,
                 on_pause=on_pause,
+                lane=lane,
             )
         except BaseException:
             telemetry.failed(span)
@@ -6560,6 +6567,7 @@ def _build_unit(
     queued: spans.Mark | None = None,
     moved_base_run: bool = False,
     on_pause: Callable[[datetime | None], None] | None = None,
+    lane: Lane | None = None,
 ) -> bool:
     """Start the unit's thread, or resume the one a killed or paused run left,
     and run it to a wait or the end. Returns False only when the model refused
@@ -6822,7 +6830,9 @@ def _build_unit(
             # The run ended on a pull request the forge shows merged or closed. The lock is
             # released now, which the handlers need to deliver the event to the unit's thread.
             try:
-                if not _dispatch(inst, store)(outcome.pr_over, outcome.pr, repo=unit.repo):
+                if not _dispatch(inst, store, lane=lane)(
+                    outcome.pr_over, outcome.pr, repo=unit.repo
+                ):
                     say(f"#{outcome.pr} {outcome.pr_over}: left for a later pass")
             except Exception as error:  # noqa: BLE001
                 say(f"#{outcome.pr} {outcome.pr_over} could not be recorded — {error}")
