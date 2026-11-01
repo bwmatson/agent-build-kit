@@ -80,11 +80,13 @@ same holds for an integration test outside its folder. Helpers shared by a kind'
 | Kind | Unit gate | CI | Elsewhere |
 |---|---|---|---|
 | unit | all of them | yes | |
-| integration | only the ones the unit added or changed, selected by id | **every one, on every pull request, as a required check** | |
+| integration | only the ones the unit added or changed, and the ones whose covered code the unit changed (the same affected selection the unit tests use) | **every one, on every pull request, as a required check** | |
 | e2e | no | never | where a stack exists: the e2e-test step, the scheduled run |
 
-A unit's own new integration tests are therefore run before its pull request opens, red first and repeated like any new test, and CI
-is the backstop for every other integration test the change might have broken.
+An integration test therefore runs in a unit's local build and checks only when the unit added or changed it, or changed the code it covers.
+The ones the unit added are run before its pull request opens, red first and repeated like any new test, and the ones the change might have
+affected are run so a regression is found before review. CI runs every integration test on every pull request whatever the change, and it
+is the backstop for the ones the local selection could not know about.
 
 ### Kind selectors
 
@@ -157,7 +159,8 @@ The pull request text says the tests were committed first and seen to fail only 
   above does not fight the loop. A commit that changes only a helper or a shared fixture file, which has no test to select, runs its files
   whole.
 - **Integration tests too.** The repository's default selection deselects an integration test even when it is named by id, so
-  the selection overrides the default for the ids the commit added or changed.
+  the selection overrides the default for the ids the commit added or changed. The unit's later runs add the integration tests that its
+  affected selection picks, with the same override.
 - **Test-only and no-code groups.** A `tests_only` group has no implementation to wait for; a `no_code` group has no test. They skip
   the check by their mode, and the pull request text says so.
 - **Repeat.** After the unit's tests pass, the tests it added or changed run again, under the same workers, a configured number of
@@ -456,7 +459,8 @@ Each step can become an OpenSpec change. Order follows dependency.
 2. **Profile capability parity.** The conformance test and the integration scenario suite; close the JavaScript profile's gaps.
 3. **The marker taxonomy and wide scans as integration.** The taxonomy in the marker text; the CI-runnability guard; the audit and the
    moves; scan-once and lazy scans; drop time limits that become unneeded.
-4. **New integration tests run in the unit gate** by id with the marker let through, red first and repeated.
+4. **Integration tests run in the unit gate when changed or affected**: the added or changed ones by id with the selector let through, red
+   first and repeated, and the ones whose covered code changed by the affected selection, which must also record data for integration tests.
 5. **The time limit counts CPU time** with a wall backstop; remove the raised limits.
 6. **Load is not a flake.** The `load` and `isolation` outcomes; consequence marking; three clean-base runs before a fix change.
 7. **Gates share the machine.** The global worker budget; decide whether hand-run gates count.
@@ -481,7 +485,7 @@ Each step can become an OpenSpec change. Order follows dependency.
 - **The red check is enforced in the build loop**, at the tests commit, and not only at a push gate.
 - **A new test joins the existing file for its subject**; a new test file exists only for a new logic file.
 - **Integration means runnable in CI.** Anything needing credentials, a live service, a model, an agent or an MCP or API call is e2e.
-  Every integration test runs in CI on every pull request; a unit's own new integration tests also run in its gate.
+  Every integration test runs in CI on every pull request; a unit's gate also runs the integration tests it added or changed and those whose covered code it changed.
 - **Whole-repository scans and conformance tests are integration tests**, the leak gate included, and each shares one scan.
 - **No test is serial.** A test that needs it is fixed.
 - **The per-test limit counts CPU time with a wall backstop**; a load failure is not a flake.
@@ -497,6 +501,10 @@ Each step can become an OpenSpec change. Order follows dependency.
 
 ## Open questions
 
+- **What an integration test covers.** The affected selection follows the code a test executes, which fits a unit test. A conformance test or
+  a wide scan reads the whole tree and so is affected by any change: either it always runs in the gate, which brings back the cost the scans
+  are being moved out of the unit run for, or it declares the files it reads and is selected by those. The design leans to declaring, and
+  to CI as the backstop for the rest.
 - **Hand-run gates and the worker budget.** An in-process budget does not see a gate a person runs; either the budget is a shared
   slot count on disk or hand-run gates stay under a documented worker count.
 - **Is `integration` a required check** on every repository that adopts this? The design assumes it is.
