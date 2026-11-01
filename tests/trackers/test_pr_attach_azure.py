@@ -23,7 +23,7 @@ pytestmark = pytest.mark.usefixtures("rest_env")
 
 ORGANIZATION = "example-org"  # the board section's
 PR_URL = f"https://dev.azure.com/{ORGANIZATION}/Some%20Project/_git/app/pullrequest/7"
-OTHER_ORGANIZATION = "https://dev.azure.com/other/Some%20Project/_git/app/pullrequest/7"
+OTHER_ORGANIZATION = "https://dev.azure.com/org/Some%20Project/_git/app/pullrequest/7"
 ARTIFACT = f"vstfs:///Git/PullRequestId/{PROJECT_ID}%2F{REPOSITORY_ID}%2F7"
 ELSEWHERE = "https://github.com/example/app/pull/5"
 
