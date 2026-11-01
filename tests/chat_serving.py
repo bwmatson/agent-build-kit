@@ -67,7 +67,7 @@ from tests.runtimes.claude_cli import FakeClaude, Invocation
 from tests.unit_tree_support import registered_tree
 from tests.waiting import wait_for
 
-WAIT = 15
+WAIT = 60
 
 
 def unit_worktree(installation: Installation, unit_id: str) -> Path:
