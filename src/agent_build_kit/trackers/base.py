@@ -49,6 +49,25 @@ class Item(Frozen):
     revision: str
     url: str
     markers: tuple[str, ...] = ()
+    # The tags a person or the kit put on the item, apart from the markers.
+    tags: tuple[str, ...] = ()
+    # The kit's word for `state` when the board's differs (`To Do` is `new`); None when `state`
+    # already is the kit's.
+    kit_state: str | None = None
+
+
+# The tags the kit owns on an item; an update to `tags` replaces these and leaves any other.
+STATUS_TAGS = ("in-review", "blocked")
+
+
+def split_tags(text: str) -> tuple[str, ...]:
+    """The tags of a `;`-separated tag string."""
+    return tuple(tag.strip() for tag in text.split(";") if tag.strip())
+
+
+def with_status_tags(current: Sequence[str], wanted: Sequence[str]) -> tuple[str, ...]:
+    """`current` with the kit's status tags replaced by `wanted`; every other tag is kept."""
+    return (*(tag for tag in current if tag not in STATUS_TAGS), *wanted)
 
 
 class Relation(Frozen):

@@ -25,7 +25,14 @@ from agent_build_kit.trackers.azure_work_item_models import (
     WorkItemDoc,
     WorkItemsDoc,
 )
-from agent_build_kit.trackers.base import Identity, Item, ItemKind, StaleRevision
+from agent_build_kit.trackers.base import (
+    Identity,
+    Item,
+    ItemKind,
+    StaleRevision,
+    split_tags,
+    with_status_tags,
+)
 from agent_build_kit.trackers.config import AzureDevOpsTracker
 
 PARENT_LINK = "System.LinkTypes.Hierarchy-Reverse"
@@ -108,8 +115,8 @@ class AzureDevOpsWorkItems:
     def update(
         self, item_id: str, changes: Mapping[str, str], expected_revision: str | None = None
     ) -> Item:
-        """`title`, `body` and `state` (the kit's, mapped to the board's), conditional on the
-        revision: the one given, else the one read now."""
+        """`title`, `body`, `state` (the kit's, mapped to the board's) and `tags` (the kit's status
+        tags), conditional on the revision: the one given, else the one read now."""
         doc = self._read(item_id)
         item = self._to_item(doc)
         values: dict[str, str] = {}
@@ -120,6 +127,10 @@ class AzureDevOpsWorkItems:
                 values["System.Description"] = self._description(value, item.markers)
             elif name == "state":
                 values["System.State"] = self._section.board_state(doc.fields.type, value)
+            elif name == "tags":
+                # Only the kit's status tags are replaced: the markers and a person's tags stay.
+                kept = with_status_tags(split_tags(doc.fields.tags), split_tags(value))
+                values["System.Tags"] = "; ".join(kept)
             else:
                 raise ValueError(f"cannot update {name!r} of a work item")
         return self._patch(item_id, values, expected_revision or item.revision)
@@ -144,7 +155,7 @@ class AzureDevOpsWorkItems:
     def set_tag(self, item_id: str, tag: str, present: bool) -> Item:
         """Add or remove one tag (the blocked and in-review markers), leaving the state."""
         doc = self._read_level(item_id)
-        tags = [t.strip() for t in doc.fields.tags.split(";") if t.strip()]
+        tags = list(split_tags(doc.fields.tags))
         if (tag in tags) == present:
             return self._to_item(doc)
         tags = [*tags, tag] if present else [t for t in tags if t != tag]
@@ -306,4 +317,10 @@ class AzureDevOpsWorkItems:
             revision=str(doc.rev),
             url=doc.links.html.href if doc.links and doc.links.html else doc.url,
             markers=tuple(marker.findall(description)),
+            tags=tuple(
+                tag
+                for tag in split_tags(doc.fields.tags)
+                if not tag.startswith(f"{self._section.marker_prefix}:")
+            ),
+            kit_state=self._section.kit_state(doc.fields.type, doc.fields.state),
         )
