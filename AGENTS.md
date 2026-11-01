@@ -138,13 +138,24 @@ src/agent_build_kit/
   recommendations/ built-in code-standard seeds per language
   templates/       what abk init writes into a planning repo
   skills/          the Claude Code skills abk installs into planning and code repos
+  trackers/        the work-tracker seam: a `Tracker` protocol beside the `Forge` one
+  forges/          the code hosts a repo can name in abk.yaml
+  runtimes/        the agent runtimes a workspace can name in abk.yaml
+  sandboxes/       the sandbox backends a machine can confine an agent step with
+  graph/           the unit graph: one LangGraph thread per unit (docs/designs/unit-graph.md)
+  serve/           `abk serve`: a loopback web server over the pipeline's stores
+  notify/          cards that tell a person a unit is waiting on them, reconciled from the units
+  replay/          recorded answers from upstreams outside the stack, replayed in e2e tests
+  split/           splitting a planning repo: moving one repo's content into another installation
+  telemetry/       dashboards shipped as package data
 web/               the web UI `abk serve` shows (React, TypeScript, Tailwind; Vite builds it into
                    src/agent_build_kit/serve/static, which is git-ignored and ships in the wheel)
 tests/             mirrors src/ (tests/pipeline/test_<module>.py, tests/hooks/, ...);
                    tests/integration/ holds what needs node or the network (marked `integration`); a test
                    that scans the whole repository is marked `integration` wherever it sits
 docs/              architecture, configuration, cli, toolchain-profiles, agent-runtimes, unit-graph,
-                   init, tracks, runbooks/ (person-run migration procedures)
+                   init, tracks, docs/designs/ (design documents), runbooks/ (person-run migration
+                   procedures)
 ```
 
 ## Conventions
