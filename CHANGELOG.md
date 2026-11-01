@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- The architecture document now has a "Work tracker" section describing the parts of the tracker
+  as what they do when called (the wanted board, the reconciler, the manual parent an `Epic:`
+  line names) and what a tick runs today: the start gate that reads who owns a unit's board
+  items, so a repo with a tracker section waits with "no board item yet" until a tracker file
+  exists. The hand-off guide no longer calls the hold "interim", and the CLI reference says
+  where tracker state shows (`abk status`, `abk doctor`).
+
 - A planning pass no longer reads the unit store once for every unit when it gives a prerequisite
   the priority of the units that wait on it: it reads the store once, so the pass no longer takes
   time that grows with the square of the number of units (about half a minute of a pass over a

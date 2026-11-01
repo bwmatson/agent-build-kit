@@ -90,10 +90,10 @@ def test_every_field_the_document_shows_exists_in_the_hold_model() -> None:
             assert set(hold.get("items", {})) <= ITEM_KEYS
 
 
-def test_the_hold_is_the_interim_path_and_the_permanent_one_without_a_tracker() -> None:
+def test_the_hold_is_the_permanent_path_without_a_tracker() -> None:
     text = " ".join(HAND_OFF.lower().split())
 
-    assert "interim" in text
+    assert "interim" not in text
     assert "permanent" in text
     assert "no tracker" in text
 
