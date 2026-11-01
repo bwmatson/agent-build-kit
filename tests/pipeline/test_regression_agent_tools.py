@@ -11,12 +11,14 @@ from pathlib import Path
 
 import pytest
 
+from agent_build_kit import profiles
 from agent_build_kit.hooks.policy import decide
 from agent_build_kit.installation import Installation
 from agent_build_kit.pipeline.check_runner import worktree_at
 from agent_build_kit.pipeline.flakes import next_fix_name
-from agent_build_kit.pipeline.regression_agent import FixKind, run_regression_agent
+from agent_build_kit.pipeline.regression_agent import FixKind, agent_sandbox, run_regression_agent
 from agent_build_kit.runtimes import AgentRequest
+from agent_build_kit.sandboxes.policy import policy_entries
 from tests.conftest import make_installation
 from tests.factories import commit, git, init_repo, stored_unit
 from tests.regression_agent_support import (
@@ -27,6 +29,7 @@ from tests.regression_agent_support import (
     openspec_checking,
     run,
 )
+from tests.runtimes.stand_in import GrantsFolder
 from tests.sandboxes.policy_support import reads, writes
 
 READ_TOOLS = ("Read", "Grep", "Glob")
@@ -161,10 +164,36 @@ def test_the_sandbox_reads_what_git_log_and_blame_open_in_a_linked_worktree_and_
         for path in opened:
             assert reads(sandbox, path), path
             assert not writes(sandbox, path), path
-        assert not writes(sandbox, tree), "the base checkout is read-only"
+        assert not writes(sandbox, tree), "this runtime grants no folder that holds the tree"
         assert not forge_hosts(sandbox.hosts)
     assert found == "write widget.py"
     assert "return 'b'" in blamed
+
+
+def test_a_folder_the_runtime_grants_covers_a_worktree_inside_it_and_never_the_repos_checkout(
+    confined_installation: Installation, tmp_path: Path
+) -> None:
+    # As the Claude runtime grants the temp folder, where `worktree_at` makes its worktree: that
+    # disposable worktree is writable, the repo's own checkout is not.
+    installation = confined_installation
+    repo = init_repo(installation.checkouts["app"])
+    base = commit(repo, "widget.py", "x = 1\n").strip()
+    granted = tmp_path / "granted"
+    granted.mkdir()
+    change = installation.changes_dir / "fix-test-x"
+    runtime = GrantsFolder(granted)
+    git(repo, "worktree", "add", "--detach", "-q", str(granted / "tree"), base)
+
+    inside = agent_sandbox(installation, "app", granted / "tree", change, runtime)
+    outside = agent_sandbox(installation, "app", repo, change, runtime)
+
+    assert inside is not None and outside is not None
+    assert writes(inside, granted / "tree" / "widget.py"), "a disposable worktree in the grant"
+    assert not writes(outside, repo / "widget.py"), "the repo's own checkout"
+    assert not writes(outside, repo / ".git" / "objects")
+    for policy in (inside, outside):
+        assert writes(policy, change / "proposal.md")
+        assert not writes(policy, installation.root / "abk.yaml")
 
 
 def test_a_write_outside_the_change_directory_is_refused_in_the_base_checkout(
@@ -201,4 +230,15 @@ def test_the_sandbox_grants_no_forge_host(
 
     assert request.allowed_tools
     assert request.policy is not None and request.policy.sandbox is not None
+    toolchain = profiles.get(confined_installation.repo("app").profile)
+    entries = policy_entries(
+        confined_installation,
+        "app",
+        tmp_path / "base-checkout",
+        runtime=GrantsFolder(tmp_path),
+        profile=toolchain,
+    )
+    sources = {entry.source for entry in entries if entry.kind == "hosts"}
+    assert sources == {toolchain.name}, "the toolchain's package index, and no other source"
+    assert set(request.policy.sandbox.hosts) == {e.value for e in entries if e.kind == "hosts"}
     assert not forge_hosts(request.policy.sandbox.hosts)

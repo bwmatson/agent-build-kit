@@ -15,9 +15,12 @@ from agent_build_kit.installation import Installation
 from agent_build_kit.pipeline.flakes import fix_change_test, flake_record, next_fix_name
 from agent_build_kit.pipeline.regression_agent import (
     FAILING_TEST_LABEL,
+    FixKind,
     FixOutcome,
     RegressionRunCapped,
+    held_for_a_person,
     meet_all,
+    run_regression_agent,
 )
 from agent_build_kit.pipeline.unit_store import UnitStore
 from agent_build_kit.pipeline.untouched_failures import preexisting_record
@@ -25,7 +28,16 @@ from tests.conftest import make_installation
 from tests.factories import stored_unit
 from tests.pipeline.test_flake_fix_change import change_with_unit, flaked
 from tests.regression_agent_fakes import DefaultAgent, waited_on
-from tests.regression_agent_support import PROPOSAL, TEST, Attempts, run, write_change
+from tests.regression_agent_support import (
+    BASE,
+    PROPOSAL,
+    TEST,
+    Attempts,
+    failure,
+    openspec_checking,
+    run,
+    write_change,
+)
 from tests.untouched_failure_fakes import failing
 
 NAMED = "- Failing test: {test}\n"
@@ -36,6 +48,56 @@ def test_a_change_in_the_shape_the_agent_writes_names_its_test(installation: Ins
     write_change(installation.changes_dir / "fix-test-x")
 
     assert fix_change_test(installation, "fix-test-x") == TEST
+
+
+# A node-shaped id: the test runner of that ecosystem names a test `<file> > <name>`.
+NODE_ID = "src/widget.test.ts > renders the label"
+
+
+@pytest.mark.parametrize("quoted", [False, True], ids=["bare", "backticked"])
+def test_a_node_shaped_id_is_read_whole_from_the_line(
+    installation: Installation, quoted: bool
+) -> None:
+    root = installation.changes_dir / "fix-test-node"
+    write_change(root, test=NODE_ID)
+    if quoted:
+        text = (root / "proposal.md").read_text()
+        (root / "proposal.md").write_text(text.replace(NODE_ID, f"`{NODE_ID}`"))
+
+    assert fix_change_test(installation, "fix-test-node") == NODE_ID
+
+
+def test_a_change_for_a_node_shaped_test_is_accepted_on_the_first_attempt(
+    installation: Installation, tmp_path: Path
+) -> None:
+    name = next_fix_name(installation, NODE_ID)
+    agent = Attempts(installation, name, {"test": NODE_ID})
+
+    outcome = run_regression_agent(
+        installation,
+        failure(test=NODE_ID),
+        stored_unit("feature/1", change="feature", groups=(1,)),
+        kind=FixKind.REGRESSION,
+        base=BASE,
+        runtime=agent.runtime,
+        cwd=tmp_path / "base-checkout",
+        run_openspec=openspec_checking(installation),
+    )
+
+    assert outcome == FixOutcome(change=name)
+    assert len(agent.runtime.requests) == 1
+    assert f"`{FAILING_TEST_LABEL} {NODE_ID}`" in agent.runtime.request.prompt
+
+
+def test_the_default_agent_names_a_node_shaped_test_and_the_kit_reads_it_back(
+    installation: Installation,
+) -> None:
+    unit = change_with_unit(installation, "feature", "feature/1")
+
+    fix = waited_on(installation, flaked(NODE_ID), unit)
+
+    assert fix and fix_change_test(installation, fix) == NODE_ID
+    assert not held_for_a_person(installation.changes_dir / fix)
 
 
 def test_a_change_of_another_test_is_read_as_that_test(installation: Installation) -> None:

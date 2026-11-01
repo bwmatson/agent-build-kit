@@ -68,4 +68,16 @@ class StandInRuntime:
         return self.requests[0]
 
 
+class GrantsFolder(StandInRuntime):
+    """A stand-in runtime that grants a folder for writing, as the Claude runtime grants the temp
+    folder (`sandbox_paths`), so a policy built for it covers what lies inside that folder."""
+
+    def __init__(self, folder: Path, **given: object) -> None:
+        super().__init__(**given)  # type: ignore[arg-type]
+        self.folder = folder
+
+    def sandbox_paths(self, account: object = None) -> dict[str, list[str]]:
+        return {"write": [str(self.folder)]}
+
+
 _: AgentRuntime = StandInRuntime()

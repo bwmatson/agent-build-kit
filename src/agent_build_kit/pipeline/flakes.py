@@ -256,7 +256,8 @@ def add_needs(inst: Installation, change: str, group: int, fix: str, reason: str
 # pattern that reads it: what the regression agent writes in place of a group title.
 FAILING_TEST_LABEL = "Failing test:"
 FAILING_TEST_LINE = re.compile(
-    rf"^\W*{re.escape(FAILING_TEST_LABEL)}\s*`?(?P<test>[^`\s]+)`?\s*$", re.MULTILINE
+    rf"^\W*{re.escape(FAILING_TEST_LABEL)}\s*`?(?P<test>[^`\s](?:[^`\n]*[^`\s])?)`?[ \t]*$",
+    re.MULTILINE,
 )
 FIRST_ATTEMPTS = 20  # how many successive names of one test's fix change are looked under
 

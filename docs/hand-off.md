@@ -21,7 +21,8 @@ item a person has taken. It is the permanent path for a repo with no tracker.
    `abk external done <change> --groups 2 3 --pr 17` (or `--commit <sha>` for a commit on the
    default branch). The pull request must be reported merged by the forge, or the commit must be
    reachable from the default branch; anything else is refused.
-5. To take the work back before it is done, run `abk external release <change> --groups 2 3`.
+5. To take the work back before it is done, run `abk external release <change> --groups 2 3`,
+   or `--all` for every hold still held, which also works for a change with no groups yet.
    A done hold cannot be released.
 
 `abk external list` shows every hold with its change, groups, holder, link, status, age and the

@@ -94,7 +94,7 @@ class DefaultAgent:
     def act(self, request: AgentRequest) -> None:
         assert request.planning_change_dir is not None
         # The test the agent is asked about is the one its prompt tells it to name.
-        asked = re.search(r"exactly `Failing test: (\S+)`", request.prompt)
+        asked = re.search(r"exactly `Failing test: ([^`]+)`", request.prompt)
         write_change(request.planning_change_dir, test=asked[1] if asked else TEST)
 
 

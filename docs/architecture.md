@@ -1504,8 +1504,9 @@ approved.
   flake's fix and on a pre-existing one until it merges. `abk status` lists each as
   `pre-existing:` with its count, fix change and the agent's judgement. A change the agent
   could not judge, or whose checks it failed twice, is held as work handed to someone outside
-  the kit (`external.yaml`, holder `a person`): the planner leaves it alone, `abk status` says
-  why, and `abk external release <change> --groups <n>` gives it back. A unit that needs it
+  the kit (`external.yaml`, holder `a person`): no unit of it starts, `abk status` says why
+  (`abk explain` too, for a unit of that change), and `abk external release <change> --all`
+  gives it back, which also works for a change that has no `tasks.md`. A unit that needs it
   stays gated while its folder exists, tasks or not (`awaiting_planning`).
 - **A unit behind a fix waits, and is told only of its own failures.** When every failure of a
   e2e-test run is pre-existing, the node (`Nodes.wait_for_preexisting`) records each through the

@@ -65,11 +65,14 @@ CAPPED_NOTE = "waiting for a regression-agent run: "
 # the history of the base and writes its change. No command moves the base checkout's HEAD, and
 # none reaches the code host. A prefix pattern cannot refuse a flag, so `--output=<path>` and
 # `--ext-diff` are not kept out by this list: where a sandbox backend is available, its write
-# list (the change directory only) is what keeps the base checkout read-only; without one the
-# hook sees only the Edit and Write calls. The repo's test commands that follow `TOOLS` run in the
-# agent's checkout under that same sandbox, which writes nothing there: they run where the
-# toolchain can prepare its environment under the paths its profile grants, and are otherwise
-# refused, which the agent reads as a reason to search the code instead of running the test.
+# list is what limits them; without one the hook sees only the Edit and Write calls. That list
+# grants the change directory and whatever the runtime and the profile grant (the Claude runtime
+# grants the temp folder). The checkout the agent reads is the repo's own one, outside those
+# grants and so read-only, or, for a failure with a base ref, a disposable worktree that
+# `worktree_at` makes under the temp folder: it is writable wherever the runtime grants that
+# folder, and thrown away with the run. The repo's test commands that follow `TOOLS` run there,
+# so they can prepare their environment in the worktree where it is writable; in the repo's own
+# checkout they cannot, and are refused.
 TOOLS = "Read Edit Write Grep Glob Bash(git log*) Bash(git show*) Bash(git blame*) Bash(git diff*)"
 # The line of the proposal that says which side is wrong, and the two things it may say.
 JUDGEMENT_LABEL = "Judgement:"
@@ -311,8 +314,9 @@ def run_regression_agent(
     if held is None:
         return FixOutcome(change=name)
     # A person looks at it before the kit builds it: the whole change is held, as work handed to
-    # someone outside the kit is (`abk external release <change> --groups <n>` gives it back), so
-    # the planner leaves it alone, `abk status` and `abk explain` say why, and a directory with no
+    # someone outside the kit is (`abk external release <change> --all` gives it back, and works
+    # for a change with no groups). No unit of it starts (the planner may still plan it), `abk
+    # status` says why, `abk explain` too for a unit of that change, and a directory with no
     # tasks.md is not taken for one a dead run left.
     hold = Hold(
         scope="all",
@@ -332,8 +336,10 @@ def agent_sandbox(
     """The sandbox the agent runs under, from the same parts as a build step's (the system
     folders, the runtime's and the profile's paths and hosts, the files that load the
     installation, git's reads) and the same gates (none while `sandbox.enabled` is false or where
-    no backend exists), but with the base checkout and its git directory unwritable: the change
-    directory `root` is the only path of the planning repo it writes."""
+    no backend exists), but the checkout and its git directory are not granted for writing, as
+    they are to a build, and the change directory `root` is the only path of the planning repo
+    it writes. What the runtime or the profile grants (the Claude runtime grants the temp folder)
+    still covers a checkout inside it, such as the disposable worktree of a stacked unit's base."""
     from agent_build_kit.pipeline import wiring  # imports this module
 
     built = wiring.sandbox_policy(repo, cwd, runtime, None, changes=(root.name,))
