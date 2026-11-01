@@ -39,9 +39,17 @@ which change delivers which part is kept outside the kit. Each recommended step 
 groups. An `[e2e-test]` group is always built as `tests_only` and is a unit of its own. The tests of an `[integration-test]` group carry the `integration` selector below, and the build checks it. Size and duration calibration still pools
 `integration-test` with `unit-test` groups (`pooled_kind`, `model.py`).
 
+**Terms used throughout.** A *unit* is the work the pipeline builds, reviews and lands as one pull request, made of one or more task groups; it is not
+a unit test. A unit's *tier* is the widest kind among its groups. A *floor* is the least a group's mode may be, set by the paths its tasks name:
+a group that names source files must keep its tests. The *red check* is the check that a new test fails before its implementation exists (see
+"TDD as a proved loop"). The *push gate* is the same check run by a person or a hook on a branch. The *checks round* is the step after a unit's
+tests run, where lint, types and the standards check run. A *stubbed build* writes signatures that only raise before the tests. *Affected
+selection* chooses the tests whose covered code a change touched. A *tree-wide test* reads many files across the repository; a *wide scan* is the
+kind that walks the whole tree, and a *conformance test* checks that documents, configuration, layout or code structure agree.
+
 **Group mode.** `tests_and_code` (a test commit, then a code commit), `tests_only` (a lone test commit, no code), `no_code` (a lone
 code commit, no tests: documents and configuration), `refactor` (a lone code commit that reorganizes code and edits existing tests
-only mechanically; see "Reorganizing code"). A group's mode has a floor set by the paths its tasks name, and a
+only mechanically; see "Reorganizing code"). A group's mode has a floor set by the paths its tasks name (a `refactor` group is the exception, see "Reorganizing code"), and a
 `Tests: required — <reason>` line raises it.
 
 **Review tier.** `auto`, `light` or `full`: how much review a unit gets. It is a separate axis from the test kind and from the
@@ -67,7 +75,7 @@ A builder decides in this order.
 
 **Placement.** A new test goes into the existing test file for its subject, a file named for the module it exercises. A new test
 file is created only when a new logic file is created for the unit under test. A new behaviour of an existing module is a new case
-in that module's existing test file, never a new file. Test directories carry no `__init__.py`, so file names are unique across the
+in that module's existing test file, never a new file. In Python, test directories carry no `__init__.py`, so file names are unique across the
 tree.
 
 **Folders say the kind.** Unit tests sit under the tests root, mirroring the source tree. Integration tests live in an `integration` folder and
@@ -84,8 +92,7 @@ same holds for an integration test outside its folder. Helpers shared by a kind'
 | integration | only the ones the unit added or changed, and the ones whose covered code the unit changed (the same affected selection the unit tests use) | **every one, on every pull request, as a required check** | |
 | e2e | no | never | where a stack exists: the e2e-test step, the scheduled run |
 
-An integration test therefore runs in a unit's local build and checks only when the unit added or changed it, or changed the code it covers.
-The ones the unit added are run before its pull request opens, red first and repeated like any new test, and the ones the change might have
+An integration test runs in a unit's local build and checks only when the unit added or changed it, or changed the code it covers. The ones the unit added are run before its pull request opens, red first and repeated like any new test, and the ones the change might have
 affected are run so a regression is found before review. CI runs every integration test on every pull request whatever the change, and it
 is the backstop for the ones the local selection could not know about.
 
@@ -93,7 +100,7 @@ is the backstop for the ones the local selection could not know about.
 
 The names below are the canonical ones. Every toolchain gives each a spelling (next section), and the default run of a repository leaves
 out the `integration` and `e2e` selectors. The e2e selector is called `e2e` and never after how a stack is run (a name such as
-`local_stack` describes an implementation, and the kit moves off it). The profile preserves the repository's own default and adds the selections below it.
+`local_stack` describes an implementation, and the kit moves off it).
 
 | Selector | Meaning | In the default run | In CI |
 |---|---|---|---|
@@ -106,7 +113,7 @@ out the `integration` and `e2e` selectors. The e2e selector is called `e2e` and 
 
 ### How a toolchain realises the selectors
 
-Every profile provides the same six capabilities, each in the toolchain's own terms. The examples are illustrations, not a list of
+Every profile provides the same six *selector capabilities*, each in the toolchain's own terms. The examples are illustrations, not a list of
 supported toolchains: a profile for another language chooses whatever its runner offers and says so in the profiles document.
 
 | Capability | A pytest project | An npm project with vitest | Another toolchain, for example |
@@ -118,7 +125,7 @@ supported toolchains: a profile for another language chooses whatever its runner
 | At most one kind per test | a conformance test over the markers | a file matches one convention only | a conformance test over the declarations |
 | A per-test limit override | a limit marker | the runner's per-test timeout option | the runner's per-test timeout option |
 
-A profile that cannot provide one of the six says why through `ProfileUnsupported`, and the conformance test over the profile
+A profile that cannot provide one of the six says why by raising `ProfileUnsupported` (an exception that makes a gap stated and not silent), and the conformance test over the profile
 registry (see "Profile parity") treats a missing capability as a defect. The rest of this document says *selector* and *marker*
 interchangeably and never assumes pytest.
 
@@ -138,7 +145,8 @@ applies. Each toolchain's registration text (for Python, the marker definitions 
 
 **Every conformance test is an integration test**, whatever it checks: documents against behaviour, configuration, layout, names, selector
 registrations, or the structure of the code itself (the profile registry). It reads the tree or the registry and nothing live, so it
-runs in CI on every pull request and never in the unit gate unless the unit added or changed it, or changed a file it declares.
+runs in CI on every pull request and never in the unit gate unless the unit added or changed it, or changed a file it declares. A tree-wide test
+that declares nothing is refused.
 
 **Multi-project workspaces.** A project's conformance tests stay in that project and read only that project's files (standard T12a).
 A check that spans projects is a *workspace conformance test* at the repository root, marked `integration`, and is the only place
@@ -152,7 +160,7 @@ constant) and lint, format and types at the tests commit. The rest of the loop i
 
 **The red check runs in the build, at the tests commit, before the implementation step.** It runs the tests the commit added or
 changed, by id, and accepts the commit only if every one of them fails, and fails for a reason that shows the behaviour is missing:
-an `AssertionError` or a `NotImplementedError`. A passing test, a collection error, a fixture error or a syntax error is rejected
+(in Python an `AssertionError` or a `NotImplementedError`). A passing test, or an error in collecting, setting up or compiling the test, is rejected
 and the tests agent is asked again. In the stubbed build a missing name is also rejected, because the stub should have supplied it.
 The pull request text says the tests were committed first and seen to fail only when the check ran.
 
@@ -177,14 +185,15 @@ modules, an extraction, an inlining. Its proof is the tests that already exist. 
 does not apply to it, and no new test is asked for.
 
 **The existing tests pass, with only mechanical edits.** A mechanical edit changes a name or a location and nothing a test says: an
-import path, a patch target named by a string, a module, function or attribute renamed or moved, a fixture or helper moved or renamed with the code it serves (its callers following), and a
+import path, a patch target named by a string, a module, function, attribute, selector or marker name renamed or moved (including where a test asserts the name), a fixture or helper moved or renamed with the code it serves (its callers following), and a
 test file moved or renamed with its module so that placement (T2) still holds. A test's arrangement, its expected values and its
 assertions stay as they are. These are not mechanical: changing or deleting an assertion or an expected value, changing what a function or fixture takes, returns or does
 (its parameters, its result, its behaviour), deleting a test,
 skipping it or marking it expected to fail, raising a time limit, and adding a case. A reorganization that needs one of them has
 changed behaviour. It is split, and the behaviour part is built tests first like any other change.
 
-- **A `refactor` mode.** The planner declares it in its plan's `group_modes`, as it does `no_code` and `tests_only`, A `refactor` group names source files, whose floor is `tests_and_code`, and the mode is accepted regardless: the
+- **A `refactor` mode.** The planner declares it in its plan's `group_modes`, as it does `no_code` and `tests_only`. A `refactor` group may name source files, test files or both (a pure move of test files names tests
+  only); source files carry a floor of `tests_and_code`, and the mode is accepted regardless: the
   comparison (T26) refuses edits that are not mechanical and review refuses added behaviour. A mode below the floor is refused for the other
   modes. A `refactor` group is one code commit that carries its mechanical test edits. It has no tests commit and no
   red check, and the pull request text says it was a reorganization and that no test was added. Without the mode, a group that names
@@ -233,7 +242,7 @@ finding reads, for example, `T7 tests/serve/test_x.py:40 fixed port`.
 - **T8 Per-test identity.** Session ids, paths and names come from fixtures, never constants shared between files. Check: guard for
   session ids (no id is defined in two files); review for paths and names.
 - **T8a Isolation lives in shared fixtures, not in each test.** Temporary directories, an ephemeral port, a fake clock and an
-  environment and working-directory guard come from one shared fixture set, autouse where it applies to every test, so a test adds
+  environment and working-directory guard come from one shared fixture set, applied to every test automatically where it fits (autouse in pytest), so a test adds
   one fixture argument and nothing else. A rule that covers every test is one guard over the tree, never a repeated check or
   repeated setup in each test. The same setup block (the same environment-patching sequence, the same temporary-tree builder, the same fake
   server) in several test files is a missing fixture or helper, and reusability is not given up to get isolation. Check: guard
@@ -285,7 +294,7 @@ finding reads, for example, `T7 tests/serve/test_x.py:40 fixed port`.
 
 **New tests and existing tests**
 
-- A **new test** is held to the whole catalogue before it merges: T1, T2 and T20 at the tests commit, the guards at the unit gate,
+- A **new test** is held to the whole catalogue before it merges: T2 and T20 at the tests commit, the guards (T1 among them) at the unit gate,
   the rest by the reviewer.
 - An **existing test** is held to it by a *ratchet*. Every guard that does not yet pass over the whole tree starts with a baseline: a
   list of today's violations that may only shrink. Nothing regresses, and old violations are removed one at a time. A unit that
@@ -398,7 +407,7 @@ change.
 
 ## Profile parity
 
-Every toolchain profile implements the same test capabilities. The framework branches on capability protocols
+Every toolchain profile implements the same test capabilities. The framework branches on six *framework protocols*
 (`RepeatsTests`, `SelectsAffectedTests`, `RecordsSelectionData`, `ReportsRunFacts`, `AppliesE2eSelection`,
 `ListsRegisteredSelectors`). A profile that lacks one quietly loses the feature behind it: no repeat check, no flake classification,
 no affected selection. A missing capability is therefore a defect, and two tests keep it from being silent.
@@ -425,8 +434,8 @@ profile already does, one run in each workspace member a changed path is under, 
 conformance test needs no "unsupported" entry for it; the scenario suite's affected-selection case runs against `related`.
 
 A toolchain with no markers (a JavaScript runner) realises the selectors by a file-name convention, and the same by-file selection
-applies (see "How a toolchain realises the selectors"). The conformance test also checks that each profile provides the six
-selector capabilities.
+applies (see "How a toolchain realises the selectors"). The conformance test also checks that each profile provides the six selector
+capabilities, beside the six framework protocols.
 
 ## Guards that exist, and what they enforce
 
@@ -447,9 +456,9 @@ selector capabilities.
 | the red check, the repeat check, the push gate | T2, T9, T20 |
 | the leak gate and the document guards | conformance tests: the framework names no installation; documents agree with behaviour |
 
-Rules checked by review alone today: T3 beyond a duplicate base name, T4, T10, T13, T19, T22, T23, T25, and the review parts of T2, T5, T9
-and T15. Rules with no check at all today: T12, T12a, T26, T27, repeated setup (T8a), repeated scans (T17) and the paths and names of T8;
-each becomes a guard or gate in a step below, with a baseline that may only shrink. The `gate` class of T2, T9 and T20 holds for the red
+Rules checked by review alone today: T3 beyond a duplicate base name, T4, T8's paths and names, T8a's repeated setup, T10, T12a, T13, T19, T22,
+T23, T25, T26, T27, and the review parts of T2 and T5. Rules with no check at all today: T12, repeated scans (T17), a random-order run (T9)
+and the warnings T15 does not yet turn into errors. Each becomes a guard or gate in a step below, with a baseline that may only shrink. The `gate` class of T2, T9 and T20 holds for the red
 check and the repeat check, and the red check does not yet run in the build (see below), so until it does these are checked by the push gate,
 which a person or a hook runs.
 
@@ -463,7 +472,8 @@ These are facts about the code, not a status report.
 - `no_code` is stored for each group and never read by the build; only `tests_only` changes how a group is built.
 - The regression agent exists and is not yet called by the flake, base and e2e handlers; they still write a fixed template, and its
   first task asks to reproduce the race even for a cause in test code.
-- The classification has no `load` or `isolation` outcome, and a test that passes both reruns is a flake whatever the load.
+- The classification has the own-failure, failed-on-base, flake and storm outcomes today, and no `load`, `isolation` or consequence outcome, so a
+  test that passes both reruns is a flake whatever the load.
 - The time limit counts wall-clock time. Nothing reads CPU time or load.
 - No global limit bounds the workers of concurrent test runs: up to a few units per project each run their own pool.
 - About forty of the kit's own tests walk or parse the whole repository in the unit run; one is an integration test. One scan runs at
@@ -480,13 +490,15 @@ These are facts about the code, not a status report.
 - Nothing tells a reorganization from any other change. A group that names source files has a floor of `tests_and_code`, and the red
   check, once it runs in the build, would reject the unchanged tests of a reorganization.
 - The builder's prompt says a new test goes in a file where every test fails, which pushes agents to new files, though the gate now
-  selects by id.
-- The implementation agent receives no determinism guidance.
+  selects by id (step 1 corrects the prompt).
+- The implementation agent receives no determinism guidance (step 9's delivery gives it the standards table).
+- The tests and review prompts do not read the group mode, and nothing checks that an `[integration-test]` group's tests carry the `integration`
+  selector, though both are stated above as the rule.
+- Tree-wide tests do not declare the files they read, and `integration` is not yet a required check on every repository.
 - The profile still builds a `not serial` pass and a second `serial` pass, though no test of the kit uses the marker.
 - Documents describing the red check, the profiles and the modes disagree with the code in a few places (stubbed red, the whole-file wording, flag text).
 - The affected selection records its data from a full run, and the default run leaves integration tests out, so no data exists for them.
-- The kit's tests cite a determinism spec that no `specs` folder holds: the change that wrote it was never archived, so its rules
-  were never synced. The determinism spec grows one requirement per test.
+- The kit's tests cite a determinism spec that no `specs` folder holds, and the determinism requirements grow one per test.
 
 ## Recommended steps
 
@@ -494,18 +506,19 @@ Each step can become an OpenSpec change. The numbers are labels. The build order
 which the red check must skip, and the final marker name), then 1 to 12 as numbered, and 15 after 13 and 14.
 
 1. **The red check in the build.** Run it at the tests commit, between the stub checks and the implementation, reusing the gate's by-id
-   selection, the red judgement and the patch-id cache; replace the recorded pass with the real result; make the pull request text follow.
+   selection, the red judgement and the patch-id cache; replace the recorded pass with the real result; make the pull request text follow, and correct the tests prompt so it says a new case joins the existing file. The override that lets an integration
+   test through the default selection ships with step 4.
 2. **Profile capability parity.** The conformance test and the integration scenario suite; close the JavaScript profile's gaps.
-3. **The marker taxonomy and wide scans as integration.** The taxonomy in the marker text; the CI-runnability guard; the audit and the
+3. **The marker taxonomy and wide scans as integration.** (After 14.) Make `integration` a required check on each adopting repository. The taxonomy in the marker text; the CI-runnability guard; the audit and the
    reclassification (a selector changes; a file does not move, since folder moves are step 15); the check that an `[integration-test]` group's tests carry the `integration` selector; scan-once and lazy scans; drop time limits that become unneeded.
 4. **Integration tests run in the unit gate when changed or affected**: the added or changed ones by id with the selector let through, red
    first and repeated, and the ones whose covered code changed by the affected selection, which must also record data for integration tests. A tree-wide test declares the files it reads through the tree-walk
    helper's arguments, which the selection reads.
 5. **The time limit counts CPU time** with a wall backstop; remove the raised limits.
-6. **Load is not a flake.** The `load` and `isolation` outcomes; consequence marking; three clean-base runs before a fix change; the failure
+6. **Load is not a flake.** The `load` and `isolation` outcomes; consequence marking; the classification's order of decisions (two serial reruns alone, then a run on the base) before a fix change; the failure
    handlers call the regression agent, which exists and is not called today.
 7. **Gates share the machine.** The global worker budget, over the runs the pipeline starts; hand-run gates are not counted.
-8. **No test is serial.** Remove the serial pass; the guard.
+8. **No test is serial.** Remove the serial pass; the guard (by strict registration where the runner has it, by a conformance test where it does not).
 9. **The standards catalogue.** The data file, the generated renderings and the channels of delivery; the standards check before
    review; the guards for the `none yet` standards (T27's belongs to step 15), each with its baseline; a one-off audit.
 10. **One rule for time assertions**, replacing per-test determinism requirements, and a spec for what the unarchived
@@ -546,8 +559,8 @@ which the red check must skip, and the final marker name), then 1 to 12 as numbe
 - **Renaming and moving functions, fixtures and imports is mechanical in a reorganization; changing an assertion or what a function takes, returns or does is not.**
 - **A tree-wide integration test declares the files it reads**, and the affected selection chooses it when a declared file changes. A
   conformance test or wide scan does not always run in the gate; CI runs it on every pull request and is the backstop for what the declaration
-  misses. The declaration lives where the test reads: the kit's tree-walk helper takes the folders, names and suffixes it reads as arguments (none meaning
-  the whole tree, which every change affects), and the selection reads the same arguments, so the two cannot drift. A walk with no declaration is refused by the guard that already forbids walking the tree by hand.
+  misses. The declaration lives where the test reads: the kit's tree-walk helper takes the folders, names and suffixes it reads as arguments (an empty declaration would mean
+  the whole tree, which every change affects, so a tree-wide test must declare), and the selection reads the same arguments, so the two cannot drift. A walk with no declaration is refused by the guard that already forbids walking the tree by hand.
 - **The full-text standards file is measured** (see "Measuring the full-text file"). Until it is, the compact table carries every rule that
   matters most.
 - **A reorganization needs no new test.** The existing tests pass with only mechanical edits (T26); a characterization test is added
