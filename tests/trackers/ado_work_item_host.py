@@ -236,9 +236,17 @@ class WorkItemHost(httpx.MockTransport):
         doc["rev"] += 1
         return answer(self._shown(doc, params))
 
+    @staticmethod
+    def _matches(operator: str, wanted: str, value: str) -> bool:
+        """`=` is the whole value in any case, as the service compares; the rest a substring."""
+        if operator == "=":
+            return wanted.casefold() == value.casefold()
+        return wanted in value
+
     def _query(self, query: str) -> httpx.Response:
-        """A query on one string field by substring; the service refuses `Contains` on a
-        long-text field such as the description, where only `Contains Words` is valid."""
+        """A query on one string field by substring, or by whole value for `=`; the service
+        refuses `Contains` on a long-text field such as the description, where only
+        `Contains Words` is valid."""
         condition = _CONDITION.findall(query)[-1]
         field, operator, wanted = condition[0], condition[1], condition[2].replace("''", "'")
         if field in LONG_TEXT_FIELDS and operator.lower() == "contains":
@@ -250,7 +258,7 @@ class WorkItemHost(httpx.MockTransport):
         found = [
             {"id": number, "url": self._url(str(number))}
             for number, doc in self.items.items()
-            if wanted in doc["fields"].get(field, "")
+            if self._matches(operator, wanted, doc["fields"].get(field, ""))
         ]
         reply = deepcopy(load("wiql_result").body)
         reply["workItems"] = found

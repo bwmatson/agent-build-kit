@@ -194,15 +194,9 @@ class AzureDevOpsWorkItems:
         return ManualParent(id=str(doc.id), title=doc.fields.title, type=doc.fields.type)
 
     def find_manual_parents(self, title: str) -> Sequence[ManualParent]:
-        """The work items whose title holds `title` (the query language matches a substring)."""
-        text = title.replace("'", "''")
-        query = (
-            "SELECT [System.Id] FROM WorkItems WHERE [System.TeamProject] = @project "
-            f"AND [System.Title] Contains '{text}'"
-        )
-        response = self._call("POST", "wit/wiql", json={"query": query})
-        found = validated(WiqlDoc, response.data, "wiql", response.text)
-        candidates = (self.read_manual_parent(str(c.id)) for c in found.work_items)
+        """The work items whose whole title is `title`, in any case: the caller settles case."""
+        ids = self._ids_where("System.Title", "=", title)
+        candidates = (self.read_manual_parent(item_id) for item_id in ids)
         return [candidate for candidate in candidates if candidate is not None]
 
     def link_pull_request(
@@ -220,19 +214,24 @@ class AzureDevOpsWorkItems:
         return True
 
     def find_by_marker(self, marker: str) -> Item | None:
-        tag = self._tag(marker).replace("'", "''")
-        query = (
-            "SELECT [System.Id] FROM WorkItems WHERE [System.TeamProject] = @project "
-            f"AND [System.Tags] Contains '{tag}'"
-        )
-        response = self._call("POST", "wit/wiql", json={"query": query})
-        found = validated(WiqlDoc, response.data, "wiql", response.text)
         # `Contains` is a substring match: `change` is also in `change:group`.
-        for candidate in found.work_items:
-            item = self.get(str(candidate.id))
+        for item_id in self._ids_where("System.Tags", "Contains", self._tag(marker)):
+            item = self.get(item_id)
             if marker in item.markers:
                 return item
         return None
+
+    def _ids_where(self, field: str, operator: str, text: str) -> list[str]:
+        """The ids of the project's work items whose `field` satisfies `operator` against `text`
+        (`=` for the whole value, `Contains` for a substring), by one query."""
+        escaped = text.replace("'", "''")
+        query = (
+            "SELECT [System.Id] FROM WorkItems WHERE [System.TeamProject] = @project "
+            f"AND [{field}] {operator} '{escaped}'"
+        )
+        response = self._call("POST", "wit/wiql", json={"query": query})
+        found = validated(WiqlDoc, response.data, "wiql", response.text)
+        return [str(candidate.id) for candidate in found.work_items]
 
     def _read(self, item_id: str) -> WorkItemDoc:
         response = self._call("GET", f"wit/workitems/{item_id}", {"$expand": "relations"})

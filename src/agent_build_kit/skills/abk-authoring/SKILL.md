@@ -301,8 +301,8 @@ stored split stays as it was.
 
 ## `Epic:` line
 
-A change may name an existing board item, made by a person, that its top board item is placed
-under. One line above the first group, beside `Priority:`, gives the item's id or its exact title:
+A change may name an existing board item, made by a person, that a board sync places the
+change's top item under. One line above the first group, beside `Priority:`, gives the item's id or its exact title:
 
 ```
 Epic: 42

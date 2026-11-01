@@ -6,12 +6,25 @@ HTTP stand-in, which is the board the manual epic exists for.
 
 from __future__ import annotations
 
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Iterator, Sequence
+from pathlib import Path
 from typing import Protocol
 
 import pytest
 
+from agent_build_kit.forges.transport import clear_credentials
+from agent_build_kit.pipeline.tracker_file import (
+    TrackerFile,
+    mapping_target,
+    parent_item,
+    read_tracker,
+    with_manual_parent,
+    write_tracker,
+)
+from agent_build_kit.pipeline.work_graph import epic_reference
+from agent_build_kit.settings import settings
 from agent_build_kit.trackers.base import Item, ItemKind
+from agent_build_kit.trackers.config import TrackerSection
 from agent_build_kit.trackers.local import EPIC_TYPE, LocalTracker
 from agent_build_kit.trackers.manual_parent import (
     ManualParent,
@@ -19,11 +32,22 @@ from agent_build_kit.trackers.manual_parent import (
     ManualParentSource,
     resolve_manual_parent,
 )
+from tests.forges.conftest import PAT
+from tests.task_priority_files import tasks_md
 from tests.trackers import contract
 from tests.trackers.ado_support import section, tracker_on
 from tests.trackers.ado_work_item_host import WorkItemHost
 
-pytestmark = pytest.mark.usefixtures("rest_env")
+
+@pytest.fixture(autouse=True)
+def pat(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
+    """A PAT is configured, as `rest_env` does, but a process may start: the mapping file's
+    lock asks git where the planning repository keeps its local files."""
+    monkeypatch.setattr(settings, "ado_pat", PAT)
+    clear_credentials()
+    yield
+    clear_credentials()
+
 
 TITLE = "Roadmap: Phase One"
 
@@ -41,14 +65,16 @@ class Board:
         self,
         source: ManualParentSource,
         tracker: Creates,
-        expected: str,
+        config: TrackerSection,
         epic_id: str,
         first_level: Callable[[str], str],
         epic_writes: Callable[[], list[str]],
     ) -> None:
         self.source = source
         self.tracker = tracker
-        self.expected = expected
+        # The board's configuration: the levels, with the epic level on.
+        self.config = config
+        self.expected = config.level_types["epic"]
         self.epic_id = epic_id
         # Makes an item of the first level, which a person did not make as the epic; its id.
         self.first_level = first_level
@@ -68,7 +94,12 @@ def local_board() -> Board:
     return Board(
         tracker,
         shape.tracker,
-        EPIC_TYPE,
+        TrackerSection(
+            kind="local",
+            levels=("change",),
+            epic=True,
+            types={"epic": EPIC_TYPE, "change": "change"},
+        ),
         epic.id,
         lambda title: tracker.create("change", title).id,
         lambda: shape.epic_writes,
@@ -81,16 +112,12 @@ def azure_board() -> Board:
     epic_id = host.seed("Epic", TITLE)
 
     def writes() -> list[str]:
-        return [
-            s.method
-            for s in host.seen
-            if s.route == f"wit/workitems/{epic_id}" and s.method != "GET"
-        ]
+        return [s.method for s in host.calls(route=f"wit/workitems/{epic_id}") if s.method != "GET"]
 
     return Board(
         tracker,
         tracker,
-        section("basic").level_types["epic"],
+        section("basic"),
         epic_id,
         lambda title: host.seed("Issue", title),
         writes,
@@ -140,12 +167,96 @@ def test_an_item_out_of_scope_is_refused(board: Board) -> None:
     assert board.epic_id in str(refused.value)
 
 
-def test_the_change_item_is_created_under_the_manual_parent(board: Board) -> None:
-    parent = board.resolve(board.epic_id)
+class Counting:
+    """A manual parent source that counts the reads sent to the one it wraps."""
 
-    item = board.tracker.create("change", "Change", "body", parent.id)
+    def __init__(self, inner: ManualParentSource) -> None:
+        self.inner = inner
+        self.reads = 0
 
-    assert item.parent_id == board.epic_id
+    def read_manual_parent(self, item_id: str) -> ManualParent | None:
+        self.reads += 1
+        return self.inner.read_manual_parent(item_id)
+
+    def find_manual_parents(self, title: str) -> Sequence[ManualParent]:
+        self.reads += 1
+        return self.inner.find_manual_parents(title)
+
+
+def mapped(
+    board: Board, tmp_path: Path, head: str, *, epic: bool = True, recorded: str | None = None
+) -> tuple[TrackerFile, TrackerSection, Counting, Path]:
+    """The mapping file of a change whose tasks.md header is `head`, after the manual parent is
+    resolved, written and read back; the section (with the epic level on or off) and the reads
+    made."""
+    folder = tmp_path / "change"
+    folder.mkdir()
+    (folder / "tasks.md").write_text(tasks_md(None, head=head))
+    config = board.config.model_copy(update={"epic": epic})
+    source = Counting(board.source)
+    start = TrackerFile(kind=config.kind, target=mapping_target(config), epic=recorded)
+    resolved = with_manual_parent(
+        start, config, epic_reference(folder / "tasks.md"), source, lambda _: True
+    )
+    write_tracker(folder, resolved)
+    found = read_tracker(folder)
+    assert found is not None
+    return found, config, source, folder
+
+
+def place(board: Board, found: TrackerFile, config: TrackerSection) -> Item:
+    """The change item, created under the parent the file gives it."""
+    return board.tracker.create(
+        "change", "Change", "body", parent_item(found, config, "change", "feature")
+    )
+
+
+@pytest.mark.parametrize("by", ["id", "title"])
+def test_a_tagged_change_records_its_manual_parent_and_the_change_item_hangs_under_it(
+    board: Board, tmp_path: Path, by: str
+) -> None:
+    reference = board.epic_id if by == "id" else TITLE
+
+    found, config, _, _ = mapped(board, tmp_path, f"Epic: {reference}\n")
+
+    assert found.epic == board.epic_id
+    assert parent_item(found, config, "change", "feature") == board.epic_id
+    assert place(board, found, config).parent_id == board.epic_id
+    assert board.epic_writes() == []
+
+
+def test_a_change_with_no_line_has_no_epic_level_and_its_change_item_no_parent(
+    board: Board, tmp_path: Path
+) -> None:
+    found, config, source, _ = mapped(board, tmp_path, "")
+
+    assert found.epic is None
+    assert parent_item(found, config, "change", "feature") is None
+    assert place(board, found, config).parent_id is None
+    assert source.reads == 0
+
+
+def test_a_repo_with_no_epic_resolves_nothing_even_when_the_change_has_the_line(
+    board: Board, tmp_path: Path
+) -> None:
+    found, config, source, _ = mapped(board, tmp_path, f"Epic: {board.epic_id}\n", epic=False)
+
+    assert found.epic is None
+    assert parent_item(found, config, "change", "feature") is None
+    assert place(board, found, config).parent_id is None
+    assert source.reads == 0
+
+
+def test_a_recorded_epic_is_kept_and_nothing_is_read(board: Board, tmp_path: Path) -> None:
+    found, _, source, _ = mapped(board, tmp_path, f"Epic: {board.epic_id}\n", recorded="77")
+
+    assert found.epic == "77"
+    assert source.reads == 0
+
+
+def test_an_unusable_line_is_refused_and_records_nothing(board: Board, tmp_path: Path) -> None:
+    with pytest.raises(ManualParentError):
+        mapped(board, tmp_path, "Epic: 99999\n")
 
 
 def test_over_the_whole_run_the_only_calls_on_the_manual_item_are_reads(board: Board) -> None:
@@ -154,12 +265,6 @@ def test_over_the_whole_run_the_only_calls_on_the_manual_item_are_reads(board: B
     board.resolve(board.epic_id)
 
     assert board.epic_writes() == []
-
-
-def test_a_change_with_no_line_has_a_change_item_with_no_parent(board: Board) -> None:
-    item: Item = board.tracker.create("change", "Change", "body")
-
-    assert item.parent_id is None
 
 
 def test_a_title_made_of_digits_is_found_by_title_when_no_item_has_that_id() -> None:

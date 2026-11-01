@@ -6,7 +6,8 @@
   above its first group, naming an existing board item made by a person. `abk tags` reports a
   line with no value, a second line, or one inside a group, naming the line, and the line does
   not trigger a replan. The kit can read such an item from the local stand-in and from Azure
-  DevOps, by id or exact title, checks its board type and never writes to it.
+  DevOps, by id or exact title, checks its board type, records its id in the change's mapping
+  file (once, and only for a repo with an epic level) and never writes to it.
 
 - The Azure DevOps work item tracker places each item under the level above it, reading
   the parent (and the manual epic above the first level) to check its type and never

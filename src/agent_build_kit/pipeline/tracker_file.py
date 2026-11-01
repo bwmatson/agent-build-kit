@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
@@ -24,6 +25,11 @@ from agent_build_kit.pipeline.task_progress import first_line_hash, tasks_lock
 from agent_build_kit.pipeline.work_graph import Task
 from agent_build_kit.trackers.config import TrackerSection
 from agent_build_kit.trackers.levels import task_group_key
+from agent_build_kit.trackers.manual_parent import (
+    ManualParent,
+    ManualParentSource,
+    resolve_manual_parent,
+)
 
 FILE_NAME = "tracker.yaml"
 SCHEMA_VERSION = 2
@@ -166,6 +172,24 @@ def reconcile_moves(tracker: TrackerFile, tasks: list[Task]) -> Reconciled:
         removed=tuple(key for key in absent if key not in moved),
         displaced=displaced,
     )
+
+
+def with_manual_parent(
+    tracker: TrackerFile,
+    section: TrackerSection,
+    reference: str | None,
+    source: ManualParentSource,
+    in_scope: Callable[[ManualParent], bool],
+) -> TrackerFile:
+    """The file with the manual parent the change's `Epic:` line (`reference`) names recorded as
+    `epic`, resolved by reads only. It is the file unchanged when there is no line, when the
+    section has no epic level, or when an epic is already recorded: it resolves once."""
+    if reference is None or not section.epic or tracker.epic is not None:
+        return tracker
+    found = resolve_manual_parent(
+        source, reference, expected=section.level_types["epic"], in_scope=in_scope
+    )
+    return tracker.model_copy(update={"epic": found.id})
 
 
 def parent_item(tracker: TrackerFile, section: TrackerSection, level: str, key: str) -> str | None:
