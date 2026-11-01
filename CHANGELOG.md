@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- The node profile can run chosen tests again by identifier, so a repository that declares a
+  node project now narrows its units' e2e-test runs to the unit's own tests, and gets a repeat
+  check, as a Python-only repository already does. An identifier's test name is ignored, since
+  Vitest selects by file.
+
 - A change's `tasks.md` may carry one `Epic: <board item id or exact title>` header line
   above its first group, naming an existing board item made by a person. `abk tags` reports a
   line with no value, a second line, or one inside a group, naming the line, and the line does

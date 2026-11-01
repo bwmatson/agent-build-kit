@@ -241,6 +241,27 @@ class NodeNpmProfile:
         members = self.members(repo)
         return [_member_command(m) for m in members] if members else [list(_TEST_COMMAND)]
 
+    def repeat_command(self, command: list[str], tests: list[str]) -> list[str] | None:
+        """`command`, one of this profile's test runs, as the filtered run of exactly the files
+        of `tests` under the directory it runs in (the project's root when it names none),
+        given to Vitest relative to that directory; an identifier's `::name` is ignored. A run
+        that carries filters keeps only the chosen files they match. None when no file is
+        left. The report handling is the filtered script's, so the output reads as before."""
+        if len(command) < 3 or command[:2] != ["sh", "-c"] or command[2] not in _TEST_SCRIPTS:
+            return None
+        directory = command[4] if len(command) > 4 else _HERE
+        filters = command[5:] if command[2] == _FILTERED else []
+        prefix = "" if directory in (_HERE, ".", "") else f"{directory.rstrip('/')}/"
+        files: list[str] = []
+        for test in tests:
+            path = test.split("::", 1)[0]
+            if not path.startswith(prefix):
+                continue
+            relative = path.removeprefix(prefix)
+            if (not filters or any(f in relative for f in filters)) and relative not in files:
+                files.append(relative)
+        return ["sh", "-c", _FILTERED, "sh", directory, *files] if files else None
+
     def tolerates_exit(self, command: list[str], returncode: int) -> bool:
         return returncode == 0
 
