@@ -35,7 +35,7 @@ Each [migration step](#migration) can become its own OpenSpec change.
 - **Loaded once per process:** the configuration (`abk.yaml`, `abk.local.yaml`), the kit code (`loaded_code.running_tick`, `runs/tick.json`), the planning sync, the usage allowances and the pool size
   (`(max_concurrent_stacks + emergency_extra) x live projects`). **Refreshed every round:** the unit store, planned hashes, PR snapshots, pause markers and leases.
 - **Locks and shared state that already work across processes:** `runs/units.json` (flock plus atomic writes), the branch lock `runs/locks/<branch>.lock` (a pid file, `O_EXCL`),
-  `repo-<repo>.lock` (git operations), `e2e.lock`, `environment.lock`, `planned.lock`, leases, pause markers and usage caches. Not safe for two writers: `prs-<repo>.json` (no lock).
+  `repo-<repo>.lock` (git operations), `e2e.lock`, `environment.lock`, `planned.lock`, leases, pause markers and usage caches, and `prs-<repo>.json` (written under a lock, replaced atomically).
 - **Evidence** (one installation's journal over about a month of ticks, and its usage ledger's `abk.tick.duration`): idle ticks have a median of 0.5 minutes,
   **built ticks a median of 26.9, p90 114 and a maximum of 465 minutes (7.7 hours)**. A day without long ticks holds 240 ticks; days with multi-hour ticks hold 58 to 104. A tick observed
   past two hours with two units building was holding a multi-gigabyte `claude` child.
@@ -138,7 +138,7 @@ tick-number merge rule; the invariant that a tick cannot exit while a build runs
 
 ## Shared files
 
-Already safe across processes: `units.json` (flock plus atomic writes), pause markers, usage caches, `planned.json`, leases, `e2e.lock`. To fix as part of the migration: a lock on `prs-<repo>.json` (two pollers could race),
+Already safe across processes: `units.json` (flock plus atomic writes), pause markers, usage caches, `planned.json`, leases, `e2e.lock`, `prs-<repo>.json` (written under a lock). To fix as part of the migration:
 the admission lock, and the branch-lock identity with a start time. The `Poller` snapshot and `land_units` are kept to the dispatcher, because they are not designed for several writers.
 
 ## Migration

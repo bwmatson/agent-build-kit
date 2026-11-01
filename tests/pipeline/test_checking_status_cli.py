@@ -55,6 +55,7 @@ def test_status_lists_a_checking_unit_apart_from_one_awaiting_review(
     PrState.save(
         state_path(inst.state_dir, "app"),
         {"7": {"checks": {"CI": "pending"}}, "8": {"checks": {"CI": "passed"}}},
+        "app",
     )
     monkeypatch.setattr(cli, "current_usage", lambda: None)
 
@@ -121,7 +122,7 @@ def test_the_graph_page_shows_the_checks_the_last_poll_recorded(
     forge = StandInForge()
     monkeypatch.setattr(inst, "forge_of", lambda repo: (forge, forge.repo_id()))
     reviewing(inst, clock)
-    PrState.save(state_path(inst.state_dir, "app"), {"7": {"checks": {"CI": status}}})
+    PrState.save(state_path(inst.state_dir, "app"), {"7": {"checks": {"CI": status}}}, "app")
 
     assert cli.cmd_graph(argparse.Namespace(), inst) == 0
 
@@ -159,7 +160,7 @@ def test_a_unit_moving_into_review_is_labelled_for_the_checks_already_recorded(
     )
     forge = StandInForge()
     monkeypatch.setattr(inst, "forge_of", lambda repo: (forge, forge.repo_id()))
-    PrState.save(state_path(inst.state_dir, "app"), {"7": {"checks": {"CI": "pending"}}})
+    PrState.save(state_path(inst.state_dir, "app"), {"7": {"checks": {"CI": "pending"}}}, "app")
     store = cli.store_for(inst)
     store.upsert([stored_unit("add-marker/1")])
     store.set_state("add-marker/1", RUNNING, pr=PR)

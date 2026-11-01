@@ -107,6 +107,7 @@ def test_the_settling_line_names_the_checks_still_running_and_not_the_ones_that_
     PrState.save(
         state_path(inst.state_dir, "app"),
         {"4": {"checks": {"test": "pending", "lint": "passed"}}},
+        "app",
     )
 
     lines = run_status(inst, monkeypatch, capsys)

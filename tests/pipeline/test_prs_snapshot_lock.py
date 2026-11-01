@@ -12,6 +12,7 @@ from pathlib import Path
 import pytest
 
 from agent_build_kit.forges import PullRequest
+from agent_build_kit.pipeline.file_lock import try_file_lock
 from agent_build_kit.pipeline.pr_poller import Poller
 
 REPOS = ("example/app", "example/platform")
@@ -50,8 +51,9 @@ def test_two_writers_leave_both_repos_sections_with_collected_at(tmp_path: Path)
 
     assert not errors
     written = json.loads(path.read_text())
-    for repo in REPOS:
+    for i, repo in enumerate(REPOS):
         assert "collected_at" in written[repo]
+        assert set(written[repo]["prs"]) == {str(10 + i)}
 
 
 def test_a_second_write_keeps_the_first_repos_section(tmp_path: Path) -> None:
@@ -61,7 +63,28 @@ def test_a_second_write_keeps_the_first_repos_section(tmp_path: Path) -> None:
 
     written = json.loads(path.read_text())
     assert set(REPOS) <= set(written)
-    assert all("collected_at" in written[repo] for repo in REPOS)
+    for i, repo in enumerate(REPOS):
+        assert "collected_at" in written[repo]
+        assert set(written[repo]["prs"]) == {str(10 + i)}
+
+
+def test_the_file_lock_is_held_while_the_snapshot_is_replaced(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    path = tmp_path / "prs-app.json"
+    held: list[bool] = []
+    replace = os.replace
+
+    def replace_probing_the_lock(src, dst, *args, **kwargs):
+        if Path(dst) == path:
+            with try_file_lock(path.with_name(f"{path.name}.lock")) as taken:
+                held.append(not taken)
+        return replace(src, dst, *args, **kwargs)
+
+    monkeypatch.setattr(os, "replace", replace_probing_the_lock)
+    poller(path, REPOS[0], 10).poll()
+
+    assert held == [True]
 
 
 def test_a_reader_during_a_write_sees_the_old_file_whole(

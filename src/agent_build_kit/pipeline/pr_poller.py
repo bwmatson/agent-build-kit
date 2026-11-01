@@ -107,7 +107,7 @@ class PrState:
         return {n: seen for section in sections.values() for n, seen in section["prs"].items()}
 
     @staticmethod
-    def save(path: Path, state: dict, repo: str = "") -> None:
+    def save(path: Path, state: dict, repo: str) -> None:
         """Replace `repo`'s section whole and keep the others, under the file's lock."""
         with file_lock(path.with_name(f"{path.name}.lock")):
             body = PrState._sections(PrState._read(path))
