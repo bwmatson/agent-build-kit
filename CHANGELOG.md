@@ -8,6 +8,7 @@
   update carries the revision it was read at and is refused as stale when the item has moved,
   a claim reports whether it won, and the kit's states map to the board's through `states`
   and `states_by_type` (with defaults for the Basic, Agile and Scrum processes).
+
 - The pull-request snapshot (`prs-<repo>.json`) is now written under a file lock and replaced
   whole, with each repo's section stamped with `collected_at`, so two writers can no longer lose
   each other's section and a reader never sees a half-written file. Files written by earlier
