@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- The Azure DevOps work item tracker places each item under the level above it, reading
+  the parent (and the manual epic above the first level) to check its type and never
+  writing to it, and can attach a pull request to a work item once as an artifact link. An
+  update carries the revision it was read at and is refused as stale when the item has moved,
+  a claim reports whether it won, and the kit's states map to the board's through `states`
+  and `states_by_type` (with defaults for the Basic, Agile and Scrum processes).
+
 - The red check at a tests commit now runs only the tests the commit added or changed (by
   `path::name`) and rejects the commit if any of them passes, so a new failing case can be added to
   the existing test file for its subject beside passing tests. A commit with no test to select, such

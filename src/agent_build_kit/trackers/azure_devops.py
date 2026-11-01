@@ -18,18 +18,24 @@ from urllib.parse import quote
 
 import httpx
 
-from agent_build_kit.forges.transport import AzureRest, Response, validated
+from agent_build_kit.forges.transport import AzureRest, Response, TransportError, validated
 from agent_build_kit.trackers.azure_work_item_models import (
+    ConnectionDataDoc,
     WiqlDoc,
     WorkItemDoc,
     WorkItemsDoc,
 )
-from agent_build_kit.trackers.base import Item, ItemKind
+from agent_build_kit.trackers.base import Identity, Item, ItemKind, StaleRevision
 from agent_build_kit.trackers.config import AzureDevOpsTracker
 
 PARENT_LINK = "System.LinkTypes.Hierarchy-Reverse"
 CHILD_LINK = "System.LinkTypes.Hierarchy-Forward"
+ARTIFACT_LINK = "ArtifactLink"
 PATCH = "application/json-patch+json"
+# What the service answers a failed revision test with, by its version.
+STALE_STATUSES = (409, 412)
+# The version `connectionData` is served at.
+PREVIEW_VERSION = "7.1-preview.1"
 
 
 class UnknownWorkItemType(ValueError):
@@ -40,6 +46,7 @@ class AzureDevOpsWorkItems:
     def __init__(self, section: AzureDevOpsTracker, *, http: httpx.BaseTransport | None = None):
         self._section = section
         self._rest = AzureRest(http)
+        self._identity: Identity | None = None
         types = section.level_types
         self._types: dict[ItemKind, str] = {
             cast(ItemKind, level): type_
@@ -61,14 +68,11 @@ class AzureDevOpsWorkItems:
         section = self._section
         if kind not in self._types:
             raise ValueError(f"kind {kind!r} has no work item type in the configuration")
-        # HTML collapses a newline, so a line break is written as one and read back as one.
-        text = html.escape(body, quote=False).replace("\n", "<br>")
-        description = "\n".join(
-            ([text] if body else []) + [self._comment(marker) for marker in markers]
-        )
+        if parent is not None:
+            self._check_parent(kind, parent)
         values = {
             "System.Title": title,
-            "System.Description": description,
+            "System.Description": self._description(body, markers),
             "System.AreaPath": section.area_path,
             "System.IterationPath": section.iteration_path,
             **({"System.Tags": "; ".join(self._tag(m) for m in markers)} if markers else {}),
@@ -89,20 +93,90 @@ class AzureDevOpsWorkItems:
         path = f"wit/workitems/${quote(self._types[kind])}"
         return self._item(self._call("POST", path, json=patch, content_type=PATCH))
 
+    def identity(self) -> Identity:
+        """The authenticated user, by the unique name an assignment uses."""
+        if self._identity is None:
+            # Preview only: the service refuses the plain version for this route.
+            response = self._call("GET", "connectionData", version=PREVIEW_VERSION)
+            data = validated(ConnectionDataDoc, response.data, "connectionData", response.text)
+            account = data.authenticated_user.properties.get("Account")
+            if account is None or not account.value:
+                raise TransportError("connectionData: the authenticated user has no account name")
+            self._identity = Identity(name=account.value)
+        return self._identity
+
+    def update(
+        self, item_id: str, changes: Mapping[str, str], expected_revision: str | None = None
+    ) -> Item:
+        """`title`, `body` and `state` (the kit's, mapped to the board's), conditional on the
+        revision: the one given, else the one read now."""
+        doc = self._read(item_id)
+        item = self._to_item(doc)
+        values: dict[str, str] = {}
+        for name, value in changes.items():
+            if name == "title":
+                values["System.Title"] = value
+            elif name == "body":
+                values["System.Description"] = self._description(value, item.markers)
+            elif name == "state":
+                values["System.State"] = self._section.board_state(doc.fields.type, value)
+            else:
+                raise ValueError(f"cannot update {name!r} of a work item")
+        return self._patch(item_id, values, expected_revision or item.revision)
+
+    def set_assignee(self, item_id: str, who: str, expected_revision: str | None = None) -> Item:
+        doc = self._read_level(item_id)
+        return self._patch(item_id, {"System.AssignedTo": who}, expected_revision or str(doc.rev))
+
+    def claim(self, item_id: str) -> bool:
+        """Assign the item to the sync identity if nobody holds it; True when it is held by
+        it, False when another identity holds it or won the race."""
+        me = self.identity().name
+        doc = self._read_level(item_id)
+        if doc.fields.assigned_to is not None:
+            return doc.fields.assigned_to.unique_name == me
+        try:
+            self._patch(item_id, {"System.AssignedTo": me}, str(doc.rev))
+        except StaleRevision:
+            return False
+        return True
+
+    def set_tag(self, item_id: str, tag: str, present: bool) -> Item:
+        """Add or remove one tag (the blocked and in-review markers), leaving the state."""
+        doc = self._read_level(item_id)
+        tags = [t.strip() for t in doc.fields.tags.split(";") if t.strip()]
+        if (tag in tags) == present:
+            return self._to_item(doc)
+        tags = [*tags, tag] if present else [t for t in tags if t != tag]
+        return self._patch(item_id, {"System.Tags": "; ".join(tags)}, str(doc.rev))
+
     def get(self, item_id: str) -> Item:
-        return self._item(self._call("GET", f"wit/workitems/{item_id}", {"$expand": "relations"}))
+        return self._to_item(self._read(item_id))
 
     def children(self, item_id: str) -> Sequence[Item]:
         """The children of an item that are of a configured level; a person's Bug, or any
         other type no level uses, is left out."""
-        response = self._call("GET", f"wit/workitems/{item_id}", {"$expand": "relations"})
-        parent = validated(WorkItemDoc, response.data, "workitems", response.text)
+        parent = self._read(item_id)
         ids = [r.url.rsplit("/", 1)[-1] for r in parent.relations if r.rel == CHILD_LINK]
         if not ids:
             return ()
         listed = self._call("GET", "wit/workitems", {"ids": ",".join(ids), "$expand": "relations"})
         found = validated(WorkItemsDoc, listed.data, "workitems", listed.text)
         return tuple(self._to_item(doc) for doc in found.value if doc.fields.type in self._kinds)
+
+    def link_pull_request(
+        self, item_id: str, *, project_id: str, repository_id: str, pull_request_id: int
+    ) -> bool:
+        """Attach a pull request to a work item as an artifact link; False when it already
+        is attached and nothing was sent."""
+        artifact = f"vstfs:///Git/PullRequestId/{project_id}%2F{repository_id}%2F{pull_request_id}"
+        doc = self._read_level(item_id)
+        if any(r.rel == ARTIFACT_LINK and r.url == artifact for r in doc.relations):
+            return False
+        link = {"rel": ARTIFACT_LINK, "url": artifact, "attributes": {"name": "Pull Request"}}
+        patch = [{"op": "add", "path": "/relations/-", "value": link}]
+        self._call("PATCH", f"wit/workitems/{item_id}", json=patch, content_type=PATCH)
+        return True
 
     def find_by_marker(self, marker: str) -> Item | None:
         tag = self._tag(marker).replace("'", "''")
@@ -119,6 +193,58 @@ class AzureDevOpsWorkItems:
                 return item
         return None
 
+    def _read(self, item_id: str) -> WorkItemDoc:
+        response = self._call("GET", f"wit/workitems/{item_id}", {"$expand": "relations"})
+        return validated(WorkItemDoc, response.data, "workitems", response.text)
+
+    def _read_level(self, item_id: str) -> WorkItemDoc:
+        """An item of a configured level, read before anything is written to it; an epic or
+        any other type no level uses is refused here, with nothing sent."""
+        doc = self._read(item_id)
+        self._to_item(doc)
+        return doc
+
+    def _patch(self, item_id: str, values: Mapping[str, str], expected_revision: str) -> Item:
+        """One JSON Patch that tests the revision first; a conflict is a stale revision."""
+        patch: list[dict[str, object]] = [
+            {"op": "test", "path": "/rev", "value": int(expected_revision)},
+            *({"op": "add", "path": f"/fields/{name}", "value": v} for name, v in values.items()),
+        ]
+        try:
+            response = self._call(
+                "PATCH",
+                f"wit/workitems/{item_id}",
+                {"$expand": "relations"},
+                json=patch,
+                content_type=PATCH,
+            )
+        except TransportError as error:
+            if error.status in STALE_STATUSES:
+                raise StaleRevision(
+                    f"work item {item_id} is no longer at revision {expected_revision}"
+                ) from error
+            raise
+        return self._item(response)
+
+    def _description(self, body: str, markers: Sequence[str]) -> str:
+        # HTML collapses a newline, so a line break is written as one and read back as one.
+        text = html.escape(body, quote=False).replace("\n", "<br>")
+        return "\n".join(([text] if body else []) + [self._comment(marker) for marker in markers])
+
+    def _check_parent(self, kind: ItemKind, parent: str) -> None:
+        """Read the parent, never write it, and refuse one that is not of the level above
+        (the manual epic above the first level)."""
+        above = self._section.parent_level(kind)
+        if above is None:
+            raise ValueError(f"a {kind} item is at the top and has no parent level; got {parent}")
+        expected = self._section.level_types[above]
+        actual = self._read(parent).fields.type
+        if actual != expected:
+            raise ValueError(
+                f"work item {parent} is a {actual!r}; a {kind} item goes under "
+                f"the {above} level, type {expected!r}"
+            )
+
     # --- the wire -------------------------------------------------------------------
 
     def _call(
@@ -129,6 +255,7 @@ class AzureDevOpsWorkItems:
         *,
         json: object = None,
         content_type: str | None = None,
+        version: str | None = None,
     ) -> Response:
         section = self._section
         return self._rest.call(
@@ -139,6 +266,7 @@ class AzureDevOpsWorkItems:
             params=params,
             json=json,
             content_type=content_type,
+            version=version,
         )
 
     def _url_of(self, item_id: str) -> str:

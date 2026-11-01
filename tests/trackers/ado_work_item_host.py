@@ -30,8 +30,16 @@ _CONDITION = re.compile(
     r"\[([\w.]+)\]\s+(Not Contains Words|Contains Words|Contains|=)\s+'((?:[^']|'')*)'",
     re.IGNORECASE,
 )
+_FIELDS = {"title": "System.Title", "state": "System.State"}
 # The fields whose text is HTML, which the query language matches only by word.
 LONG_TEXT_FIELDS = ("System.Description",)
+
+
+def _person(who: Any) -> Any:
+    """An identity field as the service answers it, from a unique name or an identity."""
+    if not isinstance(who, str):
+        return who
+    return {"displayName": who, "uniqueName": who, "id": f"id-{who}"}
 
 
 class CreateRequest(Frozen):
@@ -44,8 +52,11 @@ class CreateRequest(Frozen):
 
 
 class WorkItemHost(httpx.MockTransport):
-    def __init__(self, *, lose_create_answer: bool = False) -> None:
-        """With `lose_create_answer`, the first create is made and answered with a 500."""
+    def __init__(self, *, lose_create_answer: bool = False, conflict_status: int = 412) -> None:
+        """With `lose_create_answer`, the first create is made and answered with a 500.
+        `conflict_status` answers a failed revision test: 409 or 412, by the service's version."""
+        self._conflict_status = conflict_status
+        self._races: dict[int, dict[str, Any]] = {}
         self.creates: list[CreateRequest] = []
         self.seen: list[Seen] = []
         self.items: dict[int, dict[str, Any]] = {}
@@ -56,10 +67,42 @@ class WorkItemHost(httpx.MockTransport):
 
     # --- what a test asks ---------------------------------------------------------
 
-    def seed(self, type: str, title: str, *, parent: str | None = None) -> str:
+    def seed(
+        self,
+        type: str,
+        title: str,
+        *,
+        parent: str | None = None,
+        state: str | None = None,
+        assigned_to: str | None = None,
+        tags: str = "",
+    ) -> str:
         """An item that already exists on the board, as a person made it; its id."""
         relations = [{"op": "add", "value": {"rel": REVERSE, "url": self._url(parent)}}]
-        return str(self._store(type, {"System.Title": title}, relations if parent else [])["id"])
+        fields: dict[str, Any] = {"System.Title": title, "System.Tags": tags}
+        if state:
+            fields["System.State"] = state
+        if assigned_to:
+            fields["System.AssignedTo"] = assigned_to
+        return str(self._store(type, fields, relations if parent else [])["id"])
+
+    def edit(self, item_id: str, **fields: str) -> None:
+        """Another identity changes an item (`title`, `state` or `assigned_to`); the
+        revision moves on."""
+        self._write(int(item_id), fields)
+
+    def race(self, item_id: str, **fields: str) -> None:
+        """Another identity changes an item just before the next write to it arrives."""
+        self._races[int(item_id)] = fields
+
+    def _write(self, number: int, fields: dict[str, str]) -> None:
+        doc = self.items[number]
+        for name, value in fields.items():
+            if name == "assigned_to":
+                doc["fields"]["System.AssignedTo"] = _person(value)
+            else:
+                doc["fields"][_FIELDS.get(name, name)] = value
+        doc["rev"] += 1
 
     def calls(self, method: str | None = None, route: str | None = None) -> list[Seen]:
         return [
@@ -84,6 +127,8 @@ class WorkItemHost(httpx.MockTransport):
             {"System.WorkItemType": type, "System.State": "To Do", "System.Description": ""}
         )
         doc["fields"].update(fields)
+        if "System.AssignedTo" in fields:
+            doc["fields"]["System.AssignedTo"] = _person(fields["System.AssignedTo"])
         for relation in relations:
             doc["relations"].append(
                 {"rel": relation["value"]["rel"], "url": relation["value"]["url"]}
@@ -111,10 +156,22 @@ class WorkItemHost(httpx.MockTransport):
             return self._create(request, created[1], body)
         one = re.fullmatch(r"wit/workitems/(\d+)", rest, re.IGNORECASE)
         if one and method == "GET":
-            return answer(self.items[int(one[1])])
+            return answer(self._shown(self.items[int(one[1])], params))
+        if one and method == "PATCH":
+            return self._patch(int(one[1]), body, params)
         if rest.lower() == "wit/workitems" and method == "GET":
             ids = [int(i) for i in params["ids"].split(",")]
-            return answer({"count": len(ids), "value": [self.items[i] for i in ids]})
+            shown = [self._shown(self.items[i], params) for i in ids]
+            return answer({"count": len(ids), "value": shown})
+        if rest.lower() == "connectiondata" and method == "GET":
+            if "-preview" not in params.get("api-version", ""):
+                return refusal(
+                    400,
+                    "VS402863: The requested version is in preview; the -preview flag "
+                    "must be supplied in the api-version for such requests.",
+                    "VssInvalidPreviewVersionException",
+                )
+            return answer(load("connection_data").body)
         if rest.lower() == "wit/wiql" and method == "POST":
             return self._query(body["query"])
         raise AssertionError(f"the stand-in host was not expecting {method} {rest}")
@@ -140,6 +197,37 @@ class WorkItemHost(httpx.MockTransport):
         if self._lose_create_answer and len(self.creates) == 1:
             return httpx.Response(500, text="The service is unavailable.")
         return answer(made)
+
+    @staticmethod
+    def _shown(doc: dict[str, Any], params: httpx.QueryParams) -> dict[str, Any]:
+        """The item as the service answers it: its relations only when `$expand` asks."""
+        if "relations" in params.get("$expand", "").lower():
+            return doc
+        return {key: value for key, value in doc.items() if key != "relations"}
+
+    def _patch(
+        self, number: int, ops: list[dict[str, Any]], params: httpx.QueryParams
+    ) -> httpx.Response:
+        """An update: a `test` on `/rev` that fails changes nothing; field and relation
+        operations are applied and the revision moves on once."""
+        if number in self._races:
+            self._write(number, self._races.pop(number))
+        doc = self.items[number]
+        for op in ops:
+            if op["op"] == "test" and op["path"] == "/rev" and op["value"] != doc["rev"]:
+                return refusal(
+                    self._conflict_status,
+                    f"VS403357: Revision {doc['rev']} of work item {number} is not {op['value']}.",
+                    "WorkItemRevisionMismatchException",
+                )
+        for op in ops:
+            if op["op"] == "add" and op["path"] == "/relations/-":
+                doc["relations"].append(op["value"])
+            elif op["op"] in ("add", "replace") and op["path"].startswith("/fields/"):
+                name, value = op["path"].removeprefix("/fields/"), op["value"]
+                doc["fields"][name] = _person(value) if name == "System.AssignedTo" else value
+        doc["rev"] += 1
+        return answer(self._shown(doc, params))
 
     def _query(self, query: str) -> httpx.Response:
         """A query on one string field by substring; the service refuses `Contains` on a
