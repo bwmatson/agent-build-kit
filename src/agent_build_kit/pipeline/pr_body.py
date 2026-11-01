@@ -203,9 +203,17 @@ def _follow_ups_section(follow_ups: Sequence[str]) -> Section:
 # The new sections outweigh the process text, so they are the last to be reduced.
 _PURPOSE_WEIGHT = 8
 
-_WHY_SECTION = re.compile(r"^##[ \t]+Why[ \t]*\n(.*?)(?=^##[ \t]|\Z)", re.M | re.S)
 _LOCATED = re.compile(r"^(?P<file>[\w./-]*[./][\w./-]*?)(?::\d+)? — ")
 _PATH = re.compile(r"[\w-]+(?:/[\w.-]+)+|[\w-]+\.\w+")
+
+
+def section_text(text: str, heading: str) -> str:
+    """The text under a document's `## heading`, up to the next `##` heading, without the
+    heading itself; empty when the document has no such section."""
+    found = re.search(
+        rf"^##[ \t]+{re.escape(heading)}[ \t]*\n(.*?)(?=^##[ \t]|\Z)", text, re.M | re.S
+    )
+    return found[1].strip() if found else ""
 
 
 def why_text(changes_dir: Path, change: str) -> str:
@@ -214,8 +222,7 @@ def why_text(changes_dir: Path, change: str) -> str:
         proposal = (changes_dir / change / "proposal.md").read_text()
     except OSError:
         return ""
-    found = _WHY_SECTION.search(proposal)
-    return found[1].strip() if found else ""
+    return section_text(proposal, "Why")
 
 
 def _groups_of(changes_dir: Path, change: str) -> list[TaskGroup]:
