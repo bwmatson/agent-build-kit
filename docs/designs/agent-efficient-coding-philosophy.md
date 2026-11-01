@@ -25,7 +25,7 @@ unit-test and e2e-test, so that "tier" alone means a review tier.
 Reviewing every PR made sense when a person was the only check that looked at
 a change as a whole. abk no longer depends on that. Every unit already passes
 a test committed and run red before the implementation (see
-[What "run red" means](#what-run-red-means)), tier 1, tier 2 on a live stack, a read-only review by a different model, and, for a change as a
+[What &#34;run red&#34; means](#what-run-red-means)), tier 1, tier 2 on a live stack, a read-only review by a different model, and, for a change as a
 whole, `[acceptance]` and post-merge verify. What human review adds on top of
 that is real, but it is narrow. It catches the change that is correct and
 still wrong: the wrong contract, an unsafe default, a risk the spec never named.
@@ -172,43 +172,43 @@ trust placed in automation is earned by measurement and can be withdrawn.
 
 ### Converging
 
-| Approach | What groups agree on |
-|---|---|
-| **Verification is mandatory** | None of the sources proposes dropping tests, CI or independent checks. The disagreement is only about the *human* step. |
-| **Risk decides review depth** | Blast radius, revertibility and the kind of change route a PR. Size and author do not. Meta, Rewind and the practitioner guides all arrive here. |
-| **A never-auto-approve list** | Auth, authorization, secrets, encryption, billing, infrastructure, migrations and public APIs keep a human gate. The list is kept by people, in version control. |
-| **The maker doesn't grade the checker** | A separate context, a different model or an adversarial reviewer. Tests written by the same model that wrote the code are treated with suspicion. |
-| **The final verdict is not a model's opinion** | Meta ends with deterministic validation; Rewind turns findings into a grade with tested code. Models produce evidence, rules decide. |
-| **Policy is human-owned** | Rewind's bot never edits its own prompts or policy, and its policy file needs code-owner review. The same principle shows up wherever the sources discuss who may change the rules. |
-| **Trust is staged and measured** | Shadow mode first, then enabled on a subset, then promoted or demoted on agreement, reverts and incidents. |
-| **Oversight continues after merge** | Fast revert, post-merge checks and sampled audits are treated as part of the safety design. |
+| Approach                                             | What groups agree on                                                                                                                                                                |
+| ---------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Verification is mandatory**                  | None of the sources proposes dropping tests, CI or independent checks. The disagreement is only about the *human* step.                                                           |
+| **Risk decides review depth**                  | Blast radius, revertibility and the kind of change route a PR. Size and author do not. Meta, Rewind and the practitioner guides all arrive here.                                    |
+| **A never-auto-approve list**                  | Auth, authorization, secrets, encryption, billing, infrastructure, migrations and public APIs keep a human gate. The list is kept by people, in version control.                    |
+| **The maker doesn't grade the checker**        | A separate context, a different model or an adversarial reviewer. Tests written by the same model that wrote the code are treated with suspicion.                                   |
+| **The final verdict is not a model's opinion** | Meta ends with deterministic validation; Rewind turns findings into a grade with tested code. Models produce evidence, rules decide.                                                |
+| **Policy is human-owned**                      | Rewind's bot never edits its own prompts or policy, and its policy file needs code-owner review. The same principle shows up wherever the sources discuss who may change the rules. |
+| **Trust is staged and measured**               | Shadow mode first, then enabled on a subset, then promoted or demoted on agreement, reverts and incidents.                                                                          |
+| **Oversight continues after merge**            | Fast revert, post-merge checks and sampled audits are treated as part of the safety design.                                                                                         |
 
 ### Diverging
 
-| Question | The positions |
-|---|---|
-| **Is any human review needed?** | One position paper says human review is already redundant except for high-risk or regulated changes. Most practitioners keep a named person accountable for the merge on risky paths, and say a person who didn't read the change isn't accountable in any useful sense. |
-| **How is risk scored?** | Meta uses a learned risk model plus an LLM review. Rewind uses a council of specialist LLM reviewers whose findings feed fixed rules. Others use only path and keyword deny-lists. The cheaper methods are less precise but easier to audit. |
-| **Who merges?** | Meta lands low-risk diffs without a person. Rewind's bot approves, but a person still clicks merge on any PR the bot wrote, and CI and branch protection still apply. |
-| **One reviewer or several?** | Some systems use one reviewer model. Others run many in parallel, or a proposer, a challenger and an arbiter. More reviewers catch more, and cost more and need tuning. |
-| **Where does safety live?** | Most put it before the merge. Some move the real boundary to rollout time: feature flags and gradual release, so the review can be lighter because the change is easy to switch off. |
-| **How big can a change be?** | Rewind skips AI review above roughly 10,000 lines on the argument that no reviewer can hold that much. Meta's pipeline gates on its risk score and its eligibility rules. |
-| **Should a second opinion gate?** | Rewind runs another vendor's reviewer as advisory only, so it informs calibration but never decides. Others treat any extra reviewer as one more gate. |
-| **How early can PRs be triaged?** | One study predicts which PRs will be costly using only cues available at creation, such as file types and patch size. Most systems wait until a review has run. |
+| Question                                | The positions                                                                                                                                                                                                                                                            |
+| --------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| **Is any human review needed?**   | One position paper says human review is already redundant except for high-risk or regulated changes. Most practitioners keep a named person accountable for the merge on risky paths, and say a person who didn't read the change isn't accountable in any useful sense. |
+| **How is risk scored?**           | Meta uses a learned risk model plus an LLM review. Rewind uses a council of specialist LLM reviewers whose findings feed fixed rules. Others use only path and keyword deny-lists. The cheaper methods are less precise but easier to audit.                             |
+| **Who merges?**                   | Meta lands low-risk diffs without a person. Rewind's bot approves, but a person still clicks merge on any PR the bot wrote, and CI and branch protection still apply.                                                                                                    |
+| **One reviewer or several?**      | Some systems use one reviewer model. Others run many in parallel, or a proposer, a challenger and an arbiter. More reviewers catch more, and cost more and need tuning.                                                                                                  |
+| **Where does safety live?**       | Most put it before the merge. Some move the real boundary to rollout time: feature flags and gradual release, so the review can be lighter because the change is easy to switch off.                                                                                     |
+| **How big can a change be?**      | Rewind skips AI review above roughly 10,000 lines on the argument that no reviewer can hold that much. Meta's pipeline gates on its risk score and its eligibility rules.                                                                                                |
+| **Should a second opinion gate?** | Rewind runs another vendor's reviewer as advisory only, so it informs calibration but never decides. Others treat any extra reviewer as one more gate.                                                                                                                   |
+| **How early can PRs be triaged?** | One study predicts which PRs will be costly using only cues available at creation, such as file types and patch size. Most systems wait until a review has run.                                                                                                          |
 
 abk adopts everything in the converging table and takes a position on each
 split:
 
-| Question | abk's position |
-|---|---|
-| Is any human review needed? | Yes, for the full-review tier, and a sampled audit of what auto-landed. |
-| How is risk scored? | The planner's estimate, hard exclusions read from the diff, recorded gate results, the reviewer's classification and a per-class track record. The highest tier wins. |
-| Who merges? | Auto-land merges without a person, as Meta does; light and full review are merged by a person. A deterministic verdict, not a model, decides which. |
-| One reviewer or several? | One reviewer by a different model, as today. More are a later option. |
-| Where does safety live? | Before the merge, plus post-merge `verify` and fast revert. Feature-flag rollout is not assumed. |
-| How big can a change be? | Size is a planning budget per expected tier, not a risk signal. |
-| Should a second opinion gate? | Not in this design. |
-| How early can PRs be triaged? | At planning, from the plan's flags and expected paths; the diff's verdict overrides it. |
+| Question                      | abk's position                                                                                                                                                        |
+| ----------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Is any human review needed?   | Yes, for the full-review tier, and a sampled audit of what auto-landed.                                                                                               |
+| How is risk scored?           | The planner's estimate, hard exclusions read from the diff, recorded gate results, the reviewer's classification and a per-class track record. The highest tier wins. |
+| Who merges?                   | Auto-land merges without a person, as Meta does; light and full review are merged by a person. A deterministic verdict, not a model, decides which.                   |
+| One reviewer or several?      | One reviewer by a different model, as today. More are a later option.                                                                                                 |
+| Where does safety live?       | Before the merge, plus post-merge `verify` and fast revert. Feature-flag rollout is not assumed.                                                                    |
+| How big can a change be?      | Size is a planning budget per expected tier, not a risk signal.                                                                                                       |
+| Should a second opinion gate? | Not in this design.                                                                                                                                                   |
+| How early can PRs be triaged? | At planning, from the plan's flags and expected paths; the diff's verdict overrides it.                                                                               |
 
 ## Principles
 
@@ -217,24 +217,20 @@ split:
    merge or deferred to `verify`, as configured), and an independent model
    review. Nothing in this philosophy weakens a gate. What
    changes is that passing the gates can be enough.
-
 2. **Evidence beats inspection.** A person reading a diff is a weaker check
    than a test that was seen to fail and then pass against a real stack. Put
    effort into the evidence first, such as more realistic tests and better
    acceptance, before adding more reading.
-
 3. **Route by blast radius and reversibility.** The questions that decide
    review are what breaks if the change is wrong, who notices, and how fast it
    can be undone. Diff size, author and how confident the reviewer sounds do
    not decide it. Size only sets how much work is bundled into one PR, once
    the review it will get is known (see
    [Sizing work by expected review](#sizing-work-by-expected-review)).
-
 4. **Spend human attention where the gates can't see.** Tests check what the
    spec says. A person is needed when the spec itself might be wrong, when a
    change crosses a boundary other systems depend on, or when a mistake can't
    be cleanly undone.
-
 5. **Humans own the policy, and the agent never edits it.** This is a hard
    rule, not a preference. The rules that decide what may land without a
    person, the list of areas that never auto-land, the thresholds and the
@@ -244,23 +240,19 @@ split:
    full review, and the build agent's permissions are fenced off from it the
    same way they are fenced off from merging. The hard exclusions always win
    over any score.
-
 6. **Earn trust, measure it, and be able to take it back.** Auto-landing starts
    in shadow mode, where it predicts and a person still merges. Each class of
    change is promoted only on its own record of being merged without rework,
    and demoted automatically when auto-landed changes are reverted or cause
    incidents.
-
 7. **Keep part of the safety after the merge.** Post-merge verify, fast
    reverts and sampled audits of what auto-landed are part of the design. They
    are not an admission that the gates failed. A pipeline that can undo a
    change quickly can afford to merge it sooner.
-
 8. **Unreviewed does not mean unaccountable.** Every auto-landed change says
    that it auto-landed and why: the risk evidence, the gates it passed, the
    reviewer's verdict. A person can audit it later as easily as they could have
    reviewed it first.
-
 9. **Make the remaining reviews count.** A person asked to review should see
    at once why the PR needs them: the risk that sent it to them, what to look
    at and what has already been checked. Asking for a review is a signal and
@@ -270,11 +262,11 @@ split:
 
 The tiers are concepts, not configuration. They describe the intended outcome.
 
-| Tier | Lands when | Typical changes |
-|---|---|---|
-| **Auto-land** | Every gate is green, the reviewer approved with no open required findings and classified it auto-land, and nothing in the change matches an exclusion | Docs, test-only changes, narrow in-repo changes behind an existing interface, mechanical dependency bumps, `fix-*` flake changes |
-| **Light review** | A person skims a summary and merges; the diff is open if they want it | Larger internal refactors, new modules behind an existing seam, and any class of change without enough clean history yet to auto-land |
-| **Full review** | A person reads it and merges, as abk works today | Anything in [the list of areas that never auto-land](#areas-that-never-auto-land), or anything the reviewer classifies as full review |
+| Tier                   | Lands when                                                                                                                                            | Typical changes                                                                                                                       |
+| ---------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
+| **Auto-land**    | Every gate is green, the reviewer approved with no open required findings and classified it auto-land, and nothing in the change matches an exclusion | Docs, test-only changes, narrow in-repo changes behind an existing interface, mechanical dependency bumps, `fix-*` flake changes    |
+| **Light review** | A person skims a summary and merges; the diff is open if they want it                                                                                 | Larger internal refactors, new modules behind an existing seam, and any class of change without enough clean history yet to auto-land |
+| **Full review**  | A person reads it and merges, as abk works today                                                                                                      | Anything in [the list of areas that never auto-land](#areas-that-never-auto-land), or anything the reviewer classifies as full review  |
 
 Three rules apply on top of the table:
 
@@ -331,11 +323,11 @@ everyone. The planner should therefore **estimate the review tier a unit will
 get, and trim its groups to a size ceiling set for that tier**. The
 ceilings are configuration, with these defaults:
 
-| Expected tier | Default ceiling | Why |
-|---|---|---|
-| Auto-land | ~5,000 lines | Gates and a reviewer model carry it; no person reads it in one sitting. |
-| Light review | ~2,000 lines | A person skims a summary and opens the diff only when something stands out. |
-| Full review | ~750 lines | A person reads every line, so the existing ceiling applies. |
+| Expected tier | Default ceiling | Why                                                                         |
+| ------------- | --------------- | --------------------------------------------------------------------------- |
+| Auto-land     | ~5,000 lines    | Gates and a reviewer model carry it; no person reads it in one sitting.     |
+| Light review  | ~2,000 lines    | A person skims a summary and opens the diff only when something stands out. |
+| Full review   | ~750 lines      | A person reads every line, so the existing ceiling applies.                 |
 
 This keeps the principle that size does not decide *whether* a change is
 reviewed. Size here only decides how much work is bundled into one PR, once
