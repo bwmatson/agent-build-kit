@@ -19,6 +19,12 @@
   check, as a Python-only repository already does. A node test file a unit adds or changes is
   chosen by its path (the kit reads no test names from it), and an identifier's test name is
   ignored, since Vitest selects by file.
+- A repo that names a tracker now has its board kept up to date by a step of every tick, after
+  the label sweep: a state change only marks the board for the next tick and never calls the
+  tracker, a failure there cannot stop a tick, and a pull request description names the board
+  items of the groups it builds (`AB#<id>` or `Part of #<id>`) and is attached to each once.
+  Archived changes can be mirrored in a capped number of creates per run, with a dry run that
+  lists them.
 
 - For a repo with a tracker, a planned unit is not started while a board item it covers (the
   group items, or the lowest level in use, and any task items under them) is assigned to

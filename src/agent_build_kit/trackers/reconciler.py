@@ -56,6 +56,12 @@ class PassReport(Frozen):
     awaiting: tuple[str, ...] = ()
     stopped: bool = False
     failed: bool = False
+    # The markers a dry run would have created.
+    listed: tuple[str, ...] = ()
+
+
+class _CapReached(Exception):
+    """The pass has made as many creates as it was allowed."""
 
 
 class _RepoFailed(Exception):
@@ -97,7 +103,13 @@ class _Pass:
         section: TrackerSection,
         files: dict[str, TrackerFile],
         changes_dir: Path,
+        *,
+        create_cap: int | None = None,
+        dry_run: bool = False,
     ) -> None:
+        self.create_cap = create_cap
+        self.dry_run = dry_run
+        self.listed: list[str] = []
         self.tracker = tracker
         self.section = section
         self.files = files
@@ -106,8 +118,21 @@ class _Pass:
         self.updated = 0
         self.awaiting: list[str] = []
 
+    def _list(self, item: WantedItem, name: str) -> None:
+        """A dry run: name what would be created, looking and writing nothing."""
+        if item.marker in _entries(self.files[name], name):
+            return
+        if self.tracker.find_by_marker(item.marker) is not None:
+            return
+        if self.create_cap is not None and len(self.listed) >= self.create_cap:
+            raise _CapReached
+        self.listed.append(item.marker)
+
     def push(self, item: WantedItem) -> None:
         name = item.marker.split(":", 1)[0]
+        if self.dry_run:
+            self._list(item, name)
+            return
         parent = parent_item(self.files[name], self.section, item.level, item.marker)
         if parent is None and item.parent_marker is not None:
             return  # the parent has no item yet: its subtree waits for the next tick
@@ -148,6 +173,8 @@ class _Pass:
             }
             synced = Synced(id=found.id, fields=snapshot, revision=found.revision)
         else:
+            if self.create_cap is not None and self.created >= self.create_cap:
+                raise _CapReached
             made = self.tracker.create(
                 item.level, item.title, item.body, parent, markers=(item.marker,)
             )
@@ -195,11 +222,14 @@ def reconcile(
     tracking_dir: Path | None = None,
     archived: Collection[str] = (),
     log: Callable[[str], None] = print,
+    create_cap: int | None = None,
+    dry_run: bool = False,
 ) -> PassReport:
     """One pass over `repo`'s tracker: level by level, create what has no item (looking for its
     marker first), update what differs from the recorded snapshot, and record each success before
-    the next call. `state_dir` holds the machine-local snapshot. Never raises for a tracker
-    failure."""
+    the next call. `state_dir` holds the machine-local snapshot. `create_cap` ends the pass after
+    that many creates; `dry_run` lists what would be created and writes nothing. Never raises for
+    a tracker failure."""
     try:
         section = section_for(repo)
         tracker = trackers.for_repo(repo)
@@ -236,7 +266,7 @@ def reconcile(
         tracking_dir=tracking_dir,
     )
 
-    run = _Pass(tracker, section, files, changes_dir)
+    run = _Pass(tracker, section, files, changes_dir, create_cap=create_cap, dry_run=dry_run)
     stopped = failed = False
     for item in wanted:
         # A group that is no longer wanted keeps what its item last showed: nothing is deleted.
@@ -244,6 +274,8 @@ def reconcile(
             continue
         try:
             run.push(item)
+        except _CapReached:
+            break
         except RateLimited as error:
             log(f"tracker {repo}: rate limited, resuming next tick: {error}")
             stopped = True
@@ -258,7 +290,7 @@ def reconcile(
             errors += 1
             count_error()
             log(f"tracker {repo}: {item.marker}: {error}")
-    if not failed:
+    if not failed and not dry_run:
         _write_snapshot(state_dir / f"tracker-{repo}.json", run.files)
     return PassReport(
         created=run.created,
@@ -267,4 +299,5 @@ def reconcile(
         awaiting=tuple(run.awaiting),
         stopped=stopped,
         failed=failed,
+        listed=tuple(run.listed),
     )

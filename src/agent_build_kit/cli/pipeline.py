@@ -486,6 +486,7 @@ from agent_build_kit.runtimes.guards import guard_lines
 from agent_build_kit.serve.review import ReviewStore
 from agent_build_kit.trackers.report import standing
 from agent_build_kit.trackers.start_decision import start_gate
+from agent_build_kit.trackers.tick_step import note_state_change, sync_trackers
 from agent_build_kit.tracks.runner import RUN_ID, publish_commit
 
 if TYPE_CHECKING:
@@ -571,6 +572,10 @@ def store_for(inst: Installation) -> UnitStore:
         )
         labels.follow_review(unit, inst.state_dir / VERDICTS)
         drafts.follow(unit, units, opened=opened)
+        try:
+            note_state_change(inst)
+        except Exception as error:  # noqa: BLE001
+            log(f"tracker mirror not marked — {type(error).__name__}: {error}")
         # Equal, and only on the write that counted it (from `running`), so it is named once.
         counted = len(unit.history) > 1 and unit.history[-2].get("state") == RUNNING
         if counted and unit.bounces == limits.bounce_limit and unit.state in (PLANNED, HELD):
@@ -739,6 +744,10 @@ def _sweep_labels(inst: Installation, store: UnitStore) -> None:
         repo_order=list(inst.repos),
         log=log,
     )
+
+
+def _sync_trackers(inst: Installation, store: UnitStore) -> None:
+    sync_trackers(inst, store.all(), log=log)
 
 
 def _sweep_outcomes(inst: Installation, store: UnitStore) -> None:
@@ -2392,6 +2401,7 @@ def run_round(
         _step("closing satisfied pull requests", _retry_pending_closes, inst, store)
         _step("posting owed replies", _retry_pending_replies, inst, store)
         _step("sweeping state labels", _sweep_labels, inst, store)
+        _step("syncing trackers", _sync_trackers, inst, store)
         _step("sweeping review outcomes", _sweep_outcomes, inst, store)
         _step("evaluating demotions", _evaluate_demotions, inst, store)
     if submit and may == "usage":

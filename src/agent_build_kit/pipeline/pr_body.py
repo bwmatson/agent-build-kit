@@ -39,6 +39,7 @@ from agent_build_kit.pipeline.units import (
 )
 from agent_build_kit.pipeline.verdict import GateResult, TierVerdict, VerdictFacts
 from agent_build_kit.pipeline.work_graph import TaskGroup, validate_tasks
+from agent_build_kit.trackers.pr_attach import link_lines
 
 
 def _unmerged(unit: StoredUnit, graph: list[StoredUnit]) -> list[StoredUnit]:
@@ -545,9 +546,12 @@ a unit review classified `auto` and policy allowed; a person merges any other, a
             *([why] if why else []),
             *_purpose_sections(changes_dir, members, unit.description),
         ]
+    scope = _scope_lines(unit)
+    if changes_dir is not None and (links := link_lines(unit, changes_dir)):
+        scope = f"{scope}\n{links}"
     sections += [
         _fixed("position", position),
-        _fixed("scope", _scope_lines(unit)),
+        _fixed("scope", scope),
         _fixed("assumptions", f"## Assumptions\n\n{assumptions(unit, graph, trunk_of(unit.repo))}"),
         _verification_section(verification),
     ]
