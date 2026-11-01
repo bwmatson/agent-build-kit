@@ -37,7 +37,7 @@ which change delivers which part is kept outside the kit. Each recommended step 
 
 **Test kind.** A task group is tagged `[unit-test]`, `[integration-test]` or `[e2e-test]`. A unit's `tier` is the widest kind of its
 groups. An `[e2e-test]` group is always built as `tests_only` and is a unit of its own. The build treats `integration-test` and `unit-test` alike: only size and duration calibration pools them (`pooled_kind`, `model.py`), and nothing else
-runs an integration-tagged group differently. It is a label for the author, and it is not the pytest `integration` marker.
+runs an integration-tagged group differently. It is a label for the author, and it is not the `integration` selector below.
 
 **Group mode.** `tests_and_code` (a test commit, then a code commit), `tests_only` (a lone test commit, no code), `no_code` (a lone
 code commit, no tests: documents and configuration), `refactor` (a lone code commit that reorganizes code and edits existing tests
@@ -47,17 +47,19 @@ only mechanically; see "Reorganizing code"). A group's mode has a floor set by t
 **Review tier.** `auto`, `light` or `full`: how much review a unit gets. It is a separate axis from the test kind and from the
 group mode.
 
-**Marker.** A registered pytest marker that decides where a test runs. The taxonomy is below.
+**Selector.** What a test declares about itself so that a run can include or leave it out: a pytest marker, a file-name convention, a tag or
+category attribute, or whatever the toolchain offers. The kinds are the same in every language; how a toolchain spells them is its profile's
+business (see "How a toolchain realises the selectors"). Where this document says *marker*, it means a selector.
 
 ## Where a test lives, and which kind it is
 
 A builder decides in this order.
 
-1. It needs a live service, credentials, a model, an agent, or an MCP or API call: **e2e**. It carries the repository's e2e marker
-   (`local_stack` in the kit, set per repository by `tests.e2e_marker`) and the runtime tag where a runtime applies.
+1. It needs a live service, credentials, a model, an agent, or an MCP or API call: **e2e**. It carries the repository's e2e selector
+   (named per repository by `tests.e2e_marker`; `local_stack` in the kit's own Python tests) and the runtime tag where a runtime applies.
 2. Otherwise it needs only what a CI job can give it, or it reads the whole repository, or it collects other modules in a child
    run, or it checks something that is not code behaviour: **integration**. The last case is a *conformance test* of the repository:
-   documents say what the code does, configuration files, CI templates, layout, names and marker registrations agree, a guard's
+   documents say what the code does, configuration files, CI templates, layout, names and selector registrations agree, a guard's
    list is current. Conformance tests have real value. They are integration tests because they read the tree, not because they are
    suspect.
 3. Otherwise it is a **unit** test: pure logic, fakes, temporary folders. It does not walk the repository.
@@ -78,33 +80,51 @@ tree.
 A unit's own new integration tests are therefore run before its pull request opens, red first and repeated like any new test, and CI
 is the backstop for every other integration test the change might have broken.
 
-### Marker taxonomy
+### Kind selectors
 
-The default run is `-m 'not integration and not local_stack'` (the repository's `addopts`). The profile preserves that expression and
-adds the selections below it.
+The names below are abstract. Every toolchain gives each one a spelling (next section), and the default run of a repository leaves
+out the `integration` and e2e selectors. The profile preserves the repository's own default and adds the selections below it.
 
-| Marker | Meaning | In the default run | In CI |
+| Selector | Meaning | In the default run | In CI |
 |---|---|---|---|
-| none (unit) | pure logic, fakes, `tmp_path`; deterministic on a loaded machine; does not walk the repository | yes | yes |
-| `integration` | runnable in CI: needs only what the CI job provides (node, public package hosts, local subprocesses), or reads the whole repository, or collects modules in a child run. No credentials, no live service, no model, no agent, no MCP or API call | no | **yes, all** |
-| the e2e marker (`local_stack`) | needs a live stack, credentials, a model, a real agent or an MCP or API call; bills or takes minutes | no | no |
-| `runtime_acp`, `runtime_claude_code` | which runtime an e2e test drives; at most one per test | with the e2e marker | no |
-| `telemetry_otel`, `telemetry_local`, `dev_stack` | what an e2e test needs beside the stack | with the e2e marker | no |
-| `time_limit(seconds)` | a per-test budget in place of the default, for a test whose cost is outside its control | any | any |
+| none (unit) | pure logic, fakes, temporary folders; deterministic on a loaded machine; does not walk the repository | yes | yes |
+| `integration` | runnable in CI: needs only what the CI job provides (the toolchain, public package hosts, local subprocesses), or reads the whole repository, or collects modules in a child run. No credentials, no live service, no model, no agent, no MCP or API call | no | **yes, all** |
+| the e2e selector | needs a live stack, credentials, a model, a real agent or an MCP or API call; bills or takes minutes | no | no |
+| runtime tags (an agent runtime an e2e test drives) | which runtime an e2e test drives; at most one per test | with the e2e selector | no |
+| stack tags (what an e2e test needs beside the stack) | a telemetry target, the dev stack | with the e2e selector | no |
+| a per-test limit | a budget in place of the default, for a test whose cost is outside its control | any | any |
+
+### How a toolchain realises the selectors
+
+Every profile provides the same six capabilities, each in the toolchain's own terms. The examples are illustrations, not a list of
+supported toolchains: a profile for another language chooses whatever its runner offers and says so in the profiles document.
+
+| Capability | A pytest project | An npm project with vitest | Another toolchain, for example |
+|---|---|---|---|
+| Declare a kind on a test | a registered marker | a file-name convention (`<name>.integration.test.ts`, `<name>.<e2e>.test.ts`) | a tag or category attribute, a build tag, a separate test directory or target |
+| The default run leaves out `integration` and e2e | a deselecting `-m` expression in the repository's configuration | include and exclude patterns in the runner's configuration | the same, in the runner's configuration |
+| Select by id, overriding the default | the test's node id, with the marker expression overridden for it | a file path or a name filter, with the exclusion overridden for it | a name or tag filter that wins over the default |
+| Unknown kinds are refused | strict marker registration | a conformance test over the configured patterns | a conformance test, or the runner's own strictness |
+| At most one kind per test | a conformance test over the markers | a file matches one convention only | a conformance test over the declarations |
+| A per-test limit override | a limit marker | the runner's per-test timeout option | the runner's per-test timeout option |
+
+A profile that cannot provide one of the six says why through `ProfileUnsupported`, and the conformance test over the profile
+registry (see "Profile parity") treats a missing capability as a defect. The rest of this document says *selector* and *marker*
+interchangeably and never assumes pytest.
 
 **No test is `serial`.** A test that cannot run beside others has a design fault: a shared port, path, session id, environment
-variable or global. The fix is isolation, not a marker. The marker is not registered, and with `--strict-markers` a test that uses it
-fails collection.
+variable or global. The fix is isolation, not a marker. No toolchain registers a `serial` selector, so a test that declares one is refused
+(by strict registration where the runner has it, by a conformance test where it does not).
 
 **A test that cannot run in CI is never `integration`.** The question that tells them apart is whether the test needs a value CI
-cannot supply. A setting with no default (a pydantic-settings field that is required, an environment variable read with no default)
+cannot supply. A setting with no default (a required field of a settings type, an environment variable read with no fallback)
 must come from the environment and is real configuration; a setting that has a default is not a secret and does not count. A test
 marked `integration` that loads such a setting, starts a real agent, or calls a host other than loopback is a misclassified e2e
-test. A guard over the integration tests finds these by reading the settings models' required fields and the tests' environment
-reads, so it follows the models and needs no list.
+test. A guard over the integration tests finds these by reading the project's settings types and the tests' environment
+reads, in the project's own language, so it follows the types and needs no list.
 
-**One marker at most** from {unit, `integration`, the e2e marker}. An e2e test carries exactly one runtime tag where a runtime
-applies. The marker's definition text in `pyproject.toml` quotes this table.
+**One kind at most** from {unit, `integration`, the e2e selector}. An e2e test carries exactly one runtime tag where a runtime
+applies. Each toolchain's registration text (for Python, the marker definitions in `pyproject.toml`) quotes the table above.
 
 **Multi-project workspaces.** A project's conformance tests stay in that project and read only that project's files (standard T12a).
 A check that spans projects is a *workspace conformance test* at the repository root, marked `integration`, and is the only place
@@ -123,10 +143,10 @@ and the tests agent is asked again. In the stubbed build a missing name is also 
 The pull request text says the tests were committed first and seen to fail only when the check ran.
 
 - **By id.** Selecting by id lets a failing new case sit beside passing tests in the file for its subject, so the placement rule
-  above does not fight the loop. A commit that changes only a helper or a conftest, which has no test to select, runs its files
+  above does not fight the loop. A commit that changes only a helper or a shared fixture file, which has no test to select, runs its files
   whole.
-- **Integration tests too.** The repository's default `-m` expression deselects an integration test even when it is named by id, so
-  the selection overrides the expression for the ids the commit added or changed.
+- **Integration tests too.** The repository's default selection deselects an integration test even when it is named by id, so
+  the selection overrides the default for the ids the commit added or changed.
 - **Test-only and no-code groups.** A `tests_only` group has no implementation to wait for; a `no_code` group has no test. They skip
   the check by their mode, and the pull request text says so.
 - **Repeat.** After the unit's tests pass, the tests it added or changed run again, under the same workers, a configured number of
@@ -194,7 +214,7 @@ finding reads, for example, `T7 tests/serve/test_x.py:40 fixed port`.
 - **T8a Isolation lives in shared fixtures, not in each test.** Temporary directories, an ephemeral port, a fake clock and an
   environment and working-directory guard come from one shared fixture set, autouse where it applies to every test, so a test adds
   one fixture argument and nothing else. A rule that covers every test is one guard over the tree, never a repeated check or
-  repeated setup in each test. The same setup block (the same `monkeypatch` sequence, the same temporary-tree builder, the same fake
+  repeated setup in each test. The same setup block (the same environment-patching sequence, the same temporary-tree builder, the same fake
   server) in several test files is a missing fixture or helper, and reusability is not given up to get isolation. Check: guard
   (helpers defined once, the timing guard, the autouse fixtures); `none yet` (repeated setup); review.
 - **T9 Order and worker independence.** A test passes alone, in any order and under any worker count. Check: gate (the repeat
@@ -219,9 +239,9 @@ finding reads, for example, `T7 tests/serve/test_x.py:40 fixed port`.
 
 - **T16 Time budget.** A unit test fits its budget; one that needs more is a wide scan or is split. Check: guard (the time limit).
 - **T17 Wide scans are integration, and scan once.** A whole-repository walk is an integration test and shares one session-scoped
-  result, not one scan per test. A scan that runs at import time, while pytest collects, makes marking its tests useless and must be
+  result, not one scan per test. A scan that runs at import time, while the runner collects, makes selecting its tests useless and must be
   lazy. Check: guard (the wide-scan list); `none yet` (repeated scans).
-- **T18 A child pytest's code is a file**, not a string. Check: guard.
+- **T18 A child test run's code is a file**, not a string, where a toolchain starts child runs. Check: guard.
 
 **Design: a test says something, once**
 
@@ -296,7 +316,7 @@ A loaded machine turns a correct test into a failing one when the test's budget 
 Three rules.
 
 - **The per-test limit counts CPU time, with a wall-clock backstop.** The budget is the CPU the test's own process and its child
-  processes use (a test that runs a child pytest does its work in the child). A longer wall-clock backstop, a multiple of the budget,
+  processes use (a test that starts a child test run does its work in the child). A longer wall-clock backstop, a multiple of the budget,
   still ends a test that blocks or sleeps and so uses no CPU. The failure message names which clock fired, so a load failure is
   recognisable. A test starved of CPU but under its budget passes.
 - **Gates share the machine.** A worker budget, the machine's CPU count by default, admits a unit's test run only when the workers it
@@ -348,12 +368,13 @@ no affected selection. A missing capability is therefore a defect, and two tests
   those may only shrink. A new capability
   protocol fails the test until every profile implements it.
 - **An integration scenario suite.** A tiny fixture project per profile runs the same scenario: red by id, a passing new test rejected,
-  repeat by id, a serial rerun of a failed id, failed-test parsing, affected selection after a one-file change. Both profiles pass the
+  repeat by id, a serial rerun of a failed id, failed-test parsing, affected selection after a one-file change. Every profile passes the
   same assertions, and a future profile adds one fixture and inherits the suite. It needs the toolchain and the network, so it is an
   integration test.
 
-A toolchain with no markers (a JavaScript runner) names its integration and e2e tests by a file-name convention, and the same
-by-file selection applies.
+A toolchain with no markers (a JavaScript runner) realises the selectors by a file-name convention, and the same by-file selection
+applies (see "How a toolchain realises the selectors"). The conformance test also checks that each profile provides the six
+selector capabilities.
 
 ## Guards that exist, and what they enforce
 
@@ -452,7 +473,7 @@ Each step can become an OpenSpec change. Order follows dependency.
 - **Is `integration` a required check** on every repository that adopts this? The design assumes it is.
 - **How much of the JavaScript profile's affected selection is possible** with its runner, and whether the conformance test needs an
   explicit "unsupported" entry for it until it is.
-- **Whether `integration-test`, as a group label, should map to the `integration` marker.** Today it is a label that only calibration
+- **Whether `integration-test`, as a group label, should map to the `integration` selector.** Today it is a label that only calibration
   treats as a unit test.
 - **How a planner declares a reorganization.** A line on the group beside `Tests: required`, or a tag, and who may set it: the
   program's comparison catches an edit that is not mechanical, but not a behaviour change hidden in a move.
