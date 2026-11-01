@@ -44,24 +44,24 @@ def pair(root: yaml.MappingNode, name: str) -> tuple[yaml.ScalarNode, yaml.Node]
 
 def usage_limits_holders(
     root: yaml.MappingNode,
-) -> list[tuple[str, yaml.ScalarNode, yaml.MappingNode]]:
-    """Each runtime and account mapping written under `runtimes`, with its key and dotted path:
+) -> list[tuple[tuple[str, ...], yaml.ScalarNode, yaml.MappingNode]]:
+    """Each runtime and account mapping written under `runtimes`, with its key and key path:
     the places a usage-limits key may sit. The one place that says so for composed text; the
-    loaded document's counterpart is `config._usage_limits_places`."""
+    loaded document's counterpart is `config._usage_limits_paths`."""
     found = pair(root, "runtimes")
     if found is None or not isinstance(found[1], yaml.MappingNode):
         return []
-    holders = []
+    holders: list[tuple[tuple[str, ...], yaml.ScalarNode, yaml.MappingNode]] = []
     for name, runtime in found[1].value:
         if not (isinstance(name, yaml.ScalarNode) and isinstance(runtime, yaml.MappingNode)):
             continue
-        holders.append((f"runtimes.{name.value}", name, runtime))
+        holders.append((("runtimes", name.value), name, runtime))
         accounts = pair(runtime, "accounts")
         if accounts is None or not isinstance(accounts[1], yaml.MappingNode):
             continue
         for label, account in accounts[1].value:
             if isinstance(label, yaml.ScalarNode) and isinstance(account, yaml.MappingNode):
-                holders.append((f"runtimes.{name.value}.accounts.{label.value}", label, account))
+                holders.append((("runtimes", name.value, "accounts", label.value), label, account))
     return holders
 
 

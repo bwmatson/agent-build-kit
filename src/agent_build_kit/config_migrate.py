@@ -533,12 +533,23 @@ def _rename_builders_key(text: str) -> str:
     return result
 
 
-def _loaded_holds_old(document: Any, where: str) -> bool:
-    """Whether the mapping at the dotted path `where` of the loaded `document` sets `limits`."""
+def _loaded_holds_old(document: Any, path: tuple[str, ...]) -> bool:
+    """Whether the mapping at the key path `path` of the loaded `document` sets `limits`."""
     node = document
-    for part in where.split("."):
+    for part in path:
         node = node.get(part) if isinstance(node, dict) else None
     return isinstance(node, dict) and DEPRECATED_USAGE_LIMITS in node
+
+
+def _loaded_has_accounts(document: Any, path: tuple[str, ...], holder: yaml.MappingNode) -> bool:
+    """Whether the runtime at `path` has accounts only through a merge key: its loaded mapping
+    holds them, its written one does not."""
+    if len(path) != 2 or pair(holder, "accounts") is not None:
+        return False
+    node = document
+    for part in path:
+        node = node.get(part) if isinstance(node, dict) else None
+    return isinstance(node, dict) and isinstance(node.get("accounts"), dict)
 
 
 def _rename_usage_limits(text: str) -> str:
@@ -554,11 +565,12 @@ def _rename_usage_limits(text: str) -> str:
     lines = split_lines(text)
     before = yaml.safe_load(text)
     renamed = False
-    for where, holder_key, holder in usage_limits_holders(root):
+    for path, holder_key, holder in usage_limits_holders(root):
+        where = ".".join(path)
         found = pair(holder, DEPRECATED_USAGE_LIMITS)
         if found is None:
-            if any(k.tag == MERGE_TAG for k, _ in holder.value) and _loaded_holds_old(
-                before, where
+            if any(k.tag == MERGE_TAG for k, _ in holder.value) and (
+                _loaded_holds_old(before, path) or _loaded_has_accounts(before, path, holder)
             ):
                 opened(lines, holder_key, holder, where, "the block")
             continue

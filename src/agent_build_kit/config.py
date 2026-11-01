@@ -543,47 +543,33 @@ def alias_usage_limits(data: dict[str, Any]) -> dict[str, Any]:
     return renamed_key(data, DEPRECATED_USAGE_LIMITS, USAGE_LIMITS)
 
 
-def _usage_limits_places(runtimes: dict[str, Any]) -> Iterator[tuple[str, dict[str, Any]]]:
-    """Each runtime and account mapping in a raw `runtimes` block, with its dotted key path. The
-    loaded document's counterpart of `config_migrate_lines.usage_limits_holders`; change the two
-    together."""
-    for name, entry in runtimes.items():
+def _usage_limits_paths(document: dict[str, Any]) -> Iterator[tuple[str, ...]]:
+    """The key path of each mapping in a raw document that may hold usage windows: every runtime
+    and every account of a runtime. The one place that says where the key may be in a loaded
+    document; `config_migrate_lines.usage_limits_holders` is its counterpart for composed text."""
+    runtimes = document.get("runtimes")
+    for name, entry in (runtimes if isinstance(runtimes, dict) else {}).items():
         if not isinstance(entry, dict):
             continue
-        yield f"runtimes.{name}", entry
+        yield ("runtimes", name)
         accounts = entry.get("accounts")
         for label, account in (accounts if isinstance(accounts, dict) else {}).items():
             if isinstance(account, dict):
-                yield f"runtimes.{name}.accounts.{label}", account
+                yield ("runtimes", name, "accounts", label)
 
 
-def alias_runtime_usage_limits(entry: Any) -> Any:
-    """A raw runtime mapping with `limits` renamed to `usage_limits` in it and in each of its
-    accounts; anything else is returned as it is."""
-    if not isinstance(entry, dict):
-        return entry
-    entry = alias_usage_limits(entry)
-    accounts = entry.get("accounts")
-    if isinstance(accounts, dict):
-        entry = {
-            **entry,
-            "accounts": {
-                label: alias_usage_limits(each) if isinstance(each, dict) else each
-                for label, each in accounts.items()
-            },
-        }
-    return entry
+def _updated_at(node: dict[str, Any], path: tuple[str, ...]) -> dict[str, Any]:
+    """A copy of `node` with the mapping at `path` passed through `alias_usage_limits`."""
+    if not path:
+        return alias_usage_limits(node)
+    return {**node, path[0]: _updated_at(node[path[0]], path[1:])}
 
 
 def alias_runtimes_usage_limits(document: dict[str, Any]) -> dict[str, Any]:
     """`document` with `limits` renamed to `usage_limits` under each runtime and account."""
-    runtimes = document.get("runtimes")
-    if not isinstance(runtimes, dict):
-        return document
-    return {
-        **document,
-        "runtimes": {name: alias_runtime_usage_limits(entry) for name, entry in runtimes.items()},
-    }
+    for path in _usage_limits_paths(document):
+        document = _updated_at(document, path)
+    return document
 
 
 class AccountConfig(Frozen):
@@ -2244,9 +2230,11 @@ def deprecations_of(*documents: dict[str, Any] | None) -> list[str]:
     if any(DEPRECATED_ROOT_KEY in raw for raw in raws):
         found.append(DEPRECATED_ROOT_KEY)
     for raw in raws:
-        runtimes = raw.get("runtimes")
-        for place, mapping in _usage_limits_places(runtimes if isinstance(runtimes, dict) else {}):
-            key = f"{place}.{DEPRECATED_USAGE_LIMITS}"
+        for path in _usage_limits_paths(raw):
+            mapping = raw
+            for step in path:
+                mapping = mapping[step]
+            key = ".".join((*path, DEPRECATED_USAGE_LIMITS))
             if DEPRECATED_USAGE_LIMITS in mapping and key not in found:
                 found.append(key)
     builders = [raw.get("builders") for raw in raws]
@@ -2322,12 +2310,12 @@ def usage_limits_notices(path: Path) -> list[str]:
     if not isinstance(root, yaml.MappingNode):
         return []
     notices = []
-    for place, _, holder in usage_limits_holders(root):
+    for keys, _, holder in usage_limits_holders(root):
         found = pair(holder, DEPRECATED_USAGE_LIMITS)
         if found is not None:
             notices.append(
                 f"{local}:{found[0].start_mark.line + 1}: rename `{DEPRECATED_USAGE_LIMITS}` "
-                f"to `{USAGE_LIMITS}` ({place}.{DEPRECATED_USAGE_LIMITS})"
+                f"to `{USAGE_LIMITS}` ({'.'.join((*keys, DEPRECATED_USAGE_LIMITS))})"
             )
     return notices
 
