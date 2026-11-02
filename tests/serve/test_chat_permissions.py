@@ -20,6 +20,7 @@ from tests.serve.socket_api import (
     socket_api,  # noqa: F401 — a page closing is the subject: a socket
 )
 from tests.serving import seed_pipeline
+from tests.time_limit import LOADED_TEST_TIME_LIMIT
 
 REVIEW = "/api/units/feature/2"
 ASK = [{"ask": "execute", "command": "ls src"}]
@@ -42,6 +43,7 @@ def request_of(events: Any) -> dict[str, Any]:
     raise AssertionError("the turn never asked for permission")
 
 
+@pytest.mark.time_limit(LOADED_TEST_TIME_LIMIT)
 def test_a_request_is_shown_with_its_options_and_the_turn_waits(
     record: Path, api: httpx.Client
 ) -> None:
@@ -60,6 +62,7 @@ def test_a_request_is_shown_with_its_options_and_the_turn_waits(
         assert requests(record, "did/run") == []
 
 
+@pytest.mark.time_limit(LOADED_TEST_TIME_LIMIT)
 def test_the_answer_from_the_browser_goes_to_the_agent(record: Path, api: httpx.Client) -> None:
     with api.stream(
         "POST", f"{REVIEW}/chat", json={"tab": "t1", "prompt": "List it."}, timeout=WAIT
@@ -78,6 +81,7 @@ def test_the_answer_from_the_browser_goes_to_the_agent(record: Path, api: httpx.
     assert len(requests(record, "did/run")) == 1
 
 
+@pytest.mark.time_limit(LOADED_TEST_TIME_LIMIT)
 def test_a_refusal_from_the_browser_denies_the_command(record: Path, api: httpx.Client) -> None:
     with api.stream(
         "POST", f"{REVIEW}/chat", json={"tab": "t1", "prompt": "List it."}, timeout=WAIT
@@ -94,6 +98,7 @@ def test_a_refusal_from_the_browser_denies_the_command(record: Path, api: httpx.
     assert requests(record, "did/run") == []
 
 
+@pytest.mark.time_limit(LOADED_TEST_TIME_LIMIT)
 def test_closing_the_page_with_a_request_outstanding_denies_it(
     record: Path, api: httpx.Client
 ) -> None:
@@ -116,6 +121,7 @@ def test_closing_the_page_with_a_request_outstanding_denies_it(
     assert requests(record, "did/run") == [], "the command never ran"
 
 
+@pytest.mark.time_limit(LOADED_TEST_TIME_LIMIT)
 def test_an_always_answer_the_browser_was_never_offered_does_not_allow_anything(
     record: Path, api: httpx.Client
 ) -> None:
@@ -133,6 +139,7 @@ def test_an_always_answer_the_browser_was_never_offered_does_not_allow_anything(
     assert asked["optionKind"] != "allow_always"
 
 
+@pytest.mark.time_limit(LOADED_TEST_TIME_LIMIT)
 def test_stopping_the_server_with_a_request_outstanding_and_the_page_open_denies_it_and_returns(
     record: Path, inst: Installation
 ) -> None:

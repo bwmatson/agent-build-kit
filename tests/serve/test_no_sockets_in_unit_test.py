@@ -190,7 +190,6 @@ def test_the_conftest_is_scanned_like_a_test_module(tmp_path: Path) -> None:
 # sign that a socket is being silenced instead of removed.
 ALLOWLIST_CEILING = frozenset(
     {
-        "test_chat_agent_environment.py",
         "test_chat_commit.py",
         "test_chat_editing.py",
         "test_chat_guards.py",
