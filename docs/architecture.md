@@ -936,6 +936,17 @@ the agent prefix. Each poll diffs against a snapshot (`runs/prs-<repo>.json`)
 and **acts only on a change**; the first poll of a repo records without
 dispatching. Two failed polls back off for thirty minutes.
 
+A change reported once can still be lost to a unit: a merge deferred while the unit was
+building, or missed. So each tick runs a **reconcile pass** (`pipeline/pr_reconcile.py`) beside
+the poll. For every `running`, `in_review`, `failed` or `held` unit that records a pull request,
+it reads the poller's cache (`runs/prs-<repo>.json`, so no extra API call) and, when the cache
+shows the pull request merged or closed, hands the same event to the same dispatch the poller
+uses. The pass never writes a unit itself; a unit being built is left for a later pass, and a
+unit already `settling` or `merged`, or a pull request the cache shows open, is untouched, so a
+second pass changes nothing. `abk reconcile` runs it at once (see [cli.md](cli.md)), and
+`open_pr` reads the state of a pull request the unit already records before it puts the unit in
+review.
+
 An event reaches its unit by **repo and number together**. Pull request numbers
 are per repo, so two repos in one workspace reach the same one; each poller's
 events carry the repo it polled, and a number that only another repo's unit has

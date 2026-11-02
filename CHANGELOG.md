@@ -19,6 +19,12 @@
   full review. The change also carries the first failure's evidence in its design (the output, the
   conditions, the run's ledger rows and the bundle's machine facts), and the agent is told it must
   stand on its own if the test no longer fails when a fix unit builds it.
+- A unit whose pull request has merged on the code host is now closed by the pipeline instead of
+  staying in review. Each tick compares every running, in-review, failed or held unit with the
+  poller's last read of its pull request and records a merge or close it missed, and a build no
+  longer puts a merged pull request in review. The new `abk reconcile` command runs that pass at
+  once (`--dry-run` writes nothing), and its `--accept UNIT` records a merge the host confirms,
+  refusing a pull request that is open or closed unmerged.
 
 - The architecture document now describes the foundations the detached-worker design builds on: a
   branch lock names its holder by pid and start time, starting a unit is admitted under one lock

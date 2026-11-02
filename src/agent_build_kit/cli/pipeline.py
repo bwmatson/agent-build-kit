@@ -6599,6 +6599,10 @@ def _dispatch(
     )
 
 
+# The commands outside this module build the poller's dispatch through this name.
+dispatch_for = _dispatch
+
+
 def merge_record_of(inst: Installation, unit: StoredUnit) -> tuple[str | None, int | None]:
     """The merge commit of a unit just seen merged and the number of the tick that saw it;
     None for what cannot be read (a forge that answers nothing, no tick record yet)."""

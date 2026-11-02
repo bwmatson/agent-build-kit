@@ -288,6 +288,14 @@ puts its thread right; with the login already renewed nothing is done, and a per
 If the units stay paused after a login, the probe failed: read the round's line, and sign in
 again.
 
+### A merged pull request the unit never recorded
+
+Each tick runs a reconcile pass: a `running`, `in_review`, `failed` or `held` unit whose pull
+request the poller's cache shows merged (or closed) is recorded as the poller would record it. To
+run it now, `abk reconcile [UNIT]` (`--dry-run` writes nothing). If a unit sits `in_review` on a
+pull request the forge shows merged, `abk reconcile --accept <unit>` records the merge; it refuses
+when the forge shows the pull request open or closed unmerged, or the unit is `settling`.
+
 ### `failed`
 
 The run raised an exception, or its checks failed; its last log line in the
