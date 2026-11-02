@@ -21,6 +21,7 @@ from agent_build_kit.pipeline.snapshots import Pauses, Request
 from agent_build_kit.pipeline.usage_guard import UsageReading
 from tests import fake_clock
 from tests.fake_clock import FakeClock
+from tests.usage_host import usage_reading
 
 MINUTE = timedelta(minutes=1)
 
@@ -36,16 +37,7 @@ def state_dir(tmp_path: Path) -> Path:
 
 
 def reading(session: int = 20) -> UsageReading:
-    return UsageReading(
-        session_pct=session,
-        weekly_pct=10,
-        resets_at=fake_clock.START + timedelta(hours=3),
-        observed_at=fake_clock.START,
-        source="live",
-        credits_enabled=False,
-        credits_used_dollars=0.0,
-        spend_limit_reached=False,
-    )
+    return usage_reading(session, taken=fake_clock.START)
 
 
 def record_pull(state_dir: Path, repo: str, pull: PullRequest) -> None:

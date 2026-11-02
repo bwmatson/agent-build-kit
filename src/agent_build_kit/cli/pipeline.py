@@ -4676,7 +4676,12 @@ def serve_snapshots(inst: Installation) -> None:
             # An account the installation no longer names: its entry is left as it is.
             return None
         with on_account(accounts[key]):
-            return refreshed_usage()
+            found = refreshed_usage()
+        if found is not None:
+            # Dated as the reading is: while the guard's interval forbids a call this is the
+            # reading held, and it must not show as new. Kept here, so the round has none to keep.
+            snapshots.record(state_dir, snapshots.USAGE, key, found, taken=found.observed_at)
+        return None
 
     def pauses(key: str | None) -> snapshots.Pauses:
         return snapshots.Pauses(

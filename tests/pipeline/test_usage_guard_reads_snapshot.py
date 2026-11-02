@@ -15,9 +15,16 @@ import pytest
 
 from agent_build_kit.pipeline import snapshots
 from agent_build_kit.pipeline.snapshots import Request
-from agent_build_kit.pipeline.usage_guard import Decision, UsageReading, decide_start, starting
+from agent_build_kit.pipeline.usage_guard import (
+    Decision,
+    UsageReading,
+    decide_start,
+    rate_limit_note,
+    snapshot_reading,
+    starting,
+)
 from tests import fake_clock
-from tests.usage_host import Host, configure, pause_at
+from tests.usage_host import Host, configure, pause_at, refused, usage_reading
 
 HOUR = timedelta(hours=1)
 LIMIT = 10 * timedelta(minutes=1)
@@ -29,16 +36,7 @@ def ninety_two(host: Host) -> None:
 
 
 def reading(session: int, *, taken: datetime, source: str) -> UsageReading:
-    return UsageReading(
-        session_pct=session,
-        weekly_pct=10,
-        resets_at=taken + timedelta(hours=3),
-        observed_at=taken,
-        source=source,
-        credits_enabled=False,
-        credits_used_dollars=0.0,
-        spend_limit_reached=False,
-    )
+    return usage_reading(session, taken=taken, source=source)
 
 
 def collect(state_dir: Path, value: UsageReading) -> None:
@@ -117,6 +115,31 @@ def test_a_snapshot_inside_its_limit_whose_window_has_reset_is_not_refused_on_it
     assert "95%" not in decision.reason
     assert host.asked == 0
     assert snapshots.requested(state_of(host)) == [Request(kind="usage", key=None)]
+
+
+def test_a_reading_stored_with_a_rate_limit_note_carries_only_the_note_in_force(
+    host: Host, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    clock = fake_clock.install(monkeypatch, datetime.now(UTC))
+    stored = "cache (rate limited until 14:05)"
+    collect(state_of(host), usage_reading(95, taken=clock.now(), source=stored))
+    host.keep_reading(timedelta(minutes=1))
+    refused(host, cooling=timedelta(minutes=10))
+    note = rate_limit_note()
+    assert note
+
+    cooling = snapshot_reading()
+
+    assert cooling is not None
+    assert cooling.source == f"cache ({note})"
+
+    host.keep_reading(timedelta(minutes=1))
+    assert rate_limit_note() is None
+
+    ended = snapshot_reading()
+
+    assert ended is not None
+    assert ended.source == "cache"
 
 
 def test_no_snapshot_asks_for_a_refresh_and_is_judged_as_an_unknown_reading(

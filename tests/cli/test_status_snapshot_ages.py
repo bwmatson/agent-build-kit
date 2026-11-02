@@ -11,27 +11,14 @@ import pytest
 from agent_build_kit.forges import PullRequest
 from agent_build_kit.pipeline import snapshots
 from agent_build_kit.pipeline.pr_poller import PrState, snapshot, state_path
-from agent_build_kit.pipeline.usage_guard import UsageReading
 from tests import fake_clock
 from tests.conftest import make_installation, run_status
+from tests.usage_host import usage_reading
 
 
 def snapshot_line(lines: list[str]) -> str:
     (line,) = [line for line in lines if "snapshots:" in line]
     return line
-
-
-def reading() -> UsageReading:
-    return UsageReading(
-        session_pct=20,
-        weekly_pct=10,
-        resets_at=None,
-        observed_at=fake_clock.START,
-        source="live",
-        credits_enabled=False,
-        credits_used_dollars=0.0,
-        spend_limit_reached=False,
-    )
 
 
 def test_a_kind_nobody_collected_says_so(
@@ -75,7 +62,10 @@ def test_each_kind_held_shows_its_age(
     snapshots.request_refresh(inst.state_dir, snapshots.PAUSES)
     snapshots.run_round(
         inst.state_dir,
-        {snapshots.USAGE: lambda key: reading(), snapshots.PAUSES: lambda key: snapshots.Pauses()},
+        {
+            snapshots.USAGE: lambda key: usage_reading(taken=fake_clock.START, resets_in=None),
+            snapshots.PAUSES: lambda key: snapshots.Pauses(),
+        },
         {},
     )
     clock.advance(timedelta(minutes=3).total_seconds())

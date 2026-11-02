@@ -11,7 +11,7 @@ and its lock are what the askers contend for.
 import multiprocessing
 import threading
 from collections.abc import Iterator
-from datetime import UTC, datetime, timedelta
+from datetime import timedelta
 from pathlib import Path
 
 import pytest
@@ -20,7 +20,6 @@ from agent_build_kit import telemetry
 from agent_build_kit.pipeline import snapshots
 from agent_build_kit.pipeline.file_lock import try_file_lock
 from agent_build_kit.pipeline.usage_guard import (
-    UsageReading,
     current_usage,
     held_usage,
     read_live_usage,
@@ -28,7 +27,7 @@ from agent_build_kit.pipeline.usage_guard import (
 from agent_build_kit.pipeline.wiring import build_usage_gate
 from tests.otlp import Collector, enabled
 from tests.usage_asker import asking_in_a_process, slow_urlopen
-from tests.usage_host import Host, configure, pause_at, payload
+from tests.usage_host import Host, configure, pause_at, payload, usage_reading
 
 # Long enough for every asker to arrive while the one that refreshes is still calling.
 CALL_SECONDS = 0.4
@@ -175,18 +174,7 @@ def test_a_start_allowed_under_the_threshold_is_followed_by_a_refusal_once_over(
 
     host.keep_reading(timedelta(minutes=20), payload(session=66.0))
     # The round's read of the endpoint is what the gate sees: a step never calls it.
-    taken = datetime.now(UTC)
-    reading = UsageReading(
-        session_pct=95,
-        weekly_pct=6,
-        resets_at=taken + timedelta(hours=2),
-        weekly_resets_at=taken + timedelta(days=3),
-        observed_at=taken,
-        source="live",
-        credits_enabled=False,
-        credits_used_dollars=0.0,
-        spend_limit_reached=False,
-    )
+    reading = usage_reading(95, weekly=6, resets_in=timedelta(hours=2))
     snapshots.record(host.cache.parent, snapshots.USAGE, None, reading)
     may_start, _ = build_usage_gate()
     next_start, why = may_start()

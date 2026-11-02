@@ -1890,7 +1890,9 @@ def snapshot_reading(account: claude_account.Account | None = None) -> UsageRead
         key = claude_account.account_key(account_in_force())
         held = snapshots.usage(state_dir, key)
         reading = held.value
-        if reading is not None and reading.is_live:
+        if reading is not None:
+            # Whatever it was labelled when stored (live, or a cache with the rate-limit note of
+            # that day), it is a kept reading now: only `_noted` adds the note in force.
             reading = reading.model_copy(update={"source": "cache"})
         old = held.age is None or held.age > timedelta(minutes=claude_limits().usage_cache_minutes)
         if old or (reading is not None and _past_reset(reading, datetime.now(UTC))):

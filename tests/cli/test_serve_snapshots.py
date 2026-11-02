@@ -21,10 +21,9 @@ from agent_build_kit.cli import pipeline as cli
 from agent_build_kit.installation import Installation
 from agent_build_kit.pipeline import snapshots
 from agent_build_kit.pipeline.pause import pause_marker, pause_until
-from agent_build_kit.pipeline.usage_guard import UsageReading
 from agent_build_kit.settings import settings
 from tests.conftest import make_installation
-from tests.usage_host import Host, payload
+from tests.usage_host import Host, called, payload, usage_reading
 
 
 @pytest.fixture
@@ -61,19 +60,6 @@ def test_the_first_round_with_nothing_requested_starts_the_snapshot_from_the_hel
     assert held is not None and held.session_pct == 12
 
 
-def reading(session: int = 12) -> UsageReading:
-    return UsageReading(
-        session_pct=session,
-        weekly_pct=5,
-        resets_at=datetime.now(UTC) + timedelta(hours=2),
-        observed_at=datetime.now(UTC),
-        source="live",
-        credits_enabled=False,
-        credits_used_dollars=0.0,
-        spend_limit_reached=False,
-    )
-
-
 def ago(**span: float) -> datetime:
     return datetime.now(UTC) - timedelta(**span)
 
@@ -81,7 +67,7 @@ def ago(**span: float) -> datetime:
 def test_a_usage_snapshot_inside_its_limit_asks_the_endpoint_for_nothing(
     inst: Installation, host: Host
 ) -> None:
-    snapshots.record(inst.state_dir, snapshots.USAGE, None, reading(), taken=ago(minutes=1))
+    snapshots.record(inst.state_dir, snapshots.USAGE, None, usage_reading(12), taken=ago(minutes=1))
 
     cli.serve_snapshots(inst)
 
@@ -92,13 +78,29 @@ def test_an_idle_round_reads_a_usage_snapshot_over_its_limit_once_without_a_requ
     inst: Installation, host: Host
 ) -> None:
     host.answers = [payload(session=44.0)]
-    snapshots.record(inst.state_dir, snapshots.USAGE, None, reading(), taken=ago(hours=1))
+    snapshots.record(inst.state_dir, snapshots.USAGE, None, usage_reading(12), taken=ago(hours=1))
 
     cli.serve_snapshots(inst)
 
     assert host.asked == 1
     held = snapshots.usage(inst.state_dir, None).value
     assert held is not None and held.session_pct == 44
+
+
+def test_a_held_reading_handed_back_while_the_interval_forbids_a_call_keeps_its_age(
+    inst: Installation, host: Host
+) -> None:
+    host.keep_reading(timedelta(minutes=40), payload(session=12.0))
+    called(host, timedelta(minutes=1))
+    snapshots.record(inst.state_dir, snapshots.USAGE, None, usage_reading(12))
+    snapshots.request_refresh(inst.state_dir, snapshots.USAGE, None)
+
+    cli.serve_snapshots(inst)
+
+    assert host.asked == 0
+    held = snapshots.usage(inst.state_dir, None)
+    assert held.age is not None and held.age > timedelta(minutes=30)
+    assert snapshots.requested(inst.state_dir) == []
 
 
 def test_a_request_for_an_account_the_installation_no_longer_names_is_cleared_unread(
@@ -133,7 +135,7 @@ def test_on_a_runtime_without_a_usage_window_no_usage_is_held_or_read(
         cli.runtimes, "active", lambda: SimpleNamespace(supports_usage_tracking=False)
     )
     host.keep_reading(timedelta(minutes=2), payload(session=12.0))
-    snapshots.record(inst.state_dir, snapshots.USAGE, None, reading(), taken=ago(hours=1))
+    snapshots.record(inst.state_dir, snapshots.USAGE, None, usage_reading(12), taken=ago(hours=1))
 
     cli.serve_snapshots(inst)
 
