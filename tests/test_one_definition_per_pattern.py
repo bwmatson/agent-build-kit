@@ -42,6 +42,7 @@ def compiled(tree: ast.Module) -> list[tuple[int, str]]:
 
 
 @pytest.mark.time_limit(LOADED_TEST_TIME_LIMIT)
+@pytest.mark.integration
 def test_no_pattern_is_compiled_at_module_level_in_two_modules() -> None:
     sites: dict[str, list[str]] = defaultdict(list)
     for path in sorted(SOURCE_ROOT.rglob("*.py")):

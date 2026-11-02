@@ -60,6 +60,7 @@ def test_the_runtimes_document_names_each_selector_kind_of_the_profile(kind: str
     assert re.search(rf"selector kinds?[^.]*`{kind}`", text, re.I)
 
 
+@pytest.mark.integration
 def test_no_document_names_the_old_runtime_lists_once_the_splits_are_documented() -> None:
     assert "`e2e_splits`" in squashed(DOCS / "configuration.md")
     paths = [*DOCS.glob("*.md"), ROOT / "README.md", *SKILLS.glob("*/SKILL.md")]

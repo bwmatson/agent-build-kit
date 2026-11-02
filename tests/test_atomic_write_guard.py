@@ -46,6 +46,7 @@ def replacements(tree: ast.AST) -> list[int]:
 
 
 @pytest.mark.time_limit(LOADED_TEST_TIME_LIMIT)
+@pytest.mark.integration
 def test_no_module_but_the_shared_one_replaces_a_file_from_a_temporary() -> None:
     problems = []
     for path in sorted(SOURCE_ROOT.rglob("*.py")):

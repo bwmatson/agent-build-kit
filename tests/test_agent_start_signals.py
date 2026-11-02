@@ -170,6 +170,7 @@ def agent_calling_helpers() -> dict[str, Path]:
 
 
 @pytest.mark.time_limit(LOADED_TEST_TIME_LIMIT)
+@pytest.mark.integration
 def test_every_helper_module_that_starts_an_agent_is_in_the_table_or_excused_with_a_reason() -> (
     None
 ):

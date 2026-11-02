@@ -151,5 +151,6 @@ def test_the_allowlist_is_empty() -> None:
 
 
 @pytest.mark.time_limit(LOADED_TEST_TIME_LIMIT)
+@pytest.mark.integration
 def test_every_agent_call_in_the_source_records_or_is_on_the_allowlist() -> None:
     assert check_sources(SRC_ROOT, allowlist=ALLOWLIST) == []

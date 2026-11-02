@@ -72,6 +72,7 @@ def offences(path: Path) -> list[str]:
 
 
 @pytest.mark.time_limit(LOADED_TEST_TIME_LIMIT)
+@pytest.mark.integration
 def test_no_live_test_defines_a_tick_result_runs_a_tick_or_reads_a_branch_with_bare_git() -> None:
     found = [offence for path in live_files() for offence in offences(path)]
 
@@ -101,6 +102,7 @@ def test_each_of_the_three_files_registers_its_scratch() -> None:
 
 
 @pytest.mark.time_limit(LOADED_TEST_TIME_LIMIT)
+@pytest.mark.integration
 def test_each_live_test_that_runs_a_tick_ends_it_through_the_guarded_branch_check() -> None:
     bypassing = []
     for path in live_files():

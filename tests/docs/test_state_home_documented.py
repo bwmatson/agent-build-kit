@@ -6,6 +6,8 @@ from __future__ import annotations
 
 import re
 
+import pytest
+
 from tests.doc_text import ROOT, squashed, unreleased_bullets
 
 DOCS = ROOT / "docs"
@@ -22,6 +24,7 @@ def read(*parts: str) -> str:
     return (ROOT.joinpath(*parts)).read_text(encoding="utf-8")
 
 
+@pytest.mark.integration
 def test_no_document_says_the_store_is_committed() -> None:
     paths = [
         *DOCS.glob("*.md"),

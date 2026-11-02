@@ -46,6 +46,7 @@ def test_telemetry_local_is_registered_beside_telemetry_otel() -> None:
 
 
 @pytest.mark.time_limit(EVERY_LIVE_MODULE_TIME_LIMIT)
+@pytest.mark.integration
 def test_no_two_live_tests_of_the_kit_differ_in_name_only_by_a_dimension_value(
     pytester: pytest.Pytester,
 ) -> None:

@@ -1,0 +1,12 @@
+# The unmarked whole-repository scans of the test suite today, one `path::test` per line under tests/.
+# It may only shrink: a scan leaves it when its test carries `@pytest.mark.integration`, and nothing is
+# added (mark the new scan instead). Read by tests/wide_scans.py; checked by
+# tests/test_wide_scans_are_integration.py.
+graph/test_verdict_is_shadow.py::test_no_source_reads_the_verdict_file_outside_the_recording_module_and_status
+pipeline/test_push_path_skips_red_check.py::test_only_the_gate_command_calls_check_branch_so_a_real_test_and_an_empty_feat_can_push
+pipeline/test_work_graph.py::test_every_fixture_change_passes
+profiles/test_python_uv_e2e_durations.py::test_the_flag_is_named_in_the_python_profile_and_nowhere_else
+profiles/test_python_uv_e2e_summary_flags.py::test_the_flags_are_named_in_the_python_profile_and_nowhere_else
+runtimes/test_acp_known_agents.py::test_no_framework_file_outside_the_table_names_a_product_from_it
+test_ci_workflows.py::test_the_shipped_workflows_pass
+test_openspec_cli_users.py::test_every_integration_file_that_runs_the_cli_requests_the_fixture_and_no_other_does

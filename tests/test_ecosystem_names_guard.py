@@ -139,6 +139,7 @@ def test_a_new_token_is_one_line_in_the_token_list(tmp_path: Path) -> None:
 
 
 @pytest.mark.time_limit(LOADED_TEST_TIME_LIMIT)
+@pytest.mark.integration
 def test_the_framework_source_names_no_ecosystem_outside_the_lists() -> None:
     assert check_source(SOURCE_ROOT, allowlist=ALLOWLIST.keys(), own_tooling=OWN_TOOLING) == []
 

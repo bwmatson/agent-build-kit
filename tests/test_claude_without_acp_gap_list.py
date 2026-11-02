@@ -120,6 +120,7 @@ def test_a_list_that_matches_the_document_warns_of_nothing(
 
 
 @pytest.mark.time_limit(EVERY_LIVE_MODULE_TIME_LIMIT)
+@pytest.mark.integration
 def test_the_kits_current_list_matches_the_documents_without_a_warning(
     pytester: pytest.Pytester,
 ) -> None:

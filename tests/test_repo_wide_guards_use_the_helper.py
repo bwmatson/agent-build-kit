@@ -75,6 +75,7 @@ def test_a_call_on_a_temporary_path_passes() -> None:
 
 
 @pytest.mark.time_limit(LOADED_TEST_TIME_LIMIT)
+@pytest.mark.integration
 def test_no_test_module_walks_the_checkout_by_hand() -> None:
     problems = [
         f"{path.relative_to(TESTS.parent)}:{line}"

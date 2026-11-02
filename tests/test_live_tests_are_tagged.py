@@ -66,6 +66,7 @@ def test_a_test_that_starts_no_agent_passes_untagged(pytester: pytest.Pytester) 
     assert drifted(pytester, test_plain=f"{HEADER}\n\ndef test_inits():\n    pass\n") == []
 
 
+@pytest.mark.integration
 def test_the_init_conventions_module_which_starts_no_agent_passes_untagged(
     pytester: pytest.Pytester,
 ) -> None:
@@ -77,6 +78,7 @@ def test_the_init_conventions_module_which_starts_no_agent_passes_untagged(
 
 
 @pytest.mark.time_limit(EVERY_LIVE_MODULE_TIME_LIMIT)
+@pytest.mark.integration
 def test_every_test_of_the_kits_live_modules_that_starts_an_agent_has_exactly_one_tag(
     pytester: pytest.Pytester,
 ) -> None:

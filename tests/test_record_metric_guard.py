@@ -52,6 +52,7 @@ class Callers(ast.NodeVisitor):
 
 
 @pytest.mark.time_limit(LOADED_TEST_TIME_LIMIT)
+@pytest.mark.integration
 def test_no_function_but_the_helper_calls_the_local_record() -> None:
     problems = []
     for path in sorted(SOURCE_ROOT.rglob("*.py")):
