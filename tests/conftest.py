@@ -543,3 +543,17 @@ def account_kind(host: Host, request: pytest.FixtureRequest) -> str:
     `host.use_account` then sets up that kind of account."""
     host.account_kind = request.param
     return request.param
+
+
+def pytest_collection_modifyitems(items: list[pytest.Item]) -> None:
+    """A test built on the tick driver runs whole faked ticks, whose time depends on the
+    machine's load, so it is held to the loaded limit unless it names its own."""
+    from tests import lane_run_usage_support, tick_driver
+
+    drivers = (tick_driver.Setup, tick_driver.make_setup, lane_run_usage_support.make_lane)
+    for item in items:
+        if item.get_closest_marker("time_limit") or item.get_closest_marker("local_stack"):
+            continue
+        module = getattr(item, "module", None)
+        if module is not None and any(v is d for v in vars(module).values() for d in drivers):
+            item.add_marker(pytest.mark.time_limit(tick_driver.TICK_DRIVER_TIME_LIMIT))
