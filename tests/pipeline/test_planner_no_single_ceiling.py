@@ -6,15 +6,19 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+
 import agent_build_kit
 from tests.tier_ceiling_support import configure
 from tests.tier_prompt_support import prompt_for
+from tests.time_limit import LOADED_TEST_TIME_LIMIT
 
 SETTING = "max_unit_lines"
 # The load error that refuses the setting, and the migration that moves its value.
 MAY_NAME_IT = {"config.py", "config_migrate.py"}
 
 
+@pytest.mark.time_limit(LOADED_TEST_TIME_LIMIT)
 def test_only_the_load_error_and_the_migration_name_the_setting() -> None:
     root = Path(agent_build_kit.__file__).parent
     readers = sorted(

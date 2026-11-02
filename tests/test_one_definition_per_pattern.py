@@ -7,6 +7,10 @@ import ast
 from collections import defaultdict
 from pathlib import Path
 
+import pytest
+
+from tests.time_limit import LOADED_TEST_TIME_LIMIT
+
 SOURCE_ROOT = Path(__file__).resolve().parents[1] / "src" / "agent_build_kit"
 
 
@@ -37,6 +41,7 @@ def compiled(tree: ast.Module) -> list[tuple[int, str]]:
     return found
 
 
+@pytest.mark.time_limit(LOADED_TEST_TIME_LIMIT)
 def test_no_pattern_is_compiled_at_module_level_in_two_modules() -> None:
     sites: dict[str, list[str]] = defaultdict(list)
     for path in sorted(SOURCE_ROOT.rglob("*.py")):

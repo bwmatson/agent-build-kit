@@ -23,6 +23,7 @@ from tests.pipeline.test_config_unchanged_when_confined import EDITED, step
 from tests.pipeline.test_wiring_sandbox import Recording, install
 from tests.runtimes.stand_in import StandInRuntime
 from tests.runtimes.test_claude_code_sandbox import no_backend
+from tests.time_limit import LOADED_TEST_TIME_LIMIT
 
 ORIGINAL = "repos: {}\n"
 MAY_HAVE_WRITTEN = "an agent may have written"
@@ -180,6 +181,7 @@ def test_a_step_that_ran_unconfined_under_required_none_warns_and_the_unit_conti
     assert MAY_HAVE_WRITTEN in logged
 
 
+@pytest.mark.time_limit(LOADED_TEST_TIME_LIMIT)
 def test_there_is_no_config_changed_in_the_package() -> None:
     package = Path(agent_build_kit.__file__).parent
     named = [

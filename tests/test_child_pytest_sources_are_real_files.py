@@ -5,7 +5,10 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+
 from tests.child_sources import ALLOWED, check_tests, source_hits
+from tests.time_limit import LOADED_TEST_TIME_LIMIT
 from tests.tracked_files import ROOT, guarded_files
 
 STRING_RUN = '''\
@@ -103,6 +106,7 @@ def test_a_module_under_child_modules_with_a_test_string_is_exempt(tmp_path: Pat
     assert check_tests([module], allowed={}, root=tmp_path) == []
 
 
+@pytest.mark.time_limit(LOADED_TEST_TIME_LIMIT)
 def test_the_repository_has_no_unlisted_or_stale_module() -> None:
     files = guarded_files(ROOT, under=["tests"], suffixes={".py"})
 

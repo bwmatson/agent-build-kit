@@ -9,6 +9,9 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+
+from tests.time_limit import LOADED_TEST_TIME_LIMIT
 from tests.timing_hazards import ALLOWLIST, SHARED_HELPERS, TESTS_ROOT, check_tests
 
 NONE: frozenset[str] = frozenset()
@@ -145,6 +148,7 @@ def test_an_allowlisted_file_that_no_longer_exists_must_leave_the_allowlist(
     assert "gone.py" in problems[0]
 
 
+@pytest.mark.time_limit(LOADED_TEST_TIME_LIMIT)
 def test_the_suite_has_no_hazard_outside_the_allowlist() -> None:
     assert check_tests(TESTS_ROOT, allowlist=ALLOWLIST, shared=SHARED_HELPERS) == []
 

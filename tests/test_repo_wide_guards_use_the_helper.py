@@ -8,7 +8,10 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+
 from tests.hand_walks import hand_walks
+from tests.time_limit import LOADED_TEST_TIME_LIMIT
 
 TESTS = Path(__file__).resolve().parent
 # Modules that walk only `src/` or `tests/`, or only name the calls, each with its reason.
@@ -71,6 +74,7 @@ def test_a_call_on_a_temporary_path_passes() -> None:
     assert hand_walks(source) == []
 
 
+@pytest.mark.time_limit(LOADED_TEST_TIME_LIMIT)
 def test_no_test_module_walks_the_checkout_by_hand() -> None:
     problems = [
         f"{path.relative_to(TESTS.parent)}:{line}"

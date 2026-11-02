@@ -1,8 +1,11 @@
 from pathlib import Path
 
+import pytest
+
 from agent_build_kit.path_discovery import checkout_root, nearest_existing
 from agent_build_kit.pipeline.shell import git
 from tests.factories import init_repo
+from tests.time_limit import LOADED_TEST_TIME_LIMIT
 from tests.tracked_files import ROOT, guarded_files
 
 MODULE = ROOT / "src" / "agent_build_kit" / "path_discovery.py"
@@ -42,6 +45,7 @@ def test_folder_in_no_repository_is_none(tmp_path: Path):
     assert checkout_root(outside) is None
 
 
+@pytest.mark.time_limit(LOADED_TEST_TIME_LIMIT)
 def test_only_the_module_asks_git_for_the_root():
     holders = [
         path

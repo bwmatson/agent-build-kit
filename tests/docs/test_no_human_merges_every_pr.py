@@ -2,11 +2,14 @@
 
 from pathlib import Path
 
+import pytest
+
 from agent_build_kit.pipeline.command_policy import check_command
 from agent_build_kit.pipeline.pr_body import build_pr_body
 from tests.factories import stored_unit as unit
 from tests.old_merge_rule import statements
 from tests.repo_docs import repo_markdown
+from tests.time_limit import LOADED_TEST_TIME_LIMIT
 
 ROOT = Path(__file__).resolve().parents[2]
 SKILLS = ROOT / "src" / "agent_build_kit" / "skills"
@@ -19,6 +22,7 @@ EXEMPT = {
 }
 
 
+@pytest.mark.time_limit(LOADED_TEST_TIME_LIMIT)
 def test_no_markdown_file_states_a_person_merges_every_pull_request() -> None:
     files = repo_markdown([SKILLS, *EXEMPT])
     assert ROOT / "README.md" in files

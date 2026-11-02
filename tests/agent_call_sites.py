@@ -45,11 +45,13 @@ def _name(node: ast.expr) -> str:
 
 def _nodes(scope: ast.AST) -> Iterator[ast.AST]:
     """The nodes in `scope`, not those of a function defined inside it."""
-    for child in ast.iter_child_nodes(scope):
-        if isinstance(child, ast.FunctionDef | ast.AsyncFunctionDef):
+    stack = list(reversed(list(ast.iter_child_nodes(scope))))
+    while stack:
+        node = stack.pop()
+        if isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef):
             continue
-        yield child
-        yield from _nodes(child)
+        yield node
+        stack.extend(reversed(list(ast.iter_child_nodes(node))))
 
 
 def _calls(scope: ast.AST) -> Iterator[ast.Call]:

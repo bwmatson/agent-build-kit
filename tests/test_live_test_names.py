@@ -10,6 +10,7 @@ from pathlib import Path
 
 import pytest
 
+from tests.time_limit import LOADED_TEST_TIME_LIMIT
 from tests.tracked_files import ROOT, guarded_files
 
 INTEGRATION = ROOT / "tests" / "integration"
@@ -34,6 +35,7 @@ def test_a_new_module_name_exists(stem: str) -> None:
     assert (INTEGRATION / f"{stem}.py").is_file()
 
 
+@pytest.mark.time_limit(LOADED_TEST_TIME_LIMIT)
 def test_no_tracked_file_names_an_old_module() -> None:
     found: list[str] = []
     for path in tracked_files():
