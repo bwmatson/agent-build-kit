@@ -115,6 +115,31 @@ def test_a_failure_while_claiming_releases_the_claims_made_and_waits(tmp_path: P
     assert world.tracker.get(item(world, "1")).assignees == ()
 
 
+def test_a_release_that_fails_is_recorded_and_does_not_hide_the_lost_claim(
+    tmp_path: Path,
+) -> None:
+    world, unit = board(tmp_path, ["change", "group"], (1, 2))
+    taken_when_claimed(world, "2")
+    lose = world.tracker.fail
+
+    def fail(call: Call) -> Exception | None:
+        if call.name == "set_assignee":
+            return HostUnavailable("set_assignee", "the board is down", 3)
+        return lose(call)
+
+    world.tracker.fail = fail
+
+    decision = start_decision(unit, changes_dir=world.changes_dir)
+
+    assert decision.outcome == "skip"
+    assert "claim lost" in decision.reason
+    assert [(a.item, a.outcome) for a in decision.attempts] == [
+        (item(world, "1"), "held"),
+        (item(world, "2"), "lost"),
+        (item(world, "1"), "release failed"),
+    ]
+
+
 def test_the_release_leaves_an_item_a_person_took_after_the_claim(tmp_path: Path) -> None:
     world, unit = board(tmp_path, ["change", "group"], (1, 2))
     first, second = item(world, "1"), item(world, "2")

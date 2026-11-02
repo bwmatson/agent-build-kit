@@ -5,7 +5,7 @@ from __future__ import annotations
 import re
 from collections.abc import Callable, Collection, Sequence
 from pathlib import Path
-from typing import Literal, NamedTuple
+from typing import Literal
 
 from agent_build_kit import config, forges, trackers
 from agent_build_kit.config import active_checkout
@@ -25,7 +25,7 @@ class ClaimAttempt(Frozen):
     """One claim the decision made on an item and how it ended, for the unit's history."""
 
     item: str
-    outcome: Literal["held", "lost", "released"]
+    outcome: Literal["held", "lost", "released", "release failed"]
 
 
 class StartDecision(Frozen):
@@ -60,11 +60,11 @@ class RoundReads:
         return self._foreign[unit_id]
 
 
-class Covered(NamedTuple):
+class Covered(Frozen):
     """The items a unit covers: every one checked for an owner, and those the claim acts on."""
 
-    checked: list[str]
-    claimable: list[str]
+    checked: tuple[str, ...]
+    claimable: tuple[str, ...]
 
 
 def _covered_ids(
@@ -79,7 +79,7 @@ def _covered_ids(
     if levels[-1] == "change":
         if not tracker_file.change:
             return None
-        return Covered([tracker_file.change.id], [tracker_file.change.id])
+        return Covered(checked=(tracker_file.change.id,), claimable=(tracker_file.change.id,))
     checked: list[str] = []
     claimable: list[str] = []
     for group in groups:
@@ -98,7 +98,7 @@ def _covered_ids(
             checked.extend(tasks)
             if "group" not in levels:
                 claimable.extend(tasks)
-    return Covered(checked, claimable)
+    return Covered(checked=tuple(checked), claimable=tuple(claimable))
 
 
 def start_decision(
@@ -233,8 +233,8 @@ def _release(tracker: Tracker, sync: str, made: Sequence[str]) -> list[ClaimAtte
             if tracker.get(item_id).assignees == (sync,):
                 tracker.set_assignee(item_id, "")
                 released.append(ClaimAttempt(item=item_id, outcome="released"))
-        except Exception:  # noqa: BLE001, S112
-            continue
+        except Exception:  # noqa: BLE001
+            released.append(ClaimAttempt(item=item_id, outcome="release failed"))
     return released
 
 

@@ -510,14 +510,26 @@ def _graphql(state: GitHubState, seen: Seen, match: re.Match[str]) -> httpx.Resp
         if mutation in seen.query:
             return _mutate(state, mutation, draft, text)
     if re.search(r"\bpullRequests\s*\(", seen.query):
-        return _listing(state, text)
+        return _listing(state, text, seen.query)
     if re.search(r"\bpullRequest\s*\(", seen.query):
         return _one(state, seen)
     return None
 
 
-def _listing(state: GitHubState, text: str) -> httpx.Response:
-    nodes = state.nodes()
+def _asked_of_a_pull(query: str) -> set[str]:
+    """The fields the listing query selects on a pull request itself: the words between
+    `nodes {` and the first nested selection, which is where `number` begins them."""
+    found = re.search(r"nodes\s*\{\s*number([^{}]*)", query)
+    return {"number", *re.findall(r"\w+", found.group(1))} if found else set()
+
+
+def _listing(state: GitHubState, text: str, query: str) -> httpx.Response:
+    asked = _asked_of_a_pull(query)
+    # A field the query does not select is not in the answer, as on the real service.
+    nodes = [
+        {k: v for k, v in node.items() if k not in ("title", "body") or k in asked}
+        for node in state.nodes()
+    ]
     size = state.page_size
     start = 0
     for index in range(0, len(nodes), size):
