@@ -59,10 +59,10 @@ def test_the_resume_check_says_why_when_it_cannot_resume() -> None:
     (continues,) = [
         node
         for node in ast.walk(test)
-        if isinstance(node, ast.Assert) and '"continue"' in ast.unparse(node.test)
+        if isinstance(node, ast.Assert) and "'continue'" in ast.unparse(node.test)
     ]
 
     message = ast.unparse(continues.msg) if continues.msg else ""
 
-    assert 'opened["reason"]' in message
-    assert 'opened["actions"]' in message
+    assert "opened['reason']" in message
+    assert "opened['actions']" in message
