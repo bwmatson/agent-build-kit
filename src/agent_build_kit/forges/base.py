@@ -168,6 +168,9 @@ class PullRequest(Frozen):
     head: str
     base: str
     state: str
+    # The title and description the author wrote; the start check reads them for an item reference.
+    title: str = ""
+    body: str = ""
     draft: bool = False
     labels: tuple[str, ...] = ()
     # Every comment and review id, opaque: the poller only ever diffs them.

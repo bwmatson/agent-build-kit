@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from pathlib import Path
 from typing import Literal
 
 from agent_build_kit import config, trackers
+from agent_build_kit.forges.base import Forge, RepoId
 from agent_build_kit.model import Frozen
 from agent_build_kit.pipeline.tracker_file import TrackerFile, mapping_target, read_for_target
 from agent_build_kit.pipeline.units import Unit, in_progress
@@ -54,7 +55,14 @@ def _covered_ids(
     return ids
 
 
-def start_decision(unit: Unit, *, changes_dir: Path, claim: bool = True) -> StartDecision:
+def start_decision(
+    unit: Unit,
+    *,
+    changes_dir: Path,
+    claim: bool = True,
+    for_repo: Callable[[str], tuple[Forge, RepoId]] | None = None,
+    remote_head_of: Callable[[Path, str], str | None] | None = None,
+) -> StartDecision:
     """The decision for `unit` against the tracker of its repo, whose tracker files are under
     `changes_dir`; a repo with no tracker section starts it and makes no call. A failure to read
     the section, the tracker file or the board is a wait naming it, never a raise: the unit is
