@@ -975,6 +975,8 @@ def _view(pull: PullRequestDoc) -> PullRequest:
     """
     return PullRequest(
         number=pull.pull_request_id,
+        title=pull.title or "",
+        body=pull.description or "",
         head=_branch(pull.source_ref_name),
         base=_branch(pull.target_ref_name),
         state=(

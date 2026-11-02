@@ -52,6 +52,8 @@ class MergeDoc(_Doc):
 class PullRequestDoc(_Doc):
     pull_request_id: int
     status: str
+    title: str | None = None
+    description: str | None = None
     merge_status: str | None = None
     last_merge_commit: CommitDoc | None = None
     is_draft: bool = False

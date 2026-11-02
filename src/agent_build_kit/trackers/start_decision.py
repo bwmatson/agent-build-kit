@@ -6,11 +6,13 @@ from collections.abc import Callable, Sequence
 from pathlib import Path
 from typing import Literal
 
-from agent_build_kit import config, trackers
+from agent_build_kit import config, forges, trackers
+from agent_build_kit.config import active_checkout
 from agent_build_kit.forges.base import Forge, RepoId
 from agent_build_kit.model import Frozen
+from agent_build_kit.pipeline.restack import remote_head
 from agent_build_kit.pipeline.tracker_file import TrackerFile, mapping_target, read_for_target
-from agent_build_kit.pipeline.units import Unit, in_progress
+from agent_build_kit.pipeline.units import Unit, branch_name, in_progress
 from agent_build_kit.trackers.base import Tracker
 from agent_build_kit.trackers.config import section_for
 from agent_build_kit.trackers.levels import group_key, task_group_key
@@ -71,12 +73,20 @@ def start_decision(
     if unit.repo not in config.active().repos:
         return StartDecision(outcome="start")  # a repo the configuration lacks has no tracker
     try:
-        return _decide(unit, changes_dir, claim)
+        return _decide(
+            unit, changes_dir, claim, for_repo or forges.for_repo, remote_head_of or remote_head
+        )
     except Exception as error:  # noqa: BLE001
         return StartDecision(outcome="wait", reason=f"tracker unavailable: {error}")
 
 
-def _decide(unit: Unit, changes_dir: Path, claim: bool) -> StartDecision:
+def _decide(
+    unit: Unit,
+    changes_dir: Path,
+    claim: bool,
+    for_repo: Callable[[str], tuple[Forge, RepoId]],
+    remote_head_of: Callable[[Path, str], str | None],
+) -> StartDecision:
     section = section_for(unit.repo)
     if section is None:
         return StartDecision(outcome="start")
@@ -102,9 +112,44 @@ def _decide(unit: Unit, changes_dir: Path, claim: bool) -> StartDecision:
         return StartDecision(
             outcome="skip", reason=f"assigned to {', '.join(people)}", items=tuple(taken)
         )
+    if not (getattr(unit, "branch", "") or getattr(unit, "pr", None) is not None):
+        foreign = _foreign_start(unit, wanted, section.link_line, for_repo, remote_head_of)
+        if foreign:
+            return StartDecision(outcome="skip", reason=foreign, items=tuple(wanted))
     if not claim:
         return StartDecision(outcome="start", items=tuple(wanted))
     return _claim_all(tracker, sync, wanted)
+
+
+def _foreign_start(
+    unit: Unit,
+    wanted: Sequence[str],
+    link_line: Callable[[str], str],
+    for_repo: Callable[[str], tuple[Forge, RepoId]],
+    remote_head_of: Callable[[Path, str], str | None],
+) -> str:
+    """Why the unit was already started elsewhere, by the branch's name or by a pull request that
+    carries a covered item's reference; empty when nothing was. A remote that cannot be asked
+    raises, so the unit waits."""
+    branch = branch_name(unit)
+    forge, repo = for_repo(unit.repo)
+    head = remote_head_of(active_checkout(config.active().repos[unit.repo].path), branch)
+    if head is None:
+        raise RuntimeError(f"the remote could not be asked about {branch}")
+    if head:
+        return f"someone else started it: branch {branch} exists on the remote"
+    if (found := forge.find_pr(repo, head=branch)) is not None:
+        return f"someone else started it: pull request {found} is on branch {branch}"
+    for pull in forge.list_prs(repo):
+        if pull.state == "closed":
+            continue
+        for item_id in wanted:
+            if link_line(item_id) in f"{pull.title}\n{pull.body}":
+                return (
+                    f"someone else started it: pull request {pull.number} "
+                    f"on branch {pull.head} carries item {item_id}"
+                )
+    return ""
 
 
 def _claim_all(tracker: Tracker, sync: str, wanted: Sequence[str]) -> StartDecision:

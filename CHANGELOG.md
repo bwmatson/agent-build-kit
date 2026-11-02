@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- A unit of a repo with a tracker no longer starts when someone else has already started it: a
+  remote branch or pull request with the unit's branch name, or a pull request on any branch
+  whose title or description carries the `AB#` reference of a board item the unit covers,
+  holds it, and the reason says which. A unit with a branch or pull request of its own is not
+  checked.
+
 - The architecture document now has a "Work tracker" section describing the parts of the tracker
   as what they do when called (the wanted board, the reconciler, the manual parent an `Epic:`
   line names) and what a tick runs today: the start gate that reads who owns a unit's board
