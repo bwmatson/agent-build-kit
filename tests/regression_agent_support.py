@@ -99,14 +99,25 @@ Acceptance: none — nothing a consumer sees changes.
 Priority: 1
 
 Done when the test passes.
-
+{header}
 {tasks}"""
 
+# The task of a cause in test code, and the one of a cause in a source file.
+FIX_THE_TEST = "Replace the wall-clock assertion in `tests/test_widget.py` with a counted call."
+FIX_THE_SOURCE = "Read the label when it is rendered in `src/widget.py`."
 
-def group_tasks(*tasks: str) -> str:
-    """The tasks.md of one `[contract]` group whose task lines are `tasks`, numbered from 1.1."""
+
+def group_tasks(*tasks: str, header: str = "") -> str:
+    """The tasks.md of one `[contract]` group whose task lines are `tasks`, numbered from 1.1,
+    with `header` (a line such as `Tests: required — ...`) under its `Done when` sentence."""
     lines = "".join(f"- [ ] 1.{n} {text}\n" for n, text in enumerate(tasks, 1))
-    return GROUP.format(test=TEST, tasks=lines)
+    return GROUP.format(test=TEST, tasks=lines, header=header)
+
+
+def refusal_of(request: AgentRequest) -> str:
+    """What the rewrite prompt of `request` adds to the first one: the reasons the change was
+    refused."""
+    return request.prompt.split("The change you wrote was refused", 1)[1]
 
 
 def proposal_for_test_code(standard: str = "T5") -> str:

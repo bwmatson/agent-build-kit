@@ -29,7 +29,7 @@ _NOT_CHANGES = re.compile(
 _VERIFY = re.compile(r"\bVerify:.*", re.I)
 # A task that asks for tests, not code (`Test: ...`), or that only checks something, adds no
 # implementation. `Run` is not a check: "Run the tracker through a new parent" is code.
-_TEST_TASK = re.compile(r"tests?:", re.I)
+TEST_TASK = re.compile(r"tests?:", re.I)
 CHECK_VERBS = ("Confirm", "Check", "Verify", "Read")
 _CHECK_TASK = re.compile(rf"(?:{'|'.join(CHECK_VERBS)})\b", re.I)
 _SENTENCE_END = re.compile(r"(?<=\.)\s+")
@@ -161,6 +161,15 @@ def _tasks(group: TaskGroup) -> list[tuple[str, list[str]]]:
     return found
 
 
+def tasks_asking_for_tests(group: TaskGroup) -> list[str]:
+    """The `Test:` tasks of `group`, each as its text followed by the lines that go on from it."""
+    return [
+        " ".join([first, *(line.strip() for line in lines[1:])])
+        for first, lines in _tasks(group)
+        if TEST_TASK.match(first)
+    ]
+
+
 def _command_paths(line: str) -> list[str]:
     """The paths among the words of the backticked commands of `line` (`git mv a/b.py c/d.py`),
     which `line_paths` skips because a token with spaces is not a path. A `Verify:` segment and a
@@ -186,7 +195,7 @@ def names_unplaced_work(group: TaskGroup, projects: Sequence[str]) -> bool:
     if group.paths:
         return False
     return any(
-        not (_TEST_TASK.match(first) or _CHECK_TASK.match(first))
+        not (TEST_TASK.match(first) or _CHECK_TASK.match(first))
         and not _names_a_path(lines, projects)
         for first, lines in _tasks(group)
     )

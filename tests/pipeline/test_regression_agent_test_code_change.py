@@ -16,19 +16,20 @@ from agent_build_kit.installation import Installation
 from agent_build_kit.pipeline.flakes import next_fix_name
 from agent_build_kit.pipeline.regression_agent import FixOutcome
 from tests.regression_agent_support import (
+    FIX_THE_SOURCE,
+    FIX_THE_TEST,
     PROPOSAL,
     TEST,
     Attempts,
     group_tasks,
     proposal_for_test_code,
+    refusal_of,
     run,
 )
 
-FIX_THE_TEST = "Replace the wall-clock assertion in `tests/test_widget.py` with a counted call."
 ASK_FOR_A_REPRODUCTION = (
     "Test: add a case to `tests/test_widget.py` that reproduces the race before the fix."
 )
-FIX_THE_SOURCE = "Read the label when it is rendered in `src/widget.py`."
 TEST_BEFORE_THE_FIX = (
     "Test: with a fake clock in `tests/test_widget.py`, the label follows the config."
 )
@@ -36,6 +37,25 @@ TEST_BEFORE_THE_FIX = (
 TEST_CODE = {"tasks": group_tasks(FIX_THE_TEST), "proposal": proposal_for_test_code()}
 ASKING = {**TEST_CODE, "tasks": group_tasks(ASK_FOR_A_REPRODUCTION, FIX_THE_TEST)}
 SOURCE_CODE = {"tasks": group_tasks(TEST_BEFORE_THE_FIX, FIX_THE_SOURCE), "proposal": PROPOSAL}
+
+# A source fix with a `[unit-test]` group holding the `Test:` task, and an `[e2e-test]` group
+# whose task is worded `Test:` too, as the authoring skill words an e2e task.
+WITH_AN_E2E_GROUP = {
+    "tasks": group_tasks(TEST_BEFORE_THE_FIX, FIX_THE_SOURCE)
+    + "\n## 2. [app] [e2e-test] The widget shows the label end to end\n\n"
+    "Needs: group 1\n\nDone when the entry point shows the label.\n\n"
+    "- [ ] 2.1 Test: run the entry point and see the label.\n",
+    "proposal": PROPOSAL,
+}
+
+# A change that judges the test wrong but whose group does not read as `tests_only`: the tasks
+# name no path, or the group says tests are required.
+PATH_FREE = group_tasks("Test: reproduce the race.", "Make the wait bounded.")
+TESTS_REQUIRED = group_tasks(FIX_THE_TEST, header="Tests: required — a reason\n")
+NOT_TESTS_ONLY = {
+    "path-free": {**TEST_CODE, "tasks": PATH_FREE},
+    "tests-required": {**TEST_CODE, "tasks": TESTS_REQUIRED},
+}
 
 
 def tags_of(inst: Installation, name: str, capsys: pytest.CaptureFixture) -> str:
@@ -74,6 +94,18 @@ def test_a_cause_in_a_source_file_keeps_the_test_task_before_the_fix(
     assert "`Test:` task" in agent.runtime.requests[0].prompt
 
 
+def test_an_e2e_group_may_hold_a_test_task_beside_a_source_fix(
+    installation: Installation, tmp_path: Path
+) -> None:
+    name = next_fix_name(installation, TEST)
+    agent = Attempts(installation, name, WITH_AN_E2E_GROUP)
+
+    outcome = run(installation, tmp_path, agent.runtime)
+
+    assert outcome == FixOutcome(change=name)
+    assert len(agent.runtime.requests) == 1
+
+
 def test_a_test_only_fix_that_asks_for_a_reproduction_test_is_rewritten_once(
     installation: Installation, tmp_path: Path
 ) -> None:
@@ -84,7 +116,7 @@ def test_a_test_only_fix_that_asks_for_a_reproduction_test_is_rewritten_once(
 
     assert outcome == FixOutcome(change=name)
     assert len(agent.runtime.requests) == 2
-    assert "Test:" in agent.runtime.requests[1].prompt
+    assert "no `Test:` task" in refusal_of(agent.runtime.requests[1])
 
 
 def test_a_test_only_fix_that_still_asks_for_a_reproduction_test_is_held(
@@ -99,3 +131,31 @@ def test_a_test_only_fix_that_still_asks_for_a_reproduction_test_is_held(
     assert outcome.change == name
     assert outcome.held
     assert "Test:" in outcome.reason
+
+
+@pytest.mark.parametrize("defect", NOT_TESTS_ONLY.values(), ids=NOT_TESTS_ONLY.keys())
+def test_a_test_wrong_judgement_with_a_group_that_is_not_tests_only_is_rewritten_once(
+    installation: Installation, tmp_path: Path, defect: dict[str, str]
+) -> None:
+    name = next_fix_name(installation, TEST)
+    agent = Attempts(installation, name, defect, TEST_CODE)
+
+    outcome = run(installation, tmp_path, agent.runtime)
+
+    assert outcome == FixOutcome(change=name)
+    assert len(agent.runtime.requests) == 2
+    assert "not `tests_only`" in refusal_of(agent.runtime.requests[1])
+
+
+@pytest.mark.parametrize("defect", NOT_TESTS_ONLY.values(), ids=NOT_TESTS_ONLY.keys())
+def test_a_test_wrong_judgement_with_a_group_that_stays_not_tests_only_is_held(
+    installation: Installation, tmp_path: Path, defect: dict[str, str]
+) -> None:
+    name = next_fix_name(installation, TEST)
+    agent = Attempts(installation, name, defect)
+
+    outcome = run(installation, tmp_path, agent.runtime)
+
+    assert len(agent.runtime.requests) == 2
+    assert outcome.held
+    assert "not `tests_only`" in outcome.reason

@@ -13,13 +13,19 @@ import pytest
 from agent_build_kit.installation import Installation
 from agent_build_kit.pipeline.flakes import next_fix_name
 from agent_build_kit.pipeline.regression_agent import FixOutcome
-from tests.regression_agent_support import PROPOSAL, TEST, Attempts, group_tasks, run
-
-FIX = "Read the label when it is rendered in `src/widget.py`."
+from tests.regression_agent_support import (
+    FIX_THE_SOURCE,
+    PROPOSAL,
+    TEST,
+    Attempts,
+    group_tasks,
+    refusal_of,
+    run,
+)
 
 
 def source_fix(test_task: str) -> dict[str, str]:
-    return {"tasks": group_tasks(test_task, FIX), "proposal": PROPOSAL}
+    return {"tasks": group_tasks(test_task, FIX_THE_SOURCE), "proposal": PROPOSAL}
 
 
 DETERMINISTIC = {
@@ -35,11 +41,19 @@ DETERMINISTIC = {
         "Test: in `tests/test_widget.py`, with a stand-in config store that answers late, "
         "the label follows the config."
     ),
+    "on-a-continuation-line": source_fix(
+        "Test: in `tests/test_widget.py`, the label follows the config\n"
+        "  once a fake clock is advanced past the reload."
+    ),
 }
 
 RERUNS = {
     "rerun": source_fix(f"Test: rerun `{TEST}` and see it fail before the fix and pass after."),
     "loop": source_fix(f"Test: run `{TEST}` in a loop of 50 until it fails."),
+    "times": source_fix(f"Test: run `{TEST}` 50 times until it fails."),
+    "on-a-continuation-line": source_fix(
+        "Test: in `tests/test_widget.py`, the label follows the config;\n  rerun it until it fails."
+    ),
 }
 
 
@@ -80,7 +94,7 @@ def test_a_task_that_only_reruns_the_original_test_is_rewritten_once(
 
     assert outcome == FixOutcome(change=name)
     assert len(agent.runtime.requests) == 2
-    assert "deterministic" in agent.runtime.requests[1].prompt
+    assert "deterministic" in refusal_of(agent.runtime.requests[1])
 
 
 def test_a_task_that_still_only_reruns_the_test_is_held_for_a_person(
