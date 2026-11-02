@@ -27,6 +27,7 @@ from tests.graph_driver import fresh, position, tick
 from tests.leftovers_driver import LEFTOVER, Habitat, Hands, step_of
 from tests.runner_fakes import Killed, Recorder, rejecting
 from tests.runtimes.acp_agent import requests, use_agent
+from tests.time_limit import LOADED_TEST_TIME_LIMIT
 
 STRAY = "stray.txt"
 UNIT = unit().id
@@ -598,6 +599,7 @@ def test_a_killed_adapt_leaves_its_name_and_resumes_the_port(tmp_path: Path) -> 
 # --- 1.5 an ACP agent that cannot load the session gets the node's full prompt ----------
 
 
+@pytest.mark.time_limit(LOADED_TEST_TIME_LIMIT)
 def test_an_acp_agent_that_cannot_load_the_session_is_sent_the_full_prompt(
     tmp_path: Path,
 ) -> None:
