@@ -1428,7 +1428,8 @@ def build_unit_test(
                     point=spans.restack_point.get(),
                     moved=True,
                     moved_from=moved_from,
-                    outcome="retested",
+                    # A re-test follows a clean move: a resolved one is reviewed again first.
+                    outcome="clean",
                     retest=retest["kind"],
                     retest_seconds=max(0.0, spans.clock.monotonic() - started),
                     retest_result=result,

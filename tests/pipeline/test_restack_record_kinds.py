@@ -62,7 +62,7 @@ def moved_run(tmp_path: Path, point: str | None) -> None:
     no point)."""
     repo, old_base = moved(tmp_path, own={"a.py": "a = 2\n"}, incoming={"b.py": "b = 2\n"})
     unit_test = build_unit_test(
-        profile=Profile(),
+        profile=Selecting(None),
         run=lambda command, **kwargs: passing(command),
         log=lambda message: None,
         repo=RepoConfig(path=repo),
@@ -81,7 +81,7 @@ def test_a_re_test_run_under_a_point_is_recorded_with_that_point(
     moved_run(tmp_path, "before_pr")
 
     (line,) = restack_lines(workspace)
-    assert (line["outcome"], line["point"]) == ("retested", "before_pr")
+    assert (line["point"], line["outcome"], line["retest"]) == ("before_pr", "clean", "full")
 
 
 def test_a_re_test_run_under_no_point_is_recorded_with_no_point(
@@ -90,7 +90,7 @@ def test_a_re_test_run_under_no_point_is_recorded_with_no_point(
     moved_run(tmp_path, None)
 
     (line,) = restack_lines(workspace)
-    assert (line["outcome"], line["point"]) == ("retested", "")
+    assert (line["point"], line["outcome"]) == ("", "clean")
 
 
 def test_a_test_file_of_a_project_is_counted_by_that_projects_profile(

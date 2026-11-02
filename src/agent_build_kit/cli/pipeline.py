@@ -8439,9 +8439,9 @@ def cmd_restacks(args: argparse.Namespace, inst: Installation) -> int:
         return 0
 
     def line(label: str, group: list[spans.RestackRecord], *, by_kind: bool = False) -> str:
-        # A point's moves are its restack lines; a re-test's own line (`retested`) belongs to the
-        # move it follows, and a kind's moves are the moves those lines stand for.
-        moves = sum(1 for r in group if r.moved and (by_kind or r.outcome != "retested"))
+        # A point's moves are its restack lines, which have no re-test; a re-test's own line
+        # belongs to the move it follows, and a kind's moves are the moves those lines stand for.
+        moves = sum(1 for r in group if r.moved and (by_kind or r.retest == "none"))
         tests = [r for r in group if r.retest != "none"]
         hours = sum(r.retest_seconds for r in tests) / 3600
         return (

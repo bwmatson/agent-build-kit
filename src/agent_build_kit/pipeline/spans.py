@@ -117,8 +117,9 @@ class RestackRecord(Frozen):
     `point` is `prepare`, `before_review` or `before_pr`; `moved_from` is the commit the base
     was at when it moved, empty when it did not; the `changelog`, `documents`, `tests` and
     `code` counts are the files the move brought in, by kind; `outcome` is `clean`,
-    `conflict` or `resolved`, or `retested` for the line of a re-test alone, whose move the
-    restack's own line records; `retest` is `none`, `lite`, `scoped` or `full`, with its
+    `conflict` or `resolved`; a clean move that is re-tested has a second line, written when
+    the re-test ran, with the same point and the `retest` set; `retest` is `none`, `lite`,
+    `scoped` or `full`, with its
     `retest_seconds` and `retest_result` (`passed` or `failed`); `resolution_seconds` is the
     time a resolution took."""
 

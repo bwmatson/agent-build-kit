@@ -8,10 +8,13 @@ import json
 import subprocess
 from pathlib import Path
 
+import pytest
+
 from agent_build_kit.config import RepoConfig
 from agent_build_kit.installation import Installation
 from agent_build_kit.pipeline import spans
 from agent_build_kit.pipeline.wiring import build_unit_test
+from tests.fake_clock import install
 from tests.moved_base_fakes import Profile, moved, passing
 
 
@@ -91,15 +94,20 @@ def test_a_base_that_did_not_move_is_recorded_as_not_moved(workspace: Installati
 
 
 def test_the_moved_base_run_records_the_files_it_was_given_by_kind_and_its_retest(
-    tmp_path: Path, workspace: Installation
+    tmp_path: Path, workspace: Installation, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    clock = install(monkeypatch)
     repo, old_base = moved(
         tmp_path,
         own={"a.py": "a = 2\n"},
         incoming={"b.py": "b = 2\n", "CHANGELOG.md": "# log\n", "docs/x.md": "x\n"},
     )
 
+    ran: list[list[str]] = []
+
     def run(command: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
+        ran.append(command)
+        clock.advance(12.5)
         return passing(command)
 
     passed, _ = build_unit_test(
@@ -111,6 +119,6 @@ def test_the_moved_base_run_records_the_files_it_was_given_by_kind_and_its_retes
     assert line["moved"] is True
     assert line["moved_from"] == old_base
     assert (line["changelog"], line["documents"], line["code"]) == (1, 1, 1)
-    assert line["outcome"] == "retested", "the move itself is the restack's own line"
+    assert line["outcome"] == "clean"
     assert line["retest_result"] == "passed"
-    assert line["retest_seconds"] >= 0
+    assert ran and line["retest_seconds"] == 12.5 * len(ran), "the time every command took"

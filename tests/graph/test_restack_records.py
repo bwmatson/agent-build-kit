@@ -8,10 +8,13 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
+import pytest
+
 from agent_build_kit.config import RepoConfig
 from agent_build_kit.installation import Installation
 from agent_build_kit.pipeline import spans
 from tests.factories import unit
+from tests.fake_clock import install
 from tests.graph.test_build_path import build, fresh, restacked
 from tests.pipeline.test_restack_record import restack_lines
 
@@ -32,6 +35,27 @@ def test_the_restack_at_the_start_of_a_run_that_moves_the_branch_is_recorded_as_
     (first, *_) = [line for line in restack_lines(workspace) if line["point"] == "prepare"]
     assert first["unit"] == unit().id
     assert (first["moved"], first["moved_from"], first["outcome"]) == (True, "oldbase", "clean")
+
+
+def test_a_restack_that_needed_resolution_records_the_time_the_resolution_took(
+    tmp_path: Path, workspace: Installation, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    clock = install(monkeypatch)
+    recorder = fresh(tmp_path)
+    recorder.made = 2
+    calls: list[int] = []
+
+    def restack(**kw: Any) -> Any:
+        calls.append(1)
+        if len(calls) != 1:
+            return None
+        clock.advance(412.5)
+        return restacked(resolved=("a.py",))
+
+    build(tmp_path, recorder, restack_onto=restack)
+
+    (prepare, *_) = [line for line in restack_lines(workspace) if line["point"] == "prepare"]
+    assert (prepare["outcome"], prepare["resolution_seconds"]) == ("resolved", 412.5)
 
 
 def test_a_start_of_run_restack_that_finds_the_base_unmoved_is_recorded_as_not_moved(

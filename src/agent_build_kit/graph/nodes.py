@@ -1185,7 +1185,7 @@ class BuildPath:
                     unit=unit,
                     resolver=self.restack_resolver(state),
                 )
-                self.record_restack("prepare", restacked, spans.clock.monotonic() - restack_started)
+                restack_took = spans.clock.monotonic() - restack_started
             except (AgentRateLimited, AgentInterrupted, NetworkUnavailable, ServiceUnavailable):
                 raise
             except BranchMoved as error:
@@ -1205,6 +1205,7 @@ class BuildPath:
                 why = f"restack onto {base} conflicted: {error}"
                 self.append_feedback(why)
                 return {**FRESH, **remembered, **self.stop(why)}
+            self.record_restack("prepare", restacked, restack_took)
             if restacked is not None:
                 if not restacked.conflict and saved.sent_back_for_conflict:
                     # The move settled the conflict the feedback names: nothing to rework.

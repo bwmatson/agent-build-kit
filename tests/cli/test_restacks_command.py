@@ -31,7 +31,7 @@ def restack(
     point: str, at: str, retest: str = "none", seconds: float = 0.0
 ) -> tuple[RestackRecord, ...]:
     """The lines the pipeline writes for a clean move: the restack's own line, with no re-test,
-    and when it was re-tested the re-test's line (outcome `retested`) with the point and kind."""
+    and when it was re-tested the re-test's line (also `clean`) with the point and kind."""
     move = RestackRecord(at=at, unit="feature/1", point=point, moved=True)
     if retest == "none":
         return (move,)
@@ -39,7 +39,6 @@ def restack(
         move,
         move.model_copy(
             update={
-                "outcome": "retested",
                 "retest": retest,
                 "retest_seconds": seconds,
                 "retest_result": "passed",
