@@ -1,11 +1,21 @@
-"""The helper that yields the tracked files a repo-wide guard reads (spec: repo-wide-guards)."""
+"""The helper that yields the tracked files a repo-wide guard reads (spec: repo-wide-guards).
+
+It also pins what the helper does when git fails to list the files or a tracked file is gone from
+the disk: a failed listing never widens the set to files git does not track, and a vanished file
+is not listed. Both are made without waiting on load, by a fake git and by deleting the file.
+"""
 
 from __future__ import annotations
 
+import subprocess
 from pathlib import Path
 
+import pytest
+
+from tests import tracked_files
 from tests.factories import commit_files, init_repo
-from tests.tracked_files import guarded_files, planning_dirs
+from tests.installation_leaks import foreign_slug_owners, hits
+from tests.tracked_files import guarded_files, planning_dirs, tracked
 
 TREE = {
     "docs/a.md": "a\n",
@@ -123,3 +133,68 @@ def test_outside_a_git_repository_the_tree_is_walked(tmp_path: Path) -> None:
     root = build(tmp_path, {"docs/loose.md": "l\n"})
 
     assert relative(root, guarded_files(root, suffixes=[".md"])) == ["docs/loose.md"]
+
+
+LEAKY = "see https://github.com/" + "someone-real/repo\n"
+
+
+def _refuse_git(monkeypatch: pytest.MonkeyPatch, *, listings: int) -> None:
+    """Make the first `listings` calls of `ls-files` fail, and every `rev-parse`, as a loaded
+    machine can."""
+    real = tracked_files.git
+    refused = 0
+
+    def git(repo: Path, *args: str, **kwargs):
+        nonlocal refused
+        listing = args[:1] == ("ls-files",)
+        if args[:1] == ("rev-parse",) or (listing and refused < listings):
+            refused += listing
+            return subprocess.CompletedProcess(["git", *args], 128, stdout="", stderr="busy")
+        return real(repo, *args, **kwargs)
+
+    monkeypatch.setattr(tracked_files, "git", git)
+
+
+def _repo_with_an_untracked_leak(root: Path) -> Path:
+    init_repo(root)
+    commit_files(root, "init", {"src/clean.py": "x = 1\n"})
+    (root / "src" / "untracked.py").write_text(LEAKY)
+    return root
+
+
+def test_a_failed_listing_inside_a_repository_is_tried_again_and_adds_no_untracked_file(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    root = _repo_with_an_untracked_leak(tmp_path)
+    _refuse_git(monkeypatch, listings=1)
+
+    assert tracked(root) == [Path("src/clean.py")]
+
+
+def test_a_listing_that_keeps_failing_inside_a_repository_raises_and_does_not_walk_the_tree(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    root = _repo_with_an_untracked_leak(tmp_path)
+    _refuse_git(monkeypatch, listings=1000)
+
+    with pytest.raises(subprocess.CalledProcessError):
+        tracked(root)
+
+
+def test_the_slug_scan_gives_the_same_result_when_the_first_listing_fails(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    root = _repo_with_an_untracked_leak(tmp_path)
+    _refuse_git(monkeypatch, listings=1)
+
+    assert hits(root, foreign_slug_owners) == []
+
+
+def test_a_tracked_file_missing_from_the_disk_is_not_listed(tmp_path: Path) -> None:
+    root = init_repo(tmp_path)
+    commit_files(root, "tracked", {"src/kept.py": "x = 1\n", "src/gone.py": "y = 2\n"})
+    (root / "src" / "gone.py").unlink()
+
+    found = [p.relative_to(root).as_posix() for p in guarded_files(root, under=["src"])]
+
+    assert found == ["src/kept.py"]
