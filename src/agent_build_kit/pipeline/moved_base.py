@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from collections.abc import Callable, Sequence
 from pathlib import Path
 
@@ -9,6 +10,13 @@ from agent_build_kit.config import RestackCheck
 from agent_build_kit.model import Frozen
 from agent_build_kit.pipeline.shell import git
 from agent_build_kit.profiles.base import is_doc_path
+
+logger = logging.getLogger(__name__)
+
+LITE_REASON = (
+    "every shared file is a changelog or documentation file: the changelog check and the "
+    "documentation tests stand in for the full suite"
+)
 
 
 class MoveScope(Frozen):
@@ -76,13 +84,17 @@ def brought_in(tree: Path, moved_from: str, base: str) -> tuple[str, ...]:
 def scope_of(own: Sequence[str], incoming: Sequence[str], setting: RestackCheck) -> MoveScope:
     """The rule over the files the unit changes and the files the move brought in.
 
-    Scoped unless the setting says full, the unit changed nothing of its own, or a file the
-    move brought in is one the unit changes, which git merging cleanly says nothing about."""
+    Lite when every file the unit shares with the move is a changelog or documentation file.
+    Scoped unless the setting says full, the unit changed nothing of its own, or a shared file
+    is code or a test, which git merging cleanly says nothing about."""
     if setting is RestackCheck.FULL:
         return MoveScope(scoped=False, reason="global_limits.restack_check is full")
     if not own:
         return MoveScope(scoped=False, reason="the unit produced nothing of its own")
     shared = sorted(set(own) & set(incoming))
+    if shared and all(is_doc_path(name) for name in shared):
+        logger.info("lite re-test: %s", LITE_REASON)
+        return MoveScope(scoped=False, lite=True, reason=LITE_REASON, incoming=list(incoming))
     if shared:
         return MoveScope(
             scoped=False,

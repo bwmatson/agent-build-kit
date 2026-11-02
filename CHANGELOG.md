@@ -92,6 +92,10 @@
 - The installation-leak gate now reads the repository's files once for all its scans instead of
   once per scan, and the secret-leak guard module no longer scans the test tree when it is
   imported, so collecting the suite does no repository walk.
+  `abk requeue`, `abk approve` and `abk attach release` touch that file.
+  before it exits. This is the first step towards builds that outlive a tick.
+- A branch whose base moved only in changelog and documentation files it also changes is now
+  re-tested lightly, with the changelog check and the documentation tests, instead of in full.
 
 - The documents and the pipeline skill now describe how a failing test is handled: an open fix is
   waited on first, a test the unit did not write runs on the unit's base, and the

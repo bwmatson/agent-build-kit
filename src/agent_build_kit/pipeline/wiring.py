@@ -1644,6 +1644,9 @@ def build_unit_test(
                     "nothing for them to judge"
                 )
             return root_checks(cwd)
+        if scope is not None and scope.lite and not whole_repo:
+            retest["kind"] = "lite"
+            return lite_run(cwd)
         if scope is not None and scope.scoped and not whole_repo:
             retest["kind"] = "scoped"
             moved = moved_run(cwd, base, work, scope.incoming)
@@ -1675,6 +1678,12 @@ def build_unit_test(
                 "a disagreement",
             )
         return confirmed
+
+    def lite_run(cwd: Path) -> tuple[bool, str]:
+        """A move over changelog and documents alone: the repo profile's checks of the checkout
+        (the changelog check), never lint or the full suite."""
+        _say(log, "moved base: lite re-test, the changelog check")
+        return root_checks(cwd)
 
     def moved_run(
         cwd: Path,
