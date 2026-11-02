@@ -37,6 +37,7 @@ def test_the_leak_gate_reads_each_scanned_file_once(
 
     result = pytester.inline_run("-p", "no:cacheprovider", "-m", "integration", str(GATE))
 
-    result.assertoutcome(failed=0)
+    _, _, failed = result.listoutcomes()
+    assert failed == []
     assert reads, "the gate read no scanned file"
     assert [str(path) for path, count in reads.items() if count > 1] == []
