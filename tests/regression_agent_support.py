@@ -209,10 +209,11 @@ def run(
     runtime: StandInRuntime,
     *,
     kind: FixKind = FixKind.REGRESSION,
+    failed: Flake | None = None,
 ) -> FixOutcome:
     return run_regression_agent(
         inst,
-        failure(),
+        failed or failure(),
         stored_unit("feature/1", change="feature", groups=(1,)),
         kind=kind,
         base=BASE,
