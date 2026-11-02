@@ -76,6 +76,7 @@ from agent_build_kit.config import (
     active_state_dir,
 )
 from agent_build_kit.model import Frozen
+from agent_build_kit.pipeline import snapshots
 from agent_build_kit.pipeline.file_lock import atomic_write_text, file_lock, try_file_lock
 from agent_build_kit.pipeline.pause import UNKNOWN_RETRY
 from agent_build_kit.pipeline.usage_allowances import (
@@ -1862,12 +1863,36 @@ def decide_start(
         plan_due=plan_due or named.plan_due,
     )
     with on_account(account):
-        decision = _decide_start(read=read, decide=decide, unit=unit, step=ask.step, ask=ask)
+        if (
+            read is None
+            and decide is None
+            and ask.unit is not None
+            and settings.usage_guard != "off"
+        ):
+            decision = _decide_from_snapshot(ask)
+        else:
+            decision = _decide_start(read=read, decide=decide, unit=unit, step=ask.step, ask=ask)
         if decision.may_start and decision.source != "off" and _recording.get():
             _record_step(ask)
     if account is not None and account.label is not None and not decision.may_start:
         return decision.model_copy(update={"reason": f"account {account.label}: {decision.reason}"})
     return decision
+
+
+def _decide_from_snapshot(ask: Ask) -> Decision:
+    """A unit's step decided from the account's snapshot, which the round keeps: the endpoint is
+    never asked here. A snapshot older than the cache lifetime, or none, records a refresh
+    request, and the reading is judged by the rule for an old or an unknown one."""
+    state_dir = _cache_file().parent
+    account = claude_account.account_key(account_in_force())
+    held = snapshots.usage(state_dir, account)
+    if held.age is None or held.age > timedelta(minutes=claude_limits().usage_cache_minutes):
+        snapshots.request_refresh(state_dir, snapshots.USAGE, account)
+    reading = held.value
+    decision = may_start_unit(reading)
+    if decision.resets_at is None and reading is not None:
+        decision = decision.model_copy(update={"resets_at": reading.resets_at})
+    return _forecasted(decision, reading, ask)
 
 
 def _forecast_row(ask: Ask, cache_path: Path, now: datetime) -> ForecastRow | None:

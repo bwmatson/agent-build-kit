@@ -13,6 +13,7 @@ import pytest
 
 from agent_build_kit.cli import pipeline as cli
 from agent_build_kit.forges.base import PullRequest
+from agent_build_kit.pipeline.pr_poller import PrState, snapshot, state_path
 from agent_build_kit.pipeline.stack_runner import UnitRunner
 from agent_build_kit.pipeline.unit_store import UnitStore
 from agent_build_kit.pipeline.units import IN_REVIEW, MERGED, SETTLING
@@ -32,9 +33,10 @@ def test_a_parent_merged_on_the_forge_but_not_in_the_store_is_recorded_during_th
     store = UnitStore(tmp_path / "units.json")
     store.upsert([stored("chain/1"), stored("chain/2", depends_on=("chain/1",))])
     store.set_state("chain/1", IN_REVIEW, pr=7, branch="spec/chain/1")
-    forge = StandInForge(
-        prs=[PullRequest(number=7, head="spec/chain/1", base="main", state=MERGED)], number=21
-    )
+    parent_pull = PullRequest(number=7, head="spec/chain/1", base="main", state=MERGED)
+    forge = StandInForge(number=21)
+    # The round's poll has recorded the parent's pull request merged.
+    PrState.save(state_path(inst.state_dir, "app"), {"7": snapshot(parent_pull)}, "app")
 
     retargeted: list[tuple[str, str]] = []
     removed: list[str] = []

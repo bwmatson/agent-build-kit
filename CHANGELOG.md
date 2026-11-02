@@ -15,6 +15,10 @@
   the selection now set `COVERAGE_CORE=ctrace` and use a testmon environment of their own
   (`--testmon-env=ctrace`); data recorded before is not read, and a unit re-records once. A
   template in `abk.yaml` that builds its own command takes the same two words.
+- A unit's build now reads a pull request's state and the account's usage from a snapshot the
+  tick's round keeps, with its age, instead of asking the code host or the usage endpoint
+  itself. A snapshot that is missing or too old records a refresh request that the next round
+  answers, and the usage guard treats it as an old or unknown reading meanwhile.
 
 - The architecture document now has a "Work tracker" section describing the parts of the tracker
   as what they do when called (the wanted board, the reconciler, the manual parent an `Epic:`

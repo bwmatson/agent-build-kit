@@ -107,6 +107,18 @@ class PrState:
         return {n: seen for section in sections.values() for n, seen in section["prs"].items()}
 
     @staticmethod
+    def collected_at(path: Path) -> datetime | None:
+        """When the file was last collected: the oldest of its sections' times, so a file that
+        holds several is as old as its stalest; None for a file with none (before sections)."""
+        times = []
+        for section in PrState._sections(PrState._read(path)).values():
+            try:
+                times.append(datetime.fromisoformat(section["collected_at"]))
+            except (KeyError, TypeError, ValueError):
+                return None
+        return min(times) if times else None
+
+    @staticmethod
     def save(path: Path, state: dict, repo: str) -> None:
         """Replace `repo`'s section whole and keep the others, under the file's lock."""
         with file_lock(path.with_name(f"{path.name}.lock")):

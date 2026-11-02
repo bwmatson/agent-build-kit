@@ -49,6 +49,7 @@ from agent_build_kit.config import (
     RepoConfig,
     active,
     active_root,
+    active_state_dir,
     by_project,
     e2e_dimensions,
     e2e_splits,
@@ -60,11 +61,10 @@ from agent_build_kit.config import (
     worker_options,
 )
 from agent_build_kit.forges import FileChange, Forge, RegistersStacks, RepoId, StackRefused
-from agent_build_kit.forges.base import listed_pull
 from agent_build_kit.installation import Installation
 from agent_build_kit.model import Frozen, TestTier
 from agent_build_kit.path_patterns import matches_any
-from agent_build_kit.pipeline import failure_evidence, spans
+from agent_build_kit.pipeline import failure_evidence, snapshots, spans
 from agent_build_kit.pipeline.changelog_convention import review_changelog_paragraph
 from agent_build_kit.pipeline.check_failures import failed_in
 from agent_build_kit.pipeline.check_runner import worktree_at
@@ -2931,12 +2931,8 @@ def build_fresh_base(
         )
         if parent is None or parent.pr is None:
             return base
-        forge, repo = for_repo(unit.repo)
-        merged = any(
-            pull.number == parent.pr and pull.state == MERGED
-            for pull in forge.list_prs(repo, head_prefix=base)
-        )
-        if not merged:
+        shown = _pr_snapshot(unit.repo, parent.pr).value
+        if shown is None or shown.state != MERGED:
             return base
         record_merge(unit.repo, parent.pr)
         return base_of(unit, store.all())
@@ -3005,18 +3001,28 @@ def build_remove_satisfied(
 def build_forge_state(
     *, for_repo: Callable[[str], tuple[Forge, RepoId]] | None = None
 ) -> Callable[[Unit, int], str]:
-    """Read the forge's state of a unit's recorded pull request: `open`, `merged` or `closed`.
-    Raises when the host cannot answer or does not list the pull request."""
-    for_repo = for_repo or forges.for_repo
+    """Read the state of a unit's recorded pull request from the snapshot the round keeps:
+    `open`, `merged` or `closed`. Raises when the snapshot does not hold the pull request, and
+    asks the round for it. The host is not asked, so `for_repo` is not used."""
 
     def forge_state(unit: Unit, pr: int) -> str:
-        forge, repo = for_repo(unit.repo)
-        pull = listed_pull(forge, repo, branch_name(unit), pr)
-        if pull is None:
-            raise LookupError(f"the forge does not list PR #{pr}")
-        return str(pull.state)
+        shown = _pr_snapshot(unit.repo, pr).value
+        if shown is None:
+            raise LookupError(f"the snapshot does not hold PR #{pr}")
+        return shown.state
 
     return forge_state
+
+
+def _pr_snapshot(repo: str, number: int) -> snapshots.Snapshot[snapshots.PullRequestState]:
+    """The pull request's snapshot; one that holds nothing of it records a refresh request."""
+    state_dir = active_state_dir()
+    if state_dir is None:
+        raise LookupError("no state directory to read pull request snapshots from")
+    found = snapshots.pr(state_dir, repo, number)
+    if found.value is None:
+        snapshots.request_refresh(state_dir, snapshots.PR, repo)
+    return found
 
 
 def build_merge_commit(

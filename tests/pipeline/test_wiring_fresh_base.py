@@ -9,9 +9,11 @@ from pathlib import Path
 import pytest
 
 from agent_build_kit.forges.base import PullRequest
+from agent_build_kit.pipeline.pr_poller import PrState, snapshot, state_path
 from agent_build_kit.pipeline.unit_store import UnitStore
 from agent_build_kit.pipeline.units import IN_REVIEW, MERGED, branch_name
 from agent_build_kit.pipeline.wiring import build_fetch, build_fresh_base
+from tests.conftest import make_installation
 from tests.factories import git, init_repo, stored_unit, unit
 from tests.forges.stand_in import StandInForge, lookup
 
@@ -69,13 +71,20 @@ def _stack(tmp_path: Path) -> UnitStore:
     return store
 
 
-def test_a_parent_the_forge_reports_merged_is_recorded_through_the_merge_handler(
+def _collect(tmp_path: Path, pull: PullRequest) -> None:
+    """The round's poll has recorded `pull` in the state directory of the active installation."""
+    state_dir = make_installation(tmp_path / "planning").state_dir
+    PrState.save(state_path(state_dir, "app"), {str(pull.number): snapshot(pull)}, "app")
+
+
+def test_a_parent_the_snapshot_reports_merged_is_recorded_through_the_merge_handler(
     tmp_path: Path,
 ) -> None:
     store = _stack(tmp_path)
     merged: list[tuple[str, int]] = []
     parent_branch = branch_name(unit("feature/1"))
-    forge = StandInForge(prs=[PullRequest(number=5, head=parent_branch, base="main", state=MERGED)])
+    forge = StandInForge()
+    _collect(tmp_path, PullRequest(number=5, head=parent_branch, base="main", state=MERGED))
 
     def record_merge(repo: str, pr: int) -> None:
         merged.append((repo, pr))
@@ -93,7 +102,8 @@ def test_a_parent_still_open_is_left_alone_and_stays_the_base(tmp_path: Path) ->
     store = _stack(tmp_path)
     merged: list[tuple[str, int]] = []
     parent_branch = branch_name(unit("feature/1"))
-    forge = StandInForge(prs=[PullRequest(number=5, head=parent_branch, base="main", state="open")])
+    forge = StandInForge()
+    _collect(tmp_path, PullRequest(number=5, head=parent_branch, base="main", state="open"))
     fresh = build_fresh_base(
         store, for_repo=lookup(forge), record_merge=lambda repo, pr: merged.append((repo, pr))
     )

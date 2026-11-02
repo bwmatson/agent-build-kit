@@ -15,7 +15,7 @@ import pytest
 
 from agent_build_kit.pipeline import snapshots
 from agent_build_kit.pipeline.snapshots import Request
-from agent_build_kit.pipeline.usage_guard import UsageReading, decide_start
+from agent_build_kit.pipeline.usage_guard import Decision, UsageReading, decide_start, starting
 from tests import fake_clock
 from tests.usage_host import Host, configure, pause_at
 
@@ -47,6 +47,12 @@ def collect(state_dir: Path, value: UsageReading) -> None:
     snapshots.run_round(state_dir, {snapshots.USAGE: lambda key: value}, {snapshots.USAGE: LIMIT})
 
 
+def step_decision() -> Decision:
+    """The decision a unit's step asks for: a start named for a unit."""
+    with starting("feature/1"):
+        return decide_start()
+
+
 def state_of(host: Host) -> Path:
     return host.cache.parent
 
@@ -58,7 +64,7 @@ def test_a_fresh_snapshot_under_the_threshold_allows_a_start_without_a_call(
     collect(state_of(host), reading(20, taken=clock.now(), source="live"))
     clock.advance(30)
 
-    decision = decide_start()
+    decision = step_decision()
 
     assert decision.may_start
     assert host.asked == 0
@@ -72,7 +78,7 @@ def test_a_fresh_snapshot_over_the_threshold_refuses_a_start_without_a_call(
     collect(state_of(host), reading(95, taken=clock.now(), source="live"))
     clock.advance(30)
 
-    decision = decide_start()
+    decision = step_decision()
 
     assert not decision.may_start
     assert host.asked == 0
@@ -86,7 +92,7 @@ def test_a_snapshot_over_its_limit_asks_for_a_refresh_and_is_judged_as_an_old_re
     collect(state_of(host), reading(20, taken=clock.now(), source="cache"))
     clock.advance(2 * HOUR.total_seconds())
 
-    decision = decide_start()
+    decision = step_decision()
 
     assert not decision.may_start
     assert "stale" in decision.reason
@@ -99,7 +105,7 @@ def test_no_snapshot_asks_for_a_refresh_and_is_judged_as_an_unknown_reading(
 ) -> None:
     fake_clock.install(monkeypatch, datetime.now(UTC))
 
-    decision = decide_start()
+    decision = step_decision()
 
     assert not decision.may_start
     assert "unknown" in decision.reason
