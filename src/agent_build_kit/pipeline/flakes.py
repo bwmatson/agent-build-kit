@@ -252,7 +252,9 @@ def add_needs(inst: Installation, change: str, group: int, fix: str, reason: str
 
 
 # The line of a fix change's proposal that names the failing test the change is for, and the
-# pattern that reads it: what the regression agent writes in place of a group title.
+# pattern that reads it. The regression agent writes this line and also titles group 1 with the
+# test; the line is what `fix_change_test` reads first, the title is required as well so a change
+# whose proposal has been edited, or an earlier template's, still names its test.
 FAILING_TEST_LABEL = "Failing test:"
 FAILING_TEST_LINE = re.compile(
     rf"^\W*{re.escape(FAILING_TEST_LABEL)}\s*`?(?P<test>[^`\s](?:[^`\n]*[^`\s])?)`?[ \t]*$",
@@ -262,11 +264,22 @@ FIX_TITLE = re.compile(r"^Make `(?P<test>[^`]+)` deterministic$")
 FIRST_ATTEMPTS = 20  # how many successive names of one test's fix change are looked under
 
 
+def first_group_test(tasks: str) -> str | None:
+    """The test id that group 1 of the `tasks.md` text `tasks` is titled for ("Make `<test>`
+    deterministic"), or None when group 1 has no such title."""
+    for line in tasks.splitlines():
+        heading = GROUP_HEADING.match(line)
+        if heading and int(heading["number"]) == 1:
+            title = FIX_TITLE.match(heading["title"])
+            return title["test"] if title else None
+    return None
+
+
 def fix_change_test(inst: Installation, change: str) -> str | None:
     """The test the fix change `change` is for: the `Failing test:` line of its proposal, which
     the regression agent writes and its check requires, or else the title of its group 1
-    ("Make `<test>` deterministic"), which the earlier templates wrote; None when the change has
-    neither."""
+    (`first_group_test`), which the agent's check requires too and the earlier templates wrote;
+    None when the change has neither."""
     root = inst.changes_dir / change
     try:
         named = FAILING_TEST_LINE.search((root / "proposal.md").read_text())
@@ -275,15 +288,9 @@ def fix_change_test(inst: Installation, change: str) -> str | None:
     if named:
         return named["test"]
     try:
-        lines = (root / "tasks.md").read_text().splitlines()
+        return first_group_test((root / "tasks.md").read_text())
     except OSError:
         return None
-    for line in lines:
-        heading = GROUP_HEADING.match(line)
-        if heading and int(heading["number"]) == 1:
-            title = FIX_TITLE.match(heading["title"])
-            return title["test"] if title else None
-    return None
 
 
 def merged_fix_since(inst: Installation, change: str, test: str) -> str | None:

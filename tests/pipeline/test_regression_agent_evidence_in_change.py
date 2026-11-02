@@ -21,10 +21,12 @@ from agent_build_kit.pipeline.run_log import (
     write_failure_bundle,
 )
 from tests.failure_bundle_fakes import START
+from tests.installation_leaks import ABSOLUTE_HOME_PATH
 from tests.regression_agent_support import (
     FIX_THE_SOURCE,
     PROPOSAL,
     TEST,
+    UNDECIDED,
     Attempts,
     failure,
     group_tasks,
@@ -112,12 +114,15 @@ def test_the_design_records_the_ledger_rows_of_the_run(
     installation: Installation, tmp_path: Path
 ) -> None:
     ledger = run_ledger_path(installation.state_dir)
+    # The run started before its failing command did, as a real run does.
+    began = (START - timedelta(seconds=10)).isoformat()
     append_test_run(
         ledger,
-        a_run("feature/1", START.isoformat(), load_start=3.5, load_end=13.75, workers="auto"),
+        a_run("feature/1", began, load_start=3.5, load_end=13.75, workers="auto"),
     )
-    other = (START + timedelta(hours=1)).isoformat()
-    append_test_run(ledger, a_run("other/1", other, load_start=0.25, load_end=0.5, workers="3"))
+    later = (START + timedelta(hours=1)).isoformat()
+    append_test_run(ledger, a_run("feature/1", later, load_start=0.25, load_end=0.5, workers="3"))
+    append_test_run(ledger, a_run("other/1", began, load_start=0.75, load_end=0.5, workers="5"))
     name = next_fix_name(installation, TEST)
     agent = Attempts(installation, name, GOOD)
 
@@ -128,7 +133,100 @@ def test_the_design_records_the_ledger_rows_of_the_run(
         assert field in evidence
     assert "13.75" in evidence
     assert "auto" in evidence
-    assert "0.25" not in evidence
+    assert "0.25" not in evidence, "another window of the same unit"
+    assert "0.75" not in evidence, "the same window of another unit"
+
+
+def test_the_prompt_holds_the_evidence_the_agent_is_told_to_read(
+    installation: Installation, tmp_path: Path
+) -> None:
+    bundle = a_bundle(installation)
+    append_test_run(
+        run_ledger_path(installation.state_dir),
+        a_run(
+            "feature/1",
+            (START - timedelta(seconds=10)).isoformat(),
+            load_start=3.5,
+            load_end=13.75,
+            workers="auto",
+        ),
+    )
+    agent = Attempts(installation, next_fix_name(installation, TEST), GOOD)
+
+    run(
+        installation,
+        tmp_path,
+        agent.runtime,
+        failed=failure(output=OUTPUT, evidence=str(bundle), conditions=CONDITIONS, ran_at=START),
+    )
+
+    prompt = agent.runtime.requests[0].prompt
+    assert "13.75" in prompt, "a ledger figure"
+    assert "123456" in prompt, "a figure of the bundle's machine.json"
+    assert "12.75" in prompt, "a condition"
+
+
+def test_an_undecided_agents_change_carries_the_evidence_and_is_held(
+    installation: Installation, tmp_path: Path
+) -> None:
+    name = next_fix_name(installation, TEST)
+    agent = Attempts(installation, name, GOOD)
+    agent.runtime.answer = f"{UNDECIDED}\n"
+
+    outcome = run(installation, tmp_path, agent.runtime, failed=failure(ran_at=START))
+
+    assert outcome.held
+    assert "could not decide" in outcome.reason
+    assert "assert 'a' == 'b'" in evidence_of(installation, name)
+
+
+def test_a_failure_whose_evidence_is_not_a_bundle_names_no_bundle(
+    installation: Installation, tmp_path: Path
+) -> None:
+    name = next_fix_name(installation, TEST)
+    agent = Attempts(installation, name, GOOD)
+
+    run(
+        installation,
+        tmp_path,
+        agent.runtime,
+        failed=failure(evidence="e2e-test split: rest\n", ran_at=START),
+    )
+
+    assert "Bundle of the failing run" not in design_of(installation, name)
+
+
+def test_a_pruned_bundle_names_no_bundle(installation: Installation, tmp_path: Path) -> None:
+    gone = failure_bundles_dir(installation.state_dir) / "pruned"
+    name = next_fix_name(installation, TEST)
+    agent = Attempts(installation, name, GOOD)
+
+    run(installation, tmp_path, agent.runtime, failed=failure(evidence=str(gone), ran_at=START))
+
+    assert "Bundle of the failing run" not in design_of(installation, name)
+
+
+def test_the_section_names_no_home_directory(installation: Installation, tmp_path: Path) -> None:
+    bundle = a_bundle(installation)
+    name = next_fix_name(installation, TEST)
+    agent = Attempts(installation, name, GOOD)
+    leaky = "FAILED /home/someone/work/tests/test_widget.py::test_renders_the_label\n"
+
+    run(
+        installation,
+        tmp_path,
+        agent.runtime,
+        failed=failure(
+            output=leaky,
+            evidence=str(bundle),
+            conditions={"cwd": "/home/someone/work"},
+            ran_at=START,
+        ),
+    )
+
+    section = evidence_of(installation, name)
+    assert ABSOLUTE_HOME_PATH.search(section) is None
+    assert "~/work/tests/test_widget.py" in section
 
 
 def test_the_design_records_the_bundles_machine_and_its_path(
@@ -141,7 +239,8 @@ def test_the_design_records_the_bundles_machine_and_its_path(
     run(installation, tmp_path, agent.runtime, failed=failure(evidence=str(bundle), ran_at=START))
 
     evidence = evidence_of(installation, name)
-    assert str(bundle) in evidence
+    assert bundle.relative_to(installation.state_dir).as_posix() in evidence
+    assert str(installation.state_dir) not in evidence, "no absolute path in a committed file"
     assert "memory_available_kb" in evidence
     assert "123456" in evidence
 

@@ -9,9 +9,10 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import subprocess
 from collections.abc import Callable
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 
 from agent_build_kit.pipeline.run_log import run_ledger_path
@@ -103,8 +104,19 @@ def shas(run: Run, where: Path, base: str) -> dict[str, str]:
 EVIDENCE_HEADING = "## Evidence of the first failure"
 
 
+_HOME_PREFIX = re.compile(r"/home/[^/\s\"'`:]+")
+
+
+def tilde_home(text: str) -> str:
+    """`text` with each home directory (`/home/<name>`) written as `~`, so a section that is
+    committed names no user."""
+    return _HOME_PREFIX.sub("~", text)
+
+
 def _ledger_rows(state_dir: Path, unit: str, ran_at: datetime | None) -> list[str]:
-    """The rows of the ledger of unit-test runs that are `unit`'s run started at `ran_at`."""
+    """The rows of the ledger of unit-test runs that are `unit`'s and whose run window (its start
+    to its start plus its seconds) holds `ran_at`, the time the failing command began, which is
+    later than the start the row records."""
     if ran_at is None:
         return []
     try:
@@ -116,10 +128,11 @@ def _ledger_rows(state_dir: Path, unit: str, ran_at: datetime | None) -> list[st
         try:
             row = json.loads(line)
             started = datetime.fromisoformat(row["started"])
+            ended = started + timedelta(seconds=float(row["seconds"]))
         except (ValueError, KeyError, TypeError):
             continue
-        if row.get("unit") == unit and started == ran_at:
-            rows.append(json.dumps(row, sort_keys=True))
+        if row.get("unit") == unit and started <= ran_at <= ended:
+            rows.append(tilde_home(json.dumps(row, sort_keys=True)))
     return rows
 
 
@@ -135,20 +148,31 @@ def change_evidence(
     """The section a fix change's `design.md` carries about the first failure: its output, the
     conditions, the ledger rows of the run, and the bundle's path and `machine.json` when the
     failure has a bundle. It stands on its own once the test no longer fails."""
-    parts = [EVIDENCE_HEADING, "", "Output of the failing run:", "", f"```\n{output.strip()}\n```"]
+    parts = [
+        EVIDENCE_HEADING,
+        "",
+        "Output of the failing run:",
+        "",
+        f"```\n{tilde_home(output.strip())}\n```",
+    ]
     if conditions:
-        parts += ["", "Conditions:", "", f"```json\n{json.dumps(conditions, default=str)}\n```"]
+        shown = tilde_home(json.dumps(conditions, default=str))
+        parts += ["", "Conditions:", "", f"```json\n{shown}\n```"]
     rows = _ledger_rows(state_dir, unit, ran_at)
     if rows:
         parts += ["", "Rows of the run in the ledger of unit-test runs:", ""]
         parts += [f"- `{row}`" for row in rows]
-    if bundle:
-        parts += ["", f"Bundle of the failing run: `{bundle}`"]
+    if bundle and Path(bundle).is_dir():
+        try:
+            named = Path(bundle).relative_to(state_dir).as_posix()
+        except ValueError:
+            named = Path(bundle).name
+        parts += ["", f"Bundle of the failing run, under the state directory: `{named}`"]
         try:
             machine = (Path(bundle) / "machine.json").read_text().strip()
         except OSError:
             machine = ""
         if machine:
             parts += ["", "What the machine was doing (`machine.json`):", ""]
-            parts += [f"```json\n{machine}\n```"]
+            parts += [f"```json\n{tilde_home(machine)}\n```"]
     return "\n".join(parts) + "\n"

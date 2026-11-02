@@ -1550,8 +1550,9 @@ approved.
   The order of checks for a failing test is fixed. An open fix for the failing test is waited on
   first: a unit whose unit-test or e2e-test fails on a test that an open change already fixes,
   whatever its kind (`fix-test-`, `fix-flaky-` or `fix-failing-`, found by one lookup by test id),
-  gets a `Needs:` line on it and parks before any rerun, and the same holds also after a requeue.
-  Only then are the reruns made. The unit-test base check follows: a test the unit did not write
+  gets a `Needs:` line on it and parks before any rerun when an open change covers every failed
+  test, and the same holds also after a requeue. When a failed test has no open fix, the tests
+  are rerun and checked on the base. The unit-test base check follows: a test the unit did not write
   runs on the unit's own base (the branch tip of its parent when it is stacked, the default branch
   otherwise); passing there leaves the failure the unit's and its fix agent is told, failing there
   is not the unit's and the regression agent runs. Note that a test the unit wrote is not run on the base,
@@ -1559,7 +1560,7 @@ approved.
   rerun is recorded with one fix and the unit waits, it is not failed.
   The regression agent (model of the `regression` role, Opus under Claude Code) writes the change
   for a flake, a pre-existing failure and a unit-test failure that fails on the base alike. It is
-  named `fix-test-<slug>-<hash>` whatever the kind, which is recorded in the proposal, and its
+  named `fix-test-<slug>` (a long name is cut and takes a hash) whatever the kind, which is recorded in the proposal, and its
   group carries `[contract]`, so the change gets a full review. A change without `[contract]`,
   valid tags or a priority is rewritten once and then held for a person. Runs are bounded by
   `global_limits.max_regression_runs_per_hour`, and many units failing on one test cost one run.

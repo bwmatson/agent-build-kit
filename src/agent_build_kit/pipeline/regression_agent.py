@@ -38,9 +38,9 @@ from agent_build_kit.pipeline.file_lock import (
 from agent_build_kit.pipeline.flakes import (
     FAILING_TEST_LABEL,
     FAILING_TEST_LINE,
-    FIX_TITLE,
     Flake,
     add_needs_to_unit,
+    first_group_test,
     fix_change_name,
     flake_record,
     is_fix_change,
@@ -58,7 +58,6 @@ from agent_build_kit.pipeline.untouched_failures import preexisting_record
 from agent_build_kit.pipeline.vocabulary import OverheadNode
 from agent_build_kit.pipeline.work_graph import (
     FIX_PREFIX,
-    GROUP_HEADING,
     PRIORITY_LINE,
     TaskGroup,
     declared_projects,
@@ -174,7 +173,8 @@ exactly `{kind_label} {kind}`.
 
 Title group 1 of tasks.md "Make `<test>` deterministic", with the failing test's id in place of
 `<test>` and the same wording for a test that cannot be reproduced: the kit reads the test from
-that title to run a fix unit's reproduction check. Do not put a task to reproduce the race in the
+that title, beside the `Failing test:` line of the proposal, to run a fix unit's reproduction
+check. Do not put a task to reproduce the race in the
 group of a cause in test code.
 
 The change is named `{change}`. Its tasks.md carries a `Priority:` line and a task group
@@ -194,12 +194,17 @@ For a cause in test code, the proposal also carries a line `Standard: T<n>` (for
 Place any test by the placement rule (T2): a new case joins the existing test file for the
 module it exercises, and a new test file is asked for only for a new logic file.
 
-The kit adds the first failure's evidence to design.md: the run's output, its conditions, its
-ledger rows (`load_start`, `load_end`, workers) and the bundle's `machine.json`. Read it, and say
-whether the cause is load, a shared resource (name T8a when the setup is repeated in each test)
-or code. A fix unit may build the change when the test no longer fails, so the cause and the
+The kit adds the first failure's evidence to design.md after your run: the run's output, its
+conditions, its ledger rows (`load_start`, `load_end`, workers) and the bundle's `machine.json`.
+It is given here, between the lines, so you need not look for it; do not copy it into design.md.
+Say whether the cause is load, a shared resource (name T8a when the setup is repeated in each
+test) or code. A fix unit may build the change when the test no longer fails, so the cause and the
 evidence must stand on their own in the change, and the change must say
 what would show the cause is gone.
+
+----- evidence of the first failure -----
+{first_failure}
+----- end of the evidence -----
 
 Same exposure. Once you have judged the cause, say whether it is a pattern: a helper or fixture
 many tests call that repeats work or is slow, a test that reads or walks a directory the run or
@@ -284,7 +289,16 @@ def run_regression_agent(
         else ""
     )
     earlier = failure_history(inst, failure.test, evidence=True)
+    first_failure = change_evidence(
+        inst.state_dir,
+        unit=failure.unit or unit.id,
+        output=failure.output,
+        bundle=failure.evidence,
+        ran_at=failure.ran_at,
+        conditions=failure.conditions,
+    )
     prompt = PROMPT.format(
+        first_failure=first_failure,
         test=failure.test,
         directory=root,
         change=name,
@@ -360,14 +374,16 @@ def run_regression_agent(
         if not result.succeeded:
             reason = result.error or result.stop_reason or "no reason given"
             stopped = FixOutcome(change=name, held=True, reason=f"the agent's run failed: {reason}")
-        elif UNDECIDED in result.text:
+            return []
+        # A change held as undecided is read by a person later, and built when the test no longer
+        # fails: it carries the evidence too.
+        record_evidence(root / "design.md")
+        if UNDECIDED in result.text:
             stopped = FixOutcome(
                 change=name, held=True, reason="the agent could not decide which side is wrong"
             )
-        else:
-            record_evidence(root / "design.md")
-            return _problems(inst, name, failure.test, kind, run_openspec, cwd)
-        return []
+            return []
+        return _problems(inst, name, failure.test, kind, run_openspec, cwd)
 
     def record_evidence(design: Path) -> None:
         """Add the first failure's evidence to the design the agent wrote, unless it is there."""
@@ -377,15 +393,7 @@ def run_regression_agent(
             return
         if EVIDENCE_HEADING in written:
             return
-        section = change_evidence(
-            inst.state_dir,
-            unit=failure.unit or unit.id,
-            output=failure.output,
-            bundle=failure.evidence,
-            ran_at=failure.ran_at,
-            conditions=failure.conditions,
-        )
-        design.write_text(f"{written.rstrip()}\n\n{section}")
+        design.write_text(f"{written.rstrip()}\n\n{first_failure}")
 
     try:
         problems = repair_once(
@@ -463,16 +471,6 @@ def failure_history(inst: Installation, test: str, *, evidence: bool = False) ->
     ]
 
 
-def _first_group_test(tasks: str) -> str | None:
-    """The test id titled by group 1 of `tasks` ("Make `<test>` deterministic"), or None."""
-    for line in tasks.splitlines():
-        heading = GROUP_HEADING.match(line)
-        if heading and int(heading["number"]) == 1:
-            title = FIX_TITLE.match(heading["title"])
-            return title["test"] if title else None
-    return None
-
-
 def _problems(
     inst: Installation,
     name: str,
@@ -516,7 +514,7 @@ def _problems(
     told = KIND_LINE.search((root / "proposal.md").read_text())
     if not told or told["kind"] != kind.value:
         found.append(f"proposal.md: no line `{KIND_LABEL} {kind.value}` naming the kind of failure")
-    if _first_group_test(tasks.read_text()) != test:
+    if first_group_test(tasks.read_text()) != test:
         found.append(
             f'tasks.md: group 1 is not titled "Make `<test>` deterministic" with the id '
             f"`{test}`, which the reproduction check of a fix unit reads"

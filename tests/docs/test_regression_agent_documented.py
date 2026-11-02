@@ -4,11 +4,9 @@ naming (spec: regression-agent)."""
 
 from __future__ import annotations
 
-from pathlib import Path
-
+from tests.doc_text import ROOT, unreleased_bullets
 from tests.prompt_text import flat
 
-ROOT = Path(__file__).resolve().parents[2]
 ARCHITECTURE = flat((ROOT / "docs" / "architecture.md").read_text())
 RUNTIMES = flat((ROOT / "docs" / "agent-runtimes.md").read_text())
 CONFIGURATION = flat((ROOT / "docs" / "configuration.md").read_text())
@@ -23,11 +21,6 @@ PREEXISTING = ARCHITECTURE[
     ARCHITECTURE.index("**A pre-existing failure is recorded and fixed once.**") :
 ]
 PREEXISTING = PREEXISTING.split(" - **", 1)[0]
-
-
-def unreleased() -> str:
-    text = (ROOT / "CHANGELOG.md").read_text()
-    return text[text.index("## Unreleased") :].split("\n## ", 1)[0]
 
 
 def test_the_architecture_gives_the_order_of_checks() -> None:
@@ -46,7 +39,9 @@ def test_the_architecture_describes_the_unit_test_base_check() -> None:
 def test_the_flake_section_says_the_regression_agent_writes_a_full_review_change() -> None:
     assert "full review" in FLAKE
     assert "[contract]" in FLAKE
-    assert "`fix-test-<slug>-<hash>`" in FLAKE
+    assert "`fix-test-<slug>` (a long name is cut and takes a hash)" in FLAKE
+    assert "covers every failed test" in ARCHITECTURE
+    assert "covers every failed test" in SKILL
     assert "rewritten once" in FLAKE
 
 
@@ -93,7 +88,7 @@ def test_the_pipeline_skill_describes_the_agent_and_no_longer_a_template() -> No
 
 
 def test_the_changelog_has_one_bullet_for_the_agent() -> None:
-    bullets = [b for b in unreleased().split("\n- ") if "regression agent writes" in b]
+    bullets = [b for b in unreleased_bullets() if "regression agent writes" in b]
     assert len(bullets) == 1
     assert "fix-test-" in bullets[0]
     assert "full review" in bullets[0]
