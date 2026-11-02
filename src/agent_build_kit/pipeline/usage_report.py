@@ -1403,7 +1403,7 @@ def roll_up_change(ledger: Path, change: str, units: Sequence[StoredUnit] = ()) 
         for line in lines:
             try:
                 raw = json.loads(line)
-                ours = raw.get("kind") != "metric" and (
+                ours = raw.get("kind") not in ("metric", "restack") and (
                     (raw.get("change") or str(raw["unit"]).split("/")[0]) == change
                 )
             except (ValueError, AttributeError, KeyError):

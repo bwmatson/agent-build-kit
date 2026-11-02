@@ -7,6 +7,12 @@
   that records a `starting` marker, and the snapshot API gives a value and its age. The worker
   design marks its first migration step as done.
 
+- The restack of a unit onto its base at the start of a run and before its pull request is
+  now recorded in the usage ledger: the point it happened at, whether the base moved and from
+  which commit, the files brought in by kind, the outcome, and the kind, duration and result
+  of the re-test that followed. `abk restacks [--since TIME]` prints counts and hours by
+  point and by re-test kind, so what restacking costs can be read directly.
+
 - Tests that drive whole faked ticks no longer fail on a busy machine: every test built on the
   tick driver gets the loaded time limit, set in one collection hook.
 

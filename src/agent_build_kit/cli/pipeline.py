@@ -8423,6 +8423,41 @@ def cmd_gate(args: argparse.Namespace, inst: Installation | None) -> int:
     return 0
 
 
+def cmd_restacks(args: argparse.Namespace, inst: Installation) -> int:
+    """Print the ledger's restack records as counts and hours by point and by re-test kind."""
+    since = None
+    if args.since:
+        try:
+            since = datetime.fromisoformat(args.since)
+        except ValueError:
+            print(f"not a time: {args.since!r}", file=sys.stderr)
+            return 2
+        since = since if since.tzinfo else since.replace(tzinfo=UTC)
+    records = spans.read_restacks(inst.state_dir / LEDGER_NAME, since)
+    if not records:
+        print("no restacks recorded")
+        return 0
+
+    def line(label: str, group: list[spans.RestackRecord], *, by_kind: bool = False) -> str:
+        # A point's moves are its restack lines, which have no re-test; a re-test's own line
+        # belongs to the move it follows, and a kind's moves are the moves those lines stand for.
+        moves = sum(1 for r in group if r.moved and (by_kind or r.retest == "none"))
+        tests = [r for r in group if r.retest != "none"]
+        hours = sum(r.retest_seconds for r in tests) / 3600
+        return (
+            f"{label}: {moves} move{'' if moves == 1 else 's'}, "
+            f"{len(tests)} re-test{'' if len(tests) == 1 else 's'}, {hours:.2f} hours"
+        )
+
+    for point in ("prepare", "before_review", "before_pr"):
+        if group := [r for r in records if r.point == point]:
+            print(line(point, group))
+    for kind in ("lite", "scoped", "full"):
+        if group := [r for r in records if r.retest == kind]:
+            print(line(kind, group, by_kind=True))
+    return 0
+
+
 def register(sub: argparse._SubParsersAction) -> None:
     tick = sub.add_parser("tick", help="one pass: usage, poll, plan, verify, archive, build")
     tick.add_argument(
@@ -8449,6 +8484,12 @@ def register(sub: argparse._SubParsersAction) -> None:
         help="ask the usage endpoint for a fresh reading, within the minimum interval",
     )
     status.set_defaults(func=cmd_status)
+
+    restacks = sub.add_parser(
+        "restacks", help="restacks and their re-tests, by point and by kind, from the ledger"
+    )
+    restacks.add_argument("--since", help="only records from this time on (ISO 8601)")
+    restacks.set_defaults(func=cmd_restacks)
 
     graph = sub.add_parser("graph", help="regenerate the unit graph page")
     graph.set_defaults(func=cmd_graph)
