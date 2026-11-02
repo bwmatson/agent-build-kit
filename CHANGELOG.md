@@ -407,7 +407,11 @@
   `Tests: required — <reason>` line in a group keeps tests first for it, and `abk tags` shows
   each group's mode. The planner chooses the mode of each group that may be `no_code`, never
   below the group's floor; a unit keeps its modes once started, and `abk replan` prints a
-  changed mode.
+  changed mode. The build follows the mode: a `no_code` group takes a lone `feat:` (or an
+  optional `test:` then `feat:`) and goes straight to the implementation, a `refactor` group
+  takes a lone `feat:`, and a unit that mixes modes is checked group by group. No red check
+  applies to such a group, so a unit with no tests-first group no longer forces full review for
+  want of one, and its pull request text does not claim the tests were committed first.
 
 - A unit the usage guard pauses at the gate is now recorded as paused for usage until a
   time, counts toward the limit of units in progress while it waits, and is not resumed

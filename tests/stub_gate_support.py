@@ -66,7 +66,12 @@ class ModeProfile:
 def plan(*groups: tuple[str, bool]) -> list[GroupStep]:
     """Groups in order, each a title and whether it is test-only."""
     return [
-        GroupStep(change_dir="feature", number=number, title=title, test_only=test_only)
+        GroupStep(
+            change_dir="feature",
+            number=number,
+            title=title,
+            mode=GroupMode.TESTS_ONLY if test_only else GroupMode.TESTS_AND_CODE,
+        )
         for number, (title, test_only) in enumerate(groups, start=1)
     ]
 

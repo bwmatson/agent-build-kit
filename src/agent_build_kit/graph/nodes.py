@@ -90,6 +90,7 @@ from agent_build_kit.pipeline.flakes import (
     waiting_note,
 )
 from agent_build_kit.pipeline.gateway_usage import attribution
+from agent_build_kit.pipeline.group_mode import GroupMode
 from agent_build_kit.pipeline.manual_steps import unmet_steps
 from agent_build_kit.pipeline.metric_records import emit_metric
 from agent_build_kit.pipeline.moved_base import kinds_of
@@ -343,6 +344,7 @@ class BuildPath:
             Node.FIX_CHECKS: self.fix_checks,
             Node.STUB_CHECKS: self.stub_checks,
             Node.FIX_STUB_CHECKS: self.fix_stub_checks,
+            Node.RED_CHECK: self.red_check,
             Node.REVIEW: self.review,
             Node.REWORK: self.rework,
             Node.ADAPT: self.adapt,
@@ -1359,9 +1361,7 @@ class BuildPath:
         if git(tree, "rev-parse", "--verify", "-q", kept, check=False).returncode:
             return
         steps = r.group_steps(parent)
-        found = superseded_pairs(
-            tree, kept, ref, [s.title for s in steps], [s.test_only for s in steps]
-        )
+        found = superseded_pairs(tree, kept, ref, [s.title for s in steps], [s.mode for s in steps])
         if found is None:
             self.say(f"commits of {parent_id} not reused: they are not a pair for each group")
             return
@@ -1592,6 +1592,15 @@ class BuildPath:
         fault = self.worktree_fault(state)
         if fault is not None and fault.environment:
             return self.blocked(fault.output)
+        if (own := self.group_step(state)) is not None and not own.mode.writes_tests:
+            # A `no_code` or `refactor` group has no tests step: straight on to the implementation.
+            self.say(f"group {own.number} is {own.mode.value}: no tests step")
+            return {
+                "head": r.head(tree),
+                "stub_loop": False,
+                "test_only_done": False,
+                "red_check_due": False,
+            }
         stubbed = self.stubbed()
         account = ""
         if r.head(tree) != state.head:
@@ -1663,7 +1672,7 @@ class BuildPath:
         if step is None or not step.test_only:
             self.record_no_new_tests(state, ref, made)
             done: Update = {"head": r.head(tree), "stub_loop": False, "stub_rounds": 0}
-            return {**done, "test_only_done": False}
+            return {**done, "test_only_done": False, "red_check_due": True}
         done = {"head": r.head(tree), "stub_loop": False, "stub_rounds": 0}
         # A test-only group's lone tests commit satisfies it: no implementation follows.
         if (stopped := self.record_built(state, ref, made, state.tests_account)) is not None:
@@ -1696,6 +1705,11 @@ class BuildPath:
         self.say("the group adds no new tests: an empty tests commit is recorded")
         r.commit_built(f"{self.message(TESTS_PREFIX, True, state)}\n\n{NO_NEW_TESTS}", cwd=tree)
         return True
+
+    def red_check(self, state: UnitRun) -> Update:
+        """The place a later change fills with the red check at the tests commit, run for a
+        `tests_and_code` group only; it does nothing yet."""
+        return {"red_check_due": False}
 
     def fix_stub_checks(self, state: UnitRun) -> Update:
         self._leftovers = self._leftovers or self._stub_leftovers
@@ -1769,6 +1783,8 @@ class BuildPath:
         step = steps[progress.done]
         if step.test_only:
             return f"the branch holds no tests commit for group {step.number} ({step.title})"
+        if not step.mode.writes_tests:
+            return f"the branch holds no commit for group {step.number} ({step.title})"
         if progress.lone_feat:
             return (
                 f"a feat: commit for group {step.number} has no test: commit before it "
@@ -1787,7 +1803,7 @@ class BuildPath:
         return group_progress(
             r.branch_subjects(self.tree(), ref),
             [s.title for s in steps],
-            [s.test_only for s in steps],
+            [s.mode for s in steps],
         )
 
     def half_recorded(self, state: UnitRun, progress: GroupProgress) -> bool:
@@ -1855,9 +1871,9 @@ class BuildPath:
             return self.stop(self.unpaired(state, ref))
         self.say(f"group {step.number} is already built and the unit tests pass: recorded")
         tests = self.message(TESTS_PREFIX, True, state)
-        if not (resumed or progress.tests_made):
+        if step.mode.writes_tests and not (resumed or progress.tests_made):
             r.commit_built(self.with_account(tests, account) if step.test_only else tests, cwd=tree)
-        if not step.test_only:
+        if step.mode.writes_code:
             code = self.message(CODE_PREFIX, False, state)
             if progress.tests_made and not resumed:
                 code = f"{code}\n\n{TESTS_ALREADY_PASS}"
@@ -1882,6 +1898,21 @@ class BuildPath:
             kept["guidance_asked"] = guidance_asked(state, note)
         return kept
 
+    def group_modes(self) -> tuple[GroupMode, ...]:
+        """The build mode of each group a stubbed build builds; none for a build that is not
+        stubbed, which writes its tests first as a whole."""
+        if not self.stubbed():
+            return ()
+        return tuple(step.mode for step in self.runner.group_steps(self.unit))
+
+    def red_first_result(self) -> GateResult:
+        """What is recorded of the red-first gate of a unit that reached review: passed when the
+        tests came first, not applicable when no group of it is built tests first."""
+        modes = self.group_modes()
+        if modes and not any(mode.tests_first for mode in modes):
+            return GateResult.NOT_APPLICABLE
+        return GateResult.PASSED
+
     def stubbed(self) -> bool:
         """Whether this unit is built stubbed: the setting is on and its profile supports stubs."""
         config = self.runner.repo_config
@@ -1899,6 +1930,7 @@ class BuildPath:
             self.say("the implementation commit is already on the branch")
         else:
             change_dir, groups = self.scope(state)
+            own = self.group_step(state)
             build_boundary, _ = r.boundary_notes(unit, self.graph)
             self.say(f"implement ({models().implement})")
             guidance = r.store.get(unit.id).guidance
@@ -1909,6 +1941,7 @@ class BuildPath:
                 change_dir=change_dir,
                 boundary=build_boundary,
                 changelog=changelog_note(tree, r.repo_config),
+                no_tests=own is not None and not own.mode.writes_tests,
             )
             prompt = self.told(prompt, self.scope_note())
             if note := r.follow_ups_note(unit):
@@ -2378,7 +2411,8 @@ class BuildPath:
             facts = VerdictFacts(
                 kind=kind,
                 planned_estimate=ReviewTier.parse(unit.review_tier),
-                red_first=GateResult.PASSED,
+                red_first=self.red_first_result(),
+                group_modes=self.group_modes(),
                 unit_test=GateResult.PASSED,
                 e2e_state=e2e_state_of(state, r.store.get(unit.id).e2e_state),
                 classification=ReviewTier.parse(weighed.verdict.classification),
@@ -2958,7 +2992,8 @@ class BuildPath:
         # pass: the same facts `record_round` hands the verdict.
         facts = VerdictFacts(
             kind=stored.tier,
-            red_first=GateResult.PASSED,
+            red_first=self.red_first_result(),
+            group_modes=self.group_modes(),
             unit_test=GateResult.PASSED,
             e2e_state=stored.e2e_state,
         )
@@ -3380,7 +3415,13 @@ def after_stub_checks(state: UnitRun) -> Node:
     if state.stub_loop:
         return Node.FIX_STUB_CHECKS
     # A test-only group has no implementation step: on to the next group or the checks.
-    return after_last_group(state) if state.test_only_done else Node.IMPLEMENT
+    if state.test_only_done:
+        return after_last_group(state)
+    return Node.RED_CHECK if state.red_check_due else Node.IMPLEMENT
+
+
+def after_red_check(state: UnitRun) -> Node:
+    return halted(state) or Node.IMPLEMENT
 
 
 def after_fix_stub_checks(state: UnitRun) -> Node:
@@ -3537,12 +3578,14 @@ ROUTES: Mapping[Node, tuple[Callable[[UnitRun], Target], tuple[Target, ...]]] = 
             Node.HELD,
             Node.FAILED,
             Node.FIX_STUB_CHECKS,
+            Node.RED_CHECK,
             Node.IMPLEMENT,
             Node.UNIT_TEST,
             Node.CHECKS,
             Node.TESTS,
         ),
     ),
+    Node.RED_CHECK: (after_red_check, (Node.HELD, Node.FAILED, Node.IMPLEMENT)),
     Node.FIX_STUB_CHECKS: (after_fix_stub_checks, (Node.HELD, Node.FAILED, Node.STUB_CHECKS)),
     Node.IMPLEMENT: (
         after_implement,

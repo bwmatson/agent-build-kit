@@ -223,12 +223,15 @@ class Unit(Frozen):
 
     def mode_of(self, change: str, group: TaskGroup) -> GroupMode:
         """The build mode of `group` of `change` in this unit: the stored one, else `tests_only`
-        for an e2e group and `tests_and_code` for any other."""
+        for a group whose floor is `tests_only` (an e2e group, or one naming only test files) and
+        `tests_and_code` for any other."""
         from agent_build_kit.pipeline.work_graph import GroupMode
 
         if stored := self.group_modes.get(f"{change}/{group.number}"):
             return GroupMode(stored)
-        return GroupMode.TESTS_ONLY if group.tier == TestTier.E2E_TEST else GroupMode.TESTS_AND_CODE
+        return (
+            GroupMode.TESTS_ONLY if group.mode is GroupMode.TESTS_ONLY else GroupMode.TESTS_AND_CODE
+        )
 
     def carries(self, change: str) -> bool:
         """Does this unit build any of `change`'s groups, its own or carried?"""

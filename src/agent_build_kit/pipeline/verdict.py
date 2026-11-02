@@ -9,8 +9,8 @@ from typing import Any
 
 from agent_build_kit.config import AutoLandConfig, CeilingsConfig, buffered
 from agent_build_kit.model import Frozen, TestTier
+from agent_build_kit.pipeline.group_mode import GroupMode
 from agent_build_kit.pipeline.unit_store import E2eState
-from agent_build_kit.pipeline.work_graph import GroupMode
 
 
 class ReviewTier(StrEnum):
@@ -32,6 +32,8 @@ class GateResult(StrEnum):
     FAILED = "failed"
     MISSING = "missing"
     PENDING = "pending"
+    # The gate does not apply to the unit: no group of it is tests-first.
+    NOT_APPLICABLE = "not_applicable"
 
 
 class ClassHistory(Frozen):
@@ -107,6 +109,14 @@ class VerdictFacts(Frozen):
     # The demotion file could not be read, so every class is held as if demoted.
     demotions_unreadable: bool = False
 
+    @property
+    def red_first_applies(self) -> bool:
+        """Whether the red-first gate is one of this unit's: some group of it is built tests
+        first, or its groups are not recorded."""
+        if self.red_first == GateResult.NOT_APPLICABLE:
+            return False
+        return not self.group_modes or any(mode.tests_first for mode in self.group_modes)
+
 
 class TierVerdict(Frozen):
     tier: ReviewTier
@@ -145,7 +155,9 @@ def compute_verdict(
         if flag in _FLOORED_FLAGS:
             floors.append((ReviewTier.FULL, f"a group it builds is flagged [{flag}]"))
             break
-    gates = [("red-first", facts.red_first), ("unit-test", facts.unit_test)]
+    gates = [("unit-test", facts.unit_test)]
+    if facts.red_first_applies:
+        gates.insert(0, ("red-first", facts.red_first))
     if facts.kind == TestTier.E2E_TEST:
         gates.append(("e2e-test", _e2e_gate(facts.e2e_state)))
         if facts.e2e_state == E2eState.DEFERRED and not policy.allow_deferred_e2e:

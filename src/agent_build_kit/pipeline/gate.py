@@ -37,7 +37,7 @@ from agent_build_kit.pipeline.check_runner import CheckCache, run_at_commit
 from agent_build_kit.pipeline.commit_order import (
     check_structure,
     classify_paths,
-    commits_of_test_only_groups,
+    commits_without_red_check,
 )
 from agent_build_kit.pipeline.shell import git
 from agent_build_kit.pipeline.stack_runner import GroupStep
@@ -125,9 +125,9 @@ def check_branch(
     profile = profile or profiles.get("python-uv")
     projects = projects or []
     mode = "stubbed" if stubbed else ""
-    # A test-only group's tests commit is judged with no red run, so its result is kept apart.
+    # A tests commit no red check applies to is judged with no red run, so its result is kept apart.
     only_mode = "test-only" if stubbed else ""
-    test_only = commits_of_test_only_groups(repo, base, groups if stubbed else ())
+    test_only = commits_without_red_check(repo, base, groups if stubbed else ())
 
     def is_test(path: str) -> bool:
         return profiles.for_path(projects, path, profile).is_test_path(path)

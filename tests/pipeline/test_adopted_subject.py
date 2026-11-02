@@ -5,6 +5,7 @@ by `group_progress`, so a commit the pipeline makes for a person follows the con
 from __future__ import annotations
 
 from agent_build_kit.pipeline.commit_order import adopted_subject, group_progress
+from agent_build_kit.pipeline.group_mode import GroupMode
 from agent_build_kit.pipeline.stack_runner import GroupStep
 
 UNIT_TITLE = "Add the marker"
@@ -12,7 +13,12 @@ UNIT_TITLE = "Add the marker"
 
 def steps(*titles: str, test_only: tuple[int, ...] = ()) -> tuple[GroupStep, ...]:
     return tuple(
-        GroupStep(change_dir="changes/feature", number=n, title=title, test_only=n in test_only)
+        GroupStep(
+            change_dir="changes/feature",
+            number=n,
+            title=title,
+            mode=GroupMode.TESTS_ONLY if n in test_only else GroupMode.TESTS_AND_CODE,
+        )
         for n, title in enumerate(titles, start=1)
     )
 

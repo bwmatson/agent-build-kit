@@ -17,6 +17,7 @@ class Node(StrEnum):
     TESTS = "tests"
     STUB_CHECKS = "stub_checks"
     FIX_STUB_CHECKS = "fix_stub_checks"
+    RED_CHECK = "red_check"
     IMPLEMENT = "implement"
     CHECKS = "checks"
     FIX_CHECKS = "fix_checks"
@@ -145,6 +146,9 @@ class UnitRun(Frozen):
     resume: str = ""  # in a stubbed build, where the branch says to continue: a RESUME_ value
     more_groups: bool = False  # in a stubbed build, a group is left after the one just built
     test_only_done: bool = False  # the tests commit just made is a test-only group's, all of it
+    red_check_due: bool = (
+        False  # the tests just committed are a tests-first group's: red check next
+    )
     tests_account: str = ""  # what the tests agent last said, kept for a test-only group's record
     review_round: int = 0
     checks_ok: bool = False

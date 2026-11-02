@@ -28,6 +28,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from agent_build_kit.model import Frozen
+from agent_build_kit.pipeline.group_mode import GroupMode, modes_of
 from agent_build_kit.pipeline.shell import git, git_out
 
 if TYPE_CHECKING:
@@ -171,32 +172,43 @@ class GroupProgress(Frozen):
     lone_feat: str = ""  # the `feat:` subject of the next group found where its `test:` belongs
 
 
+def _group_size(subjects: list[str], position: int, title: str, mode: GroupMode) -> int | None:
+    """How many commits a finished group takes from `subjects` at `position`, None when the
+    group is not finished there. A `tests_and_code` group takes a `test:` then a `feat:`; a
+    `tests_only` group its `test:` alone; a `no_code` group a lone `feat:` or that pair; a
+    `refactor` group a lone `feat:`."""
+    tests, feat = f"{TESTS_PREFIX}{title}", f"{CODE_PREFIX}{title}"
+    at = subjects[position] if position < len(subjects) else None
+    following = subjects[position + 1] if position + 1 < len(subjects) else None
+    if mode.accepts_tests_commit and at == tests:
+        if mode is GroupMode.TESTS_ONLY:
+            return 1
+        return 2 if following == feat else None
+    if mode in (GroupMode.NO_CODE, GroupMode.REFACTOR) and at == feat:
+        return 1
+    return None
+
+
 def group_progress(
-    subjects: list[str], titles: Sequence[str], test_only: Sequence[bool | GroupMode] = ()
+    subjects: list[str], titles: Sequence[str], modes: Sequence[bool | GroupMode] = ()
 ) -> GroupProgress:
-    """Walk the groups in the unit's order, each taking a `test:` then a `feat:` commit with
-    its title from the front of `subjects` (oldest first); a group flagged in `test_only`
-    (by position, like `titles`) takes its `test:` commit alone. The position in the unit, not
-    the title, tells groups apart, so two groups with one title are told apart. A branch that
-    does not begin with the first group's tests has made no progress."""
+    """Walk the groups in the unit's order, each taking the commits its mode calls for with its
+    title from the front of `subjects` (oldest first); `modes` is by position, like `titles`, and
+    a group with none is `tests_and_code` (a bool is the earlier `test_only` flag). The position
+    in the unit, not the title, tells groups apart, so two groups with one title are told apart.
+    A branch that does not begin with the first group's commits has made no progress."""
+    given = modes_of(modes)
     position = 0
     for done, title in enumerate(titles):
-        tests = position < len(subjects) and subjects[position] == f"{TESTS_PREFIX}{title}"
-        if not tests:
-            lone = (
-                position < len(subjects)
-                and not (done < len(test_only) and test_only[done])
-                and subjects[position] == f"{CODE_PREFIX}{title}"
-            )
-            return GroupProgress(
-                done=done, tests_made=False, lone_feat=subjects[position] if lone else ""
-            )
-        position += 1
-        if done < len(test_only) and test_only[done]:
-            continue
-        if position >= len(subjects) or subjects[position] != f"{CODE_PREFIX}{title}":
-            return GroupProgress(done=done, tests_made=True)
-        position += 1
+        mode = given[done] if done < len(given) else GroupMode.TESTS_AND_CODE
+        size = _group_size(subjects, position, title, mode)
+        if size is None:
+            at = subjects[position] if position < len(subjects) else ""
+            if mode.accepts_tests_commit and mode.writes_code and at == f"{TESTS_PREFIX}{title}":
+                return GroupProgress(done=done, tests_made=True)
+            lone = mode is GroupMode.TESTS_AND_CODE and at == f"{CODE_PREFIX}{title}"
+            return GroupProgress(done=done, tests_made=False, lone_feat=at if lone else "")
+        position += size
     return GroupProgress(done=len(titles), tests_made=False)
 
 
@@ -208,37 +220,36 @@ def adopted_subject(unit_title: str, steps: Sequence[GroupStep], subjects: list[
     if not steps:
         return f"{FIX_PREFIX}{unit_title} (adopted)" if subjects else f"{CODE_PREFIX}{unit_title}"
     progress = group_progress(
-        subjects, [step.title for step in steps], [step.test_only for step in steps]
+        subjects, [step.title for step in steps], [step.mode for step in steps]
     )
     if progress.done >= len(steps):
         return f"{FIX_PREFIX}{steps[-1].title} (adopted)"
-    prefix = CODE_PREFIX if progress.tests_made else TESTS_PREFIX
-    return f"{prefix}{steps[progress.done].title}"
+    reached = steps[progress.done]
+    prefix = CODE_PREFIX if progress.tests_made or not reached.mode.writes_tests else TESTS_PREFIX
+    return f"{prefix}{reached.title}"
 
 
 def superseded_pairs(
-    repo: Path, ref: str, base: str, titles: Sequence[str], test_only: Sequence[bool | GroupMode]
+    repo: Path, ref: str, base: str, titles: Sequence[str], modes: Sequence[bool | GroupMode]
 ) -> list[list[str]] | None:
     """The commits of each group on the branch at `ref`, oldest group first, when the branch
-    beyond `base` is exactly a pair for each of the groups (`titles`, by position, with
-    `test_only` groups taking their `test:` commit alone), in order; None for any other branch,
-    which has a commit that belongs to no group or lacks one."""
+    beyond `base` is exactly the commits each of the groups (`titles`, by position, with `modes`)
+    takes, in order; None for any other branch, which has a commit that belongs to no group or
+    lacks one."""
     found = branch_commit_subjects(repo, base, ref)
     shas = [sha for sha, _ in found]
     subjects = [subject for _, subject in found]
-    if group_progress(subjects, titles, test_only).done != len(titles):
-        return None
-    sizes = [
-        1 if index < len(test_only) and test_only[index] else 2 for index in range(len(titles))
-    ]
-    if sum(sizes) != len(shas):
-        return None
+    given = modes_of(modes)
     taken = 0
     groups: list[list[str]] = []
-    for size in sizes:
+    for index, title in enumerate(titles):
+        mode = given[index] if index < len(given) else GroupMode.TESTS_AND_CODE
+        size = _group_size(subjects, taken, title, mode)
+        if size is None:
+            return None
         groups.append(shas[taken : taken + size])
         taken += size
-    return groups
+    return groups if taken == len(shas) else None
 
 
 def cherry_pick(repo: Path, shas: Sequence[str], *, unit_id: str = "") -> bool:
@@ -280,26 +291,46 @@ def _name_unit(repo: Path, unit_id: str) -> bool:
     return amended.returncode == 0
 
 
-def _test_only_commits(subjects: list[str], groups: Sequence[GroupStep]) -> list[bool]:
-    """For each subject, whether it is the tests commit of a test-only group: the n-th `test:`
-    commit is the n-th group's, so it is that group's when its subject carries the group's
-    title too. Position still tells two groups with one title apart."""
-    flags: list[bool] = []
-    made = 0
-    for subject in subjects:
-        is_tests = subject.startswith(TESTS_PREFIX)
-        group = groups[made] if is_tests and made < len(groups) else None
-        flags.append(
-            group is not None and group.test_only and subject == f"{TESTS_PREFIX}{group.title}"
-        )
-        made += is_tests
-    return flags
+def _commit_modes(subjects: list[str], groups: Sequence[GroupStep]) -> list[GroupMode | None]:
+    """For each subject, the mode of the group whose commit it is, None for a commit that belongs
+    to no group. The groups are walked in order, each taking the commits its mode calls for with
+    its title, so position tells two groups with one title apart."""
+    found: list[GroupMode | None] = [None] * len(subjects)
+    position = 0
+    for group in groups:
+        size = _group_size(subjects, position, group.title, group.mode)
+        if size is None:
+            if position < len(subjects) and subjects[position] == f"{TESTS_PREFIX}{group.title}":
+                found[position] = group.mode if group.mode.accepts_tests_commit else None
+            break
+        found[position : position + size] = [group.mode] * size
+        position += size
+    return found
+
+
+def _tests_commits_of(
+    repo: Path, base: str, groups: Sequence[GroupStep], modes: tuple[GroupMode, ...]
+) -> set[str]:
+    """The `test:` commits of the branch that belong to a group of `groups` in one of `modes`."""
+    subjects = branch_subjects(repo, base)
+    found = _commit_modes(subjects, groups)
+    return {
+        sha
+        for sha, subject, mode in zip(_commits(repo, base), subjects, found, strict=True)
+        if subject.startswith(TESTS_PREFIX) and mode in modes
+    }
 
 
 def commits_of_test_only_groups(repo: Path, base: str, groups: Sequence[GroupStep]) -> set[str]:
     """The commits of the branch that are the tests commit of a test-only group of `groups`."""
-    flags = _test_only_commits(branch_subjects(repo, base), groups)
-    return {sha for sha, only in zip(_commits(repo, base), flags, strict=True) if only}
+    return _tests_commits_of(repo, base, groups, (GroupMode.TESTS_ONLY,))
+
+
+def commits_without_red_check(repo: Path, base: str, groups: Sequence[GroupStep]) -> set[str]:
+    """The tests commits of the branch no red check applies to: the commit of a test-only group
+    and the optional `test:` of a `no_code` group, since only `tests_and_code` groups are red
+    first."""
+    return _tests_commits_of(repo, base, groups, (GroupMode.TESTS_ONLY, GroupMode.NO_CODE))
 
 
 def _pair_problems(subjects: list[str], test_only: list[bool]) -> list[str]:
@@ -339,7 +370,7 @@ def check_structure(
     `stubs` is the toolchain's check of a code file's content shipped beside tests, by
     path and content; it defaults to the Python one. `paired` also requires every `test:`
     commit to be followed directly by a `feat:` commit of the same title. `groups` is the
-    unit's groups in order, each saying whether it is test-only; none given, none is.
+    unit's groups in order, each with its build mode; none given, each is `tests_and_code`.
 
     Returns every problem found, so one run shows the whole list rather than
     one problem per push.
@@ -348,8 +379,11 @@ def check_structure(
     if not shas:
         return [f"no commits between {base} and HEAD"]
     subjects = branch_subjects(repo, base)
-    only_shas = commits_of_test_only_groups(repo, base, groups if paired else ())
-    test_only = [sha in only_shas for sha in shas]
+    owners = _commit_modes(subjects, groups if paired else ())
+    test_only = [
+        mode is GroupMode.TESTS_ONLY and subject.startswith(TESTS_PREFIX)
+        for subject, mode in zip(subjects, owners, strict=True)
+    ]
 
     problems: list[str] = []
     kinds: list[str] = []
@@ -378,16 +412,20 @@ def check_structure(
             kinds.append("docs")
 
     substantive = [kind for kind in kinds if kind != "docs"]
-    # Whether each substantive commit is a test-only group's tests commit.
-    substantive_only = [only for kind, only in zip(kinds, test_only, strict=True) if kind != "docs"]
+    # The mode of the group each substantive commit belongs to, none for a commit of no group.
+    substantive_modes = [mode for kind, mode in zip(kinds, owners, strict=True) if kind != "docs"]
+    # A unit with no `tests_and_code` group has no tests-first rule to keep.
+    lenient = paired and bool(groups) and not any(group.mode.tests_first for group in groups)
 
     if not substantive:
-        return ["the branch changes no tests and no code"]
+        return [] if lenient else ["the branch changes no tests and no code"]
 
     # The headline first: a reviewer needs to know *which* rule was broken
     # before the file-by-file detail explaining how.
     first_substantive = next(i for i, kind in enumerate(kinds) if kind != "docs")
-    if substantive[0] != "tests" or first_substantive in stub_problems:
+    first_mode = substantive_modes[0]
+    first_exempt = first_mode is not None and not first_mode.tests_first
+    if not first_exempt and (substantive[0] != "tests" or first_substantive in stub_problems):
         problems.append(
             "the first commit contains implementation — a unit's first commit is its "
             "tests (plus stubs), so that they can be seen to fail"
@@ -396,14 +434,14 @@ def check_structure(
     for index in sorted(stub_problems):
         problems.extend(stub_problems[index])
 
-    all_test_only = paired and bool(groups) and all(group.test_only for group in groups)
-    if "code" not in substantive and not all_test_only:
+    if "code" not in substantive and not lenient:
         problems.append("the branch has no implementation commit, only tests")
 
-    for first, second, first_only in zip(
-        substantive, substantive[1:], substantive_only, strict=False
+    for first, second, first_mode in zip(
+        substantive, substantive[1:], substantive_modes, strict=False
     ):
-        if first == "tests" and second == "tests" and not first_only:
+        exempt = first_mode is not None and not first_mode.tests_first
+        if first == "tests" and second == "tests" and not exempt:
             problems.append(
                 "two tests commits in a row — each batch of tests is followed by the "
                 "implementation that makes it pass, so the pairs stay reviewable"
