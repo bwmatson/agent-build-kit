@@ -82,6 +82,38 @@ The label SHALL be read when it is rendered.
 """
 
 
+# The proposal of a cause in test code: the test is wrong, and the standard it breaks is named.
+TEST_CODE_PROPOSAL = PROPOSAL.replace(
+    "- Judgement: the implementation is wrong.\n",
+    "- Judgement: the test is wrong.\n- Standard: {standard}\n",
+)
+
+# The tasks.md of one `[contract]` group with a priority; `{tasks}` is its task lines.
+GROUP = """\
+# Tasks
+
+Acceptance: none — nothing a consumer sees changes.
+
+## 1. [app] [unit-test] [contract] Make `{test}` deterministic
+
+Priority: 1
+
+Done when the test passes.
+
+{tasks}"""
+
+
+def group_tasks(*tasks: str) -> str:
+    """The tasks.md of one `[contract]` group whose task lines are `tasks`, numbered from 1.1."""
+    lines = "".join(f"- [ ] 1.{n} {text}\n" for n, text in enumerate(tasks, 1))
+    return GROUP.format(test=TEST, tasks=lines)
+
+
+def proposal_for_test_code(standard: str = "T5") -> str:
+    """The proposal of a cause in test code that cites `standard`; `write_change` fills the rest."""
+    return TEST_CODE_PROPOSAL.replace("{standard}", standard)
+
+
 def failure(**overrides) -> Flake:
     fields: dict[str, Any] = {
         "test": TEST,
