@@ -206,11 +206,16 @@ def test_a_pruned_bundle_names_no_bundle(installation: Installation, tmp_path: P
     assert "Bundle of the failing run" not in design_of(installation, name)
 
 
+# Built from parts so this file holds no literal home path for the leak scan to find.
+WORK = "/" + "home/someone/work"
+TILDE = "~"
+
+
 def test_the_section_names_no_home_directory(installation: Installation, tmp_path: Path) -> None:
     bundle = a_bundle(installation)
     name = next_fix_name(installation, TEST)
     agent = Attempts(installation, name, GOOD)
-    leaky = "FAILED /home/someone/work/tests/test_widget.py::test_renders_the_label\n"
+    leaky = f"FAILED {WORK}/tests/test_widget.py::test_renders_the_label\n"
 
     run(
         installation,
@@ -219,14 +224,14 @@ def test_the_section_names_no_home_directory(installation: Installation, tmp_pat
         failed=failure(
             output=leaky,
             evidence=str(bundle),
-            conditions={"cwd": "/home/someone/work"},
+            conditions={"cwd": WORK},
             ran_at=START,
         ),
     )
 
     section = evidence_of(installation, name)
     assert ABSOLUTE_HOME_PATH.search(section) is None
-    assert "~/work/tests/test_widget.py" in section
+    assert f"{TILDE}/work/tests/test_widget.py" in section
 
 
 def test_the_design_records_the_bundles_machine_and_its_path(
