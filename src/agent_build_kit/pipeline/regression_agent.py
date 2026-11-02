@@ -40,6 +40,7 @@ from agent_build_kit.pipeline.flakes import (
     next_fix_name,
     open_fix_change,
 )
+from agent_build_kit.pipeline.group_paths import named_test_paths
 from agent_build_kit.pipeline.unit_store import StoredUnit
 from agent_build_kit.pipeline.units import local_ref
 from agent_build_kit.pipeline.untouched_failures import preexisting_record
@@ -47,6 +48,8 @@ from agent_build_kit.pipeline.vocabulary import OverheadNode
 from agent_build_kit.pipeline.work_graph import (
     FIX_PREFIX,
     PRIORITY_LINE,
+    TASK_LINE,
+    TaskGroup,
     declared_projects,
     declared_split_names,
     group_needs,
@@ -128,6 +131,15 @@ POSSIBLE_LINE = (
 )
 _EXPOSURE_LINE = re.compile(r"^- \S.*? — \S.* — (confirmed|possible)$")
 
+# The line of the proposal that names the standard of the test catalogue a test-code cause breaks;
+# the catalogue (`docs/designs/testing-strategy.md`) holds T1 to T27.
+STANDARD_LINE = re.compile(r"^\W*Standard:\s*T(?P<number>\d+)[a-z]?\b", re.MULTILINE)
+STANDARD_COUNT = 27
+# A `Test:` task that reruns the failing test where it should recreate the defect, and the words
+# that say how a task makes the defect happen on demand.
+RERUN_TASK = re.compile(r"\b(re-?run|in a loop|repeatedly|again)\b", re.IGNORECASE)
+DETERMINISTIC_MEANS = re.compile(r"\b(fake|inject\w*|stand-in|stub\w*|mock\w*)", re.IGNORECASE)
+
 PROMPT = """\
 You are the regression agent. The test `{test}` fails and the unit that met it did not write it.
 Work out why it fails and since when, judge whether the test or the implementation is wrong,
@@ -143,6 +155,20 @@ exactly `{kind_label} {kind}`.
 The change is named `{change}`. Its tasks.md carries a `Priority:` line and a task group
 flagged `[contract]`. If you cannot decide which side is wrong, end your answer with the line
 `{undecided}` and write the change anyway.
+
+Where the cause is decides the tasks. A cause in test code (a test, or a module that only tests
+use): every task of the group names only test files, and there is no `Test:` task, because a fix
+for test code carries no test of its own; `abk tags` shows the group as `tests_only` and the
+repeat check on the changed tests is the check. A cause in a source file: the group keeps a
+`Test:` task before the fix, and that task recreates the defect deterministically, with
+a fake clock, an injected ordering or a stand-in dependency named in the task. It never says
+only to rerun the flaky test.
+
+For a cause in test code, the proposal also carries a line `Standard: T<n>` (for example
+`Standard: T5` for a wall-clock assertion, T6 a sleep, T8a repeated setup, T17 repeated scans)
+naming the standard of the test catalogue the cause breaks. Place any test by the placement rule
+(T2): a new case joins the existing test file for the module it exercises, and a new test file is
+asked for only for a new logic file.
 
 Same exposure. Once you have judged the cause, say whether it is a pattern: a helper or fixture
 many tests call that repeats work or is slow, a test that reads or walks a directory the run or
@@ -307,7 +333,7 @@ def run_regression_agent(
                 change=name, held=True, reason="the agent could not decide which side is wrong"
             )
         else:
-            return _problems(inst, name, failure.test, kind, run_openspec)
+            return _problems(inst, name, failure.test, kind, run_openspec, cwd)
         return []
 
     try:
@@ -387,7 +413,12 @@ def failure_history(inst: Installation, test: str, *, evidence: bool = False) ->
 
 
 def _problems(
-    inst: Installation, name: str, test: str, kind: FixKind, run_openspec: openspec.Run | None
+    inst: Installation,
+    name: str,
+    test: str,
+    kind: FixKind,
+    run_openspec: openspec.Run | None,
+    cwd: Path,
 ) -> list[str]:
     """What is wrong with the change `name` for `test`: a file missing, what OpenSpec or the
     tags check refuses, no `[contract]` group, no `Priority:` line, no judgement line, no
@@ -426,6 +457,8 @@ def _problems(
             "proposal.md: no judgement line, worded "
             + " or ".join(f"`{JUDGEMENT_LABEL} {each}`" for each in JUDGEMENTS)
         )
+    found += _test_code_problems(groups, cwd)
+    found += _standard_problems((root / "proposal.md").read_text())
     return found + _exposure_problems((root / "proposal.md").read_text())
 
 
@@ -627,6 +660,57 @@ def waited_fixes(inst: Installation, unit: StoredUnit) -> list[tuple[str, str]]:
             for need in needs.get(group, []):
                 changes.setdefault(need.change, judgement_of(inst, need.change))
     return list(changes.items())
+
+
+def _test_code_problems(groups: Iterable[TaskGroup], checkout: Path) -> list[str]:
+    """What is wrong with the tasks: a group of only test files that asks for a `Test:` task, a
+    `Test:` task that only reruns the failing test, a task that names a new test file beside the
+    one the module already has in `checkout`."""
+    found: list[str] = []
+    for group in groups:
+        tasks = [m["text"] for line in group.body if (m := TASK_LINE.match(line))]
+        tests = [text for text in tasks if text.startswith("Test:")]
+        if group.test_only and tests:
+            found.append(
+                f"tasks.md: group {group.number} names only test files, so it is `tests_only` and "
+                "carries no `Test:` task: a fix for test code has no test of its own"
+            )
+        elif not group.test_only:
+            found += [
+                f"tasks.md: group {group.number}: `{text[:60]}` only reruns the test; recreate "
+                "the defect deterministically (a fake clock, an injected ordering or a stand-in "
+                "dependency)"
+                for text in tests
+                if RERUN_TASK.search(text) and not DETERMINISTIC_MEANS.search(text)
+            ]
+        for path in named_test_paths(group):
+            if (checkout / path).is_file():
+                continue
+            parts = Path(path).stem.split("_")
+            for end in range(2, len(parts)):
+                existing = Path(path).with_name("_".join(parts[:end]) + ".py")
+                if (checkout / existing).is_file():
+                    found.append(
+                        f"tasks.md: group {group.number} names a new test file `{path}`, but "
+                        f"`{existing}` already holds the tests of the module (placement rule T2)"
+                    )
+                    break
+    return found
+
+
+def _standard_problems(proposal: str) -> list[str]:
+    """For a proposal that judges the test wrong: no `Standard: T<n>` line, or one naming a
+    standard the catalogue does not hold."""
+    judged = JUDGEMENT_LINE.search(proposal)
+    if not judged or judged[1].lower() != JUDGEMENTS[0]:
+        return []
+    named = STANDARD_LINE.search(proposal)
+    if named and 1 <= int(named["number"]) <= STANDARD_COUNT:
+        return []
+    return [
+        "proposal.md: no line `Standard: T<n>` naming a standard of the test catalogue "
+        f"(T1 to T{STANDARD_COUNT}) the cause breaks"
+    ]
 
 
 def _exposure_problems(proposal: str) -> list[str]:

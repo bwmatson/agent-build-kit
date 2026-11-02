@@ -36,7 +36,11 @@ WITHOUT_STANDARD = PROPOSAL.replace(
 
 
 def test_code(standard: str) -> dict[str, str]:
+    """The change of a cause in test code that cites `standard`."""
     return {"tasks": group_tasks(FIX_THE_TEST), "proposal": proposal_for_test_code(standard)}
+
+
+test_code.__test__ = False  # type: ignore[attr-defined]  # a helper, not a test
 
 
 def with_checkout(tmp_path: Path) -> None:
