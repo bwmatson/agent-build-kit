@@ -4654,17 +4654,27 @@ def serve_snapshots(inst: Installation) -> None:
     """The round's handling of what builds read from snapshots: refresh what a step asked for
     or is over its limit, and clear the requests.
 
-    Each account in use has its usage read once, as the guard's minimum interval allows
-    (`refreshed_usage` answers the reading held between calls), and the pause markers are read
-    every round. The pull requests were just polled by `poll_all`, so a request for one is
-    answered by that and not by listing a repo a second time.
+    An account's usage snapshot starts from the reading the guard already holds, which makes no
+    call. After that a request for it, or a snapshot older than `usage_cache_minutes`, gets one
+    read (`refreshed_usage`, which answers the reading held while the guard's minimum interval
+    forbids a call), asked or not by a step, so an idle tick refreshes an old snapshot too.
+    Nothing is read for usage when the guard is off or the runtime has no usage window. The
+    pause markers are read every round. The pull requests were just polled by `poll_all`, so a
+    request for one is answered by that and not by listing a repo a second time.
     """
     state_dir = inst.state_dir
     accounts = {
         claude_account.account_key(each): each for each in claude_account.in_use(inst.config)
     }
+    try:
+        reads_usage = guard_off_line() is None and runtimes.active().supports_usage_tracking
+    except KeyError:
+        reads_usage = False
 
     def usage(key: str | None) -> object:
+        if key not in accounts:
+            # An account the installation no longer names: its entry is left as it is.
+            return None
         with on_account(accounts[key]):
             return refreshed_usage()
 
@@ -4676,21 +4686,22 @@ def serve_snapshots(inst: Installation) -> None:
             }
         )
 
-    # An account with no snapshot yet starts from the reading the round's own start decision
-    # left held: no call is made for it, and a round with no unit to start asks the endpoint
-    # for nothing. After that the endpoint is asked only for a snapshot a step found old.
-    for key, account in accounts.items():
-        if snapshots.usage(state_dir, key).value is None and (held := held_usage(account)):
-            snapshots.record(state_dir, snapshots.USAGE, key, held)
+    collectors: dict[str, snapshots.Collector] = {
+        snapshots.PAUSES: pauses,
+        snapshots.PR: lambda key: None,
+    }
+    max_age = {snapshots.PAUSES: timedelta(0)}
+    if reads_usage:
+        # An account with no snapshot yet starts from the reading the round's own start
+        # decision left held (dated as that reading is): no call is made for it.
+        for key, account in accounts.items():
+            if snapshots.usage(state_dir, key).value is None and (held := held_usage(account)):
+                snapshots.record(state_dir, snapshots.USAGE, key, held, taken=held.observed_at)
+        collectors[snapshots.USAGE] = usage
+        max_age[snapshots.USAGE] = timedelta(minutes=claude_limits().usage_cache_minutes)
     if snapshots.pauses(state_dir).value is None:
         snapshots.request_refresh(state_dir, snapshots.PAUSES)
-    cache = timedelta(minutes=claude_limits().usage_cache_minutes)
-    snapshots.run_round(
-        state_dir,
-        {snapshots.USAGE: usage, snapshots.PAUSES: pauses, snapshots.PR: lambda key: None},
-        {snapshots.USAGE: cache, snapshots.PAUSES: timedelta(0)},
-        say=log,
-    )
+    snapshots.run_round(state_dir, collectors, max_age, say=log)
 
 
 def park_dependents(inst: Installation, store: UnitStore) -> None:

@@ -21,7 +21,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from pydantic import BaseModel
+from pydantic import BaseModel, ValidationError
 
 from agent_build_kit.model import Frozen
 from agent_build_kit.pipeline import spans
@@ -148,23 +148,33 @@ def age_text(age: timedelta | None) -> str:
     return f"{seconds // 3600}h old"
 
 
+def _valid[M: BaseModel](model: type[M], raw: object) -> M | None:
+    """`raw` as a `model`, or None when it no longer validates (a file kept across a release
+    that changed the model): such a value reads as not collected and the next round replaces it."""
+    try:
+        return model.model_validate(raw) if raw is not None else None
+    except ValidationError:
+        return None
+
+
 def usage(state_dir: Path, account: str | None) -> Snapshot[UsageReading]:
     from agent_build_kit.pipeline.usage_guard import UsageReading
 
     raw, collected_at = _entry(state_dir, USAGE, account)
-    return _aged(UsageReading.model_validate(raw) if raw is not None else None, collected_at)
+    return _aged(_valid(UsageReading, raw), collected_at)
 
 
 def pauses(state_dir: Path) -> Snapshot[Pauses]:
     raw, collected_at = _entry(state_dir, PAUSES, None)
-    return _aged(Pauses.model_validate(raw) if raw is not None else None, collected_at)
+    return _aged(_valid(Pauses, raw), collected_at)
 
 
 def requested(state_dir: Path) -> list[Request]:
     body = _load(state_dir / REQUESTS)
     if not isinstance(body, list):
         return []
-    return [Request.model_validate(each) for each in body if isinstance(each, dict)]
+    found = (_valid(Request, each) for each in body if isinstance(each, dict))
+    return [each for each in found if each is not None]
 
 
 def request_refresh(state_dir: Path, kind: str, key: str | None = None) -> None:
@@ -196,15 +206,16 @@ def _ages(state_dir: Path, kind: str) -> dict[str | None, datetime]:
     return ages
 
 
-def record(state_dir: Path, kind: str, key: str | None, value: object) -> None:
-    """Keep `value` as the snapshot of `kind` for `key`, collected now."""
+def record(
+    state_dir: Path, kind: str, key: str | None, value: object, taken: datetime | None = None
+) -> None:
+    """Keep `value` as the snapshot of `kind` for `key`, collected now or, for a value handed
+    back from a cache, as old as `taken` says, so it is not shown as new."""
     dumped = value.model_dump(mode="json") if isinstance(value, BaseModel) else value
+    at = taken or spans.clock.now()
     with _lock(state_dir, STORE):
         body = _stored(state_dir)
-        body.setdefault(kind, {})[key or ""] = {
-            "value": dumped,
-            "collected_at": spans.clock.now().isoformat(),
-        }
+        body.setdefault(kind, {})[key or ""] = {"value": dumped, "collected_at": at.isoformat()}
         _write(state_dir / STORE, body)
 
 

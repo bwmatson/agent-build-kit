@@ -100,6 +100,25 @@ def test_a_snapshot_over_its_limit_asks_for_a_refresh_and_is_judged_as_an_old_re
     assert snapshots.requested(state_of(host)) == [Request(kind="usage", key=None)]
 
 
+def test_a_snapshot_inside_its_limit_whose_window_has_reset_is_not_refused_on_its_old_percent(
+    host: Host, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    clock = fake_clock.install(monkeypatch, datetime.now(UTC) - timedelta(minutes=3))
+    full = reading(95, taken=clock.now(), source="live")
+    # The session window it describes ended a minute ago; the snapshot is three minutes old.
+    full = full.model_copy(update={"resets_at": datetime.now(UTC) - timedelta(minutes=1)})
+    collect(state_of(host), full)
+    clock.advance(180)
+    stored = snapshots.usage(state_of(host), None)
+    assert stored.age is not None and stored.age < timedelta(minutes=5)
+
+    decision = step_decision()
+
+    assert "95%" not in decision.reason
+    assert host.asked == 0
+    assert snapshots.requested(state_of(host)) == [Request(kind="usage", key=None)]
+
+
 def test_no_snapshot_asks_for_a_refresh_and_is_judged_as_an_unknown_reading(
     host: Host, monkeypatch: pytest.MonkeyPatch
 ) -> None:

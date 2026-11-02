@@ -250,6 +250,20 @@ def test_the_round_refreshes_only_the_kinds_that_have_a_collector(
     assert snapshots.requested(state_dir) == [Request(kind="usage", key="acct")]
 
 
+def test_a_stored_value_that_no_longer_validates_reads_as_not_collected(
+    clock: FakeClock, state_dir: Path
+) -> None:
+    at = fake_clock.START.isoformat()
+    bad = {"value": {"nonsense": True}, "collected_at": at}
+    state_dir.mkdir()
+    (state_dir / snapshots.STORE).write_text(
+        json.dumps({snapshots.USAGE: {"": bad}, snapshots.PAUSES: {"": bad}})
+    )
+
+    assert snapshots.usage(state_dir, None) == snapshots.Snapshot()
+    assert snapshots.pauses(state_dir) == snapshots.Snapshot()
+
+
 def test_a_collector_that_raises_is_told_and_its_request_stays_while_the_rest_go_on(
     clock: FakeClock, state_dir: Path
 ) -> None:

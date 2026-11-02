@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from datetime import timedelta
 from pathlib import Path
 
@@ -42,6 +43,23 @@ def test_a_kind_nobody_collected_says_so(
     line = snapshot_line(run_status(inst, monkeypatch, capsys))
 
     assert "pull requests app never collected" in line
+    assert "usage default never collected" in line
+    assert "pauses never collected" in line
+
+
+def test_a_stored_value_that_no_longer_validates_shows_as_never_collected(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    fake_clock.install(monkeypatch)
+    inst = make_installation(tmp_path / "planning")
+    inst.state_dir.mkdir(parents=True, exist_ok=True)
+    bad = {"value": {"nonsense": True}, "collected_at": fake_clock.START.isoformat()}
+    (inst.state_dir / snapshots.STORE).write_text(
+        json.dumps({snapshots.USAGE: {"": bad}, snapshots.PAUSES: {"": bad}})
+    )
+
+    line = snapshot_line(run_status(inst, monkeypatch, capsys))
+
     assert "usage default never collected" in line
     assert "pauses never collected" in line
 

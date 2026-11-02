@@ -1880,19 +1880,22 @@ def decide_start(
 
 def snapshot_reading(account: claude_account.Account | None = None) -> UsageReading | None:
     """The reading in `account`'s usage snapshot, which the round keeps; the endpoint is never
-    asked. A snapshot older than the cache lifetime, or none, records a refresh request for the
-    next round. Read back from the store it is a kept reading, as `_kept_reading` labels the
-    cache's, so one taken long ago is judged as old whatever it was when taken."""
+    asked. A snapshot older than the cache lifetime, or none, or whose reading describes a
+    window that has since reset, records a refresh request for the next round, and a reading
+    of a reset window is none, as `current_usage` and `held_usage` have it. Read back from the
+    store it is a kept reading, as `_kept_reading` labels the cache's, so one taken long ago is
+    judged as old whatever it was when taken."""
     with on_account(account):
         state_dir = _cache_file().parent
         key = claude_account.account_key(account_in_force())
         held = snapshots.usage(state_dir, key)
-        if held.age is None or held.age > timedelta(minutes=claude_limits().usage_cache_minutes):
+        reading = held.value
+        if reading is not None and reading.is_live:
+            reading = reading.model_copy(update={"source": "cache"})
+        old = held.age is None or held.age > timedelta(minutes=claude_limits().usage_cache_minutes)
+        if old or (reading is not None and _past_reset(reading, datetime.now(UTC))):
             snapshots.request_refresh(state_dir, snapshots.USAGE, key)
-    reading = held.value
-    if reading is not None and reading.is_live:
-        reading = reading.model_copy(update={"source": "cache"})
-    return reading
+        return _noted(_unspent(reading))
 
 
 def _forecast_row(ask: Ask, cache_path: Path, now: datetime) -> ForecastRow | None:
