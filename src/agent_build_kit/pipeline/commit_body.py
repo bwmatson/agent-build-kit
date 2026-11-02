@@ -59,4 +59,9 @@ def commit_body(steps: Sequence[GroupStep], *, tests: bool) -> str:
     parts = [part for part in parts if part]
     if not parts:
         return ""
-    return "\n\n".join([TESTS_SENTENCE if tests else CODE_SENTENCE, *parts])
+    if tests:
+        opening = [TESTS_SENTENCE]
+    else:
+        # Only a commit that follows a tests commit says those tests now pass.
+        opening = [CODE_SENTENCE] if any(step.mode.writes_tests for step in steps) else []
+    return "\n\n".join([*opening, *parts])

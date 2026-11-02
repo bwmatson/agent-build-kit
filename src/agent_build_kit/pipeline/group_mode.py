@@ -37,13 +37,6 @@ class GroupMode(StrEnum):
         return self is GroupMode.TESTS_AND_CODE
 
 
-def mode_of_flag(flag: bool | GroupMode) -> GroupMode:
-    """A mode, given one or the earlier `test_only` flag in its place."""
-    if isinstance(flag, GroupMode):
-        return flag
-    return GroupMode.TESTS_ONLY if flag else GroupMode.TESTS_AND_CODE
-
-
-def modes_of(flags: Sequence[bool | GroupMode]) -> list[GroupMode]:
-    """Each of `flags` as a mode."""
-    return [mode_of_flag(flag) for flag in flags]
+def mode_at(modes: Sequence[GroupMode], index: int) -> GroupMode:
+    """The mode of the group at `index`, `tests_and_code` when `modes` does not reach it."""
+    return modes[index] if index < len(modes) else GroupMode.TESTS_AND_CODE

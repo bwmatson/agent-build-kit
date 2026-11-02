@@ -526,10 +526,16 @@ def build_pr_body(
         position += " It merges after everything beneath it in the stack has merged."
     order = "the stack order the host shows" if stacks else "the stack order above"
 
-    built = (
-        "Tests were committed first and seen to fail before any implementation existed; "
-        "the commit order is checked mechanically; lint, formatting and types pass at the tip."
+    first = (
+        ""
+        if facts is not None and not facts.red_first_applies
+        else "Tests were committed first and seen to fail before any implementation existed; "
     )
+    built = (
+        f"{first}the commit order is checked mechanically; lint, formatting and types pass at "
+        "the tip."
+    )
+    built = built[0].upper() + built[1:]
     footer = f"""\
 ## How this was built
 

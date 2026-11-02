@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from tests.factories import commit_files
 from tests.pipeline.test_gate_test_only import RedProfile
 from tests.stub_gate_support import (
     commit_docs,
@@ -66,6 +67,39 @@ def test_a_unit_that_mixes_modes_is_gated_group_by_group(repo: Path) -> None:  #
         profile,
         stubbed=True,
         groups=plan_modes(("A", "tests_and_code"), ("Docs", "no_code"), ("Move", "refactor")),
+    )
+
+    assert problems == []
+    assert profile.red_files == [["tests/test_a.py"]]
+
+
+MOVED = {
+    "src/n.py": "def n():\n    return 1\n",
+    "tests/test_pass.py": "def test_m(): assert True\n",
+}
+
+
+def test_a_refactors_lone_feat_editing_tests_beside_code_gets_no_red_run(repo: Path) -> None:  # noqa: F811 — fixture
+    commit_files(repo, "feat: Move", MOVED)
+    profile = RedProfile()
+
+    problems = judged(repo, profile, stubbed=True, groups=plan_modes(("Move", "refactor")))
+
+    assert problems == []
+    assert profile.red_files == []
+
+
+def test_the_same_commit_beside_a_pair_leaves_the_pairs_red_run_alone(repo: Path) -> None:  # noqa: F811 — fixture
+    commit_tests(repo, "A", "a")
+    commit_feat(repo, "A", "a")
+    commit_files(repo, "feat: Move", MOVED)
+    profile = RedProfile()
+
+    problems = judged(
+        repo,
+        profile,
+        stubbed=True,
+        groups=plan_modes(("A", "tests_and_code"), ("Move", "refactor")),
     )
 
     assert problems == []

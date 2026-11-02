@@ -1954,7 +1954,11 @@ class BuildPath:
                 cwd=tree,
                 state=state,
                 model=models().implement,
-                follow_up=IMPLEMENTATION_CONTINUATION.format(
+                # A group with no tests step has no tests to continue from: it starts a session on
+                # the full prompt, which names its group and says what it is.
+                follow_up=""
+                if own is not None and not own.mode.writes_tests
+                else IMPLEMENTATION_CONTINUATION.format(
                     changelog=changelog_note(tree, r.repo_config)
                 ),
             )
@@ -2988,8 +2992,9 @@ class BuildPath:
         if stored.pr is not None and (over := self.recorded_pr_over(stored.pr)):
             return over
         recorded = latest_verdict(r.store.path.with_name(VERDICTS), unit.id)
-        # A unit reaching a pull request has had its tests seen to fail first and its unit-test
-        # pass: the same facts `record_round` hands the verdict.
+        # A unit reaching a pull request has passed its unit-test, and had its tests seen to fail
+        # first where a group of it is built tests first: the facts `record_round` hands the
+        # verdict.
         facts = VerdictFacts(
             kind=stored.tier,
             red_first=self.red_first_result(),

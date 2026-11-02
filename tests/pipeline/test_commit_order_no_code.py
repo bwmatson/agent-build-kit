@@ -13,7 +13,8 @@ from agent_build_kit.pipeline.commit_order import (
     group_progress,
     superseded_pairs,
 )
-from agent_build_kit.pipeline.work_graph import GroupMode
+from agent_build_kit.pipeline.group_mode import GroupMode
+from tests.factories import commit_files
 from tests.stub_gate_support import (
     commit_docs,
     commit_feat,
@@ -153,3 +154,40 @@ def test_the_commits_of_a_superseded_unit_are_split_one_for_a_lone_feat_group(
     )
 
     assert found == [[first, second], [third]]
+
+
+def test_a_tests_only_groups_commit_of_code_alone_is_refused(repo: Path) -> None:  # noqa: F811 — fixture
+    commit_files(repo, "test: T", {"src/x.py": "x = 1\n"})
+
+    problems = check_structure(repo, "main", paired=True, groups=plan_modes(("T", "tests_only")))
+
+    assert any("first commit contains implementation" in problem for problem in problems), problems
+
+
+def test_a_tests_only_groups_commit_of_a_document_alone_is_refused(repo: Path) -> None:  # noqa: F811 — fixture
+    commit_files(repo, "test: T", {"README.md": "words\n"})
+
+    problems = check_structure(repo, "main", paired=True, groups=plan_modes(("T", "tests_only")))
+
+    assert any("changes no tests and no code" in problem for problem in problems), problems
+
+
+def test_a_refactors_lone_feat_may_edit_tests_beside_code_with_a_body(repo: Path) -> None:  # noqa: F811 — fixture
+    commit_files(
+        repo,
+        "feat: Move",
+        {"src/n.py": "def n():\n    return 1\n", "tests/test_m.py": "def test_m(): assert True\n"},
+    )
+
+    problems = check_structure(repo, "main", paired=True, groups=plan_modes(("Move", "refactor")))
+
+    assert problems == []
+
+
+def test_a_tests_commit_for_a_refactor_group_is_refused(repo: Path) -> None:  # noqa: F811 — fixture
+    commit_tests(repo, "Move", "m")
+    commit_feat(repo, "Move", "moved")
+
+    problems = check_structure(repo, "main", paired=True, groups=plan_modes(("Move", "refactor")))
+
+    assert any("test: Move" in problem and "reorganization" in problem for problem in problems)
