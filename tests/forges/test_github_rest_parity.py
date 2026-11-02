@@ -80,6 +80,7 @@ def test_a_repository_s_listing_is_the_same_records_as_before() -> None:
     assert found == [
         PullRequest(
             number=162,
+            title="add-marker/162: Register the marker",
             head="spec/add-marker/162",
             base="main",
             state="open",
@@ -99,16 +100,27 @@ def test_a_repository_s_listing_is_the_same_records_as_before() -> None:
         ),
         PullRequest(
             number=157,
+            title="add-marker/157: Register the marker",
             head="spec/other/1",
             base="spec/other/0",
             state=MERGED,
             mergeable=True,
         ),
         PullRequest(
-            number=158, head="spec/add-marker/158", base="main", state=CLOSED, mergeable=True
+            number=158,
+            title="add-marker/158: Register the marker",
+            head="spec/add-marker/158",
+            base="main",
+            state=CLOSED,
+            mergeable=True,
         ),
         PullRequest(
-            number=159, head="spec/add-marker/159", base="main", state="open", mergeable=True
+            number=159,
+            title="add-marker/159: Register the marker",
+            head="spec/add-marker/159",
+            base="main",
+            state="open",
+            mergeable=True,
         ),
     ]
 
