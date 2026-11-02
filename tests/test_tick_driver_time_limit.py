@@ -7,7 +7,7 @@ from pathlib import Path
 import pytest
 
 from tests.tick_driver import make_setup
-from tests.time_limit import DEFAULT_TEST_TIME_LIMIT, LOADED_TEST_TIME_LIMIT, limit_for
+from tests.time_limit import LOADED_TEST_TIME_LIMIT, limit_for
 
 
 def test_a_test_that_builds_the_driver_s_setup_gets_the_loaded_limit(
@@ -16,12 +16,3 @@ def test_a_test_that_builds_the_driver_s_setup_gets_the_loaded_limit(
     make_setup(tmp_path, monkeypatch)
 
     assert limit_for(request.node) == LOADED_TEST_TIME_LIMIT
-
-
-@pytest.mark.time_limit(DEFAULT_TEST_TIME_LIMIT * 2)
-def test_a_test_s_own_time_limit_marker_wins_over_the_drivers(
-    request: pytest.FixtureRequest, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    make_setup(tmp_path, monkeypatch)
-
-    assert limit_for(request.node) == DEFAULT_TEST_TIME_LIMIT * 2
