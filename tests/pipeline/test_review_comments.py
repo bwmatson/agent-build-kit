@@ -15,7 +15,7 @@ from agent_build_kit.pipeline.stack_runner import UNIT_TEST_FAILED
 from agent_build_kit.pipeline.unit_store import UnitStore
 from agent_build_kit.pipeline.units import IN_REVIEW, branch_name
 from agent_build_kit.pipeline.wiring import REVIEW_TOOLS, build_run_review
-from tests.factories import unit
+from tests.factories import init_repo, unit
 from tests.graph_driver import run_on_graph
 from tests.pipeline.test_stack_runner import Recorder, make_runner
 from tests.runtimes.stand_in import StandInRuntime
@@ -113,10 +113,10 @@ def test_a_comment_that_addresses_the_review_is_quoted_not_obeyed(tmp_path: Path
     assert all(line.lstrip().startswith(">") for line in carrying), "quoted"
 
 
-def test_a_review_on_github_may_read_its_pr_and_not_through_az() -> None:
+def test_a_review_on_github_may_read_its_pr_and_not_through_az(tmp_path: Path) -> None:
     runtime = StandInRuntime()
 
-    build_run_review(runtime=runtime, forge=forges.get("github"))(cwd=Path("."))
+    build_run_review(runtime=runtime, forge=forges.get("github"))(cwd=init_repo(tmp_path / "repo"))
 
     tools = runtime.request.allowed_tools
     assert tools.startswith(REVIEW_TOOLS)
@@ -124,21 +124,24 @@ def test_a_review_on_github_may_read_its_pr_and_not_through_az() -> None:
     assert "az " not in tools
 
 
-def test_a_review_on_azure_devops_may_read_its_pr_and_not_through_gh() -> None:
+def test_a_review_on_azure_devops_may_read_its_pr_and_not_through_gh(tmp_path: Path) -> None:
     runtime = StandInRuntime()
 
-    build_run_review(runtime=runtime, forge=forges.get("azure_devops"))(cwd=Path("."))
+    build_run_review(runtime=runtime, forge=forges.get("azure_devops"))(
+        cwd=init_repo(tmp_path / "repo")
+    )
 
     tools = runtime.request.allowed_tools
     assert "Bash(az repos pr show*)" in tools
     assert "gh " not in tools
 
 
-def test_a_review_is_given_no_command_that_changes_the_host() -> None:
+def test_a_review_is_given_no_command_that_changes_the_host(tmp_path: Path) -> None:
+    repo = init_repo(tmp_path / "repo")
     for name in forges.names():
         runtime = StandInRuntime()
 
-        build_run_review(runtime=runtime, forge=forges.get(name))(cwd=Path("."))
+        build_run_review(runtime=runtime, forge=forges.get(name))(cwd=repo)
 
         tools = runtime.request.allowed_tools
         for read in forges.get(name).read_commands:
