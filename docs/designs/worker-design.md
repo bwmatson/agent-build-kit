@@ -145,7 +145,7 @@ the admission lock, and the branch-lock identity with a start time. The `Poller`
 
 The route is straight to the end state; the `workers.mode` switch is the mechanism for getting there safely, not an interim improvement.
 
-1. **Foundations the end state needs.** Branch-lock identity with a start time; the admission lock and the `starting` marker; slot occupancy computed from locks and leases (one pure function the thread pool also uses, so both modes agree);
+1. **Foundations the end state needs (done).** Branch-lock identity with a start time; the admission lock and the `starting` marker; slot occupancy computed from locks and leases (one pure function the thread pool also uses, so both modes agree);
    the `prs-<repo>.json` lock; and the snapshot read API with `request_refresh()`, with the existing in-thread readers moved onto it (the usage guard's per-step decisions, the PR-state reads in the graph nodes), so thread mode and worker mode read the
    same cached source.
 2. **The worker entry point and the spawner.** `abk worker build <unit>` running `build_unit` (it already re-reads the unit under the branch lock, `cli/pipeline.py` ~5934-5950), the transient-unit spawner with the `Popen` fallback, the worker's

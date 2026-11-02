@@ -346,6 +346,13 @@ any repo), then by planned position. Ready units build in parallel threads, each
 under a branch lock (`locks/` in the local directory) that fails fast: two runs on one branch is
 a scheduling bug, not a queue.
 
+A branch lock names its holder by pid and start time. A lock whose pid is alive with a different start time belongs
+to a reused pid and is taken over, as is one whose holder is gone; a lock written as a bare pid is still honoured. Two
+processes racing for the same stale lock never both hold it. Slots are counted by one function, `occupancy`, from durable
+facts (live locks, leases and `starting` markers), and the thread pool uses it too. Starting a unit is admitted under the
+admission lock, which writes a `starting` marker for the unit before it lets go, so two admitters never fill one free slot;
+a marker that has expired with no lock behind it leaves the unit `planned` again.
+
 A pass keeps scheduling until it runs out of ready work. Each build that
 finishes — and, while builds are running, every five minutes regardless — is
 followed by a fresh fetch and poll and a fresh `ready_units`, so a parent
@@ -1828,6 +1835,7 @@ outside the repository and not committed; for a separate planning repo it is `ru
 | `verified.json` | the last verification of each change and the units it covered. | a change verified again. |
 | `planned.json` | hash and attempt count per change's specification. | one planning model call per change. |
 | `prs-<repo>.json` | the poller's snapshot, one section per repo (`prs` and `collected_at`). Written under a file lock; replaced atomically. | the next poll only records; events in the gap are missed. |
+| snapshots (the snapshot API, `pipeline/snapshots.py`) | what the outside world said, read by build steps as a value and its age: a pull request's state, an account's usage reading, the pause markers. The tick's round writes them. A step never calls the host's list or poll functions or the usage endpoint; when a snapshot is missing or over its age limit it calls `request_refresh` (one request per kind and key, idempotent) and the next round serves it and clears the request. `abk status` shows each snapshot's age. | a request lost with the file is made again by the next reader. |
 | `own-posts.json` | ids of the pipeline's own PR comments and reviews. | a unit reworked over its own reply. |
 | `given-comments.json` | ids of a person's comments a rework addressed before its push. | the same comments reported as a second rework after the push. |
 | `landing.json` | the landings in progress: one record per pull request the pipeline is about to merge, naming the repo and unit, written before the forge is asked and removed once the merge is recorded. A merged event for a pull request with a record is recorded with the cause `auto_landed`, not as a person's merge. Replaced atomically; a record that cannot be written stops the landing. The landing pass runs once per tick, after the first round's poll, and an error landing one unit is logged without stopping the others. The `acp` runtime ignores the deny lists, so only the host's server-side guard stands against a merge there. | a merge after a crash is recorded as a person's. |

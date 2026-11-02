@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- The architecture document now describes the foundations the detached-worker design builds on: a
+  branch lock names its holder by pid and start time, starting a unit is admitted under one lock
+  that records a `starting` marker, and the snapshot API gives a value and its age. The worker
+  design marks its first migration step as done.
+
 - A unit of a repo with a tracker no longer starts when someone else has already started it: a
   remote branch or pull request with the unit's branch name, or an open pull request on any
   other branch of the repo whose title or description carries the `AB#` reference of a board
