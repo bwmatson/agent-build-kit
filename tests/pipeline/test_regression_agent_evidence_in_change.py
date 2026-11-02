@@ -315,6 +315,42 @@ def test_the_evidence_is_there_once_after_the_change_is_rewritten(
     assert design.count("assert 'a' == 'b'") == 1
 
 
+def test_the_design_records_the_tests_own_section_and_not_the_tail_of_the_run(
+    installation: Installation, tmp_path: Path
+) -> None:
+    name = next_fix_name(installation, TEST)
+    agent = Attempts(installation, name, GOOD)
+
+    run(
+        installation,
+        tmp_path,
+        agent.runtime,
+        failed=failure(
+            failure="own traceback marker", output="tail of the whole run marker", ran_at=START
+        ),
+    )
+
+    evidence = evidence_of(installation, name)
+    assert "own traceback marker" in evidence
+    assert "tail of the whole run marker" not in evidence
+
+
+def test_a_failure_with_no_section_of_its_own_records_the_run_output(
+    installation: Installation, tmp_path: Path
+) -> None:
+    name = next_fix_name(installation, TEST)
+    agent = Attempts(installation, name, GOOD)
+
+    run(
+        installation,
+        tmp_path,
+        agent.runtime,
+        failed=failure(failure="", output="tail of the whole run marker", ran_at=START),
+    )
+
+    assert "tail of the whole run marker" in evidence_of(installation, name)
+
+
 def test_the_prompt_tells_the_agent_the_evidence_must_stand_on_its_own(
     installation: Installation, tmp_path: Path
 ) -> None:
