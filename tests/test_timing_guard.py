@@ -290,3 +290,62 @@ def test_a_fixed_port_given_to_a_server_class_is_found_and_a_free_one_is_not(
     assert len(problems) == 2
     assert any("test_http.py:5" in p for p in problems)
     assert any("test_tcp.py:5" in p for p in problems)
+
+
+CHECKOUT_CWDS = ('Path(".")', "Path()", 'Path("")', "Path.cwd()", "os.getcwd()")
+CHECKOUT_HAZARD = 'from pathlib import Path\n\n\ndef test_x():\n    run(cwd=Path("."))\n'
+
+
+def test_a_call_that_runs_in_the_checkout_fails_naming_the_file_and_the_line(
+    tmp_path: Path,
+) -> None:
+    files = {
+        f"test_cwd_{index}.py": (
+            f"import os\nfrom pathlib import Path\n\n\ndef test_x():\n    run(cwd={cwd})\n"
+        )
+        for index, cwd in enumerate(CHECKOUT_CWDS)
+    }
+    root = tree(tmp_path, files)
+
+    problems = check_tests(root, allowlist=NONE, shared=NONE)
+
+    assert len(problems) == len(CHECKOUT_CWDS)
+    for index in range(len(CHECKOUT_CWDS)):
+        assert any(f"test_cwd_{index}.py:6" in p for p in problems)
+
+
+def test_a_call_that_runs_in_a_directory_of_its_own_is_not_a_checkout_hazard(
+    tmp_path: Path,
+) -> None:
+    owned = ("tmp_path", "Path(tmp_path)", "ROOT", 'Path("/work/app")')
+    files = {
+        f"test_owned_{index}.py": (
+            f"from pathlib import Path\n\n\ndef test_x(tmp_path):\n    run(cwd={cwd})\n"
+        )
+        for index, cwd in enumerate(owned)
+    }
+    files["test_hazard.py"] = CHECKOUT_HAZARD
+    root = tree(tmp_path, files)
+
+    problems = check_tests(root, allowlist=NONE, shared=NONE)
+
+    assert len(problems) == 1
+    assert "test_hazard.py:5" in problems[0]
+
+
+def test_a_checkout_directory_in_a_string_or_a_comment_is_not_a_hazard(tmp_path: Path) -> None:
+    root = tree(
+        tmp_path,
+        {
+            "test_text.py": (
+                '# run(cwd=Path("."))\nSCRIPT = "run(cwd=Path.cwd())"\n\n\n'
+                "def test_x():\n    pass\n"
+            ),
+            "test_hazard.py": CHECKOUT_HAZARD,
+        },
+    )
+
+    problems = check_tests(root, allowlist=NONE, shared=NONE)
+
+    assert len(problems) == 1
+    assert "test_hazard.py:5" in problems[0]
