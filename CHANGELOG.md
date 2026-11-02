@@ -146,6 +146,11 @@
   subject that differs from the group's title is not counted as the group's commit, which failed
   `register-report-operations/2` with "no tests commit".
 
+- `abk tags --fix-projects` writes the project a group resolved from the paths it names into the
+  repo part of its heading, for groups whose unit has not started (`--dry-run` shows what it would
+  tag). `abk tags` and `abk check` now warn when a change mixes groups with a written project and
+  groups that resolve to one.
+
 - The unit-test step's temp folder is now `<data home>/<repo name>/tmp/<run>`, named by the run's
   8-character token alone, where it was `<planning home>/tmp/pytest/<unit>-<run>`. A fix unit's id
   carries the name of its test, which made a `tmp_path` of 227 characters: the name Claude makes of

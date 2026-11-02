@@ -445,6 +445,7 @@ from agent_build_kit.pipeline.wiring import (
 )
 from agent_build_kit.pipeline.work_graph import (
     Need,
+    ProjectSource,
     TaskGroup,
     ValidationError,
     check_tags,
@@ -461,6 +462,7 @@ from agent_build_kit.pipeline.work_graph import (
     redundant_separate_warnings,
     resolved_projects,
     retag_headings,
+    retag_projects,
     specification_text,
     tasks_path,
     unrelated_parent_warnings,
@@ -7142,7 +7144,20 @@ def _validation_scope(inst: Installation) -> dict[str, Any]:
 
 def _tag_warnings(inst: Installation, path: Path) -> list[str]:
     """What `abk tags` and `abk check` warn of in a tasks file, none of it a problem."""
+    groups = _validated(inst, path)[0]
+    sources = {g.source for g in groups if g.source == ProjectSource.RESOLVED or g.project != "."}
+    mixed = (
+        [
+            f"warning: {path.parent.name} mixes groups with a project written in the heading and "
+            "groups that resolve to one from their paths; name the project in every group "
+            f"(`abk tags --fix-projects {path.parent.name}` writes it for the groups whose "
+            "units have not started)"
+        ]
+        if sources == {ProjectSource.EXPLICIT, ProjectSource.RESOLVED}
+        else []
+    )
     return [
+        *mixed,
         *cross_repo_needs_notes(
             path,
             inst.changes_dir,
@@ -7151,8 +7166,8 @@ def _tag_warnings(inst: Installation, path: Path) -> list[str]:
         ),
         *old_test_kind_warnings(path),
         *redundant_separate_warnings(path),
-        *product_path_warnings(path, _validated(inst, path)[0], inst.repos),
-        *task_wording_warnings(path, _validated(inst, path)[0]),
+        *product_path_warnings(path, groups, inst.repos),
+        *task_wording_warnings(path, groups),
         *manual_runbook_warnings(path, inst.root),
         *inverted_group_warnings(
             path,
@@ -7181,10 +7196,22 @@ def _rehashed(
     return {change: record | {"hash": text_digest(written, None, resolved)}}
 
 
+def _masked(groups: Sequence[TaskGroup]) -> list[TaskGroup]:
+    """`groups` with the project and how it was decided left out, to compare two parses of a
+    file whose headings differ only in the project they name."""
+    return [g.model_copy(update={"project": ".", "source": ProjectSource.ROOT}) for g in groups]
+
+
 def _fix_change_tags(
-    inst: Installation, change: str, cycles: Mapping[str, str], *, dry_run: bool
+    inst: Installation,
+    change: str,
+    cycles: Mapping[str, str],
+    *,
+    dry_run: bool,
+    projects: bool = False,
 ) -> bool:
-    """Rewrite the old test-kind tags of one change's tasks.md and print what happened; whether
+    """Rewrite the old test-kind tags of one change's tasks.md, or with `projects` write the
+    project each unstarted group resolved to into its heading, and print what happened; whether
     it was handled, and not refused. A change is written only when the rewritten text parses to
     the same groups and the original had no other tag problem."""
     path = tasks_path(change, inst.changes_dir)
@@ -7212,17 +7239,44 @@ def _fix_change_tags(
             for error in errors:
                 print(f"{path}:{error}")
             return refuse(f"{len(errors)} other problem(s), run `abk tags {change}`")
-        fixed, count = retag_headings(text, current_tag)
+        if projects:
+            started = {
+                number
+                for unit in UnitStore(inst.state_dir / "units.json").all()
+                if unit.state in _STARTED
+                for number in _carried_groups(unit, change)
+            }
+            for group in before:
+                if group.source == ProjectSource.ROOT:
+                    print(f"{change}: group {group.number} ({group.title}) stays in the root")
+            fixed, count = retag_projects(
+                text,
+                {
+                    g.number: g.project
+                    for g in before
+                    if g.source == ProjectSource.RESOLVED and g.number not in started
+                },
+            )
+        else:
+            fixed, count = retag_headings(text, current_tag)
         if not count:
             print(f"{change}: unchanged")
             return True
         after, after_errors = validate_tasks_text(fixed, change, **_validation_scope(inst))
-        if (before, []) != (after, after_errors):
+        if projects:
+            same = (_masked(before), []) == (_masked(after), after_errors)
+        else:
+            same = (before, []) == (after, after_errors)
+        if not same:
             return refuse("the rewritten tags do not parse to the same groups; nothing written")
         if not os.access(path, os.W_OK):
             return refuse(f"{path} is read-only")
         if dry_run:
-            print(f"{change}: would rewrite {count} tag(s)")
+            print(
+                f"{change}: would tag {count} group(s)"
+                if projects
+                else f"{change}: would rewrite {count} tag(s)"
+            )
             return True
         try:
             atomic_write_bytes(path, fixed.encode())
@@ -7231,20 +7285,28 @@ def _fix_change_tags(
         # A plan that stood before the rewrite stands after it: keep the record's other fields
         # and move its hash to the rewritten text, whatever mix of spellings it hashed. Judged
         # under the plans lock, against the record as it is and the text that was read.
-        update_plans(
-            inst, lambda records: _rehashed(records, change, text, fixed, resolved_projects(before))
-        )
-    print(f"{change}: rewrote {count} tag(s)")
+        # Writing the projects changes the digest on purpose, so their plans are not rehashed.
+        if not projects:
+            update_plans(
+                inst,
+                lambda records: _rehashed(records, change, text, fixed, resolved_projects(before)),
+            )
+    print(f"{change}: tagged {count} group(s)" if projects else f"{change}: rewrote {count} tag(s)")
     return True
 
 
 def cmd_tags(args: argparse.Namespace, inst: Installation) -> int:
     """Validate a change's task-group tags (or every change's), or with `--fix` rewrite the old
-    test-kind tags of the open changes."""
-    fix = getattr(args, "fix", False)
-    command = "abk tags --fix" if fix else "abk tags"
+    test-kind tags of the open changes, or with `--fix-projects` write the resolved projects into
+    their headings; `--dry-run` goes with either."""
+    fix_projects = getattr(args, "fix_projects", False)
+    fix = getattr(args, "fix", False) or fix_projects
+    command = "abk tags --fix-projects" if fix_projects else "abk tags --fix" if fix else "abk tags"
+    if getattr(args, "fix", False) and fix_projects:
+        print("abk tags: give --fix or --fix-projects, not both", file=sys.stderr)
+        return 2
     if getattr(args, "dry_run", False) and not fix:
-        print("abk tags: --dry-run needs --fix", file=sys.stderr)
+        print("abk tags: --dry-run needs --fix or --fix-projects", file=sys.stderr)
         return 2
     if args.all and args.change:
         print(f"{command}: give a change or --all, not both", file=sys.stderr)
@@ -7260,7 +7322,10 @@ def cmd_tags(args: argparse.Namespace, inst: Installation) -> int:
     if fix:
         dry_run = getattr(args, "dry_run", False)
         cycles = _needs_cycle_problems(inst)
-        handled = [_fix_change_tags(inst, change, cycles, dry_run=dry_run) for change in changes]
+        handled = [
+            _fix_change_tags(inst, change, cycles, dry_run=dry_run, projects=fix_projects)
+            for change in changes
+        ]
         return 0 if all(handled) else 1
     failed = 0
     cycles = _needs_cycle_problems(inst)
@@ -8282,7 +8347,14 @@ def register(sub: argparse._SubParsersAction) -> None:
         "--fix", action="store_true", help="rewrite the old test-kind tags of open changes"
     )
     tags.add_argument(
-        "--dry-run", action="store_true", help="with --fix, print what would be rewritten"
+        "--fix-projects",
+        action="store_true",
+        help="write the project each unstarted group resolved to into its heading",
+    )
+    tags.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="with --fix or --fix-projects, print what would be rewritten",
     )
     tags.set_defaults(func=cmd_tags)
 
