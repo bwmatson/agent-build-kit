@@ -1,5 +1,8 @@
 """Drives a unit's thread the way the engine does: one call per tick, each on a
-new connection to the same checkpoint file, as a new process has."""
+new connection to the same checkpoint file, as a new process has.
+
+Every test whose module takes `tick` or `run_on_graph`, or a helper that wraps them, is held to
+`GRAPH_DRIVER_TIME_LIMIT` by the collection hook in `tests/conftest.py`."""
 
 from __future__ import annotations
 
@@ -19,6 +22,9 @@ from agent_build_kit.pipeline.units import Unit, branch_name
 from agent_build_kit.pipeline.workspaces import branch_lock
 from tests.factories import unit
 from tests.runner_fakes import Recorder, make_runner
+from tests.time_limit import LOADED_TEST_TIME_LIMIT
+
+GRAPH_DRIVER_TIME_LIMIT = LOADED_TEST_TIME_LIMIT
 
 
 class FakeTracer:
