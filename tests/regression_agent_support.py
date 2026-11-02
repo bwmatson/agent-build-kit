@@ -60,7 +60,7 @@ TASKS = """\
 
 Acceptance: none — nothing a consumer sees changes.
 
-## 1. [app] [unit-test]{flag} Read the label when it is rendered
+## 1. [app] [unit-test]{flag} Make `{test}` deterministic
 
 {priority}Done when the test passes.
 
@@ -173,7 +173,7 @@ def write_change(
         proposal.format(test=test, base=BASE, exposure=exposure, kind=kind)
     )
     (root / "design.md").write_text("## Context\n\nThe label is read too early.\n")
-    (root / "tasks.md").write_text(tasks or TASKS.format(flag=flag, priority=priority))
+    (root / "tasks.md").write_text(tasks or TASKS.format(flag=flag, priority=priority, test=test))
     (root / "specs" / "label" / "spec.md").write_text(spec)
 
 
@@ -209,10 +209,11 @@ def run(
     runtime: StandInRuntime,
     *,
     kind: FixKind = FixKind.REGRESSION,
+    failed: Flake | None = None,
 ) -> FixOutcome:
     return run_regression_agent(
         inst,
-        failure(),
+        failed or failure(),
         stored_unit("feature/1", change="feature", groups=(1,)),
         kind=kind,
         base=BASE,

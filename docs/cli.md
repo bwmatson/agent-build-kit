@@ -167,7 +167,9 @@ when the profile reads none. At each
 planning pass a planned unit that never started, whose change directory no longer exists, becomes
 `unplanned`, and a unit waiting on it stops waiting. A `flaky:` line lists each flaky test with
 its count and fix change, and a `pre-existing:`
-line each test that failed e2e-test on the base too, with how many times and its fix change.
+line each test that failed on the base too, with how many times, its fix change (`fix-test-…`) and the
+regression agent's judgement of whether the test or the implementation is wrong. `abk explain` names the same change and
+judgement for a unit waiting on it.
 An `e2e-test:` line names the unit holding the e2e-test lock and for how long; a record left by a
 process that is gone, on a free lock, is shown as stale, a held lock whose recorded process is gone
 says so, and a free lock with no record prints nothing.

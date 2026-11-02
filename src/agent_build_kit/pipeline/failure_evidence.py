@@ -2,17 +2,23 @@
 
 Three samples feed the bundle `run_log.write_failure_bundle` saves: what the machine was doing,
 what the worktree held, and what the run was. Each is a fixed list of facts, never the
-environment, and a sample that cannot be taken is left out and not raised.
+environment, and a sample that cannot be taken is left out and not raised. `change_evidence`
+builds the section the kit itself (not the agent) appends to a fix change's `design.md`.
 """
 
 from __future__ import annotations
 
+import json
 import os
+import re
 import subprocess
 from collections.abc import Callable
+from datetime import datetime, timedelta
 from pathlib import Path
 
+from agent_build_kit.pipeline.run_log import run_ledger_path
 from agent_build_kit.profiles.base import ToolchainProfile
+from agent_build_kit.scrub_terms import ROOT_HOME
 
 # The most entries a listing in a bundle holds.
 LISTING_CAP = 5000
@@ -95,3 +101,80 @@ def shas(run: Run, where: Path, base: str) -> dict[str, str]:
         "base": _git(run, where, "rev-parse", base).strip(),
         "head": _git(run, where, "rev-parse", "HEAD").strip(),
     }
+
+
+EVIDENCE_HEADING = "## Evidence of the first failure"
+
+
+_HOME_PREFIX = re.compile(rf"{ROOT_HOME}[^/\s\"'`:]+")
+
+
+def tilde_home(text: str) -> str:
+    """`text` with each home directory (`/home/<name>`, `/Users/<name>`) written as `~`, so a
+    section that is committed names no user."""
+    return _HOME_PREFIX.sub("~", text)
+
+
+def _ledger_rows(state_dir: Path, unit: str, ran_at: datetime | None) -> list[str]:
+    """The rows of the ledger of unit-test runs that are `unit`'s and whose run window (its start
+    to its start plus its seconds) holds `ran_at`, the time the failing command began, which is
+    later than the start the row records."""
+    if ran_at is None:
+        return []
+    try:
+        lines = run_ledger_path(state_dir).read_text().splitlines()
+    except OSError:
+        return []
+    rows = []
+    for line in lines:
+        try:
+            row = json.loads(line)
+            started = datetime.fromisoformat(row["started"])
+            ended = started + timedelta(seconds=float(row["seconds"]))
+        except (ValueError, KeyError, TypeError):
+            continue
+        if row.get("unit") == unit and started <= ran_at <= ended:
+            rows.append(tilde_home(json.dumps(row, sort_keys=True)))
+    return rows
+
+
+def change_evidence(
+    state_dir: Path,
+    *,
+    unit: str,
+    output: str,
+    bundle: str,
+    ran_at: datetime | None,
+    conditions: dict[str, object],
+) -> str:
+    """The section a fix change's `design.md` carries about the first failure: its output, the
+    conditions, the ledger rows of the run, and the bundle's path and `machine.json` when the
+    failure has a bundle. It stands on its own once the test no longer fails."""
+    parts = [
+        EVIDENCE_HEADING,
+        "",
+        "Output of the failing run:",
+        "",
+        f"```\n{tilde_home(output.strip())}\n```",
+    ]
+    if conditions:
+        shown = tilde_home(json.dumps(conditions, default=str))
+        parts += ["", "Conditions:", "", f"```json\n{shown}\n```"]
+    rows = _ledger_rows(state_dir, unit, ran_at)
+    if rows:
+        parts += ["", "Rows of the run in the ledger of unit-test runs:", ""]
+        parts += [f"- `{row}`" for row in rows]
+    if bundle and Path(bundle).is_dir():
+        try:
+            named = Path(bundle).relative_to(state_dir).as_posix()
+        except ValueError:
+            named = Path(bundle).name
+        parts += ["", f"Bundle of the failing run, under the state directory: `{named}`"]
+        try:
+            machine = (Path(bundle) / "machine.json").read_text().strip()
+        except OSError:
+            machine = ""
+        if machine:
+            parts += ["", "What the machine was doing (`machine.json`):", ""]
+            parts += [f"```json\n{tilde_home(machine)}\n```"]
+    return "\n".join(parts) + "\n"

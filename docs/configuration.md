@@ -175,7 +175,8 @@ runtimes:                       # one entry per runtime that needs a fact abk
       rework_review: opus       # every review of a rework. Both reviews default
                                 # to a different model from the author's; if the
                                 # author is set to opus, set this to another
-      regression: opus          # works out why a test fails and writes the fix change
+      regression: opus          # the `regression` role: works out why a test fails and
+                                # writes the fix change
       plan: opus                # the planner's graph call
     context_windows: {}         # model id or alias -> window in tokens, for when the
                                 # result does not name it (read by this runtime only;
@@ -342,7 +343,8 @@ global_limits:
                                 # auto (default; the mode follows its record), resume,
                                 # rework, or off (only a person requeues it)
   max_regression_runs_per_hour: 10  # most regression-agent runs the pipeline starts in
-                                # an hour; at least 1
+                                # an hour; at least 1. A storm of failures of
+                                # one test costs one run
   label_sweep_per_tick: 20      # finished units' pull requests whose stale state
                                 # label a round takes off (each tick and each
                                 # refresh of a pass), at least 1

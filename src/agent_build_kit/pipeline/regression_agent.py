@@ -27,6 +27,7 @@ from agent_build_kit.pipeline.commit_order import (
     TEST_FILE_SUFFIXES,
 )
 from agent_build_kit.pipeline.external_file import HELD, Hold, add_hold, already_held, read_holds
+from agent_build_kit.pipeline.failure_evidence import EVIDENCE_HEADING, change_evidence
 from agent_build_kit.pipeline.file_lock import (
     Clock,
     LockTimeout,
@@ -39,6 +40,7 @@ from agent_build_kit.pipeline.flakes import (
     FAILING_TEST_LINE,
     Flake,
     add_needs_to_unit,
+    first_group_test,
     fix_change_name,
     flake_record,
     is_fix_change,
@@ -169,6 +171,12 @@ failing test on a line of its own too, exactly `{failing_label} {test}`: the kit
 reproduce the failure when the change is built. And the kind of failure on a line of its own,
 exactly `{kind_label} {kind}`.
 
+Title group 1 of tasks.md "Make `<test>` deterministic", with the failing test's id in place of
+`<test>` and the same wording for a test that cannot be reproduced: the kit reads the test from
+that title, beside the `Failing test:` line of the proposal, to run a fix unit's reproduction
+check. Do not put a task to reproduce the race in the
+group of a cause in test code.
+
 The change is named `{change}`. Its tasks.md carries a `Priority:` line and a task group
 flagged `[contract]`. If you cannot decide which side is wrong, end your answer with the line
 `{undecided}` and write the change anyway.
@@ -185,6 +193,18 @@ For a cause in test code, the proposal also carries a line `Standard: T<n>` (for
 `Standard: T5`) naming the standard of the test catalogue the cause breaks: {standards}.
 Place any test by the placement rule (T2): a new case joins the existing test file for the
 module it exercises, and a new test file is asked for only for a new logic file.
+
+The kit adds the first failure's evidence to design.md after your run: the run's output, its
+conditions, its ledger rows (`load_start`, `load_end`, workers) and the bundle's `machine.json`.
+It is given here, between the lines, so you need not look for it; do not copy it into design.md.
+Say whether the cause is load, a shared resource (name T8a when the setup is repeated in each
+test) or code. A fix unit may build the change when the test no longer fails, so the cause and the
+evidence must stand on their own in the change, and the change must say
+what would show the cause is gone.
+
+----- evidence of the first failure -----
+{first_failure}
+----- end of the evidence -----
 
 Same exposure. Once you have judged the cause, say whether it is a pattern: a helper or fixture
 many tests call that repeats work or is slow, a test that reads or walks a directory the run or
@@ -269,7 +289,16 @@ def run_regression_agent(
         else ""
     )
     earlier = failure_history(inst, failure.test, evidence=True)
+    first_failure = change_evidence(
+        inst.state_dir,
+        unit=failure.unit or unit.id,
+        output=failure.failure or failure.output,
+        bundle=failure.evidence,
+        ran_at=failure.ran_at,
+        conditions=failure.conditions,
+    )
     prompt = PROMPT.format(
+        first_failure=first_failure,
         test=failure.test,
         directory=root,
         change=name,
@@ -345,13 +374,26 @@ def run_regression_agent(
         if not result.succeeded:
             reason = result.error or result.stop_reason or "no reason given"
             stopped = FixOutcome(change=name, held=True, reason=f"the agent's run failed: {reason}")
-        elif UNDECIDED in result.text:
+            return []
+        # A change held as undecided is read by a person later, and built when the test no longer
+        # fails: it carries the evidence too.
+        record_evidence(root / "design.md")
+        if UNDECIDED in result.text:
             stopped = FixOutcome(
                 change=name, held=True, reason="the agent could not decide which side is wrong"
             )
-        else:
-            return _problems(inst, name, failure.test, kind, run_openspec, cwd)
-        return []
+            return []
+        return _problems(inst, name, failure.test, kind, run_openspec, cwd)
+
+    def record_evidence(design: Path) -> None:
+        """Add the first failure's evidence to the design the agent wrote, unless it is there."""
+        try:
+            written = design.read_text()
+        except OSError:
+            return
+        if EVIDENCE_HEADING in written:
+            return
+        design.write_text(f"{written.rstrip()}\n\n{first_failure}")
 
     try:
         problems = repair_once(
@@ -438,11 +480,11 @@ def _problems(
     cwd: Path,
 ) -> list[str]:
     """What is wrong with the change `name` for `test`: a file missing, what OpenSpec or the
-    tags check refuses, no `[contract]` group, no `Priority:` line, no judgement line, no
-    `Failing test:` line naming `test` or no `Kind:` line naming `kind` in the proposal, the
-    tasks of a test-code fix or a source fix and the placement of a new test file
-    (`_test_code_problems`), a test-code proposal with no `Standard:` line, and the `Same
-    exposure` section."""
+    tags check refuses, no `[contract]` group, a group 1 not titled for `test`, no `Priority:`
+    line, no judgement line, no `Failing test:` line naming `test` or no `Kind:` line naming
+    `kind` in the proposal, the tasks of a test-code fix or a source fix and the placement of a
+    new test file (`_test_code_problems`), a test-code proposal with no `Standard:` line, and
+    the `Same exposure` section."""
     root = inst.changes_dir / name
     missing = [file for file in CHANGE_FILES if not (root / file).is_file()]
     if not any((root / "specs").glob("*/spec.md")):
@@ -472,6 +514,11 @@ def _problems(
     told = KIND_LINE.search((root / "proposal.md").read_text())
     if not told or told["kind"] != kind.value:
         found.append(f"proposal.md: no line `{KIND_LABEL} {kind.value}` naming the kind of failure")
+    if first_group_test(tasks.read_text()) != test:
+        found.append(
+            f'tasks.md: group 1 is not titled "Make `<test>` deterministic" with the id '
+            f"`{test}`, which the reproduction check of a fix unit reads"
+        )
     if not JUDGEMENT_LINE.search((root / "proposal.md").read_text()):
         found.append(
             "proposal.md: no judgement line, worded "
