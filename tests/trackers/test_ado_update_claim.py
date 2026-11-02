@@ -80,6 +80,20 @@ def test_an_unassigned_group_item_is_claimed() -> None:
     assert tracker.get(group).assignees == (SYNC,)
 
 
+def test_clearing_the_assignee_sends_an_empty_value_and_leaves_the_field_absent() -> None:
+    host = WorkItemHost()
+    group = host.seed("Task", "Group")
+    tracker = tracker_on(host)
+    assert tracker.claim(group) is True
+
+    tracker.set_assignee(group, "")
+
+    patch = host.calls("PATCH", f"wit/workitems/{group}")[-1].body
+    assert {"op": "add", "path": "/fields/System.AssignedTo", "value": ""} in patch
+    assert "System.AssignedTo" not in host.items[int(group)]["fields"]
+    assert tracker.get(group).assignees == ()
+
+
 def test_a_group_item_assigned_elsewhere_in_the_meantime_is_not_held() -> None:
     host = WorkItemHost()
     group = host.seed("Task", "Group")

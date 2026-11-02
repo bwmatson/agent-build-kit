@@ -81,6 +81,7 @@ def test_a_repository_s_listing_is_the_same_records_as_before() -> None:
         PullRequest(
             number=162,
             title="add-marker/162: Register the marker",
+            body="Registers the marker.\n\nTakes AB#162.",
             head="spec/add-marker/162",
             base="main",
             state="open",
@@ -101,6 +102,7 @@ def test_a_repository_s_listing_is_the_same_records_as_before() -> None:
         PullRequest(
             number=157,
             title="add-marker/157: Register the marker",
+            body="Registers the marker.\n\nTakes AB#157.",
             head="spec/other/1",
             base="spec/other/0",
             state=MERGED,
@@ -109,6 +111,7 @@ def test_a_repository_s_listing_is_the_same_records_as_before() -> None:
         PullRequest(
             number=158,
             title="add-marker/158: Register the marker",
+            body="Registers the marker.\n\nTakes AB#158.",
             head="spec/add-marker/158",
             base="main",
             state=CLOSED,
@@ -117,6 +120,7 @@ def test_a_repository_s_listing_is_the_same_records_as_before() -> None:
         PullRequest(
             number=159,
             title="add-marker/159: Register the marker",
+            body="Registers the marker.\n\nTakes AB#159.",
             head="spec/add-marker/159",
             base="main",
             state="open",

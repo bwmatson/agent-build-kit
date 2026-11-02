@@ -76,6 +76,7 @@ def pull(
         "id": f"PR_kwDOAAAAAc{number:08d}",
         "number": number,
         "title": f"add-marker/{number}: Register the marker",
+        "body": f"Registers the marker.\n\nTakes AB#{number}.",
         "headRefName": head or f"spec/add-marker/{number}",
         "baseRefName": base,
         "state": state,

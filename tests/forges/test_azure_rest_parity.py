@@ -58,6 +58,8 @@ def test_a_project_s_listing_is_the_same_records_as_before() -> None:
         labels=[{"id": "x", "name": "in-review"}, {"id": "y", "name": "abk"}],
         reviewers=[azure_answers.reviewer(-10)],
     )
+    # The service leaves `description` out of a pull request that has none.
+    del reviewed["description"]
     host = RestHost(
         azure_answers.OPEN,
         reviewed,
@@ -81,6 +83,7 @@ def test_a_project_s_listing_is_the_same_records_as_before() -> None:
         PullRequest(
             number=162,
             title="add-marker/1: Register the marker",
+            body="Registers the marker.\n\nTakes AB#4.",
             head="spec/add-marker/1",
             base="main",
             state="open",
@@ -113,6 +116,7 @@ def test_a_project_s_listing_is_the_same_records_as_before() -> None:
         PullRequest(
             number=157,
             title="add-marker/1: Register the marker",
+            body="Registers the marker.\n\nTakes AB#4.",
             head="spec/add-marker/1",
             base="main",
             state=MERGED,
@@ -121,6 +125,7 @@ def test_a_project_s_listing_is_the_same_records_as_before() -> None:
         PullRequest(
             number=158,
             title="add-marker/1: Register the marker",
+            body="Registers the marker.\n\nTakes AB#4.",
             head="spec/add-marker/1",
             base="main",
             state="closed",

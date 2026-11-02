@@ -247,7 +247,11 @@ class WorkItemHost(httpx.MockTransport):
                 doc["relations"].append(op["value"])
             elif op["op"] in ("add", "replace") and op["path"].startswith("/fields/"):
                 name, value = op["path"].removeprefix("/fields/"), op["value"]
-                doc["fields"][name] = _person(value) if name == "System.AssignedTo" else value
+                if name == "System.AssignedTo" and value == "":
+                    # The service answers a cleared identity as an absent field.
+                    doc["fields"].pop(name, None)
+                else:
+                    doc["fields"][name] = _person(value) if name == "System.AssignedTo" else value
         doc["rev"] += 1
         return answer(self._shown(doc, params))
 

@@ -34,6 +34,7 @@ OPEN = {
     "sourceRefName": "refs/heads/spec/add-marker/1",
     "targetRefName": "refs/heads/main",
     "title": "add-marker/1: Register the marker",
+    "description": "Registers the marker.\n\nTakes AB#4.",
     "reviewers": [],
     "supportsIterations": True,
     "url": f"{_URL}/162",
