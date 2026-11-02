@@ -139,6 +139,8 @@ class CommitEdge(_Graph):
 
 class PullNode(_Graph):
     number: int
+    title: str | None = None
+    body: str | None = None
     head_ref_name: str = ""
     base_ref_name: str = ""
     state: str = ""

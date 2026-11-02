@@ -117,7 +117,7 @@ query($owner: String!, $name: String!, $cursor: String) {
     pullRequests(first: 100, after: $cursor, orderBy: {field: CREATED_AT, direction: DESC}) {
       pageInfo { hasNextPage endCursor }
       nodes {
-        number headRefName baseRefName state isDraft mergedAt mergeable reviewDecision
+        number title body headRefName baseRefName state isDraft mergedAt mergeable reviewDecision
         labels(first: 100) { nodes { name } }
         comments(first: 100) { nodes { id body } }
         reviews(first: 100) { nodes { id state } }
@@ -994,6 +994,8 @@ def _view(pull: PullNode) -> PullRequest:
     checks = _rollup(pull.commits)
     return PullRequest(
         number=pull.number,
+        title=pull.title or "",
+        body=pull.body or "",
         head=pull.head_ref_name,
         base=pull.base_ref_name,
         state=(

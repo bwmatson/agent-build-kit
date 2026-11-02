@@ -139,6 +139,16 @@ def assign_someone_else(shape: Shape) -> None:
     assert shape.tracker.get(item.id).assignees == ("someone",)
 
 
+def clear_the_assignee(shape: Shape) -> None:
+    item = shape.top()
+    assert shape.tracker.claim(item.id) is True
+
+    cleared = shape.tracker.set_assignee(item.id, "")
+
+    assert cleared.assignees == ()
+    assert shape.tracker.get(item.id).assignees == ()
+
+
 def comment(shape: Shape) -> None:
     """Only that the call is accepted: the protocol has no way to read a comment back."""
     if not shape.tracker.capabilities().comment:
@@ -201,6 +211,7 @@ SCENARIOS: dict[str, Callable[[Shape], None]] = {
         update_conditionally,
         assign_and_claim_with_a_competitor,
         assign_someone_else,
+        clear_the_assignee,
         comment,
         link,
         changes_since_a_cursor_made_by_another_identity,

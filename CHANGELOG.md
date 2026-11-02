@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- A unit of a repo with a tracker no longer starts when someone else has already started it: a
+  remote branch or pull request with the unit's branch name, or an open pull request on any
+  other branch of the repo whose title or description carries the `AB#` reference of a board
+  item the unit covers, holds it, and the reason says which. A unit with a branch or pull
+  request of its own is not checked, and neither are the kit's own pull requests. A claim that
+  fails partway is released, and every claim and its outcome is recorded in the unit's history.
+
 - The architecture document now has a "Work tracker" section describing the parts of the tracker
   as what they do when called (the wanted board, the reconciler, the manual parent an `Epic:`
   line names) and what a tick runs today: the start gate that reads who owns a unit's board
@@ -38,7 +45,10 @@
 - For a repo with a tracker, a planned unit is not started while a board item it covers (the
   group items, or the lowest level in use, and any task items under them) is assigned to
   someone other than the identity of the kit's tracker credential; it waits when the board has
-  no item for it yet. A repo with no tracker section starts units as before.
+  no item for it yet. A repo with no tracker section starts units as before. When the items are
+  free, the kit assigns them to its own identity before it starts the unit, records each claim
+  in the unit's history, and leaves the unit unstarted (releasing what it claimed) if another
+  person got an item first.
 
 - A change's `tasks.md` may carry one `Epic: <board item id or exact title>` header line
   above its first group, naming an existing board item made by a person. `abk tags` reports a

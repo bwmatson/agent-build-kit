@@ -487,7 +487,7 @@ from agent_build_kit.runtimes import AgentRateLimited, NetworkUnavailable, Servi
 from agent_build_kit.runtimes.guards import guard_lines
 from agent_build_kit.serve.review import ReviewStore
 from agent_build_kit.trackers.report import standing
-from agent_build_kit.trackers.start_decision import start_gate
+from agent_build_kit.trackers.start_decision import RoundReads, start_gate
 from agent_build_kit.trackers.tick_step import note_state_change, sync_trackers
 from agent_build_kit.tracks.runner import RUN_ID, publish_commit
 
@@ -2515,9 +2515,11 @@ def run_round(
     )
     resumable = _within_workers(waiting_to_resume, taken, cap=inst.max_concurrent_stacks)
     resumed = {unit.id for unit in resumable}
+    reads = RoundReads()
     evaluated, view, _excluded, for_the_lane, lane_starts = _evaluate_round(
         inst,
         units,
+        reads=reads,
         started=set(started),
         building=in_flight | resumed | lane_running,
         only=only,
@@ -2558,6 +2560,9 @@ def run_round(
                 refused[unit.id] = decision.reason
     evaluated = [unit for unit in evaluated if unit.id not in refused]
     lane_starts = lane_starts - refused.keys()
+    if not dry_run:
+        evaluated = _claim_starts(inst, store, units, evaluated, reads)
+        lane_starts = lane_starts & {unit.id for unit in evaluated}
     ready = [*resumable, *evaluated]
     for unit in evaluated:
         if unit.id in lane_starts and not dry_run:
@@ -2593,6 +2598,27 @@ def run_round(
             decided=decided,
         )
     return ready
+
+
+def _claim_starts(
+    inst: Installation,
+    store: UnitStore,
+    units: list[StoredUnit],
+    evaluated: list[Unit],
+    reads: RoundReads,
+) -> list[Unit]:
+    """The units that may start once the board items they cover are the kit's: each claim is
+    recorded in the unit's history, and a unit whose claim is lost is left for a later tick."""
+    kept: list[Unit] = []
+    for unit in evaluated:
+        decision = start_gate(unit, units, changes_dir=inst.changes_dir, claim=True, reads=reads)
+        for attempt in decision.attempts:
+            store.record_event(unit.id, "claim", item=attempt.item, outcome=attempt.outcome)
+        if decision.outcome == "start":
+            kept.append(unit)
+        else:
+            log(f"{unit.id} is not started: {decision.reason}")
+    return kept
 
 
 def _slot_label(slot: Hashable) -> str:
@@ -3566,6 +3592,7 @@ def _evaluate_round(
     idle: Collection[str] = (),
     owed: Collection[str] | None = None,
     emergency_extra: int | None = None,
+    reads: RoundReads | None = None,
 ) -> tuple[list[Unit], list[Unit], frozenset[str], frozenset[str], frozenset[str]]:
     """What this pass may start now, the graph it chose from, the units it left out, the
     planned units owed a restack, which wait for the lane's move and for nothing else, and
@@ -3595,6 +3622,8 @@ def _evaluate_round(
     """
     view: list[Unit] = []
     excluded: set[str] = set()
+    # One listing of a repo's pull requests serves every unit this evaluation asks about.
+    reads = reads or RoundReads()
     now = spans.clock.now()
     # A unit no run holds that records a usage pause is in progress and holds its place, with no
     # worker: it is shown running, never held (`ready_units`, `no_worker`).
@@ -3630,7 +3659,7 @@ def _evaluate_round(
             or unit.id in external
             # Someone else owns what it covers on the board, or the board has no item yet; a
             # unit already in progress is the kit's and is not asked.
-            or start_gate(unit, units, changes_dir=inst.changes_dir).outcome != "start"
+            or start_gate(unit, units, changes_dir=inst.changes_dir, reads=reads).outcome != "start"
         ):
             unit = unit.model_copy(update={"state": HELD})
             excluded.add(unit.id)

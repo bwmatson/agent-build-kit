@@ -125,9 +125,10 @@ class Tracker(Protocol):
 
     def children(self, item_id: str) -> Sequence[Item]: ...
 
-    def set_assignee(
-        self, item_id: str, who: str, expected_revision: str | None = None
-    ) -> Item: ...
+    def set_assignee(self, item_id: str, who: str, expected_revision: str | None = None) -> Item:
+        """Assign the item to `who`; the empty name clears the assignment, leaving `assignees`
+        empty."""
+        ...
 
     def claim(self, item_id: str) -> bool: ...
 
