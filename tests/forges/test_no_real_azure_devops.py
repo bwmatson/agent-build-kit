@@ -16,15 +16,15 @@ import pytest
 from agent_build_kit import forges
 from agent_build_kit.cli.doctor import run_doctor
 from agent_build_kit.config import dump
-from agent_build_kit.forges.azure_devops import AzureDevOpsForge
 from tests.conftest import make_installation
 
 
 def test_the_registered_azure_devops_forge_has_a_stand_in_host() -> None:
     forge = forges.get("azure_devops")
 
-    assert isinstance(forge, AzureDevOpsForge)
-    assert forge.http is not None
+    # The registry hands out the forge behind its retry layer, which passes the rest through.
+    assert forge.name == "azure_devops"
+    assert forge.http is not None  # type: ignore[attr-defined]
 
 
 def test_the_doctor_checks_an_azure_devops_repo_without_reaching_the_network(

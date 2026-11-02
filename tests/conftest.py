@@ -25,6 +25,7 @@ import uuid
 from collections.abc import Callable, Iterator, Sequence
 from pathlib import Path
 
+import httpx
 import pytest
 import yaml
 
@@ -34,7 +35,8 @@ from agent_build_kit import installation as installation_module
 from agent_build_kit.cli import doctor
 from agent_build_kit.cli import pipeline as pipeline_cli
 from agent_build_kit.config import RepoConfig, WorkspaceConfig
-from agent_build_kit.forges import github
+from agent_build_kit.forges import azure_devops, github
+from agent_build_kit.forges.azure_devops import AzureDevOpsForge
 from agent_build_kit.forges.github import GitHubForge
 from agent_build_kit.forges.transport import clear_credentials
 from agent_build_kit.installation import Installation, load_installation
@@ -42,6 +44,7 @@ from agent_build_kit.pipeline.unit_store import StoredUnit, UnitStore
 from agent_build_kit.runtimes import claude_code
 from tests import regression_agent_fakes
 from tests.checkout_env import without_checkout_env
+from tests.forges.azure_rest_host import refusal
 from tests.forges.github_server import FakeGitHub
 from tests.forges.mock_host import MockHost, ok, recorded
 from tests.sandboxes.stand_in import StandInBackend
@@ -335,6 +338,18 @@ def no_real_github() -> Iterator[None]:
     forges.register(GitHubForge(http=MockHost(ok({"message": "Not Found"}, 404))))
     yield
     forges.register(github.FORGE)
+
+
+@pytest.fixture(autouse=True)
+def no_real_azure_devops() -> Iterator[None]:
+    """The registered Azure DevOps forge answers from a stand-in host, so no caller of
+    `forges.get("azure_devops")` reads dev.azure.com, for up to the forge timeout a read.
+    A test that wants answers builds its own `AzureDevOpsForge(http=RestHost(...))`."""
+    forges.names()  # load the built-ins before one is replaced
+    host = httpx.MockTransport(lambda request: refusal(404, "no Azure DevOps host in tests"))
+    forges.register(AzureDevOpsForge(http=host))
+    yield
+    forges.register(azure_devops.FORGE)
 
 
 @pytest.fixture(autouse=True)
