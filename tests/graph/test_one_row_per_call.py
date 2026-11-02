@@ -27,6 +27,7 @@ from tests.runner_fakes import Killed
 from tests.runtimes.acp_agent import SESSION as ACP_SESSION
 from tests.runtimes.acp_agent import use_agent
 from tests.runtimes.claude_cli import FakeClaude, finished_build
+from tests.time_limit import LOADED_TEST_TIME_LIMIT
 
 CLAUDE = "claude_code"
 ACP = "acp"
@@ -73,6 +74,7 @@ def runtime_of(kind: str, tmp_path: Path, *, die_on: int = 0) -> Counted:
 
 
 @pytest.mark.parametrize("kind", [CLAUDE, ACP])
+@pytest.mark.time_limit(LOADED_TEST_TIME_LIMIT)
 def test_a_new_call_writes_one_row(tmp_path: Path, workspace: Installation, kind: str) -> None:
     runtime = runtime_of(kind, tmp_path)
 
@@ -84,6 +86,7 @@ def test_a_new_call_writes_one_row(tmp_path: Path, workspace: Installation, kind
 
 
 @pytest.mark.parametrize("kind", [CLAUDE, ACP])
+@pytest.mark.time_limit(LOADED_TEST_TIME_LIMIT)
 def test_a_resumed_call_writes_one_row(tmp_path: Path, workspace: Installation, kind: str) -> None:
     runtime = runtime_of(kind, tmp_path, die_on=2)
     recorder = fresh(tmp_path)
@@ -103,6 +106,7 @@ def test_a_resumed_call_writes_one_row(tmp_path: Path, workspace: Installation, 
 
 
 @pytest.mark.parametrize("kind", [CLAUDE, ACP])
+@pytest.mark.time_limit(LOADED_TEST_TIME_LIMIT)
 def test_a_continued_call_writes_one_row(
     tmp_path: Path, workspace: Installation, kind: str
 ) -> None:

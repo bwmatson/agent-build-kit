@@ -4,12 +4,16 @@ The ACP runtime declares an empty name for every role, so a node reaches the run
 entry point with no model and the agent runs on its own default. The entry point
 is the real `build_run` closure, over the real `AcpRuntime` and the recorded
 agent: a fake of the entry point declares the model itself and would hide it.
+The real runtime starts the recorded agent as a child process for every call, so a test that
+runs a unit-graph pass over it has the loaded limit.
 """
 
 from __future__ import annotations
 
 from pathlib import Path
 from typing import Any
+
+import pytest
 
 from agent_build_kit import config
 from agent_build_kit.config import models
@@ -24,6 +28,7 @@ from tests.leftovers_driver import Habitat, Hands, step_of
 from tests.runner_fakes import rejecting
 from tests.runtimes.acp_agent import DEFAULT_MODEL, MODEL_AT_PROMPT, SESSION, requests, use_agent
 from tests.runtimes.stand_in import StandInRuntime
+from tests.time_limit import LOADED_TEST_TIME_LIMIT
 
 
 class WritingAcp(AcpRuntime):
@@ -73,6 +78,7 @@ def selected_nothing(record: Path, runtime: WritingAcp) -> None:
     assert [p["model"] for p in at_prompt] == [DEFAULT_MODEL] * len(at_prompt)
 
 
+@pytest.mark.time_limit(LOADED_TEST_TIME_LIMIT)
 def test_the_tests_and_implement_nodes_start_the_agent_with_no_model(tmp_path: Path) -> None:
     record, runtime = on_acp(tmp_path)
     habitat = habitat_on(tmp_path, runtime)
@@ -84,6 +90,7 @@ def test_the_tests_and_implement_nodes_start_the_agent_with_no_model(tmp_path: P
     selected_nothing(record, runtime)
 
 
+@pytest.mark.time_limit(LOADED_TEST_TIME_LIMIT)
 def test_the_fix_checks_node_starts_the_agent_with_no_model(tmp_path: Path) -> None:
     record, runtime = on_acp(tmp_path)
     habitat = habitat_on(tmp_path, runtime)
@@ -97,6 +104,7 @@ def test_the_fix_checks_node_starts_the_agent_with_no_model(tmp_path: Path) -> N
     selected_nothing(record, runtime)
 
 
+@pytest.mark.time_limit(LOADED_TEST_TIME_LIMIT)
 def test_the_rework_node_starts_the_agent_with_no_model(tmp_path: Path) -> None:
     record, runtime = on_acp(tmp_path)
     habitat = habitat_on(tmp_path, runtime)
@@ -110,6 +118,7 @@ def test_the_rework_node_starts_the_agent_with_no_model(tmp_path: Path) -> None:
     selected_nothing(record, runtime)
 
 
+@pytest.mark.time_limit(LOADED_TEST_TIME_LIMIT)
 def test_a_continued_session_reaches_the_agent_with_no_model(tmp_path: Path) -> None:
     """The implement node continues the tests session, which an agent that resumes one holds."""
     record, runtime = on_acp(tmp_path, resume=True, list_sessions=True, sessions=(SESSION,))
@@ -126,6 +135,7 @@ def test_a_continued_session_reaches_the_agent_with_no_model(tmp_path: Path) -> 
     assert state is not None and state.sessions
 
 
+@pytest.mark.time_limit(LOADED_TEST_TIME_LIMIT)
 def test_the_adapt_node_starts_the_agent_with_no_model(tmp_path: Path) -> None:
     record, runtime = on_acp(tmp_path)
     recorder = fresh(tmp_path)
