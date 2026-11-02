@@ -35,12 +35,9 @@ WITHOUT_STANDARD = PROPOSAL.replace(
 )
 
 
-def test_code(standard: str) -> dict[str, str]:
+def cited(standard: str) -> dict[str, str]:
     """The change of a cause in test code that cites `standard`."""
     return {"tasks": group_tasks(FIX_THE_TEST), "proposal": proposal_for_test_code(standard)}
-
-
-test_code.__test__ = False  # type: ignore[attr-defined]  # a helper, not a test
 
 
 def with_checkout(tmp_path: Path) -> None:
@@ -55,7 +52,7 @@ def test_a_proposal_citing_a_standard_of_the_catalogue_is_accepted(
     installation: Installation, tmp_path: Path, standard: str
 ) -> None:
     name = next_fix_name(installation, TEST)
-    agent = Attempts(installation, name, test_code(standard))
+    agent = Attempts(installation, name, cited(standard))
 
     outcome = run(installation, tmp_path, agent.runtime)
 
@@ -68,8 +65,8 @@ def test_a_proposal_citing_a_standard_of_the_catalogue_is_accepted(
     "defect",
     [
         {"proposal": WITHOUT_STANDARD},
-        test_code("T99"),
-        test_code("the wall-clock one"),
+        cited("T99"),
+        cited("the wall-clock one"),
     ],
     ids=["no-line", "not-in-the-catalogue", "not-a-number"],
 )
@@ -78,7 +75,7 @@ def test_a_test_code_proposal_without_a_standard_is_rewritten_once(
 ) -> None:
     name = next_fix_name(installation, TEST)
     broken = {"tasks": group_tasks(FIX_THE_TEST), **defect}
-    agent = Attempts(installation, name, broken, test_code("T5"))
+    agent = Attempts(installation, name, broken, cited("T5"))
 
     outcome = run(installation, tmp_path, agent.runtime)
 
@@ -103,7 +100,7 @@ def test_a_proposal_still_without_a_standard_is_held_for_a_person(
 
 
 def test_the_prompt_states_the_placement_rule(installation: Installation, tmp_path: Path) -> None:
-    agent = Attempts(installation, next_fix_name(installation, TEST), test_code("T5"))
+    agent = Attempts(installation, next_fix_name(installation, TEST), cited("T5"))
 
     run(installation, tmp_path, agent.runtime)
 
@@ -118,8 +115,8 @@ def test_a_task_that_adds_a_test_file_for_a_module_that_has_one_is_rewritten_onc
 ) -> None:
     with_checkout(tmp_path)
     name = next_fix_name(installation, TEST)
-    misplaced = {**test_code("T5"), "tasks": group_tasks(NEW_FILE_FOR_AN_OLD_MODULE)}
-    agent = Attempts(installation, name, misplaced, test_code("T5"))
+    misplaced = {**cited("T5"), "tasks": group_tasks(NEW_FILE_FOR_AN_OLD_MODULE)}
+    agent = Attempts(installation, name, misplaced, cited("T5"))
 
     outcome = run(installation, tmp_path, agent.runtime)
 
@@ -133,7 +130,7 @@ def test_a_task_that_still_adds_a_test_file_for_a_module_that_has_one_is_held(
 ) -> None:
     with_checkout(tmp_path)
     name = next_fix_name(installation, TEST)
-    misplaced = {**test_code("T5"), "tasks": group_tasks(NEW_FILE_FOR_AN_OLD_MODULE)}
+    misplaced = {**cited("T5"), "tasks": group_tasks(NEW_FILE_FOR_AN_OLD_MODULE)}
     agent = Attempts(installation, name, misplaced)
 
     outcome = run(installation, tmp_path, agent.runtime)
