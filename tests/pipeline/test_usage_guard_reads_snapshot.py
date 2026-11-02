@@ -50,7 +50,7 @@ def collect(state_dir: Path, value: UsageReading) -> None:
 def step_decision() -> Decision:
     """The decision a unit's step asks for: a start named for a unit."""
     with starting("feature/1"):
-        return decide_start()
+        return decide_start(from_snapshot=True)
 
 
 def state_of(host: Host) -> Path:

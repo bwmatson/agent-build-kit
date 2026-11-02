@@ -19,6 +19,10 @@
   tick's round keeps, with its age, instead of asking the code host or the usage endpoint
   itself. A snapshot that is missing or too old records a refresh request that the next round
   answers, and the usage guard treats it as an old or unknown reading meanwhile.
+- A unit's build now reads whether its pull request (or its parent's) is merged from the snapshot
+  the poll keeps, instead of asking the code host. A pull request the snapshot lacks records a
+  refresh request for the next round. The usage guard can likewise decide a unit's start from a
+  usage snapshot and its age, without calling the usage endpoint; nothing switches it on yet.
 
 - The architecture document now has a "Work tracker" section describing the parts of the tracker
   as what they do when called (the wanted board, the reconciler, the manual parent an `Epic:`

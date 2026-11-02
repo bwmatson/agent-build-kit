@@ -1846,8 +1846,11 @@ def decide_start(
     estimated_lines: int | None = None,
     account: claude_account.Account | None = None,
     plan_due: bool = False,
+    from_snapshot: bool = False,
 ) -> Decision:
-    """`_decide_start` for `account`'s windows, limits and cache; a refusal on a labelled
+    """`_decide_start` for `account`'s windows, limits and cache; with `from_snapshot`, a start
+    named for a unit is decided from the account's usage snapshot instead, never asking the
+    endpoint (`_decide_from_snapshot`). A refusal on a labelled
     account says which account is full. `step` is the step the start is for and `step_round`
     its round; a step with no round is not recorded. `plan_due` says a plan call is due, whose
     mean cost the forecast reserves. What a `starting` block names is the
@@ -1864,7 +1867,8 @@ def decide_start(
     )
     with on_account(account):
         if (
-            read is None
+            from_snapshot
+            and read is None
             and decide is None
             and ask.unit is not None
             and settings.usage_guard != "off"

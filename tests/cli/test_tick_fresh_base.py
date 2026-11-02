@@ -35,8 +35,6 @@ def test_a_parent_merged_on_the_forge_but_not_in_the_store_is_recorded_during_th
     store.set_state("chain/1", IN_REVIEW, pr=7, branch="spec/chain/1")
     parent_pull = PullRequest(number=7, head="spec/chain/1", base="main", state=MERGED)
     forge = StandInForge(number=21)
-    # The round's poll has recorded the parent's pull request merged.
-    PrState.save(state_path(inst.state_dir, "app"), {"7": snapshot(parent_pull)}, "app")
 
     retargeted: list[tuple[str, str]] = []
     removed: list[str] = []
@@ -58,6 +56,10 @@ def test_a_parent_merged_on_the_forge_but_not_in_the_store_is_recorded_during_th
     )
 
     def runner(unit, *, store: UnitStore, installation, record_merge, log, **kwargs) -> UnitRunner:
+        # The poll records the parent's pull request merged once the child's build is under
+        # way, after the tick's own reconcile of the store has looked.
+        PrState.save(state_path(inst.state_dir, "app"), {"7": snapshot(parent_pull)}, "app")
+
         def commit(message: str, *, cwd: Path, base: str = "") -> int:
             made[0] += 1
             return 1
