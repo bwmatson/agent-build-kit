@@ -27,6 +27,7 @@ from agent_build_kit.pipeline.commit_order import (
     TEST_FILE_SUFFIXES,
 )
 from agent_build_kit.pipeline.external_file import HELD, Hold, add_hold, already_held, read_holds
+from agent_build_kit.pipeline.failure_evidence import EVIDENCE_HEADING, change_evidence
 from agent_build_kit.pipeline.file_lock import (
     Clock,
     LockTimeout,
@@ -185,6 +186,13 @@ For a cause in test code, the proposal also carries a line `Standard: T<n>` (for
 `Standard: T5`) naming the standard of the test catalogue the cause breaks: {standards}.
 Place any test by the placement rule (T2): a new case joins the existing test file for the
 module it exercises, and a new test file is asked for only for a new logic file.
+
+The kit adds the first failure's evidence to design.md: the run's output, its conditions, its
+ledger rows (`load_start`, `load_end`, workers) and the bundle's `machine.json`. Read it, and say
+whether the cause is load, a shared resource (name T8a when the setup is repeated in each test)
+or code. A fix unit may build the change when the test no longer fails, so the cause and the
+evidence must stand on their own in the change, and the change must say
+what would show the cause is gone.
 
 Same exposure. Once you have judged the cause, say whether it is a pattern: a helper or fixture
 many tests call that repeats work or is slow, a test that reads or walks a directory the run or
@@ -350,8 +358,27 @@ def run_regression_agent(
                 change=name, held=True, reason="the agent could not decide which side is wrong"
             )
         else:
+            record_evidence(root / "design.md")
             return _problems(inst, name, failure.test, kind, run_openspec, cwd)
         return []
+
+    def record_evidence(design: Path) -> None:
+        """Add the first failure's evidence to the design the agent wrote, unless it is there."""
+        try:
+            written = design.read_text()
+        except OSError:
+            return
+        if EVIDENCE_HEADING in written:
+            return
+        section = change_evidence(
+            inst.state_dir,
+            unit=failure.unit or unit.id,
+            output=failure.output,
+            bundle=failure.evidence,
+            ran_at=failure.ran_at,
+            conditions=failure.conditions,
+        )
+        design.write_text(f"{written.rstrip()}\n\n{section}")
 
     try:
         problems = repair_once(

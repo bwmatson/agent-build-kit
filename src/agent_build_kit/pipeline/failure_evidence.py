@@ -7,11 +7,14 @@ environment, and a sample that cannot be taken is left out and not raised.
 
 from __future__ import annotations
 
+import json
 import os
 import subprocess
 from collections.abc import Callable
+from datetime import datetime
 from pathlib import Path
 
+from agent_build_kit.pipeline.run_log import run_ledger_path
 from agent_build_kit.profiles.base import ToolchainProfile
 
 # The most entries a listing in a bundle holds.
@@ -95,3 +98,57 @@ def shas(run: Run, where: Path, base: str) -> dict[str, str]:
         "base": _git(run, where, "rev-parse", base).strip(),
         "head": _git(run, where, "rev-parse", "HEAD").strip(),
     }
+
+
+EVIDENCE_HEADING = "## Evidence of the first failure"
+
+
+def _ledger_rows(state_dir: Path, unit: str, ran_at: datetime | None) -> list[str]:
+    """The rows of the ledger of unit-test runs that are `unit`'s run started at `ran_at`."""
+    if ran_at is None:
+        return []
+    try:
+        lines = run_ledger_path(state_dir).read_text().splitlines()
+    except OSError:
+        return []
+    rows = []
+    for line in lines:
+        try:
+            row = json.loads(line)
+            started = datetime.fromisoformat(row["started"])
+        except (ValueError, KeyError, TypeError):
+            continue
+        if row.get("unit") == unit and started == ran_at:
+            rows.append(json.dumps(row, sort_keys=True))
+    return rows
+
+
+def change_evidence(
+    state_dir: Path,
+    *,
+    unit: str,
+    output: str,
+    bundle: str,
+    ran_at: datetime | None,
+    conditions: dict[str, object],
+) -> str:
+    """The section a fix change's `design.md` carries about the first failure: its output, the
+    conditions, the ledger rows of the run, and the bundle's path and `machine.json` when the
+    failure has a bundle. It stands on its own once the test no longer fails."""
+    parts = [EVIDENCE_HEADING, "", "Output of the failing run:", "", f"```\n{output.strip()}\n```"]
+    if conditions:
+        parts += ["", "Conditions:", "", f"```json\n{json.dumps(conditions, default=str)}\n```"]
+    rows = _ledger_rows(state_dir, unit, ran_at)
+    if rows:
+        parts += ["", "Rows of the run in the ledger of unit-test runs:", ""]
+        parts += [f"- `{row}`" for row in rows]
+    if bundle:
+        parts += ["", f"Bundle of the failing run: `{bundle}`"]
+        try:
+            machine = (Path(bundle) / "machine.json").read_text().strip()
+        except OSError:
+            machine = ""
+        if machine:
+            parts += ["", "What the machine was doing (`machine.json`):", ""]
+            parts += [f"```json\n{machine}\n```"]
+    return "\n".join(parts) + "\n"
