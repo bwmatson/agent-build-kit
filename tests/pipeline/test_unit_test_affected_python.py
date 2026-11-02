@@ -16,6 +16,7 @@ import pytest
 from agent_build_kit.config import RepoConfig
 from agent_build_kit.installation import Installation
 from agent_build_kit.pipeline import spans
+from agent_build_kit.pipeline.command_limit import TIMED_OUT_EXIT
 from agent_build_kit.pipeline.scratch import ensure_scratch, selection_seed
 from agent_build_kit.pipeline.shell import git, git_out
 from agent_build_kit.pipeline.usage_ledger import forget_told
@@ -278,6 +279,39 @@ def test_a_plugin_that_cannot_be_had_costs_time_and_never_the_unit(
     plain = [c for c in runner.full_runs() if not any("testmon" in w for w in c)]
     assert plain, runner.ran
     assert any("selection tooling" in line for line in log), log
+
+
+def test_a_selected_run_that_timed_out_is_a_timeout_and_the_full_suite_does_not_stand_in(
+    tmp_path: Path, clock: FakeClock
+) -> None:
+    """A run killed at its time limit prints no result line, as a run that could not start does;
+    it is the first of those that cost the unit a second hour-long run."""
+    repo = repo_at(tmp_path)
+    selection_seed(repo).write_bytes(b"recorded")
+    runner = Runner(clock, selected=(TIMED_OUT_EXIT, 3600, ""))
+    log: list[str] = []
+
+    passed, output = unit_test_for(repo, runner, log=log)(
+        cwd=repo, base="main", failed_output=FAILED_OUTPUT
+    )
+
+    assert not passed and "exit 124" in output
+    assert [Runner.is_selected(c) for c in runner.ran if "pytest" in c] == [True]
+    assert not any("selection tooling" in line for line in log), log
+
+
+def test_a_first_recording_run_that_timed_out_is_a_timeout_and_no_second_full_run_follows(
+    tmp_path: Path, clock: FakeClock
+) -> None:
+    repo = repo_at(tmp_path)
+    runner = Runner(clock, full=(TIMED_OUT_EXIT, 3600, ""))
+    log: list[str] = []
+
+    passed, output = unit_test_for(repo, runner, log=log)(cwd=repo, base="main")
+
+    assert not passed and "exit 124" in output
+    assert len([c for c in runner.ran if "pytest" in c]) == 1
+    assert not any("selection tooling" in line for line in log), log
 
 
 def test_the_log_names_the_program_not_the_env_words_before_it(
