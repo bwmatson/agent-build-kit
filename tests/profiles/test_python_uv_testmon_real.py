@@ -6,16 +6,19 @@ a small project is built, recorded and changed here. The tool is fetched with `-
 tests need the network and carry the `integration` marker (run them with `-m integration`).
 
 Found, on Python 3.14.7 with coverage 7.17.0 and pytest-testmon 2.2.0: the commands as the
-profile builds them print no "Dynamic contexts aren't supported" warning and miss no selection,
-so `COVERAGE_CORE=ctrace` is not pinned. Forcing `COVERAGE_CORE=sysmon` in the environment does
-make the warning appear, so the check below can see it. An empty selection exits 0 ("deselected"
-or, under xdist, "no tests ran"), not 5; the pipeline counts both as a pass.
+profile builds them print no "Dynamic contexts aren't supported" warning. That is not enough:
+under the default core a recording links fewer tests to a module than call it when several tests
+call one function in one process, so the selection under-selects, and `COVERAGE_CORE=ctrace` is
+pinned with a testmon environment of its own. Forcing `COVERAGE_CORE=sysmon` in the environment
+does make the warning appear, so the check below can see it. An empty selection exits 0
+("deselected" or, under xdist, "no tests ran"), not 5; the pipeline counts both as a pass.
 """
 
 from __future__ import annotations
 
 import os
 import re
+import sqlite3
 import subprocess
 from pathlib import Path
 
@@ -29,7 +32,7 @@ NO_TESTS_COLLECTED = 5
 DYNAMIC_CONTEXTS = "Dynamic contexts aren't supported"
 # The header line pytest-testmon 2.2.0 printed when `-m` switched its selection off.
 DEACTIVATED_HEADER = (
-    "testmon: selection automatically deactivated because -m was used, environment: default"
+    "testmon: selection automatically deactivated because -m was used, environment: ctrace"
 )
 
 PYPROJECT = """\
@@ -136,7 +139,17 @@ class Tiny:
         return self.run(PROFILE.seeding_command(command or self.parallel, self.seed, select=True))
 
     def break_add(self) -> None:
-        (self.root / "calc.py").write_text(BROKEN_CALC)
+        rewrite(self.root / "calc.py", BROKEN_CALC)
+
+
+def rewrite(path: Path, text: str) -> None:
+    """Write `text` to a source file so the next process runs it. Python reuses a compiled module
+    while the source's modified second and size are unchanged, so a same-size edit made within a
+    second of a run (`x * 2` to `x * 3`) would run the old code; the modified time moves on."""
+    before = path.stat().st_mtime_ns
+    path.write_text(text)
+    later = max(before, path.stat().st_mtime_ns) + 2_000_000_000
+    os.utime(path, ns=(later, later))
 
 
 def failed(output: str) -> set[str]:
@@ -217,7 +230,7 @@ def empty(output: str) -> bool:
 def test_a_full_run_in_two_passes_leaves_data_for_both(tiny: Tiny) -> None:
     # With no data a pass selects every test, so each pass is shown to hold data by a change
     # that only the other pass's tests reach: it must select nothing.
-    (tiny.root / "calc.py").write_text(CALC.replace("a * b", "a * b + 1"))
+    rewrite(tiny.root / "calc.py", CALC.replace("a * b", "a * b + 1"))
 
     serial = tiny.select([*tiny.serial, "-v"])
     parallel = tiny.select([*tiny.parallel, "-v"])
@@ -230,7 +243,7 @@ def test_a_full_run_in_two_passes_leaves_data_for_both(tiny: Tiny) -> None:
 def test_a_change_only_the_serial_pass_reaches_selects_nothing_in_the_parallel_pass(
     tiny: Tiny,
 ) -> None:
-    (tiny.root / "calc.py").write_text(CALC.replace("x + 0", "x + 1"))
+    rewrite(tiny.root / "calc.py", CALC.replace("x + 0", "x + 1"))
 
     # The serial pass goes first: a run that executes tests updates the data it shares.
     serial = tiny.select([*tiny.serial, "-v"])
@@ -238,3 +251,129 @@ def test_a_change_only_the_serial_pass_reaches_selects_nothing_in_the_parallel_p
 
     assert empty(parallel.stdout), parallel.stdout
     assert failed(serial.stdout) == {"test_serial_add"}
+
+
+CORE = "COVERAGE_CORE=ctrace"
+TESTMON_ENV = "--testmon-env=ctrace"
+
+CROWD_CALC = """\
+def scale(x):
+    return x * 2
+"""
+
+# Marked serial so the profile's serial pass, one process without xdist, runs all of them.
+CROWD_TESTS = """\
+import pytest
+
+from calc import scale
+
+pytestmark = pytest.mark.serial
+
+
+def test_one():
+    assert scale(1) == 2
+
+
+def test_two():
+    assert scale(2) == 4
+
+
+def test_three():
+    assert scale(3) == 6
+
+
+def test_zero():
+    assert scale(0) == 0
+
+
+def test_negative():
+    assert scale(-1) == -2
+"""
+CROWD = {"test_one", "test_two", "test_three", "test_zero", "test_negative"}
+BROKEN_CROWD_CALC = CROWD_CALC.replace("x * 2", "x * 3")
+
+
+class Crowd:
+    """Several tests that call one function of one module, run in a single process."""
+
+    def __init__(self, project: Tiny) -> None:
+        self.project = project
+        project.root.joinpath("calc.py").write_text(CROWD_CALC)
+        project.root.joinpath("tests", "test_calc.py").write_text(CROWD_TESTS)
+
+    def record(self, *, strip: tuple[str, ...] = ()) -> None:
+        command = PROFILE.seeding_command(self.project.serial, self.project.seed)
+        done = self.project.run([word for word in command if word not in strip])
+        assert done.returncode == 0, done.stdout + done.stderr
+
+    def links(self) -> set[str]:
+        """The tests the data file links to calc.py, by the tables testmon keeps them in."""
+        with sqlite3.connect(self.project.seed) as data:
+            rows = data.execute(
+                "SELECT DISTINCT te.test_name FROM test_execution te"
+                " JOIN test_execution_file_fp tf ON tf.test_execution_id = te.id"
+                " JOIN file_fp f ON f.id = tf.fingerprint_id WHERE f.filename = 'calc.py'"
+            ).fetchall()
+        return {re.sub(r".*::", "", name) for (name,) in rows}
+
+    def environments(self) -> set[str]:
+        with sqlite3.connect(self.project.seed) as data:
+            return {name for (name,) in data.execute("SELECT environment_name FROM environment")}
+
+
+@pytest.fixture
+def crowd(tmp_path: Path) -> Crowd:
+    return Crowd(Tiny(tmp_path / "crowd"))
+
+
+@pytest.mark.parametrize("select", [False, True])
+def test_the_recording_and_the_selection_pin_the_coverage_core(crowd: Crowd, select: bool) -> None:
+    command = PROFILE.seeding_command(crowd.project.serial, crowd.project.seed, select=select)
+
+    assert CORE in command
+    assert TESTMON_ENV in command
+
+
+def test_every_test_that_calls_a_function_is_linked_to_its_module(crowd: Crowd) -> None:
+    crowd.record()
+
+    assert crowd.links() == CROWD
+
+
+def test_a_selection_after_a_behavioural_change_runs_every_test_a_full_run_fails(
+    crowd: Crowd,
+) -> None:
+    crowd.record()
+    rewrite(crowd.project.root / "calc.py", BROKEN_CROWD_CALC)
+
+    everything = crowd.project.run([*crowd.project.serial, "-v"])
+    selected = crowd.project.select([*crowd.project.serial, "-v"])
+
+    assert len(failed(everything.stdout)) >= 3, everything.stdout
+    assert failed(everything.stdout) <= failed(selected.stdout), selected.stdout
+
+
+def test_data_recorded_in_another_environment_is_not_read_and_the_tests_run_in_full(
+    crowd: Crowd,
+) -> None:
+    crowd.record(strip=(CORE, TESTMON_ENV))
+    assert crowd.environments() == {"default"}
+
+    selected = crowd.project.select([*crowd.project.serial, "-v"])
+
+    assert ran(selected.stdout) == CROWD, selected.stdout
+    assert "ctrace" in crowd.environments()
+
+
+def test_a_rewrite_of_the_same_size_is_run_by_the_next_process(tmp_path: Path) -> None:
+    # Python reuses a compiled module when the source's modified second and size are unchanged, so a
+    # same-size edit made within a second of a run would run the old code (as it did in CI).
+    source = tmp_path / "calc.py"
+    source.write_text("RESULT = 2\n")
+    command = ["python3", "-c", "import calc; print(calc.RESULT)"]
+    first = subprocess.run(command, cwd=tmp_path, capture_output=True, text=True, check=True)
+
+    rewrite(source, "RESULT = 3\n")
+    second = subprocess.run(command, cwd=tmp_path, capture_output=True, text=True, check=True)
+
+    assert (first.stdout.strip(), second.stdout.strip()) == ("2", "3")

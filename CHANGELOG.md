@@ -9,6 +9,13 @@
   request of its own is not checked, and neither are the kit's own pull requests. A claim that
   fails partway is released, and every claim and its outcome is recorded in the unit's history.
 
+- The Python profile's affected-test selection now records what every test executes. Under
+  coverage's default core a recording linked only some of the tests that call a function to
+  its module, so a selection could skip tests that then fail in a full run. The recording and
+  the selection now set `COVERAGE_CORE=ctrace` and use a testmon environment of their own
+  (`--testmon-env=ctrace`); data recorded before is not read, and a unit re-records once. A
+  template in `abk.yaml` that builds its own command takes the same two words.
+
 - The architecture document now has a "Work tracker" section describing the parts of the tracker
   as what they do when called (the wanted board, the reconciler, the manual parent an `Epic:`
   line names) and what a tick runs today: the start gate that reads who owns a unit's board
