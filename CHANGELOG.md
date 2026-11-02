@@ -15,14 +15,7 @@
   the selection now set `COVERAGE_CORE=ctrace` and use a testmon environment of their own
   (`--testmon-env=ctrace`); data recorded before is not read, and a unit re-records once. A
   template in `abk.yaml` that builds its own command takes the same two words.
-- A unit's build now reads a pull request's state and the account's usage from a snapshot the
-  tick's round keeps, with its age, instead of asking the code host or the usage endpoint
-  itself. A snapshot that is missing or too old records a refresh request that the next round
-  answers, and the usage guard treats it as an old or unknown reading meanwhile.
-- A unit's build now reads whether its pull request (or its parent's) is merged from the snapshot
-  the poll keeps, instead of asking the code host. A pull request the snapshot lacks records a
-  refresh request for the next round. The usage guard can likewise decide a unit's start from a
-  usage snapshot and its age, without calling the usage endpoint; nothing switches it on yet.
+
 - A unit's build now reads whether its pull request (or its parent's) is merged, and the usage
   guard's step decision, from snapshots the tick's round keeps instead of asking the code host
   or the usage endpoint. The poll records what the host said even when it holds a merge or close
