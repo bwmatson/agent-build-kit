@@ -7,7 +7,10 @@ A hazard is, found by parsing a file (strings and comments never count):
     calls `.set()` in the same function;
   - "port": a call that passes a non-zero integer literal as `port=`, or an address call
     (`bind`, `connect`, `create_server`, `sendto`, or any call named `...Server`) whose
-    first argument is a `(host, <non-zero integer literal>)` tuple.
+    first argument is a `(host, <non-zero integer literal>)` tuple;
+  - "checkout": a call whose `cwd=` is the process's working directory (`Path()`,
+    `Path(".")`, `Path("")`, `Path.cwd()` or `os.getcwd()`): that is whatever checkout the
+    run is in, whose branch and remote the test does not control.
 `check_tests` returns one message per problem: a hazard in a file that is neither shared
 nor allowlisted names `path:line`; an allowlisted file with no hazard (or none at all) is
 reported as a stale allowlist entry naming the file.
@@ -86,6 +89,26 @@ def _fixed_port(call: ast.Call) -> bool:
     )
 
 
+def _runs_in_checkout(call: ast.Call) -> bool:
+    for keyword in call.keywords:
+        value = keyword.value
+        if keyword.arg != "cwd" or not isinstance(value, ast.Call):
+            continue
+        name = _dotted(value.func)
+        if name in ("Path.cwd", "os.getcwd"):
+            return True
+        if name == "Path" and (
+            not value.args
+            or (
+                len(value.args) == 1
+                and isinstance(value.args[0], ast.Constant)
+                and value.args[0].value in (".", "")
+            )
+        ):
+            return True
+    return False
+
+
 def _sleeps(tree: ast.Module) -> set[str]:
     """Local names that `sleep` was imported as."""
     return {
@@ -158,7 +181,7 @@ def _unsynchronised_threads(scope: ast.AST, threads: set[str]) -> list[int]:
 
 # What every hazard is made of; a file naming none of it is not parsed, which keeps a walk of
 # the whole tree inside the per-test time limit under load.
-HAZARD_TEXT = ("sleep", "Thread", "port=", "Server", *ADDRESS_CALLS)
+HAZARD_TEXT = ("sleep", "Thread", "port=", "Server", "cwd=", *ADDRESS_CALLS)
 
 
 def _hazards(text: str) -> list[int]:
@@ -173,6 +196,8 @@ def _hazards(text: str) -> list[int]:
         if isinstance(node, ast.Call):
             name = _dotted(node.func)
             if name in ("time.sleep", "asyncio.sleep") or name in bare or _fixed_port(node):
+                lines.append(node.lineno)
+            elif _runs_in_checkout(node):
                 lines.append(node.lineno)
         if isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef):
             lines.extend(_unsynchronised_threads(node, threads))
