@@ -8,6 +8,7 @@
   item the unit covers, holds it, and the reason says which. A unit with a branch or pull
   request of its own is not checked, and neither are the kit's own pull requests. A claim that
   fails partway is released, and every claim and its outcome is recorded in the unit's history.
+
 - The Python profile's affected-test selection now records what every test executes. Under
   coverage's default core a recording linked only some of the tests that call a function to
   its module, so a selection could skip tests that then fail in a full run. The recording and
