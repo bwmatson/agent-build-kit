@@ -50,9 +50,7 @@ TEXT = {
 SELF = {
     "installation_leaks.py",
     "test_no_installation_leaks.py",
-    "test_leak_scan_planning_content.py",
-    "test_leak_scan_tilde_in_specs.py",
-    "test_installation_leaks_overlay.py",
+    "test_installation_leaks.py",
     "test_scrub_references.py",
     "test_scrub_store_references.py",
     "test_split_scrub_references.py",
