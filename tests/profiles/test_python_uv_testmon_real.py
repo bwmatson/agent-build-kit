@@ -139,7 +139,17 @@ class Tiny:
         return self.run(PROFILE.seeding_command(command or self.parallel, self.seed, select=True))
 
     def break_add(self) -> None:
-        (self.root / "calc.py").write_text(BROKEN_CALC)
+        rewrite(self.root / "calc.py", BROKEN_CALC)
+
+
+def rewrite(path: Path, text: str) -> None:
+    """Write `text` to a source file so the next process runs it. Python reuses a compiled module
+    while the source's modified second and size are unchanged, so a same-size edit made within a
+    second of a run (`x * 2` to `x * 3`) would run the old code; the modified time moves on."""
+    before = path.stat().st_mtime_ns
+    path.write_text(text)
+    later = max(before, path.stat().st_mtime_ns) + 2_000_000_000
+    os.utime(path, ns=(later, later))
 
 
 def failed(output: str) -> set[str]:
@@ -220,7 +230,7 @@ def empty(output: str) -> bool:
 def test_a_full_run_in_two_passes_leaves_data_for_both(tiny: Tiny) -> None:
     # With no data a pass selects every test, so each pass is shown to hold data by a change
     # that only the other pass's tests reach: it must select nothing.
-    (tiny.root / "calc.py").write_text(CALC.replace("a * b", "a * b + 1"))
+    rewrite(tiny.root / "calc.py", CALC.replace("a * b", "a * b + 1"))
 
     serial = tiny.select([*tiny.serial, "-v"])
     parallel = tiny.select([*tiny.parallel, "-v"])
@@ -233,7 +243,7 @@ def test_a_full_run_in_two_passes_leaves_data_for_both(tiny: Tiny) -> None:
 def test_a_change_only_the_serial_pass_reaches_selects_nothing_in_the_parallel_pass(
     tiny: Tiny,
 ) -> None:
-    (tiny.root / "calc.py").write_text(CALC.replace("x + 0", "x + 1"))
+    rewrite(tiny.root / "calc.py", CALC.replace("x + 0", "x + 1"))
 
     # The serial pass goes first: a run that executes tests updates the data it shares.
     serial = tiny.select([*tiny.serial, "-v"])
@@ -334,7 +344,7 @@ def test_a_selection_after_a_behavioural_change_runs_every_test_a_full_run_fails
     crowd: Crowd,
 ) -> None:
     crowd.record()
-    crowd.project.root.joinpath("calc.py").write_text(BROKEN_CROWD_CALC)
+    rewrite(crowd.project.root / "calc.py", BROKEN_CROWD_CALC)
 
     everything = crowd.project.run([*crowd.project.serial, "-v"])
     selected = crowd.project.select([*crowd.project.serial, "-v"])
@@ -353,3 +363,17 @@ def test_data_recorded_in_another_environment_is_not_read_and_the_tests_run_in_f
 
     assert ran(selected.stdout) == CROWD, selected.stdout
     assert "ctrace" in crowd.environments()
+
+
+def test_a_rewrite_of_the_same_size_is_run_by_the_next_process(tmp_path: Path) -> None:
+    # Python reuses a compiled module when the source's modified second and size are unchanged, so a
+    # same-size edit made within a second of a run would run the old code (as it did in CI).
+    source = tmp_path / "calc.py"
+    source.write_text("RESULT = 2\n")
+    command = ["python3", "-c", "import calc; print(calc.RESULT)"]
+    first = subprocess.run(command, cwd=tmp_path, capture_output=True, text=True, check=True)
+
+    rewrite(source, "RESULT = 3\n")
+    second = subprocess.run(command, cwd=tmp_path, capture_output=True, text=True, check=True)
+
+    assert (first.stdout.strip(), second.stdout.strip()) == ("2", "3")
