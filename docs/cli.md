@@ -667,7 +667,8 @@ left for a later pass.
 
 `--accept UNIT` asks the forge itself and records a merge it confirms (the merge commit and time,
 with a history note naming the command). It refuses when the forge shows the pull request open or
-closed unmerged, and a unit in `settling`, which has recorded its merge.
+closed unmerged, and a unit in `settling` or `merged`, which has recorded its merge. It takes
+no `UNIT` argument and no `--dry-run`, and an unknown unit is refused.
 
 ### `abk requeue UNIT [--restart | --rework] [--note TEXT | --note-file PATH]`
 

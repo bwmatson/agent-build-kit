@@ -183,7 +183,7 @@ def test_a_merge_seen_by_the_handler_hands_the_conflicting_child_to_a_gated_lane
     decisions = asked_of_the_guard(monkeypatch)
 
     with cli.build_restack_lane(rig.installation, rig.store) as lane:
-        merged = cli._dispatch(rig.installation, rig.store, lane=lane)("merged", 1, repo="app")
+        merged = cli.dispatch_for(rig.installation, rig.store, lane=lane)("merged", 1, repo="app")
         lane.drain()
 
     assert merged

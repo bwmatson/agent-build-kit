@@ -16,7 +16,8 @@ from agent_build_kit.forges import PullRequest
 from agent_build_kit.installation import Installation
 from agent_build_kit.pipeline.pr_poller import PrState, snapshot, state_path
 from agent_build_kit.pipeline.unit_store import UnitStore
-from agent_build_kit.pipeline.units import IN_REVIEW, MERGED, SETTLING
+from agent_build_kit.pipeline.units import IN_REVIEW, MERGED, RUNNING, SETTLING
+from agent_build_kit.pipeline.workspaces import branch_lock
 from tests.conftest import make_installation
 from tests.factories import stored_unit
 from tests.forges.stand_in import StandInForge
@@ -191,3 +192,85 @@ def test_accept_refuses_a_unit_in_settling(
     assert code != 0
     assert store.get("feature/1") == before
     assert "settling" in capsys.readouterr().err
+
+
+def test_accept_refuses_a_unit_already_merged(
+    inst: Installation,
+    store: UnitStore,
+    capsys: pytest.CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    forge_showing(monkeypatch, "merged")
+    store.set_state("feature/1", MERGED, pr=1, branch="spec/feature/1")
+    before = store.get("feature/1")
+
+    code = main(["reconcile", "--accept", "feature/1"])
+
+    assert code == 1
+    assert store.get("feature/1") == before
+    assert "merged" in capsys.readouterr().err
+
+
+def test_accept_refuses_a_unit_with_no_pull_request(
+    inst: Installation,
+    store: UnitStore,
+    capsys: pytest.CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    forge_showing(monkeypatch, "merged")
+    store.upsert([stored_unit("feature/3")])
+    store.set_state("feature/3", RUNNING, branch="spec/feature/3")
+    before = store.get("feature/3")
+
+    code = main(["reconcile", "--accept", "feature/3"])
+
+    assert code == 1
+    assert store.get("feature/3") == before
+    assert "no pull request" in capsys.readouterr().err
+
+
+def test_accept_while_a_tick_holds_the_units_branch_changes_nothing(
+    inst: Installation,
+    store: UnitStore,
+    capsys: pytest.CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    forge_showing(monkeypatch, "merged")
+    before = store.get("feature/1")
+
+    with branch_lock("spec/feature/1", root=inst.locks_dir):
+        code = main(["reconcile", "--accept", "feature/1"])
+
+    assert code == 1
+    assert store.get("feature/1") == before
+    assert "a tick is handling" in capsys.readouterr().err
+
+
+@pytest.mark.parametrize(
+    "argv", [["feature/2", "--accept", "feature/1"], ["--dry-run", "--accept", "feature/1"]]
+)
+def test_accept_with_a_unit_argument_or_dry_run_is_a_usage_error(
+    inst: Installation,
+    store: UnitStore,
+    capsys: pytest.CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
+    argv: list[str],
+) -> None:
+    forge_showing(monkeypatch, "merged")
+    before = store.all()
+
+    code = main(["reconcile", *argv])
+
+    assert code == 2
+    assert store.all() == before
+    assert "--accept" in capsys.readouterr().err
+
+
+@pytest.mark.parametrize("argv", [["nope/1"], ["--accept", "nope/1"]])
+def test_an_unknown_unit_is_refused(
+    inst: Installation, store: UnitStore, capsys: pytest.CaptureFixture[str], argv: list[str]
+) -> None:
+    code = main(["reconcile", *argv])
+
+    assert code == 2
+    assert "no unit 'nope/1'" in capsys.readouterr().err

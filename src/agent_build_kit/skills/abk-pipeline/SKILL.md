@@ -294,7 +294,7 @@ Each tick runs a reconcile pass: a `running`, `in_review`, `failed` or `held` un
 request the poller's cache shows merged (or closed) is recorded as the poller would record it. To
 run it now, `abk reconcile [UNIT]` (`--dry-run` writes nothing). If a unit sits `in_review` on a
 pull request the forge shows merged, `abk reconcile --accept <unit>` records the merge; it refuses
-when the forge shows the pull request open or closed unmerged, or the unit is `settling`.
+when the forge shows the pull request open or closed unmerged, or the unit is `settling` or `merged`.
 
 ### `failed`
 
