@@ -8425,7 +8425,35 @@ def cmd_gate(args: argparse.Namespace, inst: Installation | None) -> int:
 
 def cmd_restacks(args: argparse.Namespace, inst: Installation) -> int:
     """Print the ledger's restack records as counts and hours by point and by re-test kind."""
-    raise NotImplementedError
+    since = None
+    if args.since:
+        try:
+            since = datetime.fromisoformat(args.since)
+        except ValueError:
+            print(f"not a time: {args.since!r}", file=sys.stderr)
+            return 2
+        since = since if since.tzinfo else since.replace(tzinfo=UTC)
+    records = spans.read_restacks(inst.state_dir / LEDGER_NAME, since)
+    if not records:
+        print("no restacks recorded")
+        return 0
+
+    def line(label: str, group: list[spans.RestackRecord]) -> str:
+        moves = sum(1 for r in group if r.moved and r.outcome != "retested")
+        tests = [r for r in group if r.retest != "none"]
+        hours = sum(r.retest_seconds for r in tests) / 3600
+        return (
+            f"{label}: {moves} move{'' if moves == 1 else 's'}, "
+            f"{len(tests)} re-test{'' if len(tests) == 1 else 's'}, {hours:.2f} hours"
+        )
+
+    for point in ("prepare", "before_review", "before_pr"):
+        if group := [r for r in records if r.point == point]:
+            print(line(point, group))
+    for kind in ("lite", "scoped", "full"):
+        if group := [r for r in records if r.retest == kind]:
+            print(line(kind, group))
+    return 0
 
 
 def register(sub: argparse._SubParsersAction) -> None:

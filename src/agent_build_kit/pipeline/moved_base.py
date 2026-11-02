@@ -2,12 +2,13 @@
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from pathlib import Path
 
 from agent_build_kit.config import RestackCheck
 from agent_build_kit.model import Frozen
 from agent_build_kit.pipeline.shell import git
+from agent_build_kit.profiles.base import is_doc_path
 
 
 class MoveScope(Frozen):
@@ -17,6 +18,22 @@ class MoveScope(Frozen):
     scoped: bool
     reason: str = ""
     incoming: list[str] = []
+
+
+def kinds_of(paths: Sequence[str], is_test: Callable[[str], bool]) -> dict[str, int]:
+    """How many of `paths` are changelog, document, test and code files, in that order of
+    precedence, as the keys `changelog`, `documents`, `tests` and `code`."""
+    counts = {"changelog": 0, "documents": 0, "tests": 0, "code": 0}
+    for path in paths:
+        if path.rsplit("/", 1)[-1].upper().startswith("CHANGELOG"):
+            counts["changelog"] += 1
+        elif is_doc_path(path):
+            counts["documents"] += 1
+        elif is_test(path):
+            counts["tests"] += 1
+        else:
+            counts["code"] += 1
+    return counts
 
 
 def scope_of(own: Sequence[str], incoming: Sequence[str], setting: RestackCheck) -> MoveScope:

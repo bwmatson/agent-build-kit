@@ -85,7 +85,9 @@ def test_since_leaves_out_what_was_recorded_before_it(
         restack("before_pr", "2030-01-03T09:00:00+00:00", "lite", 60),
     )
 
-    status, out = run(inst, capsys, "--since", "2030-01-02T00:00:00+00:00")
+    cutoff = "2030-01-02T00:00:00+00:00"
+
+    status, out = run(inst, capsys, "--since", cutoff)
 
     assert status == 0
     assert re.search(r"\b1 move", line_of(out, "before_pr"))

@@ -117,7 +117,7 @@ from agent_build_kit.pipeline.flakes import (
 )
 from agent_build_kit.pipeline.gateway_usage import Spend, attribution, configured_source
 from agent_build_kit.pipeline.lease import Leases, lease_dir
-from agent_build_kit.pipeline.moved_base import moved_base_scope
+from agent_build_kit.pipeline.moved_base import kinds_of, moved_base_scope
 from agent_build_kit.pipeline.own_tests import (
     defined_tests_in_range,
     failed_ids,
@@ -1380,6 +1380,8 @@ def build_unit_test(
     # The tests the current run's failed commands named, each read by the profile of the
     # command (a project has its own), for its ledger row.
     run_failed: list[str] = []
+    # The kind of re-test the current run after a move is: `full` unless it ran scoped.
+    retest: dict[str, str] = {"kind": "full"}
 
     def fresh_run_token() -> str:
         """A token for this run whose folder in the temp root does not exist, so two runs never
@@ -1390,6 +1392,54 @@ def build_unit_test(
             if installation is None or not (installation.pytest_temp_root / token).exists():
                 return token
         raise RuntimeError(f"no free run token in {RUN_TOKEN_TRIES} tries; the temp root is full")
+
+    def retested(
+        cwd: Path, base: str, whole_repo: bool, failed_output: str, moved_from: str | None
+    ) -> tuple[bool, str]:
+        """`tested`, and after a move a `restack` line of the usage ledger for the re-test: the
+        files the move brought in by kind, the kind of run it was, how long it took and how it
+        ended."""
+        if moved_from is None:
+            return tested(cwd, base, whole_repo, failed_output, moved_from)
+        retest["kind"] = "full"
+        started = spans.clock.monotonic()
+        result = "failed"
+        try:
+            passed, output = tested(cwd, base, whole_repo, failed_output, moved_from)
+            result = "passed" if passed else "failed"
+            return passed, output
+        finally:
+            listed = (
+                git(cwd, "diff", "--name-only", moved_from, base, check=False)
+                if moved_from
+                else None
+            )
+            brought = (
+                [line for line in listed.stdout.splitlines() if line.strip()]
+                if listed is not None and listed.returncode == 0
+                else []
+            )
+            kinds = kinds_of(brought, profile.is_test_path)
+            unit, change, _, _ = spans.current_unit.get()
+            spans.record_restack(
+                spans.RestackRecord(
+                    at=spans.clock.now().isoformat(),
+                    unit=unit,
+                    change=change,
+                    point=spans.restack_point.get(),
+                    moved=True,
+                    moved_from=moved_from,
+                    outcome="retested",
+                    retest=retest["kind"],
+                    retest_seconds=max(0.0, spans.clock.monotonic() - started),
+                    retest_result=result,
+                    changelog=kinds["changelog"],
+                    documents=kinds["documents"],
+                    tests=kinds["tests"],
+                    code=kinds["code"],
+                ),
+                log or (lambda message: None),
+            )
 
     def unit_test(
         *,
@@ -1402,7 +1452,7 @@ def build_unit_test(
         """`tested`, with a row added to the ledger of unit-test runs when one is kept: the run
         passing, failing or finding a flake."""
         if test_runs is None:
-            return tested(cwd, base, whole_repo, failed_output, moved_from)
+            return retested(cwd, base, whole_repo, failed_output, moved_from)
         sample = machine or failure_evidence.machine_sample
         started = clock()
         load_start = _first_load(sample())
@@ -1411,7 +1461,7 @@ def build_unit_test(
         outcome = "failed"
         failed: list[str] = []
         try:
-            passed, output = tested(cwd, base, whole_repo, failed_output, moved_from)
+            passed, output = retested(cwd, base, whole_repo, failed_output, moved_from)
         except FlakeFound as found:
             outcome, failed = "flake", [flake.test for flake in found.flakes]
             raise
@@ -1490,6 +1540,7 @@ def build_unit_test(
         if scope is not None and scope.scoped and not whole_repo:
             moved = moved_run(cwd, base, work, scope.incoming)
             if moved is not None:
+                retest["kind"] = "scoped"
                 return moved
         elif scope is not None:
             _say(log, f"moved base: ran the full suite ({scope.reason})")

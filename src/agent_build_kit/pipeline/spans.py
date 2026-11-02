@@ -6,16 +6,18 @@ time pass without waiting.
 
 from __future__ import annotations
 
+import json
 import time
 import uuid
 from collections.abc import Callable
 from contextvars import ContextVar
 from datetime import UTC, datetime
+from pathlib import Path
 from typing import Protocol
 
 from agent_build_kit import telemetry
 from agent_build_kit.model import Frozen
-from agent_build_kit.pipeline.usage_ledger import record_line
+from agent_build_kit.pipeline.usage_ledger import read_lines, record_line
 
 SLOT = "slot"
 USAGE_PAUSE = "usage_pause"
@@ -51,6 +53,10 @@ PROCESS_TICK = uuid.uuid4().hex[:8]
 current_unit: ContextVar[tuple[str, str, str, int]] = ContextVar(
     "span_unit", default=("", "", "", 0)
 )
+
+# The restack point (`prepare`, `before_review`, `before_pr`) whose re-test is running, empty
+# when none names it.
+restack_point: ContextVar[str] = ContextVar("restack_point", default="")
 
 
 class Span(Frozen):
@@ -111,7 +117,8 @@ class RestackRecord(Frozen):
     `point` is `prepare`, `before_review` or `before_pr`; `moved_from` is the commit the base
     was at when it moved, empty when it did not; the `changelog`, `documents`, `tests` and
     `code` counts are the files the move brought in, by kind; `outcome` is `clean`,
-    `conflict` or `resolved`; `retest` is `none`, `lite`, `scoped` or `full`, with its
+    `conflict` or `resolved`, or `retested` for the line of a re-test alone, whose move the
+    restack's own line records; `retest` is `none`, `lite`, `scoped` or `full`, with its
     `retest_seconds` and `retest_result` (`passed` or `failed`); `resolution_seconds` is the
     time a resolution took."""
 
@@ -191,7 +198,26 @@ def record_affected(run: AffectedRun, say: Callable[[str], None]) -> None:
 
 def record_restack(record: RestackRecord, say: Callable[[str], None]) -> None:
     """Record a restack decision, never raising."""
-    raise NotImplementedError
+    record_line(record, say)
+
+
+def read_restacks(path: Path, since: datetime | None = None) -> list[RestackRecord]:
+    """The ledger's `restack` lines from `since` on; none from a ledger without any. A line
+    that does not parse is skipped, as the ledger's other readers do."""
+    found = []
+    for line in read_lines(path):
+        try:
+            data = json.loads(line)
+            if not isinstance(data, dict) or data.get("kind") != "restack":
+                continue
+            record = RestackRecord.model_validate(data)
+            at = datetime.fromisoformat(record.at)
+        except ValueError:
+            continue
+        if since is not None and (at if at.tzinfo else at.replace(tzinfo=UTC)) < since:
+            continue
+        found.append(record)
+    return found
 
 
 def export_span(span: Span) -> None:
