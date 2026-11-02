@@ -951,6 +951,9 @@ class Restacked(Frozen):
     # Which of the restack's steps were tried before the port and what their checks said,
     # for the port's prompt. Only filled in when there is a conflict.
     tried: str = ""
+    # The files the move brought in (those between the old base and the new one), for the
+    # restack's record; empty when they could not be listed.
+    brought_in: tuple[str, ...] = ()
 
 
 class PortedTest(Frozen):

@@ -91,6 +91,7 @@ from agent_build_kit.pipeline.flakes import (
 from agent_build_kit.pipeline.gateway_usage import attribution
 from agent_build_kit.pipeline.manual_steps import unmet_steps
 from agent_build_kit.pipeline.metric_records import emit_metric
+from agent_build_kit.pipeline.moved_base import kinds_of
 from agent_build_kit.pipeline.outside_commits import outside_commits_note
 from agent_build_kit.pipeline.own_tests import failed_ids
 from agent_build_kit.pipeline.pause import UNKNOWN_RETRY
@@ -1012,6 +1013,12 @@ class BuildPath:
             outcome = "conflict"
         elif moved is not None and moved.resolved:
             outcome = "resolved"
+        repo = self.runner.repo_config
+        kinds = kinds_of(
+            moved.brought_in if moved is not None else (),
+            lambda path: is_test_path(path, repo),
+            repo.changelog if repo is not None else None,
+        )
         spans.record_restack(
             spans.RestackRecord(
                 at=spans.clock.now().isoformat(),
@@ -1022,6 +1029,7 @@ class BuildPath:
                 moved_from=moved.old_base if moved is not None else "",
                 outcome=outcome,
                 resolution_seconds=seconds if outcome == "resolved" else 0.0,
+                **kinds.model_dump(),
             ),
             self.runner.log,
         )
@@ -2571,12 +2579,17 @@ class BuildPath:
             else:
                 # Only a clean move says what base it left, and so how its run is scoped.
                 moved = {"moved_from": state.moved_from} if state.moved else {}
-                ok, output = r.run_unit_test(
-                    cwd=self.tree(),
-                    base=self.ref(state),
-                    whole_repo=state.produced_nothing,
-                    **moved,
-                )
+                # The re-test after a clean move is the restack before the pull request's.
+                point = spans.restack_point.set("before_pr" if state.moved else "")
+                try:
+                    ok, output = r.run_unit_test(
+                        cwd=self.tree(),
+                        base=self.ref(state),
+                        whole_repo=state.produced_nothing,
+                        **moved,
+                    )
+                finally:
+                    spans.restack_point.reset(point)
         except FlakeFound as found:
             if found.scoped:
                 # The move did not cause it: recorded, and the unit goes on without waiting.

@@ -20,12 +20,23 @@ class MoveScope(Frozen):
     incoming: list[str] = []
 
 
-def kinds_of(paths: Sequence[str], is_test: Callable[[str], bool]) -> dict[str, int]:
-    """How many of `paths` are changelog, document, test and code files, in that order of
-    precedence, as the keys `changelog`, `documents`, `tests` and `code`."""
+class FileKinds(Frozen):
+    """How many files of a set are changelog, document, test and code files."""
+
+    changelog: int = 0
+    documents: int = 0
+    tests: int = 0
+    code: int = 0
+
+
+def kinds_of(
+    paths: Sequence[str], is_test: Callable[[str], bool], changelog: str | None
+) -> FileKinds:
+    """`paths` counted by kind, in the order changelog (the repo's `changelog` path; none when
+    it keeps no changelog), document, test, code."""
     counts = {"changelog": 0, "documents": 0, "tests": 0, "code": 0}
     for path in paths:
-        if path.rsplit("/", 1)[-1].upper().startswith("CHANGELOG"):
+        if changelog is not None and path == changelog:
             counts["changelog"] += 1
         elif is_doc_path(path):
             counts["documents"] += 1
@@ -33,7 +44,32 @@ def kinds_of(paths: Sequence[str], is_test: Callable[[str], bool]) -> dict[str, 
             counts["tests"] += 1
         else:
             counts["code"] += 1
-    return counts
+    return FileKinds(**counts)
+
+
+class FilesNotListed(Exception):
+    """The files a move brought in could not be listed; the message says why."""
+
+
+def incoming_files(tree: Path, moved_from: str, base: str) -> list[str]:
+    """The files that differ between `moved_from`, the base a restack computed, and `base`:
+    what the move brought in. Raises `FilesNotListed` when git cannot say."""
+    listed = git(tree, "diff", "--name-only", moved_from, base, check=False)
+    if listed.returncode != 0:
+        why = next((line for line in listed.stderr.splitlines() if line.strip()), "git failed")
+        raise FilesNotListed(why)
+    return [line for line in listed.stdout.splitlines() if line.strip()]
+
+
+def brought_in(tree: Path, moved_from: str, base: str) -> tuple[str, ...]:
+    """`incoming_files` for a record of the move: none when the files cannot be listed, since a
+    record never replaces the result of what it describes."""
+    if not moved_from:
+        return ()
+    try:
+        return tuple(incoming_files(tree, moved_from, base))
+    except (FilesNotListed, OSError):
+        return ()
 
 
 def scope_of(own: Sequence[str], incoming: Sequence[str], setting: RestackCheck) -> MoveScope:
@@ -66,10 +102,10 @@ def moved_base_scope(
         return scope_of(own, [], setting)
     if not moved_from:
         return MoveScope(scoped=False, reason="the move has no old base")
-    listed = git(tree, "diff", "--name-only", moved_from, base, check=False)
-    if listed.returncode != 0:
-        why = next((line for line in listed.stderr.splitlines() if line.strip()), "git failed")
+    try:
+        incoming = incoming_files(tree, moved_from, base)
+    except FilesNotListed as error:
         return MoveScope(
-            scoped=False, reason=f"the files the move brought in could not be listed: {why}"
+            scoped=False, reason=f"the files the move brought in could not be listed: {error}"
         )
-    return scope_of(own, [line for line in listed.stdout.splitlines() if line.strip()], setting)
+    return scope_of(own, incoming, setting)

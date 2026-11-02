@@ -8,6 +8,7 @@ import json
 import subprocess
 from pathlib import Path
 
+from agent_build_kit.config import RepoConfig
 from agent_build_kit.installation import Installation
 from agent_build_kit.pipeline import spans
 from agent_build_kit.pipeline.wiring import build_unit_test
@@ -20,7 +21,7 @@ def restack_lines(workspace: Installation) -> list[dict]:
     return [line for line in lines if line.get("kind") == "restack"]
 
 
-def test_a_clean_move_before_the_pull_request_that_re_tests_in_full_is_one_ledger_line(
+def test_a_restack_line_carries_every_field_it_is_given(
     workspace: Installation,
 ) -> None:
     told: list[str] = []
@@ -101,15 +102,15 @@ def test_the_moved_base_run_records_the_files_it_was_given_by_kind_and_its_retes
     def run(command: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
         return passing(command)
 
-    passed, _ = build_unit_test(profile=Profile(), run=run, log=lambda message: None)(
-        cwd=repo, base="main", moved_from=old_base
-    )
+    passed, _ = build_unit_test(
+        profile=Profile(), run=run, log=lambda message: None, repo=RepoConfig(path=repo)
+    )(cwd=repo, base="main", moved_from=old_base)
 
     assert passed
     (line,) = restack_lines(workspace)
     assert line["moved"] is True
     assert line["moved_from"] == old_base
     assert (line["changelog"], line["documents"], line["code"]) == (1, 1, 1)
-    assert line["retest"] in ("lite", "scoped", "full")
+    assert line["outcome"] == "retested", "the move itself is the restack's own line"
     assert line["retest_result"] == "passed"
     assert line["retest_seconds"] >= 0

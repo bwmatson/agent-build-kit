@@ -27,15 +27,24 @@ def keep(inst: Installation, *records: RestackRecord, other: tuple[dict, ...] = 
     (inst.state_dir / "usage-ledger.jsonl").write_text("\n".join(lines) + "\n")
 
 
-def restack(point: str, at: str, retest: str = "none", seconds: float = 0.0) -> RestackRecord:
-    return RestackRecord(
-        at=at,
-        unit="feature/1",
-        point=point,
-        moved=True,
-        retest=retest,
-        retest_seconds=seconds,
-        retest_result="passed" if retest != "none" else "",
+def restack(
+    point: str, at: str, retest: str = "none", seconds: float = 0.0
+) -> tuple[RestackRecord, ...]:
+    """The lines the pipeline writes for a clean move: the restack's own line, with no re-test,
+    and when it was re-tested the re-test's line (outcome `retested`) with the point and kind."""
+    move = RestackRecord(at=at, unit="feature/1", point=point, moved=True)
+    if retest == "none":
+        return (move,)
+    return (
+        move,
+        move.model_copy(
+            update={
+                "outcome": "retested",
+                "retest": retest,
+                "retest_seconds": seconds,
+                "retest_result": "passed",
+            }
+        ),
     )
 
 
@@ -56,10 +65,10 @@ def test_it_counts_moves_and_re_tests_and_hours_for_each_point_and_each_kind(
     inst = installation(tmp_path)
     keep(
         inst,
-        restack("prepare", "2030-01-01T09:00:00+00:00"),
-        restack("before_review", "2030-01-01T10:00:00+00:00", "lite", 1800),
-        restack("before_pr", "2030-01-01T11:00:00+00:00", "full", 1800),
-        restack("before_pr", "2030-01-01T12:00:00+00:00", "full", 1800),
+        *restack("prepare", "2030-01-01T09:00:00+00:00"),
+        *restack("before_review", "2030-01-01T10:00:00+00:00", "lite", 1800),
+        *restack("before_pr", "2030-01-01T11:00:00+00:00", "full", 1800),
+        *restack("before_pr", "2030-01-01T12:00:00+00:00", "full", 1800),
     )
 
     status, out = run(inst, capsys)
@@ -70,8 +79,10 @@ def test_it_counts_moves_and_re_tests_and_hours_for_each_point_and_each_kind(
     before_pr = line_of(out, "before_pr")
     assert re.search(r"\b2 moves", before_pr) and re.search(r"\b2 re-tests", before_pr)
     assert re.search(r"\b1\.0+ hours", before_pr)
-    assert re.search(r"\b1 re-test", line_of(out, "lite"))
-    assert re.search(r"\b2 re-tests", line_of(out, "full"))
+    lite = line_of(out, "lite")
+    assert re.search(r"\b1 move\b", lite) and re.search(r"\b1 re-test\b", lite)
+    full = line_of(out, "full")
+    assert re.search(r"\b2 moves", full) and re.search(r"\b2 re-tests", full)
     assert re.search(r"\b1\.0+ hours", line_of(out, "full"))
 
 
@@ -81,8 +92,8 @@ def test_since_leaves_out_what_was_recorded_before_it(
     inst = installation(tmp_path)
     keep(
         inst,
-        restack("before_pr", "2030-01-01T09:00:00+00:00", "full", 600),
-        restack("before_pr", "2030-01-03T09:00:00+00:00", "lite", 60),
+        *restack("before_pr", "2030-01-01T09:00:00+00:00", "full", 600),
+        *restack("before_pr", "2030-01-03T09:00:00+00:00", "lite", 60),
     )
 
     cutoff = "2030-01-02T00:00:00+00:00"

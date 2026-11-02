@@ -117,7 +117,7 @@ from agent_build_kit.pipeline.flakes import (
 )
 from agent_build_kit.pipeline.gateway_usage import Spend, attribution, configured_source
 from agent_build_kit.pipeline.lease import Leases, lease_dir
-from agent_build_kit.pipeline.moved_base import kinds_of, moved_base_scope
+from agent_build_kit.pipeline.moved_base import brought_in, kinds_of, moved_base_scope
 from agent_build_kit.pipeline.own_tests import (
     defined_tests_in_range,
     failed_ids,
@@ -1408,18 +1408,17 @@ def build_unit_test(
             passed, output = tested(cwd, base, whole_repo, failed_output, moved_from)
             result = "passed" if passed else "failed"
             return passed, output
+        except FlakeFound as found:
+            # A flake the move did not cause lets the unit go on: the run passed.
+            if found.scoped:
+                result = "passed"
+            raise
         finally:
-            listed = (
-                git(cwd, "diff", "--name-only", moved_from, base, check=False)
-                if moved_from
-                else None
+            kinds = kinds_of(
+                brought_in(cwd, moved_from, base),
+                profile.is_test_path,
+                repo.changelog if repo is not None else None,
             )
-            brought = (
-                [line for line in listed.stdout.splitlines() if line.strip()]
-                if listed is not None and listed.returncode == 0
-                else []
-            )
-            kinds = kinds_of(brought, profile.is_test_path)
             unit, change, _, _ = spans.current_unit.get()
             spans.record_restack(
                 spans.RestackRecord(
@@ -1433,10 +1432,7 @@ def build_unit_test(
                     retest=retest["kind"],
                     retest_seconds=max(0.0, spans.clock.monotonic() - started),
                     retest_result=result,
-                    changelog=kinds["changelog"],
-                    documents=kinds["documents"],
-                    tests=kinds["tests"],
-                    code=kinds["code"],
+                    **kinds.model_dump(),
                 ),
                 log or (lambda message: None),
             )
@@ -1538,10 +1534,11 @@ def build_unit_test(
                 )
             return root_checks(cwd)
         if scope is not None and scope.scoped and not whole_repo:
+            retest["kind"] = "scoped"
             moved = moved_run(cwd, base, work, scope.incoming)
             if moved is not None:
-                retest["kind"] = "scoped"
                 return moved
+            retest["kind"] = "full"
         elif scope is not None:
             _say(log, f"moved base: ran the full suite ({scope.reason})")
         plan = None
@@ -4258,6 +4255,7 @@ def build_restack_onto(
                 conflict=str(error),
                 old_tests=tuple(defined_tests_in_range(tree, old_base, old_head)),
                 tried=error.tried,
+                brought_in=brought_in(tree, old_base, base),
             )
 
         # Applied cleanly with the unit's own diff byte-for-byte unchanged: the
@@ -4275,6 +4273,7 @@ def build_restack_onto(
             old_base=old_base,
             old_head=old_head,
             resolved=moved.resolved,
+            brought_in=brought_in(tree, old_base, base),
         )
 
     return restack_onto

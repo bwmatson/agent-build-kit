@@ -9,7 +9,9 @@ import json
 from pathlib import Path
 from typing import Any
 
+from agent_build_kit.config import RepoConfig
 from agent_build_kit.installation import Installation
+from agent_build_kit.pipeline import spans
 from tests.factories import unit
 from tests.graph.test_build_path import build, fresh, restacked
 
@@ -71,6 +73,52 @@ def test_a_clean_move_before_the_push_is_recorded_as_before_pr(
     (line,) = [line for line in restack_lines(workspace) if line["point"] == "before_pr"]
     assert (line["moved"], line["moved_from"], line["outcome"]) == (True, "beforepush", "clean")
     assert line["unit"] == unit().id
+
+
+def test_the_re_test_after_a_clean_move_before_the_push_runs_under_the_point_before_pr(
+    tmp_path: Path,
+) -> None:
+    recorder = fresh(tmp_path)
+    recorder.made = 2
+    calls: list[int] = []
+    points: list[str] = []
+
+    def restack(**kw: Any) -> Any:
+        calls.append(1)
+        if len(calls) != 2:
+            return None
+        recorder.made += 1
+        recorder.store.record_approval(unit().id, recorder.head(tmp_path))
+        return restacked()
+
+    def unit_test(**kw: Any) -> tuple[bool, str]:
+        points.append(spans.restack_point.get())
+        return True, ""
+
+    build(tmp_path, recorder, restack_onto=restack, run_unit_test=unit_test)
+
+    assert points == ["", "before_pr"], "only the re-test after the move is under the point"
+    assert spans.restack_point.get() == "", "and the point is not left set"
+
+
+def test_a_move_with_no_re_test_still_counts_the_files_it_brought_in_by_kind(
+    tmp_path: Path, workspace: Installation
+) -> None:
+    recorder = fresh(tmp_path)
+    recorder.made = 2
+    calls: list[int] = []
+
+    def restack(**kw: Any) -> Any:
+        calls.append(1)
+        if len(calls) != 1:
+            return None
+        return restacked(brought_in=("CHANGELOG.md", "docs/a.md", "docs/b.md", "src/c.py"))
+
+    build(tmp_path, recorder, restack_onto=restack, repo_config=RepoConfig(path=tmp_path))
+
+    (prepare, *_) = [line for line in restack_lines(workspace) if line["point"] == "prepare"]
+    assert prepare["retest"] == "none"
+    assert (prepare["changelog"], prepare["documents"], prepare["code"]) == (1, 2, 1)
 
 
 def test_a_conflict_before_the_push_is_recorded_as_before_pr_with_the_outcome_conflict(
