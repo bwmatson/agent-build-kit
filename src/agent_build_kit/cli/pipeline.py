@@ -2558,6 +2558,9 @@ def run_round(
                 refused[unit.id] = decision.reason
     evaluated = [unit for unit in evaluated if unit.id not in refused]
     lane_starts = lane_starts - refused.keys()
+    if not dry_run:
+        evaluated = _claim_starts(inst, store, units, evaluated)
+        lane_starts = lane_starts & {unit.id for unit in evaluated}
     ready = [*resumable, *evaluated]
     for unit in evaluated:
         if unit.id in lane_starts and not dry_run:
@@ -2593,6 +2596,23 @@ def run_round(
             decided=decided,
         )
     return ready
+
+
+def _claim_starts(
+    inst: Installation, store: UnitStore, units: list[StoredUnit], evaluated: list[Unit]
+) -> list[Unit]:
+    """The units that may start once the board items they cover are the kit's: each claim is
+    recorded in the unit's history, and a unit whose claim is lost is left for a later tick."""
+    kept: list[Unit] = []
+    for unit in evaluated:
+        decision = start_gate(unit, units, changes_dir=inst.changes_dir, claim=True)
+        for item_id in decision.claimed:
+            store.record_event(unit.id, "claim", item=item_id)
+        if decision.outcome == "start":
+            kept.append(unit)
+        else:
+            log(f"{unit.id} is not started: {decision.reason}")
+    return kept
 
 
 def _slot_label(slot: Hashable) -> str:

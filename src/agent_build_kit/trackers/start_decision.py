@@ -10,6 +10,7 @@ from agent_build_kit import config, trackers
 from agent_build_kit.model import Frozen
 from agent_build_kit.pipeline.tracker_file import TrackerFile, mapping_target, read_for_target
 from agent_build_kit.pipeline.units import Unit, in_progress
+from agent_build_kit.trackers.base import Tracker
 from agent_build_kit.trackers.config import section_for
 from agent_build_kit.trackers.levels import group_key, task_group_key
 
@@ -53,20 +54,21 @@ def _covered_ids(
     return ids
 
 
-def start_decision(unit: Unit, *, changes_dir: Path) -> StartDecision:
+def start_decision(unit: Unit, *, changes_dir: Path, claim: bool = True) -> StartDecision:
     """The decision for `unit` against the tracker of its repo, whose tracker files are under
     `changes_dir`; a repo with no tracker section starts it and makes no call. A failure to read
     the section, the tracker file or the board is a wait naming it, never a raise: the unit is
-    not started without knowing who owns it, and no other unit is touched."""
+    not started without knowing who owns it, and no other unit is touched. Free items are
+    claimed before the answer is start; a read-only caller passes `claim=False`."""
     if unit.repo not in config.active().repos:
         return StartDecision(outcome="start")  # a repo the configuration lacks has no tracker
     try:
-        return _decide(unit, changes_dir)
+        return _decide(unit, changes_dir, claim)
     except Exception as error:  # noqa: BLE001
         return StartDecision(outcome="wait", reason=f"tracker unavailable: {error}")
 
 
-def _decide(unit: Unit, changes_dir: Path) -> StartDecision:
+def _decide(unit: Unit, changes_dir: Path, claim: bool) -> StartDecision:
     section = section_for(unit.repo)
     if section is None:
         return StartDecision(outcome="start")
@@ -92,12 +94,36 @@ def _decide(unit: Unit, changes_dir: Path) -> StartDecision:
         return StartDecision(
             outcome="skip", reason=f"assigned to {', '.join(people)}", items=tuple(taken)
         )
-    return StartDecision(outcome="start", items=tuple(wanted))
+    if not claim:
+        return StartDecision(outcome="start", items=tuple(wanted))
+    return _claim_all(tracker, sync, wanted)
 
 
-def start_gate(unit: Unit, graph: Sequence[Unit], *, changes_dir: Path) -> StartDecision:
+def _claim_all(tracker: Tracker, sync: str, wanted: Sequence[str]) -> StartDecision:
+    """Claim each item not already the sync account's, never retrying. A claim not held releases
+    the ones made for this unit and skips it, naming who holds the item."""
+    claimed: list[str] = []
+    for item_id in wanted:
+        if tracker.get(item_id).assignees == (sync,):
+            continue
+        if not tracker.claim(item_id):
+            holders = [who for who in tracker.get(item_id).assignees if who != sync]
+            for made in claimed:
+                tracker.set_assignee(made, "")
+            return StartDecision(
+                outcome="skip",
+                reason=f"claim lost: assigned to {', '.join(holders) or 'someone else'}",
+                items=(item_id,),
+            )
+        claimed.append(item_id)
+    return StartDecision(outcome="start", items=tuple(wanted), claimed=tuple(claimed))
+
+
+def start_gate(
+    unit: Unit, graph: Sequence[Unit], *, changes_dir: Path, claim: bool = False
+) -> StartDecision:
     """The one rule the round applies: a unit already in progress is the kit's and is not asked;
     any other is decided by `start_decision`."""
     if in_progress(unit, graph):
         return StartDecision(outcome="start")
-    return start_decision(unit, changes_dir=changes_dir)
+    return start_decision(unit, changes_dir=changes_dir, claim=claim)

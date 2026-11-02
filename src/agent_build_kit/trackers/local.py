@@ -135,7 +135,7 @@ class LocalTracker:
 
     def set_assignee(self, item_id: str, who: str, expected_revision: str | None = None) -> Item:
         self._check_revision(self._items[item_id], expected_revision)
-        return self._change(item_id, assignees=(who,))
+        return self._change(item_id, assignees=(who,) if who else ())
 
     def claim(self, item_id: str) -> bool:
         if not self._items[item_id].assignees:
