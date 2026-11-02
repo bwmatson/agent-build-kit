@@ -67,7 +67,7 @@ from agent_build_kit.pipeline.units import (
     later_groups_by_change,
 )
 from agent_build_kit.pipeline.verdict import REVIEW_TIERS
-from agent_build_kit.pipeline.work_graph import validate_tasks
+from agent_build_kit.pipeline.work_graph import GroupMode, validate_tasks
 
 
 # The change lives in the planning repo, which the run can read because
@@ -317,6 +317,7 @@ class GroupStep(Frozen):
         False  # the group's mode is `tests_only`; false when its heading cannot be read
     )
     support: tuple[str, ...] = ()  # the paths its `Support:` lines declare
+    mode: GroupMode = GroupMode.TESTS_AND_CODE  # how the group is built
 
 
 def group_steps_of(planning_repo: Path | str, unit: Unit) -> tuple[GroupStep, ...]:

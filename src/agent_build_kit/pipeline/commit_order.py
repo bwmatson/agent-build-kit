@@ -32,6 +32,7 @@ from agent_build_kit.pipeline.shell import git, git_out
 
 if TYPE_CHECKING:
     from agent_build_kit.pipeline.stack_runner import GroupStep
+    from agent_build_kit.pipeline.work_graph import GroupMode
 
 TESTS_PREFIX = "test: "
 CODE_PREFIX = "feat: "
@@ -171,7 +172,7 @@ class GroupProgress(Frozen):
 
 
 def group_progress(
-    subjects: list[str], titles: Sequence[str], test_only: Sequence[bool] = ()
+    subjects: list[str], titles: Sequence[str], test_only: Sequence[bool | GroupMode] = ()
 ) -> GroupProgress:
     """Walk the groups in the unit's order, each taking a `test:` then a `feat:` commit with
     its title from the front of `subjects` (oldest first); a group flagged in `test_only`
@@ -216,7 +217,7 @@ def adopted_subject(unit_title: str, steps: Sequence[GroupStep], subjects: list[
 
 
 def superseded_pairs(
-    repo: Path, ref: str, base: str, titles: Sequence[str], test_only: Sequence[bool]
+    repo: Path, ref: str, base: str, titles: Sequence[str], test_only: Sequence[bool | GroupMode]
 ) -> list[list[str]] | None:
     """The commits of each group on the branch at `ref`, oldest group first, when the branch
     beyond `base` is exactly a pair for each of the groups (`titles`, by position, with

@@ -172,14 +172,16 @@ def prepared(
     guidance: str = "",
     e2e: Collection[int] = (),
     tests_only: Collection[int] = (),
+    modes: Mapping[str, str] | None = None,
     **options: Any,
 ) -> tuple[OnBranch, Path]:
     """The recorder and the branch for building the unit over a branch holding `seeded`
     subjects. `groups` is each change's tasks, the unit's own change first; the unit builds
     the groups listed under its own change and those the members in `carries` name. `e2e` and
     `tests_only` are the numbers of its own change's groups headed `[e2e-test]` and holding only
-    tests. `meanwhile` acts on the branch before the build starts, and `guidance` is a person's
-    note saved on the unit before it does."""
+    tests. `modes` is the stored build mode of groups, keyed `<change>/<number>`. `meanwhile`
+    acts on the branch before the build starts, and `guidance` is a person's note saved on the
+    unit before it does."""
     activate_with(builders={"stubbed_tdd_commits": setting})
     tasks = groups or {"add-marker": titled(1, 2, 3)}
     for change, listed in tasks.items():
@@ -195,7 +197,13 @@ def prepared(
     if meanwhile:
         meanwhile(repo)
     store = UnitStore(tmp_path / "units.json")
-    store.upsert([stored_unit(groups=tuple(tasks["add-marker"]), joined=carries)])
+    store.upsert(
+        [
+            stored_unit(
+                groups=tuple(tasks["add-marker"]), joined=carries, group_modes=dict(modes or {})
+            )
+        ]
+    )
     if guidance:
         store.set_guidance(UNIT, guidance)
     return OnBranch(store, **options), repo

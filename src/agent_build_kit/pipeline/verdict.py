@@ -10,6 +10,7 @@ from typing import Any
 from agent_build_kit.config import AutoLandConfig, CeilingsConfig, buffered
 from agent_build_kit.model import Frozen, TestTier
 from agent_build_kit.pipeline.unit_store import E2eState
+from agent_build_kit.pipeline.work_graph import GroupMode
 
 
 class ReviewTier(StrEnum):
@@ -86,6 +87,8 @@ class VerdictFacts(Frozen):
     protected_paths: tuple[str, ...] = ()
     flags: tuple[str, ...] = ()
     red_first: GateResult = GateResult.MISSING
+    # The build mode of each group the unit builds.
+    group_modes: tuple[GroupMode, ...] = ()
     unit_test: GateResult = GateResult.MISSING
     # What the unit's stored e2e state says; none when nothing is recorded.
     e2e_state: E2eState | None = None
