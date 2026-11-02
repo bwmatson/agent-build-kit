@@ -21,7 +21,7 @@ import agent_build_kit.serve as serve_package
 from agent_build_kit.installation import Installation
 from agent_build_kit.serve.chat import Chat
 from agent_build_kit.serve.server import start_server
-from tests.chat_serving import record_session, recorded_acp_session, turn, unit_worktree
+from tests.chat_serving import WAIT, record_session, recorded_acp_session, turn, unit_worktree
 from tests.runtimes.acp_agent import ENVIRONMENT, SESSION, requests, use_agent
 from tests.serving import seed_pipeline
 
@@ -81,7 +81,7 @@ def test_a_turn_on_a_build_session_runs_in_the_given_environment(
     record_session(pipeline, "feature/2", SESSION, runtime="acp")
 
     with start_server(pipeline, agent_environment=scratch()) as server:
-        with httpx.Client(base_url=server.url) as api:
+        with httpx.Client(base_url=server.url, timeout=WAIT) as api:
             turn(api, f"{REVIEW}/chat", {"tab": "t1", "prompt": "Hello."})
 
     assert requests(record, "session/prompt")
@@ -92,7 +92,7 @@ def test_a_new_session_runs_in_the_given_environment(pipeline: Installation, rec
     body = {"tab": "t1", "runtime": "acp", "unit": "feature/2", "prompt": "Look around."}
 
     with start_server(pipeline, agent_environment=scratch()) as server:
-        with httpx.Client(base_url=server.url) as api:
+        with httpx.Client(base_url=server.url, timeout=WAIT) as api:
             turn(api, "/api/sessions", body)
 
     assert requests(record, "session/new")
@@ -105,7 +105,7 @@ def test_a_continued_session_runs_in_the_given_environment(
     recorded_acp_session(pipeline, SESSION)
 
     with start_server(pipeline, agent_environment=scratch()) as server:
-        with httpx.Client(base_url=server.url) as api:
+        with httpx.Client(base_url=server.url, timeout=WAIT) as api:
             turn(api, f"/api/sessions/acp/{SESSION}/continue", {"tab": "t1", "prompt": "Go on."})
 
     assert requests(record, "session/resume"), "the session was not resumed in place"
@@ -118,10 +118,10 @@ def test_the_resume_check_runs_in_the_given_environment(
     recorded_acp_session(pipeline, SESSION)
 
     with start_server(pipeline, agent_environment=scratch()) as server:
-        with httpx.Client(base_url=server.url) as api:
+        with httpx.Client(base_url=server.url, timeout=WAIT) as api:
             opened = api.get(f"/api/sessions/acp/{SESSION}").json()
 
-    assert "continue" in opened["actions"]
+    assert "continue" in opened["actions"], (opened["reason"], opened["actions"])
     assert_all_in_the_given_environment(record)
 
 
@@ -131,7 +131,7 @@ def test_a_server_given_no_environment_leaves_its_agents_the_process_environment
     body = {"tab": "t1", "runtime": "acp", "unit": "feature/2", "prompt": "Look around."}
 
     with start_server(pipeline) as server:
-        with httpx.Client(base_url=server.url) as api:
+        with httpx.Client(base_url=server.url, timeout=WAIT) as api:
             turn(api, "/api/sessions", body)
 
     (seen,) = agents_started(record)
