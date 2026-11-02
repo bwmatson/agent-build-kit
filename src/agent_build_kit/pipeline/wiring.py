@@ -68,7 +68,7 @@ from agent_build_kit.pipeline import failure_evidence, snapshots, spans
 from agent_build_kit.pipeline.changelog_convention import review_changelog_paragraph
 from agent_build_kit.pipeline.check_failures import failed_in
 from agent_build_kit.pipeline.check_runner import worktree_at
-from agent_build_kit.pipeline.command_limit import run_limited
+from agent_build_kit.pipeline.command_limit import TIMED_OUT_EXIT, run_limited
 from agent_build_kit.pipeline.commit_order import ALREADY_BUILT_TRAILER, branch_subjects
 from agent_build_kit.pipeline.config_guard import config_unchanged
 from agent_build_kit.pipeline.determinism_guidance import determinism_guidance
@@ -2542,11 +2542,13 @@ def _tooling_lost(
 ) -> bool:
     """Whether a command made for the selection's data failed before running a test: no
     result line at all, so its tooling could not be had and the plain command is the answer.
-    Collecting nothing is not that: pytest started, so the plugin loaded."""
+    Collecting nothing is not that: pytest started, so the plugin loaded. Nor is a run killed at
+    its time limit, which prints no result line either: it is a timeout, and a second full run
+    would only take the limit again."""
     return (
         isinstance(toolchain, RecordsSelectionData)
         and toolchain.is_seeded(command)
-        and result.returncode not in (0, toolchain.no_tests_collected_exit)
+        and result.returncode not in (0, toolchain.no_tests_collected_exit, TIMED_OUT_EXIT)
         and _counted(toolchain, result) == 0
     )
 
