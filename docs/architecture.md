@@ -1547,6 +1547,22 @@ approved.
   cause `gated`, with a `resume` requeue waiting, so `release_gated` resumes it once the fix
   has merged: it restacks and runs unit-test again. A unit of the fix change itself does not
   wait. `abk status` lists each flaky test with its count and fix change.
+  The order of checks for a failing test is fixed. An open fix for the failing test is waited on
+  first: a unit whose unit-test or e2e-test fails on a test that an open change already fixes,
+  whatever its kind (`fix-test-`, `fix-flaky-` or `fix-failing-`, found by one lookup by test id),
+  gets a `Needs:` line on it and parks before any rerun, and the same holds also after a requeue.
+  Only then are the reruns made. The unit-test base check follows: a test the unit did not write
+  runs on the unit's own base (the branch tip of its parent when it is stacked, the default branch
+  otherwise); passing there leaves the failure the unit's and its fix agent is told, failing there
+  is not the unit's and the regression agent runs. Note that a test the unit wrote is not run on the base,
+  and a test that fails by its time limit in the full run and fails again by itself under a serial
+  rerun is recorded with one fix and the unit waits, it is not failed.
+  The regression agent (model of the `regression` role, Opus under Claude Code) writes the change
+  for a flake, a pre-existing failure and a unit-test failure that fails on the base alike. It is
+  named `fix-test-<slug>-<hash>` whatever the kind, which is recorded in the proposal, and its
+  group carries `[contract]`, so the change gets a full review. A change without `[contract]`,
+  valid tags or a priority is rewritten once and then held for a person. Runs are bounded by
+  `global_limits.max_regression_runs_per_hour`, and many units failing on one test cost one run.
 - **A pre-existing failure is recorded and fixed once.** A test the base run names as failed
   is appended to `<state_dir>/preexisting-failures.jsonl` (test, unit, command, first
   failure line, time, the base run's result and output, the `split` it failed in (`rest` or a
@@ -1566,6 +1582,8 @@ approved.
   (`abk explain` too, for a unit of that change), and `abk external release <change> --all`
   gives it back, which also works for a change that has no `tasks.md`. A unit that needs it
   stays gated while its folder exists, tasks or not (`awaiting_planning`).
+  The agent judges whether the test or the implementation is wrong, and since when, and the
+  change gets a full review. A unit-test failure that fails on the base takes this path too.
 - **A unit behind a fix waits, and is told only of its own failures.** When every failure of a
   e2e-test run is pre-existing, the node (`Nodes.wait_for_preexisting`) records each through the
   runner's `on_preexisting` (`wiring.build_on_preexisting`), gives each group of the unit a

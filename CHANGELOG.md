@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- The documents and the pipeline skill now describe how a failing test is handled: an open fix is
+  waited on first, a test the unit did not write runs on the unit's base, and the
+  regression agent writes the `fix-test-` change, whose group carries `[contract]` so it gets a
+  full review.
+
 - The architecture document now describes the foundations the detached-worker design builds on: a
   branch lock names its holder by pid and start time, starting a unit is admitted under one lock
   that records a `starting` marker, and the snapshot API gives a value and its age. The worker

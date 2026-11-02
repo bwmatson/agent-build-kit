@@ -341,6 +341,10 @@ runtimes:
       regression: opus
 ```
 
+The `regression` role is the model of the regression agent, which works out why a test fails and
+writes the fix change. It is set like the other roles and `ABK_REGRESSION_MODEL` overrides it;
+`regression` defaults to Opus under Claude Code.
+
 A `runtimes:` entry appears only for a runtime that needs a fact abk cannot
 default — `acp` has no default agent to spawn — and only for the runtimes a
 workspace actually uses:

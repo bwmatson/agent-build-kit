@@ -333,8 +333,11 @@ At each planning pass a planned unit that never started, whose change no longer 
 
 A test that fails e2e-test on the base as well is pre-existing: it is recorded in
 `preexisting-failures.jsonl` and gets one `fix-test-<test>` change (the name every test-fix change takes; an open
-`fix-flaky-` or `fix-failing-` one is still found), written without a
-model (a successor only once the earlier one is merged and archived). `abk status` lists
+`fix-flaky-` or `fix-failing-` one is still found), written by the regression agent
+(a successor only once the earlier one is merged and archived). An open fix for the failing test is waited on first,
+before any rerun. A test the unit did not write runs on the unit's base (its parent's branch tip when stacked): passing
+there leaves the failure the unit's, failing there sends it to the agent. The agent's group carries `[contract]`, so the
+change gets a full review. `abk status` lists
 each as `pre-existing:` with its count and fix change. The fix changes of both kinds are
 written at `Priority: 1`. `abk tick --dry-run` prints `exists: <change>` or
 `would write: <change>` for each recorded one and writes nothing. A unit whose e2e-test
