@@ -106,6 +106,33 @@ class AffectedRun(Frozen):
     outcome: str
 
 
+class RestackRecord(Frozen):
+    """A `restack` line of the ledger: one decision to move a unit's branch onto its base.
+    `point` is `prepare`, `before_review` or `before_pr`; `moved_from` is the commit the base
+    was at when it moved, empty when it did not; the `changelog`, `documents`, `tests` and
+    `code` counts are the files the move brought in, by kind; `outcome` is `clean`,
+    `conflict` or `resolved`; `retest` is `none`, `lite`, `scoped` or `full`, with its
+    `retest_seconds` and `retest_result` (`passed` or `failed`); `resolution_seconds` is the
+    time a resolution took."""
+
+    kind: str = "restack"
+    at: str
+    unit: str = ""
+    change: str = ""
+    point: str
+    moved: bool
+    moved_from: str = ""
+    changelog: int = 0
+    documents: int = 0
+    tests: int = 0
+    code: int = 0
+    outcome: str = "clean"
+    retest: str = "none"
+    retest_seconds: float = 0.0
+    retest_result: str = ""
+    resolution_seconds: float = 0.0
+
+
 class Mark:
     """A moment on `clock`, to measure a span from."""
 
@@ -160,6 +187,11 @@ def record_sample(sample: Sample, say: Callable[[str], None]) -> None:
 def record_affected(run: AffectedRun, say: Callable[[str], None]) -> None:
     """Record a selected run, never raising."""
     record_line(run, say)
+
+
+def record_restack(record: RestackRecord, say: Callable[[str], None]) -> None:
+    """Record a restack decision, never raising."""
+    raise NotImplementedError
 
 
 def export_span(span: Span) -> None:

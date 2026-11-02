@@ -8423,6 +8423,11 @@ def cmd_gate(args: argparse.Namespace, inst: Installation | None) -> int:
     return 0
 
 
+def cmd_restacks(args: argparse.Namespace, inst: Installation) -> int:
+    """Print the ledger's restack records as counts and hours by point and by re-test kind."""
+    raise NotImplementedError
+
+
 def register(sub: argparse._SubParsersAction) -> None:
     tick = sub.add_parser("tick", help="one pass: usage, poll, plan, verify, archive, build")
     tick.add_argument(
@@ -8449,6 +8454,12 @@ def register(sub: argparse._SubParsersAction) -> None:
         help="ask the usage endpoint for a fresh reading, within the minimum interval",
     )
     status.set_defaults(func=cmd_status)
+
+    restacks = sub.add_parser(
+        "restacks", help="restacks and their re-tests, by point and by kind, from the ledger"
+    )
+    restacks.add_argument("--since", help="only records from this time on (ISO 8601)")
+    restacks.set_defaults(func=cmd_restacks)
 
     graph = sub.add_parser("graph", help="regenerate the unit graph page")
     graph.set_defaults(func=cmd_graph)
