@@ -18,6 +18,7 @@ from tests.tracked_files import ROOT
 from tests.wide_scans import TESTS_ROOT, check_tests, load_baseline
 
 WIDE_SCANS = [
+    ("test_secret_leak_guards.py", "test_no_test_support_model_prints_its_environment"),
     (
         "test_live_tag_drift.py",
         "test_every_module_the_old_glob_and_text_match_found_is_still_found",
