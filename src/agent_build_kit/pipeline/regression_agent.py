@@ -8,7 +8,7 @@ import contextlib
 import re
 import subprocess
 import time
-from collections.abc import Callable, Iterable
+from collections.abc import Callable, Iterable, Mapping, Sequence
 from datetime import datetime, timedelta
 from enum import StrEnum
 from pathlib import Path
@@ -17,10 +17,15 @@ from agent_build_kit import openspec, runtimes
 from agent_build_kit.config import CONFIG_FILENAME, active, models
 from agent_build_kit.init.propose import repair_once, validation_report
 from agent_build_kit.installation import Installation
-from agent_build_kit.model import Frozen
+from agent_build_kit.model import Frozen, TestTier
 from agent_build_kit.pipeline import spans
 from agent_build_kit.pipeline.call_record import recorded
 from agent_build_kit.pipeline.check_runner import worktree_at
+from agent_build_kit.pipeline.commit_order import (
+    DOC_SUFFIXES,
+    TEST_FILE_PREFIXES,
+    TEST_FILE_SUFFIXES,
+)
 from agent_build_kit.pipeline.external_file import HELD, Hold, add_hold, already_held, read_holds
 from agent_build_kit.pipeline.file_lock import (
     Clock,
@@ -40,6 +45,11 @@ from agent_build_kit.pipeline.flakes import (
     next_fix_name,
     open_fix_change,
 )
+from agent_build_kit.pipeline.group_paths import (
+    named_paths,
+    named_test_paths,
+    tasks_asking_for_tests,
+)
 from agent_build_kit.pipeline.unit_store import StoredUnit
 from agent_build_kit.pipeline.units import local_ref
 from agent_build_kit.pipeline.untouched_failures import preexisting_record
@@ -47,6 +57,7 @@ from agent_build_kit.pipeline.vocabulary import OverheadNode
 from agent_build_kit.pipeline.work_graph import (
     FIX_PREFIX,
     PRIORITY_LINE,
+    TaskGroup,
     declared_projects,
     declared_split_names,
     group_needs,
@@ -128,6 +139,24 @@ POSSIBLE_LINE = (
 )
 _EXPOSURE_LINE = re.compile(r"^- \S.*? — \S.* — (confirmed|possible)$")
 
+# The line of the proposal that names the standard of the test catalogue a test-code cause breaks;
+# the catalogue (`docs/designs/testing-strategy.md`) holds T1 to T27 and the lettered T8a and T12a.
+STANDARD_LINE = re.compile(r"^\W*Standard:\s*(?P<label>T\d+[a-z]?)\b", re.MULTILINE)
+STANDARDS = frozenset({*(f"T{n}" for n in range(1, 28)), "T8a", "T12a"})
+# The standards a cause in test code most often breaks, as the prompt lists them.
+STANDARD_HINTS = (
+    "T5 a wall-clock assertion, T6 a sleep or an unbounded wait, T7 a fixed port or an unjoined "
+    "thread, T8 an id or path shared between tests, T8a setup repeated in each test instead of a "
+    "shared fixture, T9 a test that depends on order or on the worker, T10 an unstubbed clock or "
+    "randomness, T11 the network, T12 a path the repository ignores, T14 an environment variable "
+    "assumed, T16 a test over its time budget, T17 repeated scans of the repository, T20 an "
+    "assertion that cannot fail, T21 copied cases or helpers defined twice"
+)
+# A `Test:` task that reruns the failing test where it should recreate the defect, and the words
+# that say how a task makes the defect happen on demand.
+RERUN_TASK = re.compile(r"\b(re-?run|in a loop|repeatedly|again)\b", re.IGNORECASE)
+DETERMINISTIC_MEANS = re.compile(r"\b(fake|inject\w*|stand-in|stub\w*|mock\w*)", re.IGNORECASE)
+
 PROMPT = """\
 You are the regression agent. The test `{test}` fails and the unit that met it did not write it.
 Work out why it fails and since when, judge whether the test or the implementation is wrong,
@@ -143,6 +172,19 @@ exactly `{kind_label} {kind}`.
 The change is named `{change}`. Its tasks.md carries a `Priority:` line and a task group
 flagged `[contract]`. If you cannot decide which side is wrong, end your answer with the line
 `{undecided}` and write the change anyway.
+
+Where the cause is decides the tasks. A cause in test code (a test, or a module that only tests
+use): every task of the group names only test files, and there is no `Test:` task, because a fix
+for test code carries no test of its own; `abk tags` shows the group as `tests_only` and the
+repeat check on the changed tests is the check. A cause in a source file: the group keeps a
+`Test:` task before the fix, and that task recreates the defect deterministically, with
+a fake clock, an injected ordering or a stand-in dependency named in the task. It never says
+only to rerun the flaky test.
+
+For a cause in test code, the proposal also carries a line `Standard: T<n>` (for example
+`Standard: T5`) naming the standard of the test catalogue the cause breaks: {standards}.
+Place any test by the placement rule (T2): a new case joins the existing test file for the
+module it exercises, and a new test file is asked for only for a new logic file.
 
 Same exposure. Once you have judged the cause, say whether it is a pattern: a helper or fixture
 many tests call that repeats work or is slow, a test that reads or walks a directory the run or
@@ -243,6 +285,7 @@ def run_regression_agent(
         output=failure.output.strip(),
         base_section=on_base,
         history="\nEarlier failures of this test:\n" + "\n".join(earlier) if earlier else "",
+        standards=STANDARD_HINTS,
         failing_label=FAILING_TEST_LABEL,
         kind_label=KIND_LABEL,
         judgements=" or ".join(f"`{JUDGEMENT_LABEL} {each}`" for each in JUDGEMENTS),
@@ -307,7 +350,7 @@ def run_regression_agent(
                 change=name, held=True, reason="the agent could not decide which side is wrong"
             )
         else:
-            return _problems(inst, name, failure.test, kind, run_openspec)
+            return _problems(inst, name, failure.test, kind, run_openspec, cwd)
         return []
 
     try:
@@ -387,11 +430,19 @@ def failure_history(inst: Installation, test: str, *, evidence: bool = False) ->
 
 
 def _problems(
-    inst: Installation, name: str, test: str, kind: FixKind, run_openspec: openspec.Run | None
+    inst: Installation,
+    name: str,
+    test: str,
+    kind: FixKind,
+    run_openspec: openspec.Run | None,
+    cwd: Path,
 ) -> list[str]:
     """What is wrong with the change `name` for `test`: a file missing, what OpenSpec or the
     tags check refuses, no `[contract]` group, no `Priority:` line, no judgement line, no
-    `Failing test:` line naming `test` or no `Kind:` line naming `kind` in the proposal."""
+    `Failing test:` line naming `test` or no `Kind:` line naming `kind` in the proposal, the
+    tasks of a test-code fix or a source fix and the placement of a new test file
+    (`_test_code_problems`), a test-code proposal with no `Standard:` line, and the `Same
+    exposure` section."""
     root = inst.changes_dir / name
     missing = [file for file in CHANGE_FILES if not (root / file).is_file()]
     if not any((root / "specs").glob("*/spec.md")):
@@ -426,6 +477,15 @@ def _problems(
             "proposal.md: no judgement line, worded "
             + " or ".join(f"`{JUDGEMENT_LABEL} {each}`" for each in JUDGEMENTS)
         )
+    proposal = (root / "proposal.md").read_text()
+    found += _test_code_problems(
+        groups,
+        cwd,
+        test=test,
+        test_wrong=_judgement_of(proposal) == JUDGEMENTS[0],
+        projects=projects,
+    )
+    found += _standard_problems((root / "proposal.md").read_text())
     return found + _exposure_problems((root / "proposal.md").read_text())
 
 
@@ -610,8 +670,7 @@ def judgement_of(inst: Installation, change: str) -> str:
         text = (inst.changes_dir / change / "proposal.md").read_text()
     except OSError:
         return ""
-    found = JUDGEMENT_LINE.search(text)
-    return found[1].lower() if found else ""
+    return _judgement_of(text)
 
 
 def waited_fixes(inst: Installation, unit: StoredUnit) -> list[tuple[str, str]]:
@@ -627,6 +686,114 @@ def waited_fixes(inst: Installation, unit: StoredUnit) -> list[tuple[str, str]]:
             for need in needs.get(group, []):
                 changes.setdefault(need.change, judgement_of(inst, need.change))
     return list(changes.items())
+
+
+def _sibling_test_file(path: str, checkout: Path) -> tuple[Path, str] | None:
+    """The test file in `checkout` of the module the new test file `path` extends, with the
+    subject of `path`: same folder and naming form (a prefix or a suffix of `TEST_FILE_PREFIXES`
+    or `TEST_FILE_SUFFIXES`), and a subject that is a leading part of `path`'s own
+    (`test_widget.py` for `test_widget_label.py`, `widget.test.ts` for `widget.label.test.ts`)."""
+    name = Path(path).name
+    parts: tuple[str, str, str] | None = None
+    for prefix in TEST_FILE_PREFIXES:
+        if name.startswith(prefix):
+            parts = (prefix, Path(name).stem[len(prefix) :], Path(name).suffix)
+            break
+    if parts is None:
+        for suffix in TEST_FILE_SUFFIXES:
+            if name.endswith(suffix):
+                parts = ("", name[: -len(suffix)], suffix)
+                break
+    if parts is None:
+        return None
+    head, subject, tail = parts
+    for found in re.finditer(r"[_.]", subject):
+        if found.start() == 0:
+            continue
+        sibling = Path(path).with_name(f"{head}{subject[: found.start()]}{tail}")
+        if (checkout / sibling).is_file():
+            return sibling, subject
+    return None
+
+
+def _test_code_problems(
+    groups: Iterable[TaskGroup],
+    checkout: Path,
+    *,
+    test: str,
+    test_wrong: bool,
+    projects: Mapping[str, Sequence[str]],
+) -> list[str]:
+    """What is wrong with the tasks of a fix.
+
+    For a cause in test code (`test_wrong`, the proposal's judgement) every group but an
+    `[e2e-test]` one names only test files and holds no `Test:` task: a fix for test code has no
+    test of its own. For a cause in a source file, a `Test:` task recreates the defect and does
+    not only rerun `test` (it reruns or names the failing test with no fake clock, injected
+    ordering or stand-in). A task that names a new test file where the module already has one is
+    placed wrongly, unless the group also names the new logic file of that subject."""
+    found: list[str] = []
+    for group in groups:
+        tests = tasks_asking_for_tests(group)
+        e2e = group.tier == TestTier.E2E_TEST
+        if test_wrong and not e2e and not group.test_only:
+            found.append(
+                f"tasks.md: group {group.number} is not `tests_only`, but the cause is in test "
+                "code: every group names only test files (no source path, no `Tests: required`) "
+                "and holds no `Test:` task"
+            )
+        elif group.test_only and not e2e and tests:
+            found.append(
+                f"tasks.md: group {group.number} names only test files, so it is `tests_only` and "
+                "carries no `Test:` task: a fix for test code has no test of its own"
+            )
+        elif not group.test_only:
+            found += [
+                f"tasks.md: group {group.number}: `{text[:60]}` only reruns the test; recreate "
+                "the defect deterministically (a fake clock, an injected ordering or a stand-in "
+                "dependency)"
+                for text in tests
+                if (RERUN_TASK.search(text) or test in text)
+                and not DETERMINISTIC_MEANS.search(text)
+            ]
+        tested = named_test_paths(group)
+        new_logic = {
+            Path(path).stem
+            for path in named_paths(group, projects.get(group.repo, ()))
+            if path not in tested
+            and not path.endswith(DOC_SUFFIXES)
+            and not (checkout / path).is_file()
+        }
+        for path in tested:
+            if (checkout / path).is_file():
+                continue
+            sibling = _sibling_test_file(path, checkout)
+            if sibling and sibling[1] not in new_logic:
+                found.append(
+                    f"tasks.md: group {group.number} names a new test file `{path}`, but "
+                    f"`{sibling[0]}` already holds the tests of the module (placement rule T2)"
+                )
+    return found
+
+
+def _standard_problems(proposal: str) -> list[str]:
+    """For a proposal that judges the test wrong: no `Standard: T<n>` line, or one naming a
+    standard the catalogue does not hold (`STANDARDS`)."""
+    if _judgement_of(proposal) != JUDGEMENTS[0]:
+        return []
+    named = STANDARD_LINE.search(proposal)
+    if named and named["label"] in STANDARDS:
+        return []
+    return [
+        "proposal.md: no line `Standard: T<n>` naming a standard of the test catalogue "
+        "(T1 to T27, T8a or T12a) the cause breaks"
+    ]
+
+
+def _judgement_of(proposal: str) -> str:
+    """The judgement the `Judgement:` line of `proposal` states, lower-cased; empty when none."""
+    found = JUDGEMENT_LINE.search(proposal)
+    return found[1].lower() if found else ""
 
 
 def _exposure_problems(proposal: str) -> list[str]:
