@@ -2,6 +2,8 @@
 
 Any old spelling in a source, test or document file fails the guard naming the file and line;
 the compatibility module and its tests are exempt, the rename tool is not; the repository passes.
+Generated reports are not scanned, and a tracked file that is gone from the disk is skipped, so the
+guard gives the same answer under parallel load.
 """
 
 from __future__ import annotations
@@ -10,6 +12,7 @@ from pathlib import Path
 
 import pytest
 
+from tests.factories import commit_files, init_repo
 from tests.old_test_kind_names import candidates, lines_of, old_spelling_problems
 from tests.time_limit import LOADED_TEST_TIME_LIMIT
 
@@ -149,3 +152,62 @@ def test_text_with_only_the_new_names_passes(tmp_path: Path) -> None:
 @pytest.mark.time_limit(LOADED_TEST_TIME_LIMIT)
 def test_the_repository_carries_no_old_spelling() -> None:
     assert old_spelling_problems(REPOSITORY) == []
+
+
+def test_a_generated_track_report_quoting_an_old_unit_id_is_not_scanned(tmp_path: Path) -> None:
+    root = init_repo(tmp_path)
+    commit_files(root, "report", {"docs/reports/20260101-000000-app-health.md": f"- {OLD_GATE}\n"})
+
+    assert old_spelling_problems(root) == []
+
+
+def test_a_report_under_the_configured_reports_folder_is_not_scanned(tmp_path: Path) -> None:
+    root = init_repo(tmp_path)
+    commit_files(
+        root,
+        "reports",
+        {
+            "abk.yaml": "planning:\n  reports_dir: docs/track-runs\n",
+            "docs/track-runs/health.md": f"- {OLD_GATE}\n",
+            "docs/reports/other.md": f"- {OLD_GATE}\n",
+        },
+    )
+
+    assert old_spelling_problems(root) == [f"docs/reports/other.md:1: - {OLD_GATE}"]
+
+
+def test_a_docs_reports_folder_below_another_folder_is_still_scanned(tmp_path: Path) -> None:
+    root = init_repo(tmp_path)
+    commit_files(root, "nested", {"tests/fixtures/docs/reports/case.py": f"NAME = '{OLD_GATE}'\n"})
+
+    assert old_spelling_problems(root) != []
+
+
+def test_a_tracked_file_missing_from_the_disk_does_not_fail_the_guard(tmp_path: Path) -> None:
+    root = init_repo(tmp_path)
+    commit_files(
+        root,
+        "tracked",
+        {"src/kept.py": "x = 1\n", "src/gone.py": f"NAME = '{OLD_GATE}'\n"},
+    )
+    (root / "src" / "gone.py").unlink()
+
+    assert old_spelling_problems(root) == []
+
+
+def test_a_tracked_file_removed_after_listing_is_skipped(tmp_path: Path) -> None:
+    root = init_repo(tmp_path / "repo")
+    commit_files(root, "start", {"docs/gone.md": "x\n", "docs/kept.md": OLD_GATE + "\n"})
+    (root / "docs" / "gone.md").unlink()
+
+    problems = old_spelling_problems(root)
+
+    assert [p.split(":")[0] for p in problems] == ["docs/kept.md"]
+
+
+def test_a_repository_whose_only_tracked_file_is_removed_has_no_problem(tmp_path: Path) -> None:
+    root = init_repo(tmp_path / "repo")
+    commit_files(root, "start", {"src/gone.py": "x = 1\n"})
+    (root / "src" / "gone.py").unlink()
+
+    assert old_spelling_problems(root) == []
