@@ -144,5 +144,6 @@ def test_a_call_at_the_site_writes_exactly_one_row_named_for_it(
 
 
 @pytest.mark.time_limit(LOADED_TEST_TIME_LIMIT)
+@pytest.mark.integration
 def test_the_guard_passes_over_the_real_source_with_an_empty_allowlist() -> None:
     assert check_sources(SRC_ROOT, allowlist={}) == []

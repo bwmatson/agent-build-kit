@@ -16,6 +16,7 @@ TESTS = Path(__file__).resolve().parent
 
 
 @pytest.mark.time_limit(LOADED_TEST_TIME_LIMIT)
+@pytest.mark.integration
 def test_no_session_id_is_defined_in_two_test_files() -> None:
     shared = duplicated_session_ids(TESTS)
 

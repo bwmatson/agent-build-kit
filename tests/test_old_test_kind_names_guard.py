@@ -132,6 +132,7 @@ def test_a_file_naming_the_rename_tools_module_fails_a_source_search(
 
 
 @pytest.mark.time_limit(LOADED_TEST_TIME_LIMIT)
+@pytest.mark.integration
 def test_no_file_of_the_repository_names_the_rename_tool() -> None:
     assert naming_the_tool(REPOSITORY) == []
 
@@ -150,6 +151,7 @@ def test_text_with_only_the_new_names_passes(tmp_path: Path) -> None:
 
 
 @pytest.mark.time_limit(LOADED_TEST_TIME_LIMIT)
+@pytest.mark.integration
 def test_the_repository_carries_no_old_spelling() -> None:
     assert old_spelling_problems(REPOSITORY) == []
 

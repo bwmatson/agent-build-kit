@@ -34,16 +34,19 @@ def _hits(pattern: re.Pattern, *, skip=()) -> list[str]:
 
 
 @pytest.mark.time_limit(LOADED_TEST_TIME_LIMIT)
+@pytest.mark.integration
 def test_no_home_directory_product_paths() -> None:
     assert _hits(HOME_PRODUCT_DIR) == []
 
 
 @pytest.mark.time_limit(LOADED_TEST_TIME_LIMIT)
+@pytest.mark.integration
 def test_no_home_paths_in_text() -> None:
     assert home_path_leaks(ROOT) == []
 
 
 @pytest.mark.time_limit(LOADED_TEST_TIME_LIMIT)
+@pytest.mark.integration
 def test_every_github_slug_belongs_to_a_fixture_owner() -> None:
     assert hits(ROOT, foreign_slug_owners) == []
 
@@ -65,21 +68,25 @@ def test_the_azure_organisation_rule_sees_a_foreign_organisation(
 
 
 @pytest.mark.time_limit(LOADED_TEST_TIME_LIMIT)
+@pytest.mark.integration
 def test_every_azure_organisation_belongs_to_a_fixture() -> None:
     assert hits(ROOT, foreign_azure_orgs) == []
 
 
 @pytest.mark.time_limit(LOADED_TEST_TIME_LIMIT)
+@pytest.mark.integration
 def test_no_personal_noreply_addresses() -> None:
     assert _hits(NOREPLY) == []
 
 
 @pytest.mark.time_limit(LOADED_TEST_TIME_LIMIT)
+@pytest.mark.integration
 def test_no_issue_or_pr_number_anecdotes() -> None:
     assert _hits(ANECDOTE) == []
 
 
 @pytest.mark.time_limit(LOADED_TEST_TIME_LIMIT)
+@pytest.mark.integration
 def test_no_dated_anecdotes() -> None:
     # A date beside "decided"/"confirmed"/... is a story about one
     # installation. CHANGELOG entries are dated on purpose, and so are the
@@ -90,12 +97,14 @@ def test_no_dated_anecdotes() -> None:
 
 @pytest.mark.parametrize("pattern", [ENV_LITERAL])
 @pytest.mark.time_limit(LOADED_TEST_TIME_LIMIT)
+@pytest.mark.integration
 def test_environment_is_read_only_through_the_settings_layer(pattern: re.Pattern) -> None:
     hits = [h for h in _hits(pattern) if h.split(":")[0].rsplit("/", 1)[-1] not in ENV_ALLOWED]
     hits = [h for h in hits if not h.startswith("tests/")]
     assert hits == []
 
 
+@pytest.mark.integration
 def test_a_tracked_config_names_no_path_outside_the_checkout() -> None:
     assert repo_path_leaks(ROOT) == []
 

@@ -107,6 +107,7 @@ def test_a_module_under_child_modules_with_a_test_string_is_exempt(tmp_path: Pat
 
 
 @pytest.mark.time_limit(LOADED_TEST_TIME_LIMIT)
+@pytest.mark.integration
 def test_the_repository_has_no_unlisted_or_stale_module() -> None:
     files = guarded_files(ROOT, under=["tests"], suffixes={".py"})
 

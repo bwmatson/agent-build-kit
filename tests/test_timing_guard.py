@@ -149,6 +149,7 @@ def test_an_allowlisted_file_that_no_longer_exists_must_leave_the_allowlist(
 
 
 @pytest.mark.time_limit(LOADED_TEST_TIME_LIMIT)
+@pytest.mark.integration
 def test_the_suite_has_no_hazard_outside_the_allowlist() -> None:
     assert check_tests(TESTS_ROOT, allowlist=ALLOWLIST, shared=SHARED_HELPERS) == []
 

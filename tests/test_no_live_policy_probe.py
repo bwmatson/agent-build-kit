@@ -39,6 +39,7 @@ def config_classes() -> list[type]:
 
 
 @pytest.mark.time_limit(LOADED_TEST_TIME_LIMIT)
+@pytest.mark.integration
 def test_the_live_probe_and_its_remains_are_gone() -> None:
     left = [f"acp.{name}" for name in probe_names(acp)]
     left += [f"AcpRuntime.{name}" for name in probe_names(acp.AcpRuntime)]

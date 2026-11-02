@@ -46,6 +46,7 @@ def test_every_otel_item_of_the_telemetry_module_carries_the_marker_and_no_other
 
 
 @pytest.mark.time_limit(EVERY_LIVE_MODULE_TIME_LIMIT)
+@pytest.mark.integration
 def test_a_split_on_the_marker_selects_the_otel_items_and_no_other_live_test(
     pytester: pytest.Pytester,
 ) -> None:

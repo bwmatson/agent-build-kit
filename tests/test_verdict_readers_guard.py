@@ -44,6 +44,7 @@ ALLOWED = {
 
 
 @pytest.mark.time_limit(LOADED_TEST_TIME_LIMIT)
+@pytest.mark.integration
 def test_the_verdict_file_is_read_only_by_the_modules_the_spec_names() -> None:
     readers = {
         path.relative_to(SOURCE).as_posix()

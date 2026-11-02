@@ -36,6 +36,7 @@ def test_a_new_module_name_exists(stem: str) -> None:
 
 
 @pytest.mark.time_limit(LOADED_TEST_TIME_LIMIT)
+@pytest.mark.integration
 def test_no_tracked_file_names_an_old_module() -> None:
     found: list[str] = []
     for path in tracked_files():

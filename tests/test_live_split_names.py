@@ -70,6 +70,7 @@ def test_an_extra_split_is_named(tmp_path: Path) -> None:
 
 
 @pytest.mark.time_limit(EVERY_LIVE_MODULE_TIME_LIMIT)
+@pytest.mark.integration
 def test_every_tagged_live_test_of_the_kit_is_in_one_derived_split() -> None:
     splits = derived_splits(PYPROJECT) | {"rest"}
     found = splits_by_syntax(ROOT / "tests")
