@@ -12,10 +12,11 @@ from agent_build_kit.profiles.base import is_doc_path
 
 
 class MoveScope(Frozen):
-    """How a moved base is checked: `scoped` over the files the move brought in, or in full
-    for `reason`."""
+    """How a moved base is checked: `lite` over the changelog and documents alone, `scoped`
+    over the files the move brought in, or in full for `reason`."""
 
     scoped: bool
+    lite: bool = False
     reason: str = ""
     incoming: list[str] = []
 
