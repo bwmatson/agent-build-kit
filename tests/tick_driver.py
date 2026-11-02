@@ -1,7 +1,9 @@
 """A tick over one unit's thread with its edges faked: what `graph` in the tick tests is.
 
 `Setup` drives `abk tick` and the poller's events through the entry points a person or the
-timer calls, over the recorder's fake runner, and looks at where a unit's thread waits."""
+timer calls, over the recorder's fake runner, and looks at where a unit's thread waits.
+Every test built on `Setup` is held to `TICK_DRIVER_TIME_LIMIT`: the collection hook in
+`tests/conftest.py` marks it."""
 
 from __future__ import annotations
 
@@ -24,8 +26,10 @@ from agent_build_kit.pipeline.usage_guard import Decision
 from tests.conftest import make_installation
 from tests.graph_driver import fresh
 from tests.runner_fakes import Recorder, make_runner
+from tests.time_limit import LOADED_TEST_TIME_LIMIT
 from tests.waiting import wait_for
 
+TICK_DRIVER_TIME_LIMIT = LOADED_TEST_TIME_LIMIT
 UNIT = "add-marker/1"
 OTHER = "add-marker/2"
 real_poll_all = cli.poll_all

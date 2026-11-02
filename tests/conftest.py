@@ -20,6 +20,7 @@ import argparse
 import os
 import re
 import subprocess
+import sys
 import uuid
 from collections.abc import Callable, Iterator, Sequence
 from pathlib import Path
@@ -543,3 +544,21 @@ def account_kind(host: Host, request: pytest.FixtureRequest) -> str:
     `host.use_account` then sets up that kind of account."""
     host.account_kind = request.param
     return request.param
+
+
+def pytest_collection_modifyitems(items: list[pytest.Item]) -> None:
+    """A test built on the tick driver runs whole faked ticks, whose time depends on the
+    machine's load, so it is held to the loaded limit unless it names its own."""
+    # Nothing is imported here: a module that used a driver has already imported it, and a run
+    # that uses none must not fail on an import error in the driver's modules.
+    driver = sys.modules.get("tests.tick_driver")
+    lane = sys.modules.get("tests.lane_run_usage_support")
+    if driver is None:
+        return  # `make_lane` is built on the driver, so no module can hold either
+    drivers = (driver.Setup, driver.make_setup) + ((lane.make_lane,) if lane is not None else ())
+    for item in items:
+        if item.get_closest_marker("time_limit"):
+            continue
+        module = getattr(item, "module", None)
+        if module is not None and any(v is d for v in vars(module).values() for d in drivers):
+            item.add_marker(pytest.mark.time_limit(driver.TICK_DRIVER_TIME_LIMIT))

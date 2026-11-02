@@ -7,6 +7,9 @@
   that records a `starting` marker, and the snapshot API gives a value and its age. The worker
   design marks its first migration step as done.
 
+- Tests that drive whole faked ticks no longer fail on a busy machine: every test built on the
+  tick driver gets the loaded time limit, set in one collection hook.
+
 - A unit of a repo with a tracker no longer starts when someone else has already started it: a
   remote branch or pull request with the unit's branch name, or an open pull request on any
   other branch of the repo whose title or description carries the `AB#` reference of a board

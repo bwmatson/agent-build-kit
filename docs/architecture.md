@@ -1508,7 +1508,9 @@ approved.
   minutes) for one with it, zero turning either off. A test without `local_stack` marked
   `time_limit(<seconds>)` gets that many seconds in place of `--test-time-limit`; a
   `local_stack` test keeps the e2e limit even with the marker. The marker is for a test whose
-  time is outside its control, such as a download. The failure names the limit and its kind;
+  time is outside its control, such as a download, or that grows with the machine's load: a
+  test built on the tick driver (`tests/tick_driver.py`) gets the loaded limit from a
+  collection hook in `tests/conftest.py`. The failure names the limit and its kind;
   the run goes on (see `docs/agent-runtimes.md`, Test markers).
 - **A test time split.** `tests/time_split.py` reports where a `local_stack` test's time went.
   For each phase of a test that requests the `scratch_ledger` fixture (the scratch
