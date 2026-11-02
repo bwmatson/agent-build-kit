@@ -33,7 +33,7 @@ def inst(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Installation:
 
 
 @pytest.fixture
-def builder(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Builder:
+def builder(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, scripted_engine: None) -> Builder:
     return install_builder(tmp_path, monkeypatch)
 
 

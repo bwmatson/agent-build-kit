@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- `abk worker build <unit>` builds one unit as its own process: it takes the unit's branch lock,
+  runs the unit to its next wait, records the outcome, releases the lock and touches `runs/wake`
+  before it exits. This is the first step towards builds that outlive a tick.
+
 - The documents and the pipeline skill now describe how a failing test is handled: an open fix is
   waited on first, a test the unit did not write runs on the unit's base, and the
   regression agent writes the `fix-test-` change, whose group carries `[contract]` so it gets a
