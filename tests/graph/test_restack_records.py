@@ -5,7 +5,6 @@ tests."""
 
 from __future__ import annotations
 
-import json
 from pathlib import Path
 from typing import Any
 
@@ -14,12 +13,7 @@ from agent_build_kit.installation import Installation
 from agent_build_kit.pipeline import spans
 from tests.factories import unit
 from tests.graph.test_build_path import build, fresh, restacked
-
-
-def restack_lines(workspace: Installation) -> list[dict]:
-    path = workspace.state_dir / "usage-ledger.jsonl"
-    lines = [json.loads(line) for line in path.read_text().splitlines()] if path.exists() else []
-    return [line for line in lines if line.get("kind") == "restack"]
+from tests.pipeline.test_restack_record import restack_lines
 
 
 def test_the_restack_at_the_start_of_a_run_that_moves_the_branch_is_recorded_as_prepare(

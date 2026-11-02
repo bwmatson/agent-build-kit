@@ -8,8 +8,9 @@ from pathlib import Path
 
 import pytest
 
-from agent_build_kit.config import RepoConfig
+from agent_build_kit.config import ProjectConfig, RepoConfig
 from agent_build_kit.installation import Installation
+from agent_build_kit.pipeline import spans
 from agent_build_kit.pipeline.flakes import FlakeFound
 from agent_build_kit.pipeline.wiring import build_unit_test
 from tests.moved_base_fakes import Profile, moved, passing
@@ -54,6 +55,63 @@ def test_a_scoped_flake_the_unit_goes_on_from_is_recorded_as_a_passed_scoped_run
 
     (line,) = restack_lines(workspace)
     assert (line["retest"], line["retest_result"]) == ("scoped", "passed")
+
+
+def moved_run(tmp_path: Path, point: str | None) -> None:
+    """The real unit-test closure over a move, run under the restack point `point` (none: under
+    no point)."""
+    repo, old_base = moved(tmp_path, own={"a.py": "a = 2\n"}, incoming={"b.py": "b = 2\n"})
+    unit_test = build_unit_test(
+        profile=Profile(),
+        run=lambda command, **kwargs: passing(command),
+        log=lambda message: None,
+        repo=RepoConfig(path=repo),
+    )
+    token = spans.restack_point.set(point) if point is not None else None
+    try:
+        unit_test(cwd=repo, base="main", moved_from=old_base)
+    finally:
+        if token is not None:
+            spans.restack_point.reset(token)
+
+
+def test_a_re_test_run_under_a_point_is_recorded_with_that_point(
+    tmp_path: Path, workspace: Installation
+) -> None:
+    moved_run(tmp_path, "before_pr")
+
+    (line,) = restack_lines(workspace)
+    assert (line["outcome"], line["point"]) == ("retested", "before_pr")
+
+
+def test_a_re_test_run_under_no_point_is_recorded_with_no_point(
+    tmp_path: Path, workspace: Installation
+) -> None:
+    moved_run(tmp_path, None)
+
+    (line,) = restack_lines(workspace)
+    assert (line["outcome"], line["point"]) == ("retested", "")
+
+
+def test_a_test_file_of_a_project_is_counted_by_that_projects_profile(
+    tmp_path: Path, workspace: Installation
+) -> None:
+    repo, old_base = moved(
+        tmp_path,
+        own={"web/main.ts": "export {}\n"},
+        incoming={"web/app.test.ts": "export {}\n", "b.py": "b = 2\n"},
+    )
+
+    build_unit_test(
+        profile=Profile(),
+        run=lambda command, **kwargs: passing(command),
+        log=lambda message: None,
+        repo=RepoConfig(path=repo),
+        projects=[ProjectConfig(path="web", profile="node-npm")],
+    )(cwd=repo, base="main", moved_from=old_base)
+
+    (line,) = restack_lines(workspace)
+    assert (line["tests"], line["code"]) == (1, 1)
 
 
 def test_the_changelog_is_the_one_the_repo_names(tmp_path: Path, workspace: Installation) -> None:

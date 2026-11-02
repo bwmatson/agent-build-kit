@@ -1416,7 +1416,7 @@ def build_unit_test(
         finally:
             kinds = kinds_of(
                 brought_in(cwd, moved_from, base),
-                profile.is_test_path,
+                lambda path: profiles.for_path(projects or [], path, profile).is_test_path(path),
                 repo.changelog if repo is not None else None,
             )
             unit, change, _, _ = spans.current_unit.get()
