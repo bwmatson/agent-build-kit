@@ -38,6 +38,7 @@ from agent_build_kit.pipeline.file_lock import (
 from agent_build_kit.pipeline.flakes import (
     FAILING_TEST_LABEL,
     FAILING_TEST_LINE,
+    FIX_TITLE,
     Flake,
     add_needs_to_unit,
     fix_change_name,
@@ -57,6 +58,7 @@ from agent_build_kit.pipeline.untouched_failures import preexisting_record
 from agent_build_kit.pipeline.vocabulary import OverheadNode
 from agent_build_kit.pipeline.work_graph import (
     FIX_PREFIX,
+    GROUP_HEADING,
     PRIORITY_LINE,
     TaskGroup,
     declared_projects,
@@ -169,6 +171,11 @@ State the judgement in proposal.md on a line of its own, worded exactly {judgeme
 failing test on a line of its own too, exactly `{failing_label} {test}`: the kit reads it to
 reproduce the failure when the change is built. And the kind of failure on a line of its own,
 exactly `{kind_label} {kind}`.
+
+Title group 1 of tasks.md "Make `<test>` deterministic", with the failing test's id in place of
+`<test>` and the same wording for a test that cannot be reproduced: the kit reads the test from
+that title to run a fix unit's reproduction check. Do not put a task to reproduce the race in the
+group of a cause in test code.
 
 The change is named `{change}`. Its tasks.md carries a `Priority:` line and a task group
 flagged `[contract]`. If you cannot decide which side is wrong, end your answer with the line
@@ -456,6 +463,16 @@ def failure_history(inst: Installation, test: str, *, evidence: bool = False) ->
     ]
 
 
+def _first_group_test(tasks: str) -> str | None:
+    """The test id titled by group 1 of `tasks` ("Make `<test>` deterministic"), or None."""
+    for line in tasks.splitlines():
+        heading = GROUP_HEADING.match(line)
+        if heading and int(heading["number"]) == 1:
+            title = FIX_TITLE.match(heading["title"])
+            return title["test"] if title else None
+    return None
+
+
 def _problems(
     inst: Installation,
     name: str,
@@ -499,6 +516,11 @@ def _problems(
     told = KIND_LINE.search((root / "proposal.md").read_text())
     if not told or told["kind"] != kind.value:
         found.append(f"proposal.md: no line `{KIND_LABEL} {kind.value}` naming the kind of failure")
+    if _first_group_test(tasks.read_text()) != test:
+        found.append(
+            f'tasks.md: group 1 is not titled "Make `<test>` deterministic" with the id '
+            f"`{test}`, which the reproduction check of a fix unit reads"
+        )
     if not JUDGEMENT_LINE.search((root / "proposal.md").read_text()):
         found.append(
             "proposal.md: no judgement line, worded "
