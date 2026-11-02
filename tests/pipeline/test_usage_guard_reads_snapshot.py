@@ -89,7 +89,7 @@ def test_a_snapshot_over_its_limit_asks_for_a_refresh_and_is_judged_as_an_old_re
     host: Host, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     clock = fake_clock.install(monkeypatch, datetime.now(UTC) - 2 * HOUR)
-    collect(state_of(host), reading(20, taken=clock.now(), source="cache"))
+    collect(state_of(host), reading(20, taken=clock.now(), source="live"))
     clock.advance(2 * HOUR.total_seconds())
 
     decision = step_decision()

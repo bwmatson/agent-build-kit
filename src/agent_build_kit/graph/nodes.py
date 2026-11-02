@@ -2753,9 +2753,9 @@ class BuildPath:
         try:
             fresh = r.fresh_base(unit, base)
         except Exception as error:  # noqa: BLE001
-            # Asking the forge is the network too: a unit that passed review is
-            # not failed because the host did not answer.
-            self.say(f"could not ask the forge for the base, going on with {base}: {error}")
+            # A unit that passed review is not failed because the base could not be
+            # worked out: the snapshot it reads may be missing or unreadable.
+            self.say(f"could not work out the base, going on with {base}: {error}")
             fresh = base
         if fresh != base:
             self.say(f"base is now {fresh}, not {base}")
@@ -2824,10 +2824,10 @@ class BuildPath:
         return {}
 
     def recorded_pr_over(self, pr: int) -> Update | None:
-        """The update ending the run for a recorded pull request the forge shows merged or
-        closed; None when it is open or the forge cannot say. Nothing is recorded here: the run
-        holds the branch's lock, which the handlers need, so the caller records the merge or
-        close from the outcome once the lock is released."""
+        """The update ending the run for a recorded pull request the poll's snapshot shows
+        merged or closed; None when it is open or the snapshot cannot say. Nothing is recorded
+        here: the run holds the branch's lock, which the handlers need, so the caller records
+        the merge or close from the outcome once the lock is released."""
         r, unit = self.runner, self.unit
         try:
             shown = r.forge_state(unit, pr)
@@ -2906,7 +2906,7 @@ class BuildPath:
             try:
                 base = r.fresh_base(unit, base)
             except Exception as asked:  # noqa: BLE001
-                self.say(f"could not ask the forge for the base: {asked}")
+                self.say(f"could not work out the base: {asked}")
             return self.rebase(
                 state, str(error), base=base, lead="base gone before its pull request"
             )

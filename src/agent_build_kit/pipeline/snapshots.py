@@ -2,8 +2,11 @@
 
 A pull request's state, an account's usage reading and the pause markers are collected
 by the round and read by a build step through this module, which returns the value and
-how old it is. A step that finds a snapshot too old records a refresh request and the next
-round refreshes it; it does not ask the host or the usage endpoint itself.
+how old it is. A step that finds the usage snapshot too old, or a pull request missing from
+its snapshot, records a refresh request and the next round refreshes it; it does not ask the
+host or the usage endpoint itself. A pull request's snapshot is as old as the last poll, and
+a step does not judge that age: the poll runs every round, and the tick shows the age in
+`abk status`.
 
 Pull requests live where the poller records them (`prs-<repo>.json`); the other kinds are
 kept in `snapshots.json`, and the requests in `refresh-requests.json`, each written whole
@@ -58,7 +61,7 @@ class PullRequestState(Frozen):
 
 
 class Pauses(Frozen):
-    """The pause markers: when each paused unit may resume, by unit id."""
+    """The pause markers in force: when each may end, by what is paused (`kind:account`)."""
 
     resume_at: dict[str, datetime] = {}
 
@@ -111,7 +114,9 @@ def _entry(state_dir: Path, kind: str, key: str | None) -> tuple[dict | None, da
 def pr(state_dir: Path, repo: str, number: int) -> Snapshot[PullRequestState]:
     """The pull request as the poller last recorded it for `repo`, and how long ago."""
     path = state_path(state_dir, repo)
-    seen = PrState.load(path).get(str(number))
+    # What the host said, which an event held back from delivery does not hide; a file from
+    # before that was kept has only the baseline.
+    seen = PrState.host(path).get(str(number)) or PrState.load(path).get(str(number))
     if not isinstance(seen, dict):
         return Snapshot()
     return _aged(
@@ -123,6 +128,24 @@ def pr(state_dir: Path, repo: str, number: int) -> Snapshot[PullRequestState]:
         ),
         PrState.collected_at(path),
     )
+
+
+def repo_age(state_dir: Path, repo: str) -> timedelta | None:
+    """How long ago `repo`'s pull requests were last polled; None if never."""
+    at = PrState.collected_at(state_path(state_dir, repo))
+    return None if at is None else spans.clock.now() - at
+
+
+def age_text(age: timedelta | None) -> str:
+    """An age as `45s`, `3m` or `2h`; `never collected` for none."""
+    if age is None:
+        return "never collected"
+    seconds = int(age.total_seconds())
+    if seconds < 120:
+        return f"{seconds}s old"
+    if seconds < 7200:
+        return f"{seconds // 60}m old"
+    return f"{seconds // 3600}h old"
 
 
 def usage(state_dir: Path, account: str | None) -> Snapshot[UsageReading]:
@@ -173,7 +196,8 @@ def _ages(state_dir: Path, kind: str) -> dict[str | None, datetime]:
     return ages
 
 
-def _keep(state_dir: Path, kind: str, key: str | None, value: object) -> None:
+def record(state_dir: Path, kind: str, key: str | None, value: object) -> None:
+    """Keep `value` as the snapshot of `kind` for `key`, collected now."""
     dumped = value.model_dump(mode="json") if isinstance(value, BaseModel) else value
     with _lock(state_dir, STORE):
         body = _stored(state_dir)
@@ -185,23 +209,35 @@ def _keep(state_dir: Path, kind: str, key: str | None, value: object) -> None:
 
 
 def run_round(
-    state_dir: Path, collectors: Mapping[str, Collector], max_age: Mapping[str, timedelta]
+    state_dir: Path,
+    collectors: Mapping[str, Collector],
+    max_age: Mapping[str, timedelta],
+    say: Callable[[str], None] = lambda message: None,
 ) -> None:
     """Refresh what was requested or is over its limit, for each kind with a collector, and
     clear the requests it handled. A pull-request collector records its own snapshot (the
-    poller writes the file); the others' answers are kept here."""
+    poller writes the file); the others' answers are kept here, unless a collector has none
+    (None). A collector that raises is told to `say` and its request stays for the next round;
+    the rest of the round goes on."""
     asked = requested(state_dir)
     now = spans.clock.now()
+    failed: set[Request] = set()
     for kind, collect in collectors.items():
         keys = {each.key for each in asked if each.kind == kind}
         if (limit := max_age.get(kind)) is not None:
             keys |= {key for key, at in _ages(state_dir, kind).items() if now - at > limit}
         for key in keys:
-            value = collect(key)
-            if kind != PR:
-                _keep(state_dir, kind, key, value)
+            try:
+                value = collect(key)
+            except Exception as error:  # noqa: BLE001
+                what = f"{kind} {key}" if key else kind
+                say(f"snapshot of {what} not refreshed — {type(error).__name__}: {error}")
+                failed.add(Request(kind=kind, key=key))
+                continue
+            if kind != PR and value is not None:
+                record(state_dir, kind, key, value)
     with _lock(state_dir, REQUESTS):
         # Only what this round read: a request made meanwhile waits for the next.
-        handled = [each for each in asked if each.kind in collectors]
+        handled = [each for each in asked if each.kind in collectors and each not in failed]
         left = [each for each in requested(state_dir) if each not in handled]
         _write(state_dir / REQUESTS, [each.model_dump() for each in left])

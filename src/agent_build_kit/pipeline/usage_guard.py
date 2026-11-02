@@ -60,6 +60,7 @@ from contextlib import contextmanager
 from contextvars import ContextVar
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
+from functools import partial
 from pathlib import Path
 from typing import Literal
 
@@ -1848,11 +1849,12 @@ def decide_start(
     plan_due: bool = False,
     from_snapshot: bool = False,
 ) -> Decision:
-    """`_decide_start` for `account`'s windows, limits and cache; with `from_snapshot`, a start
-    named for a unit is decided from the account's usage snapshot instead, never asking the
-    endpoint (`_decide_from_snapshot`). A refusal on a labelled
-    account says which account is full. `step` is the step the start is for and `step_round`
-    its round; a step with no round is not recorded. `plan_due` says a plan call is due, whose
+    """`_decide_start` for `account`'s windows, limits and cache; with `from_snapshot`, the
+    fresh reading it wants is the account's usage snapshot (`snapshot_reading`) and never the
+    endpoint, so an old or missing snapshot is judged as an old or unknown reading. A refusal
+    on a labelled account says which account is full. `step` is the step the start is for and
+    `step_round` its round; a step with no round is not recorded. `plan_due` says a plan call
+    is due, whose
     mean cost the forecast reserves. What a `starting` block names is the
     default for the unit, review tier, estimated lines, step and round, which the forecast of
     the start is made from."""
@@ -1865,17 +1867,10 @@ def decide_start(
         step_round=step_round if step_round is not None else named.step_round,
         plan_due=plan_due or named.plan_due,
     )
+    if from_snapshot and read is None:
+        read = partial(snapshot_reading, account)
     with on_account(account):
-        if (
-            from_snapshot
-            and read is None
-            and decide is None
-            and ask.unit is not None
-            and settings.usage_guard != "off"
-        ):
-            decision = _decide_from_snapshot(ask)
-        else:
-            decision = _decide_start(read=read, decide=decide, unit=unit, step=ask.step, ask=ask)
+        decision = _decide_start(read=read, decide=decide, unit=unit, step=ask.step, ask=ask)
         if decision.may_start and decision.source != "off" and _recording.get():
             _record_step(ask)
     if account is not None and account.label is not None and not decision.may_start:
@@ -1883,20 +1878,21 @@ def decide_start(
     return decision
 
 
-def _decide_from_snapshot(ask: Ask) -> Decision:
-    """A unit's step decided from the account's snapshot, which the round keeps: the endpoint is
-    never asked here. A snapshot older than the cache lifetime, or none, records a refresh
-    request, and the reading is judged by the rule for an old or an unknown one."""
-    state_dir = _cache_file().parent
-    account = claude_account.account_key(account_in_force())
-    held = snapshots.usage(state_dir, account)
-    if held.age is None or held.age > timedelta(minutes=claude_limits().usage_cache_minutes):
-        snapshots.request_refresh(state_dir, snapshots.USAGE, account)
+def snapshot_reading(account: claude_account.Account | None = None) -> UsageReading | None:
+    """The reading in `account`'s usage snapshot, which the round keeps; the endpoint is never
+    asked. A snapshot older than the cache lifetime, or none, records a refresh request for the
+    next round. Read back from the store it is a kept reading, as `_kept_reading` labels the
+    cache's, so one taken long ago is judged as old whatever it was when taken."""
+    with on_account(account):
+        state_dir = _cache_file().parent
+        key = claude_account.account_key(account_in_force())
+        held = snapshots.usage(state_dir, key)
+        if held.age is None or held.age > timedelta(minutes=claude_limits().usage_cache_minutes):
+            snapshots.request_refresh(state_dir, snapshots.USAGE, key)
     reading = held.value
-    decision = may_start_unit(reading)
-    if decision.resets_at is None and reading is not None:
-        decision = decision.model_copy(update={"resets_at": reading.resets_at})
-    return _forecasted(decision, reading, ask)
+    if reading is not None and reading.is_live:
+        reading = reading.model_copy(update={"source": "cache"})
+    return reading
 
 
 def _forecast_row(ask: Ask, cache_path: Path, now: datetime) -> ForecastRow | None:

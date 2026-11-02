@@ -207,9 +207,9 @@ from agent_build_kit.pipeline.untouched_failures import (
 from agent_build_kit.pipeline.usage_guard import (
     Decision,
     UsageReading,
-    current_usage,
     decide_start,
     may_start_unit,
+    snapshot_reading,
 )
 from agent_build_kit.pipeline.vocabulary import effective_state
 from agent_build_kit.pipeline.workspaces import BranchBusy, prepare_detached, prepare_worktree
@@ -2902,23 +2902,18 @@ def build_fetch(
 def build_fresh_base(
     store: UnitStore,
     *,
-    for_repo: Callable[[str], tuple[Forge, RepoId]] | None = None,
     record_merge: Callable[[str, int], object],
 ) -> Callable[[Unit, str], str]:
-    """A unit's base as the forge has it, recording a merge the store missed.
+    """A unit's base as the poll's snapshot has it, recording a merge the store missed.
 
     `record_merge` is given the repo and the pull request number: a number
     names a unit only together with its repo.
 
-    The parent's state comes from the forge's listing, not a lookup of the one
-    pull request: no forge method answers a single pull request's state, and
-    adding one for this is not worth it. A parent that has dropped off the
-    listing's newest 100 goes unseen, which leaves the unit on the base it has
-    - the behaviour before this check - and a base the host has deleted is
+    The parent's state comes from the snapshot of its pull request, never the host. A
+    parent the snapshot does not hold (or holds as open) leaves the unit on the base it
+    has, and records a refresh request for the next round; a base the host has deleted is
     caught again when the pull request opens.
     """
-
-    for_repo = for_repo or forges.for_repo
 
     def fresh_base(unit: Unit, base: str) -> str:
         parent = next(
@@ -2998,12 +2993,10 @@ def build_remove_satisfied(
     return remove
 
 
-def build_forge_state(
-    *, for_repo: Callable[[str], tuple[Forge, RepoId]] | None = None
-) -> Callable[[Unit, int], str]:
-    """Read the state of a unit's recorded pull request from the snapshot the round keeps:
+def build_forge_state() -> Callable[[Unit, int], str]:
+    """Read the state of a unit's recorded pull request from the snapshot the poll keeps:
     `open`, `merged` or `closed`. Raises when the snapshot does not hold the pull request, and
-    asks the round for it. The host is not asked, so `for_repo` is not used."""
+    asks the round for it. The host is not asked."""
 
     def forge_state(unit: Unit, pr: int) -> str:
         shown = _pr_snapshot(unit.repo, pr).value
@@ -3120,12 +3113,13 @@ def _guard_decision(
     """One decision of the usage guard, and the reset time to fall back on when a refusal
     names no time of its own.
 
-    By default the decision is `decide_start`'s, which asks the endpoint only when a fresh
-    reading could change it; the reset is the one the decision carries. A caller with its
-    own `start`, or its own `usage` and `decide`, is asked as it says.
+    By default the decision is `decide_start`'s, made from the account's usage snapshot, which
+    the round keeps: a step never asks the endpoint. The reset is the one the decision carries.
+    A caller with its own `start`, or its own `usage` and `decide`, is asked as it says; a
+    `decide` with no `usage` judges the snapshot's reading.
     """
     if start is None and usage is None and decide is None:
-        start = partial(decide_start, account=account)
+        start = partial(decide_start, account=account, from_snapshot=True)
     if start is not None:
         decide_now = start
 
@@ -3135,7 +3129,7 @@ def _guard_decision(
 
         return decided
 
-    read = usage or current_usage
+    read = usage or partial(snapshot_reading, account)
     judge = decide or may_start_unit
 
     def judged() -> tuple[Decision, datetime | None]:

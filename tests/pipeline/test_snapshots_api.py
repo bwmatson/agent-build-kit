@@ -248,3 +248,23 @@ def test_the_round_refreshes_only_the_kinds_that_have_a_collector(
 
     assert pauses.keys == [None]
     assert snapshots.requested(state_dir) == [Request(kind="usage", key="acct")]
+
+
+def test_a_collector_that_raises_is_told_and_its_request_stays_while_the_rest_go_on(
+    clock: FakeClock, state_dir: Path
+) -> None:
+    def failing(key: str | None) -> object:
+        raise OSError("endpoint down")
+
+    pauses = Collected(Pauses())
+    told: list[str] = []
+    snapshots.request_refresh(state_dir, snapshots.USAGE, "acct")
+    snapshots.request_refresh(state_dir, snapshots.PAUSES)
+
+    snapshots.run_round(
+        state_dir, {snapshots.USAGE: failing, snapshots.PAUSES: pauses}, {}, say=told.append
+    )
+
+    assert pauses.keys == [None]
+    assert len(told) == 1 and "usage acct" in told[0] and "endpoint down" in told[0]
+    assert snapshots.requested(state_dir) == [Request(kind="usage", key="acct")]

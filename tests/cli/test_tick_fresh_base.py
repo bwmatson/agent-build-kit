@@ -1,7 +1,7 @@
-"""A unit about to push learns from the forge that its parent merged.
+"""A unit about to push learns from the snapshot that its parent merged.
 
 Driven through `cmd_tick` with the real merge handler behind `record_merge`: the
-forge reports the parent's pull request merged, the store does not, and the
+poll's snapshot shows the parent's pull request merged, the store does not, and the
 child's own build holds its branch lock while it asks.
 """
 
@@ -23,7 +23,6 @@ from agent_build_kit.pipeline.wiring import (
     build_upstream_incomplete,
 )
 from tests.cli.test_tick_scheduling import isolated, stored, tick, workspace  # noqa: F401
-from tests.forges.stand_in import StandInForge, lookup
 
 
 def test_a_parent_merged_on_the_forge_but_not_in_the_store_is_recorded_during_the_childs_build(
@@ -34,7 +33,6 @@ def test_a_parent_merged_on_the_forge_but_not_in_the_store_is_recorded_during_th
     store.upsert([stored("chain/1"), stored("chain/2", depends_on=("chain/1",))])
     store.set_state("chain/1", IN_REVIEW, pr=7, branch="spec/chain/1")
     parent_pull = PullRequest(number=7, head="spec/chain/1", base="main", state=MERGED)
-    forge = StandInForge(number=21)
 
     retargeted: list[tuple[str, str]] = []
     removed: list[str] = []
@@ -87,7 +85,7 @@ def test_a_parent_merged_on_the_forge_but_not_in_the_store_is_recorded_during_th
             push=lambda branch, *, cwd: "pushed",
             open_pr=open_pr,
             post_status=lambda sha, ok: None,
-            fresh_base=build_fresh_base(store, for_repo=lookup(forge), record_merge=record_merge),
+            fresh_base=build_fresh_base(store, record_merge=record_merge),
         )
 
     monkeypatch.setattr(cli, "build_runner", runner)
