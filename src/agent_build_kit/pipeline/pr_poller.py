@@ -107,11 +107,44 @@ class PrState:
         return {n: seen for section in sections.values() for n, seen in section["prs"].items()}
 
     @staticmethod
-    def save(path: Path, state: dict, repo: str) -> None:
-        """Replace `repo`'s section whole and keep the others, under the file's lock."""
+    def collected_at(path: Path) -> datetime | None:
+        """When the file was last collected: the oldest of its sections' times, so a file that
+        holds several is as old as its stalest; None for a file with none (before sections)."""
+        times = []
+        for section in PrState._sections(PrState._read(path)).values():
+            try:
+                times.append(datetime.fromisoformat(section["collected_at"]))
+            except (KeyError, TypeError, ValueError):
+                return None
+        return min(times) if times else None
+
+    @staticmethod
+    def host(path: Path, repo: str | None = None) -> dict:
+        """What the host last said of each pull request, by number, for `repo` or for every repo.
+        Kept apart from the baseline a poll diffs against, which holds back an event not yet
+        delivered and so can lag the host."""
+        sections = PrState._sections(PrState._read(path))
+        if repo is None:
+            chosen = list(sections.values())
+        else:
+            chosen = [sections[repo]] if repo in sections else []
+        found: dict = {}
+        for section in chosen:
+            if isinstance(held := section.get("host"), dict):
+                found.update(held)
+        return found
+
+    @staticmethod
+    def save(path: Path, state: dict, repo: str, host: dict | None = None) -> None:
+        """Replace `repo`'s section whole and keep the others, under the file's lock. `host` is
+        what the host said of the pull requests this poll read; the pull requests it does not
+        name keep what the section held."""
         with file_lock(path.with_name(f"{path.name}.lock")):
             body = PrState._sections(PrState._read(path))
-            body[repo] = {"collected_at": spans.clock.now().isoformat(), "prs": state}
+            section: dict = {"collected_at": spans.clock.now().isoformat(), "prs": state}
+            if host is not None:
+                section["host"] = {**PrState.host(path, repo), **host}
+            body[repo] = section
             atomic_write_text(path, json.dumps(body, indent=2) + "\n")
 
 
@@ -161,6 +194,17 @@ def snapshot(pull: PullRequest, ignore: Collection[str] = ()) -> dict:
         "head": pull.head,
         # True, False, or None while the host has not worked it out.
         "mergeable": pull.mergeable,
+    }
+
+
+def host_view(current: dict) -> dict:
+    """What a poll read of a pull request that readers of the snapshot want: its state, merge
+    answer, checks and labels, copied so that later changes to `current` leave it as read."""
+    return {
+        "state": current["state"],
+        "mergeable": current["mergeable"],
+        "checks": dict(current["checks"]),
+        "labels": list(current["labels"]),
     }
 
 
@@ -297,6 +341,7 @@ class Poller(BaseModel):
         # event on that PR swallowed.
         first_run = not self.state_path.exists()
         updated = dict(known)
+        said: dict[str, dict] = {}
 
         for pull in pulls:
             # Never touch a branch a human owns: the pipeline may only rework
@@ -309,6 +354,9 @@ class Poller(BaseModel):
             current = snapshot(pull, self.ignore(int(number)))
             _record_answer_time(current, known.get(number), spans.clock.now())
             updated[number] = current
+            # Before the dispatch below, which may hold parts of `current` back as unseen: the
+            # host said this whether or not the event it carries was delivered.
+            said[number] = host_view(current)
 
             if not first_run and self._person_answered(known.get(number), current):
                 self.human_activity(int(number))
@@ -352,7 +400,7 @@ class Poller(BaseModel):
                     read_at=datetime.fromisoformat(current["mergeable_at"]),
                 )
 
-        PrState.save(self.state_path, updated, self.repo)
+        PrState.save(self.state_path, updated, self.repo, host=said)
 
     def _merged_unit(self, number: int, current: dict) -> StoredUnit | None:
         """The unit of a merged pull request, when it has already recorded the merge."""

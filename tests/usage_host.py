@@ -241,6 +241,30 @@ class Host:
         self.calls_file.write_text("".join(json.dumps(each) + "\n" for each in lines))
 
 
+def usage_reading(
+    session: int = 20,
+    *,
+    weekly: int = 10,
+    taken: datetime | None = None,
+    source: str = "live",
+    resets_in: timedelta | None = timedelta(hours=3),
+) -> usage_guard.UsageReading:
+    """A usage reading taken at `taken` (now), `session` percent into a session window that
+    resets `resets_in` later (never, when None)."""
+    taken = taken or datetime.now(UTC)
+    return usage_guard.UsageReading(
+        session_pct=session,
+        weekly_pct=weekly,
+        resets_at=None if resets_in is None else taken + resets_in,
+        weekly_resets_at=None if resets_in is None else taken + timedelta(days=3),
+        observed_at=taken,
+        source=source,
+        credits_enabled=False,
+        credits_used_dollars=0.0,
+        spend_limit_reached=False,
+    )
+
+
 def configure(**limits: object) -> None:
     """The Claude limits an installation sets, over the defaults."""
     config_module.activate(

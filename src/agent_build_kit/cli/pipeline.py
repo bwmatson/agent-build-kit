@@ -38,7 +38,7 @@ from collections.abc import (
 )
 from concurrent.futures import FIRST_COMPLETED, Future, ThreadPoolExecutor, wait
 from contextlib import AbstractContextManager, ExitStack, contextmanager, nullcontext
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from functools import partial
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal, TypedDict
@@ -70,6 +70,7 @@ from agent_build_kit.pipeline import (
     mounts,
     network_probe,
     retirement,
+    snapshots,
     spans,
     usage_report,
 )
@@ -972,6 +973,8 @@ def cmd_status(args: argparse.Namespace, inst: Installation) -> int:
 
     for line in demotion_status_lines(inst.state_dir / demotion_record.DEMOTIONS):
         log(line)
+
+    log(_snapshot_line(inst))
 
     units = store_for(inst).all()
     if not units:
@@ -2347,7 +2350,7 @@ def run_round(
     # planning against the pre-poll graph builds against a stale picture.
     # Before polling: a merge the poll finds restacks the units above it
     # straight away, and they must land on the trunk as it now is.
-    _refresh(inst, store=store, lane=lane)
+    _refresh(inst, store=store, lane=lane, dry_run=dry_run)
     # Once per tick, in its first round: the rounds beside builds in flight are quiet, and a
     # dry run merges nothing.
     if not quiet and not dry_run:
@@ -4586,7 +4589,9 @@ def _clear_starting(store: UnitStore, unit_id: str) -> None:
         pass
 
 
-def _refresh(inst: Installation, *, store: UnitStore, lane: Lane | None = None) -> None:
+def _refresh(
+    inst: Installation, *, store: UnitStore, lane: Lane | None = None, dry_run: bool = False
+) -> None:
     """Fetch and poll, as the top of the tick does: a merge only a poll
     reveals may release a dependent, and review feedback should not wait for
     a pass that now lasts as long as its longest build.
@@ -4604,6 +4609,12 @@ def _refresh(inst: Installation, *, store: UnitStore, lane: Lane | None = None) 
         # GitHub being unreachable is a reason to skip the update, not to stop
         # building units whose work doesn't depend on it.
         log(f"poll skipped — {type(error).__name__}: {error}")
+    # A dry round writes no state beyond the fetch and poll, snapshots included.
+    if not dry_run:
+        try:
+            serve_snapshots(inst)
+        except Exception as error:  # noqa: BLE001
+            log(f"snapshots skipped — {type(error).__name__}: {error}")
     try:
         reconcile(
             store=store,
@@ -4616,6 +4627,86 @@ def _refresh(inst: Installation, *, store: UnitStore, lane: Lane | None = None) 
     # What the poll found, and what it left owed, whether or not the host answered.
     if lane is not None:
         lane.scan(store.all())
+
+
+def _snapshot_line(inst: Installation) -> str:
+    """How old each snapshot builds read is: each repo's pull requests, each account's usage and
+    the pause markers, or that a kind has never been collected."""
+    state_dir = inst.state_dir
+    held = [
+        *(
+            f"pull requests {repo} {snapshots.age_text(snapshots.repo_age(state_dir, repo))}"
+            for repo in inst.checkouts
+        ),
+        *(
+            f"usage {claude_account.label_of(key, inst.config)} "
+            f"{snapshots.age_text(snapshots.usage(state_dir, key).age)}"
+            for key in (
+                claude_account.account_key(each) for each in claude_account.in_use(inst.config)
+            )
+        ),
+        f"pauses {snapshots.age_text(snapshots.pauses(state_dir).age)}",
+    ]
+    return "snapshots: " + "; ".join(held)
+
+
+def serve_snapshots(inst: Installation) -> None:
+    """The round's handling of what builds read from snapshots: refresh what a step asked for
+    or is over its limit, and clear the requests.
+
+    An account's usage snapshot starts from the reading the guard already holds, which makes no
+    call. After that a request for it, or a snapshot older than `usage_cache_minutes`, gets one
+    read (`refreshed_usage`, which answers the reading held while the guard's minimum interval
+    forbids a call), asked or not by a step, so an idle tick refreshes an old snapshot too.
+    Nothing is read for usage when the guard is off or the runtime has no usage window. The
+    pause markers are read every round. The pull requests were just polled by `poll_all`, so a
+    request for one is answered by that and not by listing a repo a second time.
+    """
+    state_dir = inst.state_dir
+    accounts = {
+        claude_account.account_key(each): each for each in claude_account.in_use(inst.config)
+    }
+    try:
+        reads_usage = guard_off_line() is None and runtimes.active().supports_usage_tracking
+    except KeyError:
+        reads_usage = False
+
+    def usage(key: str | None) -> object:
+        if key not in accounts:
+            # An account the installation no longer names: its entry is left as it is.
+            return None
+        with on_account(accounts[key]):
+            found = refreshed_usage()
+        if found is not None:
+            # Dated as the reading is: while the guard's interval forbids a call this is the
+            # reading held, and it must not show as new. Kept here, so the round has none to keep.
+            snapshots.record(state_dir, snapshots.USAGE, key, found, taken=found.observed_at)
+        return None
+
+    def pauses(key: str | None) -> snapshots.Pauses:
+        return snapshots.Pauses(
+            resume_at={
+                f"{each.kind}:{each.account or 'default'}": each.until
+                for each in pauses_in_force(state_dir)
+            }
+        )
+
+    collectors: dict[str, snapshots.Collector] = {
+        snapshots.PAUSES: pauses,
+        snapshots.PR: lambda key: None,
+    }
+    max_age = {snapshots.PAUSES: timedelta(0)}
+    if reads_usage:
+        # An account with no snapshot yet starts from the reading the round's own start
+        # decision left held (dated as that reading is): no call is made for it.
+        for key, account in accounts.items():
+            if snapshots.usage(state_dir, key).value is None and (held := held_usage(account)):
+                snapshots.record(state_dir, snapshots.USAGE, key, held, taken=held.observed_at)
+        collectors[snapshots.USAGE] = usage
+        max_age[snapshots.USAGE] = timedelta(minutes=claude_limits().usage_cache_minutes)
+    if snapshots.pauses(state_dir).value is None:
+        snapshots.request_refresh(state_dir, snapshots.PAUSES)
+    snapshots.run_round(state_dir, collectors, max_age, say=log)
 
 
 def park_dependents(inst: Installation, store: UnitStore) -> None:

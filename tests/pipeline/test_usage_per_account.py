@@ -14,6 +14,7 @@ from agent_build_kit import claude_account
 from agent_build_kit import config as config_module
 from agent_build_kit.claude_account import Account
 from agent_build_kit.config import WorkspaceConfig
+from agent_build_kit.pipeline import snapshots
 from agent_build_kit.pipeline.usage_allowances import (
     ALLOWANCES_NAME,
     allowances_path,
@@ -29,9 +30,10 @@ from agent_build_kit.pipeline.usage_guard import (
 from agent_build_kit.pipeline.usage_ledger import LEDGER_NAME, append_record
 from agent_build_kit.pipeline.wiring import build_usage_gate
 from tests.usage_allowance_records import calibrated, spend
-from tests.usage_host import Host, pause_at, payload
+from tests.usage_host import Host, pause_at, payload, usage_reading
 
 MINUTE = timedelta(minutes=1)
+HOUR = timedelta(hours=1)
 
 
 def accounts(
@@ -105,7 +107,11 @@ def test_the_default_accounts_thresholds_are_the_runtime_limits_and_an_unresolve
 
 def test_a_paused_account_does_not_stop_another_and_the_pause_names_it(host: Host) -> None:
     default, kit = accounts(host, default=pause_at(92), kit=pause_at(70))
-    host.answers = [payload(weekly=10.0), payload(weekly=80.0)]
+    # Each account's gate reads its own snapshot, which the round kept from its own reading.
+    for account, weekly in ((default, 10), (kit, 80)):
+        key = claude_account.account_key(account)
+        reading = usage_reading(14, weekly=weekly, resets_in=2 * HOUR)
+        snapshots.record(host.cache.parent, snapshots.USAGE, key, reading)
     may_start_default, _ = build_usage_gate(account=default)
     may_start_kit, _ = build_usage_gate(account=kit)
 
