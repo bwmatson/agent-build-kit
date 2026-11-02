@@ -131,7 +131,7 @@
   the live-module limit now equals) and are listed with the other load-proof tests. Each compiles the unit graph for every step of a pass: 7 to 9 seconds alone and 132 seconds in a
   loaded full run, which hit the 60-second default and failed units that did not touch them.
 
-- `tests/test_live_modules_are_found.py::test_every_module_the_old_glob_and_text_match_found_is_still_found`
+- `tests/test_live_tag_drift.py::test_every_module_the_old_glob_and_text_match_found_is_still_found`
   is an integration test. It parses every test file of the repository, which takes 10 to 24 seconds
   under parallel load and failed units that did not touch it; the default unit run now skips it and
   CI's `integration` check still runs it. `tests/test_wide_scans_are_integration.py` lists such scans
