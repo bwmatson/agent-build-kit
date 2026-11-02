@@ -292,7 +292,7 @@ def run_regression_agent(
     first_failure = change_evidence(
         inst.state_dir,
         unit=failure.unit or unit.id,
-        output=failure.output,
+        output=failure.failure or failure.output,
         bundle=failure.evidence,
         ran_at=failure.ran_at,
         conditions=failure.conditions,
@@ -480,11 +480,11 @@ def _problems(
     cwd: Path,
 ) -> list[str]:
     """What is wrong with the change `name` for `test`: a file missing, what OpenSpec or the
-    tags check refuses, no `[contract]` group, no `Priority:` line, no judgement line, no
-    `Failing test:` line naming `test` or no `Kind:` line naming `kind` in the proposal, the
-    tasks of a test-code fix or a source fix and the placement of a new test file
-    (`_test_code_problems`), a test-code proposal with no `Standard:` line, and the `Same
-    exposure` section."""
+    tags check refuses, no `[contract]` group, a group 1 not titled for `test`, no `Priority:`
+    line, no judgement line, no `Failing test:` line naming `test` or no `Kind:` line naming
+    `kind` in the proposal, the tasks of a test-code fix or a source fix and the placement of a
+    new test file (`_test_code_problems`), a test-code proposal with no `Standard:` line, and
+    the `Same exposure` section."""
     root = inst.changes_dir / name
     missing = [file for file in CHANGE_FILES if not (root / file).is_file()]
     if not any((root / "specs").glob("*/spec.md")):

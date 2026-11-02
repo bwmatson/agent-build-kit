@@ -11,6 +11,7 @@ from datetime import timedelta
 from pathlib import Path
 
 from agent_build_kit.installation import Installation
+from agent_build_kit.pipeline.failure_evidence import EVIDENCE_HEADING
 from agent_build_kit.pipeline.flakes import next_fix_name
 from agent_build_kit.pipeline.regression_agent import FixOutcome
 from agent_build_kit.pipeline.run_log import (
@@ -20,11 +21,13 @@ from agent_build_kit.pipeline.run_log import (
     run_ledger_path,
     write_failure_bundle,
 )
+from agent_build_kit.runtimes import AgentRequest
 from tests.failure_bundle_fakes import START
 from tests.installation_leaks import ABSOLUTE_HOME_PATH
 from tests.regression_agent_support import (
     FIX_THE_SOURCE,
     PROPOSAL,
+    TASKS,
     TEST,
     UNDECIDED,
     Attempts,
@@ -33,6 +36,7 @@ from tests.regression_agent_support import (
     refusal_of,
     run,
 )
+from tests.runtimes.stand_in import StandInRuntime
 
 OUTPUT = "FAILED tests/test_widget.py::test_renders_the_label - assert 'a' == 'b'\n"
 MACHINE: dict[str, object] = {"load": [11.5, 9.25, 7.0], "memory_available_kb": 123456, "cpus": 8}
@@ -208,6 +212,7 @@ def test_a_pruned_bundle_names_no_bundle(installation: Installation, tmp_path: P
 
 # Built from parts so this file holds no literal home path for the leak scan to find.
 WORK = "/" + "home/someone/work"
+MAC_WORK = "/" + "Users/someone/work"
 TILDE = "~"
 
 
@@ -231,6 +236,25 @@ def test_the_section_names_no_home_directory(installation: Installation, tmp_pat
 
     section = evidence_of(installation, name)
     assert ABSOLUTE_HOME_PATH.search(section) is None
+    assert f"{TILDE}/work/tests/test_widget.py" in section
+
+
+def test_the_section_names_no_macos_home_directory(
+    installation: Installation, tmp_path: Path
+) -> None:
+    name = next_fix_name(installation, TEST)
+    agent = Attempts(installation, name, GOOD)
+    leaky = f"FAILED {MAC_WORK}/tests/test_widget.py::test_renders_the_label\n"
+
+    run(
+        installation,
+        tmp_path,
+        agent.runtime,
+        failed=failure(output=leaky, conditions={"cwd": MAC_WORK}, ran_at=START),
+    )
+
+    section = evidence_of(installation, name)
+    assert "/" + "Users/" not in section
     assert f"{TILDE}/work/tests/test_widget.py" in section
 
 
@@ -268,13 +292,27 @@ def test_the_evidence_is_there_once_after_the_change_is_rewritten(
 ) -> None:
     name = next_fix_name(installation, TEST)
     refused = {"tasks": group_tasks(f"Test: rerun `{TEST}` until it fails.", FIX_THE_SOURCE)}
-    agent = Attempts(installation, name, {**refused, **GOOD}, GOOD)
+    agent = Attempts(installation, name, {**refused, **GOOD})
+    first_attempt = agent.act
+
+    def act(request: AgentRequest) -> None:
+        if len(agent.runtime.requests) == 1:
+            first_attempt(request)
+            return
+        # A real agent answering a refusal about tasks.md edits that file and leaves the design,
+        # with the section the kit appended, as it was.
+        tasks = installation.changes_dir / name / "tasks.md"
+        tasks.write_text(TASKS.format(flag=" [contract]", priority="Priority: 1\n\n", test=TEST))
+
+    agent.runtime = StandInRuntime(act=act)
 
     run(installation, tmp_path, agent.runtime, failed=failure(output=OUTPUT, ran_at=START))
 
     assert len(agent.runtime.requests) == 2
     assert refusal_of(agent.runtime.requests[1])
-    assert design_of(installation, name).count("assert 'a' == 'b'") == 1
+    design = design_of(installation, name)
+    assert design.count(EVIDENCE_HEADING) == 1
+    assert design.count("assert 'a' == 'b'") == 1
 
 
 def test_the_prompt_tells_the_agent_the_evidence_must_stand_on_its_own(

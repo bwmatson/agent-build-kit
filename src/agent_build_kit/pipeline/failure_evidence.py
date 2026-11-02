@@ -2,7 +2,8 @@
 
 Three samples feed the bundle `run_log.write_failure_bundle` saves: what the machine was doing,
 what the worktree held, and what the run was. Each is a fixed list of facts, never the
-environment, and a sample that cannot be taken is left out and not raised.
+environment, and a sample that cannot be taken is left out and not raised. `change_evidence`
+builds the section the kit itself (not the agent) appends to a fix change's `design.md`.
 """
 
 from __future__ import annotations
@@ -17,6 +18,7 @@ from pathlib import Path
 
 from agent_build_kit.pipeline.run_log import run_ledger_path
 from agent_build_kit.profiles.base import ToolchainProfile
+from agent_build_kit.scrub_terms import ROOT_HOME
 
 # The most entries a listing in a bundle holds.
 LISTING_CAP = 5000
@@ -104,12 +106,12 @@ def shas(run: Run, where: Path, base: str) -> dict[str, str]:
 EVIDENCE_HEADING = "## Evidence of the first failure"
 
 
-_HOME_PREFIX = re.compile(r"/home/[^/\s\"'`:]+")
+_HOME_PREFIX = re.compile(rf"{ROOT_HOME}[^/\s\"'`:]+")
 
 
 def tilde_home(text: str) -> str:
-    """`text` with each home directory (`/home/<name>`) written as `~`, so a section that is
-    committed names no user."""
+    """`text` with each home directory (`/home/<name>`, `/Users/<name>`) written as `~`, so a
+    section that is committed names no user."""
     return _HOME_PREFIX.sub("~", text)
 
 

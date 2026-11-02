@@ -1562,7 +1562,10 @@ approved.
   for a flake, a pre-existing failure and a unit-test failure that fails on the base alike. It is
   named `fix-test-<slug>` (a long name is cut and takes a hash) whatever the kind, which is recorded in the proposal, and its
   group carries `[contract]`, so the change gets a full review. A change without `[contract]`,
-  valid tags or a priority is rewritten once and then held for a person. Runs are bounded by
+  valid tags or a priority is rewritten once and then held for a person. The kit, not the agent,
+  appends a `## Evidence of the first failure` section (the failing output, the conditions, the
+  run's ledger rows and the bundle's `machine.json`, home directories written as `~`) to the
+  change's `design.md`, so the design stands on its own once the test passes. Runs are bounded by
   `global_limits.max_regression_runs_per_hour`, and many units failing on one test cost one run.
 - **A pre-existing failure is recorded and fixed once.** A test the base run names as failed
   is appended to `<state_dir>/preexisting-failures.jsonl` (test, unit, command, first
