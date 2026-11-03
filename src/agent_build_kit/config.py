@@ -793,6 +793,11 @@ class LimitsConfig(TestKindSettings):
     transcript_result_chars: Annotated[int, Field(ge=1)] = 20000
     # How many runs of one unit keep their transcript.
     transcript_runs_kept: Annotated[int, Field(ge=1)] = 3
+    # Most whole-suite unit-test runs that execute at once, across every unit and repo that shares
+    # the planning repo; a run that finds them all taken waits, outside the command's time limit.
+    # Unset: no limit. A machine setting (it follows the cores and memory), so by convention it
+    # is set in `abk.local.yaml`.
+    max_concurrent_unit_tests: Annotated[int, Field(ge=1)] | None = None
     # Longest a unit-test command may run before it is asked to abort, in seconds.
     unit_test_command_seconds: Annotated[float, Field(gt=0, alias="unit_test_command_seconds")] = (
         3600
