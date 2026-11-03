@@ -10,10 +10,19 @@ that names the command's time and carries the end of its output.
 from __future__ import annotations
 
 import os
+import re
 import signal
 import subprocess
 
 TIMED_OUT_EXIT = 124
+# The line a run ended at its limit adds to its stderr, and the line that reads it back.
+TIMED_OUT_NOTE = "unit-test command timed out after {limit:g} seconds and was aborted"
+_TIMED_OUT_LINE = re.compile(
+    r"^[ \t]*"
+    + re.escape(TIMED_OUT_NOTE).replace(r"\{limit:g\}", r"(?P<limit>[0-9.eE+-]+)")
+    + r"$",
+    re.MULTILINE,
+)
 # How long to wait for the output of a killed group before giving up on a pipe that a
 # process outside the group still holds open.
 DRAIN_SECONDS = 5
@@ -47,8 +56,20 @@ def run_limited(
     except subprocess.TimeoutExpired:
         _signal_group(process, signal.SIGKILL)
         out, err = _drain(process)
-    note = f"\nunit-test command timed out after {limit:g} seconds and was aborted\n"
+    note = f"\n{TIMED_OUT_NOTE.format(limit=limit)}\n"
     return subprocess.CompletedProcess(args, TIMED_OUT_EXIT, out or "", (err or "") + note)
+
+
+def timed_out_after(output: str) -> float | None:
+    """The limit, in seconds, of the run whose output this is when it ended at the limit (the
+    output holds the note `run_limited` writes, as a line of its own); None for any other output."""
+    found = _TIMED_OUT_LINE.search(output)
+    return float(found["limit"]) if found else None
+
+
+def timed_out(output: str) -> bool:
+    """Whether `output` is that of a run that ended at its limit."""
+    return timed_out_after(output) is not None
 
 
 def _signal_group(process: subprocess.Popen, number: signal.Signals) -> None:

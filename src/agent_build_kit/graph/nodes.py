@@ -57,6 +57,7 @@ from agent_build_kit.pipeline.agent_commands import commands_note
 from agent_build_kit.pipeline.call_record import call_recorder
 from agent_build_kit.pipeline.changelog_convention import changelog_note
 from agent_build_kit.pipeline.check_failures import failed_check, with_e2e_hint
+from agent_build_kit.pipeline.command_limit import timed_out_after
 from agent_build_kit.pipeline.commit_body import commit_body
 from agent_build_kit.pipeline.commit_order import (
     CODE_PREFIX,
@@ -1073,6 +1074,21 @@ class BuildPath:
             "blocked_by_environment": True,
         }
 
+    def timed_out(self, output: str, stage: str) -> Update | None:
+        """Hold the unit for a person when `output` is that of a run that ended at the command's
+        time limit: it names no failing test and says nothing of the code, so no fix agent runs
+        and nothing is saved for one. None for any other output."""
+        if (limit := timed_out_after(output)) is None:
+            return None
+        note = (
+            f"{stage} reached its {limit:g} s time limit: the machine was busy or a test hung, "
+            "so a person judges it — `abk requeue` runs it again"
+        )
+        # A failure saved by an earlier round stays until a pass clears it, and a requeue would
+        # read it as feedback to rework: the held unit starts its checks again with none.
+        self.runner.store.set_feedback(self.unit.id, "")
+        return self.hold(HELD, note, note, cause=Cause.NEEDS_HUMAN)
+
     def tree(self) -> Path:
         if self._tree is None:
             base = local_ref(self.base, repo=self.unit.repo)
@@ -1803,6 +1819,8 @@ class BuildPath:
                 return parked
             ok, output = self.set_aside(failed)
         if not ok:
+            if (held := self.timed_out(output, "the unit tests of a built group")) is not None:
+                return held
             if (broken := self.failed_unit_test(output)) is not None:
                 return broken
             return self.stop(self.unpaired(state, ref))
@@ -1951,6 +1969,8 @@ class BuildPath:
                 if (parked := self.wait_for_fix(failed)) is not None:
                     raise CheckParked({**parked, "checks_ok": False}) from failed
                 ok, output = self.set_aside(failed)
+            if not ok and (held := self.timed_out(output, "the checks")) is not None:
+                raise CheckParked({**held, "checks_ok": False})
             if not ok and (parked := self.wait_for_open_fix(output)) is not None:
                 raise CheckParked({**parked, "checks_ok": False})
             if not ok and (broken := self.environment_problem()) is not None:
@@ -2610,6 +2630,8 @@ class BuildPath:
                 return parked
             ok, output = self.set_aside(failed)
         self.say(f"unit-test {'passed' if ok else 'failed'}")
+        if not ok and (held := self.timed_out(output, "unit-test")) is not None:
+            return held
         if not ok and (parked := self.wait_for_open_fix(output)) is not None:
             return parked
         if not ok:

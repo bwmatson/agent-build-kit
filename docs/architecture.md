@@ -1502,6 +1502,12 @@ approved.
   `global_limits.unit_test_abort_grace_seconds`. Unit-test fails with the command, the time
   ("timed out after N seconds") and the end of its output, dump included. This catches a
   run whose tests all pass and whose process then does not exit.
+  A whole-suite run that reaches the limit is not a failed check for the fix agent to answer: it
+  names no failing test and says nothing of the code, so it holds the unit for a person
+  (`needs_human`, a note naming the limit) in the checks before review, in the unit-test after a
+  clean move and in the run that confirms a group already built, and runs no fix agent, counts no
+  fix round and saves no feedback. `abk requeue` runs it again. The restack's re-test is not held
+  by it and raises its error as before.
 - **A test time limit.** `tests/time_limit.py` fails a test that runs past
   its limit from a timer thread, in setup, call and teardown alike: `--test-time-limit` (sixty
   seconds) for a test without the `local_stack` marker, `--e2e-test-time-limit` (thirty

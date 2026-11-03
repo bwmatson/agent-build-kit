@@ -3369,6 +3369,12 @@
 - The Python recommendations seed prefers `enum.StrEnum` over repeated string literals for
   closed sets of strings on Python 3.11 and later, so `abk init`'s research proposes it.
 
+- A unit-test run that reaches the command's time limit (`global_limits.unit_test_command_seconds`)
+  now holds its unit for a person (`needs_human`, with a note naming the limit) instead of going
+  to the fix agent, which had no failing test to fix. This holds in the checks before review, in
+  the unit-test after a clean move and in the run that confirms a group already built; `abk
+  requeue` runs it again.
+
 ## 0.1.0 — 2026-09-28
 
 First release.

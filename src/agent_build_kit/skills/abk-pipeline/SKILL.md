@@ -166,6 +166,11 @@ instance).
   decision on the approach, not another round; rounds spent with blocking work
   outstanding leaves a pushed branch and a PR carrying the open points, ready
   to finish by hand.
+- A unit-test timeout: a whole-suite run that reaches `global_limits.unit_test_command_seconds`
+  holds the unit with `needs_human` and a note naming the limit ("the checks reached its 5400 s
+  time limit"). It names no failing test, so no fix agent ran and nothing was saved for one. Look
+  at the machine's load and the units running (`runs/test-runs.jsonl` has `seconds`,
+  `load_start` and `units_running` for the run), then `abk requeue` the unit when it is quieter.
   What a reviewer returns is a verdict: `approved`, a `findings` list (file,
   optional line, summary, consequence, what done looks like, required), and
   from round two an `earlier` list answering each earlier required finding by
