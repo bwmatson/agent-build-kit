@@ -29,6 +29,10 @@ def listed(document: dict[str, Any], top: Path, kind: str) -> list[tuple[str, ..
 MACHINE = {
     "account": ({"repos": {"app": {"account": "kit"}}}, ("repos", "app", "account")),
     "project_limits": ({"project_limits": {"max_concurrent_stacks": 2}}, ("project_limits",)),
+    "max_concurrent_unit_tests": (
+        {"global_limits": {"max_concurrent_unit_tests": 2}},
+        ("global_limits", "max_concurrent_unit_tests"),
+    ),
     "accounts": (
         {"runtimes": {"r": {"accounts": {"kit": {"config_dir": "x"}}}}},
         ("runtimes", "r", "accounts"),
@@ -227,3 +231,9 @@ planning:
         ("repos", "app", "account"),
         ("planning", "worktree_root"),
     ]
+
+
+def test_a_unit_test_limit_that_is_null_is_not_a_machine_setting(tmp_path: Path) -> None:
+    document = {"global_limits": {"max_concurrent_unit_tests": None}}
+
+    assert listed(document, tmp_path, "machine") == []
