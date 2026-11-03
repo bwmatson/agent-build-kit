@@ -310,6 +310,7 @@ from agent_build_kit.pipeline.unit_store import (
     guidance_excerpt,
     waiting_for,
 )
+from agent_build_kit.pipeline.unit_test_slots import slot_status_lines
 from agent_build_kit.pipeline.units import (
     BUILDS_NOTHING,
     CLOSED,
@@ -933,6 +934,10 @@ def cmd_status(args: argparse.Namespace, inst: Installation) -> int:
         warning = " — warning: above global_limits.temp_warn_mb" if found.warn else ""
         log(f"pytest temp: {found.text}{warning}")
     if line := lock_status_line(inst.e2e_lock):
+        log(line)
+    for line in slot_status_lines(
+        inst.locks_dir, inst.config.global_limits.max_concurrent_unit_tests
+    ):
         log(line)
     for line in held_status_lines(inst):
         log(line)

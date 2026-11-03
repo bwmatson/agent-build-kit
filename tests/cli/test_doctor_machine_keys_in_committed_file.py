@@ -8,7 +8,7 @@ from pathlib import Path
 
 import pytest
 
-from agent_build_kit.cli.doctor import Check, run_doctor
+from agent_build_kit.cli.doctor import MACHINE_KEYS, Check, run_doctor
 from tests.cli.public_content_repo import (
     ACCOUNTS,
     NOTE_FIX,
@@ -108,5 +108,7 @@ def test_only_the_keys_present_are_named(tmp_path: Path) -> None:
 
     checks = run_doctor(config, run=Answers(), which=which_all)
 
-    named = [c for c in checks if OVERLAY in said(c) and c.status != "ok"]
+    named = [
+        c for c in checks if c.name == MACHINE_KEYS and OVERLAY in said(c) and c.status != "ok"
+    ]
     assert [SENTINEL in said(c) for c in named] == [True]

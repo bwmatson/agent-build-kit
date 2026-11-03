@@ -11,7 +11,6 @@ from pathlib import Path
 
 import pytest
 
-from agent_build_kit import config as config_module
 from agent_build_kit.cli import pipeline as cli
 from agent_build_kit.installation import Installation
 from agent_build_kit.pipeline.unit_store import UnitStore
@@ -21,24 +20,13 @@ from tests.factories import stored_unit
 from tests.fake_clock import install
 
 
-def limited(limit: int | None) -> None:
-    current = config_module.active()
-    config_module.activate(
-        current.model_copy(
-            update={
-                "global_limits": current.global_limits.model_copy(
-                    update={"max_concurrent_unit_tests": limit}
-                )
-            }
-        ),
-        config_module.active_root(),
-    )
-
-
-@pytest.fixture
-def workspace(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Installation:
+def workspace_with(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, limit: int | None
+) -> Installation:
     installation = make_installation(
-        tmp_path, planning=dict(state_dir=".", worktree_root=str(tmp_path.parent / "trees"))
+        tmp_path,
+        planning=dict(state_dir=".", worktree_root=str(tmp_path.parent / "trees")),
+        global_limits={"max_concurrent_unit_tests": limit},
     )
     UnitStore(tmp_path / "units.json").upsert([stored_unit("one/1", change="one")])
     monkeypatch.setattr(cli, "current_usage", lambda: None)
@@ -53,9 +41,9 @@ def slot_lines(workspace: Installation, capsys: pytest.CaptureFixture[str]) -> l
 
 
 def test_the_holders_and_a_waiting_unit_are_named(
-    workspace: Installation, capsys: pytest.CaptureFixture[str]
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    limited(2)
+    workspace = workspace_with(tmp_path, monkeypatch, 2)
     release, waiting = threading.Event(), threading.Event()
 
     def wait_for_a_slot() -> None:
@@ -80,8 +68,8 @@ def test_the_holders_and_a_waiting_unit_are_named(
 
 
 def test_nothing_is_said_when_no_limit_is_set(
-    workspace: Installation, capsys: pytest.CaptureFixture[str]
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    limited(None)
+    workspace = workspace_with(tmp_path, monkeypatch, None)
 
     assert slot_lines(workspace, capsys) == []

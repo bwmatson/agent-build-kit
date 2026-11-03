@@ -1290,6 +1290,7 @@ def _deprecation_fix(key: str) -> str:
 
 
 MACHINE_KEYS = "machine keys"
+UNIT_TEST_SLOTS = "unit-test slots"
 _MACHINE_FIX = f"move it to {OVERLAY_FILENAME} with `abk config --migrate`"
 _DEFAULT_FIX = (
     f"fine to commit; move it to {OVERLAY_FILENAME} to differ "
@@ -1315,6 +1316,32 @@ def _machine_keys(inst: Installation) -> list[Check]:
         else:
             checks.append(_info(MACHINE_KEYS, f"{key} in abk.yaml: {setting.reason}", _DEFAULT_FIX))
     return checks
+
+
+def _unit_test_cap(inst: Installation) -> list[Check]:
+    """The limit on whole-suite unit-test runs at once: a note when it is not set (the default),
+    a warning when it is above the units that can build in a project, nothing otherwise."""
+    cap = inst.config.global_limits.max_concurrent_unit_tests
+    if cap is None:
+        return [
+            _info(
+                UNIT_TEST_SLOTS,
+                "whole-suite unit-test runs are not limited: every unit's run starts at once",
+                "set global_limits.max_concurrent_unit_tests in abk.local.yaml (a machine setting)",
+            )
+        ]
+    stacks = inst.config.project_limits.max_concurrent_stacks
+    if cap > stacks:
+        return [
+            _warn(
+                UNIT_TEST_SLOTS,
+                f"global_limits.max_concurrent_unit_tests is {cap}, above "
+                f"project_limits.max_concurrent_stacks ({stacks}): more suites than the units "
+                "that can build in one project",
+                "lower it in abk.local.yaml, or raise project_limits.max_concurrent_stacks",
+            )
+        ]
+    return []
 
 
 def _missing_inputs(environment: EnvironmentConfig, root: Path) -> list[str]:
@@ -2282,6 +2309,7 @@ def run_doctor(
     checks += _verify_env(inst, run)
     checks += _public_content(inst)
     checks += _machine_keys(inst)
+    checks += _unit_test_cap(inst)
     checks += _local_dir(inst, mount_of)
     checks += _weak_secrets()
     checks += _environment(inst, run)
