@@ -29,6 +29,7 @@ Ask of any line: *would this be wrong on another person's machine?* If it would,
 | Test kinds and markers, `e2e_splits` and `e2e_dimensions` declarations, `e2e_unit_scope` | `abk.yaml` | the same tests run wherever the code does |
 | Models, review settings, `global_limits` and the defaults that are safe everywhere | `abk.yaml` | one behaviour for everyone |
 | `project_limits` (`max_concurrent_stacks`, `max_units_in_progress`) | `abk.local.yaml` | how many units this machine can run at once |
+| `global_limits.max_concurrent_unit_tests` | `abk.local.yaml` | how many whole-suite unit-test runs this machine can run at once; the rest of `global_limits` stays in `abk.yaml` |
 | `repos.<name>.path` (a checkout), `planning.worktree_root` | `abk.local.yaml` | a path on one disk |
 | `verify.env.<NAME>.file` (where a settings file sits) | `abk.local.yaml` | a path on one disk; the entry and its `path` stay in `abk.yaml` |
 | `repos.<name>.account` (which Claude account builds a repo) | `abk.local.yaml` | depends on who runs the pipeline and which accounts they have; a person with one account sets nothing |
@@ -69,6 +70,7 @@ reports each repo's agent commands:
 `abk.yaml` should read the same on every machine; settings that belong to a machine or a
 person go in the ignored `abk.local.yaml`. `abk doctor` reads the committed file alone
 and, under "machine keys", **warns** for `repos.<name>.account`, `project_limits`,
+`global_limits.max_concurrent_unit_tests`,
 `runtimes.<name>.accounts`, `tests.e2e_available` and a runtime `command` or `policy_fix`
 that starts with an absolute path. It only **notes** `runtimes.<name>.limits`, a split
 `hold` and `tests.e2e_schedule: "off"`, which a team may commit as defaults. It says
@@ -391,6 +393,10 @@ global_limits:
                                   # keeps whole; longer ones are cut
   transcript_runs_kept: 3       # runs of one unit that keep their transcript
   # The earlier, numbered spellings of the next keys still load, with a notice, for one release.
+  max_concurrent_unit_tests: null   # most whole-suite unit-test runs at once, across every unit and
+                                    # repo of the planning repo; a run that finds them all taken
+                                    # waits, outside the command's time limit. null: no limit. A
+                                    # machine setting: set it in abk.local.yaml
   unit_test_command_seconds: 3600   # longest a unit-test command may run before it is aborted
   unit_test_abort_grace_seconds: 10  # how long an aborted command has to exit before it is killed
   unit_test_repeat_runs: 3          # times the tests a unit added or changed are run again under load (0: off)
@@ -904,6 +910,7 @@ key that differs, since mappings merge by key:
 | a `verify.env` entry that reads a file in the home directory or holds a home path | `abk.local.yaml` | the same value is a different path on another machine |
 | `runtimes.<name>.limits`, `runtimes.claude_code.accounts.<label>.config_dir` | `abk.local.yaml` | the pause thresholds belong to this person's subscription windows, and a config directory is a path |
 | `project_limits` | `abk.local.yaml` | how many units and stacks this machine can run at once |
+| `global_limits.max_concurrent_unit_tests` | `abk.local.yaml` | how many whole-suite unit-test runs this machine can run at once |
 | `sandbox.write`, `sandbox.read` (paths) and `sandbox.hosts` | `abk.local.yaml` for a path on this machine, `abk.yaml` for what every checkout shares | what an agent step may write, read and reach; `sandbox.enabled`, `sandbox.backend` and a repo's `sandbox.required` stay in `abk.yaml` |
 | the rest of a repo's entry (`slug`, `profile`, `tests`, `deploy.rules`, `consumes`, `relationships`) and `global_limits` | `abk.yaml` | how the work is planned, built and deployed, which every checkout shares |
 | a token, a port, an agent command | `.env`, read by a `from: env-file` provider | a secret or a single value, not structure |

@@ -3396,6 +3396,15 @@
   the unit's first full run has recorded the data it runs the whole suite. A repo with projects or
   another profile gets neither, and the regression agent is not granted it.
 
+- A new setting, `global_limits.max_concurrent_unit_tests` (a whole number of at least 1, or null
+  for no limit, the default), limits how many whole-suite unit-test runs execute at once across
+  every unit and repo of the planning repo. A run that finds every slot taken waits, outside
+  `unit_test_command_seconds`, and says so in the unit's log; the wait is a `test_slot` span and
+  `wait_seconds` in `runs/test-runs.jsonl`, and `abk status` shows each slot's holder and the units
+  that wait. It is a machine setting: set it in `abk.local.yaml`; `abk doctor` warns when it is in a
+  tracked `abk.yaml`, notes when it is not set and warns when it is above
+  `project_limits.max_concurrent_stacks`.
+
 ## 0.1.0 — 2026-09-28
 
 First release.

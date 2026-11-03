@@ -198,6 +198,8 @@ global_limits:
   transcript_result_chars: 20000  # longest tool result a transcript keeps whole
   transcript_runs_kept: 3     # runs of one unit that keep their transcript
   # The earlier, numbered spellings of the next keys still load, with a notice, for one release.
+  max_concurrent_unit_tests: null   # most whole-suite unit-test runs at once (a machine setting:
+                                    # abk.local.yaml); the wait is outside the command's time limit
   unit_test_command_seconds: 3600   # longest a unit-test command may run before it is aborted
   unit_test_abort_grace_seconds: 10  # how long an aborted command has to exit before it is killed
   unit_test_repeat_runs: 3          # times the tests a unit added or changed are run again under load (0: off)
@@ -415,6 +417,8 @@ over `abk.yaml` key by key), and a secret or a single per-machine value goes in 
 - **`abk.yaml`**: repo names, slugs, forges, default branches, profiles, projects, deploy rules,
   test kinds and markers, split and dimension declarations, models, review settings, team policy.
 - **`abk.local.yaml`**: `repos.<name>.path` and `planning.worktree_root`; `verify.env.<NAME>.file`;
+  `global_limits.max_concurrent_unit_tests` (how many whole-suite unit-test runs this machine runs
+  at once, null for no limit);
   which Claude account builds a repo (`repos.<name>.account`) with each account's `config_dir`,
   `limits` and slots, and the default account's usage thresholds; `project_limits` (how many units
   this machine runs at once); `e2e_available`, split holds and
