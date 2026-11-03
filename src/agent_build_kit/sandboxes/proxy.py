@@ -39,14 +39,18 @@ _LOOPBACK_REFUSAL = (
 
 
 def _is_loopback(host: str) -> bool:
-    """Whether `host` is `localhost` or a loopback address (`127.0.0.0/8`, `::1`)."""
+    """Whether `host` is `localhost` (or a name under it) or a loopback address (`127.0.0.0/8`,
+    `::1`, and an IPv4 loopback address written as an IPv4-mapped IPv6 one)."""
     name = host.lower().rstrip(".")
-    if name == "localhost":
+    if name == "localhost" or name.endswith(".localhost"):
         return True
     try:
-        return ipaddress.ip_address(name).is_loopback
+        address = ipaddress.ip_address(name)
     except ValueError:
         return False
+    if isinstance(address, ipaddress.IPv6Address) and address.ipv4_mapped is not None:
+        address = address.ipv4_mapped
+    return address.is_loopback
 
 
 def _split_target(target: str, default_port: int) -> tuple[str, int]:
