@@ -96,6 +96,9 @@
   before it exits. This is the first step towards builds that outlive a tick.
 - A branch whose base moved only in changelog and documentation files it also changes is now
   re-tested lightly, with the changelog check and the documentation tests, instead of in full.
+- A branch whose base moved only in changelog and documentation files, one of which the branch
+  also changes, is now re-tested with the changelog check alone instead of in full. A move that
+  also brought in code or test files, or a repo with no changelog check, is tested as before.
 
 - The documents and the pipeline skill now describe how a failing test is handled: an open fix is
   waited on first, a test the unit did not write runs on the unit's base, and the

@@ -1631,6 +1631,10 @@ def build_unit_test(
                 base=base,
                 moved_from=moved_from,
                 setting=active().global_limits.restack_check,
+                is_test=lambda path: profiles.for_path(projects or [], path, profile).is_test_path(
+                    path
+                ),
+                changelog=repo.changelog if repo is not None else None,
             )
         work = _work(cwd, base, whole_repo, projects, profile, changed)
         if projects and not work:
@@ -1644,9 +1648,13 @@ def build_unit_test(
                     "nothing for them to judge"
                 )
             return root_checks(cwd)
-        if scope is not None and scope.lite and not whole_repo:
+        # A lite re-test is the repo's own checks of the changelog: with none configured it
+        # would run nothing, so the move takes the full path instead.
+        lite = scope is not None and scope.lite and not whole_repo
+        if lite and repo is not None and profile.extra_checks(repo):
             retest["kind"] = "lite"
-            return lite_run(cwd)
+            _say(log, f"moved base: lite re-test ({scope.reason if scope else ''})")
+            return root_checks(cwd)
         if scope is not None and scope.scoped and not whole_repo:
             retest["kind"] = "scoped"
             moved = moved_run(cwd, base, work, scope.incoming)
@@ -1654,7 +1662,8 @@ def build_unit_test(
                 return moved
             retest["kind"] = "full"
         elif scope is not None:
-            _say(log, f"moved base: ran the full suite ({scope.reason})")
+            why = "no changelog check is configured for a lite re-test" if lite else scope.reason
+            _say(log, f"moved base: ran the full suite ({why})")
         plan = None
         if affected is not None and not whole_repo and failed_output.strip():
             plan = selection(base, work, failed_output)
@@ -1678,12 +1687,6 @@ def build_unit_test(
                 "a disagreement",
             )
         return confirmed
-
-    def lite_run(cwd: Path) -> tuple[bool, str]:
-        """A move over changelog and documents alone: the repo profile's checks of the checkout
-        (the changelog check), never lint or the full suite."""
-        _say(log, "moved base: lite re-test, the changelog check")
-        return root_checks(cwd)
 
     def moved_run(
         cwd: Path,

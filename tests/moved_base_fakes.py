@@ -71,10 +71,18 @@ def commit(repo: Path, files: dict[str, str], message: str) -> None:
     git(repo, "commit", "-qm", message, "--allow-empty")
 
 
-def affected_lines(workspace: Installation) -> list[dict]:
+def ledger_lines(workspace: Installation, kind: str) -> list[dict]:
     path = workspace.state_dir / "usage-ledger.jsonl"
     lines = [json.loads(line) for line in path.read_text().splitlines()] if path.exists() else []
-    return [line for line in lines if line.get("kind") == "affected"]
+    return [line for line in lines if line.get("kind") == kind]
+
+
+def affected_lines(workspace: Installation) -> list[dict]:
+    return ledger_lines(workspace, "affected")
+
+
+def restack_lines(workspace: Installation) -> list[dict]:
+    return ledger_lines(workspace, "restack")
 
 
 def moved(

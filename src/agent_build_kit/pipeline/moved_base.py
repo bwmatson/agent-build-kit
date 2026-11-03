@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import logging
 from collections.abc import Callable, Sequence
 from pathlib import Path
 
@@ -11,11 +10,9 @@ from agent_build_kit.model import Frozen
 from agent_build_kit.pipeline.shell import git
 from agent_build_kit.profiles.base import is_doc_path
 
-logger = logging.getLogger(__name__)
-
 LITE_REASON = (
-    "every shared file is a changelog or documentation file: the changelog check and the "
-    "documentation tests stand in for the full suite"
+    "the move brought in only changelog and documentation files: the changelog check "
+    "stands in for the full suite"
 )
 
 
@@ -56,6 +53,15 @@ def kinds_of(
     return FileKinds(**counts)
 
 
+def is_document(path: str, is_test: Callable[[str], bool], changelog: str | None) -> bool:
+    """Whether `path` is the repo's changelog or a documentation file that is not a test.
+
+    A plain-text file is not one: it may be test data or a dependency manifest."""
+    if changelog is not None and path == changelog:
+        return True
+    return not is_test(path) and is_doc_path(path) and not path.endswith(".txt")
+
+
 class FilesNotListed(Exception):
     """The files a move brought in could not be listed; the message says why."""
 
@@ -81,19 +87,26 @@ def brought_in(tree: Path, moved_from: str, base: str) -> tuple[str, ...]:
         return ()
 
 
-def scope_of(own: Sequence[str], incoming: Sequence[str], setting: RestackCheck) -> MoveScope:
+def scope_of(
+    own: Sequence[str],
+    incoming: Sequence[str],
+    setting: RestackCheck,
+    *,
+    is_test: Callable[[str], bool] = lambda path: False,
+    changelog: str | None = None,
+) -> MoveScope:
     """The rule over the files the unit changes and the files the move brought in.
 
-    Lite when every file the unit shares with the move is a changelog or documentation file.
-    Scoped unless the setting says full, the unit changed nothing of its own, or a shared file
-    is code or a test, which git merging cleanly says nothing about."""
+    Lite when the unit shares a file with the move and everything the move brought in is a
+    changelog or documentation file (`is_document`). Scoped unless the setting says full, the
+    unit changed nothing of its own, or a file the move brought in is one the unit changes,
+    which git merging cleanly says nothing about."""
     if setting is RestackCheck.FULL:
         return MoveScope(scoped=False, reason="global_limits.restack_check is full")
     if not own:
         return MoveScope(scoped=False, reason="the unit produced nothing of its own")
     shared = sorted(set(own) & set(incoming))
-    if shared and all(is_doc_path(name) for name in shared):
-        logger.info("lite re-test: %s", LITE_REASON)
+    if shared and all(is_document(name, is_test, changelog) for name in incoming):
         return MoveScope(scoped=False, lite=True, reason=LITE_REASON, incoming=list(incoming))
     if shared:
         return MoveScope(
@@ -104,7 +117,14 @@ def scope_of(own: Sequence[str], incoming: Sequence[str], setting: RestackCheck)
 
 
 def moved_base_scope(
-    tree: Path, *, own: Sequence[str], base: str, moved_from: str, setting: RestackCheck
+    tree: Path,
+    *,
+    own: Sequence[str],
+    base: str,
+    moved_from: str,
+    setting: RestackCheck,
+    is_test: Callable[[str], bool] = lambda path: False,
+    changelog: str | None = None,
 ) -> MoveScope:
     """`scope_of` over `own`, the files the unit changes, and the files that differ between
     `moved_from`, the base the restack computed, and `base`.
@@ -121,4 +141,4 @@ def moved_base_scope(
         return MoveScope(
             scoped=False, reason=f"the files the move brought in could not be listed: {error}"
         )
-    return scope_of(own, incoming, setting)
+    return scope_of(own, incoming, setting, is_test=is_test, changelog=changelog)
