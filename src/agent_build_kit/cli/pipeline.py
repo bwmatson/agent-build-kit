@@ -2705,6 +2705,7 @@ def run_round(
     lane_starts = lane_starts - refused.keys()
     if not dry_run:
         evaluated = _claim_starts(inst, store, units, evaluated, reads)
+        _record_claims(inst, units, reads)
         lane_starts = lane_starts & {unit.id for unit in evaluated}
     ready = [*resumable, *evaluated]
     for unit in evaluated:
@@ -2737,7 +2738,12 @@ def run_round(
             view,
             admitted=[unit.id for unit in evaluated],
             refused=refused,
-            waits=waits,
+            # A unit the board holds is explained by its claim record, not by a slot it never had.
+            waits={
+                uid: waited
+                for uid, waited in waits.items()
+                if uid not in reads.decisions or reads.decisions[uid].outcome == "start"
+            },
             decided=decided,
         )
     return ready
@@ -2762,6 +2768,53 @@ def _claim_starts(
         else:
             log(f"{unit.id} is not started: {decision.reason}")
     return kept
+
+
+def _record_claims(inst: Installation, units: list[StoredUnit], reads: RoundReads) -> None:
+    """Write each start decision of the round that was not a plain start as a `claim` admission,
+    unless the unit's latest record already says the same. A record is never a round's to lose."""
+    path = inst.state_dir / ADMISSIONS_NAME
+    try:
+        by_id = {unit.id: unit for unit in units}
+        last: dict[str, AdmissionRecord] = {}
+        for each in read_admissions(path):
+            last[each.unit] = each
+        fingerprint = config_fingerprint(inst)
+        slot_of, limit_of = _slot_of(inst), _slot_limit(inst)
+        for uid, decision in reads.decisions.items():
+            before = last.get(uid)
+            if before is not None and (
+                before.kind,
+                before.items,
+                before.outcome,
+                before.reason,
+            ) == (
+                "claim",
+                decision.items,
+                decision.outcome,
+                decision.reason,
+            ):
+                continue
+            slot = slot_of(by_id[uid])
+            append_admission(
+                path,
+                AdmissionRecord(
+                    at=spans.clock.now(),
+                    kind="claim",
+                    unit=uid,
+                    tick=spans.PROCESS_TICK,
+                    slot=_slot_label(slot),
+                    limit=limit_of(slot),
+                    counted=(),
+                    usage=UsageFacts(may_start=None, reason="not asked this round"),
+                    fingerprint=fingerprint,
+                    items=decision.items,
+                    outcome=decision.outcome,
+                    reason=decision.reason,
+                ),
+            )
+    except Exception as error:  # noqa: BLE001 — a record is never a pass's to lose
+        log(f"the claim records are not written ({type(error).__name__}: {error})")
 
 
 def _slot_label(slot: Hashable) -> str:

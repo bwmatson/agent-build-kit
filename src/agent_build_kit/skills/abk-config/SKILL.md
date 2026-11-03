@@ -267,6 +267,8 @@ repos:                        # ordered; a task group's [repo] tag is a key here
                               # top item) and `pr_links` (lowest, all, or a list of levels)
       # create_cap: 50          # most items one tick creates (>= 1), so a board is built
                               # over several ticks
+      # on_error: wait          # board unreadable at a start: wait (default) or start
+                              # (recorded as not checked)
       # azure_devops:         # the block named for the kind: organization, project, team,
                               # area_path, iteration_path, types (board type of each level
                               # in use and of epic), states (kit state -> board state),

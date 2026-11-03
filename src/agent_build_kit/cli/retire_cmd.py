@@ -29,6 +29,7 @@ from agent_build_kit.pipeline.workspaces import (
     remove_worktree,
     unit_tree,
 )
+from agent_build_kit.trackers.start_decision import release_claims
 
 
 def _commits(count: int) -> str:
@@ -223,6 +224,12 @@ def _retire(
             _delete_thread(inst, unit.id)
     except Exception as error:  # noqa: BLE001 - the unit is retired either way
         say(f"{unit.id}: its thread was not deleted — {error}")
+        failed = True
+    try:
+        for attempt in release_claims(unit, changes_dir=inst.changes_dir):
+            store.record_event(unit.id, "claim", item=attempt.item, outcome=attempt.outcome)
+    except Exception as error:  # noqa: BLE001 - the unit is retired either way
+        say(f"{unit.id}: its board claims were not released — {error}")
         failed = True
     pipe.update_plans(
         inst,

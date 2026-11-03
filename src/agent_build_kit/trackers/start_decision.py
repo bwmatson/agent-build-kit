@@ -15,7 +15,7 @@ from agent_build_kit.pipeline.restack import remote_head
 from agent_build_kit.pipeline.tracker_file import TrackerFile, mapping_target, read_for_target
 from agent_build_kit.pipeline.units import Unit, branch_name, in_progress
 from agent_build_kit.trackers.base import Tracker
-from agent_build_kit.trackers.config import section_for
+from agent_build_kit.trackers.config import TrackerSection, section_for
 from agent_build_kit.trackers.levels import group_key, task_group_key
 
 NO_BOARD_ITEM = "no board item yet"
@@ -48,6 +48,8 @@ class RoundReads:
     def __init__(self) -> None:
         self._pulls: dict[str, list[PullRequest]] = {}
         self._foreign: dict[str, str] = {}
+        # The latest decision for each unit that was not a plain start, for the claim records.
+        self.decisions: dict[str, StartDecision] = {}
 
     def pulls(self, name: str, forge: Forge, repo: RepoId) -> list[PullRequest]:
         if name not in self._pulls:
@@ -130,7 +132,49 @@ def start_decision(
             reads or RoundReads(),
         )
     except Exception as error:  # noqa: BLE001
-        return StartDecision(outcome="wait", reason=f"tracker unavailable: {error}")
+        return _unreadable(unit, error)
+
+
+def _unreadable(unit: Unit, error: Exception) -> StartDecision:
+    """The answer when the board cannot be read: wait, or start without a check when the
+    repo's section says `on_error: start`, the reason saying so."""
+    reason = f"tracker unreachable: {error}"
+    try:
+        section = section_for(unit.repo)
+    except Exception:  # noqa: BLE001 - an unreadable section is itself a reason to wait
+        section = None
+    if section is not None and section.on_error == "start":
+        return StartDecision(outcome="start", reason=f"tracker was not checked ({reason})")
+    return StartDecision(outcome="wait", reason=reason)
+
+
+def _covered_by(
+    unit: Unit, section: TrackerSection, changes_dir: Path
+) -> tuple[list[str], list[str]] | None:
+    """The items the unit covers: all those checked and those the claim acts on; None when one
+    has no board item yet."""
+    wanted: list[str] = []
+    claimable: list[str] = []
+    for member in unit.members():
+        found = read_for_target(changes_dir / member.change, section.kind, mapping_target(section))
+        covered = _covered_ids(section.levels, found, member.change, member.groups)
+        if covered is None:
+            return None
+        wanted.extend(covered.checked)
+        claimable.extend(covered.claimable)
+    return wanted, claimable
+
+
+def release_claims(unit: Unit, *, changes_dir: Path) -> list[ClaimAttempt]:
+    """Clear the sync account's claims on the items `unit` covers, leaving any other assignee
+    alone; nothing for a repo with no tracker or an item the board lacks. Raises when the board
+    cannot be reached."""
+    section = section_for(unit.repo)
+    if section is None or (tracker := trackers.for_repo(unit.repo)) is None:
+        return []
+    if (covered := _covered_by(unit, section, changes_dir)) is None:
+        return []
+    return _release(tracker, tracker.identity().name, covered[1])
 
 
 def _decide(
@@ -148,15 +192,9 @@ def _decide(
     tracker = trackers.for_repo(unit.repo)
     if tracker is None:
         return StartDecision(outcome="start")
-    wanted: list[str] = []
-    claimable: list[str] = []
-    for member in unit.members():
-        found = read_for_target(changes_dir / member.change, section.kind, mapping_target(section))
-        covered = _covered_ids(section.levels, found, member.change, member.groups)
-        if covered is None:
-            return StartDecision(outcome="wait", reason=NO_BOARD_ITEM)
-        wanted.extend(covered.checked)
-        claimable.extend(covered.claimable)
+    if (covered := _covered_by(unit, section, changes_dir)) is None:
+        return StartDecision(outcome="wait", reason=NO_BOARD_ITEM)
+    wanted, claimable = covered
     sync = tracker.identity().name
     taken: list[str] = []
     people: list[str] = []
@@ -265,7 +303,7 @@ def _claim_all(
     except Exception as error:  # noqa: BLE001
         attempts.extend(_release(tracker, sync, claimed))
         return StartDecision(
-            outcome="wait", reason=f"tracker unavailable: {error}", attempts=tuple(attempts)
+            outcome="wait", reason=f"tracker unreachable: {error}", attempts=tuple(attempts)
         )
     return StartDecision(
         outcome="start", items=tuple(wanted), claimed=tuple(claimed), attempts=tuple(attempts)
@@ -287,4 +325,9 @@ def start_gate(
         return StartDecision(outcome="start")
     own = {branch_name(other) for other in graph if other.id != unit.id}
     own |= {branch for other in graph if (branch := getattr(other, "branch", ""))}
-    return start_decision(unit, changes_dir=changes_dir, claim=claim, own_branches=own, reads=reads)
+    decision = start_decision(
+        unit, changes_dir=changes_dir, claim=claim, own_branches=own, reads=reads
+    )
+    if reads is not None and (decision.outcome != "start" or decision.reason):
+        reads.decisions[unit.id] = decision
+    return decision

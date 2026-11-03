@@ -41,11 +41,25 @@ _OUTCOMES = {
     "admitted": "admitted",
     "slot": "held, waiting for a slot",
     "usage": "refused by its account, so not started",
+    "claim": "decided by the board",
 }
 
 
 def _describe(record: AdmissionRecord, now_fingerprint: str) -> list[str]:
     outcome = _OUTCOMES[record.kind]
+    if record.kind == "claim":
+        items = f" (items {', '.join(record.items)})" if record.items else ""
+        return [
+            f"{record.unit} was {outcome} at {record.at.isoformat()} (tick {record.tick}): "
+            f"{record.outcome}{items}",
+            f"reason: {record.reason}",
+            f"configuration {record.fingerprint}"
+            + (
+                " — made on stale configuration: the files have changed since"
+                if record.fingerprint != now_fingerprint
+                else ""
+            ),
+        ]
     lines = [
         f"{record.unit} was {outcome} at {record.at.isoformat()} (tick {record.tick})",
         f"slot {record.slot}: {len(record.counted)} counted, limit {record.limit}",
