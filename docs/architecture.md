@@ -735,8 +735,12 @@ release could move. The steps:
    classifies the move: it is scoped when no file the move brought in (the files that
    differ between the old base and the new one) is also a file the unit changes, and
    full when one is, when the unit produced nothing of its own, when the move has no old
-   base, or when `global_limits.restack_check` is `full`. It logs `moved base:` with which it
-   was and why. A scoped move runs lint, then the tests the unit added or changed (the
+   base, or when `global_limits.restack_check` is `full`. It is lite, running only the
+   repo profile's checks of the checkout (the changelog check) and no lint or tests, when the
+   move brought in only changelog and documentation files (the repo's changelog, or a `.md` or
+   `.rst` file at the root or under `docs/` that is not a test path), one of which the unit also
+   changes; a repo whose profile has no such check takes the full suite instead. It logs
+   `moved base:` with which it was and why. A scoped move runs lint, then the tests the unit added or changed (the
    profile's `repeat_command` over their identifiers), then the commands the profile's
    `affected_test_commands` names for the unit's files together with the files the move
    brought in, asked once with no failed identifiers; no full suite confirms it. The Python

@@ -10,14 +10,33 @@ the changelog check alone runs for real, over the merged file.
 from __future__ import annotations
 
 import subprocess
+from collections.abc import Callable
 from pathlib import Path
 
 from agent_build_kit.config import RepoConfig, RestackCheck
 from agent_build_kit.installation import Installation
-from agent_build_kit.pipeline.moved_base import moved_base_scope, scope_of
+from agent_build_kit.pipeline.moved_base import MoveScope, moved_base_scope
+from agent_build_kit.pipeline.moved_base import scope_of as rule_of
 from agent_build_kit.pipeline.wiring import build_unit_test
 from tests.factories import git
 from tests.moved_base_fakes import Profile, moved, passing, restack_lines
+
+
+def no_test(path: str) -> bool:
+    return False
+
+
+def scope_of(
+    own: list[str],
+    incoming: list[str],
+    setting: RestackCheck,
+    *,
+    is_test: Callable[[str], bool] = no_test,
+    changelog: str | None = None,
+) -> MoveScope:
+    """The rule over the files, for a repo whose paths are none of them tests unless told."""
+    return rule_of(own, incoming, setting, is_test=is_test, changelog=changelog)
+
 
 NOTES = "".join(f"- note {n}\n\n" for n in range(6))
 CHANGELOG = "# Changelog\n\n## Unreleased\n\n## 1.0.0\n\n" + NOTES
@@ -161,10 +180,29 @@ def test_a_real_move_over_a_shared_changelog_and_guide_is_lite(tmp_path: Path) -
     own = git(repo, "diff", "--name-only", "main...HEAD").split()
 
     result = moved_base_scope(
-        repo, own=own, base="main", moved_from=old_base, setting=RestackCheck.AFFECTED
+        repo,
+        own=own,
+        base="main",
+        moved_from=old_base,
+        setting=RestackCheck.AFFECTED,
+        is_test=no_test,
     )
 
     assert result.lite
+
+
+def test_a_caller_that_names_no_test_predicate_is_never_lite() -> None:
+    assert not rule_of(["CHANGELOG.md"], ["CHANGELOG.md"], RestackCheck.AFFECTED).lite
+
+
+def test_a_document_at_the_root_or_under_docs_is_lite() -> None:
+    for path in ("README.md", "docs/guide.md", "docs/design/x.rst"):
+        assert scope_of([path], [path], RestackCheck.AFFECTED).lite, path
+
+
+def test_a_prompt_in_a_source_tree_or_a_script_under_docs_is_not_lite() -> None:
+    for path in ("src/pkg/prompts/x.md", "docs/conf.py", "docs/_ext/x.py", "pkg/README.md"):
+        assert not scope_of([path], [path], RestackCheck.AFFECTED).lite, path
 
 
 def test_a_lite_re_test_checks_the_merged_changelog_and_does_not_start_the_full_suite(
@@ -210,6 +248,25 @@ def test_a_move_that_brought_in_code_beside_a_shared_changelog_runs_the_tests(
 
     assert passed, output
     assert ["tests"] in ran
+
+
+def test_a_shared_test_snapshot_with_a_document_suffix_runs_the_tests(
+    tmp_path: Path, workspace: Installation
+) -> None:
+    snapshot = "first\n" + "\n" * 8 + "last\n"
+    repo, old_base = moved(
+        tmp_path,
+        base=BASE | {"tests/snapshots/x.md": snapshot},
+        own={"tests/snapshots/x.md": snapshot.replace("last", "last\nown")},
+        incoming={"tests/snapshots/x.md": snapshot.replace("first", "main\nfirst")},
+    )
+
+    passed, output, ran, _ = retested(repo, old_base, Profile())
+
+    assert passed, output
+    assert ["tests"] in ran
+    (line,) = restack_lines(workspace)
+    assert line["retest"] == "full"
 
 
 def test_a_node_shaped_repo_with_no_changelog_check_takes_the_full_path(

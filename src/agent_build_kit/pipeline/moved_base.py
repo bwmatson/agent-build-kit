@@ -54,12 +54,21 @@ def kinds_of(
 
 
 def is_document(path: str, is_test: Callable[[str], bool], changelog: str | None) -> bool:
-    """Whether `path` is the repo's changelog or a documentation file that is not a test.
+    """Whether `path` is the repo's changelog, or a `.md` or `.rst` file at the checkout root
+    or under `docs/`, that is not a test path.
 
-    A plain-text file is not one: it may be test data or a dependency manifest."""
+    The rule is closed because a lite re-test skips every test: a prompt or template in a
+    source tree, a plain-text file (test data, a dependency manifest) and a script under `docs/`
+    are not documents, and a project's own README takes the full path."""
     if changelog is not None and path == changelog:
         return True
-    return not is_test(path) and is_doc_path(path) and not path.endswith(".txt")
+    in_place = "/" not in path or path.startswith("docs/")
+    return in_place and path.endswith((".md", ".rst")) and not is_test(path)
+
+
+def everything_is_a_test(path: str) -> bool:
+    """The `is_test` of a caller that gives none: no path is a document, so no move is lite."""
+    return True
 
 
 class FilesNotListed(Exception):
@@ -92,7 +101,7 @@ def scope_of(
     incoming: Sequence[str],
     setting: RestackCheck,
     *,
-    is_test: Callable[[str], bool] = lambda path: False,
+    is_test: Callable[[str], bool] = everything_is_a_test,
     changelog: str | None = None,
 ) -> MoveScope:
     """The rule over the files the unit changes and the files the move brought in.
@@ -123,7 +132,7 @@ def moved_base_scope(
     base: str,
     moved_from: str,
     setting: RestackCheck,
-    is_test: Callable[[str], bool] = lambda path: False,
+    is_test: Callable[[str], bool] = everything_is_a_test,
     changelog: str | None = None,
 ) -> MoveScope:
     """`scope_of` over `own`, the files the unit changes, and the files that differ between
