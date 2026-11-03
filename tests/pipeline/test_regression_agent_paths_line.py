@@ -153,3 +153,51 @@ def test_a_group_that_names_only_the_test_file_is_not_touched(
 
     assert outcome == FixOutcome(change=name)
     assert "Paths:" not in written_tasks(installation, name)
+
+
+def test_a_group_that_also_names_a_file_of_another_language_is_left_as_written(
+    installation: Installation, tmp_path: Path
+) -> None:
+    name = next_fix_name(installation, TEST)
+    tasks = group_tasks(f"{WITH_SYMBOLS} Also change `lib.rs`.")
+    agent = Attempts(installation, name, {**TEST_CODE, "tasks": tasks})
+
+    outcome = run(installation, tmp_path, agent.runtime)
+
+    assert outcome.held
+    assert "Paths:" not in written_tasks(installation, name)
+
+
+def test_the_line_has_a_blank_line_after_it(installation: Installation, tmp_path: Path) -> None:
+    name = next_fix_name(installation, TEST)
+    agent = Attempts(installation, name, TEST_CODE)
+
+    run(installation, tmp_path, agent.runtime)
+
+    assert f"{PATHS_LINE}\n\n" in written_tasks(installation, name)
+
+
+def test_windows_line_endings_are_kept_and_the_line_has_one(
+    installation: Installation, tmp_path: Path
+) -> None:
+    name = next_fix_name(installation, TEST)
+    tasks = group_tasks(WITH_SYMBOLS).replace("\n", "\r\n")
+    agent = Attempts(installation, name, {**TEST_CODE, "tasks": tasks})
+
+    run(installation, tmp_path, agent.runtime)
+
+    written = (installation.changes_dir / name / "tasks.md").read_bytes().decode()
+    assert f"{PATHS_LINE}\r\n" in written
+    assert "\n" not in written.replace("\r\n", "")
+
+
+def test_a_file_that_needs_no_line_is_not_rewritten(
+    installation: Installation, tmp_path: Path
+) -> None:
+    name = next_fix_name(installation, TEST)
+    tasks = group_tasks(FIX_THE_TEST).rstrip("\n").replace("\n", "\r\n")
+    agent = Attempts(installation, name, {**TEST_CODE, "tasks": tasks})
+
+    run(installation, tmp_path, agent.runtime)
+
+    assert (installation.changes_dir / name / "tasks.md").read_bytes().decode() == tasks

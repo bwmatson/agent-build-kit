@@ -4,6 +4,7 @@ warning (spec: project-resolution)."""
 from __future__ import annotations
 
 import re
+import sys
 from collections.abc import Sequence
 from fnmatch import fnmatch
 from pathlib import PurePosixPath
@@ -142,28 +143,63 @@ def allows_tests_only(paths: Sequence[str]) -> bool:
     return any(labels[path] != "docs" for path in paths)
 
 
-# The file suffixes a name must end in to be read as a file and not as a symbol (`module.function`).
+# The file suffixes a name may end in to be read as a file and not as a symbol (`module.name`),
+# compared without regard to case.
 FILE_SUFFIXES = (
     *DOC_SUFFIXES,
     *CONFIG_SUFFIXES,
-    ".py",
-    ".ts",
-    ".tsx",
-    ".js",
-    ".jsx",
-    ".mjs",
-    ".cjs",
-    ".sh",
-    ".sql",
-    ".css",
-    ".html",
+    *(
+        f".{each}"
+        for each in (
+            "py",
+            "pyi",
+            "ts",
+            "tsx",
+            "js",
+            "jsx",
+            "mjs",
+            "cjs",
+            "vue",
+            "svelte",
+            "sh",
+            "sql",
+            "css",
+            "html",
+            "xml",
+            "lock",
+            "jsonl",
+            "env",
+            "rs",
+            "go",
+            "java",
+            "kt",
+            "rb",
+            "php",
+            "c",
+            "h",
+            "cpp",
+            "cs",
+            "swift",
+            "scala",
+            "in",
+            "csv",
+            "log",
+        )
+    ),
 )
 
 
 def _is_symbol(path: str) -> bool:
-    """Whether a named path is a symbol name (`signal.default_int_handler`): no folder and no
-    file suffix, so `line_paths` read it as a path only because it has a dot."""
-    return "/" not in path and not path.endswith(FILE_SUFFIXES)
+    """Whether a named path is a symbol of the standard library (`threading.Event`,
+    `collections.abc`): no folder, no file suffix and a first part that is a standard-library
+    module. Any other dotted name, `lib.rs` or `Makefile.in` or `widget.Label`, may be a file and
+    stays a path."""
+    head, _, _ = path.partition(".")
+    return (
+        "/" not in path
+        and head in sys.stdlib_module_names
+        and not path.lower().endswith(FILE_SUFFIXES)
+    )
 
 
 def paths_beside_symbols(group: TaskGroup, projects: Sequence[str]) -> list[str]:

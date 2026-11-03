@@ -59,6 +59,7 @@ from agent_build_kit.pipeline.untouched_failures import preexisting_record
 from agent_build_kit.pipeline.vocabulary import OverheadNode
 from agent_build_kit.pipeline.work_graph import (
     FIX_PREFIX,
+    GROUP_HEADING,
     PRIORITY_LINE,
     TaskGroup,
     declared_projects,
@@ -495,16 +496,25 @@ def _write_paths_lines(inst: Installation, name: str, *, say: Callable[[str], No
         projects=projects,
         splits=declared_split_names(inst.repos, inst.config),
     )
-    lines = tasks.read_text().splitlines()
+    # The text is kept byte for byte but for the inserted lines: split on `\n` only, so a line
+    # ending or a missing final newline stays as written.
+    lines = tasks.read_bytes().decode().split("\n")
+    written = False
     for group in sorted(groups, key=lambda each: each.line, reverse=True):
         if group.tier == TestTier.E2E_TEST or group.test_only or group.tests_required:
+            continue
+        heading = lines[group.line - 1] if group.line <= len(lines) else ""
+        if not GROUP_HEADING.match(heading.rstrip("\r")):
             continue
         if not (named := paths_beside_symbols(group, projects.get(group.repo, ()))):
             continue
         line = f"Paths: {', '.join(f'`{path}`' for path in named)}"
-        lines[group.line : group.line] = ["", line]
+        eol = "\r" if heading.endswith("\r") else ""
+        lines[group.line : group.line] = [eol, f"{line}{eol}", eol]
+        written = True
         say(f"group {group.number} of {name} gets {line}")
-    tasks.write_text("\n".join(lines) + "\n")
+    if written:
+        tasks.write_bytes("\n".join(lines).encode())
 
 
 def _problems(
