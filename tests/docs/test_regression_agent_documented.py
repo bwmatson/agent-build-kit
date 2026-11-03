@@ -92,3 +92,8 @@ def test_the_changelog_has_one_bullet_for_the_agent() -> None:
     assert len(bullets) == 1
     assert "fix-test-" in bullets[0]
     assert "full review" in bullets[0]
+
+
+def test_the_architecture_says_who_writes_the_paths_line_of_a_test_code_fix() -> None:
+    assert "the kit writes the line itself" in ARCHITECTURE
+    assert "a backticked name with a dot" in ARCHITECTURE

@@ -4,12 +4,13 @@ warning (spec: project-resolution)."""
 from __future__ import annotations
 
 import re
+import sys
 from collections.abc import Sequence
 from fnmatch import fnmatch
 from pathlib import PurePosixPath
 from typing import TYPE_CHECKING
 
-from agent_build_kit.pipeline.commit_order import CONFIG_SUFFIXES, classify_paths
+from agent_build_kit.pipeline.commit_order import CONFIG_SUFFIXES, DOC_SUFFIXES, classify_paths
 
 if TYPE_CHECKING:
     from agent_build_kit.pipeline.work_graph import TaskGroup
@@ -140,6 +141,80 @@ def allows_tests_only(paths: Sequence[str]) -> bool:
     if not paths or any(labels[path] != "docs" and not _is_test_code(path) for path in paths):
         return False
     return any(labels[path] != "docs" for path in paths)
+
+
+# The file suffixes a name may end in to be read as a file and not as a symbol (`module.name`),
+# compared without regard to case.
+FILE_SUFFIXES = (
+    *DOC_SUFFIXES,
+    *CONFIG_SUFFIXES,
+    *(
+        f".{each}"
+        for each in (
+            "py",
+            "pyi",
+            "ts",
+            "tsx",
+            "js",
+            "jsx",
+            "mjs",
+            "cjs",
+            "vue",
+            "svelte",
+            "sh",
+            "sql",
+            "css",
+            "html",
+            "xml",
+            "lock",
+            "jsonl",
+            "env",
+            "rs",
+            "go",
+            "java",
+            "kt",
+            "rb",
+            "php",
+            "c",
+            "h",
+            "cpp",
+            "cs",
+            "swift",
+            "scala",
+            "in",
+            "csv",
+            "log",
+        )
+    ),
+)
+
+
+def _is_symbol(path: str) -> bool:
+    """Whether a named path is a symbol of the standard library (`threading.Event`,
+    `collections.abc`): no folder, no file suffix and a first part that is a standard-library
+    module. Any other dotted name, `lib.rs` or `Makefile.in` or `widget.Label`, may be a file and
+    stays a path."""
+    head, _, _ = path.partition(".")
+    return (
+        "/" not in path
+        and head in sys.stdlib_module_names
+        and not path.lower().endswith(FILE_SUFFIXES)
+    )
+
+
+def paths_beside_symbols(group: TaskGroup, projects: Sequence[str]) -> list[str]:
+    """The test files and documents `group` names when it names at least one test file and every
+    other path it names is a symbol name, so a `Paths:` line of them says what the group changes;
+    empty when it names another path, no test file, or has a `Paths:` line already."""
+    if group.paths:
+        return []
+    named = named_paths(group, projects)
+    kept = [path for path in named if not _is_symbol(path)]
+    if not any(_is_test_code(path) for path in kept):
+        return []
+    if any(not (_is_test_code(path) or path.endswith(DOC_SUFFIXES)) for path in kept):
+        return []
+    return kept
 
 
 def _tasks(group: TaskGroup) -> list[tuple[str, list[str]]]:

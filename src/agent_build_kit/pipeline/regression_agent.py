@@ -50,6 +50,7 @@ from agent_build_kit.pipeline.flakes import (
 from agent_build_kit.pipeline.group_paths import (
     named_paths,
     named_test_paths,
+    paths_beside_symbols,
     tasks_asking_for_tests,
 )
 from agent_build_kit.pipeline.unit_store import StoredUnit
@@ -58,11 +59,13 @@ from agent_build_kit.pipeline.untouched_failures import preexisting_record
 from agent_build_kit.pipeline.vocabulary import OverheadNode
 from agent_build_kit.pipeline.work_graph import (
     FIX_PREFIX,
+    GROUP_HEADING,
     PRIORITY_LINE,
     TaskGroup,
     declared_projects,
     declared_split_names,
     group_needs,
+    validate_tasks,
 )
 from agent_build_kit.runtimes import AgentRequest, AgentRuntime
 from agent_build_kit.runtimes.base import ToolPolicy
@@ -184,9 +187,12 @@ flagged `[contract]`. If you cannot decide which side is wrong, end your answer 
 Where the cause is decides the tasks. A cause in test code (a test, or a module that only tests
 use): every task of the group names only test files, and there is no `Test:` task, because a fix
 for test code carries no test of its own; `abk tags` shows the group as `tests_only` and the
-repeat check on the changed tests is the check. A cause in a source file: the group keeps a
-`Test:` task before the fix, and that task recreates the defect deterministically, with
-a fake clock, an injected ordering or a stand-in dependency named in the task. It never says
+repeat check on the changed tests is the check. Put a `Paths:` line of the backticked test
+files the group changes under the group's heading: a backticked name with a dot
+(`threading.Event`) reads as a source path, and the line is what says the group names only test
+files. A cause in a source file: the group keeps a `Test:` task before the fix, and that task
+recreates the defect deterministically, with a fake clock, an injected ordering or a stand-in
+dependency named in the task. It never says
 only to rerun the flaky test.
 
 For a cause in test code, the proposal also carries a line `Standard: T<n>` (for example
@@ -383,6 +389,7 @@ def run_regression_agent(
                 change=name, held=True, reason="the agent could not decide which side is wrong"
             )
             return []
+        _write_paths_lines(inst, name, say=print)
         return _problems(inst, name, failure.test, kind, run_openspec, cwd)
 
     def record_evidence(design: Path) -> None:
@@ -469,6 +476,45 @@ def failure_history(inst: Installation, test: str, *, evidence: bool = False) ->
         f"- {e.at:%Y-%m-%d %H:%M} UTC, unit {e.unit}" + (f": {e.evidence}" if evidence else "")
         for e in sorted((row for row in rows if row.test == test), key=lambda row: row.at)
     ]
+
+
+def _write_paths_lines(inst: Installation, name: str, *, say: Callable[[str], None]) -> None:
+    """For a cause in test code, give each group that names test files and otherwise only symbol
+    names a `Paths:` line of those files, under its heading, and say so. A group that names any
+    other path, has the line, requires tests or is an `[e2e-test]` group is left as written: the
+    check and the rewrite are for those."""
+    root = inst.changes_dir / name
+    tasks, proposal = root / "tasks.md", root / "proposal.md"
+    if not (tasks.is_file() and proposal.is_file()):
+        return
+    if _judgement_of(proposal.read_text()) != JUDGEMENTS[0]:
+        return
+    projects = declared_projects(inst.repos)
+    groups, _ = validate_tasks(
+        tasks,
+        repos=tuple(inst.repos),
+        projects=projects,
+        splits=declared_split_names(inst.repos, inst.config),
+    )
+    # The text is kept byte for byte but for the inserted lines: split on `\n` only, so a line
+    # ending or a missing final newline stays as written.
+    lines = tasks.read_bytes().decode().split("\n")
+    written = False
+    for group in sorted(groups, key=lambda each: each.line, reverse=True):
+        if group.tier == TestTier.E2E_TEST or group.test_only or group.tests_required:
+            continue
+        heading = lines[group.line - 1] if group.line <= len(lines) else ""
+        if not GROUP_HEADING.match(heading.rstrip("\r")):
+            continue
+        if not (named := paths_beside_symbols(group, projects.get(group.repo, ()))):
+            continue
+        line = f"Paths: {', '.join(f'`{path}`' for path in named)}"
+        eol = "\r" if heading.endswith("\r") else ""
+        lines[group.line : group.line] = [eol, f"{line}{eol}", eol]
+        written = True
+        say(f"group {group.number} of {name} gets {line}")
+    if written:
+        tasks.write_bytes("\n".join(lines).encode())
 
 
 def _problems(
@@ -787,7 +833,9 @@ def _test_code_problems(
             found.append(
                 f"tasks.md: group {group.number} is not `tests_only`, but the cause is in test "
                 "code: every group names only test files (no source path, no `Tests: required`) "
-                "and holds no `Test:` task"
+                "and holds no `Test:` task; a backticked name with a dot reads as a source path, "
+                "so add the line `Paths: <the test files the group names>` under the group's "
+                "heading, which says what the group names"
             )
         elif group.test_only and not e2e and tests:
             found.append(
