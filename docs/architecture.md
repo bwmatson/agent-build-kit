@@ -1516,7 +1516,13 @@ approved.
   checks prompt, its continuation, the sentences that tell the agent to rerun the checks and the
   output convention tell it to run the failing tests and the tests it changed, by file or test id,
   and say that the pipeline runs the whole suite and that a test that starts a local server on
-  127.0.0.1 cannot pass inside the agent's sandbox, so its failure there is not a defect.
+  127.0.0.1 cannot pass inside the agent's sandbox, so its failure there is not a defect. The
+  python-uv defaults also list a command for the tests the agent's own edits affect (scope
+  `affected`, the pipeline's pytest-testmon selection) with the unit's selection data file and the
+  coverage core set in the agent's environment, so the command starts with `uv run` and matches
+  the allow-list; no prompt mentions it. Until the unit's first full run has recorded the data the
+  selection runs the whole suite. A repo with declared projects gets neither the command nor the
+  variables, and the regression agent is not granted it.
 - **A test time limit.** `tests/time_limit.py` fails a test that runs past
   its limit from a timer thread, in setup, call and teardown alike: `--test-time-limit` (sixty
   seconds) for a test without the `local_stack` marker, `--e2e-test-time-limit` (thirty

@@ -170,7 +170,7 @@ from agent_build_kit.pipeline.run_log import (
     write_failure_bundle,
     write_rerun_evidence,
 )
-from agent_build_kit.pipeline.scratch import run_folder, selection_seed
+from agent_build_kit.pipeline.scratch import SELECTION_SEED, run_folder, selection_seed
 from agent_build_kit.pipeline.shell import changed_files, git, git_out, has_origin, porcelain
 from agent_build_kit.pipeline.stack_runner import FixResult, Restacked, UnitRunner, Worktree
 from agent_build_kit.pipeline.transcript import Transcript, TranscriptEvent, transcript_dir
@@ -511,6 +511,17 @@ def refused_git_read(line: str) -> str | None:
     return next(iter(denied_paths(line)), None)
 
 
+def agent_environment(repo: RepoConfig | None, checkout: Path) -> dict[str, str]:
+    """The variables a build agent's environment carries for its repo's profile: for python-uv
+    where the unit's selection data is (`checkout`'s `.abk/affected`, which asking makes no folder
+    for) and the coverage core. None for a repo with another profile, a profile that names none,
+    declared projects (each keeps its own data) or no repo."""
+    if repo is None or repo.projects:
+        return {}
+    named = getattr(profiles.get(repo.profile), "agent_environment", None)
+    return named(checkout / SELECTION_SEED) if named is not None else {}
+
+
 def build_run(
     *,
     sandbox_repo: str = "",
@@ -591,6 +602,8 @@ def build_run(
         handle: object = None
         if source is not None:
             env, handle = source.begin(place)
+        # What the affected-tests command an agent may run needs: the unit's selection data.
+        env = {**env, **agent_environment(active().repos.get(sandbox_repo), cwd)}
         # Where the installation's abk.yaml is, for the `abk` commands an agent may run from a
         # worktree that sits outside the planning repo.
         if (root := active_root()) is not None:

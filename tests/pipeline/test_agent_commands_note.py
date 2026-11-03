@@ -14,7 +14,7 @@ HEADING = "Commands you may run"
 BOUND = 600
 
 
-def test_the_note_for_the_python_defaults_lists_the_four_commands(tmp_path: Path) -> None:
+def test_the_note_for_the_python_defaults_lists_the_five_commands(tmp_path: Path) -> None:
     note = commands_note(repo_of(tmp_path))
 
     assert note.startswith(HEADING)
@@ -23,8 +23,9 @@ def test_the_note_for_the_python_defaults_lists_the_four_commands(tmp_path: Path
     assert "uv run pytest -q <path>" in note
     assert "uv run pre-commit run --all-files" in note
     assert "uv run pre-commit run --files <path>" in note
+    assert "uv run --with pytest-testmon pytest -q --testmon-forceselect" in note
     assert "{path}" not in note
-    assert len([line for line in note.splitlines() if line.startswith("- ")]) == 4
+    assert len([line for line in note.splitlines() if line.startswith("- ")]) == 5
 
 
 @pytest.mark.parametrize("name", ["python-uv", "node-npm"])

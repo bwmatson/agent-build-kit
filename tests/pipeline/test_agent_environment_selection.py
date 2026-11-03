@@ -9,7 +9,7 @@ from pathlib import Path
 from agent_build_kit import profiles
 from agent_build_kit.config import ProjectConfig, RepoConfig
 from agent_build_kit.pipeline.wiring import agent_environment, build_run
-from tests.agent_command_fakes import Bare
+from tests.agent_command_fakes import NoEnvironment
 from tests.pipeline.test_scratch_folder import MODEL, repo, tree  # noqa: F401
 from tests.runtimes.stand_in import StandInRuntime
 
@@ -40,8 +40,8 @@ def test_a_node_npm_repo_gets_neither(tmp_path: Path) -> None:
 
 
 def test_a_profile_without_the_environment_gets_neither(tmp_path: Path) -> None:
-    with profiles.registered(Bare()):
-        config = RepoConfig(path=tmp_path, slug="example/app", profile="fake-bare")
+    with profiles.registered(NoEnvironment()):
+        config = RepoConfig(path=tmp_path, slug="example/app", profile="fake-no-environment")
 
         assert agent_environment(config, tmp_path) == {}
 

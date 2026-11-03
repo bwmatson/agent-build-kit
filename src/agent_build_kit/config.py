@@ -1269,6 +1269,8 @@ class AgentScope(StrEnum):
     WHOLE = "whole"
     FILE = "file"
     NODE_ID = "node-id"
+    # The tests the agent's own edits affect, selected from the data of the unit's first full run.
+    AFFECTED = "affected"
 
 
 class AgentCommand(Frozen):
@@ -1276,7 +1278,7 @@ class AgentCommand(Frozen):
 
     purpose: AgentPurpose
     # An argument list; a string in abk.yaml is split like a shell would. `{path}` stands for
-    # what the agent picks, and is there exactly when the scope is not `whole`.
+    # what the agent picks, and is there exactly when the scope is `file` or `node-id`.
     command: list[str]
     scope: AgentScope = AgentScope.WHOLE
 
@@ -1290,9 +1292,10 @@ class AgentCommand(Frozen):
     @model_validator(mode="after")
     def _path_fits_scope(self) -> AgentCommand:
         has_path = AGENT_PATH_WORD in self.command
-        if has_path and self.scope is AgentScope.WHOLE:
-            raise ValueError(f"{AGENT_PATH_WORD} is for a file or node-id scope, not whole")
-        if not has_path and self.scope is not AgentScope.WHOLE:
+        picks = self.scope in (AgentScope.FILE, AgentScope.NODE_ID)
+        if has_path and not picks:
+            raise ValueError(f"{AGENT_PATH_WORD} is for a file or node-id scope, not {self.scope}")
+        if not has_path and picks:
             raise ValueError(f"a {self.scope} scope needs {AGENT_PATH_WORD} in the command")
         return self
 

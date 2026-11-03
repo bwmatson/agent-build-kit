@@ -610,9 +610,11 @@ repos:                          # ordered: deploy order is derived from
     agent_commands: null        # the commands the build prompts tell an agent it may
                                 # run: a list of {purpose: test|lint|format|check,
                                 # command: "uv run pytest -q {path}", scope:
-                                # whole|file|node-id}, a string split into
+                                # whole|file|node-id|affected}, a string split into
                                 # arguments, `{path}` there exactly when the scope
-                                # is not `whole`. null follows the toolchain
+                                # is `file` or `node-id` (`affected` is the tests the
+                                # agent's edits affect, from the unit's selection
+                                # data). null follows the toolchain
                                 # profiles; a list, `[]` included, replaces them.
                                 # The profiles' defaults name the tests of one
                                 # file and one test id and the whole-repo lint,

@@ -24,7 +24,7 @@ def test_a_repo_with_commands_gets_an_ok_line_with_their_number(tmp_path: Path) 
     [check] = agent_checks(planning_with(tmp_path))
 
     assert check.status == "ok"
-    assert "4 commands, all allowed" in check.detail
+    assert "5 commands, all allowed" in check.detail
 
 
 def test_a_repo_with_no_commands_gets_an_info_line(tmp_path: Path) -> None:
