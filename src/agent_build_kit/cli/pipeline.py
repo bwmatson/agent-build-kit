@@ -6629,11 +6629,14 @@ def build_unit(
     moved_base_run: bool = False,
     on_pause: Callable[[datetime | None], None] | None = None,
     lane: Lane | None = None,
+    from_snapshot: bool = False,
 ) -> bool:
     """`_build_unit` as a `unit` span below the tick's, with the run's duration.
 
     `lane` is the tick's restack lane, which a merge or close recorded when the run ends is
     handed to as the poller's is.
+
+    `from_snapshot` is a worker's: the usage it reads is the snapshot's, never the endpoint.
 
     `queued` is when the tick first saw the unit ready but for a free slot (see
     `note_queued`): the time from then to its branch lock is recorded as its
@@ -6668,6 +6671,7 @@ def build_unit(
                 moved_base_run=moved_base_run,
                 on_pause=on_pause,
                 lane=lane,
+                from_snapshot=from_snapshot,
             )
         except BaseException:
             telemetry.failed(span)
@@ -6700,6 +6704,7 @@ def _build_unit(
     moved_base_run: bool = False,
     on_pause: Callable[[datetime | None], None] | None = None,
     lane: Lane | None = None,
+    from_snapshot: bool = False,
 ) -> bool:
     """Start the unit's thread, or resume the one a killed or paused run left,
     and run it to a wait or the end. Returns False only when the model refused
@@ -6961,13 +6966,19 @@ def _build_unit(
         if outcome.pr_over and outcome.pr is not None:
             # The run ended on a pull request the forge shows merged or closed. The lock is
             # released now, which the handlers need to deliver the event to the unit's thread.
-            try:
-                if not _dispatch(inst, store, lane=lane)(
-                    outcome.pr_over, outcome.pr, repo=unit.repo
-                ):
-                    say(f"#{outcome.pr} {outcome.pr_over}: left for a later pass")
-            except Exception as error:  # noqa: BLE001
-                say(f"#{outcome.pr} {outcome.pr_over} could not be recorded — {error}")
+            # A worker has no restack lane to hand the moves to, and a move run in it would
+            # skip the lane's usage gate: the poll keeps the event, and the dispatcher's
+            # delivers it with its lane.
+            if from_snapshot:
+                say(f"#{outcome.pr} {outcome.pr_over}: left for a later pass")
+            else:
+                try:
+                    if not _dispatch(inst, store, lane=lane)(
+                        outcome.pr_over, outcome.pr, repo=unit.repo
+                    ):
+                        say(f"#{outcome.pr} {outcome.pr_over}: left for a later pass")
+                except Exception as error:  # noqa: BLE001
+                    say(f"#{outcome.pr} {outcome.pr_over} could not be recorded — {error}")
         end(f"{outcome.status} — {outcome.detail}", outcome.status)
         if outcome.status is UnitOutcome.PAUSED:
             forget_if_not_begun()
@@ -6980,6 +6991,7 @@ def _build_unit(
                 inst,
                 outcome.pause or PauseInfo(reason=outcome.detail),
                 claude_account.for_repo(inst.config, unit.repo),
+                from_snapshot=from_snapshot,
             )
         return True
     finally:
@@ -6987,7 +6999,13 @@ def _build_unit(
             run_log.close(ended)
 
 
-def _pause_for_usage(inst: Installation, pause: PauseInfo, account: claude_account.Account) -> None:
+def _pause_for_usage(
+    inst: Installation,
+    pause: PauseInfo,
+    account: claude_account.Account,
+    *,
+    from_snapshot: bool = False,
+) -> None:
     """Pause the pipeline for a run the usage guard stopped.
 
     Re-read rather than reuse the tick's reading: the guard said no after the
@@ -6995,8 +7013,16 @@ def _pause_for_usage(inst: Installation, pause: PauseInfo, account: claude_accou
     from the stale figure wakes up into a full window. The guard's own answer
     to when, which counts the ramp towards the reset — not the reset itself,
     which it can be well before. A pause that names its own time keeps it.
+
+    With `from_snapshot` (a worker) the reading is the account's usage snapshot, never the
+    endpoint.
     """
-    until = pause.until or build_resume_at(start=lambda: _start_decision([account]))()
+    start = (
+        partial(decide_start, account=account, from_snapshot=True)
+        if from_snapshot
+        else partial(_start_decision, [account])
+    )
+    until = pause.until or build_resume_at(start=start)()
     state = pause_until(
         until, reason=pause.reason, marker=_paused_marker(inst, account), account=account.label
     )

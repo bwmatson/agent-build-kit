@@ -21,6 +21,7 @@ WORKER_ENTRY_POINTS = (
     "agent_build_kit.graph.run",
     "agent_build_kit.graph.unit",
     "agent_build_kit.pipeline.wiring",
+    "agent_build_kit.cli.worker",
 )
 
 FORBIDDEN_NAMES = frozenset(

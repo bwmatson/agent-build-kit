@@ -14,6 +14,7 @@ import pytest
 from agent_build_kit.cli import main
 from agent_build_kit.cli import pipeline as pipeline_cli
 from agent_build_kit.cli import tracks as tracks_cli
+from agent_build_kit.cli import worker as worker_cli
 from agent_build_kit.cli.doctor import Check, run_doctor
 from agent_build_kit.config import dump
 from agent_build_kit.pipeline.planning_sync import write_pipeline_marker
@@ -28,6 +29,7 @@ COMMANDS = [
     pytest.param(["track", "health"], "cmd_track", tracks_cli, id="track"),
     pytest.param(["verify", "feature"], "cmd_verify", pipeline_cli, id="verify"),
     pytest.param(["archive", "feature"], "cmd_archive", pipeline_cli, id="archive"),
+    pytest.param(["worker", "build", "feature/1"], "cmd_worker_build", worker_cli, id="worker"),
 ]
 
 

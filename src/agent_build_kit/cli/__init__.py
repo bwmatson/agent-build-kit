@@ -23,7 +23,7 @@ from agent_build_kit.pipeline.planning_sync import live_notice
 
 # Commands that write the pipeline's state: from a working copy whose installation is live in the
 # pipeline worktree they refuse, unless a config is named. `status` only says where it is.
-WRITES_STATE = frozenset({"tick", "track", "verify", "archive"})
+WRITES_STATE = frozenset({"tick", "track", "verify", "archive", "worker"})
 
 # Import order is the help order.
 COMMAND_MODULES = (
@@ -53,6 +53,7 @@ COMMAND_MODULES = (
     "agent_build_kit.cli.manual_cmd",
     "agent_build_kit.cli.external_cmd",
     "agent_build_kit.cli.review_report",
+    "agent_build_kit.cli.worker",
 )
 
 
