@@ -1175,6 +1175,15 @@ class DeployConfig(Frozen):
     credentials: CredentialsConfig | None = None
 
 
+class WorkersConfig(Frozen):
+    """How a unit's build runs: as a thread of the tick or as a worker process of its own."""
+
+    mode: Literal["threads", "processes"] = "threads"
+    # A worker's systemd `MemoryMax` (for example `4G`) and `CPUWeight`; unset sets no limit.
+    memory_max: str | None = None
+    cpu_weight: Annotated[int, Field(ge=1, le=10000)] | None = None
+
+
 class SandboxConfig(Frozen):
     """Whether agent steps run confined by the kernel, and by which backend."""
 
@@ -1706,6 +1715,7 @@ class WorkspaceConfig(Frozen):
     review: ReviewConfig = ReviewConfig()
     # Off by default: no step runs confined until an installation turns it on.
     sandbox: SandboxConfig = SandboxConfig()
+    workers: WorkersConfig = WorkersConfig()
 
     @model_validator(mode="before")
     @classmethod
