@@ -42,8 +42,8 @@ FIELDS: dict[str, Any] = dict(
     changelog="",
 )
 # The first 16 hex digits of the SHA-256 of each template rendered with `FIELDS` and no guidance:
-# as they were before guidance existed, then moved on purpose when the prompt's text changed: the note
-# that the pipeline commits the work (`REWORK_PROMPT`, `REVIEW_FEEDBACK_PROMPT`), the output
+# as they were before guidance existed, then moved on purpose when the prompt's text changed: the
+# note that the pipeline commits the work (`REWORK_PROMPT`, `REVIEW_FEEDBACK_PROMPT`), the output
 # convention and the finish line's tests-by-file-or-id wording (every template here), and the
 # local-server sentence (`CHECKS_PROMPT`, `CHECKS_CONTINUATION`).
 TEMPLATES = {
