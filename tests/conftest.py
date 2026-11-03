@@ -562,18 +562,31 @@ def account_kind(host: Host, request: pytest.FixtureRequest) -> str:
 
 
 def pytest_collection_modifyitems(items: list[pytest.Item]) -> None:
-    """A test built on the tick driver runs whole faked ticks, whose time depends on the
-    machine's load, so it is held to the loaded limit unless it names its own."""
+    """A test built on the tick driver or the graph driver runs whole faked unit-graph passes,
+    whose time depends on the machine's load, so it is held to the loaded limit unless it names
+    its own."""
     # Nothing is imported here: a module that used a driver has already imported it, and a run
     # that uses none must not fail on an import error in the driver's modules.
-    driver = sys.modules.get("tests.tick_driver")
-    lane = sys.modules.get("tests.lane_run_usage_support")
-    if driver is None:
-        return  # `make_lane` is built on the driver, so no module can hold either
-    drivers = (driver.Setup, driver.make_setup) + ((lane.make_lane,) if lane is not None else ())
+    wanted = (
+        ("tests.tick_driver", ("Setup", "make_setup")),
+        ("tests.lane_run_usage_support", ("make_lane",)),
+        ("tests.graph_driver", ("tick", "run_on_graph")),
+        ("tests.e2e_gate_fakes", ("Planning",)),
+        ("tests.scheduled_e2e_fakes", ("ScheduledRun",)),
+        ("tests.split_changed_support", ("deliver_to_graph", "Reworks")),
+    )
+    drivers = [
+        getattr(sys.modules[name], attr)
+        for name, attrs in wanted
+        if name in sys.modules
+        for attr in attrs
+    ]
+    graph = sys.modules.get("tests.graph_driver")
+    if not drivers or graph is None:
+        return
     for item in items:
         if item.get_closest_marker("time_limit"):
             continue
         module = getattr(item, "module", None)
         if module is not None and any(v is d for v in vars(module).values() for d in drivers):
-            item.add_marker(pytest.mark.time_limit(driver.TICK_DRIVER_TIME_LIMIT))
+            item.add_marker(pytest.mark.time_limit(graph.GRAPH_DRIVER_TIME_LIMIT))

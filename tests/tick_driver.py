@@ -24,12 +24,11 @@ from agent_build_kit.pipeline.events import Review
 from agent_build_kit.pipeline.restack_lane import Lane
 from agent_build_kit.pipeline.usage_guard import Decision
 from tests.conftest import make_installation
-from tests.graph_driver import fresh
+from tests.graph_driver import GRAPH_DRIVER_TIME_LIMIT, fresh
 from tests.runner_fakes import Recorder, make_runner
-from tests.time_limit import LOADED_TEST_TIME_LIMIT
 from tests.waiting import wait_for
 
-TICK_DRIVER_TIME_LIMIT = LOADED_TEST_TIME_LIMIT
+TICK_DRIVER_TIME_LIMIT = GRAPH_DRIVER_TIME_LIMIT
 UNIT = "add-marker/1"
 OTHER = "add-marker/2"
 real_poll_all = cli.poll_all
