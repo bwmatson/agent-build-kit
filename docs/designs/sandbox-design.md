@@ -55,6 +55,9 @@ operating-system tooling that has to be installed on every machine. The kit's me
 - **Network: an allowlisting proxy inside the kit.** Landlock filters TCP by port, not by domain. The wrapper starts a small
   HTTP and `CONNECT` proxy (standard library `asyncio`), sets `HTTPS_PROXY` and `HTTP_PROXY` for the agent step, and the Landlock rule
   permits connections to the proxy's port only. A process that ignores the proxy settings cannot connect at all.
+  A request through the proxy to a loopback host (`127.0.0.1`, `localhost`, `::1`) that is not on the list is refused with a 403
+  that says a local address is not reachable from the sandbox, that a test that starts a local server cannot pass there and that the
+  pipeline runs it outside the sandbox; the report of a refused host is the same as for any other.
 - **A launcher** (`python -S -m agent_build_kit.sandbox_exec <policy> -- <command>`) applies the restrictions to itself and `exec`s
   the command, so every child inherits them and nothing can lift them (`no_new_privs` also stops `sudo` working inside).
 

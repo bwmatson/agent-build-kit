@@ -3384,6 +3384,11 @@
   server on 127.0.0.1 cannot pass inside the sandbox. A repo that wants a whole-suite command for
   its agents names it in `agent_commands`.
 
+- The sandbox proxy's 403 for a loopback host (`127.0.0.1`, `localhost`, `::1`) now says that a
+  local address is not reachable from the sandbox, that a test that starts a local server cannot pass
+  there and that the pipeline runs it outside the sandbox, so a build agent sees why such a test
+  fails. Every other refused host keeps its text.
+
 ## 0.1.0 — 2026-09-28
 
 First release.
