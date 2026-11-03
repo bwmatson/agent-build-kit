@@ -96,6 +96,9 @@ class TestRun(Frozen):
     workers: str | None
     tick: str
     units_running: list[str]
+    # How long the run waited for a unit-test slot (`global_limits.max_concurrent_unit_tests`)
+    # before it started; `seconds` and the load readings are of the run after the wait.
+    wait_seconds: float = 0.0
 
 
 def append_test_run(path: Path, run: TestRun, *, max_bytes: int = TEST_RUNS_MAX_BYTES) -> None:

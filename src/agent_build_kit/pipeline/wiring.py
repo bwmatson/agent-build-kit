@@ -189,6 +189,7 @@ from agent_build_kit.pipeline.unit_store import (
     UnitStore,
     unit_id_of_branch,
 )
+from agent_build_kit.pipeline.unit_test_slots import unit_test_slot
 from agent_build_kit.pipeline.units import (
     BUILDS_NOTHING,
     IN_REVIEW,
@@ -1332,6 +1333,38 @@ def branch_commits(repo: Path, base: str, head: str = "HEAD") -> int:
 RUN_TOKEN_TRIES = 20
 
 
+@contextmanager
+def _test_slot(
+    installation: Installation | None, log: Callable[[str], None] | None
+) -> Iterator[float]:
+    """The slot a whole-suite run holds for the block, yielding the seconds it waited for it:
+    none with no limit set or no installation. The wait is told in the unit's log and recorded
+    as a span."""
+    limit = active().global_limits.max_concurrent_unit_tests
+    if installation is None or limit is None:
+        yield 0.0
+        return
+    unit, change, _, _ = spans.current_unit.get()
+    mark = spans.Mark()
+    said = False
+
+    def waiting(message: str) -> None:
+        nonlocal said
+        said = True
+        _say(log, message)
+
+    with unit_test_slot(installation.locks_dir, limit, holder=unit, on_wait=waiting) as waited:
+        if said:
+            spans.record_span(
+                mark,
+                log or (lambda message: None),
+                unit=unit,
+                change=change,
+                waited=spans.TEST_SLOT,
+            )
+        yield waited
+
+
 def build_unit_test(
     *,
     run: Run | None = None,
@@ -1465,16 +1498,17 @@ def build_unit_test(
                 log or (lambda message: None),
             )
 
-    def unit_test(
+    def recorded(
         *,
         cwd: Path,
         base: str,
-        whole_repo: bool = False,
-        failed_output: str = "",
-        moved_from: str | None = None,
+        whole_repo: bool,
+        failed_output: str,
+        moved_from: str | None,
+        waited: float,
     ) -> tuple[bool, str]:
         """`tested`, with a row added to the ledger of unit-test runs when one is kept: the run
-        passing, failing or finding a flake."""
+        passing, failing or finding a flake, and how long it waited for its slot."""
         if test_runs is None:
             return retested(cwd, base, whole_repo, failed_output, moved_from)
         sample = machine or failure_evidence.machine_sample
@@ -1513,11 +1547,34 @@ def build_unit_test(
                         workers=None if workers is None else str(workers),
                         tick=spans.PROCESS_TICK,
                         units_running=_running_units(installation),
+                        wait_seconds=waited,
                     ),
                 )
             except OSError as error:
                 # A record of the run must not replace the run's own result.
                 _say(log, f"unit-test: the run was not added to the ledger ({error})")
+
+    def unit_test(
+        *,
+        cwd: Path,
+        base: str,
+        whole_repo: bool = False,
+        failed_output: str = "",
+        moved_from: str | None = None,
+    ) -> tuple[bool, str]:
+        """The unit-test run, behind its slot: with `global_limits.max_concurrent_unit_tests` set,
+        a run that finds every slot taken waits, outside the command's time limit, and the permit
+        is held for the whole run (the reruns inside it take none) and given back however it
+        ends."""
+        with _test_slot(installation, log) as waited:
+            return recorded(
+                cwd=cwd,
+                base=base,
+                whole_repo=whole_repo,
+                failed_output=failed_output,
+                moved_from=moved_from,
+                waited=waited,
+            )
 
     def tested(
         cwd: Path,
@@ -4904,6 +4961,8 @@ def build_runner(
             root_extras=repo.tests.root_extras,
             workers=repo.tests.workers,
             max_workers=repo.tests.max_workers,
+            installation=installation,
+            log=log,
         ),
         run_e2e=e2e.run,
         e2e_verdict=lambda: e2e.verdict,
@@ -4957,6 +5016,8 @@ def build_reproduce(
     root_extras: list[str] | None = None,
     workers: str | int = "auto",
     max_workers: int = 8,
+    installation: Installation | None = None,
+    log: Callable[[str], None] | None = None,
 ) -> Callable[..., Reproduction]:
     """The runs of a fix unit's reproduction check, as `reproduce_test(cwd=, test=, runs=)`.
 
@@ -4972,6 +5033,10 @@ def build_reproduce(
     run = run or _run_limited
 
     def reproduce_test(*, cwd: Path, test: str, runs: int) -> Reproduction:
+        with _test_slot(installation, log):
+            return reproduced(cwd=cwd, test=test, runs=runs)
+
+    def reproduced(*, cwd: Path, test: str, runs: int) -> Reproduction:
         file = test.partition("::")[0]
         where, toolchain = cwd, profile
         for project in projects or []:

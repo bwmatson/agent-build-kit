@@ -22,6 +22,7 @@ from agent_build_kit.pipeline.usage_ledger import read_lines, record_line
 SLOT = "slot"
 USAGE_PAUSE = "usage_pause"
 E2E_LOCK = "e2e_lock"
+TEST_SLOT = "test_slot"
 
 
 class Clock(Protocol):
