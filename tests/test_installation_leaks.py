@@ -22,7 +22,6 @@ from tests.installation_leaks import (
     Scan,
     foreign_azure_orgs,
     foreign_slug_owners,
-    hits,
     home_path_leaks,
     leaks,
     overlay_leaks,
@@ -257,13 +256,12 @@ def test_every_scan_of_one_scan_object_filters_what_was_read_once(
     assert set(reads.values()) == {1}
 
 
-def test_a_scan_object_gives_the_answers_of_the_standalone_scans(tmp_path: Path) -> None:
+def test_a_scan_object_finds_the_home_path_and_not_the_tilde_path(tmp_path: Path) -> None:
     root = a_checkout(tmp_path)
     scan = Scan(root)
 
-    assert scan.hits(ANECDOTE) == hits(root, ANECDOTE)
-    assert scan.hits(foreign_slug_owners) == hits(root, foreign_slug_owners)
-    assert scan.home_path_leaks() == home_path_leaks(root)
+    assert scan.hits(ANECDOTE) == []
+    assert scan.hits(foreign_slug_owners) == []
     assert scan.home_path_leaks() == ["docs/guide.md:1: see /home/someone/work for the checkout"]
 
 

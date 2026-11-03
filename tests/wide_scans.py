@@ -3,14 +3,15 @@ wide-scans-are-integration).
 
 A scan is found by parsing a test module (strings and comments never count): a `test_` function that
   - calls a whole-tree helper (`guarded_files`, `hits`, `files`, `leaks`, `home_path_leaks`,
-    `repo_path_leaks`, `find_live_modules`, `check_sources`, `splits_by_syntax`) with no `under=`
-    folder, over a path that is not the test's own temporary tree, or
+    `repo_path_leaks`, `find_live_modules`, `check_sources`, `splits_by_syntax`, `Scan`) with no
+    `under=` folder, over a path that is not the test's own temporary tree, or
   - walks a folder with `glob` or `rglob` that is anchored at the repository: a path built from a
     module-level constant (`ROOT`, `SOURCE_ROOT`, `WORKFLOWS`) or from `__file__`. A folder the
     test made itself (`repo.glob(...)` of a local) is its own.
 A call of a helper of the same module that scans is a scan too, so a test that only calls
-`walk()` is found. A path is the test's own when it comes from one of its parameters (`tmp_path`
-and the other fixtures) through plain assignments.
+`walk()` is found, and so is a test that takes such a helper as a fixture parameter. A path is
+the test's own when it comes from one of its parameters (`tmp_path` and the other fixtures)
+through plain assignments.
 
 `check_tests` returns one message per problem: a scan with no `integration` selector (on the test,
 its class or the module) that the baseline does not name, and a baseline entry that is no longer an
@@ -37,6 +38,7 @@ WHOLE_TREE_CALLS = frozenset(
         "find_live_modules",
         "check_sources",
         "splits_by_syntax",
+        "Scan",
     }
 )
 # What every scan is made of; a file naming none of it is not parsed, which keeps a walk of the
@@ -93,6 +95,10 @@ def _is_scan(
 ) -> bool:
     """Whether a function scans the repository itself or calls a helper of its module that does."""
     own = _own_names(function)
+    arguments = function.args
+    parameters = {a.arg for a in (*arguments.posonlyargs, *arguments.args, *arguments.kwonlyargs)}
+    if parameters & helpers:
+        return True
     calls = [n for n in ast.walk(function) if isinstance(n, ast.Call)]
     for call in calls:
         if isinstance(call.func, ast.Name) and call.func.id in helpers:

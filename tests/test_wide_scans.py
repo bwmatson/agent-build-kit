@@ -212,3 +212,27 @@ def test_a_syntax_error_in_a_test_file_is_named_not_raised(tmp_path: Path) -> No
     problems = check_tests(root, baseline=NONE)
 
     assert len(problems) == 1 and "test_broken.py" in problems[0]
+
+
+def scan_fixture_module(root: str) -> str:
+    """A module whose `scan` fixture builds a `Scan` over `root` and whose one test takes it."""
+    return (
+        "import pytest\n\n\n@pytest.fixture\ndef scan(tmp_path):\n"
+        f"    return Scan({root})\n\n\ndef test_x(scan):\n    scan.hits(rule)\n"
+    )
+
+
+def test_a_test_that_takes_a_scan_fixture_of_the_repository_is_a_scan(tmp_path: Path) -> None:
+    root = tree(tmp_path, {"test_scan.py": scan_fixture_module("ROOT")})
+
+    problems = check_tests(root, baseline=NONE)
+
+    assert len(problems) == 1 and "test_scan.py::test_x" in problems[0]
+
+
+def test_a_test_that_takes_a_scan_fixture_of_its_own_temporary_tree_is_not_a_scan(
+    tmp_path: Path,
+) -> None:
+    root = tree(tmp_path, {"test_scan.py": scan_fixture_module("tmp_path")})
+
+    assert check_tests(root, baseline=NONE) == []

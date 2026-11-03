@@ -28,7 +28,7 @@ from tests.time_limit import LOADED_TEST_TIME_LIMIT
 ROOT = Path(__file__).resolve().parents[1]
 
 
-@pytest.fixture(scope="session")
+@pytest.fixture(scope="module")
 def scan() -> Scan:
     """The files the scans read, listed and read once for every scan of the gate."""
     return Scan(ROOT)

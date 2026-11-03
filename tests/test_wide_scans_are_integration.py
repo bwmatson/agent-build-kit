@@ -56,6 +56,10 @@ WIDE_SCANS = [
         "test_ecosystem_names_guard.py",
         "test_the_framework_source_names_no_ecosystem_outside_the_lists",
     ),
+    (
+        "test_leak_gate_reads_each_file_once.py",
+        "test_the_leak_gate_reads_each_scanned_file_once",
+    ),
     ("test_live_split_names.py", "test_every_tagged_live_test_of_the_kit_is_in_one_derived_split"),
     ("test_live_test_names.py", "test_no_tracked_file_names_an_old_module"),
     (

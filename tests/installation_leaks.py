@@ -126,9 +126,7 @@ def hits(
 ) -> list[str]:
     """Each line of the scanned files that a pattern matches or a predicate accepts, as
     `path:line: clipped line`."""
-    return [
-        hit for path in files(root) if path.name not in skip for hit in file_hits(root, path, found)
-    ]
+    return Scan(root).hits(found, skip=skip)
 
 
 def foreign_azure_orgs(text: str) -> list[str]:
@@ -155,12 +153,7 @@ def home_rule(root: Path, path: Path, dirs: PlanningDirs | None = None) -> re.Pa
 def home_path_leaks(root: Path) -> list[str]:
     """Each line holding a home path, as `path:line: clipped line`. In the specification folder a
     tilde-relative path is not one (it names no user) and an absolute path still is."""
-    dirs = planning_dirs(root)
-    return [
-        hit
-        for path in files(root, dirs)
-        for hit in file_hits(root, path, home_rule(root, path, dirs))
-    ]
+    return Scan(root).home_path_leaks()
 
 
 class Scan:
@@ -182,7 +175,8 @@ class Scan:
     def hits(
         self, found: re.Pattern | Callable[[str], object], *, skip: Collection[str] = ()
     ) -> list[str]:
-        """What `hits` gives over the same root."""
+        """Each line of the scanned files that a pattern matches or a predicate accepts, as
+        `path:line: clipped line`."""
         return [
             hit
             for path in self.files
@@ -191,7 +185,7 @@ class Scan:
         ]
 
     def home_path_leaks(self) -> list[str]:
-        """What `home_path_leaks` gives over the same root."""
+        """Each line holding a home path; see `home_path_leaks`."""
         return [
             hit
             for path in self.files
