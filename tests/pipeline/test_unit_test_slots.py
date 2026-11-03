@@ -13,10 +13,10 @@ from contextlib import ExitStack
 from pathlib import Path
 
 import pytest
-from agent_build_kit.pipeline.unit_test_slots import slot_path, unit_test_slot
 
 from agent_build_kit.pipeline.e2e import read_lock_record
 from agent_build_kit.pipeline.file_lock import POLL_SECONDS
+from agent_build_kit.pipeline.unit_test_slots import slot_path, unit_test_slot
 from tests.waiting import wait_for
 
 
