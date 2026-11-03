@@ -6966,13 +6966,19 @@ def _build_unit(
         if outcome.pr_over and outcome.pr is not None:
             # The run ended on a pull request the forge shows merged or closed. The lock is
             # released now, which the handlers need to deliver the event to the unit's thread.
-            try:
-                if not _dispatch(inst, store, lane=lane)(
-                    outcome.pr_over, outcome.pr, repo=unit.repo
-                ):
-                    say(f"#{outcome.pr} {outcome.pr_over}: left for a later pass")
-            except Exception as error:  # noqa: BLE001
-                say(f"#{outcome.pr} {outcome.pr_over} could not be recorded — {error}")
+            # A worker has no restack lane to hand the moves to, and a move run in it would
+            # skip the lane's usage gate: the poll keeps the event, and the dispatcher's
+            # delivers it with its lane.
+            if from_snapshot:
+                say(f"#{outcome.pr} {outcome.pr_over}: left for a later pass")
+            else:
+                try:
+                    if not _dispatch(inst, store, lane=lane)(
+                        outcome.pr_over, outcome.pr, repo=unit.repo
+                    ):
+                        say(f"#{outcome.pr} {outcome.pr_over}: left for a later pass")
+                except Exception as error:  # noqa: BLE001
+                    say(f"#{outcome.pr} {outcome.pr_over} could not be recorded — {error}")
         end(f"{outcome.status} — {outcome.detail}", outcome.status)
         if outcome.status is UnitOutcome.PAUSED:
             forget_if_not_begun()

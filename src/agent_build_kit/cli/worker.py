@@ -6,10 +6,9 @@ import argparse
 from typing import Any
 
 from agent_build_kit import telemetry
-from agent_build_kit.cli.pipeline import build_unit
+from agent_build_kit.cli.pipeline import build_unit, store_for
 from agent_build_kit.installation import Installation
 from agent_build_kit.pipeline.snapshots import WAKE
-from agent_build_kit.pipeline.unit_store import UnitStore
 
 
 def cmd_worker_build(args: argparse.Namespace, inst: Installation) -> int:
@@ -20,7 +19,7 @@ def cmd_worker_build(args: argparse.Namespace, inst: Installation) -> int:
     ended, so a unit another process holds is skipped there. A unit no longer in the store (it
     was joined into another after admission) is a skip too. It reads usage from the snapshot,
     never the endpoint."""
-    store = UnitStore(inst.state_dir / "units.json")
+    store = store_for(inst)
     telemetry.init()
     try:
         try:

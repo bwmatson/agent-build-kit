@@ -18,6 +18,7 @@ from agent_build_kit.cli.worker import cmd_worker_build
 from agent_build_kit.installation import Installation
 from agent_build_kit.pipeline import usage_guard
 from agent_build_kit.pipeline.snapshots import WAKE
+from agent_build_kit.pipeline.stack_runner import RunOutcome, RunStatus
 from agent_build_kit.pipeline.unit_store import UnitStore
 from agent_build_kit.pipeline.units import IN_REVIEW, PLANNED
 from agent_build_kit.pipeline.workspaces import branch_held, branch_lock
@@ -109,6 +110,41 @@ def test_a_run_paused_with_no_time_decides_its_resume_from_the_snapshot(
     assert code == 0
     assert store.get(UNIT).state == PLANNED
     assert (inst.state_dir / "paused.json").exists()
+
+
+def test_a_worker_records_through_the_hooked_store_a_tick_uses(
+    inst: Installation, builder: Builder
+) -> None:
+    seed(builder)
+
+    worker(inst)
+
+    assert inst.graph_page.exists(), "the store's write hook refreshed the graph page"
+
+
+def test_a_worker_leaves_a_merged_pull_requests_event_for_the_dispatcher(
+    inst: Installation, builder: Builder, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    store = seed(builder)
+    delivered: list[str] = []
+
+    def ends_on_a_merged_pull_request(*args: object, **kwargs: object) -> RunOutcome:
+        store.set_state(UNIT, IN_REVIEW, pr=7)
+        return RunOutcome(status=RunStatus.OPEN, detail="opened #7", pr=7, pr_over="merged")
+
+    def dispatch(*args: object, **kwargs: object) -> None:
+        delivered.append("built")
+        raise AssertionError("a worker built a dispatch and could move a stack")
+
+    monkeypatch.setattr(cli, "run_unit_thread", ends_on_a_merged_pull_request)
+    monkeypatch.setattr(cli, "build_dispatch", dispatch)
+
+    code = worker(inst)
+
+    assert code == 0
+    assert delivered == []
+    assert store.get(UNIT).state == IN_REVIEW
+    assert (inst.state_dir / WAKE).exists()
 
 
 @pytest.mark.parametrize("crash", [False, True])
