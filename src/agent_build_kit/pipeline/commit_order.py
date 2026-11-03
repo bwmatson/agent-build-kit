@@ -193,9 +193,9 @@ def group_progress(
 ) -> GroupProgress:
     """Walk the groups in the unit's order, each taking the commits its mode calls for with its
     title from the front of `subjects` (oldest first); `modes` is by position, like `titles`, and
-    a group with none is `tests_and_code` (a bool is the earlier `test_only` flag). The position
-    in the unit, not the title, tells groups apart, so two groups with one title are told apart.
-    A branch that does not begin with the first group's commits has made no progress."""
+    a group with none is `tests_and_code`. The position in the unit, not the title, tells groups
+    apart, so two groups with one title are told apart. A branch that does not begin with the
+    first group's commits has made no progress."""
     position = 0
     for done, title in enumerate(titles):
         mode = mode_at(modes, done)
@@ -302,17 +302,6 @@ def _commit_modes(subjects: list[str], groups: Sequence[GroupStep]) -> list[Grou
         found[position : position + size] = [group.mode] * size
         position += size
     return found
-
-
-def commits_of_test_only_groups(repo: Path, base: str, groups: Sequence[GroupStep]) -> set[str]:
-    """The commits of the branch that are the tests commit of a test-only group of `groups`."""
-    subjects = branch_subjects(repo, base)
-    found = _commit_modes(subjects, groups)
-    return {
-        sha
-        for sha, subject, mode in zip(_commits(repo, base), subjects, found, strict=True)
-        if subject.startswith(TESTS_PREFIX) and mode is GroupMode.TESTS_ONLY
-    }
 
 
 def commits_without_red_check(repo: Path, base: str, groups: Sequence[GroupStep]) -> set[str]:
