@@ -116,13 +116,13 @@ JUDGEMENT_LINE = re.compile(
 def allowed_tools(inst: Installation, repo: str) -> str:
     """The tool list the agent runs under for a unit of `repo`: `TOOLS` and the commands the
     repo allows an agent to run a test with, each as a pattern."""
-    from agent_build_kit.config import AGENT_PATH_WORD, AgentPurpose
+    from agent_build_kit.config import AGENT_PATH_WORD, AgentPurpose, AgentScope
     from agent_build_kit.pipeline import agent_commands  # imports wiring, which imports this
 
     patterns: dict[str, None] = {}
     for item in agent_commands.effective(inst.repo(repo)):
-        if item.purpose is not AgentPurpose.TEST:
-            continue
+        if item.purpose is not AgentPurpose.TEST or item.scope is AgentScope.AFFECTED:
+            continue  # the selection needs the unit's data, which this agent has none of
         # A command that takes a path allows any path: the pattern ends where the path stood.
         head = (
             item.command[: item.command.index(AGENT_PATH_WORD)]

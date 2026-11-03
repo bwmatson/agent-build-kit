@@ -340,8 +340,8 @@ repos:                        # ordered; a task group's [repo] tag is a key here
                               # `abk doctor` warns for a repo without one
     agent_commands: null      # commands the build prompts tell an agent it may run, each
                               # {purpose: test|lint|format|check, command: "uv run pytest -q",
-                              # scope: whole|file|node-id}; `{path}` in the command exactly when
-                              # the scope is not whole. null follows the profiles, a list
+                              # scope: whole|file|node-id|affected}; `{path}` in the command exactly
+                              # when the scope is file or node-id. null follows the profiles, a list
                               # replaces them. Each must match the build allow-list: refused at load
     changelog: CHANGELOG.md   # the repo's changelog; null = no convention, no check.
                               # Convention: AGENTS.md `## Changelog`, else CLAUDE.md,

@@ -278,6 +278,24 @@ class PythonUvProfile:
             command=["uv", "run", "pytest", "-q", "{path}"],
             scope=AgentScope.NODE_ID,
         ),
+        # The pipeline's own selection, with its data path and coverage core in the agent's
+        # environment (`agent_environment`) so the command starts with `uv run` and matches the
+        # allow-list. With no data yet (the unit's first full run has not finished) it selects
+        # nothing and runs everything.
+        AgentCommand(
+            purpose=AgentPurpose.TEST,
+            command=[
+                "uv",
+                "run",
+                "--with",
+                TESTMON,
+                "pytest",
+                "-q",
+                "--testmon-forceselect",
+                _TESTMON_ENV,
+            ],
+            scope=AgentScope.AFFECTED,
+        ),
         AgentCommand(
             purpose=AgentPurpose.CHECK, command=["uv", "run", "pre-commit", "run", "--all-files"]
         ),
@@ -794,6 +812,12 @@ class PythonUvProfile:
         if name == "conftest.py":
             return False
         return not self.is_test_path(path) or bool(_TEST_FILE.match(name))
+
+    def agent_environment(self, seed: Path) -> dict[str, str]:
+        """What a build agent's environment carries for the affected-tests command: where the
+        unit's selection data is, and the coverage core the data is recorded with."""
+        core, _, value = _COVERAGE_CORE.partition("=")
+        return {"TESTMON_DATAFILE": str(seed), core: value}
 
     def is_seeded(self, command: list[str]) -> bool:
         return TESTMON in command

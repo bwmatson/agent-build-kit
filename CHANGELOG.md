@@ -3389,6 +3389,13 @@
   there and that the pipeline runs it outside the sandbox, so a build agent sees why such a test
   fails. Every other refused host keeps its text.
 
+- Python-uv build agents get a command for the tests their own edits affect (`agent_commands`
+  scope `affected`: `uv run --with pytest-testmon pytest -q --testmon-forceselect
+  --testmon-env=ctrace`). The build step sets the unit's selection data file and the coverage core
+  in the agent's environment so the command matches the allow-list; no prompt mentions it. Until
+  the unit's first full run has recorded the data it runs the whole suite. A repo with projects or
+  another profile gets neither, and the regression agent is not granted it.
+
 ## 0.1.0 — 2026-09-28
 
 First release.

@@ -18,11 +18,17 @@ NOTE_LIMIT = 600
 HEADING = "Commands you may run to test, lint and format; any other command will be refused:"
 
 # What the agent picks, as the section shows it, and a word that stands for it when judging.
-_SHOWN = {AgentScope.WHOLE: "", AgentScope.FILE: "<path>", AgentScope.NODE_ID: "<test id>"}
+_SHOWN = {
+    AgentScope.WHOLE: "",
+    AgentScope.FILE: "<path>",
+    AgentScope.NODE_ID: "<test id>",
+    AgentScope.AFFECTED: "",
+}
 _SCOPE_WORDS = {
     AgentScope.WHOLE: "whole repo",
     AgentScope.FILE: "one file",
     AgentScope.NODE_ID: "one test",
+    AgentScope.AFFECTED: "tests your edits affect",
 }
 _SAMPLE_WORD = "sample"
 
