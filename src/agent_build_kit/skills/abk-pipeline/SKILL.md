@@ -273,6 +273,19 @@ failed after the merge is run on the default branch: fixed there, the unit is me
 failing, the same unit builds a second pull request (`late fix #<second> after #<first>`).
 After two late fixes it is `held` for a person.
 
+### Paused for a rejected login
+
+When an account's Claude login is rejected (the CLI says `Failed to authenticate`, HTTP 401, `OAuth
+access token has expired`), the account's units are paused, not failed: a unit stays `running` with
+the cause `login`, counts as in progress and holds no worker, and `abk status` shows the rejected
+login with the command that renews it (`claude auth login`, with the account's directory) and
+`account <name>: N units paused for the login`. No unit that has never started is admitted on the
+account meanwhile; other accounts are not affected. A person signs in; within a round the
+pipeline sees the credentials change, runs the CLI's logged-in probe once and, when it passes,
+resumes the units at the step they were in. Nothing needs requeuing. A unit that failed on the
+rejection before this existed is set back to `planned` with the cause `login`, once. If the
+units stay paused after a login, the probe failed: read the round's line, and sign in again.
+
 ### `failed`
 
 The run raised an exception, or its checks failed; its last log line in the

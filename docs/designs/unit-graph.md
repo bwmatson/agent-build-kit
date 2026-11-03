@@ -97,7 +97,7 @@ line falls where a unit ends:
 | Stopping between steps for usage | The usage guard's decision (`usage_guard.py`), which a node asks |
 
 A cause is standing or an event. The standing causes (`STANDING_CAUSES`) name a situation that lasts
-until a state change passes another cause: `rework`, `base_changed`, `upstream_went_back`, `usage`,
+until a state change passes another cause: `rework`, `base_changed`, `upstream_went_back`, `usage`, `login`,
 `depth`, `toolchain`, `review_escalated_class`, `review_escalated_disagreement`, `late_failure`,
 `needs_human`, `reviewer_hold`, `gated`, `restack_conflict`, `restack_deferred`, `restack_handed_back`,
 `dirty_worktree`, `attached`, `host_unavailable`, `network_unavailable`, `service_unavailable`,

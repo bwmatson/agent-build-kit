@@ -949,6 +949,28 @@ def rejected_login_note(account: claude_account.Account | None = None) -> str | 
         return claude_code.rejected_login_line(account_in_force())
 
 
+def recorded_login_rejection(account: claude_account.Account | None = None) -> dict | None:
+    """The account's kept rejection (`{"expires_at": ...}`), whatever the credentials now carry,
+    else None: `rejected_login_note` says nothing once they differ, and this is what lets a
+    round see that a rejection was recorded and decide whether the renewed login works."""
+    with on_account(account):
+        rejected = _load_cache(_cache_file()).get("login_rejected")
+        return rejected if isinstance(rejected, dict) else None
+
+
+def clear_login_rejected(account: claude_account.Account | None = None) -> None:
+    """Forget the account's rejected login: a renewed one was shown to work."""
+    with on_account(account):
+        path = _cache_file()
+        try:
+            with file_lock(path.with_name(path.name + ".lock")):
+                kept = _load_cache(path)
+                if kept.pop("login_rejected", None) is not None:
+                    _write_cache(path, kept)
+        except (OSError, TypeError):
+            pass
+
+
 def record_login_rejected(account: claude_account.Account | None = None) -> None:
     """Keep the account's login as rejected, with the credentials' current `expiresAt`."""
     with on_account(account):

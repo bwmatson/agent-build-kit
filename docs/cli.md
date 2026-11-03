@@ -138,7 +138,9 @@ cannot be read, then the age of the account's last real usage reading (`last rea
 or `no real usage read yet`). It reads the credentials file and the cache and makes no call, and an
 account other than the default says which it is. A token lasts 8 hours and is renewed only when
 something talks to the API, so a line that says a token has expired with no recent real read is a
-login nothing has yet noticed.
+login nothing has yet noticed. When an account's login was rejected, status adds the line that says
+so, with the command that renews it, and `account <name>: N units paused for the login`; each
+unit paused for it is listed as `paused for the login`, and `abk explain` says the same of the unit.
 
 Beside the usage reading, status prints a `usage allowances:` line: for each window its cost fit,
 as `session 2.65 points/$ + 5.1 points/h (31 pairs with cost, scale 1.2)`, or the reason the

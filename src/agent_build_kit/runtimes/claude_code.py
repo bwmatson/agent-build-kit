@@ -680,6 +680,11 @@ def labelled_accounts_report(
     return lines
 
 
+def login_works(account: claude_account.Account) -> bool:
+    """Whether the account is logged in now, by the CLI's own `auth status`: one call."""
+    return _logged_in(subprocess.run, account)
+
+
 def _logged_in(run: Run, account: claude_account.Account) -> bool:
     """Whether `auth status` exits 0 with `loggedIn` true; nothing else of its answer is read."""
     try:

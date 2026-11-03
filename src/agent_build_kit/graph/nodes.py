@@ -203,6 +203,7 @@ from agent_build_kit.runtimes.base import (
     AgentInterrupted,
     AgentRateLimited,
     AgentResult,
+    LoginRejected,
     NetworkUnavailable,
     ServiceUnavailable,
     SessionUnavailable,
@@ -463,6 +464,16 @@ class BuildPath:
                 except GraphInterrupt:
                     outcome = UnitOutcome.WAITING
                     raise
+                except LoginRejected as error:
+                    # Not a failure: the unit stays `running` at this step, paused for the
+                    # login, and the step runs again when the login is renewed (the runtime
+                    # recorded the rejection).
+                    outcome = UnitOutcome.INTERRUPTED
+                    self.runner.store.set_usage_pause(
+                        self.unit.id, spans.clock.now() + UNKNOWN_RETRY, cause=Cause.LOGIN
+                    )
+                    self.say(f"paused at the agent step: {error}")
+                    raise
                 except AgentRateLimited:
                     outcome = UnitOutcome.RATE_LIMITED
                     raise
@@ -585,7 +596,13 @@ class BuildPath:
             step=node.value,
             step_round=_round(node, state),
         ):
-            allowed, why = await asyncio.to_thread(self.runner.may_start)
+            # A rejected login refuses before usage is asked: nothing on the account can run.
+            login = await asyncio.to_thread(self.runner.login_rejected)
+            allowed, why = (
+                (False, login)
+                if login is not None
+                else await asyncio.to_thread(self.runner.may_start)
+            )
         if allowed:
             if self.runner.store.get(self.unit.id).paused_until is not None:
                 self.runner.store.set_usage_pause(self.unit.id, None)
@@ -602,9 +619,15 @@ class BuildPath:
                 )
                 self.paused_since = None
             return
-        until = await asyncio.to_thread(self.runner.resume_at)
+        # A login pause ends when the login is renewed, not at a time: `until` is when a round
+        # looks again.
+        until = None if login is not None else await asyncio.to_thread(self.runner.resume_at)
         # Recorded on the unit, which stays `running` and counts as in progress while it waits.
-        self.runner.store.set_usage_pause(self.unit.id, until or spans.clock.now() + UNKNOWN_RETRY)
+        self.runner.store.set_usage_pause(
+            self.unit.id,
+            until or spans.clock.now() + UNKNOWN_RETRY,
+            cause=Cause.LOGIN if login is not None else Cause.USAGE,
+        )
         self._node = node.value
         self.say(f"paused before the agent step: {why}")
         # Carried in the interrupt, which outlives the process: the run that

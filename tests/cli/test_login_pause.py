@@ -17,10 +17,10 @@ from agent_build_kit.installation import Installation
 from agent_build_kit.pipeline import usage_guard
 from agent_build_kit.pipeline.stack_runner import RunStatus
 from agent_build_kit.pipeline.unit_store import Cause, UnitStore
-from agent_build_kit.pipeline.units import FAILED, RUNNING
+from agent_build_kit.pipeline.units import FAILED, PLANNED, RUNNING
 from agent_build_kit.runtimes.base import LoginRejected
 from tests import fake_clock
-from tests.cli.test_admission_asks_own_account import PERSONAL, Accounts
+from tests.cli.test_admission_asks_own_account import PERSONAL, Accounts, waits
 from tests.cli.usage_pause_support import isolate_round, started_by, unit, with_threads, workspace
 from tests.graph_driver import fresh, tick
 from tests.usage_host import HOUR_MS, Host, ms_from_now, write_credentials
@@ -55,18 +55,21 @@ def test_no_rejection_leaves_the_gate_to_usage_alone(tmp_path: Path) -> None:
     assert recorder.store.get("add-marker/1").cause is not Cause.LOGIN
 
 
-def test_a_step_that_meets_the_rejection_pauses_and_does_not_fail(tmp_path: Path) -> None:
+def test_a_step_that_meets_the_rejection_leaves_the_unit_paused_and_not_failed(
+    tmp_path: Path,
+) -> None:
     recorder = fresh(tmp_path)
 
     def rejected(*args: object, **kwargs: object) -> str:
         raise LoginRejected(claude_account.Account.default(), "401 OAuth access token has expired")
 
-    outcome = tick(tmp_path, recorder, run=rejected)
+    with pytest.raises(LoginRejected):
+        tick(tmp_path, recorder, run=rejected)
 
     stored = recorder.store.get("add-marker/1")
-    assert outcome.status == RunStatus.PAUSED
     assert stored.state != FAILED
-    assert stored.cause is Cause.LOGIN
+    assert (stored.state, stored.cause) == (RUNNING, Cause.LOGIN)
+    assert stored.paused_until is not None
 
 
 def test_the_login_pause_ends_when_the_gate_later_finds_no_rejection(tmp_path: Path) -> None:
@@ -248,32 +251,35 @@ def waiting(
         [
             unit("new-personal/1", "platform"),
             unit("new-default/1", "app"),
-            unit("old-personal/1", "platform", branch="spec/old-personal/1"),
+            unit("old-personal/1", "platform"),
         ],
     )
+    # Started once: it has a branch, and is back to `planned` (a restack or a requeue).
+    store.set_state("old-personal/1", PLANNED, branch="spec/old-personal/1")
     host.keep_in(inst.state_dir)
     mark_rejected(inst)
     monkeypatch.setattr(cli, "login_probe", lambda account: pytest.fail("no probe expected"))
     return inst, store
 
 
-def test_a_never_started_unit_is_not_admitted_on_a_rejected_account(
-    waiting, capsys: pytest.CaptureFixture[str]
-) -> None:
+def test_a_never_started_unit_is_not_admitted_on_a_rejected_account(waiting) -> None:
     inst, store = waiting
 
     ready = started_by(inst, store)
 
     assert "new-personal/1" not in ready
     assert "new-default/1" in ready
-    said = capsys.readouterr().out
-    assert "personal" in said and "claude auth login" in said
+    reason = waits(inst)["new-personal/1"].detail
+    assert "personal" in reason and "claude auth login" in reason
 
 
 def test_a_started_unit_is_not_refused_by_the_start_decision(waiting) -> None:
     inst, store = waiting
 
-    assert "old-personal/1" in started_by(inst, store)
+    ready = started_by(inst, store)
+
+    assert "old-personal/1" not in waits(inst), waits(inst)
+    assert "old-personal/1" in ready
 
 
 def test_the_account_is_admitted_again_when_the_marker_is_cleared(

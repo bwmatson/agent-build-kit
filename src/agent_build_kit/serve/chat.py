@@ -607,6 +607,8 @@ def register(
             waiting = (
                 "waiting out the usage window"
                 if unit.cause is Cause.USAGE
+                else "waiting for its account's login to be renewed"
+                if unit.cause is Cause.LOGIN
                 else "with no step running on it"
             )
             state, enabled, reason = (

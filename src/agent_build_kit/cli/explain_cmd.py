@@ -125,7 +125,14 @@ def cmd_explain(args: argparse.Namespace, inst: Installation) -> int:
             print(f"  waits on {fix}" + (f": {judged}" if judged else ""))
         if record is None:
             return 0
-    if (
+    if unit is not None and unit.state == RUNNING and unit.cause is Cause.LOGIN:
+        print(
+            f"{args.unit} is paused for the login of its account: it holds its place, and is "
+            "resumed when the login is renewed (`abk status` names the account and the command)"
+        )
+        if record is None:
+            return 0
+    elif (
         unit is not None
         and unit.state == RUNNING
         and unit.paused_until is not None

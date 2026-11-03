@@ -396,6 +396,7 @@ from agent_build_kit.pipeline.usage_guard import (
     UsageReading,
     ask_before_call,
     claude_limits,
+    clear_login_rejected,
     current_cache_interval,
     current_usage,
     decide_start,
@@ -409,10 +410,14 @@ from agent_build_kit.pipeline.usage_guard import (
     not_recording,
     on_account,
     reading_as,
+    record_login_rejected,
+    recorded_login_rejection,
     refreshed_usage,
     rejected_login_note,
     starting,
     threshold_at,
+    token_expired,
+    token_expires_at,
 )
 from agent_build_kit.pipeline.usage_ledger import LEDGER_NAME
 from agent_build_kit.pipeline.verdict import ReviewTier, SplitRequest
@@ -486,6 +491,8 @@ from agent_build_kit.redaction import redact_text
 from agent_build_kit.replay.review import directories as replay_directories
 from agent_build_kit.replay.review import waiting as replay_waiting
 from agent_build_kit.runtimes import AgentRateLimited, NetworkUnavailable, ServiceUnavailable
+from agent_build_kit.runtimes.base import LoginRejected
+from agent_build_kit.runtimes.claude_code import login_command, login_rejection, login_works
 from agent_build_kit.runtimes.guards import guard_lines
 from agent_build_kit.serve.review import ReviewStore
 from agent_build_kit.trackers.report import standing
@@ -878,6 +885,11 @@ def _account_usage_lines(
     with on_account(account):
         if rejected := rejected_login_note():
             lines.append(rejected)
+            held = _paused_for_login(inst, account)
+            lines.append(
+                f"account {account.label or 'default'}: {len(held)} "
+                f"unit{'' if len(held) == 1 else 's'} paused for the login"
+            )
         if estimate := held_estimate_line():
             lines.append(estimate + whose)
             running = {u.id for u in store_for(inst).all() if u.state == RUNNING}
@@ -890,6 +902,19 @@ def _account_usage_lines(
             lines.append(rate_line(derive_rate(calls, now=datetime.now(UTC))) + whose)
         lines.append(interval_line(current_cache_interval(calls_file)) + whose)
     return lines
+
+
+def _paused_for_login(inst: Installation, account: claude_account.Account) -> list[StoredUnit]:
+    """The units paused for `account`'s rejected login: they wait for it to be renewed."""
+    key = claude_account.account_key(account)
+    return [
+        unit
+        for unit in store_for(inst).all()
+        if unit.cause is Cause.LOGIN
+        and unit.state in (RUNNING, PLANNED)
+        and unit.repo in inst.config.repos
+        and claude_account.account_key(claude_account.for_repo(inst.config, unit.repo)) == key
+    ]
 
 
 def _account_usage_line(args: argparse.Namespace, account: claude_account.Account) -> str:
@@ -1160,7 +1185,12 @@ def cmd_status(args: argparse.Namespace, inst: Installation) -> int:
             log(f"  {unit.id} ({where}) is over its ceiling and not split: {unit.unsplit_reason}")
         if unit.state == HELD and unit.cause is Cause.DIRTY_WORKTREE:
             log(f"  parked: {unit.id} ({where}) — {unit.note}")
-        if (
+        if unit.state == RUNNING and unit.cause is Cause.LOGIN:
+            log(
+                f"  paused for the login: {unit.id} ({where}) until it is renewed; "
+                "it holds its place meanwhile"
+            )
+        elif (
             unit.state == RUNNING
             and unit.paused_until is not None
             and unit.paused_until > spans.clock.now()
@@ -2034,6 +2064,64 @@ def _held_by_the_model(
     return "rate_limit"
 
 
+def login_probe(account: claude_account.Account) -> bool:
+    """Whether the account is logged in now, by the CLI's own `auth status`: one call."""
+    return login_works(account)
+
+
+def renew_logins(inst: Installation) -> list[str]:
+    """For each account whose login was recorded as rejected, find out whether it has been
+    renewed: with credentials that carry a different `expiresAt` that is not past, one probe of
+    the CLI. A probe that passes clears the marker (the account's paused units resume under the
+    normal limits); one that fails keeps it for the new credentials, so they are not probed
+    again. The same credentials as the rejected ones are never probed."""
+    said: list[str] = []
+    for account in claude_account.in_use(inst.config):
+        with on_account(account):
+            kept = recorded_login_rejection(account)
+            if kept is None:
+                continue
+            now = token_expires_at(account=account)
+            if now is None or now == kept.get("expires_at") or token_expired(account=account):
+                continue
+            name = account.label or "default"
+            if login_probe(account):
+                clear_login_rejected(account)
+                said.append(f"account {name}: the login is renewed; its paused units resume")
+            else:
+                record_login_rejected(account)
+                said.append(
+                    f"account {name}: the renewed login is rejected too; "
+                    f"run {login_command(account)}"
+                )
+    for line in said:
+        log(line)
+    return said
+
+
+def record_login_pauses(inst: Installation) -> list[str]:
+    """Units that failed on a rejected login before a login pause existed (the rejection's text
+    is in their failure) are paused for it, once: a unit that is no longer `failed` no longer
+    matches. They go back to `planned` on their branch, and their first agent step meets the
+    gate, which holds them until the login is renewed."""
+    store = store_for(inst)
+    paused: list[str] = []
+    for unit in store.all():
+        if unit.state != FAILED or unit.repo not in inst.config.repos:
+            continue
+        if not login_rejection(unit.note):
+            continue
+        store.set_state(
+            unit.id,
+            PLANNED,
+            cause=Cause.LOGIN,
+            note="paused for the login: it failed with the login rejected",
+        )
+        paused.append(unit.id)
+        log(f"{unit.id}: failed on a rejected login, paused for it")
+    return paused
+
+
 def _label_of(account: claude_account.Account | None) -> str | None:
     """The label of a named account; None for the default account (and for none)."""
     return account.label if account else None
@@ -2307,6 +2395,11 @@ def run_round(
             say=log,
             say_existing=False,
         )
+    if not dry_run:
+        # Before the resumes are chosen: a renewed login ends its units' pauses, and a unit
+        # that failed on a rejected login is paused for it.
+        _step("renewing logins", renew_logins, inst)
+        _step("pausing units failed on a rejected login", record_login_pauses, inst)
     decided: dict[str | None, Decision] = {}
     # The accounts the model has refused, by label: their units wait while the others start.
     model_refused: dict[str | None, Pause] = {}
@@ -2500,6 +2593,11 @@ def run_round(
         refuses its step: a resume would only ask the guard again. The guard is asked as the
         unit's own gate asks it, for its review tier and size."""
         stored_unit = stored_by_id[unit.id]
+        # A login pause ends when the login is renewed, whatever the time.
+        if stored_unit.cause is Cause.LOGIN and rejected_login_note(
+            claude_account.for_repo(inst.config, unit.repo)
+        ):
+            return True
         until = stored_unit.paused_until
         if until is None or until <= spans.clock.now():
             return False
@@ -2552,6 +2650,12 @@ def run_round(
         # The model's refusal holds its account's units, one already started among them.
         if (pause := model_refusal(unit.repo)) is not None:
             refused[unit.id] = _pause_report(inst, pause)
+        # A rejected login admits no unit that has never started on the account; one already
+        # started meets the gate instead.
+        elif not stored_by_id[unit.id].branch and (
+            rejected := rejected_login_note(claude_account.for_repo(inst.config, unit.repo))
+        ):
+            refused[unit.id] = rejected
     if runtimes.active().supports_usage_tracking:
         for unit in evaluated:
             if stored_by_id[unit.id].branch or unit.id in refused:
@@ -6904,6 +7008,12 @@ def _build_unit(
             # tick resumes its thread at the node it was in. Not failed — nothing
             # is known to be wrong.
             end(f"interrupted ({error}); the next tick resumes it", UnitOutcome.INTERRUPTED)
+            forget_if_not_begun()
+            return True
+        except LoginRejected as error:
+            # Left `running` and paused for the login (the node recorded it): the account's
+            # login is rejected, and the thread resumes at this step when it is renewed.
+            end(f"login rejected ({error}); paused until it is renewed", UnitOutcome.INTERRUPTED)
             forget_if_not_begun()
             return True
         except RateLimited as error:
