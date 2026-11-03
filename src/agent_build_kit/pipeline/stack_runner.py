@@ -483,16 +483,23 @@ of the checks does not find them. {rerun} Fix the cause, not the report: do not 
 rule, loosen a type to `Any`, or skip a test to make a check pass unless the
 rule itself is wrong for this code, and then say so.
 
-Run linting, formatting, types and the tests before you finish, and finish only
-when all of them pass. Beyond fixing the checks, keep the change to what the
-task groups ask for.
+Before you finish, run linting, formatting and types, and the failing tests and
+the tests you changed, by file or test id, and finish when those pass. The
+pipeline runs the whole suite and reads its result, so do not run it yourself.
+A test that starts a local server on 127.0.0.1 cannot pass inside your sandbox
+(its requests are refused with a 403): its failure there is not a defect, and
+the pipeline runs it outside the sandbox. Beyond fixing the checks, keep the
+change to what the task groups ask for.
 {commands}The change's files are read-only for you: do not tick boxes in its tasks.md
 or edit anything under {change_dir}. The pipeline records a task as done once
 the unit has passed review, unit-test and been pushed.
 """
     + REUSE_NOTE
     + INSTALL_NOTE,
-    unit_test="The output may be cut short; run the checks\nyourself to see all of it.",
+    unit_test=(
+        "The output may be cut short; run the failing tests yourself,\n"
+        "by file or test id, to see all of it."
+    ),
 )
 
 
@@ -1077,13 +1084,17 @@ others of the same kind. Fix the cause, not the report: do not suppress a rule,
 loosen a type to `Any`, or skip a test to make a check pass unless the rule
 itself is wrong for this code, and then say so.
 
-Run linting, formatting, types and the tests again, and finish only when all of
-them pass.
+Run linting, formatting and types, and the failing tests and the tests you
+changed, by file or test id, and finish when those pass. The pipeline runs the
+whole suite and reads its result, so do not run it yourself. A test that starts
+a local server on 127.0.0.1 cannot pass inside your sandbox (its requests are
+refused with a 403): its failure there is not a defect, and the pipeline runs
+it outside the sandbox.
 """
     + CONTINUATION_READONLY,
     unit_test=(
-        "Run the checks yourself first: the output above may be cut short, and what you\n"
-        "remember of the earlier work may not be exact."
+        "Run the failing tests yourself first, by file or test id: the output above may be\n"
+        "cut short, and what you remember of the earlier work may not be exact."
     ),
 )
 

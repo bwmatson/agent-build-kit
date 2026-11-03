@@ -30,16 +30,17 @@ def test_every_registered_profile_names_only_commands_its_own_tools_allow() -> N
             assert allows(tools, judged_line(item)), (name, judged_line(item))
 
 
-def test_the_python_profile_gives_test_and_check_at_whole_and_file_scope() -> None:
+def test_the_python_profile_gives_tests_by_file_and_id_and_checks_at_two_scopes() -> None:
     lines = [" ".join(c.command) for c in provided("python-uv")]
 
+    assert ("test", "whole") not in pairs("python-uv")
     assert {
-        ("test", "whole"),
+        ("test", "node-id"),
         ("test", "file"),
         ("check", "whole"),
         ("check", "file"),
     } <= pairs("python-uv")
-    assert "uv run pytest -q" in lines
+    assert "uv run pytest -q" not in lines
     assert "uv run pytest -q {path}" in lines
     assert "uv run pre-commit run --all-files" in lines
     assert "uv run pre-commit run --files {path}" in lines

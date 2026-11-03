@@ -3,8 +3,8 @@
 One packaged text, carried by every prompt that sends an agent to change code:
 redirect a long command's output and exit status to `$ABK_OUT`, read it with
 `tail`, `grep` or `sed -n`, never run a command again to see more of it, run the
-full suite once per round and only the failing tests after a fix
-(spec: command-output-to-files).
+tests it changed and the failing ones by file or test id, never the whole suite
+(spec: command-output-to-files, agent-test-commands).
 """
 
 import re
@@ -41,10 +41,9 @@ def test_the_convention_states_each_rule() -> None:
     for reader in ("tail", "grep", "sed -n"):
         assert reader in text
     assert re.search(r"(never|not) (run|rerun)[^.]*(again|rerun|more)", text)
-    assert "once" in text
     assert "failed" in text or "failing" in text
-    assert "suite" in text
-    assert "last edit" in text
+    assert "by file or test id" in text
+    assert "the pipeline runs the whole suite" in text
     assert "pytest" not in text
     assert "uv run" not in text
 

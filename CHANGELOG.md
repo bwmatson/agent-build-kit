@@ -3375,6 +3375,15 @@
   the unit-test after a clean move and in the run that confirms a group already built; `abk
   requeue` runs it again.
 
+- Build agents are no longer told they may run a repo's whole test suite by default: the python-uv
+  and node-npm profile defaults for the commands an agent may run name the tests of one file and
+  one test id (python-uv also one test id) and the whole-repo lint, format and type checks, and no
+  whole-suite test command. The checks prompt, its continuation, the sentences about rerunning the
+  checks and the output convention now tell the agent to run the failing tests and the tests it
+  changed, say that the pipeline runs the whole suite, and say that a test that starts a local
+  server on 127.0.0.1 cannot pass inside the sandbox. A repo that wants a whole-suite command for
+  its agents names it in `agent_commands`.
+
 ## 0.1.0 — 2026-09-28
 
 First release.

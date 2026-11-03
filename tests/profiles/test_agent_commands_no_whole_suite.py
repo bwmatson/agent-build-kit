@@ -9,13 +9,17 @@ from pathlib import Path
 import pytest
 
 from agent_build_kit import profiles
-from agent_build_kit.config import AgentPurpose, AgentScope
+from agent_build_kit.config import AgentCommand, AgentPurpose, AgentScope
 from agent_build_kit.pipeline.agent_commands import commands_note
 from tests.agent_command_fakes import command, repo_of
 
 
+def provided(name: str) -> tuple[AgentCommand, ...]:
+    return getattr(profiles.get(name), "agent_commands", ())
+
+
 def kinds(name: str) -> set[tuple[AgentPurpose, AgentScope]]:
-    return {(item.purpose, item.scope) for item in profiles.get(name).agent_commands}
+    return {(item.purpose, item.scope) for item in provided(name)}
 
 
 @pytest.mark.parametrize("name", ["python-uv", "node-npm"])
@@ -35,7 +39,7 @@ def test_python_uv_keeps_its_whole_repo_checks() -> None:
 
 
 def test_node_npm_keeps_its_lint_format_and_type_checks() -> None:
-    commands = {item.purpose for item in profiles.get("node-npm").agent_commands}
+    commands = {item.purpose for item in provided("node-npm")}
 
     assert {AgentPurpose.LINT, AgentPurpose.FORMAT, AgentPurpose.CHECK} <= commands
 

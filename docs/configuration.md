@@ -614,6 +614,11 @@ repos:                          # ordered: deploy order is derived from
                                 # arguments, `{path}` there exactly when the scope
                                 # is not `whole`. null follows the toolchain
                                 # profiles; a list, `[]` included, replaces them.
+                                # The profiles' defaults name the tests of one
+                                # file and one test id and the whole-repo lint,
+                                # format and type checks, and no command that runs
+                                # the whole suite, which the pipeline runs: name
+                                # one here to give agents one.
                                 # Each must match the build allow-list (the tool
                                 # list the build starts with) or the load fails
     changelog: CHANGELOG.md     # where the repo keeps its changelog. Set, the

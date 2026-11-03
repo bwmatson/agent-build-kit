@@ -1508,6 +1508,15 @@ approved.
   clean move and in the run that confirms a group already built, and runs no fix agent, counts no
   fix round and saves no feedback. `abk requeue` runs it again. The restack's re-test is not held
   by it and raises its error as before.
+- **A build agent runs its own tests.** The pipeline runs the whole suite, in every unit, with the
+  data and the machine it needs, and a fix agent that ran it again took 39 to 56 minutes, changed
+  nothing and failed its unit. The profile defaults for the commands an agent may run name the
+  tests of one file and one test id and the whole-repo lint, format and type checks, and no
+  whole-suite test command (`repos.<name>.agent_commands` names one for a repo that wants it). The
+  checks prompt, its continuation, the sentences that tell the agent to rerun the checks and the
+  output convention tell it to run the failing tests and the tests it changed, by file or test id,
+  and say that the pipeline runs the whole suite and that a test that starts a local server on
+  127.0.0.1 cannot pass inside the agent's sandbox, so its failure there is not a defect.
 - **A test time limit.** `tests/time_limit.py` fails a test that runs past
   its limit from a timer thread, in setup, call and teardown alike: `--test-time-limit` (sixty
   seconds) for a test without the `local_stack` marker, `--e2e-test-time-limit` (thirty

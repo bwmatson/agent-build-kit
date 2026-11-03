@@ -38,7 +38,7 @@ def test_the_note_of_each_built_in_profile_is_under_the_bound(tmp_path: Path, na
 def test_a_node_repo_lists_its_own_commands(tmp_path: Path) -> None:
     note = commands_note(repo_of(tmp_path, profile="node-npm"))
 
-    assert "npx vitest run\n" in note
+    assert "npx vitest run\n" not in note
     assert "npx vitest run <path>" in note
     assert "uv run" not in note
 
