@@ -18,7 +18,9 @@ TIMED_OUT_EXIT = 124
 # The line a run ended at its limit adds to its stderr, and the line that reads it back.
 TIMED_OUT_NOTE = "unit-test command timed out after {limit:g} seconds and was aborted"
 _TIMED_OUT_LINE = re.compile(
-    r"^[ \t]*" + re.escape(TIMED_OUT_NOTE).replace(r"\{limit:g\}", r"(?P<limit>[0-9.]+)") + r"$",
+    r"^[ \t]*"
+    + re.escape(TIMED_OUT_NOTE).replace(r"\{limit:g\}", r"(?P<limit>[0-9.eE+-]+)")
+    + r"$",
     re.MULTILINE,
 )
 # How long to wait for the output of a killed group before giving up on a pipe that a

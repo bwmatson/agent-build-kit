@@ -19,8 +19,14 @@ from tests.graph.test_fresh_base_builds import Moving
 from tests.graph.test_remaining_paths import fresh
 
 OLD_BASE = "old-base-sha"
-TIMED_OUT = "unit-test command timed out after 5400 seconds and was aborted\n"
-PARTIAL = f"FAILED tests/test_widget.py::test_renders_the_label\n{TIMED_OUT}"
+NOTE = "unit-test command timed out after 5400 seconds and was aborted"
+# What the runner hands back: the command and its exit status, the run's own output, the note last.
+TIMED_OUT = (
+    f"$ uv run pytest -n 2 -q (exit 124)\n...... [ 41%]\nFatal Python error: Aborted\n\n{NOTE}\n"
+)
+PARTIAL = (
+    f"$ uv run pytest (exit 124)\nFAILED tests/test_widget.py::test_renders_the_label\n\n{NOTE}\n"
+)
 
 
 def held_for_a_person(recorder: Any, unit_id: str = UNIT) -> None:
@@ -53,6 +59,19 @@ def test_a_run_that_failed_tests_and_then_reached_the_limit_is_a_timeout_too(
 
     assert outcome.status == RunStatus.HELD
     assert "claude:fix_checks" not in recorder.events
+
+
+def test_a_timeout_after_a_fix_round_clears_the_failure_that_round_answered(
+    tmp_path: Path,
+) -> None:
+    recorder = fresh(tmp_path)
+    recorder.unit_test_results = [(False, FAILING), (False, TIMED_OUT)]
+
+    outcome = build(tmp_path, recorder)
+
+    assert outcome.status == RunStatus.HELD
+    assert recorder.events.count("claude:fix_checks") == 1
+    assert recorder.store.get(unit().id).feedback == "", "a requeue must not rework it"
 
 
 def test_a_failure_before_the_limit_is_saved_and_fixed_as_before(tmp_path: Path) -> None:

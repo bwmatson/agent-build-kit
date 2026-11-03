@@ -1084,7 +1084,9 @@ class BuildPath:
             f"{stage} reached its {limit:g} s time limit: the machine was busy or a test hung, "
             "so a person judges it — `abk requeue` runs it again"
         )
-        self.say(note)
+        # A failure saved by an earlier round stays until a pass clears it, and a requeue would
+        # read it as feedback to rework: the held unit starts its checks again with none.
+        self.runner.store.set_feedback(self.unit.id, "")
         return self.hold(HELD, note, note, cause=Cause.NEEDS_HUMAN)
 
     def tree(self) -> Path:
