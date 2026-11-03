@@ -108,7 +108,8 @@ def test_installing_enables_the_timers_and_not_the_services(
 
     assert code == 0
     enabled = [c[-1] for c in calls if "enable" in c]
-    assert enabled == [n for n in timers.unit_names(inst.root) if n.endswith(".timer")]
+    scheduled = (".timer", ".path")
+    assert enabled == [n for n in timers.unit_names(inst.root) if n.endswith(scheduled)]
     assert not any(name.endswith(".service") for name in enabled)
     assert ["systemctl", "--user", "daemon-reload"] in calls
 

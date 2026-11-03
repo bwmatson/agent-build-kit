@@ -1,0 +1,8 @@
+# Starts the tick service; the tick itself takes no more than its own lock allows.
+[Unit]
+Description=abk: wake a tick
+
+[Service]
+Type=oneshot
+WorkingDirectory={planning_dir}
+ExecStart=/usr/bin/env systemctl --user start --no-block {tick_unit}

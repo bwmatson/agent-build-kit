@@ -8,13 +8,20 @@ from typing import Any
 
 from agent_build_kit.cli.pipeline import branch_is_held
 from agent_build_kit.installation import Installation
-from agent_build_kit.pipeline import attach
+from agent_build_kit.pipeline import attach, wake
 from agent_build_kit.pipeline.unit_store import Cause, UnitStore
 from agent_build_kit.pipeline.units import HELD, RUNNING
 from agent_build_kit.pipeline.wiring import CommitRejected
 
 
 def cmd_attach_release(args: argparse.Namespace, inst: Installation) -> int:
+    """Release the unit's lease as `release_unit` does, then wake the dispatcher."""
+    code = release_unit(args, inst)
+    wake.touch(inst.state_dir)
+    return code
+
+
+def release_unit(args: argparse.Namespace, inst: Installation) -> int:
     """Commit (`--commit MESSAGE`) or discard (`--discard`) the unit's uncommitted changes and
     release its lease in one operation; refuse a dirty tree given neither."""
     units = {u.id: u for u in UnitStore(inst.state_dir / "units.json").all()}

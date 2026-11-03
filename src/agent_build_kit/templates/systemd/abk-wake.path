@@ -1,0 +1,10 @@
+# Starts abk-wake.service when the wake file changes: a finished worker, a requeue, an approval or
+# a released chat touches it, so the next tick starts at once and not at the next timer.
+[Unit]
+Description=abk: start a tick when work is waiting
+
+[Path]
+PathChanged={wake_file}
+
+[Install]
+WantedBy=default.target

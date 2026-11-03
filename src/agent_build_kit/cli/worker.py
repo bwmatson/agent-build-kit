@@ -8,7 +8,7 @@ from typing import Any
 from agent_build_kit import telemetry
 from agent_build_kit.cli.pipeline import build_unit, store_for
 from agent_build_kit.installation import Installation
-from agent_build_kit.pipeline.snapshots import WAKE
+from agent_build_kit.pipeline import wake
 
 
 def cmd_worker_build(args: argparse.Namespace, inst: Installation) -> int:
@@ -29,7 +29,7 @@ def cmd_worker_build(args: argparse.Namespace, inst: Installation) -> int:
             return 0
         build_unit(inst, unit, store=store, from_snapshot=True)
     finally:
-        (inst.state_dir / WAKE).touch()
+        wake.touch(inst.state_dir)
         # A worker is a short-lived process: what it recorded would be lost at exit.
         telemetry.shutdown()
     return 0

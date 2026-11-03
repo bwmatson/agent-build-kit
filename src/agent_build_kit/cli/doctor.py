@@ -111,6 +111,7 @@ from agent_build_kit.pipeline.planning_view import (
 from agent_build_kit.pipeline.shell import git, git_out, is_ignored, is_tracked, tracked_toplevel
 from agent_build_kit.pipeline.temp_sweep import temp_size
 from agent_build_kit.pipeline.usage_guard import gate_result
+from agent_build_kit.pipeline.wake import WAKE
 from agent_build_kit.pipeline.workspaces import worktree_entries, worktree_key
 from agent_build_kit.profiles.base import ProfileUnsupported
 from agent_build_kit.redaction import MIN_LENGTH
@@ -810,7 +811,12 @@ def _timers(inst: Installation, run: Run, units: Path | None, which: Which) -> l
     somebody did try to schedule it and it is not working.
     """
     where = units or timers.user_unit_dir()
-    state = timers.report(inst.root, dest=where, tool_dirs=timers.tool_dirs(inst, which=which))
+    state = timers.report(
+        inst.root,
+        dest=where,
+        tool_dirs=timers.tool_dirs(inst, which=which),
+        wake_file=inst.state_dir / WAKE,
+    )
     checks: list[Check] = []
     enabled = False
 
