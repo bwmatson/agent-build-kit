@@ -106,9 +106,7 @@ def test_the_prompt_forbids_running_the_listed_tests_and_the_fixed_tools_hold_no
     # (spec: regression-agent), a test-purpose command of the python-uv profile here, and nothing
     # that runs any other test.
     assert request.allowed_tools.startswith(TOOLS)
-    assert request.allowed_tools.removeprefix(TOOLS).strip() == (
-        "Bash(uv run pytest -q*) Bash(uv run pytest -q *)"
-    )
+    assert request.allowed_tools.removeprefix(TOOLS).strip() == ("Bash(uv run pytest -q *)")
     assert request.policy is not None and request.policy.sandbox is not None
     sandbox = request.policy.sandbox
     assert request.planning_change_dir is not None

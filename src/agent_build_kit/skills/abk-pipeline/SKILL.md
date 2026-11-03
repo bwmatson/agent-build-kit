@@ -403,6 +403,15 @@ in `abk.yaml` when that replaces them, and each must match the build allow-list.
 A continued session already holds the full prompt and is not told again. A repo
 with no commands gets no section; `abk doctor` reports what each repo names.
 
+The defaults name the tests of one file and one test id and the whole-repo lint, format and
+type checks, and no command that runs the whole suite. The checks prompt and its
+continuation, the sentences that tell an agent to rerun the checks and the output convention
+tell it to run the failing tests and the tests it changed, by file or test id, say that the
+pipeline runs the whole suite, and say that a test that starts a local server on 127.0.0.1
+cannot pass inside the agent's sandbox, so its failure there is not a defect. An agent log
+that shows a whole-suite `pytest` run means the repo names one in `agent_commands` or the
+agent took it from the failure text.
+
 ### Labels on the pull request
 
 Two families. The `agent-` labels are instructions a person sets:

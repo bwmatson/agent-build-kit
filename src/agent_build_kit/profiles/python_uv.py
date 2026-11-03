@@ -268,11 +268,15 @@ class PythonUvProfile:
         "Bash(pre-commit *)"
     )
     agent_commands: tuple[AgentCommand, ...] = (
-        AgentCommand(purpose=AgentPurpose.TEST, command=["uv", "run", "pytest", "-q"]),
         AgentCommand(
             purpose=AgentPurpose.TEST,
             command=["uv", "run", "pytest", "-q", "{path}"],
             scope=AgentScope.FILE,
+        ),
+        AgentCommand(
+            purpose=AgentPurpose.TEST,
+            command=["uv", "run", "pytest", "-q", "{path}"],
+            scope=AgentScope.NODE_ID,
         ),
         AgentCommand(
             purpose=AgentPurpose.CHECK, command=["uv", "run", "pre-commit", "run", "--all-files"]

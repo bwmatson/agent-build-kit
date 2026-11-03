@@ -74,7 +74,8 @@ def test_a_python_repo_gets_its_test_commands_and_no_tool_for_changing_dependenc
 ) -> None:
     tools = request_of(installation, tmp_path).allowed_tools
 
-    assert "Bash(uv run pytest -q*)" in tools and "Bash(uv run pytest -q *)" in tools
+    assert "Bash(uv run pytest -q *)" in tools
+    assert "Bash(uv run pytest -q*)" not in tools, "no command for the whole suite"
     for other in ("uv add", "uv remove", "uv lock", "uv sync", "pre-commit"):
         assert other not in tools
 
@@ -88,7 +89,8 @@ def test_a_node_shaped_repo_gets_its_test_commands_and_not_every_npm_command(
 
     tools = request_of(node, tmp_path).allowed_tools
 
-    assert "Bash(npx vitest run*)" in tools and "Bash(npx vitest run *)" in tools
+    assert "Bash(npx vitest run *)" in tools
+    assert "Bash(npx vitest run*)" not in tools, "no command for the whole suite"
     for other in ("npm *", "npx *"):
         assert other not in tools
     for tool in (*READ_TOOLS, *HISTORY_TOOLS):

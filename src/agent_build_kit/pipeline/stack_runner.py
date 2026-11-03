@@ -423,7 +423,8 @@ If a change cannot be made because your environment refuses it — a file Claude
 Code protects, a permission you do not have — do not work around it. Mark that
 point `BLOCKED:` in your account, with the exact change a person should make.
 
-Run linting, formatting, types and the tests before you finish.
+Run linting, formatting and types, and the tests you changed, by file or test id, before
+you finish; the pipeline runs the whole suite.
 """
 
 
@@ -483,16 +484,24 @@ of the checks does not find them. {rerun} Fix the cause, not the report: do not 
 rule, loosen a type to `Any`, or skip a test to make a check pass unless the
 rule itself is wrong for this code, and then say so.
 
-Run linting, formatting, types and the tests before you finish, and finish only
-when all of them pass. Beyond fixing the checks, keep the change to what the
-task groups ask for.
+Before you finish, run linting, formatting and types, and the failing tests and
+the tests you changed, by file or test id, and finish when those pass. The
+pipeline runs the whole suite and reads its result, so do not run it yourself.
+A unit test that starts a local server on 127.0.0.1 cannot pass inside your
+sandbox (its requests are refused with a 403 or a permission error): its failure
+there is not a defect, and the pipeline runs it outside the sandbox; this does
+not cover the live tests of an e2e-test unit. Beyond fixing the checks, keep the
+change to what the task groups ask for.
 {commands}The change's files are read-only for you: do not tick boxes in its tasks.md
 or edit anything under {change_dir}. The pipeline records a task as done once
 the unit has passed review, unit-test and been pushed.
 """
     + REUSE_NOTE
     + INSTALL_NOTE,
-    unit_test="The output may be cut short; run the checks\nyourself to see all of it.",
+    unit_test=(
+        "The output may be cut short; run the failing tests yourself,\n"
+        "by file or test id, to see all of it."
+    ),
 )
 
 
@@ -822,7 +831,8 @@ The tests and implementation are already here and were green when this branch
 was pushed, so this is an edit to existing work, not a fresh start. Change a
 test only where the feedback is about the test itself.
 
-Run linting, formatting, types and the tests before you finish.
+Run linting, formatting and types, and the tests you changed, by file or test id, before
+you finish; the pipeline runs the whole suite.
 
 Do not post to GitHub yourself. Finish with JSON and nothing after it; the
 pipeline posts it once your work is pushed, so it can describe the code as the
@@ -879,7 +889,8 @@ those tests require. Do not weaken or delete a test to make it pass. If a stub
 the tests added duplicates existing code, delete the stub and repoint the test at
 the existing function with the same assertions; that is not weakening a test, and
 your summary says so. Run
-linting, formatting, types and the tests before you finish.
+linting, formatting and types, and the tests you changed, by file or test id, before you
+finish; the pipeline runs the whole suite.
 {commands}The change's files are read-only for you: do not tick boxes in its tasks.md
 or edit anything under {change_dir}. The pipeline records a task as done once
 the unit has passed review, unit-test and been pushed.
@@ -1005,7 +1016,8 @@ Only a test you do not carry over unchanged needs an entry in the JSON below —
 one carried over unchanged is counted as kept automatically.
 
 Write any test the tasks require that the previous work did not have. Run
-linting, formatting, types and the tests before you finish.
+linting, formatting and types, and the tests you changed, by file or test id, before you
+finish; the pipeline runs the whole suite.
 
 {commands}The change's files are read-only for you: do not tick boxes in its tasks.md
 or edit anything under {change_dir}.
@@ -1056,8 +1068,9 @@ The tests are written and committed. Now implement: make them pass, keeping the
 change to what those tests require. Do not weaken or delete a test to make it
 pass. If a stub the tests added duplicates existing code, delete the stub and
 repoint the test at the existing function with the same assertions; that is not
-weakening a test, and your summary says so. Run linting, formatting, types and
-the tests before you finish.
+weakening a test, and your summary says so. Run linting, formatting and types,
+and the tests you changed, by file or test id, before you finish; the pipeline runs the whole
+suite.
 """
     + CONTINUATION_READONLY
     + "{changelog}"
@@ -1077,13 +1090,18 @@ others of the same kind. Fix the cause, not the report: do not suppress a rule,
 loosen a type to `Any`, or skip a test to make a check pass unless the rule
 itself is wrong for this code, and then say so.
 
-Run linting, formatting, types and the tests again, and finish only when all of
-them pass.
+Run linting, formatting and types, and the failing tests and the tests you
+changed, by file or test id, and finish when those pass. The pipeline runs the
+whole suite and reads its result, so do not run it yourself. A unit test that
+starts a local server on 127.0.0.1 cannot pass inside your sandbox (its requests
+are refused with a 403 or a permission error): its failure there is not a defect,
+and the pipeline runs it outside the sandbox; this does not cover the live tests of
+an e2e-test unit.
 """
     + CONTINUATION_READONLY,
     unit_test=(
-        "Run the checks yourself first: the output above may be cut short, and what you\n"
-        "remember of the earlier work may not be exact."
+        "Run the failing tests yourself first, by file or test id: the output above may be\n"
+        "cut short, and what you remember of the earlier work may not be exact."
     ),
 )
 
@@ -1148,7 +1166,8 @@ Only a test you do not carry over unchanged needs an entry in the JSON below —
 one carried over unchanged is counted as kept automatically.
 
 Write any test the tasks require that the previous work did not have. Run
-linting, formatting, types and the tests before you finish.
+linting, formatting and types, and the tests you changed, by file or test id, before you
+finish; the pipeline runs the whole suite.
 
 """
     + CONTINUATION_READONLY

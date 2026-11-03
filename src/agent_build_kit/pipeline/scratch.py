@@ -38,10 +38,10 @@ that may print a lot, and its exit status, into `$ABK_OUT/`:
 Name the files by what produced them (`suite.log`, `lint.log`) and read them
 with `tail`, `grep` or `sed -n`. Never run a command again to see more of its
 output: the file already holds it. If the file lacks what you need, rerun with
-a narrower scope rather than the same command. Run the full suite once, after
-your last edit of the round; after a fix, run only the tests that failed. The
-folder is yours alone, ignored by git, and removed when your run ends, so
-nothing in it is part of your work.
+a narrower scope rather than the same command. Run the tests you changed and,
+after a fix, the tests that failed, by file or test id; the pipeline runs the
+whole suite, so do not. The folder is yours alone, ignored by git, and removed
+when your run ends, so nothing in it is part of your work.
 """
 
 

@@ -168,7 +168,6 @@ class NodeNpmProfile:
     supports_stubs = True
     allowed_tools: str = "Bash(npm *) Bash(npx *)"
     agent_commands: tuple[AgentCommand, ...] = (
-        AgentCommand(purpose=AgentPurpose.TEST, command=["npx", "vitest", "run"]),
         AgentCommand(
             purpose=AgentPurpose.TEST,
             command=["npx", "vitest", "run", "{path}"],

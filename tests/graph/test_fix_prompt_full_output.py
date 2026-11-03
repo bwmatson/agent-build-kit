@@ -123,7 +123,7 @@ def test_a_withheld_latest_run_names_no_file_even_when_an_older_one_was_readable
 
 
 @pytest.mark.parametrize("resumes", [False, True], ids=["prompt", "continuation"])
-def test_a_unit_test_failure_keeps_the_instruction_to_run_the_checks_yourself(
+def test_a_unit_test_failure_keeps_the_instruction_to_run_the_failing_tests_yourself(
     tmp_path: Path, resumes: bool
 ) -> None:
     template = CHECKS_CONTINUATION if resumes else CHECKS_PROMPT
@@ -131,9 +131,11 @@ def test_a_unit_test_failure_keeps_the_instruction_to_run_the_checks_yourself(
     prompt = reworked(tmp_path, UNIT_TEST_FEEDBACK, FeedbackSource.UNIT_TEST, resumes=resumes)
 
     old = (
-        "Run the checks yourself first: the output above may be cut short"
+        "Run the failing tests yourself first, by file or test id: "
+        "the output above may be cut short"
         if resumes
-        else "The output may be cut short; run the checks yourself to see all of it."
+        else "The output may be cut short; run the failing tests yourself, "
+        "by file or test id, to see all of it."
     )
     assert old in " ".join(prompt.split())
     assert NO_RERUN not in prompt
