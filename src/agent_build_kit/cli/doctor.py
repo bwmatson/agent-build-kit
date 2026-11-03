@@ -1336,8 +1336,8 @@ def _unit_test_cap(inst: Installation) -> list[Check]:
             _warn(
                 UNIT_TEST_SLOTS,
                 f"global_limits.max_concurrent_unit_tests is {cap}, above "
-                f"project_limits.max_concurrent_stacks ({stacks}): more suites than the units "
-                "that can build in one project",
+                f"project_limits.max_concurrent_stacks ({stacks}): in one project that is more "
+                "suites than units can build; with several projects it may be intended",
                 "lower it in abk.local.yaml, or raise project_limits.max_concurrent_stacks",
             )
         ]
