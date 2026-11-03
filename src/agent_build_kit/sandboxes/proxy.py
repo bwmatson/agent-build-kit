@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import ipaddress
 import select
 import socket
 import socketserver
@@ -26,6 +27,30 @@ def host_allowed(host: str, patterns: Sequence[str]) -> bool:
         elif name == pattern:
             return True
     return False
+
+
+# What a refused loopback host is told: the sandbox confines connections to this proxy, so a local
+# server a test starts cannot be reached from inside it, and the pipeline runs that test outside.
+_LOOPBACK_REFUSAL = (
+    "sandbox: {host} is a local address and is not reachable from the sandbox. "
+    "A test that starts a local server on it cannot pass here; the pipeline runs that test "
+    "outside the sandbox, so its failure here is not a defect\n"
+)
+
+
+def _is_loopback(host: str) -> bool:
+    """Whether `host` is `localhost` (or a name under it) or a loopback address (`127.0.0.0/8`,
+    `::1`, and an IPv4 loopback address written as an IPv4-mapped IPv6 one)."""
+    name = host.lower().rstrip(".")
+    if name == "localhost" or name.endswith(".localhost"):
+        return True
+    try:
+        address = ipaddress.ip_address(name)
+    except ValueError:
+        return False
+    if isinstance(address, ipaddress.IPv6Address) and address.ipv4_mapped is not None:
+        address = address.ipv4_mapped
+    return address.is_loopback
 
 
 def _split_target(target: str, default_port: int) -> tuple[str, int]:
@@ -75,6 +100,9 @@ class _Handler(socketserver.StreamRequestHandler):
             # credential in a URL among it, in a log.
             if host:
                 self._report_refused(host, port)
+            if _is_loopback(host):
+                self._answer(403, _LOOPBACK_REFUSAL.format(host=host))
+                return
             self._answer(403, f"sandbox: the host {host or target} is not on the allowed list\n")
             return
         try:
