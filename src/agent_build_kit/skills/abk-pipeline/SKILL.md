@@ -414,8 +414,8 @@ agent took it from the failure text.
 
 The python-uv defaults also list a command for the tests the agent's own edits affect (scope
 `affected`: `uv run --with pytest-testmon pytest -q --testmon-forceselect --testmon-env=ctrace`),
-with the unit's selection data file and the coverage core set in the agent's environment. No
-prompt mentions it. The data is written by the unit's first full run: until then the command
+with a copy of the unit's selection data (`.abk/affected-agent`) and the coverage core set in the
+agent's environment, so its runs do not move the pipeline's own data. No prompt mentions it. The data is written by the unit's first full run: until then the command
 selects nothing and runs the whole suite, so a whole-suite `pytest` in an agent log before the
 unit's first full run has finished may be this command. A repo with declared projects, or with
 another profile, gets neither the command nor the variables, and the regression agent is not

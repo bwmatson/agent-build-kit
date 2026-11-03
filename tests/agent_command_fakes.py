@@ -31,13 +31,6 @@ class Silent(PythonUvProfile):
     agent_commands = ()
 
 
-class NoEnvironment(PythonUvProfile):
-    """A profile that names its own commands and no environment for the agent."""
-
-    name = "fake-no-environment"
-    agent_environment = None  # type: ignore[assignment]
-
-
 class Outside(PythonUvProfile):
     """A profile whose own command is outside its own `allowed_tools`."""
 

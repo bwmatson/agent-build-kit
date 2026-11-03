@@ -24,6 +24,7 @@ import logging
 import os
 import re
 import shlex
+import shutil
 import subprocess
 import time
 import uuid
@@ -170,7 +171,12 @@ from agent_build_kit.pipeline.run_log import (
     write_failure_bundle,
     write_rerun_evidence,
 )
-from agent_build_kit.pipeline.scratch import SELECTION_SEED, run_folder, selection_seed
+from agent_build_kit.pipeline.scratch import (
+    AGENT_SELECTION_SEED,
+    SELECTION_SEED,
+    run_folder,
+    selection_seed,
+)
 from agent_build_kit.pipeline.shell import changed_files, git, git_out, has_origin, porcelain
 from agent_build_kit.pipeline.stack_runner import FixResult, Restacked, UnitRunner, Worktree
 from agent_build_kit.pipeline.transcript import Transcript, TranscriptEvent, transcript_dir
@@ -215,6 +221,7 @@ from agent_build_kit.pipeline.vocabulary import effective_state
 from agent_build_kit.pipeline.workspaces import BranchBusy, prepare_detached, prepare_worktree
 from agent_build_kit.profiles.base import (
     TEMP_ROOT_VARIABLE,
+    AgentEnvironment,
     AppliesE2eSelection,
     AppliesFixers,
     ListsTestFiles,
@@ -513,13 +520,20 @@ def refused_git_read(line: str) -> str | None:
 
 def agent_environment(repo: RepoConfig | None, checkout: Path) -> dict[str, str]:
     """The variables a build agent's environment carries for its repo's profile: for python-uv
-    where the unit's selection data is (`checkout`'s `.abk/affected`, which asking makes no folder
-    for) and the coverage core. None for a repo with another profile, a profile that names none,
-    declared projects (each keeps its own data) or no repo."""
+    the agent's own copy of the unit's selection data (`checkout`'s `.abk/affected-agent`, copied
+    from `.abk/affected` when the pipeline has recorded it, so the agent's runs neither move the
+    pipeline's baseline nor leave data the pipeline would trust) and the coverage core. None for a
+    repo with another profile, a profile that names none, declared projects (each keeps its own
+    data) or no repo."""
     if repo is None or repo.projects:
         return {}
-    named = getattr(profiles.get(repo.profile), "agent_environment", None)
-    return named(checkout / SELECTION_SEED) if named is not None else {}
+    profile = profiles.get(repo.profile)
+    if not isinstance(profile, AgentEnvironment):
+        return {}
+    seed = checkout / SELECTION_SEED
+    if seed.is_file():
+        shutil.copyfile(seed, checkout / AGENT_SELECTION_SEED)
+    return profile.agent_environment(checkout / AGENT_SELECTION_SEED)
 
 
 def build_run(

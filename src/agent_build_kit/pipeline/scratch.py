@@ -20,9 +20,16 @@ from agent_build_kit.pipeline.shell import git_out
 
 SCRATCH = Path(".abk") / "out"
 EXCLUDE_LINE = ".abk/"
+# What git also excludes in a worktree: the data file pytest-testmon writes in the working folder
+# when a run has no `TESTMON_DATAFILE` (an agent command under a runtime that does not pass the
+# agent's environment to its terminals), which must not reach a commit.
+TESTMON_EXCLUDE_LINE = ".testmondata*"
 # Where a project keeps the data its affected-tests selection reads: under the folder git
 # excludes, beside the scratch folder and outside it, which a run's end empties.
 SELECTION_SEED = Path(".abk") / "affected"
+# The copy of it a build agent's affected-tests command reads and writes, so its runs do not move
+# the pipeline's baseline or leave data the pipeline's own selection would trust.
+AGENT_SELECTION_SEED = Path(".abk") / "affected-agent"
 
 # A file in a run's folder is cut to this much of its tail.
 MAX_BYTES = 5_000_000
@@ -86,7 +93,7 @@ def ensure_scratch(worktree: Path) -> None:
     exclude = Path(
         git_out(worktree, "rev-parse", "--path-format=absolute", "--git-path", "info/exclude")
     )
-    append_missing_lines(exclude, [EXCLUDE_LINE])
+    append_missing_lines(exclude, [EXCLUDE_LINE, TESTMON_EXCLUDE_LINE])
 
 
 def _marker(max_bytes: int) -> bytes:

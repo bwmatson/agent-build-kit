@@ -87,3 +87,15 @@ def test_no_prompt_mentions_the_affected_command_or_testmon(name: str) -> None:
 
 def test_the_output_convention_does_not_mention_testmon() -> None:
     assert "testmon" not in output_convention().lower()
+
+
+def test_a_whole_scope_still_refuses_a_path_and_names_the_scope() -> None:
+    with pytest.raises(ValidationError, match="not whole"):
+        AgentCommand.model_validate({"purpose": "test", "command": "uv run pytest {path}"})
+
+
+def test_the_affected_scope_names_itself_when_it_refuses_a_path() -> None:
+    with pytest.raises(ValidationError, match="not affected"):
+        AgentCommand.model_validate(
+            {"purpose": "test", "command": f"{AFFECTED} {{path}}", "scope": "affected"}
+        )

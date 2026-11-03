@@ -77,6 +77,17 @@ class AgentCommands(Protocol):
 
 
 @runtime_checkable
+class AgentEnvironment(Protocol):
+    """The optional hook a profile adds to name the variables a build agent's environment
+    carries for the commands it lists (the data file of its affected-tests command). A profile
+    without it counts as naming none."""
+
+    def agent_environment(self, seed: Path) -> dict[str, str]:
+        """The variables, given the file the agent's selection data is kept in."""
+        ...
+
+
+@runtime_checkable
 class CreatedFiles(Protocol):
     """The optional hook a profile adds to name the files its own commands create or
     rewrite in a worktree, such as a lock file the repository does not commit. A profile

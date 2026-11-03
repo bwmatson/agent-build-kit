@@ -1520,9 +1520,14 @@ approved.
   python-uv defaults also list a command for the tests the agent's own edits affect (scope
   `affected`, the pipeline's pytest-testmon selection) with the unit's selection data file and the
   coverage core set in the agent's environment, so the command starts with `uv run` and matches
-  the allow-list; no prompt mentions it. Until the unit's first full run has recorded the data the
-  selection runs the whole suite. A repo with declared projects gets neither the command nor the
-  variables, and the regression agent is not granted it.
+  the allow-list; no prompt mentions it. The data file the agent's command reads and writes is a
+  copy of the pipeline's (`.abk/affected-agent`, copied from `.abk/affected` at the start of each
+  step when the pipeline has recorded it), so an agent's runs neither move the pipeline's baseline
+  nor leave data its own selection would trust. Until the unit's first full run has recorded the
+  data the selection runs the whole suite. A repo with declared projects gets neither the command
+  nor the variables, the regression agent is not granted it, and a runtime that does not pass the
+  agent's environment to its terminals (ACP, in a confined step) runs it with no data file, so
+  testmon writes `.testmondata` in the worktree, which the worktree's local exclude hides from git.
 - **A test time limit.** `tests/time_limit.py` fails a test that runs past
   its limit from a timer thread, in setup, call and teardown alike: `--test-time-limit` (sixty
   seconds) for a test without the `local_stack` marker, `--e2e-test-time-limit` (thirty
