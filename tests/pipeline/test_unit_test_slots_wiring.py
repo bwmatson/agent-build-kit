@@ -11,7 +11,7 @@ import json
 import subprocess
 import threading
 from contextlib import ExitStack
-from datetime import timedelta
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import cast
 
@@ -61,7 +61,13 @@ def rows(ledger: Path) -> list[dict]:
 
 
 def unit_test_of(
-    scratch: Path, machine: BundleMachine, ledger: Path, installation: Installation, log: list[str]
+    scratch: Path,
+    machine: BundleMachine,
+    ledger: Path,
+    installation: Installation,
+    log: list[str],
+    *,
+    real_clock: bool = False,
 ):
     ticks = iter(START + timedelta(seconds=10 * n) for n in range(100))
     return build_unit_test(
@@ -72,7 +78,7 @@ def unit_test_of(
         test_runs=ledger,
         installation=installation,
         log=log.append,
-        now=lambda: next(ticks),
+        now=(lambda: datetime.now(UTC)) if real_clock else (lambda: next(ticks)),
         machine=lambda: {"load": [1.0, 1.0, 1.0]},
     )
 
@@ -103,7 +109,7 @@ def test_a_run_waits_for_a_slot_and_starts_its_command_only_when_one_is_free(
     assert machine.commands, "the command ran once a slot was free"
 
 
-def test_the_ledger_row_has_the_wait_apart_from_the_run_time(
+def test_the_ledger_row_has_the_wait_apart_from_the_run_and_the_run_starts_after_the_wait(
     scratch: Path, tmp_path: Path, installation: Installation
 ) -> None:
     limited(1)
@@ -112,17 +118,22 @@ def test_the_ledger_row_has_the_wait_apart_from_the_run_time(
     holder.enter_context(unit_test_slot(installation.locks_dir, 1, holder="other/1"))
     thread = started(
         lambda: unit_test_of(
-            scratch, BundleMachine(scratch, reruns=[], passing=True), ledger, installation, log
+            scratch,
+            BundleMachine(scratch, reruns=[], passing=True),
+            ledger,
+            installation,
+            log,
+            real_clock=True,
         )(cwd=scratch, base="main")
     )
     wait_for(lambda: any("waiting" in line for line in log), what="the wait")
+    released = datetime.now(UTC)
     holder.close()
     thread.join(timeout=20)
 
     (row,) = rows(ledger)
     assert row["wait_seconds"] > 0
-    assert row["seconds"] == 10.0, "the run's own time, from the clock after the permit"
-    assert row["started"] == START.isoformat()
+    assert datetime.fromisoformat(row["started"]) >= released, "the clock starts after the permit"
 
 
 def test_a_run_that_waited_for_nothing_has_zero_wait_in_its_row(
