@@ -9,6 +9,7 @@ the script exiting rather than by hanging the suite.
 
 from __future__ import annotations
 
+import subprocess
 import sys
 from pathlib import Path
 
@@ -116,26 +117,45 @@ def test_a_command_that_finishes_in_time_is_not_signalled(tmp_path: Path) -> Non
     assert "SIGNALLED" not in message
 
 
-# The script leaves a child in a session of its own that holds the output pipes until
-# the file named by argv[1] exists, then ignores the abort itself.
+# The child the next script leaves in a session of its own: it holds the output pipes until the
+# file named by argv[1] exists, the folder that holds the file is gone, or argv[2] seconds have
+# passed. pytest removes a passed test's folder at teardown, before the child looks for the file
+# again, so the folder going is how a passing run ends it; the deadline ends one that was killed.
+DETACHED_CHILD = """\
+import os, sys, threading, time
+
+release, seconds = sys.argv[1], float(sys.argv[2])
+folder = os.path.dirname(release)
+deadline = time.monotonic() + seconds
+while os.path.isdir(folder) and not os.path.exists(release) and time.monotonic() < deadline:
+    threading.Event().wait(0.05)
+"""
+
+# The parent waits this long itself, and the child must outlast it and the test's assertions.
+DETACHED_PARENT_SECONDS = 30
+DETACHED_CHILD_SECONDS = 60
+
+# The script ignores the abort, prints, and leaves the detached child holding the output pipes.
 DETACHED_HOLDER = """\
 import signal, subprocess, sys, threading
 
 signal.signal(signal.SIGABRT, signal.SIG_IGN)
-child = (
-    "import os, sys, threading\\n"
-    "while not os.path.exists(sys.argv[1]):\\n"
-    "    threading.Event().wait(0.05)\\n"
+subprocess.Popen(
+    [sys.executable, "-c", {child!r}, {release!r}, {seconds!r}], start_new_session=True
 )
-subprocess.Popen([sys.executable, "-c", child, sys.argv[1]], start_new_session=True)
 print("12 tests passed", flush=True)
-threading.Event().wait(30)
+threading.Event().wait({wait})
 """
 
 
 def test_a_detached_descendant_holding_the_output_does_not_hold_unit_test(tmp_path: Path) -> None:
     release = tmp_path / "release"
-    script = DETACHED_HOLDER.replace("sys.argv[1]", repr(str(release)))
+    script = DETACHED_HOLDER.format(
+        child=DETACHED_CHILD,
+        release=str(release),
+        seconds=str(DETACHED_CHILD_SECONDS),
+        wait=DETACHED_PARENT_SECONDS,
+    )
     try:
         passed, message = unit_test(
             tmp_path, script, unit_test_command_seconds=1, unit_test_abort_grace_seconds=1
@@ -146,3 +166,36 @@ def test_a_detached_descendant_holding_the_output_does_not_hold_unit_test(tmp_pa
     assert not passed
     assert "1 seconds" in message
     assert "12 tests passed" in message
+
+
+def run_detached_child(release: Path, seconds: float) -> int:
+    """Run the detached child's script on its own, bounded so a child that never ends fails here."""
+    ran = subprocess.run(
+        [sys.executable, "-c", DETACHED_CHILD, str(release), str(seconds)], timeout=10, check=False
+    )
+    return ran.returncode
+
+
+def test_the_detached_child_ends_at_its_deadline_when_nothing_releases_it(tmp_path: Path) -> None:
+    assert run_detached_child(tmp_path / "never_written", 1) == 0
+
+
+def test_the_detached_child_ends_at_once_when_it_is_released(tmp_path: Path) -> None:
+    release = tmp_path / "release"
+    release.write_text("")
+
+    assert run_detached_child(release, DETACHED_CHILD_SECONDS) == 0, (
+        "ended by the file, not the deadline"
+    )
+
+
+def test_the_detached_child_ends_at_once_when_its_folder_is_gone(tmp_path: Path) -> None:
+    gone = tmp_path / "removed_with_the_test" / "release"
+
+    assert run_detached_child(gone, DETACHED_CHILD_SECONDS) == 0, (
+        "ended by the folder, not the deadline"
+    )
+
+
+def test_the_detached_child_outlives_the_test_that_starts_it() -> None:
+    assert DETACHED_CHILD_SECONDS > DETACHED_PARENT_SECONDS
