@@ -36,7 +36,6 @@ SOCKET_PROVIDERS: frozenset[str] = frozenset({"http.client", "tests.serve.socket
 # `integration`), and nothing is added.
 ALLOWLIST: frozenset[str] = frozenset(
     {
-        "test_chat_agent_environment.py",
         "test_chat_commit.py",
         "test_chat_editing.py",
         "test_chat_guards.py",

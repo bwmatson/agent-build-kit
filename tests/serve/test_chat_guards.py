@@ -45,6 +45,7 @@ from tests.serve.socket_api import (
     socket_api,  # noqa: F401 — a page closing is the subject: a socket
 )
 from tests.serving import seed_pipeline
+from tests.time_limit import LOADED_TEST_TIME_LIMIT
 from tests.waiting import wait_for
 
 REVIEW = "/api/units/feature/2"
@@ -155,6 +156,7 @@ def test_two_tabs_cannot_both_continue_an_idle_claude_session(
     assert len(fake.calls) == 1
 
 
+@pytest.mark.time_limit(LOADED_TEST_TIME_LIMIT)
 def test_a_session_started_here_is_read_only_to_a_process_that_later_holds_it(
     pipeline: Installation, tmp_path: Path, api: httpx.Client
 ) -> None:
@@ -404,6 +406,7 @@ def test_a_turns_attachments_are_in_the_question_the_history_keeps(
 # --- a page that is not a unit's agent tab is a tab all the same --------------------------------
 
 
+@pytest.mark.time_limit(LOADED_TEST_TIME_LIMIT)
 def test_a_sessions_page_closing_returns_the_unit_its_turn_took(
     pipeline: Installation, tmp_path: Path, api: httpx.Client
 ) -> None:
@@ -428,6 +431,7 @@ def test_a_sessions_page_closing_returns_the_unit_its_turn_took(
     assert until(lambda: holder(pipeline) is None)
 
 
+@pytest.mark.time_limit(LOADED_TEST_TIME_LIMIT)
 def test_a_permission_request_on_a_session_of_no_unit_is_denied_when_its_page_closes(
     pipeline: Installation, tmp_path: Path, api: httpx.Client
 ) -> None:

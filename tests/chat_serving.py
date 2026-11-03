@@ -220,11 +220,15 @@ def events_of(response: Streamed) -> Iterator[dict[str, Any]]:
 
 
 @contextmanager
-def in_process_client(installation: Installation) -> Iterator[TestClient]:
+def in_process_client(
+    installation: Installation, *, agent_environment: dict[str, str] | None = None
+) -> Iterator[TestClient]:
     """A client calling the application over `installation` as a function call: no server,
-    no thread serving, no socket."""
+    no thread serving, no socket. `agent_environment` is the one the application starts its
+    agents in, None for the process's."""
     # A failing handler answers 500, as it does to a client of a server, not an exception.
-    with TestClient(create_app(installation), raise_server_exceptions=False) as client:
+    app = create_app(installation, agent_environment=agent_environment)
+    with TestClient(app, raise_server_exceptions=False) as client:
         yield client
 
 
