@@ -32,6 +32,10 @@ MACHINE_CHOICES = {
         "secret-name",
     ),
     "project_limits": ({"project_limits": {"max_concurrent_stacks": 7321}}, "7321"),
+    "global_limits.max_concurrent_unit_tests": (
+        {"global_limits": {"max_concurrent_unit_tests": 7321}},
+        "7321",
+    ),
     "runtimes.claude_code.accounts": (ACCOUNTS, "max_units_in_progress"),
     "tests.e2e_available": ({"tests": {"e2e_available": {"os": ["linux"]}}}, "linux"),
     "runtimes.acp.command": (
