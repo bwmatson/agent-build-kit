@@ -1567,6 +1567,12 @@ approved.
   run's ledger rows and the bundle's `machine.json`, home directories written as `~`) to the
   change's `design.md`, so the design stands on its own once the test passes. Runs are bounded by
   `global_limits.max_regression_runs_per_hour`, and many units failing on one test cost one run.
+  For a cause in test code the group names only test files, and a backticked name with a dot
+  (`threading.Event`, `collections.abc`) is read as a source path, so the prompt asks for a `Paths:`
+  line of the test files, the refusal of a group that is not `tests_only` names that line, and
+  before the check the kit writes the line itself for a group that names test files and otherwise
+  only such names (and says so in the log). A group that names any other path, has the line,
+  requires tests or is an `[e2e-test]` group is left as written.
 - **A pre-existing failure is recorded and fixed once.** A test the base run names as failed
   is appended to `<state_dir>/preexisting-failures.jsonl` (test, unit, command, first
   failure line, time, the base run's result and output, the `split` it failed in (`rest` or a

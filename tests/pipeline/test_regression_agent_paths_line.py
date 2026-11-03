@@ -29,10 +29,10 @@ from tests.regression_agent_support import (
 )
 
 # A task of a cause in test code that names the test file and two symbols, which the floor reads
-# as source paths.
+# as source paths (the last part of each is letters only, like a file suffix).
 WITH_SYMBOLS = (
-    "In `tests/test_widget.py`, set SIGINT to `signal.default_int_handler` for the test and "
-    "pair each call of `Recording.complete_json` with its page text."
+    "In `tests/test_widget.py`, import `Generator` from `collections.abc` and hold page 1 on a "
+    "`threading.Event` that page 2 sets."
 )
 WITH_A_SOURCE_FILE = f"{WITH_SYMBOLS} Read the label in `src/widget.py`."
 TEST_CODE = {"tasks": group_tasks(WITH_SYMBOLS), "proposal": proposal_for_test_code()}
@@ -81,11 +81,12 @@ def test_a_group_naming_the_test_file_and_symbols_gets_the_line_and_is_accepted(
 def test_the_line_the_kit_wrote_is_said_in_the_log(
     installation: Installation, tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    agent = Attempts(installation, next_fix_name(installation, TEST), TEST_CODE)
+    name = next_fix_name(installation, TEST)
+    agent = Attempts(installation, name, TEST_CODE)
 
     run(installation, tmp_path, agent.runtime)
 
-    assert f"group 1 gets {PATHS_LINE}" in capsys.readouterr().out
+    assert f"group 1 of {name} gets {PATHS_LINE}" in capsys.readouterr().out
 
 
 def test_a_group_that_also_names_a_source_file_is_left_as_written_and_refused_with_the_remedy(
