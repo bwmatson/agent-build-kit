@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import pytest
 
+from agent_build_kit.pipeline import stack_runner
 from agent_build_kit.pipeline.scratch import output_convention
 from agent_build_kit.pipeline.stack_runner import CHECKS_CONTINUATION, CHECKS_PROMPT
 from tests.prompt_text import flat
@@ -47,3 +48,26 @@ def test_the_output_convention_does_not_tell_the_agent_to_run_the_full_suite() -
 
     assert "run the full suite once" not in text
     assert "the pipeline runs the whole suite" in text
+
+
+BUILD_PROMPTS = [
+    "TESTS_PROMPT",
+    "IMPLEMENTATION_PROMPT",
+    "IMPLEMENTATION_CONTINUATION",
+    "REWORK_PROMPT",
+    "REVIEW_FEEDBACK_PROMPT",
+    "ADAPT_PROMPT",
+    "ADAPT_CONTINUATION",
+]
+
+
+@pytest.mark.parametrize("name", BUILD_PROMPTS)
+def test_no_build_prompt_tells_the_agent_to_run_the_tests_before_it_finishes(name: str) -> None:
+    text = flat(str(getattr(stack_runner, name))).lower()
+
+    assert "types and the tests before you finish" not in text
+
+
+@pytest.mark.parametrize("text", BOTH)
+def test_the_local_server_sentence_leaves_out_the_live_tests_of_an_e2e_unit(text: str) -> None:
+    assert "e2e-test unit" in text

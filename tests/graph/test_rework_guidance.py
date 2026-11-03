@@ -42,17 +42,17 @@ FIELDS: dict[str, Any] = dict(
     changelog="",
 )
 # The first 16 hex digits of the SHA-256 of each template rendered with `FIELDS` and no guidance:
-# as they were before guidance existed, then moved on purpose when the prompt's text changed
-# (`REWORK_PROMPT` and `REVIEW_FEEDBACK_PROMPT` for the note that the pipeline commits the work, and
-# the four prompts that carry the output convention for its tests-by-file-or-id wording, and
-# `CHECKS_PROMPT` and `CHECKS_CONTINUATION` for the same and the local-server sentence).
+# as they were before guidance existed, then moved on purpose when the prompt's text changed: the note
+# that the pipeline commits the work (`REWORK_PROMPT`, `REVIEW_FEEDBACK_PROMPT`), the output
+# convention and the finish line's tests-by-file-or-id wording (every template here), and the
+# local-server sentence (`CHECKS_PROMPT`, `CHECKS_CONTINUATION`).
 TEMPLATES = {
-    "CHECKS_PROMPT": (CHECKS_PROMPT, "ab7368de941841e7"),
-    "CHECKS_CONTINUATION": (CHECKS_CONTINUATION, "679745219b6d2d85"),
-    "REWORK_PROMPT": (REWORK_PROMPT, "af0f06b3c43ae7c9"),
-    "REWORK_CONTINUATION": (REWORK_CONTINUATION, "e8c0801d05a868e4"),
-    "REVIEW_FEEDBACK_PROMPT": (REVIEW_FEEDBACK_PROMPT, "fe4355937d913fa7"),
-    "REVIEW_FEEDBACK_CONTINUATION": (REVIEW_FEEDBACK_CONTINUATION, "437cbfe78c1665c0"),
+    "CHECKS_PROMPT": (CHECKS_PROMPT, "7503a10f4e579c7b"),
+    "CHECKS_CONTINUATION": (CHECKS_CONTINUATION, "99f524238fc27f52"),
+    "REWORK_PROMPT": (REWORK_PROMPT, "f6bfdb00a23b334a"),
+    "REWORK_CONTINUATION": (REWORK_CONTINUATION, "0bb826bddf700c15"),
+    "REVIEW_FEEDBACK_PROMPT": (REVIEW_FEEDBACK_PROMPT, "17f115ec8d614895"),
+    "REVIEW_FEEDBACK_CONTINUATION": (REVIEW_FEEDBACK_CONTINUATION, "55673cf6125cc43d"),
 }
 
 
