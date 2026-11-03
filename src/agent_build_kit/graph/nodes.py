@@ -1225,7 +1225,13 @@ class BuildPath:
                     resolver=self.restack_resolver(state),
                 )
                 restack_took = spans.clock.monotonic() - restack_started
-            except (AgentRateLimited, AgentInterrupted, NetworkUnavailable, ServiceUnavailable):
+            except (
+                AgentRateLimited,
+                AgentInterrupted,
+                LoginRejected,
+                NetworkUnavailable,
+                ServiceUnavailable,
+            ):
                 raise
             except BranchMoved as error:
                 # Another writer moved the branch twice while its conflict was resolved: left

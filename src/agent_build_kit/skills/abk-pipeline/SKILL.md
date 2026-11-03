@@ -283,8 +283,10 @@ login with the command that renews it (`claude auth login`, with the account's d
 account meanwhile; other accounts are not affected. A person signs in; within a round the
 pipeline sees the credentials change, runs the CLI's logged-in probe once and, when it passes,
 resumes the units at the step they were in. Nothing needs requeuing. A unit that failed on the
-rejection before this existed is set back to `planned` with the cause `login`, once. If the
-units stay paused after a login, the probe failed: read the round's line, and sign in again.
+rejection before this existed is requeued once while the login is still rejected (the requeue
+puts its thread right; with the login already renewed nothing is done, and a person requeues it).
+If the units stay paused after a login, the probe failed: read the round's line, and sign in
+again.
 
 ### `failed`
 

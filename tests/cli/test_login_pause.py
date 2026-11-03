@@ -214,24 +214,55 @@ def failed_on_the_login(store: UnitStore, unit_id: str) -> None:
     store.set_state(unit_id, FAILED, branch=f"spec/{unit_id}", note=EXPIRED_401)
 
 
-def test_a_unit_failed_on_the_rejection_is_paused_for_the_login_once(
-    tmp_path: Path, accounts: Accounts, clock: fake_clock.FakeClock
+def test_a_unit_failed_on_the_rejection_is_requeued_once_while_its_login_is_rejected(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    accounts: Accounts,
+    clock: fake_clock.FakeClock,
+    host: Host,
 ) -> None:
     inst, store = workspace(
-        tmp_path, [unit("old/1", "platform"), unit("other/1", "platform"), unit("app/1", "app")]
+        tmp_path,
+        [
+            unit("old/1", "platform"),
+            unit("other/1", "platform"),
+            unit("app/1", "app"),
+            unit("later/1", "platform"),
+        ],
     )
+    host.keep_in(inst.state_dir)
+    mark_rejected(inst)
     failed_on_the_login(store, "old/1")
     store.set_state("other/1", FAILED, branch="spec/other/1", note="RuntimeError: a test failed")
     store.set_state("app/1", FAILED, branch="spec/app/1", note=EXPIRED_401)
+    asked: list[tuple[str, str]] = []
+
+    def requeue(inst, unit_id, mode, **kwargs):  # the real one resumes the unit's thread
+        asked.append((unit_id, mode))
+        store.set_state(unit_id, PLANNED, note="requeued")
+        return 0
+
+    monkeypatch.setattr(cli, "requeue", requeue)
 
     first = cli.record_login_pauses(inst)
     second = cli.record_login_pauses(inst)
 
-    assert sorted(first) == ["app/1", "old/1"]
-    assert second == [], "once: it no longer matches"
-    old = store.get("old/1")
-    assert old.state != FAILED and old.cause is Cause.LOGIN
+    assert first == ["old/1"], "the personal account's; the default account's login is not rejected"
+    assert asked == [("old/1", "resume")], "through the requeue that puts the thread right"
+    assert second == [], "once: it is no longer failed"
     assert store.get("other/1").state == FAILED, "a failure that is not the login stays"
+    assert store.get("app/1").state == FAILED
+
+
+def test_nothing_is_requeued_when_the_login_is_not_rejected(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, accounts: Accounts, host: Host
+) -> None:
+    inst, store = workspace(tmp_path, [unit("old/1", "platform")])
+    host.keep_in(inst.state_dir)
+    failed_on_the_login(store, "old/1")
+    monkeypatch.setattr(cli, "requeue", lambda *a, **k: pytest.fail("not requeued"))
+
+    assert cli.record_login_pauses(inst) == []
 
 
 # --- admission ---------------------------------------------------------------------------

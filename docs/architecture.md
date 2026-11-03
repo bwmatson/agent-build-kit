@@ -840,7 +840,8 @@ credentials changed (a different `expiresAt` that is not past) runs the CLI's lo
 once: a pass clears the marker and the units resume under the normal limits, a failure keeps it
 for the new credentials so they are not probed again. The start decision admits no unit that has
 never started on the account meanwhile, and a unit that failed on the rejection before this
-existed is set back to `planned` with the cause login, once, so it meets the gate with the rest.
+existed is requeued once, through the normal requeue, while the account's login is still rejected,
+so it meets the gate with the rest. A login pause never pauses the whole account for usage.
 A run that is killed is resumed the same way, at the node it was in: nothing
 requeues it and nothing commits what it left.
 

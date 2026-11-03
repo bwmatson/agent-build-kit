@@ -2101,25 +2101,24 @@ def renew_logins(inst: Installation) -> list[str]:
 
 def record_login_pauses(inst: Installation) -> list[str]:
     """Units that failed on a rejected login before a login pause existed (the rejection's text
-    is in their failure) are paused for it, once: a unit that is no longer `failed` no longer
-    matches. They go back to `planned` on their branch, and their first agent step meets the
-    gate, which holds them until the login is renewed."""
+    is in their failure) are given another go, once, while their account's login is still
+    rejected: the requeue puts the unit's thread back where the failure stopped it, and its next
+    agent step meets the gate, which holds it until the login is renewed. A unit that is no
+    longer `failed` no longer matches. With no rejected login on the account nothing is done:
+    whoever requeues the unit decides."""
     store = store_for(inst)
-    paused: list[str] = []
+    revived: list[str] = []
     for unit in store.all():
         if unit.state != FAILED or unit.repo not in inst.config.repos:
             continue
         if not login_rejection(unit.note):
             continue
-        store.set_state(
-            unit.id,
-            PLANNED,
-            cause=Cause.LOGIN,
-            note="paused for the login: it failed with the login rejected",
-        )
-        paused.append(unit.id)
-        log(f"{unit.id}: failed on a rejected login, paused for it")
-    return paused
+        if not rejected_login_note(claude_account.for_repo(inst.config, unit.repo)):
+            continue
+        if requeue(inst, unit.id, "resume", say=lambda text, **_: log(text), by=REQUEUE_BY) == 0:
+            revived.append(unit.id)
+            log(f"{unit.id}: failed on a rejected login, resumed to wait for it")
+    return revived
 
 
 def _label_of(account: claude_account.Account | None) -> str | None:
@@ -7097,6 +7096,10 @@ def _build_unit(
         end(f"{outcome.status} — {outcome.detail}", outcome.status)
         if outcome.status is UnitOutcome.PAUSED:
             forget_if_not_begun()
+            if store.get(unit.id).cause is Cause.LOGIN:
+                # A login pause ends when the login is renewed, not at a usage reset: no pause of
+                # the whole account for usage, and no usage metric.
+                return True
             if on_pause is not None:
                 on_pause(outcome.pause.until if outcome.pause else None)
             emit_metric(

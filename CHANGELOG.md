@@ -3415,7 +3415,8 @@
   that has never started is admitted on the account; and when a person signs in, a round finds
   the credentials changed, runs the CLI's logged-in probe once and resumes the units (no requeue,
   and the same credentials are never probed twice). A unit that failed on the rejection earlier
-  is paused for it, once. `abk status` and `abk explain` show the paused units.
+  is requeued once while the login is still rejected, so it waits with the rest. `abk status`
+  and `abk explain` show the paused units.
 
 ## 0.1.0 — 2026-09-28
 
