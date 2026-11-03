@@ -26,7 +26,7 @@ def test_the_configuration_lists_the_setting_and_puts_it_in_the_local_file() -> 
 
 def test_the_config_skill_lists_it_among_what_the_local_file_holds() -> None:
     assert "global_limits.max_concurrent_unit_tests" in CONFIG_SKILL
-    assert re.search(r"abk\.local\.yaml\*\*:[^-]*max_concurrent_unit_tests", CONFIG_SKILL)
+    assert re.search(r"abk\.local\.yaml`?\*\*:[^-]*max_concurrent_unit_tests", CONFIG_SKILL)
 
 
 def test_the_doctor_table_lists_the_three_results() -> None:

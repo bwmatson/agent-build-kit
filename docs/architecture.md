@@ -1528,6 +1528,16 @@ approved.
   nor the variables, the regression agent is not granted it, and a runtime that does not pass the
   agent's environment to its terminals (ACP, in a confined step) runs it with no data file, so
   testmon writes `.testmondata` in the worktree, which the worktree's local exclude hides from git.
+- **A limit on whole-suite runs.** `global_limits.max_concurrent_unit_tests` (null, no limit, by
+  default; a machine setting for `abk.local.yaml`) limits how many whole-suite unit-test runs execute
+  at once across every unit and repo of the planning repo. The permit is one of N lock files in the
+  planning repo's lock folder, which the kernel frees when its process ends, and it is held for the
+  whole unit-test (the full, selected and moved-base runs, the repeat check and the isolation
+  reruns; the reproduce run takes its own). A run that finds every slot taken waits for a free slot
+  outside the command's time limit, which starts with the command, says so in the unit's log and
+  records the wait as a `test_slot` span and as `wait_seconds` in its row of `runs/test-runs.jsonl`
+  (its `seconds` and load readings are after the wait). The unit stays `running`. `abk status`
+  shows each slot's holder and the units that wait, and `abk doctor` notes when no limit is set.
 - **A test time limit.** `tests/time_limit.py` fails a test that runs past
   its limit from a timer thread, in setup, call and teardown alike: `--test-time-limit` (sixty
   seconds) for a test without the `local_stack` marker, `--e2e-test-time-limit` (thirty

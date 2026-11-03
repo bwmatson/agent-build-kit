@@ -166,6 +166,13 @@ instance).
   decision on the approach, not another round; rounds spent with blocking work
   outstanding leaves a pushed branch and a PR carrying the open points, ready
   to finish by hand.
+- A waiting unit: with `global_limits.max_concurrent_unit_tests` set, a unit whose whole-suite run
+  finds every slot taken stays `running` and its log says `waiting for a unit-test slot (N at once),
+  held by <units>`; `abk status` shows the slots (`unit-test slots (N at once): slot 1 held by ...;
+  waiting: ...`), and the run's row in `runs/test-runs.jsonl` has the wait as `wait_seconds` apart
+  from `seconds`. The wait does not count against `unit_test_command_seconds`. A unit that waits for
+  hours behind slow runs is not stuck: read the holders, and `max_concurrent_unit_tests` is the
+  setting to change (in `abk.local.yaml`).
 - A unit-test timeout: a whole-suite run that reaches `global_limits.unit_test_command_seconds`
   holds the unit with `needs_human` and a note naming the limit ("the checks reached its 5400 s
   time limit"). It names no failing test, so no fix agent ran and nothing was saved for one. Look

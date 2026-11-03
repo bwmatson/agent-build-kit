@@ -173,6 +173,7 @@ judgement for a unit waiting on it.
 An `e2e-test:` line names the unit holding the e2e-test lock and for how long; a record left by a
 process that is gone, on a free lock, is shown as stale, a held lock whose recorded process is gone
 says so, and a free lock with no record prints nothing.
+A `unit-test slots (N at once):` line, printed when `global_limits.max_concurrent_unit_tests` is set, names the holder of each slot and for how long (`slot 1 held by a/1 for 12m 3s`, or `slot 2 free`) and, after `waiting:`, the units that wait for one.
 A split with a `gate` adds a `gate usage:` line: the split, the provider, the amount used against the budget and as a percent, the threshold now (and what it moves towards while it ramps), when the window resets, whether the split is held or usable or its usage unknown (with the reason), and the source and age of the reading. A command gate shows its result and reason. A split held by another source shows that source as the hold. Without `--refresh` only the cache is read, so no provider is asked and no command is run; `--refresh` reads afresh.
 The `queue is full` lines are one for each project at its limit, as the tick paragraph above says.
 A `restacks: N running, M waiting` line, which totals the lane of every project, printed only while a restack lane has work or a unit
@@ -1006,6 +1007,7 @@ Is this installation in a state the pipeline can run in? Each check prints
 |---|---|---|
 | config | `abk.yaml` is missing, malformed or has an unknown key; or the runtime selected (`ABK_RUNTIME`, from the environment or the planning repo's `.env`, else `runtime:`) is unknown, or is missing a fact it requires under `runtimes.<name>` | |
 | worktree root | `planning.worktree_root` is inside the planning repo | |
+| unit-test slots | | `global_limits.max_concurrent_unit_tests` is above `project_limits.max_concurrent_stacks` (more suites than units that can build in one project); *note, not a warning:* it is not set, so whole-suite unit-test runs are not limited (set it in `abk.local.yaml`); in a tracked `abk.yaml` the `machine keys` check warns and `abk config --migrate` moves it |
 | repo `<name>` | the path is missing, not a git checkout, or git has no `user.email`/`user.name` for it (repo-local or global — the line says which scope signs, so a workspace whose repos belong to different accounts can see one identity covering them all) | |
 | tracker `<name>` | `repos.<name>.tracker` in `abk.yaml` is invalid | the tracker host did not accept the identity check, or the installed kit does not implement the tracker kind; the line names who the credential acts as when it is accepted. A repo with no tracker adds nothing |
 | forge `<name>` | the repo's host will not answer for it: the forge's `check_access` fails (GitHub: `gh` holds no token for the owner; Azure DevOps: the repo cannot be read with the PAT or `az` session) | |
