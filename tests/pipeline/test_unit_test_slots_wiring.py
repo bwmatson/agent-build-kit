@@ -10,7 +10,8 @@ import contextvars
 import json
 import subprocess
 import threading
-from contextlib import ExitStack
+from collections.abc import Iterator
+from contextlib import ExitStack, contextmanager
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import cast
@@ -48,12 +49,16 @@ def installation(tmp_path: Path) -> Installation:
     return make_installation(tmp_path / "planning")
 
 
-def started(target) -> threading.Thread:
-    """A started thread that runs `target` in a copy of this test's context, where the unit the
-    pipeline's step runs for is set."""
+@contextmanager
+def running(target) -> Iterator[threading.Thread]:
+    """`target` running in a thread, in a copy of this test's context (where the unit the
+    pipeline's step runs for is set), joined when the block ends."""
     thread = threading.Thread(target=contextvars.copy_context().run, args=(target,), daemon=True)
     thread.start()
-    return thread
+    try:
+        yield thread
+    finally:
+        thread.join(timeout=30)
 
 
 def rows(ledger: Path) -> list[dict]:
@@ -98,12 +103,13 @@ def test_a_run_waits_for_a_slot_and_starts_its_command_only_when_one_is_free(
             unit_test_of(scratch, machine, ledger, installation, log)(cwd=scratch, base="main")
         )
 
-    thread = started(run)
-    wait_for(lambda: any("waiting for a unit-test slot" in line for line in log), what="the wait")
-    assert machine.commands == [], "no command starts while every slot is taken"
-    assert any("other/1" in line for line in log), "the log names a holder"
-    holder.close()
-    thread.join(timeout=20)
+    with running(run):
+        wait_for(
+            lambda: any("waiting for a unit-test slot" in line for line in log), what="the wait"
+        )
+        assert machine.commands == [], "no command starts while every slot is taken"
+        assert any("other/1" in line for line in log), "the log names a holder"
+        holder.close()
 
     assert outcome == [(True, outcome[0][1])]
     assert machine.commands, "the command ran once a slot was free"
@@ -116,7 +122,7 @@ def test_the_ledger_row_has_the_wait_apart_from_the_run_and_the_run_starts_after
     ledger, log = tmp_path / "test-runs.jsonl", []
     holder = ExitStack()
     holder.enter_context(unit_test_slot(installation.locks_dir, 1, holder="other/1"))
-    thread = started(
+    with running(
         lambda: unit_test_of(
             scratch,
             BundleMachine(scratch, reruns=[], passing=True),
@@ -125,11 +131,10 @@ def test_the_ledger_row_has_the_wait_apart_from_the_run_and_the_run_starts_after
             log,
             real_clock=True,
         )(cwd=scratch, base="main")
-    )
-    wait_for(lambda: any("waiting" in line for line in log), what="the wait")
-    released = datetime.now(UTC)
-    holder.close()
-    thread.join(timeout=20)
+    ):
+        wait_for(lambda: any("waiting" in line for line in log), what="the wait")
+        released = datetime.now(UTC)
+        holder.close()
 
     (row,) = rows(ledger)
     assert row["wait_seconds"] > 0
@@ -171,7 +176,6 @@ def test_the_reruns_inside_one_unit_test_share_its_permit_and_the_slot_is_free_a
     ledger = tmp_path / "test-runs.jsonl"
     machine = BundleMachine(scratch, reruns=[0, 0])  # the failed tests pass both serial reruns
 
-    done = threading.Event()
     result: list[object] = []
 
     def run() -> None:
@@ -179,11 +183,11 @@ def test_the_reruns_inside_one_unit_test_share_its_permit_and_the_slot_is_free_a
             unit_test_of(scratch, machine, ledger, installation, [])(cwd=scratch, base="main")
         except FlakeFound as found:
             result.append(found)
-        done.set()
 
-    started(run)
+    with running(run) as thread:
+        thread.join(timeout=30)
+        assert not thread.is_alive(), "the reruns did not wait on their own run's slot"
 
-    assert done.wait(timeout=30), "the reruns did not wait on their own run's slot"
     assert result, "the run found the flake"
     with unit_test_slot(installation.locks_dir, 1, holder="next/1") as waited:
         assert waited == 0.0, "the permit was given back when the run raised"
@@ -236,10 +240,11 @@ def test_the_reproduce_run_takes_a_slot_too(tmp_path: Path, installation: Instal
     holder = ExitStack()
     holder.enter_context(unit_test_slot(installation.locks_dir, 1, holder="other/1"))
     found: list[object] = []
-    thread = started(lambda: found.append(reproduce(cwd=tree, test=TEST, runs=1)))
-    wait_for(lambda: any("waiting for a unit-test slot" in line for line in log), what="the wait")
-    assert commands == [], "no command starts while every slot is taken"
-    holder.close()
-    thread.join(timeout=20)
+    with running(lambda: found.append(reproduce(cwd=tree, test=TEST, runs=1))):
+        wait_for(
+            lambda: any("waiting for a unit-test slot" in line for line in log), what="the wait"
+        )
+        assert commands == [], "no command starts while every slot is taken"
+        holder.close()
 
     assert commands and found
