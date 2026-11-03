@@ -6,8 +6,10 @@ from __future__ import annotations
 
 import threading
 from contextlib import ExitStack
+from datetime import UTC, datetime
 from pathlib import Path
 
+from agent_build_kit.pipeline.e2e import LockRecord
 from agent_build_kit.pipeline.unit_test_slots import slot_status_lines, unit_test_slot
 from tests.waiting import wait_for
 
@@ -60,9 +62,8 @@ def test_a_waiting_run_is_named(tmp_path: Path) -> None:
 
 
 def test_a_waiter_marker_left_by_a_process_that_is_gone_is_not_listed(tmp_path: Path) -> None:
-    (tmp_path / "unit-test-waiting-stale.lock").write_text(
-        '{"unit": "ghost/1", "pid": 1, "since": "2026-01-01T00:00:00+00:00", "host": ""}\n'
-    )
+    stale = LockRecord(unit="ghost/1", pid=1, since=datetime.now(UTC).isoformat())
+    (tmp_path / "unit-test-waiting-stale.lock").write_text(stale.model_dump_json() + "\n")
 
     [line] = slot_status_lines(tmp_path, 1)
 
