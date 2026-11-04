@@ -293,15 +293,23 @@ class AgentRateLimited(RuntimeError):
 
 class NetworkUnavailable(RuntimeError):
     """A run ended on a failure to reach the network or the model's host: the
-    CLI's words as the message, how sure the signature is, and the host and port called."""
+    CLI's words as the message, how sure the signature is, and the host and port called.
+    `service` is what was being called: the model's host, or the code host for a git call."""
 
     def __init__(
-        self, message: str, *, strength: Literal["strong", "weak"], host: str, port: int = 443
+        self,
+        message: str,
+        *,
+        strength: Literal["strong", "weak"],
+        host: str,
+        port: int = 443,
+        service: Literal["model", "code_host"] = "model",
     ) -> None:
         super().__init__(message)
         self.strength = strength
         self.host = host
         self.port = port
+        self.service = service
 
 
 class ServiceUnavailable(RuntimeError):

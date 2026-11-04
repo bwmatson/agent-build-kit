@@ -180,11 +180,11 @@ def test_a_push_the_host_refuses_raises_the_code_host_outage(pushing, last_pushe
 @pytest.mark.parametrize(
     ("url", "port"),
     [
-        ("git@github.com:example/app.git", 22),
-        ("ssh://git@github.com/example/app.git", 22),
-        ("ssh://git@github.com:2222/example/app.git", 2222),
-        ("https://github.com/example/app.git", 443),
-        ("https://github.com:8443/example/app.git", 8443),
+        ("git@code.example.test:example/app.git", 22),
+        ("ssh://git@code.example.test/example/app.git", 22),
+        ("ssh://git@code.example.test:2222/example/app.git", 2222),
+        ("https://code.example.test/example/app.git", 443),
+        ("https://code.example.test:8443/example/app.git", 8443),
     ],
 )
 def test_a_push_that_cannot_reach_the_host_raises_a_weak_network_outage_for_the_remote(
@@ -195,7 +195,7 @@ def test_a_push_that_cannot_reach_the_host_raises_a_weak_network_outage_for_the_
 
     assert (raised.value.strength, raised.value.host, raised.value.port) == (
         "weak",
-        "github.com",
+        "code.example.test",
         port,
     )
     assert raised.value.service == "code_host"

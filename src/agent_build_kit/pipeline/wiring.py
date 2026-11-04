@@ -117,6 +117,7 @@ from agent_build_kit.pipeline.flakes import (
     record_storm,
 )
 from agent_build_kit.pipeline.gateway_usage import Spend, attribution, configured_source
+from agent_build_kit.pipeline.git_output import FetchFailed, transport_failure
 from agent_build_kit.pipeline.lease import Leases, lease_dir
 from agent_build_kit.pipeline.moved_base import brought_in, kinds_of, moved_base_scope
 from agent_build_kit.pipeline.own_tests import (
@@ -3022,7 +3023,8 @@ def build_open_pr(
 def build_fetch(
     checkouts: Mapping[str, Path], *, turn: Callable[[str], AbstractContextManager[object]]
 ) -> Callable[[Unit], None]:
-    """Fetch one unit's repo, in that repo's turn. Raises when the fetch fails."""
+    """Fetch one unit's repo, in that repo's turn. Raises `FetchFailed` when the fetch fails,
+    carrying the outage git's output shows, if any."""
 
     def fetch(unit: Unit) -> None:
         if not has_origin(checkouts[unit.repo]):
@@ -3030,7 +3032,10 @@ def build_fetch(
         with turn(unit.repo):
             result = git(checkouts[unit.repo], "fetch", "-q", "--prune", "origin", check=False)
         if result.returncode:
-            raise RuntimeError(result.stderr.strip() or f"git fetch exited {result.returncode}")
+            said = result.stderr.strip()
+            raise FetchFailed(
+                said or f"git fetch exited {result.returncode}", transport_failure(said)
+            )
 
     return fetch
 

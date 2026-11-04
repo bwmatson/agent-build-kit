@@ -7001,12 +7001,22 @@ def _outage_cause(inst: Installation, error: NetworkUnavailable) -> Cause | None
     if error.strength == "strong":
         return Cause.NETWORK_UNAVAILABLE
     limits = inst.config.global_limits
-    return network_probe.classify_reachability(
+    cause = network_probe.classify_reachability(
         error.host,
         network_probe.control_group(inst),
         timeout=limits.network_probe_timeout_seconds,
         api_port=error.port,
     )
+    if error.service == "code_host":
+        # A git call that never got an answer is parked whatever the probe finds a moment
+        # later: the host answering again is why it resumes, not why it did not park. The
+        # probe only says whether the whole network is down, or the code host alone.
+        return (
+            Cause.NETWORK_UNAVAILABLE
+            if cause is Cause.NETWORK_UNAVAILABLE
+            else Cause.HOST_UNAVAILABLE
+        )
+    return cause
 
 
 def build_unit(
