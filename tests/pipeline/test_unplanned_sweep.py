@@ -35,6 +35,7 @@ def live(uid: str = "c/1", groups: tuple[int, ...] = (1, 2), **fields: Any) -> S
 def verdicts(
     *units: StoredUnit,
     active: Collection[str] = (CHANGE,),
+    archived: Collection[str] = (),
     tracker: datetime | None | str = "none",
 ) -> dict[str, Verdict]:
     """The sweep's verdicts; `tracker` is "none" for no tracker configured, else the time of its
@@ -43,6 +44,7 @@ def verdicts(
     return eligibility(
         list(units),
         active_changes=set(active),
+        archived_changes=set(archived),
         pass_started=PASS_STARTED,
         tracker_configured=configured,
         tracker_reconciled=tracker if isinstance(tracker, datetime) else None,
@@ -220,3 +222,22 @@ def test_a_unit_kept_by_the_last_unit_rule_keeps_what_it_references() -> None:
 
     assert not found["x/3"].eligible
     assert not found["c/3"].eligible and "x/3" in found["c/3"].reason
+
+
+def test_an_archived_change_keeps_a_tombstone_whose_groups_no_live_unit_carries() -> None:
+    kept = verdicts(live(groups=(1,)), tomb("c/3", groups=(2,)), active=(), archived=(CHANGE,))
+
+    assert not kept["c/3"].eligible and "carried" in kept["c/3"].reason
+
+
+def test_an_archived_change_sweeps_a_tombstone_a_live_unit_carries() -> None:
+    found = verdicts(live(groups=(1, 2)), tomb("c/3", groups=(2,)), active=(), archived=(CHANGE,))
+
+    assert found["c/3"].eligible
+
+
+def test_a_successor_that_is_not_in_the_store_leaves_a_reference_unrepointable() -> None:
+    found = verdicts(live(depends_on=("c/3",)), tomb("c/3", superseded_by=("c/9",)))
+
+    assert not found["c/3"].eligible
+    assert "referenced" in found["c/3"].reason

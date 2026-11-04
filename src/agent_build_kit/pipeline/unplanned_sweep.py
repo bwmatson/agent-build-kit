@@ -10,13 +10,14 @@ that fails being the reason it is kept:
 2. no other unit names it in `depends_on`, `needs`, `merge_needs`, `waited_on` or `superseded_by`
    unless the reference can be repointed to its successors (a reference from another unit that is
    itself swept goes with it);
-3. its groups are carried by a live unit of its change, or its change is gone or archived;
+3. its groups are carried by a live unit of its change, or its change is gone (an archived change
+   still needs them carried: the tracker's view of its groups depends on it);
 4. a tick pass has run since it was demoted and, where a tracker is configured, the tracker's last
    successful reconcile is later than the demotion;
 5. its change keeps another unit (a change with no unit is never archive-ready), unless it is gone
    or archived.
 
-This module only decides. It removes nothing and writes nothing."""
+`eligibility` only decides; `sweep` applies the decision to a store, in one write."""
 
 from __future__ import annotations
 
@@ -24,11 +25,8 @@ from collections.abc import Collection, Sequence
 from datetime import UTC, datetime
 
 from agent_build_kit.model import Frozen
-from agent_build_kit.pipeline.unit_store import StoredUnit
+from agent_build_kit.pipeline.unit_store import REFERENCE_FIELDS, StoredUnit, UnitStore
 from agent_build_kit.pipeline.units import CLOSED, UnitState
-
-# The fields of a unit that name another unit.
-REFERENCE_FIELDS = ("depends_on", "needs", "merge_needs", "waited_on", "superseded_by")
 
 
 class Reference(Frozen):
@@ -55,12 +53,16 @@ def eligibility(
     *,
     active_changes: Collection[str],
     pass_started: datetime,
+    archived_changes: Collection[str] = (),
     tracker_configured: bool = False,
     tracker_reconciled: datetime | None = None,
 ) -> dict[str, Verdict]:
     """A verdict for each `unplanned` unit of `units`; a unit in any other state is not one.
 
-    `active_changes` are the changes whose folder exists and is not archived. `pass_started` is
+    `active_changes` are the changes whose folder exists and is not archived. An archived change
+    keeps a tombstone whose groups no live unit carries: the tracker reads such a group as
+    removed, and once the unit is gone it would read as new and keep the change from being done.
+    `pass_started` is
     when the current tick pass began: a unit demoted before it has been seen by a pass.
     `tracker_reconciled` is when the tracker's last successful reconcile ended, None when it
     cannot be read; it matters only when `tracker_configured`."""
@@ -72,11 +74,19 @@ def eligibility(
         for change in {unit.change for unit in tombstones.values()}
     }
 
+    by_id = {unit.id for unit in units}
+
+    def has_successor(unit: StoredUnit) -> bool:
+        """Whether a reference to `unit` has somewhere to go: a successor still in the store."""
+        return any(name in by_id for name in unit.superseded_by)
+
     def static_reason(unit: StoredUnit) -> str:
         """The first of conditions 1, 3 and 4 that fails, which do not depend on the others."""
         if unit.has_work:
             return "it holds work (a branch, pull request, push or approval)"
-        if unit.change in active_changes and not set(unit.groups) <= carried[unit.change]:
+        if (unit.change in active_changes or unit.change in archived_changes) and not set(
+            unit.groups
+        ) <= carried[unit.change]:
             return f"its groups {list(unit.groups)} are carried by no live unit of {unit.change}"
         demoted = _demoted_at(unit)
         if demoted is None:
@@ -109,7 +119,7 @@ def eligibility(
         settled = True
         for uid in sorted(removable):
             unit = tombstones[uid]
-            if references(unit, removable) and not unit.superseded_by:
+            if references(unit, removable) and not has_successor(unit):
                 removable.discard(uid)
                 settled = False
         for change in {tombstones[uid].change for uid in removable}:
@@ -126,7 +136,7 @@ def eligibility(
         for name in unit.superseded_by:
             if name in removable:
                 found.extend(n for n in successors_of(tombstones[name]) if n not in found)
-            elif name not in found:
+            elif name in by_id and name not in found:
                 found.append(name)
         return tuple(found)
 
@@ -135,7 +145,7 @@ def eligibility(
         if unit.has_work:
             return static_reason(unit)
         named = references(unit, removable)
-        if named and not unit.superseded_by:
+        if named and not has_successor(unit):
             by = ", ".join(f"{each.referrer} ({each.field})" for each in named)
             return f"it is referenced by {by} and nothing replaced it to repoint them to"
         return static_reason(unit) or f"it is the last unit of {unit.change}"
@@ -163,3 +173,37 @@ def _demoted_at(unit: StoredUnit) -> datetime | None:
                 return None
             return stamp if stamp.tzinfo else stamp.replace(tzinfo=UTC)
     return None
+
+
+def sweep(
+    store: UnitStore,
+    *,
+    active_changes: Collection[str],
+    pass_started: datetime,
+    archived_changes: Collection[str] = (),
+    only_change: str | None = None,
+    tracker_configured: bool = False,
+    tracker_reconciled: datetime | None = None,
+    dry_run: bool = False,
+) -> list[str]:
+    """Remove the units `eligibility` clears from `store`, repointing the references to them,
+    and return their ids; `only_change` leaves the units of other changes alone. `dry_run`
+    returns the ids it would remove and writes nothing."""
+    units = store.all()
+    verdicts = eligibility(
+        units,
+        active_changes=active_changes,
+        archived_changes=archived_changes,
+        pass_started=pass_started,
+        tracker_configured=tracker_configured,
+        tracker_reconciled=tracker_reconciled,
+    )
+    changes = {unit.id: unit.change for unit in units}
+    cleared = {
+        uid: verdict.successors
+        for uid, verdict in verdicts.items()
+        if verdict.eligible and only_change in (None, changes[uid])
+    }
+    if dry_run:
+        return sorted(cleared)
+    return store.remove_swept(cleared) if cleared else []

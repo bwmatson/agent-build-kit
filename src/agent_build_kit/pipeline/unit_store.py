@@ -1011,6 +1011,88 @@ class UnitStore:
         if len(kept) != len(stored):
             self._write(kept)
 
+    @_exclusive
+    def remove_swept(self, successors: Mapping[str, Sequence[str]]) -> list[str]:
+        """Remove each `unplanned` unit named in `successors` and return the ids removed, in one
+        write. A reference to it from a unit that stays (`depends_on`, `needs`, `merge_needs`,
+        `waited_on` or `superseded_by`) is repointed to the successors given for it first. The
+        record is read again here: a unit that is no longer `unplanned`, has work, or is named
+        with no successors to repoint to is left."""
+        stored = self._read()
+        removing = {
+            uid
+            for uid, unit in stored.items()
+            if uid in successors and unit.state == UNPLANNED and not unit.has_work
+        }
+        # A unit named by one that stays, with nothing to repoint to, stays; that can make
+        # another named only through it stay too, so this runs until nothing changes.
+        shrinking = True
+        while shrinking:
+            shrinking = False
+            for uid in sorted(removing):
+                if not self._repointable(stored, removing, uid, successors[uid]):
+                    removing.discard(uid)
+                    shrinking = True
+        moved: set[str] = set()
+        for other_id in [uid for uid in stored if uid not in removing]:
+            other = stored[other_id]
+            update = {
+                field: tuple(
+                    dict.fromkeys(
+                        name
+                        for item in getattr(other, field)
+                        for name in (
+                            self._targets(stored, removing, successors[item], other_id)
+                            if item in removing
+                            else (item,)
+                        )
+                    )
+                )
+                for field in REFERENCE_FIELDS
+                if removing.intersection(getattr(other, field))
+            }
+            if update:
+                stored[other_id] = other.model_copy(update=update)
+                moved.add(other_id)
+        graph = list(stored.values())
+        for uid in moved:
+            stored[uid] = stored[uid].model_copy(
+                update={"depends_on": direct_dependencies(stored[uid], graph)}
+            )
+        if removing:
+            self._write({uid: unit for uid, unit in stored.items() if uid not in removing})
+        return sorted(removing)
+
+    @staticmethod
+    def _targets(
+        stored: Mapping[str, StoredUnit],
+        removing: Collection[str],
+        names: Sequence[str],
+        referrer: str,
+    ) -> tuple[str, ...]:
+        """The successors a reference is repointed to: those still in the store and not being
+        removed, and never the referrer itself."""
+        return tuple(
+            name for name in names if name in stored and name not in removing and name != referrer
+        )
+
+    @classmethod
+    def _repointable(
+        cls,
+        stored: Mapping[str, StoredUnit],
+        removing: Collection[str],
+        uid: str,
+        names: Sequence[str],
+    ) -> bool:
+        """Whether every unit that stays and names `uid` can be repointed to a successor, or is
+        one itself (its reference to a unit it replaces just goes)."""
+        return all(
+            other.id in names or cls._targets(stored, removing, names, other.id)
+            for other in stored.values()
+            if other.id not in removing
+            and any(uid in getattr(other, field) for field in REFERENCE_FIELDS)
+        )
+
     def unplan_vanished(self, changes: Collection[str]) -> list[str]:
         """Mark `unplanned` each unit that never started whose change is not among `changes`
         (the changes that exist), and return their ids. A started unit is left as it is."""
@@ -1602,6 +1684,10 @@ def _with_raised_steps(unit: Unit, existing: StoredUnit | None) -> tuple[ManualS
         if step.line == 0:
             steps.setdefault(step.slug, step)
     return tuple(steps.values())
+
+
+# The fields of a unit that name another unit.
+REFERENCE_FIELDS = ("depends_on", "needs", "merge_needs", "waited_on", "superseded_by")
 
 
 def _record_successors(

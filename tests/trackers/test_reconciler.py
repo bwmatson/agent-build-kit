@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import json
 from collections.abc import Iterator
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import pytest
@@ -18,6 +20,7 @@ from agent_build_kit.forges.transport import (
 from agent_build_kit.pipeline.tracker_file import TrackerFile, read_tracker, write_tracker
 from agent_build_kit.pipeline.units import UnitState
 from agent_build_kit.trackers.local import LocalTracker
+from agent_build_kit.trackers.reconciler import last_reconciled
 from tests.trackers.board_support import (
     CHANGE,
     board_section,
@@ -403,3 +406,52 @@ def test_a_configuration_error_skips_the_repo(tmp_path: Path) -> None:
     assert (report.created, report.updated, report.errors) == (0, 0, 0)
     assert read_tracker(world.change_dir) is None
     assert list(world.state_dir.iterdir()) == []
+
+
+def test_a_pass_that_ends_well_records_when_it_ended(tmp_path: Path) -> None:
+    world = world_for(tmp_path, ["change", "group"])
+    assert last_reconciled(world.snapshot) is None
+    before = datetime.now(UTC) - timedelta(seconds=1)
+
+    world.run()
+
+    recorded = last_reconciled(world.snapshot)
+    assert recorded is not None and before <= recorded <= datetime.now(UTC) + timedelta(seconds=1)
+
+
+def test_a_pass_that_failed_or_stopped_records_nothing(tmp_path: Path) -> None:
+    world = world_for(tmp_path, ["change", "group"])
+    world.run()
+    first = last_reconciled(world.snapshot)
+    (world.change_dir / "tasks.md").write_text(groups_tasks(19))
+    world.tracker.fail = lambda call: HostError("POST wiql: host answered 503")
+
+    failed = world.run()
+    assert failed.failed and last_reconciled(world.snapshot) == first
+
+    world.tracker.fail = lambda call: RateLimited("POST /items: rate limited", retry_after=None)
+    (world.change_dir / "tasks.md").write_text(groups_tasks(20))
+    stopped = world.run()
+    assert stopped.stopped and last_reconciled(world.snapshot) == first
+
+
+def test_the_time_of_the_last_pass_survives_the_other_keys_of_the_snapshot(
+    tmp_path: Path,
+) -> None:
+    world = world_for(tmp_path, ["change", "group"])
+    world.run()
+    recorded = last_reconciled(world.snapshot)
+
+    world.run()
+
+    later = last_reconciled(world.snapshot)
+    assert recorded is not None and later is not None and later >= recorded
+    assert "items" in json.loads(world.snapshot.read_text())
+
+
+def test_an_unreadable_time_is_none(tmp_path: Path) -> None:
+    path = tmp_path / "tracker-app.json"
+    path.write_text(json.dumps({"reconciled_at": "not a time"}))
+
+    assert last_reconciled(path) is None
+    assert last_reconciled(tmp_path / "missing.json") is None
