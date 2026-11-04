@@ -83,7 +83,7 @@ from agent_build_kit.notify.windows import (
 )
 from agent_build_kit.path_discovery import checkout_root, find_up
 from agent_build_kit.path_patterns import matches, normalize
-from agent_build_kit.pipeline import agent_commands, lock_probe, mounts
+from agent_build_kit.pipeline import agent_commands, code_host, lock_probe, mounts, spans
 from agent_build_kit.pipeline.e2e import dimension_lines
 from agent_build_kit.pipeline.e2e_holds import HELD_FILE, current_holds, hold_text
 from agent_build_kit.pipeline.environment import matched_inputs
@@ -1085,6 +1085,25 @@ def _ssh_keys(inst: Installation) -> list[Check]:
                 )
             )
     return checks
+
+
+CODE_HOST_OUTAGE = "code host outage"
+
+
+def _code_host_outage(inst: Installation) -> list[Check]:
+    """A code host whose probes have failed for `global_limits.code_host_outage_minutes`: the
+    units wait for it and none is failed, but a wrong or lost key reads the same as an outage, so
+    the hint names the key and the agent."""
+    now = spans.clock.now()
+    return [
+        _warn(
+            CODE_HOST_OUTAGE,
+            code_host.outage_text(each, now),
+            f"check that the SSH key or agent a push to {each.host} uses is loaded and accepted "
+            f"(`ssh -T` to {each.host}); the units wait and resume when it answers",
+        )
+        for each in code_host.long_outages(inst, now)
+    ]
 
 
 def _trackers(inst: Installation) -> list[Check]:
@@ -2319,6 +2338,7 @@ def run_doctor(
         checks += _labelled_accounts(inst, run)
     checks += _notifications(inst, run, which)
     checks += _ssh_keys(inst)
+    checks += _code_host_outage(inst)
     checks += _trackers(inst)
     checks += _verify_env(inst, run)
     checks += _public_content(inst)

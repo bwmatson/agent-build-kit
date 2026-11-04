@@ -60,6 +60,7 @@ from agent_build_kit.notify.reconcile import reconcile as reconcile_notification
 from agent_build_kit.notify.store import NotificationStore
 from agent_build_kit.pipeline import (
     audit_record,
+    code_host,
     demotion_record,
     demotion_triggers,
     diagram,
@@ -162,6 +163,7 @@ from agent_build_kit.pipeline.file_lock import (
 )
 from agent_build_kit.pipeline.flakes import flake_record
 from agent_build_kit.pipeline.gate_holds import evaluate_gates, gate_status_lines
+from agent_build_kit.pipeline.git_output import PUSH_OPERATION
 from agent_build_kit.pipeline.idle import idle_units
 from agent_build_kit.pipeline.joins import JoinContext
 from agent_build_kit.pipeline.label_sweep import sweep_finished
@@ -312,7 +314,6 @@ from agent_build_kit.pipeline.unit_store import (
     StoredUnit,
     UnitStore,
     awaits_release,
-    backoff_remaining,
     feedback_source_of,
     guidance_excerpt,
     waiting_for,
@@ -1000,6 +1001,8 @@ def cmd_status(args: argparse.Namespace, inst: Installation) -> int:
         log(off)
     for paused in pauses_in_force(inst.state_dir):
         log(_pause_report(inst, paused))
+    for outage in code_host.long_outages(inst, spans.clock.now()):
+        log(code_host.outage_text(outage, spans.clock.now()))
     for line in config_warning_lines(inst.state_dir):
         log(line)
 
@@ -1238,6 +1241,7 @@ def cmd_status(args: argparse.Namespace, inst: Installation) -> int:
     verdicts = inst.state_dir / VERDICTS
     tiers = review_tiers(units, verdicts)
     shown_units = review_order(units, verdicts, tiers) if tiers else units
+    holds = code_host.holds_of(inst)
     for unit in shown_units:
         where = unit_label(unit)
         if unit.tier == TestTier.INTEGRATION_TEST and unit.state not in (
@@ -1277,7 +1281,11 @@ def cmd_status(args: argparse.Namespace, inst: Installation) -> int:
                 log(f"  full e2e-test output: {unit.id} ({where}) — {kept}")
             if blocked := _blocked_by(unit, units):
                 log(f"  {blocked}")
-        if (left := backoff_remaining(unit, spans.clock.now())) is not None:
+        if unit.cause is Cause.HOST_UNAVAILABLE and (marker := holds.holding(unit)) is not None:
+            log(
+                f"  {code_host.wait_text(marker.host)}: {unit.id} ({where}) at {step} — {unit.note}"
+            )
+        elif (left := code_host.backoff_left(unit, spans.clock.now(), holds)) is not None:
             log(
                 f"  {waiting_for(unit)}: {unit.id} ({where}) at {step}, "
                 f"{int(left.total_seconds())}s remain — {unit.note}"
@@ -2031,6 +2039,24 @@ def _release_network_waits(inst: Installation) -> None:
     )
 
 
+def _refresh_code_hosts(inst: Installation, *, quiet: bool) -> None:
+    """The refresh's one probe of each code host whose marker is in force and whose wait has
+    passed (`code_host.refresh`). A passing probe ended the marker, so the units waiting on it
+    start in this pass. A host whose probes have failed past
+    `global_limits.code_host_outage_minutes` is named in the log, once for a refresh; no unit is
+    failed by it. Never fails a round."""
+    try:
+        done = code_host.refresh(inst)
+        for host in done.cleared:
+            log(f"the code host {host} answers again; the units waiting for it resume")
+        now = spans.clock.now()
+        for marker in code_host.long_outages(inst, now):
+            if marker.host in done.probed or not quiet:
+                log(code_host.outage_text(marker, now))
+    except Exception as error:  # noqa: BLE001 — a probe is never a round's to lose
+        log(f"the code host probe did not run ({type(error).__name__}: {error})")
+
+
 def _needs_planning(inst: Installation, store: UnitStore) -> bool:
     """Whether some change would be planned now: planning is a model call, so a round that
     has some to do is one the usage guard has to be asked about."""
@@ -2175,6 +2201,7 @@ def _startable(
     backoff; one in `spared` is never left out."""
     leases = Leases(lease_dir(inst.local_dir))
     now = spans.clock.now()
+    holds = code_host.holds_of(inst)
     startable: list[StoredUnit] = []
     left_out = False
     for unit in store.all():
@@ -2183,7 +2210,9 @@ def _startable(
         excluded = (
             (only and unit.id not in only)
             or leases.holder(unit.id) is not None
-            or backoff_remaining(unit, now) is not None
+            # A code host's marker holds its units; otherwise a backoff does, unless it was ended.
+            or holds.holding(unit) is not None
+            or code_host.backoff_left(unit, now, holds) is not None
         )
         if not excluded or unit.id in spared:
             startable.append(unit)
@@ -2339,6 +2368,9 @@ def _may_build(
             _release_network_waits(inst)
             log("the network is back; resuming")
 
+    if not dry_run:
+        _refresh_code_hosts(inst, quiet=quiet)
+
     # The usage window is Claude Code's. A runtime without one is not held by it:
     # the account's window says nothing about an on-demand agent. Its own
     # rate-limit refusal still pauses, and holds its account.
@@ -2436,12 +2468,17 @@ class _Readmission:
         # The `Needs:` lines refused for a cycle that the pass has already logged.
         self.refused: set[tuple[str, str]] = set()
 
-    def admit(self, units: list[StoredUnit], in_flight: set[str]) -> None:
+    def admit(
+        self,
+        units: list[StoredUnit],
+        in_flight: set[str],
+        holds: code_host.Holds | None = None,
+    ) -> None:
         """A unit this pass built and that has since been put back — sent
         back by a poll, or held by its own build because its base moved — is
         due again now, not in the next pass, which cannot start until this one
         ends."""
-        for unit_id in _sent_back(units, self.started, in_flight, self.skipped):
+        for unit_id in _sent_back(units, self.started, in_flight, self.skipped, holds):
             if self.rebuilt.get(unit_id, 0) < REBUILDS_PER_PASS:
                 self.started.pop(unit_id)
                 self.readmitted.add(unit_id)
@@ -2700,8 +2737,11 @@ def run_round(
         return []
 
     units = store.all()
+    holds = code_host.holds_of(inst)
     for unit in units:
-        if (left := backoff_remaining(unit, spans.clock.now())) is not None:
+        if unit.cause is Cause.HOST_UNAVAILABLE and (marker := holds.holding(unit)) is not None:
+            log(f"{unit.id}: {code_host.wait_text(marker.host)}, parked at {unit.step or 'a step'}")
+        elif (left := code_host.backoff_left(unit, spans.clock.now(), holds)) is not None:
             log(
                 f"{unit.id}: {waiting_for(unit)}, "
                 f"parked at {unit.step or 'a step'}; "
@@ -2731,7 +2771,7 @@ def run_round(
     ):
         units = store.all()
     if readmit:
-        readmit.admit(units, in_flight)
+        readmit.admit(units, in_flight, code_host.holds_of(inst))
     idle = _idle_units(inst, units, in_flight)
     # A unit no run holds takes no worker while it waits; the runs in flight do, and so do the
     # moved-base runs running in the lane, never those waiting behind its cap.
@@ -3991,6 +4031,10 @@ def _evaluate_round(
     owed = owed_units(inst, units) if owed is None else owed
     gates = split_gates(inst.config, inst.state_dir, units)
     external = held_units(inst.changes_dir, units)
+    holds = code_host.holds_of(inst)
+    # Planned units a code host's marker holds back: not ready, and not held in the view either,
+    # so a parked one keeps its place among the units in progress.
+    waiting_on_host: set[str] = set()
     for unit in units:
         if unit.id in building or unit.id in marked:
             unit = unit.model_copy(update={"state": RUNNING})
@@ -4007,8 +4051,11 @@ def _evaluate_round(
             # runtime: starting the unit as a planned build would drop the mode it was
             # requeued with, or build it all again.
             or awaits_release(unit)
-            # Parked for the host being unavailable, and its backoff is not over.
-            or backoff_remaining(unit, now) is not None
+            # Parked for the host being unavailable, and its backoff is not over. A marker in force
+            # holds it instead (below), and a marker that has ended releases it.
+            or (
+                holds.holding(unit) is None and code_host.backoff_left(unit, now, holds) is not None
+            )
             # Its e2e-test split is held, and nothing exists yet that a hold could disturb.
             or unit.id in gates
             # Handed to someone outside the kit, whatever its priority.
@@ -4019,6 +4066,8 @@ def _evaluate_round(
         ):
             unit = unit.model_copy(update={"state": HELD})
             excluded.add(unit.id)
+        elif holds.holding(unit) is not None:
+            waiting_on_host.add(unit.id)
         view.append(unit)
     cap = max_concurrent or inst.max_concurrent_stacks
     for_the_lane = {unit.id for unit in view if unit.state == PLANNED and unit.id in owed}
@@ -4044,6 +4093,7 @@ def _evaluate_round(
             emergency_extra=extra,
             in_lane=lane,
             no_worker=paused,
+            waiting=waiting_on_host,
         )
 
     ready = ready_with(extra)
@@ -4694,16 +4744,19 @@ def _sent_back(
     started: dict[str, int],
     building: set[str],
     skipped: set[tuple[str, str]] | None = None,
+    holds: code_host.Holds | None = None,
 ) -> set[str]:
     """Units this pass already built that have since been put back to planned for
     a cause in `READMITTED_CAUSES`, or parked for `host_unavailable` once its backoff
-    has elapsed. A unit put back for any other cause, or for none
-    (a record from before causes were kept), waits for the next pass, and a unit that
-    ended held is never let back in; each such skip is logged once, with its cause,
-    in `skipped`. "Since" is the unit's history having grown past its length when the
+    has elapsed (or, for a unit parked behind a code host's marker, once the marker has ended:
+    while it is in force the unit waits, whatever its own backoff). A unit put back for any
+    other cause, or for none (a record from before causes were kept), waits for the next pass,
+    and a unit that ended held is never let back in; each such skip is logged once, with its
+    cause, in `skipped`. "Since" is the unit's history having grown past its length when the
     pass started it, never a comparison of timestamps: a clock that steps back or
     stands still must not decide it."""
     out: set[str] = set()
+    holds = holds or code_host.Holds()
     for unit in units:
         at = started.get(unit.id)
         if (
@@ -4722,7 +4775,8 @@ def _sent_back(
         elif (
             unit.state == PLANNED
             and unit.cause in PARKED_CAUSES
-            and backoff_remaining(unit, spans.clock.now()) is None
+            and holds.holding(unit) is None
+            and code_host.backoff_left(unit, spans.clock.now(), holds) is None
         ):
             out.add(unit.id)
         elif (
@@ -7019,6 +7073,18 @@ def _outage_cause(inst: Installation, error: NetworkUnavailable) -> Cause | None
     return cause
 
 
+def _git_outage_text(error: Exception) -> str | None:
+    """What git said when `error` is the code host refusing or not answering a git call, which
+    is what a code host's marker records; None for any other: a forge API outage
+    (`HostUnavailable` from the resilient forge, under the name of the API call) is the API's
+    host's and parks on its own backoff."""
+    if isinstance(error, HostUnavailable) and error.operation == PUSH_OPERATION:
+        return error.cause
+    if isinstance(error, NetworkUnavailable) and error.service == "code_host":
+        return str(error)
+    return None
+
+
 def build_unit(
     inst: Installation,
     unit: Unit,
@@ -7161,6 +7227,11 @@ def _build_unit(
         """The work is fine and the thread stays at the step: the unit is `planned` with
         `cause`, and the pass readmits it after a backoff, resuming at that step."""
         end(f"parked, {error}", UnitOutcome.INTERRUPTED)
+        if cause is Cause.HOST_UNAVAILABLE and (said := _git_outage_text(error)) is not None:
+            try:
+                code_host.note(inst, unit.repo, said)
+            except Exception as second:  # noqa: BLE001 — the marker never keeps a unit from parking
+                say(f"the code host's marker could not be written — {second}")
         if cause is Cause.NETWORK_UNAVAILABLE:
             pause_until(
                 datetime.now(UTC) + PARK_BACKOFF[0],
@@ -9140,6 +9211,7 @@ def _waits_in(
     gates = split_gates(inst.config, inst.state_dir, units)
     external = held_units(inst.changes_dir, units)
     building = _stacks_building(inst, units, view)
+    holds = code_host.holds_of(inst)
     # By the stored state: the view shows what a pass leaves out as held.
     for unit in units:
         # What `--only` leaves out is not waiting for anything this pass decides.
@@ -9171,6 +9243,7 @@ def _waits_in(
                 building,
                 usage_paused=usage_paused,
                 refusal=(refused or {}).get(unit.id),
+                holds=holds,
             )
     return waits
 
@@ -9188,10 +9261,15 @@ def _planned_wait(
     *,
     usage_paused: bool,
     refusal: str | None = None,
+    holds: code_host.Holds | None = None,
 ) -> Wait:
+    holds = holds or code_host.Holds()
     if leases.holder(unit.id) is not None:
         return Wait(reason=WaitReason.LEASE)
-    if backoff_remaining(unit, now) is not None:
+    if (marker := holds.holding(unit)) is not None:
+        # Whatever the unit's own backoff: nothing of this host starts while its marker holds.
+        return Wait(reason=WaitReason.BACKOFF, detail=code_host.wait_text(marker.host))
+    if code_host.backoff_left(unit, now, holds) is not None:
         return Wait(reason=WaitReason.BACKOFF)
     if (hold := external.get(unit.id)) is not None:
         return Wait(reason=WaitReason.EXTERNAL, detail=external_reason(hold))

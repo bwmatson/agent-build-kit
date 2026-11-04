@@ -40,6 +40,7 @@ from agent_build_kit.pipeline import shell
 from agent_build_kit.pipeline.call_record import recorded
 from agent_build_kit.pipeline.changelog_convention import changelog_note, resolver_changelog_rule
 from agent_build_kit.pipeline.git_output import (
+    PUSH_OPERATION,
     git_push_outcome,
     replayed_files,
     untranslated_env,
@@ -966,7 +967,7 @@ def push_with_lease(repo: Path, branch: str, *, last_pushed: str | None) -> str:
             )
         if outcome.kind == "host_refused":
             # The host said no, not the branch: the unit parks and pushes again later.
-            raise HostUnavailable("git push", outcome.message, 1)
+            raise HostUnavailable(PUSH_OPERATION, outcome.message, 1)
         if outcome.kind == "host_unreachable":
             host, port = remote_endpoint(remote_url(repo))
             raise NetworkUnavailable(

@@ -9,12 +9,17 @@ cannot answer counts as the host being reachable, so a bug in it never parks a u
 
 from __future__ import annotations
 
+import os
 import socket
+import subprocess
 from collections.abc import Callable, Sequence
+from pathlib import Path
 from urllib.parse import urlparse
 
 from agent_build_kit.installation import Installation
 from agent_build_kit.model import Frozen
+from agent_build_kit.pipeline import restack, shell
+from agent_build_kit.pipeline.git_output import transport_failure, untranslated_env
 from agent_build_kit.pipeline.unit_store import Cause
 from agent_build_kit.settings import settings
 
@@ -22,6 +27,12 @@ Resolve = Callable[[str], object]
 Connect = Callable[[str, int, float], object]
 
 PORT = 443
+
+Run = Callable[..., subprocess.CompletedProcess[str]]
+
+# A read over ssh or https costs a handshake and a round trip beyond a bare connect, so the probe
+# waits this many times `global_limits.network_probe_timeout_seconds`.
+CODE_HOST_TIMEOUT_FACTOR = 6
 
 
 class Reachability(Frozen):
@@ -141,3 +152,63 @@ def control_reachable(
         )
     except Exception:  # noqa: BLE001
         return True
+
+
+class HostProbe(Frozen):
+    """Whether the code host answered a read as a push would meet it, and what git said when it
+    did not."""
+
+    healthy: bool
+    error: str = ""
+
+
+def _batch_ssh(checkout: Path) -> str:
+    """The ssh command a push of `checkout` runs, told never to ask a question: the one in the
+    environment, else the repo's configured one, else plain `ssh`."""
+    configured = shell.git(checkout, "config", "--get", "core.sshCommand", check=False)
+    command = os.environ.get("GIT_SSH_COMMAND") or configured.stdout.strip() or "ssh"
+    return f"{command} -o BatchMode=yes"
+
+
+def code_host_healthy(checkout: Path, *, timeout: float, run: Run | None = None) -> HostProbe:
+    """Whether the code host `checkout` pushes to answers `git ls-remote <remote> HEAD`.
+
+    Unlike a connect it reads from the host over the transport a push uses, with the same
+    credentials and agent, so a refused key or an HTTP refusal fails it. It never prompts. Only
+    the host's own words for an outage count against it (`transport_failure`): a failure to run
+    git, a repo with no remote or a refusal that names the repository or the person is not
+    held against the host, so a bug in the probe never holds work.
+    """
+    runner = run or subprocess.run
+    try:
+        if not checkout.is_dir() or not shell.has_origin(checkout):
+            return HostProbe(healthy=True)
+        remote = restack.push_target(checkout)
+        env = {
+            **untranslated_env(),
+            "GIT_TERMINAL_PROMPT": "0",
+            "GIT_SSH_COMMAND": _batch_ssh(checkout),
+        }
+        limit = timeout * CODE_HOST_TIMEOUT_FACTOR
+        try:
+            result = runner(
+                ["git", "ls-remote", remote, "HEAD"],
+                cwd=checkout,
+                capture_output=True,
+                text=True,
+                timeout=limit,
+                env=env,
+                start_new_session=True,
+                check=False,
+            )
+        except subprocess.TimeoutExpired:
+            return HostProbe(healthy=False, error=f"git ls-remote timed out after {limit:g}s")
+        if result.returncode == 0:
+            return HostProbe(healthy=True)
+        said = "\n".join(part for part in (result.stderr.strip(), result.stdout.strip()) if part)
+        failure = transport_failure(said)
+        return (
+            HostProbe(healthy=False, error=failure.message) if failure else HostProbe(healthy=True)
+        )
+    except Exception:  # noqa: BLE001 — a probe that breaks must not hold work.
+        return HostProbe(healthy=True)
