@@ -2,7 +2,11 @@
 workspace of fixture units, and the stubs that isolate a pass from everything around it.
 
 The builder marks the store the way the real one does: `running` while it builds,
-`in_review` once its PR is open, and back to `planned` when it pauses or is held."""
+`in_review` once its PR is open, and back to `planned` when it pauses or is held.
+
+`tick` runs a whole pass, whose time depends on the machine's load, and every test whose module
+takes it is held to `LOADED_TEST_TIME_LIMIT` (`tests/time_limit.py`) by the collection hook in
+`tests/conftest.py`."""
 
 from __future__ import annotations
 

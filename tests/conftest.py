@@ -562,12 +562,14 @@ def account_kind(host: Host, request: pytest.FixtureRequest) -> str:
 
 
 def pytest_collection_modifyitems(items: list[pytest.Item]) -> None:
-    """A test built on the tick driver or the graph driver runs whole faked unit-graph passes,
+    """A test built on the tick pass, the tick driver or the graph driver runs whole faked passes,
     whose time depends on the machine's load, so it is held to the loaded limit unless it names
     its own."""
     # Nothing is imported here: a module that used a driver has already imported it, and a run
     # that uses none must not fail on an import error in the driver's modules.
+    # `tests.time_limit` is already loaded as a plugin.
     wanted = (
+        ("tests.tick_pass", ("tick",)),
         ("tests.tick_driver", ("Setup", "make_setup")),
         ("tests.lane_run_usage_support", ("make_lane",)),
         ("tests.graph_driver", ("tick", "run_on_graph")),
@@ -581,12 +583,12 @@ def pytest_collection_modifyitems(items: list[pytest.Item]) -> None:
         if name in sys.modules
         for attr in attrs
     ]
-    graph = sys.modules.get("tests.graph_driver")
-    if not drivers or graph is None:
+    if not drivers:
         return
+    limit = sys.modules["tests.time_limit"].LOADED_TEST_TIME_LIMIT
     for item in items:
         if item.get_closest_marker("time_limit"):
             continue
         module = getattr(item, "module", None)
         if module is not None and any(v is d for v in vars(module).values() for d in drivers):
-            item.add_marker(pytest.mark.time_limit(graph.GRAPH_DRIVER_TIME_LIMIT))
+            item.add_marker(pytest.mark.time_limit(limit))
