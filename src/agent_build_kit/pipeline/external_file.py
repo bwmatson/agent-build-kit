@@ -310,6 +310,7 @@ class HoldRow(Frozen):
     holder: str
     link: str
     status: str
+    merged_by: str = ""
     items: dict[str, str | list[str]]
     note: str
     since: datetime
@@ -349,6 +350,7 @@ def hold_rows(changes_dir: Path, units: Sequence[StoredUnit], now: datetime) -> 
                     holder=hold.holder,
                     link=hold.link,
                     status=hold.status,
+                    merged_by=hold.merged_by,
                     items=hold.items,
                     note=hold.note,
                     since=hold.since,
@@ -363,7 +365,10 @@ def hold_rows(changes_dir: Path, units: Sequence[StoredUnit], now: datetime) -> 
 def hold_text(row: HoldRow) -> str:
     """A hold on one line."""
     groups = row.groups if row.groups == "all" else ",".join(str(n) for n in row.groups)
-    text = f"{row.change} groups {groups}: {row.status} by {row.holder} ({row.link}), {row.age}"
+    status = row.status
+    if status == DONE:
+        status += f" (merged by {row.merged_by})" if row.merged_by else " (no merge recorded)"
+    text = f"{row.change} groups {groups}: {status} by {row.holder} ({row.link}), {row.age}"
     if row.units:
         text += f"; units {', '.join(row.units)}"
     if row.waiting:
