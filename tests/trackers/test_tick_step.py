@@ -3,8 +3,10 @@ and what it does for a repo with no tracker (spec: tracker-push)."""
 
 from __future__ import annotations
 
+import argparse
 import json
 from collections.abc import Iterator
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -21,8 +23,14 @@ from agent_build_kit.pipeline.units import UnitState
 from agent_build_kit.pipeline.usage_guard import Decision
 from agent_build_kit.trackers import tick_step
 from agent_build_kit.trackers.config import TrackerSection
-from agent_build_kit.trackers.reconciler import ERRORS_COUNTER, PassReport
-from agent_build_kit.trackers.tick_step import is_dirty, sync_trackers
+from agent_build_kit.trackers.reconciler import (
+    ERRORS_COUNTER,
+    SNAPSHOT_RECONCILED,
+    PassReport,
+    snapshot_path,
+    update_snapshot,
+)
+from agent_build_kit.trackers.tick_step import is_dirty, sync_trackers, tracker_pass
 from tests.conftest import make_installation
 from tests.factories import init_repo, stored_unit
 from tests.forges.stand_in import StandInForge
@@ -487,3 +495,113 @@ def test_reaching_the_create_cap_still_sends_the_updates_that_follow(
     assert len(watching.tracker.made("create")) == made + 1
     assert watching.tracker.find_by_marker("aaa-new:1") is None
     assert any("create cap reached" in line and "left" in line for line in logged)
+
+
+# The sweep of `unplanned` units (spec: unplanned-sweep) runs after the board is pushed, and
+# reads when the tracker last reconciled.
+
+
+def record_reconcile(inst: Installation, repo: str, at: datetime) -> None:
+    update_snapshot(
+        snapshot_path(inst.state_dir, repo),
+        lambda kept: kept.update({SNAPSHOT_RECONCILED: at.isoformat()}),
+    )
+
+
+def test_a_repo_with_no_tracker_is_not_waited_for(inst: Installation, store: UnitStore) -> None:
+    assert tracker_pass(inst) == (False, None)
+
+
+def test_a_tracker_that_has_never_reconciled_is_configured_with_no_time(
+    inst: Installation, store: UnitStore
+) -> None:
+    Watching(board_section(["change", "group"]))
+
+    assert tracker_pass(inst) == (True, None)
+
+
+def test_the_time_of_the_last_reconcile_is_read_from_the_repos_file(
+    inst: Installation, store: UnitStore
+) -> None:
+    Watching(board_section(["change", "group"]))
+    at = datetime.now(UTC) - timedelta(minutes=5)
+    record_reconcile(inst, "app", at)
+
+    assert tracker_pass(inst) == (True, at)
+
+
+def test_the_sweep_step_runs_after_the_trackers_step(
+    inst: Installation, store: UnitStore, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    order: list[str] = []
+    monkeypatch.setattr(cli, "sync_trackers", lambda *args, **kwargs: order.append("trackers"))
+    monkeypatch.setattr(cli, "_sweep_outcomes", lambda inst, store: order.append("outcomes"))
+    monkeypatch.setattr(
+        cli, "_sweep_unplanned_units", lambda inst, store, pass_started: order.append("unplanned")
+    )
+
+    run(inst, store)
+
+    assert order.index("trackers") < order.index("unplanned")
+
+
+def tombstone(store: UnitStore) -> None:
+    """other/3 carried group 3, which other/4 now carries; the replan demoted it."""
+    store.upsert([stored_unit("other/3", change="other", repo="app", groups=(3,))])
+    store.upsert([stored_unit("other/4", change="other", repo="app", groups=(3,))], change="other")
+    assert store.get("other/3").state == UnitState.UNPLANNED
+
+
+def test_a_round_after_the_demotion_sweeps_the_unit(inst: Installation, store: UnitStore) -> None:
+    write_change(inst.changes_dir, "other")
+    tombstone(store)
+
+    run(inst, store)
+
+    assert "other/3" not in {unit.id for unit in store.all()}
+
+
+def test_a_round_does_not_sweep_while_the_tracker_has_not_reconciled_since(
+    inst: Installation, store: UnitStore, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    Watching(board_section(["change", "group"]))
+    monkeypatch.setattr(cli, "sync_trackers", lambda *args, **kwargs: None)
+    write_change(inst.changes_dir, "other")
+    tombstone(store)
+    record_reconcile(inst, "app", datetime.now(UTC) - timedelta(days=1))
+
+    run(inst, store)
+    assert "other/3" in {unit.id for unit in store.all()}
+
+    record_reconcile(inst, "app", datetime.now(UTC) + timedelta(days=1))
+    run(inst, store)
+    assert "other/3" not in {unit.id for unit in store.all()}
+
+
+def test_a_sweep_that_raises_does_not_fail_the_round(
+    inst: Installation,
+    store: UnitStore,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    def broken(*args: object, **kwargs: object) -> None:
+        raise RuntimeError("the store is on fire")
+
+    monkeypatch.setattr(cli, "sweep", broken)
+
+    run(inst, store)
+
+    assert "sweeping unplanned units failed" in capsys.readouterr().out
+
+
+def test_archiving_a_change_sweeps_its_tombstones(
+    inst: Installation, store: UnitStore, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from agent_build_kit import openspec
+
+    tombstone(store)
+    monkeypatch.setattr(openspec, "archive", lambda change, cwd: "")
+
+    assert cli.cmd_archive(argparse.Namespace(change="other"), inst) == 0
+
+    assert "other/3" not in {unit.id for unit in store.all()}

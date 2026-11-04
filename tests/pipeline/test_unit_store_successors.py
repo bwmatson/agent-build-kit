@@ -4,12 +4,14 @@ replaces it (spec: a-replaced-unit-points-to-its-successor)."""
 from __future__ import annotations
 
 import json
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import pytest
 
 from agent_build_kit.pipeline.unit_store import StoredUnit, UnitStore
 from agent_build_kit.pipeline.units import Member, UnitState, successors_of
+from agent_build_kit.pipeline.unplanned_sweep import sweep
 from tests.factories import stored_unit
 
 UNPLANNED = UnitState.UNPLANNED
@@ -200,3 +202,123 @@ def test_a_file_from_before_the_field_loads_empty_and_is_written_without_it(
     store.path.write_text(json.dumps(raw))
     with pytest.raises(ValueError, match="from_newer_release"):
         store.all()
+
+
+# The sweep (spec: unplanned-sweep): a demoted unit stays for the pass that demoted it, and the
+# next pass removes it once nothing needs it.
+
+AFTER = datetime.now(UTC) + timedelta(days=1)
+BEFORE = datetime.now(UTC) - timedelta(days=1)
+
+
+def demoted_by_a_replan(tmp_path: Path, *others: StoredUnit) -> UnitStore:
+    """x/3 carried group 3, which x/4 now carries; a replan of x demotes x/3."""
+    store = store_of(tmp_path, stored_unit("x/3", change="x", groups=(3,)), *others)
+    store.upsert([stored_unit("x/4", change="x", groups=(3,))], change="x")
+    assert store.get("x/3").state == UNPLANNED
+    return store
+
+
+def test_a_unit_demoted_in_a_pass_is_still_there_after_it_and_gone_after_the_next(
+    tmp_path: Path,
+) -> None:
+    store = demoted_by_a_replan(tmp_path)
+
+    assert sweep(store, active_changes={"x"}, pass_started=BEFORE) == []
+    assert store.get("x/3").superseded_by == ("x/4",)
+
+    assert sweep(store, active_changes={"x"}, pass_started=AFTER) == ["x/3"]
+    assert "x/3" not in {unit.id for unit in store.all()}
+
+
+@pytest.mark.parametrize(
+    "field", ["depends_on", "needs", "merge_needs", "waited_on", "superseded_by"]
+)
+def test_a_reference_to_a_swept_unit_is_repointed_to_its_successor(
+    tmp_path: Path, field: str
+) -> None:
+    store = demoted_by_a_replan(tmp_path, stored_unit("y/1", change="y", **{field: ("x/3",)}))
+
+    sweep(store, active_changes={"x", "y"}, pass_started=AFTER)
+
+    assert getattr(store.get("y/1"), field) == ("x/4",)
+    assert "x/3" not in {unit.id for unit in store.all()}
+
+
+def test_the_references_of_a_sweep_are_written_with_the_removal_in_one_write(
+    tmp_path: Path,
+) -> None:
+    store = demoted_by_a_replan(tmp_path, stored_unit("y/1", change="y", depends_on=("x/3",)))
+    before = store.path.stat().st_mtime_ns
+
+    sweep(store, active_changes={"x", "y"}, pass_started=AFTER)
+
+    assert store.path.stat().st_mtime_ns != before
+    assert sweep(store, active_changes={"x", "y"}, pass_started=AFTER) == []
+
+
+def test_a_sweep_that_removes_nothing_does_not_write_the_store(tmp_path: Path) -> None:
+    store = demoted_by_a_replan(tmp_path)
+    before = store.path.stat().st_mtime_ns
+
+    assert sweep(store, active_changes={"x"}, pass_started=BEFORE) == []
+
+    assert store.path.stat().st_mtime_ns == before
+
+
+@pytest.mark.parametrize("passes", [1, 3])
+def test_what_holds_work_or_is_in_another_state_or_is_the_last_unit_survives(
+    tmp_path: Path, passes: int
+) -> None:
+    store = store_of(
+        tmp_path,
+        stored_unit("a/1", change="a", groups=(1,), state=UNPLANNED, branch="spec/a/1"),
+        stored_unit("b/1", change="b", groups=(1,), state=UnitState.MERGED),
+        stored_unit("c/1", change="c", groups=(1,), state=UnitState.RETIRED),
+        stored_unit("d/1", change="d", groups=(), state=UNPLANNED),
+    )
+
+    for _ in range(passes):
+        sweep(store, active_changes={"a", "b", "c", "d"}, pass_started=AFTER)
+
+    assert {unit.id for unit in store.all()} == {"a/1", "b/1", "c/1", "d/1"}
+
+
+def test_the_tombstones_of_an_archived_change_go(tmp_path: Path) -> None:
+    store = demoted_by_a_replan(tmp_path)
+
+    assert sweep(store, active_changes=set(), pass_started=AFTER) == ["x/3"]
+
+
+def test_a_tracker_that_has_not_reconciled_since_the_demotion_keeps_the_unit(
+    tmp_path: Path,
+) -> None:
+    store = demoted_by_a_replan(tmp_path)
+
+    kept = sweep(
+        store,
+        active_changes={"x"},
+        pass_started=AFTER,
+        tracker_configured=True,
+        tracker_reconciled=BEFORE,
+    )
+    assert kept == []
+
+    removed = sweep(
+        store,
+        active_changes={"x"},
+        pass_started=AFTER,
+        tracker_configured=True,
+        tracker_reconciled=AFTER,
+    )
+    assert removed == ["x/3"]
+
+
+def test_a_dry_sweep_reports_the_verdicts_and_changes_nothing(tmp_path: Path) -> None:
+    store = demoted_by_a_replan(tmp_path)
+    before = store.path.read_text()
+
+    found = sweep(store, active_changes={"x"}, pass_started=AFTER, dry_run=True)
+
+    assert found == ["x/3"]
+    assert store.path.read_text() == before
