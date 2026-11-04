@@ -19,7 +19,7 @@ from agent_build_kit.pipeline.occupancy import (
     no_account,
     occupied,
 )
-from agent_build_kit.pipeline.slots import account_labels
+from agent_build_kit.pipeline.slots import account_labels, slot_stack_limit
 from agent_build_kit.pipeline.unit_store import Starting, StoredUnit, UnitStore
 from agent_build_kit.pipeline.units import Unit, branch_name, in_progress, project_key
 from agent_build_kit.pipeline.workspaces import branch_held
@@ -33,14 +33,17 @@ STARTING_TTL = timedelta(minutes=10)
 
 
 def limits_of(inst: Installation) -> Limits:
-    """The limits the installation sets: workers and lane places of a project, and the units in
-    progress of a project or, when they are counted per account, of each account."""
+    """The limits the installation sets: workers and lane places of a project, the units in
+    progress of a project or, when they are counted per account, of each account, and the builds
+    at once of each account that caps them across its projects."""
     accounts = account_labels(inst)
+    stacks = slot_stack_limit(inst)
     return Limits(
         stacks=inst.max_concurrent_stacks,
         emergency_extra=inst.emergency_extra,
         in_progress=None if accounts else inst.max_units_in_progress,
         accounts=accounts,
+        account_stacks={label: cap for label in accounts if (cap := stacks(label)) is not None},
     )
 
 

@@ -266,6 +266,7 @@ from agent_build_kit.pipeline.run_log import (
 from agent_build_kit.pipeline.shell import git, has_origin
 from agent_build_kit.pipeline.slots import slot_limit as _slot_limit
 from agent_build_kit.pipeline.slots import slot_of as _slot_of
+from agent_build_kit.pipeline.slots import slot_stack_limit as _slot_stack_limit
 from agent_build_kit.pipeline.stack_runner import (
     GroupStep,
     PauseInfo,
@@ -875,9 +876,12 @@ def local_time(at: datetime) -> str:
     return f"{day}{local:%H:%M}"
 
 
-def _slots_line(inst: Installation, units: list[StoredUnit]) -> str | None:
-    """`slots: 5/4, 1 restacking`: the occupancy over the cap, with the moved-base runs running
-    in the lane. Nothing is printed when no slot is taken and no run is in the lane."""
+def _occupancy_now(
+    inst: Installation, units: list[StoredUnit]
+) -> tuple[dict[ProjectKey, set[str]], set[str]]:
+    """The unit ids occupying build slots in each project as `abk status` can see them, and
+    those restacking in the lane: the lane's runs, and the units stored `running` whose branch
+    lock is held."""
     held = lane_record(inst.state_dir)
     restacking = {entry["unit"] for entry in held if entry["status"] == "running"}
     waiting = {entry["unit"] for entry in held} - restacking
@@ -886,13 +890,44 @@ def _slots_line(inst: Installation, units: list[StoredUnit]) -> str | None:
         for unit in units
         if unit.state == RUNNING and not branch_is_held(inst, unit.branch or branch_name(unit))
     }
-    occupied = slot_occupancy(units, (), restacking, lane_waiting=waiting, idle=unheld)
+    return slot_occupancy(units, (), restacking, lane_waiting=waiting, idle=unheld), restacking
+
+
+def _slots_line(inst: Installation, units: list[StoredUnit]) -> str | None:
+    """`slots: 5/4, 1 restacking`: the occupancy over the cap, with the moved-base runs running
+    in the lane. Nothing is printed when no slot is taken and no run is in the lane."""
+    occupied, restacking = _occupancy_now(inst, units)
     taken = sum(len(ids) for ids in occupied.values())
     if not (taken or restacking):
         return None
     cap = inst.max_concurrent_stacks * max(1, len(_unfinished_projects(units)))
     count = f", {len(restacking)} restacking" if restacking else ""
     return f"slots: {taken}/{cap}{count}"
+
+
+def _account_stack_lines(inst: Installation, units: list[StoredUnit]) -> list[str]:
+    """`account kit: 2/3 stacks building (max_concurrent_stacks), room 1`, one for each account
+    that caps its builds at once across its projects."""
+    cap_of = _slot_stack_limit(inst)
+    slot_of = _slot_of(inst)
+    by_id = {unit.id: unit for unit in units}
+    occupied, _restacking = _occupancy_now(inst, units)
+    building: dict[Hashable, int] = {}
+    for ids in occupied.values():
+        for unit_id in ids:
+            slot = slot_of(by_id[unit_id])
+            building[slot] = building.get(slot, 0) + 1
+    lines = []
+    for slot in sorted({slot_of(unit) for unit in units}, key=_slot_order):
+        cap = cap_of(slot)
+        if cap is None:
+            continue
+        count = building.get(slot, 0)
+        lines.append(
+            f"{_slot_name(slot, units)}: {count}/{cap} stacks building (max_concurrent_stacks), "
+            f"room {max(0, cap - count)}"
+        )
+    return lines
 
 
 def _whose(account: claude_account.Account) -> str:
@@ -1117,6 +1152,8 @@ def cmd_status(args: argparse.Namespace, inst: Installation) -> int:
     for line in _restack_lines(inst, units):
         log(line)
     if line := _slots_line(inst, units):
+        log(line)
+    for line in _account_stack_lines(inst, units):
         log(line)
     for line in [
         *_split_wait_lines(inst, units),
@@ -2868,6 +2905,38 @@ def _claim_starts(
     return kept
 
 
+def _stacks_building(
+    inst: Installation, units: list[StoredUnit], view: list[Unit]
+) -> dict[Hashable, list[str]]:
+    """The ids building under each slot, as the account's cap on builds at once counts them: the
+    units the round shows running, but for one paused for usage, which holds no worker."""
+    slot_of = _slot_of(inst)
+    paused = {unit.id for unit in units if usage_paused(unit)}
+    building: dict[Hashable, list[str]] = {}
+    for unit in view:
+        if unit.state == RUNNING and unit.id not in paused:
+            building.setdefault(slot_of(unit), []).append(unit.id)
+    return building
+
+
+def _stack_hold(
+    inst: Installation, unit: Unit, building: Mapping[Hashable, list[str]]
+) -> tuple[int, list[str]] | None:
+    """The cap and the units building when the unit's account is at its `max_concurrent_stacks`,
+    else None: the account's cap holds the unit, whatever its project's room."""
+    slot = _slot_of(inst)(unit)
+    cap = _slot_stack_limit(inst)(slot)
+    ids = building.get(slot, [])
+    return (cap, ids) if cap is not None and len(ids) >= cap else None
+
+
+def _stack_hold_text(slot: Hashable, hold: tuple[int, list[str]]) -> str:
+    """How a unit's wait names the account's cap that holds it."""
+    cap, ids = hold
+    # Only an account has a cap, so naming the slot reads no unit.
+    return f"{_slot_name(slot, [])}: {len(ids)}/{cap} stacks building (max_concurrent_stacks)"
+
+
 def _slot_label(slot: Hashable) -> str:
     """How a slot is named in the admission records: a project by its tag, an account by its
     label (`default` for the default account)."""
@@ -2976,6 +3045,7 @@ def _write_admissions(
             ),
         )
 
+    building = _stacks_building(inst, units, view)
     last: dict[str, AdmissionRecord] = {}
     for each in read_admissions(path):
         last[each.unit] = each
@@ -2988,14 +3058,31 @@ def _write_admissions(
     ) -> None:
         slot = slot_of(unit)
         found_counted = counted(slot, unit.id, started)
+        limit = limit_of(slot)
+        held_by = ""
+        # A unit the account's cap on builds at once holds says so: that cap and the units
+        # building under it are what the record counts.
+        waited = waits.get(unit.id)
+        if (
+            kind == "slot"
+            and waited is not None
+            and waited.reason is WaitReason.SLOT
+            and (hold := _stack_hold(inst, unit, building)) is not None
+        ):
+            held_by = "max_concurrent_stacks"
+            limit = hold[0]
+            found_counted = tuple(
+                Counted(id=uid, state=str(by_id[uid].state), why=_why_counted(by_id[uid]))
+                for uid in hold[1]
+            )
         usage = _usage_facts(inst, unit, decided)
         before = last.get(unit.id)
         if (
             kind == "slot"
             and before is not None
             and before.kind == "slot"
-            and (before.slot, before.limit, [c.id for c in before.counted])
-            == (_slot_label(slot), limit_of(slot), [c.id for c in found_counted])
+            and (before.slot, before.limit, [c.id for c in before.counted], before.held_by)
+            == (_slot_label(slot), limit, [c.id for c in found_counted], held_by)
         ):
             return
         if (
@@ -3014,13 +3101,14 @@ def _write_admissions(
                 unit=unit.id,
                 tick=spans.PROCESS_TICK,
                 slot=_slot_label(slot),
-                limit=limit_of(slot),
+                limit=limit,
                 counted=found_counted,
                 usage=usage,
                 fingerprint=fingerprint,
                 items=claim.items if claim else (),
                 outcome=claim.outcome if claim else "",
                 reason=claim.reason if claim else "",
+                held_by=held_by,
             ),
         )
 
@@ -3947,6 +4035,8 @@ def _evaluate_round(
             max_units_in_progress=inst.max_units_in_progress if enforce_limit else None,
             slot_of=_slot_of(inst),
             slot_limit=_slot_limit(inst),
+            # Lifting the workers (`max_concurrent`) lifts the account's builds at once with them.
+            slot_stack_limit=None if max_concurrent else _slot_stack_limit(inst),
             excluded=excluded,
             emergency_extra=extra,
             in_lane=lane,
@@ -4704,7 +4794,12 @@ def _schedule(
             # Totals over the projects with a unit not yet finished, for reporting only.
             live = _unfinished_projects(units)
             limits = limits_of(inst)
-            spare = sum(free_workers(occupied, limits, key) for key in live)
+            spare = free_workers(
+                occupied,
+                limits,
+                live,
+                lambda key: claude_account.for_repo(inst.config, key.repo).label,
+            )
             spans.record_sample(
                 spans.Sample(
                     at=spans.clock.now().isoformat(),
@@ -9007,6 +9102,7 @@ def _waits_in(
     waits: dict[str, Wait] = {}
     gates = split_gates(inst.config, inst.state_dir, units)
     external = held_units(inst.changes_dir, units)
+    building = _stacks_building(inst, units, view)
     # By the stored state: the view shows what a pass leaves out as held.
     for unit in units:
         # What `--only` leaves out is not waiting for anything this pass decides.
@@ -9035,6 +9131,7 @@ def _waits_in(
                 startable,
                 gates,
                 external,
+                building,
                 usage_paused=usage_paused,
                 refusal=(refused or {}).get(unit.id),
             )
@@ -9050,6 +9147,7 @@ def _planned_wait(
     startable: set[str],
     gates: Mapping[str, Hold],
     external: Mapping[str, ExternalHold],
+    building: Mapping[Hashable, list[str]],
     *,
     usage_paused: bool,
     refusal: str | None = None,
@@ -9095,6 +9193,8 @@ def _planned_wait(
     room = start_room(view, _slot_limit(inst)(slot_of(unit)), slot_of(unit), slot_of)
     if not in_progress(unit, view) and not room:
         return Wait(reason=WaitReason.QUEUE_FULL)
+    if (hold := _stack_hold(inst, unit, building)) is not None:
+        return Wait(reason=WaitReason.SLOT, detail=_stack_hold_text(slot_of(unit), hold))
     return Wait(reason=WaitReason.SLOT)
 
 

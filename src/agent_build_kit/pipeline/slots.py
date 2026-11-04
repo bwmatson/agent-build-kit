@@ -55,6 +55,20 @@ def slot_limit(inst: Installation) -> Callable[[Hashable], int]:
     return limit
 
 
+def slot_stack_limit(inst: Installation) -> Callable[[Hashable], int | None]:
+    """The builds at once an account allows across its projects, for a slot of `slot_of`: the
+    account's `max_concurrent_stacks` when it set one, else none. A project slot, the default
+    account and an account that did not set it have none."""
+    if not claude_account.slots_per_account(inst.config):
+        return lambda _slot: None
+
+    def limit(label: Hashable) -> int | None:
+        named = claude_account.resolve(inst, label if isinstance(label, str) else None)
+        return _set_fields(named).get("max_concurrent_stacks")
+
+    return limit
+
+
 def account_labels(inst: Installation) -> dict[str | None, int]:
     """The limit of each account label the repos run on, when units in progress are counted per
     account; empty when they are counted per project."""

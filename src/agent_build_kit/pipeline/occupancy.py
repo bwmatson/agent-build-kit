@@ -31,18 +31,21 @@ class Occupancy(Frozen):
     accounts: Mapping[str | None, int] = {}
     emergency: Mapping[ProjectKey, int] = {}
     lane_workers: Mapping[ProjectKey, int] = {}
+    account_workers: Mapping[str | None, int] = {}
     leased: Mapping[ProjectKey, int] = {}
 
 
 class Limits(Frozen):
     """What occupancy is held to: build workers of one project, the lane's extra places in one
     project, the units in progress of one project (None: not counted per project), and the
-    places of each account label that has its own."""
+    places of each account label that has its own, and the builds at once of each account label
+    that caps them across its projects."""
 
     stacks: int
     emergency_extra: int = 0
     in_progress: int | None = None
     accounts: Mapping[str | None, int] = {}
+    account_stacks: Mapping[str | None, int] = {}
 
 
 def no_account(unit: Unit) -> str | None:
@@ -85,6 +88,7 @@ def occupied(
     accounts: Counter[str | None] = Counter()
     emergency: Counter[ProjectKey] = Counter()
     lane_workers: Counter[ProjectKey] = Counter()
+    account_workers: Counter[str | None] = Counter()
     leased: Counter[ProjectKey] = Counter()
     for unit in units:
         key = project_key(unit)
@@ -101,6 +105,7 @@ def occupied(
             emergency[key] += 1
         if runs:
             workers[key] += 1
+            account_workers[account_of(unit)] += 1
             if unit.id in lane:
                 lane_workers[key] += 1
     return Occupancy(
@@ -109,6 +114,7 @@ def occupied(
         accounts=dict(accounts),
         emergency=dict(emergency),
         lane_workers=dict(lane_workers),
+        account_workers=dict(account_workers),
         leased=dict(leased),
     )
 
@@ -126,11 +132,14 @@ def free(
     when `limits` names one. The lane's units hold a worker for a unit `new` to progress, so
     ordinary starts wait; a unit already in progress is held to the workers without them
     (`ready_units`); a lane unit named only by its pause holds a lane place and no worker, so
-    it is not taken off."""
+    it is not taken off. An account that caps its builds holds every unit of its projects to
+    that cap together."""
     busy = occupancy.workers.get(project, 0) - (
         0 if new else occupancy.lane_workers.get(project, 0)
     )
     room = limits.stacks - busy
+    if account in limits.account_stacks:
+        room = min(room, limits.account_stacks[account] - occupancy.account_workers.get(account, 0))
     if new:
         if limits.in_progress is not None:
             room = min(room, limits.in_progress - occupancy.projects.get(project, 0))
@@ -139,9 +148,26 @@ def free(
     return max(0, room)
 
 
-def free_workers(occupancy: Occupancy, limits: Limits, project: ProjectKey) -> int:
-    """How many of `project`'s workers hold no unit, for the report of the slots."""
-    return max(0, limits.stacks - occupancy.workers.get(project, 0))
+def free_workers(
+    occupancy: Occupancy,
+    limits: Limits,
+    projects: Collection[ProjectKey],
+    account_of: Callable[[ProjectKey], str | None] = lambda project: None,
+) -> int:
+    """How many workers hold no unit across `projects`, for the report of the slots: each
+    project's free workers, and for the projects of an account that caps its builds no more than
+    the account has room for (the lesser of the projects' room and the account's)."""
+    by_account: dict[str | None, int] = {}
+    for project in projects:
+        room = max(0, limits.stacks - occupancy.workers.get(project, 0))
+        label = account_of(project)
+        by_account[label] = by_account.get(label, 0) + room
+    return sum(
+        min(room, max(0, limits.account_stacks[label] - occupancy.account_workers.get(label, 0)))
+        if label in limits.account_stacks
+        else room
+        for label, room in by_account.items()
+    )
 
 
 def emergency_free(occupancy: Occupancy, limits: Limits, project: ProjectKey) -> int:
