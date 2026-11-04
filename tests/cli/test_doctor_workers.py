@@ -93,11 +93,28 @@ def test_lingering_off_says_to_enable_it(
     config = configured(tmp_path, monkeypatch, "processes")
     assert main(["install-timers"]) == 0
 
-    checks = workers_checks(config, units, linger="no")
+    machine = Machine("no")
 
-    [problem] = [check for check in checks if check.status != "ok"]
-    assert "linger" in problem.detail
+    checks = run_doctor(config, run=machine, which=which_all, units=units)
+
+    # Lingering is asked once and warned about once, though the timers and the workers both need it.
+    [problem] = [c for c in checks if c.status != "ok" and "lingering is off" in c.detail]
     assert "loginctl enable-linger" in problem.fix
+    assert len([argv for argv in machine.loginctl.calls if "show-user" in argv]) == 1
+    assert {c.status for c in checks if c.name == NAME} == {"ok"}
+
+
+def test_a_wake_unit_missing_from_installed_timers_is_reported_once(
+    tmp_path: Path, units: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    config = configured(tmp_path, monkeypatch, "processes")
+    assert main(["install-timers"]) == 0
+    next(units.glob("*-wake.path")).unlink()
+
+    checks = run_doctor(config, run=Machine("yes"), which=which_all, units=units)
+
+    named = [c for c in checks if c.status != "ok" and "wake.path" in c.detail]
+    assert len(named) == 1
 
 
 def test_a_machine_without_systemd_run_says_what_to_install(

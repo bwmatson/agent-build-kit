@@ -21,6 +21,7 @@ import tempfile
 import tomllib
 from collections.abc import Callable
 from datetime import UTC, datetime
+from functools import cache
 from pathlib import Path
 from typing import Literal
 from urllib.parse import urlparse
@@ -785,25 +786,42 @@ def _state_location(inst: Installation) -> list[Check]:
     ]
 
 
-def _linger(run: Run) -> list[Check]:
+def _linger_probe(run: Run) -> Callable[[], bool]:
+    """Whether lingering is off, asked of `loginctl` once however many checks want to know."""
+
+    @cache
+    def off() -> bool:
+        return timers.linger_state(timers.current_user(), run) == "off"
+
+    return off
+
+
+def _linger(lingering_off: Callable[[], bool]) -> list[Check]:
     """A warning when the installed timers stop with the last login session."""
-    user = timers.current_user()
-    if timers.linger_state(user, run) != "off":
+    if not lingering_off():
         return []
     return [
         _warn(
             "linger",
             "lingering is off, so the timers only run while a login session is open",
-            timers.linger_advice(user),
+            timers.linger_advice(timers.current_user()),
         )
     ]
 
 
-def _workers(inst: Installation, run: Run, units: Path | None, which: Which) -> list[Check]:
+def _workers(
+    inst: Installation,
+    lingering_off: Callable[[], bool],
+    which: Which,
+    scheduled: tuple[timers.TimerReport, bool],
+) -> list[Check]:
     """What `workers.mode: processes` needs: the user manager's `systemd-run`, lingering so a
-    worker outlives the login session, and the wake path unit."""
+    worker outlives the login session, and the wake path unit. `scheduled` is what `_timers`
+    found (its report, and whether the timers are enabled); a problem it already warned about
+    is not warned about again."""
     if inst.config.workers.mode != "processes":
         return [_info("workers", "workers.mode is threads: builds run in the tick")]
+    state, enabled = scheduled
     checks: list[Check] = []
     if not which("systemd-run"):
         checks.append(
@@ -814,22 +832,9 @@ def _workers(inst: Installation, run: Run, units: Path | None, which: Which) -> 
                 "install systemd, which provides systemd-run",
             )
         )
-    user = timers.current_user()
-    if timers.linger_state(user, run) == "off":
-        checks.append(
-            _warn(
-                "workers",
-                "lingering is off, so a worker's transient unit stops with the login session",
-                timers.linger_advice(user),
-            )
-        )
-    state = timers.report(
-        inst.root,
-        dest=units or timers.user_unit_dir(),
-        tool_dirs=timers.tool_dirs(inst, which=which),
-        wake_file=inst.state_dir / WAKE,
-    )
-    if f"abk-{timers.slug(inst.root)}-wake.path" in state.missing:
+    if not enabled:
+        checks += _linger(lingering_off)
+    if not state.installed:
         checks.append(
             _warn(
                 "workers",
@@ -840,7 +845,13 @@ def _workers(inst: Installation, run: Run, units: Path | None, which: Which) -> 
     return checks or [_ok("workers", "systemd-run, lingering and the wake unit are in place")]
 
 
-def _timers(inst: Installation, run: Run, units: Path | None, which: Which) -> list[Check]:
+def _timers(
+    inst: Installation,
+    run: Run,
+    lingering_off: Callable[[], bool],
+    units: Path | None,
+    which: Which,
+) -> tuple[list[Check], timers.TimerReport, bool]:
     """Whether the pipeline is actually scheduled on this machine.
 
     Installed-but-not-enabled is the failure that looks most like success: the
@@ -917,7 +928,7 @@ def _timers(inst: Installation, run: Run, units: Path | None, which: Which) -> l
             checks.append(_ok("timers", f"{count} units, enabled, pointing at {inst.root}"))
 
     if enabled:
-        checks += _linger(run)
+        checks += _linger(lingering_off)
 
     # What the installed service can find. A person's terminal has `az` on its
     # PATH; the unit does not inherit it, so every command a person runs works
@@ -951,7 +962,7 @@ def _timers(inst: Installation, run: Run, units: Path | None, which: Which) -> l
                 f"{stops}; then delete the files in {where}",
             )
         )
-    return checks
+    return checks, state, enabled
 
 
 def _toolchain(inst: Installation, run: Run, which: Which) -> list[Check]:
@@ -2371,8 +2382,10 @@ def run_doctor(
     checks += _planning_view(inst)
     checks += _state_location(inst)
     checks += _change_locks(inst, fix)
-    checks += _timers(inst, run, units, which)
-    checks += _workers(inst, run, units, which)
+    lingering_off = _linger_probe(run)
+    timer_checks, timer_state, timers_enabled = _timers(inst, run, lingering_off, units, which)
+    checks += timer_checks
+    checks += _workers(inst, lingering_off, which, (timer_state, timers_enabled))
     checks += _toolchain(inst, run, which)
     checks += _agent_commands(inst)
     checks += _sandbox_lists(inst)

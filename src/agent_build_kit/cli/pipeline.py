@@ -1078,9 +1078,10 @@ def cmd_status(args: argparse.Namespace, inst: Installation) -> int:
     log(_snapshot_line(inst))
 
     units = store_for(inst).all()
+    unit_of_branch = {branch_name(unit): unit.id for unit in units}
     if not units:
         log("no units planned")
-        for line in worker_status_lines(inst):
+        for line in worker_status_lines(inst, unit_of_branch):
             log(line)
         return 0
     recorded = environment.read_state(inst.state_dir)
@@ -1348,7 +1349,7 @@ def cmd_status(args: argparse.Namespace, inst: Installation) -> int:
                 f"  {waiting}: {unit.id} ({where}) #{unit.pr or '?'}{shown_tier}{mark}{ran_none}"
                 f"{not_landed}"
             )
-    for line in worker_status_lines(inst):
+    for line in worker_status_lines(inst, unit_of_branch):
         log(line)
     return 0
 

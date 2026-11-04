@@ -3,29 +3,37 @@ memory systemd reports for a worker that runs as a transient unit."""
 
 from __future__ import annotations
 
-import re
 import subprocess
+from collections.abc import Mapping
 from datetime import datetime
 
 from agent_build_kit import timers
 from agent_build_kit.installation import Installation
+from agent_build_kit.pipeline.spawn import Run, worker_unit_prefix
 from agent_build_kit.pipeline.workspaces import live_holders
 
 _MIB = 1024 * 1024
+# What systemd before v244 reports for a counter when accounting is off.
+_NO_READING = 2**64 - 1
 
 
-def _usage(inst: Installation, unit: str) -> str:
-    """` — cpu 90s, memory 256 MiB` from `systemctl --user show` for the unit's transient unit,
-    or nothing when systemd does not report it."""
-    safe = re.sub(r"[^A-Za-z0-9_.]+", "-", unit).strip("-")
+def _reading(values: Mapping[str, str], key: str) -> int | None:
+    found = values.get(key, "")
+    return int(found) if found.isdecimal() and int(found) != _NO_READING else None
+
+
+def _usage(inst: Installation, unit: str, run: Run) -> str:
+    """` — cpu 90s, memory 256 MiB` from `systemctl --user show` for the unit's transient unit
+    (the spawner's name and a six-character suffix, so no other unit's worker matches), or
+    nothing when systemd does not report it."""
     try:
-        done = subprocess.run(
+        done = run(
             [
                 "systemctl",
                 "--user",
                 "show",
                 "--property=MemoryCurrent,CPUUsageNSec",
-                f"abk-{timers.slug(inst.root)}-worker-{safe}-*",
+                f"{worker_unit_prefix(inst, unit)}-??????.service",
             ],
             check=False,
             capture_output=True,
@@ -38,10 +46,10 @@ def _usage(inst: Installation, unit: str) -> str:
         return ""
     values = dict(line.split("=", 1) for line in done.stdout.splitlines() if "=" in line)
     parts = []
-    if values.get("CPUUsageNSec", "").isdecimal():
-        parts.append(f"cpu {int(values['CPUUsageNSec']) / 1e9:.0f}s")
-    if values.get("MemoryCurrent", "").isdecimal():
-        parts.append(f"memory {int(values['MemoryCurrent']) // _MIB} MiB")
+    if (cpu := _reading(values, "CPUUsageNSec")) is not None:
+        parts.append(f"cpu {cpu / 1e9:.0f}s")
+    if (memory := _reading(values, "MemoryCurrent")) is not None:
+        parts.append(f"memory {memory // _MIB} MiB")
     return f" — {', '.join(parts)}" if parts else ""
 
 
@@ -52,14 +60,24 @@ def _since(holder: dict) -> str:
         return ""
 
 
-def worker_status_lines(inst: Installation) -> list[str]:
+def worker_status_lines(
+    inst: Installation, unit_of_branch: Mapping[str, str], run: Run | None = None
+) -> list[str]:
     """One line per running worker (kind, unit, pid, start time in UTC, usage), or one saying
-    none run."""
+    none run. `unit_of_branch` maps a unit's branch to its id; a holder on a branch no unit
+    names is shown under the branch, without usage. In `threads` mode the tick builds in its
+    own threads, so no process is a worker and none is listed."""
+    if inst.config.workers.mode != "processes":
+        return ["workers: none (builds run in the tick)"]
     holders = [h for h in live_holders(inst.locks_dir) if isinstance(h.get("branch"), str)]
     if not holders:
         return ["workers: none running"]
-    return [
-        f"worker build {unit}: pid {holder['pid']}{_since(holder)}{_usage(inst, unit)}"
-        for holder in holders
-        for unit in [holder["branch"].split("/", 1)[-1]]
-    ]
+    run = run or subprocess.run
+    lines = []
+    for holder in holders:
+        unit = unit_of_branch.get(holder["branch"])
+        usage = _usage(inst, unit, run) if unit else ""
+        lines.append(
+            f"worker build {unit or holder['branch']}: pid {holder['pid']}{_since(holder)}{usage}"
+        )
+    return lines
