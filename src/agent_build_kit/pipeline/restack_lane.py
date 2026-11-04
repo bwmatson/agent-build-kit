@@ -2,7 +2,9 @@
 
 A restack is the part of a unit's flow whose only cause is that its base moved.
 It takes no build slot, starts when it is seen, and runs in the order it was
-seen, at most `project_limits.max_concurrent_restacks` at once. The lane holds no turn
+seen, at most `project_limits.max_concurrent_restacks` at once for a project and, when the
+unit's account sets the same field, at most that many at once across the account's projects.
+The lane holds no turn
 of its own: the move takes the repository's turn for the phases that write shared
 git state.
 """
@@ -312,6 +314,18 @@ def lane_record(state_dir: Path) -> list[dict[str, str]]:
     return held
 
 
+def _admit_all(unit: StoredUnit) -> bool:
+    return True
+
+
+def _release_none(unit: StoredUnit) -> None:
+    return None
+
+
+def _wake_none(ended: RestackLane) -> None:
+    return None
+
+
 class _Entry:
     def __init__(
         self, unit: StoredUnit, work: Work, done: list[Callable[[bool], None]], claimed: bool
@@ -357,6 +371,40 @@ class RestackLane:
         self._running: dict[str, _Entry] = {}
         self._threads: list[threading.Thread] = []
         self._finished: Future[None] = Future()
+        # What a lane of `RestackLanes` is bound to (`bind`): the account's admission of an entry,
+        # the return of its place, and the wake of the other lanes when a worker ends. A lane on its
+        # own admits every entry the project's cap allows.
+        self._admit: Callable[[StoredUnit], bool] = _admit_all
+        self._release: Callable[[StoredUnit], None] = _release_none
+        self._wake: Callable[[RestackLane], None] = _wake_none
+
+    def bind(
+        self,
+        admit: Callable[[StoredUnit], bool],
+        release: Callable[[StoredUnit], None],
+        wake: Callable[[RestackLane], None],
+    ) -> None:
+        """Hold this lane's starts to `admit`, which the lane calls with its own lock held, so it
+        takes no lane's lock; `release` gives the place back, and `wake` runs, with no lock held,
+        after a worker has ended, to start what the freed place lets in another lane."""
+        self._admit, self._release, self._wake = admit, release, wake
+
+    @property
+    def full(self) -> bool:
+        """Whether the project's cap of running restacks is reached."""
+        with self._changed:
+            return len(self._running) >= self._cap
+
+    def note(self, message: str) -> None:
+        """Say `message` in this lane's log, for the lanes that hold it."""
+        self._log(message)
+
+    def restart(self) -> None:
+        """Start the queued restacks that a place freed elsewhere now lets in."""
+        with self._changed:
+            if self._queue:
+                self._start()
+                self._write()
 
     def hand_over(
         self,
@@ -462,17 +510,31 @@ class RestackLane:
         self.drain()
 
     def _start(self) -> None:
-        """Start queued restacks while a worker is free; the caller holds the lock."""
-        while self._queue and len(self._running) < self._cap:
-            entry = self._queue.pop(0)
+        """Start queued restacks, first seen first, while a worker is free and the account admits
+        them; the caller holds the lock. An entry the account does not admit stays where it is and
+        the next is tried, so it never holds back an entry of another account."""
+        index = 0
+        while index < len(self._queue) and len(self._running) < self._cap:
+            entry = self._queue[index]
+            if not self._admit(entry.unit):
+                index += 1
+                continue
+            del self._queue[index]
             self._running[entry.unit.id] = entry
             # The tick's span goes into the worker by its context: a thread does not inherit it.
             context = contextvars.copy_context()
             thread = threading.Thread(
                 target=context.run, args=(self._run, entry), name="restack", daemon=True
             )
+            try:
+                thread.start()
+            except BaseException:
+                # No worker: the entry goes back, and its place with the account is returned.
+                del self._running[entry.unit.id]
+                self._queue.insert(index, entry)
+                self._release(entry.unit)
+                raise
             self._threads.append(thread)
-            thread.start()
 
     def _write(self) -> None:
         """Say what the lane holds; the caller holds the lock. A view: it never stops a restack."""
@@ -559,31 +621,114 @@ class RestackLane:
                     self._log(f"{unit.id}: after its restack — {type(error).__name__}: {error}")
             with self._changed:
                 del self._running[unit.id]
-                self._start()
+                self._release(unit)
+                try:
+                    self._start()
+                except Exception as error:  # noqa: BLE001 — no worker for the next entry
+                    # The entry stays queued and its place is returned (`_start`); the waiters
+                    # below are still told and the other lanes still woken, or they would wait on
+                    # a restack that has ended.
+                    self._log(f"restack not started — {type(error).__name__}: {error}")
                 self._write()
                 self._changed.notify_all()
                 ended, self._finished = self._finished, Future()
-            ended.set_result(None)
+            try:
+                # With no lock of this lane held: another lane's lock is taken in turn, never two
+                # at once, so two lanes ending together cannot wait on each other.
+                self._wake(self)
+            finally:
+                ended.set_result(None)
 
 
 class RestackLanes:
     """A lane for each project, made on first use by `make` and routed to by a unit's project.
 
     The bound of a lane is per project: two projects of one repo each run up to the cap, and a
-    full lane never holds back a restack of another project."""
+    full lane never holds back a restack of another project. An account that sets a cap
+    (`account_cap`, for the account `account_of` names for a unit) is held to it across its
+    projects as well: the lanes count the account's running restacks under their guard, a lane
+    starts an entry only when the account admits it, and a worker that ends restarts the waiting
+    entries of the other lanes. An account with no cap, as the default account has none, adds none.
+
+    The locks: each lane has its own and the lanes one guard, and a lane takes the guard while it
+    holds its own, never the other way round and never two lanes' locks at once. The guard is
+    held only to read or change a count."""
 
     def __init__(
-        self, make: Callable[[ProjectKey], RestackLane], *, owed: Owed = lambda units: ()
+        self,
+        make: Callable[[ProjectKey], RestackLane],
+        *,
+        owed: Owed = lambda units: (),
+        account_of: Callable[[StoredUnit], Hashable] = lambda unit: None,
+        account_cap: Callable[[Hashable], int | None] = lambda account: None,
     ) -> None:
         self._make, self._owed = make, owed
+        self._account_of, self._account_cap = account_of, account_cap
         self._guard = threading.Lock()
         self._lanes: dict[ProjectKey, RestackLane] = {}
+        self._account_running: dict[Hashable, int] = {}
 
     def _lane(self, key: ProjectKey) -> RestackLane:
         with self._guard:
             if key not in self._lanes:
-                self._lanes[key] = self._make(key)
+                lane = self._make(key)
+                lane.bind(self._admit, self._give_back, self._wake)
+                self._lanes[key] = lane
             return self._lanes[key]
+
+    def _admit(self, unit: StoredUnit) -> bool:
+        """Count a restack of `unit` against its account when the account has room; called by a
+        lane with its own lock held."""
+        account = self._account_of(unit)
+        cap = self._account_cap(account)
+        with self._guard:
+            running = self._account_running.get(account, 0)
+            if cap is not None and running >= cap:
+                return False
+            self._account_running[account] = running + 1
+            return True
+
+    def _give_back(self, unit: StoredUnit) -> None:
+        account = self._account_of(unit)
+        with self._guard:
+            left = self._account_running.get(account, 0) - 1
+            if left > 0:
+                self._account_running[account] = left
+            else:
+                self._account_running.pop(account, None)
+
+    def _wake(self, ended: RestackLane) -> None:
+        """A place was freed: the other lanes try their waiting entries again. Each lane's lock is
+        taken alone, after the count was changed, so an entry a lane refused before the change is
+        met by this restart, and one it meets after is admitted by its own start. The ending lane
+        starts its own queue first, so a place goes to it before the waiting entries of the other
+        lanes: a lane with a continuous backlog can retake the places it frees."""
+        for lane in self._all():
+            if lane is not ended:
+                try:
+                    lane.restart()
+                except Exception as error:  # noqa: BLE001 — one lane's failure leaves the rest
+                    ended.note(f"restack not restarted — {type(error).__name__}: {error}")
+
+    def lane_full(self, unit: StoredUnit) -> bool:
+        """Whether the lane of the unit's project has all its workers busy. A lane nothing has
+        handed to is not made by the question and is not full."""
+        with self._guard:
+            lane = self._lanes.get(project_key(unit))
+        return lane is not None and lane.full
+
+    def account_full(self, unit: StoredUnit) -> bool:
+        """Whether the unit's account runs as many restacks, across its projects, as it allows;
+        an account with no cap is never full."""
+        account = self._account_of(unit)
+        cap = self._account_cap(account)
+        with self._guard:
+            return cap is not None and self._account_running.get(account, 0) >= cap
+
+    def at_cap(self, unit: StoredUnit) -> bool:
+        """Whether a restack of the unit would have to wait now, for its project's lane or for its
+        account. It is a reading at one moment: a restack may start or end the next."""
+        return self.lane_full(unit) or self.account_full(unit)
 
     def _all(self) -> list[RestackLane]:
         with self._guard:
