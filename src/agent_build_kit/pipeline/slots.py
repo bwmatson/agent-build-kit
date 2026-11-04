@@ -69,6 +69,21 @@ def slot_stack_limit(inst: Installation) -> Callable[[Hashable], int | None]:
     return limit
 
 
+def extra_of(inst: Installation) -> Callable[[Hashable], int | None]:
+    """The emergency lane places an account allows across its projects, for a slot of `slot_of`:
+    the account's `emergency_extra` when it set one (zero included), else none. A project slot,
+    the default account and an account that did not set it have none; a project's own extra
+    holds beside it."""
+    if not claude_account.slots_per_account(inst.config):
+        return lambda _slot: None
+
+    def extra(label: Hashable) -> int | None:
+        named = claude_account.resolve(inst, label if isinstance(label, str) else None)
+        return _set_fields(named).get("emergency_extra")
+
+    return extra
+
+
 def account_labels(inst: Installation) -> dict[str | None, int]:
     """The limit of each account label the repos run on, when units in progress are counted per
     account; empty when they are counted per project."""

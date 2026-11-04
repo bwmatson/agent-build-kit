@@ -22,7 +22,8 @@ class Occupancy(Frozen):
     progress here (a paused unit among them) in each project and under each account label (None
     for the default account); `workers` counts those of them a run holds in each project (a unit
     named only by its usage pause does not); `emergency` counts the lane's units, each of which
-    holds a lane place; `lane_workers` counts those of them a run holds, which are also in
+    holds a lane place, in each project and `account_emergency` under each account label;
+    `lane_workers` counts those of them a run holds, which are also in
     `workers`; `leased` counts the units a person holds a lease on, which take no place or
     worker by that."""
 
@@ -30,6 +31,7 @@ class Occupancy(Frozen):
     workers: Mapping[ProjectKey, int] = {}
     accounts: Mapping[str | None, int] = {}
     emergency: Mapping[ProjectKey, int] = {}
+    account_emergency: Mapping[str | None, int] = {}
     lane_workers: Mapping[ProjectKey, int] = {}
     account_workers: Mapping[str | None, int] = {}
     leased: Mapping[ProjectKey, int] = {}
@@ -39,13 +41,15 @@ class Limits(Frozen):
     """What occupancy is held to: build workers of one project, the lane's extra places in one
     project, the units in progress of one project (None: not counted per project), and the
     places of each account label that has its own, and the builds at once of each account label
-    that caps them across its projects."""
+    that caps them across its projects, and the lane places of each account label that caps them
+    across its projects."""
 
     stacks: int
     emergency_extra: int = 0
     in_progress: int | None = None
     accounts: Mapping[str | None, int] = {}
     account_stacks: Mapping[str | None, int] = {}
+    account_extras: Mapping[str | None, int] = {}
 
 
 def no_account(unit: Unit) -> str | None:
@@ -87,6 +91,7 @@ def occupied(
     workers: Counter[ProjectKey] = Counter()
     accounts: Counter[str | None] = Counter()
     emergency: Counter[ProjectKey] = Counter()
+    account_emergency: Counter[str | None] = Counter()
     lane_workers: Counter[ProjectKey] = Counter()
     account_workers: Counter[str | None] = Counter()
     leased: Counter[ProjectKey] = Counter()
@@ -103,6 +108,7 @@ def occupied(
         accounts[account_of(unit)] += 1
         if unit.id in lane:
             emergency[key] += 1
+            account_emergency[account_of(unit)] += 1
         if runs:
             workers[key] += 1
             account_workers[account_of(unit)] += 1
@@ -113,6 +119,7 @@ def occupied(
         workers=dict(workers),
         accounts=dict(accounts),
         emergency=dict(emergency),
+        account_emergency=dict(account_emergency),
         lane_workers=dict(lane_workers),
         account_workers=dict(account_workers),
         leased=dict(leased),
@@ -179,9 +186,18 @@ def free_workers(
     )
 
 
-def emergency_free(occupancy: Occupancy, limits: Limits, project: ProjectKey) -> int:
-    """How many more units may start in `project`'s emergency lane."""
-    return max(0, limits.emergency_extra - occupancy.emergency.get(project, 0))
+def emergency_free(
+    occupancy: Occupancy, limits: Limits, project: ProjectKey, account: str | None
+) -> int:
+    """How many more units may start in `project`'s emergency lane: its own places and, when
+    `limits` names an extra for `account`, no more than the account has left across its
+    projects."""
+    room = limits.emergency_extra - occupancy.emergency.get(project, 0)
+    if account in limits.account_extras:
+        room = min(
+            room, limits.account_extras[account] - occupancy.account_emergency.get(account, 0)
+        )
+    return max(0, room)
 
 
 def capacity(limits: Limits, projects: int) -> int:

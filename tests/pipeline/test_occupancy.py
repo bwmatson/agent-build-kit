@@ -151,7 +151,7 @@ def test_a_paused_lane_unit_with_no_run_holds_a_lane_place_and_no_worker():
 
     assert alone.emergency == {key(): 1}
     assert alone.workers == {}
-    assert emergency_free(alone, limits, key()) == 0
+    assert emergency_free(alone, limits, key(), None) == 0
     assert free(alone, limits, key(), new=False) == 1
     assert free(beside, limits, key(), new=False) == 0
 
@@ -223,5 +223,5 @@ def test_the_lane_has_the_places_its_extra_leaves():
     found = occupied([on_branch("a/1")], locks=locks("a/1"), leases=(), now=NOW, lane={"a/1"})
     limits = Limits(stacks=1, emergency_extra=2)
 
-    assert emergency_free(found, limits, key()) == 1
-    assert emergency_free(found, Limits(stacks=1), key()) == 0
+    assert emergency_free(found, limits, key(), None) == 1
+    assert emergency_free(found, Limits(stacks=1), key(), None) == 0
