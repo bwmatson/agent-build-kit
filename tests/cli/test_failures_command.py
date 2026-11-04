@@ -181,6 +181,39 @@ def test_show_prints_the_newest_bundles_context_machine_and_worktree_and_the_out
     assert "older" not in out
 
 
+def test_show_skips_evidence_that_is_not_a_bundle_and_prints_the_newest_real_one(
+    installation: Installation, capsys: pytest.CaptureFixture[str]
+) -> None:
+    real = bundle_of(installation, 1, "real")
+    flakes = flake_record(installation)
+    flakes.append(flake("one/1", 1, (14.0, 18.0), real))
+    split = flake("two/1", 5, (15.0, 16.0)).model_copy(
+        update={"failing": True, "evidence": "e2e-test split: s\n"}
+    )
+    flakes.append(split)
+
+    out = shown(installation, capsys)
+
+    assert "uv run pytest real" in out
+    assert str(real / "output.txt") in out
+    assert "e2e-test split" not in out
+    assert "not readable" not in out
+
+
+def test_show_says_no_bundle_when_the_only_evidence_is_not_one(
+    installation: Installation, capsys: pytest.CaptureFixture[str]
+) -> None:
+    split = flake("two/1", 5, (15.0, 16.0)).model_copy(
+        update={"failing": True, "evidence": "e2e-test split: s\n"}
+    )
+    flake_record(installation).append(split)
+
+    out = shown(installation, capsys)
+
+    assert "no bundle" in out
+    assert "e2e-test split" not in out
+
+
 def test_show_does_not_print_the_whole_output(
     installation: Installation, capsys: pytest.CaptureFixture[str]
 ) -> None:

@@ -25,22 +25,20 @@ from agent_build_kit.pipeline.run_log import TestRun
 from agent_build_kit.pipeline.wiring import build_unit_test
 from agent_build_kit.profiles.base import ToolchainProfile
 from tests.conftest import make_installation
-from tests.failure_bundle_fakes import START, BundleMachine, BundleProfile, storms
+from tests.failure_bundle_fakes import RECORDED, START, BundleMachine, BundleProfile, storms
 
 TIMED_OUT = "test_one.py::test_plain"
 OTHER = "test_two.py::test_other"
 THRESHOLD = 2.0
 CPUS = 4
 
-# What an xdist run prints at `-v`: the worker of each result, then the short summary.
-WORKERS_OUTPUT = f"""\
-[gw2] [ 40%] FAILED {TIMED_OUT}
-[gw0] [ 80%] FAILED {OTHER}
-=========================== short test summary info ============================
-FAILED {TIMED_OUT} - Failed: Timeout >60.0s
-FAILED {OTHER} - assert [] == [1]
-2 failed in 61.00s
-"""
+# What a recorded `-n 2 -q -rfE` run prints, with the first test failing by its time limit.
+WORKERS_OUTPUT = (
+    (RECORDED / "console_xdist_failures.txt")
+    .read_text()
+    .split("\n", 2)[2]
+    .replace(f"FAILED {TIMED_OUT} - assert 1 == 2", f"FAILED {TIMED_OUT} - Failed: Timeout >60.0s")
+)
 
 
 class WorkersMachine(BundleMachine):
@@ -181,9 +179,9 @@ def test_a_failed_test_entry_keeps_its_worker_and_whether_it_hit_its_time_limit(
     ledger = run(scratch, WorkersMachine(scratch, reruns=[1, 1]), tmp_path, loaded, sampling(1.0))
 
     detail = {entry["test"]: entry for entry in row(ledger)["failed_detail"]}
-    assert detail[TIMED_OUT]["worker"] == "gw2"
+    assert detail[TIMED_OUT]["worker"] == "gw0"
     assert detail[TIMED_OUT]["time_limit"] is True
-    assert detail[OTHER]["worker"] == "gw0"
+    assert detail[OTHER]["worker"] == "gw1"
     assert detail[OTHER]["time_limit"] is False
     assert TIMED_OUT in row(ledger)["failed"], "the list of ids stays as it was"
 

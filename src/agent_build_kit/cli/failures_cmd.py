@@ -63,7 +63,11 @@ def _line(kind: str, test: str, group: list[Row]) -> str:
 
 def _show(group: list[Row]) -> None:
     """The context, machine and worktree lines of the newest bundle any of `group` names."""
-    named = sorted((row for row in group if row.entry.evidence), key=lambda row: row.at)
+    # A record's evidence is not always a bundle (a failure met in an e2e split names the split).
+    named = sorted(
+        (row for row in group if row.entry.evidence and Path(row.entry.evidence).is_dir()),
+        key=lambda row: row.at,
+    )
     if not named:
         print("no bundle is named by these records")
         return
@@ -101,7 +105,8 @@ def register(sub: argparse._SubParsersAction) -> None:
         "failures",
         help="list the recorded failures of tests and the conditions they failed under",
         description=(
-            "List the flakes, storms, pre-existing failures and product defects recorded, each "
+            "List the flakes, storms, failing tests, pre-existing failures and product defects "
+            "recorded, each "
             "test with how often it failed, when first and last, in which units and under what "
             "load. With TEST, only that test; with --show, the newest bundle's context, machine "
             "and worktree lines and the path of its output."

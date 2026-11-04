@@ -1,0 +1,46 @@
+# tool: pytest 9.1.1
+$ uv run pytest -q -n 2 -rfE --tb=short (exit 1)
+bringing up nodes...
+bringing up nodes...
+
+.FF.FFE                                                                  [100%]
+==================================== ERRORS ====================================
+______________________ ERROR at setup of test_setup_error ______________________
+[gw0] linux -- Python 3.14.7 /env/bin/python
+test_one.py:6: in broken
+    raise RuntimeError('no database')
+E   RuntimeError: no database
+=================================== FAILURES ===================================
+__________________________________ test_plain __________________________________
+[gw0] linux -- Python 3.14.7 /env/bin/python
+test_one.py:14: in test_plain
+    assert 1 == 2
+E   assert 1 == 2
+____________________________ TestGroup.test_method _____________________________
+[gw1] linux -- Python 3.14.7 /env/bin/python
+test_one.py:19: in test_method
+    assert 'a' == 'b'
+E   AssertionError: assert 'a' == 'b'
+E
+E     - b
+E     + a
+________________________________ test_cases[2] _________________________________
+[gw0] linux -- Python 3.14.7 /env/bin/python
+test_one.py:24: in test_cases
+    assert n == 1
+E   assert 2 == 1
+__________________________________ test_other __________________________________
+[gw1] linux -- Python 3.14.7 /env/bin/python
+test_two.py:2: in test_other
+    assert [] == [1]
+E   assert [] == [1]
+E
+E     Right contains one more item: 1
+E     Use -v to get more diff
+=========================== short test summary info ============================
+FAILED test_one.py::test_plain - assert 1 == 2
+FAILED test_one.py::TestGroup::test_method - AssertionError: assert 'a' == 'b'
+FAILED test_one.py::test_cases[2] - assert 2 == 1
+FAILED test_two.py::test_other - assert [] == [1]
+ERROR test_one.py::test_setup_error - RuntimeError: no database
+4 failed, 2 passed, 1 error in 0.01s

@@ -127,7 +127,8 @@ so. A tick prints the fingerprint when it starts.
 
 ### `abk failures [TEST] [--show]`
 
-`abk failures` lists the flakes, storms, pre-existing failures and product defects recorded, one
+`abk failures` lists the flakes, storms, failing tests (a flake record marked failing: a test that
+fails on its base or by its time limit), pre-existing failures and product defects recorded, one
 line for each kind and test: how many times it was recorded, the first and last time, the units
 and the load it was met under (`load 12 to 22`) when the record has it. `TEST` limits the list to
 one test. `--show` then prints the newest bundle's `context`, `machine` and `worktree` lines

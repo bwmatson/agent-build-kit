@@ -32,6 +32,23 @@ def failing(test: str, conditions: dict[str, object]) -> Flake:
     )
 
 
+def test_a_loaded_flake_of_a_test_does_not_mark_its_later_unloaded_failure_as_load(
+    installation: Installation, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    UnitStore(installation.state_dir / "units.json").upsert([stored_unit("one/1", change="one")])
+    record = flake_record(installation)
+    record.append(
+        failing(SLOW, {"cpus": 4, "load_high": True}).model_copy(update={"failing": False})
+    )
+    record.append(failing(SLOW, {"cpus": 4, "load_high": False}))
+    monkeypatch.setattr(cli, "current_usage", lambda: None)
+
+    assert cli.cmd_status(argparse.Namespace(), installation) == 0
+
+    lines = capsys.readouterr().out.splitlines()
+    assert "load" not in next(line for line in lines if "failing:" in line and SLOW in line)
+
+
 def test_a_failing_line_says_when_the_failure_was_recorded_as_load(
     installation: Installation, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:

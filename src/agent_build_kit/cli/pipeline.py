@@ -1123,13 +1123,14 @@ def cmd_status(args: argparse.Namespace, inst: Installation) -> int:
             f"passed alone ({storm.at:%Y-%m-%d %H:%M} UTC), no fix changes"
         )
 
-    on_base = {e.test for e in flake_record(inst).entries() if e.failing and e.base_output}
+    flake_rows = flake_record(inst).entries()
+    on_base = {e.test for e in flake_rows if e.failing and e.base_output}
     for failed in flake_record(inst).counts(lambda entry: entry.failing):
         times = f"{failed.count} time{'' if failed.count == 1 else 's'}"
         # "On its base" only where a base run showed it: a failure by its time limit alone, and
         # a test an open change already covers, were not run there.
         where = "failed on its base" if failed.test in on_base else "failed"
-        loaded = recorded_as_load(e for e in flake_record(inst).entries() if e.test == failed.test)
+        loaded = recorded_as_load(e for e in flake_rows if e.test == failed.test and e.failing)
         log(
             f"  failing: {failed.test} — {where} {times}, "
             f"fix {failed.change or 'not written yet'}"
@@ -1139,7 +1140,7 @@ def cmd_status(args: argparse.Namespace, inst: Installation) -> int:
 
     for flaky in flake_record(inst).counts(lambda entry: not entry.failing):
         times = f"{flaky.count} time{'' if flaky.count == 1 else 's'}"
-        load = load_text(e for e in flake_record(inst).entries() if e.test == flaky.test)
+        load = load_text(e for e in flake_rows if e.test == flaky.test and not e.failing)
         log(
             f"  flaky: {flaky.test} — flaked {times}, fix {flaky.change or 'not written yet'}"
             + (f" ({load})" if load else "")

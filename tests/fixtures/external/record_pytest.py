@@ -83,22 +83,25 @@ LONG_TITLE_PARAMS = (
 
 
 def record_console(
-    files: dict[str, str] = CONSOLE_FILES, out: str = "console_failures.txt"
+    files: dict[str, str] = CONSOLE_FILES,
+    out: str = "console_failures.txt",
+    options: tuple[str, ...] = (),
 ) -> None:
-    """`out`: pytest's own console output for `files`, as the tail unit-test keeps it, with only
-    the temporary path and timings redacted."""
+    """`out`: pytest's own console output for `files` run with `options`, as the tail unit-test
+    keeps it, with only the temporary path, the interpreter's path and timings redacted."""
     with tempfile.TemporaryDirectory() as tmp:
         root = Path(tmp)
         for name, source in files.items():
             (root / name).write_text(source)
         done = subprocess.run(
-            [sys.executable, "-m", "pytest", "-p", "no:cacheprovider", "-q"],
+            [sys.executable, "-m", "pytest", "-p", "no:cacheprovider", "-q", *options],
             cwd=root,
             capture_output=True,
             text=True,
             check=False,
         )
     text = (done.stdout + done.stderr).replace(tmp, "/tmp/case")
+    text = text.replace(sys.executable, "/env/bin/python")
     text = re.sub(r" in [\d.]+s( \([\d:]+\))?", " in 0.01s", text)
     # The repository's own hooks strip trailing whitespace from every file.
     text = "".join(f"{line.rstrip()}\n" for line in text.splitlines())
@@ -106,7 +109,7 @@ def record_console(
         [sys.executable, "-m", "pytest", "--version"], capture_output=True, text=True, check=True
     )
     header = f"# tool: {(version.stdout + version.stderr).strip()}\n"
-    command = "$ uv run pytest -q (exit 1)\n"
+    command = " ".join(["$ uv run pytest -q", *options, "(exit 1)\n"])
     (OUT / out).write_text(header + command + text)
 
 
@@ -131,6 +134,7 @@ def main() -> None:
     record_console(
         {**LONG_TITLE_FILES, "test_params.py": LONG_TITLE_PARAMS}, "console_long_titles.txt"
     )
+    record_console(CONSOLE_FILES, "console_xdist_failures.txt", ("-n", "2", "-rfE", "--tb=short"))
     version = subprocess.run(
         [sys.executable, "-m", "pytest", "--version"], capture_output=True, text=True, check=True
     )

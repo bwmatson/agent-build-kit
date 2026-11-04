@@ -2234,9 +2234,8 @@ def build_unit_test(
                 return {}
             conditions: dict[str, object] = {}
             for key, sample in (("load_before", evidence[1][1]), ("load_after", last_sample)):
-                load = sample.get("load")
-                if isinstance(load, list) and load:
-                    conditions[key] = load[0]
+                if (load := failure_evidence.first_load(sample)) is not None:
+                    conditions[key] = load
             conditions.update(
                 failure_evidence.load_facts(
                     [evidence[1][1], last_sample], active().tests.load_high_per_cpu
@@ -2426,9 +2425,9 @@ def build_unit_test(
                 command=" ".join(command),
             )
         if test_runs is not None and not ok:
-            named = failed_ids(toolchain, f"{result.stdout or ''}\n{result.stderr or ''}")
-            run_failed.extend(test for test in named if test not in run_failed)
             text = f"{result.stdout or ''}\n{result.stderr or ''}"
+            named = failed_ids(toolchain, text)
+            run_failed.extend(test for test in named if test not in run_failed)
             workers = getattr(toolchain, "failed_workers", lambda output: {})(text)
             limited = getattr(toolchain, "time_limit_tests", lambda output: [])(text)
             for test in named:

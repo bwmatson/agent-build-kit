@@ -422,6 +422,11 @@ or the machine-local `abk.local.yaml`) maps a dimension to the values this machi
 with no entry has every value, and an undeclared name is refused. A run leaves out the tests of
 unavailable values; a scheduled split with nothing runnable is skipped, not failed.
 
+`tests.load_high_per_cpu` (a number above zero, default 1.5) is the one-minute load per CPU at or
+above which a unit-test run's host counts as loaded: the run's row in `runs/test-runs.jsonl` and
+the conditions of a flake, storm or pre-existing record carry `load_high`, true when the load at
+the run's start or end reached it.
+
 `abk e2e-test hold <split>` and `abk e2e-test release <split>` set and clear `hold` and the state
 file entry together; `abk e2e-test status` shows what is held. A hand-set hold has no deadline.
 
