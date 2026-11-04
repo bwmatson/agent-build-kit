@@ -8,6 +8,7 @@ import httpx
 
 from agent_build_kit.installation import Installation
 from agent_build_kit.serve.server import start_server
+from tests.chat_serving import WAIT
 from tests.review_approval import (
     give_a_remote,
     refs,
@@ -75,7 +76,7 @@ def test_a_decision_recorded_before_heads_reads_as_it_did(inst: Installation) ->
     seed_branches(inst)
     write_an_old_decision(inst, "feature/2", 1)
 
-    with start_server(inst) as server, httpx.Client(base_url=server.url) as client:
+    with start_server(inst) as server, httpx.Client(base_url=server.url, timeout=WAIT) as client:
         [decision] = client.get("/api/units/feature/2/review").json()["decisions"]
 
     assert (decision["round"], decision["decision"], decision["summary"]) == (

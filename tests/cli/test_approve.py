@@ -14,6 +14,7 @@ from agent_build_kit.config import dump
 from agent_build_kit.installation import Installation
 from agent_build_kit.serve.review import ReviewStore
 from agent_build_kit.serve.server import start_server
+from tests.chat_serving import WAIT
 from tests.conftest import make_installation
 from tests.review_approval import (
     give_a_remote,
@@ -66,7 +67,7 @@ def test_it_prints_the_unit_the_head_and_the_round(
 def test_the_ui_and_the_command_record_the_same_thing(inst: Installation) -> None:
     repo = seed_branches(inst)
 
-    with start_server(inst) as server, httpx.Client(base_url=server.url) as client:
+    with start_server(inst) as server, httpx.Client(base_url=server.url, timeout=WAIT) as client:
         assert client.post("/api/units/feature/2/actions/approve", json={}).status_code == 200
     assert main(["approve", "feature/4"]) == 0
 

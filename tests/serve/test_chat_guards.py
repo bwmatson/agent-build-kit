@@ -313,7 +313,7 @@ def test_a_new_step_is_streamed_whole_even_when_an_old_run_is_removed_as_it_open
         old.record(TranscriptEvent(kind="text", session="s", text=word))
     old.record(TranscriptEvent(kind="stop", session="s", text="end_turn"))
 
-    with start_server(pipeline) as server, httpx.Client(base_url=server.url) as api:
+    with start_server(pipeline) as server, httpx.Client(base_url=server.url, timeout=WAIT) as api:
         with api.stream(
             "GET", "/api/units/feature/7/agent/events", params={"tab": "t1"}, timeout=WAIT
         ) as stream:
@@ -342,7 +342,7 @@ def test_the_live_stream_opens_each_run_and_follows_the_protocols_order(
     from agent_build_kit.serve.server import start_server
 
     directory = transcript_dir(pipeline.state_dir)
-    with start_server(pipeline) as server, httpx.Client(base_url=server.url) as api:
+    with start_server(pipeline) as server, httpx.Client(base_url=server.url, timeout=WAIT) as api:
         with api.stream(
             "GET", "/api/units/feature/7/agent/events", params={"tab": "t1"}, timeout=WAIT
         ) as stream:

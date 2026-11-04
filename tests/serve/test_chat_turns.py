@@ -81,7 +81,7 @@ def test_a_running_step_is_streamed_as_it_records(pipeline: Installation) -> Non
         result_limit=1000,
         runs_kept=3,
     )
-    with start_server(pipeline) as server, httpx.Client(base_url=server.url) as api:
+    with start_server(pipeline) as server, httpx.Client(base_url=server.url, timeout=WAIT) as api:
         with api.stream(
             "GET", f"{RUNNING}/agent/events", params={"tab": "t1"}, timeout=WAIT
         ) as stream:
@@ -120,7 +120,7 @@ def test_the_live_tail_streams_a_commit_fix_turn_and_not_a_chat_turn(
         )
 
     fixing, chatting = chat_file("commit"), chat_file("chat")
-    with start_server(pipeline) as server, httpx.Client(base_url=server.url) as api:
+    with start_server(pipeline) as server, httpx.Client(base_url=server.url, timeout=WAIT) as api:
         with api.stream(
             "GET", f"{REVIEW}/agent/events", params={"tab": "t1"}, timeout=WAIT
         ) as stream:

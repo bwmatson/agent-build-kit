@@ -9,6 +9,7 @@ import httpx
 
 from agent_build_kit.installation import Installation
 from agent_build_kit.serve.server import start_server
+from tests.chat_serving import WAIT
 from tests.factories import git
 from tests.review_repo import TWO, advance, commit, rev, seed_branches
 from tests.serving import seed_pipeline, seed_review_round
@@ -80,13 +81,13 @@ def test_threads_replies_summary_and_decision_survive_a_restart(inst: Installati
     seed_pipeline(inst)
     seed_branches(inst)
     seed_review_round(inst, "feature/2", 1)
-    with start_server(inst) as server, httpx.Client(base_url=server.url) as first:
+    with start_server(inst) as server, httpx.Client(base_url=server.url, timeout=WAIT) as first:
         thread = comment(first)
         first.post(f"{THREADS}/{thread['id']}/replies", json={"body": "because"})
         first.put(DECISION, json={"decision": "request_changes", "summary": "Needs a test"})
         before = review(first)
 
-    with start_server(inst) as server, httpx.Client(base_url=server.url) as second:
+    with start_server(inst) as server, httpx.Client(base_url=server.url, timeout=WAIT) as second:
         after = review(second)
 
     assert after == before
