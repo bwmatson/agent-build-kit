@@ -187,7 +187,7 @@ def free_workers(
 
 
 def emergency_free(
-    occupancy: Occupancy, limits: Limits, project: ProjectKey, account: str | None = None
+    occupancy: Occupancy, limits: Limits, project: ProjectKey, account: str | None
 ) -> int:
     """How many more units may start in `project`'s emergency lane: its own places and, when
     `limits` names an extra for `account`, no more than the account has left across its

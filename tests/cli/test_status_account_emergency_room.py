@@ -107,6 +107,9 @@ def test_the_default_accounts_lane_use_is_not_an_account_line(
     lines = run_status(inst, monkeypatch, capsys)
 
     assert account_room_lines(lines) == []
+    (line,) = room_lines(lines)
+    assert "default account" not in line
+    assert "w-zero/1" in line
 
 
 def full_account(tmp_path: Path, *, account: dict) -> tuple[Installation, UnitStore]:

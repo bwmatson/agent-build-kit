@@ -149,7 +149,9 @@ def test_the_default_accounts_units_are_not_held_by_a_full_account_lane() -> Non
 
 
 def test_a_unit_the_accounts_stack_cap_holds_stays_held_with_lane_places_free() -> None:
-    graph = [*full_projects("app"), urgent("platform")]
+    # Both projects are at their worker, so `platform`'s unit is blocked by room and reaches the
+    # lane's check; only the account's stack cap holds it.
+    graph = [*full_projects("app", "platform"), urgent("platform")]
 
     assert starts(graph, account=2, project=2, stacks=1) == []
 
@@ -243,7 +245,6 @@ def test_the_lane_has_no_room_for_a_project_when_its_accounts_is_full() -> None:
 
     assert emergency_free(found, limits, ProjectKey(repo="platform"), "kit") == 0
     assert emergency_free(found, limits, ProjectKey(repo="platform"), None) == 1
-    assert emergency_free(found, limits, ProjectKey(repo="platform")) == 1
 
 
 def test_limits_of_carries_the_extra_of_each_account_that_sets_one(tmp_path: Path) -> None:
@@ -322,6 +323,17 @@ def test_admission_adds_no_lane_limit_for_an_account_that_sets_no_extra(tmp_path
 
     with stack:
         assert admitted(inst, store, "c/1") == ["c/1"]
+
+
+def test_admission_refuses_a_lane_start_the_accounts_stack_cap_holds_with_lane_places_free(
+    tmp_path: Path,
+) -> None:
+    inst, store, stack = lane_candidate(
+        tmp_path, account={"emergency_extra": 3, "max_concurrent_stacks": 1}, project=2
+    )
+
+    with stack:
+        assert admitted(inst, store, "c/1") == []
 
 
 def test_admission_admits_nothing_in_the_lane_with_the_accounts_extra_at_zero(
