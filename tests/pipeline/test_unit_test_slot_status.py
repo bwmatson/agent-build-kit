@@ -6,11 +6,15 @@ from __future__ import annotations
 
 import threading
 from contextlib import ExitStack
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
+
+import pytest
 
 from agent_build_kit.pipeline.e2e import LockRecord
 from agent_build_kit.pipeline.unit_test_slots import slot_status_lines, unit_test_slot
+from tests.fake_clock import START, install
+from tests.unit_test_slot_fakes import live_waiter, waiting_run
 from tests.waiting import wait_for
 
 
@@ -88,3 +92,63 @@ def test_a_waiter_marker_is_gone_once_the_wait_ends(tmp_path: Path) -> None:
     thread.join(timeout=20)
 
     assert list(tmp_path.glob("unit-test-waiting-*")) == []
+
+
+# The waiting units are listed in the order they will be served.
+
+
+def waiting_part(line: str) -> str:
+    return line.split("waiting: ", 1)[1]
+
+
+def test_the_waiting_units_are_listed_by_rank_then_time_not_by_marker_name(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    install(monkeypatch)
+    early, late = START - timedelta(minutes=30), START - timedelta(minutes=5)
+    # file names sort the opposite way to the order of service
+    with ExitStack() as markers:
+        for token, unit, since, rank in (
+            ("1-aaaa", "unranked/1", early, None),
+            ("2-bbbb", "lazy-late/1", late, (2, 4)),
+            ("3-cccc", "lazy-early/1", early, (2, 4)),
+            ("4-dddd", "urgent/1", late, (0, 2)),
+        ):
+            markers.enter_context(live_waiter(tmp_path, token, unit, since=since, rank=rank))
+
+        [line] = slot_status_lines(tmp_path, 1)
+
+    names = [part.split(" for ")[0] for part in waiting_part(line).split(", ")]
+    assert names == ["urgent/1", "lazy-early/1", "lazy-late/1", "unranked/1"]
+
+
+def test_waiters_of_equal_rank_and_time_are_listed_by_marker_token(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    install(monkeypatch)
+    with ExitStack() as markers:
+        for token, unit in (("9-zzzz", "z/1"), ("1-aaaa", "a/1")):
+            markers.enter_context(live_waiter(tmp_path, token, unit, since=START, rank=(2, 4)))
+
+        [line] = slot_status_lines(tmp_path, 1)
+
+    assert waiting_part(line).index("a/1") < waiting_part(line).index("z/1")
+
+
+def test_the_listing_matches_the_order_the_waiters_are_served(tmp_path: Path) -> None:
+    order: list[str] = []
+    with ExitStack() as stack:
+        runs = {}
+        with unit_test_slot(tmp_path, 1, holder="holder/1"):
+            for unit, rank in (("lazy/1", (2, 4)), ("urgent/1", (0, 2))):
+                runs[unit] = stack.enter_context(
+                    waiting_run(tmp_path, unit, rank=rank, order=order)
+                )
+                runs[unit].until_waiting(tmp_path, unit)
+            [line] = slot_status_lines(tmp_path, 1)
+        wait_for(lambda: len(order) == 1, what="the first waiter to take the slot")
+        runs["urgent/1"].release.set()
+        wait_for(lambda: len(order) == 2, what="the second waiter to take the slot")
+
+    assert waiting_part(line).index("urgent/1") < waiting_part(line).index("lazy/1")
+    assert order == ["urgent/1", "lazy/1"]
