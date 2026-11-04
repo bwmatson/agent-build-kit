@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import ast
 import importlib
+import importlib.util
 from pathlib import Path
 from typing import Any, cast
 
@@ -43,20 +44,21 @@ def _models_with_an_environment() -> list[str]:
     return found
 
 
-MODELS = _models_with_an_environment()
-
-
-@pytest.mark.parametrize("model", MODELS)
-def test_a_test_support_model_does_not_print_its_environment(model: str) -> None:
+def _prints_its_environment(model: str) -> bool:
+    """Whether the model, built with a sample environment value, shows it in its repr; a class that
+    is not a pydantic model has nothing to show."""
     module, _, name = model.partition(":")
     cls = getattr(importlib.import_module(module), name)
     if not (isinstance(cls, type) and issubclass(cls, BaseModel)):
-        pytest.skip(f"{model} is not a pydantic model")
+        return False
     field = next(f for f in cls.model_fields if f in ENV_FIELDS)
+    return SAMPLE in repr(cast(Any, cls).model_construct(**{field: {"KEY": SAMPLE}}))
 
-    shown = repr(cast(Any, cls).model_construct(**{field: {"KEY": SAMPLE}}))
 
-    assert SAMPLE not in shown, f"{model} prints its {field}"
+@pytest.mark.integration
+def test_no_test_support_model_prints_its_environment() -> None:
+    """The models are found when the test runs, not when the module is imported."""
+    assert [m for m in _models_with_an_environment() if _prints_its_environment(m)] == []
 
 
 class _WithUnclassified(BaseSettings):
@@ -77,3 +79,17 @@ def test_an_unclassified_field_is_reported_by_name(monkeypatch: pytest.MonkeyPat
     reported = settings_module.unclassified_secret_fields(_WithUnclassified)
 
     assert reported == ("api_token", "deploy_pat", "signing_key")
+
+
+def test_importing_the_module_reads_no_repository_file(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Collection imports every test module, so a scan at import is paid by every run."""
+
+    def refuse(*arguments: object, **keywords: object) -> None:
+        raise AssertionError("the import read the repository")
+
+    monkeypatch.setattr(Path, "rglob", refuse)
+    monkeypatch.setattr(Path, "read_text", refuse)
+    spec = importlib.util.spec_from_file_location("secret_leak_guards_import_copy", Path(__file__))
+    assert spec is not None and spec.loader is not None
+
+    spec.loader.exec_module(importlib.util.module_from_spec(spec))

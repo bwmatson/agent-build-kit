@@ -16,7 +16,7 @@ from __future__ import annotations
 
 import os
 import re
-from collections.abc import Callable, Collection
+from collections.abc import Callable, Collection, Sequence
 from pathlib import Path
 
 import yaml
@@ -103,13 +103,20 @@ def files(root: Path, dirs: PlanningDirs | None = None) -> list[Path]:
     return [path for path in found if path.name not in SELF and path.name != "package-lock.json"]
 
 
-def file_hits(root: Path, path: Path, found: re.Pattern | Callable[[str], object]) -> list[str]:
+def file_hits(
+    root: Path,
+    path: Path,
+    found: re.Pattern | Callable[[str], object],
+    lines: Sequence[str] | None = None,
+) -> list[str]:
     """Each line of one file that a pattern matches or a predicate accepts, as
-    `path:line: clipped line`, the path relative to `root`."""
+    `path:line: clipped line`, the path relative to `root`. The lines are read unless given."""
     matches = found.search if isinstance(found, re.Pattern) else found
     return [
         f"{path.relative_to(root)}:{number}: {line.strip()[:100]}"
-        for number, line in enumerate(lines_of(path, errors="replace"), start=1)
+        for number, line in enumerate(
+            lines if lines is not None else lines_of(path, errors="replace"), start=1
+        )
         if matches(line)
     ]
 
@@ -119,9 +126,7 @@ def hits(
 ) -> list[str]:
     """Each line of the scanned files that a pattern matches or a predicate accepts, as
     `path:line: clipped line`."""
-    return [
-        hit for path in files(root) if path.name not in skip for hit in file_hits(root, path, found)
-    ]
+    return Scan(root).hits(found, skip=skip)
 
 
 def foreign_azure_orgs(text: str) -> list[str]:
@@ -148,12 +153,46 @@ def home_rule(root: Path, path: Path, dirs: PlanningDirs | None = None) -> re.Pa
 def home_path_leaks(root: Path) -> list[str]:
     """Each line holding a home path, as `path:line: clipped line`. In the specification folder a
     tilde-relative path is not one (it names no user) and an absolute path still is."""
-    dirs = planning_dirs(root)
-    return [
-        hit
-        for path in files(root, dirs)
-        for hit in file_hits(root, path, home_rule(root, path, dirs))
-    ]
+    return Scan(root).home_path_leaks()
+
+
+class Scan:
+    """What the repository-wide scans read, read once: the scanned files, the planning folders and
+    each file's lines. A scan filters it, so the files are listed and read once however many
+    scans run."""
+
+    def __init__(self, root: Path) -> None:
+        self.root = root
+        self.dirs = planning_dirs(root)
+        self.files = files(root, self.dirs)
+        self._lines: dict[Path, list[str]] = {}
+
+    def lines(self, path: Path) -> list[str]:
+        if path not in self._lines:
+            self._lines[path] = lines_of(path, errors="replace")
+        return self._lines[path]
+
+    def hits(
+        self, found: re.Pattern | Callable[[str], object], *, skip: Collection[str] = ()
+    ) -> list[str]:
+        """Each line of the scanned files that a pattern matches or a predicate accepts, as
+        `path:line: clipped line`."""
+        return [
+            hit
+            for path in self.files
+            if path.name not in skip
+            for hit in file_hits(self.root, path, found, self.lines(path))
+        ]
+
+    def home_path_leaks(self) -> list[str]:
+        """Each line holding a home path; see `home_path_leaks`."""
+        return [
+            hit
+            for path in self.files
+            for hit in file_hits(
+                self.root, path, home_rule(self.root, path, self.dirs), self.lines(path)
+            )
+        ]
 
 
 def leaky_line(line: str, home: re.Pattern = HOME_PATH) -> bool:

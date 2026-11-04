@@ -7,14 +7,29 @@ text only when that file is not ignored and untracked, and flags a repo path out
 
 from __future__ import annotations
 
+import re
+from collections import Counter
 from pathlib import Path
 
 import pytest
 
+from tests import installation_leaks
 from tests.factories import git, init_repo
-from tests.installation_leaks import home_path_leaks, leaks, overlay_leaks, repo_path_leaks
+from tests.installation_leaks import (
+    ANECDOTE,
+    HOME_PRODUCT_DIR,
+    NOREPLY,
+    Scan,
+    foreign_azure_orgs,
+    foreign_slug_owners,
+    home_path_leaks,
+    leaks,
+    overlay_leaks,
+    repo_path_leaks,
+)
 
 HOME_LINE = "see /home/someone/work for the checkout\n"
+HOME_LINE_PATTERN = re.compile(r"/home/someone")
 
 
 def write(root: Path, name: str, text: str) -> None:
@@ -206,3 +221,52 @@ def test_the_committed_config_is_scanned_as_before(tmp_path: Path) -> None:
 
     assert [line.split(":")[0:2] for line in leaks(root)] == [["abk.yaml", "4"]]
     assert overlay_leaks(root) == []
+
+
+def a_checkout(root: Path) -> Path:
+    init_repo(root)
+    for number in range(6):
+        write(root, f"src/module_{number}.py", f"x = {number}\n")
+    write(root, "docs/guide.md", HOME_LINE)
+    write(root, "openspec/specs/x/spec.md", "path: ~/work/app\n")
+    git(root, "add", "-A")
+    git(root, "commit", "-qm", "files")
+    return root
+
+
+def test_every_scan_of_one_scan_object_filters_what_was_read_once(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    root = a_checkout(tmp_path)
+    reads: Counter[str] = Counter()
+    real = installation_leaks.lines_of
+
+    def counting(path: Path, errors: str = "strict") -> list[str]:
+        reads[path.name] += 1
+        return real(path, errors=errors)
+
+    monkeypatch.setattr(installation_leaks, "lines_of", counting)
+    scan = Scan(root)
+
+    for found in (HOME_PRODUCT_DIR, NOREPLY, ANECDOTE, foreign_slug_owners, foreign_azure_orgs):
+        scan.hits(found)
+    scan.home_path_leaks()
+
+    assert reads
+    assert set(reads.values()) == {1}
+
+
+def test_a_scan_object_finds_the_home_path_and_not_the_tilde_path(tmp_path: Path) -> None:
+    root = a_checkout(tmp_path)
+    scan = Scan(root)
+
+    assert scan.hits(ANECDOTE) == []
+    assert scan.hits(foreign_slug_owners) == []
+    assert scan.home_path_leaks() == ["docs/guide.md:1: see /home/someone/work for the checkout"]
+
+
+def test_a_scan_object_leaves_out_the_files_a_scan_skips(tmp_path: Path) -> None:
+    root = a_checkout(tmp_path)
+
+    assert Scan(root).hits(HOME_LINE_PATTERN, skip={"guide.md"}) == []
+    assert len(Scan(root).hits(HOME_LINE_PATTERN)) == 1

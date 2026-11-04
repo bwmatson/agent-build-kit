@@ -17,6 +17,10 @@
   `abk install-timers` also installs a path unit that watches `runs/wake` and starts a tick, and
   `abk requeue`, `abk approve` and `abk attach release` touch that file.
 
+- The installation-leak gate now reads the repository's files once for all its scans instead of
+  once per scan, and the secret-leak guard module no longer scans the test tree when it is
+  imported, so collecting the suite does no repository walk.
+
 - The documents and the pipeline skill now describe how a failing test is handled: an open fix is
   waited on first, a test the unit did not write runs on the unit's base, and the
   regression agent writes the `fix-test-` change, whose group carries `[contract]` so it gets a
