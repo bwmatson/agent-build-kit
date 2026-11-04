@@ -17,7 +17,7 @@ from agent_build_kit.config import dump
 from agent_build_kit.installation import Installation
 from agent_build_kit.serve.server import start_server
 from agent_build_kit.settings import settings
-from tests.chat_serving import events_of, use_claude
+from tests.chat_serving import WAIT, events_of, use_claude
 from tests.conftest import make_installation
 from tests.runtimes.claude_cli import finished_build
 from tests.serving import seed_pipeline
@@ -46,7 +46,10 @@ def test_the_server_lists_sessions_and_streams_a_turn_over_a_loopback_socket(
     checkout.mkdir(parents=True, exist_ok=True)
     use_claude(monkeypatch, finished_build(checkout, "Hello."))
 
-    with start_server(pipeline) as server, httpx.Client(base_url=server.url) as client:
+    with (
+        start_server(pipeline) as server,
+        httpx.Client(base_url=server.url, timeout=WAIT) as client,
+    ):
         assert server.host == "127.0.0.1"
         assert server.port != 0
         assert client.get("/api/sessions").json() == {"sessions": []}

@@ -36,6 +36,7 @@ from agent_build_kit.runtimes.claude_code import ClaudeCodeRuntime
 from agent_build_kit.serve.server import start_server
 from tests.attach_driver import changed_files, checked_out, head, leave_lease
 from tests.chat_serving import (
+    WAIT,
     claude_session_file,
     prompt_of,
     record_session,
@@ -469,7 +470,7 @@ def test_a_commit_of_the_planning_checkout_releases_its_part_and_sends_the_unit_
     (tree / "notes.txt").write_text("a change\n")
     leave_lease(lease_dir(inst.state_dir), UNIT, files=1, checkouts=("worktree", "planning"))
 
-    with start_server(inst) as server, httpx.Client(base_url=server.url) as api:
+    with start_server(inst) as server, httpx.Client(base_url=server.url, timeout=WAIT) as api:
         answer = commit(api, message="Plan the note", checkouts=["planning"])
 
     assert answer.status_code == 200

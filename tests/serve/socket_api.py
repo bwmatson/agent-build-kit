@@ -16,10 +16,16 @@ import pytest
 
 from agent_build_kit.installation import Installation
 from agent_build_kit.serve.server import start_server
+from tests.chat_serving import WAIT
 
 
 @pytest.fixture(name="api")
 def socket_api(inst: Installation) -> Iterator[httpx.Client]:
-    """A client of a server running over `inst`."""
-    with start_server(inst) as server, httpx.Client(base_url=server.url) as client:
+    """A client of a server running over `inst`.
+
+    A request over a socket waits up to `WAIT`, as a streamed turn does, because httpx's 5-second
+    default is shorter than a loaded machine takes to answer; a test whose subject is a timeout
+    names its own on the call.
+    """
+    with start_server(inst) as server, httpx.Client(base_url=server.url, timeout=WAIT) as client:
         yield client

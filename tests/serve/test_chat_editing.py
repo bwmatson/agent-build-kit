@@ -340,7 +340,7 @@ def test_a_restarted_server_lets_a_fresh_page_discard_what_it_took_over(
     (tree / "notes.txt").write_text("left by a chat\n")
     leave_lease(lease_dir(inst.state_dir), UNIT, files=1)
 
-    with start_server(inst) as server, httpx.Client(base_url=server.url) as api:
+    with start_server(inst) as server, httpx.Client(base_url=server.url, timeout=WAIT) as api:
         refused = api.delete(f"{REVIEW}/lease", params={"tab": "fresh"})
         discarded = api.post(f"{REVIEW}/discard", json={"tab": "fresh", "confirmed": True})
 
