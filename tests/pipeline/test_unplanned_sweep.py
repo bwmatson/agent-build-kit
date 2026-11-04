@@ -8,10 +8,10 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import pytest
-from agent_build_kit.pipeline.unplanned_sweep import Reference, Verdict, eligibility
 
 from agent_build_kit.pipeline.unit_store import StoredUnit
-from agent_build_kit.pipeline.units import MERGED, PLANNED, UNPLANNED
+from agent_build_kit.pipeline.units import MERGED, PLANNED, UnitState
+from agent_build_kit.pipeline.unplanned_sweep import Reference, Verdict, eligibility
 from tests.factories import stored_unit
 
 PASS_STARTED = datetime(2030, 1, 10, 12, 0, tzinfo=UTC)
@@ -25,7 +25,7 @@ def tomb(uid: str, groups: tuple[int, ...] = (2,), *, at: datetime = DEMOTED, **
         uid,
         change=CHANGE,
         groups=groups,
-        state=UNPLANNED,
+        state=UnitState.UNPLANNED,
         history=({"state": "unplanned", "at": at.isoformat()},),
         **fields,
     )
@@ -93,7 +93,8 @@ def test_a_reference_from_a_live_unit_is_reported_for_repointing_to_the_successo
 ) -> None:
     successor = live("c/5", groups=(2,))
 
-    found = verdicts(live(**{field: ("c/3",)}), successor, tomb("c/3", superseded_by=("c/5",)))
+    fields: dict[str, Any] = {field: ("c/3",)}
+    found = verdicts(live(**fields), successor, tomb("c/3", superseded_by=("c/5",)))
 
     assert found["c/3"].eligible
     assert found["c/3"].repoint == (Reference(referrer="c/1", field=field),)
@@ -145,7 +146,7 @@ def test_no_tracker_means_the_condition_does_not_apply() -> None:
 
 
 def test_the_last_unit_of_a_live_change_is_kept() -> None:
-    found = verdicts(tomb("c/3", groups=(1,)))
+    found = verdicts(tomb("c/3", groups=()))
 
     assert not found["c/3"].eligible
     assert "last" in found["c/3"].reason
@@ -176,7 +177,7 @@ def test_a_chain_waits_when_one_of_the_two_is_not_eligible() -> None:
 
 
 def test_a_change_whose_every_unit_is_a_tombstone_keeps_them_all() -> None:
-    found = verdicts(tomb("c/3", groups=(1,)), tomb("c/4", groups=(2,)))
+    found = verdicts(tomb("c/3", groups=()), tomb("c/4", groups=()))
 
     assert not found["c/3"].eligible and not found["c/4"].eligible
     assert "last" in found["c/3"].reason
