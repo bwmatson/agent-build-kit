@@ -55,6 +55,30 @@ def machine_sample() -> dict[str, object]:
     return sample
 
 
+def first_load(sample: dict[str, object]) -> float | None:
+    """The one-minute load average of a machine sample, when it has one."""
+    load = sample.get("load")
+    return float(load[0]) if isinstance(load, list) and load else None
+
+
+def load_reading(
+    samples: list[dict[str, object]], per_cpu: float
+) -> tuple[int | None, bool | None]:
+    """The CPU count and whether the host was loaded over the samples of one run: loaded when the
+    load of any is at or above `per_cpu` for each CPU. Each is None when the samples do not say
+    (no CPU count, or no load)."""
+    cpus = next((c for s in samples if isinstance(c := s.get("cpus"), int)), None)
+    loads = [load for s in samples if (load := first_load(s)) is not None]
+    high = None if not cpus or not loads else any(load >= per_cpu * cpus for load in loads)
+    return cpus, high
+
+
+def load_facts(samples: list[dict[str, object]], per_cpu: float) -> dict[str, object]:
+    """`cpus` and `load_high` of `load_reading`, as the conditions of a record keep them."""
+    cpus, high = load_reading(samples, per_cpu)
+    return {"cpus": cpus, "load_high": high}
+
+
 def _git(run: Run, where: Path, *args: str) -> str:
     try:
         result = run(["git", *args], cwd=where)

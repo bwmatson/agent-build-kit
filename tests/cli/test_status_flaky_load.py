@@ -11,6 +11,8 @@ import pytest
 from agent_build_kit.cli import pipeline as cli
 from agent_build_kit.installation import Installation
 from agent_build_kit.pipeline.flakes import Flake, flake_record
+from agent_build_kit.pipeline.unit_store import UnitStore
+from tests.factories import stored_unit
 
 TEST = "tests/test_a.py::test_x"
 
@@ -29,6 +31,7 @@ def met(day: int, conditions: dict[str, object]) -> Flake:
 def flaky_line(
     inst: Installation, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> str:
+    UnitStore(inst.state_dir / "units.json").upsert([stored_unit("one/1", change="one")])
     monkeypatch.setattr(cli, "current_usage", lambda: None)
     assert cli.cmd_status(argparse.Namespace(), inst) == 0
     return next(line for line in capsys.readouterr().out.splitlines() if "flaky:" in line)
@@ -52,6 +55,7 @@ def test_a_flake_with_no_load_recorded_has_the_line_it_had_beside_one_that_has_i
     flake_record(installation).append(met(1, {"load_before": 14.0, "load_after": 18.0}))
     other = met(2, {}).model_copy(update={"test": "tests/test_b.py::test_y"})
     flake_record(installation).append(other)
+    UnitStore(installation.state_dir / "units.json").upsert([stored_unit("one/1", change="one")])
     monkeypatch.setattr(cli, "current_usage", lambda: None)
 
     assert cli.cmd_status(argparse.Namespace(), installation) == 0

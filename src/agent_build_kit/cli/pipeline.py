@@ -157,6 +157,7 @@ from agent_build_kit.pipeline.external_file import (
     held_units,
     hold_status_lines,
 )
+from agent_build_kit.pipeline.failure_record import load_text, recorded_as_load
 from agent_build_kit.pipeline.file_lock import (
     LockTimeout,
     atomic_write_bytes,
@@ -1128,15 +1129,20 @@ def cmd_status(args: argparse.Namespace, inst: Installation) -> int:
         # "On its base" only where a base run showed it: a failure by its time limit alone, and
         # a test an open change already covers, were not run there.
         where = "failed on its base" if failed.test in on_base else "failed"
+        loaded = recorded_as_load(e for e in flake_record(inst).entries() if e.test == failed.test)
         log(
             f"  failing: {failed.test} — {where} {times}, "
-            f"fix {failed.change or 'not written yet'}" + _judged(inst, failed.change)
+            f"fix {failed.change or 'not written yet'}"
+            + (", recorded as load" if loaded else "")
+            + _judged(inst, failed.change)
         )
 
     for flaky in flake_record(inst).counts(lambda entry: not entry.failing):
         times = f"{flaky.count} time{'' if flaky.count == 1 else 's'}"
+        load = load_text(e for e in flake_record(inst).entries() if e.test == flaky.test)
         log(
             f"  flaky: {flaky.test} — flaked {times}, fix {flaky.change or 'not written yet'}"
+            + (f" ({load})" if load else "")
             + _judged(inst, flaky.change)
         )
 

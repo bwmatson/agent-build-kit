@@ -12,6 +12,8 @@ import pytest
 from agent_build_kit.cli import pipeline as cli
 from agent_build_kit.installation import Installation
 from agent_build_kit.pipeline.flakes import Flake, flake_record
+from agent_build_kit.pipeline.unit_store import UnitStore
+from tests.factories import stored_unit
 
 SLOW = "tests/test_a.py::test_slow"
 BROKEN = "tests/test_b.py::test_broken"
@@ -33,6 +35,7 @@ def failing(test: str, conditions: dict[str, object]) -> Flake:
 def test_a_failing_line_says_when_the_failure_was_recorded_as_load(
     installation: Installation, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
+    UnitStore(installation.state_dir / "units.json").upsert([stored_unit("one/1", change="one")])
     record = flake_record(installation)
     record.append(failing(SLOW, {"cpus": 4, "load_high": True}))
     record.append(failing(BROKEN, {"cpus": 4, "load_high": False}))

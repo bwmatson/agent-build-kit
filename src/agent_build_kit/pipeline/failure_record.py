@@ -7,7 +7,7 @@ pre-existing): the entry model differs, how it is stored and counted does not.
 from __future__ import annotations
 
 import json
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
 from datetime import datetime
 from pathlib import Path
 from typing import Literal
@@ -26,6 +26,28 @@ class Evidenced(Frozen):
     evidence: str = ""
     ran_at: datetime | None = None
     conditions: dict[str, object] = Field(default_factory=dict)
+
+
+def load_span(entries: Iterable[Evidenced]) -> tuple[float, float] | None:
+    """The lowest and the highest load the entries' conditions record, None when none does."""
+    loads = [
+        float(value)
+        for entry in entries
+        for key in ("load_before", "load_after")
+        if isinstance(value := entry.conditions.get(key), int | float)
+    ]
+    return (min(loads), max(loads)) if loads else None
+
+
+def load_text(entries: Iterable[Evidenced]) -> str:
+    """`load 12 to 22` for the entries' recorded load; empty when none is recorded."""
+    span = load_span(entries)
+    return "" if span is None else f"load {span[0]:g} to {span[1]:g}"
+
+
+def recorded_as_load(entries: Iterable[Evidenced]) -> bool:
+    """Whether any entry's conditions say the host was loaded; an entry that does not say is not."""
+    return any(entry.conditions.get("load_high") is True for entry in entries)
 
 
 class Recorded(Frozen):

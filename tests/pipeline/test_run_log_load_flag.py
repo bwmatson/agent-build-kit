@@ -145,10 +145,11 @@ def test_a_row_is_not_loaded_when_the_load_is_below_the_threshold_per_cpu(
 def test_a_row_is_loaded_when_only_the_load_at_the_end_is_high(
     scratch: Path, tmp_path: Path, loaded: Installation
 ) -> None:
-    loads = iter([1.0, 1.0, 1.0, 40.0, 40.0, 40.0, 40.0])
+    taken: list[int] = []
 
     def sample() -> dict[str, object]:
-        return {"load": [next(loads)] * 3, "cpus": CPUS}
+        taken.append(1)
+        return {"load": [1.0 if len(taken) == 1 else 40.0] * 3, "cpus": CPUS}
 
     ledger = run(scratch, BundleMachine(scratch, reruns=[], passing=True), tmp_path, loaded, sample)
 

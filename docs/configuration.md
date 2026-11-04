@@ -1204,6 +1204,17 @@ repos:
 - The three runtime lists this setting replaces are gone, with no alias, and are refused at
   load with a pointer to the split setting that replaces each (`tests.e2e_splits`).
 
+### `tests.load_high_per_cpu`
+
+```yaml
+tests:
+  load_high_per_cpu: 1.5    # a number above zero; the default
+```
+
+The one-minute load per CPU at or above which a unit-test run's host counts as loaded. The
+ledger row of a run (`runs/test-runs.jsonl`) and the conditions of a flake, storm or
+pre-existing record carry `load_high`, true when the load at the run's start or end reached it.
+
 ### `tests.e2e_dimensions` and `tests.e2e_available`
 
 A split divides tests by time and cost; a dimension says what a test needs. `tests.e2e_dimensions`
