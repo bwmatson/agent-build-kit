@@ -199,6 +199,20 @@ def _comes_first(locks_dir: Path, mine: _Position) -> bool:
     )
 
 
+def _waiting_message(
+    locks_dir: Path, paths: list[Path], limit: int, mine: _Position, waited: float
+) -> str:
+    """What a waiting run tells: who holds the slots, or, when a slot is free and the run waits
+    only for a waiter ahead of it, which one."""
+    said = f"waiting for a unit-test slot ({limit} at once)"
+    if any(_locked_text(path) is None for path in paths):
+        ahead = [waiter for waiter in _live_waiters(locks_dir) if waiter.position < mine]
+        record = ahead[0].record if ahead else None
+        behind = record.unit if record is not None and record.unit else "another waiting run"
+        return f"{said}, behind {behind} which waits ahead, waited {int(waited)}s"
+    return f"{said}, held by {_holders(paths)}, waited {int(waited)}s"
+
+
 @contextmanager
 def unit_test_slot(
     locks_dir: Path,
@@ -228,20 +242,20 @@ def unit_test_slot(
             began = clock.monotonic()
             pause = _FIRST_POLL_SECONDS
             next_say = 0.0
-            while handle is None:
+            polls = 0
+            while True:
                 handle = _take(paths) if _comes_first(locks_dir, mine) else None
                 if handle is not None:
+                    # A run that got a slot on its first poll never waited.
+                    waited = clock.monotonic() - began if polls else 0.0
                     break
+                polls += 1
                 waited = clock.monotonic() - began
                 if on_wait is not None and waited >= next_say:
-                    on_wait(
-                        f"waiting for a unit-test slot ({limit} at once), held by "
-                        f"{_holders(paths)}, waited {int(waited)}s"
-                    )
+                    on_wait(_waiting_message(locks_dir, paths, limit, mine, waited))
                     next_say = waited + LOCK_LOG_INTERVAL_SECONDS
                 clock.sleep(pause)
                 pause = min(pause * 2, POLL_SECONDS)
-            waited = clock.monotonic() - began
     try:
         handle.truncate(0)
         handle.write(_record(holder))

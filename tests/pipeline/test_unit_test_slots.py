@@ -435,14 +435,12 @@ def test_a_run_that_waits_only_for_a_waiter_ahead_says_so_and_names_it(
     assert "unnamed holder" not in told[0] and "held by" not in told[0]
 
 
-def test_a_run_behind_a_waiter_that_cannot_be_read_says_another_waiting_run(
-    tmp_path: Path,
+def test_a_run_behind_a_waiter_that_names_no_unit_says_another_waiting_run(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    install(monkeypatch)
     told: list[str] = []
-    with (tmp_path / "unit-test-waiting-1-aaaa.lock").open("a+") as marker:
-        fcntl.flock(marker, fcntl.LOCK_EX)
-        marker.write("not a record\n")
-        marker.flush()
+    with live_waiter(tmp_path, "1-aaaa", "", since=START, rank=URGENT):
         declines(tmp_path, rank=LESS_URGENT, on_wait=told.append)
 
     assert told and "behind another waiting run" in told[0]
