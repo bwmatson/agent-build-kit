@@ -19,7 +19,8 @@
   `workers.mode: processes` (default `threads`), `abk tick` is a dispatcher: it takes a dispatcher
   lock (a second dispatcher exits at once), admits ready units up to the limits, starts a worker
   for each and exits without waiting. A unit sent back more than six times in an hour is held for
-  a person.
+  a person. `repos.<name>.workers.mode` overrides the mode for one repo's units, so repos can be
+  moved over one at a time, and `abk status` shows each repo's mode.
 
 - The installation-leak gate now reads the repository's files once for all its scans instead of
   once per scan, and the secret-leak guard module no longer scans the test tree when it is

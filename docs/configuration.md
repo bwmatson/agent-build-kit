@@ -259,6 +259,13 @@ session_reuse:                  # per agent role, whether its nodes continue the
                                 # one. review can only be false: a review always
                                 # starts fresh. A role left out is off.
 
+workers:
+  mode: threads                 # `threads` (a tick builds its units) or `processes`
+                                # (a tick is a dispatcher that starts a worker per
+                                # unit); a repo's own `workers.mode` overrides it, so
+                                # repos can be moved over one at a time. `abk status`
+                                # prints each repo's mode.
+
 environment:                    # how the pipeline's own environment is kept
                                 # current; absent = none is managed and
                                 # `abk doctor` warns
@@ -549,6 +556,9 @@ repos:                          # ordered: deploy order is derived from
                                 # own comes up on top of, planning order
     relationships: ""           # prose for the planner about how this repo
                                 # relates to the others
+    workers:
+      mode: threads             # `threads` or `processes` for this repo's units;
+                                # unset, the top-level `workers.mode` applies
     tests:
       root_extras: []           # extra packages the repo-root tests/ (outside
                                 # every workspace member) need

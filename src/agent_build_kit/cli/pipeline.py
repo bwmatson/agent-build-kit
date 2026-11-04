@@ -983,6 +983,8 @@ def cmd_status(args: argparse.Namespace, inst: Installation) -> int:
         elif calls := read_calls(calls_path(inst.state_dir, claude_account.Account.default())):
             log(rate_line(derive_rate(calls, now=datetime.now(UTC))))
 
+    for name in inst.repos:
+        log(f"workers: {name} runs in {_mode_of(inst, name)} mode")
     if found := temp_size(inst):
         warning = " — warning: above global_limits.temp_warn_mb" if found.warn else ""
         log(f"pytest temp: {found.text}{warning}")
@@ -1567,10 +1569,11 @@ REBUILD_WINDOW = timedelta(hours=1)
 
 
 def cmd_tick(args: argparse.Namespace, inst: Installation) -> int:
-    """One pass of the loop. In `processes` mode it is the one dispatcher: a second exits at
-    once, since the first is already starting what is ready."""
+    """One pass of the loop. When any repo runs in `processes` mode it is the one dispatcher, for
+    as long as it runs: a second exits at once, since the first is already starting what is
+    ready."""
     with ExitStack() as held:
-        if inst.config.workers.mode == "processes" and not args.dry_run:
+        if _has_worker_repo(inst) and not args.dry_run:
             try:
                 held.enter_context(file_lock(inst.locks_dir / DISPATCHER_LOCK, timeout=0))
             except LockTimeout:
@@ -1740,11 +1743,29 @@ def _tick_with(
         tick.outcome = "refused"
         return 1
 
-    if inst.config.workers.mode == "processes":
-        _dispatch(inst, ready, store=store)
-        tick.outcome = "dispatched"
-        return 0
+    if _has_worker_repo(inst):
+        _dispatch(inst, [unit for unit in ready if _runs_as_worker(inst, unit)], store=store)
+        ready = [unit for unit in ready if not _runs_as_worker(inst, unit)]
+        if not any(_mode_of(inst, name) == "threads" for name in inst.repos):
+            tick.outcome = "dispatched"
+            return 0
     return _schedule(inst, ready, store=store, only=only, readmission=readmission, lane=lane)
+
+
+def _mode_of(inst: Installation, repo: str) -> str:
+    return config.workers_mode(inst.repos.get(repo), inst.config)
+
+
+def _runs_as_worker(inst: Installation, unit: Unit) -> bool:
+    """Whether the worker mode in effect for the unit's repo is `processes`."""
+    return _mode_of(inst, unit.repo) == "processes"
+
+
+def _has_worker_repo(inst: Installation) -> bool:
+    """Whether any repo runs its units as workers; a workspace naming no repo, as its own mode."""
+    return any(_mode_of(inst, name) == "processes" for name in inst.repos) or (
+        not inst.repos and config.workers_mode(None, inst.config) == "processes"
+    )
 
 
 def _next_rebuild(stored: StoredUnit, now: datetime) -> tuple[int, datetime] | None:
@@ -4712,7 +4733,11 @@ def _schedule(
             """Hand each unit admission lets start to a worker. Admission counts the places
             from the durable facts and marks the unit under its lock, so another tick's count
             sees it before its worker has taken the branch's lock; a unit it refuses is left for
-            a later round."""
+            a later round. A unit of a repo in `processes` mode is dispatched as a worker, as
+            the pass's first round does, and not built here."""
+            if owed := [unit for unit in units if _runs_as_worker(inst, unit)]:
+                _dispatch(inst, owed, store=store)
+            units = [unit for unit in units if not _runs_as_worker(inst, unit)]
             chosen = {unit.id: unit for unit in units}
             for marked in admit(
                 inst,

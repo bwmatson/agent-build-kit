@@ -145,6 +145,11 @@ session_reuse:                # per agent role: continue the role's latest sessi
   build: true                 # tests/implement/fix/rework/restack/adapt share one session
   review: false               # always false: a review starts fresh; a role left out is off
 
+workers:
+  mode: threads               # `threads` (a tick builds its units) or `processes` (a tick is a
+                              # dispatcher starting a worker per unit); a repo's own
+                              # `workers.mode` overrides it, to move repos over one at a time
+
 retention:
   decision_log_mb: 50         # size of the decision log and of the admission records; the oldest
                               # lines are dropped past it
@@ -295,6 +300,9 @@ repos:                        # ordered; a task group's [repo] tag is a key here
     consumes: []              # repos this one depends on: deploy order,
                               # which dev stack it comes up on, planning order
     relationships: ""         # prose for the planner about the other repos
+    workers:
+      mode: threads           # `threads` or `processes` for this repo's units; unset, the
+                              # top-level `workers.mode` applies; `abk status` prints it
     tests:
       root_extras: []         # extra packages the repo-root tests need
       workers: auto           # pytest-xdist `-n` of the Python profile's test runs
