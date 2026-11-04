@@ -416,4 +416,4 @@ def test_an_item_key_that_is_not_a_level_is_refused_naming_the_valid_ones(
     assert "sprint" in err
     for valid in ("change", "group", "tasks", "epic"):
         assert valid in err
-    assert read_holds(world.folder) == []
+    assert not read_holds(world.folder)

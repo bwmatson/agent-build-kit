@@ -3404,7 +3404,10 @@
   that wait. It is a machine setting: set it in `abk.local.yaml`; `abk doctor` warns when it is in a
   tracked `abk.yaml`, notes when it is not set and warns when it is above
   `project_limits.max_concurrent_stacks`.
-
+\n\n- The keys of `abk external hand-off --item` are the levels of the board: `change`, `group`,
+  `tasks` and `epic`, and `docs/hand-off.md` says so. `feature` and `story` are still accepted
+  and stored as `change` and `group`; any other key is refused, naming the valid ones.
+\n
 ## 0.1.0 — 2026-09-28
 
 First release.

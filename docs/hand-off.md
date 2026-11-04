@@ -12,7 +12,7 @@ kit also skips a unit whose board item a person has taken (see "Work tracker" in
 
 1. Record the hold first, before any spec is written, so the planner honours it from its first
    plan: `abk external hand-off <change> --all --holder "Sam Example" --link <board item URL>`.
-   Use `--groups 2 3` to hold named groups, `--item story=88` to record board item ids and
+   Use `--groups 2 3` to hold named groups, `--item group=88` to record board item ids and
    `--note` for why. The change folder must exist (`openspec new change` makes it); one with no
    `tasks.md` yet is accepted, and a name that matches no folder is refused.
 2. Write the spec: `tasks.md`, the proposal and the design. A group added later is covered by an
@@ -42,8 +42,9 @@ holds:
     link: https://boards.example/items/42
     since: "<ISO 8601 UTC timestamp>"
     items:
-      feature: "40"
-      story: "41"
+      epic: "39"
+      change: "40"
+      group: "41"
       tasks: ["42", "43"]
     note: Sam takes the API half
     status: held
@@ -55,10 +56,14 @@ A finished hold also has `merged_by` and `done_at`. The `status` is `held`, `don
 
 Create them so the tracker sync can adopt them later:
 
-- A Feature per change, whose body starts with the marker line `<!-- abk:<prefix>:<change> -->`.
-- A Story per unit or group set, and a Task per task in `tasks.md`.
+- An item for each level the tracker's `levels` setting names, whose types the provider block
+  gives (`docs/configuration.md`): by default one per change, whose body starts with the marker
+  line `<!-- abk:<prefix>:<change> -->`, and one per group of `tasks.md`; with `task` in `levels`, one
+  per task. A top item a person made (`epic`) is named by the change's `Epic:` line and not made here.
 - All unassigned, except the person who takes them.
 - The tag `handoff` on each.
 - Copy the text of the spec into the bodies.
-- Record the ids in the hold with `--item`; the ids are what the sync adopts, and the markers
-  are the fallback.
+- Record the ids in the hold with `--item`, the key the level: `change`, `group`, `tasks` (given
+  once for each task item) and `epic`. `feature` and `story` are still accepted for `change` and
+  `group`, and an unknown key is refused. The ids are what the sync adopts, and the markers are
+  the fallback.

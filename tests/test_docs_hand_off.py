@@ -87,7 +87,7 @@ def test_every_field_the_document_shows_exists_in_the_hold_model() -> None:
     for block in blocks:
         for hold in yaml.safe_load(block)["holds"]:
             assert set(hold) <= set(Hold.model_fields), set(hold) - set(Hold.model_fields)
-            assert set(hold.get("items", {})) <= ITEM_KEYS
+            assert set(hold.get("items", {})) <= set(ITEM_KEYS)
 
 
 def test_the_hold_is_the_permanent_path_without_a_tracker() -> None:
