@@ -9,7 +9,9 @@ A scan is found by parsing a test module (strings and comments never count): a `
     module-level constant (`ROOT`, `SOURCE_ROOT`, `WORKFLOWS`) or from `__file__`. A folder the
     test made itself (`repo.glob(...)` of a local) is its own.
 A call of a helper of the same module that scans is a scan too, so a test that only calls
-`walk()` is found, and so is a test that takes such a helper as a fixture parameter. A path is
+`walk()` is found, and so is a test that takes such a helper as a fixture parameter. Only a
+fixture of the same module counts: one moved to a `conftest.py` is not seen, so a scan fixture
+that is shared must be marked on the tests that take it. A path is
 the test's own when it comes from one of its parameters (`tmp_path` and the other fixtures)
 through plain assignments.
 
