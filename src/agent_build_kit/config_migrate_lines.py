@@ -18,7 +18,9 @@ __all__ = [
     "pair",
     "refuse",
     "region",
+    "rename_on_line",
     "shifted",
+    "usage_limits_holders",
 ]
 
 MERGE_TAG = "tag:yaml.org,2002:merge"
@@ -38,6 +40,29 @@ def pair(root: yaml.MappingNode, name: str) -> tuple[yaml.ScalarNode, yaml.Node]
         if isinstance(key, yaml.ScalarNode) and key.value == name:
             return key, value
     return None
+
+
+def usage_limits_holders(
+    root: yaml.MappingNode,
+) -> list[tuple[tuple[str, ...], yaml.ScalarNode, yaml.MappingNode]]:
+    """Each runtime and account mapping written under `runtimes`, with its key and key path:
+    the places a usage-limits key may sit. The one place that says so for composed text; the
+    loaded document's counterpart is `config._usage_limits_paths`."""
+    found = pair(root, "runtimes")
+    if found is None or not isinstance(found[1], yaml.MappingNode):
+        return []
+    holders: list[tuple[tuple[str, ...], yaml.ScalarNode, yaml.MappingNode]] = []
+    for name, runtime in found[1].value:
+        if not (isinstance(name, yaml.ScalarNode) and isinstance(runtime, yaml.MappingNode)):
+            continue
+        holders.append((("runtimes", name.value), name, runtime))
+        accounts = pair(runtime, "accounts")
+        if accounts is None or not isinstance(accounts[1], yaml.MappingNode):
+            continue
+        for label, account in accounts[1].value:
+            if isinstance(label, yaml.ScalarNode) and isinstance(account, yaml.MappingNode):
+                holders.append((("runtimes", name.value, "accounts", label.value), label, account))
+    return holders
 
 
 def region(lines: list[str], key_line: int, block_line: int) -> tuple[int, int]:
@@ -60,6 +85,17 @@ def opened(
         raise refuse(as_key, f"{name} is flow-style, which cannot be edited by lines")
     if isinstance(value, yaml.MappingNode) and any(k.tag == MERGE_TAG for k, _ in value.value):
         raise refuse(as_key, f"{name} uses a merge key, which cannot be edited by lines")
+
+
+def rename_on_line(lines: list[str], key: yaml.ScalarNode, old: str, new: str, as_key: str) -> None:
+    """Rename the key `old` to `new` on its own line, in place; refuse, naming `as_key`, a key
+    with an anchor or an alias on its line, or one that is quoted or written across lines."""
+    line, col = key.start_mark.line, key.start_mark.column
+    if MARKED.search(strip_comment(lines[line])):
+        raise refuse(as_key, "it has an anchor or an alias, which cannot be edited")
+    if lines[line][col : col + len(old)] != old:
+        raise refuse(as_key, "it is quoted or written across lines, so it is not renamed")
+    lines[line] = lines[line][:col] + new + lines[line][col + len(old) :]
 
 
 def joined(lines: list[str], text: str) -> str:

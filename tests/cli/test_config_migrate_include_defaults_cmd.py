@@ -18,7 +18,7 @@ from tests.config_migrate_machine_support import merged
 from tests.factories import which_all
 
 DEFAULTS = {
-    "runtimes": {"claude_code": {"limits": {"session": {"usage_pause_pct": 70}}}},
+    "runtimes": {"claude_code": {"usage_limits": {"session": {"usage_pause_pct": 70}}}},
     "repos": {"app": {"tests": {"e2e_schedule": False}}},
     "tests": {
         "e2e_splits": {"slow": {"marker": "slow", "hold": True}},
@@ -45,13 +45,12 @@ def test_the_flag_moves_the_defaults_and_keeps_the_merged_configuration(
     assert code == 0
     local_text = (tmp_path / "abk.local.yaml").read_text()
     local = yaml.safe_load(local_text)
-    assert (
-        local["runtimes"]["claude_code"]["limits"] == DEFAULTS["runtimes"]["claude_code"]["limits"]
-    )
+    claude = DEFAULTS["runtimes"]["claude_code"]
+    assert local["runtimes"]["claude_code"]["usage_limits"] == claude["usage_limits"]
     assert local["repos"]["app"]["tests"]["e2e_schedule"] is False
     assert local["tests"]["e2e_splits"]["slow"]["hold"] is True
     base = yaml.safe_load(path.read_text())
-    assert "limits" not in base["runtimes"]["claude_code"]
+    assert "usage_limits" not in base["runtimes"]["claude_code"]
     assert "e2e_schedule" not in base["repos"]["app"].get("tests", {})
     assert "hold" not in base["tests"]["e2e_splits"]["slow"]
     assert merged(path.read_text(), local_text) == merged(before, None)
@@ -70,7 +69,7 @@ def test_without_the_flag_the_defaults_stay_and_the_doctor_still_notes_them(
     assert path.read_text() == before
     assert not (tmp_path / "abk.local.yaml").exists()
     noted = {check.detail.split(" in abk.yaml")[0] for check in machine_keys(path)}
-    assert {"runtimes.claude_code.limits", "repos.app.tests.e2e_schedule"} <= noted
+    assert {"runtimes.claude_code.usage_limits", "repos.app.tests.e2e_schedule"} <= noted
 
 
 def test_the_flag_needs_migrate(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:

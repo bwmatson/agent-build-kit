@@ -42,6 +42,7 @@ from pydantic import (
 
 from agent_build_kit import forges, infra, path_patterns, runtimes, sandboxes
 from agent_build_kit.compat_names import Place, is_old_spelling, new_spelling, notice, old_spelling
+from agent_build_kit.config_migrate_lines import pair, usage_limits_holders
 from agent_build_kit.model import Frozen, TestTier
 from agent_build_kit.path_discovery import find_up
 from agent_build_kit.replay.models import DEFAULT_KEYED_HEADERS, UpstreamKind
@@ -524,24 +525,28 @@ USAGE_LIMITS = "usage_limits"
 DEPRECATED_USAGE_LIMITS = "limits"
 
 
+def renamed_key(data: dict[str, Any], old: str, new: str) -> dict[str, Any]:
+    """`data` with the deprecated key `old` renamed to `new`, in place; a mapping that sets both
+    spellings is refused."""
+    if old not in data:
+        return data
+    if new in data:
+        raise ValueError(
+            f"`{old}` and `{new}` are both set; `{old}` is the deprecated name of `{new}`, keep one"
+        )
+    return {(new if key == old else key): value for key, value in data.items()}
+
+
 def alias_usage_limits(data: dict[str, Any]) -> dict[str, Any]:
     """`data` with the deprecated key `limits` renamed to `usage_limits`; a mapping that sets
     both spellings is refused."""
-    if DEPRECATED_USAGE_LIMITS not in data:
-        return data
-    if USAGE_LIMITS in data:
-        raise ValueError(
-            f"`{DEPRECATED_USAGE_LIMITS}` and `{USAGE_LIMITS}` are both set; "
-            f"`{DEPRECATED_USAGE_LIMITS}` is the deprecated name of `{USAGE_LIMITS}`, keep one"
-        )
-    renamed = dict(data)
-    renamed[USAGE_LIMITS] = renamed.pop(DEPRECATED_USAGE_LIMITS)
-    return renamed
+    return renamed_key(data, DEPRECATED_USAGE_LIMITS, USAGE_LIMITS)
 
 
 def _usage_limits_paths(document: dict[str, Any]) -> Iterator[tuple[str, ...]]:
     """The key path of each mapping in a raw document that may hold usage windows: every runtime
-    and every account of a runtime. The one place that says where the key may be."""
+    and every account of a runtime. The one place that says where the key may be in a loaded
+    document; `config_migrate_lines.usage_limits_holders` is its counterpart for composed text."""
     runtimes = document.get("runtimes")
     for name, entry in (runtimes if isinstance(runtimes, dict) else {}).items():
         if not isinstance(entry, dict):
@@ -560,7 +565,7 @@ def _updated_at(node: dict[str, Any], path: tuple[str, ...]) -> dict[str, Any]:
     return {**node, path[0]: _updated_at(node[path[0]], path[1:])}
 
 
-def _alias_runtimes_usage_limits(document: dict[str, Any]) -> dict[str, Any]:
+def alias_runtimes_usage_limits(document: dict[str, Any]) -> dict[str, Any]:
     """`document` with `limits` renamed to `usage_limits` under each runtime and account."""
     for path in _usage_limits_paths(document):
         document = _updated_at(document, path)
@@ -1540,29 +1545,15 @@ class BuildersConfig(Frozen):
 def rename_builders_key(data: Any) -> Any:
     """A `builders` mapping with the deprecated `per_group_commits` renamed to
     `stubbed_tdd_commits`; a mapping that sets both is refused."""
-    if not isinstance(data, dict) or DEPRECATED_BUILDERS_KEY not in data:
+    if not isinstance(data, dict):
         return data
-    if BUILDERS_KEY in data:
-        raise ValueError(
-            f"`{DEPRECATED_BUILDERS_KEY}` and `{BUILDERS_KEY}` are both set; "
-            f"`{DEPRECATED_BUILDERS_KEY}` is the deprecated name of `{BUILDERS_KEY}`, keep one"
-        )
-    return {(BUILDERS_KEY if k == DEPRECATED_BUILDERS_KEY else k): v for k, v in data.items()}
+    return renamed_key(data, DEPRECATED_BUILDERS_KEY, BUILDERS_KEY)
 
 
 def _alias_limits(data: dict[str, Any]) -> dict[str, Any]:
     """`data` with the deprecated root key `limits` renamed to `global_limits`; a mapping
     that sets both spellings is refused."""
-    if DEPRECATED_ROOT_KEY not in data:
-        return data
-    if "global_limits" in data:
-        raise ValueError(
-            f"`{DEPRECATED_ROOT_KEY}` and `global_limits` are both set; "
-            f"`{DEPRECATED_ROOT_KEY}` is the deprecated name of `global_limits`, keep one"
-        )
-    renamed = dict(data)
-    renamed["global_limits"] = renamed.pop(DEPRECATED_ROOT_KEY)
-    return renamed
+    return renamed_key(data, DEPRECATED_ROOT_KEY, "global_limits")
 
 
 class AutoLandConfig(Frozen):
@@ -2174,7 +2165,7 @@ def _renamed(document: dict[str, Any] | None, file: Path) -> dict[str, Any] | No
         return None
     try:
         _refuse_moved_settings(document)
-        renamed = read_new_settings(_alias_limits(_alias_runtimes_usage_limits(document)))
+        renamed = read_new_settings(_alias_limits(alias_runtimes_usage_limits(document)))
         if isinstance(renamed.get("builders"), dict):
             renamed = {**renamed, "builders": rename_builders_key(renamed["builders"])}
         return renamed
@@ -2200,10 +2191,11 @@ def load(path: Path) -> WorkspaceConfig:
         if any(document and DEPRECATED_ROOT_KEY in document for document in spelled):
             # Name a setting as the file spells it.
             message = re.sub(r"(?m)^global_limits\b", DEPRECATED_ROOT_KEY, message)
-        if any(
-            key.startswith("runtimes.") for document in spelled for key in deprecations_of(document)
-        ):
-            message = re.sub(rf"\b{USAGE_LIMITS}\b", DEPRECATED_USAGE_LIMITS, message)
+        for key in deprecations_of(*spelled):
+            if key.startswith("runtimes.") and key.endswith(f".{DEPRECATED_USAGE_LIMITS}"):
+                # Name the place as the file spells it, and only the places it spells the old way.
+                place = re.escape(key.removesuffix(f".{DEPRECATED_USAGE_LIMITS}"))
+                message = re.sub(rf"(?<![\w.]){place}\.{USAGE_LIMITS}\b", key, message)
         if any(DEPRECATED_BUILDERS_SETTING in deprecations_of(document) for document in spelled):
             message = re.sub(rf"\b{BUILDERS_KEY}\b", DEPRECATED_BUILDERS_KEY, message)
         for document in spelled:
@@ -2226,7 +2218,8 @@ def load(path: Path) -> WorkspaceConfig:
 
 def deprecations_of(*documents: dict[str, Any] | None) -> list[str]:
     """The deprecated keys the parsed `documents` set: the root `limits` key,
-    `builders.per_group_commits`, and `review.enabled`; each once."""
+    `runtimes.<n>.limits` and `runtimes.<n>.accounts.<l>.limits`, `builders.per_group_commits`,
+    and `review.enabled`; each once."""
     raws = [raw for raw in documents if raw]
     found = []
     if any(
@@ -2301,6 +2294,29 @@ def models_notices(path: Path) -> list[ModelsNotice]:
         if both:
             notice += f"; {', '.join(both)} set in both, the runtime's value is used"
         notices.append(ModelsNotice(text=notice, fix=fix))
+    return notices
+
+
+def usage_limits_notices(path: Path) -> list[str]:
+    """One notice, with the file and line, for each `limits` key under a runtime or account in
+    the overlay of the file at `path`. `abk config --migrate` never edits the overlay, so each
+    line is to be changed by hand."""
+    local = overlay_path(path)
+    try:
+        documents = list(yaml.compose_all(local.read_text()))
+    except (OSError, yaml.YAMLError):
+        return []
+    root = documents[0] if documents else None
+    if not isinstance(root, yaml.MappingNode):
+        return []
+    notices = []
+    for keys, _, holder in usage_limits_holders(root):
+        found = pair(holder, DEPRECATED_USAGE_LIMITS)
+        if found is not None:
+            notices.append(
+                f"{local}:{found[0].start_mark.line + 1}: rename `{DEPRECATED_USAGE_LIMITS}` "
+                f"to `{USAGE_LIMITS}` ({'.'.join((*keys, DEPRECATED_USAGE_LIMITS))})"
+            )
     return notices
 
 
