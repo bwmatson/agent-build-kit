@@ -73,6 +73,7 @@ from agent_build_kit.pipeline import (
     retirement,
     snapshots,
     spans,
+    spawn,
     usage_report,
     wake,
 )
@@ -153,6 +154,7 @@ from agent_build_kit.pipeline.external_file import (
     hold_status_lines,
 )
 from agent_build_kit.pipeline.file_lock import (
+    LockTimeout,
     atomic_write_bytes,
     atomic_write_text,
     change_lock,
@@ -1557,7 +1559,27 @@ def _state_locking_refusal(inst: Installation) -> str | None:
     return f"{result.detail}\n{result.fix}"
 
 
+DISPATCHER_LOCK = "dispatcher.lock"
+
+# How many times a dispatcher puts one unit back in `REBUILD_WINDOW` before holding it.
+REBUILD_BUDGET = 6
+REBUILD_WINDOW = timedelta(hours=1)
+
+
 def cmd_tick(args: argparse.Namespace, inst: Installation) -> int:
+    """One pass of the loop. In `processes` mode it is the one dispatcher: a second exits at
+    once, since the first is already starting what is ready."""
+    with ExitStack() as held:
+        if inst.config.workers.mode == "processes" and not args.dry_run:
+            try:
+                held.enter_context(file_lock(inst.locks_dir / DISPATCHER_LOCK, timeout=0))
+            except LockTimeout:
+                print("another dispatcher is running; this one exits")
+                return 0
+        return _tick_once(args, inst)
+
+
+def _tick_once(args: argparse.Namespace, inst: Installation) -> int:
     """One pass of the loop. Safe to call at any time.
 
     Ordering matters in one place: the usage check comes first, so a low
@@ -1718,7 +1740,65 @@ def _tick_with(
         tick.outcome = "refused"
         return 1
 
+    if inst.config.workers.mode == "processes":
+        _dispatch(inst, ready, store=store)
+        tick.outcome = "dispatched"
+        return 0
     return _schedule(inst, ready, store=store, only=only, readmission=readmission, lane=lane)
+
+
+def _next_rebuild(stored: StoredUnit, now: datetime) -> tuple[int, datetime] | None:
+    """The count and window start a sent-back unit has once a worker is started for it: None
+    for a unit that is not sent back, or whose worker is already on its way."""
+    if stored.state != PLANNED or stored.cause not in READMITTED_CAUSES:
+        return None
+    if marker_live(stored, now):
+        return None
+    start = stored.rebuild_window_start
+    if start is None or now - start > REBUILD_WINDOW:
+        return 1, now
+    return stored.rebuild_count + 1, start
+
+
+def _dispatch(inst: Installation, ready: list[Unit], *, store: UnitStore) -> None:
+    """Admit the ready units under the admission lock and start one worker for each, never
+    waiting for one: a worker that cannot be started has its marker cleared for a later pass.
+
+    A sent-back unit is counted against the rebuild budget only once its worker has started. One
+    that would pass the budget is held for a person instead, with a fresh window for their
+    release."""
+    now = spans.clock.now()
+    counts: dict[str, tuple[int, datetime]] = {}
+    allowed: list[Unit] = []
+    for unit in ready:
+        planned = _next_rebuild(store.get(unit.id), now)
+        if planned is not None and planned[0] > REBUILD_BUDGET:
+            note = f"sent back {planned[0]} times within {REBUILD_WINDOW}; a person decides"
+            store.set_state(
+                unit.id, HELD, note=note, cause=Cause.NEEDS_HUMAN, held_by=HeldBy.REVIEW
+            )
+            store.set_rebuilds(unit.id, 0, None)
+            log(f"{unit.id}: {note}")
+            continue
+        if planned is not None:
+            counts[unit.id] = planned
+        allowed.append(unit)
+    admitted = admit(
+        inst, store, allowed, worker=f"dispatcher-{os.getpid()}", now=now, ttl=STARTING_TTL
+    )
+    if not admitted:
+        return
+    user_manager = spawn.user_manager_available()
+    for unit in admitted:
+        try:
+            worker = spawn.spawn(inst, "build", unit.id, user_manager=user_manager)
+        except (OSError, subprocess.CalledProcessError) as error:
+            store.set_starting(unit.id, None)
+            log(f"{unit.id}: its worker did not start — {error}")
+            continue
+        if unit.id in counts:
+            store.set_rebuilds(unit.id, *counts[unit.id])
+        log(f"{unit.id}: worker {worker.id} started")
 
 
 def _preview_changes(inst: Installation) -> None:

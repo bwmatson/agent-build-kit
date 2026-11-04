@@ -409,6 +409,10 @@ class StoredUnit(Unit):
     # When the guard expects to allow a start again, while the unit is paused at the gate for
     # usage (cause `Cause.USAGE`); None when it is not paused.
     paused_until: datetime | None = None
+    # How many times a dispatcher put the unit back in the window that began at
+    # `rebuild_window_start`; more than the rebuild budget holds it for a person.
+    rebuild_count: int = 0
+    rebuild_window_start: datetime | None = None
     # Why the unit is held (see `HeldBy`).
     held_by: HeldBy = HeldBy.NONE
     # The branch a unit held for depth is still on.
@@ -845,6 +849,8 @@ class UnitStore:
                 moved_base_uncounted=existing.moved_base_uncounted if existing else False,
                 paused_until=existing.paused_until if existing else None,
                 starting=existing.starting if existing else None,
+                rebuild_count=existing.rebuild_count if existing else 0,
+                rebuild_window_start=existing.rebuild_window_start if existing else None,
                 history=existing.history if existing else ({"state": PLANNED, "at": _now()},),
             )
             if existing and not existing.unstarted:
@@ -1407,6 +1413,10 @@ class UnitStore:
         """The marker admission leaves on a unit it let start, or none once it lapses."""
         self._update(unit_id, starting=marker)
 
+    def set_rebuilds(self, unit_id: str, count: int, window_start: datetime | None) -> None:
+        """How many times the unit was put back in the window that began at `window_start`."""
+        self._update(unit_id, rebuild_count=count, rebuild_window_start=window_start)
+
     def set_moved_base_run(self, unit_id: str, flag: bool) -> None:
         """Whether the restack lane is making the unit's whole run."""
         self._update(unit_id, moved_base_run=flag)
@@ -1789,6 +1799,7 @@ def _record(unit: StoredUnit) -> dict:
         "bounce_at",
         "paused_until",
         "starting",
+        "rebuild_window_start",
     ):
         if record[name] is None:
             del record[name]

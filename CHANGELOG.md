@@ -15,7 +15,11 @@
   a worker as a transient systemd user unit (with the optional `workers.memory_max` and
   `workers.cpu_weight`), or as a detached process where the user manager is unavailable.
   `abk install-timers` also installs a path unit that watches `runs/wake` and starts a tick, and
-  `abk requeue`, `abk approve` and `abk attach release` touch that file.
+  `abk requeue`, `abk approve` and `abk attach release` touch that file. With
+  `workers.mode: processes` (default `threads`), `abk tick` is a dispatcher: it takes a dispatcher
+  lock (a second dispatcher exits at once), admits ready units up to the limits, starts a worker
+  for each and exits without waiting. A unit sent back more than six times in an hour is held for
+  a person.
 
 - The installation-leak gate now reads the repository's files once for all its scans instead of
   once per scan, and the secret-leak guard module no longer scans the test tree when it is
