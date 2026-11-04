@@ -54,8 +54,12 @@ def cmd_units_prune(args: argparse.Namespace, inst: Installation) -> int:
     for uid in sorted(verdicts):
         found = verdicts[uid]
         if found.eligible:
-            verb = "would remove" if args.dry_run else "removed" if uid in removed else "kept"
-            print(f"{verb} {uid}{_repointing(found)}")
+            if args.dry_run:
+                print(f"would remove {uid}{_repointing(found)}")
+            elif uid in removed:
+                print(f"removed {uid}{_repointing(found)}")
+            else:
+                print(f"kept {uid}: it changed since it was judged")
         else:
             print(f"kept {uid}: {found.reason}")
     return 0

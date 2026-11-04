@@ -4,10 +4,13 @@ lists what would go and why each other unit stays (spec: unplanned-sweep)."""
 from __future__ import annotations
 
 import argparse
+import shutil
+from collections.abc import Iterator
 from pathlib import Path
 
 import pytest
 
+from agent_build_kit import trackers
 from agent_build_kit.cli import build_parser
 from agent_build_kit.cli import pipeline as cli
 from agent_build_kit.cli.units_cmd import cmd_units_prune
@@ -16,7 +19,14 @@ from agent_build_kit.pipeline.unit_store import StoredUnit, UnitStore
 from agent_build_kit.pipeline.units import UnitState
 from tests.conftest import make_installation
 from tests.factories import stored_unit
-from tests.trackers.board_support import write_change
+from tests.trackers.board_support import board_section, write_change
+from tests.trackers.test_tick_step import Watching
+
+
+@pytest.fixture(autouse=True)
+def unregistered() -> Iterator[None]:
+    yield
+    trackers.unregister("azure_devops")
 
 
 @pytest.fixture
@@ -62,6 +72,7 @@ def test_a_dry_run_lists_what_it_would_remove_and_why_the_rest_stay(
     out = capsys.readouterr().out
     assert "would remove x/3" in out
     assert "kept x/5" in out and "holds work" in out
+    assert "x/4" not in out, "a live unit is not listed"
     assert store.path.read_text() == before
 
 
@@ -87,7 +98,60 @@ def test_a_reference_is_repointed_and_said(
     prune(inst, dry_run=False)
 
     assert store.get("y/1").depends_on == ("x/4",)
-    assert "y/1" in capsys.readouterr().out
+    assert "removed x/3; repoints y/1 (depends_on) to x/4" in capsys.readouterr().out
+
+
+def test_a_unit_named_with_nothing_to_repoint_to_is_kept_with_that_reason(
+    inst: Installation, capsys: pytest.CaptureFixture[str]
+) -> None:
+    store = tombstones(inst, stored_unit("y/1", change="y", depends_on=("x/5",)))
+    write_change(inst.changes_dir, "y")
+
+    prune(inst, dry_run=False)
+
+    assert "kept x/5" in capsys.readouterr().out
+    assert "x/5" in ids(store)
+
+
+def test_a_tracker_that_has_not_reconciled_since_the_demotion_keeps_the_unit(
+    inst: Installation, capsys: pytest.CaptureFixture[str]
+) -> None:
+    Watching(board_section(["change", "group"]))
+    store = tombstones(inst)
+
+    prune(inst, dry_run=False)
+
+    assert "kept x/3: the tracker's last reconcile cannot be read" in capsys.readouterr().out
+    assert "x/3" in ids(store)
+
+
+def test_an_archived_change_keeps_a_tombstone_no_live_unit_carries(
+    inst: Installation, capsys: pytest.CaptureFixture[str]
+) -> None:
+    store = tombstones(inst)
+    store.import_units(
+        [*store.all(), stored_unit("x/6", change="x", groups=(6,), state=UnitState.UNPLANNED)]
+    )
+    shutil.move(str(inst.changes_dir / "x"), str(inst.changes_dir / "archive" / "2026-01-01-x"))
+    write_change(inst.changes_dir, "other")
+
+    prune(inst, dry_run=True)
+
+    out = capsys.readouterr().out
+    assert "would remove x/3" in out, "group 3 is carried by x/4"
+    assert "kept x/6: its groups [6] are carried by no live unit of x" in out
+
+
+def test_a_unit_the_store_kept_after_it_was_cleared_says_why(
+    inst: Installation, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    store = tombstones(inst)
+    monkeypatch.setattr(UnitStore, "remove_swept", lambda self, successors: [])
+
+    prune(inst, dry_run=False)
+
+    assert "kept x/3: it changed since it was judged" in capsys.readouterr().out
+    assert "x/3" in ids(store)
 
 
 def test_nothing_unplanned_says_so(inst: Installation, capsys: pytest.CaptureFixture[str]) -> None:

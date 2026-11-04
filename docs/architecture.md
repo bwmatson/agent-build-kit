@@ -153,8 +153,9 @@ An `unplanned` unit is kept for one pass and then swept: the readers of a demoti
 report, the check for changes a demoted joined unit carried, the drop preview, the tracker's
 `removed` state) see it in the pass that demoted it, and the sweep at the end of a later pass
 removes it once it holds no work, nothing names it (a reference is repointed to its successors
-first), its groups are carried or its change is gone, the tracker has reconciled since, and its
-change keeps another unit. The tracker records when a pass that ran to its end finished, in the
+first), its groups are carried by a live unit or its change is gone (an archived change keeps a
+unit whose groups no live unit carries, because the tracker reads such a group as removed), the
+tracker has reconciled since, and its change keeps another unit. The tracker records when a pass that ran to its end finished, in the
 repo's machine-local file, and the sweep reads it. A swept unit's id may be reused by a later plan:
 a plan that asks for the same groups again creates a new unit, which may take that id. `abk units prune --unplanned` runs the sweep on
 demand.
