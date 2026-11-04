@@ -7732,7 +7732,8 @@ def cmd_requeue(args: argparse.Namespace, inst: Installation) -> int:
     if path := getattr(args, "note_file", None):
         note = Path(path).read_text()
     code = requeue(inst, args.unit, mode, say=say, note=note, by=REQUEUE_BY)
-    wake.touch(inst.state_dir)
+    if code == 0:
+        wake.touch(inst.state_dir)
     return code
 
 
@@ -8319,7 +8320,8 @@ def cmd_approve(args: argparse.Namespace, inst: Installation) -> int:
     and casts no vote on the host.
     """
     code = approve_unit(inst, args.unit, say=print)
-    wake.touch(inst.state_dir)
+    if code == 0:
+        wake.touch(inst.state_dir)
     return code
 
 

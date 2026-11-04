@@ -609,7 +609,7 @@ def render_openspec_config(config: WorkspaceConfig) -> str:
 
 
 def render_systemd(
-    planning_dir: Path, *, tool_path: str = "", wake_file: Path | None = None, tick_unit: str = ""
+    planning_dir: Path, *, wake_file: Path, tick_unit: str, tool_path: str = ""
 ) -> dict[str, str]:
     """Unit file name -> rendered text. `tool_path` is appended to the unit's
     PATH, each directory with its own leading colon. `wake_file` is the file the wake path
@@ -618,7 +618,7 @@ def render_systemd(
         path.name: path.read_text().format(
             planning_dir=planning_dir,
             tool_path=tool_path,
-            wake_file=wake_file or planning_dir / "runs" / "wake",
+            wake_file=wake_file,
             tick_unit=tick_unit,
         )
         for path in sorted((TEMPLATES / "systemd").iterdir())

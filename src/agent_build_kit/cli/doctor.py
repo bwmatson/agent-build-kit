@@ -836,7 +836,7 @@ def _timers(inst: Installation, run: Run, units: Path | None, which: Which) -> l
         unasked = False
         not_enabled = False
         for name in timers.unit_names(inst.root):
-            if not name.endswith(".timer") or name in state.missing:
+            if not name.endswith((".timer", ".path")) or name in state.missing:
                 continue
             try:
                 answer = run(

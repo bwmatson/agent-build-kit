@@ -72,7 +72,21 @@ def spawn(
             *(["-p", f"MemoryMax={limits.memory_max}"] if limits.memory_max else []),
             *(["-p", f"CPUWeight={limits.cpu_weight}"] if limits.cpu_weight else []),
         ]
-        argv = ["systemd-run", "--user", "--collect", "--unit", name, *properties, *command]
+        # A transient unit starts with the manager's bare environment and directory. `--setenv`
+        # with a name alone takes the value from systemd-run's own environment, which for a
+        # dispatcher is the tick unit's PATH, so the worker finds the tools the detached
+        # fallback finds.
+        argv = [
+            "systemd-run",
+            "--user",
+            "--collect",
+            "--unit",
+            name,
+            "--setenv=PATH",
+            f"--working-directory={inst.root}",
+            *properties,
+            *command,
+        ]
         (run or subprocess.run)(argv, check=True, capture_output=True, text=True)
         return Worker(id=name, how="systemd")
     directory = run_log_dir(inst.state_dir)

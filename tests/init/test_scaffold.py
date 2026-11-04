@@ -205,7 +205,11 @@ def test_the_draft_lists_each_project_in_the_repo(tmp_path: Path) -> None:
 
 
 def test_systemd_units_render_the_planning_path(tmp_path: Path) -> None:
-    units = render_systemd(tmp_path / "planning")
+    units = render_systemd(
+        tmp_path / "planning",
+        wake_file=tmp_path / "state" / "wake",
+        tick_unit="abk-planning-tick.service",
+    )
 
     assert set(units) == {
         "abk-tick.service",

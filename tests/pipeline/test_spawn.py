@@ -4,6 +4,7 @@ detached process in its own session whose output goes to the run log."""
 from __future__ import annotations
 
 import subprocess
+import sys
 from pathlib import Path
 from typing import Any
 
@@ -43,6 +44,20 @@ def test_with_the_user_manager_the_worker_is_a_transient_unit_with_the_configure
     assert "-worker-" in argv[argv.index("--unit") + 1]
     assert {"MemoryMax=2G", "CPUWeight=200"} <= set(argv)
     assert argv[-3:] == ["worker", "build", UNIT]
+
+
+def test_the_transient_unit_keeps_the_callers_path_and_the_installation_directory(
+    tmp_path: Path,
+) -> None:
+    inst = make_installation(tmp_path / "planning")
+    run = Loginctl("yes")
+
+    spawn(inst, "build", UNIT, user_manager=True, run=run, popen=Popen)
+
+    [argv] = [call for call in run.calls if call[0] == "systemd-run"]
+    command = argv.index(sys.executable)
+    assert argv.index("--setenv=PATH") < command
+    assert argv.index(f"--working-directory={inst.root}") < command
 
 
 def test_a_limit_that_is_not_set_adds_no_property(tmp_path: Path) -> None:

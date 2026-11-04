@@ -15,9 +15,10 @@ from agent_build_kit.pipeline.wiring import CommitRejected
 
 
 def cmd_attach_release(args: argparse.Namespace, inst: Installation) -> int:
-    """Release the unit's lease as `release_unit` does, then wake the dispatcher."""
+    """Release the unit's lease as `release_unit` does; wake the dispatcher if that succeeded."""
     code = release_unit(args, inst)
-    wake.touch(inst.state_dir)
+    if code == 0:
+        wake.touch(inst.state_dir)
     return code
 
 
