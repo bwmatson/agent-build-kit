@@ -2,6 +2,25 @@
 
 ## Unreleased
 
+- A code host that refuses or cannot be reached is waited for once, not once for each unit. A git
+  push the host refuses, or a fetch it refuses, writes one marker for the host of the repo's push
+  remote, such as `github.com` or `dev.azure.com`, and each refresh of a pass makes at most one
+  authenticated probe of it, `git ls-remote <remote> HEAD` over the transport a push uses, so a
+  refused key fails where a bare connect passes. The wait between probes steps up from one to two,
+  five, ten and thirty minutes with each failure and resets when one passes, and a refresh sooner
+  than the wait makes none. A unit parked for the code host makes no attempt of its own while the
+  marker holds, whatever its backoff, and a passing probe releases every unit waiting on it in the
+  same pass. While the marker holds, no new unit of a repo on that host starts; a repo on another
+  host is not touched, a unit already building carries on, and a unit parked behind the marker keeps
+  its place among the units in progress while the marker holds it, and holds no worker, stack or
+  unit-test slot. After
+  `global_limits.code_host_outage_minutes` (default 60) of failed probes `abk status` and the tick
+  log name the host, how long it has been down and the last error, and `abk doctor` hints at the SSH
+  key or agent; no unit is failed by the limit. A unit refused again soon after a passing probe (a read
+  that works while the push is refused) reopens the same outage, so the wait keeps growing and the limit
+  still counts from the first refusal. A forge API outage parks as before and writes no
+  marker.
+
 - A GitHub pull request's merge commit is read again, so `abk external done --pr`, `abk reconcile
   --accept` and the retry of a merge whose request failed transiently work on GitHub again. GitHub's
   REST API version 2026-03-10, which the client sends, no longer carries `merge_commit_sha`, so a

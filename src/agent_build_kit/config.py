@@ -910,6 +910,9 @@ class LimitsConfig(TestKindSettings):
     # How many times in a row a unit is parked because the model service answered 5xx or
     # 529; the next such failure fails it, as a persistent 5xx can be a real fault.
     service_unavailable_attempts: Annotated[int, Field(gt=0)] = 5
+    # Minutes a code host's probes fail in a row before `abk status`, the tick log and `abk doctor`
+    # name the outage and its last error. Only shows it: no unit is failed by the limit.
+    code_host_outage_minutes: Annotated[int, Field(ge=1)] = 60
 
     @field_validator("network_control_hosts")
     @classmethod

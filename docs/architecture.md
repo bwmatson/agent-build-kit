@@ -851,10 +851,60 @@ A pass lets a unit it already
 built back in only when it was sent back for rework or its base changed (resuming restacks
 it, so what held it is gone), or when it was parked because the code host, the network or the
 model service could not be reached, once its backoff has
-elapsed (1, 2, 5, 10, then 30 minutes by consecutive parking); a
+elapsed (1, 2, 5, 10, then 30 minutes by consecutive parking), except a unit parked for the code host,
+which waits on its host's marker (below) and not on its own backoff; a
 unit put back for any other cause waits for the next pass, and the tick log says which cause. A unit held for depth keeps the branch it is
 still on as `held_base`, and who holds it as `held_by`. A record with no cause is one from before causes or one an event ended,
 and one with a cause this release does not know reads the same way: the pass never readmits it, and `abk status` lists it.
+
+**The code host outage.** A git push the code host refuses (an authentication refusal, an HTTP 401, 403
+or 5xx, a connection it closed), or cannot reach while the control group is up, parks its unit with the cause
+`host_unavailable`, and a fetch it refuses or cannot reach is noted without parking its unit. The call that
+parked or noted writes the host's **marker**, one for each host of a repo's push remote (`github.com`,
+`dev.azure.com`), in `code-host-paused.<host>.json` in the state directory: the host, the repo to probe from,
+when it began, the last error, when it was last probed and how many probes failed in a row. A forge API outage
+(`HostUnavailable` from the resilient forge, under the name of the API call) parks as before and writes no
+marker: it is the API host's, which a git read cannot answer for. A marker holds the host's units:
+
+- **One probe.** Each refresh of a pass (the round the tick and each wait of the pass make, beside the network
+  check) makes at most one authenticated probe of each marker: `git ls-remote <remote> HEAD`, from the repo's
+  checkout, over the transport a push uses (the same ssh command, credentials and agent, or https, with
+  `GIT_TERMINAL_PROMPT=0` and `BatchMode=yes` so it never prompts), waiting up to six times
+  `global_limits.network_probe_timeout_seconds`. A refused key or an HTTP refusal fails it where a bare
+  connect passes. A probe that cannot run counts the host healthy, as `control_reachable` does: git missing,
+  no remote, an error of the probe's own, or a refusal that names the repository or the person (which a person
+  has to fix, and is no outage), so a bug in it never holds work.
+- **Cadence.** A refresh sooner than the marker's wait makes no probe. The wait is the park ladder
+  (1, 2, 5, 10, then 30 minutes), a step up for each probe that failed in a row and back to the first when one
+  passes. Refreshes come about five minutes apart (`REFRESH_SECONDS`), so the gaps between probes are about 5, 5,
+  5, 10 and then 30 minutes, and a long outage settles at one probe every 30 minutes, whatever the number of
+  parked units.
+- **No attempts of their own.** A unit parked for the code host whose repo's host has a marker in force is not
+  readmitted, by the round or by the running pass, whatever its own backoff. A passing probe ends the marker
+  (the file stays, with `cleared_at`) and every unit that parked before then is released in that same pass: its
+  own backoff is over. A unit that parks at its git push writes the marker again (`code_host.note`), so it waits
+  on the marker. When that is less than thirty minutes (the ladder's longest wait) after a pass, it reopens the
+  same outage: `since` and the failure count are kept and one is added, with a count of flaps, so a read that
+  passes while the push is refused (a read-only key, a key valid for some repos) cannot hide: the wait keeps
+  growing and the limit counts from the first refusal. Only a longer quiet gap starts a new outage, with the
+  first wait. A unit whose marker could not be written, or parked by a forge API outage, waits its own backoff.
+  An operator can clear a marker that is stuck by deleting `code-host-paused.<host>.json` in the state directory;
+  a refusal that persists is an SSH key or agent to fix.
+- **A focused pause on new starts.** While a marker is in force no planned unit of a repo whose push remote is
+  on that host starts: not a new one, not a resume or rework of a parked one. A repo on another host is not
+  touched, so a GitHub outage does not pause an Azure DevOps unit, nor the reverse. A unit already building
+  carries on and parks at its own push. The wait reason of a unit held back is `backoff`, with the detail
+  `waiting for the code host (<host>)`, and the unit's status line says the same. A unit parked for the code
+  host keeps its place among the units in progress only while the marker holds it (it stays `planned` in the
+  round's view). A parked unit waiting out its own backoff, with no marker, is shown held in that view and so
+  does not count as in progress there, as for every parked cause. A parked unit holds no worker, stack or
+  unit-test slot, which only a run holds.
+- **A long outage is shown, never failed.** After `global_limits.code_host_outage_minutes` (default 60) of
+  failed probes, `abk status` and the tick log (once for a refresh, when a probe was made) name the host, how long
+  it has been down and the last error (and, for an outage that came back after a passing read, how many times),
+  and `abk doctor` warns with a hint to check the SSH key and the agent. No
+  unit is failed by the limit. Within it only the wait shows.
+
 A usage pause leaves the unit `running`, with its thread interrupted before
 the agent node; the first tick the usage guard allows resumes it from there.
 A rejected Claude login pauses the account's units the same way, with the cause login: the
@@ -1974,6 +2024,7 @@ outside the repository and not committed; for a separate planning repo it is `ru
 | `verdicts.json` | the verdict of each unit after its latest review round: the class, planned estimate, classification, evidence tier, tier and reason, whether it is final (only the approving round's is), and the changed paths and lines. Replaced atomically; nothing reads it to decide anything but the verdict's history floor, which counts a class's brief-carrying records the way `abk review report` does. Each new outcome is counted once as `abk.review.outcome{outcome,tier,class}`, and each merged unit whose evidence tier was `auto` once as `abk.review.agreement{class,accepted}`; neither carries a unit id. | the record of what review would have needed. |
 | `held-waiting.json` | the held units that have already logged that a comment is waiting on them. | the wait is logged once more. |
 | `paused.json`, `paused.<label>.json`, `network-paused.json` | the current pause of the default account, of each named account, and of a network outage (which is every account's): whose, until when and why. | one usage check. |
+| `code-host-paused.<host>.json` | one code host's marker: its host, the repo to probe from, when it began, the last error, when it was last probed, the probes that failed in a row, and `cleared_at` once a probe passed (which releases the units parked before it). Replaced atomically. | one probe of the host; a unit waits its own backoff. |
 | `usage-ledger.jsonl` | the usage ledger: one JSON line per agent call (see below), plus `span`, `sample` and `affected` lines (a fix round's selected run: tests selected and in all, estimated seconds saved, whether the full run agreed). Gitignored. | the spend history, not the work. |
 | `test-runs.jsonl` (and `test-runs.jsonl.1`) | the ledger of unit-test runs: one JSON line per run, passing or not (unit, start, seconds, outcome, failed tests, load at the start and end, workers, tick, units running), no output. Rotated to `.1` at 1 MB, the older copy replaced. Gitignored. | how long runs take and under what load; the failing output is in `test-failures/`. |
 | `decisions.jsonl` | the decision log: `{at, unit, reason, waits_on, tick}`, appended only when a waiting unit's reason (`WaitReason`) or what it waits on changes, with a `none` record when the wait ends. Read from its tail when the pipeline starts; trimmed to `retention.decision_log_mb`, newest lines kept. Gitignored. | why a unit waited, and for how long. |

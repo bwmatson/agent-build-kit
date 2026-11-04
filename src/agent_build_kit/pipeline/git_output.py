@@ -11,6 +11,10 @@ from typing import Literal
 
 from agent_build_kit.model import Frozen
 
+# What a refused push says it was, in the `HostUnavailable` it is raised as: the forge's resilient
+# wrapper raises the same error for its API calls, under the name of the call.
+PUSH_OPERATION = "git push"
+
 # `host_refused` and `host_unreachable` are an outage of the code host (see `transport_failure`),
 # not an answer about the branch.
 PushKind = Literal["stale_lease", "rejected_by_remote", "host_refused", "host_unreachable", "other"]

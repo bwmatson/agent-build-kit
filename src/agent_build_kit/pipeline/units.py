@@ -1410,6 +1410,7 @@ def ready_units(
     slot_stack_limit: Callable[[Hashable], int | None] | None = None,
     slot_emergency_extra: Callable[[Hashable], int | None] | None = None,
     no_worker: Collection[str] = frozenset(),
+    waiting: Collection[str] = frozenset(),
 ) -> list[Unit]:
     """The planned units that may start right now, in the order to start them.
 
@@ -1455,6 +1456,9 @@ def ready_units(
     them.
     `no_worker` names running units no run holds (a unit paused for usage): they are in progress
     and hold a place of the limit, and they take no worker.
+    `waiting` names planned units that wait on something outside the graph (a code host that is
+    down): none is ready, and each stays as it is, so one already in progress keeps its place of
+    the limit, as `excluded` units shown held do not.
     """
     running = count_by_project(
         graph, lambda unit: unit.state == RUNNING and unit.id not in no_worker
@@ -1475,7 +1479,7 @@ def ready_units(
 
     ready: list[Unit] = []
     for unit in graph:
-        if unit.state != PLANNED or parked_for_manual_step(unit):
+        if unit.state != PLANNED or parked_for_manual_step(unit) or unit.id in waiting:
             continue
 
         if waiting_on(unit, graph):

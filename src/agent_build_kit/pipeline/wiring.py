@@ -65,7 +65,7 @@ from agent_build_kit.forges import FileChange, Forge, RegistersStacks, RepoId, S
 from agent_build_kit.installation import Installation
 from agent_build_kit.model import Frozen, TestTier
 from agent_build_kit.path_patterns import matches_any
-from agent_build_kit.pipeline import failure_evidence, snapshots, spans
+from agent_build_kit.pipeline import code_host, failure_evidence, snapshots, spans
 from agent_build_kit.pipeline.changelog_convention import review_changelog_paragraph
 from agent_build_kit.pipeline.check_failures import failed_in
 from agent_build_kit.pipeline.check_runner import worktree_at
@@ -117,7 +117,12 @@ from agent_build_kit.pipeline.flakes import (
     record_storm,
 )
 from agent_build_kit.pipeline.gateway_usage import Spend, attribution, configured_source
-from agent_build_kit.pipeline.git_output import FetchFailed, transport_failure, untranslated_env
+from agent_build_kit.pipeline.git_output import (
+    FetchFailed,
+    TransportFailure,
+    transport_failure,
+    untranslated_env,
+)
 from agent_build_kit.pipeline.lease import Leases, lease_dir
 from agent_build_kit.pipeline.moved_base import brought_in, kinds_of, moved_base_scope
 from agent_build_kit.pipeline.own_tests import (
@@ -3020,6 +3025,23 @@ def build_open_pr(
     return open_pr
 
 
+def build_note_host_outage(
+    installation: Installation, *, log: Callable[[str], None]
+) -> Callable[[Unit, TransportFailure], None]:
+    """What a fetch the code host refused or could not be reached for tells the pipeline: the
+    host of the unit's repo gets its marker (or a fresh error on the one it has), so the one
+    probe of it starts and no new unit of its repos starts. The unit is not parked: its run goes
+    on with the refs it has, and its push, at the end, meets the same outage and parks it."""
+
+    def note(unit: Unit, failure: TransportFailure) -> None:
+        if (host := code_host.note(installation, unit.repo, failure.message)) is None:
+            log(f"code host outage noted ({failure.kind}) for {unit.id}: its repo has no remote")
+            return
+        log(f"code host {host} noted as unavailable ({failure.kind}) by the fetch of {unit.id}")
+
+    return note
+
+
 def build_fetch(
     checkouts: Mapping[str, Path], *, turn: Callable[[str], AbstractContextManager[object]]
 ) -> Callable[[Unit], None]:
@@ -5010,6 +5032,7 @@ def build_runner(
         ),
         head=_head_sha,
         fetch=build_fetch(installation.checkouts, turn=lambda repo: repo_turn_of(repo)),
+        note_host_outage=build_note_host_outage(installation, log=log),
         fresh_base=build_fresh_base(store, record_merge=record_merge),
         log=log,
         log_reaches_run_log=log_reaches_run_log,

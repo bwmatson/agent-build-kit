@@ -23,6 +23,7 @@ rather than "idle since lunchtime for reasons unknown".
 from __future__ import annotations
 
 import json
+import re
 import sys
 from contextlib import AbstractContextManager
 from datetime import UTC, datetime, timedelta
@@ -33,6 +34,7 @@ from agent_build_kit import claude_account
 from agent_build_kit.installation import Installation
 from agent_build_kit.model import Frozen
 from agent_build_kit.pipeline.file_lock import atomic_write_text, file_lock
+from agent_build_kit.pipeline.unit_store import PARK_BACKOFF
 
 # The marker's file name in the state directory: the default account's. A named account keeps its
 # own beside it, as the usage cache is kept (`claude_account.file_for`).
@@ -40,6 +42,9 @@ PAUSE_MARKER = "paused.json"
 
 # The network outage's marker: one for the whole installation, apart from every account's.
 NETWORK_MARKER = "network-paused.json"
+
+# A code host's marker, one for each host, beside the network's: `code-host-paused.<host>.json`.
+CODE_HOST_MARKER = "code-host-paused"
 
 # Just after the reset, never exactly on it: a resume racing the window
 # boundary finds it still full and pauses again.
@@ -278,3 +283,151 @@ def end_network_pause(state_dir: Path) -> bool:
                 marker.unlink(missing_ok=True)
                 ended = True
     return ended
+
+
+# --- the code host's marker --------------------------------------------------------------------
+
+
+class HostOutage(Frozen):
+    """One code host that refused or could not be reached, and what is known of it.
+
+    Keyed by the host of a repo's push remote, so it pauses the repos on that host and no other.
+    `repo` is the repo whose checkout the probe runs from. `last_checked` is the last probe, or
+    the failure that wrote the marker before the first; `failed_probes` counts the probes that
+    failed in a row; a pass leaves them as they are, so an outage that comes back keeps counting.
+    A marker a passing probe ended is kept with `cleared_at`, which is how every unit that parked
+    before it knows its own backoff is over; it is in force only without one. `flaps` counts the
+    times a unit parked again soon after a pass, which reopens the same outage (`note_host_outage`).
+    """
+
+    host: str
+    repo: str
+    since: datetime
+    last_error: str
+    last_checked: datetime
+    failed_probes: int = 0
+    flaps: int = 0
+    cleared_at: datetime | None = None
+
+    @property
+    def in_force(self) -> bool:
+        return self.cleared_at is None
+
+    def wait(self) -> timedelta:
+        """How long after `last_checked` the next probe may be made: the park ladder, a step
+        up for each probe that failed."""
+        return PARK_BACKOFF[min(self.failed_probes, len(PARK_BACKOFF) - 1)]
+
+    def probe_due(self, now: datetime) -> bool:
+        return now >= self.last_checked + self.wait()
+
+    def down_for(self, now: datetime) -> timedelta:
+        return max(now - self.since, timedelta(0))
+
+
+def code_host_marker(state_dir: Path, host: str) -> Path:
+    """The marker of `host` in `state_dir`; anything in a host name a file name cannot hold is
+    replaced."""
+    return state_dir / f"{CODE_HOST_MARKER}.{re.sub(r'[^A-Za-z0-9.-]', '_', host)}.json"
+
+
+def _read_host(marker: Path) -> HostOutage | None:
+    try:
+        return HostOutage.model_validate_json(marker.read_text())
+    except (OSError, ValueError):
+        return None
+
+
+def _write_host(marker: Path, outage: HostOutage) -> None:
+    atomic_write_text(marker, outage.model_dump_json(indent=2) + "\n")
+
+
+def host_outage(state_dir: Path, host: str) -> HostOutage | None:
+    """The marker of `host` when it is in force. An unreadable one counts as none, as the other
+    markers do: guessing wrong costs one probe."""
+    held = _read_host(code_host_marker(state_dir, host))
+    return held if held is not None and held.in_force else None
+
+
+def host_outages(state_dir: Path) -> list[HostOutage]:
+    """Every code host's marker in force in `state_dir`, by host."""
+    found = (_read_host(marker) for marker in sorted(state_dir.glob(f"{CODE_HOST_MARKER}.*.json")))
+    return [held for held in found if held is not None and held.in_force]
+
+
+def host_released_at(state_dir: Path, host: str) -> datetime | None:
+    """When a passing probe last ended `host`'s marker, or None when it never has."""
+    held = _read_host(code_host_marker(state_dir, host))
+    return held.cleared_at if held is not None else None
+
+
+# How soon after a pass a refusal is the same outage again: the longest wait of the ladder. A
+# unit released by a pass pushes and parks within a refresh or two, and a probe is never more than
+# this far apart, so a gap longer than it is a host that really answered for a while.
+REOPEN_WITHIN = PARK_BACKOFF[-1]
+
+
+def note_host_outage(
+    state_dir: Path,
+    host: str,
+    *,
+    repo: str,
+    error: str,
+    now: datetime,
+    reopen_within: timedelta = REOPEN_WITHIN,
+) -> HostOutage:
+    """Record that `host` refused or could not be reached, for `repo`: a unit parking, or a fetch.
+
+    A marker in force keeps when it began and its probes and takes the new error. One a probe
+    ended less than `reopen_within` ago is the same outage again, which a read that passes while
+    the push is refused makes of a read-only key: it is reopened with its `since` and counts, one
+    more failure and one more flap, so the wait keeps growing and the outage limit counts from the
+    first refusal. Any other, or none, is a new outage.
+    """
+    marker = code_host_marker(state_dir, host)
+    with _locked(marker):
+        held = _read_host(marker)
+        if held is not None and held.in_force:
+            noted = held.model_copy(update={"last_error": error})
+        elif (
+            held is not None
+            and held.cleared_at is not None
+            and now - held.cleared_at < reopen_within
+        ):
+            noted = held.model_copy(
+                update={
+                    "last_error": error,
+                    "last_checked": now,
+                    "failed_probes": held.failed_probes + 1,
+                    "flaps": held.flaps + 1,
+                    "cleared_at": None,
+                }
+            )
+        else:
+            noted = HostOutage(host=host, repo=repo, since=now, last_error=error, last_checked=now)
+        _write_host(marker, noted)
+    return noted
+
+
+def record_host_probe(
+    state_dir: Path, host: str, *, healthy: bool, error: str, now: datetime
+) -> HostOutage | None:
+    """Record a probe of `host`: a pass ends the marker (and returns None), a failure counts and
+    lengthens the wait. None too when there is no marker in force to record it on."""
+    marker = code_host_marker(state_dir, host)
+    with _locked(marker):
+        held = _read_host(marker)
+        if held is None or not held.in_force:
+            return None
+        if healthy:
+            _write_host(marker, held.model_copy(update={"cleared_at": now}))
+            return None
+        failed = held.model_copy(
+            update={
+                "failed_probes": held.failed_probes + 1,
+                "last_checked": now,
+                "last_error": error or held.last_error,
+            }
+        )
+        _write_host(marker, failed)
+    return failed

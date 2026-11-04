@@ -62,7 +62,7 @@ def workspace(
     return make_installation(
         tmp_path,
         planning={"state_dir": ".", "worktree_root": str(tmp_path.parent / "trees")},
-        limits={"stack_depth_build_cap": depth_cap},
+        limits={"stack_depth_build_cap": depth_cap, **overrides.pop("limits", {})},
         project_limits={
             "max_concurrent_stacks": max_concurrent,
             "max_units_in_progress": in_progress,
