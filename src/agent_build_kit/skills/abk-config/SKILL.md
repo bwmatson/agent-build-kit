@@ -242,7 +242,7 @@ tracks:                       # the scheduled health/improve/recommend tracks
                               # is: set it when selecting another runtime
                               # no dollar budget — every phase is bounded by
                               # the same session/weekly usage windows, and
-                              # the same ramped thresholds, as limits above
+                              # the same ramped thresholds, as usage_limits above
   propose_max_issues: 3       # issues one propose pass writes up as task groups
   allowed_tools: null         # Claude Code --allowedTools syntax; null = built-in
   disallowed_tools: "..."     # both have no effect under the acp runtime

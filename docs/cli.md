@@ -1075,7 +1075,9 @@ becomes `global_limits`, and the three scheduling settings left in it move to
 `project_limits`, and each setting key still named for a numbered tier, in the limits
 block and the `tests` blocks, gets its test-kind name (`unit_test_*`, `e2e_*`), in the same change. `max_unit_lines` moves to
 `review.ceilings.full`, and a flat `models:` block moves under `runtimes.<name>.models`.
-A file that sets both spellings of one setting, or a block with an anchor, a merge key or
+In the same edit `limits` under each `runtimes.<name>` and each `runtimes.<name>.accounts.<label>`
+is renamed `usage_limits`; for `abk.local.yaml` it prints each line to change and leaves the
+file as it is. A file that sets both spellings of one setting, or a block with an anchor, a merge key or
 flow style, is refused. It prints the diff and asks; `--yes` skips the question and `--dry-run`
 prints the diff and writes nothing. The first original is kept as `abk.yaml.abk-backup`,
 and the write goes through a temporary file. Exit 0 when it wrote or had nothing to do,
