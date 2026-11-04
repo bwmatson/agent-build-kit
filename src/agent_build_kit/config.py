@@ -422,7 +422,9 @@ def review_ceiling(
 def workers_mode(repo: RepoConfig | None, config: WorkspaceConfig) -> str:
     """The worker mode in effect for the units of `repo`: its own `workers.mode`, else the
     workspace's."""
-    raise NotImplementedError
+    if repo is not None and repo.workers.mode is not None:
+        return repo.workers.mode
+    return config.workers.mode
 
 
 def ceilings_in_effect(repo: RepoConfig | None, config: WorkspaceConfig) -> CeilingsConfig:
