@@ -16,6 +16,7 @@ from agent_build_kit.pipeline.admission_record import (
     read_admissions,
 )
 from agent_build_kit.trackers.start_decision import start_decision
+from tests.forges.stand_in import StandInForge, lookup
 from tests.split_start_support import fresh, gate_round, round_ids, store_of
 from tests.trackers.board_support import TYPES
 from tests.trackers.reconciler_support import Call
@@ -112,3 +113,21 @@ def test_the_admission_record_says_the_tracker_was_not_checked(tmp_path: Path) -
     assert made, "the start is written as a claim record"
     assert made[-1].outcome == "start"
     assert "not checked" in made[-1].reason
+
+
+def test_a_remote_that_cannot_be_asked_still_waits_when_the_setting_is_start(
+    tmp_path: Path,
+) -> None:
+    world, unit = board(tmp_path, ["change", "group"])
+    on_error_start()
+
+    decision = start_decision(
+        unit,
+        changes_dir=world.changes_dir,
+        for_repo=lookup(StandInForge()),
+        remote_head_of=lambda repo, branch: None,
+    )
+
+    assert decision.outcome == "wait"
+    assert "tracker" not in decision.reason
+    assert decision.claimed == ()

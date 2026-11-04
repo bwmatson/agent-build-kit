@@ -378,6 +378,11 @@ class AzureDevOpsWorkItems:
             body=html.unescape(marker.sub("", description).rstrip("\n").replace("<br>", "\n")),
             state=doc.fields.state,
             assignees=(doc.fields.assigned_to.unique_name,) if doc.fields.assigned_to else (),
+            assignee_names=(
+                (doc.fields.assigned_to.display_name or doc.fields.assigned_to.unique_name,)
+                if doc.fields.assigned_to
+                else ()
+            ),
             parent_id=parent,
             revision=str(doc.rev),
             url=doc.links.html.href if doc.links and doc.links.html else doc.url,

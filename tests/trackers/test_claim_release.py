@@ -34,6 +34,7 @@ class Board:
         folder = tmp_path / "board"
         folder.mkdir()
         self.scene = scene
+        self.said: list[str] = []
         self.world = World(folder, board_section(["change", "group"]), RecordingTracker())
         self.world.run([covering(f"{CHANGE}/1", (1,)), covering(f"{CHANGE}/2", (2,))])
         shutil.copytree(self.world.change_dir, scene.inst.changes_dir / CHANGE)
@@ -47,8 +48,11 @@ class Board:
     def add(self, uid: str, state: str, groups: tuple[int, ...]) -> None:
         self.scene.add(uid, state, groups=groups, change=CHANGE, branch=False)
 
-    def retire(self, uid: str) -> int:
-        return retire(self.scene.inst, uid, say=lambda text, error=False: None, reason=REASON)
+    def retire(self, uid: str, *, dry_run: bool = False) -> int:
+        def say(text: str, error: bool = False) -> None:
+            self.said.append(text)
+
+        return retire(self.scene.inst, uid, say=say, reason=REASON, dry_run=dry_run)
 
 
 @pytest.fixture
@@ -85,3 +89,24 @@ def test_a_unit_that_is_not_retired_keeps_its_claims(board: Board, state: str) -
 
     assert board.assignees(2) == ()
     assert board.assignees(1) == (SYNC,)
+
+
+@pytest.mark.parametrize("carrier_state", ["merged", "running"])
+def test_a_group_another_unit_carries_keeps_its_claim(board: Board, carrier_state: str) -> None:
+    board.add(f"{CHANGE}/1", "planned", (1, 2))
+    board.add(f"{CHANGE}/2", carrier_state, (2,))
+
+    assert board.retire(f"{CHANGE}/1") == 0
+
+    assert board.assignees(1) == ()
+    assert board.assignees(2) == (SYNC,)
+
+
+def test_a_dry_run_says_the_claims_would_be_released_and_releases_none(board: Board) -> None:
+    board.add(f"{CHANGE}/1", "planned", (1, 2))
+
+    assert board.retire(f"{CHANGE}/1", dry_run=True) == 0
+
+    assert any("release the kit's claims" in line for line in board.said)
+    assert board.assignees(1) == (SYNC,)
+    assert board.assignees(2) == (SYNC,)

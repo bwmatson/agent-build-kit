@@ -3,7 +3,8 @@
 from __future__ import annotations
 
 import re
-from collections.abc import Callable, Collection, Sequence
+from collections.abc import Callable, Collection, Iterator, Mapping, Sequence
+from contextlib import contextmanager
 from pathlib import Path
 from typing import Literal
 
@@ -14,7 +15,7 @@ from agent_build_kit.model import Frozen
 from agent_build_kit.pipeline.restack import remote_head
 from agent_build_kit.pipeline.tracker_file import TrackerFile, mapping_target, read_for_target
 from agent_build_kit.pipeline.units import Unit, branch_name, in_progress
-from agent_build_kit.trackers.base import Tracker
+from agent_build_kit.trackers.base import Item, Tracker
 from agent_build_kit.trackers.config import TrackerSection, section_for
 from agent_build_kit.trackers.levels import group_key, task_group_key
 
@@ -48,8 +49,22 @@ class RoundReads:
     def __init__(self) -> None:
         self._pulls: dict[str, list[PullRequest]] = {}
         self._foreign: dict[str, str] = {}
-        # The latest decision for each unit that was not a plain start, for the claim records.
-        self.decisions: dict[str, StartDecision] = {}
+        self._decisions: dict[str, StartDecision] = {}
+
+    def record(self, unit_id: str, decision: StartDecision) -> None:
+        """Keep the latest decision for a unit unless it was a plain start, for the claim
+        records."""
+        if decision.outcome != "start" or decision.reason:
+            self._decisions[unit_id] = decision
+
+    def decided(self) -> Mapping[str, StartDecision]:
+        """The decisions kept, by unit."""
+        return self._decisions
+
+    def held_by_board(self, unit_id: str) -> bool:
+        """Whether the latest decision kept for the unit holds it back."""
+        kept = self._decisions.get(unit_id)
+        return kept is not None and kept.outcome != "start"
 
     def pulls(self, name: str, forge: Forge, repo: RepoId) -> list[PullRequest]:
         if name not in self._pulls:
@@ -131,13 +146,29 @@ def start_decision(
             own_branches,
             reads or RoundReads(),
         )
-    except Exception as error:  # noqa: BLE001
+    except BoardUnreachable as error:
         return _unreadable(unit, error)
+    except Exception as error:  # noqa: BLE001 - not the board's failure, so never a start
+        return StartDecision(outcome="wait", reason=f"the start check failed: {error}")
+
+
+class BoardUnreachable(Exception):
+    """A call to the tracker failed: the board could not be read."""
+
+
+@contextmanager
+def _board_call() -> Iterator[None]:
+    """Mark a failure inside as the board's, apart from the forge, the remote or the files."""
+    try:
+        yield
+    except Exception as error:  # noqa: BLE001
+        raise BoardUnreachable(str(error)) from error
 
 
 def _unreadable(unit: Unit, error: Exception) -> StartDecision:
     """The answer when the board cannot be read: wait, or start without a check when the
-    repo's section says `on_error: start`, the reason saying so."""
+    repo's section says `on_error: start`, the reason saying so. A failure while claiming is
+    not routed here: it always waits, the claims made released."""
     reason = f"tracker unreachable: {error}"
     try:
         section = section_for(unit.repo)
@@ -149,15 +180,21 @@ def _unreadable(unit: Unit, error: Exception) -> StartDecision:
 
 
 def _covered_by(
-    unit: Unit, section: TrackerSection, changes_dir: Path
+    unit: Unit,
+    section: TrackerSection,
+    changes_dir: Path,
+    only: Collection[tuple[str, int]] | None = None,
 ) -> tuple[list[str], list[str]] | None:
     """The items the unit covers: all those checked and those the claim acts on; None when one
-    has no board item yet."""
+    has no board item yet. With `only` (pairs of change and group), just those groups count."""
     wanted: list[str] = []
     claimable: list[str] = []
     for member in unit.members():
+        groups = [g for g in member.groups if only is None or (member.change, g) in only]
+        if not groups:
+            continue
         found = read_for_target(changes_dir / member.change, section.kind, mapping_target(section))
-        covered = _covered_ids(section.levels, found, member.change, member.groups)
+        covered = _covered_ids(section.levels, found, member.change, groups)
         if covered is None:
             return None
         wanted.extend(covered.checked)
@@ -165,14 +202,24 @@ def _covered_by(
     return wanted, claimable
 
 
-def release_claims(unit: Unit, *, changes_dir: Path) -> list[ClaimAttempt]:
-    """Clear the sync account's claims on the items `unit` covers, leaving any other assignee
-    alone; nothing for a repo with no tracker or an item the board lacks. Raises when the board
-    cannot be reached."""
+def has_tracker(repo: str) -> bool:
+    """Whether the repo's section names a tracker, so a start there asks the board."""
+    try:
+        return section_for(repo) is not None
+    except Exception:  # noqa: BLE001 - an unreadable section is reported where it is used
+        return False
+
+
+def release_claims(
+    unit: Unit, *, changes_dir: Path, groups: Collection[tuple[str, int]]
+) -> list[ClaimAttempt]:
+    """Clear the sync account's claims on the items of `groups` (pairs of change and group the
+    unit covers), leaving any other assignee alone; nothing for a repo with no tracker or an item
+    the board lacks. Raises when the board cannot be reached."""
     section = section_for(unit.repo)
     if section is None or (tracker := trackers.for_repo(unit.repo)) is None:
         return []
-    if (covered := _covered_by(unit, section, changes_dir)) is None:
+    if (covered := _covered_by(unit, section, changes_dir, groups)) is None:
         return []
     return _release(tracker, tracker.identity().name, covered[1])
 
@@ -195,14 +242,15 @@ def _decide(
     if (covered := _covered_by(unit, section, changes_dir)) is None:
         return StartDecision(outcome="wait", reason=NO_BOARD_ITEM)
     wanted, claimable = covered
-    sync = tracker.identity().name
     taken: list[str] = []
     people: list[str] = []
-    for item_id in wanted:
-        others = [who for who in tracker.get(item_id).assignees if who != sync]
-        if others:
-            taken.append(item_id)
-            people.extend(who for who in others if who not in people)
+    with _board_call():
+        sync = tracker.identity().name
+        for item_id in wanted:
+            others = _others(tracker.get(item_id), sync)
+            if others:
+                taken.append(item_id)
+                people.extend(who for who in others if who not in people)
     if taken:
         return StartDecision(
             outcome="skip", reason=f"assigned to {', '.join(people)}", items=tuple(taken)
@@ -219,6 +267,13 @@ def _decide(
     if not claim:
         return StartDecision(outcome="start", items=tuple(wanted))
     return _claim_all(tracker, sync, claimable, wanted)
+
+
+def _others(item: Item, sync: str) -> list[str]:
+    """The display names of the item's assignees other than the sync account, which is compared
+    by the unique name the tracker reports; a name that may be an address is never shown."""
+    names = item.assignee_names or item.assignees
+    return [name for who, name in zip(item.assignees, names, strict=True) if who != sync]
 
 
 def _mentions(text: str, reference: str) -> bool:
@@ -290,7 +345,7 @@ def _claim_all(
                 continue
             if not tracker.claim(item_id):
                 attempts.append(ClaimAttempt(item=item_id, outcome="lost"))
-                holders = [who for who in tracker.get(item_id).assignees if who != sync]
+                holders = _others(tracker.get(item_id), sync)
                 attempts.extend(_release(tracker, sync, claimed))
                 return StartDecision(
                     outcome="skip",
@@ -328,6 +383,6 @@ def start_gate(
     decision = start_decision(
         unit, changes_dir=changes_dir, claim=claim, own_branches=own, reads=reads
     )
-    if reads is not None and (decision.outcome != "start" or decision.reason):
-        reads.decisions[unit.id] = decision
+    if reads is not None:
+        reads.record(unit.id, decision)
     return decision

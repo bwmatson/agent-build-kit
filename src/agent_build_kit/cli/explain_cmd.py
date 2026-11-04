@@ -45,6 +45,14 @@ _OUTCOMES = {
 }
 
 
+def _configuration_line(record: AdmissionRecord, now_fingerprint: str) -> str:
+    return f"configuration {record.fingerprint}" + (
+        " — made on stale configuration: the files have changed since"
+        if record.fingerprint != now_fingerprint
+        else ""
+    )
+
+
 def _describe(record: AdmissionRecord, now_fingerprint: str) -> list[str]:
     outcome = _OUTCOMES[record.kind]
     if record.kind == "claim":
@@ -53,26 +61,15 @@ def _describe(record: AdmissionRecord, now_fingerprint: str) -> list[str]:
             f"{record.unit} was {outcome} at {record.at.isoformat()} (tick {record.tick}): "
             f"{record.outcome}{items}",
             f"reason: {record.reason}",
-            f"configuration {record.fingerprint}"
-            + (
-                " — made on stale configuration: the files have changed since"
-                if record.fingerprint != now_fingerprint
-                else ""
-            ),
+            _configuration_line(record, now_fingerprint),
         ]
-    lines = [
+    return [
         f"{record.unit} was {outcome} at {record.at.isoformat()} (tick {record.tick})",
         f"slot {record.slot}: {len(record.counted)} counted, limit {record.limit}",
         *(f"  {each.id} ({each.state}): {each.why}" for each in record.counted),
         _usage_line(record),
-        f"configuration {record.fingerprint}"
-        + (
-            " — made on stale configuration: the files have changed since"
-            if record.fingerprint != now_fingerprint
-            else ""
-        ),
+        _configuration_line(record, now_fingerprint),
     ]
-    return lines
 
 
 def register(sub: argparse._SubParsersAction) -> None:
