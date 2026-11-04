@@ -10,7 +10,6 @@ import pytest
 from agent_build_kit.cli import pipeline as cli
 from agent_build_kit.pipeline.plan_previews import preview_path
 from agent_build_kit.pipeline.usage_ledger import LEDGER_NAME, read_ledger
-from agent_build_kit.runtimes import AgentRequest
 from tests.cli.replan_driver import Replan, answer, planned, tasks_md, tick, ticking_replan
 
 pytestmark = pytest.mark.usefixtures("scripted_engine")
@@ -93,17 +92,54 @@ def test_a_preview_that_no_longer_fits_is_discarded_and_the_planner_asked_once(
         body["answer"] = "I could not make a plan."
     path.write_text(json.dumps(body))
 
-    def reply(request: AgentRequest) -> None:
-        run.runtime.answer = REPLY
-
-    run.runtime.act = reply
-
     code, _out = tick(run, capsys)
 
     assert code == 0
     assert run.calls == 2, "one planner call after the dry run's"
     assert {u.id for u in run.store.all()} == {"feature/1", "feature/2"}
     assert not path.exists(), "the discarded preview is removed"
+
+
+def test_a_rejected_preview_is_removed_even_when_the_model_call_after_it_fails(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    run = previewed(tmp_path, monkeypatch, capsys)
+    path = preview_path(run.inst.state_dir, "feature")
+    path.write_text(json.dumps({**json.loads(path.read_text()), "answer": "No plan."}))
+    run.runtime.answer = "Still no plan."
+
+    code, _out = tick(run, capsys)
+
+    assert code == 0
+    assert run.calls == 2, "one planner call after the dry run's"
+    assert run.records["feature"]["attempts"] == 1, "the failed attempt is recorded"
+    assert not path.exists(), "the preview does not outlive the tick that read it"
+
+
+def test_a_dry_round_asks_again_and_replaces_the_preview_it_finds(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    run = previewed(tmp_path, monkeypatch, capsys)
+    second = answer(planned("feature/1", (1,)), planned("feature/2", (2,), lines=90))
+    run.runtime.answer = second
+
+    code, _out = tick(run, capsys, dry_run=True)
+
+    assert code == 0
+    assert run.calls == 2, "a dry round never reuses a preview"
+    saved = json.loads(preview_path(run.inst.state_dir, "feature").read_text())
+    assert saved["answer"] == second
+
+
+def test_a_replan_asks_the_model_whatever_preview_a_dry_round_saved(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    run = previewed(tmp_path, monkeypatch, capsys)
+
+    code, _out = run.run(capsys, "feature")
+
+    assert code == 0
+    assert run.calls == 2, "a replan asks for a fresh answer"
 
 
 def test_a_preview_for_a_change_that_no_longer_exists_is_removed(

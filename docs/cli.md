@@ -793,7 +793,8 @@ only when its `tasks.md` changes (or its last plan failed and attempts remain);
 this is the way to ask for a plan otherwise. For each selected change it drops the
 recorded plan, asks the planner, and links the `Needs:` lines, the two steps a tick
 performs, so the units stored are what the next tick would have produced. It first
-says how many model calls it will make.
+says how many model calls it will make. It never reuses a plan preview a dry-run tick saved:
+it asks for a fresh answer.
 
 - **Reporting.** `--report` shows what a replan would do and does none of it: for each
   selected change its plan state, how many units are started and how many unstarted,

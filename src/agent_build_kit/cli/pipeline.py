@@ -5826,6 +5826,9 @@ def plan_all(
                 log(line)
         if decided is not None:
             kind, why = decided
+            if not dry_run:
+                # Settled without the planner, so a preview of this change has no use.
+                remove_preview(inst.state_dir, change)
             if kind == "refused":
                 log(f"not planning {change}: {why}")
                 results[change] = PlanResult(status="refused")
@@ -5916,14 +5919,16 @@ def plan_all(
                     },
                 ),
             )
-            # A preview a dry run saved for this text and policy stands in for the model. The
-            # parser still checks it against the store as it is now, and one it rejects is
-            # dropped for the call it would have saved.
-            saved = (
-                None
-                if dry_run
-                else load_preview(inst.state_dir, change, tasks=digest, sizing=sizing)
-            )
+            # A preview a dry run saved for this text and policy stands in for the model, once:
+            # it is removed as soon as it is read, so no outcome of what follows leaves it
+            # behind. The parser still checks it against the store as it is now, and one it
+            # rejects is dropped for the call it would have saved. A replan asks for a fresh
+            # answer, so it does not read one.
+            saved = None
+            if not dry_run:
+                if not force:
+                    saved = load_preview(inst.state_dir, change, tasks=digest, sizing=sizing)
+                remove_preview(inst.state_dir, change)
             if saved is None:
                 plan = ask()
             else:
@@ -5932,8 +5937,6 @@ def plan_all(
                 except PlannerError:
                     answers.clear()
                     plan = ask()
-            if not dry_run:
-                remove_preview(inst.state_dir, change)
             drops = _drop_cycle_edges(inst, store, change, plan.units, task_groups)
         except GroupTooLarge as error:
             # Fixed in tasks.md, not in the plan: every attempt is spent at
