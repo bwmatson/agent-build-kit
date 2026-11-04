@@ -40,6 +40,7 @@ def test_the_causes_are_the_fixed_set_the_design_names() -> None:
         "restack_handed_back",
         "upstream_went_back",
         "usage",
+        "login",
         "depth",
         "toolchain",
         "review_escalated_class",
