@@ -82,3 +82,18 @@ def test_the_modes_swap_with_the_repos_and_the_top_level_value_does_not_decide(
 
     assert spawner.units == ["p/1"]
     assert builder.started == ["a/1"]
+
+
+def test_a_processes_unit_that_becomes_ready_mid_pass_is_spawned_by_the_next_round(
+    tmp_path: Path, builder: Builder, spawner: FakeSpawner
+) -> None:
+    inst = mixed(tmp_path, top="threads", app="processes", platform="threads")
+    builder.store.upsert([stored("a/1"), stored("p/1", repo="platform")])
+    # While p/1 builds, a/1's worker opens its PR and releases a/2.
+    builder.scripts["p/1"] = lambda: builder.store.upsert([stored("a/2")])
+
+    assert tick(inst) == 0
+
+    assert spawner.units == ["a/1", "a/2"]
+    assert builder.started == ["p/1"]
+    assert builder.store.get("a/2").starting is not None
