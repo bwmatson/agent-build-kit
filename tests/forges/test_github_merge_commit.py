@@ -8,6 +8,7 @@ import pytest
 
 from agent_build_kit.forges.base import RepoId
 from agent_build_kit.forges.github import GitHubForge
+from agent_build_kit.forges.transport import NotFound, TransportError
 from tests.forges import github_answers
 from tests.forges.github_host import GitHubHost, answer
 from tests.forges.github_routes import GRAPHQL
@@ -77,3 +78,46 @@ def test_the_listing_carries_a_merged_pull_request_s_commit_into_its_snapshot() 
     assert pulls[7].merge_commit == MERGED
     assert pulls[8].merge_commit is None
     assert len(host.seen) == 1, "the commit comes with the listing, not a request of its own"
+
+
+def test_a_merged_pull_request_whose_merge_commit_is_null_answers_empty() -> None:
+    node = github_answers.pull(7, state="MERGED", merged_at=MERGED_AT)
+    node["mergeCommit"] = None
+    host = GitHubHost(node)
+
+    assert GitHubForge(http=host).merge_commit(REPO, 7) is None
+
+
+def graphql_errors(*errors: dict) -> GitHubHost:
+    reply = answer({"data": {"repository": {"pullRequest": None}}, "errors": list(errors)})
+    return GitHubHost(routes={("POST", GRAPHQL): reply})
+
+
+@pytest.mark.parametrize(
+    "errors",
+    [
+        pytest.param([{"type": "FORBIDDEN", "message": "Resource not accessible"}], id="auth"),
+        pytest.param([{"type": "RATE_LIMITED", "message": "API rate limit exceeded"}], id="rate"),
+        pytest.param([{"message": "Something went wrong"}], id="untyped"),
+        pytest.param(
+            [
+                {"type": "NOT_FOUND", "message": "Could not resolve to a PullRequest"},
+                {"type": "FORBIDDEN", "message": "Resource not accessible"},
+            ],
+            id="not-found-mixed-with-another",
+        ),
+    ],
+)
+def test_a_graphql_error_that_is_not_only_not_found_is_raised(errors: list[dict]) -> None:
+    host = graphql_errors(*errors)
+
+    with pytest.raises(TransportError) as raised:
+        GitHubForge(http=host).merge_commit(REPO, 7)
+
+    assert not isinstance(raised.value, NotFound)
+
+
+def test_a_graphql_error_that_is_only_not_found_is_an_unknown_pull_request() -> None:
+    host = graphql_errors({"type": "NOT_FOUND", "message": "Could not resolve to a PullRequest"})
+
+    assert GitHubForge(http=host).merge_commit(REPO, 7) is None

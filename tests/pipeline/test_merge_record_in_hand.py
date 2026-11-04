@@ -100,3 +100,15 @@ def test_the_merge_record_of_a_unit_with_a_stored_commit_does_not_ask_the_forge(
 
     assert sha == LISTED
     assert world.forge.merge_commit_reads == []
+
+
+def test_a_commit_in_hand_wins_over_a_stored_one_when_the_merge_is_recorded(world: World) -> None:
+    stored = "9" * 40
+    world.store.set_merge_record(UNIT, stored, None)
+
+    world.dispatch("merged", PR, repo="app", pull=snapshot(LISTED))
+
+    unit = world.store.get(UNIT)
+    assert unit.merge_sha == LISTED
+    assert [pull.merge_sha for pull in unit.pulls] == [LISTED]
+    assert world.forge.merge_commit_reads == []
