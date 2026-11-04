@@ -1636,6 +1636,9 @@ class UnitRunner(BaseModel):
     # When the usage guard expects to allow a start again, for the interrupt a
     # refusal makes; None when it cannot say.
     resume_at: Callable[[], datetime | None] = lambda: None
+    # The words of a rejected login on the unit's account (with the command that renews it), or
+    # None: the gate pauses the unit for it before an agent step.
+    login_rejected: Callable[[], str | None] = lambda: None
     run: Callable[..., str]
     run_review: Callable[..., str]
     run_rework_review: Callable[..., str]

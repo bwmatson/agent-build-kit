@@ -216,6 +216,7 @@ from agent_build_kit.pipeline.usage_guard import (
     UsageReading,
     decide_start,
     may_start_unit,
+    rejected_login_note,
     snapshot_reading,
 )
 from agent_build_kit.pipeline.vocabulary import effective_state
@@ -4894,6 +4895,7 @@ def build_runner(
         tests_changed=tests_changed,
         may_start=gate_may_start,
         resume_at=gate_resume_at,
+        login_rejected=lambda: rejected_login_note(account),
         run=run,
         # The review and rework-review runs only read the diff and run nothing that needs a
         # service, so they stay at the unit-test tier whatever the unit's kind.

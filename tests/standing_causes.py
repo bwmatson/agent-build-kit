@@ -29,6 +29,7 @@ STANDING = [
     Cause.ENVIRONMENT,
     Cause.REWORK,
     Cause.USAGE,
+    Cause.LOGIN,
     Cause.DIRTY_WORKTREE,
     Cause.ATTACHED,
     Cause.NEEDS_HUMAN,

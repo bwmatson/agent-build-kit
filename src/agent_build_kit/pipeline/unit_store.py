@@ -105,6 +105,7 @@ class Cause(StrEnum):
     BASE_CHANGED = "base_changed"
     UPSTREAM_WENT_BACK = "upstream_went_back"
     USAGE = "usage"
+    LOGIN = "login"
     DEPTH = "depth"
     TOOLCHAIN = "toolchain"
     REVIEW_ESCALATED_CLASS = "review_escalated_class"
@@ -1168,7 +1169,7 @@ class UnitStore:
                 "moved_base_uncounted": unit.moved_base_uncounted and state == RUNNING,
                 # A usage pause lasts while the unit stays running for it.
                 "paused_until": (paused_until or unit.paused_until)
-                if state == RUNNING and resolved is Cause.USAGE
+                if state == RUNNING and resolved in (Cause.USAGE, Cause.LOGIN)
                 else None,
                 "held_base": held_base if state == HELD else "",
                 # The step belongs to the failure or parking it describes (recorded just
@@ -1250,19 +1251,27 @@ class UnitStore:
         stored[unit_id] = stored[unit_id].model_copy(update=fields)
         self._write(stored)
 
-    def set_usage_pause(self, unit_id: str, until: datetime | None) -> None:
-        """Record that the gate paused the unit for usage until `until` (its cause is then
-        `Cause.USAGE`, in the state it is in), or clear the pause with None, which also ends
-        that cause."""
+    def set_usage_pause(
+        self, unit_id: str, until: datetime | None, cause: Cause = Cause.USAGE
+    ) -> None:
+        """Record that the gate paused the unit until `until` (its cause is then `cause`,
+        `Cause.USAGE` or `Cause.LOGIN`, in the state it is in), or clear the pause with None,
+        which also ends that cause. A login pause has no time of its own: `until` is when the
+        round looks again, and it ends when the account's login is renewed."""
         unit = self.get(unit_id)
+        paused = {Cause.USAGE: "usage", Cause.LOGIN: "the login"}
         # One write each: the cause and the time are recorded together, so a pause never
         # outlives the cause it belongs to.
-        if until is not None and unit.cause is not Cause.USAGE:
+        if until is not None and unit.cause is not cause:
             self.set_state(
-                unit_id, unit.state, cause=Cause.USAGE, note="paused for usage", paused_until=until
+                unit_id,
+                unit.state,
+                cause=cause,
+                note=f"paused for {paused[cause]}",
+                paused_until=until,
             )
-        elif until is None and unit.cause is Cause.USAGE:
-            self.set_state(unit_id, unit.state, cause=None, note="usage pause over")
+        elif until is None and unit.cause in paused:
+            self.set_state(unit_id, unit.state, cause=None, note=f"{paused[unit.cause]} pause over")
         else:
             self._update(unit_id, paused_until=until)
 

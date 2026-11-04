@@ -803,7 +803,7 @@ note beside it is prose for people and no code reads it. The entries for startin
 reaching review and being satisfied carry none. A cause is one of two kinds, and the
 two sets (`STANDING_CAUSES` and `EVENT_CAUSES`) together are exactly the members of `Cause`.
 A standing cause names a situation that lasts until a state change passes another cause: `rework`,
-`base_changed`, `upstream_went_back`, `usage`, `depth`, `toolchain`, `review_escalated_class`,
+`base_changed`, `upstream_went_back`, `usage`, `login`, `depth`, `toolchain`, `review_escalated_class`,
 `review_escalated_disagreement`, `late_failure`, `needs_human`, `reviewer_hold`, `gated`, `restack_conflict`,
 `restack_deferred`, `restack_handed_back`, `dirty_worktree`, `attached`, `host_unavailable`,
 `network_unavailable`, `service_unavailable`, `environment`, `split_held`, `manual_step` and
@@ -830,6 +830,18 @@ still on as `held_base`, and who holds it as `held_by`. A record with no cause i
 and one with a cause this release does not know reads the same way: the pass never readmits it, and `abk status` lists it.
 A usage pause leaves the unit `running`, with its thread interrupted before
 the agent node; the first tick the usage guard allows resumes it from there.
+A rejected Claude login pauses the account's units the same way, with the cause login: the
+runtime recognises the CLI's authentication failure (`LoginRejected`) and records the account's
+`login_rejected` marker with the credentials' `expiresAt`; the gate refuses the account's agent
+steps while it stands, and a step that met the rejection leaves its unit `running`, paused at
+that step and not failed. A login pause has no time of its own: the unit counts as in progress and
+holds no worker, a round does not resume it while the marker stands, and a round that finds the
+credentials changed (a different `expiresAt` that is not past) runs the CLI's logged-in probe
+once: a pass clears the marker and the units resume under the normal limits, a failure keeps it
+for the new credentials so they are not probed again. The start decision admits no unit that has
+never started on the account meanwhile, and a unit that failed on the rejection before this
+existed is requeued once, through the normal requeue, while the account's login is still rejected,
+so it meets the gate with the rest. A login pause never pauses the whole account for usage.
 A run that is killed is resumed the same way, at the node it was in: nothing
 requeues it and nothing commits what it left.
 

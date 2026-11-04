@@ -3411,6 +3411,14 @@
   `tasks` and `epic`, and `docs/hand-off.md` says so. `feature` and `story` are still accepted
   and stored as `change` and `group`; any other key is refused, naming the valid ones.
 
+- A rejected Claude login now pauses the account's units instead of failing them. The unit stays
+  `running` at its step with the cause `login`, counts as in progress and holds no worker; no unit
+  that has never started is admitted on the account; and when a person signs in, a round finds
+  the credentials changed, runs the CLI's logged-in probe once and resumes the units (no requeue,
+  and the same credentials are never probed twice). A unit that failed on the rejection earlier
+  is requeued once while the login is still rejected, so it waits with the rest. `abk status`
+  and `abk explain` show the paused units.
+
 ## 0.1.0 — 2026-09-28
 
 First release.
