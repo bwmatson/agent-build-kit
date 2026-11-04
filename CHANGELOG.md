@@ -19,6 +19,7 @@
   full review. The change also carries the first failure's evidence in its design (the output, the
   conditions, the run's ledger rows and the bundle's machine facts), and the agent is told it must
   stand on its own if the test no longer fails when a fix unit builds it.
+
 - A unit whose pull request has merged on the code host is now closed by the pipeline instead of
   staying in review. Each tick compares every running, in-review, failed or held unit with the
   poller's last read of its pull request and records a merge or close it missed, and a build no
