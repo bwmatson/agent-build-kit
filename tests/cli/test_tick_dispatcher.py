@@ -107,6 +107,9 @@ def test_a_unit_whose_usage_pause_has_not_reached_its_time_holds_its_place_and_g
     assert builder.store.get("b/1").starting is None
 
     builder.store.set_usage_pause("a/1", datetime.now(UTC) - timedelta(minutes=1))
+    monkeypatch.setattr(
+        cli, "may_start_unit", lambda reading, **_: Decision(may_start=True, reason="plenty")
+    )
 
     assert tick(inst) == 0
     assert spawner.units == ["a/1"], "at its time the unit is given its worker"
