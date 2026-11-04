@@ -144,14 +144,13 @@ SKILL = (
 CONFIGURATION = (DOCS / "configuration.md").read_text()
 
 
-def test_the_document_names_the_four_item_keys_and_no_other() -> None:
+def test_the_document_names_each_item_key_and_neither_old_name() -> None:
     assert ITEM_KEYS == ("change", "group", "tasks", "epic")
-    named = set(re.findall(r"--item (\w+)=", HAND_OFF))
-    named |= set(re.findall(r"^\s+(\w+): ", HAND_OFF.split("## The file")[1], flags=re.M))
     for key in ITEM_KEYS:
-        assert f"`{key}`" in HAND_OFF or f"{key}:" in HAND_OFF, key
-    assert {"change", "group", "tasks", "epic"} <= named | set(ITEM_KEYS)
-    assert (named & {"feature", "story"}) == set(), "the document uses the names of the levels"
+        assert f"`{key}`" in HAND_OFF, key
+    used = set(re.findall(r"--item (\w+)=", HAND_OFF))
+    used |= set(re.findall(r"^\s+(\w+): ", HAND_OFF.split("## The file")[1], flags=re.M))
+    assert not used & set(ITEM_ALIASES), "the document uses the names of the levels"
 
 
 def test_every_key_the_document_passes_to_item_is_accepted() -> None:

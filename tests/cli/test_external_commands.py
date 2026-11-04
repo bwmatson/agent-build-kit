@@ -396,6 +396,29 @@ def test_every_level_key_and_the_epic_are_accepted_and_tasks_collect(
     assert recorded.items == {"epic": "7", "change": "40", "group": "41", "tasks": ["42", "43"]}
 
 
+def test_a_level_given_twice_is_refused_and_only_tasks_collect(
+    world: World, capsys: pytest.CaptureFixture[str]
+) -> None:
+    _out, err = world.run(
+        capsys,
+        "hand-off",
+        "feature",
+        "--holder",
+        "Sam Example",
+        "--link",
+        LINK,
+        "--all",
+        "--item",
+        "story=1",
+        "--item",
+        "group=2",
+        code=1,
+    )
+
+    assert "group" in err and "twice" in err
+    assert not read_holds(world.folder)
+
+
 def test_an_item_key_that_is_not_a_level_is_refused_naming_the_valid_ones(
     world: World, capsys: pytest.CaptureFixture[str]
 ) -> None:

@@ -38,7 +38,7 @@ ITEM_ALIASES = {"feature": "change", "story": "group"}
 
 def _items(pairs: list[str]) -> dict[str, str | list[str]]:
     """`key=value` pairs, the key a level of the board (`ITEM_KEYS`, or an old name in
-    `ITEM_ALIASES`); a key given again collects its values into a list."""
+    `ITEM_ALIASES`); only `tasks` is given again, and collects its values into a list."""
     items: dict[str, str | list[str]] = {}
     for pair in pairs:
         key, _, value = pair.partition("=")
@@ -50,6 +50,8 @@ def _items(pairs: list[str]) -> dict[str, str | list[str]]:
         held = items.get(key)
         if held is None:
             items[key] = value
+        elif key != "tasks":
+            raise HoldRefused(f"--item {key!r} given twice: only tasks, one for each task item")
         else:
             items[key] = [*([held] if isinstance(held, str) else held), value]
     return items
