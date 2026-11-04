@@ -860,11 +860,11 @@ planned or rewritten before you have seen what it would do:
 
 1. `abk config --migrate` moves the settings still under their old names (the root `limits`
    block and the numbered test-tier keys) to `global_limits`, `project_limits` and the
-   `unit_test_*` and `e2e_*` names, `max_unit_lines` to `review.ceilings.full`, an account's
-   `max_units_in_progress` into its `project_limits`, and a flat `models:` block under
-   `runtimes.<name>.models`. It also renames the deprecated `limits` under a runtime and under each of
-   its accounts to `usage_limits`, and for `abk.local.yaml` it prints each line to change and leaves
-   the file alone.
+   `unit_test_*` and `e2e_*` names, and renames the deprecated `limits` under a runtime and under
+   each of its accounts to `usage_limits`. It also moves `max_unit_lines` to `review.ceilings.full`,
+   an account's `max_units_in_progress` into its `project_limits`, and a flat `models:` block under
+   `runtimes.<name>.models`. For `abk.local.yaml` it prints each line to change and leaves the file
+   alone.
 2. `abk tags --fix --all`, before any replan. It does not make a plan stale, since the sizing digest ignores
    how a tag is spelled, and it clears the old-tag warnings `abk tags` and `abk check` print;
    the plans made in the later steps are then read from the new spelling.
