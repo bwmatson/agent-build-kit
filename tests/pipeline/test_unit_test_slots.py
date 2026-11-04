@@ -407,3 +407,82 @@ def test_two_waiters_of_two_slots_are_served_in_rank_order(tmp_path: Path) -> No
         wait_for(lambda: len(order) == 2, what="both waiters to take a slot")
 
     assert order[0] == "urgent/1"
+
+
+def test_a_run_that_takes_a_slot_on_its_first_poll_behind_no_one_waited_nothing(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    install(monkeypatch)
+    told: list[str] = []
+    with live_waiter(tmp_path, "1-aaaa", "lazy/1", since=START, rank=LESS_URGENT):
+        with unit_test_slot(
+            tmp_path, 1, holder="new/1", rank=URGENT, on_wait=told.append
+        ) as waited:
+            assert waited == 0.0
+
+    assert told == []
+
+
+def test_a_run_that_waits_only_for_a_waiter_ahead_says_so_and_names_it(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    install(monkeypatch)
+    told: list[str] = []
+    with live_waiter(tmp_path, "1-aaaa", "urgent/1", since=START, rank=URGENT):
+        declines(tmp_path, rank=LESS_URGENT, on_wait=told.append)
+
+    assert told and "behind urgent/1" in told[0]
+    assert "unnamed holder" not in told[0] and "held by" not in told[0]
+
+
+def test_a_run_behind_a_waiter_that_cannot_be_read_says_another_waiting_run(
+    tmp_path: Path,
+) -> None:
+    told: list[str] = []
+    with (tmp_path / "unit-test-waiting-1-aaaa.lock").open("a+") as marker:
+        fcntl.flock(marker, fcntl.LOCK_EX)
+        marker.write("not a record\n")
+        marker.flush()
+        declines(tmp_path, rank=LESS_URGENT, on_wait=told.append)
+
+    assert told and "behind another waiting run" in told[0]
+
+
+def test_when_the_slots_are_really_held_the_wait_still_names_the_holders(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    install(monkeypatch)
+    told: list[str] = []
+    holder = ExitStack()
+    holder.enter_context(unit_test_slot(tmp_path, 1, holder="a/1"))
+    waiter = live_waiter(tmp_path, "1-aaaa", "urgent/1", since=START, rank=URGENT)
+    with waiter, pytest.raises(TimeoutError):
+        with unit_test_slot(
+            tmp_path,
+            1,
+            holder="new/1",
+            rank=LESS_URGENT,
+            on_wait=told.append,
+            clock=FakeClock(on_sleep=give_up_after_two),
+        ):
+            pass
+    holder.close()
+
+    assert told and "held by a/1" in told[0]
+
+
+def test_a_failure_while_making_the_marker_leaves_no_staging_file(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    install(monkeypatch)
+
+    def refuse(self: Path, target: Path) -> Path:
+        raise OSError("cannot rename")
+
+    with live_waiter(tmp_path, "1-aaaa", "urgent/1", since=START, rank=URGENT):
+        monkeypatch.setattr(Path, "rename", refuse)
+        with pytest.raises(OSError, match="cannot rename"):
+            with unit_test_slot(tmp_path, 1, holder="new/1", rank=LESS_URGENT):
+                pass
+
+    assert list(tmp_path.glob("unit-test-registering-*")) == []
