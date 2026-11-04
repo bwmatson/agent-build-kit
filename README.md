@@ -109,7 +109,7 @@ runtimes:
     models:                     # bare aliases, so they track new releases
       implement: sonnet
       review: opus
-    limits:
+    usage_limits:
       session:
         usage_pause_pct: 70     # no new unit starts above this share of the
       weekly:                   # 5-hour session / the 7-day week
@@ -128,7 +128,7 @@ The decisions worth knowing you can make:
 | `repos.<name>.forge` | `github` or `azure_devops`. Inferred from the origin URL. |
 | `repos.<name>.profile` | Which toolchain runs the checks — see [docs/toolchain-profiles.md](docs/toolchain-profiles.md). |
 | `runtimes.<name>.models.*` | Which model does which part of a unit: `implement`, `rework`, `review`, `rework_review`, `regression`. |
-| `runtimes.claude_code.limits.session.usage_pause_pct`, `…weekly.usage_pause_pct` | How much of each usage window the pipeline may spend before it stops starting work. Add the matching `usage_pause_ceiling_pct` to let the limit rise as that window's reset nears. |
+| `runtimes.claude_code.usage_limits.session.usage_pause_pct`, `…weekly.usage_pause_pct` | How much of each usage window the pipeline may spend before it stops starting work. Add the matching `usage_pause_ceiling_pct` to let the limit rise as that window's reset nears. |
 | `review.ceilings` (`auto`/`light`/`full`) | How large a unit the planner may produce, by its expected review tier. |
 | `runtime`, `runtimes.*` | Which agent runs the work — see [docs/agent-runtimes.md](docs/agent-runtimes.md). |
 | `tracks.*` | The scheduled health, improve and recommend passes — see [docs/tracks.md](docs/tracks.md). |

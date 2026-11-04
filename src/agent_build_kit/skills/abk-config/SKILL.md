@@ -86,7 +86,8 @@ runtimes:                     # only for a runtime needing a fact abk cannot
                               # the author; if the author is opus, set this to another
       regression: opus        # works out why a test fails and writes the fix change
       plan: opus              # the planner's graph call
-    limits:                   # with the same settings
+    usage_limits:             # with the same settings (called `limits` before; that spelling is
+                              # deprecated, `abk config --migrate` renames it to `usage_limits`)
       session:                # the 5-hour window
         usage_pause_pct: 70            # % at which no unit starts
         usage_pause_ceiling_pct:       # what that rises to at the reset; unset =

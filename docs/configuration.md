@@ -33,8 +33,8 @@ Ask of any line: *would this be wrong on another person's machine?* If it would,
 | `repos.<name>.path` (a checkout), `planning.worktree_root` | `abk.local.yaml` | a path on one disk |
 | `verify.env.<NAME>.file` (where a settings file sits) | `abk.local.yaml` | a path on one disk; the entry and its `path` stay in `abk.yaml` |
 | `repos.<name>.account` (which Claude account builds a repo) | `abk.local.yaml` | depends on who runs the pipeline and which accounts they have; a person with one account sets nothing |
-| `runtimes.claude_code.accounts.<label>`: `config_dir`, `limits`, `max_units_in_progress` | `abk.local.yaml` | a directory and a plan's allowances |
-| `runtimes.claude_code.limits` (the default account's usage thresholds) and `usage_cache_*` | `abk.local.yaml` | a plan's allowances differ per person |
+| `runtimes.claude_code.accounts.<label>`: `config_dir`, `usage_limits`, `max_units_in_progress` | `abk.local.yaml` | a directory and a plan's allowances |
+| `runtimes.claude_code.usage_limits` (the default account's usage thresholds) and `usage_cache_*` | `abk.local.yaml` | a plan's allowances differ per person |
 | `runtimes.<name>.models` (which model does which role) | `abk.yaml` | a model alias is that runtime's own name and describes the workspace |
 | `runtimes.<name>.command` and `policy_fix`, where the program is an absolute path | `abk.local.yaml` or `.env` | where a program sits differs per machine; a bare program name on the PATH is fine in `abk.yaml` |
 | `tests.e2e_available`, a split's `hold`, `tests.e2e_schedule: "off"` for a machine | `abk.local.yaml` | what this machine can run or should spend |
@@ -72,14 +72,20 @@ person go in the ignored `abk.local.yaml`. `abk doctor` reads the committed file
 and, under "machine keys", **warns** for `repos.<name>.account`, `project_limits`,
 `global_limits.max_concurrent_unit_tests`,
 `runtimes.<name>.accounts`, `tests.e2e_available` and a runtime `command` or `policy_fix`
-that starts with an absolute path. It only **notes** `runtimes.<name>.limits`, a split
+that starts with an absolute path. It only **notes** `runtimes.<name>.usage_limits`, a split
 `hold` and `tests.e2e_schedule: "off"`, which a team may commit as defaults. It says
 nothing about `runtimes.<name>.models`, or about the same keys in `abk.local.yaml`.
 
 `abk config --migrate` moves the machine settings of a tracked `abk.yaml` to `abk.local.yaml`:
 everything the check warns about. The defaults it only notes stay unless you add
-`--include-defaults`, which moves `runtimes.<name>.limits`, a split `hold` and
+`--include-defaults`, which moves `runtimes.<name>.usage_limits`, a split `hold` and
 `tests.e2e_schedule: "off"` too. The merged configuration does not change.
+
+The usage-window key under a runtime and under each account was called `limits`; it is renamed
+`usage_limits`. The old spelling still loads as the same value, with a deprecation notice, and a
+mapping that sets both is refused. `abk config --migrate` renames `limits` to `usage_limits` in
+`abk.yaml`, keeping comments and key order; for `abk.local.yaml` it and `abk doctor` print each
+line to change and leave the file as it is. The old spelling is dropped in a later release.
 
 ## `abk.yaml` reference
 
@@ -184,7 +190,7 @@ runtimes:                       # one entry per runtime that needs a fact abk
                                 # result does not name it (read by this runtime only;
                                 # an acp agent says its own window); recorded as an
                                 # estimate
-    limits:                     # and a seven-day week fill independently, so
+    usage_limits:               # and a seven-day week fill independently, so
       session:                  # each has its own section, with the same names
         usage_pause_pct: 70     # % of the window at which no new unit starts,
                                 # for most of it
@@ -871,7 +877,7 @@ runtimes:
       kit:
         config_dir: /path/to/.claude-kit        # absolute; refused in the committed abk.yaml
         max_units_in_progress: 3                # this account's own slots
-        limits: {}                              # same shape as runtimes.claude_code.limits
+        usage_limits: {}                        # same shape as runtimes.claude_code.usage_limits
 ```
 
 Units in progress are counted per account against that account's `max_units_in_progress`
@@ -908,7 +914,7 @@ key that differs, since mappings merge by key:
 |---|---|---|
 | `repos.<name>.path`, `repos.<name>.deploy.ssh_key`, `planning.worktree_root` | `abk.local.yaml` | a path on this machine; use `~` or a path relative to the planning root |
 | a `verify.env` entry that reads a file in the home directory or holds a home path | `abk.local.yaml` | the same value is a different path on another machine |
-| `runtimes.<name>.limits`, `runtimes.claude_code.accounts.<label>.config_dir` | `abk.local.yaml` | the pause thresholds belong to this person's subscription windows, and a config directory is a path |
+| `runtimes.<name>.usage_limits`, `runtimes.claude_code.accounts.<label>.config_dir` | `abk.local.yaml` | the pause thresholds belong to this person's subscription windows, and a config directory is a path |
 | `project_limits` | `abk.local.yaml` | how many units and stacks this machine can run at once |
 | `global_limits.max_concurrent_unit_tests` | `abk.local.yaml` | how many whole-suite unit-test runs this machine can run at once |
 | `sandbox.write`, `sandbox.read` (paths) and `sandbox.hosts` | `abk.local.yaml` for a path on this machine, `abk.yaml` for what every checkout shares | what an agent step may write, read and reach; `sandbox.enabled`, `sandbox.backend` and a repo's `sandbox.required` stay in `abk.yaml` |

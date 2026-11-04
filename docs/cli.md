@@ -29,7 +29,7 @@ order: exit silently if nothing needs a tick (no unit `planned`/`running`/
 `in_review` and every change planned in its current form); stop if paused;
 read the usage windows and pause if either is past the threshold that applies
 to it now (`usage_pause_pct` in the `session` / `weekly` section of
-`runtimes.claude_code.limits`, rising towards its `usage_pause_ceiling_pct` as that
+`runtimes.claude_code.usage_limits`, rising towards its `usage_pause_ceiling_pct` as that
 window's reset nears, when one is set) or unknown; `git fetch --prune origin` in every repo; poll each repo's host; plan changes whose `tasks.md` changed; apply
 `Needs:` lines; verify and archive fully merged changes; then resume the units a killed
 run or a usage pause left `running` from their threads and build the ready
@@ -855,7 +855,9 @@ planned or rewritten before you have seen what it would do:
 1. `abk config --migrate` moves the settings still under their old names (the root `limits`
    block and the numbered test-tier keys) to `global_limits`, `project_limits` and the
    `unit_test_*` and `e2e_*` names, `max_unit_lines` to `review.ceilings.full`, and a flat
-   `models:` block under `runtimes.<name>.models`.
+   `models:` block under `runtimes.<name>.models`. It also renames the deprecated `limits` under a
+   runtime and under each of its accounts to `usage_limits`, and for `abk.local.yaml` it prints each
+   line to change and leaves the file alone.
 2. `abk tags --fix --all`, before any replan. It does not make a plan stale, since the sizing digest ignores
    how a tag is spelled, and it clears the old-tag warnings `abk tags` and `abk check` print;
    the plans made in the later steps are then read from the new spelling.
