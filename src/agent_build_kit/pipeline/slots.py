@@ -2,11 +2,36 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable, Hashable
+from collections.abc import Callable, Hashable, Mapping
+from dataclasses import dataclass, field
 
 from agent_build_kit import claude_account
+from agent_build_kit.config import ProjectLimitsConfig
 from agent_build_kit.installation import Installation
 from agent_build_kit.pipeline.units import Unit, project_key
+
+
+@dataclass(frozen=True)
+class AppliedLimits:
+    """The limits that apply to one repo's units: the project's block, and the fields its account
+    set. A field the account did not set is absent from `account`, so a default is never read as
+    an account limit."""
+
+    project: ProjectLimitsConfig
+    account: Mapping[str, int] = field(default_factory=dict[str, int])
+
+
+def _set_fields(account: claude_account.Account) -> dict[str, int]:
+    """The fields of the account's block that it set."""
+    block = account.project_limits
+    return {name: getattr(block, name) for name in block.model_fields_set}
+
+
+def limits_for(inst: Installation, repo: str) -> AppliedLimits:
+    """The one function that resolves the limits of a repo's units, for the project and for the
+    account the repo runs on (the default account, which sets none, adds none)."""
+    account = claude_account.for_repo(inst.config, repo)
+    return AppliedLimits(project=inst.config.project_limits, account=_set_fields(account))
 
 
 def slot_of(inst: Installation) -> Callable[[Unit], Hashable]:
@@ -25,7 +50,7 @@ def slot_limit(inst: Installation) -> Callable[[Hashable], int]:
 
     def limit(label: Hashable) -> int:
         named = claude_account.resolve(inst, label if isinstance(label, str) else None)
-        return named.max_units_in_progress or inst.max_units_in_progress
+        return _set_fields(named).get("max_units_in_progress", inst.max_units_in_progress)
 
     return limit
 
