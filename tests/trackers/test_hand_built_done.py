@@ -25,7 +25,6 @@ pytestmark = pytest.mark.usefixtures("scripted_engine")
 PULL = 31
 COMMIT = "d" * 40
 HAND_BRANCH = "alice/by-hand"
-LATER = "later/1"
 
 
 @pytest.fixture(autouse=True)
@@ -96,8 +95,8 @@ def test_a_merged_pull_request_on_held_items_records_the_hold_and_the_hand_merge
     world, inst = board_in(tmp_path)
     held = taken_by_person(world, "1")
     Hosted(forge_with(pull(held))).install(monkeypatch, inst)
-    store = planned(inst, FIRST, SECOND)
-    fresh(store, LATER, depends_on=(FIRST,))
+    store = planned(inst, FIRST)
+    fresh(store, SECOND, depends_on=(FIRST,))
 
     round_ids(inst, store)
 
@@ -110,7 +109,7 @@ def test_a_merged_pull_request_on_held_items_records_the_hold_and_the_hand_merge
     assert unit.state == MERGED
     assert unit.merge_sha == COMMIT
     assert {"1.1", "1.2"} <= set(checked(inst))
-    assert LATER in round_ids(inst, store)
+    assert round_ids(inst, store) == [SECOND]
 
 
 def test_a_second_round_records_nothing_more(
@@ -151,7 +150,7 @@ def test_a_merged_pull_request_naming_one_of_two_groups_records_that_group_only(
     first, second = taken_by_person(world, "1"), taken_by_person(world, "2")
     Hosted(forge_with(pull(first))).install(monkeypatch, inst)
     store = store_of(inst)
-    fresh(store, "lane-dedupe/3", change=CHANGE, groups=(1, 2))
+    fresh(store, "lane-dedupe/3", groups=(1, 2))
 
     round_ids(inst, store)
 

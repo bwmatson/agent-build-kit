@@ -234,6 +234,9 @@
   `tracker.on_error: start`, starts it and records that the tracker was not checked), retiring a
   unit clears the kit's claims on its items and leaves a person's alone, and every start
   decision that is not a plain start is written as a `claim` admission that `abk explain` shows.
+  When a person holds a unit's board items and their pull request is merged, on a branch of any
+  name and carrying the item's `AB#` reference, the kit records the hold and the hand merge
+  itself, so `abk external hand-off` and `abk external done` are not needed.
 
 - The Python profile's affected-test selection now records what every test executes. Under
   coverage's default core a recording linked only some of the tests that call a function to

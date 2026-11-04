@@ -523,6 +523,7 @@ from agent_build_kit.runtimes.claude_code import login_command, login_rejection,
 from agent_build_kit.runtimes.guards import guard_lines
 from agent_build_kit.serve.review import ReviewStore
 from agent_build_kit.trackers.folders import archived_entries
+from agent_build_kit.trackers.hand_built import record_hand_built
 from agent_build_kit.trackers.report import standing
 from agent_build_kit.trackers.start_decision import RoundReads, StartDecision, start_gate
 from agent_build_kit.trackers.tick_step import note_state_change, sync_trackers, tracker_pass
@@ -2936,6 +2937,8 @@ def run_round(
         | {unit.id for unit in units if unit.id in lane_waiting and unit.state == RUNNING},
         owed=owed,
     )
+    if not dry_run:
+        _close_hand_built(inst, store, units, reads)
     # A unit still waiting to resume has its project's worker before a unit that has never
     # started there, the emergency lane's starts among them; other projects' lane starts go on.
     unplaced = {project_key(unit) for unit in waiting_to_resume if unit.id not in resumed}
@@ -3012,6 +3015,16 @@ def run_round(
             claims=reads.decided(),
         )
     return ready
+
+
+def _close_hand_built(
+    inst: Installation, store: UnitStore, units: list[StoredUnit], reads: RoundReads
+) -> None:
+    """Record the merged pull requests of the people whose items held a unit back this round."""
+    by_id = {unit.id: unit for unit in units}
+    for uid, decision in reads.decided().items():
+        if decision.outcome == "skip" and decision.items and uid in by_id:
+            record_hand_built(inst, store, by_id[uid], decision.items, reads, log)
 
 
 def _claim_starts(

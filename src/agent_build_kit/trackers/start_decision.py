@@ -247,10 +247,10 @@ def _decide(
     with _board_call():
         sync = tracker.identity().name
         for item_id in wanted:
-            others = _others(tracker.get(item_id), sync)
-            if others:
+            owners = others(tracker.get(item_id), sync)
+            if owners:
                 taken.append(item_id)
-                people.extend(who for who in others if who not in people)
+                people.extend(who for who in owners if who not in people)
     if taken:
         return StartDecision(
             outcome="skip", reason=f"assigned to {', '.join(people)}", items=tuple(taken)
@@ -269,14 +269,14 @@ def _decide(
     return _claim_all(tracker, sync, claimable, wanted)
 
 
-def _others(item: Item, sync: str) -> list[str]:
+def others(item: Item, sync: str) -> list[str]:
     """The display names of the item's assignees other than the sync account, which is compared
     by the unique name the tracker reports; a name that may be an address is never shown."""
     names = item.assignee_names or item.assignees
     return [name for who, name in zip(item.assignees, names, strict=True) if who != sync]
 
 
-def _mentions(text: str, reference: str) -> bool:
+def mentions(text: str, reference: str) -> bool:
     """Whether `text` carries `reference` as a whole: not the front of a longer id (`AB#12` in
     `AB#123`) and not the tail of a longer word."""
     return re.search(rf"(?<!\w){re.escape(reference)}(?!\d)", text) is not None
@@ -308,7 +308,7 @@ def _foreign_start(
         if pull.state != "open" or pull.head in own_branches:
             continue
         for item_id in wanted:
-            if _mentions(f"{pull.title}\n{pull.body}", link_line(item_id)):
+            if mentions(f"{pull.title}\n{pull.body}", link_line(item_id)):
                 return (
                     f"foreign pull request {pull.number} on branch {pull.head} "
                     f"carries item {item_id}"
@@ -345,7 +345,7 @@ def _claim_all(
                 continue
             if not tracker.claim(item_id):
                 attempts.append(ClaimAttempt(item=item_id, outcome="lost"))
-                holders = _others(tracker.get(item_id), sync)
+                holders = others(tracker.get(item_id), sync)
                 attempts.extend(_release(tracker, sync, claimed))
                 return StartDecision(
                     outcome="skip",
