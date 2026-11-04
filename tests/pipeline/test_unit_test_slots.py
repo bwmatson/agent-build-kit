@@ -5,6 +5,7 @@ holder."""
 
 from __future__ import annotations
 
+import fcntl
 import json
 import os
 import subprocess
@@ -175,8 +176,8 @@ def declines(locks: Path, **options) -> None:
             locks, 1, holder="new/1", clock=FakeClock(on_sleep=give_up_after_two), **options
         ):
             pytest.fail("the run took the slot")
-    with unit_test_slot(locks, 1, holder="check/1") as waited:  # the slot was left free
-        assert waited == 0.0
+    with slot_path(locks, 1).open("a+") as handle:  # the slot was left free
+        fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
 
 
 def takes_at_once(locks: Path, **options) -> None:
@@ -214,13 +215,18 @@ def test_the_smaller_rank_takes_the_freed_slot_whatever_order_they_began_waiting
 
 def test_runs_of_equal_rank_are_served_in_the_order_they_began_waiting(tmp_path: Path) -> None:
     order: list[str] = []
-    with ExitStack() as runs:
+    with ExitStack() as stack:
+        runs = {}
         with unit_test_slot(tmp_path, 1, holder="holder/1"):
             # "z/1" began first; neither its name nor its marker's token puts it first
             for unit in ("z/1", "a/1"):
-                run = runs.enter_context(waiting_run(tmp_path, unit, rank=LESS_URGENT, order=order))
-                run.until_waiting(tmp_path, unit)
+                runs[unit] = stack.enter_context(
+                    waiting_run(tmp_path, unit, rank=LESS_URGENT, order=order)
+                )
+                runs[unit].until_waiting(tmp_path, unit)
         wait_for(lambda: len(order) == 1, what="the first waiter to take the slot")
+        runs["z/1"].release.set()
+        wait_for(lambda: len(order) == 2, what="the second waiter to take the slot")
 
     assert order == ["z/1", "a/1"]
 

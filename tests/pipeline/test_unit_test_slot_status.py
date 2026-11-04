@@ -138,12 +138,17 @@ def test_waiters_of_equal_rank_and_time_are_listed_by_marker_token(
 def test_the_listing_matches_the_order_the_waiters_are_served(tmp_path: Path) -> None:
     order: list[str] = []
     with ExitStack() as stack:
+        runs = {}
         with unit_test_slot(tmp_path, 1, holder="holder/1"):
             for unit, rank in (("lazy/1", (2, 4)), ("urgent/1", (0, 2))):
-                run = stack.enter_context(waiting_run(tmp_path, unit, rank=rank, order=order))
-                run.until_waiting(tmp_path, unit)
+                runs[unit] = stack.enter_context(
+                    waiting_run(tmp_path, unit, rank=rank, order=order)
+                )
+                runs[unit].until_waiting(tmp_path, unit)
             [line] = slot_status_lines(tmp_path, 1)
         wait_for(lambda: len(order) == 1, what="the first waiter to take the slot")
+        runs["urgent/1"].release.set()
+        wait_for(lambda: len(order) == 2, what="the second waiter to take the slot")
 
     assert waiting_part(line).index("urgent/1") < waiting_part(line).index("lazy/1")
-    assert order == ["urgent/1"]
+    assert order == ["urgent/1", "lazy/1"]

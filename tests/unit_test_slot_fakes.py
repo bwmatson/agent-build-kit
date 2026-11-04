@@ -88,13 +88,15 @@ def waiting_run(
     """Start a run of `unit` (given no rank when `rank` is None) that waits for a slot; the block
     ends by releasing it and joining."""
     run = WaitingRun()
-    options: dict[str, tuple[int, ...]] = (
-        {} if rank is None else {"rank": rank}
-    )  # None: the run is given no rank
 
     def go() -> None:
         try:
-            with unit_test_slot(locks_dir, limit, holder=unit, **options):
+            slot = (
+                unit_test_slot(locks_dir, limit, holder=unit)  # given no rank
+                if rank is None
+                else unit_test_slot(locks_dir, limit, holder=unit, rank=rank)
+            )
+            with slot:
                 order.append(unit)
                 run.release.wait(timeout=20)
         except BaseException as error:  # noqa: BLE001 - handed to the test thread
