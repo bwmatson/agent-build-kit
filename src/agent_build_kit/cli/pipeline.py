@@ -373,7 +373,7 @@ from agent_build_kit.pipeline.units import (
     waiting_on,
     waiting_on_me,
 )
-from agent_build_kit.pipeline.unplanned_sweep import sweep
+from agent_build_kit.pipeline.unplanned_sweep import live_changes, sweep
 from agent_build_kit.pipeline.untouched_failures import preexisting_record, preview
 from agent_build_kit.pipeline.usage_allowances import (
     allowances_line,
@@ -496,7 +496,7 @@ from agent_build_kit.runtimes.base import LoginRejected
 from agent_build_kit.runtimes.claude_code import login_command, login_rejection, login_works
 from agent_build_kit.runtimes.guards import guard_lines
 from agent_build_kit.serve.review import ReviewStore
-from agent_build_kit.trackers.folders import ARCHIVE_DIR, archived_entries
+from agent_build_kit.trackers.folders import archived_entries
 from agent_build_kit.trackers.report import standing
 from agent_build_kit.trackers.start_decision import RoundReads, start_gate
 from agent_build_kit.trackers.tick_step import note_state_change, sync_trackers, tracker_pass
@@ -764,14 +764,10 @@ def _sweep_unplanned_units(
 ) -> None:
     """Remove the `unplanned` units nothing needs any more, as the end of a pass: `pass_started`
     is when the pass began, so a unit demoted in it stays until the next."""
-    if not inst.changes_dir.is_dir():
-        return  # misconfigured, not empty: every change would read as gone
+    live = live_changes(inst.changes_dir)
+    if live is None:
+        return
     configured, reconciled = tracker_pass(inst)
-    live = {
-        path.name
-        for path in inst.changes_dir.iterdir()
-        if path.is_dir() and path.name != ARCHIVE_DIR
-    }
     removed = sweep(
         store,
         active_changes=live,

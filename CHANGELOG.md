@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- An `unplanned` unit is now removed from the store once nothing needs it: at the end of the
+  pass after the one that demoted it, and when a change archives. It goes only if it holds no work,
+  no other unit names it (a reference is repointed to its successors), its groups are carried by a
+  live unit or its change is gone, the tracker has reconciled since, and its change keeps another unit.
+  `abk units prune --unplanned [--dry-run]` runs the same sweep on demand and says why each unit it
+  keeps stays. The id of a swept unit may be reused by a later plan.
+
 - `abk worker build <unit>` builds one unit as its own process: it takes the unit's branch lock,
   runs the unit to its next wait, records the outcome, releases the lock and touches `runs/wake`
   before it exits. This is the first step towards builds that outlive a tick.

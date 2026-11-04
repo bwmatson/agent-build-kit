@@ -194,6 +194,22 @@ further from done (`unplanned`, then `planned`, then `failed` or `held`, then `r
 are in UNIT` when a merged unit carries them all. A store without either prints nothing of the kind.
 Changes nothing. Exit 0.
 
+### `abk units prune --unplanned [--dry-run]`
+
+Runs the sweep of `unplanned` units on demand: the same eligibility the tick applies at the end of
+each pass. A unit is removed when it holds no work (a branch, pull request, push or approval); no
+other unit names it in `depends_on`, `needs`, `merge_needs`, `waited_on` or `superseded_by`, unless
+the reference can be repointed to a successor still in the store; its groups are carried by a live
+unit, or its change is gone (an archived change keeps a unit whose groups no live unit carries,
+because the tracker reads such a group as removed and would read it as new once the unit was
+gone); a pass has run since it was demoted and, where a tracker is configured, the tracker's last
+reconcile that ran to its end is later than the demotion; and its change keeps another unit (a
+change that is gone or archived is exempt). It prints each unit it removes, with the references it repointed, and for each other
+`unplanned` unit the first condition it fails. With `--dry-run` it prints `would remove UNIT` and
+writes nothing. A unit in any other state is never touched. The command counts a pass as having
+run since a demotion once the demotion is behind it, so a tick that is mid-pass may still be
+reading a unit it removes. Exit 0; exit 1 when there are `unplanned` units and no changes folder.
+
 ### `abk retire UNIT [--reason TEXT] [--delete-branch] [--discard-unpushed] [--dry-run]`
 
 Ends a unit that has not finished, setting it to the state `retired`: finished, in no place under

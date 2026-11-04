@@ -23,6 +23,7 @@ from __future__ import annotations
 
 from collections.abc import Collection, Sequence
 from datetime import UTC, datetime
+from pathlib import Path
 
 from agent_build_kit.model import Frozen
 from agent_build_kit.pipeline.unit_store import REFERENCE_FIELDS, StoredUnit, UnitStore
@@ -173,6 +174,14 @@ def _demoted_at(unit: StoredUnit) -> datetime | None:
                 return None
             return stamp if stamp.tzinfo else stamp.replace(tzinfo=UTC)
     return None
+
+
+def live_changes(changes_dir: Path) -> set[str] | None:
+    """The changes whose folder exists and is not archived; None when there is no changes folder,
+    which is a misconfiguration and not an empty set: every change would read as gone."""
+    if not changes_dir.is_dir():
+        return None
+    return {path.name for path in changes_dir.iterdir() if path.is_dir() and path.name != "archive"}
 
 
 def sweep(
