@@ -49,6 +49,15 @@ REPLAYED_NOTICE = re.compile(r"^Resolved '(.+)' using previous resolution\.$", r
 REFUSED_REF = re.compile(r"^!\t[^\t]*\t\[(?P<what>[^\]]+)\](?: \((?P<why>.*)\))?$", re.MULTILINE)
 
 
+# The host answered about the repository or the person, which only a person can put right: a
+# repository the account may not read or write, or one that is not there. Never an outage, and
+# checked before the HTTP statuses it arrives with (GitHub answers these with a 403).
+REPO_ACCESS = re.compile(
+    r"Permission to \S+ denied to"
+    r"|Write access to repository not granted"
+    r"|Repository not found"
+)
+
 # The host answered and said no: a refused key or login, an HTTP error status from the remote, a
 # connection it closed on us. Fixed-locale text only: callers run git with `untranslated_env()`.
 HOST_REFUSED = re.compile(
@@ -78,6 +87,8 @@ def transport_failure(output: str) -> TransportFailure | None:
     branch and never an outage.
     """
     message = output.strip()
+    if REPO_ACCESS.search(message):
+        return None
     if HOST_REFUSED.search(message):
         return TransportFailure(kind="refused", message=message)
     if HOST_UNREACHABLE.search(message):
