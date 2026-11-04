@@ -372,7 +372,9 @@ def test_the_cap_holds_under_every_one_waiting_and_ending_in_turn(
 
     for number in range(len(keys)):
         ends = one_at_a_time.finished()
-        restacks.release(*restacks.started[-1:])
+        (current,) = one_at_a_time.running
+        assert restacks.begun[current].wait(WAIT)
+        restacks.release(current)
         ends.result(timeout=WAIT)
         # Whichever lane its next restack waits in, exactly one runs until none is left.
         assert len(one_at_a_time.running) == min(1, len(keys) - number - 1)

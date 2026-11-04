@@ -267,6 +267,7 @@ from agent_build_kit.pipeline.shell import git, has_origin
 from agent_build_kit.pipeline.slots import extra_of as _extra_of
 from agent_build_kit.pipeline.slots import slot_limit as _slot_limit
 from agent_build_kit.pipeline.slots import slot_of as _slot_of
+from agent_build_kit.pipeline.slots import slot_restack_limit as _slot_restack_limit
 from agent_build_kit.pipeline.slots import slot_stack_limit as _slot_stack_limit
 from agent_build_kit.pipeline.stack_runner import (
     GroupStep,
@@ -6708,7 +6709,13 @@ def build_restack_lane(inst: Installation, store: UnitStore) -> RestackLanes:
             log=log,
         )
 
-    lanes = RestackLanes(make, owed=lambda units: owed_units(inst, units))
+    lanes = RestackLanes(
+        make,
+        owed=lambda units: owed_units(inst, units),
+        # An account that sets `max_concurrent_restacks` is held to it across its projects' lanes.
+        account_of=_slot_of(inst),
+        account_cap=_slot_restack_limit(inst),
+    )
     return lanes
 
 
