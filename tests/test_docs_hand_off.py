@@ -10,13 +10,13 @@ from pathlib import Path
 import yaml
 
 from agent_build_kit.cli import build_parser
+from agent_build_kit.cli.external_cmd import ITEM_ALIASES, ITEM_KEYS
 from agent_build_kit.pipeline.external_file import Hold
 
 DOCS = Path(__file__).resolve().parent.parent / "docs"
 HAND_OFF = (DOCS / "hand-off.md").read_text() if (DOCS / "hand-off.md").is_file() else ""
 COMMAND = re.compile(r"abk external ([a-z][a-z-]*)")
 OPTION = re.compile(r"(?<![\w-])--[a-z][a-z-]*")
-ITEM_KEYS = {"feature", "story", "tasks"}
 
 
 def external_parsers() -> dict[str, argparse.ArgumentParser]:
@@ -130,3 +130,51 @@ def test_the_commands_are_documented_in_the_cli_reference() -> None:
 
     for name in ("hand-off", "list", "done", "release"):
         assert f"abk external {name}" in reference, name
+
+
+ACCEPTED_KEYS = {*ITEM_KEYS, *ITEM_ALIASES}
+SKILL = (
+    Path(__file__).resolve().parent.parent
+    / "src"
+    / "agent_build_kit"
+    / "skills"
+    / "abk-config"
+    / "SKILL.md"
+).read_text()
+CONFIGURATION = (DOCS / "configuration.md").read_text()
+
+
+def test_the_document_names_the_four_item_keys_and_no_other() -> None:
+    assert ITEM_KEYS == ("change", "group", "tasks", "epic")
+    named = set(re.findall(r"--item (\w+)=", HAND_OFF))
+    named |= set(re.findall(r"^\s+(\w+): ", HAND_OFF.split("## The file")[1], flags=re.M))
+    for key in ITEM_KEYS:
+        assert f"`{key}`" in HAND_OFF or f"{key}:" in HAND_OFF, key
+    assert {"change", "group", "tasks", "epic"} <= named | set(ITEM_KEYS)
+    assert (named & {"feature", "story"}) == set(), "the document uses the names of the levels"
+
+
+def test_every_key_the_document_passes_to_item_is_accepted() -> None:
+    for key in re.findall(r"--item (\w+)=", HAND_OFF):
+        assert key in ACCEPTED_KEYS, key
+
+
+def test_the_board_items_made_by_hand_are_named_by_level() -> None:
+    text = " ".join(HAND_OFF.split())
+
+    assert "levels" in text
+    assert "Feature per change" not in text
+    assert "Story per unit" not in text
+
+
+def test_the_configuration_shows_the_levels_epic_pr_links_and_provider_block() -> None:
+    for word in ("levels:", "epic:", "pr_links:", "types:", "states:"):
+        assert word in CONFIGURATION, word
+    assert "story_type" in CONFIGURATION and "state_map" in CONFIGURATION
+    assert "alias" in CONFIGURATION.lower() or "still work" in CONFIGURATION.lower()
+
+
+def test_the_config_skill_says_the_same() -> None:
+    for word in ("levels:", "epic: true", "pr_links", "story_type", "state_map"):
+        assert word in SKILL, word
+    assert "still work" in SKILL

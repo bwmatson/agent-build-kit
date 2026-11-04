@@ -62,13 +62,13 @@ def test_hand_off_records_a_hold_on_named_groups(
     world: World, capsys: pytest.CaptureFixture[str]
 ) -> None:
     world.hand_off(
-        capsys, "--groups", "2", "3", "--item", "story=88", "--note", "Sam takes the API half"
+        capsys, "--groups", "2", "3", "--item", "group=88", "--note", "Sam takes the API half"
     )
 
     [recorded] = read_holds(world.folder)
     assert recorded.scope == (2, 3)
     assert (recorded.holder, recorded.link, recorded.status) == ("Sam Example", LINK, HELD)
-    assert recorded.items == {"story": "88"}
+    assert recorded.items == {"group": "88"}
     assert recorded.note == "Sam takes the API half"
 
 
@@ -217,7 +217,7 @@ def test_list_json_carries_the_same_facts(world: World, capsys: pytest.CaptureFi
         stored_unit("feature/1", change="feature", groups=(1,)),
         stored_unit("feature/2", change="feature", groups=(2,), depends_on=("feature/1",)),
     )
-    world.hand_off(capsys, "--groups", "1", "--item", "story=88")
+    world.hand_off(capsys, "--groups", "1", "--item", "group=88")
 
     out, _err = world.run(capsys, "list", "--json")
 
@@ -225,7 +225,7 @@ def test_list_json_carries_the_same_facts(world: World, capsys: pytest.CaptureFi
     assert row["change"] == "feature"
     assert row["groups"] == [1]
     assert (row["holder"], row["link"], row["status"]) == ("Sam Example", LINK, HELD)
-    assert row["items"] == {"story": "88"}
+    assert row["items"] == {"group": "88"}
     assert row["age"]
     assert row["waiting"] == ["feature/2"]
 
@@ -363,3 +363,57 @@ def test_status_has_no_holds_section_when_nothing_is_held(
     lines = run_status(world.inst, monkeypatch, capsys)
 
     assert not any("external holds" in line.lower() for line in lines)
+
+
+def test_the_old_item_keys_are_stored_under_the_names_of_the_levels(
+    world: World, capsys: pytest.CaptureFixture[str]
+) -> None:
+    world.hand_off(capsys, "--groups", "1", "--item", "story=88", "--item", "feature=40")
+
+    [recorded] = read_holds(world.folder)
+    assert recorded.items == {"group": "88", "change": "40"}
+
+
+def test_every_level_key_and_the_epic_are_accepted_and_tasks_collect(
+    world: World, capsys: pytest.CaptureFixture[str]
+) -> None:
+    world.hand_off(
+        capsys,
+        "--all",
+        "--item",
+        "epic=7",
+        "--item",
+        "change=40",
+        "--item",
+        "group=41",
+        "--item",
+        "tasks=42",
+        "--item",
+        "tasks=43",
+    )
+
+    [recorded] = read_holds(world.folder)
+    assert recorded.items == {"epic": "7", "change": "40", "group": "41", "tasks": ["42", "43"]}
+
+
+def test_an_item_key_that_is_not_a_level_is_refused_naming_the_valid_ones(
+    world: World, capsys: pytest.CaptureFixture[str]
+) -> None:
+    _out, err = world.run(
+        capsys,
+        "hand-off",
+        "feature",
+        "--holder",
+        "Sam Example",
+        "--link",
+        LINK,
+        "--all",
+        "--item",
+        "sprint=3",
+        code=1,
+    )
+
+    assert "sprint" in err
+    for valid in ("change", "group", "tasks", "epic"):
+        assert valid in err
+    assert read_holds(world.folder) == []
