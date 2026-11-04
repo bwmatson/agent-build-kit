@@ -27,7 +27,10 @@ class MoveScope(Frozen):
 
 
 class FileKinds(Frozen):
-    """How many files of a set are changelog, document, test and code files."""
+    """How many files of a set are changelog, document, test and code files.
+
+    `documents` counts by `is_doc_path`, which is wider than the documents a lite re-test
+    accepts (`is_document`): a prompt or plain-text file counts here and is not lite."""
 
     changelog: int = 0
     documents: int = 0

@@ -215,6 +215,7 @@ def test_a_lite_re_test_checks_the_merged_changelog_and_does_not_start_the_full_
     assert passed, output
     assert [c for c in ran if is_changelog_check(c)]
     assert ["tests"] not in ran, "the full suite did not start"
+    assert ["lint"] not in ran, "lint did not run"
     assert any("lite re-test" in line and "changelog" in line for line in said)
     (line,) = restack_lines(workspace)
     assert (line["retest"], line["retest_result"]) == ("lite", "passed")

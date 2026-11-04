@@ -93,7 +93,6 @@
   once per scan, and the secret-leak guard module no longer scans the test tree when it is
   imported, so collecting the suite does no repository walk.
   `abk requeue`, `abk approve` and `abk attach release` touch that file.
-  before it exits. This is the first step towards builds that outlive a tick.
 
 - A branch whose base moved only in changelog and documentation files, one of which the branch
   also changes, is now re-tested with the changelog check alone instead of in full. A move that

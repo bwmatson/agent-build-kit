@@ -1466,7 +1466,7 @@ def build_unit_test(
     # The tests the current run's failed commands named, each read by the profile of the
     # command (a project has its own), for its ledger row.
     run_failed: list[str] = []
-    # The kind of re-test the current run after a move is: `full` unless it ran scoped.
+    # The kind of re-test the current run after a move is: `full` unless it was `lite` or `scoped`.
     retest: dict[str, str] = {"kind": "full"}
     # What a test is, as the profile of the project a path sits in says, and the repo's
     # changelog path: the restack record's file kinds and the lite rule read the same two.
