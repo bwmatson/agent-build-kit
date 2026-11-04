@@ -591,8 +591,8 @@ DEPRECATED_ACCOUNT_SLOTS = "max_units_in_progress"
 
 def alias_account_slots(data: dict[str, Any]) -> dict[str, Any]:
     """`data`, an account, with the deprecated `max_units_in_progress` moved into its
-    `project_limits`; an account that sets both places is refused. A key with no value reads as
-    unset."""
+    `project_limits`; an account that sets both places is refused. A key with no value, on its own,
+    reads as unset."""
     if DEPRECATED_ACCOUNT_SLOTS not in data:
         return data
     block = data.get(PROJECT_LIMITS)

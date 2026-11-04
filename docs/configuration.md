@@ -742,7 +742,8 @@ and the occupancy may read over it. A run stops before any work that is not abou
 and what it cannot go on with is handed back,
 `planned` with the cause `restack_handed_back`. The attempts at one base tip are bounded by
 `global_limits.max_review_rounds`, after which the unit is held for a person. Every limit in
-`project_limits` is counted for each project, not across all repos.
+the top-level `project_limits` is counted for each project, not across all repos; an account's
+`project_limits` caps its projects together (see "The Claude Code account").
 
 ### `planning.self_pull` and `planning.publish`
 
