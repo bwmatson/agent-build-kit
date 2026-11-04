@@ -2477,7 +2477,12 @@ def run_round(
     # dry run merges nothing.
     if not quiet and not dry_run:
         _step(
-            "landing", land_units, inst, store, dispatch=_dispatch(inst, store, lane=lane), say=log
+            "landing",
+            land_units,
+            inst,
+            store,
+            dispatch=dispatch_for(inst, store, lane=lane),
+            say=log,
         )
     if not dry_run:
         _step("finishing chat commits", deliver_committed, inst, store)
@@ -4753,7 +4758,7 @@ def _refresh(
         reconcile(
             store=store,
             state_dir=inst.state_dir,
-            dispatch=_dispatch(inst, store, lane=lane),
+            dispatch=dispatch_for(inst, store, lane=lane),
             log=log,
         )
     except Exception as error:  # noqa: BLE001
@@ -6557,7 +6562,7 @@ def build_stack_moves(
     }
 
 
-def _dispatch(
+def dispatch_for(
     inst: Installation,
     store: UnitStore,
     say: Callable[[str], None] = log,
@@ -6627,7 +6632,7 @@ def deliver_hold_event(
     if unit.pr is None:
         say(f"{unit.id} has no pull request")
         return False
-    return _dispatch(inst, store, say)(event, unit.pr, repo=unit.repo)
+    return dispatch_for(inst, store, say)(event, unit.pr, repo=unit.repo)
 
 
 def hold_label_on(inst: Installation, unit: StoredUnit) -> bool:
@@ -6658,7 +6663,7 @@ def poll_all(inst: Installation, *, store: UnitStore, lane: Lane | None = None) 
     """
     checkouts = inst.checkouts
 
-    dispatch = _dispatch(inst, store, lane=lane)
+    dispatch = dispatch_for(inst, store, lane=lane)
 
     labels = StateLabels(inst.forge_of, log=log)
     index = PrIndex(store)
@@ -7003,7 +7008,9 @@ def _build_unit(
                     unit,
                     store=store,
                     installation=inst,
-                    record_merge=lambda repo, pr: _dispatch(inst, store)("merged", pr, repo=repo),
+                    record_merge=lambda repo, pr: dispatch_for(inst, store)(
+                        "merged", pr, repo=repo
+                    ),
                     log=say,
                     log_reaches_run_log=True,
                     journal=journal_only,
@@ -7113,7 +7120,7 @@ def _build_unit(
                 say(f"#{outcome.pr} {outcome.pr_over}: left for a later pass")
             else:
                 try:
-                    if not _dispatch(inst, store, lane=lane)(
+                    if not dispatch_for(inst, store, lane=lane)(
                         outcome.pr_over, outcome.pr, repo=unit.repo
                     ):
                         say(f"#{outcome.pr} {outcome.pr_over}: left for a later pass")
@@ -7278,7 +7285,7 @@ def _thread_runner(
             unit,
             store=store,
             installation=inst,
-            record_merge=lambda repo, pr: _dispatch(inst, store)("merged", pr, repo=repo),
+            record_merge=lambda repo, pr: dispatch_for(inst, store)("merged", pr, repo=repo),
             log=say,
         )
 

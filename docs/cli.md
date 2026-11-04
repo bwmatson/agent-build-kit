@@ -657,6 +657,19 @@ and records it as `merged`, with the reason in its note. For a check that will n
 Refuses a unit that is not settling. A unit is never requeued while settling or merged: a
 failed check starts a late fix on its own.
 
+### `abk reconcile [UNIT] [--dry-run] [--accept UNIT]`
+
+Runs the reconcile pass the tick runs: each `running`, `in_review`, `failed` or `held` unit whose
+pull request the poller's cache shows merged or closed is recorded as the poller would record it,
+and each correction is printed as `reconciled: <unit> #<pr> merged on the forge`. `UNIT` limits the
+pass to one unit; `--dry-run` prints what it would do and writes nothing. A unit being built is
+left for a later pass.
+
+`--accept UNIT` asks the forge itself and records a merge it confirms (the merge commit and time,
+with a history note naming the command). It refuses when the forge shows the pull request open or
+closed unmerged, and a unit in `settling` or `merged`, which has recorded its merge. It takes
+no `UNIT` argument and no `--dry-run`, and an unknown unit is refused.
+
 ### `abk requeue UNIT [--restart | --rework] [--note TEXT | --note-file PATH]`
 
 Gives a `failed` or `held` unit another go. Three different things, and the
