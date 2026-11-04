@@ -9,7 +9,6 @@ cannot answer counts as the host being reachable, so a bug in it never parks a u
 
 from __future__ import annotations
 
-import os
 import socket
 import subprocess
 from collections.abc import Callable, Sequence
@@ -162,15 +161,16 @@ class HostProbe(Frozen):
     error: str = ""
 
 
-def _batch_ssh(checkout: Path) -> str | None:
-    """The ssh command a push of `checkout` runs, told never to ask a question: the one in the
-    environment, else the repo's configured one, else plain `ssh`. None when `GIT_SSH` names the
-    program and no command is set: a command would replace it, so it is left alone."""
+def _batch_ssh(checkout: Path, env: dict[str, str]) -> str | None:
+    """The ssh command a push of `checkout` runs, told never to ask a question: the one in `env`
+    (the environment the probe's git runs in), else the repo's configured one, else plain `ssh`.
+    None when `GIT_SSH` names the program and no command is set: a command would replace it, so
+    it is left alone."""
     configured = shell.git(checkout, "config", "--get", "core.sshCommand", check=False)
-    command = os.environ.get("GIT_SSH_COMMAND") or configured.stdout.strip()
+    command = env.get("GIT_SSH_COMMAND") or configured.stdout.strip()
     if command:
         return f"{command} -o BatchMode=yes"
-    return None if os.environ.get("GIT_SSH") else "ssh -o BatchMode=yes"
+    return None if env.get("GIT_SSH") else "ssh -o BatchMode=yes"
 
 
 def code_host_healthy(checkout: Path, *, timeout: float, run: Run | None = None) -> HostProbe:
@@ -188,7 +188,7 @@ def code_host_healthy(checkout: Path, *, timeout: float, run: Run | None = None)
             return HostProbe(healthy=True)
         remote = restack.push_target(checkout)
         env = {**untranslated_env(), "GIT_TERMINAL_PROMPT": "0"}
-        if (ssh := _batch_ssh(checkout)) is not None:
+        if (ssh := _batch_ssh(checkout, env)) is not None:
             env["GIT_SSH_COMMAND"] = ssh
         limit = timeout * CODE_HOST_TIMEOUT_FACTOR
         try:
