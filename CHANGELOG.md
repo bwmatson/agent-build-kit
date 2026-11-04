@@ -313,7 +313,9 @@
   log, closing pull requests, posting replies, label and outcome sweeps) no longer write. A change
   that needs planning is still planned by the model, in memory: the tick logs
   `would plan <change>: N unit(s)` and saves the answer under `plan-previews/` in the state
-  folder. Three things still act as in a real tick: the fetch and poll (which record merges, send
+  folder. A real tick that plans the change next uses that saved answer instead of asking again,
+  when `tasks.md` and the sizing policy are unchanged and the answer still checks against the
+  store; otherwise it drops the preview and asks as before. Three things still act as in a real tick: the fetch and poll (which record merges, send
   units back and restack), the live verification (deploy and live tests) and the archiving of
   finished changes. The usage ledger still gets its spans and the planner call's cost.
 

@@ -36,6 +36,15 @@ def plan_spans(run: Replan) -> int:
     )
 
 
+def planning_of(run: Replan) -> list[tuple]:
+    """What planning wrote for each unit; the rest of a stored unit is what the tick did to it
+    after (its state, its times)."""
+    return [
+        (u.id, u.change, u.repo, u.tier, u.depends_on, u.estimated_lines, u.groups, u.priority)
+        for u in run.store.all()
+    ]
+
+
 def test_a_real_tick_plans_from_a_matching_preview_without_asking_and_removes_it(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
@@ -62,7 +71,7 @@ def test_a_reused_preview_writes_the_units_a_normal_plan_of_that_answer_writes(
 
     assert reused.calls == 1
     assert normal.calls == 1
-    assert reused.store.all() == normal.store.all()
+    assert planning_of(reused) == planning_of(normal)
     assert reused.records == normal.records
 
 
