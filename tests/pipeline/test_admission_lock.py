@@ -153,7 +153,9 @@ def test_an_accounts_own_limit_holds_admission_below_the_project_limit(tmp_path)
         tmp_path,
         planning={"state_dir": ".", "worktree_root": str(tmp_path.parent / "trees")},
         repos=repos(tmp_path, {"app": "kit"}),
-        runtimes={"claude_code": {"accounts": kit(tmp_path, max_units_in_progress=1)}},
+        runtimes={
+            "claude_code": {"accounts": kit(tmp_path, project_limits={"max_units_in_progress": 1})}
+        },
     )
     store = UnitStore(tmp_path / "units.json")
     store.upsert([new_unit("a/1", repo="app"), new_unit("b/1", repo="app")])

@@ -138,16 +138,15 @@ def test_the_old_account_key_still_resolves_into_the_block(tmp_path: Path) -> No
     assert account.project_limits.model_fields_set == {"max_units_in_progress"}
 
 
-def test_the_blocks_units_in_progress_wins_over_the_old_key(tmp_path: Path) -> None:
+def test_the_old_account_key_beside_the_blocks_is_refused(tmp_path: Path) -> None:
     overlay = kit_overlay(
         tmp_path / "kit-home",
         max_units_in_progress=2,
         project_limits={"max_units_in_progress": 3},
     )
 
-    account = claude_account.resolve(installation(tmp_path, local=overlay), "kit")
-
-    assert account.project_limits.max_units_in_progress == 3
+    with pytest.raises(ConfigError, match=r"project_limits\.max_units_in_progress"):
+        installation(tmp_path, local=overlay)
 
 
 def test_the_default_account_has_no_project_limits(tmp_path: Path) -> None:

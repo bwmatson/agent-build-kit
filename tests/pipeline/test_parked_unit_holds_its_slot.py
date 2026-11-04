@@ -69,7 +69,9 @@ def test_the_full_queue_line_of_an_account_names_its_parked_units_paused(
         capsys,
         [new_unit("fresh/1")],
         repos=repos(tmp_path, {"app": "kit"}),
-        runtimes={"claude_code": {"accounts": kit(tmp_path, max_units_in_progress=2)}},
+        runtimes={
+            "claude_code": {"accounts": kit(tmp_path, project_limits={"max_units_in_progress": 2})}
+        },
         record=park_two(tmp_path, account="kit"),
     )
 

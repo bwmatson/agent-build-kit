@@ -41,7 +41,9 @@ def test_a_full_account_queue_in_the_nothing_started_reason_lists_its_blocked_un
         tmp_path,
         planning={"state_dir": ".", "worktree_root": str(tmp_path.parent / "trees")},
         repos=repos(tmp_path, {"app": "kit"}),
-        runtimes={"claude_code": {"accounts": kit(tmp_path, max_units_in_progress=2)}},
+        runtimes={
+            "claude_code": {"accounts": kit(tmp_path, project_limits={"max_units_in_progress": 2})}
+        },
     )
     open_pr(builder, "one/1", 11)
     open_pr(builder, "two/1", 12)
@@ -81,7 +83,9 @@ def lane_status(
         [new_unit("ready/1", repo="app")],
         repos=repos(tmp_path, {"app": "kit"}),
         record=record,
-        runtimes={"claude_code": {"accounts": kit(tmp_path, max_units_in_progress=2)}},
+        runtimes={
+            "claude_code": {"accounts": kit(tmp_path, project_limits={"max_units_in_progress": 2})}
+        },
     )
     [line] = [line for line in lines if "queue is full" in line]
     return line
@@ -112,7 +116,9 @@ def test_a_full_default_account_queue_does_not_list_another_accounts_blocked_uni
         planning={"state_dir": ".", "worktree_root": str(tmp_path.parent / "trees")},
         project_limits={"max_units_in_progress": 2},
         repos=repos(tmp_path, {"app": "kit"}),
-        runtimes={"claude_code": {"accounts": kit(tmp_path, max_units_in_progress=5)}},
+        runtimes={
+            "claude_code": {"accounts": kit(tmp_path, project_limits={"max_units_in_progress": 5})}
+        },
     )
     open_pr(builder, "one/1", 11, repo="web")
     open_pr(builder, "two/1", 12, repo="web")
@@ -143,7 +149,9 @@ def test_the_slot_sample_limit_is_the_sum_of_the_limits_of_the_accounts_in_use(
         planning={"state_dir": ".", "worktree_root": str(tmp_path.parent / "trees")},
         project_limits={"max_units_in_progress": 5},
         repos=repos(tmp_path, {"app": "kit"}),
-        runtimes={"claude_code": {"accounts": kit(tmp_path, max_units_in_progress=2)}},
+        runtimes={
+            "claude_code": {"accounts": kit(tmp_path, project_limits={"max_units_in_progress": 2})}
+        },
     )
     builder.store.upsert([stored("a/1", repo="app"), stored("w/1", repo="web")])
     recorded: list[spans.Sample] = []

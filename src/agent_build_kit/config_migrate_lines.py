@@ -13,6 +13,7 @@ __all__ = [
     "ConfigMigrateError",
     "MARKED",
     "MERGE_TAG",
+    "account_holders",
     "joined",
     "opened",
     "pair",
@@ -63,6 +64,15 @@ def usage_limits_holders(
             if isinstance(label, yaml.ScalarNode) and isinstance(account, yaml.MappingNode):
                 holders.append((("runtimes", name.value, "accounts", label.value), label, account))
     return holders
+
+
+def account_holders(
+    root: yaml.MappingNode,
+) -> list[tuple[tuple[str, ...], yaml.ScalarNode, yaml.MappingNode]]:
+    """Each account mapping written under a runtime's `accounts`, with its key and key path: the
+    places an account's setting may sit. The loaded document's counterpart is
+    `config.account_paths`."""
+    return [holder for holder in usage_limits_holders(root) if len(holder[0]) == 4]
 
 
 def region(lines: list[str], key_line: int, block_line: int) -> tuple[int, int]:

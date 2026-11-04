@@ -11,6 +11,7 @@ import yaml
 
 from agent_build_kit.config import (
     ConfigError,
+    account_slots_notices,
     deprecation_notice,
     deprecations,
     locate,
@@ -51,10 +52,10 @@ def _machine_request(path: Path, include_defaults: bool) -> MachineRequest | Non
 
 def cmd_migrate(args: argparse.Namespace) -> int:
     """Move the abk.yaml in force to the new limits blocks, rename its old test-kind setting keys,
-    move a flat `models:` block under the runtime in force's `runtimes.<name>.models` and, for a
-    git-tracked abk.yaml, its machine settings to abk.local.yaml, by text, without loading it:
-    exit 0 when it wrote, was a dry run or had nothing to change, 1 when not confirmed, 2 when
-    refused."""
+    move an account's `max_units_in_progress` into its `project_limits`, move a flat `models:`
+    block under the runtime in force's `runtimes.<name>.models` and, for a git-tracked abk.yaml,
+    its machine settings to abk.local.yaml, by text, without loading it: exit 0 when it wrote, was
+    a dry run or had nothing to change, 1 when not confirmed, 2 when refused."""
     try:
         path = locate(args.config)
     except ConfigError as error:
@@ -71,7 +72,7 @@ def cmd_migrate(args: argparse.Namespace) -> int:
     except (ConfigMigrateError, OSError, UnicodeDecodeError) as error:
         print(f"abk: {path}: {error}", file=sys.stderr)
         return 2
-    for line in usage_limits_notices(path):
+    for line in (*usage_limits_notices(path), *account_slots_notices(path)):
         print(line, file=sys.stderr)
     for conflict in migrated.conflicts:
         key, stopped = ".".join(conflict.path), ".".join(conflict.local_path)
@@ -145,7 +146,7 @@ def cmd_config(args: argparse.Namespace, inst: Installation | None) -> int:
         print(old, file=sys.stderr)
     for notice in models_notices(path):
         print(notice.text, file=sys.stderr)
-    for line in usage_limits_notices(path):
+    for line in (*usage_limits_notices(path), *account_slots_notices(path)):
         print(line, file=sys.stderr)
     local = read_overlay(path)
     if local:
@@ -170,9 +171,10 @@ def register(sub: argparse._SubParsersAction) -> None:
         "--migrate",
         action="store_true",
         help="move the abk.yaml in force to global_limits and project_limits, rename limits to "
-        "usage_limits under its runtimes and accounts, move a flat models: block under "
-        "runtimes.<name>.models and, when git tracks it, its machine settings to "
-        "abk.local.yaml, by text; abk.local.yaml is not edited, its lines to change are printed",
+        "usage_limits under its runtimes and accounts, move an account's max_units_in_progress "
+        "into its project_limits, move a flat models: block under runtimes.<name>.models and, "
+        "when git tracks it, its machine settings to abk.local.yaml, by text; abk.local.yaml is "
+        "not edited, its lines to change are printed",
     )
     parser.add_argument("--yes", action="store_true", help="with --migrate: do not ask")
     parser.add_argument(

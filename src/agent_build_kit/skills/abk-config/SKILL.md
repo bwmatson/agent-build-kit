@@ -165,7 +165,7 @@ context:
 project_limits:
   max_concurrent_stacks: 4    # units implemented at once, in each project
   max_concurrent_restacks: 2  # moved-base runs (a branch moved onto a changed base, and the run after it) at once, in each project; never held back by max_concurrent_stacks
-  max_units_in_progress: 5    # (counted per account instead, against `runtimes.claude_code.accounts.<label>.max_units_in_progress`, once an account is named) started, unfinished units (>= 1) in each project, not counting blocked or failed-waiting ones; at it no never-started unit starts
+  max_units_in_progress: 5    # (counted per account instead, against the account's `project_limits.max_units_in_progress`, once an account is named) started, unfinished units (>= 1) in each project, not counting blocked or failed-waiting ones; at it no never-started unit starts
   emergency_extra: 1          # the emergency lane cap, in each project: priority-0 units that may start past the limits above (default 1; 0 is off)
 
 # `limits:` is the deprecated root name of `global_limits:`. A scheduling setting left in either
@@ -431,8 +431,8 @@ over `abk.yaml` key by key), and a secret or a single per-machine value goes in 
   `global_limits.max_concurrent_unit_tests` (how many whole-suite unit-test runs this machine runs
   at once, null for no limit);
   which Claude account builds a repo (`repos.<name>.account`) with each account's `config_dir`,
-  `limits` and slots, and the default account's usage thresholds; `project_limits` (how many units
-  this machine runs at once); `e2e_available`, split holds and
+  `usage_limits` and `project_limits` (its slots and caps), and the default account's usage
+  thresholds; `project_limits` (how many units this machine runs at once); `e2e_available`, split holds and
   a machine's scheduled-run `off`. A person with one Claude account sets nothing for accounts.
 - **`.env`**: tokens, PATs, `ABK_*` switches, read through `from: env-file`.
 
@@ -529,6 +529,19 @@ the process beats the `.env`). It is not in abk.yaml: it is per user and per
 machine, and abk.yaml is committed. Unset means the default `.claude` directory
 under the home directory. `abk doctor` says where the value came from and whether
 the account is logged in. Steps and rules: `docs/claude-code-second-account.md`.
+
+An account named in `abk.local.yaml` (`runtimes.claude_code.accounts.<label>`) takes `config_dir`,
+`usage_limits` and an account's `project_limits`: a block of the same type as the top-level
+`project_limits`, with the same four settings and bounds. Only the fields the account sets apply to
+it, and the default account has none.
+`max_concurrent_stacks`, `max_concurrent_restacks` and `emergency_extra` are counted for the account
+across its projects, beside each project's own cap, and a unit needs room under both; the account's
+`max_units_in_progress` replaces the project's value for the account's slot.
+`accounts.<label>.max_units_in_progress` is deprecated for
+`accounts.<label>.project_limits.max_units_in_progress`: it still loads with a notice, a file that
+sets both is refused, and `abk config --migrate` moves an account's `max_units_in_progress` into its
+`project_limits` in `abk.yaml`. For `abk.local.yaml` it prints each line to move by hand and does not
+edit the file.
 
 ## What `abk doctor` checks
 

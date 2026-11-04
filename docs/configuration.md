@@ -33,7 +33,7 @@ Ask of any line: *would this be wrong on another person's machine?* If it would,
 | `repos.<name>.path` (a checkout), `planning.worktree_root` | `abk.local.yaml` | a path on one disk |
 | `verify.env.<NAME>.file` (where a settings file sits) | `abk.local.yaml` | a path on one disk; the entry and its `path` stay in `abk.yaml` |
 | `repos.<name>.account` (which Claude account builds a repo) | `abk.local.yaml` | depends on who runs the pipeline and which accounts they have; a person with one account sets nothing |
-| `runtimes.claude_code.accounts.<label>`: `config_dir`, `usage_limits`, `max_units_in_progress` | `abk.local.yaml` | a directory and a plan's allowances |
+| `runtimes.claude_code.accounts.<label>`: `config_dir`, `usage_limits`, `project_limits` | `abk.local.yaml` | a directory and a plan's allowances |
 | `runtimes.claude_code.usage_limits` (the default account's usage thresholds) and `usage_cache_*` | `abk.local.yaml` | a plan's allowances differ per person |
 | `runtimes.<name>.models` (which model does which role) | `abk.yaml` | a model alias is that runtime's own name and describes the workspace |
 | `runtimes.<name>.command` and `policy_fix`, where the program is an absolute path | `abk.local.yaml` or `.env` | where a program sits differs per machine; a bare program name on the PATH is fine in `abk.yaml` |
@@ -322,7 +322,9 @@ context:
 # `project_limits`; a setting a repo needs of its own is a follow-on change, not a key.
 # The old root name `limits` still loads as `global_limits` with a deprecation notice
 # (both set is an error). A scheduling setting left in `global_limits` or `limits`
-# fails the load; `abk config --migrate` moves it (see docs/cli.md).
+# fails the load; `abk config --migrate` moves it (see docs/cli.md). An account takes
+# the same block under `runtimes.claude_code.accounts.<label>.project_limits` (see
+# "A second Claude account" below).
 project_limits:
   max_concurrent_stacks: 4      # units being built at once, in each project (every limit
                                 # here is counted for each project, not across all repos)
@@ -332,7 +334,9 @@ project_limits:
                                 # never held back by max_concurrent_stacks
   max_units_in_progress: 5      # units started and not finished, in each project (once a
                                 # Claude account is named: in each account, the default
-                                # account's across all its projects), at
+                                # account's across all its projects; an account's own
+                                # `project_limits.max_units_in_progress` replaces this
+                                # value for its slot), at
                                 # least 1; at it no unit that has never started does,
                                 # while reworks, resumes and finishing reviewed work
                                 # still run; a blocked unit, and a failed unit that waits
@@ -738,7 +742,8 @@ and the occupancy may read over it. A run stops before any work that is not abou
 and what it cannot go on with is handed back,
 `planned` with the cause `restack_handed_back`. The attempts at one base tip are bounded by
 `global_limits.max_review_rounds`, after which the unit is held for a person. Every limit in
-`project_limits` is counted for each project, not across all repos.
+the top-level `project_limits` is counted for each project, not across all repos; an account's
+`project_limits` caps its projects together (see "The Claude Code account").
 
 ### `planning.self_pull` and `planning.publish`
 
@@ -890,21 +895,51 @@ runtimes:
     accounts:
       kit:
         config_dir: /path/to/.claude-kit        # absolute; refused in the committed abk.yaml
-        max_units_in_progress: 3                # this account's own slots
         usage_limits: {}                        # same shape as runtimes.claude_code.usage_limits
+        project_limits:                         # same block as the top-level project_limits
+          max_units_in_progress: 3              # this account's own slots
+          max_concurrent_stacks: 2              # builds at once across all its projects
 ```
 
-Units in progress are counted per account against that account's `max_units_in_progress`
-(the default account's is `project_limits.max_units_in_progress`) once an installation names an
-account. From then on `project_limits.max_units_in_progress` bounds the default account's units
+An account's `project_limits` is a block of the same type as the top-level `project_limits`: it
+takes `max_concurrent_stacks`, `max_concurrent_restacks`, `max_units_in_progress` and
+`emergency_extra`, with the same bounds, and refuses an unknown key. Only the fields an account
+sets apply to it: a field it leaves out adds no account limit (the defaults of the block are never
+read as the account's caps), and the default account has no block. One function resolves them for
+the project and for the account.
+
+`max_concurrent_stacks`, `max_concurrent_restacks` and `emergency_extra` of an account's `project_limits`
+are counted for the account across its projects, beside each project's own cap, and a unit needs
+room under both: an account with `max_concurrent_stacks: 2` builds at most two units at once across
+all its projects, each also within its project's cap; one restack of an account at a time runs
+with `max_concurrent_restacks: 1`, and the others wait and start as it ends, whichever project's
+lane they are in; a priority-0 unit starts in the emergency lane only while the project's and the
+account's lane use are both under their extras. `abk status`, a unit's wait reason and its
+admission record name the cap that held it (the account's or the project's), and the free workers
+are the lesser of the project's room and the account's.
+
+`max_units_in_progress` replaces the project's value for the account's slot, as it always has:
+units in progress are counted per account against that account's value (the default account's is
+`project_limits.max_units_in_progress`) once an installation names an account. From then on
+`project_limits.max_units_in_progress` bounds the default account's units
 across all its projects together, not each project, and that includes a repo whose label has no
-directory on this machine, so a person with one account sees the one limit shared by every repo. `abk report --by account` groups the ledger by account.
+directory on this machine, so a person with one account sees the one limit shared by every repo.
+`abk report --by account` groups the ledger by account.
+
+`accounts.<label>.max_units_in_progress` (the key directly under the account) is deprecated for
+`accounts.<label>.project_limits.max_units_in_progress`. It still loads as it, with a deprecation
+notice naming the new place, and a file that sets both is refused naming both. `abk config --migrate`
+moves an account's `max_units_in_progress` into its `project_limits` in `abk.yaml`, keeping its
+comments and refusing the forms it cannot edit by lines; `abk.local.yaml` is not edited, so
+`abk config --migrate`, `abk config` and `abk doctor` print each line of it to move by hand. The
+old key is dropped one release after the one that adds the block.
 
 What counts against `max_units_in_progress` includes a started unit (`running` with a branch) that a
 usage pause parked before its agent step: it holds its place and shows as `paused` in the full-queue
 line. At admission, before `prepare`, a ready unit is checked against its own account's usage decision;
-a refused unit waits with `usage_pause` naming the account. `max_concurrent_stacks` is counted for each
-project, not for each account.
+a refused unit waits with `usage_pause` naming the account. Without an account's own
+`max_concurrent_stacks`, `max_concurrent_restacks` or `emergency_extra`, those are counted for each
+project only.
 
 They are independent layers, and both may be used. For a fact either could carry, the loader
 reads the entry itself (which `verify.env` variable exists, and its provider) from `abk.yaml`

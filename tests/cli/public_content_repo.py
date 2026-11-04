@@ -25,7 +25,11 @@ NOTE_FIX = (
     "fine to commit; move it to abk.local.yaml to differ "
     "(`abk config --migrate --include-defaults` moves it)"
 )
-ACCOUNTS = {"runtimes": {"claude_code": {"accounts": {"kit": {"max_units_in_progress": 2}}}}}
+ACCOUNTS = {
+    "runtimes": {
+        "claude_code": {"accounts": {"kit": {"project_limits": {"max_units_in_progress": 2}}}}
+    }
+}
 DECLARED = {"tests": {"e2e_dimensions": {"os": {"linux": {"marker": "linux"}}}}}
 
 

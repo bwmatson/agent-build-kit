@@ -2,6 +2,24 @@
 
 ## Unreleased
 
+- An account's `project_limits` now takes the same four settings as the top-level block, where
+  an account used to take only `max_units_in_progress`, and a `max_concurrent_stacks` under an
+  account no longer stops every command. An account's `max_concurrent_stacks`,
+  `max_concurrent_restacks` and `emergency_extra` are counted for the account across its projects,
+  beside each project's own cap, and a unit needs room under both: no more of an account's units
+  build at once than its cap, one restack of the account runs at a time with a cap of one and
+  the waiting one starts as it ends, and a priority-0 unit starts in the emergency lane only while
+  the project's and the account's lane use are both under their extras. Only the fields an account
+  sets apply to it, and its `max_units_in_progress` still replaces the project's value for its slot.
+  `abk status`, a unit's wait reason and its admission record name the cap that held a unit, and the
+  free workers are the lesser of the project's room and the account's. The old
+  `accounts.<label>.max_units_in_progress` key still loads as
+  `accounts.<label>.project_limits.max_units_in_progress` with a deprecation notice that names the
+  new place, and a file that sets both is refused. `abk config --migrate` moves it in `abk.yaml`,
+  keeping comments, and refuses forms it cannot edit by lines; for `abk.local.yaml` it, `abk config`
+  and `abk doctor` print each line to move by hand. The old key is dropped one release after this
+  one.
+
 - An `unplanned` unit is now removed from the store once nothing needs it: at the end of the
   pass after the one that demoted it, and when a change archives. It goes only if it holds no work,
   no other unit names it (a reference is repointed to its successors), its groups are carried by a
