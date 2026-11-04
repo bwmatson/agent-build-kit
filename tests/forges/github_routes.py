@@ -551,10 +551,21 @@ def _listing(state: GitHubState, text: str, query: str) -> httpx.Response:
 
 
 def _one(state: GitHubState, seen: Seen) -> httpx.Response:
+    """One pull request by number. A number the host does not know is a `null` pull request
+    with a `NOT_FOUND` error beside it, as GitHub answers it."""
     variables = (seen.body or {}).get("variables") or {}
     numbers = [v for v in variables.values() if isinstance(v, int)]
     numbers += [int(n) for n in re.findall(r"number:\s*(\d+)", seen.query)]
     node = next((p for p in state.nodes() if p["number"] in numbers), None)
+    if node is None:
+        asked = min(numbers, default=0)
+        missing = {
+            "type": "NOT_FOUND",
+            "path": ["repository", "pullRequest"],
+            "locations": [{"line": 3, "column": 5}],
+            "message": f"Could not resolve to a PullRequest with the number of {asked}.",
+        }
+        return answer({"data": {"repository": {"pullRequest": None}}, "errors": [missing]})
     return answer({"data": {"repository": {"pullRequest": node}}})
 
 

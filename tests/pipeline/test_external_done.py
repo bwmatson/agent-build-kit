@@ -2,11 +2,15 @@
 
 from __future__ import annotations
 
+from collections.abc import Iterator
 from pathlib import Path
 
 import pytest
 
 from agent_build_kit.config import active_state_dir
+from agent_build_kit.forges.base import RepoId
+from agent_build_kit.forges.github import GitHubForge
+from agent_build_kit.forges.transport import clear_credentials
 from agent_build_kit.installation import Installation
 from agent_build_kit.pipeline.archive import is_ready_to_archive
 from agent_build_kit.pipeline.external_done import HandMergeRefused, record_hand_merge
@@ -21,8 +25,11 @@ from agent_build_kit.pipeline.external_file import (
 )
 from agent_build_kit.pipeline.shell import git
 from agent_build_kit.pipeline.units import MERGED, PLANNED
+from agent_build_kit.settings import settings
 from tests.external_support import SINCE, change_with, hold, tasks_with, waits_of, world_of
 from tests.factories import init_repo, stored_unit
+from tests.forges import github_answers
+from tests.forges.github_host import GitHubHost
 from tests.forges.stand_in import StandInForge
 
 MERGED_PR = 5
@@ -198,3 +205,34 @@ def test_what_is_left_of_an_all_hold_still_covers_groups_added_later(tmp_path: P
     assert done_groups(folder) == {1}
     with pytest.raises(HoldRefused):
         record_done(folder, (1,), merged_by="5", at=SINCE)
+
+
+@pytest.fixture
+def github_token() -> Iterator[None]:
+    clear_credentials()
+    yield
+    clear_credentials()
+
+
+@pytest.mark.usefixtures("github_token")
+def test_a_merged_github_pull_request_is_accepted_with_its_merge_commit(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    inst, store, _ = held_world(tmp_path)
+    # After the installation, which reloads the settings.
+    monkeypatch.setattr(settings, "gh_token", "gh-secret")
+    host = GitHubHost(
+        github_answers.pull(
+            MERGED_PR, state="MERGED", merged_at="2026-10-01T12:00:00Z", merge_commit=COMMIT
+        )
+    )
+    forge = GitHubForge(http=host)
+    repo = RepoId(forge="github", account="example", name="app")
+    monkeypatch.setattr(inst, "forge_of", lambda name: (forge, repo))
+
+    record_hand_merge(inst, store, "feature", (2, 3), pr=MERGED_PR)
+
+    unit = store.get("feature/1")
+    assert (unit.state, unit.merge_sha) == (MERGED, COMMIT)
+    assert len(host.graphql("mergeCommit")) == 1
+    assert host.unrouted == []

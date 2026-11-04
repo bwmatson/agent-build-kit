@@ -121,6 +121,7 @@ def test_a_project_s_listing_is_the_same_records_as_before() -> None:
             base="main",
             state=MERGED,
             mergeable=True,
+            merge_commit="a1b2c3d4e5f60718293a4b5c6d7e8f9012345678",
         ),
         PullRequest(
             number=158,

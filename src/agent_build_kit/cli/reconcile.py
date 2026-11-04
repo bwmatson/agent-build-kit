@@ -48,7 +48,8 @@ def accept(inst: Installation, store: UnitStore, unit_id: str) -> int:
         print(f"abk reconcile: {unit.id} records no pull request", file=sys.stderr)
         return 1
     forge, repo_id = inst.forge_of(unit.repo)
-    if not forge.merge_commit(repo_id, unit.pr):
+    merged = forge.merge_commit(repo_id, unit.pr)
+    if not merged:
         pull = listed_pull(forge, repo_id, branch_name(unit), unit.pr)
         shown = pull.state if pull else "not listed"
         print(
@@ -56,7 +57,8 @@ def accept(inst: Installation, store: UnitStore, unit_id: str) -> int:
             file=sys.stderr,
         )
         return 1
-    if not pipe.dispatch_for(inst, store)("merged", unit.pr, repo=unit.repo):
+    # The commit just confirmed is the one recorded: the merge record does not ask again.
+    if not pipe.dispatch_for(inst, store)("merged", unit.pr, repo=unit.repo, merge_commit=merged):
         print(f"abk reconcile: a tick is handling {unit.id}; try again shortly", file=sys.stderr)
         return 1
     try:

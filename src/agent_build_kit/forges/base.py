@@ -187,6 +187,10 @@ class PullRequest(Frozen):
     # Whether the host says the branch merges into its base; None while the
     # host has not worked it out, which is not a conflict.
     mergeable: bool | None = None
+    # The commit a merged pull request's merge produced, when the listing carries it; None for
+    # one not merged, or a host whose listing does not say. A merge recorded from the snapshot
+    # takes it from here, so the forge is not asked again.
+    merge_commit: str | None = None
 
     def comments(self) -> tuple[tuple[str, str], ...]:
         """Each comment with a body, as `(id, body)`, oldest first. A host lists comments

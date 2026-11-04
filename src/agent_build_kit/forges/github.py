@@ -58,7 +58,7 @@ from agent_build_kit.forges.github_models import (
     JobsDoc,
     LabelDoc,
     MergeDoc,
-    MergedPullDoc,
+    MergedPull,
     NodeIdDoc,
     NumberDoc,
     PullConnection,
@@ -118,6 +118,7 @@ query($owner: String!, $name: String!, $cursor: String) {
       pageInfo { hasNextPage endCursor }
       nodes {
         number title body headRefName baseRefName state isDraft mergedAt mergeable reviewDecision
+        mergeCommit { oid }
         labels(first: 100) { nodes { name } }
         comments(first: 100) { nodes { id body } }
         reviews(first: 100) { nodes { id state } }
@@ -143,6 +144,15 @@ query($owner: String!, $name: String!, $number: Int!) {
 }
 """
 )
+# The commit a pull request's merge produced. REST API version 2026-03-10 removed it from the
+# pull request document; GraphQL is not versioned that way.
+_MERGE_COMMIT = """
+query($owner: String!, $name: String!, $number: Int!) {
+  repository(owner: $owner, name: $name) {
+    pullRequest(number: $number) { merged mergeCommit { oid } }
+  }
+}
+"""
 _DRAFT = {True: "convertPullRequestToDraft", False: "markPullRequestReadyForReview"}
 
 _PASSING = ("SUCCESS", "NEUTRAL", "SKIPPED")
@@ -799,13 +809,19 @@ class GitHubForge:
         return _parse(made, MergeDoc, "PUT pulls merge").sha
 
     def merge_commit(self, repo: RepoId, pr: int) -> str | None:
+        """The commit a merged pull request produced, in one GraphQL request; None for one that
+        is open, closed without merging, or not on the host."""
         try:
-            with self._on(repo) as gh:
-                found = gh.rest.pulls.get(repo.account, repo.name, pr)
+            data = self._graphql(
+                repo, _MERGE_COMMIT, {"owner": repo.account, "name": repo.name, "number": pr}
+            )
         except NotFound:
             return None
-        pull = _parse(found, MergedPullDoc, "GET pull")
-        return pull.merge_commit_sha if pull.merged else None
+        found = (data.get("repository") or {}).get("pullRequest")
+        if found is None:
+            return None
+        pull = _model(MergedPull, found, "pull request merge commit")
+        return pull.merge_commit.oid if pull.merged and pull.merge_commit else None
 
     def close_pr(self, repo: RepoId, pr: int) -> None:
         """Close without merging - a satisfied unit's stale pull request.
@@ -842,7 +858,13 @@ def _refusal(error: GitHubException, credentials: Credentials) -> TransportError
     """What the host's refusal is, as the transport's errors: authentication, not
     found (naming whose credential was used), a rate limit, a host failure."""
     if isinstance(error, GraphQLFailed):
-        said = "; ".join(e.message for e in error.response.errors or [])
+        failures = error.response.errors or []
+        said = "; ".join(e.message for e in failures)
+        if failures and all(e.type == "NOT_FOUND" for e in failures):
+            # GraphQL's 404: a `null` object, and an error naming what could not be resolved.
+            return NotFound(
+                f"POST graphql: {said}", account=credentials.owner, source=credentials.source
+            )
         return TransportError(f"POST graphql: {said or 'no answer'}")
     if not isinstance(error, RequestError):
         return TransportError(f"{type(error).__name__}: {error!r}")
@@ -1009,6 +1031,7 @@ def _view(pull: PullNode) -> PullRequest:
         checks=tuple(_check(node) for node in checks),
         # UNKNOWN is what GitHub says until it has worked the answer out.
         mergeable=_MERGEABLE.get(pull.mergeable or ""),
+        merge_commit=pull.merge_commit.oid if pull.merged_at and pull.merge_commit else None,
     )
 
 

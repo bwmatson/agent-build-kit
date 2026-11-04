@@ -35,7 +35,7 @@ from tests.conftest import make_installation
 from tests.factories import stored_unit
 from tests.forges import github_answers
 from tests.forges.github_host import GitHubHost, answer
-from tests.forges.github_routes import GitHubState
+from tests.forges.github_routes import GitHubState, Seen
 from tests.landing_support import HEAD, apply_review, listed_review
 from tests.verdict_fakes import write_verdicts
 
@@ -100,6 +100,7 @@ class Pipeline:
             retarget=lambda unit, base: None,
             rebase_cap=2,
             landing_path=self.inst.state_dir / LANDING,
+            merge_record=lambda unit: cli.merge_record_of(self.inst, unit),
             log=lambda message: None,
         )
         self.poller = Poller(
@@ -116,7 +117,12 @@ class Pipeline:
 
     def _merge(self, number: int):
         def merge(request: httpx.Request) -> httpx.Response:
-            self.state.stored(number).update(state="MERGED", mergedAt="2026-10-01T12:00:00Z")
+            self.state.stored(number).update(
+                state="MERGED",
+                merged=True,
+                mergedAt="2026-10-01T12:00:00Z",
+                mergeCommit={"oid": SQUASHED},
+            )
             return answer({"sha": SQUASHED, "merged": True, "message": "merged"})
 
         return merge
@@ -126,6 +132,10 @@ class Pipeline:
 
     def unit(self, unit_id: str) -> StoredUnit:
         return self.store.get(unit_id)
+
+    def merge_commit_reads(self) -> list[Seen]:
+        """The GraphQL reads of one pull request's merge commit: not the listing's."""
+        return [c for c in self.host.graphql("mergeCommit") if "pullRequests(" not in c.query]
 
 
 def test_a_unit_with_green_checks_lands_with_a_squash_request_at_its_approved_head(
@@ -207,3 +217,36 @@ def test_a_pull_request_with_no_checks_registered_sends_nothing_to_the_merge_rou
     assert pipeline.host.calls("PUT") == []
     assert pipeline.unit("c/1").state == IN_REVIEW
     assert any("no checks" in line for line in pipeline.logged), "\n".join(pipeline.logged)
+
+
+def test_a_landing_records_the_merge_s_own_commit_without_asking_for_it(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    pipeline = Pipeline(tmp_path, monkeypatch, checks=GREEN)
+    pipeline.poller.poll()
+
+    pipeline.land()
+    pipeline.poller.poll()
+
+    assert pipeline.unit("c/1").merge_sha == SQUASHED, "\n".join(pipeline.logged)
+    assert pipeline.merge_commit_reads() == []
+
+
+def test_a_person_s_merge_seen_in_the_listing_is_recorded_with_its_commit_without_asking(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    pipeline = Pipeline(tmp_path, monkeypatch, checks=GREEN)
+    pipeline.poller.poll()
+    by_hand = "e" * 40
+    pipeline.state.stored(1).update(
+        state="MERGED",
+        merged=True,
+        mergedAt="2026-10-01T12:00:00Z",
+        mergeCommit={"oid": by_hand},
+    )
+
+    pipeline.poller.poll()
+
+    landed = pipeline.unit("c/1")
+    assert (landed.state, landed.merge_sha) == (SETTLING, by_hand), "\n".join(pipeline.logged)
+    assert pipeline.merge_commit_reads() == []

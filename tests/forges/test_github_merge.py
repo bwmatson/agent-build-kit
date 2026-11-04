@@ -10,8 +10,12 @@ import pytest
 
 from agent_build_kit.forges.base import MergeRefused, RepoId
 from agent_build_kit.forges.github import GitHubForge
+from agent_build_kit.forges.resilient import ResilientForge, RetryPolicy
 from agent_build_kit.forges.transport import HostError
+from tests.fake_clock import FakeClock
+from tests.forges import github_answers
 from tests.forges.github_host import GitHubHost, answer, refusal
+from tests.forges.github_routes import GitHubState
 
 pytestmark = pytest.mark.usefixtures("github_env")
 
@@ -20,6 +24,7 @@ BASE = "/repos/example/app"
 MERGE = f"{BASE}/pulls/7/merge"
 HEAD = "a" * 40
 MERGED = "b" * 40
+MERGED_AT = "2026-10-01T12:00:00Z"
 
 
 def forge(host: GitHubHost) -> GitHubForge:
@@ -113,14 +118,42 @@ def test_any_other_failure_is_the_ordinary_transport_failure(
 
 
 def test_the_commit_of_a_merged_pull_request_is_read_from_the_host() -> None:
-    pull = {"number": 7, "state": "closed", "merged": True, "merge_commit_sha": MERGED}
-    host = GitHubHost(routes={("GET", f"{BASE}/pulls/7"): answer(pull)})
+    node = github_answers.pull(7, state="MERGED", merged_at=MERGED_AT, merge_commit=MERGED)
+    host = GitHubHost(node)
 
     assert forge(host).merge_commit(REPO, 7) == MERGED
+    assert len(host.graphql("mergeCommit")) == 1
 
 
 def test_a_pull_request_that_is_not_merged_has_no_commit() -> None:
-    pull = {"number": 7, "state": "open", "merged": False, "merge_commit_sha": "c" * 40}
-    host = GitHubHost(routes={("GET", f"{BASE}/pulls/7"): answer(pull)})
+    host = GitHubHost(github_answers.pull(7))
 
     assert forge(host).merge_commit(REPO, 7) is None
+
+
+# --- a merge that landed before a transient failure --------------------------------
+
+
+def resilient(host: GitHubHost) -> ResilientForge:
+    clock = FakeClock()
+    policy = RetryPolicy(attempts=3, deadline_seconds=1000.0)
+    return ResilientForge(GitHubForge(http=host), policy, clock, clock.advance)
+
+
+def test_a_merge_that_landed_before_a_transient_failure_is_read_as_landed_and_not_sent_again() -> (
+    None
+):
+    state = GitHubState(github_answers.pull(7))
+
+    def merges_then_fails(request: httpx.Request) -> httpx.Response:
+        state.stored(7).update(
+            state="MERGED", merged=True, mergedAt=MERGED_AT, mergeCommit={"oid": MERGED}
+        )
+        return refusal(502, "Bad Gateway")
+
+    host = GitHubHost(state=state, routes={("PUT", MERGE): merges_then_fails})
+
+    assert resilient(host).merge_pr(REPO, 7, head=HEAD) == MERGED
+
+    assert len(host.calls("PUT", MERGE)) == 1, "the merge is not sent again"
+    assert len(host.graphql("mergeCommit")) == 1

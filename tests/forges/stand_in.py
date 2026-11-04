@@ -95,6 +95,9 @@ class StandInForge:
         # Every `merge_pr` call as `(pr, head)`, and the commit each merged pull request produced.
         self.merge_calls: list[tuple[int, str]] = []
         self.merged: dict[int, str] = {}
+        # Every `merge_commit` call, by pull request: what a caller asked the host for when
+        # nothing it held carried the commit.
+        self.merge_commit_reads: list[int] = []
         # Each pull request's draft state now. The calls themselves are in
         # `calls`: this stand-in logs calls, not host writes, so a call to the
         # state a pull request is already in is logged too.
@@ -291,6 +294,7 @@ class StandInForge:
         return self.merge_sha
 
     def merge_commit(self, repo: RepoId, pr: int) -> str | None:
+        self.merge_commit_reads.append(pr)
         return self.merged.get(pr)
 
     def close_pr(self, repo: RepoId, pr: int) -> None:
