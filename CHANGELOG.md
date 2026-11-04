@@ -16,7 +16,9 @@
   unit-test slot. After
   `global_limits.code_host_outage_minutes` (default 60) of failed probes `abk status` and the tick
   log name the host, how long it has been down and the last error, and `abk doctor` hints at the SSH
-  key or agent; no unit is failed by the limit. A forge API outage parks as before and writes no
+  key or agent; no unit is failed by the limit. A unit refused again soon after a passing probe (a read
+  that works while the push is refused) reopens the same outage, so the wait keeps growing and the limit
+  still counts from the first refusal. A forge API outage parks as before and writes no
   marker.
 
 - A GitHub pull request's merge commit is read again, so `abk external done --pr`, `abk reconcile

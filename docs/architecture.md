@@ -856,6 +856,7 @@ which waits on its host's marker (below) and not on its own backoff; a
 unit put back for any other cause waits for the next pass, and the tick log says which cause. A unit held for depth keeps the branch it is
 still on as `held_base`, and who holds it as `held_by`. A record with no cause is one from before causes or one an event ended,
 and one with a cause this release does not know reads the same way: the pass never readmits it, and `abk status` lists it.
+
 **The code host outage.** A git push the code host refuses (an authentication refusal, an HTTP 401, 403
 or 5xx, a connection it closed), or cannot reach while the control group is up, parks its unit with the cause
 `host_unavailable`, and a fetch it refuses or cannot reach is noted without parking its unit. The call that
@@ -881,7 +882,14 @@ marker: it is the API host's, which a git read cannot answer for. A marker holds
 - **No attempts of their own.** A unit parked for the code host whose repo's host has a marker in force is not
   readmitted, by the round or by the running pass, whatever its own backoff. A passing probe ends the marker
   (the file stays, with `cleared_at`) and every unit that parked before then is released in that same pass: its
-  own backoff is over. A unit that parks after the marker ended waits its own backoff.
+  own backoff is over. A unit that parks at its git push writes the marker again (`code_host.note`), so it waits
+  on the marker. When that is less than thirty minutes (the ladder's longest wait) after a pass, it reopens the
+  same outage: `since` and the failure count are kept and one is added, with a count of flaps, so a read that
+  passes while the push is refused (a read-only key, a key valid for some repos) cannot hide: the wait keeps
+  growing and the limit counts from the first refusal. Only a longer quiet gap starts a new outage, with the
+  first wait. A unit whose marker could not be written, or parked by a forge API outage, waits its own backoff.
+  An operator can clear a marker that is stuck by deleting `code-host-paused.<host>.json` in the state directory;
+  a refusal that persists is an SSH key or agent to fix.
 - **A focused pause on new starts.** While a marker is in force no planned unit of a repo whose push remote is
   on that host starts: not a new one, not a resume or rework of a parked one. A repo on another host is not
   touched, so a GitHub outage does not pause an Azure DevOps unit, nor the reverse. A unit already building
@@ -893,7 +901,8 @@ marker: it is the API host's, which a git read cannot answer for. A marker holds
   unit-test slot, which only a run holds.
 - **A long outage is shown, never failed.** After `global_limits.code_host_outage_minutes` (default 60) of
   failed probes, `abk status` and the tick log (once for a refresh, when a probe was made) name the host, how long
-  it has been down and the last error, and `abk doctor` warns with a hint to check the SSH key and the agent. No
+  it has been down and the last error (and, for an outage that came back after a passing read, how many times),
+  and `abk doctor` warns with a hint to check the SSH key and the agent. No
   unit is failed by the limit. Within it only the wait shows.
 
 A usage pause leaves the unit `running`, with its thread interrupted before
