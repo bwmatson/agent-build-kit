@@ -130,10 +130,18 @@ def test_a_lane_whose_restart_fails_does_not_stop_the_restart_of_the_lanes_after
         one_at_a_time.hand_over(unit_of(number, key))
     assert restacks.begun["feature/1"].wait(WAIT)
 
-    def broken() -> None:
-        raise RuntimeError("restart failed")
+    lane = made.by_project[API]
+    real = lane.restart
+    failed: list[bool] = []
 
-    monkeypatch.setattr(made.by_project[API], "restart", broken)
+    def broken() -> None:
+        # Fails once; the lane's later restarts are its own, so the lanes can drain after.
+        if not failed:
+            failed.append(True)
+            raise RuntimeError("restart failed")
+        real()
+
+    monkeypatch.setattr(lane, "restart", broken)
     ends = one_at_a_time.finished()
 
     restacks.release("feature/1")

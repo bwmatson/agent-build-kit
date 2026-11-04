@@ -395,6 +395,10 @@ class RestackLane:
         with self._changed:
             return len(self._running) >= self._cap
 
+    def note(self, message: str) -> None:
+        """Say `message` in this lane's log, for the lanes that hold it."""
+        self._log(message)
+
     def restart(self) -> None:
         """Start the queued restacks that a place freed elsewhere now lets in."""
         with self._changed:
@@ -618,7 +622,13 @@ class RestackLane:
             with self._changed:
                 del self._running[unit.id]
                 self._release(unit)
-                self._start()
+                try:
+                    self._start()
+                except Exception as error:  # noqa: BLE001 — no worker for the next entry
+                    # The entry stays queued and its place is returned (`_start`); the waiters
+                    # below are still told and the other lanes still woken, or they would wait on
+                    # a restack that has ended.
+                    self._log(f"restack not started — {type(error).__name__}: {error}")
                 self._write()
                 self._changed.notify_all()
                 ended, self._finished = self._finished, Future()
@@ -690,10 +700,15 @@ class RestackLanes:
     def _wake(self, ended: RestackLane) -> None:
         """A place was freed: the other lanes try their waiting entries again. Each lane's lock is
         taken alone, after the count was changed, so an entry a lane refused before the change is
-        met by this restart, and one it meets after is admitted by its own start."""
+        met by this restart, and one it meets after is admitted by its own start. The ending lane
+        starts its own queue first, so a place goes to it before the waiting entries of the other
+        lanes: a lane with a continuous backlog can retake the places it frees."""
         for lane in self._all():
             if lane is not ended:
-                lane.restart()
+                try:
+                    lane.restart()
+                except Exception as error:  # noqa: BLE001 — one lane's failure leaves the rest
+                    ended.note(f"restack not restarted — {type(error).__name__}: {error}")
 
     def lane_full(self, unit: StoredUnit) -> bool:
         """Whether the lane of the unit's project has all its workers busy. A lane nothing has
