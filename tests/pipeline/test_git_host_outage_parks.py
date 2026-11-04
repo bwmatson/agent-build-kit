@@ -77,7 +77,8 @@ def test_a_push_the_host_refuses_parks_the_unit_for_the_code_host(
     assert parked.parked_attempts == 1
     assert parked.branch, "the branch is kept"
     assert in_progress(parked), "and so is the unit's place"
-    assert "commit:impl" in "".join(recorder.events) or recorder.made, "its commits were made"
+    assert recorder.made == 2, "its tests commit and its implementation commit were made"
+    assert recorder.remote == [], "and nothing was pushed"
     assert probe.asked == [], "a refusal is the host's own word; nothing to sort"
 
 
@@ -243,6 +244,26 @@ def test_the_real_fetch_raises_what_the_host_said_classified(
     assert raised.value.failure is not None
     assert raised.value.failure.kind == "refused"
     assert "Permission denied (publickey)" in str(raised.value)
+
+
+def test_the_fetch_runs_in_git_s_fixed_locale(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Under a translated locale the refusal's words would not match."""
+    monkeypatch.setenv("LANG", "de_DE.UTF-8")
+    envs: list[dict[str, str] | None] = []
+
+    def fetching(repo: Path, *args: str, **kwargs: Any) -> subprocess.CompletedProcess[str]:
+        envs.append(kwargs.get("env"))
+        return subprocess.CompletedProcess(args, 0, "", "")
+
+    monkeypatch.setattr(wiring, "git", fetching)
+    monkeypatch.setattr(wiring, "has_origin", lambda repo: True)
+
+    wiring.build_fetch({unit().repo: tmp_path}, turn=lambda repo: nullcontext())(unit())
+
+    assert len(envs) == 1 and envs[0] is not None
+    assert (envs[0]["LC_ALL"], envs[0]["LANGUAGE"]) == ("C", "C")
 
 
 def test_the_real_fetch_of_an_unrelated_failure_carries_no_outage(

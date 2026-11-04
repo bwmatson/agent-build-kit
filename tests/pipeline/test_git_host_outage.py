@@ -1,7 +1,8 @@
 """A failed git push, fetch or ls-remote is read for what failed: the host refused, or the
 host could not be reached. Either is an outage, never a verdict on the branch.
 
-The outputs are git's, in its fixed locale (`LC_ALL=C`), as the push and the fetch run it.
+The outputs are git's, in its fixed locale (`LC_ALL=C`), as the push and the fetch run it:
+both pass `untranslated_env()`, which the parks tests check for the fetch.
 """
 
 from __future__ import annotations
@@ -27,8 +28,23 @@ and the repository exists.
 # What the unit's push printed on 2026-11-04, and the same refusal as a fetch prints it.
 PERMISSION_DENIED = "git@github.com: Permission denied (publickey).\n" + COULD_NOT_READ
 
+# The push's failure as the unit's log recorded it, and the fetch's line, on 2026-11-04.
+LOGGED_PUSH = """pushing spec/example/4 failed:
+git@github.com: Permission denied (publickey).
+fatal: Could not read from remote repository.
+
+Please make sure you have the correct access rights
+and the repository exists."""
+LOGGED_FETCH = "git@github.com: Permission denied (publickey)."
+
 REFUSED = {
     "the real refusal": PERMISSION_DENIED,
+    "the logged push": LOGGED_PUSH,
+    "the logged fetch": LOGGED_FETCH,
+    "a refusal and a reset together": "git@github.com: Permission denied (publickey).\n"
+    "Connection reset by 140.82.112.4 port 22",
+    "an exchange reset by the peer": "kex_exchange_identification: read: Connection reset by peer\n"
+    + COULD_NOT_READ,
     "the bare line": "git@github.com: Permission denied (publickey).",
     "an https login refused": "remote: Invalid username or password.\n"
     "fatal: Authentication failed for 'https://github.com/example/app.git/'",
@@ -45,6 +61,8 @@ REFUSED = {
 }
 
 UNREACHABLE = {
+    "the logged name that did not resolve": "ssh: Could not resolve hostname "
+    "ssh.dev.azure.com: Temporary failure in name resolution",
     "a name that does not resolve": "fatal: unable to access "
     "'https://github.com/example/app.git/': Could not resolve host: github.com",
     "a name ssh cannot resolve": "ssh: Could not resolve hostname github.com: "
@@ -58,6 +76,23 @@ UNREACHABLE = {
     "OpenSSL SSL_read: Connection reset by peer, errno 104",
     "an unreachable network": "ssh: connect to host github.com port 22: Network is unreachable\n"
     + COULD_NOT_READ,
+}
+
+# The host answered about the repository or the person, which only a person can put right:
+# never an outage, over either transport.
+REPO_ACCESS = {
+    "https, denied to a user": "remote: Permission to example/app.git denied to someone.\n"
+    "fatal: unable to access 'https://github.com/example/app.git/': "
+    "The requested URL returned error: 403",
+    "ssh, denied to a user": "ERROR: Permission to example/app.git denied to someone.\n"
+    + COULD_NOT_READ,
+    "https, no write access": "remote: Write access to repository not granted.\n"
+    "fatal: unable to access 'https://github.com/example/app.git/': "
+    "The requested URL returned error: 403",
+    "https, repository not found": "remote: Repository not found.\n"
+    "fatal: unable to access 'https://github.com/example/app.git/': "
+    "The requested URL returned error: 403",
+    "ssh, repository not found": "ERROR: Repository not found.\n" + COULD_NOT_READ,
 }
 
 OTHER = {
@@ -85,7 +120,9 @@ def test_a_failure_to_reach_the_host_is_told_from_the_output(output: str) -> Non
     assert failure.kind == "unreachable"
 
 
-@pytest.mark.parametrize("output", OTHER.values(), ids=OTHER)
+@pytest.mark.parametrize(
+    "output", [*OTHER.values(), *REPO_ACCESS.values()], ids=[*OTHER, *REPO_ACCESS]
+)
 def test_any_other_failure_is_no_outage(output: str) -> None:
     assert transport_failure(output) is None
 
@@ -110,6 +147,23 @@ def test_a_rejected_ref_is_never_an_outage_whatever_else_the_remote_said() -> No
         "error: failed to push some refs to 'origin'",
         "!\trefs/heads/b:refs/heads/b\t[remote rejected] (protected branch hook declined)\n",
     )
+
+    assert git_push_outcome(result).kind == "rejected_by_remote"
+
+
+@pytest.mark.parametrize(
+    "said",
+    [
+        "fatal: unable to access 'https://github.com/example/app.git/': "
+        "The requested URL returned error: 403",
+        "git@github.com: Permission denied (publickey).",
+        "Connection reset by peer",
+    ],
+)
+def test_a_ref_the_remote_rejected_is_not_an_outage_whatever_the_rest_of_the_output_says(
+    said: str,
+) -> None:
+    result = failed_push(said, "!\trefs/heads/b:refs/heads/b\t[remote rejected] (hook declined)\n")
 
     assert git_push_outcome(result).kind == "rejected_by_remote"
 
