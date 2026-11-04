@@ -96,7 +96,7 @@ def test_every_service_carries_the_directory_at_the_end_of_its_path(tmp_path: Pa
     units = timers.render(tmp_path / "planning", (WINDOWS_CLI,))
 
     services = {name: text for name, text in units.items() if name.endswith(".service")}
-    assert len(services) == 4
+    assert len(services) == 5
     for name, text in services.items():
         path = path_of(text).split(":")
         assert path[-1] == WINDOWS_CLI, name
@@ -141,7 +141,7 @@ def test_a_unit_written_before_the_tools_were_known_reads_as_out_of_date(
 
     state = timers.report(planning, dest=dest, tool_dirs=(WINDOWS_CLI,))
 
-    assert len(state.drifted) == 4
+    assert len(state.drifted) == 5
 
 
 # --- asking the unit, not the terminal ---------------------------------------------

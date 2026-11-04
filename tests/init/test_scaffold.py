@@ -216,6 +216,8 @@ def test_systemd_units_render_the_planning_path(tmp_path: Path) -> None:
         "abk-track-improve.timer",
         "abk-track-recommend.service",
         "abk-track-recommend.timer",
+        "abk-wake.service",
+        "abk-wake.path",
     }
     tick = units["abk-tick.service"]
     assert f"WorkingDirectory={tmp_path / 'planning'}" in tick

@@ -80,14 +80,15 @@ def test_the_marker_names_the_worktree(machine: Machine) -> None:
     assert read_pipeline_marker(machine.working_copy) == machine.worktree.resolve()
 
 
-def test_four_services_and_four_timers_run_in_the_worktree_and_the_timers_are_enabled(
+def test_five_services_four_timers_and_a_path_unit_run_in_the_worktree_and_are_enabled(
     machine: Machine,
 ) -> None:
     machine.install()
 
     services, scheduled = machine.units(".service"), machine.units(".timer")
-    assert len(services) == 4
+    assert len(services) == 5
     assert len(scheduled) == 4
+    assert len(machine.units(".path")) == 1
     for service in services:
         assert f"WorkingDirectory={machine.worktree.resolve()}\n" in service.read_text()
     for timer in scheduled:
@@ -119,7 +120,7 @@ def test_a_second_install_from_the_working_copy_changes_nothing(machine: Machine
     assert not again.created
     assert again.worktree == machine.worktree
     assert again.change.written == ()
-    assert len(again.change.unchanged) == 8
+    assert len(again.change.unchanged) == 10
     assert sorted(path.name for path in machine.dest.iterdir()) == files
     assert len(machine.worktrees()) == 2
 
@@ -135,7 +136,7 @@ def test_an_install_from_the_pipeline_worktree_reports_every_unit_unchanged(
     assert not again.created
     assert again.worktree == machine.worktree
     assert again.change.written == ()
-    assert len(again.change.unchanged) == 8
+    assert len(again.change.unchanged) == 10
     assert sorted(path.name for path in machine.dest.iterdir()) == files
     assert len(machine.worktrees()) == 2
 
@@ -178,7 +179,7 @@ def test_a_dirty_worktree_is_not_moved_and_the_install_says_why(machine: Machine
     assert git(machine.worktree, "rev-parse", "HEAD") == kept
     assert (machine.worktree / "README.md").read_text() == "edited by hand\n"
     assert any("dirty" in note.lower() for note in result.notes)
-    assert len(result.change.unchanged) == 8
+    assert len(result.change.unchanged) == 10
 
 
 def test_a_dry_run_creates_no_worktree_marker_or_unit(machine: Machine) -> None:
@@ -197,7 +198,7 @@ def test_remove_takes_the_units_and_the_marker_and_leaves_the_worktree(machine: 
     removed = machine.remove()
 
     assert removed.worktree == machine.worktree
-    assert len(removed.change.removed) == 8
+    assert len(removed.change.removed) == 10
     assert machine.units(".service") == []
     assert machine.units(".timer") == []
     assert read_pipeline_marker(machine.working_copy) is None
@@ -262,7 +263,7 @@ def test_units_an_earlier_install_pointed_at_the_working_copy_are_replaced(
     for timer in old_timers:
         assert ["systemctl", "--user", "disable", "--now", timer.name] in machine.calls
     assert set(old_files) <= set(result.change.removed)
-    assert len(machine.units(".service")) == 4
+    assert len(machine.units(".service")) == 5
 
 
 def test_a_dry_run_lists_the_working_copy_units_without_touching_them(machine: Machine) -> None:
@@ -284,7 +285,7 @@ def test_remove_also_takes_the_units_pointed_at_the_working_copy(machine: Machin
 
     removed = machine.remove()
 
-    assert len(removed.change.removed) == 8
+    assert len(removed.change.removed) == 10
     assert machine.units(".service") == []
     assert machine.units(".timer") == []
 

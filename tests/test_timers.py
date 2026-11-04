@@ -173,7 +173,7 @@ def test_installing_schedules_them(tmp_path: Path) -> None:
     timers.install(planning, dest=tmp_path / "d", run=fake_run(calls))
 
     enabled = [argv[-1] for argv in calls if "enable" in argv]
-    assert enabled == [n for n in timers.unit_names(planning) if n.endswith(".timer")]
+    assert enabled == [n for n in timers.unit_names(planning) if n.endswith((".timer", ".path"))]
 
 
 def test_the_services_beside_them_are_never_enabled(tmp_path: Path) -> None:
@@ -209,7 +209,7 @@ def test_enabling_again_is_harmless(tmp_path: Path) -> None:
 
     assert change.written == ()
     assert [argv[-1] for argv in calls if "enable" in argv] == [
-        n for n in timers.unit_names(planning) if n.endswith(".timer")
+        n for n in timers.unit_names(planning) if n.endswith((".timer", ".path"))
     ]
 
 
@@ -225,7 +225,7 @@ def test_removing_stops_the_timers_before_deleting_them(tmp_path: Path) -> None:
 
     disabled = [argv for argv in calls if "disable" in argv]
     assert disabled, "the timers are disabled"
-    assert all(argv[-1].endswith(".timer") for argv in disabled)
+    assert all(argv[-1].endswith((".timer", ".path")) for argv in disabled)
     assert calls.index(disabled[0]) < calls.index(["systemctl", "--user", "daemon-reload"])
     assert not list(dest.iterdir())
 
@@ -411,10 +411,11 @@ def test_a_moved_installation_takes_its_own_units_back(tmp_path: Path) -> None:
     change = timers.install(new, dest=dest, run=fake_run([]))
 
     assert change.taken == ()
-    # The services name the directory, so they are what is rewritten; a timer
-    # names none, so its content is the same and it is left as it was.
+    # The services name the directory, so they are what is rewritten, and so is the path unit,
+    # which names the wake file under it; a timer names none, so its content is the same and
+    # it is left as it was.
     assert {p.name for p in change.written} == {
-        n for n in timers.unit_names(new) if n.endswith(".service")
+        n for n in timers.unit_names(new) if n.endswith((".service", ".path"))
     }
     assert timers.installed_root(dest, new) == new.resolve()
 
