@@ -70,7 +70,7 @@ def drained_within_the_wait(lanes: RestackLanes) -> bool:
     """Whether `drain` returns: a lost wakeup or a deadlock would leave it waiting."""
     drained = threading.Thread(target=lanes.drain, daemon=True)
     drained.start()
-    drained.join(WAIT)
+    drained.join(timeout=WAIT)
     return not drained.is_alive()
 
 
@@ -424,7 +424,7 @@ def test_handing_over_from_many_threads_to_many_lanes_never_exceeds_the_cap_or_s
         for thread in threads:
             thread.start()
         for thread in threads:
-            thread.join(WAIT)
+            thread.join(timeout=WAIT)
 
         # Every restack is held, so more than one of the account's under way would show now: the
         # lanes of `app` have 40 handed over and room for four between them.
