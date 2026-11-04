@@ -21,11 +21,15 @@ import pytest
 from agent_build_kit import config as config_module
 from agent_build_kit import profiles
 from agent_build_kit.installation import Installation
+from agent_build_kit.pipeline import spans
 from agent_build_kit.pipeline.flakes import FlakeFound
+from agent_build_kit.pipeline.unit_store import UnitStore
 from agent_build_kit.pipeline.unit_test_slots import unit_test_slot
+from agent_build_kit.pipeline.units import IN_REVIEW
 from agent_build_kit.pipeline.wiring import build_reproduce, build_unit_test
 from agent_build_kit.profiles.base import ToolchainProfile
 from tests.conftest import make_installation
+from tests.factories import new_unit
 from tests.failure_bundle_fakes import START, BundleMachine, BundleProfile
 from tests.waiting import wait_for
 
@@ -248,3 +252,97 @@ def test_the_reproduce_run_takes_a_slot_too(tmp_path: Path, installation: Instal
         holder.close()
 
     assert commands and found
+
+
+def stored(installation: Installation, *units) -> None:
+    UnitStore(installation.state_dir / "units.json").upsert(list(units))
+
+
+def served_in_order(
+    scratch: Path,
+    tmp_path: Path,
+    installation: Installation,
+    waiters: list[str],
+) -> list[str]:
+    """The ids of `waiters`' runs in the order they got the one slot, each run starting to wait
+    only after the one before it is waiting, while another run holds the slot."""
+    limited(1)
+    ledger, served = tmp_path / "test-runs.jsonl", []
+    holder = ExitStack()
+    holder.enter_context(unit_test_slot(installation.locks_dir, 1, holder="other/1"))
+    logs: dict[str, list[str]] = {uid: [] for uid in waiters}
+
+    def run_of(uid: str):
+        def run() -> None:
+            spans.current_unit.set((uid, uid.split("/")[0], "n1", 1))
+            unit_test_of(
+                scratch,
+                BundleMachine(scratch, reruns=[], passing=True),
+                ledger,
+                installation,
+                logs[uid],
+            )(cwd=scratch, base="main")
+            served.append(uid)
+
+        return run
+
+    with ExitStack() as threads:
+        for uid in waiters:
+            threads.enter_context(running(run_of(uid)))
+            wait_for(
+                lambda uid=uid: any("waiting for a unit-test slot" in line for line in logs[uid]),
+                what=f"{uid} waiting",
+            )
+        holder.close()
+    return served
+
+
+def test_a_more_urgent_unit_is_served_before_a_less_urgent_one_that_began_waiting_first(
+    scratch: Path, tmp_path: Path, installation: Installation
+) -> None:
+    stored(installation, new_unit("slow/1", priority=4), new_unit("fast/1", priority=2))
+
+    served = served_in_order(scratch, tmp_path, installation, ["slow/1", "fast/1"])
+
+    assert served == ["fast/1", "slow/1"]
+
+
+def test_a_unit_with_an_open_pull_request_is_served_before_a_new_unit_of_equal_priority(
+    scratch: Path, tmp_path: Path, installation: Installation
+) -> None:
+    stored(installation, new_unit("fresh/1", priority=2), new_unit("review/1", priority=2))
+    UnitStore(installation.state_dir / "units.json").set_state(
+        "review/1", IN_REVIEW, pr=7, branch="spec/review/1"
+    )
+
+    served = served_in_order(scratch, tmp_path, installation, ["fresh/1", "review/1"])
+
+    assert served == ["review/1", "fresh/1"]
+
+
+def test_a_run_whose_unit_is_not_in_the_store_waits_as_least_urgent(
+    scratch: Path, tmp_path: Path, installation: Installation
+) -> None:
+    stored(installation, new_unit("known/1", priority=4))
+
+    served = served_in_order(scratch, tmp_path, installation, ["ghost/1", "known/1"])
+
+    assert served == ["known/1", "ghost/1"]
+
+
+def test_with_no_limit_a_run_makes_no_slot_and_no_marker_even_for_a_stored_unit(
+    scratch: Path, tmp_path: Path, installation: Installation
+) -> None:
+    limited(None)
+    stored(installation, new_unit("fast/1", priority=2))
+    spans.current_unit.set(("fast/1", "fast", "n1", 1))
+
+    unit_test_of(
+        scratch,
+        BundleMachine(scratch, reruns=[], passing=True),
+        tmp_path / "t.jsonl",
+        installation,
+        [],
+    )(cwd=scratch, base="main")
+
+    assert not installation.locks_dir.exists() or not list(installation.locks_dir.iterdir())

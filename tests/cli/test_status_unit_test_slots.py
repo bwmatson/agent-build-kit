@@ -15,8 +15,9 @@ from agent_build_kit.cli import pipeline as cli
 from agent_build_kit.installation import Installation
 from agent_build_kit.pipeline.unit_store import UnitStore
 from agent_build_kit.pipeline.unit_test_slots import unit_test_slot
+from agent_build_kit.pipeline.units import start_key
 from tests.conftest import make_installation
-from tests.factories import stored_unit
+from tests.factories import new_unit, stored_unit
 from tests.fake_clock import install
 
 
@@ -65,6 +66,41 @@ def test_the_holders_and_a_waiting_unit_are_named(
 
     assert "slot 1 held by a/1" in line and "slot 2 held by b/1" in line
     assert "waiting: c/1" in line
+
+
+def test_a_more_urgent_unit_that_began_waiting_later_is_listed_first(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    workspace = workspace_with(tmp_path, monkeypatch, 1)
+    graph = [new_unit("slow/1", priority=4), new_unit("fast/1", priority=2)]
+    ranks = {unit.id: start_key(unit, graph, (), ()) for unit in graph}
+    release = threading.Event()
+    waiting = {"slow/1": threading.Event(), "fast/1": threading.Event()}
+
+    def wait_for_a_slot(uid: str) -> None:
+        with unit_test_slot(
+            workspace.locks_dir,
+            1,
+            holder=uid,
+            rank=ranks[uid],
+            on_wait=lambda message: waiting[uid].set(),
+        ):
+            release.wait(timeout=20)
+
+    threads = [
+        threading.Thread(target=wait_for_a_slot, args=(uid,), daemon=True) for uid in waiting
+    ]
+    with unit_test_slot(workspace.locks_dir, 1, holder="a/1"):
+        for uid, thread in zip(waiting, threads, strict=True):
+            thread.start()
+            assert waiting[uid].wait(timeout=20)
+
+        [line] = slot_lines(workspace, capsys)
+    release.set()
+    for thread in threads:
+        thread.join(timeout=20)
+
+    assert line.index("fast/1") < line.index("slow/1")
 
 
 def test_nothing_is_said_when_no_limit_is_set(
