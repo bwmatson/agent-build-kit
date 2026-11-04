@@ -9,6 +9,7 @@ from pathlib import Path
 
 import pytest
 
+from agent_build_kit.cli import pipeline as cli
 from agent_build_kit.config import dump
 from agent_build_kit.installation import Installation
 from agent_build_kit.pipeline import wake
@@ -20,8 +21,6 @@ from tests.kit_checkout import kit_at
 from tests.tick_pass import Builder, install_builder, isolate, stored, tick, warm_unit_graphs
 
 pytestmark = pytest.mark.usefixtures("scripted_engine")
-
-REBUILD_BUDGET = 6
 
 
 @pytest.fixture(autouse=True)
@@ -101,7 +100,7 @@ def test_a_unit_sent_back_is_planned_again_and_over_the_rebuild_budget_is_held(
     inst = processes_workspace(tmp_path)
     builder.store.upsert([stored("a/1")])
 
-    for round_ in range(REBUILD_BUDGET):
+    for round_ in range(cli.REBUILD_BUDGET):
         builder.store.set_state("a/1", PLANNED, note="reworking", cause=Cause.REWORK)
         assert tick(inst) == 0
         assert len(spawner.calls) == round_ + 1, "within the budget a sent-back unit is rebuilt"
@@ -110,6 +109,48 @@ def test_a_unit_sent_back_is_planned_again_and_over_the_rebuild_budget_is_held(
     builder.store.set_state("a/1", PLANNED, note="reworking", cause=Cause.REWORK)
     assert tick(inst) == 0
 
-    assert len(spawner.calls) == REBUILD_BUDGET
+    assert len(spawner.calls) == cli.REBUILD_BUDGET
     held = builder.store.get("a/1")
     assert (held.state, held.cause) == (HELD, Cause.NEEDS_HUMAN)
+
+    builder.store.set_state("a/1", PLANNED, note="released", cause=Cause.REWORK)
+    assert tick(inst) == 0
+
+    assert len(spawner.calls) == cli.REBUILD_BUDGET + 1, "a person's release starts a new window"
+    assert builder.store.get("a/1").state != HELD
+
+
+def test_a_spawn_that_fails_does_not_use_up_the_rebuild_budget(
+    tmp_path: Path, builder: Builder, spawner: FakeSpawner
+) -> None:
+    inst = processes_workspace(tmp_path)
+    builder.store.upsert([stored("a/1")])
+    builder.store.set_state("a/1", PLANNED, note="reworking", cause=Cause.REWORK)
+    spawner.refuses.add("a/1")
+
+    for _ in range(cli.REBUILD_BUDGET + 2):
+        assert tick(inst) == 0
+
+    unit = builder.store.get("a/1")
+    assert (unit.state, unit.cause) == (PLANNED, Cause.REWORK)
+    assert unit.starting is None
+    assert unit.rebuild_count == 0
+    assert len(spawner.calls) == cli.REBUILD_BUDGET + 2, "each pass tried to start it"
+
+
+def test_a_second_pass_while_the_workers_marker_is_live_does_not_count_the_unit_again(
+    tmp_path: Path, builder: Builder, spawner: FakeSpawner
+) -> None:
+    inst = processes_workspace(tmp_path, max_concurrent=2)
+    builder.store.upsert([stored("a/1")])
+    builder.store.set_state("a/1", PLANNED, note="reworking", cause=Cause.REWORK)
+
+    assert tick(inst) == 0
+    counted = builder.store.get("a/1").rebuild_count
+    assert counted == 1
+    builder.store.set_state("a/1", PLANNED, note="reworking", cause=Cause.REWORK)
+
+    assert tick(inst) == 0
+
+    assert builder.store.get("a/1").rebuild_count == counted
+    assert len(spawner.calls) == 1

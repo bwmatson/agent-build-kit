@@ -17,13 +17,17 @@ from tests.tick_pass import workspace
 
 
 class FakeSpawner:
-    """Records each `(kind, unit)` the dispatcher starts and starts nothing."""
+    """Records each `(kind, unit)` the dispatcher starts and starts nothing; a unit in `refuses`
+    raises `OSError` as a spawner that cannot start a process does."""
 
     def __init__(self) -> None:
         self.calls: list[tuple[str, str]] = []
+        self.refuses: set[str] = set()
 
     def __call__(self, inst: Installation, kind: str, unit: str, **kwargs: object) -> Worker:
         self.calls.append((kind, unit))
+        if unit in self.refuses:
+            raise OSError("no process")
         return Worker(id=str(len(self.calls)), how="process")
 
     @property

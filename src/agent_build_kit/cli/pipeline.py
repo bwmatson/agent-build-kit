@@ -1741,35 +1741,47 @@ def _tick_with(
 
     if inst.config.workers.mode == "processes":
         _dispatch(inst, ready, store=store)
+        tick.outcome = "dispatched"
         return 0
     return _schedule(inst, ready, store=store, only=only, readmission=readmission, lane=lane)
 
 
-def _within_rebuild_budget(store: UnitStore, unit: Unit, now: datetime) -> bool:
-    """Count one more putting back of a sent-back unit in its window; False, with the unit held
-    for a person, when that is more than the budget."""
-    stored = store.get(unit.id)
+def _next_rebuild(stored: StoredUnit, now: datetime) -> tuple[int, datetime] | None:
+    """The count and window start a sent-back unit has once a worker is started for it: None
+    for a unit that is not sent back, or whose worker is already on its way."""
     if stored.state != PLANNED or stored.cause not in READMITTED_CAUSES:
-        return True
+        return None
+    if marker_live(stored, now):
+        return None
     start = stored.rebuild_window_start
     if start is None or now - start > REBUILD_WINDOW:
-        store.set_rebuilds(unit.id, 1, now)
-        return True
-    count = stored.rebuild_count + 1
-    store.set_rebuilds(unit.id, count, start)
-    if count <= REBUILD_BUDGET:
-        return True
-    note = f"sent back {count} times within {REBUILD_WINDOW}; a person decides"
-    store.set_state(unit.id, HELD, note=note, cause=Cause.NEEDS_HUMAN, held_by=HeldBy.REVIEW)
-    log(f"{unit.id}: {note}")
-    return False
+        return 1, now
+    return stored.rebuild_count + 1, start
 
 
 def _dispatch(inst: Installation, ready: list[Unit], *, store: UnitStore) -> None:
     """Admit the ready units under the admission lock and start one worker for each, never
-    waiting for one: a worker that cannot be started has its marker cleared for a later pass."""
+    waiting for one: a worker that cannot be started has its marker cleared for a later pass.
+
+    A sent-back unit is counted against the rebuild budget only once its worker has started. One
+    that would pass the budget is held for a person instead, with a fresh window for their
+    release."""
     now = spans.clock.now()
-    allowed = [unit for unit in ready if _within_rebuild_budget(store, unit, now)]
+    counts: dict[str, tuple[int, datetime]] = {}
+    allowed: list[Unit] = []
+    for unit in ready:
+        planned = _next_rebuild(store.get(unit.id), now)
+        if planned is not None and planned[0] > REBUILD_BUDGET:
+            note = f"sent back {planned[0]} times within {REBUILD_WINDOW}; a person decides"
+            store.set_state(
+                unit.id, HELD, note=note, cause=Cause.NEEDS_HUMAN, held_by=HeldBy.REVIEW
+            )
+            store.set_rebuilds(unit.id, 0, None)
+            log(f"{unit.id}: {note}")
+            continue
+        if planned is not None:
+            counts[unit.id] = planned
+        allowed.append(unit)
     admitted = admit(
         inst, store, allowed, worker=f"dispatcher-{os.getpid()}", now=now, ttl=STARTING_TTL
     )
@@ -1783,6 +1795,8 @@ def _dispatch(inst: Installation, ready: list[Unit], *, store: UnitStore) -> Non
             store.set_starting(unit.id, None)
             log(f"{unit.id}: its worker did not start — {error}")
             continue
+        if unit.id in counts:
+            store.set_rebuilds(unit.id, *counts[unit.id])
         log(f"{unit.id}: worker {worker.id} started")
 
 
