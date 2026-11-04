@@ -47,6 +47,11 @@ STATUS_CONTEXT = {
 }
 
 
+def merge_commit_of(number: int) -> str:
+    """The commit the host's merge of pull request `number` produced, unless a test names one."""
+    return f"{number:x}".rjust(40, "e")
+
+
 def pull(
     number: int,
     *,
@@ -61,12 +66,17 @@ def pull(
     comments: tuple[tuple[str, str], ...] = (),
     reviews: tuple[tuple[str, str, str], ...] = (),
     checks: list[dict[str, Any]] | None = None,
+    merge_commit: str | None = None,
 ) -> dict[str, Any]:
     """One pull request as the listing query answers it.
 
     `comments` are `(node id, body)`, `reviews` `(node id, state, body)`;
-    `checks=None` is a commit with no checks, whose rollup is `null`.
+    `checks=None` is a commit with no checks, whose rollup is `null`. A merged one
+    (`state="MERGED"`) carries the commit its merge produced, `merge_commit` or one derived
+    from its number; any other has a `null` merge commit, as the host answers.
     """
+    merged = state == "MERGED"
+    made = {"oid": merge_commit or merge_commit_of(number)} if merged else None
     rollup = (
         None
         if checks is None
@@ -81,7 +91,9 @@ def pull(
         "baseRefName": base,
         "state": state,
         "isDraft": draft,
+        "merged": merged,
         "mergedAt": merged_at,
+        "mergeCommit": made,
         "closedAt": merged_at,
         "mergeable": mergeable,
         "mergeStateStatus": "CLEAN",

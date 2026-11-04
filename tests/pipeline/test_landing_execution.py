@@ -11,6 +11,7 @@ from pathlib import Path
 import pytest
 
 from agent_build_kit.forges.base import PullRequest
+from agent_build_kit.pipeline import landing as landing_step
 from agent_build_kit.pipeline.pr_poller import HOLD_LABEL
 from agent_build_kit.pipeline.unit_store import Cause
 from agent_build_kit.pipeline.units import IN_REVIEW, SETTLING
@@ -145,3 +146,69 @@ def test_an_error_after_the_host_merged_keeps_the_intent_and_is_logged(
     assert landed.intent(), "the poller records the merge as the pipeline's own"
     assert any("the connection dropped" in line for line in landed.logged)
     assert landed.store.get(UNIT).state == IN_REVIEW
+
+
+# --- the merge commit, from the merge's own answer --------------------------------
+
+SQUASHED = "d" * 40
+
+
+def test_a_landing_seeds_the_audit_sample_on_the_merge_s_commit_without_asking_for_it(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    seeded: list[tuple[str, str]] = []
+
+    def picked(unit: str, commit: str, rate: float) -> bool:
+        seeded.append((unit, commit))
+        return False
+
+    monkeypatch.setattr(landing_step, "picked", picked)
+    landed = landing(tmp_path, monkeypatch, StandInForge(merge_sha=SQUASHED))
+
+    landed.land()
+
+    assert seeded == [(UNIT, SQUASHED)], "\n".join(landed.logged)
+    assert landed.forge.merge_commit_reads == [], "the forge was not asked for the merge commit"
+
+
+def test_a_landing_records_the_merge_s_commit_on_the_unit_without_asking_for_it(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    landed = landing(tmp_path, monkeypatch, StandInForge(merge_sha=SQUASHED))
+
+    landed.land()
+
+    unit = landed.store.get(UNIT)
+    assert unit.merge_sha == SQUASHED, "\n".join(landed.logged)
+    assert [pull.merge_sha for pull in unit.pulls] == [SQUASHED]
+    assert landed.forge.merge_commit_reads == []
+
+
+def test_a_merge_that_failed_asks_the_forge_for_the_commit_once(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    forge = StandInForge(
+        merge_failures=[RuntimeError("the connection dropped")], merge_lands_before_failing=True
+    )
+    landed = landing(tmp_path, monkeypatch, forge)
+
+    landed.land()
+
+    assert forge.merge_commit_reads == [PR]
+
+
+def test_a_merge_the_listing_shows_with_its_commit_is_recorded_without_asking_for_it(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    landed = landing(tmp_path, monkeypatch)
+    landed.forge.prs[:] = [
+        PullRequest(
+            number=PR, head=f"spec/{UNIT}", base="main", state="merged", merge_commit=SQUASHED
+        )
+    ]
+
+    landed.land()
+
+    unit = landed.store.get(UNIT)
+    assert unit.merge_sha == SQUASHED, "\n".join(landed.logged)
+    assert landed.forge.merge_commit_reads == []

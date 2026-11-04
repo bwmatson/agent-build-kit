@@ -174,3 +174,21 @@ def test_a_verdict_recorded_for_another_unit_while_deriving_is_kept(
     recorded = read(verdicts)
     assert recorded["c/1"]["outcome"] == "clean"
     assert recorded["c/2"] == {"brief": False, "final": True}
+
+
+def test_the_forge_is_asked_only_for_a_unit_without_a_stored_merge_commit(
+    app: Path, forge: StandInForge, verdicts: Path
+) -> None:
+    sha = commit(app, "stored.txt")
+    stored = merged("c/1", 1, timedelta(days=1)).model_copy(update={"merge_sha": sha})
+    asked = merged("c/2", 2, timedelta(days=1))
+    land(forge, app, 2)
+    write(verdicts, "c/1", "c/2")
+    revert(app, sha)
+
+    sweep([stored, asked], verdicts, forge, app)
+
+    recorded = read(verdicts)
+    assert recorded["c/1"]["outcome"] == "reverted", "the stored commit is the one searched"
+    assert recorded["c/2"]["outcome"] == "clean"
+    assert forge.merge_commit_reads == [2]

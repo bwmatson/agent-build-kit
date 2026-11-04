@@ -6,6 +6,7 @@ person waiting on an answer gets a confirmed one.
 
 from __future__ import annotations
 
+from collections.abc import Iterator
 from pathlib import Path
 
 import pytest
@@ -13,6 +14,9 @@ import pytest
 from agent_build_kit.cli import main
 from agent_build_kit.config import dump
 from agent_build_kit.forges import PullRequest
+from agent_build_kit.forges.base import RepoId
+from agent_build_kit.forges.github import GitHubForge
+from agent_build_kit.forges.transport import clear_credentials
 from agent_build_kit.installation import Installation
 from agent_build_kit.pipeline.pr_poller import PrState, snapshot, state_path
 from agent_build_kit.pipeline.unit_store import UnitStore
@@ -20,6 +24,8 @@ from agent_build_kit.pipeline.units import IN_REVIEW, MERGED, RUNNING, SETTLING
 from agent_build_kit.pipeline.workspaces import branch_lock
 from tests.conftest import make_installation
 from tests.factories import stored_unit
+from tests.forges import github_answers
+from tests.forges.github_host import GitHubHost
 from tests.forges.stand_in import StandInForge
 
 COMMIT = "9f2c1ab04d" * 4
@@ -274,3 +280,38 @@ def test_an_unknown_unit_is_refused(
 
     assert code == 2
     assert "no unit 'nope/1'" in capsys.readouterr().err
+
+
+@pytest.fixture
+def github_token(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
+    """The token the command's installation reads from the environment."""
+    monkeypatch.setenv("GH_TOKEN", "gh-secret")
+    clear_credentials()
+    yield
+    clear_credentials()
+
+
+@pytest.mark.usefixtures("github_token")
+def test_accept_records_a_merged_github_pull_request_asking_for_its_commit_once(
+    inst: Installation, store: UnitStore, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    host = GitHubHost(
+        github_answers.pull(
+            1,
+            head="spec/feature/1",
+            state="MERGED",
+            merged_at="2026-10-01T12:00:00Z",
+            merge_commit=COMMIT,
+        )
+    )
+    forge = GitHubForge(http=host)
+    repo = RepoId(forge="github", account="example", name="app")
+    monkeypatch.setattr(Installation, "forge_of", lambda self, name: (forge, repo), raising=True)
+
+    code = main(["reconcile", "--accept", "feature/1"])
+
+    assert code == 0
+    unit = store.get("feature/1")
+    assert unit.state in (SETTLING, MERGED)
+    assert unit.merge_sha == COMMIT
+    assert len(host.graphql("mergeCommit")) == 1, "the commit the check read is the one recorded"
