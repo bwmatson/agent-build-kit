@@ -51,7 +51,7 @@ class AdmissionRecord(Frozen):
     the project's tag when units are counted per project."""
 
     at: datetime
-    kind: Literal["admitted", "slot", "usage"]
+    kind: Literal["admitted", "slot", "usage", "claim"]
     unit: str
     tick: str
     slot: str
@@ -59,6 +59,10 @@ class AdmissionRecord(Frozen):
     counted: tuple[Counted, ...]
     usage: UsageFacts
     fingerprint: str
+    # A `claim` record: the board items the decision is about, how it ended and why.
+    items: tuple[str, ...] = ()
+    outcome: str = ""
+    reason: str = ""
 
 
 class SlotCount(Frozen):

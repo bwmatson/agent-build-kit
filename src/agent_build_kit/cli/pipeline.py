@@ -41,6 +41,7 @@ from contextlib import AbstractContextManager, ExitStack, contextmanager, nullco
 from datetime import UTC, datetime, timedelta
 from functools import partial
 from pathlib import Path
+from types import MappingProxyType
 from typing import TYPE_CHECKING, Any, Literal, TypedDict
 
 from agent_build_kit import claude_account, config, forges, profiles, runtimes, telemetry
@@ -499,7 +500,7 @@ from agent_build_kit.runtimes.guards import guard_lines
 from agent_build_kit.serve.review import ReviewStore
 from agent_build_kit.trackers.folders import archived_entries
 from agent_build_kit.trackers.report import standing
-from agent_build_kit.trackers.start_decision import RoundReads, start_gate
+from agent_build_kit.trackers.start_decision import RoundReads, StartDecision, start_gate
 from agent_build_kit.trackers.tick_step import note_state_change, sync_trackers, tracker_pass
 from agent_build_kit.tracks.runner import RUN_ID, publish_commit
 
@@ -2737,8 +2738,10 @@ def run_round(
             view,
             admitted=[unit.id for unit in evaluated],
             refused=refused,
-            waits=waits,
+            # A unit the board holds is explained by its claim record, not by a slot it never had.
+            waits={uid: waited for uid, waited in waits.items() if not reads.held_by_board(uid)},
             decided=decided,
+            claims=reads.decided(),
         )
     return ready
 
@@ -2813,10 +2816,11 @@ def _record_admissions(
     refused: Mapping[str, str],
     waits: Mapping[str, Wait],
     decided: dict[str | None, Decision],
+    claims: Mapping[str, StartDecision] = MappingProxyType({}),
 ) -> None:
-    """Write what each admission and each wait for a slot counted, the per-slot counts of a round
-    that started or refused a unit, and the pause or resume of a unit its account refused. A
-    record is never a round's to lose."""
+    """Write what each admission and each wait for a slot counted, the board's decision for each
+    unit it held or noted, the per-slot counts of a round that started or refused a unit, and the
+    pause or resume of a unit its account refused. A record is never a round's to lose."""
     try:
         _write_admissions(
             inst,
@@ -2827,6 +2831,7 @@ def _record_admissions(
             refused=refused,
             waits=waits,
             decided=decided,
+            claims=claims,
         )
     except Exception as error:  # noqa: BLE001 — a record is never a pass's to lose
         log(f"the admission records are not written ({type(error).__name__}: {error})")
@@ -2842,6 +2847,7 @@ def _write_admissions(
     refused: Mapping[str, str],
     waits: Mapping[str, Wait],
     decided: dict[str | None, Decision],
+    claims: Mapping[str, StartDecision],
 ) -> None:
     path = inst.state_dir / ADMISSIONS_NAME
     fingerprint = config_fingerprint(inst)
@@ -2874,7 +2880,10 @@ def _write_admissions(
         last[each.unit] = each
 
     def record(
-        kind: Literal["admitted", "slot", "usage"], unit: StoredUnit, started: Sequence[str]
+        kind: Literal["admitted", "slot", "usage", "claim"],
+        unit: StoredUnit,
+        started: Sequence[str],
+        claim: StartDecision | None = None,
     ) -> None:
         slot = slot_of(unit)
         found_counted = counted(slot, unit.id, started)
@@ -2886,6 +2895,14 @@ def _write_admissions(
             and before.kind == "slot"
             and (before.slot, before.limit, [c.id for c in before.counted])
             == (_slot_label(slot), limit_of(slot), [c.id for c in found_counted])
+        ):
+            return
+        if (
+            claim is not None
+            and before is not None
+            and before.kind == "claim"
+            and (before.items, before.outcome, before.reason)
+            == (claim.items, claim.outcome, claim.reason)
         ):
             return
         append_admission(
@@ -2900,6 +2917,9 @@ def _write_admissions(
                 counted=found_counted,
                 usage=usage,
                 fingerprint=fingerprint,
+                items=claim.items if claim else (),
+                outcome=claim.outcome if claim else "",
+                reason=claim.reason if claim else "",
             ),
         )
 
@@ -2908,6 +2928,8 @@ def _write_admissions(
     for uid, waited in waits.items():
         if waited.reason in (WaitReason.QUEUE_FULL, WaitReason.SLOT):
             record("slot", by_id[uid], fresh)
+    for uid, decision in claims.items():
+        record("claim", by_id[uid], fresh, decision)
 
     if fresh or refused:
         slots = dict.fromkeys(slot_of(unit) for unit in units)

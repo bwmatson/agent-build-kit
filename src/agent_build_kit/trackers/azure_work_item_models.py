@@ -15,6 +15,7 @@ class _Doc(BaseModel):
 
 class IdentityDoc(_Doc):
     unique_name: str = Field(alias="uniqueName")
+    display_name: str = Field(default="", alias="displayName")
 
 
 class FieldsDoc(_Doc):

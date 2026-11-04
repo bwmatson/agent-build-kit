@@ -480,6 +480,10 @@ repos:                          # ordered: deploy order is derived from
                                 # (default), all, or a list of entities in `levels`.
       # create_cap: 50            # the most items one tick creates (>= 1): a repo turning a
                                 # tracker on is mirrored over several ticks, not one.
+      # on_error: wait            # when the board cannot be read: `wait` holds the unit
+                                # (the reason is recorded); `start` starts it and the
+                                # admission record says the tracker was not checked. A
+                                # failure while claiming, or of the forge or remote, waits.
       # azure_devops:             # the block named for the kind holds the connection, the
                                 # board type of each level in use (`types`) and the state
                                 # names (`states`, kit state -> board state):

@@ -51,6 +51,10 @@
   item the unit covers, holds it, and the reason says which. A unit with a branch or pull
   request of its own is not checked, and neither are the kit's own pull requests. A claim that
   fails partway is released, and every claim and its outcome is recorded in the unit's history.
+  A tracker that cannot be read holds the unit with the reason (or, with the new
+  `tracker.on_error: start`, starts it and records that the tracker was not checked), retiring a
+  unit clears the kit's claims on its items and leaves a person's alone, and every start
+  decision that is not a plain start is written as a `claim` admission that `abk explain` shows.
 
 - The Python profile's affected-test selection now records what every test executes. Under
   coverage's default core a recording linked only some of the tests that call a function to

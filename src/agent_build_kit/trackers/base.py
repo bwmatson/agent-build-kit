@@ -49,6 +49,9 @@ class Item(Frozen):
     body: str
     state: str
     assignees: tuple[str, ...]
+    # The display name of each assignee, in the same order, for anything a person reads or a
+    # record keeps (`assignees` may be an address); empty when the board gives no other name.
+    assignee_names: tuple[str, ...] = ()
     parent_id: str | None
     revision: str
     url: str

@@ -89,16 +89,16 @@ class WorkItemHost(httpx.MockTransport):
             fields["System.AssignedTo"] = assigned_to
         return str(self._store(type, fields, relations if parent else [])["id"])
 
-    def edit(self, item_id: str, **fields: str) -> None:
-        """Another identity changes an item (`title`, `state` or `assigned_to`); the
-        revision moves on."""
+    def edit(self, item_id: str, **fields: str | dict[str, str]) -> None:
+        """Another identity changes an item (`title`, `state` or `assigned_to`, the last a unique
+        name or a whole identity as the service sends it); the revision moves on."""
         self._write(int(item_id), fields)
 
     def race(self, item_id: str, **fields: str) -> None:
         """Another identity changes an item just before the next write to it arrives."""
         self._races[int(item_id)] = fields
 
-    def _write(self, number: int, fields: dict[str, str]) -> None:
+    def _write(self, number: int, fields: dict[str, Any]) -> None:
         doc = self.items[number]
         for name, value in fields.items():
             if name == "assigned_to":

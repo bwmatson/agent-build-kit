@@ -29,6 +29,7 @@ from agent_build_kit.pipeline.workspaces import (
     remove_worktree,
     unit_tree,
 )
+from agent_build_kit.trackers.start_decision import has_tracker, release_claims
 
 
 def _commits(count: int) -> str:
@@ -211,6 +212,9 @@ def _retire(
         say(f"  {would}delete branch {unit.branch}")
         if pushed:
             say(f"  {would}delete remote branch {unit.branch}")
+    own = {(fate.change, fate.group) for fate in assessment.groups if not fate.carried_by}
+    if own and has_tracker(unit.repo):
+        say(f"  {would}release the kit's claims on its board items")
     if dry_run:
         say("  would delete its thread, if it has one")
         return 0
@@ -223,6 +227,12 @@ def _retire(
             _delete_thread(inst, unit.id)
     except Exception as error:  # noqa: BLE001 - the unit is retired either way
         say(f"{unit.id}: its thread was not deleted — {error}")
+        failed = True
+    try:
+        for attempt in release_claims(unit, changes_dir=inst.changes_dir, groups=own):
+            store.record_event(unit.id, "claim", item=attempt.item, outcome=attempt.outcome)
+    except Exception as error:  # noqa: BLE001 - the unit is retired either way
+        say(f"{unit.id}: its board claims were not released — {error}")
         failed = True
     pipe.update_plans(
         inst,

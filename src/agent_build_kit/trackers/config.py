@@ -56,6 +56,8 @@ class TrackerSection(Frozen):
     types: dict[str, str] = {}
     # The most items one tick creates, so a repo turning a tracker on is mirrored over several.
     create_cap: Annotated[int, Field(ge=1)] = 50
+    # What the start decision does when the board cannot be read: hold the unit or start it.
+    on_error: Literal["wait", "start"] = "wait"
 
     @field_validator("levels")
     @classmethod
