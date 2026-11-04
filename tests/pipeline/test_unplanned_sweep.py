@@ -21,14 +21,11 @@ CHANGE = "c"
 
 def tomb(uid: str, groups: tuple[int, ...] = (2,), *, at: datetime = DEMOTED, **fields: Any):
     """An `unplanned` unit of change `c`, demoted at `at`."""
-    return stored_unit(
-        uid,
-        change=CHANGE,
-        groups=groups,
-        state=UnitState.UNPLANNED,
-        history=({"state": "unplanned", "at": at.isoformat()},),
-        **fields,
-    )
+    fields = {
+        "change": CHANGE,
+        "history": ({"state": "unplanned", "at": at.isoformat()},),
+    } | fields
+    return stored_unit(uid, groups=groups, state=UnitState.UNPLANNED, **fields)
 
 
 def live(uid: str = "c/1", groups: tuple[int, ...] = (1, 2), **fields: Any) -> StoredUnit:
@@ -187,3 +184,39 @@ def test_the_first_failed_condition_is_the_one_named() -> None:
     found = verdicts(live(depends_on=("c/3",)), tomb("c/3", branch="spec/c/3", groups=(5,)))
 
     assert "work" in found["c/3"].reason
+
+
+def test_a_stamp_without_an_offset_is_read_as_utc_and_does_not_raise() -> None:
+    naive = tomb("c/3", at=DEMOTED.replace(tzinfo=None) - timedelta(hours=1))
+
+    assert verdicts(live(), naive)["c/3"].eligible
+
+
+def test_a_demotion_time_that_cannot_be_read_keeps_the_unit() -> None:
+    unreadable = tomb("c/3", history=({"state": "unplanned", "at": "not a time"},))
+    missing = tomb("c/4", history=())
+
+    found = verdicts(live(), unreadable, missing)
+
+    assert not found["c/3"].eligible and "demoted" in found["c/3"].reason
+    assert not found["c/4"].eligible and "demoted" in found["c/4"].reason
+
+
+def test_a_reference_is_repointed_past_a_successor_that_goes_too() -> None:
+    first = tomb("c/3", superseded_by=("c/4",))
+    second = tomb("c/4", superseded_by=("c/5",))
+
+    found = verdicts(live(depends_on=("c/3",)), live("c/5", groups=(2,)), first, second)
+
+    assert found["c/3"].eligible and found["c/4"].eligible
+    assert found["c/3"].successors == ("c/5",)
+
+
+def test_a_unit_kept_by_the_last_unit_rule_keeps_what_it_references() -> None:
+    other = tomb("x/3", groups=(), depends_on=("c/3",), change="x")
+    named = tomb("c/3", groups=(2,))
+
+    found = verdicts(live(), other, named, active=("c", "x"))
+
+    assert not found["x/3"].eligible
+    assert not found["c/3"].eligible and "x/3" in found["c/3"].reason

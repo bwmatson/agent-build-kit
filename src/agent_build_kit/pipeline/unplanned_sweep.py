@@ -21,7 +21,7 @@ This module only decides. It removes nothing and writes nothing."""
 from __future__ import annotations
 
 from collections.abc import Collection, Sequence
-from datetime import datetime
+from datetime import UTC, datetime
 
 from agent_build_kit.model import Frozen
 from agent_build_kit.pipeline.unit_store import StoredUnit
@@ -79,12 +79,14 @@ def eligibility(
         if unit.change in active_changes and not set(unit.groups) <= carried[unit.change]:
             return f"its groups {list(unit.groups)} are carried by no live unit of {unit.change}"
         demoted = _demoted_at(unit)
-        if demoted is not None and demoted >= pass_started:
+        if demoted is None:
+            return "the time it was demoted cannot be read, so no pass is known to have seen it"
+        if demoted >= pass_started:
             return "it was demoted in this pass, which has not finished"
         if tracker_configured:
             if tracker_reconciled is None:
                 return "the tracker's last reconcile cannot be read"
-            if demoted is not None and tracker_reconciled <= demoted:
+            if tracker_reconciled <= demoted:
                 return "the tracker has not reconciled since it was demoted"
         return ""
 
@@ -98,8 +100,9 @@ def eligibility(
             if unit.id in getattr(other, field)
         ]
 
-    # Conditions 1, 3 and 4, then 2 until it settles: a reference that cannot be repointed keeps
-    # its unit, which then keeps whatever names it only through a unit that stays.
+    # Conditions 1, 3 and 4, then 2 and 5 until they settle: a reference that cannot be repointed
+    # keeps its unit, a change's last unit is kept, and each keeps whatever names it only through
+    # a unit that stays.
     removable = {uid for uid, unit in tombstones.items() if not static_reason(unit)}
     settled = False
     while not settled:
@@ -109,12 +112,23 @@ def eligibility(
             if references(unit, removable) and not unit.superseded_by:
                 removable.discard(uid)
                 settled = False
-    # Condition 5: a live change is never left with no unit.
-    for change in {tombstones[uid].change for uid in removable}:
-        if change in active_changes and all(
-            unit.id in removable for unit in units if unit.change == change
-        ):
-            removable -= {uid for uid in removable if tombstones[uid].change == change}
+        for change in {tombstones[uid].change for uid in removable}:
+            if change in active_changes and all(
+                unit.id in removable for unit in units if unit.change == change
+            ):
+                removable -= {uid for uid in removable if tombstones[uid].change == change}
+                settled = False
+
+    def successors_of(unit: StoredUnit) -> tuple[str, ...]:
+        """Where a reference to `unit` goes: its successors, each followed on while it is swept
+        too, so the reference never lands on a unit that is gone."""
+        found: list[str] = []
+        for name in unit.superseded_by:
+            if name in removable:
+                found.extend(n for n in successors_of(tombstones[name]) if n not in found)
+            elif name not in found:
+                found.append(name)
+        return tuple(found)
 
     def kept_reason(unit: StoredUnit) -> str:
         """The first condition that fails for a unit that is kept, in the order of the five."""
@@ -133,18 +147,19 @@ def eligibility(
             continue
         stays = tuple(references(unit, removable))
         found[uid] = Verdict(
-            unit=uid, eligible=True, repoint=stays, successors=unit.superseded_by if stays else ()
+            unit=uid, eligible=True, repoint=stays, successors=successors_of(unit) if stays else ()
         )
     return found
 
 
 def _demoted_at(unit: StoredUnit) -> datetime | None:
     """When the unit was demoted to `unplanned`: its last such history entry, None when the
-    record has none (a store from before histories)."""
+    record has none or an unreadable one. A stamp without an offset is read as UTC."""
     for entry in reversed(unit.history):
         if entry.get("state") == UnitState.UNPLANNED:
             try:
-                return datetime.fromisoformat(str(entry["at"]))
+                stamp = datetime.fromisoformat(str(entry["at"]))
             except (KeyError, ValueError):
                 return None
+            return stamp if stamp.tzinfo else stamp.replace(tzinfo=UTC)
     return None
