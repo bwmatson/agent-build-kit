@@ -1318,7 +1318,9 @@ backend for the platform the step runs unconfined and says so). A person may edi
 any time: a difference is a warning with its diff, shown by `abk status`, and the unit continues,
 confined or not. For an unconfined step the warning adds that an agent may have written the file.
 
-**The usage guard** (`usage_guard.py`, `pause.py`). The account is a
+**The usage guard** (`usage_guard.py`, `pause.py`). Its thresholds are the `usage_limits` of a
+runtime and of each account (the key was `limits`; that spelling is deprecated and still loads, and
+`abk config --migrate` renames it to `usage_limits`). The account is a
 subscription with a usage window shared with the user's own sessions, and
 credits past the plan limit cost money. No new unit starts once a window is
 at its threshold; the reading comes live from the usage endpoint with Claude
@@ -1433,7 +1435,7 @@ The per-unit gates, the resume time, the tracks' start check and the round all d
 The two windows do not share a threshold, and a threshold need not be flat:
 quota unused when a window resets is lost, so a window with a ceiling above its
 pause percent (`usage_pause_ceiling_pct` over `usage_pause_pct`, in each of the
-`session` and `weekly` sections of `runtimes.claude_code.limits`) ramps from the
+`session` and `weekly` sections of `runtimes.claude_code.usage_limits`) ramps from the
 one to the other over the last `usage_relief_fraction` of *that* window — the session
 against the five-hour reset, the week against the seven-day one. A ceiling left
 out is the pause percent, and a window whose two are equal does not ramp: the
@@ -1450,7 +1452,7 @@ A pause is kept per account: it writes `runs/paused.json` for the default accoun
 outage, which holds every account, has `runs/network-paused.json` of its own) and `runs/paused.<label>.json` for a named one, with the
 account recorded, a deadline, a reason and a kind. The
 deadline is the moment the ramp would clear the current usage plus
-`runtimes.claude_code.limits.<window>.usage_resume_buffer_pct`, else just after the window resets, else
+`runtimes.claude_code.usage_limits.<window>.usage_resume_buffer_pct`, else just after the window resets, else
 thirty minutes later when nothing says when, and never more than six hours out.
 It schedules nothing: the tick timer already runs every few minutes, and a
 paused tick asks the guard again, so the first tick the guard allows clears the

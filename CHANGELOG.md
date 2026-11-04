@@ -573,7 +573,8 @@
   new key, and a file that sets both is refused. `abk config --migrate` renames it in
   `abk.yaml`, keeping comments and key order, and refuses forms it cannot edit by lines; for
   `abk.local.yaml` it, `abk config` and `abk doctor` print each line to change by hand. The old
-  key is dropped one release after this one.
+  key is dropped one release after this one. The documents and the `abk-config` skill show the
+  new spelling.
 
 - An installation whose planning repo is also one of its code repos now keeps its pipeline
   state in a planning home outside the repository, `<data home>/<repository name>/planning`,

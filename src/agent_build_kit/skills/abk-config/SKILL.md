@@ -86,7 +86,8 @@ runtimes:                     # only for a runtime needing a fact abk cannot
                               # the author; if the author is opus, set this to another
       regression: opus        # works out why a test fails and writes the fix change
       plan: opus              # the planner's graph call
-    limits:                   # with the same settings
+    usage_limits:             # with the same settings (called `limits` before; that spelling is
+                              # deprecated, `abk config --migrate` renames it to `usage_limits`)
       session:                # the 5-hour window
         usage_pause_pct: 70            # % at which no unit starts
         usage_pause_ceiling_pct:       # what that rises to at the reset; unset =
@@ -246,7 +247,7 @@ tracks:                       # the scheduled health/improve/recommend tracks
                               # is: set it when selecting another runtime
                               # no dollar budget — every phase is bounded by
                               # the same session/weekly usage windows, and
-                              # the same ramped thresholds, as limits above
+                              # the same ramped thresholds, as usage_limits above
   propose_max_issues: 3       # issues one propose pass writes up as task groups
   allowed_tools: null         # Claude Code --allowedTools syntax; null = built-in
   disallowed_tools: "..."     # both have no effect under the acp runtime

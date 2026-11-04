@@ -631,7 +631,7 @@ in the code. A scratch tick of a Claude Code live test runs with `ABK_USAGE_GUAR
 `abk status` prints `paused until … — <reason>`. The usual reason is the
 usage windows: no new unit starts above the threshold for the window named
 in the reason — `usage_pause_pct` (in the `session` or `weekly` section of
-`runtimes.claude_code.limits`) for most of a window, rising to its
+`runtimes.claude_code.usage_limits`) for most of a window, rising to its
 `usage_pause_ceiling_pct` as that window's reset nears, when one is set — and a resume is
 scheduled for when the rising threshold would clear the current usage, or
 for the reset. A pause never ends before it was written: a reset already past counts as unknown

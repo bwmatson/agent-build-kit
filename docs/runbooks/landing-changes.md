@@ -51,7 +51,7 @@ For spreading builds over two plans, or keeping one repo's usage apart. Applies 
 
 1. **Sign in** with its own configuration folder: `CLAUDE_CONFIG_DIR=$HOME/.claude-<label> claude auth login` (a browser step), then `claude auth status` with the same variable.
 2. **Name which repo uses it** (`abk.yaml`, committed): `repos.<name>.account: <label>`. It is an intent: a person without the second account falls back to the default account.
-3. **Describe the account** (`abk.local.yaml`, yours): `runtimes.claude_code.accounts.<label>` with `config_dir: /home/<you>/.claude-<label>`, that plan's `limits` and its `max_units_in_progress`.
+3. **Describe the account** (`abk.local.yaml`, yours): `runtimes.claude_code.accounts.<label>` with `config_dir: /home/<you>/.claude-<label>`, that plan's `usage_limits` and its `max_units_in_progress`.
 4. **Check:** `abk doctor` (the account is logged in, or it prints the login command), then watch the first unit: `abk status` shows a usage line per account, and a rate-limit pause names the account that was refused and holds only that account.
 5. Have few units of that repo running when you switch; their stored sessions restart under the new account.
 6. **Back out:** remove `repos.<name>.account`; units of the repo build on the default account again.

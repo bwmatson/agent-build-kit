@@ -21,7 +21,7 @@ runtimes:
     accounts:
       kit:
         config_dir: $HOME/.claude-kit         # an absolute path
-        limits: {}                            # this plan's usage thresholds
+        usage_limits: {}                      # this plan's usage thresholds
         max_units_in_progress: 3
 ```
 
@@ -69,7 +69,8 @@ ABK_CLAUDE_HOME=$HOME/.claude-second
 ```
 
 Write the absolute path your shell expands it to. Then set the usage windows for the new plan
-under `runtimes.claude_code.limits` in abk.yaml.
+under `runtimes.claude_code.usage_limits` in abk.yaml (the key was called `limits` before; that
+spelling is deprecated and `abk config --migrate` renames it to `usage_limits`).
 
 ## What you see
 
