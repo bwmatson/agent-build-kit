@@ -14,7 +14,7 @@ from agent_build_kit.pipeline.external_file import (
     Hold,
     HoldRefused,
     add_hold,
-    already_held,
+    blocked_groups,
     done_groups,
 )
 from agent_build_kit.pipeline.tracker_file import mapping_target, read_for_target
@@ -22,7 +22,7 @@ from agent_build_kit.pipeline.unit_store import UnitStore
 from agent_build_kit.pipeline.units import MERGED, Unit
 from agent_build_kit.trackers.config import section_for
 from agent_build_kit.trackers.levels import group_key
-from agent_build_kit.trackers.start_decision import RoundReads, mentions, others
+from agent_build_kit.trackers.start_decision import RoundReads, mentions, others, pull_text
 
 
 def record_hand_built(
@@ -54,7 +54,7 @@ def record_hand_built(
         if found is None:
             continue
         for pull in merged:
-            text = f"{pull.title}\n{pull.body}"
+            text = pull_text(pull)
             groups: list[int] = []
             holders: list[str] = []
             for group in member.groups:
@@ -68,15 +68,23 @@ def record_hand_built(
                     holders.extend(name for name in who if name not in holders)
             if not groups:
                 continue
-            hold = Hold(
-                scope=tuple(groups),
-                holder=", ".join(holders),
-                link=forge.web_url(repo, pr=pull.number),
-                since=datetime.now(UTC),
-            )
+            # Nothing is written until the host reports the merge commit: a listing can show
+            # the pull request merged before the commit is known, and a hold with no merge
+            # recorded would keep the unit out of every later round.
+            if not forge.merge_commit(repo, pull.number):
+                continue
             try:
-                if not already_held(change_dir, hold):
-                    add_hold(change_dir, hold)
+                # Groups someone already holds, whoever they are, are recorded as they stand.
+                if not set(groups) <= blocked_groups(change_dir):
+                    add_hold(
+                        change_dir,
+                        Hold(
+                            scope=tuple(groups),
+                            holder=", ".join(holders),
+                            link=forge.web_url(repo, pr=pull.number),
+                            since=datetime.now(UTC),
+                        ),
+                    )
                 record_hand_merge(inst, store, member.change, groups, pr=pull.number)
             except (HoldRefused, HandMergeRefused) as error:
                 log(f"{unit.id}: merged pull request {pull.number} not recorded: {error}")

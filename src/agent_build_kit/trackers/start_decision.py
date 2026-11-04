@@ -276,6 +276,11 @@ def others(item: Item, sync: str) -> list[str]:
     return [name for who, name in zip(item.assignees, names, strict=True) if who != sync]
 
 
+def pull_text(pull: PullRequest) -> str:
+    """The words of a pull request that may carry an item's reference."""
+    return f"{pull.title}\n{pull.body}"
+
+
 def mentions(text: str, reference: str) -> bool:
     """Whether `text` carries `reference` as a whole: not the front of a longer id (`AB#12` in
     `AB#123`) and not the tail of a longer word."""
@@ -308,7 +313,7 @@ def _foreign_start(
         if pull.state != "open" or pull.head in own_branches:
             continue
         for item_id in wanted:
-            if mentions(f"{pull.title}\n{pull.body}", link_line(item_id)):
+            if mentions(pull_text(pull), link_line(item_id)):
                 return (
                     f"foreign pull request {pull.number} on branch {pull.head} "
                     f"carries item {item_id}"
