@@ -423,13 +423,14 @@ def test_a_pass_that_failed_or_stopped_records_nothing(tmp_path: Path) -> None:
     world = world_for(tmp_path, ["change", "group"])
     world.run()
     first = last_reconciled(world.snapshot)
+    (world.change_dir / "tasks.md").write_text(groups_tasks(19))
     world.tracker.fail = lambda call: HostError("POST wiql: host answered 503")
 
     failed = world.run()
     assert failed.failed and last_reconciled(world.snapshot) == first
 
     world.tracker.fail = lambda call: RateLimited("POST /items: rate limited", retry_after=None)
-    (world.change_dir / "tasks.md").write_text(groups_tasks(3))
+    (world.change_dir / "tasks.md").write_text(groups_tasks(20))
     stopped = world.run()
     assert stopped.stopped and last_reconciled(world.snapshot) == first
 

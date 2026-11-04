@@ -588,6 +588,7 @@ def test_a_sweep_that_raises_does_not_fail_the_round(
         raise RuntimeError("the store is on fire")
 
     monkeypatch.setattr(cli, "sweep", broken)
+    write_change(inst.changes_dir)
 
     run(inst, store)
 
@@ -599,6 +600,7 @@ def test_archiving_a_change_sweeps_its_tombstones(
 ) -> None:
     from agent_build_kit import openspec
 
+    write_change(inst.changes_dir, "kept")
     tombstone(store)
     monkeypatch.setattr(openspec, "archive", lambda change, cwd: "")
 

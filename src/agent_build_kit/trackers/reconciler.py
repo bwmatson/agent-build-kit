@@ -11,11 +11,13 @@ from __future__ import annotations
 
 import json
 from collections.abc import Callable, Collection, Mapping, Sequence
+from datetime import UTC, datetime
 from pathlib import Path
 
 from agent_build_kit import telemetry, trackers
 from agent_build_kit.forges.transport import NotFound, RateLimited
 from agent_build_kit.model import Frozen
+from agent_build_kit.pipeline import spans
 from agent_build_kit.pipeline.file_lock import atomic_write_text, file_lock
 from agent_build_kit.pipeline.task_progress import first_line_hash
 from agent_build_kit.pipeline.tracker_file import (
@@ -41,6 +43,7 @@ from agent_build_kit.trackers.wanted_board import WantedItem, wanted_board
 
 ERRORS_COUNTER = "abk.tracker.errors"
 SNAPSHOT_ITEMS = "items"
+SNAPSHOT_RECONCILED = "reconciled_at"
 
 
 class PassReport(Frozen):
@@ -239,6 +242,24 @@ def _write_snapshot(path: Path, files: Mapping[str, TrackerFile]) -> None:
     update_snapshot(path, lambda kept: kept.update({SNAPSHOT_ITEMS: items}))
 
 
+def _record_reconciled(path: Path) -> None:
+    """Record when a pass that ran to its end finished: what the sweep of `unplanned` units reads
+    to know the board has seen a demotion."""
+    stamp = spans.clock.now().isoformat()
+    update_snapshot(path, lambda kept: kept.update({SNAPSHOT_RECONCILED: stamp}))
+
+
+def last_reconciled(path: Path) -> datetime | None:
+    """When the last pass that ran to its end finished, None when none did or the record cannot
+    be read."""
+    stamp = read_snapshot(path).get(SNAPSHOT_RECONCILED)
+    try:
+        found = datetime.fromisoformat(str(stamp))
+    except ValueError:
+        return None
+    return found if found.tzinfo else found.replace(tzinfo=UTC)
+
+
 def reconcile(
     repo: str,
     *,
@@ -329,6 +350,8 @@ def reconcile(
         log(f"tracker {repo}: create cap reached, {left} items left to create on a later tick")
     if not failed and not dry_run:
         _write_snapshot(snapshot_path(state_dir, repo), run.files)
+        if not stopped:
+            _record_reconciled(snapshot_path(state_dir, repo))
     return PassReport(
         created=run.created,
         updated=run.updated,

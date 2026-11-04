@@ -16,7 +16,7 @@ that fails being the reason it is kept:
 5. its change keeps another unit (a change with no unit is never archive-ready), unless it is gone
    or archived.
 
-This module only decides. It removes nothing and writes nothing."""
+`eligibility` only decides; `sweep` applies the decision to a store, in one write."""
 
 from __future__ import annotations
 
@@ -24,11 +24,8 @@ from collections.abc import Collection, Sequence
 from datetime import UTC, datetime
 
 from agent_build_kit.model import Frozen
-from agent_build_kit.pipeline.unit_store import StoredUnit
+from agent_build_kit.pipeline.unit_store import REFERENCE_FIELDS, StoredUnit, UnitStore
 from agent_build_kit.pipeline.units import CLOSED, UnitState
-
-# The fields of a unit that name another unit.
-REFERENCE_FIELDS = ("depends_on", "needs", "merge_needs", "waited_on", "superseded_by")
 
 
 class Reference(Frozen):
@@ -163,3 +160,27 @@ def _demoted_at(unit: StoredUnit) -> datetime | None:
                 return None
             return stamp if stamp.tzinfo else stamp.replace(tzinfo=UTC)
     return None
+
+
+def sweep(
+    store: UnitStore,
+    *,
+    active_changes: Collection[str],
+    pass_started: datetime,
+    tracker_configured: bool = False,
+    tracker_reconciled: datetime | None = None,
+    dry_run: bool = False,
+) -> list[str]:
+    """Remove the units `eligibility` clears from `store`, repointing the references to them,
+    and return their ids. `dry_run` returns the ids it would remove and writes nothing."""
+    verdicts = eligibility(
+        store.all(),
+        active_changes=active_changes,
+        pass_started=pass_started,
+        tracker_configured=tracker_configured,
+        tracker_reconciled=tracker_reconciled,
+    )
+    cleared = {uid: verdict.successors for uid, verdict in verdicts.items() if verdict.eligible}
+    if dry_run:
+        return sorted(cleared)
+    return store.remove_swept(cleared) if cleared else []

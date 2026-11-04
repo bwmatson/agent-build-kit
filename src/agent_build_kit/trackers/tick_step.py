@@ -9,6 +9,7 @@ and clears it.
 from __future__ import annotations
 
 from collections.abc import Callable, Mapping, Sequence
+from datetime import datetime
 from pathlib import Path
 
 from agent_build_kit import telemetry, trackers
@@ -27,6 +28,7 @@ from agent_build_kit.trackers.pr_attach import attach_pull_request
 from agent_build_kit.trackers.reconciler import (
     ERRORS_COUNTER,
     PassReport,
+    last_reconciled,
     read_snapshot,
     reconcile,
     snapshot_path,
@@ -61,6 +63,15 @@ def _has_tracker(repo: str) -> bool:
         return trackers.enabled(repo)
     except TrackerConfigError:
         return False
+
+
+def tracker_pass(inst: Installation) -> tuple[bool, datetime | None]:
+    """Whether any repo names a tracker, and when the oldest of their last passes that ran to its
+    end finished: None when a repo that names one has had none or its record cannot be read."""
+    named = [name for name in inst.repos if _has_tracker(name)]
+    times = [last_reconciled(snapshot_path(inst.state_dir, name)) for name in named]
+    found = None if None in times else min((t for t in times if t is not None), default=None)
+    return bool(named), found
 
 
 def note_state_change(inst: Installation, repo: str) -> None:

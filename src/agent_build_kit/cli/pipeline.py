@@ -373,6 +373,7 @@ from agent_build_kit.pipeline.units import (
     waiting_on,
     waiting_on_me,
 )
+from agent_build_kit.pipeline.unplanned_sweep import sweep
 from agent_build_kit.pipeline.untouched_failures import preexisting_record, preview
 from agent_build_kit.pipeline.usage_allowances import (
     allowances_line,
@@ -488,9 +489,10 @@ from agent_build_kit.replay.review import waiting as replay_waiting
 from agent_build_kit.runtimes import AgentRateLimited, NetworkUnavailable, ServiceUnavailable
 from agent_build_kit.runtimes.guards import guard_lines
 from agent_build_kit.serve.review import ReviewStore
+from agent_build_kit.trackers.folders import ARCHIVE_DIR
 from agent_build_kit.trackers.report import standing
 from agent_build_kit.trackers.start_decision import RoundReads, start_gate
-from agent_build_kit.trackers.tick_step import note_state_change, sync_trackers
+from agent_build_kit.trackers.tick_step import note_state_change, sync_trackers, tracker_pass
 from agent_build_kit.tracks.runner import RUN_ID, publish_commit
 
 if TYPE_CHECKING:
@@ -748,6 +750,28 @@ def _sweep_labels(inst: Installation, store: UnitStore) -> None:
         repo_order=list(inst.repos),
         log=log,
     )
+
+
+def _sweep_unplanned_units(inst: Installation, store: UnitStore, pass_started: datetime) -> None:
+    """Remove the `unplanned` units nothing needs any more, as the end of a pass: `pass_started`
+    is when the pass began, so a unit demoted in it stays until the next."""
+    if not inst.changes_dir.is_dir():
+        return  # misconfigured, not empty: every change would read as gone
+    configured, reconciled = tracker_pass(inst)
+    live = {
+        path.name
+        for path in inst.changes_dir.iterdir()
+        if path.is_dir() and path.name != ARCHIVE_DIR
+    }
+    removed = sweep(
+        store,
+        active_changes=live,
+        pass_started=pass_started,
+        tracker_configured=configured,
+        tracker_reconciled=reconciled,
+    )
+    if removed:
+        log(f"swept the units the plan dropped: {', '.join(removed)}")
 
 
 def _sync_trackers(inst: Installation, store: UnitStore) -> None:
@@ -2273,6 +2297,7 @@ def run_round(
     state: units, plan records, pause markers and logs stay as they are, but for the fetch and
     poll, the live verification and the archiving, and the planner's answers are kept as previews.
     """
+    pass_started = spans.clock.now()
     if readmit is not None:
         if started:
             raise ValueError("pass `started` or `readmit`, not both")
@@ -2412,6 +2437,7 @@ def run_round(
         _step("posting owed replies", _retry_pending_replies, inst, store)
         _step("sweeping state labels", _sweep_labels, inst, store)
         _step("syncing trackers", _sync_trackers, inst, store)
+        _step("sweeping unplanned units", _sweep_unplanned_units, inst, store, pass_started)
         _step("sweeping review outcomes", _sweep_outcomes, inst, store)
         _step("evaluating demotions", _evaluate_demotions, inst, store)
     if submit and may == "usage":
@@ -7535,6 +7561,9 @@ def cmd_archive(args: argparse.Namespace, inst: Installation) -> int:
     from agent_build_kit import openspec
 
     print(openspec.archive(args.change, cwd=inst.root), end="")
+    _step(
+        "sweeping unplanned units", _sweep_unplanned_units, inst, store_for(inst), spans.clock.now()
+    )
     remove_change_logs(run_log_dir(inst.state_dir), args.change)
     remove_change_logs(e2e_output_dir(inst.state_dir), args.change)
     remove_change_transcripts(transcript_dir(inst.state_dir), args.change)
