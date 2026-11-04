@@ -419,6 +419,12 @@ def review_ceiling(
     return getattr(ceilings, tier.value)
 
 
+def workers_mode(repo: RepoConfig | None, config: WorkspaceConfig) -> str:
+    """The worker mode in effect for the units of `repo`: its own `workers.mode`, else the
+    workspace's."""
+    raise NotImplementedError
+
+
 def ceilings_in_effect(repo: RepoConfig | None, config: WorkspaceConfig) -> CeilingsConfig:
     """The ceilings in effect for `repo`: its own value for a tier if set, else the workspace's
     (which is all of them for a repo that is None)."""
@@ -1334,6 +1340,12 @@ class RepoReviewConfig(Frozen):
     ceilings: RepoCeilingsConfig = RepoCeilingsConfig()
 
 
+class RepoWorkersConfig(Frozen):
+    """A repo's own worker mode; unset, the workspace's `workers.mode` applies."""
+
+    mode: Literal["threads", "processes"] | None = None
+
+
 class RepoConfig(Frozen):
     path: Path
     # GitHub owner/name. The owner decides which `gh` account's token is used.
@@ -1379,6 +1391,7 @@ class RepoConfig(Frozen):
     environment: EnvironmentConfig | None = None
     review: RepoReviewConfig = RepoReviewConfig()
     sandbox: RepoSandboxConfig = RepoSandboxConfig()
+    workers: RepoWorkersConfig = RepoWorkersConfig()
 
 
 # --- verify env providers -----------------------------------------------------
