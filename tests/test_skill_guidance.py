@@ -40,6 +40,12 @@ PIPELINE_PHRASES = {
     "running with no process": "marked `running` with no process",
     "never under a timeout": "never under a timeout",
     "slot rule": "count against their own project's `project_limits.max_units_in_progress`",
+    "account caps across projects": (
+        "are counted for the account across its projects, beside each project's own cap"
+    ),
+    "account slots replace": (
+        "`max_units_in_progress` replaces the project's value for the account's slot"
+    ),
     "usage report by": "abk report --by",
     "usage report context": "--context",
 }
@@ -99,6 +105,18 @@ CONFIG_PHRASES = {
     "sh -c form": "sh -c",
     "subshell directory change": "(cd ",
     "npm ci --prefix is not accepted": "`npm ci --prefix` is not accepted",
+    "an account's project limits": "an account's `project_limits`",
+    "account caps across projects": (
+        "`max_concurrent_stacks`, `max_concurrent_restacks` and `emergency_extra` are counted "
+        "for the account across its projects, beside each project's own cap"
+    ),
+    "account slots replace": (
+        "`max_units_in_progress` replaces the project's value for the account's slot"
+    ),
+    "the old account key is deprecated": (
+        "`accounts.<label>.max_units_in_progress` is deprecated for "
+        "`accounts.<label>.project_limits.max_units_in_progress`"
+    ),
 }
 
 
