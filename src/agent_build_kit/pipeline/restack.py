@@ -34,6 +34,7 @@ from pathlib import Path
 from agent_build_kit import claude_account, runtimes
 from agent_build_kit.budget import cut_head
 from agent_build_kit.config import RepoConfig, active
+from agent_build_kit.forges.transport import HostUnavailable
 from agent_build_kit.model import Frozen
 from agent_build_kit.pipeline import shell
 from agent_build_kit.pipeline.call_record import recorded
@@ -687,7 +688,7 @@ def move_in_temporary_worktree(
 
 # `git@host:owner/name.git`, or the ssh:// form of the same. Only these can be
 # routed through an ssh alias; an https remote has no key to swap.
-SSH_REMOTE = re.compile(r"^(?:ssh://)?git@[^:/]+[:/](?P<path>.+)$")
+SSH_REMOTE = re.compile(r"^(?:ssh://)?git@(?P<host>[^:/]+)[:/](?P<path>.+)$")
 
 
 def push_target(repo: Path) -> str:
@@ -708,6 +709,29 @@ def push_target(repo: Path) -> str:
         return "origin"
 
     return f"git@{active().git.push_host}:{match.group('path')}"
+
+
+def remote_url(repo: Path) -> str:
+    """Origin's URL: the host the push really reaches, even when `push_target` goes through an
+    ssh alias of it."""
+    return git(repo, "remote", "get-url", "origin", check=False).stdout.strip()
+
+
+SCHEME_REMOTE = re.compile(
+    r"^(?P<scheme>[a-z+]+)://(?:[^@/]+@)?(?P<host>[^:/]+)(?::(?P<port>\d+))?"
+)
+DEFAULT_PORTS = {"ssh": 22, "https": 443, "http": 80, "git": 9418}
+
+
+def remote_endpoint(url: str) -> tuple[str, int]:
+    """The host and port a remote's URL is reached at: 22 for an scp-style ssh remote, the
+    scheme's own port otherwise. ("", 443) when the URL names no host."""
+    if match := SCHEME_REMOTE.match(url):
+        scheme = match["scheme"].removeprefix("git+")
+        return match["host"], int(match["port"] or DEFAULT_PORTS.get(scheme, 443))
+    if match := SSH_REMOTE.match(url):
+        return match["host"], 22
+    return "", 443
 
 
 REMOTE_READ_TIMEOUT_SECONDS = 60
@@ -939,6 +963,14 @@ def push_with_lease(repo: Path, branch: str, *, last_pushed: str | None) -> str:
                 f"{branch} on the remote is not the commit we last pushed — "
                 "someone else has pushed to it. Fetch, include their work, and "
                 f"re-run the checks before pushing again.\n{outcome.message}"
+            )
+        if outcome.kind == "host_refused":
+            # The host said no, not the branch: the unit parks and pushes again later.
+            raise HostUnavailable("git push", outcome.message, 1)
+        if outcome.kind == "host_unreachable":
+            host, port = remote_endpoint(remote_url(repo))
+            raise NetworkUnavailable(
+                outcome.message, strength="weak", host=host, port=port, service="code_host"
             )
         raise RuntimeError(f"pushing {branch} failed:\n{outcome.message}")
 

@@ -46,6 +46,7 @@ from agent_build_kit.pipeline.e2e_holds import Holds
 from agent_build_kit.pipeline.file_lock import change_lock
 from agent_build_kit.pipeline.fix_reproduction import Outcome, Reproduction
 from agent_build_kit.pipeline.flakes import OnFlake
+from agent_build_kit.pipeline.git_output import FetchFailed, TransportFailure
 from agent_build_kit.pipeline.install_record import ALWAYS_INSTALLABLE, STAGING
 from agent_build_kit.pipeline.lease import Leases
 from agent_build_kit.pipeline.pr_replies import last_json, parse_answer
@@ -1769,6 +1770,10 @@ class UnitRunner(BaseModel):
     # Brings the repo's remote refs up to date, in the repo's turn. Raises when
     # the remote cannot be reached; the runner logs that and carries on.
     fetch: Callable[[Unit], None] = lambda unit: None
+    # Told when a fetch failed because the code host refused it or could not be reached. The run
+    # goes on with the refs it has either way; this is where the outage is noted. The default
+    # only logs it.
+    note_host_outage: Callable[[Unit, TransportFailure], None] | None = None
     # The unit's base as it is now: the parent's pull request asked of the
     # forge, a merge the store has not heard of recorded, the branch to build
     # on named. Given the base the run started on.
@@ -2007,6 +2012,15 @@ class UnitRunner(BaseModel):
             self.fetch(unit)
         except Exception as error:  # noqa: BLE001
             self.log(f"fetch failed, going on with the refs it has: {error}")
+            if isinstance(error, FetchFailed) and error.failure is not None:
+                self.note_outage(unit, error.failure)
+
+    def note_outage(self, unit: Unit, failure: TransportFailure) -> None:
+        """The code host refused a call or could not be reached: noted, never parked for."""
+        if self.note_host_outage is not None:
+            self.note_host_outage(unit, failure)
+            return
+        self.log(f"code host outage noted ({failure.kind}) for {unit.id}")
 
     def fail(self, unit: Unit, detail: str, *, cause: Cause = Cause.FAILED) -> RunOutcome:
         # Recorded rather than left at "planned": the next round would
