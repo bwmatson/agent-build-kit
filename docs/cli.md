@@ -138,6 +138,12 @@ when it is merged, the last tick's code lacks the merge and the kit checkout's h
 `waiting for the kit checkout to include <change> group <n>'s merge` when neither has it. A merge
 edge's wait ends `(merge: <reason>)`. The pipeline log and the graph use the same wording.
 
+A unit parked because the code host refused or could not be reached is listed as
+`waiting for the code host (<host>)` while the host's marker holds it, with no time left of its own,
+and a planned unit of a repo on that host shows the same as its wait. When a host's probes have
+failed for `global_limits.code_host_outage_minutes` (default 60), a line names the host, how long it has
+been down and the last error; no unit is failed by it, and within the limit only the wait shows.
+
 Under each account's usage reading, status prints a `login:` line: when the account's saved token
 expires (`token expires 06:00Z (in 4h47m)`), that it has (`token expired 12m ago`) or that its expiry
 cannot be read, then the age of the account's last real usage reading (`last real usage read 89m ago`,
@@ -1047,6 +1053,7 @@ Is this installation in a state the pipeline can run in? Each check prints
 |---|---|---|
 | config | `abk.yaml` is missing, malformed or has an unknown key; or the runtime selected (`ABK_RUNTIME`, from the environment or the planning repo's `.env`, else `runtime:`) is unknown, or is missing a fact it requires under `runtimes.<name>` | |
 | worktree root | `planning.worktree_root` is inside the planning repo | |
+| code host outage | | a code host's probes have failed for `global_limits.code_host_outage_minutes`: the line names the host, the time down and the last error, with a hint to check that the SSH key or agent a push to that host uses is loaded and accepted. The units wait and none fails. Nothing within the limit |
 | unit-test slots | | `global_limits.max_concurrent_unit_tests` is above `project_limits.max_concurrent_stacks` (more suites than units that can build in one project); *note, not a warning:* it is not set, so whole-suite unit-test runs are not limited (set it in `abk.local.yaml`); in a tracked `abk.yaml` the `machine keys` check warns and `abk config --migrate` moves it |
 | repo `<name>` | the path is missing, not a git checkout, or git has no `user.email`/`user.name` for it (repo-local or global — the line says which scope signs, so a workspace whose repos belong to different accounts can see one identity covering them all) | |
 | tracker `<name>` | `repos.<name>.tracker` in `abk.yaml` is invalid | the tracker host did not accept the identity check, or the installed kit does not implement the tracker kind; the line names who the credential acts as when it is accepted. A repo with no tracker adds nothing |
