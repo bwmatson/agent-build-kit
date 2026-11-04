@@ -580,12 +580,32 @@ def alias_runtimes_usage_limits(document: dict[str, Any]) -> dict[str, Any]:
     return document
 
 
+class ProjectLimitsConfig(Frozen):
+    """The scheduling settings (`project_limits`), configured once at the root for every project."""
+
+    # How many units are implemented at once in one project (a repo's project).
+    max_concurrent_stacks: int = 4
+    # How many restacks (moving a unit's branch onto a changed base) run at once in one
+    # project, in a lane apart from the build workers: a restack takes no build slot.
+    max_concurrent_restacks: Annotated[int, Field(ge=1)] = 2
+    # How many units may be started and not finished at once in one project (a repo's project).
+    # At it no unit that has never started does; what drains the queue
+    # (finishing, rework, resuming, a further review round) still runs.
+    max_units_in_progress: Annotated[int, Field(ge=1)] = 5
+
+    # The cap on priority-0 units started past the normal limits at once; 0 is off.
+    emergency_extra: Annotated[int, Field(ge=0)] = 1
+
+
 class AccountConfig(Frozen):
     """One Claude account by label (`runtimes.claude_code.accounts.<label>`), set per person."""
 
     # The account's Claude Code config directory: an absolute path, never in the committed file.
     config_dir: Path | None = None
     usage_limits: ClaudeLimitsConfig = ClaudeLimitsConfig()
+    # The same block as the top level; only the fields the account sets apply to it.
+    project_limits: ProjectLimitsConfig = ProjectLimitsConfig()
+    # The earlier place of `project_limits.max_units_in_progress`, still read as that.
     max_units_in_progress: Annotated[int, Field(gt=0)] | None = None
 
     @model_validator(mode="before")
@@ -695,23 +715,6 @@ class TestKindSettings(Frozen):
             (renamed[k] if renamed[k] in cls.model_fields and k not in cls.model_fields else k): v
             for k, v in data.items()
         }
-
-
-class ProjectLimitsConfig(Frozen):
-    """The scheduling settings (`project_limits`), configured once at the root for every project."""
-
-    # How many units are implemented at once in one project (a repo's project).
-    max_concurrent_stacks: int = 4
-    # How many restacks (moving a unit's branch onto a changed base) run at once in one
-    # project, in a lane apart from the build workers: a restack takes no build slot.
-    max_concurrent_restacks: Annotated[int, Field(ge=1)] = 2
-    # How many units may be started and not finished at once in one project (a repo's project).
-    # At it no unit that has never started does; what drains the queue
-    # (finishing, rework, resuming, a further review round) still runs.
-    max_units_in_progress: Annotated[int, Field(ge=1)] = 5
-
-    # The cap on priority-0 units started past the normal limits at once; 0 is off.
-    emergency_extra: Annotated[int, Field(ge=0)] = 1
 
 
 # The scheduling settings that moved from the limits block to `project_limits`.
