@@ -595,15 +595,54 @@ def test_a_sweep_that_raises_does_not_fail_the_round(
     assert "sweeping unplanned units failed" in capsys.readouterr().out
 
 
-def test_archiving_a_change_sweeps_its_tombstones(
+def test_archiving_a_change_sweeps_its_own_tombstones_and_not_another_changes(
     inst: Installation, store: UnitStore, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     from agent_build_kit import openspec
 
     write_change(inst.changes_dir, "kept")
+    (inst.changes_dir / "archive" / "2026-01-01-other").mkdir(parents=True)
     tombstone(store)
+    store.upsert([stored_unit("kept/3", change="kept", repo="app", groups=(3,))])
+    store.upsert([stored_unit("kept/4", change="kept", repo="app", groups=(3,))], change="kept")
     monkeypatch.setattr(openspec, "archive", lambda change, cwd: "")
 
     assert cli.cmd_archive(argparse.Namespace(change="other"), inst) == 0
 
+    found = {unit.id for unit in store.all()}
+    assert "other/3" not in found
+    assert "kept/3" in found
+
+
+def test_a_unit_the_plan_demotes_during_a_round_survives_that_round(
+    inst: Installation, store: UnitStore, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    write_change(inst.changes_dir, "other")
+    store.upsert([stored_unit("other/3", change="other", repo="app", groups=(3,))])
+
+    def demote(inst: Installation, *, store: UnitStore, dry_run: bool = False) -> None:
+        store.upsert(
+            [stored_unit("other/4", change="other", repo="app", groups=(3,))], change="other"
+        )
+
+    monkeypatch.setattr(cli, "plan_all", demote)
+
+    run(inst, store)
+    assert store.get("other/3").state == UnitState.UNPLANNED, "the readers of this round see it"
+
+    run(inst, store)
     assert "other/3" not in {unit.id for unit in store.all()}
+
+
+def test_the_oldest_reconcile_of_the_repos_that_name_a_tracker_is_the_one_read(
+    inst: Installation, store: UnitStore
+) -> None:
+    Watching(board_section(["change", "group"]))
+    configure(app=raw_section(), platform=raw_section())
+    early = datetime.now(UTC) - timedelta(hours=2)
+    record_reconcile(inst, "app", early)
+    assert tracker_pass(inst) == (True, None), "a repo that never reconciled leaves it unknown"
+
+    record_reconcile(inst, "platform", datetime.now(UTC) - timedelta(hours=1))
+
+    assert tracker_pass(inst) == (True, early)

@@ -489,7 +489,7 @@ from agent_build_kit.replay.review import waiting as replay_waiting
 from agent_build_kit.runtimes import AgentRateLimited, NetworkUnavailable, ServiceUnavailable
 from agent_build_kit.runtimes.guards import guard_lines
 from agent_build_kit.serve.review import ReviewStore
-from agent_build_kit.trackers.folders import ARCHIVE_DIR
+from agent_build_kit.trackers.folders import ARCHIVE_DIR, archived_entries
 from agent_build_kit.trackers.report import standing
 from agent_build_kit.trackers.start_decision import RoundReads, start_gate
 from agent_build_kit.trackers.tick_step import note_state_change, sync_trackers, tracker_pass
@@ -752,7 +752,9 @@ def _sweep_labels(inst: Installation, store: UnitStore) -> None:
     )
 
 
-def _sweep_unplanned_units(inst: Installation, store: UnitStore, pass_started: datetime) -> None:
+def _sweep_unplanned_units(
+    inst: Installation, store: UnitStore, pass_started: datetime, *, only_change: str | None = None
+) -> None:
     """Remove the `unplanned` units nothing needs any more, as the end of a pass: `pass_started`
     is when the pass began, so a unit demoted in it stays until the next."""
     if not inst.changes_dir.is_dir():
@@ -766,7 +768,9 @@ def _sweep_unplanned_units(inst: Installation, store: UnitStore, pass_started: d
     removed = sweep(
         store,
         active_changes=live,
+        archived_changes=set(archived_entries(inst.changes_dir)),
         pass_started=pass_started,
+        only_change=only_change,
         tracker_configured=configured,
         tracker_reconciled=reconciled,
     )
@@ -7561,8 +7565,14 @@ def cmd_archive(args: argparse.Namespace, inst: Installation) -> int:
     from agent_build_kit import openspec
 
     print(openspec.archive(args.change, cwd=inst.root), end="")
+    # Only the archived change's own: a pass may still be reading another change's demotion.
     _step(
-        "sweeping unplanned units", _sweep_unplanned_units, inst, store_for(inst), spans.clock.now()
+        "sweeping unplanned units",
+        _sweep_unplanned_units,
+        inst,
+        store_for(inst),
+        spans.clock.now(),
+        only_change=args.change,
     )
     remove_change_logs(run_log_dir(inst.state_dir), args.change)
     remove_change_logs(e2e_output_dir(inst.state_dir), args.change)

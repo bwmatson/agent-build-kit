@@ -322,3 +322,70 @@ def test_a_dry_sweep_reports_the_verdicts_and_changes_nothing(tmp_path: Path) ->
 
     assert found == ["x/3"]
     assert store.path.read_text() == before
+
+
+def test_a_unit_named_with_no_successor_stays_and_so_does_what_names_it_only_through_it(
+    tmp_path: Path,
+) -> None:
+    store = store_of(
+        tmp_path,
+        stored_unit("x/3", change="x", groups=(3,), state=UNPLANNED),
+        stored_unit("x/4", change="x", groups=(4,), state=UNPLANNED, depends_on=("x/3",)),
+        stored_unit("y/1", change="y", needs=("x/4",)),
+    )
+
+    removed = store.remove_swept({"x/3": (), "x/4": ()})
+
+    assert removed == []
+    assert store.get("x/4").depends_on == ("x/3",)
+
+
+def test_a_reference_is_never_repointed_to_the_unit_that_holds_it(tmp_path: Path) -> None:
+    store = store_of(
+        tmp_path,
+        stored_unit("x/3", change="x", groups=(3,), state=UNPLANNED),
+        stored_unit("x/4", change="x", groups=(3,), needs=("x/3",)),
+        stored_unit("x/5", change="x", groups=(3,), needs=("x/3",)),
+    )
+
+    store.remove_swept({"x/3": ("x/4",)})
+
+    assert store.get("x/4").needs == ()
+    assert store.get("x/5").needs == ("x/4",)
+
+
+def test_a_successor_that_is_gone_from_the_store_is_not_written_as_a_reference(
+    tmp_path: Path,
+) -> None:
+    store = store_of(
+        tmp_path,
+        stored_unit("x/3", change="x", groups=(3,), state=UNPLANNED),
+        stored_unit("y/1", change="y", needs=("x/3",)),
+    )
+
+    assert store.remove_swept({"x/3": ("x/9",)}) == []
+    assert store.get("y/1").needs == ("x/3",)
+
+
+def test_a_unit_that_gained_work_since_it_was_judged_is_left(tmp_path: Path) -> None:
+    store = store_of(
+        tmp_path, stored_unit("x/3", change="x", groups=(3,), state=UNPLANNED, branch="spec/x/3")
+    )
+
+    assert store.remove_swept({"x/3": ()}) == []
+
+
+def test_a_sweep_of_one_change_leaves_the_tombstones_of_the_others(tmp_path: Path) -> None:
+    seen = ({"state": "unplanned", "at": BEFORE.isoformat()},)
+    store = store_of(
+        tmp_path,
+        stored_unit("x/3", change="x", groups=(3,), state=UNPLANNED, history=seen),
+        stored_unit("x/4", change="x", groups=(3,)),
+        stored_unit("y/3", change="y", groups=(3,), state=UNPLANNED, history=seen),
+        stored_unit("y/4", change="y", groups=(3,)),
+    )
+
+    removed = sweep(store, active_changes={"x", "y"}, pass_started=AFTER, only_change="x")
+
+    assert removed == ["x/3"]
+    assert "y/3" in {unit.id for unit in store.all()}
