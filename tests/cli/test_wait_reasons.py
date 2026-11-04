@@ -404,7 +404,7 @@ def test_a_unit_of_a_full_account_waits_for_room_while_a_default_account_unit_is
                     "accounts": {
                         "kit": {
                             "config_dir": str(tmp_path / "kit-home"),
-                            "max_units_in_progress": 2,
+                            "project_limits": {"max_units_in_progress": 2},
                         }
                     }
                 }

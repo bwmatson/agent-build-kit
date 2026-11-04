@@ -42,7 +42,7 @@ from pydantic import (
 
 from agent_build_kit import forges, infra, path_patterns, runtimes, sandboxes
 from agent_build_kit.compat_names import Place, is_old_spelling, new_spelling, notice, old_spelling
-from agent_build_kit.config_migrate_lines import pair, usage_limits_holders
+from agent_build_kit.config_migrate_lines import account_holders, pair, usage_limits_holders
 from agent_build_kit.model import Frozen, TestTier
 from agent_build_kit.path_discovery import find_up
 from agent_build_kit.replay.models import DEFAULT_KEYED_HEADERS, UpstreamKind
@@ -566,17 +566,68 @@ def _usage_limits_paths(document: dict[str, Any]) -> Iterator[tuple[str, ...]]:
                 yield ("runtimes", name, "accounts", label)
 
 
-def _updated_at(node: dict[str, Any], path: tuple[str, ...]) -> dict[str, Any]:
-    """A copy of `node` with the mapping at `path` passed through `alias_usage_limits`."""
+def _updated_at(
+    node: dict[str, Any],
+    path: tuple[str, ...],
+    alias: Callable[[dict[str, Any]], dict[str, Any]] = alias_usage_limits,
+) -> dict[str, Any]:
+    """A copy of `node` with the mapping at `path` passed through `alias`."""
     if not path:
-        return alias_usage_limits(node)
-    return {**node, path[0]: _updated_at(node[path[0]], path[1:])}
+        return alias(node)
+    return {**node, path[0]: _updated_at(node[path[0]], path[1:], alias)}
 
 
 def alias_runtimes_usage_limits(document: dict[str, Any]) -> dict[str, Any]:
     """`document` with `limits` renamed to `usage_limits` under each runtime and account."""
     for path in _usage_limits_paths(document):
         document = _updated_at(document, path)
+    return document
+
+
+PROJECT_LIMITS = "project_limits"
+# An account's slot limit was `max_units_in_progress` directly under it, before `project_limits`.
+DEPRECATED_ACCOUNT_SLOTS = "max_units_in_progress"
+
+
+def alias_account_slots(data: dict[str, Any]) -> dict[str, Any]:
+    """`data`, an account, with the deprecated `max_units_in_progress` moved into its
+    `project_limits`; an account that sets both places is refused. A key with no value reads as
+    unset."""
+    if DEPRECATED_ACCOUNT_SLOTS not in data:
+        return data
+    block = data.get(PROJECT_LIMITS)
+    if isinstance(block, ProjectLimitsConfig):
+        block = block.model_dump(exclude_unset=True)
+    if block is None:
+        block = {}
+    rest = {key: value for key, value in data.items() if key != DEPRECATED_ACCOUNT_SLOTS}
+    if not isinstance(block, dict):
+        return rest
+    if DEPRECATED_ACCOUNT_SLOTS in block:
+        raise ValueError(
+            f"`{DEPRECATED_ACCOUNT_SLOTS}` and `{PROJECT_LIMITS}.{DEPRECATED_ACCOUNT_SLOTS}` are "
+            f"both set; `{DEPRECATED_ACCOUNT_SLOTS}` is the deprecated place of "
+            f"`{PROJECT_LIMITS}.{DEPRECATED_ACCOUNT_SLOTS}`, keep one"
+        )
+    old = data[DEPRECATED_ACCOUNT_SLOTS]
+    if old is None:
+        return rest
+    return {**rest, PROJECT_LIMITS: {**block, DEPRECATED_ACCOUNT_SLOTS: old}}
+
+
+def account_paths(document: dict[str, Any]) -> Iterator[tuple[str, ...]]:
+    """The key path of each account of each runtime in a raw document."""
+    return (path for path in _usage_limits_paths(document) if len(path) == 4)
+
+
+def alias_runtimes_account_slots(document: dict[str, Any]) -> dict[str, Any]:
+    """`document` with `max_units_in_progress` moved into `project_limits` under each account; an
+    account that sets both places is refused, naming it."""
+    for path in account_paths(document):
+        try:
+            document = _updated_at(document, path, alias_account_slots)
+        except ValueError as error:
+            raise ValueError(f"{'.'.join(path)}: {error}") from error
     return document
 
 
@@ -605,13 +656,13 @@ class AccountConfig(Frozen):
     usage_limits: ClaudeLimitsConfig = ClaudeLimitsConfig()
     # The same block as the top level; only the fields the account sets apply to it.
     project_limits: ProjectLimitsConfig = ProjectLimitsConfig()
-    # The earlier place of `project_limits.max_units_in_progress`, still read as that.
-    max_units_in_progress: Annotated[int, Field(gt=0)] | None = None
 
     @model_validator(mode="before")
     @classmethod
     def _limits_alias(cls, data: object) -> object:
-        return alias_usage_limits(data) if isinstance(data, dict) else data
+        if not isinstance(data, dict):
+            return data
+        return alias_account_slots(alias_usage_limits(data))
 
     @field_validator("config_dir")
     @classmethod
@@ -1526,6 +1577,11 @@ REMOVED_REVIEW_ENABLED = "review.enabled"
 REMOVED_REVIEW_ENABLED_FIELD = "enabled"
 
 
+def _is_account_slots_key(key: str) -> bool:
+    """Whether a deprecated key `deprecations_of` lists is an account's `max_units_in_progress`."""
+    return key.startswith("runtimes.") and key.endswith(f".{DEPRECATED_ACCOUNT_SLOTS}")
+
+
 def deprecation_notice(key: str) -> str:
     """What `abk config` and `abk doctor` say of a deprecated key."""
     if key == REMOVED_REVIEW_ENABLED:
@@ -1537,6 +1593,11 @@ def deprecation_notice(key: str) -> str:
         )
     if key.startswith("runtimes.") and key.endswith(f".{DEPRECATED_USAGE_LIMITS}"):
         return f"`{key}` is renamed `{USAGE_LIMITS}`; `abk config --migrate` renames it"
+    if _is_account_slots_key(key):
+        return (
+            f"`{key}` is moved to `{PROJECT_LIMITS}.{DEPRECATED_ACCOUNT_SLOTS}`; "
+            "`abk config --migrate` moves it"
+        )
     return (
         f"`{key}` is deprecated for `global_limits`; "
         "`abk config --migrate` moves it to the new names"
@@ -2193,7 +2254,9 @@ def _renamed(document: dict[str, Any] | None, file: Path) -> dict[str, Any] | No
         return None
     try:
         _refuse_moved_settings(document)
-        renamed = read_new_settings(_alias_limits(alias_runtimes_usage_limits(document)))
+        renamed = read_new_settings(
+            _alias_limits(alias_runtimes_account_slots(alias_runtimes_usage_limits(document)))
+        )
         if isinstance(renamed.get("builders"), dict):
             renamed = {**renamed, "builders": rename_builders_key(renamed["builders"])}
         return renamed
@@ -2224,6 +2287,10 @@ def load(path: Path) -> WorkspaceConfig:
                 # Name the place as the file spells it, and only the places it spells the old way.
                 place = re.escape(key.removesuffix(f".{DEPRECATED_USAGE_LIMITS}"))
                 message = re.sub(rf"(?<![\w.]){place}\.{USAGE_LIMITS}\b", key, message)
+            if _is_account_slots_key(key):
+                place = re.escape(key.removesuffix(f".{DEPRECATED_ACCOUNT_SLOTS}"))
+                new = f"{PROJECT_LIMITS}.{DEPRECATED_ACCOUNT_SLOTS}"
+                message = re.sub(rf"(?<![\w.]){place}\.{re.escape(new)}\b", key, message)
         if any(DEPRECATED_BUILDERS_SETTING in deprecations_of(document) for document in spelled):
             message = re.sub(rf"\b{BUILDERS_KEY}\b", DEPRECATED_BUILDERS_KEY, message)
         for document in spelled:
@@ -2246,8 +2313,9 @@ def load(path: Path) -> WorkspaceConfig:
 
 def deprecations_of(*documents: dict[str, Any] | None) -> list[str]:
     """The deprecated keys the parsed `documents` set: the root `limits` key,
-    `runtimes.<n>.limits` and `runtimes.<n>.accounts.<l>.limits`, `builders.per_group_commits`,
-    and `review.enabled`; each once."""
+    `runtimes.<n>.limits` and `runtimes.<n>.accounts.<l>.limits`,
+    `runtimes.<n>.accounts.<l>.max_units_in_progress`, `builders.per_group_commits`, and
+    `review.enabled`; each once."""
     raws = [raw for raw in documents if raw]
     found = []
     if any(
@@ -2264,6 +2332,14 @@ def deprecations_of(*documents: dict[str, Any] | None) -> list[str]:
                 mapping = mapping[step]
             key = ".".join((*path, DEPRECATED_USAGE_LIMITS))
             if DEPRECATED_USAGE_LIMITS in mapping and key not in found:
+                found.append(key)
+    for raw in raws:
+        for path in account_paths(raw):
+            mapping = raw
+            for step in path:
+                mapping = mapping[step]
+            key = ".".join((*path, DEPRECATED_ACCOUNT_SLOTS))
+            if DEPRECATED_ACCOUNT_SLOTS in mapping and key not in found:
                 found.append(key)
     builders = [raw.get("builders") for raw in raws]
     if any(isinstance(block, dict) and DEPRECATED_BUILDERS_KEY in block for block in builders):
@@ -2344,6 +2420,29 @@ def usage_limits_notices(path: Path) -> list[str]:
             notices.append(
                 f"{local}:{found[0].start_mark.line + 1}: rename `{DEPRECATED_USAGE_LIMITS}` "
                 f"to `{USAGE_LIMITS}` ({'.'.join((*keys, DEPRECATED_USAGE_LIMITS))})"
+            )
+    return notices
+
+
+def account_slots_notices(path: Path) -> list[str]:
+    """One notice, with the file and line, for each account's `max_units_in_progress` in the
+    overlay of the file at `path`. `abk config --migrate` never edits the overlay, so each line is
+    to be moved by hand."""
+    local = overlay_path(path)
+    try:
+        documents = list(yaml.compose_all(local.read_text()))
+    except (OSError, yaml.YAMLError):
+        return []
+    root = documents[0] if documents else None
+    if not isinstance(root, yaml.MappingNode):
+        return []
+    notices = []
+    for keys, _, holder in account_holders(root):
+        found = pair(holder, DEPRECATED_ACCOUNT_SLOTS)
+        if found is not None:
+            notices.append(
+                f"{local}:{found[0].start_mark.line + 1}: move `{DEPRECATED_ACCOUNT_SLOTS}` "
+                f"under `{PROJECT_LIMITS}` ({'.'.join((*keys, DEPRECATED_ACCOUNT_SLOTS))})"
             )
     return notices
 

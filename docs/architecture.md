@@ -287,7 +287,9 @@ A priority-0 unit starts as soon as it is ready, in its own emergency lane with 
 (`project_limits.emergency_extra`, 1 by default, 0 turns the lane off): the places and workers
 of the project may be full. It counts toward the occupancy, so ordinary starts wait until the
 occupancy falls below the limits, and it never delays a unit that is finishing: a rework, a
-resume, a review round and a push keep the workers they had.
+resume, a review round and a push keep the workers they had. An account's `emergency_extra` (see
+below) is a second cap on the lane: a priority-0 unit starts in it only while the project's lane use
+and the account's, across all its projects, are both under their extras.
 
 Each unit has a priority, 0 (emergency) to 5, 3 by default, set by the planner
 in code from the `Priority:` lines of the groups it builds: the most urgent of
@@ -313,7 +315,7 @@ merged. `global_limits.stack_depth_build_cap` holds
 back chains of open PRs; `project_limits.max_concurrent_stacks` bounds units being
 built. `project_limits.max_units_in_progress` bounds the units started and not finished
 in each project (or, once an installation names a Claude account, in each account, against that
-account's own `max_units_in_progress`; the default account's units then count together across all its
+account's value; the default account's units then count together across all its
 projects against `project_limits.max_units_in_progress`): running, in review or failed, and any planned or unplanned unit
 that a run has started: one with a recorded branch, a pushed or approved commit or a pull request. Merged, closed and satisfied
 units, held units (set aside until a person releases them), and units that
@@ -349,13 +351,27 @@ occupancy may read over it. Each run counts as one attempt at the tip of the uni
 `global_limits.max_review_rounds`; a unit that spends them is held with `needs_human` and a note naming the base, the tip
 and how the last run ended. A run the lane cannot go on with is handed back to a build worker, `planned` with the cause
 `restack_handed_back`. Every agent call in a run asks the usage guard first. The limits are counted for each project,
-not across all repos. Free slots then go to
+not across all repos, and an account's `project_limits` adds a second count for its projects together (below).
+Free slots then go to
 units with an open pull request, then to those resuming a build, then to new
 ones. The first two go in planned order; new ones go by effective priority, then handoff
 units before the others of equal priority, then by effective age (the earliest planned position among the unit and every unit waiting on it, in
 any repo), then by planned position. Ready units build in parallel threads, each
 under a branch lock (`locks/` in the local directory) that fails fast: two runs on one branch is
 a scheduling bug, not a queue.
+
+An account takes the same project limits as the top level (`runtimes.claude_code.accounts.<label>.project_limits`,
+the same type, resolved by one function), and only the fields it sets apply: a field it leaves out
+adds no cap. `max_concurrent_stacks`, `max_concurrent_restacks` and `emergency_extra` of an account's
+`project_limits` are counted for the account across its projects, beside each project's own cap, and a
+unit needs room under both. The stack count includes units running in the restack lane. The restack
+lanes of one account's projects share a counter: a restack held by the account's cap waits and starts at
+once when a restack of the account ends, in whichever project's lane, and the lanes report whether a
+project's lane, and its account's, is at its cap. An account's `max_units_in_progress` replaces the
+project's value for the account's slot, as before. `abk status`, a unit's wait reason and its admission
+record name the cap that held a unit, and the free-worker figure is the lesser of the project's room and
+the account's. The old `accounts.<label>.max_units_in_progress` key still loads as
+`project_limits.max_units_in_progress` and is deprecated (`abk config --migrate` moves it).
 
 A branch lock names its holder by pid and start time. A lock whose pid is alive with a different start time belongs
 to a reused pid and is taken over, as is one whose holder is gone; a lock written as a bare pid is still honoured. Two

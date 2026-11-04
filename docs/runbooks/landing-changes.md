@@ -33,7 +33,7 @@ It is almost always something the builder cannot do:
 The two files are a person's to change; agents and tracks are refused them. The sandbox is on by default (`sandbox.enabled: false` turns it off; a machine with no backend runs unconfined and says so). The pipeline reads both before an agent step and again after it.
 
 - **Edit at any time.** A difference during a step is a warning, logged with its diff and shown by `abk status`; the unit continues. For an unconfined step the warning says an agent may have written the file, so read the diff. Check an edit with `abk doctor`.
-- **A file that does not load stops every `abk` command and every tick.** `abk doctor` or any command names the key; fix it before anything else. An account accepts its own `max_units_in_progress` and `limits`, not the workspace-wide `project_limits` keys.
+- **A file that does not load stops every `abk` command and every tick.** `abk doctor` or any command names the key; fix it before anything else. An account's `project_limits` takes the same four settings as the workspace-wide block: `max_concurrent_stacks`, `max_concurrent_restacks` and `emergency_extra` are counted for the account across its projects, beside each project's own cap, and its `max_units_in_progress` replaces the project's value for the account's slot. The old `accounts.<label>.max_units_in_progress` key still loads, deprecated; `abk config --migrate` moves it.
 - Which file holds what is in [configuration.md](../configuration.md#which-file-holds-what): `abk.yaml` reads the same on every machine, and `abk.local.yaml` holds checkout paths, accounts, usage thresholds, `project_limits`, which e2e values this machine has, and holds.
 
 ## 3. After the e2e markers and dimensions have landed
@@ -51,7 +51,7 @@ For spreading builds over two plans, or keeping one repo's usage apart. Applies 
 
 1. **Sign in** with its own configuration folder: `CLAUDE_CONFIG_DIR=$HOME/.claude-<label> claude auth login` (a browser step), then `claude auth status` with the same variable.
 2. **Name which repo uses it** (`abk.yaml`, committed): `repos.<name>.account: <label>`. It is an intent: a person without the second account falls back to the default account.
-3. **Describe the account** (`abk.local.yaml`, yours): `runtimes.claude_code.accounts.<label>` with `config_dir: /home/<you>/.claude-<label>`, that plan's `usage_limits` and its `max_units_in_progress`.
+3. **Describe the account** (`abk.local.yaml`, yours): `runtimes.claude_code.accounts.<label>` with `config_dir: /home/<you>/.claude-<label>`, that plan's `usage_limits` and its `project_limits` (its slots, and the caps on stacks, restacks and the emergency lane across its projects).
 4. **Check:** `abk doctor` (the account is logged in, or it prints the login command), then watch the first unit: `abk status` shows a usage line per account, and a rate-limit pause names the account that was refused and holds only that account.
 5. Have few units of that repo running when you switch; their stored sessions restart under the new account.
 6. **Back out:** remove `repos.<name>.account`; units of the repo build on the default account again.

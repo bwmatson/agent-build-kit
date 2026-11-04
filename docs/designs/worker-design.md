@@ -101,7 +101,10 @@ Everything a worker needs to *know* about the outside world comes from **snapsho
 ### 5. Slots and admission without a pool
 
 The in-memory pool and `_pool_size` go. Occupancy comes from durable facts: **live branch locks**, identified by pid **and process start time** (as leases already are, so a reused pid cannot hold a slot), plus leases, per
-project and per account, against the unchanged limits. Admission and a **`starting` marker** (a worker id and a short time to live) are written under one **admission lock**, so two dispatchers can never exceed a limit; a worker that
+project and per account, against the unchanged limits. An account's `project_limits` is one of them:
+`max_concurrent_stacks`, `max_concurrent_restacks` and `emergency_extra` are counted for the account
+across its projects, beside each project's own cap, and its `max_units_in_progress` replaces the
+project's value for the account's slot. Admission and a **`starting` marker** (a worker id and a short time to live) are written under one **admission lock**, so two dispatchers can never exceed a limit; a worker that
 never started leaves its unit `planned` when the marker expires.
 
 ### 6. Readmission is store state

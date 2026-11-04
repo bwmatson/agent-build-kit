@@ -94,13 +94,13 @@ def test_the_old_account_key_is_documented_as_deprecated_and_moved_by_migrate(na
 def test_the_configuration_reference_shows_the_block_under_an_account() -> None:
     text = DOCUMENTS["docs/configuration.md"]
 
-    assert re.search(r"accounts:\n\s+kit:\n(?:.*\n)*?\s+project_limits:\n", text)
+    assert re.search(r"accounts:\n\s+kit:\n(?:.*\n)*?\s+project_limits:[^\n]*\n", text)
 
 
 def test_the_second_account_how_to_sets_the_slots_in_the_block() -> None:
     text = DOCUMENTS["docs/claude-code-second-account.md"]
 
-    assert re.search(r"project_limits:\n\s+max_units_in_progress: 3", text)
+    assert re.search(r"project_limits:[^\n]*\n\s+max_units_in_progress: 3", text)
     assert text.count("max_units_in_progress: 3") == 1
 
 
@@ -117,7 +117,7 @@ def unreleased_bullets() -> list[str]:
 
 
 def test_the_changelog_has_one_entry_for_the_account_limits() -> None:
-    found = [b for b in unreleased_bullets() if "an account's `project_limits`" in b]
+    found = [b for b in unreleased_bullets() if "an account's `project_limits`" in b.lower()]
 
     assert len(found) == 1
     entry = found[0]

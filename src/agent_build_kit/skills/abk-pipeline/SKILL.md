@@ -550,7 +550,11 @@ resumes. `abk manual list` shows every outstanding step with its runbook and las
   held, blocked and merged, closed or satisfied units, and failed units waiting
   on another, do not. Once an installation names a Claude account (`repos.<name>.account`
   or `runtimes.claude_code.accounts`), they count per resolved account against that
-  account's `max_units_in_progress` instead, and a label with no directory counts as the default account. A failed unit holds its slot until it is requeued and
+  account's slot value instead, and a label with no directory counts as the default account. An account's
+  `project_limits` takes the same four settings as the top level: its `max_concurrent_stacks`,
+  `max_concurrent_restacks` and `emergency_extra` are counted for the account across its projects,
+  beside each project's own cap, and a unit needs room under both (a unit held by the account's cap
+  says so in its wait reason); its `max_units_in_progress` replaces the project's value for the account's slot. A failed unit holds its slot until it is requeued and
   finishes, or closed: free one that way. A started unit that a usage pause parked before its
   agent step also holds its slot, and the full-queue line names it `paused`. Before `prepare`, a
   ready unit is checked against its own account's usage decision, and a refused one waits with
@@ -567,7 +571,7 @@ resumes. `abk manual list` shows every outstanding step with its runbook and las
 3. Units build in dependency order, at most `project_limits.max_concurrent_stacks`
    at a time in each project. No unit that has never started starts while the units in
    progress in its project are at `project_limits.max_units_in_progress` (counted per account
-   instead once an account is named, against that account's `max_units_in_progress`; the
+   instead once an account is named, against that account's slot value; the
    default account's units then count together across all its projects), and a pass
    starts no more new units than fit under it: the rest stay `planned`, and
    a priority-0 unit starts as soon as it is ready in the emergency lane

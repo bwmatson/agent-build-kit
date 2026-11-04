@@ -1,7 +1,8 @@
 """Moving an abk.yaml from `limits` to `global_limits` and `project_limits`, renaming its old
-test-kind setting keys and moving `max_unit_lines` to `review.ceilings.full`, by editing its text
-(specs: limits-split-into-global-and-project, open-changes-are-migrated-to-review-tiers and
-units-are-sized-by-review-tier).
+test-kind setting keys, moving `max_unit_lines` to `review.ceilings.full` and an account's
+`max_units_in_progress` into its `project_limits`, by editing its text (specs:
+limits-split-into-global-and-project, open-changes-are-migrated-to-review-tiers,
+units-are-sized-by-review-tier and account-project-limits).
 
 The parse finds the block and the lines of the moved settings; the lines are then edited with the
 helpers `abk policy apply` uses, so every other byte of the file is as it was. The document is
@@ -18,11 +19,13 @@ import yaml
 from agent_build_kit.compat_names import Place, new_spelling
 from agent_build_kit.config import (
     BUILDERS_KEY,
+    DEPRECATED_ACCOUNT_SLOTS,
     DEPRECATED_BUILDERS_KEY,
     DEPRECATED_ROOT_KEY,
     DEPRECATED_USAGE_LIMITS,
     USAGE_LIMITS,
     WorkspaceConfig,
+    alias_runtimes_account_slots,
     alias_runtimes_usage_limits,
     old_setting_blocks,
     read_new_settings,
@@ -31,6 +34,7 @@ from agent_build_kit.config_migrate_lines import (
     MARKED,
     MERGE_TAG,
     ConfigMigrateError,
+    account_holders,
     joined,
     opened,
     pair,
@@ -146,13 +150,13 @@ def migrate(
     """Rename a root `limits` to `global_limits`, move the three scheduling settings found under
     it (or under `global_limits`) to a `project_limits` block straight after it, move
     `max_unit_lines` to `review.ceilings.full`, rename each old test-kind setting key to its new
-    name, rename `limits` under each runtime and account to `usage_limits`, and move a flat
-    `models:` block under `runtimes.<runtime>.models`, the runtime in force
-    (`config.runtime_for`). Told to by `machine`, it then moves the machine settings to the local
-    file's text."""
+    name, rename `limits` under each runtime and account to `usage_limits`, move an account's
+    `max_units_in_progress` into its `project_limits`, and move a flat `models:` block under
+    `runtimes.<runtime>.models`, the runtime in force (`config.runtime_for`). Told to by
+    `machine`, it then moves the machine settings to the local file's text."""
     moved = _move_limits(_move_ceiling(text))
     renamed = _rename_usage_limits(_rename_builders_key(_rename_test_kind_keys(moved.text)))
-    text = _move_models(renamed, runtime)
+    text = _move_models(_move_account_slots(renamed), runtime)
     if machine is None:
         return Migrated(text=text, moved=moved.moved)
     machine_move = move_machine_settings(text, machine)
@@ -570,6 +574,137 @@ def _rename_usage_limits(text: str) -> str:
         raise refuse("abk.yaml", f"the edited text would not parse ({error})") from error
     try:
         expected = alias_runtimes_usage_limits(before)
+    except ValueError as error:
+        raise differs from error
+    if written != expected:
+        raise differs
+    return result
+
+
+def _slots_refusal(where: str, reason: str) -> ConfigMigrateError:
+    return refuse(f"{where}.{DEPRECATED_ACCOUNT_SLOTS}", reason)
+
+
+def _slots_target(
+    lines: list[str], holder: yaml.MappingNode, where: str
+) -> tuple[yaml.ScalarNode, yaml.MappingNode | None]:
+    """The account's `project_limits` pair and its block: the block is None when it is a bare
+    `project_limits:`; a block the moved line cannot be added to is refused."""
+    held = pair(holder, PROJECT)
+    assert held is not None
+    node_key, value = held
+    if MARKED.search(strip_comment(lines[node_key.start_mark.line])):
+        raise refuse(
+            f"{where}.{PROJECT}",
+            "the block has an anchor or an alias, which cannot be edited by lines",
+        )
+    if isinstance(value, yaml.MappingNode):
+        if value.flow_style:
+            raise refuse(
+                f"{where}.{PROJECT}",
+                "a flow-style block cannot be edited without rewriting the line",
+            )
+        if any(child.tag == MERGE_TAG for child, _ in value.value):
+            raise refuse(
+                f"{where}.{PROJECT}", "it uses a merge key, which cannot be edited by lines"
+            )
+        return node_key, value
+    if not (
+        isinstance(value, yaml.ScalarNode)
+        and value.tag == _NULL_TAG
+        and strip_comment(lines[node_key.start_mark.line]).rstrip().endswith(":")
+    ):
+        raise refuse(f"{where}.{PROJECT}", "the block is not a mapping of settings")
+    return node_key, None
+
+
+def _move_account_slots(text: str) -> str:
+    """Move `max_units_in_progress` under each account, with its end-of-line comment and the
+    comment lines directly above it, into the account's `project_limits`: appended to the block
+    when it exists, else a new block where the key was. Both places set, or a key that cannot be
+    moved by lines, is refused; the result is checked against the document with the key moved."""
+    try:
+        documents = list(yaml.compose_all(text))
+    except yaml.YAMLError:
+        return text  # the other edits report a file that does not parse
+    if len(documents) > 1:
+        if any(
+            isinstance(doc, yaml.MappingNode)
+            and any(pair(holder, DEPRECATED_ACCOUNT_SLOTS) for _, _, holder in account_holders(doc))
+            for doc in documents
+        ):
+            raise refuse("abk.yaml", "the file holds several documents, and only one can be edited")
+        return text
+    root = documents[0] if documents else None
+    if not isinstance(root, yaml.MappingNode):
+        return text
+    lines = split_lines(text)
+    eol = "\r\n" if "\r\n" in text else "\n"
+    before = yaml.safe_load(text)
+    seen: set[int] = set()
+    # The lowest account first, so the lines above it are where the parse found them.
+    for path, holder_key, holder in reversed(account_holders(root)):
+        found = pair(holder, DEPRECATED_ACCOUNT_SLOTS)
+        if found is None:
+            continue
+        where = ".".join(path)
+        key, value = found
+        if id(holder) in seen:
+            raise _slots_refusal(
+                where,
+                "the account is reached by two paths, which cannot be edited by lines (an alias)",
+            )
+        seen.add(id(holder))
+        opened(lines, holder_key, holder, where, "the account")
+        held = pair(holder, PROJECT)
+        if (
+            held is not None
+            and isinstance(held[1], yaml.MappingNode)
+            and pair(held[1], DEPRECATED_ACCOUNT_SLOTS) is not None
+        ):
+            raise _slots_refusal(
+                where,
+                f"`{DEPRECATED_ACCOUNT_SLOTS}` and `{PROJECT}.{DEPRECATED_ACCOUNT_SLOTS}` are "
+                "both set; keep one",
+            )
+        line = key.start_mark.line
+        if lines[line][key.start_mark.column :].split(":")[0] != DEPRECATED_ACCOUNT_SLOTS:
+            raise _slots_refusal(where, "it is quoted or written across lines, so it is not moved")
+        if MARKED.search(strip_comment(lines[line])):
+            raise _slots_refusal(where, "it has an anchor or an alias, which cannot be moved")
+        if value.start_mark.line != line or value.end_mark.line != line:
+            raise _slots_refusal(where, "its value is on more than one line, so it is not moved")
+        if isinstance(value, yaml.ScalarNode) and value.tag == _NULL_TAG:
+            raise _slots_refusal(where, "it has no value, so delete the line")
+        first, last = region(lines, line, holder_key.start_mark.line)
+        step = key.start_mark.column - holder_key.start_mark.column
+        if held is None:
+            new = [
+                " " * key.start_mark.column + f"{PROJECT}:",
+                *shifted(lines[first : last + 1], step),
+            ]
+            _relocate(lines, first, last, first, new, eol)
+            continue
+        target_key, block = _slots_target(lines, holder, where)
+        at = node_end(lines, target_key.start_mark.line, target_key.start_mark.column) + 1
+        indent = (
+            key.start_mark.column + step if block is None else block.value[0][0].start_mark.column
+        )
+        shift = indent - key.start_mark.column
+        _relocate(lines, first, last, at, shifted(lines[first : last + 1], shift), eol)
+    result = joined(lines, text)
+    differs = refuse(
+        "abk.yaml",
+        "the edited text would differ from the file in more than the move; a "
+        f"`{DEPRECATED_ACCOUNT_SLOTS}` key behind a merge key or an alias cannot be edited by "
+        "lines",
+    )
+    try:
+        written = yaml.safe_load(result)
+    except yaml.YAMLError as error:
+        raise refuse("abk.yaml", f"the edited text would not parse ({error})") from error
+    try:
+        expected = alias_runtimes_account_slots(before)
     except ValueError as error:
         raise differs from error
     if written != expected:

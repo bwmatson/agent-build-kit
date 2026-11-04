@@ -22,8 +22,15 @@ runtimes:
       kit:
         config_dir: $HOME/.claude-kit         # an absolute path
         usage_limits: {}                      # this plan's usage thresholds
-        max_units_in_progress: 3
+        project_limits:                       # same block as the top-level project_limits
+          max_units_in_progress: 3
 ```
+
+An account's `project_limits` takes the same four settings as the workspace-wide block;
+`max_concurrent_stacks`, `max_concurrent_restacks` and `emergency_extra` are counted for the account
+across its projects, beside each project's own cap, and its `max_units_in_progress` replaces the
+project's value for the account's slot. A `max_units_in_progress` written directly under the account
+is deprecated; `abk config --migrate` moves it.
 
 A `config_dir` in the committed `abk.yaml` is refused. A person with one account sets nothing:
 a label with no `config_dir` on their machine falls back to the default account, with the

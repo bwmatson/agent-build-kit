@@ -36,11 +36,17 @@ run or a usage pause left `running` from their threads and build the ready
 units, up to `project_limits.max_concurrent_stacks` at once in each project. No unit that has never
 started does while the units in progress in its project are at
 `project_limits.max_units_in_progress` (or, once an installation names a Claude account, in its account,
-against that account's own `max_units_in_progress`), and a pass starts no more than fit under it;
+against that account's value: an account's `max_units_in_progress` replaces the project's value for the
+account's slot), and a pass starts no more than fit under it;
 the tick log and `abk status` then say "queue is full: N units in progress,
 limit M" followed by the count in each state, and, while the project's emergency lane
 (`project_limits.emergency_extra`) has room, that a priority-0 unit may still start; a unit in
-the lane is shown as `emergency room N/M used by <unit>`. There is one such line for each project at its
+the lane is shown as `emergency room N/M used by <unit>` (and, for an account that sets its own
+`emergency_extra`, `N/M` for the account). An account's `project_limits` takes the same four settings
+as the top level: its `max_concurrent_stacks`, `max_concurrent_restacks` and `emergency_extra` are
+counted for the account across its projects, beside each project's own cap, and a unit needs room
+under both, and a unit held by the account's cap says so in its wait reason; its
+`max_units_in_progress` replaces the project's value for the account's slot. There is one such line for each project at its
 limit, and a workspace with several projects names the project in it
 (`queue is full: app/web: 9 units in progress, limit 9 (...)`); each line lists only its own
 project's blocked and failed-waiting units, and the reason a pass started nothing names only
@@ -854,10 +860,11 @@ planned or rewritten before you have seen what it would do:
 
 1. `abk config --migrate` moves the settings still under their old names (the root `limits`
    block and the numbered test-tier keys) to `global_limits`, `project_limits` and the
-   `unit_test_*` and `e2e_*` names, `max_unit_lines` to `review.ceilings.full`, and a flat
-   `models:` block under `runtimes.<name>.models`. It also renames the deprecated `limits` under a
-   runtime and under each of its accounts to `usage_limits`, and for `abk.local.yaml` it prints each
-   line to change and leaves the file alone.
+   `unit_test_*` and `e2e_*` names, `max_unit_lines` to `review.ceilings.full`, an account's
+   `max_units_in_progress` into its `project_limits`, and a flat `models:` block under
+   `runtimes.<name>.models`. It also renames the deprecated `limits` under a runtime and under each of
+   its accounts to `usage_limits`, and for `abk.local.yaml` it prints each line to change and leaves
+   the file alone.
 2. `abk tags --fix --all`, before any replan. It does not make a plan stale, since the sizing digest ignores
    how a tag is spelled, and it clears the old-tag warnings `abk tags` and `abk check` print;
    the plans made in the later steps are then read from the new spelling.
@@ -1076,8 +1083,13 @@ becomes `global_limits`, and the three scheduling settings left in it move to
 block and the `tests` blocks, gets its test-kind name (`unit_test_*`, `e2e_*`), in the same change. `max_unit_lines` moves to
 `review.ceilings.full`, and a flat `models:` block moves under `runtimes.<name>.models`.
 In the same edit `limits` under each `runtimes.<name>` and each `runtimes.<name>.accounts.<label>`
-is renamed `usage_limits`; for `abk.local.yaml` it prints each line to change and leaves the
-file as it is. A file that sets both spellings of one setting, or a block with an anchor, a merge key or
+is renamed `usage_limits`, and an account's `max_units_in_progress` moves into its `project_limits` block
+(appended to the block when the account has one, a new block where the key was when it has not), with its
+comments; an account that sets both places is refused (`accounts.<label>.max_units_in_progress` is
+deprecated for `accounts.<label>.project_limits.max_units_in_progress`, and `abk config`, `abk doctor` and
+the loader say so). `abk.local.yaml` is never edited by `--migrate`: it, `abk config` and `abk doctor` print
+each line of it (the file, the line and the key) that is left to change by hand.
+A file that sets both spellings of one setting, or a block with an anchor, a merge key or
 flow style, is refused. It prints the diff and asks; `--yes` skips the question and `--dry-run`
 prints the diff and writes nothing. The first original is kept as `abk.yaml.abk-backup`,
 and the write goes through a temporary file. Exit 0 when it wrote or had nothing to do,

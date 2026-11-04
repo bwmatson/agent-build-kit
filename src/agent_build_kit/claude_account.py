@@ -19,7 +19,6 @@ from pydantic import AliasChoices
 from agent_build_kit import settings as settings_module
 from agent_build_kit.config import (
     CLAUDE_CODE,
-    AccountConfig,
     ClaudeLimitsConfig,
     ConfigError,
     ProjectLimitsConfig,
@@ -194,18 +193,8 @@ def resolve_in(config: WorkspaceConfig, label: str | None) -> Account:
         label=label,
         config_dir=named.config_dir,
         usage_limits=named.usage_limits,
-        project_limits=_block_of(named),
+        project_limits=named.project_limits,
     )
-
-
-def _block_of(named: AccountConfig) -> ProjectLimitsConfig:
-    """The account's project limits, with the earlier `max_units_in_progress` key read as the
-    block's own when the block does not set it."""
-    block = named.project_limits
-    old = named.max_units_in_progress
-    if old is None or "max_units_in_progress" in block.model_fields_set:
-        return block
-    return block.model_copy(update={"max_units_in_progress": old})
 
 
 def in_use(config: WorkspaceConfig) -> list[Account]:

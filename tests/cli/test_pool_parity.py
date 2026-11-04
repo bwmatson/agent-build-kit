@@ -55,7 +55,9 @@ def accounts_workspace(tmp_path: Path, **_: int) -> Installation:
         tmp_path,
         planning={"state_dir": ".", "worktree_root": str(tmp_path.parent / "trees")},
         repos=repos(tmp_path, {"app": "kit"}),
-        runtimes={"claude_code": {"accounts": kit(tmp_path, max_units_in_progress=1)}},
+        runtimes={
+            "claude_code": {"accounts": kit(tmp_path, project_limits={"max_units_in_progress": 1})}
+        },
         project_limits={"max_concurrent_stacks": 4, "max_units_in_progress": 5},
     )
 
