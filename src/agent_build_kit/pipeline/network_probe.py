@@ -162,12 +162,15 @@ class HostProbe(Frozen):
     error: str = ""
 
 
-def _batch_ssh(checkout: Path) -> str:
+def _batch_ssh(checkout: Path) -> str | None:
     """The ssh command a push of `checkout` runs, told never to ask a question: the one in the
-    environment, else the repo's configured one, else plain `ssh`."""
+    environment, else the repo's configured one, else plain `ssh`. None when `GIT_SSH` names the
+    program and no command is set: a command would replace it, so it is left alone."""
     configured = shell.git(checkout, "config", "--get", "core.sshCommand", check=False)
-    command = os.environ.get("GIT_SSH_COMMAND") or configured.stdout.strip() or "ssh"
-    return f"{command} -o BatchMode=yes"
+    command = os.environ.get("GIT_SSH_COMMAND") or configured.stdout.strip()
+    if command:
+        return f"{command} -o BatchMode=yes"
+    return None if os.environ.get("GIT_SSH") else "ssh -o BatchMode=yes"
 
 
 def code_host_healthy(checkout: Path, *, timeout: float, run: Run | None = None) -> HostProbe:
@@ -184,11 +187,9 @@ def code_host_healthy(checkout: Path, *, timeout: float, run: Run | None = None)
         if not checkout.is_dir() or not shell.has_origin(checkout):
             return HostProbe(healthy=True)
         remote = restack.push_target(checkout)
-        env = {
-            **untranslated_env(),
-            "GIT_TERMINAL_PROMPT": "0",
-            "GIT_SSH_COMMAND": _batch_ssh(checkout),
-        }
+        env = {**untranslated_env(), "GIT_TERMINAL_PROMPT": "0"}
+        if (ssh := _batch_ssh(checkout)) is not None:
+            env["GIT_SSH_COMMAND"] = ssh
         limit = timeout * CODE_HOST_TIMEOUT_FACTOR
         try:
             result = runner(

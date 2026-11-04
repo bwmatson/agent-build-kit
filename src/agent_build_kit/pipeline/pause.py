@@ -294,8 +294,10 @@ class HostOutage(Frozen):
     Keyed by the host of a repo's push remote, so it pauses the repos on that host and no other.
     `repo` is the repo whose checkout the probe runs from. `last_checked` is the last probe, or
     the failure that wrote the marker before the first; `failed_probes` counts the probes that
-    failed in a row. A marker a passing probe ended is kept with `cleared_at`, which is how every
-    unit that parked before it knows its own backoff is over; it is in force only without one.
+    failed in a row; a pass leaves them as they are, so an outage that comes back keeps counting.
+    A marker a passing probe ended is kept with `cleared_at`, which is how every unit that parked
+    before it knows its own backoff is over; it is in force only without one. `flaps` counts the
+    times a unit parked again soon after a pass, which reopens the same outage (`note_host_outage`).
     """
 
     host: str
@@ -304,6 +306,7 @@ class HostOutage(Frozen):
     last_error: str
     last_checked: datetime
     failed_probes: int = 0
+    flaps: int = 0
     cleared_at: datetime | None = None
 
     @property
@@ -358,19 +361,48 @@ def host_released_at(state_dir: Path, host: str) -> datetime | None:
     return held.cleared_at if held is not None else None
 
 
+# How soon after a pass a refusal is the same outage again: the longest wait of the ladder. A
+# unit released by a pass pushes and parks within a refresh or two, and a probe is never more than
+# this far apart, so a gap longer than it is a host that really answered for a while.
+REOPEN_WITHIN = PARK_BACKOFF[-1]
+
+
 def note_host_outage(
-    state_dir: Path, host: str, *, repo: str, error: str, now: datetime
+    state_dir: Path,
+    host: str,
+    *,
+    repo: str,
+    error: str,
+    now: datetime,
+    reopen_within: timedelta = REOPEN_WITHIN,
 ) -> HostOutage:
     """Record that `host` refused or could not be reached, for `repo`: a unit parking, or a fetch.
 
-    A marker in force keeps when it began and its probes and takes the new error; one that a
-    probe ended, or none, is a new outage.
+    A marker in force keeps when it began and its probes and takes the new error. One a probe
+    ended less than `reopen_within` ago is the same outage again, which a read that passes while
+    the push is refused makes of a read-only key: it is reopened with its `since` and counts, one
+    more failure and one more flap, so the wait keeps growing and the outage limit counts from the
+    first refusal. Any other, or none, is a new outage.
     """
     marker = code_host_marker(state_dir, host)
     with _locked(marker):
         held = _read_host(marker)
         if held is not None and held.in_force:
             noted = held.model_copy(update={"last_error": error})
+        elif (
+            held is not None
+            and held.cleared_at is not None
+            and now - held.cleared_at < reopen_within
+        ):
+            noted = held.model_copy(
+                update={
+                    "last_error": error,
+                    "last_checked": now,
+                    "failed_probes": held.failed_probes + 1,
+                    "flaps": held.flaps + 1,
+                    "cleared_at": None,
+                }
+            )
         else:
             noted = HostOutage(host=host, repo=repo, since=now, last_error=error, last_checked=now)
         _write_host(marker, noted)
@@ -388,7 +420,7 @@ def record_host_probe(
         if held is None or not held.in_force:
             return None
         if healthy:
-            _write_host(marker, held.model_copy(update={"cleared_at": now, "failed_probes": 0}))
+            _write_host(marker, held.model_copy(update={"cleared_at": now}))
             return None
         failed = held.model_copy(
             update={

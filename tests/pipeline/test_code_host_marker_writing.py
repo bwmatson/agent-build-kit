@@ -66,7 +66,7 @@ def test_a_push_that_could_not_reach_the_host_writes_it_when_the_control_group_a
     probe.answer = Reachability(api=False, control=True)
     store = fresh_store(tmp_path)
     error = NetworkUnavailable(
-        "Connection timed out", strength="weak", host=GITHUB, port=22, service="code_host"
+        "Connection timed out", strength="weak", host=GITHUB, service="code_host"
     )
 
     build_once(tmp_path, monkeypatch, store, push=raising(error))
@@ -83,7 +83,7 @@ def test_a_network_that_is_down_writes_the_network_pause_and_no_host_marker(
     probe.answer = Reachability(api=False, control=False)
     store = fresh_store(tmp_path)
     error = NetworkUnavailable(
-        "Connection timed out", strength="weak", host=GITHUB, port=22, service="code_host"
+        "Connection timed out", strength="weak", host=GITHUB, service="code_host"
     )
 
     build_once(tmp_path, monkeypatch, store, push=raising(error))

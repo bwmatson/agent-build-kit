@@ -83,7 +83,7 @@ from agent_build_kit.notify.windows import (
 )
 from agent_build_kit.path_discovery import checkout_root, find_up
 from agent_build_kit.path_patterns import matches, normalize
-from agent_build_kit.pipeline import agent_commands, code_host, lock_probe, mounts, spans
+from agent_build_kit.pipeline import agent_commands, code_host, lock_probe, mounts, pause, spans
 from agent_build_kit.pipeline.e2e import dimension_lines
 from agent_build_kit.pipeline.e2e_holds import HELD_FILE, current_holds, hold_text
 from agent_build_kit.pipeline.environment import matched_inputs
@@ -1100,7 +1100,9 @@ def _code_host_outage(inst: Installation) -> list[Check]:
             CODE_HOST_OUTAGE,
             code_host.outage_text(each, now),
             f"check that the SSH key or agent a push to {each.host} uses is loaded and accepted "
-            f"(`ssh -T` to {each.host}); the units wait and resume when it answers",
+            f"(`ssh -T` to {each.host}); a refusal that persists is a key or agent to fix. The "
+            "units wait and resume when it answers; delete "
+            f"{pause.code_host_marker(inst.state_dir, each.host)} to clear a marker that is stuck",
         )
         for each in code_host.long_outages(inst, now)
     ]

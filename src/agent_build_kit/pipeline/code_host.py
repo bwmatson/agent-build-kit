@@ -165,8 +165,14 @@ def past_limit(inst: Installation, marker: pause.HostOutage, now: datetime) -> b
 def outage_text(marker: pause.HostOutage, now: datetime) -> str:
     """The code host, how long it has been down and the last error."""
     minutes = int(marker.down_for(now).total_seconds() // 60)
+    flapped = (
+        f" (cleared {marker.flaps} times by a read that passed, then refused again: "
+        "check the SSH key or agent)"
+        if marker.flaps
+        else ""
+    )
     return (
-        f"the code host {marker.host} has been unreachable for {minutes} minutes: "
+        f"the code host {marker.host} has been unreachable for {minutes} minutes{flapped}: "
         f"{marker.last_error}"
     )
 
