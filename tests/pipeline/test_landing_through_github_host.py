@@ -236,6 +236,7 @@ def test_a_person_s_merge_seen_in_the_listing_is_recorded_with_its_commit_withou
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     pipeline = Pipeline(tmp_path, monkeypatch, checks=GREEN)
+    pipeline.poller.poll()
     by_hand = "e" * 40
     pipeline.state.stored(1).update(
         state="MERGED",

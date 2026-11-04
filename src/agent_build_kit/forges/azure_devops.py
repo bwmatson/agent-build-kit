@@ -991,6 +991,12 @@ def _view(pull: PullRequestDoc) -> PullRequest:
         # `null`, not `[]`, when a pull request has none.
         labels=tuple(sorted(label.name for label in pull.labels or [])),
         review_decision=_decision(pull.reviewers),
+        # Only a completed one's: an open pull request's is the host's trial merge.
+        merge_commit=(
+            pull.last_merge_commit.commit_id
+            if pull.status == "completed" and pull.last_merge_commit
+            else None
+        ),
         # `conversation` and the checks are filled in for the open ones by
         # `_said_on`: each needs calls per pull request.
     )

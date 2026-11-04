@@ -37,11 +37,6 @@ class MergeDoc(_Rest):
     sha: str
 
 
-class MergedPullDoc(_Rest):
-    merged: bool = False
-    merge_commit_sha: str | None = None
-
-
 class ReviewDoc(_Rest):
     id: int
     node_id: str = ""
@@ -137,6 +132,18 @@ class CommitEdge(_Graph):
     commit: CommitNode
 
 
+class OidNode(_Graph):
+    oid: str
+
+
+class MergedPull(_Graph):
+    """Whether a pull request merged and the commit its merge produced: the GraphQL
+    `mergeCommit`, which REST API versions do not remove."""
+
+    merged: bool = False
+    merge_commit: OidNode | None = None
+
+
 class PullNode(_Graph):
     number: int
     title: str | None = None
@@ -152,6 +159,7 @@ class PullNode(_Graph):
     comments: Connection[CommentNode] | None = None
     reviews: Connection[ReviewNode] | None = None
     commits: Connection[CommitEdge] | None = None
+    merge_commit: OidNode | None = None
 
 
 class PageInfo(_Graph):

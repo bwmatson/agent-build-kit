@@ -278,12 +278,15 @@ def on_merged(
     cause: Cause = Cause.MERGED,
     landing_path: Path | None = None,
     merge_record: MergeRecord | None = None,
+    merge_commit: str | None = None,
     log: Log = print,
 ) -> bool:
     """Record the merge, move what was stacked on it, then clean up after it.
 
     `cause` is why it merged: a person's merge, or the pipeline's own landing. A
-    unit already recorded merged changes nothing and returns True.
+    unit already recorded merged changes nothing and returns True. `merge_commit` is the
+    commit the merge produced when the caller holds it (the merge's own answer, the listing's
+    snapshot), so the merge record does not ask the forge for it.
 
     False when the merged unit is itself being built — a rework someone
     merged over — so the poller reports the merge again once it has finished.
@@ -329,6 +332,7 @@ def on_merged(
                 resume=resume,
                 lane=lane,
                 merge_record=merge_record,
+                merge_commit=merge_commit,
                 log=log,
             )
         if landing_path is not None:
@@ -345,10 +349,12 @@ def on_settled(
     store: UnitStore,
     claim: Claim = _unclaimed,
     merge_record: MergeRecord | None = None,
+    merge_commit: str | None = None,
     log: Log = print,
 ) -> bool:
     """Every check of a settling unit's merged pull request has completed clean: the unit
-    becomes merged, with the tick that saw it settle. A unit not settling changes nothing."""
+    becomes merged, with the tick that saw it settle. A unit not settling changes nothing.
+    `merge_commit` is the commit the listing's snapshot carries, if any."""
     unit = _find(store, repo, pr)
     if unit is None or unit.state != SETTLING:
         return True
@@ -357,7 +363,7 @@ def on_settled(
             current = store.get(unit.id)
             if current.state != SETTLING:
                 return True
-            settle_merged(store, current, merge_record)
+            settle_merged(store, current, merge_record, merge_commit=merge_commit)
             log(f"settled #{pr}: {current.id} merged, every check complete")
     except BranchBusy as error:
         return _deferred(f"settled #{pr}", unit, error, log)
@@ -365,11 +371,19 @@ def on_settled(
 
 
 def settle_merged(
-    store: UnitStore, unit: StoredUnit, merge_record: MergeRecord | None, *, note: str = ""
+    store: UnitStore,
+    unit: StoredUnit,
+    merge_record: MergeRecord | None,
+    *,
+    note: str = "",
+    merge_commit: str | None = None,
 ) -> None:
     """Record a settling unit as merged, with the merge commit and the tick that saw it settle:
     the one way a unit leaves `settling` for `merged`, whether its checks completed, its
-    failure was fixed on the base, or a person accepted the wait."""
+    failure was fixed on the base, or a person accepted the wait. A unit with no stored merge
+    commit takes `merge_commit` (the listing's) before the forge is asked."""
+    if merge_commit and not unit.merge_sha:
+        unit = unit.model_copy(update={"merge_sha": merge_commit})
     sha, tick = merge_record(unit) if merge_record is not None else (None, None)
     store.set_merge_record(unit.id, unit.merge_sha or sha, tick)
     store.set_state(unit.id, MERGED, note=note, cause=KEEP)
@@ -468,6 +482,7 @@ def on_late_check(
                     current,
                     merge_record,
                     note=f"late failure fixed on the base: check {names}: {excerpt}".strip(),
+                    merge_commit=pull.merge_commit if pull else None,
                 )
                 log(f"late check #{pr}: {current.id} merged, {names} fixed on the base")
                 return True
@@ -812,6 +827,14 @@ def _remove_leaving(
         log(f"{leaving.id}: branch {old_base} left in place — {error}")
 
 
+def _commit_in_hand(event: dict[str, Any]) -> str | None:
+    """The merge commit an event carries: one its sender names (a landing, from the merge's
+    own answer), else the one in the pull request snapshot the poller saw."""
+    pull = event.get("pull")
+    named = event.get("merge_commit")
+    return named or (pull.merge_commit if isinstance(pull, PullRequest) else None)
+
+
 def _with_merge(unit: StoredUnit, sha: str | None) -> tuple[Pull, ...]:
     """The unit's pull requests with the active one marked merged, listed if it was not yet."""
     now = spans.clock.now()
@@ -843,12 +866,15 @@ def _record_merge(
     resume: Resume,
     lane: Lane | None,
     merge_record: MergeRecord | None,
+    merge_commit: str | None,
     log: Log,
 ) -> None:
-    sha = None
+    # The commit in hand is the merge's own answer or the listing's; the record asks the
+    # forge only when there is none.
+    sha = merge_commit or merged.merge_sha
     if merge_record is not None:
         # The tick is set when the unit settles, not when its pull request merges.
-        sha, _ = merge_record(merged)
+        sha, _ = merge_record(merged.model_copy(update={"merge_sha": sha}))
         store.set_merge_record(merged.id, sha, None)
     if merged.pr is not None:
         store.set_pulls(merged.id, _with_merge(merged, sha))
@@ -2594,6 +2620,7 @@ def build_dispatch(
                 lane=lane,
                 landing_path=landing_path,
                 merge_record=merge_record,
+                merge_commit=_commit_in_hand(kwargs),
                 log=log,
             )
         if event == "settled":
@@ -2603,6 +2630,7 @@ def build_dispatch(
                 store=store,
                 claim=claim,
                 merge_record=merge_record,
+                merge_commit=_commit_in_hand(kwargs),
                 log=log,
             )
         if event == "late_check":

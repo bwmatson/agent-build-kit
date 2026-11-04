@@ -44,7 +44,10 @@ def with_outcome(
     elif unit.state is not UnitState.MERGED:
         outcome = Outcome.OPEN
     else:
-        merge = forge.merge_commit(repo, unit.pr) if unit.pr is not None else None
+        # The stored commit when the merge recorded one; the forge only for a unit without.
+        merge = unit.merge_sha
+        if merge is None and unit.pr is not None:
+            merge = forge.merge_commit(repo, unit.pr)
         found = (
             reverts_merge(checkout, trunk=trunk, merge_commit=merge, repo=repo, pr=unit.pr or 0)
             if merge

@@ -107,6 +107,7 @@ def test_a_repository_s_listing_is_the_same_records_as_before() -> None:
             base="spec/other/0",
             state=MERGED,
             mergeable=True,
+            merge_commit=gh.merge_commit_of(157),
         ),
         PullRequest(
             number=158,
@@ -152,6 +153,7 @@ def test_the_query_asks_for_everything_a_record_is_made_of() -> None:
         "state",
         "isDraft",
         "mergedAt",
+        "mergeCommit",
         "labels",
         "comments",
         "reviews",

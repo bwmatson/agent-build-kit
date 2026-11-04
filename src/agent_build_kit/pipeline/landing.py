@@ -69,8 +69,9 @@ def _land_unit(
         say(f"{unit.id}: not landed — no pull request #{unit.pr} listed")
         return False
     if pull.state == MERGED:
-        # A person merged it before the poll saw it: record it, merge nothing.
-        dispatch("merged", unit.pr, repo=unit.repo)
+        # A person merged it before the poll saw it: record it, merge nothing. The listing's
+        # snapshot carries the merge commit, where the host's listing has it.
+        dispatch("merged", unit.pr, repo=unit.repo, pull=pull)
         return True
     entry = latest_verdict(inst.state_dir / VERDICTS, unit.id)
     final = entry if entry is not None and entry.final else None
@@ -131,7 +132,7 @@ def _land_unit(
         say(f"{unit.id}: not landed — {error}")
         return False
     try:
-        forge.merge_pr(repo_id, unit.pr, head=unit.approved)
+        merged = forge.merge_pr(repo_id, unit.pr, head=unit.approved)
     except MergeRefused as refusal:
         landing_intent.clear_intent(intents, repo=unit.repo, pr=unit.pr)
         store.record_event(unit.id, "landing_refused", refusal.reason)
@@ -143,26 +144,27 @@ def _land_unit(
         if forge.merge_commit(repo_id, unit.pr) is None:
             landing_intent.clear_intent(intents, repo=unit.repo, pr=unit.pr)
         raise
-    dispatch("merged", unit.pr, repo=unit.repo)
+    # The commit the host answered the merge with: neither the record nor the sample asks again.
+    dispatch("merged", unit.pr, repo=unit.repo, merge_commit=merged)
     say(f"{unit.id}: landed without a person")
     if final is not None:
-        _sample_for_audit(inst, forge, repo_id, unit, final, review, say)
+        _sample_for_audit(inst, merged, unit, final, review, say)
         _announce(forge, repo_id, unit.id, unit.pr, final, say)
     return True
 
 
 def _sample_for_audit(
     inst: Installation,
-    forge: Forge,
-    repo_id: RepoId,
+    merged: str,
     unit: StoredUnit,
     verdict: VerdictEntry,
     review: config.ReviewConfig,
     say: Callable[[str], None],
 ) -> None:
-    """Record the landed unit as awaiting audit when it is picked; best-effort."""
+    """Record the landed unit as awaiting audit when it is picked, seeded on `merged`, the
+    commit the merge produced; best-effort."""
     try:
-        commit = forge.merge_commit(repo_id, unit.pr or 0) or unit.approved or ""
+        commit = merged or unit.approved or ""
         if picked(unit.id, commit, review.audit.sample_rate):
             audit_record.record_awaiting(
                 inst.state_dir / audit_record.AUDITS,
