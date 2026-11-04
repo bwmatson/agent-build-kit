@@ -119,6 +119,8 @@ READ_FROM: dict[type[_Rest], list[Endpoint]] = {
     github_models.StackDoc: [
         Endpoint("pulls", "stacks_create"),
         Endpoint("pulls", "stacks_list"),
+        Endpoint("pulls", "stacks_add"),  # add_to_stack
+        Endpoint("pulls", "stacks_get"),
     ],
     github_models.StackPullDoc: [
         Endpoint("pulls", "stacks_create", via=("pull_requests",)),

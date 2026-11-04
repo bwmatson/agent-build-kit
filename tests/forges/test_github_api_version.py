@@ -18,10 +18,12 @@ import inspect
 
 import httpx
 import pytest
-from githubkit import GitHub
+from githubkit.versions import LATEST_VERSION
 
+from agent_build_kit.config import RepoConfig
 from agent_build_kit.forges.base import Label, PullRequest, RepoId
 from agent_build_kit.forges.github import GitHubForge
+from agent_build_kit.settings import settings
 from tests.check_lists import failed_list
 from tests.forges import github_answers as gh
 from tests.forges.github_host import GitHubHost, answer, urlhost
@@ -34,27 +36,40 @@ REPO = RepoId(forge="github", account="example", name="app")
 BASE = "/repos/example/app"
 HEADER = "x-github-api-version"
 
-# Public operations of the forge that make no REST request, each with its reason.
-# Every other public operation is driven below and must reach the host over REST.
-NO_REST = {
+# Public operations that make no REST request, each with its reason. Every other public
+# operation is driven below and must make at least one. Each name here is checked to exist and,
+# driven, to add no REST request, so one that moves to REST stops escaping the version check.
+GRAPHQL_ONLY = {
+    "list_prs": "one GraphQL query per page",
+    "merge_commit": "one GraphQL read",
+}
+NO_REQUEST = {
     "api_url": "reads settings",
     "parse_remote": "parses a URL",
     "identity": "reads configuration",
     "config_entry": "builds a dict",
     "web_url": "builds a URL",
     "browse_url": "builds a URL",
-    "check_access": "GraphQL only",
+    "check_access": "reads the credential only",
     "access_fix": "returns text",
-    "list_prs": "GraphQL only",
-    "merge_commit": "GraphQL only",
 }
 
 
-def client_version() -> str:
-    """The version the client's generated methods send: read off the generated
-    namespace `gh.rest` resolves to, which is the one the forge calls."""
-    client = GitHub("token")
-    return str(client.rest.pulls._REST_API_VERSION)  # pyrefly: ignore[missing-attribute]
+def observed_version() -> str:
+    """The version a generated method sends, read off its request over the mock transport
+    (`find_pr` is `pulls.list`), not off the library's constants."""
+    host = GitHubHost(routes={("GET", f"{BASE}/pulls"): answer([])})
+    GitHubForge(http=host).find_pr(REPO, head="spec/x/1")
+    [call] = host.calls("GET", f"{BASE}/pulls")
+    sent = call.headers.get(HEADER)
+    assert sent, "a generated request carries a version"
+    return sent
+
+
+def test_the_library_s_latest_version_is_what_its_generated_methods_send() -> None:
+    """The forge's raw request takes `LATEST_VERSION`; this ties it to what the generated
+    methods really send, so the two cannot drift apart."""
+    assert str(LATEST_VERSION) == observed_version()
 
 
 def host_with_everything() -> GitHubHost:
@@ -85,8 +100,9 @@ def host_with_everything() -> GitHubHost:
     )
 
 
-def drive(forge: GitHubForge) -> dict[str, object]:
-    """Each public operation that reaches the host, by name, with what it answered."""
+def drive(host: GitHubHost) -> dict[str, list[Seen]]:
+    """Each driven public operation, by name, with the REST requests it made."""
+    forge = GitHubForge(http=host)
     pull = PullRequest(
         number=7, head="spec/x/1", base="main", state="open", checks=failed_list("pre-commit")
     )
@@ -121,63 +137,109 @@ def drive(forge: GitHubForge) -> dict[str, object]:
         "close_pr": lambda: forge.close_pr(REPO, 7),
         "delete_remote_branch": lambda: forge.delete_remote_branch(REPO, "spec/x/1"),
     }
-    answers: dict[str, object] = {}
+    made: dict[str, list[Seen]] = {}
     for name, call in calls.items():
+        before = len(host.seen)
         try:
-            answers[name] = call()
-        except Exception as error:  # noqa: BLE001 - a refusal still sent its request
-            answers[name] = error
-    return answers
+            call()
+        except Exception:  # noqa: BLE001, S110 - a refusal still sent its request
+            pass
+        made[name] = rest_requests(host, host.seen[before:])
+    return made
 
 
-def rest_requests(host: GitHubHost) -> list[Seen]:
+def rest_requests(host: GitHubHost, seen: list[Seen] | None = None) -> list[Seen]:
     """What reached the GitHub API over REST: not GraphQL, not the log storage."""
-    return [s for s in host.seen if s.path != GRAPHQL and s.host != urlhost(STORAGE)]
+    return [
+        s
+        for s in (host.seen if seen is None else seen)
+        if s.path != GRAPHQL and s.host != urlhost(STORAGE)
+    ]
 
 
 def test_every_public_operation_is_driven_or_named_as_making_no_rest_request() -> None:
+    # Only what GitHubForge itself defines: not the helpers it inherits from the Forge base.
     public = {
         name
         for name, member in inspect.getmembers(GitHubForge, inspect.isfunction)
         if not name.startswith("_") and member.__qualname__.startswith("GitHubForge.")
     }
-    # The Forge base's own helpers are not the forge's operations.
-    probe = drive(GitHubForge(http=host_with_everything()))
+    driven = set(drive(host_with_everything()))
 
-    unlisted = public - set(probe) - set(NO_REST)
-    assert not unlisted, f"operations neither driven nor exempt, with a reason: {sorted(unlisted)}"
+    exempt = set(GRAPHQL_ONLY) | set(NO_REQUEST)
+    assert not public - driven - exempt, (
+        f"neither driven nor exempt: {sorted(public - driven - exempt)}"
+    )
+    assert not exempt - public, (
+        f"exempt names that are not operations now: {sorted(exempt - public)}"
+    )
+    assert not driven & exempt, f"driven and exempt: {sorted(driven & exempt)}"
+
+
+def test_every_driven_operation_makes_a_rest_request() -> None:
+    made = drive(host_with_everything())
+
+    silent = [name for name, requests in made.items() if not requests]
+    assert not silent, (
+        f"operations that sent no REST request, so are never version-checked: {silent}"
+    )
+
+
+def test_the_exempt_operations_make_no_rest_request() -> None:
+    host = host_with_everything()
+    forge = GitHubForge(http=host)
+    repo = RepoConfig(path=".", forge="github", slug="example/app")
+    calls = {
+        "list_prs": lambda: forge.list_prs(REPO),
+        "merge_commit": lambda: forge.merge_commit(REPO, 7),
+        "api_url": lambda: forge.api_url(settings),
+        "parse_remote": lambda: forge.parse_remote("git@github.com:example/app.git"),
+        "identity": lambda: forge.identity(repo),
+        "config_entry": lambda: forge.config_entry(REPO),
+        "web_url": lambda: forge.web_url(REPO, pr=7),
+        "browse_url": lambda: forge.browse_url(REPO, branch="main", path="a"),
+        "check_access": lambda: forge.check_access(REPO),
+        "access_fix": lambda: forge.access_fix(REPO),
+    }
+    assert set(calls) == set(GRAPHQL_ONLY) | set(NO_REQUEST)
+
+    for name, call in calls.items():
+        before = len(host.seen)
+        call()
+        assert not rest_requests(host, host.seen[before:]), f"{name} made a REST request"
 
 
 def test_every_rest_request_carries_the_version_the_client_sends() -> None:
     host = host_with_everything()
+    expected = observed_version()
 
-    drive(GitHubForge(http=host))
+    drive(host)
 
     seen = rest_requests(host)
     assert len(seen) >= 20, "the operations reached the host"
     wrong = [
         f"{s.method} {s.path}: {s.headers.get(HEADER)!r}"
         for s in seen
-        if s.headers.get(HEADER) != client_version()
+        if s.headers.get(HEADER) != expected
     ]
-    assert not wrong, f"requests without the client's API version {client_version()}: {wrong}"
+    assert not wrong, f"requests without the client's API version {expected}: {wrong}"
 
 
 def test_the_stacks_requests_are_among_those_checked() -> None:
     host = host_with_everything()
 
-    drive(GitHubForge(http=host))
+    made = drive(host)
 
-    stacks = [s for s in rest_requests(host) if "/stacks" in s.path]
+    stacks = [s for name in ("stack_of", "create_stack", "add_to_stack") for s in made[name]]
     assert {s.method for s in stacks} == {"GET", "POST"}
     assert len(stacks) == 3
-    assert {s.headers.get(HEADER) for s in stacks} == {client_version()}
+    assert {s.headers.get(HEADER) for s in stacks} == {observed_version()}
 
 
 def test_the_job_log_fetch_is_the_one_request_to_the_storage_host() -> None:
     host = host_with_everything()
 
-    drive(GitHubForge(http=host))
+    drive(host)
 
     stored = [s for s in host.seen if s.host == urlhost(STORAGE)]
     assert stored, "the log redirect was followed to the storage host"

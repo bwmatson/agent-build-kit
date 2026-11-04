@@ -29,6 +29,7 @@ from githubkit.exception import (
     RequestFailed,
 )
 from githubkit.response import Response
+from githubkit.versions import LATEST_VERSION
 from pydantic import BaseModel, ValidationError
 
 from agent_build_kit.budget import cut_tail
@@ -438,15 +439,17 @@ class GitHubForge:
         return _stack(found)
 
     def _stacks(self, repo: RepoId, method: str, path: str = "", **kwargs: Any) -> object:
-        """One call to the pull request stacks API, which githubkit has no typed
-        method for, or StackRefused saying why not."""
+        """One call to the pull request stacks API, or StackRefused saying why not.
+
+        It stays a raw request though githubkit now has typed stacks methods; it sends the
+        client's API version header like every generated method."""
         try:
             with self._on(repo) as gh:
                 return _body(
                     gh.request(
                         method,
                         f"/repos/{key(repo)}/stacks{path}",
-                        headers={_API_VERSION_HEADER: _api_version(gh)},
+                        headers={_API_VERSION_HEADER: _api_version()},
                         **kwargs,
                     )
                 )
@@ -857,11 +860,12 @@ FORGE = GitHubForge()
 _API_VERSION_HEADER = "X-GitHub-Api-Version"
 
 
-def _api_version(gh: GitHub[Any]) -> str:
-    """The REST API version the client's generated methods send, so a raw request speaks
-    the same one and a library upgrade moves every request together. A host that is
-    sent no version answers in its own default, whose payloads can differ."""
-    return str(gh.rest.pulls._REST_API_VERSION)
+def _api_version() -> str:
+    """The REST API version the client's generated methods send (the one `gh.rest` resolves
+    to), so a raw request speaks the same one and a library upgrade moves every request
+    together. A host that is sent no version answers in its own default, whose payloads can
+    differ. A test ties this to the header a generated request carries."""
+    return str(LATEST_VERSION)
 
 
 def _seconds(value: str | None) -> float | None:
