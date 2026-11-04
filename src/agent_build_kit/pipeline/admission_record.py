@@ -48,7 +48,9 @@ class UsageFacts(Frozen):
 class AdmissionRecord(Frozen):
     """One admission (`admitted`), one wait for a slot (`slot`) or one refusal by the unit's own
     account (`usage`). The slot is the account's label (`default` for the default account), or
-    the project's tag when units are counted per project."""
+    the project's tag when units are counted per project. A `slot` record of a unit held by the
+    account's cap on builds at once (`held_by` names the setting) has that cap as its `limit` and
+    the units building as `counted`."""
 
     at: datetime
     kind: Literal["admitted", "slot", "usage", "claim"]
@@ -63,6 +65,7 @@ class AdmissionRecord(Frozen):
     items: tuple[str, ...] = ()
     outcome: str = ""
     reason: str = ""
+    held_by: str = ""
 
 
 class SlotCount(Frozen):

@@ -1407,6 +1407,7 @@ def ready_units(
     extra_workers: Mapping[ProjectKey, int] | None = None,
     slot_of: Callable[[Unit], Hashable] = project_key,
     slot_limit: Callable[[Hashable], int] | None = None,
+    slot_stack_limit: Callable[[Hashable], int | None] | None = None,
     no_worker: Collection[str] = frozenset(),
 ) -> list[Unit]:
     """The planned units that may start right now, in the order to start them.
@@ -1444,11 +1445,20 @@ def ready_units(
     the lane's units count as in progress and running for the units that have never started,
     so ordinary starts wait; a unit already started is held to the workers without them.
     `extra_workers` adds workers to `max_concurrent` for the projects it names and no other.
+    `slot_stack_limit` gives the units of a slot (`slot_of`: an account) that may build at once
+    across its projects, beside each project's `max_concurrent`, or `None` for a slot with no cap;
+    a unit needs room under both, and a unit the slot's cap holds does not start in the lane.
     `no_worker` names running units no run holds (a unit paused for usage): they are in progress
     and hold a place of the limit, and they take no worker.
     """
     running = count_by_project(
         graph, lambda unit: unit.state == RUNNING and unit.id not in no_worker
+    )
+
+    # What the slot's cap counts: the units building, wherever the run is held (a build, or a
+    # restack in the lane).
+    building = count_by(
+        graph, slot_of, lambda unit: unit.state == RUNNING and unit.id not in no_worker
     )
 
     # A unit that was blocked and no longer is draws on the room like a new one.
@@ -1484,9 +1494,13 @@ def ready_units(
     started: list[Unit] = []
     taken: dict[ProjectKey, int] = {}
     drawn: dict[Hashable, int] = {}
+    begun: dict[Hashable, int] = {}
     for unit in ordered:
         key = project_key(unit)
         slot = slot_of(unit)
+        stacks = slot_stack_limit(slot) if slot_stack_limit else None
+        if stacks is not None and building.get(slot, 0) + begun.get(slot, 0) >= stacks:
+            continue
         limit = slot_limit(slot) if slot_limit else max_units_in_progress
         new = not in_progress(unit, graph) or _waits_for_room(unit, graph)
         draws = max_units_in_progress is not None and new
@@ -1498,10 +1512,12 @@ def ready_units(
         ):
             if lane_use.get(key, 0) < emergency_extra and emergency_start(unit, graph, excluded):
                 lane_use[key] = lane_use.get(key, 0) + 1
+                begun[slot] = begun.get(slot, 0) + 1
                 started.append(unit)
             continue
         if draws:
             drawn[slot] = drawn.get(slot, 0) + 1
         taken[key] = taken.get(key, 0) + 1
+        begun[slot] = begun.get(slot, 0) + 1
         started.append(unit)
     return started
