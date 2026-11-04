@@ -383,33 +383,37 @@ def test_the_cap_holds_under_every_one_waiting_and_ending_in_turn(
     assert sorted(restacks.finished) == sorted(f"feature/{n}" for n in range(1, len(keys) + 1))
 
 
-class Counting:
-    """A restack that ends at once and notes the most restacks of the account `kit` at once."""
+class Held:
+    """The restacks of the account `kit` held by the test's fake restacks, which note the most of
+    them under way at once; the restacks of other accounts are only held."""
 
-    def __init__(self) -> None:
+    def __init__(self, restacks: Restacks) -> None:
+        self.restacks = restacks
         self.mutex = threading.Lock()
         self.now = 0
         self.most = 0
-        self.started: list[str] = []
 
     def __call__(self, unit: StoredUnit) -> None:
-        with self.mutex:
-            self.started.append(unit.id)
-            if unit.repo == "app":
+        mine = unit.repo == "app"
+        if mine:
+            with self.mutex:
                 self.now += 1
                 self.most = max(self.most, self.now)
-        with self.mutex:
-            if unit.repo == "app":
-                self.now -= 1
+        try:
+            self.restacks(unit)
+        finally:
+            if mine:
+                with self.mutex:
+                    self.now -= 1
 
 
 def test_handing_over_from_many_threads_to_many_lanes_never_exceeds_the_cap_or_stalls(
     tmp_path: Path, restacks: Restacks
 ) -> None:
-    counting = Counting()
+    held = Held(restacks)
     projects = [WEB, API, DOCS]
     # `platform` (DOCS) is the default account: only the lanes of `app` share the cap.
-    for lanes in lanes_of(Made(tmp_path / "locks", counting), restacks, Caps(kit=1)):
+    for lanes in lanes_of(Made(tmp_path / "locks", held), restacks, Caps(kit=1)):
         numbers = range(1, 61)
 
         def hand(each: RestackLanes, chunk: range) -> None:
@@ -422,6 +426,15 @@ def test_handing_over_from_many_threads_to_many_lanes_never_exceeds_the_cap_or_s
         for thread in threads:
             thread.join(WAIT)
 
+        # Every restack is held, so more than one of the account's under way would show now: the
+        # lanes of `app` have 40 handed over and room for four between them.
+        # (A number that is 2 modulo 3 is handed to DOCS, on the default account.)
+        mine = [unit for unit in lanes.running if int(unit.split("/")[1]) % 3 != 2]
+        assert len(mine) == 1
+        assert held.most == 1
+
+        restacks.release_all()
+
         assert drained_within_the_wait(lanes)
-        assert sorted(counting.started) == sorted(f"feature/{n}" for n in numbers)
-        assert counting.most == 1
+        assert held.most == 1
+        assert sorted(restacks.finished) == sorted(f"feature/{n}" for n in numbers)
