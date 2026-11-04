@@ -74,6 +74,12 @@ def eligibility(
         for change in {unit.change for unit in tombstones.values()}
     }
 
+    by_id = {unit.id for unit in units}
+
+    def has_successor(unit: StoredUnit) -> bool:
+        """Whether a reference to `unit` has somewhere to go: a successor still in the store."""
+        return any(name in by_id for name in unit.superseded_by)
+
     def static_reason(unit: StoredUnit) -> str:
         """The first of conditions 1, 3 and 4 that fails, which do not depend on the others."""
         if unit.has_work:
@@ -113,7 +119,7 @@ def eligibility(
         settled = True
         for uid in sorted(removable):
             unit = tombstones[uid]
-            if references(unit, removable) and not unit.superseded_by:
+            if references(unit, removable) and not has_successor(unit):
                 removable.discard(uid)
                 settled = False
         for change in {tombstones[uid].change for uid in removable}:
@@ -130,7 +136,7 @@ def eligibility(
         for name in unit.superseded_by:
             if name in removable:
                 found.extend(n for n in successors_of(tombstones[name]) if n not in found)
-            elif name not in found:
+            elif name in by_id and name not in found:
                 found.append(name)
         return tuple(found)
 
@@ -139,7 +145,7 @@ def eligibility(
         if unit.has_work:
             return static_reason(unit)
         named = references(unit, removable)
-        if named and not unit.superseded_by:
+        if named and not has_successor(unit):
             by = ", ".join(f"{each.referrer} ({each.field})" for each in named)
             return f"it is referenced by {by} and nothing replaced it to repoint them to"
         return static_reason(unit) or f"it is the last unit of {unit.change}"

@@ -234,3 +234,10 @@ def test_an_archived_change_sweeps_a_tombstone_a_live_unit_carries() -> None:
     found = verdicts(live(groups=(1, 2)), tomb("c/3", groups=(2,)), active=(), archived=(CHANGE,))
 
     assert found["c/3"].eligible
+
+
+def test_a_successor_that_is_not_in_the_store_leaves_a_reference_unrepointable() -> None:
+    found = verdicts(live(depends_on=("c/3",)), tomb("c/3", superseded_by=("c/9",)))
+
+    assert not found["c/3"].eligible
+    assert "referenced" in found["c/3"].reason
