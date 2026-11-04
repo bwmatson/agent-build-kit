@@ -946,6 +946,15 @@ reached over its REST and GraphQL APIs through `githubkit` (`forges/transport.py
 `gh` process: GitHub's listing is one GraphQL query per page, and Azure's reads
 are bounded by a request pool rather than a process count.
 
+On GitHub the commit a merged pull request produced is taken from what the pipeline already
+holds, in this order: the merge request's own answer (the landing keeps it), the pull-request
+listing's `mergeCommit` (the poller records a merge without a further request), and the unit's
+stored `merge_sha`. Only when none carries it does the forge read it, with one GraphQL request,
+because the REST pull payload no longer has `merge_commit_sha`. Every REST request speaks the one
+API version `githubkit` is built for, the raw stacks request included, and the response models
+may read only fields that version's schema defines; tests guard both, so a library upgrade moves
+every request together and a removed field fails a test at the upgrade.
+
 Nothing here is reachable from the internet, so `gh_poller.py` polls
 one listing per repo instead of taking webhooks, and only for branches with
 the agent prefix. Each poll diffs against a snapshot (`runs/prs-<repo>.json`)

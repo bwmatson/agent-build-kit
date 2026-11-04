@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+- A GitHub pull request's merge commit is read again, so `abk external done --pr`, `abk reconcile
+  --accept` and the retry of a merge whose request failed transiently work on GitHub again. GitHub's
+  REST API version 2026-03-10, which the client sends, no longer carries `merge_commit_sha`, so a
+  merged pull request read as not merged and was refused. The commit now comes from the merge
+  request's own answer, the pull-request listing or the unit's stored merge commit, and only
+  otherwise from one GraphQL read. Every GitHub REST request, the stacks request included, now
+  sends the same API version header, and a test fails when a response model reads a field the
+  installed schema does not define.
+
 - An account's `project_limits` now takes the same four settings as the top-level block, where
   an account used to take only `max_units_in_progress`, and a `max_concurrent_stacks` under an
   account no longer stops every command. An account's `max_concurrent_stacks`,

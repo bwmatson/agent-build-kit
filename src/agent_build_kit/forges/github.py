@@ -442,7 +442,14 @@ class GitHubForge:
         method for, or StackRefused saying why not."""
         try:
             with self._on(repo) as gh:
-                return _body(gh.request(method, f"/repos/{key(repo)}/stacks{path}", **kwargs))
+                return _body(
+                    gh.request(
+                        method,
+                        f"/repos/{key(repo)}/stacks{path}",
+                        headers={_API_VERSION_HEADER: _api_version(gh)},
+                        **kwargs,
+                    )
+                )
         except TRANSIENT:
             raise
         except TransportError as error:
@@ -845,6 +852,16 @@ class GitHubForge:
 
 
 FORGE = GitHubForge()
+
+
+_API_VERSION_HEADER = "X-GitHub-Api-Version"
+
+
+def _api_version(gh: GitHub[Any]) -> str:
+    """The REST API version the client's generated methods send, so a raw request speaks
+    the same one and a library upgrade moves every request together. A host that is
+    sent no version answers in its own default, whose payloads can differ."""
+    return str(gh.rest.pulls._REST_API_VERSION)
 
 
 def _seconds(value: str | None) -> float | None:
