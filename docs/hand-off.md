@@ -59,7 +59,7 @@ holds:
     status: held
 ```
 
-A finished hold also has `merged_by` and `done_at`. The `status` is `held`, `done` or `released`.
+A finished hold also has `merged_by` (empty when it was recorded with no pull request or commit) and `done_at`. The `status` is `held`, `done` or `released`.
 
 ## Board items made by hand
 

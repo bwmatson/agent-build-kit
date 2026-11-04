@@ -973,7 +973,8 @@ def merge_loaded(parent: Unit, graph: Sequence[Unit], loaded: LoadedCode) -> boo
     """Whether the merge of `parent` (looked through satisfied units to the merges they were
     built on) is in the code the tick runs.
 
-    A merge with no record (merged before it was kept) counts as loaded. In the kit's own
+    A merge with no record (merged before it was kept, or recorded by hand with no source) counts
+    as loaded. In the kit's own
     repository the merge commit must be in the recorded head; otherwise, or when the head or
     the commit is unknown, the tick must be a later one than the tick that saw the merge."""
     index = _by_id(graph)
