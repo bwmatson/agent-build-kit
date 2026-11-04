@@ -3,13 +3,14 @@ that notes the lane it made for each project."""
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from pathlib import Path
 
 from agent_build_kit.pipeline.restack_lane import RestackLane
 from agent_build_kit.pipeline.unit_store import StoredUnit
 from agent_build_kit.pipeline.units import ProjectKey
 from tests.factories import stored_unit
-from tests.restack_lane_fakes import Restacks, lane_over
+from tests.restack_lane_fakes import lane_over
 
 WEB = ProjectKey(repo="app", project="web")
 API = ProjectKey(repo="app", project="api")
@@ -24,7 +25,7 @@ class Made:
     """A lane factory of cap 2: it keeps each lane it made, by the project it was made for.
     Its lanes are owed every unit in `owed`."""
 
-    def __init__(self, locks: Path, restacks: Restacks) -> None:
+    def __init__(self, locks: Path, restacks: Callable[[StoredUnit], None]) -> None:
         self.by_project: dict[ProjectKey, RestackLane] = {}
         self.owed: set[str] = set()
         self._locks, self._restacks = locks, restacks
