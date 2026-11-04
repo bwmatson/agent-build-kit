@@ -431,6 +431,8 @@ def test_handing_over_from_many_threads_to_many_lanes_never_exceeds_the_cap_or_s
         # (A number that is 2 modulo 3 is handed to DOCS, on the default account.)
         mine = [unit for unit in lanes.running if int(unit.split("/")[1]) % 3 != 2]
         assert len(mine) == 1
+        # Its worker thread has started, not necessarily entered the move that counts it.
+        assert restacks.begun[mine[0]].wait(WAIT)
         assert held.most == 1
 
         restacks.release_all()
