@@ -98,9 +98,9 @@ def test_the_changelog_has_one_bullet_for_the_estimate_under_unreleased() -> Non
 
 
 def limits_block(path: Path) -> dict:
-    """The `limits:` mapping of the abk.yaml example in a document, parsed."""
+    """The `usage_limits:` mapping of the abk.yaml example in a document, parsed."""
     lines = path.read_text().splitlines()
-    start = next(i for i, line in enumerate(lines) if line.strip().startswith("limits:"))
+    start = next(i for i, line in enumerate(lines) if line.strip().startswith("usage_limits:"))
     indent = len(lines[start]) - len(lines[start].lstrip())
     block = [lines[start]]
     for line in lines[start + 1 :]:
@@ -111,7 +111,7 @@ def limits_block(path: Path) -> dict:
         ):
             break
         block.append(line)
-    return yaml.safe_load("\n".join(block))["limits"]
+    return yaml.safe_load("\n".join(block))["usage_limits"]
 
 
 @pytest.mark.parametrize("path", [CONFIGURATION, SKILL], ids=["configuration", "abk-config skill"])
