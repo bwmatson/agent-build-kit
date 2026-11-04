@@ -83,21 +83,24 @@ def test_a_relative_config_dir_in_the_overlay_is_refused(tmp_path: Path) -> None
 def test_a_label_with_a_config_dir_resolves_to_that_account(tmp_path: Path) -> None:
     directory = tmp_path / "kit-home"
     overlay = kit_overlay(
-        directory, limits={"weekly": {"usage_pause_pct": 40}}, max_units_in_progress=2
+        directory,
+        limits={"weekly": {"usage_pause_pct": 40}},
+        project_limits={"max_units_in_progress": 2},
     )
     inst = installation(tmp_path, local=overlay)
     assert inst.config.repos["app"].account == "kit"
     loaded = inst.config.runtimes[CLAUDE_CODE].accounts["kit"]
     assert loaded.config_dir == directory
     assert loaded.usage_limits.weekly.usage_pause_pct == 40
-    assert loaded.max_units_in_progress == 2
+    assert loaded.project_limits.max_units_in_progress == 2
 
     account = claude_account.resolve(inst, "kit")
 
     assert account.label == "kit"
     assert account.config_dir == directory
     assert account.usage_limits.weekly.usage_pause_pct == 40
-    assert account.max_units_in_progress == 2
+    assert account.project_limits.max_units_in_progress == 2
+    assert account.project_limits.model_fields_set == {"max_units_in_progress"}
 
 
 def test_a_labelled_account_answers_every_function_from_its_directory(tmp_path: Path) -> None:
@@ -112,7 +115,9 @@ def test_a_labelled_account_answers_every_function_from_its_directory(tmp_path: 
     assert claude_account.account_key(account) == str(directory)
 
 
-@pytest.mark.parametrize("overlay", [None, kit_overlay(None, max_units_in_progress=3)])
+@pytest.mark.parametrize(
+    "overlay", [None, kit_overlay(None, project_limits={"max_units_in_progress": 3})]
+)
 def test_a_label_without_a_config_dir_is_the_default_account(
     tmp_path: Path, overlay: dict | None
 ) -> None:
@@ -122,6 +127,22 @@ def test_a_label_without_a_config_dir_is_the_default_account(
 
     assert unresolved == claude_account.resolve(inst, None)
     assert unresolved.label is None and unresolved.config_dir is None
+
+
+def test_the_old_account_key_still_resolves_into_the_block(tmp_path: Path) -> None:
+    overlay = kit_overlay(tmp_path / "kit-home", max_units_in_progress=2)
+
+    account = claude_account.resolve(installation(tmp_path, local=overlay), "kit")
+
+    assert account.project_limits.max_units_in_progress == 2
+    assert account.project_limits.model_fields_set == {"max_units_in_progress"}
+
+
+def test_the_default_account_has_no_project_limits(tmp_path: Path) -> None:
+    inst = installation(tmp_path, local=kit_overlay(tmp_path / "kit-home"))
+
+    assert claude_account.resolve(inst, None).project_limits.model_fields_set == set()
+    assert claude_account.Account.default().project_limits.model_fields_set == set()
 
 
 def test_no_label_is_the_default_account_with_the_runtimes_limits(tmp_path: Path) -> None:
