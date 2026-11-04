@@ -20,6 +20,15 @@
   that works while the push is refused) reopens the same outage, so the wait keeps growing and the limit
   still counts from the first refusal. A forge API outage parks as before and writes no
   marker.
+- Waiting whole-suite unit-test runs are now served in the order units start, not first come first
+  served. A run that finds every slot taken takes a freed one only when no live waiting run of a more
+  urgent unit is ahead of it: a unit with an open pull request first, then a paused build, then new
+  work, each by effective priority and then effective age, and runs of equal rank in the order they
+  began waiting; a run of a unit that is not in the unit store goes last. A run that finds a free slot
+  and nobody waiting still takes it at once. `abk status` lists the waiting units in the order they
+  will be served. The waiting marker records the run's rank; a marker written by an older kit reads
+  as least urgent, and an older kit that reads a new marker lists it as an unnamed unit. No setting
+  changes.
 
 - A GitHub pull request's merge commit is read again, so `abk external done --pr`, `abk reconcile
   --accept` and the retry of a merge whose request failed transiently work on GitHub again. GitHub's

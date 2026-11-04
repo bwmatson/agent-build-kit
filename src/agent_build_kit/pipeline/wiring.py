@@ -195,7 +195,7 @@ from agent_build_kit.pipeline.unit_store import (
     UnitStore,
     unit_id_of_branch,
 )
-from agent_build_kit.pipeline.unit_test_slots import unit_test_slot
+from agent_build_kit.pipeline.unit_test_slots import LEAST_URGENT, Rank, unit_test_slot
 from agent_build_kit.pipeline.units import (
     BUILDS_NOTHING,
     IN_REVIEW,
@@ -208,6 +208,7 @@ from agent_build_kit.pipeline.units import (
     branch_name,
     followed_dependencies,
     local_ref,
+    start_key,
     through_satisfied,
     trunk_of,
 )
@@ -1340,6 +1341,18 @@ def branch_commits(repo: Path, base: str, head: str = "HEAD") -> int:
 RUN_TOKEN_TRIES = 20
 
 
+def _slot_rank(installation: Installation, unit_id: str) -> Rank:
+    """The place a run of `unit_id` waits for a slot at: the unit's start key, as `start_order`
+    gives it for units waiting to resume (nothing excluded, none handed off), so waiting runs are
+    served in the order units start. The least urgent when the unit is not in the store."""
+    try:
+        stored = UnitStore(installation.state_dir / "units.json").all()
+    except (OSError, ValueError):
+        return LEAST_URGENT
+    unit = next((candidate for candidate in stored if candidate.id == unit_id), None)
+    return LEAST_URGENT if unit is None else start_key(unit, stored, (), ())
+
+
 @contextmanager
 def _test_slot(
     installation: Installation | None, log: Callable[[str], None] | None
@@ -1360,7 +1373,13 @@ def _test_slot(
         said = True
         _say(log, message)
 
-    with unit_test_slot(installation.locks_dir, limit, holder=unit, on_wait=waiting) as waited:
+    with unit_test_slot(
+        installation.locks_dir,
+        limit,
+        holder=unit,
+        rank=_slot_rank(installation, unit),
+        on_wait=waiting,
+    ) as waited:
         if said:
             spans.record_span(
                 mark,

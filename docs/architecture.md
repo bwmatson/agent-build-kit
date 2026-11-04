@@ -1647,8 +1647,14 @@ approved.
   reruns; the reproduce run takes its own). A run that finds every slot taken waits for a free slot
   outside the command's time limit, which starts with the command, says so in the unit's log and
   records the wait as a `test_slot` span and as `wait_seconds` in its row of `runs/test-runs.jsonl`
-  (its `seconds` and load readings are after the wait). The unit stays `running`. `abk status`
-  shows each slot's holder and the units that wait, and `abk doctor` notes when no limit is set.
+  (its `seconds` and load readings are after the wait). The unit stays `running`. Waiting runs are
+  served in the order units start: a run's rank is its unit's start key (`start_key` in
+  `pipeline/units.py`: an open pull request, a paused build, new work, each by effective priority,
+  then hand-off, then effective age; the least urgent when the unit is not in the store), computed
+  by `_test_slot` and recorded in the waiting marker, and a run takes a free slot only when no live
+  waiting run has a smaller (rank, time it began waiting, marker token). A run that finds a free
+  slot and nobody waiting takes it at once. `abk status` shows each slot's holder and the units that
+  wait, in the order they will be served, and `abk doctor` notes when no limit is set.
 - **A test time limit.** `tests/time_limit.py` fails a test that runs past
   its limit from a timer thread, in setup, call and teardown alike: `--test-time-limit` (sixty
   seconds) for a test without the `local_stack` marker, `--e2e-test-time-limit` (thirty
