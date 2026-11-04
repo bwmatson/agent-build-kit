@@ -7,6 +7,7 @@ places do not get past it (spec: account-project-limits).
 
 from __future__ import annotations
 
+from collections.abc import Collection
 from contextlib import ExitStack
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -14,7 +15,7 @@ from pathlib import Path
 from agent_build_kit.pipeline import emergency_lane
 from agent_build_kit.pipeline.admission import admit
 from agent_build_kit.pipeline.occupancy import Limits, free, occupied
-from agent_build_kit.pipeline.unit_store import Starting, UnitStore
+from agent_build_kit.pipeline.unit_store import Starting, StoredUnit, UnitStore
 from agent_build_kit.pipeline.units import ProjectKey, Unit
 from agent_build_kit.pipeline.workspaces import branch_lock
 from tests.cli.test_account_stack_cap_tick import workspace
@@ -31,7 +32,7 @@ def account_of(unit: Unit) -> str | None:
     return "kit" if unit.repo in ("app", "platform") else None
 
 
-def held(*units: Unit, running: set[str] = frozenset(), **kwargs):
+def held(*units: StoredUnit, running: Collection[str] = (), **kwargs):
     return occupied(
         units, locks=(), leases=(), now=NOW, held=running, account_of=account_of, **kwargs
     )

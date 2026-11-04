@@ -133,19 +133,28 @@ def free(
     ordinary starts wait; a unit already in progress is held to the workers without them
     (`ready_units`); a lane unit named only by its pause holds a lane place and no worker, so
     it is not taken off. An account that caps its builds holds every unit of its projects to
-    that cap together."""
+    that cap together: a unit already in progress is held to it as it is to the project's workers,
+    and only the units in progress limit is bypassed."""
     busy = occupancy.workers.get(project, 0) - (
         0 if new else occupancy.lane_workers.get(project, 0)
     )
     room = limits.stacks - busy
-    if account in limits.account_stacks:
-        room = min(room, limits.account_stacks[account] - occupancy.account_workers.get(account, 0))
+    if (capped := account_room(occupancy, limits, account)) is not None:
+        room = min(room, capped)
     if new:
         if limits.in_progress is not None:
             room = min(room, limits.in_progress - occupancy.projects.get(project, 0))
         if account in limits.accounts:
             room = min(room, limits.accounts[account] - occupancy.accounts.get(account, 0))
     return max(0, room)
+
+
+def account_room(occupancy: Occupancy, limits: Limits, account: str | None) -> int | None:
+    """How many more builds `account` allows across its projects: its cap less the units a run
+    holds, or None for an account that sets no cap on them (the default account among them)."""
+    if account not in limits.account_stacks:
+        return None
+    return limits.account_stacks[account] - occupancy.account_workers.get(account, 0)
 
 
 def free_workers(

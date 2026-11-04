@@ -13,6 +13,7 @@ from agent_build_kit.pipeline.lease import Leases
 from agent_build_kit.pipeline.occupancy import (
     Limits,
     Occupancy,
+    account_room,
     emergency_free,
     free,
     marker_live,
@@ -106,8 +107,14 @@ def admit(
             found = current_occupancy(inst, [u for u in units if u.id != current.id], now)
             key = project_key(current)
             new = not in_progress(current, units)
-            fits = free(found, limits, key, account(current), new=new) > 0 or (
-                current.id in lane_units(inst.state_dir) and emergency_free(found, limits, key) > 0
+            label = account(current)
+            # The account's cap on builds holds a lane start as it holds an ordinary one: only
+            # the project's workers and units in progress are past in the lane.
+            room = account_room(found, limits, label)
+            fits = free(found, limits, key, label, new=new) > 0 or (
+                current.id in lane_units(inst.state_dir)
+                and emergency_free(found, limits, key) > 0
+                and (room is None or room > 0)
             )
             if fits:
                 store.set_starting(current.id, Starting(worker=worker, until=now + ttl))
