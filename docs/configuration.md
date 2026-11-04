@@ -1034,6 +1034,21 @@ the file; nothing is taken over or deleted, and the unit or pass is tried again 
 That bound cannot end a call stuck in the kernel on a `hard`-mounted share that stopped answering,
 so the doctor warns about `hard` and the advice is `soft` with a `timeo`.
 
+### `workers`
+
+```yaml
+workers:
+  mode: threads        # threads (default): the tick builds in its own threads; processes: the tick
+                       # is a dispatcher and each unit's build is an `abk worker build` process
+  memory_max: 4G       # optional: a worker's systemd MemoryMax; unset sets no limit
+  cpu_weight: 100      # optional: a worker's systemd CPUWeight (1-10000); unset sets no limit
+```
+
+`workers.mode` picks who runs a build; `workers.memory_max` and `workers.cpu_weight` apply per
+worker in `processes` mode. In `processes` mode a worker's exit, `abk requeue`, `abk approve` and `abk attach release` touch
+`runs/wake`, and the path unit `abk install-timers` writes starts a tick when it changes.
+`abk doctor` checks lingering, `systemd-run` and that unit; `abk status` lists running workers.
+
 ### `sandbox`
 
 The kernel confines what an agent step can write and reach. Keys:

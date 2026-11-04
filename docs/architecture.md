@@ -15,6 +15,17 @@ change (tasks.md) ─► plan ─► units ─► build ─► PR ─► review 
 
 How a tick is meant to start and run units (a short dispatcher and detached workers) is in [worker-design.md](designs/worker-design.md).
 
+**Workers.** With `workers.mode: processes` (the default is `threads`, where the tick builds in
+its own threads) `abk tick` is a dispatcher: it takes the dispatcher lock, admits ready units up
+to the limits, starts `abk worker build <unit>` for each and exits without waiting. A worker is
+a transient systemd user unit (`systemd-run --user --collect`), or a detached process where the
+user manager is not available; `workers.memory_max` and `workers.cpu_weight` set its
+`MemoryMax` and `CPUWeight`, and unset add no limit. A worker's exit, `abk requeue`,
+`abk approve` and `abk attach release` touch `runs/wake`; the path unit that `abk install-timers`
+writes watches that file and starts a tick, so the next unit is admitted in seconds and the
+timer is only the polling cadence. `abk status` lists each running worker, and `abk doctor`
+checks the transient-unit path.
+
 The build agent never merges. The pipeline merges a unit review classified `auto` and policy
 allowed; a person merges what was not auto-landed.
 

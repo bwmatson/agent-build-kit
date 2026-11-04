@@ -400,6 +400,15 @@ notifications:                # tell a person when a unit waits on them
   # (the cmdlet names changed between releases); `abk init` offers to install it.
 ```
 
+### Workers
+
+```yaml
+workers:
+  mode: threads        # threads (default) | processes: `abk tick` dispatches `abk worker build`
+  memory_max: 4G       # optional systemd MemoryMax per worker; unset = no limit
+  cpu_weight: 100      # optional systemd CPUWeight per worker (1-10000); unset = no limit
+```
+
 ### E2e-test splits
 
 `tests.e2e_splits` (top level, or under a repo's own `tests`, which replaces it for that

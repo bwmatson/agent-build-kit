@@ -485,6 +485,7 @@ from agent_build_kit.pipeline.work_graph import (
     validate_tasks,
     validate_tasks_text,
 )
+from agent_build_kit.pipeline.worker_list import worker_status_lines
 from agent_build_kit.pipeline.workspaces import (
     BranchBusy,
     branch_held,
@@ -1033,6 +1034,8 @@ def cmd_status(args: argparse.Namespace, inst: Installation) -> int:
     for line in slot_status_lines(
         inst.locks_dir, inst.config.global_limits.max_concurrent_unit_tests
     ):
+        log(line)
+    for line in worker_status_lines(inst):
         log(line)
     for line in held_status_lines(inst):
         log(line)

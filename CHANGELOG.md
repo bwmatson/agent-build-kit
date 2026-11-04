@@ -92,6 +92,9 @@
 - The installation-leak gate now reads the repository's files once for all its scans instead of
   once per scan, and the secret-leak guard module no longer scans the test tree when it is
   imported, so collecting the suite does no repository walk.
+  a person. `abk status` lists each running worker (unit, pid, start time and, when systemd
+  reports them, CPU and memory) or says none run, and `abk doctor` checks lingering,
+  `systemd-run` and the wake path unit when `workers.mode` is `processes`.
 
 - The documents and the pipeline skill now describe how a failing test is handled: an open fix is
   waited on first, a test the unit did not write runs on the unit's base, and the

@@ -799,6 +799,47 @@ def _linger(run: Run) -> list[Check]:
     ]
 
 
+def _workers(inst: Installation, run: Run, units: Path | None, which: Which) -> list[Check]:
+    """What `workers.mode: processes` needs: the user manager's `systemd-run`, lingering so a
+    worker outlives the login session, and the wake path unit."""
+    if inst.config.workers.mode != "processes":
+        return [_info("workers", "workers.mode is threads: builds run in the tick")]
+    checks: list[Check] = []
+    if not which("systemd-run"):
+        checks.append(
+            _warn(
+                "workers",
+                "systemd-run is not on the PATH, so a worker is a detached process without "
+                "a transient unit's limits",
+                "install systemd, which provides systemd-run",
+            )
+        )
+    user = timers.current_user()
+    if timers.linger_state(user, run) == "off":
+        checks.append(
+            _warn(
+                "workers",
+                "lingering is off, so a worker's transient unit stops with the login session",
+                timers.linger_advice(user),
+            )
+        )
+    state = timers.report(
+        inst.root,
+        dest=units or timers.user_unit_dir(),
+        tool_dirs=timers.tool_dirs(inst, which=which),
+        wake_file=inst.state_dir / WAKE,
+    )
+    if f"abk-{timers.slug(inst.root)}-wake.path" in state.missing:
+        checks.append(
+            _warn(
+                "workers",
+                "the wake path unit is not installed, so a finished worker waits for the timer",
+                "run `abk install-timers`",
+            )
+        )
+    return checks or [_ok("workers", "systemd-run, lingering and the wake unit are in place")]
+
+
 def _timers(inst: Installation, run: Run, units: Path | None, which: Which) -> list[Check]:
     """Whether the pipeline is actually scheduled on this machine.
 
@@ -2331,6 +2372,7 @@ def run_doctor(
     checks += _state_location(inst)
     checks += _change_locks(inst, fix)
     checks += _timers(inst, run, units, which)
+    checks += _workers(inst, run, units, which)
     checks += _toolchain(inst, run, which)
     checks += _agent_commands(inst)
     checks += _sandbox_lists(inst)

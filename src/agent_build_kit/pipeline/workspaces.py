@@ -159,6 +159,13 @@ def branch_lock(branch: str, *, root: Path):
         path.unlink(missing_ok=True)
 
 
+def live_holders(root: Path) -> list[dict]:
+    """The records of the branch locks under `root` whose holder is alive: `pid`, `branch`,
+    `at` and the rest of what the lock file recorded."""
+    found = [_read_holder(path) for path in sorted(root.glob("*.lock"))]
+    return [holder for holder in found if _holder_alive(holder)]
+
+
 def branch_held(branch: str, *, root: Path) -> bool:
     """Whether a live process holds this branch's lock.
 
