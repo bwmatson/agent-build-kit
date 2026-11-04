@@ -1330,14 +1330,14 @@ def room_left(limit: int, counted: int) -> int:
     return max(0, limit - counted)
 
 
-def _start_rank(unit: Unit) -> int:
+def start_rank(unit: Unit) -> int:
     """Existing work first: an open pull request, then a paused build, then new."""
     if getattr(unit, "pr", None) is not None:
         return 0
     return 1 if _worked_on(unit) else 2
 
 
-def _start_key(
+def start_key(
     unit: Unit, graph: Sequence[Unit], excluded: Collection[str], handed_off: Collection[str]
 ) -> tuple[int, ...]:
     """The sort key of a ready unit; the sort is stable, so ties keep planned order.
@@ -1345,7 +1345,7 @@ def _start_key(
     New units go by effective priority, then handoff units before the others of
     equal priority, then effective age.
     """
-    rank = _start_rank(unit)
+    rank = start_rank(unit)
     urgency = effective_priority(unit, graph, excluded)
     if rank < 2:
         return (rank, urgency)
@@ -1358,7 +1358,7 @@ def start_order[U: Unit](
     """`units` in the order starts are chosen: existing work first, then by effective priority.
     Units waiting to resume are taken in this order, so a free worker goes to the first of them
     and not to the first the store lists."""
-    return sorted(units, key=lambda unit: _start_key(unit, graph, excluded, ())[:2])
+    return sorted(units, key=lambda unit: start_key(unit, graph, excluded, ())[:2])
 
 
 def handoff_units(
@@ -1375,8 +1375,8 @@ def handoff_units(
     freed = {unit.id for unit in uncounted(graph)}
     chosen: list[Unit] = []
     for unit in sorted(
-        (unit for unit in ready if _start_rank(unit) == 2),
-        key=lambda unit: _start_key(unit, graph, excluded, ()),
+        (unit for unit in ready if start_rank(unit) == 2),
+        key=lambda unit: start_key(unit, graph, excluded, ()),
     ):
         waiters = [w.id for w in waiting_on_me(unit, graph, excluded) if w.id in freed]
         if waiters:
@@ -1491,7 +1491,7 @@ def ready_units(
         ready.append(unit)
 
     handed_off = {unit.id for unit in handoff_units(ready, graph, excluded)}
-    ordered = sorted(ready, key=lambda unit: _start_key(unit, graph, excluded, handed_off))
+    ordered = sorted(ready, key=lambda unit: start_key(unit, graph, excluded, handed_off))
 
     lane_use = count_by_project(graph, lambda unit: unit.id in in_lane and in_progress(unit, graph))
     lane_slot_use = count_by(
