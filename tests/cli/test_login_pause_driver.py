@@ -3,6 +3,8 @@ and nothing else: no pause of the whole account for usage and no usage metric.""
 
 from __future__ import annotations
 
+import pytest
+
 from agent_build_kit.pipeline.unit_store import Cause
 from tests.cli.test_login_pause import LINE
 from tests.cli.test_metric_emit_sites import (  # noqa: F401 — fixtures
@@ -12,6 +14,11 @@ from tests.cli.test_metric_emit_sites import (  # noqa: F401 — fixtures
     named,
 )
 from tests.cli.test_tick_telemetry import UNIT, Ticks, ticks  # noqa: F401 — fixture
+from tests.time_limit import LOADED_TEST_TIME_LIMIT
+
+# The tests of this module run whole passes through the `ticks` fixture, whose time depends on
+# the machine's load.
+pytestmark = pytest.mark.time_limit(LOADED_TEST_TIME_LIMIT)
 
 
 def test_a_login_pause_writes_no_usage_pause_of_the_account_and_counts_no_usage_pause(
