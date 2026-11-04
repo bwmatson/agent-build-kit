@@ -3410,6 +3410,7 @@
 - The keys of `abk external hand-off --item` are the levels of the board: `change`, `group`,
   `tasks` and `epic`, and `docs/hand-off.md` says so. `feature` and `story` are still accepted
   and stored as `change` and `group`; any other key is refused, naming the valid ones.
+
 - A rejected Claude login now pauses the account's units instead of failing them. The unit stays
   `running` at its step with the cause `login`, counts as in progress and holds no worker; no unit
   that has never started is admitted on the account; and when a person signs in, a round finds
