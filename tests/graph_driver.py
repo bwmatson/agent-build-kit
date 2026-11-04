@@ -2,7 +2,7 @@
 new connection to the same checkpoint file, as a new process has.
 
 Every test whose module takes `tick` or `run_on_graph`, or a helper that wraps them, is held to
-`GRAPH_DRIVER_TIME_LIMIT` by the collection hook in `tests/conftest.py`."""
+`LOADED_TEST_TIME_LIMIT` (`tests/time_limit.py`) by the collection hook in `tests/conftest.py`."""
 
 from __future__ import annotations
 

@@ -5,7 +5,8 @@ The builder marks the store the way the real one does: `running` while it builds
 `in_review` once its PR is open, and back to `planned` when it pauses or is held.
 
 `tick` runs a whole pass, whose time depends on the machine's load, and every test whose module
-takes it is held to `TICK_PASS_TIME_LIMIT` by the collection hook in `tests/conftest.py`."""
+takes it is held to `LOADED_TEST_TIME_LIMIT` (`tests/time_limit.py`) by the collection hook in
+`tests/conftest.py`."""
 
 from __future__ import annotations
 
@@ -27,9 +28,6 @@ from agent_build_kit.pipeline.units import HELD, IN_REVIEW, PLANNED, RUNNING, Un
 from agent_build_kit.pipeline.usage_guard import Decision
 from tests.conftest import make_installation
 from tests.factories import own_group
-from tests.time_limit import LOADED_TEST_TIME_LIMIT
-
-TICK_PASS_TIME_LIMIT = LOADED_TEST_TIME_LIMIT
 
 MOVED_NOTE = "held before implement: its base moved from spec/a/1 to main while it built"
 
