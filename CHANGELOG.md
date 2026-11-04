@@ -28,6 +28,7 @@
   that works while the push is refused) reopens the same outage, so the wait keeps growing and the limit
   still counts from the first refusal. A forge API outage parks as before and writes no
   marker.
+
 - Waiting whole-suite unit-test runs are now served in the order units start, not first come first
   served. A run that finds every slot taken takes a freed one only when no live waiting run of a more
   urgent unit is ahead of it: a unit with an open pull request first, then a paused build, then new
