@@ -43,20 +43,21 @@ class Answers:
         owners: set[str] | None = None,
         openspec_ok: bool = True,
         scheduled: bool = True,
+        not_enabled: str = "",
     ):
         self.owners = {"example"} if owners is None else owners
         self.openspec_ok = openspec_ok
         self.scheduled = scheduled
+        # The suffix of the one unit `is-enabled` fails for, when the rest are enabled.
+        self.not_enabled = not_enabled
         self.commands: list[list[str]] = []
 
     def __call__(self, argv, **kwargs):
         self.commands.append(list(argv))
         if argv[:3] == ["systemctl", "--user", "is-enabled"]:
+            on = self.scheduled and not (self.not_enabled and argv[-1].endswith(self.not_enabled))
             return subprocess.CompletedProcess(
-                argv,
-                0 if self.scheduled else 1,
-                "enabled\n" if self.scheduled else "disabled\n",
-                "",
+                argv, 0 if on else 1, "enabled\n" if on else "disabled\n", ""
             )
         if argv[0] == "gh":
             owner = argv[-1]
@@ -652,6 +653,18 @@ def test_installed_and_enabled_timers_are_ok(workspace: Path, tmp_path: Path) ->
 
     assert check.status == "ok"
     assert str(workspace) in check.detail
+
+
+def test_a_wake_path_unit_that_is_not_enabled_warns(workspace: Path, tmp_path: Path) -> None:
+    """Without it a finished worker, a requeue or an approval starts no tick."""
+    from agent_build_kit import timers
+
+    units = installed_timers(workspace, tmp_path)
+    check = timer_check(workspace, units, not_enabled="-wake.path")
+
+    wake_path = next(name for name in timers.unit_names(workspace) if name.endswith("-wake.path"))
+    assert check.status == "warn"
+    assert check.detail == f"not enabled: {wake_path}"
 
 
 def test_timers_that_are_installed_but_not_enabled_warn(workspace: Path, tmp_path: Path) -> None:

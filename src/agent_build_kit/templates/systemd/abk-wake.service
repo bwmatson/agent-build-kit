@@ -1,0 +1,9 @@
+# Starts the tick service; the tick itself takes no more than its own lock allows.
+[Unit]
+Description=abk: wake a tick
+
+[Service]
+Type=oneshot
+WorkingDirectory={planning_dir}
+Environment="PATH=%h/.local/bin:%h/.volta/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin{tool_path}"
+ExecStart=/usr/bin/env systemctl --user start --no-block {tick_unit}

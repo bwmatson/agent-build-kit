@@ -22,7 +22,7 @@ from agent_build_kit.scrub_terms import scrub_text, terms_for
 
 TEXT_SUFFIXES = {
     ".py", ".md", ".yaml", ".yml", ".toml", ".json", ".txt",
-    ".service", ".timer", ".tmpl", ".cfg", ".ini", ".sh",
+    ".service", ".timer", ".path", ".tmpl", ".cfg", ".ini", ".sh",
 }  # fmt: skip
 SKIP_DIRS = {".git", ".venv", "node_modules", "__pycache__", ".pytest_cache", "dist", "build"}
 

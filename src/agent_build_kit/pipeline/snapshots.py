@@ -24,9 +24,10 @@ from typing import TYPE_CHECKING
 from pydantic import BaseModel, ValidationError
 
 from agent_build_kit.model import Frozen
-from agent_build_kit.pipeline import spans
+from agent_build_kit.pipeline import spans, wake
 from agent_build_kit.pipeline.file_lock import atomic_write_text, file_lock
 from agent_build_kit.pipeline.pr_poller import PrState, state_path
+from agent_build_kit.pipeline.wake import WAKE as WAKE
 
 if TYPE_CHECKING:
     from agent_build_kit.pipeline.usage_guard import UsageReading
@@ -37,7 +38,6 @@ PAUSES = "pauses"
 
 STORE = "snapshots.json"
 REQUESTS = "refresh-requests.json"
-WAKE = "wake"
 
 # Told the key of what to refresh (a repo, an account, or None), it returns the new value.
 Collector = Callable[[str | None], object]
@@ -184,7 +184,7 @@ def request_refresh(state_dir: Path, kind: str, key: str | None = None) -> None:
         asked = Request(kind=kind, key=key)
         if asked not in held:
             _write(state_dir / REQUESTS, [each.model_dump() for each in [*held, asked]])
-    (state_dir / WAKE).touch()
+    wake.touch(state_dir)
 
 
 def _pr_ages(state_dir: Path) -> dict[str, datetime]:

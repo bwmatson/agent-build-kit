@@ -11,7 +11,11 @@
 
 - `abk worker build <unit>` builds one unit as its own process: it takes the unit's branch lock,
   runs the unit to its next wait, records the outcome, releases the lock and touches `runs/wake`
-  before it exits. This is the first step towards builds that outlive a tick.
+  before it exits. This is the first step towards builds that outlive a tick. A spawner starts
+  a worker as a transient systemd user unit (with the optional `workers.memory_max` and
+  `workers.cpu_weight`), or as a detached process where the user manager is unavailable.
+  `abk install-timers` also installs a path unit that watches `runs/wake` and starts a tick, and
+  `abk requeue`, `abk approve` and `abk attach release` touch that file.
 
 - The documents and the pipeline skill now describe how a failing test is handled: an open fix is
   waited on first, a test the unit did not write runs on the unit's base, and the

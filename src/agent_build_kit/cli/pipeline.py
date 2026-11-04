@@ -73,6 +73,7 @@ from agent_build_kit.pipeline import (
     snapshots,
     spans,
     usage_report,
+    wake,
 )
 from agent_build_kit.pipeline.admission import (
     STARTING_TTL,
@@ -7737,7 +7738,10 @@ def cmd_requeue(args: argparse.Namespace, inst: Installation) -> int:
     note = getattr(args, "note", None) or ""
     if path := getattr(args, "note_file", None):
         note = Path(path).read_text()
-    return requeue(inst, args.unit, mode, say=say, note=note, by=REQUEUE_BY)
+    code = requeue(inst, args.unit, mode, say=say, note=note, by=REQUEUE_BY)
+    if code == 0:
+        wake.touch(inst.state_dir)
+    return code
 
 
 def cmd_replan(args: argparse.Namespace, inst: Installation) -> int:
@@ -8322,7 +8326,10 @@ def cmd_approve(args: argparse.Namespace, inst: Installation) -> int:
     round, at the head the pull request has now. It merges nothing, pushes nothing
     and casts no vote on the host.
     """
-    return approve_unit(inst, args.unit, say=print)
+    code = approve_unit(inst, args.unit, say=print)
+    if code == 0:
+        wake.touch(inst.state_dir)
+    return code
 
 
 def requeue_refusal(unit: StoredUnit) -> str | None:
