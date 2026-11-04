@@ -7,10 +7,10 @@ import argparse
 from pathlib import Path
 
 import pytest
-from agent_build_kit.cli.units_cmd import cmd_units_prune
 
 from agent_build_kit.cli import build_parser
 from agent_build_kit.cli import pipeline as cli
+from agent_build_kit.cli.units_cmd import cmd_units_prune
 from agent_build_kit.installation import Installation
 from agent_build_kit.pipeline.unit_store import StoredUnit, UnitStore
 from agent_build_kit.pipeline.units import UnitState

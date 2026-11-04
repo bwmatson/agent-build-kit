@@ -149,6 +149,16 @@ at most 300 characters, redacted. A planner prompt over the safe size of the run
 transport fails the attempt the same way, its first line naming the change, the size and the
 limit and the lines after it the size of each part.
 
+An `unplanned` unit is kept for one pass and then swept: the readers of a demotion (the replan
+report, the check for changes a demoted joined unit carried, the drop preview, the tracker's
+`removed` state) see it in the pass that demoted it, and the sweep at the end of a later pass
+removes it once it holds no work, nothing names it (a reference is repointed to its successors
+first), its groups are carried or its change is gone, the tracker has reconciled since, and its
+change keeps another unit. The tracker records when a pass that ran to its end finished, in the
+repo's machine-local file, and the sweep reads it. A swept unit's id may be reused by a later plan:
+a plan that asks for the same groups again creates a new unit, which may take that id. `abk units prune --unplanned` runs the sweep on
+demand.
+
 A replan that regroups sets the unstarted units it replaces `unplanned` and records, in each one's
 `superseded_by`, the units that carry its groups. What a unit depends on is read through that field
 (`current_dependencies`): a `depends_on` entry that names a replaced unit stands for its
