@@ -1408,6 +1408,7 @@ def ready_units(
     slot_of: Callable[[Unit], Hashable] = project_key,
     slot_limit: Callable[[Hashable], int] | None = None,
     slot_stack_limit: Callable[[Hashable], int | None] | None = None,
+    slot_emergency_extra: Callable[[Hashable], int | None] | None = None,
     no_worker: Collection[str] = frozenset(),
 ) -> list[Unit]:
     """The planned units that may start right now, in the order to start them.
@@ -1448,6 +1449,10 @@ def ready_units(
     `slot_stack_limit` gives the units of a slot (`slot_of`: an account) that may build at once
     across its projects, beside each project's `max_concurrent`, or `None` for a slot with no cap;
     a unit needs room under both, and a unit the slot's cap holds does not start in the lane.
+    `slot_emergency_extra` gives the units of a slot that may use the lane at once across its
+    projects, beside each project's `emergency_extra`, or `None` for a slot with no limit; a unit
+    starts in the lane only while the lane use of its project and of its slot are both under
+    them.
     `no_worker` names running units no run holds (a unit paused for usage): they are in progress
     and hold a place of the limit, and they take no worker.
     """
@@ -1485,6 +1490,9 @@ def ready_units(
     ordered = sorted(ready, key=lambda unit: _start_key(unit, graph, excluded, handed_off))
 
     lane_use = count_by_project(graph, lambda unit: unit.id in in_lane and in_progress(unit, graph))
+    lane_slot_use = count_by(
+        graph, slot_of, lambda unit: unit.id in in_lane and in_progress(unit, graph)
+    )
     # A paused unit in the lane is in `no_worker`: it is not in `running`, so it is not taken
     # off it either.
     lane_running = count_by_project(
@@ -1510,8 +1518,14 @@ def ready_units(
         if busy + taken.get(key, 0) >= room or (
             draws and counted.get(slot, 0) + drawn.get(slot, 0) >= (limit or 0)
         ):
-            if lane_use.get(key, 0) < emergency_extra and emergency_start(unit, graph, excluded):
+            slot_extra = slot_emergency_extra(slot) if slot_emergency_extra else None
+            if (
+                lane_use.get(key, 0) < emergency_extra
+                and (slot_extra is None or lane_slot_use.get(slot, 0) < slot_extra)
+                and emergency_start(unit, graph, excluded)
+            ):
                 lane_use[key] = lane_use.get(key, 0) + 1
+                lane_slot_use[slot] = lane_slot_use.get(slot, 0) + 1
                 begun[slot] = begun.get(slot, 0) + 1
                 started.append(unit)
             continue

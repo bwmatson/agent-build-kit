@@ -20,7 +20,7 @@ from agent_build_kit.pipeline.occupancy import (
     no_account,
     occupied,
 )
-from agent_build_kit.pipeline.slots import account_labels, slot_stack_limit
+from agent_build_kit.pipeline.slots import account_labels, extra_of, slot_stack_limit
 from agent_build_kit.pipeline.unit_store import Starting, StoredUnit, UnitStore
 from agent_build_kit.pipeline.units import Unit, branch_name, in_progress, project_key
 from agent_build_kit.pipeline.workspaces import branch_held
@@ -39,12 +39,14 @@ def limits_of(inst: Installation) -> Limits:
     at once of each account that caps them across its projects."""
     accounts = account_labels(inst)
     stacks = slot_stack_limit(inst)
+    extra = extra_of(inst)
     return Limits(
         stacks=inst.max_concurrent_stacks,
         emergency_extra=inst.emergency_extra,
         in_progress=None if accounts else inst.max_units_in_progress,
         accounts=accounts,
         account_stacks={label: cap for label in accounts if (cap := stacks(label)) is not None},
+        account_extras={label: lane for label in accounts if (lane := extra(label)) is not None},
     )
 
 
@@ -108,12 +110,13 @@ def admit(
             key = project_key(current)
             new = not in_progress(current, units)
             label = account(current)
-            # The account's cap on builds holds a lane start as it holds an ordinary one: only
-            # the project's workers and units in progress are past in the lane.
+            # The account's cap on builds holds a lane start as it holds an ordinary one, and its
+            # lane places count beside the project's: only the project's workers and units in
+            # progress are past in the lane.
             room = account_room(found, limits, label)
             fits = free(found, limits, key, label, new=new) > 0 or (
                 current.id in lane_units(inst.state_dir)
-                and emergency_free(found, limits, key) > 0
+                and emergency_free(found, limits, key, label) > 0
                 and (room is None or room > 0)
             )
             if fits:

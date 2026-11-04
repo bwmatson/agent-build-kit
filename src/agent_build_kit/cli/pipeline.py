@@ -264,6 +264,7 @@ from agent_build_kit.pipeline.run_log import (
     run_log_dir,
 )
 from agent_build_kit.pipeline.shell import git, has_origin
+from agent_build_kit.pipeline.slots import extra_of as _extra_of
 from agent_build_kit.pipeline.slots import slot_limit as _slot_limit
 from agent_build_kit.pipeline.slots import slot_of as _slot_of
 from agent_build_kit.pipeline.slots import slot_stack_limit as _slot_stack_limit
@@ -4037,6 +4038,7 @@ def _evaluate_round(
             slot_limit=_slot_limit(inst),
             # Lifting the workers (`max_concurrent`) lifts the account's builds at once with them.
             slot_stack_limit=None if max_concurrent else _slot_stack_limit(inst),
+            slot_emergency_extra=_extra_of(inst),
             excluded=excluded,
             emergency_extra=extra,
             in_lane=lane,
@@ -4129,9 +4131,14 @@ def _lane_has_room(
     slot: Hashable,
     lane_use: dict[ProjectKey, list[StoredUnit]],
 ) -> bool:
-    """Whether the emergency lane of a project in `slot` has room: of the project itself, or of
-    any project whose units are counted in the account `slot`."""
+    """Whether the emergency lane of a project in `slot` has room: the account's, when it sets an
+    extra, and of the project itself, or of any project whose units are counted in the account
+    `slot`."""
     slot_of = _slot_of(inst)
+    if (extra := _extra_of(inst)(slot)) is not None:
+        used = sum(1 for using in lane_use.values() for unit in using if slot_of(unit) == slot)
+        if used >= extra:
+            return False
     projects = {project_key(u) for u in units if slot_of(u) == slot}
     return any(len(lane_use.get(project, ())) < inst.emergency_extra for project in projects)
 
@@ -4207,10 +4214,11 @@ def _lane_use(inst: Installation, units: list[StoredUnit]) -> dict[ProjectKey, l
 def _emergency_room_lines(
     inst: Installation, units: list[StoredUnit], lane_use: dict[ProjectKey, list[StoredUnit]]
 ) -> list[str]:
-    """One line for each project whose emergency lane is in use, naming its units; the project
-    is named when the workspace has more than one."""
+    """One line for each project whose emergency lane is in use, naming its units, and one for
+    each account that sets an extra and has its lane in use, `N/M` across its projects; the
+    project is named when the workspace has more than one."""
     named = len(_live_projects(inst, units)) > 1
-    return [
+    lines = [
         f"emergency room {len(using)}/{inst.emergency_extra} used by "
         f"{', '.join(unit.id for unit in using)}" + (f" ({unit_label(using[0])})" if named else "")
         for _key, using in sorted(
@@ -4218,6 +4226,18 @@ def _emergency_room_lines(
         )
         if inst.emergency_extra
     ]
+    slot_of = _slot_of(inst)
+    extra_of = _extra_of(inst)
+    by_slot: dict[Hashable, list[StoredUnit]] = {}
+    for using in lane_use.values():
+        for unit in using:
+            by_slot.setdefault(slot_of(unit), []).append(unit)
+    for slot in sorted(by_slot, key=_slot_order):
+        if (extra := extra_of(slot)) is not None:
+            ids = ", ".join(unit.id for unit in by_slot[slot])
+            used = f"emergency room {len(by_slot[slot])}/{extra} used by {ids}"
+            lines.append(f"{_slot_name(slot, units)}: {used}")
+    return lines
 
 
 def _deadlock_lines(units: list[StoredUnit]) -> list[str]:
@@ -4574,9 +4594,9 @@ def _nothing_started_reason(
         lines = []
         for key, line in full_projects.items():
             if key in held_back:
-                lines.append(
-                    f"{line}; {_WAIT_FOR_ROOM if inst.emergency_extra else _WAIT_FOR_ROOM_OFF}"
-                )
+                # The lane is off for a slot whose project extra, or whose account's, is zero.
+                on = inst.emergency_extra and _extra_of(inst)(key) != 0
+                lines.append(f"{line}; {_WAIT_FOR_ROOM if on else _WAIT_FOR_ROOM_OFF}")
                 lines.extend(_blocked_lines(units, key, slot_of))
         if lines:
             return "\n".join(lines)
