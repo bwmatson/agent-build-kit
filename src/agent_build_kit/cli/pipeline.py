@@ -3024,7 +3024,10 @@ def _close_hand_built(
     by_id = {unit.id: unit for unit in units}
     for uid, decision in reads.decided().items():
         if decision.outcome == "skip" and decision.items and uid in by_id:
-            record_hand_built(inst, store, by_id[uid], decision.items, reads, log)
+            try:
+                record_hand_built(inst, store, by_id[uid], decision.items, reads, log)
+            except Exception as error:  # noqa: BLE001 - the unit stays skipped; the round goes on
+                log(f"{uid}: merged pull requests not checked: {error}")
 
 
 def _claim_starts(
