@@ -155,3 +155,44 @@ def test_a_checkout_that_is_not_there_is_healthy_and_asks_nothing(tmp_path: Path
 
     assert probe(tmp_path / "gone", run).healthy
     assert run.calls == []
+
+
+def test_a_custom_ssh_program_is_left_alone(
+    checkout: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """`GIT_SSH` names the program a push runs; a `GIT_SSH_COMMAND` from the probe would replace
+    it."""
+    monkeypatch.delenv("GIT_SSH_COMMAND", raising=False)
+    monkeypatch.setenv("GIT_SSH", "/opt/wrapper/ssh")
+    run = FakeGit()
+
+    probe(checkout, run)
+
+    assert "GIT_SSH_COMMAND" not in run.calls[0][1]["env"]
+    assert run.calls[0][1]["env"]["GIT_SSH"] == "/opt/wrapper/ssh"
+
+
+def test_a_configured_ssh_command_is_kept_and_made_batch(
+    checkout: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.delenv("GIT_SSH_COMMAND", raising=False)
+    monkeypatch.setenv("GIT_SSH", "/opt/wrapper/ssh")
+    git(checkout, "config", "core.sshCommand", "ssh -i /keys/configured")
+    run = FakeGit()
+
+    probe(checkout, run)
+
+    command = run.calls[0][1]["env"]["GIT_SSH_COMMAND"]
+    assert command == "ssh -i /keys/configured -o BatchMode=yes"
+
+
+def test_plain_ssh_is_made_batch_when_nothing_else_is_set(
+    checkout: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.delenv("GIT_SSH_COMMAND", raising=False)
+    monkeypatch.delenv("GIT_SSH", raising=False)
+    run = FakeGit()
+
+    probe(checkout, run)
+
+    assert run.calls[0][1]["env"]["GIT_SSH_COMMAND"] == "ssh -o BatchMode=yes"

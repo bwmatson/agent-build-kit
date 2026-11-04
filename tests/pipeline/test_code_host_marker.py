@@ -72,9 +72,7 @@ def test_each_host_has_a_marker_of_its_own(tmp_path: Path, clock: FakeClock) -> 
     assert {each.host for each in pause.host_outages(tmp_path)} == {AZURE}
 
 
-def test_the_wait_grows_along_the_park_ladder_and_a_pass_resets_it(
-    tmp_path: Path, clock: FakeClock
-) -> None:
+def test_the_wait_grows_along_the_park_ladder(tmp_path: Path, clock: FakeClock) -> None:
     pause.note_host_outage(tmp_path, GITHUB, repo="app", error=REFUSED, now=clock.now())
     waits = []
     for _ in range(7):
@@ -85,11 +83,78 @@ def test_the_wait_grows_along_the_park_ladder_and_a_pass_resets_it(
 
     assert waits == [1, 2, 5, 10, 30, 30, 30]
 
-    pause.record_host_probe(tmp_path, GITHUB, healthy=True, error="", now=clock.now())
+
+def test_a_new_outage_after_a_long_quiet_gap_starts_fresh_at_the_first_wait(
+    tmp_path: Path, clock: FakeClock
+) -> None:
     pause.note_host_outage(tmp_path, GITHUB, repo="app", error=REFUSED, now=clock.now())
+    for _ in range(4):
+        pause.record_host_probe(tmp_path, GITHUB, healthy=False, error=REFUSED, now=clock.now())
+    pause.record_host_probe(tmp_path, GITHUB, healthy=True, error="", now=clock.now())
+    clock.advance(31 * MINUTE)  # past the longest wait: a different outage
+
+    pause.note_host_outage(tmp_path, GITHUB, repo="app", error="again", now=clock.now())
+
     again = pause.host_outage(tmp_path, GITHUB)
     assert again is not None
-    assert (again.wait(), again.failed_probes) == (timedelta(minutes=1), 0)
+    assert (again.wait(), again.failed_probes, again.since) == (
+        timedelta(minutes=1),
+        0,
+        clock.now(),
+    )
+
+
+def test_a_unit_parking_soon_after_a_pass_reopens_the_same_outage(
+    tmp_path: Path, clock: FakeClock
+) -> None:
+    began = clock.now()
+    pause.note_host_outage(tmp_path, GITHUB, repo="app", error=REFUSED, now=began)
+    pause.record_host_probe(tmp_path, GITHUB, healthy=False, error=REFUSED, now=clock.now())
+    clock.advance(2 * MINUTE)
+    pause.record_host_probe(tmp_path, GITHUB, healthy=True, error="", now=clock.now())
+    clock.advance(MINUTE)
+
+    pause.note_host_outage(tmp_path, GITHUB, repo="app", error="pushed, refused", now=clock.now())
+
+    marker = pause.host_outage(tmp_path, GITHUB)
+    assert marker is not None
+    assert marker.since == began, "the outage did not start again"
+    assert (marker.failed_probes, marker.flaps) == (2, 1), "a re-park counts as a failure"
+    assert marker.wait() == timedelta(minutes=5)
+
+
+def test_a_read_that_passes_while_the_push_is_refused_reaches_the_limit_and_says_so(
+    tmp_path: Path, clock: FakeClock, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """`ls-remote` passes (a read-only key), the units are released, push, are refused and park
+    again, over and over."""
+    inst = two_hosts(tmp_path)
+    Probe(monkeypatch, healthy=True)
+    pause.note_host_outage(inst.state_dir, GITHUB, repo="app", error=REFUSED, now=clock.now())
+    waits = []
+    for _ in range(8):
+        marker = pause.host_outage(inst.state_dir, GITHUB)
+        assert marker is not None
+        waits.append(marker.wait() // timedelta(minutes=1))
+        clock.advance(marker.wait().total_seconds())
+        assert code_host.refresh(inst).cleared == (GITHUB,)
+        clock.advance(MINUTE)  # the released unit pushes and is refused
+        pause.note_host_outage(inst.state_dir, GITHUB, repo="app", error=REFUSED, now=clock.now())
+
+    assert waits == sorted(waits) and waits[-1] == 30, waits
+    [long] = code_host.long_outages(inst, clock.now())
+    assert long.host == GITHUB
+    assert "cleared" in code_host.outage_text(long, clock.now())
+
+
+def test_a_pass_with_no_repark_still_clears_the_outage_for_good(
+    tmp_path: Path, clock: FakeClock
+) -> None:
+    pause.note_host_outage(tmp_path, GITHUB, repo="app", error=REFUSED, now=clock.now())
+    pause.record_host_probe(tmp_path, GITHUB, healthy=True, error="", now=clock.now())
+
+    assert pause.host_outage(tmp_path, GITHUB) is None
+    assert pause.host_outages(tmp_path) == []
 
 
 def test_a_probe_is_due_only_when_the_wait_has_passed(tmp_path: Path, clock: FakeClock) -> None:
