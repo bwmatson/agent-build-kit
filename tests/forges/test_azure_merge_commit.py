@@ -29,9 +29,7 @@ def test_a_missing_pull_request_answers_empty() -> None:
     assert AzureDevOpsForge(http=host).merge_commit(REPO, 162) is None
 
 
-def test_the_listing_carries_a_completed_pull_request_s_merge_commit_not_an_open_one_s() -> (
-    None
-):
+def test_the_listing_carries_a_completed_pull_request_s_merge_commit_not_an_open_one_s() -> None:
     completed = azure_answers.pull(status="completed", lastMergeCommit=dict(commitId=MERGED))
     pulls = AzureDevOpsForge(http=RestHost(completed)).list_prs(REPO)
     [opened] = AzureDevOpsForge(http=RestHost(azure_answers.OPEN)).list_prs(REPO)
