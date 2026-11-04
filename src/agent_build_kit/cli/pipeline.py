@@ -1035,8 +1035,6 @@ def cmd_status(args: argparse.Namespace, inst: Installation) -> int:
         inst.locks_dir, inst.config.global_limits.max_concurrent_unit_tests
     ):
         log(line)
-    for line in worker_status_lines(inst):
-        log(line)
     for line in held_status_lines(inst):
         log(line)
     for line in hold_status_lines(inst.changes_dir, store_for(inst).all(), spans.clock.now()):
@@ -1082,6 +1080,8 @@ def cmd_status(args: argparse.Namespace, inst: Installation) -> int:
     units = store_for(inst).all()
     if not units:
         log("no units planned")
+        for line in worker_status_lines(inst):
+            log(line)
         return 0
     recorded = environment.read_state(inst.state_dir)
     if recorded is not None:
@@ -1348,6 +1348,8 @@ def cmd_status(args: argparse.Namespace, inst: Installation) -> int:
                 f"  {waiting}: {unit.id} ({where}) #{unit.pr or '?'}{shown_tier}{mark}{ran_none}"
                 f"{not_landed}"
             )
+    for line in worker_status_lines(inst):
+        log(line)
     return 0
 
 
