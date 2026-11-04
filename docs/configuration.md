@@ -412,7 +412,8 @@ global_limits:
   # The earlier, numbered spellings of the next keys still load, with a notice, for one release.
   max_concurrent_unit_tests: null   # most whole-suite unit-test runs at once, across every unit and
                                     # repo of the planning repo; a run that finds them all taken
-                                    # waits, outside the command's time limit. null: no limit. A
+                                    # waits, outside the command's time limit, and waiting runs
+                                    # are served in the order units start. null: no limit. A
                                     # machine setting: set it in abk.local.yaml
   unit_test_command_seconds: 3600   # longest a unit-test command may run before it is aborted
   unit_test_abort_grace_seconds: 10  # how long an aborted command has to exit before it is killed
