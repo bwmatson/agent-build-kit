@@ -23,11 +23,6 @@ from tests.cli.test_tick_telemetry import (  # noqa: F401 — fixtures
     ticks,
 )
 from tests.otlp import Collector
-from tests.time_limit import LOADED_TEST_TIME_LIMIT
-
-# The tests of this module run whole passes through the `ticks` fixture, whose time depends on
-# the machine's load.
-pytestmark = pytest.mark.time_limit(LOADED_TEST_TIME_LIMIT)
 
 
 def fail_checks(ticks: Ticks) -> None:  # noqa: F811

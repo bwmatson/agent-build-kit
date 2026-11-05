@@ -562,9 +562,9 @@ def account_kind(host: Host, request: pytest.FixtureRequest) -> str:
 
 
 def pytest_collection_modifyitems(items: list[pytest.Item]) -> None:
-    """A test built on the tick pass, the tick driver or the graph driver runs whole faked passes,
-    whose time depends on the machine's load, so it is held to the loaded limit unless it names
-    its own."""
+    """A test built on the tick pass, the tick driver, the graph driver or the `ticks` fixture of
+    the tick telemetry tests runs whole faked passes, whose time depends on the machine's load,
+    so it is held to the loaded limit unless it names its own."""
     # Nothing is imported here: a module that used a driver has already imported it, and a run
     # that uses none must not fail on an import error in the driver's modules.
     # `tests.time_limit` is already loaded as a plugin.
@@ -576,6 +576,7 @@ def pytest_collection_modifyitems(items: list[pytest.Item]) -> None:
         ("tests.e2e_gate_fakes", ("Planning",)),
         ("tests.scheduled_e2e_fakes", ("ScheduledRun",)),
         ("tests.split_changed_support", ("deliver_to_graph", "Reworks")),
+        ("tests.cli.test_tick_telemetry", ("ticks",)),
     )
     drivers = [
         getattr(sys.modules[name], attr)
