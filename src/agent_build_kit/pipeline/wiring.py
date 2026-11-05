@@ -168,6 +168,7 @@ from agent_build_kit.pipeline.restack import (
 )
 from agent_build_kit.pipeline.review_paths import is_protected
 from agent_build_kit.pipeline.run_log import (
+    FailedTest,
     TestRun,
     append_e2e_output,
     append_test_run,
@@ -1479,6 +1480,8 @@ def build_unit_test(
     # The tests the current run's failed commands named, each read by the profile of the
     # command (a project has its own), for its ledger row.
     run_failed: list[str] = []
+    # The worker and time-limit hit of each of those tests, for the same row.
+    run_detail: dict[str, FailedTest] = {}
     # The kind of re-test the current run after a move is: `full` unless it was `lite` or `scoped`.
     retest: dict[str, str] = {"kind": "full"}
     # What a test is, as the profile of the project a path sits in says, and the repo's
@@ -1554,9 +1557,11 @@ def build_unit_test(
             return retested(cwd, base, whole_repo, failed_output, moved_from)
         sample = machine or failure_evidence.machine_sample
         started = clock()
-        load_start = _first_load(sample())
+        sample_start = sample()
+        load_start = failure_evidence.first_load(sample_start)
         run_facts.clear()
         run_failed.clear()
+        run_detail.clear()
         outcome = "failed"
         failed: list[str] = []
         try:
@@ -1574,6 +1579,10 @@ def build_unit_test(
         finally:
             ended = clock()
             workers = run_facts.get("workers_setting")
+            sample_end = sample()
+            cpus, load_high = failure_evidence.load_reading(
+                [sample_start, sample_end], active().tests.load_high_per_cpu
+            )
             try:
                 append_test_run(
                     test_runs,
@@ -1584,11 +1593,14 @@ def build_unit_test(
                         outcome=outcome,
                         failed=failed,
                         load_start=load_start,
-                        load_end=_first_load(sample()),
+                        load_end=failure_evidence.first_load(sample_end),
                         workers=None if workers is None else str(workers),
                         tick=spans.PROCESS_TICK,
                         units_running=_running_units(installation),
                         wait_seconds=waited,
+                        failed_detail=[run_detail[test] for test in failed if test in run_detail],
+                        cpus=cpus,
+                        load_high=load_high,
                     ),
                 )
             except OSError as error:
@@ -2222,9 +2234,13 @@ def build_unit_test(
                 return {}
             conditions: dict[str, object] = {}
             for key, sample in (("load_before", evidence[1][1]), ("load_after", last_sample)):
-                load = sample.get("load")
-                if isinstance(load, list) and load:
-                    conditions[key] = load[0]
+                if (load := failure_evidence.first_load(sample)) is not None:
+                    conditions[key] = load
+            conditions.update(
+                failure_evidence.load_facts(
+                    [evidence[1][1], last_sample], active().tests.load_high_per_cpu
+                )
+            )
             conditions["rerun_exits"] = list(rerun_exits)
             conditions["rerun_seconds"] = list(rerun_seconds)
             return {
@@ -2409,8 +2425,16 @@ def build_unit_test(
                 command=" ".join(command),
             )
         if test_runs is not None and not ok:
-            named = failed_ids(toolchain, f"{result.stdout or ''}\n{result.stderr or ''}")
+            text = f"{result.stdout or ''}\n{result.stderr or ''}"
+            named = failed_ids(toolchain, text)
             run_failed.extend(test for test in named if test not in run_failed)
+            workers = getattr(toolchain, "failed_workers", lambda output: {})(text)
+            limited = getattr(toolchain, "time_limit_tests", lambda output: [])(text)
+            for test in named:
+                run_detail.setdefault(
+                    test,
+                    FailedTest(test=test, worker=workers.get(test), time_limit=test in limited),
+                )
         if log is not None:
             passed = "passed" if ok else f"exit {result.returncode}"
             seconds = time.monotonic() - started
@@ -2418,12 +2442,6 @@ def build_unit_test(
         return result
 
     return unit_test
-
-
-def _first_load(sample: dict[str, object]) -> float | None:
-    """The one-minute load average of a machine sample, when it has one."""
-    load = sample.get("load")
-    return float(load[0]) if isinstance(load, list) and load else None
 
 
 def _running_units(installation: Installation | None) -> list[str]:

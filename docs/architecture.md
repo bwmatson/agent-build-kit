@@ -1745,7 +1745,23 @@ approved.
   the unit's groups, and appends the flake to `flakes.jsonl`. The unit is held `planned`,
   cause `gated`, with a `resume` requeue waiting, so `release_gated` resumes it once the fix
   has merged: it restacks and runs unit-test again. A unit of the fix change itself does not
-  wait. `abk status` lists each flaky test with its count and fix change.
+  wait. `abk status` lists each flaky test with its count and fix change, and the load it was
+  met under when that is known.
+  **Evidence of the conditions.** A failing unit-test run saves a bundle under
+  `runs/test-failures/<unit>-<stamp>/`: `output.txt` (the whole output, redacted, cut at a byte
+  cap with a note), `context.json`, `machine.json` and `worktree.json`, and a `reruns/<n>/` folder
+  with the same four files for each serial rerun. The last three bundles per unit are kept, and
+  one a flake, storm or pre-existing record points at (`evidence`) is kept too. Those records
+  also carry `ran_at` and `conditions` (load before and after, the reruns' exit codes and
+  seconds, `cpus` and `load_high`). `load_high` is true when the one-minute load at the run's
+  start or end was at or above `tests.load_high_per_cpu` (default 1.5) for each CPU, and
+  is absent, read as unknown, on a record written before it. Each row of `runs/test-runs.jsonl`
+  carries the same `cpus` and `load_high`, and `failed_detail`: the worker (`gw3`) that ran each
+  failed test and whether its failure was the test's time limit. `abk failures [TEST]` reads
+  the records and the bundles (the ledger, `test-runs.jsonl`, answers how often a run was
+  loaded): it lists each failing test with its count, first and last time,
+  units and load, and with `--show` prints the newest bundle's context, machine and worktree
+  lines and the path of its output; `abk status` lists a failing test recorded as load.
   The order of checks for a failing test is fixed. An open fix for the failing test is waited on
   first: a unit whose unit-test or e2e-test fails on a test that an open change already fixes,
   whatever its kind (`fix-test-`, `fix-flaky-` or `fix-failing-`, found by one lookup by test id),

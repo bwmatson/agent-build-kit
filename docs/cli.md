@@ -125,6 +125,17 @@ the same counts, usage decision, tick and fingerprint of the refusal.
 files no longer match is marked `stale configuration`, and when no record covers the time it says
 so. A tick prints the fingerprint when it starts.
 
+### `abk failures [TEST] [--show]`
+
+`abk failures` lists the flakes, storms, failing tests (a flake record marked failing: a test that
+fails on its base or by its time limit), pre-existing failures and product defects recorded, one
+line for each kind and test: how many times it was recorded, the first and last time, the units
+and the load it was met under (`load 12 to 22`) when the record has it. `TEST` limits the list to
+one test. `--show` then prints the newest bundle's `context`, `machine` and `worktree` lines
+(under `runs/test-failures/`) and the path of its `output.txt`, which it does not print. The
+`flaky:` line of `abk status` adds `(load 12 to 22)` from the same records, and a `failing:` line
+adds `recorded as load` when its record says the host was loaded (`conditions.load_high`).
+
 ### `abk status`
 
 `abk status` prints a `pytest temp:` line with the size of the run folders the unit-test step

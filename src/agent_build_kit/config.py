@@ -1158,6 +1158,9 @@ class RuntimeTestsConfig(TestKindSettings):
     e2e_dimensions: dict[str, dict[str, E2eDimensionValue]] = {}
     # The values this machine has, per dimension; a dimension with no entry has every value.
     e2e_available: dict[str, list[str]] = {}
+    # The one-minute load per CPU at or above which a host counts as loaded, in the ledger of
+    # unit-test runs and the conditions of a failure record.
+    load_high_per_cpu: float = Field(1.5, gt=0)
 
 
 # A whole number above zero, as written: a quoted number is not one.

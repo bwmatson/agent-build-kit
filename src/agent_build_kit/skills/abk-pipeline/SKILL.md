@@ -177,6 +177,14 @@ instance).
   order, so the first listed takes the next free slot. A unit that waits for hours behind slow runs
   is not stuck: read the holders and the order, and `max_concurrent_unit_tests` is the setting to
   change (in `abk.local.yaml`).
+- A failing test and the conditions it failed under: a failing unit-test run keeps a bundle in
+  `runs/test-failures/` (the whole output, `context.json`, `machine.json`, `worktree.json`, and
+  the serial reruns), and each run, passing or not, is a row of `runs/test-runs.jsonl` with
+  `cpus`, `load_high` (the load at the start or end reached `tests.load_high_per_cpu` per CPU;
+  absent means unknown) and the worker and time-limit hit of each failed test. `abk failures
+  [TEST]` lists the records with counts, first and last time, units and load, and `--show`
+  prints the newest bundle's lines and where its output is. A failure recorded as load is
+  shown by `abk status`; read it before rerunning.
 - A unit-test timeout: a whole-suite run that reaches `global_limits.unit_test_command_seconds`
   holds the unit with `needs_human` and a note naming the limit ("the checks reached its 5400 s
   time limit"). It names no failing test, so no fix agent ran and nothing was saved for one. Look

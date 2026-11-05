@@ -77,6 +77,15 @@ def run_ledger_path(state_dir: Path) -> Path:
     return state_dir / "test-runs.jsonl"
 
 
+class FailedTest(Frozen):
+    """A failed test of a ledger row: the worker that ran it, None when the output does not say,
+    and whether its failure is the test's own time limit."""
+
+    test: str
+    worker: str | None = None
+    time_limit: bool = False
+
+
 class TestRun(Frozen):
     """One row of the ledger of unit-test runs: what ran and under what conditions, no output."""
 
@@ -99,6 +108,13 @@ class TestRun(Frozen):
     # How long the run waited for a unit-test slot (`global_limits.max_concurrent_unit_tests`)
     # before it started; `seconds` and the load readings are of the run after the wait.
     wait_seconds: float = 0.0
+    # The host's CPU count and whether its load at the start or end was at or above
+    # `tests.load_high_per_cpu` for each CPU; None on a row written before, or when the host
+    # does not say.
+    cpus: int | None = None
+    load_high: bool | None = None
+    # The worker and time-limit hit of each test of `failed`.
+    failed_detail: list[FailedTest] = []
 
 
 def append_test_run(path: Path, run: TestRun, *, max_bytes: int = TEST_RUNS_MAX_BYTES) -> None:

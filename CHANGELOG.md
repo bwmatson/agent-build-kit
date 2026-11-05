@@ -632,7 +632,14 @@
   own section kept like a failed one. Every unit-test run, passing or not, also adds a row to
   `runs/test-runs.jsonl` (start, seconds, outcome, failed tests, load, workers, tick, units
   running; no output), rotated at a size limit. The kit's own test suite now shows the stack
-  of every thread when a test is stopped by its time limit.
+  of every thread when a test is stopped by its time limit. `abk failures [TEST]` lists the
+  recorded flakes, storms, pre-existing failures and product defects with their counts, first
+  and last time, units and load, and `--show` prints the newest bundle's context, machine and
+  worktree lines and the path of its output; the `flaky:` line of `abk status` adds the load.
+  A ledger row and the conditions of a failure record also carry the CPU count and `load_high`
+  (the load at the run's start or end reached `tests.load_high_per_cpu` per CPU, 1.5 by
+  default; unknown on older records), and a failed test's ledger entry keeps its worker and
+  whether it hit its time limit, so `abk status` can show a failure recorded as load.
 
 - `abk external hand-off`, `list`, `done` and `release` hand a change, or some of its groups,
   to someone who builds it by hand. The kit never starts held work, units that need it wait
