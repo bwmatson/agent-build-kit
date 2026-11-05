@@ -348,6 +348,7 @@ from agent_build_kit.pipeline.units import (
     Join,
     Priority,
     ProjectKey,
+    ProjectLine,
     Unit,
     UnitState,
     base_of,
@@ -477,6 +478,7 @@ from agent_build_kit.pipeline.work_graph import (
     check_tags,
     cross_repo_needs_notes,
     current_tag,
+    declared_profiles,
     declared_projects,
     declared_split_names,
     group_needs,
@@ -484,6 +486,7 @@ from agent_build_kit.pipeline.work_graph import (
     inverted_group_warnings,
     manual_runbook_warnings,
     old_test_kind_warnings,
+    project_line_applied,
     project_source_note,
     redundant_separate_warnings,
     resolved_projects,
@@ -7971,6 +7974,15 @@ def _fix_change_tags(
     return True
 
 
+def _project_line_text(line: ProjectLine) -> str:
+    """A `Project:` line as it is written in tasks.md."""
+    if line.action == "add":
+        return f"Project: add {line.path} {line.profile}"
+    if line.action == "remove":
+        return f"Project: remove {line.path}"
+    return f"Project: replace {line.path} with {line.new_path} {line.profile}"
+
+
 def cmd_tags(args: argparse.Namespace, inst: Installation) -> int:
     """Validate a change's task-group tags (or every change's), or with `--fix` rewrite the old
     test-kind tags of the open changes, or with `--fix-projects` write the resolved projects into
@@ -8038,6 +8050,10 @@ def cmd_tags(args: argparse.Namespace, inst: Installation) -> int:
                 f"  {group.number}. [{group.tag}] [{group.tier}] {group.title}{urgency}"
                 f"{project_source_note(group)} [{group.mode}]"
             )
+            declared = declared_profiles(inst.repos).get(group.repo, {})
+            for given in group.project_lines:
+                state = "applied" if project_line_applied(given, declared) else "pending"
+                print(f"     line {given.line}: {_project_line_text(given)} — {state}")
     return 1 if failed else 0
 
 

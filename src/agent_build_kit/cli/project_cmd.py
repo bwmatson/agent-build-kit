@@ -14,9 +14,9 @@ from pathlib import Path
 from agent_build_kit import profiles
 from agent_build_kit import settings as settings_module
 from agent_build_kit.config import locate
-from agent_build_kit.init.scaffold import ScaffoldError, add_project, normal_path
+from agent_build_kit.init.scaffold import ScaffoldError, add_project
 from agent_build_kit.installation import Installation
-from agent_build_kit.pipeline.work_graph import repo_tag
+from agent_build_kit.pipeline.work_graph import normal_project_path, repo_tag
 
 
 class ProjectInitError(Exception):
@@ -31,7 +31,10 @@ def cmd_project_init(args: argparse.Namespace, inst: Installation) -> int:
                 f"no repo {args.repo!r} in abk.yaml (declared: {', '.join(repos)})"
             )
         root = inst.checkouts[args.repo]
-        path = normal_path(args.path, root)
+        try:
+            path = normal_project_path(args.path, root)
+        except ValueError as error:
+            raise ProjectInitError(str(error)) from None
         written = add_project(
             locate(args.config or settings_module.settings.config),
             args.repo,
