@@ -409,13 +409,16 @@ def build_base_passes(
     and settings). The whole tier runs, not a selection: the log names what failed, but the
     framework cannot read test names out of it without knowing the toolchain.
 
-    The worktree is added and removed in the repo's `turn`, not the test run. True when the tier
-    passes there, False when it fails, and None when the base could not be reached (the unit
-    stays settling and is asked again at the next poll).
+    The worktree is added and removed in the repo's `turn`, not the test run. The run is the
+    unit's: its unit-test slot's waiting marker and its ledger row name the unit, and a settling
+    unit's run waits ahead of every start key. True when the tier passes there, False when it
+    fails, and None when the base could not be reached (the unit stays settling and is asked again
+    at the next poll).
     """
 
     def passes(unit: StoredUnit, logs: str) -> bool | None:
         repo = repos[unit.repo]
+        named = spans.current_unit.set((unit.id, unit.change, LATE_CHECK_NODE, 0))
         try:
             with turn(unit.repo):
                 tip = git_out(repo, "rev-parse", local_ref(trunk_of(unit.repo), repo=unit.repo))
@@ -424,6 +427,8 @@ def build_base_passes(
         except (subprocess.CalledProcessError, OSError) as error:
             log(f"{unit.id}: the default branch could not be checked: {error}")
             return None
+        finally:
+            spans.current_unit.reset(named)
         return ok
 
     return passes
@@ -452,6 +457,24 @@ def merged_at(unit: StoredUnit, pr: int | None = None) -> datetime | None:
             except ValueError:
                 return None
     return None
+
+
+# The step a late check's run is recorded under, in its spans and ledger row.
+LATE_CHECK_NODE = "late_check"
+# Where the late checks' own turns are kept, beside the branch locks.
+LATE_CHECK_TURNS = "late-checks"
+
+
+def build_late_check_turn(locks: Path) -> Claim:
+    """One late check of a unit at a time, apart from the unit's claim: held for the whole late
+    check, so a second poll's late check of the same unit is left for a later poll rather than
+    queueing a second run, while the claim stays free for `abk settle --accept` and the restack of
+    a child. Raises `BranchBusy` when another late check of the unit holds it."""
+
+    def turn(unit: StoredUnit) -> AbstractContextManager[object]:
+        return branch_lock(f"late-check-{unit.id}", root=locks / LATE_CHECK_TURNS)
+
+    return turn
 
 
 def build_base_checks(
@@ -523,6 +546,7 @@ def on_late_check(
     base_passes: Callable[[StoredUnit, str], bool | None] | None = None,
     base_checks: Callable[[StoredUnit, str, str], CommitChecks] | None = None,
     claim: Claim = _unclaimed,
+    late_turn: Claim = _unclaimed,
     merge_record: MergeRecord | None = None,
     log: Log = print,
 ) -> bool:
@@ -538,84 +562,129 @@ def on_late_check(
     failure is recorded as fixed on the base. Failing there, the same unit goes to `planned` for
     a late fix on a new branch from the default branch, built by the rework path with the
     check's log. After `LATE_FIXES_PER_UNIT` late fixes the unit is held for a person instead.
+
+    The unit's claim is held only to read it before the local run and to record the result: the
+    run waits for its unit-test slot holding nothing, and a unit no longer settling when the
+    result comes back (a person accepted it meanwhile) is left as it is. `late_turn` keeps a
+    second late check of the same unit from running beside the first; a busy turn or claim
+    leaves the event for a later poll.
     """
     unit = _find(store, repo, pr)
     if unit is None or unit.state != SETTLING:
         return True
     try:
-        with claim(unit):
-            current = store.get(unit.id)
-            if current.state != SETTLING:
+        with late_turn(unit):
+            return _late_check(
+                pr,
+                unit,
+                pull=pull,
+                store=store,
+                fetch_checks=fetch_checks,
+                base_passes=base_passes,
+                base_checks=base_checks,
+                claim=claim,
+                merge_record=merge_record,
+                log=log,
+            )
+    except BranchBusy as error:
+        return _deferred(f"late check #{pr}", unit, error, log)
+
+
+def _late_check(
+    pr: int,
+    unit: StoredUnit,
+    *,
+    pull: PullRequest | None,
+    store: UnitStore,
+    fetch_checks: Callable[[PullRequest | None], str] | None,
+    base_passes: Callable[[StoredUnit, str], bool | None] | None,
+    base_checks: Callable[[StoredUnit, str, str], CommitChecks] | None,
+    claim: Claim,
+    merge_record: MergeRecord | None,
+    log: Log,
+) -> bool:
+    """`on_late_check` in its turn. The claim is taken to read the unit (and to settle it from
+    the merge commit's checks, or hold it) and again to record the local run's result; the local
+    run, which may wait for a unit-test slot, holds nothing. Raises `BranchBusy` when the claim
+    is held."""
+    failed = failing_names(pull.checks) if pull else ()
+    names = ", ".join(failed)
+    with claim(unit):
+        current = store.get(unit.id)
+        if current.state != SETTLING:
+            return True
+        fixes = sum(1 for p in current.pulls if p.role == "late-fix")
+        sha = (pull.merge_commit if pull else None) or current.merge_sha
+        if base_checks is not None and sha:
+            short = sha[:SHORT_SHA]
+            branch = pull.base if pull and pull.base else trunk_of(current.repo)
+            verdict = base_verdict(base_checks(current, sha, branch), failed)
+            merged = merged_at(current, pr)
+            waited = spans.clock.now() - merged if merged is not None else timedelta(0)
+            if verdict == BaseVerdict.RUNNING and waited > BASE_CHECKS_WAIT:
+                log(
+                    f"late check #{pr}: the checks of {short} still run "
+                    f"{BASE_CHECKS_WAIT} after the merge; running the tests here"
+                )
+            elif verdict == BaseVerdict.RUNNING:
+                log(f"late check #{pr}: {current.id} waits for the checks of {short}")
                 return True
-            fixes = sum(1 for p in current.pulls if p.role == "late-fix")
-            failed = failing_names(pull.checks) if pull else ()
-            names = ", ".join(failed)
-            sha = (pull.merge_commit if pull else None) or current.merge_sha
-            if base_checks is not None and sha:
-                short = sha[:SHORT_SHA]
-                branch = pull.base if pull and pull.base else trunk_of(current.repo)
-                verdict = base_verdict(base_checks(current, sha, branch), failed)
-                merged = merged_at(current, pr)
-                waited = spans.clock.now() - merged if merged is not None else timedelta(0)
-                if verdict == BaseVerdict.RUNNING and waited > BASE_CHECKS_WAIT:
-                    log(
-                        f"late check #{pr}: the checks of {short} still run "
-                        f"{BASE_CHECKS_WAIT} after the merge; running the tests here"
-                    )
-                elif verdict == BaseVerdict.RUNNING:
-                    log(f"late check #{pr}: {current.id} waits for the checks of {short}")
-                    return True
-                if verdict == BaseVerdict.PASSED:
-                    settle_merged(
-                        store,
-                        current,
-                        merge_record,
-                        note=(
-                            f"late failure settled by the default branch's checks: the checks "
-                            f"of {short} passed (check {names} failed on the pull request)"
-                        ),
-                        merge_commit=pull.merge_commit if pull else None,
-                    )
-                    log(f"late check #{pr}: {current.id} merged, the checks of {short} passed")
-                    return True
-            if fixes >= LATE_FIXES_PER_UNIT:
-                note = f"check {names or 'unknown'} failed after {fixes} late fixes"
-                hold_for_conflict(current, store, note, log, label=f"late check #{pr}")
-                return True
-            logs = fetch_checks(pull) if fetch_checks else ""
-            on_base = base_passes(current, logs) if base_passes is not None else False
-            if on_base is None:
-                log(f"late check #{pr}: {current.id} could not be run on the base, waiting")
-                return True
-            if on_base:
-                excerpt = cut_head(logs, EXCERPT) if logs else ""
+            if verdict == BaseVerdict.PASSED:
                 settle_merged(
                     store,
                     current,
                     merge_record,
-                    note=f"late failure fixed on the base: check {names}: {excerpt}".strip(),
+                    note=(
+                        f"late failure settled by the default branch's checks: the checks "
+                        f"of {short} passed (check {names} failed on the pull request)"
+                    ),
                     merge_commit=pull.merge_commit if pull else None,
                 )
-                log(f"late check #{pr}: {current.id} merged, {names} fixed on the base")
+                log(f"late check #{pr}: {current.id} merged, the checks of {short} passed")
                 return True
-            first = current.pulls[0].branch if current.pulls else current.branch
-            branch = f"{first or branch_name(current)}-fix{fixes + 1}"
-            store.set_feedback(
-                current.id,
-                late_fix_prompt(pull, logs, current.pr or pr),
-                source=feedback_source_of(ReworkKind.FAILING_CHECKS),
+        if fixes >= LATE_FIXES_PER_UNIT:
+            note = f"check {names or 'unknown'} failed after {fixes} late fixes"
+            hold_for_conflict(current, store, note, log, label=f"late check #{pr}")
+            return True
+    # Outside the claim: the run may wait long for a unit-test slot, and `abk settle --accept`
+    # or the restack of a child must not be refused meanwhile.
+    logs = fetch_checks(pull) if fetch_checks else ""
+    on_base = base_passes(current, logs) if base_passes is not None else False
+    if on_base is None:
+        log(f"late check #{pr}: {current.id} could not be run on the base, waiting")
+        return True
+    with claim(unit):
+        latest = store.get(unit.id)
+        if latest.state != SETTLING:
+            log(f"late check #{pr}: {latest.id} is {latest.state} now; the late result is not kept")
+            return True
+        if on_base:
+            excerpt = cut_head(logs, EXCERPT) if logs else ""
+            settle_merged(
+                store,
+                latest,
+                merge_record,
+                note=f"late failure fixed on the base: check {names}: {excerpt}".strip(),
+                merge_commit=pull.merge_commit if pull else None,
             )
-            store.clear_first_branch(current.id)
-            store.set_state(
-                current.id,
-                PLANNED,
-                branch=branch,
-                note=f"late failure: check {names} failed on the base: {cut_head(logs, EXCERPT)}",
-                cause=Cause.LATE_FAILURE,
-            )
-            log(f"late check #{pr}: {current.id} late fix on {branch}")
-    except BranchBusy as error:
-        return _deferred(f"late check #{pr}", unit, error, log)
+            log(f"late check #{pr}: {latest.id} merged, {names} fixed on the base")
+            return True
+        first = latest.pulls[0].branch if latest.pulls else latest.branch
+        branch = f"{first or branch_name(latest)}-fix{fixes + 1}"
+        store.set_feedback(
+            latest.id,
+            late_fix_prompt(pull, logs, latest.pr or pr),
+            source=feedback_source_of(ReworkKind.FAILING_CHECKS),
+        )
+        store.clear_first_branch(latest.id)
+        store.set_state(
+            latest.id,
+            PLANNED,
+            branch=branch,
+            note=f"late failure: check {names} failed on the base: {cut_head(logs, EXCERPT)}",
+            cause=Cause.LATE_FAILURE,
+        )
+        log(f"late check #{pr}: {latest.id} late fix on {branch}")
     return True
 
 
@@ -2693,12 +2762,14 @@ def build_dispatch(
     merge_record: MergeRecord | None = None,
     base_passes: Callable[[StoredUnit, str], bool | None] | None = None,
     base_checks: Callable[[StoredUnit, str, str], CommitChecks] | None = None,
+    late_turn: Claim = _unclaimed,
     log: Log = print,
 ) -> Callable[..., bool]:
     """The callable `pr_poller` hands each event to.
 
     `base_passes` runs a late-failed check's tests, from its log, on the default branch;
-    `base_checks` reads the checks of the merge commit before that run.
+    `base_checks` reads the checks of the merge commit before that run, and `late_turn` keeps
+    one late check of a unit at a time.
 
     The event names are the poller's contract; an unhandled one is logged
     rather than dropped, because silence here is indistinguishable from a
@@ -2757,6 +2828,7 @@ def build_dispatch(
                 base_passes=base_passes,
                 base_checks=base_checks,
                 claim=claim,
+                late_turn=late_turn,
                 merge_record=merge_record,
                 log=log,
             )

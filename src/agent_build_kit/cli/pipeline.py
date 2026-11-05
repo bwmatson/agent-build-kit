@@ -142,6 +142,7 @@ from agent_build_kit.pipeline.events import (
     build_fetch_check_logs,
     build_fetch_review,
     build_fork_point,
+    build_late_check_turn,
     build_remove_worktree,
     build_rerun_checks,
     build_restack,
@@ -319,7 +320,7 @@ from agent_build_kit.pipeline.unit_store import (
     guidance_excerpt,
     waiting_for,
 )
-from agent_build_kit.pipeline.unit_test_slots import slot_status_lines
+from agent_build_kit.pipeline.unit_test_slots import slot_status_lines, waiting_since
 from agent_build_kit.pipeline.units import (
     BUILDS_NOTHING,
     CLOSED,
@@ -1169,7 +1170,7 @@ def cmd_status(args: argparse.Namespace, inst: Installation) -> int:
         *_failed_waiting_lines(units),
         *_wait_ended_lines(inst, units),
         *_second_parent_lines(units),
-        *_settling_lines(units, checks_of),
+        *_settling_lines(units, checks_of, waiting_since(inst.locks_dir)),
         *_earlier_wait_lines(units),
         *_replaced_lines(units),
     ]:
@@ -4438,12 +4439,20 @@ def late_fix_phrase(unit: StoredUnit) -> str:
     return f"late fix #{fixes[-1].number} after #{earlier[-1].number}" if earlier else ""
 
 
-def _settling_lines(units: list[StoredUnit], checks_of: ChecksOf) -> list[str]:
-    """A settling unit with the checks it waits for and since when it has been merged, and a
-    unit on a late fix with both pull requests."""
+def _settling_lines(
+    units: list[StoredUnit], checks_of: ChecksOf, slot_waits: Mapping[str, datetime]
+) -> list[str]:
+    """A settling unit with the checks it waits for and since when it has been merged, or, while
+    its late check waits for a unit-test slot (`slot_waits`, by unit), since when it has waited;
+    and a unit on a late fix with both pull requests."""
     lines = []
     for unit in units:
-        if unit.state == SETTLING:
+        if unit.state == SETTLING and unit.id in slot_waits:
+            lines.append(
+                f"  {unit.id} ({unit_label(unit)}) #{unit.pr or '?'} settling: late check waiting "
+                f"for a unit-test slot since {slot_waits[unit.id]:%Y-%m-%d %H:%M} UTC"
+            )
+        elif unit.state == SETTLING:
             open_checks = sorted(
                 check.name
                 for check in checks_of(unit)
@@ -6901,6 +6910,7 @@ def dispatch_for(
             log=say,
         ),
         base_checks=build_base_checks(for_repo=inst.forge_of),
+        late_turn=build_late_check_turn(inst.locks_dir),
         # A pass polls between builds, so an event may name a unit still
         # building; the handlers leave it to a later poll. See `events`.
         waiting_path=inst.state_dir / "held-waiting.json",

@@ -8,7 +8,7 @@ no longer settling at the record step is left as it is: the late result changes 
 from __future__ import annotations
 
 import threading
-from collections.abc import Iterator
+from collections.abc import Generator
 from contextlib import contextmanager
 from datetime import UTC, datetime
 from pathlib import Path
@@ -95,7 +95,7 @@ def test_the_result_is_recorded_under_the_claim_and_the_run_is_outside_it(
     steps: list[str] = []
 
     @contextmanager
-    def claim(unit: StoredUnit) -> Iterator[None]:
+    def claim(unit: StoredUnit) -> Generator[None]:
         steps.append("claim")
         yield
         steps.append(f"release {store.get(unit.id).state}")

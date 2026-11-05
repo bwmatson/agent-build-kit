@@ -281,7 +281,11 @@ stays settling and is asked again at the next poll, for up to two hours after th
 the tests are run locally. Otherwise (a failure there, no check of that name, no checks, or the host could not be
 asked) the failing check's tests are run on the default branch: fixed there, the unit is merged;
 still failing, the same unit builds a second pull request (`late fix #<second> after #<first>`).
-After two late fixes it is `held` for a person.
+After two late fixes it is `held` for a person. That run is the unit's in the unit-test queue: it
+goes ahead of every unit waiting to start, and while it waits `abk status` shows `settling: late
+check waiting for a unit-test slot since <time>`. It holds no claim on the unit while it waits or
+runs, so `abk settle --accept` works then, and a result that comes back after an accept changes
+nothing.
 
 ### Paused for a rejected login
 

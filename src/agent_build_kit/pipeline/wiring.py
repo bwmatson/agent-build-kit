@@ -195,7 +195,12 @@ from agent_build_kit.pipeline.unit_store import (
     UnitStore,
     unit_id_of_branch,
 )
-from agent_build_kit.pipeline.unit_test_slots import LEAST_URGENT, Rank, unit_test_slot
+from agent_build_kit.pipeline.unit_test_slots import (
+    AHEAD_OF_START_KEYS,
+    LEAST_URGENT,
+    Rank,
+    unit_test_slot,
+)
 from agent_build_kit.pipeline.units import (
     BUILDS_NOTHING,
     IN_REVIEW,
@@ -203,6 +208,7 @@ from agent_build_kit.pipeline.units import (
     PLANNED,
     REVIEWED,
     RUNNING,
+    SETTLING,
     Unit,
     base_of,
     branch_name,
@@ -1344,13 +1350,18 @@ RUN_TOKEN_TRIES = 20
 def _slot_rank(installation: Installation, unit_id: str) -> Rank:
     """The place a run of `unit_id` waits for a slot at: the unit's start key, as `start_order`
     gives it for units waiting to resume (nothing excluded, none handed off), so waiting runs are
-    served in the order units start. The least urgent when the unit is not in the store."""
+    served in the order units start. A settling unit's run is its late check, which waits ahead
+    of every start key. The least urgent when the unit is not in the store."""
     try:
         stored = UnitStore(installation.state_dir / "units.json").all()
     except (OSError, ValueError):
         return LEAST_URGENT
     unit = next((candidate for candidate in stored if candidate.id == unit_id), None)
-    return LEAST_URGENT if unit is None else start_key(unit, stored, (), ())
+    if unit is None:
+        return LEAST_URGENT
+    if unit.state == SETTLING:
+        return AHEAD_OF_START_KEYS
+    return start_key(unit, stored, (), ())
 
 
 @contextmanager

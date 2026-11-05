@@ -18,7 +18,7 @@ from tests.unit_test_slot_fakes import live_waiter
 
 MERGED_AT = datetime(2026, 10, 27, 11, 43, tzinfo=UTC)
 WAITING_SINCE = datetime(2026, 10, 27, 12, 5, tzinfo=UTC)
-LINE = "settling: late check waiting for a unit-test slot since 2026-10-27 12:05 UTC"
+LINE = f"settling: late check waiting for a unit-test slot since {WAITING_SINCE:%Y-%m-%d %H:%M} UTC"
 
 
 @pytest.fixture
