@@ -75,9 +75,12 @@ starts nothing and skips planning, but still fetches, polls and archives (below)
   no unit, writes or ends no pause, and closes no pull request, posts no reply and sweeps no
   label. Three things still act as in a real tick: the fetch and poll (which record merges, send
   units back and restack), the live verification (deploy and live tests) and the archiving of
-  finished changes. The usage ledger still gets its spans and the planner call's cost. A change that needs planning is still planned by the model, in memory (one planner call
-  each, and none while the usage guard refuses): the tick prints `would plan <change>: N unit(s)`
-  and saves the answer under `plan-previews/` in the state folder. For each recorded pre-existing e2e-test failure it also prints
+  finished changes. The usage ledger still gets its spans and the planner call's cost. A change
+  that needs planning is still planned by the model, in memory (one planner call each, and none
+  while the usage guard refuses): the tick prints `would plan <change>: N unit(s)` and saves the
+  answer under `plan-previews/` in the state folder, which the next real tick uses in place of
+  asking again when nothing it was made under has changed. For each recorded pre-existing
+  e2e-test failure it also prints
   `exists: <change>` (the open fix change) or `would write: <change>` (a change, or the
   successor of an archived one), even when no unit is pending; it writes nothing and runs
   no base run.
@@ -795,7 +798,8 @@ only when its `tasks.md` changes (or its last plan failed and attempts remain);
 this is the way to ask for a plan otherwise. For each selected change it drops the
 recorded plan, asks the planner, and links the `Needs:` lines, the two steps a tick
 performs, so the units stored are what the next tick would have produced. It first
-says how many model calls it will make.
+says how many model calls it will make. It never reuses a plan preview a dry-run tick saved:
+it asks for a fresh answer.
 
 - **Reporting.** `--report` shows what a replan would do and does none of it: for each
   selected change its plan state, how many units are started and how many unstarted,

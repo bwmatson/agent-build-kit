@@ -195,7 +195,12 @@ from agent_build_kit.pipeline.pause import (
     pauses_in_force,
     record_pause,
 )
-from agent_build_kit.pipeline.plan_previews import save_preview
+from agent_build_kit.pipeline.plan_previews import (
+    load_preview,
+    remove_preview,
+    save_preview,
+    sweep_previews,
+)
 from agent_build_kit.pipeline.planner import (
     GroupTooLarge,
     Pin,
@@ -5809,6 +5814,7 @@ def plan_all(
         existing = {path.name for path in inst.changes_dir.iterdir() if path.is_dir()}
         if gone := store.unplan_vanished(existing):
             log(f"unplanned, their change no longer exists: {', '.join(gone)}")
+        sweep_previews(inst.state_dir, existing)
 
     for tasks in inst.tasks_files():
         change = tasks.parent.name
@@ -5838,6 +5844,9 @@ def plan_all(
                 log(line)
         if decided is not None:
             kind, why = decided
+            if not dry_run:
+                # Settled without the planner, so a preview of this change has no use.
+                remove_preview(inst.state_dir, change)
             if kind == "refused":
                 log(f"not planning {change}: {why}")
                 results[change] = PlanResult(status="refused")
@@ -5897,7 +5906,8 @@ def plan_all(
             # plan, which makes a change unplannable the moment any part of
             # it starts.
             # Groups another change's planned unit carries are as claimed.
-            plan = plan_round(
+            ask = partial(
+                plan_round,
                 calibrations=ratios,
                 examples={
                     kind: recent_examples(
@@ -5927,6 +5937,24 @@ def plan_all(
                     },
                 ),
             )
+            # A preview a dry run saved for this text and policy stands in for the model, once:
+            # it is removed as soon as it is read, so no outcome of what follows leaves it
+            # behind. The parser still checks it against the store as it is now, and one it
+            # rejects is dropped for the call it would have saved. A replan asks for a fresh
+            # answer, so it does not read one.
+            saved = None
+            if not dry_run:
+                if not force:
+                    saved = load_preview(inst.state_dir, change, tasks=digest, sizing=sizing)
+                remove_preview(inst.state_dir, change)
+            if saved is None:
+                plan = ask()
+            else:
+                try:
+                    plan = ask(run_claude=lambda _prompt, answer=saved: answer)
+                except PlannerError:
+                    answers.clear()
+                    plan = ask()
             drops = _drop_cycle_edges(inst, store, change, plan.units, task_groups)
         except GroupTooLarge as error:
             # Fixed in tasks.md, not in the plan: every attempt is spent at

@@ -160,6 +160,16 @@ at most 300 characters, redacted. A planner prompt over the safe size of the run
 transport fails the attempt the same way, its first line naming the change, the size and the
 limit and the lines after it the size of each part.
 
+`abk tick --dry-run` plans in memory: it asks the planner for each change that needs it, logs
+`would plan <change>: N unit(s)` and saves the raw answer, with the `tasks.md` and sizing
+digests it was made under, as a plan preview under `plan-previews/` in the state folder
+(`pipeline/plan_previews.py`); it writes no store or plan record. A real tick about to plan a
+change looks the preview up first. When both digests match and the planner's parser accepts the
+answer against the store as it is then, the answer stands in for the model call (no planner
+call, no `plan` span) and the plan is written as any other. Otherwise the preview is discarded
+and the model is asked as before. A used or discarded preview is removed, and a preview of a
+change that no longer exists is swept.
+
 An `unplanned` unit is kept for one pass and then swept: the readers of a demotion (the replan
 report, the check for changes a demoted joined unit carried, the drop preview, the tracker's
 `removed` state) see it in the pass that demoted it, and the sweep at the end of a later pass
