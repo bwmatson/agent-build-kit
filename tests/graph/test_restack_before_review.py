@@ -92,7 +92,7 @@ def test_the_review_agent_reads_the_rebased_head(tmp_path: Path) -> None:
         seen.append(stages.head(kw["cwd"]))
         return recorder.review(**kw)
 
-    build(tmp_path, recorder, review=review, **stages.overrides())
+    build(tmp_path, recorder, run_review=review, **stages.overrides())
 
     assert seen == [MOVED]
 

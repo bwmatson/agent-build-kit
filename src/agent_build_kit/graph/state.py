@@ -21,6 +21,7 @@ class Node(StrEnum):
     IMPLEMENT = "implement"
     CHECKS = "checks"
     FIX_CHECKS = "fix_checks"
+    RESTACK_REVIEW = "restack_review"
     REVIEW = "review"
     REWORK = "rework"
     ADAPT = "adapt"
@@ -155,6 +156,7 @@ class UnitRun(Frozen):
     produced_nothing: bool = False
     moved: bool = False  # `verify_base` moved the branch onto a new base
     moved_from: str = ""  # the base that move left, for unit-test to scope its run by
+    pre_review: bool = False  # the move was made before the review: unit-test leads to review
     start: str = (
         ""  # the base's tip when `prepare` began, which a held unit checks the base against
     )

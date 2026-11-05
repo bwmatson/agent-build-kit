@@ -485,7 +485,8 @@ def test_a_branch_moved_cleanly_before_the_push_is_checked_again_and_the_moved_h
 
     def restack(**kw: Any) -> Restacked | None:
         calls.append(1)
-        if len(calls) != 2:
+        # The start of the run, before the review, then before the pull request.
+        if len(calls) != 3:
             return None
         # The base moved after review approved; the move is clean, so the
         # approval is re-recorded at the moved head, as the real restack does.
@@ -501,7 +502,8 @@ def test_a_branch_moved_cleanly_before_the_push_is_checked_again_and_the_moved_h
 
     assert outcome.status == "open"
     steps = [e for e in recorder.events if e in ("unit-test", "review", "verify_base", "push")]
-    assert steps == ["unit-test", "review", "verify_base", "unit-test", "push"]
+    # `verify_base` is the fake base lookup, which the restack before the review makes too.
+    assert steps == ["unit-test", "verify_base", "review", "verify_base", "unit-test", "push"]
     assert recorder.remote == ["sha-3"], "the moved head, not the one review saw"
     assert recorder.store.get(unit().id).approved == "sha-3"
 

@@ -994,7 +994,8 @@ def test_a_move_that_needs_resolution_before_the_push_resumes_at_its_restack_at_
     outcome = build(tmp_path, recorder, **moves.overrides(existing=2))
 
     assert outcome.status == "open", "the same run goes on, rather than queueing"
-    assert moves.resolving == [True, False, True, False], "the resumed restack may resolve"
+    # The start of the run, before the review, before the pull request; then the resumed run.
+    assert moves.resolving == [True, False, False, True, False], "the resumed restack may resolve"
     assert recorder.events.count("push") == 1, "nothing is pushed from the half-resolved branch"
 
 
@@ -1012,7 +1013,8 @@ def test_a_base_that_keeps_needing_resolution_is_resumed_once_then_left_planned(
     assert "push" not in recorder.events and "pr" not in recorder.events
     assert stored.state == PLANNED
     assert stored.cause == Cause.BASE_CHANGED
-    assert moves.resolving.count(False) == 2, "one resume, not a loop"
+    # Each pass makes the move before the review and the one before the pull request.
+    assert moves.resolving.count(False) == 3, "one resume, not a loop"
 
 
 def test_unit_test_failing_after_a_clean_move_is_reworked_reviewed_and_opened_in_the_same_run(

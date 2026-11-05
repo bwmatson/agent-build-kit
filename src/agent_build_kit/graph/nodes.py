@@ -218,6 +218,7 @@ FRESH: Update = {
     "restack": False,
     "moved": False,
     "moved_from": "",
+    "pre_review": False,
     "conflict": None,
     "verdict": None,
     "fix_rounds": 0,
@@ -353,6 +354,7 @@ class BuildPath:
             Node.STUB_CHECKS: self.stub_checks,
             Node.FIX_STUB_CHECKS: self.fix_stub_checks,
             Node.RED_CHECK: self.red_check,
+            Node.RESTACK_REVIEW: self.restack_review,
             Node.REVIEW: self.review,
             Node.REWORK: self.rework,
             Node.ADAPT: self.adapt,
@@ -2688,8 +2690,11 @@ class BuildPath:
             else:
                 # Only a clean move says what base it left, and so how its run is scoped.
                 moved = {"moved_from": state.moved_from} if state.moved else {}
-                # The re-test after a clean move is the restack before the pull request's.
-                point = spans.restack_point.set("before_pr" if state.moved else "")
+                # The re-test after a clean move is the restack before the review's or before
+                # the pull request's.
+                point = spans.restack_point.set(
+                    ("before_review" if state.pre_review else "before_pr") if state.moved else ""
+                )
                 try:
                     ok, output = r.run_unit_test(
                         cwd=self.tree(),
@@ -2728,6 +2733,10 @@ class BuildPath:
             if state.moved:
                 return self.rebase(state, f"unit-test failed on {base}", base=base)
             return self.stop("unit-test failed")
+        if state.pre_review:
+            # Not yet reviewed: the move came before the review, which reads this commit.
+            # The flag stays for the router, which sends the unit to the review.
+            return {"moved": False, "moved_from": ""}
         if (
             state.moved
             and not state.produced_nothing
@@ -2893,8 +2902,25 @@ class BuildPath:
             "given_comments": (),
         }
 
+    def restack_review(self, state: UnitRun) -> Update:
+        """The base as it is now, once the checks have passed and before the review reads the
+        branch; a clean move is re-tested before the review."""
+        update = self.restack_now(state, "before_review")
+        if update.get("restack"):
+            return update
+        # The unit's base stays as it was: the gate before the review holds a unit whose base
+        # changed, and the restack before the pull request records the new one.
+        update.pop("base", None)
+        return {**update, "pre_review": True} if update.get("moved") else update
+
     def verify_base(self, state: UnitRun) -> Update:
         """The base as it is now, before anything is pushed against it."""
+        return self.restack_now(state, "before_pr")
+
+    def restack_now(self, state: UnitRun, point: str) -> Update:
+        """Move the branch onto the base as it is now, recording the restack at `point`: a
+        clean move is for the unit-test to run again, and a conflict or a resolution goes back
+        to the restack at the start of a run, where the resolver is."""
         r, unit = self.runner, self.unit
         base = state.base or self.base
         r.fetch_quietly(unit)
@@ -2922,13 +2948,14 @@ class BuildPath:
             raise
         except Exception as error:  # noqa: BLE001
             return self.rebase(state, f"moving onto {base} needed resolution: {error}", base=base)
-        self.record_restack("before_pr", moved, 0.0)
+        self.record_restack(point, moved, 0.0)
         if moved is not None:
             if moved.conflict or moved.resolved:
                 return self.rebase(state, f"moving onto {base} needed resolution", base=base)
             self.say(f"moved onto {base} cleanly; unit-test again")
         return {
             "base": base,
+            "pre_review": False,
             "moved": moved is not None,
             "moved_from": moved.old_base if moved is not None else "",
         }
@@ -3466,7 +3493,15 @@ def after_last_group(state: UnitRun) -> Node:
 
 
 def after_checks(state: UnitRun) -> Node:
-    return halted(state) or (Node.REVIEW if state.checks_ok else Node.FIX_CHECKS)
+    return halted(state) or (Node.RESTACK_REVIEW if state.checks_ok else Node.FIX_CHECKS)
+
+
+def after_restack_review(state: UnitRun) -> Node:
+    if stop := halted(state):
+        return stop
+    if state.restack:
+        return Node.PREPARE
+    return Node.UNIT_TEST if state.moved else Node.REVIEW
 
 
 def after_fix_checks(state: UnitRun) -> Node:
@@ -3494,6 +3529,8 @@ def after_unit_test(state: UnitRun) -> Node:
         return Node.PREPARE
     if state.produced_nothing:
         return Node.SATISFIED
+    if state.pre_review:
+        return Node.REVIEW
     if state.moved:
         # verify_base already moved the unit onto the base: nothing left to check there.
         return Node.E2E if runs_e2e(state) else Node.NEW_COMMENTS
@@ -3617,7 +3654,11 @@ ROUTES: Mapping[Node, tuple[Callable[[UnitRun], Target], tuple[Target, ...]]] = 
         after_implement,
         (Node.HELD, Node.FAILED, Node.UNIT_TEST, Node.CHECKS, Node.TESTS),
     ),
-    Node.CHECKS: (after_checks, (Node.HELD, Node.FAILED, Node.REVIEW, Node.FIX_CHECKS)),
+    Node.CHECKS: (after_checks, (Node.HELD, Node.FAILED, Node.RESTACK_REVIEW, Node.FIX_CHECKS)),
+    Node.RESTACK_REVIEW: (
+        after_restack_review,
+        (Node.HELD, Node.FAILED, Node.PREPARE, Node.UNIT_TEST, Node.REVIEW),
+    ),
     Node.FIX_CHECKS: (after_fix_checks, (Node.HELD, Node.FAILED, Node.CHECKS)),
     Node.REVIEW: (
         after_review,
@@ -3631,6 +3672,7 @@ ROUTES: Mapping[Node, tuple[Callable[[UnitRun], Target], tuple[Target, ...]]] = 
             Node.FAILED,
             Node.PREPARE,
             Node.SATISFIED,
+            Node.REVIEW,
             Node.E2E,
             Node.VERIFY_BASE,
             Node.NEW_COMMENTS,
