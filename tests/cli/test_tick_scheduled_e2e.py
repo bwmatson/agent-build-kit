@@ -15,10 +15,10 @@ from agent_build_kit.pipeline.e2e_schedule import scheduled_name
 from agent_build_kit.pipeline.unit_store import UnitStore
 from agent_build_kit.pipeline.units import MERGED
 from agent_build_kit.pipeline.usage_guard import Decision
+from tests import tick_pass
 from tests.e2e_schedule_fakes import TODAY, on_today, open_change, planning, scheduled_changes
 from tests.factories import stored_unit
 from tests.tick_pass import isolate
-from tests.tick_pass import tick as run_pass
 
 pytestmark = pytest.mark.usefixtures("scripted_engine")
 
@@ -56,7 +56,7 @@ def installation(tmp_path: Path, schedule: str | None = None) -> tuple[Installat
 def tick(inst: Installation, *, dry_run: bool = False) -> int:
     if dry_run:
         return cli.cmd_tick(argparse.Namespace(dry_run=True, only=None), inst)
-    return run_pass(inst)
+    return tick_pass.tick(inst)
 
 
 def planning_directory(inst: Installation, store: UnitStore) -> tuple[dict[str, bytes], list]:

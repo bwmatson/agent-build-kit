@@ -91,7 +91,9 @@ def run_blocked_pass(
         return len([u for u in builder.store.all() if u.state == RUNNING])
 
     def poll(inst, **kwargs) -> None:
-        if len(builder.started) >= 4 and "zero/1" not in {u.id for u in builder.store.all()}:
+        # `Builder` records a start before it marks the unit `running`, so the four are counted
+        # by their state, the one the lane build and the lane-off round then read.
+        if running_count() >= 4 and "zero/1" not in {u.id for u in builder.store.all()}:
             builder.store.upsert([stored("zero/1", priority=0)])
 
     run_round = cli.run_round
