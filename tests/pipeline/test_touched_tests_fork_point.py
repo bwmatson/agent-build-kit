@@ -57,8 +57,8 @@ def test_uncommitted_work_in_the_checkout_is_still_the_units(tmp_path: Path) -> 
     (repo / "tests/live/test_draft.py").write_text("def test_draft():\n    assert True\n")
 
     assert touched_tests(repo, "main") == [
-        *UNIT_OWN,
         ("tests/live/test_draft.py", "test_draft"),
+        *UNIT_OWN,
     ]
 
 
