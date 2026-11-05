@@ -18,6 +18,11 @@
   comes back after an accept changes nothing. `abk status` shows `settling: late check waiting for
   a unit-test slot since <time>` while it waits, and `settling: late check running on the default
   branch` once it runs.
+- The kit can now remove and replace a project in `abk.yaml` as well as add one, keeping the
+  file's comments, quoting and key order. An inline `projects: []` becomes a list on an add, an
+  edit that is already in place reports that and changes nothing, and each write goes through a
+  backup and a lock and is refused, with the file unchanged, for an unknown repository or profile
+  or a path outside the repository.
 
 - `abk external done` no longer needs a merge source. With neither `--pr` nor `--commit` the hold is
   marked done with an empty `merged_by`, the boxes are ticked, and a unit whose groups are all done
