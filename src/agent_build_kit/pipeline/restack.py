@@ -33,6 +33,7 @@ from pathlib import Path
 
 from agent_build_kit import claude_account, runtimes
 from agent_build_kit.budget import cut_head
+from agent_build_kit.changelog_form import separate_bullets
 from agent_build_kit.config import RepoConfig, active
 from agent_build_kit.forges.transport import HostUnavailable
 from agent_build_kit.model import Frozen
@@ -68,6 +69,8 @@ from agent_build_kit.runtimes.base import (
 )
 
 Runner = Callable[[list[str]], str]
+
+CHANGELOG_SEPARATED = "changelog: separate bullets joined by the union merge"
 
 # Takes the prompt and the worktree, and edits the conflicted files in place.
 Resolver = Callable[..., object]
@@ -382,6 +385,21 @@ def _land_detached(repo: Path, branch: str, *, started: str) -> Moved:
     return Moved(sha=head)
 
 
+def _separate_changelog(repo: Path, config: RepoConfig | None) -> None:
+    """Put back the blank line a union merge took from between two changelog bullets, in a
+    commit of its own on the replayed branch. Inside the turn, with the rebase finished."""
+    name = config.changelog if config else RepoConfig.model_fields["changelog"].default
+    if name is None or not (path := repo / name).is_file():
+        return
+    text = path.read_text()
+    separated = separate_bullets(text)
+    if separated == text:
+        return
+    path.write_text(separated)
+    git(repo, "add", "--", name)
+    git(repo, "commit", "-q", "-m", CHANGELOG_SEPARATED, "--", name)
+
+
 class Conflict(Frozen):
     """What the checks of a resolution look at, read once the rebase has stopped."""
 
@@ -496,6 +514,7 @@ def move_branch_onto(
             env=untranslated_env(),
         )
         if result.returncode == 0:
+            _separate_changelog(repo, context.repo if context else None)
             if detached:
                 return _land_detached(repo, branch, started=started)
             return Moved(sha=git(repo, "rev-parse", branch).stdout.strip())
@@ -624,6 +643,7 @@ def move_branch_onto(
                 f"{finished.stdout}\n{finished.stderr}",
                 tried="\n".join(failures),
             )
+        _separate_changelog(repo, context.repo)
         if detached:
             landed = _land_detached(repo, branch, started=started)
             return Moved(sha=landed.sha, resolved=resolved)

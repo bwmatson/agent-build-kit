@@ -9,6 +9,8 @@
   may start before it reaches the default branch. A pull request or commit that is given is verified
   as before, and giving both is refused. `abk external list` shows `done (no merge recorded)` for a
   hold done with no source and `done (merged by ...)` for a verified one.
+- A restack now puts back the blank line between two changelog bullets that the union merge
+  joined, in a commit of its own, so the changelog keeps its form when two units each add an entry.
 
 - A code host that refuses or cannot be reached is waited for once, not once for each unit. A git
   push the host refuses, or a fetch it refuses, writes one marker for the host of the repo's push
