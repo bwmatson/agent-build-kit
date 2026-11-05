@@ -28,7 +28,9 @@ from agent_build_kit.pipeline.units import HELD, IN_REVIEW, PLANNED, RUNNING, Un
 from agent_build_kit.pipeline.usage_guard import Decision
 from tests.conftest import make_installation
 from tests.factories import own_group
+from tests.time_limit import LOADED_TEST_TIME_LIMIT
 
+TICK_PASS_TIME_LIMIT = LOADED_TEST_TIME_LIMIT
 MOVED_NOTE = "held before implement: its base moved from spec/a/1 to main while it built"
 
 
