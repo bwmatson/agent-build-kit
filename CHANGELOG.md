@@ -70,8 +70,9 @@
   began waiting; a run of a unit that is not in the unit store goes last. A run that finds a free slot
   and nobody waiting still takes it at once. `abk status` lists the waiting units in the order they
   will be served. The waiting marker records the run's rank; a marker written by an older kit reads
-  as least urgent, and an older kit that reads a new marker lists it as an unnamed unit. No setting
-  changes.
+  as least urgent, and an older kit that reads a new marker lists it as an unnamed unit. A more
+  urgent run that starts waiting just before a slot is freed is no longer passed over by a less
+  urgent one. No setting changes.
 
 - A GitHub pull request's merge commit is read again, so `abk external done --pr`, `abk reconcile
   --accept` and the retry of a merge whose request failed transiently work on GitHub again. GitHub's
