@@ -2740,7 +2740,12 @@ class BuildPath:
             if (broken := self.failed_unit_test(output)) is not None:
                 return broken
             if state.moved:
-                return self.rebase(state, f"unit-test failed on {base}", base=base)
+                return self.rebase(
+                    state,
+                    f"unit-test failed on {base}",
+                    base=base,
+                    lead=move_lead("before_review" if state.pre_review else "before_pr"),
+                )
             return self.stop("unit-test failed")
         if state.pre_review:
             # Not yet reviewed: the move came before the review, which reads this commit.
@@ -2954,11 +2959,21 @@ class BuildPath:
         except (AgentRateLimited, AgentInterrupted, NetworkUnavailable, ServiceUnavailable):
             raise
         except Exception as error:  # noqa: BLE001
-            return self.rebase(state, f"moving onto {base} needed resolution: {error}", base=base)
+            return self.rebase(
+                state,
+                f"moving onto {base} needed resolution: {error}",
+                base=base,
+                lead=move_lead(point),
+            )
         self.record_restack(point, moved, 0.0)
         if moved is not None:
             if moved.conflict or moved.resolved:
-                return self.rebase(state, f"moving onto {base} needed resolution", base=base)
+                return self.rebase(
+                    state,
+                    f"moving onto {base} needed resolution",
+                    base=base,
+                    lead=move_lead(point),
+                )
             self.say(f"moved onto {base} cleanly; unit-test again")
         return {
             "base": base,
@@ -3384,6 +3399,14 @@ class BuildPath:
 def guidance_asked(state: UnitRun, note: str) -> str:
     """The notes the next review is told, with `note` added to those already kept."""
     return f"{state.guidance_asked}\n\n{note}".strip()
+
+
+def move_lead(point: str) -> str:
+    """What a note says moved the base, for the restack at `point`: a unit that has not been
+    reviewed is not near its push."""
+    return (
+        "base moved before its review" if point == "before_review" else "base moved before its push"
+    )
 
 
 def _listed(paths: tuple[str, ...]) -> str:

@@ -12,18 +12,15 @@ from pathlib import Path
 from typing import Any
 
 from agent_build_kit.installation import Installation
-from agent_build_kit.pipeline import spans
 from agent_build_kit.pipeline.stack_runner import Restacked
-from agent_build_kit.pipeline.wiring import build_unit_test
-from tests.conftest import make_installation
 from tests.graph.test_build_path import build, restacked
 from tests.graph.test_remaining_paths import fresh
-from tests.moved_base_fakes import Profile, moved, passing, restack_lines
+from tests.moved_base_fakes import Profile, moved, restack_lines
+from tests.pipeline.test_moved_base_lite import BASE, is_changelog_check, retested
 from tests.runner_fakes import Recorder
 
 MOVED = "rebased-sha"
 OLD_BASE = "old-base-sha"
-LINE = "moved base:"
 
 
 class Stages:
@@ -141,23 +138,100 @@ def test_a_move_before_the_review_is_recorded_as_before_review(
     assert (line["moved"], line["moved_from"], line["outcome"]) == (True, OLD_BASE, "clean")
 
 
-def test_a_clean_move_before_the_pull_request_that_shares_a_code_file_never_runs_the_full_suite(
+def test_a_move_before_the_review_that_conflicts_twice_is_held_with_a_note_about_the_review(
     tmp_path: Path,
 ) -> None:
-    make_installation(tmp_path / "planning", limits={"unit_test_repeat_runs": 0})
+    recorder = fresh(tmp_path)
+
+    def refuses(**kw: Any) -> None:
+        if kw.get("resolve") is False:
+            raise RuntimeError("both sides changed a.py")
+
+    outcome = build(tmp_path, recorder, restack_onto=refuses)
+
+    assert outcome.status == "held"
+    note = recorder.store.get("add-marker/1").note
+    assert "before its review" in note and "before its push" not in note, note
+
+
+class Selects(Profile):
+    """The profile's lint and tests, a selected run named `affected`, and no repo checks."""
+
+    def affected_test_commands(self, repo: Path, changed_files: list[str], *a: Any, **kw: Any):
+        return [["affected"]]
+
+    def extra_checks(self, repo: Any) -> list[list[str]]:
+        return []
+
+
+class GivesUp(Profile):
+    """The profile's lint, tests and repo checks, and no way to say which tests a file affects."""
+
+    def affected_test_commands(self, repo: Path, changed_files: list[str], *a: Any, **kw: Any):
+        return None
+
+
+class CannotSelect(GivesUp):
+    """The same, with no repo checks."""
+
+    def extra_checks(self, repo: Any) -> list[list[str]]:
+        return []
+
+
+def test_a_clean_move_before_the_pull_request_over_a_shared_file_runs_no_test_command(
+    tmp_path: Path, workspace: Installation
+) -> None:
     repo, left = moved(
         tmp_path, own={"a.py": "a = 1\nx = 2\n"}, incoming={"a.py": "w = 0\na = 1\n"}
     )
-    logged: list[str] = []
-    unit_test = build_unit_test(profile=Profile(), run=passing, log=logged.append)
 
-    token = spans.restack_point.set("before_pr")
-    try:
-        ok, _ = unit_test(cwd=repo, base="main", moved_from=left)
-    finally:
-        spans.restack_point.reset(token)
+    passed, output, ran, _ = retested(repo, left, GivesUp(), point="before_pr")
 
-    assert ok
-    found = [line for line in logged if LINE in line]
-    assert len(found) == 1
-    assert "full suite" not in found[0], found[0]
+    assert passed, output
+    assert ["tests"] not in ran, "the full suite did not start"
+
+
+def test_a_re_test_before_the_pull_request_in_which_no_command_ran_is_recorded_as_none(
+    tmp_path: Path, workspace: Installation
+) -> None:
+    repo, left = moved(tmp_path, own={"a.py": "a = 2\n"}, incoming={"b.py": "b = 2\n"})
+
+    passed, output, ran, _ = retested(repo, left, CannotSelect(), point="before_pr")
+
+    assert passed, output
+    assert ran == [], "nothing ran"
+    (line,) = restack_lines(workspace)
+    assert (line["point"], line["retest"]) == ("before_pr", "none")
+
+
+def test_a_clean_move_before_the_pull_request_over_disjoint_files_runs_the_selection_only(
+    tmp_path: Path, workspace: Installation
+) -> None:
+    repo, left = moved(tmp_path, own={"a.py": "a = 2\n"}, incoming={"b.py": "b = 2\n"})
+
+    passed, output, ran, _ = retested(repo, left, Selects(), point="before_pr")
+
+    assert passed, output
+    assert ["affected"] in ran, "the scoped selection ran"
+    assert ["tests"] not in ran, "the full suite did not start"
+    (line,) = restack_lines(workspace)
+    assert (line["point"], line["retest"]) == ("before_pr", "scoped")
+
+
+def test_a_move_before_the_pull_request_no_selection_can_scope_runs_the_repo_checks_as_lite(
+    tmp_path: Path, workspace: Installation
+) -> None:
+    repo, left = moved(
+        tmp_path,
+        base=BASE,
+        own={"a.py": "a = 2\n"},
+        incoming={"c.py": "c = 2\n"},
+    )
+
+    passed, output, ran, _ = retested(repo, left, GivesUp(), point="before_pr")
+
+    assert passed, output
+    assert [c for c in ran if is_changelog_check(c)], "the repo's own check ran"
+    assert ["tests"] not in ran, "the full suite did not start"
+    (line,) = restack_lines(workspace)
+    assert (line["point"], line["retest"]) == ("before_pr", "lite")

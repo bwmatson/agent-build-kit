@@ -1691,16 +1691,14 @@ def build_unit_test(
             if moved is not None:
                 return moved
             if before_pr:
-                retest["kind"] = "lite"
-                return root_checks(cwd)
+                return checks_only(cwd)
             retest["kind"] = "full"
         elif before_pr and scope is not None:
-            retest["kind"] = "lite"
             _say(
                 log,
                 f"moved base: only the repo checks run before the pull request ({scope.reason})",
             )
-            return root_checks(cwd)
+            return checks_only(cwd)
         elif scope is not None:
             why = (
                 "no changelog check is configured for a lite re-test"
@@ -2056,6 +2054,13 @@ def build_unit_test(
                 if not toolchain.tolerates_exit(command, result.returncode):
                     return False, _failure(command, result, where)
         return True, ""
+
+    def checks_only(cwd: Path) -> tuple[bool, str]:
+        """The re-test of a clean move before the pull request that no test selection could
+        scope: the repo's own checks alone, recorded as `lite`, or as `none` when the profile
+        keeps none and so nothing runs."""
+        retest["kind"] = "lite" if repo is not None and profile.extra_checks(repo) else "none"
+        return root_checks(cwd)
 
     def repeat(
         cwd: Path, base: str, ran_tests: list[tuple[Path, ToolchainProfile, list[list[str]]]]

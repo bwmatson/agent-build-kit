@@ -15,6 +15,7 @@ from pathlib import Path
 
 from agent_build_kit.config import RepoConfig, RestackCheck
 from agent_build_kit.installation import Installation
+from agent_build_kit.pipeline import spans
 from agent_build_kit.pipeline.moved_base import MoveScope, moved_base_scope
 from agent_build_kit.pipeline.moved_base import scope_of as rule_of
 from agent_build_kit.pipeline.wiring import build_unit_test
@@ -78,10 +79,11 @@ def is_changelog_check(command: list[str]) -> bool:
 
 
 def retested(
-    repo: Path, old_base: str, profile: Profile
+    repo: Path, old_base: str, profile: Profile, *, point: str = ""
 ) -> tuple[bool, str, list[list[str]], list[str]]:
     """(passed, output, the commands that ran, the run log) of the unit-test after a move,
-    where the changelog check runs for real and every other command passes."""
+    where the changelog check runs for real and every other command passes. `point` is the
+    restack point the re-test runs under."""
     ran: list[list[str]] = []
     said: list[str] = []
 
@@ -91,12 +93,17 @@ def retested(
             return subprocess.run(command, cwd=repo, capture_output=True, text=True, check=False)
         return passing(command)
 
-    passed, output = build_unit_test(
+    unit_test = build_unit_test(
         profile=profile,
         run=run,
         log=said.append,
         repo=RepoConfig(path=repo, changelog="CHANGELOG.md"),
-    )(cwd=repo, base="main", moved_from=old_base)
+    )
+    token = spans.restack_point.set(point)
+    try:
+        passed, output = unit_test(cwd=repo, base="main", moved_from=old_base)
+    finally:
+        spans.restack_point.reset(token)
     return passed, output, ran, said
 
 
