@@ -207,7 +207,7 @@ def test_an_agent_that_exits_at_once_keeps_what_it_said_on_stderr(
     script = tmp_path / "exits.py"
     script.write_text("import sys\nprint('no gateway running', file=sys.stderr)\nsys.exit(3)\n")
 
-    result = drive([sys.executable, str(script)], COMMANDS, deadline=DEADLINE)
+    result = drive([sys.executable, str(script)], COMMANDS, deadline=30)
 
     assert not result.finished
     assert "no gateway running" in result.error
