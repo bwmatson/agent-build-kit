@@ -133,6 +133,7 @@ from agent_build_kit.pipeline.e2e_schedule import any_due, write_due
 from agent_build_kit.pipeline.e2e_scope import product_path_warnings, task_wording_warnings
 from agent_build_kit.pipeline.events import (
     Restack,
+    build_base_checks,
     build_base_passes,
     build_base_tip,
     build_claim,
@@ -6899,6 +6900,7 @@ def dispatch_for(
             turn=lambda name: repo_turn(inst, name),
             log=say,
         ),
+        base_checks=build_base_checks(for_repo=inst.forge_of),
         # A pass polls between builds, so an event may name a unit still
         # building; the handlers leave it to a later poll. See `events`.
         waiting_path=inst.state_dir / "held-waiting.json",

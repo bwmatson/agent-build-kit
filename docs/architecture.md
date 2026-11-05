@@ -434,8 +434,17 @@ A merged pull request settles before its unit is merged. The `merged` event move
 to `settling` (the merge commit and `pulls[0]` recorded, no `merged_tick`), the poller keeps
 reading the pull request, and `settled` makes the unit `merged` once every check has
 completed, with no time limit; a cancelled check is re-run and waited for. A merged pull
-request is never reworked in place. When a check failed, `late_check` runs its tests on the
-current default branch in a detached worktree (`events.build_base_passes`): passing there, the
+request is never reworked in place. When a check failed, `late_check` first reads the checks
+of the pull request's merge commit on the default branch (`forge.commit_checks`, through
+`events.build_base_checks`): when each check that failed on the pull request is among them and
+passed and none is running, the unit is `merged` with a note naming the commit's short form and
+saying its checks passed, and nothing runs locally (a check the host skipped ran nothing and is
+no pass); while one of them runs, the unit stays `settling` and is asked again at the next poll,
+for up to `events.BASE_CHECKS_WAIT` (two hours) after the merge, after which the local run
+decides. The forge is asked on the pull request's base branch, from shortly before the merge. A failed check on the merge commit, no check of
+the failed one's name, no checks at all or a forge that cannot answer (`unknown`, never a pass)
+leaves it to the local run: the check's tests run on the current default branch in a detached
+worktree (`events.build_base_passes`): passing there, the
 unit is `merged` and the failure is recorded as fixed on the base; failing there, the same unit
 goes `planned` with the cause `late_failure` on `<branch>-fix<k>` off the default branch,
 built through the rework path with the check's log. Its pull request is titled
