@@ -4,6 +4,7 @@ tick (spec: temp-folder-reporting)."""
 
 from __future__ import annotations
 
+import os
 import shutil
 import threading
 from collections.abc import Callable
@@ -15,6 +16,7 @@ import pytest
 from agent_build_kit.cli import pipeline as cli
 from agent_build_kit.installation import Installation
 from agent_build_kit.pipeline.stack_runner import RunOutcome
+from agent_build_kit.pipeline.temp_sweep import sweep_temp_folders
 from agent_build_kit.pipeline.unit_store import UnitStore
 from tests.pipeline import test_cli_pipeline as base
 from tests.pipeline.test_cli_pipeline import (  # noqa: F401 — fixtures
@@ -54,9 +56,9 @@ class Builds:
 
 def sweeping_with(monkeypatch: pytest.MonkeyPatch, remove: Callable[[Path], None]) -> list[str]:
     """The tick's sweep, with `remove` as its remove; return the messages the tick logs."""
-    real = cli.sweep_temp_folders
+    real = sweep_temp_folders
     messages: list[str] = []
-    monkeypatch.setattr(cli, "log", messages.append)
+    monkeypatch.setattr(cli, "log", lambda message, **_: messages.append(message))
 
     def sweep(inst: Installation, *, now: datetime, log: Callable[[str], None]) -> list[Path]:
         return real(inst, now=now, remove=remove, log=log)
@@ -146,6 +148,10 @@ def test_a_folder_left_half_removed_is_finished_by_the_next_ticks_sweep(
     assert folder.is_dir()
     assert any("a1b2c3d4 was not removed" in message for message in messages)
 
+    # Removing a child touched the folder; it is old again when the next tick looks at it.
+    os.utime(folder, (0, 0))
+    # A tick with nothing to do exits before the sweep, so the next one has a unit to build.
+    UnitStore(tmp_path / "units.json").upsert([stored("add-marker/2")])
     sweeping_with(monkeypatch, shutil.rmtree)
     assert cli.cmd_tick(argv_namespace(dry_run=False), base.inst) == 0
 
@@ -166,7 +172,7 @@ def test_a_sweep_that_raises_is_logged_and_the_tick_completes_its_builds(
             return RunOutcome(status="open", detail="opened #1", pr=1)
 
     messages: list[str] = []
-    monkeypatch.setattr(cli, "log", messages.append)
+    monkeypatch.setattr(cli, "log", lambda message, **_: messages.append(message))
 
     def explode(inst, **kwargs):
         raise RuntimeError("sweep exploded")

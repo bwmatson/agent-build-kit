@@ -26,6 +26,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 from collections.abc import (
     Callable,
@@ -1713,6 +1714,7 @@ def _tick_once(args: argparse.Namespace, inst: Installation) -> int:
         tick.outcome = "error"
         raise
     finally:
+        tick.finish_sweep()
         loaded_code.running_tick(None)
         elapsed = time.monotonic() - started
         emit_metric("duration", "abk.tick.duration", elapsed, log, outcome=tick.outcome)
@@ -1727,6 +1729,31 @@ class _Tick:
     """How a tick ended, for its duration's `outcome`: `built` unless it says otherwise."""
 
     outcome = "built"
+    sweep: threading.Thread | None = None
+
+    def finish_sweep(self) -> None:
+        """Wait for the temp sweep, up to `SWEEP_WAIT_SECONDS`; the next tick finishes the rest."""
+        if self.sweep is not None:
+            self.sweep.join(SWEEP_WAIT_SECONDS)
+
+
+# How long a tick waits at its end for the background temp sweep.
+SWEEP_WAIT_SECONDS = 60
+
+
+def _sweep_in_background(inst: Installation) -> threading.Thread:
+    """Start the temp sweep beside the tick, so no unit waits for it. A failure in it is logged and
+    never fails the tick."""
+
+    def sweep() -> None:
+        try:
+            sweep_temp_folders(inst, now=datetime.now(UTC), log=log)
+        except Exception as error:  # noqa: BLE001 — a sweep never fails a tick.
+            log(f"temp sweep: failed: {error}")
+
+    thread = threading.Thread(target=sweep, name="temp-sweep", daemon=True)
+    thread.start()
+    return thread
 
 
 UNIT_GAUGE_STATES = (PLANNED, RUNNING, IN_REVIEW, HELD, FAILED)
@@ -1758,7 +1785,7 @@ def _tick(args: argparse.Namespace, inst: Installation, tick: _Tick) -> int:
             accounts=claude_account.in_use(inst.config),
         )
         # What a killed unit-test run left; a failure is logged and the tick goes on.
-        sweep_temp_folders(inst, now=datetime.now(UTC), log=log)
+        tick.sweep = _sweep_in_background(inst)
         if not environment.ensure(inst, say=log):
             tick.outcome = "environment"
             return 1
