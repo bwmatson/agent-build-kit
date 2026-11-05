@@ -35,6 +35,7 @@ from pydantic import BaseModel
 from agent_build_kit.forges.azure_models import (
     BuildDoc,
     ChangesDoc,
+    CommitBuildDoc,
     EvaluationDoc,
     IterationDoc,
     LabelDoc,
@@ -42,14 +43,17 @@ from agent_build_kit.forges.azure_models import (
     PullRequestDoc,
     RefDoc,
     RefUpdateDoc,
+    RepoIdDoc,
     ReviewerDoc,
     StatusDoc,
     ThreadDoc,
 )
 from agent_build_kit.forges.base import (
+    UNKNOWN_CHECKS,
     BaseMissing,
     Check,
     CheckStatus,
+    CommitChecks,
     DeniedRequest,
     FileChange,
     Label,
@@ -60,6 +64,7 @@ from agent_build_kit.forges.base import (
     Run,
     Stack,
     StackRefused,
+    commit_checks_of,
     failing_names,
     redacted_text,
 )
@@ -112,6 +117,17 @@ _POLICY_FAILING = ("rejected", "broken")
 # How a build says it was cancelled, in its `result`. The policy evaluation says
 # only `rejected`, so the build is asked.
 _BUILD_CANCELLED = "canceled"
+
+# How many of a repository's newest builds the checks of a commit are looked for among.
+_COMMIT_BUILDS = 200
+# A completed build's `result` in the pipeline's words. `partiallySucceeded` is not a pass, and
+# a result this forge does not know is not one either.
+_BUILD_RESULTS = {
+    "succeeded": CheckStatus.PASSED,
+    "partiallySucceeded": CheckStatus.FAILED,
+    "failed": CheckStatus.FAILED,
+    "canceled": CheckStatus.CANCELLED,
+}
 
 # What a build policy evaluation came to. `notApplicable` is not a check at all.
 _POLICY_PASSING = "approved"
@@ -773,6 +789,41 @@ class AzureDevOpsForge:
                 run=run,
             )
 
+    def commit_checks(self, repo: RepoId, sha: str, *, run: Run | None = None) -> CommitChecks:
+        """The builds of commit `sha`, the newest of each pipeline, as checks. The build list
+        takes no commit, so the repository's newest builds (`_COMMIT_BUILDS` of them) are read
+        and those of `sha` kept: a commit whose builds are older than that reports none, which
+        is not a pass. Any failure to ask is `unknown`, logged and not retried here."""
+        try:
+            found = self._git(repo, "GET", run=run)
+            repository = _parse(found, RepoIdDoc, "GET git repository").id
+            listed = self._call(
+                repo,
+                "GET",
+                "build/builds",
+                params={
+                    "repositoryId": repository,
+                    "repositoryType": "TfsGit",
+                    "queryOrder": "queueTimeDescending",
+                    "$top": str(_COMMIT_BUILDS),
+                },
+                run=run,
+            )
+            builds = _items(listed, CommitBuildDoc, "GET build/builds")
+        except TransportError as error:
+            log.warning("could not read the builds of %s in %s: %s", sha[:10], repo.name, error)
+            return UNKNOWN_CHECKS
+        newest: dict[str, CommitBuildDoc] = {}
+        for build in sorted(builds, key=lambda b: b.id):
+            if build.source_version == sha:
+                newest[build.definition.name if build.definition else f"build {build.id}"] = build
+        return commit_checks_of(
+            [
+                Check(name=name, status=_build_status(build), url=_build_url(repo, build.id))
+                for name, build in sorted(newest.items())
+            ]
+        )
+
     def failed_check_logs(self, repo: RepoId, pull: PullRequest, run: Run | None = None) -> str:
         """What the failing checks said, for the rework that fixes them.
 
@@ -1051,6 +1102,13 @@ def _build_url(repo: RepoId, build: int | None) -> str:
     return (
         f"{AZURE_HOST}/{quote(repo.account)}/{quote(repo.project)}/_build/results?buildId={build}"
     )
+
+
+def _build_status(build: CommitBuildDoc) -> CheckStatus:
+    """A build as a check's status: one not completed is running."""
+    if build.status != "completed":
+        return CheckStatus.PENDING
+    return _BUILD_RESULTS.get(build.result or "", CheckStatus.FAILED)
 
 
 def _latest_statuses(statuses: list[StatusDoc]) -> list[StatusDoc]:

@@ -96,6 +96,9 @@ def host_with_everything() -> GitHubHost:
                 {"id": 12, "node_id": "PRRC_12", "body": "b"}, 201
             ),
             ("POST", f"{BASE}/issues/7/comments"): answer({"id": 13, "node_id": "IC_13"}, 201),
+            ("GET", f"{BASE}/commits/{'c' * 40}/check-runs"): answer(
+                {"total_count": 0, "check_runs": []}
+            ),
         },
     )
 
@@ -128,6 +131,7 @@ def drive(host: GitHubHost) -> dict[str, list[Seen]]:
         "post_comment": lambda: forge.post_comment(REPO, 7, body="b"),
         "rerun_checks": lambda: forge.rerun_checks(REPO, pull),
         "failed_check_logs": lambda: forge.failed_check_logs(REPO, pull),
+        "commit_checks": lambda: forge.commit_checks(REPO, "c" * 40),
         "add_label": lambda: forge.add_label(REPO, 7, label),
         "set_exclusive_label": lambda: forge.set_exclusive_label(REPO, 7, label, family=("a",)),
         "remove_label": lambda: forge.remove_label(REPO, 7, "running"),

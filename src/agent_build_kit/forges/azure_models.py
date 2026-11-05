@@ -128,6 +128,26 @@ class BuildDoc(_Doc):
     result: str | None = None
 
 
+class DefinitionDoc(_Doc):
+    name: str
+
+
+class CommitBuildDoc(_Doc):
+    """A build in the build list, with the commit it built and the pipeline it ran."""
+
+    id: int
+    status: str | None = None
+    result: str | None = None
+    source_version: str | None = None
+    definition: DefinitionDoc | None = None
+
+
+class RepoIdDoc(_Doc):
+    """The read of a repository, for its id."""
+
+    id: str
+
+
 class IterationDoc(_Doc):
     id: int
 

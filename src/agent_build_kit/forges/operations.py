@@ -59,6 +59,8 @@ OPERATIONS: Mapping[str, OperationSpec] = {
     "merge_commit": _READ,
     "labels_on": _READ,
     "failed_check_logs": OperationSpec(kind="read", contained=True, neutral=""),
+    # Answers `unknown` itself rather than raising, so it is asked once.
+    "commit_checks": _READ,
     "update_pr": _ADVISORY,
     "post_status": _ADVISORY,
     "close_pr": _WRITE,

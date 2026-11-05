@@ -108,6 +108,8 @@ READ_FROM: dict[type[_Rest], list[Endpoint]] = {
         Endpoint("issues", "list_labels_on_issue"),
     ],
     github_models.FileDoc: [Endpoint("pulls", "list_files")],
+    github_models.CheckRunsDoc: [Endpoint("checks", "list_for_ref")],  # commit_checks
+    github_models.CheckRunDoc: [Endpoint("checks", "list_for_ref", via=("check_runs",))],
     github_models.JobsDoc: [Endpoint("actions", "list_jobs_for_workflow_run")],
     github_models.JobDoc: [Endpoint("actions", "list_jobs_for_workflow_run", via=("jobs",))],
     github_models.NodeIdDoc: [

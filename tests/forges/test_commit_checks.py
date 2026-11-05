@@ -19,7 +19,7 @@ from tests.conftest import make_installation
 from tests.factories import init_repo
 from tests.forges import azure_answers
 from tests.forges.azure_rest_host import RestHost, refusal
-from tests.forges.github_host import GitHubHost, answer
+from tests.forges.github_host import GitHubHost, Scripted, answer
 from tests.forges.github_routes import refusal as github_refusal
 
 SHA = "c" * 40
@@ -51,7 +51,7 @@ def listed(*runs: dict) -> httpx.Response:
     return answer({"total_count": len(runs), "check_runs": list(runs)})
 
 
-def github(reply: httpx.Response) -> GitHubHost:
+def github(reply: Scripted) -> GitHubHost:
     return GitHubHost(routes={("GET", CHECK_RUNS): reply})
 
 
