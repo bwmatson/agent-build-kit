@@ -14,7 +14,7 @@ from pathlib import Path
 from agent_build_kit import profiles
 from agent_build_kit import settings as settings_module
 from agent_build_kit.config import locate
-from agent_build_kit.init.scaffold import ScaffoldError, add_project, check_profile, normal_path
+from agent_build_kit.init.scaffold import ScaffoldError, add_project, normal_path
 from agent_build_kit.installation import Installation
 from agent_build_kit.pipeline.work_graph import repo_tag
 
@@ -32,18 +32,16 @@ def cmd_project_init(args: argparse.Namespace, inst: Installation) -> int:
             )
         root = inst.checkouts[args.repo]
         path = normal_path(args.path, root)
-        check_profile(args.profile)
-        for existing in repos[args.repo].projects:
-            if normal_path(existing.path, root) == path:
-                raise ProjectInitError(
-                    f"{args.repo} already registers {existing.path!r} (profile {existing.profile})"
-                )
-        add_project(
+        written = add_project(
             locate(args.config or settings_module.settings.config),
             args.repo,
             {"path": path, "profile": args.profile},
             inline_list=False,
         )
+        if not written:
+            raise ProjectInitError(
+                f"{args.repo} already registers {path!r} (profile {args.profile})"
+            )
     except (ProjectInitError, ScaffoldError) as error:
         print(f"abk: {error}", file=sys.stderr)
         return 1

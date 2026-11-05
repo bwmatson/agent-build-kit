@@ -383,12 +383,13 @@ def _add(path: Path, repo: str, entry: Mapping[str, str], inline_list: bool) -> 
                 f"{path}: {repo!r} already registers {existing['path']!r} "
                 f"(profile {existing.get('profile')})"
             )
-    if projects >= 0 and _EMPTY_LIST.fullmatch(lines[projects].rstrip()):
+    inline = _EMPTY_LIST.fullmatch(lines[projects].rstrip()) if projects >= 0 else None
+    if inline:
         if not inline_list:
             raise ScaffoldError(
                 f"{path}: `projects:` of {repo!r} is not a block list; edit it by hand"
             )
-        lines[projects] = f"{child}projects:\n"
+        lines[projects] = f"{child}projects:{_note_of(inline)}\n"
     if projects < 0:
         lines[repo_end:repo_end] = [f"{child}projects:\n", *_list_item(entry, child + "  ")]
     else:
@@ -422,7 +423,9 @@ def _remove(path: Path, repo: str, project_path: str) -> bool:
     if len(spans) != count:
         raise ScaffoldError(f"{path}: `projects:` of {repo!r} is not a block list; edit it by hand")
     if count == 1:
-        lines[projects:listed] = [f"{child}projects: []\n"]
+        key = _BLOCK_KEY.fullmatch(lines[projects].rstrip())
+        note = _note_of(key) if key else ""
+        lines[projects:listed] = [f"{child}projects: []{note}\n"]
     else:
         low, high = spans[found]
         del lines[low:high]
@@ -471,6 +474,13 @@ def _replace(path: Path, repo: str, old_path: str, entry: Mapping[str, str]) -> 
 
 
 _EMPTY_LIST = re.compile(r"\s*projects:\s*\[\s*\]\s*(#.*)?")
+_BLOCK_KEY = re.compile(r"\s*projects:\s*(#.*)?")
+
+
+def _note_of(match: re.Match[str]) -> str:
+    """The comment a `projects:` line carried, with the two spaces that set it off; empty when
+    it had none."""
+    return f"  {match.group(1)}" if match.group(1) else ""
 
 
 def normal_path(path: str, root: Path) -> str:

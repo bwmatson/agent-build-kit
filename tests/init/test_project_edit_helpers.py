@@ -129,6 +129,24 @@ def test_an_add_into_an_inline_empty_list_makes_it_a_list(tmp_path: Path) -> Non
     assert "# Limits." in config.read_text().splitlines()
 
 
+def test_an_add_into_an_inline_list_keeps_the_comment_on_the_key_line(tmp_path: Path) -> None:
+    config = write_quoted(tmp_path)
+    config.write_text(config.read_text().replace("projects: []", "projects: []  # none yet"))
+
+    add_project(config, "platform", {"path": "web", "profile": "node-npm"})
+
+    assert "    projects:  # none yet" in config.read_text().splitlines()
+
+
+def test_removing_the_only_project_keeps_the_comment_on_the_key_line(tmp_path: Path) -> None:
+    config = write_commented(tmp_path)
+    config.write_text(config.read_text().replace("    projects:\n", "    projects:  # services\n"))
+
+    remove_project(config, "app", "svc-a")
+
+    assert "    projects: []  # services" in config.read_text().splitlines()
+
+
 def test_an_add_of_a_present_path_is_a_reported_no_op(tmp_path: Path) -> None:
     config = write_quoted(tmp_path)
     before = config.read_text()

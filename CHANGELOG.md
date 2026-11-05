@@ -19,8 +19,9 @@
   a unit-test slot since <time>` while it waits, and `settling: late check running on the default
   branch` once it runs.
 
-- `abk project init` now writes `abk.yaml` under a lock beside the file, after copying the
-  original to `abk.yaml.abk-backup`, so two edits at once cannot lose one; its refusals are
+- `abk project init` now writes `abk.yaml` under a lock beside the file (`abk.yaml.lock`), which
+  the project edits take and other writers of the file do not, after keeping the first original
+  as `abk.yaml.abk-backup`, so two project edits at once cannot lose one; its refusals are
   unchanged. The same edit code now also removes and replaces a project, keeping the file's
   comments, quoting and key order, for the `Project:` line a change will use to declare its
   project changes.
