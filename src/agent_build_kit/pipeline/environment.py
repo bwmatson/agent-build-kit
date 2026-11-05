@@ -25,7 +25,7 @@ from agent_build_kit.model import Frozen
 from agent_build_kit.path_patterns import GIT_DIR, inside, matches_any, matching_files, normalize
 from agent_build_kit.pipeline.command_limit import run_limited
 from agent_build_kit.pipeline.file_lock import atomic_write_text, file_lock
-from agent_build_kit.pipeline.shell import git, git_out
+from agent_build_kit.pipeline.shell import fork_point, git, git_out
 from agent_build_kit.profiles.base import CreatedFiles
 
 RECORD = "environment.json"
@@ -227,8 +227,7 @@ def _changed_from_base(
     if patterns is None:
         patterns = [*inputs.dependencies, *inputs.lock, *inputs.other]
     patterns = inside(patterns)  # a path outside the repository is not the unit's to change
-    fork = git(tree, "merge-base", base, "HEAD", check=False)
-    point = fork.stdout.strip() if fork.returncode == 0 and fork.stdout.strip() else base
+    point = fork_point(tree, base) or base
     there = _base_inputs(tree, point, patterns, environment.artifacts)
     here = {
         name

@@ -44,7 +44,7 @@ from agent_build_kit.pipeline.e2e_holds import (
     split_gates,
     write_hold,
 )
-from agent_build_kit.pipeline.shell import git
+from agent_build_kit.pipeline.shell import fork_point
 from agent_build_kit.pipeline.unit_store import StoredUnit, UnitStore
 from agent_build_kit.pipeline.units import parked_on_split, project_tag
 from agent_build_kit.pipeline.vocabulary import FINISHED
@@ -62,11 +62,11 @@ def unit_own_tests(installation: Installation, unit: StoredUnit) -> Sequence[str
         return ()
     repo = installation.repo(unit.repo)
     checkout = installation.checkouts[unit.repo]
-    fork = git(checkout, "merge-base", repo.default_branch, unit.branch, check=False)
-    if fork.returncode != 0:
+    fork = fork_point(checkout, repo.default_branch, unit.branch)
+    if not fork:
         return ()
     work = e2e_work(checkout, repo.projects, profiles.get(repo.profile), repo.tests.e2e_marker)
-    return own_test_ids(checkout, fork.stdout.strip(), work, head=unit.branch)
+    return own_test_ids(checkout, fork, work, head=unit.branch)
 
 
 def _without_parameters(test: str) -> str:

@@ -183,7 +183,14 @@ from agent_build_kit.pipeline.scratch import (
     run_folder,
     selection_seed,
 )
-from agent_build_kit.pipeline.shell import changed_files, git, git_out, has_origin, porcelain
+from agent_build_kit.pipeline.shell import (
+    changed_files,
+    fork_point,
+    git,
+    git_out,
+    has_origin,
+    porcelain,
+)
 from agent_build_kit.pipeline.stack_runner import FixResult, Restacked, UnitRunner, Worktree
 from agent_build_kit.pipeline.transcript import Transcript, TranscriptEvent, transcript_dir
 from agent_build_kit.pipeline.ui_review import ui_notes_of, ui_reply_writer, unit_patch_of
@@ -4313,7 +4320,7 @@ def own_work_starts_after(
 
     `head` names the branch when `tree` is not checked out on it.
     """
-    start = git(tree, "merge-base", base, head, check=False).stdout.strip()
+    start = fork_point(tree, base, head)
     known = list(store.all())
     index = {u.id: u for u in known}
     for dep in through_satisfied(unit, known):
@@ -4323,7 +4330,7 @@ def own_work_starts_after(
         for ref in (parent.branch, parent.pushed, parent.approved):
             if not ref:
                 continue
-            fork = git(tree, "merge-base", ref, head, check=False).stdout.strip()
+            fork = fork_point(tree, ref, head)
             # Later than what we have, and on this branch's own line.
             if fork and (not start or is_ancestor(tree, start, fork)):
                 start = fork

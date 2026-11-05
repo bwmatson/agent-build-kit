@@ -15,7 +15,7 @@ from agent_build_kit.model import Frozen
 from agent_build_kit.path_patterns import matches_any
 from agent_build_kit.pipeline.file_lock import atomic_write_text, file_lock
 from agent_build_kit.pipeline.own_tests import HUNK
-from agent_build_kit.pipeline.shell import git
+from agent_build_kit.pipeline.shell import fork_point, git
 from agent_build_kit.pipeline.ui_ids import THREAD_PREFIX
 from agent_build_kit.pipeline.unit_store import StoredUnit
 from agent_build_kit.pipeline.units import local_ref
@@ -103,7 +103,9 @@ def unit_diff(repo: Path, *, base: str, branch: str, commit: str | None = None) 
     base_tip = resolve_commit(repo, local_ref(base), base)
     if base_tip is None:
         raise NoDiff(f"the base {base} is not in the checkout")
-    fork = git(repo, "merge-base", base_tip, tip).stdout.strip()
+    fork = fork_point(repo, base_tip, tip)
+    if not fork:
+        raise NoDiff(f"the branch {branch or '(none)'} shares no history with the base {base}")
     patch = git(repo, "diff", *_PLAIN, "--no-renames", fork, tip).stdout
     return UnitDiff(commit=tip, base=base, base_commit=fork, patch=patch)
 
