@@ -103,7 +103,7 @@ def test_the_pid_file_a_run_writes_names_this_process_and_is_kept_by_the_sweep(
 def test_a_folder_younger_than_the_limit_is_kept_though_its_process_is_gone(
     installation: Installation,
 ) -> None:
-    folder = run_folder(installation, "a1b2c3d4", pid=DEAD, age_hours=23)
+    folder = run_folder(installation, "a1b2c3d4", pid=DEAD, age_hours=15)
 
     sweep(installation, [])
 
