@@ -132,6 +132,21 @@ class Join(Frozen):
     group_modes: dict[str, str] = Field(default_factory=dict)
 
 
+class ProjectLine(Frozen):
+    """One `Project:` line of a task group: a project change to `abk.yaml` for the group's repo."""
+
+    # `add`, `remove` or `replace`.
+    action: str
+    # The project's path; the old path of a `replace`.
+    path: str
+    # The new path of a `replace`, empty for the other actions.
+    new_path: str = ""
+    # The profile of an `add` or the new half of a `replace`, empty for a `remove`.
+    profile: str = ""
+    # The `Project:` line it was declared on.
+    line: int = 0
+
+
 class ManualStep(Frozen):
     """A step only a person can do, with the check the tick runs to see it is done."""
 

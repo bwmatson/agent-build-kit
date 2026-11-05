@@ -54,7 +54,13 @@ from agent_build_kit.pipeline.group_paths import (
     names_unplaced_glob,
     names_unplaced_work,
 )
-from agent_build_kit.pipeline.units import ManualStep, Priority, project_tag, reachable
+from agent_build_kit.pipeline.units import (
+    ManualStep,
+    Priority,
+    ProjectLine,
+    project_tag,
+    reachable,
+)
 from agent_build_kit.trackers.levels import task_key
 
 
@@ -430,6 +436,8 @@ class TaskGroup(Frozen):
     # The paths of the `Support:` lines of an e2e-test group: files it may hold beside tests, docs
     # and the changelog. A trailing `/` covers a directory.
     support: tuple[str, ...] = ()
+    # The `Project:` lines of the group, for the group's repo.
+    project_lines: tuple[ProjectLine, ...] = ()
 
     @property
     def tag(self) -> str:
@@ -604,6 +612,7 @@ def validate_tasks(
     repos: tuple[str, ...] | None = None,
     projects: Mapping[str, tuple[str, ...]] | None = None,
     splits: Mapping[str, tuple[str, ...]] | None = None,
+    project_profiles: Mapping[str, Mapping[str, str]] | None = None,
 ) -> tuple[list[TaskGroup], list[ValidationError]]:
     """Parse a change's tasks.md and report everything wrong with its groups.
 
