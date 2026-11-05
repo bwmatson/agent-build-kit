@@ -356,10 +356,10 @@ global_limits:
                                 # alone is one recorded storm, no fix change per test
   checks_register_seconds: 120  # seconds after a push in which a pull request with no
                                 # checks yet still reads `checking`
-  temp_keep_hours: 24           # hours a unit-test run's temp folder under <data home>/<repo name>/tmp
+  temp_keep_hours: 16           # hours a unit-test run's temp folder under <data home>/<repo name>/tmp
                                 # lives; a tick removes older ones whose process is gone
-  temp_warn_mb: 2048            # megabytes the pytest temp root may hold before `abk doctor` and
-                                # `abk status` warn
+  temp_warn_mb: 2048            # megabytes the pytest temp root may hold before `abk doctor --temp`
+                                # and `abk status --temp` warn
   wait_end_requeue: auto        # how a failed unit is requeued once when its wait ends:
                                 # auto (default; the mode follows its record), resume,
                                 # rework, or off (only a person requeues it)
