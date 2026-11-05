@@ -907,17 +907,17 @@ runtimes:
 ```
 
 An account's `project_limits` is a block of the same type as the top-level `project_limits`: it
-takes `max_concurrent_stacks`, `max_concurrent_restacks`, `max_units_in_progress` and
+takes `max_concurrent_stacks`, `max_concurrent_resolutions`, `max_units_in_progress` and
 `emergency_extra`, with the same bounds, and refuses an unknown key. Only the fields an account
 sets apply to it: a field it leaves out adds no account limit (the defaults of the block are never
 read as the account's caps), and the default account has no block. One function resolves them for
 the project and for the account.
 
-`max_concurrent_stacks`, `max_concurrent_restacks` and `emergency_extra` of an account's `project_limits`
+`max_concurrent_stacks`, `max_concurrent_resolutions` and `emergency_extra` of an account's `project_limits`
 are counted for the account across its projects, beside each project's own cap, and a unit needs
 room under both: an account with `max_concurrent_stacks: 2` builds at most two units at once across
 all its projects, each also within its project's cap; one restack of an account at a time runs
-with `max_concurrent_restacks: 1`, and the others wait and start as it ends, whichever project's
+with `max_concurrent_resolutions: 1`, and the others wait and start as it ends, whichever project's
 lane they are in; a priority-0 unit starts in the emergency lane only while the project's and the
 account's lane use are both under their extras. `abk status`, a unit's wait reason and its
 admission record name the cap that held it (the account's or the project's), and the free workers
@@ -943,7 +943,7 @@ What counts against `max_units_in_progress` includes a started unit (`running` w
 usage pause parked before its agent step: it holds its place and shows as `paused` in the full-queue
 line. At admission, before `prepare`, a ready unit is checked against its own account's usage decision;
 a refused unit waits with `usage_pause` naming the account. Without an account's own
-`max_concurrent_stacks`, `max_concurrent_restacks` or `emergency_extra`, those are counted for each
+`max_concurrent_stacks`, `max_concurrent_resolutions` or `emergency_extra`, those are counted for each
 project only.
 
 They are independent layers, and both may be used. For a fact either could carry, the loader

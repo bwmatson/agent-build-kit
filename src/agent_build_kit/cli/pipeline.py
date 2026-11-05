@@ -878,7 +878,7 @@ def _restack_lines(inst: Installation, units: list[StoredUnit]) -> list[str]:
             lines.append(f"  {unit.id} ({unit_label(unit)}) resolving base {base_of(unit, units)}")
             continue
         verb = "usage pause" if pause.kind == "usage" else "paused"
-        lines.append(f"  restack waiting: {unit.id} — {pause_line(pause, verb=verb)}")
+        lines.append(f"  resolving waiting: {unit.id} — {pause_line(pause, verb=verb)}")
     return lines
 
 

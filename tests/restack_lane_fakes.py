@@ -29,6 +29,11 @@ from tests.usage_host import Host
 WAIT = 60
 
 
+def printed(capsys: pytest.CaptureFixture[str]) -> list[str]:
+    """What was printed, each line without the time the log puts before it."""
+    return [line.split("] ", 1)[-1] for line in capsys.readouterr().out.splitlines()]
+
+
 class Moving:
     """The pipeline's clock, from now on, moved only by the test."""
 

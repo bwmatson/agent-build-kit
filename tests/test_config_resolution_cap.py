@@ -153,3 +153,15 @@ def test_the_overlay_is_left_alone_and_each_line_to_change_is_printed(
     assert overlay.read_text() == OVERLAY
     assert re.search(r"abk\.local\.yaml:2\b", err), err
     assert "max_concurrent_resolutions" in err
+
+
+def test_both_keys_in_one_accounts_block_are_refused_naming_the_account(tmp_path: Path) -> None:
+    both = OLD.replace(
+        "          max_concurrent_restacks: 1\n",
+        "          max_concurrent_restacks: 1\n          max_concurrent_resolutions: 2\n",
+    )
+
+    with pytest.raises(config.ConfigError) as refused:
+        config.load(write(tmp_path, both))
+
+    assert "runtimes.claude_code.accounts.kit.project_limits" in str(refused.value)

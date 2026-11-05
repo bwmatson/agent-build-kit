@@ -43,7 +43,7 @@ limit M" followed by the count in each state, and, while the project's emergency
 (`project_limits.emergency_extra`) has room, that a priority-0 unit may still start; a unit in
 the lane is shown as `emergency room N/M used by <unit>` (and, for an account that sets its own
 `emergency_extra`, `N/M` for the account). An account's `project_limits` takes the same four settings
-as the top level: its `max_concurrent_stacks`, `max_concurrent_restacks` and `emergency_extra` are
+as the top level: its `max_concurrent_stacks`, `max_concurrent_resolutions` and `emergency_extra` are
 counted for the account across its projects, beside each project's own cap, and a unit needs room
 under both, and a unit held by the account's cap says so in its wait reason; its
 `max_units_in_progress` replaces the project's value for the account's slot. There is one such line for each project at its
@@ -205,12 +205,12 @@ A `unit-test slots (N at once):` line, printed when `global_limits.max_concurren
 A settling unit shows `settling: waiting for <checks> since <time>` while its pull request's checks run; while its late check's run on the default branch waits for a unit-test slot it shows `settling: late check waiting for a unit-test slot since <time>` instead, and once the run has its slot, `settling: late check running on the default branch`.
 A split with a `gate` adds a `gate usage:` line: the split, the provider, the amount used against the budget and as a percent, the threshold now (and what it moves towards while it ramps), when the window resets, whether the split is held or usable or its usage unknown (with the reason), and the source and age of the reading. A command gate shows its result and reason. A split held by another source shows that source as the hold. Without `--refresh` only the cache is read, so no provider is asked and no command is run; `--refresh` reads afresh.
 The `queue is full` lines are one for each project at its limit, as the tick paragraph above says.
-A `restacks: N running, M waiting` line, which totals the lane of every project, printed only while a restack lane has work or a unit
-is owed a restack, is followed by each unit as `restacking onto <base>`; a restack waiting for a
+A `resolving: N running, M waiting` line, which totals the lane of every project, printed only while the resolution lane has work or a unit
+is owed a restack, is followed by each unit as `<unit> resolving base <base>`; a run waiting for a
 usage pause is listed with the pause. The lane runs the whole moved-base run of a unit whose base moved, so a unit
-shows as `restacking onto <base>` for the whole run, not only the move; the lane's cap bounds the moved-base run, and a
+shows as `resolving base <base>` for the whole run, not only the move; the lane's cap bounds the moved-base run, and a
 run the lane cannot go on with is handed back to a build worker, `planned` with the cause `restack_handed_back`. The
-slots line shows that the run counts toward slot occupancy, so it may read over the cap, as in `slots: 5/4, 1 restacking` (the line totals every project, like the restacks line, and its cap is the per-project cap times the projects with unfinished work): the run is
+slots line shows that the run counts toward slot occupancy, so it may read over the cap, as in `slots: 5/4, 1 restacking` (the line totals every project, like the resolving line, and its cap is the per-project cap times the projects with unfinished work): the run is
 never held back by the limit on build workers, but no build starts at or above it. A record left by a tick that has gone
 is ignored.
 A group carried by two units that have started and not finished is listed as `group N of CHANGE is

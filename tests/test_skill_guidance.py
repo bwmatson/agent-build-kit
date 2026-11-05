@@ -107,7 +107,7 @@ CONFIG_PHRASES = {
     "npm ci --prefix is not accepted": "`npm ci --prefix` is not accepted",
     "an account's project limits": "an account's `project_limits`",
     "account caps across projects": (
-        "`max_concurrent_stacks`, `max_concurrent_restacks` and `emergency_extra` are counted "
+        "`max_concurrent_stacks`, `max_concurrent_resolutions` and `emergency_extra` are counted "
         "for the account across its projects, beside each project's own cap"
     ),
     "account slots replace": (

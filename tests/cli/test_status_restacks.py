@@ -1,5 +1,5 @@
-"""`abk status` and the graph page show the lane's work: `restacks: N running, M waiting`, each
-unit as restacking onto its base, a restack that waits for a usage pause named with the pause.
+"""`abk status` and the graph page show the lane's work: `resolving: N running, M waiting`, each
+unit as resolving its base, a restack that waits for a usage pause named with the pause.
 
 The lane is a real one over blocking restacks (`tests/restack_lane_fakes.py`), read from the
 same process; what status reads is what the lane leaves in the state directory, since `abk
@@ -23,7 +23,7 @@ from agent_build_kit.pipeline.resolution_lane import Lane
 from agent_build_kit.pipeline.unit_store import UnitStore
 from tests.conftest import make_installation
 from tests.factories import stored_unit
-from tests.restack_lane_fakes import WAIT, Restacks
+from tests.restack_lane_fakes import WAIT, Restacks, printed
 
 
 class Scene:
@@ -56,11 +56,6 @@ class Scene:
     def page(self) -> str:
         assert cli.cmd_graph(argparse.Namespace(), self.inst) == 0
         return self.inst.graph_page.read_text()
-
-
-def printed(capsys: pytest.CaptureFixture[str]) -> list[str]:
-    """What was printed, each line without the time the log puts before it."""
-    return [line.split("] ", 1)[-1] for line in capsys.readouterr().out.splitlines()]
 
 
 def ended_process() -> int:

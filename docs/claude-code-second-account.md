@@ -27,7 +27,7 @@ runtimes:
 ```
 
 An account's `project_limits` takes the same four settings as the workspace-wide block;
-`max_concurrent_stacks`, `max_concurrent_restacks` and `emergency_extra` are counted for the account
+`max_concurrent_stacks`, `max_concurrent_resolutions` and `emergency_extra` are counted for the account
 across its projects, beside each project's own cap, and its `max_units_in_progress` replaces the
 project's value for the account's slot. A `max_units_in_progress` written directly under the account
 is deprecated; `abk config --migrate` moves it.
