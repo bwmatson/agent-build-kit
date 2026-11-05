@@ -6,8 +6,9 @@
   they already answer the question. Before the failing tests are run on the default branch, the
   checks of the merge commit are read: when each check that failed on the pull request is among
   them and passed and none is running, the unit is merged with a note naming the commit and saying
-  its checks passed, and no unit-test run starts. While one of them is still running, the unit
-  stays settling and is asked again at the next poll. A failure there, no check of the failed
+  its checks passed, and no unit-test run starts; a check the host skipped there ran nothing and
+  is no pass. While one of them is still running, the unit stays settling and is asked again at
+  the next poll, for up to two hours after the merge, and then the tests are run locally. A failure there, no check of the failed
   one's name, no checks at all, or a host that cannot be asked runs the tests on the default
   branch as before. A forge now reports the checks of a commit, keeping "none" and "unknown"
   apart from a pass.

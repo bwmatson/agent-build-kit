@@ -276,8 +276,9 @@ finish, `abk settle <unit> --accept --reason "..."` records the unit as merged. 
 failed after the merge, the default branch's own checks on the merge commit are read first: when
 the failed check is among them and every one passed, the unit is merged with the note `late
 failure settled by the default branch's checks: the checks of <sha> passed`, and no unit-test run
-starts; while one of them still runs, the unit stays settling and is asked again at the next
-poll. Otherwise (a failure there, no check of that name, no checks, or the host could not be
+starts (a check skipped there ran nothing and is no pass); while one of them still runs, the unit
+stays settling and is asked again at the next poll, for up to two hours after the merge, and then
+the tests are run locally. Otherwise (a failure there, no check of that name, no checks, or the host could not be
 asked) the failing check's tests are run on the default branch: fixed there, the unit is merged;
 still failing, the same unit builds a second pull request (`late fix #<second> after #<first>`).
 After two late fixes it is `held` for a person.

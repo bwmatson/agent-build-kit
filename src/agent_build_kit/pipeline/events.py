@@ -37,7 +37,7 @@ import subprocess
 import threading
 from collections.abc import Callable, Mapping, Sequence
 from contextlib import AbstractContextManager, nullcontext
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from enum import StrEnum
 from functools import partial
 from pathlib import Path
@@ -429,17 +429,44 @@ def build_base_passes(
     return passes
 
 
+# How long a late check waits for the merge commit's own checks to finish, from the merge, before
+# it stops waiting and runs the failing tests on the default branch itself.
+BASE_CHECKS_WAIT = timedelta(hours=2)
+# How far before the merge a host that cannot ask by commit looks for the merge commit's builds,
+# for a clock the host and this machine disagree on.
+BASE_CHECKS_LEEWAY = timedelta(minutes=15)
+
+
+def merged_at(unit: StoredUnit, pr: int | None = None) -> datetime | None:
+    """When the unit's pull request `pr` merged (its last merged one when `pr` is not among its
+    pull requests), or, when none records it, when the unit began settling; None when nothing
+    says."""
+    pulls = [p for p in unit.pulls if p.merged_at is not None]
+    chosen = next((p for p in pulls if p.number == pr), pulls[-1] if pulls else None)
+    if chosen is not None and chosen.merged_at is not None:
+        return chosen.merged_at
+    for entry in reversed(unit.history):
+        if entry.get("state") == SETTLING and entry.get("at"):
+            try:
+                return datetime.fromisoformat(str(entry["at"]))
+            except ValueError:
+                return None
+    return None
+
+
 def build_base_checks(
     *, for_repo: Callable[[str], tuple[Forge, RepoId]] | None = None
-) -> Callable[[StoredUnit, str], CommitChecks]:
-    """Read the checks of a commit of a unit's repo from its forge. A forge that raises is read
-    as `unknown`, which is never a pass."""
+) -> Callable[[StoredUnit, str, str], CommitChecks]:
+    """Read the checks of a commit on `branch` of a unit's repo from its forge, from shortly before
+    the unit's merge. A forge that raises is read as `unknown`, which is never a pass."""
     for_repo = for_repo or forges.for_repo
 
-    def base_checks(unit: StoredUnit, sha: str) -> CommitChecks:
+    def base_checks(unit: StoredUnit, sha: str, branch: str) -> CommitChecks:
+        merged = merged_at(unit, unit.pr)
+        since = merged - BASE_CHECKS_LEEWAY if merged is not None else None
         try:
             forge, repo = for_repo(unit.repo)
-            return forge.commit_checks(repo, sha)
+            return forge.commit_checks(repo, sha, branch=branch, since=since)
         except Exception:  # noqa: BLE001 — an unreadable answer is unknown, and the local run decides.
             return UNKNOWN_CHECKS
 
@@ -456,9 +483,10 @@ class BaseVerdict(StrEnum):
 
 
 def base_verdict(found: CommitChecks, failed: Sequence[str]) -> BaseVerdict:
-    """`passed` when every check in `failed` is among the merge commit's checks and passed and
-    the commit's checks have all passed; `running` while one of them has not completed; any
-    other answer (a failure, none of the failed check's name, no checks, unknown) runs locally."""
+    """`passed` when every check in `failed` is among the merge commit's checks and passed (a
+    skipped check ran nothing and is no pass) and the commit's checks have all passed or been
+    skipped; `running` while one of them has not completed; any other answer (a failure, none of
+    the failed check's name, no checks, unknown) runs locally."""
     if found.outcome == CommitOutcome.RUNNING:
         return BaseVerdict.RUNNING
     passed = {check.name for check in found.checks if check.status == CheckStatus.PASSED}
@@ -493,7 +521,7 @@ def on_late_check(
     store: UnitStore,
     fetch_checks: Callable[[PullRequest | None], str] | None = None,
     base_passes: Callable[[StoredUnit, str], bool | None] | None = None,
-    base_checks: Callable[[StoredUnit, str], CommitChecks] | None = None,
+    base_checks: Callable[[StoredUnit, str, str], CommitChecks] | None = None,
     claim: Claim = _unclaimed,
     merge_record: MergeRecord | None = None,
     log: Log = print,
@@ -525,8 +553,16 @@ def on_late_check(
             sha = (pull.merge_commit if pull else None) or current.merge_sha
             if base_checks is not None and sha:
                 short = sha[:SHORT_SHA]
-                verdict = base_verdict(base_checks(current, sha), failed)
-                if verdict == BaseVerdict.RUNNING:
+                branch = pull.base if pull and pull.base else trunk_of(current.repo)
+                verdict = base_verdict(base_checks(current, sha, branch), failed)
+                merged = merged_at(current, pr)
+                waited = spans.clock.now() - merged if merged is not None else timedelta(0)
+                if verdict == BaseVerdict.RUNNING and waited > BASE_CHECKS_WAIT:
+                    log(
+                        f"late check #{pr}: the checks of {short} still run "
+                        f"{BASE_CHECKS_WAIT} after the merge; running the tests here"
+                    )
+                elif verdict == BaseVerdict.RUNNING:
                     log(f"late check #{pr}: {current.id} waits for the checks of {short}")
                     return True
                 if verdict == BaseVerdict.PASSED:
@@ -2656,7 +2692,7 @@ def build_dispatch(
     landing_path: Path | None = None,
     merge_record: MergeRecord | None = None,
     base_passes: Callable[[StoredUnit, str], bool | None] | None = None,
-    base_checks: Callable[[StoredUnit, str], CommitChecks] | None = None,
+    base_checks: Callable[[StoredUnit, str, str], CommitChecks] | None = None,
     log: Log = print,
 ) -> Callable[..., bool]:
     """The callable `pr_poller` hands each event to.
