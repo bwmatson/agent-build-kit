@@ -9,6 +9,7 @@ from pathlib import Path
 import pytest
 
 from agent_build_kit.installation import Installation
+from agent_build_kit.pipeline import events
 from agent_build_kit.pipeline.unit_store import Pull, UnitStore
 from agent_build_kit.pipeline.unit_test_slots import unit_test_slot
 from agent_build_kit.pipeline.units import SETTLING
@@ -53,16 +54,29 @@ def test_a_settling_unit_whose_late_check_waits_shows_the_wait_and_since_when(
     assert LINE in line
 
 
-def test_the_line_is_gone_once_the_run_has_its_slot(
+def test_once_the_run_has_its_slot_the_unit_shows_its_late_check_running(
     inst: Installation,
     store: UnitStore,
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    with unit_test_slot(inst.locks_dir, 1, holder="add-marker/1"):
+    turn = events.build_late_check_turn(inst.locks_dir)
+    with turn(store.get("add-marker/1")), unit_test_slot(inst.locks_dir, 1, holder="add-marker/1"):
         lines = run_status(inst, monkeypatch, capsys)
 
     assert not any("late check waiting" in line for line in lines)
+    line = next(line for line in lines if "add-marker/1" in line and "settling:" in line)
+    assert "settling: late check running on the default branch" in line
+
+
+def test_with_no_late_check_the_unit_waits_for_its_checks(
+    inst: Installation,
+    store: UnitStore,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    lines = run_status(inst, monkeypatch, capsys)
+
     assert any("add-marker/1" in line and "settling: waiting for" in line for line in lines)
 
 

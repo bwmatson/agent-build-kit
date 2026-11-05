@@ -16,11 +16,11 @@ from pathlib import Path
 import pytest
 
 from agent_build_kit.forges import PullRequest
-from agent_build_kit.forges.base import Check, CheckStatus
+from agent_build_kit.forges.base import Check, CheckStatus, CommitChecks, commit_checks_of
 from agent_build_kit.pipeline import events
 from agent_build_kit.pipeline.unit_store import Pull, StoredUnit, UnitStore
 from agent_build_kit.pipeline.units import MERGED, PLANNED, SETTLING
-from agent_build_kit.pipeline.workspaces import branch_lock
+from agent_build_kit.pipeline.workspaces import BranchBusy, branch_lock
 from tests.factories import stored_unit
 
 SHA = "abc123"
@@ -202,3 +202,96 @@ def test_a_second_late_check_of_the_same_unit_does_not_run_while_the_first_waits
     assert runs == ["add-marker/1"]
     with turn(store.get("add-marker/1")):
         pass  # free again once the first has ended
+
+
+# --- review: the record step waits a little for the claim, and the merge commit's checks ----
+
+
+class BusyFor:
+    """A claim that is free for the read and then busy for the next `busy` attempts."""
+
+    def __init__(self, busy: int) -> None:
+        self.busy = busy
+        self.calls = 0
+
+    @contextmanager
+    def __call__(self, unit: StoredUnit) -> Generator[None]:
+        self.calls += 1
+        if 1 < self.calls <= 1 + self.busy:
+            raise BranchBusy("spec/add-marker/1 is held by another handler")
+        yield
+
+
+def run_with(store: UnitStore, claim, sleeps: list[float], said: list[str]) -> bool:
+    return events.on_late_check(
+        4,
+        repo="app",
+        pull=red(),
+        store=store,
+        fetch_checks=lambda pull: LOG,
+        base_passes=lambda unit, logs: False,
+        claim=claim,
+        sleep=sleeps.append,
+        log=said.append,
+    )
+
+
+def test_the_record_step_waits_briefly_for_a_busy_claim_and_keeps_the_result(
+    tmp_path: Path,
+) -> None:
+    store = settling(tmp_path)
+    sleeps: list[float] = []
+
+    assert run_with(store, BusyFor(2), sleeps, []) is True
+
+    assert store.get("add-marker/1").state == PLANNED
+    assert len(sleeps) == 2
+
+
+def test_a_claim_busy_past_the_retries_is_left_for_a_later_poll_and_says_why(
+    tmp_path: Path,
+) -> None:
+    store = settling(tmp_path)
+    sleeps: list[float] = []
+    said: list[str] = []
+
+    assert run_with(store, BusyFor(100), sleeps, said) is False
+
+    assert store.get("add-marker/1").state == SETTLING
+    assert len(sleeps) == events.RECORD_TRIES - 1
+    assert not any("being built" in line for line in said)
+    assert any("late check #4" in line and "could not be recorded" in line for line in said)
+
+
+def test_the_merge_commit_s_checks_are_read_and_settled_under_the_claim_with_no_run(
+    tmp_path: Path,
+) -> None:
+    store = settling(tmp_path)
+    steps: list[str] = []
+    held = False
+
+    @contextmanager
+    def claim(unit: StoredUnit) -> Generator[None]:
+        nonlocal held
+        held = True
+        steps.append("claim")
+        yield
+        held = False
+        steps.append(f"release {store.get(unit.id).state}")
+
+    def base_checks(unit: StoredUnit, sha: str, branch: str) -> CommitChecks:
+        steps.append(f"read under claim: {held}")
+        return commit_checks_of([Check(name="test", status=CheckStatus.PASSED)])
+
+    events.on_late_check(
+        4,
+        repo="app",
+        pull=red().model_copy(update={"merge_commit": SHA}),
+        store=store,
+        base_passes=lambda unit, logs: steps.append("run") is None,
+        base_checks=base_checks,
+        claim=claim,
+        log=lambda message: None,
+    )
+
+    assert steps == ["claim", "read under claim: True", "release merged"]
