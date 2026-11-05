@@ -66,7 +66,7 @@ RECORD_GLOB = "restacks*.json"
 OWED_STATES = (PLANNED, RUNNING, IN_REVIEW)
 OWED_CAUSES = (Cause.BASE_CHANGED, Cause.RESTACK_DEFERRED)
 # The causes of a unit owed a moved-base run: a restack is owed for the first two only.
-MOVED_BASE_CAUSES = (*OWED_CAUSES, Cause.RESTACK_CONFLICT, Cause.RESTACK_HANDED_BACK)
+MOVED_BASE_CAUSES = (*OWED_CAUSES, Cause.RESTACK_CONFLICT)
 
 
 def in_a_lane_run(unit: StoredUnit) -> bool:
@@ -252,16 +252,43 @@ def hold_if_spent(
     return True
 
 
+def owed_a_comment_rework(
+    unit: StoredUnit,
+    graph: list[StoredUnit],
+    *,
+    held: Callable[[StoredUnit], bool],
+    leased: Callable[[StoredUnit], bool],
+) -> bool:
+    """Whether `unit` is owed a comment rework: in review or planned, sent back for rework with
+    feedback, waiting on nothing, and neither leased nor held by a run."""
+    return (
+        unit.state in (PLANNED, IN_REVIEW)
+        and unit.sent_back_for_rework
+        and not waiting_on(unit, graph)
+        and not leased(unit)
+        and not held(unit)
+    )
+
+
 def lane_runs_owed(inst: Installation, units: list[StoredUnit]) -> set[str]:
-    """The units owed a moved-base run that the lane's scan takes: not one it handed back, which a
-    build worker takes from its step until its base moves again, and not one whose base tip
-    cannot be read, which no run can be an attempt at."""
+    """The units owed a moved-base run or a comment rework that the lane's scan takes: not a
+    moved-base run whose base tip cannot be read, which no run can be an attempt at."""
+    leases = Leases(lease_dir(inst.local_dir))
+    reworks = {
+        unit.id
+        for unit in units
+        if owed_a_comment_rework(
+            unit,
+            units,
+            held=lambda unit: branch_held(_branch_of(unit), root=inst.locks_dir),
+            leased=lambda unit: leases.holder(unit.id) is not None,
+        )
+    }
     by_id = {unit.id: unit for unit in units}
-    return {
+    return reworks | {
         unit_id
         for unit_id in moved_base_units(inst, units)
-        if by_id[unit_id].cause is not Cause.RESTACK_HANDED_BACK
-        and base_tip(inst, by_id[unit_id], units)
+        if base_tip(inst, by_id[unit_id], units)
     }
 
 

@@ -518,6 +518,12 @@ class StoredUnit(Unit):
         conflict's rework, which starts at the move."""
         return self.cause is Cause.REWORK and self.feedback_source is FeedbackSource.CONFLICT
 
+    @property
+    def sent_back_for_rework(self) -> bool:
+        """Whether the unit was sent back with feedback to rework, a comment, a change request
+        or a conflict, which the resolution lane runs."""
+        return self.cause is Cause.REWORK and bool(self.feedback)
+
     def has_own_rework_input(self, head: str) -> bool:
         """Whether the unit has saved feedback that is not the conflict's and that review has
         not answered by approving `head`: rework of its own, which makes its run a build."""

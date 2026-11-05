@@ -54,7 +54,7 @@ def test_a_unit_with_rework_input_of_its_own_is_sent_back_as_it_is_and_one_witho
     assert mine.rework(CONFLICT_REASON, ReworkKind.CONFLICT) is True
     assert free.rework(CONFLICT_REASON, ReworkKind.CONFLICT) is True
 
-    assert own.handed == [], "its rework is a build, for a build worker"
+    assert handed_ids(own) == [UNIT], "its rework is the lane's too, whatever it carries"
     assert handed_ids(plain) == [UNIT]
 
 
@@ -165,7 +165,7 @@ def test_a_rework_taken_but_not_handed_over_records_the_first_attempt_and_one_ha
     mine.rework(CONFLICT_REASON, ReworkKind.CONFLICT)
     free.rework(CONFLICT_REASON, ReworkKind.CONFLICT)
 
-    assert own.handed == []
-    assert (mine.stored().conflict_tip, mine.stored().conflict_attempts) == (mine.tip, 1)
+    assert handed_ids(own) == [UNIT]
+    assert mine.stored().conflict_attempts == 0, "the lane's run counts the attempt"
     assert handed_ids(plain) == [UNIT]
     assert free.stored().conflict_attempts == 0

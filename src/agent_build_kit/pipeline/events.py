@@ -1749,21 +1749,15 @@ def _requeue_with(
     )
 
 
-def owed_a_conflict_run(unit: StoredUnit) -> bool:
-    """Whether a conflict sent back for `unit` is a moved-base run: it has pushed work and no
-    rework input of its own."""
-    return (
-        unit.state in (IN_REVIEW, PLANNED)
-        and bool(unit.pushed)
-        and not unit.has_own_rework_input(unit.pushed or "")
-    )
+LANE_REWORKS = (ReworkKind.CONFLICT, ReworkKind.COMMENT, ReworkKind.CHANGES_REQUESTED)
 
 
 def _lane_for_conflict(
     lane: Lane | None, rework: ReworkKind | None, unit: StoredUnit
 ) -> Lane | None:
-    """The lane that makes the run of a conflict sent back for `unit`; None when it is a build."""
-    if lane is not None and rework is ReworkKind.CONFLICT and owed_a_conflict_run(unit):
+    """The resolution lane that makes the run of a conflict, a comment or a change request sent
+    back for `unit`, which is in review; None for any other rework, which is a build."""
+    if lane is not None and rework in LANE_REWORKS and unit.state in (IN_REVIEW, PLANNED):
         return lane
     return None
 

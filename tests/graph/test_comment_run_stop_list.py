@@ -12,14 +12,30 @@ from typing import Any
 
 import pytest
 
+from agent_build_kit.cli import pipeline as cli
+from agent_build_kit.pipeline.restack import Moved
 from agent_build_kit.pipeline.unit_store import Cause, ReworkKind
 from agent_build_kit.pipeline.units import HELD, IN_REVIEW, PLANNED
-from tests.graph.test_restack_lane_prepare import Scene
-from tests.lane_hand_back_support import resolved_move
+from agent_build_kit.pipeline.wiring import build_restack_onto
+from tests.factories import git
+from tests.graph.test_restack_lane_prepare import Scene, adapting
 from tests.runner_fakes import rejecting
 from tests.tick_driver import OTHER, Setup
 
 COMMENT = "[comment c1] a.txt:1 — rename the marker"
+
+
+def resolved_move(scene: Scene) -> None:
+    """The move rewrites the diff (a conflict it resolved), and the run's port has nothing to do."""
+
+    def resolving(tree: Path, branch: str, *, new_base: str, old_base: str, **_: Any) -> Moved:
+        git(tree, "rebase", "-q", "--onto", new_base, old_base, branch)
+        return Moved(sha=git(tree, "rev-parse", "HEAD"), resolved=("a.txt",))
+
+    scene.graph.options["restack_onto"] = scene.restack(
+        build_restack_onto(scene.graph.store, move=resolving)
+    )
+    adapting(scene)
 
 
 @pytest.fixture
@@ -27,10 +43,16 @@ def scene(graph: Setup, tmp_path: Path) -> Scene:
     return Scene(graph, tmp_path)
 
 
-def commented(scene: Scene) -> None:
-    """A review comment reaches the unit's thread, as the poller delivers it."""
-    answered = scene.graph.poll(("rework", {"reason": COMMENT, "rework": ReworkKind.COMMENT}))
-    assert answered == [True]
+def comment_run(scene: Scene) -> int:
+    """A review comment reaches the unit's thread, as the poller delivers it, and the lane it is
+    handed to makes the run; the number of agent calls before the run."""
+    before = len(scene.graph.recorder.events)
+    event = ("rework", {"reason": COMMENT, "rework": ReworkKind.COMMENT})
+    with cli.build_restack_lane(scene.graph.inst, scene.graph.store) as lane:
+        scene.lane = lane
+        assert scene.graph.poll(event, pr=8, lane=lane) == [True]
+        lane.drain()
+    return before
 
 
 def agents_in_the_lane(scene: Scene) -> dict[str, bool]:
@@ -49,11 +71,7 @@ def agents_in_the_lane(scene: Scene) -> dict[str, bool]:
 
 def test_a_comment_run_reworks_checks_reviews_and_pushes_in_the_lane(scene: Scene) -> None:
     in_the_lane = agents_in_the_lane(scene)
-    commented(scene)
-    assert scene.offered() == [], "owed a comment run, so no build worker is started for it"
-    ran = len(scene.graph.recorder.events)
-
-    scene.lane_moves()
+    ran = comment_run(scene)
 
     assert in_the_lane.get("claude:rework") is True, "the rework agent ran in the lane"
     assert "claude:rework" in scene.graph.recorder.events[ran:]
