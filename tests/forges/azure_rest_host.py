@@ -102,6 +102,7 @@ class RestHost(httpx.MockTransport):
         threads: dict[int, list[dict]] | None = None,
         policies: dict[int, list[dict]] | None = None,
         builds: dict[int, str] | None = None,
+        commit_builds: list[dict] | None = None,
         statuses: dict[int, list[dict]] | None = None,
         labels: dict[int, list[str]] | None = None,
         refs: dict[str, str] | None = None,
@@ -118,6 +119,7 @@ class RestHost(httpx.MockTransport):
         self.threads = threads or {}
         self.policies = policies or {}
         self.builds = builds or {}
+        self.commit_builds = commit_builds or []
         self.statuses: dict[int, list[dict]] = {k: list(v) for k, v in (statuses or {}).items()}
         self.labels: dict[int, list[dict]] = {}
         for number, names in (labels or {}).items():
@@ -255,6 +257,8 @@ class RestHost(httpx.MockTransport):
             return answer({"evaluationId": route.rsplit("/", 1)[1], "status": "queued"})
         if route == "policy/configurations" and method == "GET":
             return answer({"value": self.branch_policies, "count": len(self.branch_policies)})
+        if route == "build/builds" and method == "GET":
+            return self._build_list(params)
         build = re.fullmatch(r"build/builds/(\d+)", route)
         if build and method == "GET":
             number = int(build[1])
@@ -270,6 +274,14 @@ class RestHost(httpx.MockTransport):
                 }
             )
         return None
+
+    def _build_list(self, params: httpx.QueryParams) -> httpx.Response:
+        """The builds of the repository the request names by id, newest first, at most `$top`."""
+        if params.get("repositoryId") != azure_answers.GUID:
+            raise AssertionError(f"not the repository's id: {params.get('repositoryId')!r}")
+        top = int(params.get("$top", PAGE))
+        found = sorted(self.commit_builds, key=lambda b: b["id"], reverse=True)[:top]
+        return answer({"value": found, "count": len(found)})
 
     def _list(self, params: httpx.QueryParams) -> httpx.Response:
         status = params.get("searchCriteria.status", "active")
