@@ -8,7 +8,7 @@ from pathlib import Path
 
 import pytest
 
-from agent_build_kit.pipeline.restack_lane import RestackLanes
+from agent_build_kit.pipeline.resolution_lane import ResolutionLanes
 from tests.restack_lane_fakes import WAIT, Restacks
 from tests.restack_lanes_fakes import API, DOCS, WEB, Made, unit_of
 
@@ -26,15 +26,15 @@ def made(tmp_path: Path, restacks: Restacks) -> Made:
 
 
 @pytest.fixture
-def lanes(made: Made, restacks: Restacks) -> Iterator[RestackLanes]:
-    with RestackLanes(made, owed=lambda units: made.owed) as lanes:
+def lanes(made: Made, restacks: Restacks) -> Iterator[ResolutionLanes]:
+    with ResolutionLanes(made, owed=lambda units: made.owed) as lanes:
         yield lanes
         restacks.release_all()
         lanes.drain()
 
 
 def test_three_restacks_seen_in_each_of_two_projects_run_two_of_each_and_queue_one(
-    lanes: RestackLanes, restacks: Restacks
+    lanes: ResolutionLanes, restacks: Restacks
 ) -> None:
     for number, key in THREE_EACH:
         lanes.hand_over(unit_of(number, key))
@@ -46,7 +46,7 @@ def test_three_restacks_seen_in_each_of_two_projects_run_two_of_each_and_queue_o
 
 
 def test_a_waiting_restack_starts_when_a_restack_of_its_own_project_ends(
-    lanes: RestackLanes, made: Made, restacks: Restacks
+    lanes: ResolutionLanes, made: Made, restacks: Restacks
 ) -> None:
     for number, key in THREE_EACH:
         lanes.hand_over(unit_of(number, key))
@@ -59,7 +59,7 @@ def test_a_waiting_restack_starts_when_a_restack_of_its_own_project_ends(
 
 
 def test_a_unit_of_a_third_project_starts_at_once_while_the_other_two_are_full(
-    lanes: RestackLanes, restacks: Restacks
+    lanes: ResolutionLanes, restacks: Restacks
 ) -> None:
     for number, key in THREE_EACH:
         lanes.hand_over(unit_of(number, key))
@@ -71,7 +71,7 @@ def test_a_unit_of_a_third_project_starts_at_once_while_the_other_two_are_full(
 
 
 def test_a_restack_is_handed_to_no_lane_but_its_projects(
-    lanes: RestackLanes, made: Made, restacks: Restacks
+    lanes: ResolutionLanes, made: Made, restacks: Restacks
 ) -> None:
     for number, key in [(1, WEB), (2, API), (3, DOCS)]:
         lanes.hand_over(unit_of(number, key))

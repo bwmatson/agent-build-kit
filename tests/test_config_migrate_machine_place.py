@@ -74,7 +74,7 @@ def test_the_existing_steps_run_first_and_their_project_limits_are_moved(tmp_pat
     assert result.machine_moved == (("project_limits",),)
     assert result.local_text == (
         "project_limits:\n  max_concurrent_stacks: 2\n  max_units_in_progress: 3\n"
-        "  max_concurrent_restacks: 1\n"
+        "  max_concurrent_resolutions: 1\n"
     )
 
 

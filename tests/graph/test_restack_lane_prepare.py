@@ -17,8 +17,8 @@ import pytest
 from agent_build_kit.cli import pipeline as cli
 from agent_build_kit.graph.nodes import WAITS
 from agent_build_kit.graph.state import Node
+from agent_build_kit.pipeline.resolution_lane import Lane
 from agent_build_kit.pipeline.restack import Moved
-from agent_build_kit.pipeline.restack_lane import Lane
 from agent_build_kit.pipeline.stack_runner import Restacked
 from agent_build_kit.pipeline.unit_store import Cause
 from agent_build_kit.pipeline.units import IN_REVIEW, PLANNED, RUNNING

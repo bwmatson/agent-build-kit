@@ -11,7 +11,7 @@ import pytest
 
 from agent_build_kit.cli import pipeline as cli
 from agent_build_kit.installation import Installation
-from agent_build_kit.pipeline.restack_lane import RestackLane
+from agent_build_kit.pipeline.resolution_lane import ResolutionLane
 from agent_build_kit.pipeline.unit_store import Cause, StoredUnit, UnitStore
 from agent_build_kit.pipeline.units import (
     IN_REVIEW,
@@ -38,7 +38,7 @@ def moves() -> Restacks:
 
 
 @pytest.fixture
-def lane(tmp_path: Path, moves: Restacks) -> Iterator[RestackLane]:
+def lane(tmp_path: Path, moves: Restacks) -> Iterator[ResolutionLane]:
     with lane_over(tmp_path / "locks", moves, owed=lambda graph: {OWED}) as lane:
         yield lane
         moves.release_all()
@@ -73,7 +73,7 @@ def test_a_unit_being_restacked_still_counts_and_a_blocked_one_is_still_not_coun
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
-    lane: RestackLane,
+    lane: ResolutionLane,
     moves: Restacks,
 ) -> None:
     units = full_queue()
@@ -90,7 +90,7 @@ def test_a_unit_being_restacked_still_counts_and_a_blocked_one_is_still_not_coun
 
 
 def test_a_freshly_unblocked_unit_whose_base_moved_is_restacked_and_then_starts_when_room_opens(
-    lane: RestackLane, moves: Restacks
+    lane: ResolutionLane, moves: Restacks
 ) -> None:
     graph = full_queue()[:3]
     # Its parent went back to planned after the unit last stopped, so the unit waited on it.

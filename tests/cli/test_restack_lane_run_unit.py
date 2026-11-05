@@ -21,7 +21,7 @@ from agent_build_kit.forges.transport import HostUnavailable
 from agent_build_kit.installation import Installation
 from agent_build_kit.pipeline.lease import Leases, lease_dir
 from agent_build_kit.pipeline.pause import PAUSE_MARKER, pause_in_force
-from agent_build_kit.pipeline.restack_lane import RestackLanes
+from agent_build_kit.pipeline.resolution_lane import ResolutionLanes
 from agent_build_kit.pipeline.stack_runner import RunOutcome, RunStatus
 from agent_build_kit.pipeline.unit_store import Cause, StoredUnit, UnitStore
 from agent_build_kit.pipeline.units import FAILED, HELD, IN_REVIEW, PLANNED, RUNNING, branch_name
@@ -99,7 +99,7 @@ class Scene:
         self.flagged.append(self.store.get(unit.id).moved_base_run)
         return self.ends(unit)
 
-    def lane_moves(self) -> RestackLanes:
+    def lane_moves(self) -> ResolutionLanes:
         with cli.build_restack_lane(self.inst, self.store) as lanes:
             lanes.scan(self.store.all())
         return lanes

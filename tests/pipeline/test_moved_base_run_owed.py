@@ -12,7 +12,7 @@ from typing import Any
 
 import pytest
 
-from agent_build_kit.pipeline.restack_lane import moved_base_units, owed_a_moved_base_run
+from agent_build_kit.pipeline.resolution_lane import moved_base_units, owed_a_moved_base_run
 from agent_build_kit.pipeline.unit_store import Cause, FeedbackSource, StoredUnit
 from agent_build_kit.pipeline.units import (
     CLOSED,

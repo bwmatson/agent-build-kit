@@ -10,7 +10,7 @@ import pytest
 
 from agent_build_kit.cli import pipeline as cli
 from agent_build_kit.graph.state import Node
-from agent_build_kit.pipeline.restack_lane import moved_base_units
+from agent_build_kit.pipeline.resolution_lane import moved_base_units
 from agent_build_kit.pipeline.units import FAILED, HELD
 from tests.graph.test_restack_lane_prepare import Scene
 from tests.lane_hand_back_support import handed_back_at, resolved_move

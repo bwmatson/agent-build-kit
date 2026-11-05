@@ -9,7 +9,7 @@ from typing import Any
 import pytest
 
 from agent_build_kit.pipeline.events import RestackOutcome
-from agent_build_kit.pipeline.restack_lane import owed_a_restack
+from agent_build_kit.pipeline.resolution_lane import owed_a_restack
 from agent_build_kit.pipeline.unit_store import Cause, StoredUnit
 from agent_build_kit.pipeline.units import IN_REVIEW, PLANNED
 from agent_build_kit.pipeline.wiring import follow_predecessors

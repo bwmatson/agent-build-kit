@@ -14,7 +14,7 @@ from pathlib import Path
 import pytest
 
 from agent_build_kit.pipeline.events import build_claim
-from agent_build_kit.pipeline.restack_lane import RestackLane
+from agent_build_kit.pipeline.resolution_lane import ResolutionLane
 from agent_build_kit.pipeline.unit_store import StoredUnit
 from agent_build_kit.pipeline.units import branch_name
 from agent_build_kit.pipeline.workspaces import branch_lock
@@ -77,15 +77,15 @@ def runs() -> Runs:
 
 
 @pytest.fixture
-def lane(claims: Claims, runs: Runs) -> Iterator[RestackLane]:
-    with RestackLane(2, move=lambda unit: None, claim=claims) as lane:
+def lane(claims: Claims, runs: Runs) -> Iterator[ResolutionLane]:
+    with ResolutionLane(2, move=lambda unit: None, claim=claims) as lane:
         yield lane
         runs.release_all()
         lane.drain()
 
 
 def test_two_of_three_runs_start_and_the_third_starts_when_one_ends(
-    lane: RestackLane, runs: Runs, claims: Claims
+    lane: ResolutionLane, runs: Runs, claims: Claims
 ) -> None:
     first, second, third = units(3)
     for unit in (first, second, third):
@@ -108,7 +108,7 @@ def test_a_run_holds_its_lane_worker_until_it_ends_however_it_ends(
 ) -> None:
     runs = Runs(ending)
     first, second, _ = units(3)
-    with RestackLane(1, move=lambda unit: None, claim=claims) as lane:
+    with ResolutionLane(1, move=lambda unit: None, claim=claims) as lane:
         lane.hand_over(first, runs.of(first), claimed=False)
         lane.hand_over(second, runs.of(second), claimed=False)
         assert runs.begun[first.id].wait(WAIT)
@@ -125,7 +125,7 @@ def test_a_run_holds_its_lane_worker_until_it_ends_however_it_ends(
 
 
 def test_a_run_goes_on_in_a_worker_of_the_lane(
-    lane: RestackLane, runs: Runs, claims: Claims
+    lane: ResolutionLane, runs: Runs, claims: Claims
 ) -> None:
     (unit,) = units(1)
     lane.hand_over(unit, runs.of(unit), claimed=False)
@@ -135,7 +135,9 @@ def test_a_run_goes_on_in_a_worker_of_the_lane(
     assert claims.asked == []
 
 
-def test_a_unit_named_twice_is_queued_once(lane: RestackLane, runs: Runs, claims: Claims) -> None:
+def test_a_unit_named_twice_is_queued_once(
+    lane: ResolutionLane, runs: Runs, claims: Claims
+) -> None:
     first, second, third = units(3)
     lane.hand_over(first, runs.of(first), claimed=False)
     lane.hand_over(second, runs.of(second), claimed=False)
@@ -160,7 +162,7 @@ def test_a_branch_held_by_another_run_leaves_the_unit_owed_and_no_run_is_made(
         with branch_lock(branch_name(unit), root=locks):
             made.append(unit.id)
 
-    with RestackLane(2, move=lambda unit: None, claim=claims) as lane:
+    with ResolutionLane(2, move=lambda unit: None, claim=claims) as lane:
         with branch_lock(branch_name(unit), root=locks):
             lane.hand_over(unit, run, claimed=False, done=ended.append)
             lane.drain()

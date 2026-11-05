@@ -13,7 +13,7 @@ from pathlib import Path
 import pytest
 
 from agent_build_kit.pipeline.file_lock import file_lock
-from agent_build_kit.pipeline.restack_lane import RestackLane
+from agent_build_kit.pipeline.resolution_lane import ResolutionLane
 from agent_build_kit.runtimes import AgentRequest
 from tests.restack_turn_fakes import (
     Rig,
@@ -49,7 +49,7 @@ def test_another_units_worktree_add_and_push_complete_while_the_lanes_resolver_i
     at_resolver, release = threading.Event(), threading.Event()
     blocking(rig, at_resolver, release)
     work = rig.prepared()
-    lane = RestackLane(2, move=lambda unit: None, claim=rig.moves["claim"])
+    lane = ResolutionLane(2, move=lambda unit: None, claim=rig.moves["claim"])
 
     with lane:
         lane.hand_over(rig.child, work)
@@ -95,7 +95,7 @@ def test_the_lane_holds_the_turn_for_the_git_phases_and_not_while_the_resolver_w
 
     rig.act = resolver
     work = rig.prepared()
-    lane = RestackLane(2, move=lambda unit: None, claim=rig.moves["claim"])
+    lane = ResolutionLane(2, move=lambda unit: None, claim=rig.moves["claim"])
 
     with lane:
         lane.hand_over(rig.child, work)

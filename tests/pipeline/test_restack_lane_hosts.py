@@ -9,7 +9,7 @@ import pytest
 
 from agent_build_kit.pipeline import host
 from agent_build_kit.pipeline.events import build_claim
-from agent_build_kit.pipeline.restack_lane import RestackLane, lane_record
+from agent_build_kit.pipeline.resolution_lane import ResolutionLane, lane_record
 from tests.branch_lock_fakes import dead_pid
 from tests.factories import stored_unit
 from tests.restack_lane_fakes import WAIT, Restacks
@@ -45,7 +45,7 @@ def test_a_record_of_this_host_with_a_dead_pid_and_one_without_a_host_are_not_he
 def test_the_record_a_lane_writes_carries_the_host(tmp_path: Path) -> None:
     restacks = Restacks()
     record = tmp_path / "restacks-abc.json"
-    lane = RestackLane(
+    lane = ResolutionLane(
         1,
         move=restacks,
         claim=build_claim(tmp_path / "locks"),

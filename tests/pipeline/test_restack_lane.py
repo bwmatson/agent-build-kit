@@ -9,7 +9,7 @@ from pathlib import Path
 import pytest
 
 from agent_build_kit.pipeline.events import build_claim
-from agent_build_kit.pipeline.restack_lane import RestackLane
+from agent_build_kit.pipeline.resolution_lane import ResolutionLane
 from agent_build_kit.pipeline.unit_store import StoredUnit
 from agent_build_kit.pipeline.workspaces import branch_lock
 from tests.factories import stored_unit
@@ -27,7 +27,7 @@ def restacks() -> Restacks:
 
 
 @pytest.fixture
-def lane(locks: Path, restacks: Restacks) -> Iterator[RestackLane]:
+def lane(locks: Path, restacks: Restacks) -> Iterator[ResolutionLane]:
     with lane_over(locks, restacks, cap=2) as lane:
         yield lane
         restacks.release_all()
@@ -35,7 +35,7 @@ def lane(locks: Path, restacks: Restacks) -> Iterator[RestackLane]:
 
 
 def test_two_of_five_restacks_start_before_the_hand_over_returns(
-    lane: RestackLane, restacks: Restacks
+    lane: ResolutionLane, restacks: Restacks
 ) -> None:
     for unit in units(5):
         lane.hand_over(unit)
@@ -48,7 +48,7 @@ def test_two_of_five_restacks_start_before_the_hand_over_returns(
 
 
 def test_each_waiting_restack_starts_in_the_order_seen_as_one_finishes(
-    lane: RestackLane, restacks: Restacks
+    lane: ResolutionLane, restacks: Restacks
 ) -> None:
     for unit in units(5):
         lane.hand_over(unit)
@@ -67,7 +67,7 @@ def test_each_waiting_restack_starts_in_the_order_seen_as_one_finishes(
     assert restacks.most_at_once == 2
 
 
-def test_a_unit_named_twice_is_queued_once(lane: RestackLane, restacks: Restacks) -> None:
+def test_a_unit_named_twice_is_queued_once(lane: ResolutionLane, restacks: Restacks) -> None:
     first, second, third = units(3)
     lane.hand_over(first)
     lane.hand_over(second)
@@ -139,7 +139,7 @@ def test_a_scan_does_not_retry_a_unit_while_the_holder_still_has_it(
         restacks.release_all()
 
 
-def test_two_restacks_of_one_branch_never_overlap(lane: RestackLane, restacks: Restacks) -> None:
+def test_two_restacks_of_one_branch_never_overlap(lane: ResolutionLane, restacks: Restacks) -> None:
     unit = stored_unit("feature/1", change="feature")
     lane.hand_over(unit)
     assert restacks.begun["feature/1"].wait(WAIT)
@@ -158,7 +158,7 @@ def test_a_scan_does_not_hand_a_unit_over_again_while_its_last_attempt_left_it_a
     unit = stored_unit("feature/1", change="feature")
     heads = ["branch@1, base@1"]
     restacks.release_all()
-    lane = RestackLane(
+    lane = ResolutionLane(
         2,
         move=restacks,
         claim=build_claim(locks),
@@ -185,7 +185,7 @@ def test_a_deferred_move_is_tried_again_once_its_pause_ends_while_another_pause_
     unit = stored_unit("feature/1", change="feature")
     paused: set[object] = {"a", "b"}
     restacks.release_all()
-    lane = RestackLane(
+    lane = ResolutionLane(
         2,
         move=restacks,
         claim=build_claim(locks),
@@ -208,7 +208,7 @@ def test_a_deferred_move_is_tried_again_once_its_pause_ends_while_another_pause_
 
 
 def test_a_lane_that_is_idle_gives_a_finished_future_that_is_already_done(
-    lane: RestackLane, restacks: Restacks
+    lane: ResolutionLane, restacks: Restacks
 ) -> None:
     assert lane.finished().done()
 

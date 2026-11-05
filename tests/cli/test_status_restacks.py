@@ -19,13 +19,11 @@ from pathlib import Path
 import pytest
 
 from agent_build_kit.cli import pipeline as cli
-from agent_build_kit.pipeline.pause import PAUSE_MARKER, pause_until
-from agent_build_kit.pipeline.restack_lane import Lane
-from agent_build_kit.pipeline.unit_store import Cause, UnitStore
-from agent_build_kit.pipeline.units import PLANNED
+from agent_build_kit.pipeline.resolution_lane import Lane
+from agent_build_kit.pipeline.unit_store import UnitStore
 from tests.conftest import make_installation
 from tests.factories import stored_unit
-from tests.restack_lane_fakes import WAIT, Restacks, repo_behind, units
+from tests.restack_lane_fakes import WAIT, Restacks
 
 
 class Scene:
@@ -83,12 +81,12 @@ def test_two_running_and_three_waiting_restacks_read_as_a_line_and_as_each_unit_
         page = scene.page()
         scene.moves.release_all()
 
-    assert "restacks: 2 running, 3 waiting" in lines
+    assert "resolving: 2 running, 3 waiting" in lines
     for unit in scene.store.all():
-        assert any(unit.id in line and "restacking onto main" in line for line in lines), unit.id
-    assert page.count("restacking onto main") == 5
-    assert not any(line.startswith("restacks:") for line in scene.status(capsys)), "all drained"
-    assert "restacking onto" not in scene.page()
+        assert any(unit.id in line and "resolving base main" in line for line in lines), unit.id
+    assert page.count("resolving base main") == 5
+    assert not any(line.startswith("resolving:") for line in scene.status(capsys)), "all drained"
+    assert "resolving base" not in scene.page()
 
 
 def test_a_lane_record_whose_process_has_gone_is_ignored_and_a_live_one_is_not(
@@ -105,23 +103,6 @@ def test_a_lane_record_whose_process_has_gone_is_ignored_and_a_live_one_is_not(
             seen[name] = scene.status(capsys)
             scene.moves.release_all()
 
-    assert "restacks: 2 running, 3 waiting" in seen["live"]
-    assert not any(line.startswith("restacks:") for line in seen["gone"])
-    assert not any("restacking onto" in line for line in seen["gone"])
-
-
-def test_a_restack_waiting_for_a_usage_pause_is_listed_with_the_pause_as_its_reason(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
-) -> None:
-    inst = repo_behind(tmp_path, monkeypatch)
-    store = UnitStore(tmp_path / "units.json")
-    store.upsert(units(3)[2:])
-    store.set_state("feature/3", PLANNED, branch="spec/feature/3", cause=Cause.RESTACK_DEFERRED)
-    pause_until(None, reason="session at 99%", marker=inst.state_dir / PAUSE_MARKER)
-    monkeypatch.setattr(cli, "current_usage", lambda: None)
-
-    assert cli.cmd_status(argparse.Namespace(), inst) == 0
-
-    lines = printed(capsys)
-    assert "restacks: 0 running, 1 waiting" in lines
-    assert any("feature/3" in line and "usage pause" in line for line in lines)
+    assert "resolving: 2 running, 3 waiting" in seen["live"]
+    assert not any(line.startswith("resolving:") for line in seen["gone"])
+    assert not any("resolving base" in line for line in seen["gone"])

@@ -20,7 +20,7 @@ def test_the_defaults_are_five_four_and_two(tmp_path: Path) -> None:
 
     assert block.max_units_in_progress == 5
     assert block.max_concurrent_stacks == 4
-    assert block.max_concurrent_restacks == 2
+    assert block.max_concurrent_resolutions == 2
 
 
 def test_the_settings_are_read_once_for_every_project(tmp_path: Path) -> None:
@@ -36,7 +36,7 @@ def test_the_settings_are_read_once_for_every_project(tmp_path: Path) -> None:
     assert loaded.project_limits.max_concurrent_stacks == 4
 
 
-@pytest.mark.parametrize("setting", ["max_units_in_progress", "max_concurrent_restacks"])
+@pytest.mark.parametrize("setting", ["max_units_in_progress", "max_concurrent_resolutions"])
 @pytest.mark.parametrize("value", ["0", "-1", "1.5", "many"])
 def test_a_value_under_the_minimum_or_of_the_wrong_type_is_refused_by_name(
     tmp_path: Path, setting: str, value: str
@@ -73,13 +73,13 @@ def account_block(tmp_path: Path, block: str) -> config.ProjectLimitsConfig:
 def test_an_account_block_is_the_type_of_the_top_level_block(tmp_path: Path) -> None:
     block = account_block(
         tmp_path,
-        "          max_concurrent_stacks: 2\n          max_concurrent_restacks: 1\n"
+        "          max_concurrent_stacks: 2\n          max_concurrent_resolutions: 1\n"
         "          max_units_in_progress: 3\n          emergency_extra: 0\n",
     )
 
     assert isinstance(block, config.ProjectLimitsConfig)
     assert block.max_concurrent_stacks == 2
-    assert block.max_concurrent_restacks == 1
+    assert block.max_concurrent_resolutions == 1
     assert block.max_units_in_progress == 3
     assert block.emergency_extra == 0
 
@@ -92,7 +92,7 @@ def test_an_account_block_records_the_fields_it_set(tmp_path: Path) -> None:
 
 
 @pytest.mark.parametrize(
-    "setting", ["max_units_in_progress", "max_concurrent_restacks", "emergency_extra"]
+    "setting", ["max_units_in_progress", "max_concurrent_resolutions", "emergency_extra"]
 )
 def test_an_account_block_has_the_top_level_bounds(tmp_path: Path, setting: str) -> None:
     below = "-1" if setting == "emergency_extra" else "0"

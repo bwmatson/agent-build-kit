@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-from agent_build_kit.pipeline.restack_lane import RestackLanes
+from agent_build_kit.pipeline.resolution_lane import ResolutionLanes
 from agent_build_kit.pipeline.units import CLOSED, IN_REVIEW, RUNNING, SETTLING
 from tests.factories import stored_unit
 from tests.tick_driver import OTHER, UNIT, make_setup
@@ -36,13 +36,13 @@ def test_a_child_of_a_merge_recorded_after_the_build_is_handed_to_the_restack_la
     graph.store.set_state(OTHER, IN_REVIEW, pr=8, branch=f"spec/{OTHER}")
     graph.options["forge_state"] = lambda unit, pr: "merged"
     handed: list[str] = []
-    hand_over = RestackLanes.hand_over
+    hand_over = ResolutionLanes.hand_over
 
     def spy(self, unit, *args, **kwargs):
         handed.append(unit.id)
         return hand_over(self, unit, *args, **kwargs)
 
-    monkeypatch.setattr(RestackLanes, "hand_over", spy)
+    monkeypatch.setattr(ResolutionLanes, "hand_over", spy)
 
     assert graph.tick() == 0
 

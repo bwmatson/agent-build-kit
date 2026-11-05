@@ -18,7 +18,7 @@ import pytest
 from agent_build_kit.cli import pipeline as cli
 from agent_build_kit.installation import Installation
 from agent_build_kit.pipeline.admission_record import ADMISSIONS_NAME, read_admissions
-from agent_build_kit.pipeline.restack_lane import RestackLanes
+from agent_build_kit.pipeline.resolution_lane import ResolutionLanes
 from agent_build_kit.pipeline.unit_store import UnitStore
 from agent_build_kit.pipeline.vocabulary import WaitReason
 from tests.conftest import make_installation
@@ -107,7 +107,7 @@ def test_the_default_accounts_units_are_not_held_by_a_capped_account(tmp_path: P
 
 
 @contextmanager
-def lane_running(inst: Installation, store: UnitStore, *unit_ids: str) -> Iterator[RestackLanes]:
+def lane_running(inst: Installation, store: UnitStore, *unit_ids: str) -> Iterator[ResolutionLanes]:
     """The restack lane `abk tick` builds, holding a run for each unit until the block ends."""
     runs = Restacks()
     lanes = cli.build_restack_lane(inst, store)

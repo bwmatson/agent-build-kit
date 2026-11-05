@@ -1,6 +1,6 @@
 """The pass and the lanes of its projects: a restack running in the lane of one project
 keeps the pass going and does not hold back a restack of another, and the cap of a lane is
-`project_limits.max_concurrent_restacks`.
+`project_limits.max_concurrent_resolutions`.
 
 A tick is driven as `test_restack_lane_tick` drives it: the poll is a fake that receives the
 lanes and hands them restacks that wait on events, so what runs beside what is read from the
@@ -19,7 +19,7 @@ import pytest
 
 from agent_build_kit.cli import pipeline as cli
 from agent_build_kit.installation import Installation
-from agent_build_kit.pipeline.restack_lane import Lane
+from agent_build_kit.pipeline.resolution_lane import Lane
 from agent_build_kit.pipeline.stack_runner import RunOutcome, RunStatus
 from agent_build_kit.pipeline.unit_store import Cause, StoredUnit, UnitStore
 from agent_build_kit.pipeline.units import IN_REVIEW, PLANNED, RUNNING
@@ -49,7 +49,7 @@ class Scene:
                 "state_dir": ".",
                 "worktree_root": str(tmp_path.with_name(tmp_path.name + "-trees")),
             },
-            project_limits={"max_concurrent_stacks": 2, "max_concurrent_restacks": 1},
+            project_limits={"max_concurrent_stacks": 2, "max_concurrent_resolutions": 1},
         )
         self.store = UnitStore(tmp_path / "units.json")
         self.store.upsert(
@@ -174,7 +174,7 @@ def test_a_restack_that_ends_after_a_round_left_its_unit_out_is_followed_by_one_
     assert scene.log.index("restack first/1") < scene.log.index("second/1 done")
 
 
-def test_each_project_of_a_repo_runs_max_concurrent_restacks_from_project_limits(
+def test_each_project_of_a_repo_runs_max_concurrent_resolutions_from_project_limits(
     scene: Scene,
 ) -> None:
     scene.store.upsert([new_unit("first/2", project="web")])

@@ -71,14 +71,14 @@ def slot_stack_limit(inst: Installation) -> Callable[[Hashable], int | None]:
 
 def slot_restack_limit(inst: Installation) -> Callable[[Hashable], int | None]:
     """The restacks at once an account allows across its projects, for a slot of `slot_of`: the
-    account's `max_concurrent_restacks` when it set one, else none. A project slot, the default
+    account's `max_concurrent_resolutions` when it set one, else none. A project slot, the default
     account and an account that did not set it have none; a project's own cap holds beside it."""
     if not claude_account.slots_per_account(inst.config):
         return lambda _slot: None
 
     def limit(label: Hashable) -> int | None:
         named = claude_account.resolve(inst, label if isinstance(label, str) else None)
-        return _set_fields(named).get("max_concurrent_restacks")
+        return _set_fields(named).get("max_concurrent_resolutions")
 
     return limit
 

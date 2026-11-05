@@ -36,7 +36,7 @@ BEFORE = (
     "        project_limits:\n"
     "          max_concurrent_stacks: 2\n"
     "          # restacks\n"
-    "          max_concurrent_restacks: 1\n"
+    "          max_concurrent_resolutions: 1\n"
     "      third:\n"
     "        project_limits:\n"
     "          max_units_in_progress: 4\n"
@@ -67,7 +67,7 @@ AFTER = (
     "        project_limits:\n"
     "          max_concurrent_stacks: 2\n"
     "          # restacks\n"
-    "          max_concurrent_restacks: 1\n"
+    "          max_concurrent_resolutions: 1\n"
     "          max_units_in_progress: 1\n"
     "      third:\n"
     "        project_limits:\n"
@@ -107,7 +107,7 @@ def test_the_key_joins_a_block_the_account_already_has() -> None:
 
     assert accounts["spare"]["project_limits"] == {
         "max_concurrent_stacks": 2,
-        "max_concurrent_restacks": 1,
+        "max_concurrent_resolutions": 1,
         "max_units_in_progress": 1,
     }
     assert "max_units_in_progress" not in accounts["spare"]

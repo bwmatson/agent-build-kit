@@ -19,6 +19,7 @@ from agent_build_kit.config import (
     old_setting_notices,
     overlay_path,
     read_overlay,
+    resolution_cap_notices,
     runtime_for,
     usage_limits_notices,
 )
@@ -72,7 +73,11 @@ def cmd_migrate(args: argparse.Namespace) -> int:
     except (ConfigMigrateError, OSError, UnicodeDecodeError) as error:
         print(f"abk: {path}: {error}", file=sys.stderr)
         return 2
-    for line in (*usage_limits_notices(path), *account_slots_notices(path)):
+    for line in (
+        *usage_limits_notices(path),
+        *account_slots_notices(path),
+        *resolution_cap_notices(path),
+    ):
         print(line, file=sys.stderr)
     for conflict in migrated.conflicts:
         key, stopped = ".".join(conflict.path), ".".join(conflict.local_path)
@@ -146,7 +151,11 @@ def cmd_config(args: argparse.Namespace, inst: Installation | None) -> int:
         print(old, file=sys.stderr)
     for notice in models_notices(path):
         print(notice.text, file=sys.stderr)
-    for line in (*usage_limits_notices(path), *account_slots_notices(path)):
+    for line in (
+        *usage_limits_notices(path),
+        *account_slots_notices(path),
+        *resolution_cap_notices(path),
+    ):
         print(line, file=sys.stderr)
     local = read_overlay(path)
     if local:

@@ -59,11 +59,11 @@ def test_two_runs_and_a_third_owed_read_as_restacking_and_the_slots_line_counts_
         assert cli.cmd_graph(argparse.Namespace(), slots.inst) == 0
         page = slots.inst.graph_page.read_text()
 
-    assert "restacks: 2 running, 1 waiting" in lines
+    assert "resolving: 2 running, 1 waiting" in lines
     assert "slots: 2/4, 2 restacking" in lines
     for unit_id in ("run1/1", "run2/1"):
-        assert any(unit_id in line and "restacking onto main" in line for line in lines), unit_id
-    assert page.count("restacking onto main") == 2
+        assert any(unit_id in line and "resolving base main" in line for line in lines), unit_id
+    assert page.count("resolving base main") == 2
 
 
 def test_a_handed_back_unit_is_not_counted_as_restacking_and_reads_as_planned(
@@ -78,7 +78,7 @@ def test_a_handed_back_unit_is_not_counted_as_restacking_and_reads_as_planned(
 
         lines = status(slots, capsys)
 
-    assert "restacks: 1 running, 0 waiting" in lines
+    assert "resolving: 1 running, 0 waiting" in lines
     assert "slots: 1/4, 1 restacking" in lines
     assert not any("back/1" in line and "restacking" in line for line in lines)
     assert any(line.startswith("units:") and "1 planned" in line for line in lines)

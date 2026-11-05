@@ -24,9 +24,11 @@ OLD = (
 
 
 def expected_document(old: dict[str, Any]) -> dict[str, Any]:
-    """The old document with `limits` renamed and the three moved, built in memory."""
+    """The old document with `limits` renamed, the three moved and the restack cap renamed,
+    built in memory."""
     block = dict(old["limits"])
     moved = {key: block.pop(key) for key in MOVED if key in block}
+    moved["max_concurrent_resolutions"] = moved.pop("max_concurrent_restacks")
     return {
         **{key: value for key, value in old.items() if key != "limits"},
         "global_limits": block,
@@ -49,7 +51,7 @@ def test_the_result_loads_with_the_configuration_loader(tmp_path: Path) -> None:
     assert loaded.global_limits.min_unit_lines == 300
     assert loaded.project_limits.max_units_in_progress == 3
     assert loaded.project_limits.max_concurrent_stacks == 2
-    assert loaded.project_limits.max_concurrent_restacks == 1
+    assert loaded.project_limits.max_concurrent_resolutions == 1
     assert config.deprecations(path) == []
 
 

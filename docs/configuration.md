@@ -328,7 +328,7 @@ context:
 project_limits:
   max_concurrent_stacks: 4      # units being built at once, in each project (every limit
                                 # here is counted for each project, not across all repos)
-  max_concurrent_restacks: 2    # moved-base runs (a branch moved onto a changed base, and
+  max_concurrent_resolutions: 2 # moved-base runs (a branch moved onto a changed base, and
                                 # the run after it) at once in each project; the lane's cap
                                 # bounds the run, which counts toward slot occupancy but is
                                 # never held back by max_concurrent_stacks
@@ -734,7 +734,10 @@ notifications:                  # tell a person when a unit waits on them (off b
                                 # it, `abk doctor` checks that version is listed).
 ```
 
-### `project_limits.max_concurrent_restacks`
+### `project_limits.max_concurrent_resolutions`
+
+The key was `max_concurrent_restacks`. The old name still loads, with a deprecation notice, as the
+same value; `abk config --migrate` renames it, and a file that sets both is refused.
 
 A unit whose only reason to run is that its base moved runs its whole moved-base run in the
 restack lane: the move, the resolver, the port of a conflict and the checks and review of the

@@ -151,7 +151,7 @@ def render_mermaid(
             pr = f" · PR #{unit.pr}" if unit.pr else ""
             name = STATES[state].name
             if restacking and unit.id in restacking:
-                name = f"restacking onto {restacking[unit.id]}"
+                name = f"resolving base {restacking[unit.id]}"
             if failed_waiting(unit, graph):
                 waits = shown_waits(unit, graph)
                 ids = ", ".join(parent.id for parent in waits)

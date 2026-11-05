@@ -315,9 +315,9 @@ class Installation:
         return self.config.project_limits.max_concurrent_stacks
 
     @property
-    def max_concurrent_restacks(self) -> int:
+    def max_concurrent_resolutions(self) -> int:
         """Restack workers in the lane of one project (`project_limits`)."""
-        return self.config.project_limits.max_concurrent_restacks
+        return self.config.project_limits.max_concurrent_resolutions
 
     @property
     def max_units_in_progress(self) -> int:

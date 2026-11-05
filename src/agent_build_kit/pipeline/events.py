@@ -140,7 +140,7 @@ from agent_build_kit.runtimes.base import (
 )
 
 if TYPE_CHECKING:
-    from agent_build_kit.pipeline.restack_lane import Lane
+    from agent_build_kit.pipeline.resolution_lane import Lane
 
 Log = Callable[[str], None]
 # What a unit just seen merged has recorded: its merge commit and the tick that saw it.
