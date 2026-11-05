@@ -35,8 +35,9 @@ from __future__ import annotations
 import json
 import subprocess
 import threading
+import time
 from collections.abc import Callable, Mapping, Sequence
-from contextlib import AbstractContextManager, nullcontext
+from contextlib import AbstractContextManager, ExitStack, nullcontext
 from datetime import UTC, datetime, timedelta
 from enum import StrEnum
 from functools import partial
@@ -100,6 +101,7 @@ from agent_build_kit.pipeline.unit_store import (
     UnitStore,
     feedback_source_of,
 )
+from agent_build_kit.pipeline.unit_test_slots import LATE_CHECK_NODE
 from agent_build_kit.pipeline.units import (
     CLOSED,
     HELD,
@@ -123,6 +125,7 @@ from agent_build_kit.pipeline.units import (
 from agent_build_kit.pipeline.wiring import build_unit_test, moving_onto, own_work_starts_after
 from agent_build_kit.pipeline.workspaces import (
     BranchBusy,
+    branch_held,
     branch_lock,
     checked_out_elsewhere,
     unit_tree,
@@ -251,8 +254,10 @@ def build_claim(locks: Path) -> Claim:
     return claim
 
 
-def _deferred(event: str, unit: StoredUnit, error: BranchBusy, log: Log) -> bool:
-    log(f"{event}: {unit.id} is being built ({error}) — left for a later poll")
+def _deferred(
+    event: str, unit: StoredUnit, error: BranchBusy, log: Log, why: str = "is being built"
+) -> bool:
+    log(f"{event}: {unit.id} {why} ({error}) — left for a later poll")
     return False
 
 
@@ -459,8 +464,6 @@ def merged_at(unit: StoredUnit, pr: int | None = None) -> datetime | None:
     return None
 
 
-# The step a late check's run is recorded under, in its spans and ledger row.
-LATE_CHECK_NODE = "late_check"
 # Where the late checks' own turns are kept, beside the branch locks.
 LATE_CHECK_TURNS = "late-checks"
 
@@ -472,9 +475,26 @@ def build_late_check_turn(locks: Path) -> Claim:
     a child. Raises `BranchBusy` when another late check of the unit holds it."""
 
     def turn(unit: StoredUnit) -> AbstractContextManager[object]:
-        return branch_lock(f"late-check-{unit.id}", root=locks / LATE_CHECK_TURNS)
+        return branch_lock(_late_check_name(unit.id), root=locks / LATE_CHECK_TURNS)
 
     return turn
+
+
+def _late_check_name(unit_id: str) -> str:
+    return f"late-check-{unit_id}"
+
+
+def late_check_running(locks: Path, unit_id: str) -> bool:
+    """Whether a live process holds the late check's turn of `unit_id`: its late check is under
+    way. Read, never taken."""
+    return branch_held(_late_check_name(unit_id), root=locks / LATE_CHECK_TURNS)
+
+
+# How many times the late check tries to take the unit's claim to record its run's result, and
+# the pause between tries: the run took long, so a short wait for a handler that holds the claim
+# for a moment is worth more than the run thrown away.
+RECORD_TRIES = 5
+RECORD_PAUSE_SECONDS = 2.0
 
 
 def build_base_checks(
@@ -548,6 +568,7 @@ def on_late_check(
     claim: Claim = _unclaimed,
     late_turn: Claim = _unclaimed,
     merge_record: MergeRecord | None = None,
+    sleep: Callable[[float], None] = time.sleep,
     log: Log = print,
 ) -> bool:
     """A check of a settling unit's merged pull request failed and none is still running.
@@ -584,10 +605,11 @@ def on_late_check(
                 base_checks=base_checks,
                 claim=claim,
                 merge_record=merge_record,
+                sleep=sleep,
                 log=log,
             )
     except BranchBusy as error:
-        return _deferred(f"late check #{pr}", unit, error, log)
+        return _deferred(f"late check #{pr}", unit, error, log, why="is held by another handler")
 
 
 def _late_check(
@@ -601,6 +623,7 @@ def _late_check(
     base_checks: Callable[[StoredUnit, str, str], CommitChecks] | None,
     claim: Claim,
     merge_record: MergeRecord | None,
+    sleep: Callable[[float], None],
     log: Log,
 ) -> bool:
     """`on_late_check` in its turn. The claim is taken to read the unit (and to settle it from
@@ -653,7 +676,15 @@ def _late_check(
     if on_base is None:
         log(f"late check #{pr}: {current.id} could not be run on the base, waiting")
         return True
-    with claim(unit):
+    try:
+        record_claim = _claimed_with_retries(claim, unit, sleep)
+    except BranchBusy as error:
+        log(
+            f"late check #{pr}: the result of the run on the base could not be recorded, "
+            f"{unit.id} is held by another handler ({error}) — left for a later poll"
+        )
+        return False
+    with record_claim:
         latest = store.get(unit.id)
         if latest.state != SETTLING:
             log(f"late check #{pr}: {latest.id} is {latest.state} now; the late result is not kept")
@@ -686,6 +717,25 @@ def _late_check(
         )
         log(f"late check #{pr}: {latest.id} late fix on {branch}")
     return True
+
+
+def _claimed_with_retries(
+    claim: Claim, unit: StoredUnit, sleep: Callable[[float], None]
+) -> ExitStack:
+    """The unit's claim, taken: tried `RECORD_TRIES` times with `RECORD_PAUSE_SECONDS` between,
+    and released when the returned stack closes. Raises the last `BranchBusy` when it stays
+    held."""
+    for attempt in range(RECORD_TRIES):
+        taken = ExitStack()
+        try:
+            taken.enter_context(claim(unit))
+        except BranchBusy:
+            if attempt == RECORD_TRIES - 1:
+                raise
+            sleep(RECORD_PAUSE_SECONDS)
+            continue
+        return taken
+    raise AssertionError("unreachable: the last try raises")
 
 
 def release_children(

@@ -53,6 +53,10 @@ LEAST_URGENT: Rank = (sys.maxsize,)
 # waiting to start, so its run is the cheapest work to finish.
 AHEAD_OF_START_KEYS: Rank = (-1,)
 
+# The step a settling unit's late check runs its whole-suite run under (the node of
+# `spans.current_unit`): only that run waits at `AHEAD_OF_START_KEYS`.
+LATE_CHECK_NODE = "late_check"
+
 
 class WaiterRecord(LockRecord):
     """What a waiting run writes into its marker: the holder's record and the rank it waits at.

@@ -283,7 +283,8 @@ asked) the failing check's tests are run on the default branch: fixed there, the
 still failing, the same unit builds a second pull request (`late fix #<second> after #<first>`).
 After two late fixes it is `held` for a person. That run is the unit's in the unit-test queue: it
 goes ahead of every unit waiting to start, and while it waits `abk status` shows `settling: late
-check waiting for a unit-test slot since <time>`. It holds no claim on the unit while it waits or
+check waiting for a unit-test slot since <time>`, then `settling: late check running on the
+default branch`. It holds no claim on the unit while it waits or
 runs, so `abk settle --accept` works then, and a result that comes back after an accept changes
 nothing.
 

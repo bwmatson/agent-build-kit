@@ -197,6 +197,7 @@ from agent_build_kit.pipeline.unit_store import (
 )
 from agent_build_kit.pipeline.unit_test_slots import (
     AHEAD_OF_START_KEYS,
+    LATE_CHECK_NODE,
     LEAST_URGENT,
     Rank,
     unit_test_slot,
@@ -1347,11 +1348,12 @@ def branch_commits(repo: Path, base: str, head: str = "HEAD") -> int:
 RUN_TOKEN_TRIES = 20
 
 
-def _slot_rank(installation: Installation, unit_id: str) -> Rank:
+def _slot_rank(installation: Installation, unit_id: str, node: str = "") -> Rank:
     """The place a run of `unit_id` waits for a slot at: the unit's start key, as `start_order`
     gives it for units waiting to resume (nothing excluded, none handed off), so waiting runs are
-    served in the order units start. A settling unit's run is its late check, which waits ahead
-    of every start key. The least urgent when the unit is not in the store."""
+    served in the order units start. A settling unit's late check (a run under the node
+    `LATE_CHECK_NODE`) waits ahead of every start key. The least urgent when the unit is not in
+    the store."""
     try:
         stored = UnitStore(installation.state_dir / "units.json").all()
     except (OSError, ValueError):
@@ -1359,7 +1361,7 @@ def _slot_rank(installation: Installation, unit_id: str) -> Rank:
     unit = next((candidate for candidate in stored if candidate.id == unit_id), None)
     if unit is None:
         return LEAST_URGENT
-    if unit.state == SETTLING:
+    if node == LATE_CHECK_NODE and unit.state == SETTLING:
         return AHEAD_OF_START_KEYS
     return start_key(unit, stored, (), ())
 
@@ -1375,7 +1377,7 @@ def _test_slot(
     if installation is None or limit is None:
         yield 0.0
         return
-    unit, change, _, _ = spans.current_unit.get()
+    unit, change, node, _ = spans.current_unit.get()
     mark = spans.Mark()
     said = False
 
@@ -1388,7 +1390,7 @@ def _test_slot(
         installation.locks_dir,
         limit,
         holder=unit,
-        rank=_slot_rank(installation, unit),
+        rank=_slot_rank(installation, unit, node),
         on_wait=waiting,
     ) as waited:
         if said:

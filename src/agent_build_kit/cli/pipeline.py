@@ -148,6 +148,7 @@ from agent_build_kit.pipeline.events import (
     build_restack,
     build_retarget,
     conflict_phrase,
+    late_check_running,
 )
 from agent_build_kit.pipeline.external_file import Hold as ExternalHold
 from agent_build_kit.pipeline.external_file import (
@@ -1170,7 +1171,12 @@ def cmd_status(args: argparse.Namespace, inst: Installation) -> int:
         *_failed_waiting_lines(units),
         *_wait_ended_lines(inst, units),
         *_second_parent_lines(units),
-        *_settling_lines(units, checks_of, waiting_since(inst.locks_dir)),
+        *_settling_lines(
+            units,
+            checks_of,
+            waiting_since(inst.locks_dir),
+            lambda unit_id: late_check_running(inst.locks_dir, unit_id),
+        ),
         *_earlier_wait_lines(units),
         *_replaced_lines(units),
     ]:
@@ -4440,18 +4446,25 @@ def late_fix_phrase(unit: StoredUnit) -> str:
 
 
 def _settling_lines(
-    units: list[StoredUnit], checks_of: ChecksOf, slot_waits: Mapping[str, datetime]
+    units: list[StoredUnit],
+    checks_of: ChecksOf,
+    slot_waits: Mapping[str, datetime],
+    late_check_running: Callable[[str], bool] = lambda unit_id: False,
 ) -> list[str]:
-    """A settling unit with the checks it waits for and since when it has been merged, or, while
-    its late check waits for a unit-test slot (`slot_waits`, by unit), since when it has waited;
-    and a unit on a late fix with both pull requests."""
+    """A settling unit with the checks it waits for and since when it has been merged; while its
+    late check waits for a unit-test slot (`slot_waits`, by unit), since when it has waited; and
+    while its late check is under way otherwise, that it runs. A unit on a late fix is shown
+    with both pull requests."""
     lines = []
     for unit in units:
+        head = f"  {unit.id} ({unit_label(unit)}) #{unit.pr or '?'} settling:"
         if unit.state == SETTLING and unit.id in slot_waits:
             lines.append(
-                f"  {unit.id} ({unit_label(unit)}) #{unit.pr or '?'} settling: late check waiting "
-                f"for a unit-test slot since {slot_waits[unit.id]:%Y-%m-%d %H:%M} UTC"
+                f"{head} late check waiting for a unit-test slot since "
+                f"{slot_waits[unit.id]:%Y-%m-%d %H:%M} UTC"
             )
+        elif unit.state == SETTLING and late_check_running(unit.id):
+            lines.append(f"{head} late check running on the default branch")
         elif unit.state == SETTLING:
             open_checks = sorted(
                 check.name

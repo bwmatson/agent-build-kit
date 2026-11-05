@@ -446,13 +446,16 @@ the failed one's name, no checks at all or a forge that cannot answer (`unknown`
 leaves it to the local run: the check's tests run on the current default branch in a detached
 worktree (`events.build_base_passes`). The run is the unit's: its unit-test slot's waiting
 marker and its row in `runs/test-runs.jsonl` name the unit, and it waits ahead of every unit's
-start key, since a settling unit holds its branch and its children. The late check takes the
-unit's claim only to read the unit before the run and to record the result, and holds nothing
-while the run waits for its slot or runs, so `abk settle --accept` and the restack of a child
-are not refused for it; a unit no longer settling when the result comes back is left as it is.
-A turn of its own (`events.build_late_check_turn`) keeps a second late check of the same unit
-from starting a second run, and `abk status` says `settling: late check waiting for a unit-test
-slot since <time>` while it waits. Passing there, the
+start key, since a settling unit holds its branch and its children. Only that run ranks so: it runs under the
+node `LATE_CHECK_NODE` of `spans.current_unit`, and another run of a settling unit keeps its
+start key. The late check takes the unit's claim only to read the unit before the run and to
+record the result (tried `events.RECORD_TRIES` times, a short pause apart, before the event is
+left for a later poll), and holds nothing while the run waits for its slot or runs, so `abk
+settle --accept` and the restack of a child are not refused for it; a unit no longer settling
+when the result comes back is left as it is. A turn of its own (`events.build_late_check_turn`)
+keeps a second late check of the same unit from starting a second run, and `abk status` says
+`settling: late check waiting for a unit-test slot since <time>` while it waits and `settling:
+late check running on the default branch` once it runs. Passing there, the
 unit is `merged` and the failure is recorded as fixed on the base; failing there, the same unit
 goes `planned` with the cause `late_failure` on `<branch>-fix<k>` off the default branch,
 built through the rework path with the check's log. Its pull request is titled
