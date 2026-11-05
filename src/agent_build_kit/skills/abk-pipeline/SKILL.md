@@ -272,9 +272,14 @@ afterwards: `abk requeue <unit>` returns it.
 
 A merged pull request leaves its unit `settling` until every check has completed; `abk status`
 shows `settling: waiting for <checks> since <time>`. Do not requeue it. If a check will never
-finish, `abk settle <unit> --accept --reason "..."` records the unit as merged. A check that
-failed after the merge is run on the default branch: fixed there, the unit is merged; still
-failing, the same unit builds a second pull request (`late fix #<second> after #<first>`).
+finish, `abk settle <unit> --accept --reason "..."` records the unit as merged. For a check that
+failed after the merge, the default branch's own checks on the merge commit are read first: when
+the failed check is among them and every one passed, the unit is merged with the note `late
+failure settled by the default branch's checks: the checks of <sha> passed`, and no unit-test run
+starts; while one of them still runs, the unit stays settling and is asked again at the next
+poll. Otherwise (a failure there, no check of that name, no checks, or the host could not be
+asked) the failing check's tests are run on the default branch: fixed there, the unit is merged;
+still failing, the same unit builds a second pull request (`late fix #<second> after #<first>`).
 After two late fixes it is `held` for a person.
 
 ### Paused for a rejected login

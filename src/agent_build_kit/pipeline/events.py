@@ -46,7 +46,15 @@ from typing import TYPE_CHECKING, Any
 from agent_build_kit import forges, profiles
 from agent_build_kit.budget import cut_head
 from agent_build_kit.forges import Forge, PullRequest, RepoId, ReviewNote
-from agent_build_kit.forges.base import cancelled_names, failing_names, listed_pull
+from agent_build_kit.forges.base import (
+    UNKNOWN_CHECKS,
+    CheckStatus,
+    CommitChecks,
+    CommitOutcome,
+    cancelled_names,
+    failing_names,
+    listed_pull,
+)
 from agent_build_kit.model import Frozen
 from agent_build_kit.pipeline import spans
 from agent_build_kit.pipeline.check_runner import worktree_at
@@ -421,8 +429,48 @@ def build_base_passes(
     return passes
 
 
+def build_base_checks(
+    *, for_repo: Callable[[str], tuple[Forge, RepoId]] | None = None
+) -> Callable[[StoredUnit, str], CommitChecks]:
+    """Read the checks of a commit of a unit's repo from its forge. A forge that raises is read
+    as `unknown`, which is never a pass."""
+    for_repo = for_repo or forges.for_repo
+
+    def base_checks(unit: StoredUnit, sha: str) -> CommitChecks:
+        try:
+            forge, repo = for_repo(unit.repo)
+            return forge.commit_checks(repo, sha)
+        except Exception:  # noqa: BLE001 — an unreadable answer is unknown, and the local run decides.
+            return UNKNOWN_CHECKS
+
+    return base_checks
+
+
+class BaseVerdict(StrEnum):
+    """What the merge commit's own checks say of a late failure: it passed there, it is still
+    being checked there, or the local run on the default branch has to decide."""
+
+    PASSED = "passed"
+    RUNNING = "running"
+    RUN_LOCALLY = "run locally"
+
+
+def base_verdict(found: CommitChecks, failed: Sequence[str]) -> BaseVerdict:
+    """`passed` when every check in `failed` is among the merge commit's checks and passed and
+    the commit's checks have all passed; `running` while one of them has not completed; any
+    other answer (a failure, none of the failed check's name, no checks, unknown) runs locally."""
+    if found.outcome == CommitOutcome.RUNNING:
+        return BaseVerdict.RUNNING
+    passed = {check.name for check in found.checks if check.status == CheckStatus.PASSED}
+    if found.outcome == CommitOutcome.PASSED and failed and set(failed) <= passed:
+        return BaseVerdict.PASSED
+    return BaseVerdict.RUN_LOCALLY
+
+
 LATE_FIXES_PER_UNIT = 2
 EXCERPT = 300
+# How much of a commit a note names.
+SHORT_SHA = 10
 
 
 def late_fix_prompt(pull: PullRequest | None, logs: str, number: int) -> str:
@@ -445,11 +493,18 @@ def on_late_check(
     store: UnitStore,
     fetch_checks: Callable[[PullRequest | None], str] | None = None,
     base_passes: Callable[[StoredUnit, str], bool | None] | None = None,
+    base_checks: Callable[[StoredUnit, str], CommitChecks] | None = None,
     claim: Claim = _unclaimed,
     merge_record: MergeRecord | None = None,
     log: Log = print,
 ) -> bool:
     """A check of a settling unit's merged pull request failed and none is still running.
+
+    The checks of the merge commit on the default branch are read first (`base_checks`, given
+    the merge commit: the listing's, else the unit's recorded one). When each check that failed
+    on the pull request is among them and passed and none is running, the unit is merged with a
+    note naming the commit, and no local run starts. While one of them runs, the unit stays
+    settling and is asked again at the next poll. Any other answer runs locally:
 
     Its failing tests are run on the default branch. Passing there, the unit is merged and the
     failure is recorded as fixed on the base. Failing there, the same unit goes to `planned` for
@@ -465,7 +520,28 @@ def on_late_check(
             if current.state != SETTLING:
                 return True
             fixes = sum(1 for p in current.pulls if p.role == "late-fix")
-            names = ", ".join(failing_names(pull.checks)) if pull else ""
+            failed = failing_names(pull.checks) if pull else ()
+            names = ", ".join(failed)
+            sha = (pull.merge_commit if pull else None) or current.merge_sha
+            if base_checks is not None and sha:
+                short = sha[:SHORT_SHA]
+                verdict = base_verdict(base_checks(current, sha), failed)
+                if verdict == BaseVerdict.RUNNING:
+                    log(f"late check #{pr}: {current.id} waits for the checks of {short}")
+                    return True
+                if verdict == BaseVerdict.PASSED:
+                    settle_merged(
+                        store,
+                        current,
+                        merge_record,
+                        note=(
+                            f"late failure settled by the default branch's checks: the checks "
+                            f"of {short} passed (check {names} failed on the pull request)"
+                        ),
+                        merge_commit=pull.merge_commit if pull else None,
+                    )
+                    log(f"late check #{pr}: {current.id} merged, the checks of {short} passed")
+                    return True
             if fixes >= LATE_FIXES_PER_UNIT:
                 note = f"check {names or 'unknown'} failed after {fixes} late fixes"
                 hold_for_conflict(current, store, note, log, label=f"late check #{pr}")
@@ -2580,11 +2656,13 @@ def build_dispatch(
     landing_path: Path | None = None,
     merge_record: MergeRecord | None = None,
     base_passes: Callable[[StoredUnit, str], bool | None] | None = None,
+    base_checks: Callable[[StoredUnit, str], CommitChecks] | None = None,
     log: Log = print,
 ) -> Callable[..., bool]:
     """The callable `pr_poller` hands each event to.
 
-    `base_passes` runs a late-failed check's tests, from its log, on the default branch.
+    `base_passes` runs a late-failed check's tests, from its log, on the default branch;
+    `base_checks` reads the checks of the merge commit before that run.
 
     The event names are the poller's contract; an unhandled one is logged
     rather than dropped, because silence here is indistinguishable from a
@@ -2641,6 +2719,7 @@ def build_dispatch(
                 store=store,
                 fetch_checks=_check_fetcher(store, repo, number, fetch_checks),
                 base_passes=base_passes,
+                base_checks=base_checks,
                 claim=claim,
                 merge_record=merge_record,
                 log=log,

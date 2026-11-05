@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+- A pull request merged with a failed check is settled from the default branch's own checks when
+  they already answer the question. Before the failing tests are run on the default branch, the
+  checks of the merge commit are read: when each check that failed on the pull request is among
+  them and passed and none is running, the unit is merged with a note naming the commit and saying
+  its checks passed, and no unit-test run starts. While one of them is still running, the unit
+  stays settling and is asked again at the next poll. A failure there, no check of the failed
+  one's name, no checks at all, or a host that cannot be asked runs the tests on the default
+  branch as before. A forge now reports the checks of a commit, keeping "none" and "unknown"
+  apart from a pass.
+
 - `abk external done` no longer needs a merge source. With neither `--pr` nor `--commit` the hold is
   marked done with an empty `merged_by`, the boxes are ticked, and a unit whose groups are all done
   is merged with the note "recorded by hand" and no merge record, so a dependent is released at the
