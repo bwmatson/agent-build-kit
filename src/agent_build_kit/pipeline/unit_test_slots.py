@@ -259,6 +259,8 @@ def unit_test_slot(
     clock = clock or time
     locks_dir.mkdir(parents=True, exist_ok=True)
     paths = [slot_path(locks_dir, index) for index in range(1, limit + 1)]
+    # The look before the take only saves a take that would be given back; the look after it keeps
+    # the order, since a more urgent waiter can register in between.
     handle = None if _live_waiters(locks_dir) else _take(paths)
     if handle is not None and _gives_way(handle, locks_dir, None):
         handle = None
