@@ -18,6 +18,7 @@
   comes back after an accept changes nothing. `abk status` shows `settling: late check waiting for
   a unit-test slot since <time>` while it waits, and `settling: late check running on the default
   branch` once it runs.
+
 - The restack lane is now the resolution lane: `abk status` prints `resolving: N running, M waiting`
   and `<unit> resolving base <name>`, and the lane's worker thread is named `resolve`. The cap
   `project_limits.max_concurrent_restacks` is renamed `max_concurrent_resolutions`; the old key still
