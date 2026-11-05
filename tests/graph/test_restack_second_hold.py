@@ -66,7 +66,7 @@ class Scene:
             does."""
             name = threading.current_thread().name
             self.asked.append(name)
-            if name != "restack":
+            if name != "resolve":
                 return Decision(may_start=True, reason="plenty")
             return real(**kwargs)
 
@@ -103,7 +103,7 @@ def test_a_run_held_for_a_second_moved_base_is_moved_by_the_lane_with_its_confli
 
     assert len(scene.resolved) == 1
     assert "push" not in scene.resolved[0], "moved from the hold, before the unit was built again"
-    assert scene.asked.count("restack") == 1, "the lane's conflict step is asked of the guard"
+    assert scene.asked.count("resolve") == 1, "the lane's conflict step is asked of the guard"
     assert scene.holds_main()
     assert scene.graph.store.get(UNIT).state == IN_REVIEW, "then built, in a worker"
 
@@ -149,5 +149,5 @@ def test_a_run_that_settles_its_first_conflict_is_not_held_and_the_lane_is_not_a
     stored = scene.graph.store.get(UNIT)
     assert stored.state == IN_REVIEW
     assert all(entry.get("cause") != "base_changed" for entry in stored.history)
-    assert scene.asked.count("restack") == 0
+    assert scene.asked.count("resolve") == 0
     assert scene.resolved == []

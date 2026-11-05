@@ -131,7 +131,7 @@ def test_a_run_goes_on_in_a_worker_of_the_lane(
     lane.hand_over(unit, runs.of(unit), claimed=False)
 
     assert runs.begun[unit.id].wait(WAIT)
-    assert runs.threads[unit.id] == "restack"
+    assert runs.threads[unit.id] == "resolve"
     assert claims.asked == []
 
 
