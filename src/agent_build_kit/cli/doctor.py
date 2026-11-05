@@ -2396,7 +2396,8 @@ def run_doctor(
     checks += _machine_files(inst)
     checks += _state_ignores(inst)
     checks += _state_locking(inst, mount_of)
-    checks += _pytest_temp(inst)
+    if temp:
+        checks += _pytest_temp(inst)
     checks += _legacy_state(inst)
     checks += _planning_view(inst)
     checks += _state_location(inst)
@@ -2433,7 +2434,7 @@ def run_doctor(
 
 
 def cmd_doctor(args: argparse.Namespace, _inst: Installation | None) -> int:
-    checks = run_doctor(args.config, fix=args.fix)
+    checks = run_doctor(args.config, fix=args.fix, temp=args.temp)
     for check in checks:
         print(f"{check.status:<5} {check.name}: {check.detail}")
         if check.fix:
@@ -2449,5 +2450,10 @@ def register(sub: argparse._SubParsersAction) -> None:
     parser = sub.add_parser("doctor", help="check this installation is runnable")
     parser.add_argument(
         "--fix", action="store_true", help="delete the stray lock files a change's directory holds"
+    )
+    parser.add_argument(
+        "--temp",
+        action="store_true",
+        help="also measure the pytest temp folder, which can take minutes",
     )
     parser.set_defaults(func=cmd_doctor, needs_installation=False)

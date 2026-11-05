@@ -93,6 +93,9 @@
   comes back after an accept changes nothing. `abk status` shows `settling: late check waiting for
   a unit-test slot since <time>` while it waits, and `settling: late check running on the default
   branch` once it runs.
+- `abk doctor` and `abk status` no longer walk the pytest temp folder, which could take minutes
+  when the unit-test step had left thousands of files. Pass `--temp` to either command to get the
+  `pytest temp` check or line as before.
 
 - The tick's temp sweep now runs in the background, so a tick that follows a busy day starts its
   builds at once instead of sitting at "temp sweep: removed ..." first. The tick waits for the
