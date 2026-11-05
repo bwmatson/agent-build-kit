@@ -6,13 +6,14 @@ and the local forge answers from its own records, which hold no checks."""
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
 from pathlib import Path
 
 import httpx
 import pytest
 
 from agent_build_kit.forges.azure_devops import AzureDevOpsForge
-from agent_build_kit.forges.base import CheckStatus, CommitOutcome, RepoId
+from agent_build_kit.forges.base import CheckStatus, CommitOutcome, RepoId, failing_names
 from agent_build_kit.forges.github import GitHubForge
 from agent_build_kit.forges.local import LocalForge
 from tests.conftest import make_installation
@@ -137,6 +138,7 @@ def build(
     *,
     status: str = "completed",
     commit: str = SHA,
+    definition: int | None = None,
 ) -> dict:
     """One build as the build list answers it."""
     return {
@@ -146,7 +148,7 @@ def build(
         "result": result,
         "sourceVersion": commit,
         "sourceBranch": "refs/heads/main",
-        "definition": {"id": 10 + len(name), "name": name},
+        "definition": {"id": definition or 10 + len(name), "name": name},
         "repository": {"id": azure_answers.GUID, "type": "TfsGit"},
         "queueTime": "2026-09-24T18:02:11.483Z",
     }
@@ -237,3 +239,98 @@ def test_the_local_forge_answers_none_from_its_records_which_hold_no_checks(
 
     assert found.outcome == CommitOutcome.NONE
     assert found.checks == ()
+
+
+# --- review: what is not a pass, paging, and the names both sides share ---------------------
+
+
+@pytest.mark.usefixtures("github_env")
+@pytest.mark.parametrize("conclusion", ["skipped", "neutral"])
+def test_github_a_skipped_or_neutral_check_of_a_commit_is_not_a_pass(conclusion: str) -> None:
+    host = github(listed(check_run("lint", "success"), check_run("test", conclusion)))
+
+    found = GitHubForge(http=host).commit_checks(GITHUB, SHA)
+
+    status = {check.name: check.status for check in found.checks}["test"]
+    assert status == CheckStatus.SKIPPED
+    assert found.outcome != CommitOutcome.FAILED, "a skipped check is no failure either"
+
+
+@pytest.mark.usefixtures("github_env")
+@pytest.mark.parametrize("conclusion", ["action_required", "stale", "startup_failure"])
+def test_github_a_completed_check_with_an_unknown_conclusion_is_failed_not_running(
+    conclusion: str,
+) -> None:
+    host = github(listed(check_run("lint", "success"), check_run("test", conclusion)))
+
+    found = GitHubForge(http=host).commit_checks(GITHUB, SHA)
+
+    assert {check.name: check.status for check in found.checks}["test"] == CheckStatus.FAILED
+    assert found.outcome == CommitOutcome.FAILED
+
+
+@pytest.mark.usefixtures("github_env")
+def test_github_reads_every_page_of_the_check_runs() -> None:
+    more = {"link": f'<https://api.github.com{CHECK_RUNS}?page=2>; rel="next"'}
+    first = answer({"total_count": 2, "check_runs": [check_run("lint", "success")]}, headers=more)
+    second = answer({"total_count": 2, "check_runs": [check_run("test", "failure")]})
+    host = GitHubHost(routes={("GET", CHECK_RUNS): [first, second]})
+
+    found = GitHubForge(http=host).commit_checks(GITHUB, SHA)
+
+    assert sorted(check.name for check in found.checks) == ["lint", "test"]
+    assert found.outcome == CommitOutcome.FAILED
+    assert [call.params.get("page") for call in host.seen] == ["1", "2"]
+
+
+@pytest.mark.usefixtures("rest_env")
+def test_azure_reports_a_canceled_build_as_cancelled_and_not_a_pass() -> None:
+    host = azure(build(1, "CI", "canceled"), build(2, "lint", "succeeded"))
+
+    found = AzureDevOpsForge(http=host).commit_checks(AZURE, SHA)
+
+    assert {check.name: check.status for check in found.checks}["CI"] == CheckStatus.CANCELLED
+    assert found.outcome == CommitOutcome.FAILED
+
+
+class Unreachable(RestHost):
+    def _route(self, request: httpx.Request) -> httpx.Response:
+        raise httpx.ConnectError("no route to host", request=request)
+
+
+@pytest.mark.usefixtures("rest_env")
+def test_azure_reports_a_host_that_does_not_answer_as_unknown() -> None:
+    found = AzureDevOpsForge(http=Unreachable()).commit_checks(AZURE, SHA)
+
+    assert found.outcome == CommitOutcome.UNKNOWN
+
+
+@pytest.mark.usefixtures("rest_env")
+def test_azure_asks_for_the_builds_of_the_branch_since_the_merge() -> None:
+    host = azure(build(1, "CI", "succeeded"))
+    since = datetime(2026, 9, 24, 18, 0, tzinfo=UTC)
+
+    AzureDevOpsForge(http=host).commit_checks(AZURE, SHA, branch="main", since=since)
+
+    [call] = host.calls("GET", "build/builds")
+    assert call.params["branchName"] == "refs/heads/main"
+    assert datetime.fromisoformat(call.params["minTime"]) == since
+
+
+@pytest.mark.usefixtures("rest_env")
+def test_azure_names_a_commit_s_build_as_the_pull_request_names_its_build_policy() -> None:
+    """A pull request's check from a build policy and the commit's build of the same pipeline
+    share a name, so a failed check can be found among the merge commit's checks."""
+    policy = azure_answers.evaluation("rejected", name="CI build")
+    pulls = AzureDevOpsForge(
+        http=RestHost(azure_answers.OPEN, policies={162: [policy]}, builds={41: "failed"})
+    ).list_prs(AZURE)
+    host = azure(
+        build(7, "app-ci", "succeeded", definition=3),
+        branch_policies=[policy["configuration"]],
+    )
+
+    found = AzureDevOpsForge(http=host).commit_checks(AZURE, SHA, branch="main")
+
+    [failed] = failing_names(pulls[0].checks)
+    assert failed in {check.name for check in found.checks if check.status == CheckStatus.PASSED}
