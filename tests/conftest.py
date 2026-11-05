@@ -470,12 +470,16 @@ def status_lines(
 
 
 def run_status(
-    inst: Installation, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    inst: Installation,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    *,
+    temp: bool = False,
 ) -> list[str]:
     """The lines `abk status` prints over `inst`, with no usage reading."""
     monkeypatch.setattr(pipeline_cli, "current_usage", lambda: None)
     capsys.readouterr()
-    assert pipeline_cli.cmd_status(argparse.Namespace(), inst) == 0
+    assert pipeline_cli.cmd_status(argparse.Namespace(temp=temp), inst) == 0
     return capsys.readouterr().out.splitlines()
 
 

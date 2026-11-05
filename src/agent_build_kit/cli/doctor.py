@@ -2337,6 +2337,7 @@ def run_doctor(
     transport: httpx.BaseTransport | None = None,
     mount_of: Callable[[Path], Mount] | None = None,
     fix: bool = False,
+    temp: bool = False,
 ) -> list[Check]:
     run = run or subprocess.run
     which = which or shutil.which

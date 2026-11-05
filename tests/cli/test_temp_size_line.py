@@ -9,6 +9,8 @@ from pathlib import Path
 import pytest
 import yaml
 
+from agent_build_kit.cli import doctor as doctor_cli
+from agent_build_kit.cli import pipeline as pipeline_cli
 from agent_build_kit.installation import Installation, load_installation
 from tests.cli.in_repo_doctor import checks_of, in_repo, named
 from tests.cli.test_admission_asks_own_account import isolated  # noqa: F401 — fixture
@@ -33,14 +35,18 @@ def warn_above(config: Path, megabytes: int) -> Path:
     return config
 
 
-def doctor_lines(config: Path) -> list:
-    return named(checks_of(config), LABEL)
+def doctor_lines(config: Path, *, temp: bool = True) -> list:
+    return named(checks_of(config, temp=temp), LABEL)
 
 
 def status_lines(
-    inst: Installation, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    inst: Installation,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    *,
+    temp: bool = True,
 ) -> list[str]:
-    return [line for line in run_status(inst, monkeypatch, capsys) if LABEL in line]
+    return [line for line in run_status(inst, monkeypatch, capsys, temp=temp) if LABEL in line]
 
 
 def status_installation(tmp_path: Path, warn_mb: int) -> Installation:
@@ -64,6 +70,7 @@ def test_doctor_shows_the_size_and_the_run_count_once_the_folder_exists(
 
     fill(root, runs=2, megabytes=2)
 
+    assert doctor_lines(config, temp=False) == []
     [line] = doctor_lines(config)
     assert line.status == "ok"
     assert "2 run folder(s)" in line.detail
@@ -74,10 +81,12 @@ def test_doctor_warns_above_the_limit(tmp_path: Path, data: Path) -> None:
     config = warn_above(in_repo(tmp_path / "plan"), 1)
     fill(load_installation(config).pytest_temp_root, runs=2, megabytes=2)
 
+    assert doctor_lines(config, temp=False) == []
     [line] = doctor_lines(config)
 
     assert line.status == "warn"
     assert "temp_warn_mb" in f"{line.detail} {line.fix}"
+    assert not [check for check in checks_of(config, temp=True) if check.status == "fail"]
 
 
 def test_status_shows_the_size_and_the_run_count_once_the_folder_exists(
@@ -88,6 +97,7 @@ def test_status_shows_the_size_and_the_run_count_once_the_folder_exists(
 
     fill(inst.pytest_temp_root, runs=2, megabytes=2)
 
+    assert status_lines(inst, monkeypatch, capsys, temp=False) == []
     [line] = status_lines(inst, monkeypatch, capsys)
     assert "2 run folder(s)" in line
     assert "2.0 MB" in line
@@ -100,6 +110,7 @@ def test_status_warns_above_the_limit(
     inst = status_installation(tmp_path, 1)
     fill(inst.pytest_temp_root, runs=2, megabytes=2)
 
+    assert status_lines(inst, monkeypatch, capsys, temp=False) == []
     [line] = status_lines(inst, monkeypatch, capsys)
 
     assert "warn" in line.lower()
@@ -115,7 +126,29 @@ def test_the_roots_the_sweep_clears_are_counted_together_and_other_folders_are_n
     (inst.pytest_temp_root / "not-a-run").mkdir()
     (inst.pytest_temp_root / "not-a-run" / "data").write_bytes(b"x" * MEGABYTE)
 
+    assert status_lines(inst, monkeypatch, capsys, temp=False) == []
     [line] = status_lines(inst, monkeypatch, capsys)
 
     assert "2 run folder(s)" in line
     assert "2.0 MB" in line
+
+
+def test_doctor_and_status_do_not_measure_the_folder_without_the_flag(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    calls: list[Installation] = []
+
+    def spy(inst: Installation) -> None:
+        calls.append(inst)
+
+    monkeypatch.setattr(doctor_cli, "temp_size", spy)
+    monkeypatch.setattr(pipeline_cli, "temp_size", spy)
+    config = warn_above(in_repo(tmp_path / "plan"), 1)
+    fill(load_installation(config).pytest_temp_root, runs=2, megabytes=2)
+    inst = status_installation(tmp_path / "other", 1)
+    fill(inst.pytest_temp_root, runs=2, megabytes=2)
+
+    assert doctor_lines(config, temp=False) == []
+    assert status_lines(inst, monkeypatch, capsys, temp=False) == []
+
+    assert calls == []
