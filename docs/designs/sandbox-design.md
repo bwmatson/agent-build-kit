@@ -298,7 +298,7 @@ sandbox:
 3. **The language profile.** `ToolchainProfile` (`profiles/base.py`) gains an optional member, `sandbox_paths(repo)`, declared like
    `created_files` (a profile without it adds nothing): the toolchain folders to read, the cache folders to write, and the package
    index hosts. `python-uv` names uv's cache and data directories (`.cache/uv` and `.local/share/uv` under the home directory) and `pypi.org` /
-   `files.pythonhosted.org`; `node-npm` names npm's cache directory (`.npm` under the home directory) and `registry.npmjs.org`. A repo's profile, and the profile of each of its projects, contribute.
+   `files.pythonhosted.org`; `node-npm` names npm's cache directory (`.npm` under the home directory), `registry.npmjs.org` and, to read, the folders of the Node version managers Volta, nvm and fnm (those present on the machine). A repo's profile, and the profile of each of its projects, contribute.
 4. **`abk.yaml`, appended per repo (and per project):** `repos.<name>.sandbox.read`, `.write` and `.hosts` add to the lists, for what a
    repo needs that no profile knows (a vendored tool, a private package index).
 5. **`abk.local.yaml`, for this machine:** the same three keys, for paths and hosts that differ by machine (a cache folder somewhere

@@ -170,7 +170,13 @@ def policy_entries(
         if name in seen or not isinstance(toolchain, SandboxPathsProfile):
             continue
         seen.add(name)
-        layers.append((name, _layer(toolchain.sandbox_paths(worktree))))
+        given = toolchain.sandbox_paths(worktree)
+        if isinstance(given, SandboxPaths):
+            # A profile's read folders are defaults; one not on this machine is left out.
+            there = [r for r in given.read if (worktree / Path(r).expanduser()).exists()]
+            layers.append((f"default ({name})", ProjectSandboxConfig(read=there)))
+            given = given.model_copy(update={"read": ()})
+        layers.append((name, _layer(given)))
         if isinstance(toolchain, SetsTestEnvironment):
             # A profile that sets the test step's temp root also gets to write it: the one part
             # of `runs` a confined step writes.
