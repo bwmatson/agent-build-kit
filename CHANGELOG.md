@@ -93,8 +93,6 @@
   comes back after an accept changes nothing. `abk status` shows `settling: late check waiting for
   a unit-test slot since <time>` while it waits, and `settling: late check running on the default
   branch` once it runs.
-- The default `global_limits.temp_keep_hours` is now 16 (it was 24), so a tick clears a dead
-  unit-test run's temp folder sooner. A value set in `abk.yaml` still wins.
 
 - `abk doctor` and `abk status` no longer walk the pytest temp folder, which could take minutes
   when the unit-test step had left thousands of files. Pass `--temp` to either command to get the
