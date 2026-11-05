@@ -16,6 +16,7 @@ import re
 import threading
 from collections.abc import Callable, Collection, Iterator, Sequence
 from contextlib import contextmanager
+from datetime import datetime
 from typing import TYPE_CHECKING, Any
 from urllib.parse import quote
 
@@ -164,6 +165,8 @@ _DRAFT = {True: "convertPullRequestToDraft", False: "markPullRequestReadyForRevi
 _PASSING = ("SUCCESS", "NEUTRAL", "SKIPPED")
 _FAILING = ("FAILURE", "TIMED_OUT")
 _CANCELLED = ("CANCELLED",)
+# Conclusions of a completed run that ran nothing.
+_NOT_RUN = ("SKIPPED", "NEUTRAL")
 _MERGEABLE = {"MERGEABLE": True, "CONFLICTING": False}
 # A failed Actions run, named in a check's link.
 _RUN_URL = re.compile(r"/actions/runs/(?P<run>\d+)")
@@ -630,9 +633,12 @@ class GitHubForge:
                     f"rerun of run {run} ({key(repo)}): {_reason(error)}"
                 ) from error
 
-    def commit_checks(self, repo: RepoId, sha: str) -> CommitChecks:
+    def commit_checks(
+        self, repo: RepoId, sha: str, *, branch: str = "", since: datetime | None = None
+    ) -> CommitChecks:
         """The check runs of commit `sha`, the newest of each name (the host's default), every
-        page of them. Any failure to ask is `unknown`, logged and not retried here."""
+        page of them. The commit alone names them, so `branch` and `since` are not needed. Any
+        failure to ask is `unknown`, logged and not retried here."""
         found: list[Check] = []
         page = 1
         try:
@@ -1063,9 +1069,22 @@ def _check(node: CheckNode) -> Check:
 
 
 def _check_run(run: CheckRunDoc) -> Check:
-    """A check run of the REST listing as a check: one not `completed` is still running,
-    whatever its conclusion says."""
-    said = _status(run.conclusion) if run.status == "completed" else CheckStatus.PENDING
+    """A check run of a commit as a check: one not `completed` is still running, whatever its
+    conclusion says. A completed one passed only on a real success: skipped and neutral ran
+    nothing (`skipped`), and a conclusion this forge does not know is a failure, since nothing
+    more will come of a completed run."""
+    if run.status != "completed":
+        said = CheckStatus.PENDING
+    else:
+        conclusion = (run.conclusion or "").upper()
+        if conclusion == "SUCCESS":
+            said = CheckStatus.PASSED
+        elif conclusion in _NOT_RUN:
+            said = CheckStatus.SKIPPED
+        elif conclusion in _CANCELLED:
+            said = CheckStatus.CANCELLED
+        else:
+            said = CheckStatus.FAILED
     return Check(name=run.name, status=said, url=run.details_url or run.html_url or "")
 
 

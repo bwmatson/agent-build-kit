@@ -14,6 +14,7 @@ they do not care about.
 from __future__ import annotations
 
 from collections.abc import Collection, Mapping, Sequence
+from datetime import datetime
 
 from agent_build_kit.config import RepoConfig
 from agent_build_kit.forges import (
@@ -245,7 +246,9 @@ class StandInForge:
     def failed_check_logs(self, repo: RepoId, pull: PullRequest) -> str:
         return self.logs
 
-    def commit_checks(self, repo: RepoId, sha: str) -> CommitChecks:
+    def commit_checks(
+        self, repo: RepoId, sha: str, *, branch: str = "", since: datetime | None = None
+    ) -> CommitChecks:
         self.commit_check_reads.append(sha)
         return self.commit_check_answers.get(sha, CommitChecks(outcome=CommitOutcome.NONE))
 

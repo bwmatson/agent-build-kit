@@ -129,6 +129,7 @@ class BuildDoc(_Doc):
 
 
 class DefinitionDoc(_Doc):
+    id: int | None = None
     name: str
 
 
