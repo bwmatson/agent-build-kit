@@ -402,16 +402,21 @@ def test_the_marker_records_the_rank_beside_the_unit_pid_time_and_host(tmp_path:
 
 def test_two_waiters_of_two_slots_are_served_in_rank_order(tmp_path: Path) -> None:
     order: list[str] = []
-    with ExitStack() as runs:
-        with unit_test_slot(tmp_path, 2, holder="h/1"), unit_test_slot(tmp_path, 2, holder="h/2"):
-            for unit, rank in (("lazy/1", LESS_URGENT), ("urgent/1", URGENT)):
-                run = runs.enter_context(
-                    waiting_run(tmp_path, unit, rank=rank, order=order, limit=2)
-                )
-                run.until_waiting(tmp_path, unit)
-        wait_for(lambda: len(order) == 2, what="both waiters to take a slot")
+    with ExitStack() as runs, ExitStack() as first_holder, ExitStack() as second_holder:
+        first_holder.enter_context(unit_test_slot(tmp_path, 2, holder="h/1"))
+        second_holder.enter_context(unit_test_slot(tmp_path, 2, holder="h/2"))
+        for unit, rank in (("lazy/1", LESS_URGENT), ("urgent/1", URGENT)):
+            run = runs.enter_context(waiting_run(tmp_path, unit, rank=rank, order=order, limit=2))
+            run.until_waiting(tmp_path, unit)
 
-    assert order[0] == "urgent/1"
+        second_holder.close()
+        wait_for(lambda: len(order) == 1, what="the first waiter to take a slot")
+        assert order == ["urgent/1"]
+        assert waiting_units(tmp_path) == ["lazy/1"]
+
+        first_holder.close()
+        wait_for(lambda: len(order) == 2, what="the second waiter to take a slot")
+        assert order == ["urgent/1", "lazy/1"]
 
 
 def test_a_run_that_takes_a_slot_on_its_first_poll_behind_no_one_waited_nothing(
