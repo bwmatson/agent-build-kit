@@ -29,6 +29,7 @@ from agent_build_kit.config import active
 from agent_build_kit.forges.base import fit_description
 from agent_build_kit.installation import changes_dir_under
 from agent_build_kit.model import TestTier
+from agent_build_kit.pipeline.group_mode import GroupMode
 from agent_build_kit.pipeline.unit_store import BriefEntry, Description, E2eState, StoredUnit
 from agent_build_kit.pipeline.units import (
     MERGED,
@@ -390,14 +391,18 @@ def verified_list(facts: VerdictFacts | None, rounds: int | None) -> str:
     """What the pipeline itself checked, from the unit's recorded results: each one listed,
     a result that is not recorded as not recorded."""
     facts = facts or VerdictFacts(kind=TestTier.UNIT_TEST)
-    lines = [
-        "- Tests were committed first and seen to fail first."
-        if facts.red_first == GateResult.PASSED
-        else "- The failing run before the implementation: failed"
-        if facts.red_first == GateResult.FAILED
-        else "- The failing run before the implementation: not recorded",
-        _result_line("unit-test", facts.unit_test),
-    ]
+    lines = [_result_line("unit-test", facts.unit_test)]
+    if facts.red_first_applies:
+        lines.insert(
+            0,
+            "- Tests were committed first and seen to fail first."
+            if facts.red_first == GateResult.PASSED
+            else "- The failing run before the implementation: failed"
+            if facts.red_first == GateResult.FAILED
+            else "- The failing run before the implementation: not recorded",
+        )
+    if GroupMode.REFACTOR in facts.group_modes:
+        lines.append("- A reorganization of existing code: no test was added.")
     if facts.kind == TestTier.E2E_TEST:
         if facts.e2e_state == E2eState.DEFERRED:
             lines.append("- e2e-test result: deferred to verify")
@@ -521,10 +526,16 @@ def build_pr_body(
         position += " It merges after everything beneath it in the stack has merged."
     order = "the stack order the host shows" if stacks else "the stack order above"
 
-    built = (
-        "Tests were committed first and seen to fail before any implementation existed; "
-        "the commit order is checked mechanically; lint, formatting and types pass at the tip."
+    first = (
+        ""
+        if facts is not None and not facts.red_first_applies
+        else "Tests were committed first and seen to fail before any implementation existed; "
     )
+    built = (
+        f"{first}the commit order is checked mechanically; lint, formatting and types pass at "
+        "the tip."
+    )
+    built = built[0].upper() + built[1:]
     footer = f"""\
 ## How this was built
 

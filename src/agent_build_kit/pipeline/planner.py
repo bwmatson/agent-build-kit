@@ -365,6 +365,10 @@ def _with_review_tier(unit: Unit, groups: Sequence[TaskGroup], tasks: str) -> Un
     return unit.model_copy(update={"review_tier": asked})
 
 
+# The modes a planner reply may give; `refactor` is declared by the reorganization change.
+PLANNER_MODES = (GroupMode.TESTS_AND_CODE, GroupMode.TESTS_ONLY, GroupMode.NO_CODE)
+
+
 def _group_modes(
     label: str,
     change: str,
@@ -379,10 +383,10 @@ def _group_modes(
     modes: dict[str, str] = {}
     for n in numbers:
         value = asked.get(str(n))
-        if value is not None and value not in {mode.value for mode in GroupMode}:
+        if value is not None and value not in {mode.value for mode in PLANNER_MODES}:
             raise PlannerError(
                 f"{label} has unknown mode {value!r} for group {n} "
-                f"(expected {', '.join(mode.value for mode in GroupMode)})"
+                f"(expected {', '.join(mode.value for mode in PLANNER_MODES)})"
             )
         group = by_number.get(n)
         if group is None:

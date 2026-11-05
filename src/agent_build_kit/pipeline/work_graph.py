@@ -46,6 +46,7 @@ from agent_build_kit.config import (
     owning_project,
 )
 from agent_build_kit.model import Frozen, TestTier
+from agent_build_kit.pipeline.group_mode import GroupMode
 from agent_build_kit.pipeline.group_paths import (
     allows_no_code,
     allows_tests_only,
@@ -384,14 +385,6 @@ class ProjectSource(StrEnum):
     EXPLICIT = "explicit"
     RESOLVED = "resolved"
     ROOT = "root"
-
-
-class GroupMode(StrEnum):
-    """How a group is built: tests first then code, tests only, or no code at all."""
-
-    TESTS_AND_CODE = "tests_and_code"
-    TESTS_ONLY = "tests_only"
-    NO_CODE = "no_code"
 
 
 class TaskGroup(Frozen):

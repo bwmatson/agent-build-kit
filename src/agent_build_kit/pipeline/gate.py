@@ -37,7 +37,7 @@ from agent_build_kit.pipeline.check_runner import CheckCache, run_at_commit
 from agent_build_kit.pipeline.commit_order import (
     check_structure,
     classify_paths,
-    commits_of_test_only_groups,
+    commits_without_red_check,
 )
 from agent_build_kit.pipeline.shell import git
 from agent_build_kit.pipeline.stack_runner import GroupStep
@@ -119,15 +119,17 @@ def check_branch(
     Whether the build is `stubbed` is the repo's profile's to say, and holds for every
     project. A `stubbed` build also needs its commits paired, runs the clean command with types and
     reads the red run as stubbed; its cached results are kept apart from the other mode's.
-    `groups` is the unit's groups in order, each saying whether it is test-only; none given,
-    none is.
+    `groups` is the unit's groups in order, each with its build mode, which decides whether its
+    commits get a red run; none given, each is `tests_and_code`.
     """
     profile = profile or profiles.get("python-uv")
     projects = projects or []
     mode = "stubbed" if stubbed else ""
-    # A test-only group's tests commit is judged with no red run, so its result is kept apart.
+    # Every commit `commits_without_red_check` returns (a test-only group's tests commit, and the
+    # commits of a `no_code` or `refactor` group) is judged with no red run, so its result is kept
+    # apart under this cache label, kept as "test-only" so recorded results stay valid.
     only_mode = "test-only" if stubbed else ""
-    test_only = commits_of_test_only_groups(repo, base, groups if stubbed else ())
+    no_red = commits_without_red_check(repo, base, groups if stubbed else ())
 
     def is_test(path: str) -> bool:
         return profiles.for_path(projects, path, profile).is_test_path(path)
@@ -142,7 +144,7 @@ def check_branch(
         return problems
 
     for sha in _tests_commits(repo, base, is_test):
-        commit_mode = only_mode if sha in test_only else mode
+        commit_mode = only_mode if sha in no_red else mode
         if cache is not None:
             cached = cache.lookup(repo, sha, mode=commit_mode)
             if cached is True:
@@ -156,7 +158,7 @@ def check_branch(
             continue
 
         commit_problems: list[str] = []
-        touched = [] if sha in test_only else _touched_in(repo, sha)
+        touched = [] if sha in no_red else _touched_in(repo, sha)
         for owner, owned in by_project(projects, files):
             toolchain = profiles.for_project(owner, profile)
             prefix = owner.prefix if owner else ""
@@ -175,7 +177,7 @@ def check_branch(
                 return located(profile, ["sh", "-c", line], tree / folder, tree)[-1]
 
             commands: list[str | Callable[[Path], str]] = [clean_in]
-            if sha not in test_only:
+            if sha not in no_red:
                 commands.append(_red_command(toolchain, owned, touched, repo, prefix))
             clean, *red_run = run_at_commit(repo, sha, commands, subdir=prefix or ".")
             if not clean.ok:

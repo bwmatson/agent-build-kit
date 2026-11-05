@@ -16,6 +16,7 @@ import pytest
 from agent_build_kit.pipeline.check_runner import CheckCache
 from agent_build_kit.pipeline.gate import check_branch
 from agent_build_kit.pipeline.stack_runner import GroupStep
+from agent_build_kit.pipeline.work_graph import GroupMode
 from agent_build_kit.profiles.base import ToolchainProfile
 from agent_build_kit.profiles.python_uv import PROFILE as PYTHON
 from tests.factories import commit_files as commit
@@ -62,12 +63,30 @@ class ModeProfile:
         return getattr(PYTHON, name)
 
 
+def modes(*names: str) -> tuple[GroupMode, ...]:
+    """The build modes with these names, in order."""
+    return tuple(GroupMode(name) for name in names)
+
+
+def plan_modes(*groups: tuple[str, str]) -> list[GroupStep]:
+    """Groups in order, each a title and the name of its build mode."""
+    return [
+        GroupStep(change_dir="feature", number=number, title=title, mode=GroupMode(mode))
+        for number, (title, mode) in enumerate(groups, start=1)
+    ]
+
+
 def plan(*groups: tuple[str, bool]) -> list[GroupStep]:
     """Groups in order, each a title and whether it is test-only."""
-    return [
-        GroupStep(change_dir="feature", number=number, title=title, test_only=test_only)
-        for number, (title, test_only) in enumerate(groups, start=1)
-    ]
+    return plan_modes(
+        *((title, "tests_only" if test_only else "tests_and_code") for title, test_only in groups)
+    )
+
+
+def commit_docs(repo: Path, title: str, name: str) -> str:
+    """A `feat:` commit that changes a document only, as a group with no code makes."""
+    commit(repo, f"feat: {title}", {f"{name}.md": "words\n"})
+    return git(repo, "rev-parse", "HEAD")
 
 
 def judged(

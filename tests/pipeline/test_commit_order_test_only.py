@@ -10,7 +10,7 @@ from pathlib import Path
 
 from agent_build_kit.pipeline.commit_order import (
     check_structure,
-    commits_of_test_only_groups,
+    commits_without_red_check,
 )
 from tests.stub_gate_support import (
     commit_feat,
@@ -133,4 +133,4 @@ def test_a_tests_commit_titled_for_another_group_is_not_the_test_only_groups(rep
     groups = plan(("Drive", True), ("B", False))
 
     assert check_structure(repo, "main", paired=True, groups=groups) == []
-    assert commits_of_test_only_groups(repo, "main", groups) == set()
+    assert commits_without_red_check(repo, "main", groups) == set()

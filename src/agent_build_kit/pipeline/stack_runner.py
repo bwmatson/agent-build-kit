@@ -47,6 +47,7 @@ from agent_build_kit.pipeline.file_lock import change_lock
 from agent_build_kit.pipeline.fix_reproduction import Outcome, Reproduction
 from agent_build_kit.pipeline.flakes import OnFlake
 from agent_build_kit.pipeline.git_output import FetchFailed, TransportFailure
+from agent_build_kit.pipeline.group_mode import GroupMode
 from agent_build_kit.pipeline.install_record import ALWAYS_INSTALLABLE, STAGING
 from agent_build_kit.pipeline.lease import Leases
 from agent_build_kit.pipeline.pr_replies import last_json, parse_answer
@@ -313,10 +314,14 @@ class GroupStep(Frozen):
     title: str
     goal: str = ""  # the group's "Done when" sentence, "" when it has none
     flag: str = ""  # the group's flag, "" when it has none or its heading cannot be read
-    test_only: bool = (
-        False  # the group's mode is `tests_only`; false when its heading cannot be read
-    )
+    # How the group is built; `tests_and_code` when its heading cannot be read.
+    mode: GroupMode = GroupMode.TESTS_AND_CODE
     support: tuple[str, ...] = ()  # the paths its `Support:` lines declare
+
+    @property
+    def test_only(self) -> bool:
+        """Whether the group builds no implementation: its mode is `tests_only`."""
+        return self.mode is GroupMode.TESTS_ONLY
 
 
 def group_steps_of(planning_repo: Path | str, unit: Unit) -> tuple[GroupStep, ...]:
@@ -337,7 +342,15 @@ def group_steps_of(planning_repo: Path | str, unit: Unit) -> tuple[GroupStep, ..
                 title=found[number].title if number in found else unit.title,
                 goal=found[number].goal if number in found else "",
                 flag=found[number].flag if number in found else "",
-                test_only=found[number].test_only if number in found else False,
+                mode=(
+                    unit.mode_of(member.change, found[number])
+                    if number in found
+                    else GroupMode(
+                        unit.group_modes.get(
+                            f"{member.change}/{number}", GroupMode.TESTS_AND_CODE.value
+                        )
+                    )
+                ),
                 support=found[number].support if number in found else (),
             )
             for number in member.groups
@@ -880,16 +893,38 @@ the unit has passed review, unit-test and been pushed.
     + POSSIBLE_TESTS_NOTE
 )
 
-IMPLEMENTATION_PROMPT = PromptTemplate(
-    """\
-{guidance}Work the remaining tasks of task group(s) {groups} in the change specified at
-{change_dir}, and stop before any later group.
-{boundary}
+
+# What the implementation does after a tests commit.
+IMPLEMENTATION_WORK = """\
 Make the tests written in the previous commit pass, keeping the change to what
 those tests require. Do not weaken or delete a test to make it pass. If a stub
 the tests added duplicates existing code, delete the stub and repoint the test at
 the existing function with the same assertions; that is not weakening a test, and
-your summary says so. Run
+your summary says so. """
+
+# What it does for a group built with no tests step (`no_code` or `refactor`).
+NO_TESTS_WORK = """\
+This group has no tests step: make the change its tasks describe, keeping it to
+what they require. Do not weaken or delete an existing test. """
+
+
+class ImplementationTemplate(PromptTemplate):
+    """The implementation prompt, which says to make the previous commit's tests pass unless
+    `no_tests` is given, for a group built with no tests step."""
+
+    def format(self, *args: object, no_tests: bool = False, **fields: object) -> str:
+        text = self.replace(IMPLEMENTATION_WORK, NO_TESTS_WORK) if no_tests else str(self)
+        return PromptTemplate(text).format(*args, **fields)
+
+
+IMPLEMENTATION_PROMPT = ImplementationTemplate(
+    """\
+{guidance}Work the remaining tasks of task group(s) {groups} in the change specified at
+{change_dir}, and stop before any later group.
+{boundary}
+"""
+    + IMPLEMENTATION_WORK
+    + """Run
 linting, formatting and types, and the tests you changed, by file or test id, before you
 finish; the pipeline runs the whole suite.
 {commands}The change's files are read-only for you: do not tick boxes in its tasks.md
