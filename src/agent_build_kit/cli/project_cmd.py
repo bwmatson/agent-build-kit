@@ -14,7 +14,7 @@ from pathlib import Path
 from agent_build_kit import profiles
 from agent_build_kit import settings as settings_module
 from agent_build_kit.config import locate
-from agent_build_kit.init.scaffold import ScaffoldError, add_project, normal_path
+from agent_build_kit.init.scaffold import ScaffoldError, add_project, check_profile, normal_path
 from agent_build_kit.installation import Installation
 from agent_build_kit.pipeline.work_graph import repo_tag
 
@@ -32,10 +32,7 @@ def cmd_project_init(args: argparse.Namespace, inst: Installation) -> int:
             )
         root = inst.checkouts[args.repo]
         path = normal_path(args.path, root)
-        if args.profile not in profiles.names():
-            raise ProjectInitError(
-                f"unknown profile {args.profile!r} (registered: {', '.join(profiles.names())})"
-            )
+        check_profile(args.profile)
         for existing in repos[args.repo].projects:
             if normal_path(existing.path, root) == path:
                 raise ProjectInitError(

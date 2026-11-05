@@ -23,6 +23,11 @@
   edit that is already in place reports that and changes nothing, and each write goes through a
   backup and a lock and is refused, with the file unchanged, for an unknown repository or profile
   or a path outside the repository.
+- `abk project init` now writes `abk.yaml` under a lock beside the file, after copying the
+  original to `abk.yaml.abk-backup`, so two edits at once cannot lose one; its refusals are
+  unchanged. The same edit code now also removes and replaces a project, keeping the file's
+  comments, quoting and key order, for the `Project:` line a change will use to declare its
+  project changes.
 
 - `abk external done` no longer needs a merge source. With neither `--pr` nor `--commit` the hold is
   marked done with an empty `merged_by`, the boxes are ticked, and a unit whose groups are all done

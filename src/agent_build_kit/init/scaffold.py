@@ -19,9 +19,9 @@ from __future__ import annotations
 import hashlib
 import os
 import re
-import tempfile
 import textwrap
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Callable, Iterator, Mapping, Sequence
+from contextlib import contextmanager
 from pathlib import Path, PurePosixPath
 from typing import Any, Literal
 
@@ -342,6 +342,18 @@ def checked(path: Path, updated: str, expected: object) -> None:
         raise ScaffoldError(f"{path}: the entry did not produce a valid file; left alone")
 
 
+@contextmanager
+def _locked(path: Path) -> Iterator[None]:
+    """Hold the lock every edit of the abk.yaml at `path` takes, from before it reads the file
+    until it has written it, so two editors cannot both start from the old text. It sits
+    beside the file, where every process that edits the file reaches it."""
+    try:
+        with file_lock(path.with_name(f"{path.name}.lock")):
+            yield
+    except LockTimeout as error:
+        raise ScaffoldError(f"{path}: {error}; left alone") from error
+
+
 def add_project(
     path: Path, repo: str, entry: Mapping[str, str], *, inline_list: bool = True
 ) -> bool:
@@ -352,11 +364,17 @@ def add_project(
     already listed with that profile. An unknown profile or repo, a path outside the repo, one
     listed with another profile, a layout whose place cannot be found as a block, or a result
     that does not parse to the file plus the entry, raises `ScaffoldError` and leaves the
-    file alone."""
+    file alone. The edit holds the file's lock from the read to the write."""
+    with _locked(path):
+        return _add(path, repo, entry, inline_list)
+
+
+def _add(path: Path, repo: str, entry: Mapping[str, str], inline_list: bool) -> bool:
     raw, lines = read_lines(path)
     entry_raw, root, projects, repo_end, child = _locate(path, repo, raw, lines)
-    _check_profile(entry["profile"])
+    check_profile(entry["profile"])
     wanted = normal_path(entry["path"], root)
+    entry = {**entry, "path": wanted}
     for existing in entry_raw.get("projects") or []:
         if normal_path(str(existing["path"]), root) == wanted:
             if existing.get("profile") == entry["profile"]:
@@ -389,7 +407,13 @@ def add_project(
 def remove_project(path: Path, repo: str, project_path: str) -> bool:
     """Drop the project at `project_path` from `repo`'s `projects:` in the abk.yaml at `path`,
     keeping every other line. True when it was removed, False when it was already absent. The
-    last project leaves `projects: []`."""
+    last project leaves `projects: []`. The edit holds the file's lock from the read to the
+    write."""
+    with _locked(path):
+        return _remove(path, repo, project_path)
+
+
+def _remove(path: Path, repo: str, project_path: str) -> bool:
     raw, lines, _, projects, count, child, found = _find(path, repo, project_path)
     if found is None:
         return False
@@ -411,12 +435,28 @@ def remove_project(path: Path, repo: str, project_path: str) -> bool:
 def replace_project(path: Path, repo: str, old_path: str, entry: Mapping[str, str]) -> bool:
     """Swap the project at `old_path` for `entry` in `repo`'s `projects:`, in the same place.
     True when it was replaced, False when `old_path` was already absent. An unknown profile or
-    a path outside the repo is refused."""
+    a path outside the repo is refused. When the new path is already listed elsewhere with that
+    profile, only the old entry is dropped; with another profile it is refused. The edit holds
+    the file's lock from the read to the write."""
+    with _locked(path):
+        return _replace(path, repo, old_path, entry)
+
+
+def _replace(path: Path, repo: str, old_path: str, entry: Mapping[str, str]) -> bool:
     raw, lines, root, projects, count, child, found = _find(path, repo, old_path)
-    _check_profile(entry["profile"])
-    normal_path(entry["path"], root)
+    check_profile(entry["profile"])
+    wanted = normal_path(entry["path"], root)
+    entry = {**entry, "path": wanted}
     if found is None:
         return False
+    for number, other in enumerate(raw["repos"][repo]["projects"]):
+        if number != found and normal_path(str(other["path"]), root) == wanted:
+            if other.get("profile") != entry["profile"]:
+                raise ScaffoldError(
+                    f"{path}: {repo!r} already registers {other['path']!r} "
+                    f"(profile {other.get('profile')})"
+                )
+            return _remove(path, repo, old_path)
     listed = _list_end(lines, projects, child)
     spans = _item_spans(lines, projects, listed)
     if len(spans) != count:
@@ -449,7 +489,7 @@ def normal_path(path: str, root: Path) -> str:
     return parts.as_posix()
 
 
-def _check_profile(profile: str) -> None:
+def check_profile(profile: str) -> None:
     if profile not in profiles.names():
         raise ScaffoldError(
             f"unknown profile {profile!r} (registered: {', '.join(profiles.names())})"
@@ -458,7 +498,9 @@ def _check_profile(profile: str) -> None:
 
 def _locate(path: Path, repo: str, raw: dict, lines: list[str]) -> tuple[dict, Path, int, int, str]:
     """`repo`'s entry, its checkout, the index of its `projects:` key line (-1 when it has
-    none), the index after its block and the indent of its keys."""
+    none), the index after its block and the indent of its keys. The checkout is the repo's
+    `path` read as the config reads it, relative to the file's folder; a project path is
+    relative to that root."""
     repos = raw.get("repos") or {}
     if repo not in repos:
         raise ScaffoldError(f"{path}: no repo {repo!r} (declared: {', '.join(map(str, repos))})")
@@ -480,7 +522,7 @@ def _locate(path: Path, repo: str, raw: dict, lines: list[str]) -> tuple[dict, P
         )
     if projects is None and "projects" in entry_raw:
         raise ScaffoldError(f"{path}: `projects:` of {repo!r} is not a block list; edit it by hand")
-    root = Path(str(entry_raw.get("path", ".."))).expanduser()
+    root = Path(str(entry_raw["path"])).expanduser()
     if not root.is_absolute():
         root = path.parent / root
     return entry_raw, root, -1 if projects is None else projects, repo_end, child
@@ -544,15 +586,13 @@ def _expected(raw: dict, repo: str, projects: list) -> dict:
 
 
 def _save(path: Path, lines: list[str], expected: object) -> None:
-    """Write the edited `lines` over `path`, through a backup and under a lock, once they
-    reparse to `expected`."""
+    """Write the edited `lines` over `path`, through a backup, once they reparse to `expected`.
+    The caller holds the file's lock."""
     updated = "".join(lines)
     checked(path, updated, expected)
-    key = hashlib.sha256(str(path.resolve()).encode()).hexdigest()[:16]
     try:
-        with file_lock(Path(tempfile.gettempdir()) / f"abk-edit-{key}.lock"):
-            backup_and_replace(path, updated)
-    except (OSError, LockTimeout) as error:
+        backup_and_replace(path, updated)
+    except OSError as error:
         raise ScaffoldError(f"{path}: it cannot be written ({error}); left alone") from error
 
 

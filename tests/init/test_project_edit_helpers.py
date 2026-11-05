@@ -13,6 +13,8 @@ from agent_build_kit.init.scaffold import (
     remove_project,
     replace_project,
 )
+from agent_build_kit.pipeline.file_lock import file_lock
+from agent_build_kit.settings import settings
 from tests.cli.project_init_support import write_commented
 
 QUOTED = """# The workspace.
@@ -207,4 +209,73 @@ def test_a_layout_that_cannot_be_followed_leaves_the_file_and_no_backup(tmp_path
         remove_project(config, "app", "svc-a")
 
     assert config.read_text() == before
+    assert not config.with_name("abk.yaml.abk-backup").exists()
+
+
+def test_a_replace_by_an_already_listed_path_leaves_one_entry(tmp_path: Path) -> None:
+    config = write_quoted(tmp_path)
+
+    assert replace_project(config, "app", "svc-a", {"path": "svc-b", "profile": "node-npm"}) is True
+
+    assert projects(config, "app") == [{"path": "svc-b", "profile": "node-npm"}]
+
+
+def test_a_replace_by_a_listed_path_of_another_profile_is_refused(tmp_path: Path) -> None:
+    config = write_quoted(tmp_path)
+    before = config.read_text()
+
+    with pytest.raises(ScaffoldError, match="svc-b"):
+        replace_project(config, "app", "svc-a", {"path": "svc-b", "profile": "python-uv"})
+
+    assert config.read_text() == before
+
+
+def test_the_path_written_is_the_normalised_one(tmp_path: Path) -> None:
+    config = write_quoted(tmp_path)
+
+    add_project(config, "platform", {"path": "./web/", "profile": "node-npm"})
+    replace_project(config, "app", "svc-a", {"path": "./svc-c/", "profile": "node-npm"})
+
+    assert projects(config, "platform") == [{"path": "web", "profile": "node-npm"}]
+    assert projects(config, "app")[0] == {"path": "svc-c", "profile": "node-npm"}
+
+
+@pytest.mark.parametrize("edit", ["add", "remove", "replace"])
+def test_an_edit_while_the_lock_is_held_is_refused_and_changes_nothing(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, edit: str
+) -> None:
+    config = write_quoted(tmp_path)
+    before = config.read_text()
+    monkeypatch.setattr(settings, "lock_wait_seconds", 0.05)
+
+    with file_lock(config.with_name("abk.yaml.lock")), pytest.raises(ScaffoldError, match="lock"):
+        if edit == "add":
+            add_project(config, "app", {"path": "svc-z", "profile": "python-uv"})
+        elif edit == "remove":
+            remove_project(config, "app", "svc-a")
+        else:
+            replace_project(config, "app", "svc-a", {"path": "svc-z", "profile": "python-uv"})
+
+    assert config.read_text() == before
+    assert not config.with_name("abk.yaml.abk-backup").exists()
+
+
+def test_an_edit_that_does_not_reparse_to_the_expected_file_is_not_written(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    config = write_quoted(tmp_path)
+    before = config.read_bytes()
+    real = yaml.safe_load
+    calls: list[int] = []
+
+    def reads_nothing_after_the_first(stream):
+        calls.append(1)
+        return real(stream) if len(calls) == 1 else None
+
+    monkeypatch.setattr(yaml, "safe_load", reads_nothing_after_the_first)
+
+    with pytest.raises(ScaffoldError, match="left alone"):
+        remove_project(config, "app", "svc-a")
+
+    assert config.read_bytes() == before
     assert not config.with_name("abk.yaml.abk-backup").exists()
