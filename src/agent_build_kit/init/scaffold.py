@@ -20,13 +20,14 @@ import hashlib
 import os
 import re
 import textwrap
-from collections.abc import Callable, Mapping, Sequence
-from pathlib import Path
+from collections.abc import Callable, Iterator, Mapping, Sequence
+from contextlib import contextmanager
+from pathlib import Path, PurePosixPath
 from typing import Any, Literal
 
 import yaml
 
-from agent_build_kit import forges, openspec, skills
+from agent_build_kit import forges, openspec, profiles, skills
 from agent_build_kit.config import (
     CLAUDE_CODE,
     CONFIG_FILENAME,
@@ -54,10 +55,11 @@ from agent_build_kit.installation import Installation
 from agent_build_kit.model import Frozen
 from agent_build_kit.path_discovery import checkout_root
 from agent_build_kit.pipeline.changelog_convention import packaged_convention
-from agent_build_kit.pipeline.file_lock import append_missing_lines
+from agent_build_kit.pipeline.file_lock import LockTimeout, append_missing_lines, file_lock
 from agent_build_kit.pipeline.original_copy import COPY_PATTERN
 from agent_build_kit.pipeline.planning_repo import toplevel
 from agent_build_kit.pipeline.shell import git
+from agent_build_kit.runtimes.policy_apply import backup_and_replace
 from agent_build_kit.scrub_terms import LOCAL_LIST
 
 TEMPLATES = Path(__file__).resolve().parent.parent / "templates"
@@ -340,50 +342,268 @@ def checked(path: Path, updated: str, expected: object) -> None:
         raise ScaffoldError(f"{path}: the entry did not produce a valid file; left alone")
 
 
-def add_project(path: Path, repo: str, entry: Mapping[str, str]) -> None:
+@contextmanager
+def _locked(path: Path) -> Iterator[None]:
+    """Hold the lock every edit of the abk.yaml at `path` takes, from before it reads the file
+    until it has written it, so two editors cannot both start from the old text. It sits
+    beside the file, where every process that edits the file reaches it."""
+    try:
+        with file_lock(path.with_name(f"{path.name}.lock")):
+            yield
+    except LockTimeout as error:
+        raise ScaffoldError(f"{path}: {error}; left alone") from error
+
+
+def add_project(
+    path: Path, repo: str, entry: Mapping[str, str], *, inline_list: bool = True
+) -> bool:
     """Append `entry` to `repo`'s `projects:` list in the abk.yaml at `path`, creating the
-    list when the repo has none. Every other line stays as it is. A layout whose place
-    cannot be found as a block (a flow-style repo or `projects: []`), or a result that does
-    not parse to the file plus the entry, raises `ScaffoldError` and leaves the file alone."""
+    list when the repo has none and, unless `inline_list` is False (which refuses it), rewriting
+    an inline `projects: []` as a block list. Every
+    other line stays as it is. True when written; False, file untouched, when the path is
+    already listed with that profile. An unknown profile or repo, a path outside the repo, one
+    listed with another profile, a layout whose place cannot be found as a block, or a result
+    that does not parse to the file plus the entry, raises `ScaffoldError` and leaves the
+    file alone. The edit holds the file's lock from the read to the write."""
+    with _locked(path):
+        return _add(path, repo, entry, inline_list)
+
+
+def _add(path: Path, repo: str, entry: Mapping[str, str], inline_list: bool) -> bool:
     raw, lines = read_lines(path)
-    entry_raw = (raw.get("repos") or {}).get(repo)
+    entry_raw, root, projects, repo_end, child = _locate(path, repo, raw, lines)
+    check_profile(entry["profile"])
+    wanted = normal_path(entry["path"], root)
+    entry = {**entry, "path": wanted}
+    for existing in entry_raw.get("projects") or []:
+        if normal_path(str(existing["path"]), root) == wanted:
+            if existing.get("profile") == entry["profile"]:
+                return False
+            raise ScaffoldError(
+                f"{path}: {repo!r} already registers {existing['path']!r} "
+                f"(profile {existing.get('profile')})"
+            )
+    inline = _EMPTY_LIST.fullmatch(lines[projects].rstrip()) if projects >= 0 else None
+    if inline:
+        if not inline_list:
+            raise ScaffoldError(
+                f"{path}: `projects:` of {repo!r} is not a block list; edit it by hand"
+            )
+        lines[projects] = f"{child}projects:{_note_of(inline)}\n"
+    if projects < 0:
+        lines[repo_end:repo_end] = [f"{child}projects:\n", *_list_item(entry, child + "  ")]
+    else:
+        listed = _list_end(lines, projects, child)
+        existing_line = next(
+            (line for line in lines[projects + 1 : listed] if line.lstrip().startswith("- ")),
+            None,
+        )
+        indent = " " * indent_of(existing_line) if existing_line else child + "  "
+        lines[listed:listed] = _list_item(entry, indent)
+    listed_raw = [*(entry_raw.get("projects") or []), dict(entry)]
+    _save(path, lines, _expected(raw, repo, listed_raw))
+    return True
+
+
+def remove_project(path: Path, repo: str, project_path: str) -> bool:
+    """Drop the project at `project_path` from `repo`'s `projects:` in the abk.yaml at `path`,
+    keeping every other line. True when it was removed, False when it was already absent. The
+    last project leaves `projects: []`. The edit holds the file's lock from the read to the
+    write."""
+    with _locked(path):
+        return _remove(path, repo, project_path)
+
+
+def _remove(path: Path, repo: str, project_path: str) -> bool:
+    raw, lines, _, projects, count, child, found = _find(path, repo, project_path)
+    if found is None:
+        return False
+    listed = _list_end(lines, projects, child)
+    spans = _item_spans(lines, projects, listed)
+    if len(spans) != count:
+        raise ScaffoldError(f"{path}: `projects:` of {repo!r} is not a block list; edit it by hand")
+    if count == 1:
+        key = _BLOCK_KEY.fullmatch(lines[projects].rstrip())
+        note = _note_of(key) if key else ""
+        lines[projects:listed] = [f"{child}projects: []{note}\n"]
+    else:
+        low, high = spans[found]
+        del lines[low:high]
+    current = list(raw["repos"][repo]["projects"])
+    del current[found]
+    _save(path, lines, _expected(raw, repo, current))
+    return True
+
+
+def replace_project(path: Path, repo: str, old_path: str, entry: Mapping[str, str]) -> bool:
+    """Swap the project at `old_path` for `entry` in `repo`'s `projects:`, in the same place.
+    True when it was replaced, False when `old_path` was already absent. An unknown profile or
+    a path outside the repo is refused. When the new path is already listed elsewhere with that
+    profile, only the old entry is dropped; with another profile it is refused. The edit holds
+    the file's lock from the read to the write."""
+    with _locked(path):
+        return _replace(path, repo, old_path, entry)
+
+
+def _replace(path: Path, repo: str, old_path: str, entry: Mapping[str, str]) -> bool:
+    raw, lines, root, projects, count, child, found = _find(path, repo, old_path)
+    check_profile(entry["profile"])
+    wanted = normal_path(entry["path"], root)
+    entry = {**entry, "path": wanted}
+    if found is None:
+        return False
+    for number, other in enumerate(raw["repos"][repo]["projects"]):
+        if number != found and normal_path(str(other["path"]), root) == wanted:
+            if other.get("profile") != entry["profile"]:
+                raise ScaffoldError(
+                    f"{path}: {repo!r} already registers {other['path']!r} "
+                    f"(profile {other.get('profile')})"
+                )
+            return _remove(path, repo, old_path)
+    listed = _list_end(lines, projects, child)
+    spans = _item_spans(lines, projects, listed)
+    if len(spans) != count:
+        raise ScaffoldError(f"{path}: `projects:` of {repo!r} is not a block list; edit it by hand")
+    low, high = spans[found]
+    start = next(i for i in range(low, high) if lines[i].lstrip().startswith("- "))
+    lines[start:high] = _list_item(entry, " " * indent_of(lines[start]))
+    current = list(raw["repos"][repo]["projects"])
+    current[found] = dict(entry)
+    _save(path, lines, _expected(raw, repo, current))
+    return True
+
+
+_EMPTY_LIST = re.compile(r"\s*projects:\s*\[\s*\]\s*(#.*)?")
+_BLOCK_KEY = re.compile(r"\s*projects:\s*(#.*)?")
+
+
+def _note_of(match: re.Match[str]) -> str:
+    """The comment a `projects:` line carried, with the two spaces that set it off; empty when
+    it had none."""
+    return f"  {match.group(1)}" if match.group(1) else ""
+
+
+def normal_path(path: str, root: Path) -> str:
+    """`path` relative to the repo at `root`, `/` separated, without a leading `./` or
+    trailing `/`; `.` is the repo root. An absolute path under `root` is made relative to
+    it. One outside `root`, or with a `..` part, names no directory of the repo and is
+    refused with `ScaffoldError`."""
+    parts = PurePosixPath(path)
+    if parts.is_absolute():
+        try:
+            parts = PurePosixPath(Path(path).resolve().relative_to(root.resolve()).as_posix())
+        except ValueError:
+            raise ScaffoldError(f"{path!r} is not a path inside the repo ({root})") from None
+    if ".." in parts.parts:
+        raise ScaffoldError(f"{path!r} is not a path inside the repo ({root})")
+    return parts.as_posix()
+
+
+def check_profile(profile: str) -> None:
+    if profile not in profiles.names():
+        raise ScaffoldError(
+            f"unknown profile {profile!r} (registered: {', '.join(profiles.names())})"
+        )
+
+
+def _locate(path: Path, repo: str, raw: dict, lines: list[str]) -> tuple[dict, Path, int, int, str]:
+    """`repo`'s entry, its checkout, the index of its `projects:` key line (-1 when it has
+    none), the index after its block and the indent of its keys. The checkout is the repo's
+    `path` read as the config reads it, relative to the file's folder; a project path is
+    relative to that root."""
+    repos = raw.get("repos") or {}
+    if repo not in repos:
+        raise ScaffoldError(f"{path}: no repo {repo!r} (declared: {', '.join(map(str, repos))})")
+    entry_raw = repos[repo]
     block = repo_block(lines, repo)
     if block is None or not isinstance(entry_raw, dict):
         raise ScaffoldError(f"{path}: cannot find a block entry for repo {repo!r} under `repos:`")
     at, repo_end, width = block
     child = child_indent(lines, at, width)
     projects = key_at(lines, "projects", start=at + 1, stop=repo_end, indent=len(child))
-    if projects is None and "projects" in entry_raw:
-        raise ScaffoldError(f"{path}: `projects:` of {repo!r} is not a block list; edit it by hand")
-    if projects is None:
-        lines[repo_end:repo_end] = [
-            f"{child}projects:\n",
-            *_list_item(entry, child + "  "),
-        ]
-    else:
-        listed = block_end(
-            lines,
-            projects,
-            lambda line: (
-                indent_of(line) > len(child)
-                or (indent_of(line) == len(child) and line.lstrip().startswith("-"))
+    if projects is None and entry_raw.get("projects") == []:
+        projects = next(
+            (
+                i
+                for i in range(at + 1, repo_end)
+                if indent_of(lines[i]) == len(child) and _EMPTY_LIST.fullmatch(lines[i].rstrip())
             ),
-        )
-        existing = next(
-            (line for line in lines[projects + 1 : listed] if line.lstrip().startswith("- ")),
             None,
         )
-        indent = " " * indent_of(existing) if existing else child + "  "
-        lines[listed:listed] = _list_item(entry, indent)
-    updated = "".join(lines)
+    if projects is None and "projects" in entry_raw:
+        raise ScaffoldError(f"{path}: `projects:` of {repo!r} is not a block list; edit it by hand")
+    root = Path(str(entry_raw["path"])).expanduser()
+    if not root.is_absolute():
+        root = path.parent / root
+    return entry_raw, root, -1 if projects is None else projects, repo_end, child
 
+
+def _find(
+    path: Path, repo: str, project_path: str
+) -> tuple[dict, list[str], Path, int, int, str, int | None]:
+    """The file, its lines, the repo's checkout, its `projects:` line, how many projects it
+    lists, its key indent and the index of the one at `project_path` (None when absent)."""
+    raw, lines = read_lines(path)
+    entry_raw, root, projects, _, child = _locate(path, repo, raw, lines)
+    wanted = normal_path(project_path, root)
+    current = entry_raw.get("projects") or []
+    found = next(
+        (n for n, item in enumerate(current) if normal_path(str(item["path"]), root) == wanted),
+        None,
+    )
+    return raw, lines, root, projects, len(current), child, found
+
+
+def _list_end(lines: list[str], projects: int, child: str) -> int:
+    return block_end(
+        lines,
+        projects,
+        lambda line: (
+            indent_of(line) > len(child)
+            or (indent_of(line) == len(child) and line.lstrip().startswith("-"))
+        ),
+    )
+
+
+def _item_spans(lines: list[str], projects: int, listed: int) -> list[tuple[int, int]]:
+    """The line span of each item of the list, with the comment lines just above it."""
+    starts = [i for i in range(projects + 1, listed) if lines[i].lstrip().startswith("- ")]
+    if not starts:
+        return []
+    indent = indent_of(lines[starts[0]])
+    starts = [i for i in starts if indent_of(lines[i]) == indent]
+    lows = []
+    for number, start in enumerate(starts):
+        floor = starts[number - 1] + 1 if number else projects + 1
+        low = start
+        while low > floor and lines[low - 1].lstrip().startswith("#"):
+            low -= 1
+        lows.append(low)
+    spans = []
+    for low, start, end in zip(lows, starts, [*lows[1:], listed], strict=True):
+        while end > start + 1 and (
+            not lines[end - 1].strip() or lines[end - 1].lstrip().startswith("#")
+        ):
+            end -= 1
+        spans.append((low, end))
+    return spans
+
+
+def _expected(raw: dict, repo: str, projects: list) -> dict:
     expected = {**raw, "repos": {**raw["repos"]}}
-    expected["repos"][repo] = {
-        **entry_raw,
-        "projects": [*(entry_raw.get("projects") or []), dict(entry)],
-    }
+    expected["repos"][repo] = {**expected["repos"][repo], "projects": projects}
+    return expected
+
+
+def _save(path: Path, lines: list[str], expected: object) -> None:
+    """Write the edited `lines` over `path`, through a backup, once they reparse to `expected`.
+    The caller holds the file's lock."""
+    updated = "".join(lines)
     checked(path, updated, expected)
-    path.write_text(updated)
+    try:
+        backup_and_replace(path, updated)
+    except OSError as error:
+        raise ScaffoldError(f"{path}: it cannot be written ({error}); left alone") from error
 
 
 def _list_item(entry: Mapping[str, str], indent: str) -> list[str]:
