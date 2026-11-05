@@ -36,6 +36,14 @@ def _enabled(repo: RepoConfig | None) -> bool:
     return repo is None or repo.changelog is not None
 
 
+def changelog_path(repo: RepoConfig | None) -> str | None:
+    """Where the repo keeps its changelog, `CHANGELOG.md` for a caller with no repo config
+    or a blank setting; None when the repo's setting is off."""
+    if not _enabled(repo):
+        return None
+    return (repo.changelog if repo else None) or _DEFAULT_FILE
+
+
 def packaged_convention(changelog: str = _DEFAULT_FILE) -> str:
     """The framework's own convention text, for a repo keeping its changelog at `changelog`."""
     packaged = (
@@ -71,9 +79,9 @@ def resolver_changelog_rule(
     worktree: Path, files: list[str], repo: RepoConfig | None = None
 ) -> str:
     """The resolver's keep-both-and-fold rule: only where a changelog is in play."""
-    if not _enabled(repo):
+    name = changelog_path(repo)
+    if name is None:
         return ""
-    name = (repo.changelog if repo else None) or _DEFAULT_FILE
     if name not in files and not changelog_convention(worktree, repo):
         return ""
     return (

@@ -11,6 +11,7 @@ from pathlib import Path
 from agent_build_kit import profiles
 from agent_build_kit.config import RepoConfig
 from agent_build_kit.model import TestTier
+from agent_build_kit.pipeline.changelog_convention import changelog_path
 from agent_build_kit.pipeline.group_paths import changed_paths
 from agent_build_kit.pipeline.work_graph import TASK_LINE, TaskGroup
 from agent_build_kit.profiles.base import is_doc_path
@@ -34,7 +35,7 @@ def _is_declared(path: str, support: Sequence[str]) -> bool:
 def is_product_path(path: str, repo: RepoConfig | None, support: Sequence[str] = ()) -> bool:
     """Whether `path` is none of: a test path of the repo's profile for the path's project, a
     doc path, the repo's changelog, or declared support (a trailing `/` covers a directory)."""
-    changelog = repo.changelog if repo else "CHANGELOG.md"
+    changelog = changelog_path(repo)
     return not (
         is_test_path(path, repo)
         or is_doc_path(path)

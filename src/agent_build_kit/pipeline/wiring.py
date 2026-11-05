@@ -4309,10 +4309,13 @@ def _move_without_resolver(
     new_base: str,
     old_base: str,
     turn: Turn = nullcontext,
+    repo_config: RepoConfig | None = None,
     **_intent: str,
 ) -> Moved:
     """`move_branch_onto` with no resolver: a conflict is aborted and raised."""
-    return move_branch_onto(repo, branch, new_base=new_base, old_base=old_base, turn=turn)
+    return move_branch_onto(
+        repo, branch, new_base=new_base, old_base=old_base, turn=turn, repo_config=repo_config
+    )
 
 
 def build_restack_onto(
@@ -4341,6 +4344,7 @@ def build_restack_onto(
     the resolution asks instead of the one `resolved_move` makes.
     """
     resolving = move or partial(resolved_move, repo_config=repo)
+    unresolving = partial(_move_without_resolver, repo_config=repo)
 
     def restack_onto(
         *,
@@ -4351,7 +4355,7 @@ def build_restack_onto(
         resolve: bool = True,
         resolver: Resolver | None = None,
     ) -> Restacked | None:
-        move = resolving if resolve else _move_without_resolver
+        move = resolving if resolve else unresolving
         if is_ancestor(tree, base):
             return None
 

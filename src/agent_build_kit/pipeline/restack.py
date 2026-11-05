@@ -39,7 +39,11 @@ from agent_build_kit.forges.transport import HostUnavailable
 from agent_build_kit.model import Frozen
 from agent_build_kit.pipeline import shell
 from agent_build_kit.pipeline.call_record import recorded
-from agent_build_kit.pipeline.changelog_convention import changelog_note, resolver_changelog_rule
+from agent_build_kit.pipeline.changelog_convention import (
+    changelog_note,
+    changelog_path,
+    resolver_changelog_rule,
+)
 from agent_build_kit.pipeline.git_output import (
     PUSH_OPERATION,
     git_push_outcome,
@@ -388,7 +392,7 @@ def _land_detached(repo: Path, branch: str, *, started: str) -> Moved:
 def _separate_changelog(repo: Path, config: RepoConfig | None) -> None:
     """Put back the blank line a union merge took from between two changelog bullets, in a
     commit of its own on the replayed branch. Inside the turn, with the rebase finished."""
-    name = config.changelog if config else RepoConfig.model_fields["changelog"].default
+    name = changelog_path(config)
     if name is None or not (path := repo / name).is_file():
         return
     text = path.read_text()
@@ -397,7 +401,9 @@ def _separate_changelog(repo: Path, config: RepoConfig | None) -> None:
         return
     path.write_text(separated)
     git(repo, "add", "--", name)
-    git(repo, "commit", "-q", "-m", CHANGELOG_SEPARATED, "--", name)
+    # No hooks: the edit is only the blank lines the convention requires, and a hook that
+    # rejects it must not turn a finished move into an error.
+    git(repo, "commit", "-q", "--no-verify", "-m", CHANGELOG_SEPARATED, "--", name)
 
 
 class Conflict(Frozen):
@@ -467,6 +473,7 @@ def move_branch_onto(
     must_keep: list[str] | None = None,
     turn: Turn = nullcontext,
     detached: bool = False,
+    repo_config: RepoConfig | None = None,
 ) -> Moved:
     """Replay `branch`'s own commits onto `new_base`.
 
@@ -494,7 +501,11 @@ def move_branch_onto(
     the rebase runs on its detached head and the branch is moved at the end by
     compare-and-swap, unless another worktree has it checked out
     (`BranchCheckedOut`).
+
+    `repo_config` (else the `context`'s) names the repo whose `changelog` setting decides
+    which file is separated once the branch is replayed; with neither, the default name.
     """
+    repo_config = repo_config or (context.repo if context else None)
     with turn():
         # The head that is rebased: a detached tree's own, which was made at the branch
         # head and may since have been left behind by another writer, else the branch's.
@@ -514,7 +525,7 @@ def move_branch_onto(
             env=untranslated_env(),
         )
         if result.returncode == 0:
-            _separate_changelog(repo, context.repo if context else None)
+            _separate_changelog(repo, repo_config)
             if detached:
                 return _land_detached(repo, branch, started=started)
             return Moved(sha=git(repo, "rev-parse", branch).stdout.strip())
@@ -643,7 +654,7 @@ def move_branch_onto(
                 f"{finished.stdout}\n{finished.stderr}",
                 tried="\n".join(failures),
             )
-        _separate_changelog(repo, context.repo)
+        _separate_changelog(repo, repo_config)
         if detached:
             landed = _land_detached(repo, branch, started=started)
             return Moved(sha=landed.sha, resolved=resolved)
