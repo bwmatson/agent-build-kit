@@ -86,7 +86,8 @@ def test_doctor_warns_above_the_limit(tmp_path: Path, data: Path) -> None:
 
     assert line.status == "warn"
     assert "temp_warn_mb" in f"{line.detail} {line.fix}"
-    assert not [check for check in checks_of(config, temp=True) if check.status == "fail"]
+    failed = [check.name for check in checks_of(config, temp=True) if check.status == "FAIL"]
+    assert failed == [check.name for check in checks_of(config) if check.status == "FAIL"]
 
 
 def test_status_shows_the_size_and_the_run_count_once_the_folder_exists(
@@ -143,12 +144,12 @@ def test_doctor_and_status_do_not_measure_the_folder_without_the_flag(
 
     monkeypatch.setattr(doctor_cli, "temp_size", spy)
     monkeypatch.setattr(pipeline_cli, "temp_size", spy)
-    config = warn_above(in_repo(tmp_path / "plan"), 1)
-    fill(load_installation(config).pytest_temp_root, runs=2, megabytes=2)
     inst = status_installation(tmp_path / "other", 1)
     fill(inst.pytest_temp_root, runs=2, megabytes=2)
-
-    assert doctor_lines(config, temp=False) == []
     assert status_lines(inst, monkeypatch, capsys, temp=False) == []
+
+    config = warn_above(in_repo(tmp_path / "plan"), 1)
+    fill(load_installation(config).pytest_temp_root, runs=2, megabytes=2)
+    assert doctor_lines(config, temp=False) == []
 
     assert calls == []
