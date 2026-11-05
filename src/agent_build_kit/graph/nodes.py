@@ -253,7 +253,16 @@ E2E_LOG_TAIL = 40
 
 # The nodes a unit is held before, at the boundary, when its upstream went back
 # for rework or its base moved: the ones that start work or leave the machine.
-GATED = frozenset({Node.IMPLEMENT, Node.FIX_CHECKS, Node.REVIEW, Node.REWORK, Node.VERIFY_BASE})
+GATED = frozenset(
+    {
+        Node.IMPLEMENT,
+        Node.FIX_CHECKS,
+        Node.RESTACK_REVIEW,
+        Node.REVIEW,
+        Node.REWORK,
+        Node.VERIFY_BASE,
+    }
+)
 # The nodes that start an agent: each asks the usage guard first.
 AGENT_NODES = frozenset(
     {
@@ -2905,27 +2914,25 @@ class BuildPath:
     def restack_review(self, state: UnitRun) -> Update:
         """The base as it is now, once the checks have passed and before the review reads the
         branch; a clean move is re-tested before the review."""
-        update = self.restack_now(state, "before_review")
-        if update.get("restack"):
-            return update
-        # The unit's base stays as it was: the gate before the review holds a unit whose base
-        # changed, and the restack before the pull request records the new one.
-        update.pop("base", None)
+        # Onto the tip of the base the unit is on: which base it belongs on is found, and a
+        # merged parent recorded, by the restack before the pull request, after the review.
+        update = self.restack_now(state, "before_review", find_base=False)
         return {**update, "pre_review": True} if update.get("moved") else update
 
     def verify_base(self, state: UnitRun) -> Update:
         """The base as it is now, before anything is pushed against it."""
         return self.restack_now(state, "before_pr")
 
-    def restack_now(self, state: UnitRun, point: str) -> Update:
+    def restack_now(self, state: UnitRun, point: str, *, find_base: bool = True) -> Update:
         """Move the branch onto the base as it is now, recording the restack at `point`: a
         clean move is for the unit-test to run again, and a conflict or a resolution goes back
-        to the restack at the start of a run, where the resolver is."""
+        to the restack at the start of a run, where the resolver is. With `find_base` the base
+        itself is looked up again (a parent that merged moves the unit onto the trunk)."""
         r, unit = self.runner, self.unit
         base = state.base or self.base
         r.fetch_quietly(unit)
         try:
-            fresh = r.fresh_base(unit, base)
+            fresh = r.fresh_base(unit, base) if find_base else base
         except Exception as error:  # noqa: BLE001
             # A unit that passed review is not failed because the base could not be
             # worked out: the snapshot it reads may be missing or unreadable.
