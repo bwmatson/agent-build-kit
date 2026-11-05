@@ -67,6 +67,17 @@ def sweeping_with(monkeypatch: pytest.MonkeyPatch, remove: Callable[[Path], None
     return messages
 
 
+def slow_remove(release: threading.Event, swept: list[Path]) -> Callable[[Path], None]:
+    """A remove that waits for `release`, then removes the folder and notes it in `swept`."""
+
+    def remove(path: Path) -> None:
+        release.wait(GIVE_UP)
+        shutil.rmtree(path)
+        swept.append(path)
+
+    return remove
+
+
 def test_a_ready_units_build_starts_before_the_sweep_has_finished(
     healthy,  # noqa: F811 — fixture
     monkeypatch: pytest.MonkeyPatch,
@@ -76,13 +87,7 @@ def test_a_ready_units_build_starts_before_the_sweep_has_finished(
     folder = run_folder(base.inst, "a1b2c3d4", pid=4_000_001, age_hours=OLD)
     release = threading.Event()
     swept: list[Path] = []
-
-    def slow_remove(path: Path) -> None:
-        release.wait(GIVE_UP)
-        shutil.rmtree(path)
-        swept.append(path)
-
-    messages = sweeping_with(monkeypatch, slow_remove)
+    messages = sweeping_with(monkeypatch, slow_remove(release, swept))
     runner = Builds(release, swept)
     monkeypatch.setattr(cli, "build_runner", lambda unit, **kwargs: runner)
 
@@ -105,13 +110,7 @@ def test_the_tick_waits_for_the_sweep_before_it_returns(
     ]
     release = threading.Event()
     swept: list[Path] = []
-
-    def slow_remove(path: Path) -> None:
-        release.wait(GIVE_UP)
-        shutil.rmtree(path)
-        swept.append(path)
-
-    sweeping_with(monkeypatch, slow_remove)
+    sweeping_with(monkeypatch, slow_remove(release, swept))
     runner = Builds(release, swept)
     monkeypatch.setattr(cli, "build_runner", lambda unit, **kwargs: runner)
 
@@ -120,6 +119,41 @@ def test_the_tick_waits_for_the_sweep_before_it_returns(
     assert runner.sweep_done_at_start == [False]
     assert sorted(swept) == sorted(folders)
     assert not any(folder.exists() for folder in folders)
+
+
+def test_the_tick_returns_when_the_sweep_outlasts_its_wait(
+    healthy,  # noqa: F811 — fixture
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    UnitStore(tmp_path / "units.json").upsert([stored()])
+    folder = run_folder(base.inst, "a1b2c3d4", pid=4_000_001, age_hours=OLD)
+    monkeypatch.setattr(cli, "SWEEP_WAIT_SECONDS", 0)
+    entered = threading.Event()
+    hold = threading.Event()
+    threads: list[threading.Thread] = []
+    swept: list[Path] = []
+    finish = slow_remove(hold, swept)
+
+    def stuck(path: Path) -> None:
+        threads.append(threading.current_thread())
+        entered.set()
+        finish(path)
+
+    sweeping_with(monkeypatch, stuck)
+    monkeypatch.setattr(cli, "build_runner", lambda unit, **kwargs: Builds(threading.Event(), []))
+
+    try:
+        assert cli.cmd_tick(argv_namespace(dry_run=False), base.inst) == 0
+        assert entered.wait(GIVE_UP)
+        assert folder.is_dir()
+    finally:
+        hold.set()
+        entered.wait(GIVE_UP)
+        for thread in threads:
+            thread.join(GIVE_UP)
+
+    assert not folder.exists()
 
 
 def test_a_folder_left_half_removed_is_finished_by_the_next_ticks_sweep(
