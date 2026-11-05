@@ -10,7 +10,7 @@ import contextvars
 import json
 import subprocess
 import threading
-from collections.abc import Iterator
+from collections.abc import Collection, Iterator
 from contextlib import ExitStack, contextmanager
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -21,16 +21,17 @@ import pytest
 from agent_build_kit import config as config_module
 from agent_build_kit import profiles
 from agent_build_kit.installation import Installation
-from agent_build_kit.pipeline import spans
+from agent_build_kit.pipeline import events, spans
 from agent_build_kit.pipeline.flakes import FlakeFound
 from agent_build_kit.pipeline.unit_store import UnitStore
-from agent_build_kit.pipeline.unit_test_slots import unit_test_slot
-from agent_build_kit.pipeline.units import IN_REVIEW
+from agent_build_kit.pipeline.unit_test_slots import LATE_CHECK_NODE, unit_test_slot
+from agent_build_kit.pipeline.units import IN_REVIEW, SETTLING
 from agent_build_kit.pipeline.wiring import build_reproduce, build_unit_test
 from agent_build_kit.profiles.base import ToolchainProfile
 from tests.conftest import make_installation
-from tests.factories import new_unit
+from tests.factories import commit, init_repo, new_unit, stored_unit
 from tests.failure_bundle_fakes import START, BundleMachine, BundleProfile
+from tests.unit_test_slot_fakes import waiting_units
 from tests.waiting import wait_for
 
 
@@ -263,9 +264,11 @@ def served_in_order(
     tmp_path: Path,
     installation: Installation,
     waiters: list[str],
+    late: Collection[str] = (),
 ) -> list[str]:
     """The ids of `waiters`' runs in the order they got the one slot, each run starting to wait
-    only after the one before it is waiting, while another run holds the slot."""
+    only after the one before it is waiting, while another run holds the slot. The runs of the
+    units in `late` are their late checks."""
     limited(1)
     ledger, served = tmp_path / "test-runs.jsonl", []
     holder = ExitStack()
@@ -274,7 +277,8 @@ def served_in_order(
 
     def run_of(uid: str):
         def run() -> None:
-            spans.current_unit.set((uid, uid.split("/")[0], "n1", 1))
+            node = LATE_CHECK_NODE if uid in late else "n1"
+            spans.current_unit.set((uid, uid.split("/")[0], node, 1))
             unit_test_of(
                 scratch,
                 BundleMachine(scratch, reruns=[], passing=True),
@@ -346,3 +350,100 @@ def test_with_no_limit_a_run_makes_no_slot_and_no_marker_even_for_a_stored_unit(
     )(cwd=scratch, base="main")
 
     assert not installation.locks_dir.exists() or not list(installation.locks_dir.iterdir())
+
+
+# --- a settling unit's late check -------------------------------------------------------
+
+
+def settling(installation: Installation, *uids: str) -> None:
+    store = UnitStore(installation.state_dir / "units.json")
+    for uid in uids:
+        store.set_state(uid, SETTLING, pr=4, branch=f"spec/{uid}")
+
+
+def test_a_late_check_s_run_is_served_before_a_priority_0_unit_s_run_that_began_waiting_first(
+    scratch: Path, tmp_path: Path, installation: Installation
+) -> None:
+    stored(installation, new_unit("urgent/1", priority=0), new_unit("late/1", priority=4))
+    UnitStore(installation.state_dir / "units.json").set_state(
+        "urgent/1", IN_REVIEW, pr=7, branch="spec/urgent/1"
+    )
+    settling(installation, "late/1")
+
+    served = served_in_order(
+        scratch, tmp_path, installation, ["urgent/1", "late/1"], late=["late/1"]
+    )
+
+    assert served == ["late/1", "urgent/1"]
+    assert "late/1" in [row.get("unit") for row in rows(tmp_path / "test-runs.jsonl")]
+
+
+def test_two_late_checks_are_served_in_the_order_they_began_waiting(
+    scratch: Path, tmp_path: Path, installation: Installation
+) -> None:
+    stored(installation, new_unit("late/2", priority=0), new_unit("late/1", priority=4))
+    settling(installation, "late/1", "late/2")
+
+    served = served_in_order(
+        scratch, tmp_path, installation, ["late/1", "late/2"], late=["late/1", "late/2"]
+    )
+
+    assert served == ["late/1", "late/2"]
+
+
+def test_a_run_that_names_no_unit_still_waits_behind_a_late_check_as_least_urgent(
+    scratch: Path, tmp_path: Path, installation: Installation
+) -> None:
+    stored(installation, new_unit("late/1", priority=4))
+    settling(installation, "late/1")
+
+    served = served_in_order(
+        scratch, tmp_path, installation, ["ghost/1", "late/1"], late=["late/1"]
+    )
+
+    assert served == ["late/1", "ghost/1"]
+
+
+def test_the_late_check_s_run_names_its_unit_in_the_waiting_marker_and_the_ledger_row(
+    scratch: Path, tmp_path: Path
+) -> None:
+    repo = init_repo(tmp_path / "checkouts" / "app")
+    commit(repo, "pyproject.toml", '[project]\nname = "app"\nversion = "0"\n')
+    installation = make_installation(
+        tmp_path / "planning", repos={"app": {"path": str(repo), "slug": "example/app"}}
+    )
+    limited(1)
+    ledger, log = tmp_path / "test-runs.jsonl", []
+    unit = stored_unit("late/1", change="late")
+    UnitStore(installation.state_dir / "units.json").upsert([unit])
+    settling(installation, "late/1")
+    passes = events.build_base_passes(
+        {"app": repo},
+        unit_test_of=lambda name: unit_test_of(
+            scratch, BundleMachine(scratch, reruns=[], passing=True), ledger, installation, log
+        ),
+    )
+    holder = ExitStack()
+    holder.enter_context(unit_test_slot(installation.locks_dir, 1, holder="other/1"))
+    outcome: list[bool | None] = []
+
+    with running(lambda: outcome.append(passes(unit, "FAILED tests/test_one.py"))):
+        wait_for(lambda: "late/1" in waiting_units(installation.locks_dir), what="the marker")
+        holder.close()
+
+    assert outcome == [True]
+    assert [row["unit"] for row in rows(ledger) if "unit" in row] == ["late/1"]
+
+
+def test_another_run_of_a_settling_unit_is_not_ranked_as_its_late_check(
+    scratch: Path, tmp_path: Path, installation: Installation
+) -> None:
+    stored(installation, new_unit("urgent/1", priority=0), new_unit("late/1", priority=4))
+    UnitStore(installation.state_dir / "units.json").set_state(
+        "urgent/1", IN_REVIEW, pr=7, branch="spec/urgent/1"
+    )
+    settling(installation, "late/1")
+
+    served = served_in_order(scratch, tmp_path, installation, ["urgent/1", "late/1"])
+
+    assert served == ["urgent/1", "late/1"], "only the late check's own run goes first"

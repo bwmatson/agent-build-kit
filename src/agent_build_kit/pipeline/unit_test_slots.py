@@ -11,8 +11,9 @@ not listed. The wait is outside the unit-test command's time limit: the permit i
 that clock starts.
 
 Waiting runs are served in a fixed order: by rank (a tuple of whole numbers, smaller is more urgent;
-the caller computes it, and this module reads no unit), then by when the run began waiting, then by
-the marker's token. A run takes a free slot only when no other live waiter comes before it in that
+the caller computes it, and this module reads no unit; a settling unit's late check waits at
+`AHEAD_OF_START_KEYS`, before every start key), then by when the run began waiting, then by the
+marker's token. A run takes a free slot only when no other live waiter comes before it in that
 order, and a run that finds a slot free while a waiter exists makes a marker and goes through the
 same rule, so it cannot take the slot of a waiter that has not polled yet. A run that finds a slot
 free and no waiter takes it at once and makes no marker."""
@@ -46,6 +47,15 @@ Rank = tuple[int, ...]
 
 # Served after every rank a unit's start key can have (those begin with 0, 1 or 2).
 LEAST_URGENT: Rank = (sys.maxsize,)
+
+# Served before every rank a unit's start key can have, whatever its length: the rank of a
+# settling unit's late check. A settling unit holds its branch and its children and is not
+# waiting to start, so its run is the cheapest work to finish.
+AHEAD_OF_START_KEYS: Rank = (-1,)
+
+# The step a settling unit's late check runs its whole-suite run under (the node of
+# `spans.current_unit`): only that run waits at `AHEAD_OF_START_KEYS`.
+LATE_CHECK_NODE = "late_check"
 
 
 class WaiterRecord(LockRecord):
@@ -281,6 +291,23 @@ def _probe(path: Path) -> tuple[bool, LockRecord | None]:
     """Whether the lock at `path` is held, and its record when it is."""
     text = _locked_text(path)
     return (False, None) if text is None else (True, read_lock_record(text))
+
+
+def waiting_since(locks_dir: Path) -> dict[str, datetime]:
+    """When each unit a live waiting marker names began waiting, the earliest of its markers;
+    a marker that names no unit, or whose time cannot be read, is left out."""
+    found: dict[str, datetime] = {}
+    for waiter in _live_waiters(locks_dir):
+        record = waiter.record
+        if record is None or not record.unit:
+            continue
+        try:
+            began = datetime.fromisoformat(record.since)
+        except ValueError:
+            continue
+        if record.unit not in found or began < found[record.unit]:
+            found[record.unit] = began
+    return found
 
 
 def slot_status_lines(locks_dir: Path, limit: int | None) -> list[str]:

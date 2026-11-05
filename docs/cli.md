@@ -187,7 +187,8 @@ judgement for a unit waiting on it.
 An `e2e-test:` line names the unit holding the e2e-test lock and for how long; a record left by a
 process that is gone, on a free lock, is shown as stale, a held lock whose recorded process is gone
 says so, and a free lock with no record prints nothing.
-A `unit-test slots (N at once):` line, printed when `global_limits.max_concurrent_unit_tests` is set, names the holder of each slot and for how long (`slot 1 held by a/1 for 12m 3s`, or `slot 2 free`) and, after `waiting:`, the units that wait for one, in the order they will be served (the order units start: an open pull request, a paused build, new work, each by priority and then age; equal ranks by when they began waiting).
+A `unit-test slots (N at once):` line, printed when `global_limits.max_concurrent_unit_tests` is set, names the holder of each slot and for how long (`slot 1 held by a/1 for 12m 3s`, or `slot 2 free`) and, after `waiting:`, the units that wait for one, in the order they will be served (a settling unit's late check first, ahead of every unit's start; then the order units start: an open pull request, a paused build, new work, each by priority and then age; equal ranks by when they began waiting).
+A settling unit shows `settling: waiting for <checks> since <time>` while its pull request's checks run; while its late check's run on the default branch waits for a unit-test slot it shows `settling: late check waiting for a unit-test slot since <time>` instead, and once the run has its slot, `settling: late check running on the default branch`.
 A split with a `gate` adds a `gate usage:` line: the split, the provider, the amount used against the budget and as a percent, the threshold now (and what it moves towards while it ramps), when the window resets, whether the split is held or usable or its usage unknown (with the reason), and the source and age of the reading. A command gate shows its result and reason. A split held by another source shows that source as the hold. Without `--refresh` only the cache is read, so no provider is asked and no command is run; `--refresh` reads afresh.
 The `queue is full` lines are one for each project at its limit, as the tick paragraph above says.
 A `restacks: N running, M waiting` line, which totals the lane of every project, printed only while a restack lane has work or a unit
@@ -671,7 +672,11 @@ A unit the tick held as `attached` stays held; `abk requeue` returns it.
 Ends the wait of a `settling` unit (its pull request is merged and a check has not completed)
 and records it as `merged`, with the reason in its note. For a check that will never finish.
 Refuses a unit that is not settling. A unit is never requeued while settling or merged: a
-failed check starts a late fix on its own.
+failed check is settled from the default branch's own checks on the merge commit when they
+passed, and otherwise starts a late fix on its own. It works while the unit's late check waits
+for a unit-test slot or runs on the default branch: the late check holds the unit only to read it
+and to record its result, and keeps no result for a unit accepted meanwhile. It is refused only
+for the moment a handler is reading or recording the unit; try again shortly.
 
 ### `abk reconcile [UNIT] [--dry-run] [--accept UNIT]`
 

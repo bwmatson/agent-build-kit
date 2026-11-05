@@ -19,7 +19,12 @@ import pytest
 
 from agent_build_kit.pipeline.e2e import read_lock_record
 from agent_build_kit.pipeline.file_lock import POLL_SECONDS
-from agent_build_kit.pipeline.unit_test_slots import slot_path, unit_test_slot
+from agent_build_kit.pipeline.unit_test_slots import (
+    AHEAD_OF_START_KEYS,
+    slot_path,
+    unit_test_slot,
+    waiting_since,
+)
 from tests.fake_clock import START, install
 from tests.unit_test_slot_fakes import live_waiter, waiting_run, waiting_units
 from tests.waiting import wait_for
@@ -484,3 +489,50 @@ def test_a_failure_while_making_the_marker_leaves_no_staging_file(
                 pass
 
     assert list(tmp_path.glob("unit-test-registering-*")) == []
+
+
+# A settling unit's late check waits ahead of every start key, whatever the key's length.
+
+
+@pytest.mark.parametrize("key", [(0,), (0, 0), (0, 0, 0, 0, 0)], ids=["one", "two", "five"])
+def test_the_late_check_rank_is_served_before_a_start_key_that_began_waiting_first(
+    tmp_path: Path, key: tuple[int, ...]
+) -> None:
+    order: list[str] = []
+    with ExitStack() as stack:
+        runs = {}
+        with unit_test_slot(tmp_path, 1, holder="holder/1"):
+            for unit, rank in (("urgent/1", key), ("late/1", AHEAD_OF_START_KEYS)):
+                runs[unit] = stack.enter_context(
+                    waiting_run(tmp_path, unit, rank=rank, order=order)
+                )
+                runs[unit].until_waiting(tmp_path, unit)
+        wait_for(lambda: len(order) == 1, what="the first waiter to take the slot")
+        runs["late/1"].release.set()
+        wait_for(lambda: len(order) == 2, what="the second waiter to take the slot")
+
+    assert order == ["late/1", "urgent/1"]
+
+
+def test_a_free_slot_is_left_for_a_waiting_late_check(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    install(monkeypatch)
+    with live_waiter(tmp_path, "1-aaaa", "late/1", since=START, rank=AHEAD_OF_START_KEYS):
+        declines(tmp_path, rank=(0,))
+
+
+def test_waiting_since_names_each_waiting_unit_with_when_it_began(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    install(monkeypatch)
+    later = START + timedelta(minutes=5)
+    with ExitStack() as held:
+        held.enter_context(live_waiter(tmp_path, "1-aaaa", "late/1", since=START, rank=(-1,)))
+        held.enter_context(live_waiter(tmp_path, "1-bbbb", "late/1", since=later, rank=(-1,)))
+        held.enter_context(live_waiter(tmp_path, "1-cccc", "", since=START))
+
+        found = waiting_since(tmp_path)
+
+    assert found == {"late/1": START}
+    assert waiting_since(tmp_path) == {}, "a marker no longer held names no one"

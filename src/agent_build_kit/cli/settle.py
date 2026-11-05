@@ -34,8 +34,9 @@ def cmd_settle(args: argparse.Namespace, inst: Installation) -> int:
         )
         return 2
     try:
-        # The unit's branch lock, as the poller's handlers take it: a tick running the failed
-        # check's tests on the base holds it and writes the unit's next state.
+        # The unit's branch lock, as the poller's handlers take it while they read or record the
+        # unit. A late check holds it only for those steps, not while its run on the base waits
+        # or runs, and keeps no result for a unit accepted meanwhile.
         with build_claim(inst.locks_dir)(unit):
             current = store.get(unit.id)
             if current.state != SETTLING:

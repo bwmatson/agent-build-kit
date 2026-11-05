@@ -8,10 +8,16 @@
   them and passed and none is running, the unit is merged with a note naming the commit and saying
   its checks passed, and no unit-test run starts; a check the host skipped there ran nothing and
   is no pass. While one of them is still running, the unit stays settling and is asked again at
-  the next poll, for up to two hours after the merge, and then the tests are run locally. A failure there, no check of the failed
-  one's name, no checks at all, or a host that cannot be asked runs the tests on the default
-  branch as before. A forge now reports the checks of a commit, keeping "none" and "unknown"
-  apart from a pass.
+  the next poll, for up to two hours after the merge, and then the tests are run locally. A
+  failure there, no check of the failed one's name, no checks at all, or a host that cannot be
+  asked runs the tests on the default branch as before. A forge now reports the checks of a commit, keeping "none" and "unknown"
+  apart from a pass. That run on the default branch now goes ahead of every unit waiting to start
+  in the unit-test queue, and its waiting marker and ledger row name the unit, since a settling
+  unit holds its branch and its children. It no longer holds the unit while it waits or runs, so
+  `abk settle --accept` and the restack of a child are not refused meanwhile, and a result that
+  comes back after an accept changes nothing. `abk status` shows `settling: late check waiting for
+  a unit-test slot since <time>` while it waits, and `settling: late check running on the default
+  branch` once it runs.
 
 - `abk external done` no longer needs a merge source. With neither `--pr` nor `--commit` the hold is
   marked done with an empty `merged_by`, the boxes are ticked, and a unit whose groups are all done

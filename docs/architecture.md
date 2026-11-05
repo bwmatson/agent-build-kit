@@ -444,7 +444,18 @@ for up to `events.BASE_CHECKS_WAIT` (two hours) after the merge, after which the
 decides. The forge is asked on the pull request's base branch, from shortly before the merge. A failed check on the merge commit, no check of
 the failed one's name, no checks at all or a forge that cannot answer (`unknown`, never a pass)
 leaves it to the local run: the check's tests run on the current default branch in a detached
-worktree (`events.build_base_passes`): passing there, the
+worktree (`events.build_base_passes`). The run is the unit's: its unit-test slot's waiting
+marker and its row in `runs/test-runs.jsonl` name the unit, and it waits ahead of every unit's
+start key, since a settling unit holds its branch and its children. Only that run ranks so: it runs under the
+node `LATE_CHECK_NODE` of `spans.current_unit`, and another run of a settling unit keeps its
+start key. The late check takes the unit's claim only to read the unit before the run and to
+record the result (tried `events.RECORD_TRIES` times, a short pause apart, before the event is
+left for a later poll), and holds nothing while the run waits for its slot or runs, so `abk
+settle --accept` and the restack of a child are not refused for it; a unit no longer settling
+when the result comes back is left as it is. A turn of its own (`events.build_late_check_turn`)
+keeps a second late check of the same unit from starting a second run, and `abk status` says
+`settling: late check waiting for a unit-test slot since <time>` while it waits and `settling:
+late check running on the default branch` once it runs. Passing there, the
 unit is `merged` and the failure is recorded as fixed on the base; failing there, the same unit
 goes `planned` with the cause `late_failure` on `<branch>-fix<k>` off the default branch,
 built through the rework path with the check's log. Its pull request is titled
@@ -1659,7 +1670,8 @@ approved.
   (its `seconds` and load readings are after the wait). The unit stays `running`. Waiting runs are
   served in the order units start: a run's rank is its unit's start key (`start_key` in
   `pipeline/units.py`: an open pull request, a paused build, new work, each by effective priority,
-  then hand-off, then effective age; the least urgent when the unit is not in the store), computed
+  then hand-off, then effective age; the least urgent when the unit is not in the store; a
+  settling unit's run, its late check, ranks `AHEAD_OF_START_KEYS`, before every start key), computed
   by `_test_slot` and recorded in the waiting marker, and a run takes a free slot only when no live
   waiting run has a smaller (rank, time it began waiting, marker token). A run that finds a free
   slot and nobody waiting takes it at once. `abk status` shows each slot's holder and the units that
