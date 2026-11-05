@@ -1479,8 +1479,14 @@ def build_unit_test(
     # The tests the current run's failed commands named, each read by the profile of the
     # command (a project has its own), for its ledger row.
     run_failed: list[str] = []
-    # The kind of re-test the current run after a move is: `full` unless it ran scoped.
+    # The kind of re-test the current run after a move is: `full` unless it was `lite` or `scoped`.
     retest: dict[str, str] = {"kind": "full"}
+    # What a test is, as the profile of the project a path sits in says, and the repo's
+    # changelog path: the restack record's file kinds and the lite rule read the same two.
+    changelog = repo.changelog if repo is not None else None
+
+    def is_test_file(path: str) -> bool:
+        return profiles.for_path(projects or [], path, profile).is_test_path(path)
 
     def fresh_run_token() -> str:
         """A token for this run whose folder in the temp root does not exist, so two runs never
@@ -1513,11 +1519,7 @@ def build_unit_test(
                 result = "passed"
             raise
         finally:
-            kinds = kinds_of(
-                brought_in(cwd, moved_from, base),
-                lambda path: profiles.for_path(projects or [], path, profile).is_test_path(path),
-                repo.changelog if repo is not None else None,
-            )
+            kinds = kinds_of(brought_in(cwd, moved_from, base), is_test_file, changelog)
             unit, change, _, _ = spans.current_unit.get()
             spans.record_restack(
                 spans.RestackRecord(
@@ -1644,6 +1646,8 @@ def build_unit_test(
                 base=base,
                 moved_from=moved_from,
                 setting=active().global_limits.restack_check,
+                is_test=is_test_file,
+                changelog=changelog,
             )
         work = _work(cwd, base, whole_repo, projects, profile, changed)
         if projects and not work:
@@ -1657,6 +1661,13 @@ def build_unit_test(
                     "nothing for them to judge"
                 )
             return root_checks(cwd)
+        # A lite re-test is the repo's own checks of the changelog: with none configured it
+        # would run nothing, so the move takes the full path instead.
+        lite_scope = scope if scope is not None and scope.lite and not whole_repo else None
+        if lite_scope is not None and repo is not None and profile.extra_checks(repo):
+            retest["kind"] = "lite"
+            _say(log, f"moved base: lite re-test ({lite_scope.reason})")
+            return root_checks(cwd)
         if scope is not None and scope.scoped and not whole_repo:
             retest["kind"] = "scoped"
             moved = moved_run(cwd, base, work, scope.incoming)
@@ -1664,7 +1675,12 @@ def build_unit_test(
                 return moved
             retest["kind"] = "full"
         elif scope is not None:
-            _say(log, f"moved base: ran the full suite ({scope.reason})")
+            why = (
+                "no changelog check is configured for a lite re-test"
+                if lite_scope is not None
+                else scope.reason
+            )
+            _say(log, f"moved base: ran the full suite ({why})")
         plan = None
         if affected is not None and not whole_repo and failed_output.strip():
             plan = selection(base, work, failed_output)

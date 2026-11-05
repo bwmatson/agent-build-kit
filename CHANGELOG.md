@@ -110,6 +110,10 @@
   once per scan, and the secret-leak guard module no longer scans the test tree when it is
   imported, so collecting the suite does no repository walk.
 
+- A branch whose base moved only in changelog and documentation files, one of which the branch
+  also changes, is now re-tested with the changelog check alone instead of in full. A move that
+  also brought in code or test files, or a repo with no changelog check, is tested as before.
+
 - The documents and the pipeline skill now describe how a failing test is handled: an open fix is
   waited on first, a test the unit did not write runs on the unit's base, and the
   regression agent writes the `fix-test-` change, whose group carries `[contract]` so it gets a

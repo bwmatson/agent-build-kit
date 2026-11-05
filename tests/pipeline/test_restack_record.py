@@ -4,7 +4,6 @@ moved-base run, whose command runner is the faked boundary."""
 
 from __future__ import annotations
 
-import json
 import subprocess
 from pathlib import Path
 
@@ -15,13 +14,7 @@ from agent_build_kit.installation import Installation
 from agent_build_kit.pipeline import spans
 from agent_build_kit.pipeline.wiring import build_unit_test
 from tests.fake_clock import install
-from tests.moved_base_fakes import Profile, moved, passing
-
-
-def restack_lines(workspace: Installation) -> list[dict]:
-    path = workspace.state_dir / "usage-ledger.jsonl"
-    lines = [json.loads(line) for line in path.read_text().splitlines()] if path.exists() else []
-    return [line for line in lines if line.get("kind") == "restack"]
+from tests.moved_base_fakes import Profile, moved, passing, restack_lines
 
 
 def test_a_restack_line_carries_every_field_it_is_given(

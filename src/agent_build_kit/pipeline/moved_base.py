@@ -10,18 +10,27 @@ from agent_build_kit.model import Frozen
 from agent_build_kit.pipeline.shell import git
 from agent_build_kit.profiles.base import is_doc_path
 
+LITE_REASON = (
+    "the move brought in only changelog and documentation files: the changelog check "
+    "stands in for the full suite"
+)
+
 
 class MoveScope(Frozen):
-    """How a moved base is checked: `scoped` over the files the move brought in, or in full
-    for `reason`."""
+    """How a moved base is checked: `lite` over the changelog and documents alone, `scoped`
+    over the files the move brought in, or in full for `reason`."""
 
     scoped: bool
+    lite: bool = False
     reason: str = ""
     incoming: list[str] = []
 
 
 class FileKinds(Frozen):
-    """How many files of a set are changelog, document, test and code files."""
+    """How many files of a set are changelog, document, test and code files.
+
+    `documents` counts by `is_doc_path`, which is wider than the documents a lite re-test
+    accepts (`is_document`): a prompt or plain-text file counts here and is not lite."""
 
     changelog: int = 0
     documents: int = 0
@@ -45,6 +54,24 @@ def kinds_of(
         else:
             counts["code"] += 1
     return FileKinds(**counts)
+
+
+def is_document(path: str, is_test: Callable[[str], bool], changelog: str | None) -> bool:
+    """Whether `path` is the repo's changelog, or a `.md` or `.rst` file at the checkout root
+    or under `docs/`, that is not a test path.
+
+    The rule is closed because a lite re-test skips every test: a prompt or template in a
+    source tree, a plain-text file (test data, a dependency manifest) and a script under `docs/`
+    are not documents, and a project's own README takes the full path."""
+    if changelog is not None and path == changelog:
+        return True
+    in_place = "/" not in path or path.startswith("docs/")
+    return in_place and path.endswith((".md", ".rst")) and not is_test(path)
+
+
+def everything_is_a_test(path: str) -> bool:
+    """The `is_test` of a caller that gives none: no path is a document, so no move is lite."""
+    return True
 
 
 class FilesNotListed(Exception):
@@ -72,16 +99,27 @@ def brought_in(tree: Path, moved_from: str, base: str) -> tuple[str, ...]:
         return ()
 
 
-def scope_of(own: Sequence[str], incoming: Sequence[str], setting: RestackCheck) -> MoveScope:
+def scope_of(
+    own: Sequence[str],
+    incoming: Sequence[str],
+    setting: RestackCheck,
+    *,
+    is_test: Callable[[str], bool] = everything_is_a_test,
+    changelog: str | None = None,
+) -> MoveScope:
     """The rule over the files the unit changes and the files the move brought in.
 
-    Scoped unless the setting says full, the unit changed nothing of its own, or a file the
-    move brought in is one the unit changes, which git merging cleanly says nothing about."""
+    Lite when the unit shares a file with the move and everything the move brought in is a
+    changelog or documentation file (`is_document`). Scoped unless the setting says full, the
+    unit changed nothing of its own, or a file the move brought in is one the unit changes,
+    which git merging cleanly says nothing about."""
     if setting is RestackCheck.FULL:
         return MoveScope(scoped=False, reason="global_limits.restack_check is full")
     if not own:
         return MoveScope(scoped=False, reason="the unit produced nothing of its own")
     shared = sorted(set(own) & set(incoming))
+    if shared and all(is_document(name, is_test, changelog) for name in incoming):
+        return MoveScope(scoped=False, lite=True, reason=LITE_REASON, incoming=list(incoming))
     if shared:
         return MoveScope(
             scoped=False,
@@ -91,7 +129,14 @@ def scope_of(own: Sequence[str], incoming: Sequence[str], setting: RestackCheck)
 
 
 def moved_base_scope(
-    tree: Path, *, own: Sequence[str], base: str, moved_from: str, setting: RestackCheck
+    tree: Path,
+    *,
+    own: Sequence[str],
+    base: str,
+    moved_from: str,
+    setting: RestackCheck,
+    is_test: Callable[[str], bool] = everything_is_a_test,
+    changelog: str | None = None,
 ) -> MoveScope:
     """`scope_of` over `own`, the files the unit changes, and the files that differ between
     `moved_from`, the base the restack computed, and `base`.
@@ -108,4 +153,4 @@ def moved_base_scope(
         return MoveScope(
             scoped=False, reason=f"the files the move brought in could not be listed: {error}"
         )
-    return scope_of(own, incoming, setting)
+    return scope_of(own, incoming, setting, is_test=is_test, changelog=changelog)
