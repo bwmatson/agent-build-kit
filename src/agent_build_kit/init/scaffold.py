@@ -340,7 +340,7 @@ def checked(path: Path, updated: str, expected: object) -> None:
         raise ScaffoldError(f"{path}: the entry did not produce a valid file; left alone")
 
 
-def add_project(path: Path, repo: str, entry: Mapping[str, str]) -> None:
+def add_project(path: Path, repo: str, entry: Mapping[str, str]) -> bool:
     """Append `entry` to `repo`'s `projects:` list in the abk.yaml at `path`, creating the
     list when the repo has none. Every other line stays as it is. A layout whose place
     cannot be found as a block (a flow-style repo or `projects: []`), or a result that does
@@ -384,6 +384,19 @@ def add_project(path: Path, repo: str, entry: Mapping[str, str]) -> None:
     }
     checked(path, updated, expected)
     path.write_text(updated)
+    return True
+
+
+def remove_project(path: Path, repo: str, project_path: str) -> bool:
+    """Drop the project at `project_path` from `repo`'s `projects:` in the abk.yaml at `path`,
+    keeping every other line. True when it was removed, False when it was already absent."""
+    raise NotImplementedError
+
+
+def replace_project(path: Path, repo: str, old_path: str, entry: Mapping[str, str]) -> bool:
+    """Swap the project at `old_path` for `entry` in `repo`'s `projects:`. True when it was
+    replaced, False when `old_path` was already absent."""
+    raise NotImplementedError
 
 
 def _list_item(entry: Mapping[str, str], indent: str) -> list[str]:
