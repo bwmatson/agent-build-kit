@@ -15,7 +15,7 @@ import pytest
 
 from agent_build_kit.cli import pipeline as cli
 from agent_build_kit.pipeline import spans
-from agent_build_kit.pipeline.restack_lane import RestackLane
+from agent_build_kit.pipeline.resolution_lane import ResolutionLane
 from tests.cli.test_restack_lane_tick import Scene
 
 pytestmark = pytest.mark.usefixtures("scripted_engine")
@@ -29,7 +29,7 @@ def test_the_restack_gauges_are_set_with_the_slot_gauges_and_carry_no_attribute(
     levels: list[tuple[str, int, dict[str, str]]] = []
     real_level = cli.telemetry.level
     record = spans.record_sample
-    finished = RestackLane.finished
+    finished = ResolutionLane.finished
     samples: list[Any] = []
 
     def level(name: str, value: int, **attributes: str) -> None:
@@ -40,14 +40,14 @@ def test_the_restack_gauges_are_set_with_the_slot_gauges_and_carry_no_attribute(
         record(sample, log)
         samples.append(sample)
 
-    def asked_when_one_ends(lane: RestackLane) -> Any:
+    def asked_when_one_ends(lane: ResolutionLane) -> Any:
         if samples:
             scene.release.set()
         return finished(lane)
 
     monkeypatch.setattr(cli.telemetry, "level", level)
     monkeypatch.setattr(spans, "record_sample", sampled)
-    monkeypatch.setattr(RestackLane, "finished", asked_when_one_ends)
+    monkeypatch.setattr(ResolutionLane, "finished", asked_when_one_ends)
 
     assert scene.tick() == 0
 

@@ -9,7 +9,7 @@ from typing import Any
 
 import pytest
 
-from agent_build_kit.pipeline.restack_lane import (
+from agent_build_kit.pipeline.resolution_lane import (
     clear_answered_feedback,
     moved_base_units,
     owed_a_moved_base_run,

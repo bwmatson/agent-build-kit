@@ -631,14 +631,49 @@ def alias_runtimes_account_slots(document: dict[str, Any]) -> dict[str, Any]:
     return document
 
 
+# The resolution lane's cap was `max_concurrent_restacks`, when the lane only restacked.
+RESOLUTION_CAP = "max_concurrent_resolutions"
+DEPRECATED_RESOLUTION_CAP = "max_concurrent_restacks"
+
+
+def _project_limits_places(document: dict[str, Any]) -> list[tuple[str, ...]]:
+    """The key path of each `project_limits` mapping in a raw document: the root's and each
+    account's."""
+    places: list[tuple[str, ...]] = []
+    if isinstance(document.get(PROJECT_LIMITS), dict):
+        places.append((PROJECT_LIMITS,))
+    for path in account_paths(document):
+        account = document
+        for step in path:
+            account = account[step]
+        if isinstance(account.get(PROJECT_LIMITS), dict):
+            places.append((*path, PROJECT_LIMITS))
+    return places
+
+
+def alias_resolution_cap(document: dict[str, Any]) -> dict[str, Any]:
+    """`document` with `max_concurrent_restacks` renamed to `max_concurrent_resolutions` in each
+    `project_limits`; a block that sets both spellings is refused."""
+    for place in _project_limits_places(document):
+        try:
+            document = _updated_at(
+                document,
+                place,
+                lambda block: renamed_key(block, DEPRECATED_RESOLUTION_CAP, RESOLUTION_CAP),
+            )
+        except ValueError as error:
+            raise ValueError(f"{'.'.join(place)}: {error}") from error
+    return document
+
+
 class ProjectLimitsConfig(Frozen):
     """The scheduling settings (`project_limits`), configured once at the root for every project."""
 
     # How many units are implemented at once in one project (a repo's project).
     max_concurrent_stacks: int = 4
-    # How many restacks (moving a unit's branch onto a changed base) run at once in one
-    # project, in a lane apart from the build workers: a restack takes no build slot.
-    max_concurrent_restacks: Annotated[int, Field(ge=1)] = 2
+    # How many runs (a restack, a moved-base run, a comment rework) the resolution lane holds at
+    # once in one project, apart from the build workers: a run takes no build slot.
+    max_concurrent_resolutions: Annotated[int, Field(ge=1)] = 2
     # How many units may be started and not finished at once in one project (a repo's project).
     # At it no unit that has never started does; what drains the queue
     # (finishing, rework, resuming, a further review round) still runs.
@@ -646,6 +681,13 @@ class ProjectLimitsConfig(Frozen):
 
     # The cap on priority-0 units started past the normal limits at once; 0 is off.
     emergency_extra: Annotated[int, Field(ge=0)] = 1
+
+    @model_validator(mode="before")
+    @classmethod
+    def _read_old_cap(cls, data: Any) -> Any:
+        if not isinstance(data, dict):
+            return data
+        return renamed_key(data, DEPRECATED_RESOLUTION_CAP, RESOLUTION_CAP)
 
 
 class AccountConfig(Frozen):
@@ -772,7 +814,7 @@ class TestKindSettings(Frozen):
 MOVED_TO_PROJECT_LIMITS = (
     "max_units_in_progress",
     "max_concurrent_stacks",
-    "max_concurrent_restacks",
+    DEPRECATED_RESOLUTION_CAP,
 )
 
 
@@ -1599,6 +1641,8 @@ def deprecation_notice(key: str) -> str:
         )
     if key.startswith("runtimes.") and key.endswith(f".{DEPRECATED_USAGE_LIMITS}"):
         return f"`{key}` is renamed `{USAGE_LIMITS}`; `abk config --migrate` renames it"
+    if key.endswith(f".{DEPRECATED_RESOLUTION_CAP}"):
+        return f"`{key}` is renamed `{RESOLUTION_CAP}`; `abk config --migrate` renames it"
     if _is_account_slots_key(key):
         return (
             f"`{key}` is moved to `{PROJECT_LIMITS}.{DEPRECATED_ACCOUNT_SLOTS}`; "
@@ -2240,8 +2284,9 @@ def _refuse_moved_settings(document: dict[str, Any]) -> None:
             continue
         for name in MOVED_TO_PROJECT_LIMITS:
             if name in block:
+                now = RESOLUTION_CAP if name == DEPRECATED_RESOLUTION_CAP else name
                 raise ValueError(
-                    f"{key}.{name}: moved to project_limits.{name}; `abk config --migrate` moves it"
+                    f"{key}.{name}: moved to project_limits.{now}; `abk config --migrate` moves it"
                 )
         # A project setting that never lived there: refused with where it belongs, and no
         # migration to offer.
@@ -2261,7 +2306,11 @@ def _renamed(document: dict[str, Any] | None, file: Path) -> dict[str, Any] | No
     try:
         _refuse_moved_settings(document)
         renamed = read_new_settings(
-            _alias_limits(alias_runtimes_account_slots(alias_runtimes_usage_limits(document)))
+            _alias_limits(
+                alias_resolution_cap(
+                    alias_runtimes_account_slots(alias_runtimes_usage_limits(document))
+                )
+            )
         )
         if isinstance(renamed.get("builders"), dict):
             renamed = {**renamed, "builders": rename_builders_key(renamed["builders"])}
@@ -2347,6 +2396,14 @@ def deprecations_of(*documents: dict[str, Any] | None) -> list[str]:
             key = ".".join((*path, DEPRECATED_ACCOUNT_SLOTS))
             if DEPRECATED_ACCOUNT_SLOTS in mapping and key not in found:
                 found.append(key)
+    for raw in raws:
+        for place in _project_limits_places(raw):
+            block = raw
+            for step in place:
+                block = block[step]
+            key = ".".join((*place, DEPRECATED_RESOLUTION_CAP))
+            if DEPRECATED_RESOLUTION_CAP in block and key not in found:
+                found.append(key)
     builders = [raw.get("builders") for raw in raws]
     if any(isinstance(block, dict) and DEPRECATED_BUILDERS_KEY in block for block in builders):
         found.append(DEPRECATED_BUILDERS_SETTING)
@@ -2407,25 +2464,38 @@ def models_notices(path: Path) -> list[ModelsNotice]:
     return notices
 
 
-def usage_limits_notices(path: Path) -> list[str]:
-    """One notice, with the file and line, for each `limits` key under a runtime or account in
-    the overlay of the file at `path`. `abk config --migrate` never edits the overlay, so each
-    line is to be changed by hand."""
+def _overlay_root(path: Path) -> tuple[Path, yaml.MappingNode] | None:
+    """The overlay of the file at `path` and its composed root mapping, None when the overlay is
+    missing, unreadable, not YAML or not a mapping."""
     local = overlay_path(path)
     try:
         documents = list(yaml.compose_all(local.read_text()))
     except (OSError, yaml.YAMLError):
-        return []
+        return None
     root = documents[0] if documents else None
-    if not isinstance(root, yaml.MappingNode):
+    return (local, root) if isinstance(root, yaml.MappingNode) else None
+
+
+def _overlay_notice(local: Path, key: yaml.ScalarNode, action: str, where: tuple[str, ...]) -> str:
+    """`file:line: action (where)`, the line being the one `key` is written on."""
+    return f"{local}:{key.start_mark.line + 1}: {action} ({'.'.join(where)})"
+
+
+def usage_limits_notices(path: Path) -> list[str]:
+    """One notice, with the file and line, for each `limits` key under a runtime or account in
+    the overlay of the file at `path`. `abk config --migrate` never edits the overlay, so each
+    line is to be changed by hand."""
+    overlay = _overlay_root(path)
+    if overlay is None:
         return []
+    local, root = overlay
     notices = []
     for keys, _, holder in usage_limits_holders(root):
         found = pair(holder, DEPRECATED_USAGE_LIMITS)
         if found is not None:
+            action = f"rename `{DEPRECATED_USAGE_LIMITS}` to `{USAGE_LIMITS}`"
             notices.append(
-                f"{local}:{found[0].start_mark.line + 1}: rename `{DEPRECATED_USAGE_LIMITS}` "
-                f"to `{USAGE_LIMITS}` ({'.'.join((*keys, DEPRECATED_USAGE_LIMITS))})"
+                _overlay_notice(local, found[0], action, (*keys, DEPRECATED_USAGE_LIMITS))
             )
     return notices
 
@@ -2434,22 +2504,40 @@ def account_slots_notices(path: Path) -> list[str]:
     """One notice, with the file and line, for each account's `max_units_in_progress` in the
     overlay of the file at `path`. `abk config --migrate` never edits the overlay, so each line is
     to be moved by hand."""
-    local = overlay_path(path)
-    try:
-        documents = list(yaml.compose_all(local.read_text()))
-    except (OSError, yaml.YAMLError):
+    overlay = _overlay_root(path)
+    if overlay is None:
         return []
-    root = documents[0] if documents else None
-    if not isinstance(root, yaml.MappingNode):
-        return []
+    local, root = overlay
     notices = []
     for keys, _, holder in account_holders(root):
         found = pair(holder, DEPRECATED_ACCOUNT_SLOTS)
         if found is not None:
+            action = f"move `{DEPRECATED_ACCOUNT_SLOTS}` under `{PROJECT_LIMITS}`"
             notices.append(
-                f"{local}:{found[0].start_mark.line + 1}: move `{DEPRECATED_ACCOUNT_SLOTS}` "
-                f"under `{PROJECT_LIMITS}` ({'.'.join((*keys, DEPRECATED_ACCOUNT_SLOTS))})"
+                _overlay_notice(local, found[0], action, (*keys, DEPRECATED_ACCOUNT_SLOTS))
             )
+    return notices
+
+
+def resolution_cap_notices(path: Path) -> list[str]:
+    """One notice, with the file and line, for each `max_concurrent_restacks` in a
+    `project_limits` of the overlay of the file at `path`. `abk config --migrate` never edits the
+    overlay, so each line is to be renamed by hand."""
+    overlay = _overlay_root(path)
+    if overlay is None:
+        return []
+    local, root = overlay
+    holders = [((), root)] + [(keys, holder) for keys, _, holder in account_holders(root)]
+    notices = []
+    for keys, holder in holders:
+        limits = pair(holder, PROJECT_LIMITS)
+        if limits is None or not isinstance(limits[1], yaml.MappingNode):
+            continue
+        found = pair(limits[1], DEPRECATED_RESOLUTION_CAP)
+        if found is not None:
+            action = f"rename `{DEPRECATED_RESOLUTION_CAP}` to `{RESOLUTION_CAP}`"
+            where = (*keys, PROJECT_LIMITS, DEPRECATED_RESOLUTION_CAP)
+            notices.append(_overlay_notice(local, found[0], action, where))
     return notices
 
 

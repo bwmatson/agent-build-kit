@@ -15,7 +15,7 @@ from typing import Any
 import pytest
 
 from agent_build_kit.pipeline import events
-from agent_build_kit.pipeline.restack_lane import RestackLane
+from agent_build_kit.pipeline.resolution_lane import ResolutionLane
 from agent_build_kit.pipeline.unit_store import Cause, HeldBy, StoredUnit, UnitStore
 from agent_build_kit.pipeline.units import HELD, IN_REVIEW, PLANNED, RUNNING, SETTLING
 from agent_build_kit.pipeline.workspaces import branch_lock
@@ -67,7 +67,7 @@ def moves() -> Restacks:
 
 
 @pytest.fixture
-def lane(locks: Path, moves: Restacks) -> Iterator[RestackLane]:
+def lane(locks: Path, moves: Restacks) -> Iterator[ResolutionLane]:
     with lane_over(locks, moves, cap=2) as lane:
         yield lane
         moves.release_all()
@@ -75,7 +75,7 @@ def lane(locks: Path, moves: Restacks) -> Iterator[RestackLane]:
 
 
 def merge(
-    store: UnitStore, locks: Path, restack: Any, lane: RestackLane, *, pr: int = 1, **kwargs: Any
+    store: UnitStore, locks: Path, restack: Any, lane: ResolutionLane, *, pr: int = 1, **kwargs: Any
 ) -> bool:
     return events.on_merged(
         pr,
@@ -90,7 +90,7 @@ def merge(
 
 
 def test_a_merge_with_every_build_slot_taken_starts_the_childs_restack_at_once(
-    store: UnitStore, locks: Path, lane: RestackLane
+    store: UnitStore, locks: Path, lane: ResolutionLane
 ) -> None:
     restack = Blocked()
 
@@ -104,7 +104,7 @@ def test_a_merge_with_every_build_slot_taken_starts_the_childs_restack_at_once(
 
 
 def test_the_handler_does_not_hold_the_childs_claim_across_the_move(
-    store: UnitStore, locks: Path, lane: RestackLane
+    store: UnitStore, locks: Path, lane: ResolutionLane
 ) -> None:
     restack = Blocked()
 
@@ -118,7 +118,7 @@ def test_the_handler_does_not_hold_the_childs_claim_across_the_move(
 
 
 def test_a_child_whose_resolver_is_blocked_does_not_hold_up_the_poll(
-    store: UnitStore, locks: Path, lane: RestackLane
+    store: UnitStore, locks: Path, lane: ResolutionLane
 ) -> None:
     restack = Blocked()
 
@@ -132,7 +132,7 @@ def test_a_child_whose_resolver_is_blocked_does_not_hold_up_the_poll(
 
 
 def test_the_merged_units_branch_is_kept_until_the_last_child_has_moved(
-    store: UnitStore, locks: Path, lane: RestackLane
+    store: UnitStore, locks: Path, lane: ResolutionLane
 ) -> None:
     restack = Blocked()
     removed: list[tuple[str, str]] = []
@@ -159,7 +159,7 @@ def test_the_merged_units_branch_is_kept_until_the_last_child_has_moved(
 
 
 def test_a_child_that_could_not_be_moved_keeps_the_merged_units_branch(
-    store: UnitStore, locks: Path, lane: RestackLane
+    store: UnitStore, locks: Path, lane: ResolutionLane
 ) -> None:
     deleted: list[tuple[str, str]] = []
 
@@ -180,7 +180,7 @@ def test_a_child_that_could_not_be_moved_keeps_the_merged_units_branch(
 
 
 def test_a_child_with_a_thread_is_told_its_base_moved_and_handed_to_the_lane(
-    store: UnitStore, locks: Path, lane: RestackLane, moves: Restacks
+    store: UnitStore, locks: Path, lane: ResolutionLane, moves: Restacks
 ) -> None:
     told: list[tuple[str, str, str]] = []
 

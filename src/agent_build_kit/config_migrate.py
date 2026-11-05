@@ -21,8 +21,10 @@ from agent_build_kit.config import (
     BUILDERS_KEY,
     DEPRECATED_ACCOUNT_SLOTS,
     DEPRECATED_BUILDERS_KEY,
+    DEPRECATED_RESOLUTION_CAP,
     DEPRECATED_ROOT_KEY,
     DEPRECATED_USAGE_LIMITS,
+    RESOLUTION_CAP,
     USAGE_LIMITS,
     WorkspaceConfig,
     alias_runtimes_account_slots,
@@ -156,7 +158,7 @@ def migrate(
     `machine`, it then moves the machine settings to the local file's text."""
     moved = _move_limits(_move_ceiling(text))
     renamed = _rename_usage_limits(_rename_builders_key(_rename_test_kind_keys(moved.text)))
-    text = _move_models(_move_account_slots(renamed), runtime)
+    text = _move_models(_rename_resolution_cap(_move_account_slots(renamed)), runtime)
     if machine is None:
         return Migrated(text=text, moved=moved.moved)
     machine_move = move_machine_settings(text, machine)
@@ -579,6 +581,36 @@ def _rename_usage_limits(text: str) -> str:
     if written != expected:
         raise differs
     return result
+
+
+def _rename_resolution_cap(text: str) -> str:
+    """`text` with `max_concurrent_restacks` renamed to `max_concurrent_resolutions` in the root
+    `project_limits` and each account's, on its own line; both spellings in one block, or a key
+    with an anchor, an alias or a quote, is refused."""
+    try:
+        documents = list(yaml.compose_all(text))
+    except yaml.YAMLError:
+        return text  # the other edits report a file that does not parse
+    root = documents[0] if documents else None
+    if not isinstance(root, yaml.MappingNode):
+        return text
+    lines = split_lines(text)
+    holders = [((), root)] + [(path, holder) for path, _, holder in account_holders(root)]
+    for path, holder in holders:
+        block = pair(holder, PROJECT)
+        if block is None or not isinstance(block[1], yaml.MappingNode):
+            continue
+        found = pair(block[1], DEPRECATED_RESOLUTION_CAP)
+        if found is None:
+            continue
+        old = ".".join((*path, PROJECT, DEPRECATED_RESOLUTION_CAP))
+        if pair(block[1], RESOLUTION_CAP) is not None:
+            raise refuse(
+                old,
+                f"`{DEPRECATED_RESOLUTION_CAP}` and `{RESOLUTION_CAP}` are both set; keep one",
+            )
+        rename_on_line(lines, found[0], DEPRECATED_RESOLUTION_CAP, RESOLUTION_CAP, old)
+    return joined(lines, text)
 
 
 def _slots_refusal(where: str, reason: str) -> ConfigMigrateError:

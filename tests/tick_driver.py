@@ -21,7 +21,7 @@ from agent_build_kit.graph.state import Node
 from agent_build_kit.graph.unit import thread_position
 from agent_build_kit.installation import Installation
 from agent_build_kit.pipeline.events import Review
-from agent_build_kit.pipeline.restack_lane import Lane
+from agent_build_kit.pipeline.resolution_lane import Lane
 from agent_build_kit.pipeline.usage_guard import Decision
 from tests.conftest import make_installation
 from tests.graph_driver import GRAPH_DRIVER_TIME_LIMIT, fresh

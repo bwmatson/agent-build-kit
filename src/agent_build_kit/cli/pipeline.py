@@ -240,19 +240,11 @@ from agent_build_kit.pipeline.pr_replies import build_post_replies, ignored, par
 from agent_build_kit.pipeline.product_defect import preview as preview_defect
 from agent_build_kit.pipeline.product_defect import product_defect_record
 from agent_build_kit.pipeline.regression_agent import CAPPED_NOTE, judgement_of, run_room
-from agent_build_kit.pipeline.restack import (
-    ConflictSession,
-    Moved,
-    TemporaryTree,
-    checked_out_at,
-    push_with_lease,
-    resolved_move,
-)
-from agent_build_kit.pipeline.restack_lane import (
+from agent_build_kit.pipeline.resolution_lane import (
     Lane,
+    ResolutionLane,
+    ResolutionLanes,
     Rest,
-    RestackLane,
-    RestackLanes,
     base_tip,
     forget_run_attempt,
     hold_if_spent,
@@ -261,6 +253,14 @@ from agent_build_kit.pipeline.restack_lane import (
     owed_units,
     record_path,
     record_run_attempt,
+)
+from agent_build_kit.pipeline.restack import (
+    ConflictSession,
+    Moved,
+    TemporaryTree,
+    checked_out_at,
+    push_with_lease,
+    resolved_move,
 )
 from agent_build_kit.pipeline.review_order import review_order, review_tiers
 from agent_build_kit.pipeline.review_outcome_sweep import sweep_outcomes
@@ -856,7 +856,7 @@ def restacking_bases(inst: Installation) -> dict[str, str]:
 
 
 def _restack_lines(inst: Installation, units: list[StoredUnit]) -> list[str]:
-    """`restacks: N running, M waiting`, and each unit restacking onto its base. A unit owed a
+    """`resolving: N running, M waiting`, and each unit resolving its base. A unit owed a
     restack that the lane does not hold yet waits too, and while a pause stands it says so."""
     held = lane_record(inst.state_dir)
     in_lane = {entry["unit"] for entry in held}
@@ -866,19 +866,19 @@ def _restack_lines(inst: Installation, units: list[StoredUnit]) -> list[str]:
     waiting = [entry for entry in held if entry["status"] != "running"]
     if not (running or waiting or owed):
         return []
-    lines = [f"restacks: {len(running)} running, {len(waiting) + len(owed)} waiting"]
+    lines = [f"resolving: {len(running)} running, {len(waiting) + len(owed)} waiting"]
     for entry in [*running, *waiting]:
         where = f" ({unit_label(by_id[entry['unit']])})" if entry["unit"] in by_id else ""
-        lines.append(f"  {entry['unit']}{where} restacking onto {entry['base']}")
+        lines.append(f"  {entry['unit']}{where} resolving base {entry['base']}")
     for unit_id in owed:
         unit = by_id[unit_id]
         pause = _paused_for(inst, unit)
         if pause is None or unit.cause is not Cause.RESTACK_DEFERRED:
             # Not deferred by a pause: a clean move proceeds during one.
-            lines.append(f"  {unit.id} ({unit_label(unit)}) restacking onto {base_of(unit, units)}")
+            lines.append(f"  {unit.id} ({unit_label(unit)}) resolving base {base_of(unit, units)}")
             continue
         verb = "usage pause" if pause.kind == "usage" else "paused"
-        lines.append(f"  restack waiting: {unit.id} — {pause_line(pause, verb=verb)}")
+        lines.append(f"  resolving waiting: {unit.id} — {pause_line(pause, verb=verb)}")
     return lines
 
 
@@ -6641,8 +6641,8 @@ def build_turned_move(
     return move
 
 
-def build_restack_lane(inst: Installation, store: UnitStore) -> RestackLanes:
-    """The tick's lanes, one for each project: each has `project_limits.max_concurrent_restacks`
+def build_restack_lane(inst: Installation, store: UnitStore) -> ResolutionLanes:
+    """The tick's lanes, one for each project: each has `project_limits.max_concurrent_resolutions`
     workers apart from the build workers, moving a unit onto the base it has when it starts."""
 
     refusals: set[str] = set()
@@ -6800,9 +6800,9 @@ def build_restack_lane(inst: Installation, store: UnitStore) -> RestackLanes:
         ]
         return heads[0], heads[1]
 
-    def make(key: ProjectKey) -> RestackLane:
-        return RestackLane(
-            inst.max_concurrent_restacks,
+    def make(key: ProjectKey) -> ResolutionLane:
+        return ResolutionLane(
+            inst.max_concurrent_resolutions,
             move=move_unit,
             claim=moves["claim"],
             stamp=stamp,
@@ -6816,10 +6816,10 @@ def build_restack_lane(inst: Installation, store: UnitStore) -> RestackLanes:
             log=log,
         )
 
-    lanes = RestackLanes(
+    lanes = ResolutionLanes(
         make,
         owed=lambda units: owed_units(inst, units),
-        # An account that sets `max_concurrent_restacks` is held to it across its projects' lanes.
+        # An account that sets `max_concurrent_resolutions` is held to it across its lanes.
         account_of=_slot_of(inst),
         account_cap=_slot_restack_limit(inst),
     )

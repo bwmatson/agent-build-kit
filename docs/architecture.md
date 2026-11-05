@@ -362,7 +362,7 @@ starts among the new units by the order below, so it never goes ahead of a more 
 within the limit and `max_concurrent_stacks`. A unit whose only reason to run is that its base moved runs
 its whole moved-base run in the restack lane: the merge, release and depth handlers, and the poller on a conflicting
 pull request, hand each such unit to the restack lane of the unit's project (each project has its own lane, with
-`project_limits.max_concurrent_restacks` workers and a queue in the order restacks were seen, so a busy project does not
+`project_limits.max_concurrent_resolutions` workers and a queue in the order restacks were seen, so a busy project does not
 hold back another's) instead of restacking inline. The lane's cap bounds the moved-base run: it is the move, the
 resolver, the port of a conflict the resolver could not settle and the checks and review of the moved branch, and it
 stops before any work that is not about the move (a rework of other feedback, a fix of checks, the end-to-end tests, tests or implementation), leaving the unit
@@ -383,7 +383,7 @@ a scheduling bug, not a queue.
 
 An account takes the same project limits as the top level (`runtimes.claude_code.accounts.<label>.project_limits`,
 the same type, resolved by one function), and only the fields it sets apply: a field it leaves out
-adds no cap. `max_concurrent_stacks`, `max_concurrent_restacks` and `emergency_extra` of an account's
+adds no cap. `max_concurrent_stacks`, `max_concurrent_resolutions` and `emergency_extra` of an account's
 `project_limits` are counted for the account across its projects, beside each project's own cap, and a
 unit needs room under both. The stack count includes units running in the restack lane. The restack
 lanes of one account's projects share a counter: a restack held by the account's cap waits and starts at

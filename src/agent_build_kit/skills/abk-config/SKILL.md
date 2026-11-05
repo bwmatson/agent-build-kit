@@ -164,7 +164,7 @@ context:
 # Scheduling is set once for every project; there is no per-repo override.
 project_limits:
   max_concurrent_stacks: 4    # units implemented at once, in each project
-  max_concurrent_restacks: 2  # moved-base runs (a branch moved onto a changed base, and the run after it) at once, in each project; never held back by max_concurrent_stacks
+  max_concurrent_resolutions: 2  # moved-base runs (a branch moved onto a changed base, and the run after it) at once, in each project; never held back by max_concurrent_stacks
   max_units_in_progress: 5    # (counted per account instead, against the account's `project_limits.max_units_in_progress`, once an account is named) started, unfinished units (>= 1) in each project, not counting blocked or failed-waiting ones; at it no never-started unit starts
   emergency_extra: 1          # the emergency lane cap, in each project: priority-0 units that may start past the limits above (default 1; 0 is off)
 
@@ -549,7 +549,7 @@ An account named in `abk.local.yaml` (`runtimes.claude_code.accounts.<label>`) t
 `usage_limits` and an account's `project_limits`: a block of the same type as the top-level
 `project_limits`, with the same four settings and bounds. Only the fields the account sets apply to
 it, and the default account has none.
-`max_concurrent_stacks`, `max_concurrent_restacks` and `emergency_extra` are counted for the account
+`max_concurrent_stacks`, `max_concurrent_resolutions` and `emergency_extra` are counted for the account
 across its projects, beside each project's own cap, and a unit needs room under both; the account's
 `max_units_in_progress` replaces the project's value for the account's slot.
 `accounts.<label>.max_units_in_progress` is deprecated for

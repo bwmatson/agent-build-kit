@@ -21,7 +21,7 @@ from agent_build_kit.forges.transport import HostUnavailable
 from agent_build_kit.installation import Installation
 from agent_build_kit.pipeline.lease import Leases, lease_dir
 from agent_build_kit.pipeline.pause import PAUSE_MARKER, pause_in_force
-from agent_build_kit.pipeline.restack_lane import RestackLanes
+from agent_build_kit.pipeline.resolution_lane import ResolutionLanes
 from agent_build_kit.pipeline.stack_runner import RunOutcome, RunStatus
 from agent_build_kit.pipeline.unit_store import Cause, StoredUnit, UnitStore
 from agent_build_kit.pipeline.units import FAILED, HELD, IN_REVIEW, PLANNED, RUNNING, branch_name
@@ -99,7 +99,7 @@ class Scene:
         self.flagged.append(self.store.get(unit.id).moved_base_run)
         return self.ends(unit)
 
-    def lane_moves(self) -> RestackLanes:
+    def lane_moves(self) -> ResolutionLanes:
         with cli.build_restack_lane(self.inst, self.store) as lanes:
             lanes.scan(self.store.all())
         return lanes
@@ -120,7 +120,7 @@ def test_a_move_left_for_its_run_is_followed_by_the_run_in_the_same_lane_worker(
 
     assert scene.moves.count(MOVED) == 1
     assert scene.ran == [MOVED]
-    assert scene.threads == ["restack"], "a worker of the lane, not a build worker"
+    assert scene.threads == ["resolve"], "a worker of the lane, not a build worker"
     assert scene.held == [True], "the run holds the unit's branch"
 
 
@@ -294,7 +294,7 @@ def test_a_tick_makes_the_moved_base_run_in_the_lane_and_submits_only_builds_to_
     assert where["first/1"].startswith("unit"), "the build ran on the pool's thread"
     assert len(submitted) == 1, "and only it was submitted to the pool"
     assert scene.ran.count(MOVED) == 1
-    assert where[MOVED] == "restack", "the moved-base run ran in the lane, not on the pool"
+    assert where[MOVED] == "resolve", "the moved-base run ran in the lane, not on the pool"
 
 
 def test_a_lane_run_the_usage_window_refused_waits_for_the_pause_to_end_before_it_is_made_again(

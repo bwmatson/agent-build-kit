@@ -575,7 +575,7 @@ resumes. `abk manual list` shows every outstanding step with its runbook and las
   or `runtimes.claude_code.accounts`), they count per resolved account against that
   account's slot value instead, and a label with no directory counts as the default account. An account's
   `project_limits` takes the same four settings as the top level: its `max_concurrent_stacks`,
-  `max_concurrent_restacks` and `emergency_extra` are counted for the account across its projects,
+  `max_concurrent_resolutions` and `emergency_extra` are counted for the account across its projects,
   beside each project's own cap, and a unit needs room under both (a unit held by the account's cap
   says so in its wait reason); its `max_units_in_progress` replaces the project's value for the account's slot. A failed unit holds its slot until it is requeued and
   finishes, or closed: free one that way. A started unit that a usage pause parked before its
@@ -638,15 +638,15 @@ directory is gone is logged as withdrawn and skipped.
 
 A unit whose only reason to run is that its base moved runs its whole moved-base run in the
 restack lane. The lane's cap bounds the moved-base run: each project has its own lane, with
-`project_limits.max_concurrent_restacks` workers, so a busy project does not hold back another's.
+`project_limits.max_concurrent_resolutions` workers, so a busy project does not hold back another's.
 The run counts toward slot occupancy (no build starts at or above `max_concurrent_stacks`, and the
 occupancy may read over it) and is never held back by the limit on build workers. A run that
 cannot go on is handed back: the unit is `planned` with `restack_handed_back` and a note naming
 the step, and a build worker takes it; `restack_conflict` is the same for a conflict the lane left
 to the unit's own run. Attempts at one base tip are bounded by `max_review_rounds`; then the review loop holds the unit (`held_by` review, `needs_human`) with a note naming the base, the tip, the count of attempts and how the last run ended. Its exit is the review-loop exit: decide, then `abk requeue`, after which it is owed a run again with the count kept for that tip. `abk status` prints one
-`restacks: N running, M waiting` line totalling every project's lane, with each unit as
-`restacking onto <base>`; a restack whose conflict needs the agent while a usage pause stands is
-listed as `restack waiting: <unit> — usage pause until <time>` and is moved when the pause ends.
+`resolving: N running, M waiting` line totalling every project's lane, with each unit as
+`resolving base <base>`; a restack whose conflict needs the agent while a usage pause stands is
+listed as `resolving waiting: <unit> — usage pause until <time>` and is moved when the pause ends.
 A clean move needs no agent and proceeds during a pause.
 
 ## When the pipeline is paused

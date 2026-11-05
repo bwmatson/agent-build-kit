@@ -172,7 +172,7 @@ the tip and how the last run ended, and a new tip starts the count again. Every 
 run asks the usage guard first; a refusal defers the run, which the lane resumes once the guard allows,
 as it does a run the process lost. The limits are counted for each project, not across all repos; once an installation names a Claude account, units in progress are counted for each account instead,
 against its value. An account's `project_limits` adds second caps for the account:
-`max_concurrent_stacks`, `max_concurrent_restacks` and `emergency_extra` are counted for the account
+`max_concurrent_stacks`, `max_concurrent_resolutions` and `emergency_extra` are counted for the account
 across its projects, beside each project's own cap, and a unit needs room under both (a unit running in
 the restack lane counts toward the account's stacks). Its `max_units_in_progress` replaces the project's
 value for the account's slot.

@@ -9,6 +9,8 @@ import pytest
 from agent_build_kit import config
 
 MOVED = ["max_units_in_progress", "max_concurrent_stacks", "max_concurrent_restacks"]
+# Where a moved setting lives now: the restack cap under its current name.
+NOW = {"max_concurrent_restacks": "max_concurrent_resolutions"}
 
 
 def load_text(tmp_path: Path, text: str) -> config.WorkspaceConfig:
@@ -26,7 +28,7 @@ def test_a_moved_setting_under_global_limits_names_the_key_and_the_way_out(
 
     message = str(refused.value)
     assert f"global_limits.{name}" in message
-    assert f"project_limits.{name}" in message
+    assert f"project_limits.{NOW.get(name, name)}" in message
     assert "abk config --migrate" in message
 
 
@@ -38,7 +40,7 @@ def test_a_moved_setting_under_the_old_key_names_it_as_written(tmp_path: Path, n
     message = str(refused.value)
     assert f"limits.{name}" in message
     assert f"global_limits.{name}" not in message
-    assert f"project_limits.{name}" in message
+    assert f"project_limits.{NOW.get(name, name)}" in message
     assert "abk config --migrate" in message
 
 

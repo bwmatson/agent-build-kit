@@ -73,7 +73,7 @@ except a deploy-and-test verification (up to 3,600 s per deploy), which becomes 
 
 `abk worker <kind> <unit>` runs one piece of work, started by the dispatcher as a **transient systemd unit** (`systemd-run --user --collect --unit abk-<installation>-worker-<unit>-<n>`), with a
 `Popen(start_new_session=True)` fallback where the user manager is not available. A `build` worker loads the current kit code and configuration, takes the branch lock, runs the unit's graph to its next wait (review, a park, a failure or done),
-records the outcome, releases the lock, **pokes the dispatcher** and exits. The kinds are `build`, `restack` (today's restack lane, limited by `max_concurrent_restacks`) and `verify`.
+records the outcome, releases the lock, **pokes the dispatcher** and exits. The kinds are `build`, `restack` (today's restack lane, limited by `max_concurrent_resolutions`) and `verify`.
 
 Each worker is its own cgroup. A memory ceiling (`MemoryMax`) and a CPU weight can be set per worker, and an out-of-memory kill takes one worker, not every build in a process.
 
@@ -102,7 +102,7 @@ Everything a worker needs to *know* about the outside world comes from **snapsho
 
 The in-memory pool and `_pool_size` go. Occupancy comes from durable facts: **live branch locks**, identified by pid **and process start time** (as leases already are, so a reused pid cannot hold a slot), plus leases, per
 project and per account, against the unchanged limits. An account's `project_limits` is one of them:
-`max_concurrent_stacks`, `max_concurrent_restacks` and `emergency_extra` are counted for the account
+`max_concurrent_stacks`, `max_concurrent_resolutions` and `emergency_extra` are counted for the account
 across its projects, beside each project's own cap, and its `max_units_in_progress` replaces the
 project's value for the account's slot. Admission and a **`starting` marker** (a worker id and a short time to live) are written under one **admission lock**, so two dispatchers can never exceed a limit; a worker that
 never started leaves its unit `planned` when the marker expires.

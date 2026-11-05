@@ -11,7 +11,7 @@ from typing import Any
 import pytest
 
 from agent_build_kit.graph.state import Node
-from agent_build_kit.pipeline.restack_lane import moved_base_units
+from agent_build_kit.pipeline.resolution_lane import moved_base_units
 from agent_build_kit.pipeline.unit_store import Cause
 from agent_build_kit.pipeline.units import PLANNED, RUNNING
 from tests.factories import git

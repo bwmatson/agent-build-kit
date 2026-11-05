@@ -19,6 +19,13 @@
   a unit-test slot since <time>` while it waits, and `settling: late check running on the default
   branch` once it runs.
 
+- The restack lane is now the resolution lane: `abk status` prints `resolving: N running, M waiting`
+  and `<unit> resolving base <name>`, and the lane's worker thread is named `resolve`. The cap
+  `project_limits.max_concurrent_restacks` is renamed `max_concurrent_resolutions`; the old key still
+  loads as the same value with a deprecation notice, is refused beside the new one, and
+  `abk config --migrate` renames it. An `abk.local.yaml` that sets the old key gets a notice naming
+  the line to change. The old key is dropped in a later release.
+
 - `abk project init` now writes `abk.yaml` under a lock beside the file (`abk.yaml.lock`), which
   the project edits take and other writers of the file do not, after keeping the first original
   as `abk.yaml.abk-backup`, so two project edits at once cannot lose one; its refusals are

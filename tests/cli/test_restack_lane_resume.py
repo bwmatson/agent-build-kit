@@ -87,7 +87,7 @@ def test_the_lane_resumes_a_flagged_unit_at_its_node_and_a_build_worker_never_do
     scene.lane_scans()
 
     assert scene.ran == [UNIT]
-    assert scene.threads == ["restack"]
+    assert scene.threads == ["resolve"]
     assert scene.offered() == []
 
 
@@ -114,7 +114,7 @@ def test_a_flag_left_by_a_killed_process_is_resumed_by_the_next_scan_in_the_lane
     scene.lane_scans()
 
     assert scene.ran == [UNIT]
-    assert scene.threads == ["restack"]
+    assert scene.threads == ["resolve"]
 
 
 def test_a_lane_that_met_the_held_branch_runs_the_flagged_unit_when_it_is_free(

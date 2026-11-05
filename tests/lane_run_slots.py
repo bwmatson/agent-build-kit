@@ -17,7 +17,7 @@ import pytest
 
 from agent_build_kit.cli import pipeline as cli
 from agent_build_kit.installation import Installation
-from agent_build_kit.pipeline.restack_lane import RestackLanes
+from agent_build_kit.pipeline.resolution_lane import ResolutionLanes
 from agent_build_kit.pipeline.unit_store import StoredUnit, UnitStore
 from agent_build_kit.pipeline.units import IN_REVIEW, ProjectKey, UnitState, project_key
 from agent_build_kit.pipeline.wait_log import DECISIONS_NAME
@@ -45,7 +45,7 @@ class Slots:
             tmp_path,
             monkeypatch,
             max_concurrent_stacks=cap,
-            max_concurrent_restacks=restacks,
+            max_concurrent_resolutions=restacks,
             max_units_in_progress=places,
         )
         isolate(monkeypatch)
@@ -53,7 +53,7 @@ class Slots:
         for unit_id in flagged:
             self.store.set_moved_base_run(unit_id, True)
         self.runs = Restacks()
-        self.lanes: RestackLanes = cli.build_restack_lane(self.inst, self.store)
+        self.lanes: ResolutionLanes = cli.build_restack_lane(self.inst, self.store)
 
     def hand_over(self, *unit_ids: str) -> None:
         """Hand each unit's run to the lane; those the lane has a worker for begin."""

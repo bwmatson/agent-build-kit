@@ -21,7 +21,7 @@ import pytest
 from agent_build_kit.cli import pipeline as cli
 from agent_build_kit.installation import Installation
 from agent_build_kit.pipeline import spans
-from agent_build_kit.pipeline.restack_lane import RestackLane
+from agent_build_kit.pipeline.resolution_lane import ResolutionLane
 from agent_build_kit.pipeline.stack_runner import RunOutcome, RunStatus
 from agent_build_kit.pipeline.unit_store import Cause, StoredUnit, UnitStore
 from agent_build_kit.pipeline.units import IN_REVIEW, PLANNED, RUNNING
@@ -70,7 +70,7 @@ class Scene:
         self.store.set_state("second/1", IN_REVIEW, pr=9, branch="spec/second/1")
         self.log: list[str] = []
         self.started: list[str] = []
-        self.lanes: list[RestackLane] = []
+        self.lanes: list[ResolutionLane] = []
         self.release = threading.Event()
         self.release_on_build = True
         self.hands_over = True
@@ -88,7 +88,7 @@ class Scene:
         }.items():
             monkeypatch.setattr(cli, name, step)
 
-    def poll(self, inst: Installation, *, store: UnitStore, lane: RestackLane) -> None:
+    def poll(self, inst: Installation, *, store: UnitStore, lane: ResolutionLane) -> None:
         self.lanes.append(lane)
         if not self.hands_over:
             return

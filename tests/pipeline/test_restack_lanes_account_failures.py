@@ -13,7 +13,7 @@ from pathlib import Path
 
 import pytest
 
-from agent_build_kit.pipeline.restack_lane import RestackLanes
+from agent_build_kit.pipeline.resolution_lane import ResolutionLanes
 from agent_build_kit.pipeline.units import ProjectKey
 from tests.pipeline.test_restack_lanes_account import Caps, account_of, lanes_of
 from tests.restack_lane_fakes import WAIT, Restacks
@@ -33,7 +33,7 @@ def made(tmp_path: Path, restacks: Restacks) -> Made:
 
 
 @pytest.fixture
-def one_at_a_time(made: Made, restacks: Restacks) -> Iterator[RestackLanes]:
+def one_at_a_time(made: Made, restacks: Restacks) -> Iterator[ResolutionLanes]:
     """Lanes of cap two each, the account `kit` allowing one restack at once."""
     yield from lanes_of(made, restacks, Caps(kit=1), account_of)
 
@@ -47,7 +47,7 @@ class FailingStart:
         real = threading.Thread.start
 
         def start(thread: threading.Thread) -> None:
-            if self.armed and thread.name == "restack":
+            if self.armed and thread.name == "resolve":
                 self.armed = False
                 self.raised += 1
                 raise RuntimeError("can't start new thread")
@@ -57,7 +57,7 @@ class FailingStart:
 
 
 def test_a_worker_that_cannot_start_leaves_the_waiting_entries_of_the_other_lanes_to_start(
-    one_at_a_time: RestackLanes,
+    one_at_a_time: ResolutionLanes,
     made: Made,
     restacks: Restacks,
     monkeypatch: pytest.MonkeyPatch,
@@ -80,7 +80,7 @@ def test_a_worker_that_cannot_start_leaves_the_waiting_entries_of_the_other_lane
 
 
 def test_the_entry_that_found_no_worker_keeps_its_place_and_its_account_place_is_returned(
-    one_at_a_time: RestackLanes,
+    one_at_a_time: ResolutionLanes,
     made: Made,
     restacks: Restacks,
     monkeypatch: pytest.MonkeyPatch,
@@ -102,7 +102,7 @@ def test_the_entry_that_found_no_worker_keeps_its_place_and_its_account_place_is
 
 
 def test_a_start_that_fails_on_a_hand_over_restores_the_queue_and_the_place(
-    one_at_a_time: RestackLanes,
+    one_at_a_time: ResolutionLanes,
     made: Made,
     restacks: Restacks,
     monkeypatch: pytest.MonkeyPatch,
@@ -121,7 +121,7 @@ def test_a_start_that_fails_on_a_hand_over_restores_the_queue_and_the_place(
 
 
 def test_a_lane_whose_restart_fails_does_not_stop_the_restart_of_the_lanes_after_it(
-    one_at_a_time: RestackLanes,
+    one_at_a_time: ResolutionLanes,
     made: Made,
     restacks: Restacks,
     monkeypatch: pytest.MonkeyPatch,

@@ -15,7 +15,7 @@ from pathlib import Path
 
 import pytest
 
-from agent_build_kit.pipeline.restack_lane import RestackLanes
+from agent_build_kit.pipeline.resolution_lane import ResolutionLanes
 from agent_build_kit.pipeline.unit_store import StoredUnit
 from tests.restack_lane_fakes import WAIT, Restacks
 from tests.restack_lanes_fakes import API, DOCS, WEB, Made, unit_of
@@ -53,20 +53,22 @@ def lanes_of(
     restacks: Restacks,
     caps: Callable[[Hashable], int | None],
     of: Callable[[StoredUnit], Hashable] = account_of,
-) -> Iterator[RestackLanes]:
-    with RestackLanes(made, owed=lambda units: made.owed, account_of=of, account_cap=caps) as lanes:
+) -> Iterator[ResolutionLanes]:
+    with ResolutionLanes(
+        made, owed=lambda units: made.owed, account_of=of, account_cap=caps
+    ) as lanes:
         yield lanes
         restacks.release_all()
         lanes.drain()
 
 
 @pytest.fixture
-def one_at_a_time(made: Made, restacks: Restacks) -> Iterator[RestackLanes]:
+def one_at_a_time(made: Made, restacks: Restacks) -> Iterator[ResolutionLanes]:
     """Lanes of cap two each, the account `kit` allowing one restack at once."""
     yield from lanes_of(made, restacks, Caps(kit=1))
 
 
-def drained_within_the_wait(lanes: RestackLanes) -> bool:
+def drained_within_the_wait(lanes: ResolutionLanes) -> bool:
     """Whether `drain` returns: a lost wakeup or a deadlock would leave it waiting."""
     drained = threading.Thread(target=lanes.drain, daemon=True)
     drained.start()
@@ -75,7 +77,7 @@ def drained_within_the_wait(lanes: RestackLanes) -> bool:
 
 
 def test_two_projects_of_a_one_restack_account_run_one_and_the_other_waits(
-    one_at_a_time: RestackLanes, restacks: Restacks
+    one_at_a_time: ResolutionLanes, restacks: Restacks
 ) -> None:
     one_at_a_time.hand_over(unit_of(1, WEB))
     assert restacks.begun["feature/1"].wait(WAIT)
@@ -88,7 +90,7 @@ def test_two_projects_of_a_one_restack_account_run_one_and_the_other_waits(
 
 
 def test_the_waiting_restack_of_the_other_lane_starts_at_once_when_the_running_one_ends(
-    one_at_a_time: RestackLanes, restacks: Restacks
+    one_at_a_time: ResolutionLanes, restacks: Restacks
 ) -> None:
     one_at_a_time.hand_over(unit_of(1, WEB))
     one_at_a_time.hand_over(unit_of(2, API))
@@ -105,7 +107,7 @@ def test_the_waiting_restack_of_the_other_lane_starts_at_once_when_the_running_o
 
 
 def test_the_restack_that_starts_at_an_end_is_already_running_when_the_end_is_announced(
-    one_at_a_time: RestackLanes, restacks: Restacks
+    one_at_a_time: ResolutionLanes, restacks: Restacks
 ) -> None:
     one_at_a_time.hand_over(unit_of(1, WEB))
     one_at_a_time.hand_over(unit_of(2, API))
@@ -121,7 +123,7 @@ def test_the_restack_that_starts_at_an_end_is_already_running_when_the_end_is_an
 
 
 def test_a_waiting_restack_of_the_ended_ones_own_lane_starts_when_it_ends(
-    one_at_a_time: RestackLanes, restacks: Restacks
+    one_at_a_time: ResolutionLanes, restacks: Restacks
 ) -> None:
     one_at_a_time.hand_over(unit_of(1, WEB))
     one_at_a_time.hand_over(unit_of(2, WEB))
@@ -144,7 +146,7 @@ def test_an_account_that_sets_no_cap_adds_none(made: Made, restacks: Restacks) -
 
 
 def test_the_default_account_adds_no_cap_though_another_account_is_full(
-    one_at_a_time: RestackLanes, restacks: Restacks
+    one_at_a_time: ResolutionLanes, restacks: Restacks
 ) -> None:
     one_at_a_time.hand_over(unit_of(1, WEB))
     one_at_a_time.hand_over(unit_of(2, API))
@@ -240,7 +242,7 @@ def test_the_lanes_say_whether_a_projects_lane_is_at_its_cap(
 
 
 def test_the_lanes_say_whether_an_account_is_at_its_cap(
-    one_at_a_time: RestackLanes, restacks: Restacks
+    one_at_a_time: ResolutionLanes, restacks: Restacks
 ) -> None:
     assert not one_at_a_time.account_full(unit_of(1, API))
 
@@ -270,7 +272,7 @@ def test_at_cap_is_true_for_a_full_lane_of_an_account_with_no_cap(
 
 
 def test_an_account_is_no_longer_at_its_cap_once_the_restack_ended(
-    one_at_a_time: RestackLanes, restacks: Restacks
+    one_at_a_time: ResolutionLanes, restacks: Restacks
 ) -> None:
     one_at_a_time.hand_over(unit_of(1, WEB))
     assert restacks.begun["feature/1"].wait(WAIT)
@@ -284,7 +286,7 @@ def test_an_account_is_no_longer_at_its_cap_once_the_restack_ended(
 
 
 def test_asking_whether_a_lane_is_full_makes_no_lane(
-    one_at_a_time: RestackLanes, made: Made
+    one_at_a_time: ResolutionLanes, made: Made
 ) -> None:
     assert not one_at_a_time.at_cap(unit_of(1, WEB))
 
@@ -316,7 +318,7 @@ def test_a_restack_may_ask_the_lanes_whether_they_are_full_while_it_runs(
     """A move asking the lanes (the overflow's question) neither deadlocks the lanes nor sees a
     torn count: its own place is already counted."""
     asked: list[bool] = []
-    holder: list[RestackLanes] = []
+    holder: list[ResolutionLanes] = []
 
     def asking(unit: StoredUnit) -> None:
         asked.append(holder[0].account_full(unit))
@@ -333,7 +335,7 @@ def test_a_restack_may_ask_the_lanes_whether_they_are_full_while_it_runs(
 
 
 def test_a_done_callback_may_hand_over_to_another_lane_of_the_account(
-    one_at_a_time: RestackLanes, restacks: Restacks
+    one_at_a_time: ResolutionLanes, restacks: Restacks
 ) -> None:
     one_at_a_time.hand_over(
         unit_of(1, WEB), done=lambda ran: one_at_a_time.hand_over(unit_of(2, API))
@@ -346,7 +348,7 @@ def test_a_done_callback_may_hand_over_to_another_lane_of_the_account(
 
 
 def test_a_restack_handed_over_twice_to_a_full_account_starts_once(
-    one_at_a_time: RestackLanes, restacks: Restacks
+    one_at_a_time: ResolutionLanes, restacks: Restacks
 ) -> None:
     one_at_a_time.hand_over(unit_of(1, WEB))
     assert restacks.begun["feature/1"].wait(WAIT)
@@ -363,7 +365,7 @@ def test_a_restack_handed_over_twice_to_a_full_account_starts_once(
 
 
 def test_the_cap_holds_under_every_one_waiting_and_ending_in_turn(
-    one_at_a_time: RestackLanes, restacks: Restacks
+    one_at_a_time: ResolutionLanes, restacks: Restacks
 ) -> None:
     keys = [WEB, API, WEB, API, WEB, API, WEB, API, WEB]
     for number, key in enumerate(keys, 1):
@@ -416,7 +418,7 @@ def test_handing_over_from_many_threads_to_many_lanes_never_exceeds_the_cap_or_s
     for lanes in lanes_of(Made(tmp_path / "locks", held), restacks, Caps(kit=1)):
         numbers = range(1, 61)
 
-        def hand(each: RestackLanes, chunk: range) -> None:
+        def hand(each: ResolutionLanes, chunk: range) -> None:
             for number in chunk:
                 each.hand_over(unit_of(number, projects[number % 3]))
 

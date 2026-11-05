@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from agent_build_kit.pipeline.restack_lane import owed_a_moved_base_run, owed_a_restack
+from agent_build_kit.pipeline.resolution_lane import owed_a_moved_base_run, owed_a_restack
 from agent_build_kit.pipeline.unit_store import Cause, StoredUnit, UnitStore
 from agent_build_kit.pipeline.units import PLANNED
 from tests.factories import unit

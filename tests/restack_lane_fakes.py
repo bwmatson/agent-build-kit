@@ -16,7 +16,7 @@ from agent_build_kit.cli import pipeline as cli
 from agent_build_kit.installation import Installation
 from agent_build_kit.pipeline import usage_guard, wiring
 from agent_build_kit.pipeline.events import build_claim
-from agent_build_kit.pipeline.restack_lane import RestackLane
+from agent_build_kit.pipeline.resolution_lane import ResolutionLane
 from agent_build_kit.pipeline.unit_store import Cause, StoredUnit
 from agent_build_kit.pipeline.units import PLANNED
 from agent_build_kit.runtimes import AgentRequest, AgentResult
@@ -27,6 +27,11 @@ from tests.runtimes.stand_in import StandInRuntime
 from tests.usage_host import Host
 
 WAIT = 60
+
+
+def printed(capsys: pytest.CaptureFixture[str]) -> list[str]:
+    """What was printed, each line without the time the log puts before it."""
+    return [line.split("] ", 1)[-1] for line in capsys.readouterr().out.splitlines()]
 
 
 class Moving:
@@ -113,8 +118,8 @@ def lane_over(
     *,
     cap: int = 2,
     owed: Callable[[list[StoredUnit]], Collection[str]] = lambda graph: (),
-) -> RestackLane:
-    return RestackLane(cap, move=move, claim=build_claim(locks), owed=owed)
+) -> ResolutionLane:
+    return ResolutionLane(cap, move=move, claim=build_claim(locks), owed=owed)
 
 
 def repo_behind(

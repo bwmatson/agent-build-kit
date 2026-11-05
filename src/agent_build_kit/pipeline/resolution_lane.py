@@ -1,8 +1,8 @@
-"""The lane restacks run in: its own workers, apart from the build pool.
+"""The resolution lane restacks run in: its own workers, apart from the build pool.
 
 A restack is the part of a unit's flow whose only cause is that its base moved.
 It takes no build slot, starts when it is seen, and runs in the order it was
-seen, at most `project_limits.max_concurrent_restacks` at once for a project and, when the
+seen, at most `project_limits.max_concurrent_resolutions` at once for a project and, when the
 unit's account sets the same field, at most that many at once across the account's projects.
 The lane holds no turn
 of its own: the move takes the repository's turn for the phases that write shared
@@ -322,7 +322,7 @@ def _release_none(unit: StoredUnit) -> None:
     return None
 
 
-def _wake_none(ended: RestackLane) -> None:
+def _wake_none(ended: ResolutionLane) -> None:
     return None
 
 
@@ -334,9 +334,9 @@ class _Entry:
         self.since = spans.clock.now().isoformat()
 
 
-class RestackLane:
+class ResolutionLane:
     """A pool of `cap` workers and a first-seen queue with one entry per unit. The bound is
-    per project: `RestackLanes` holds one lane for each project of the workspace."""
+    per project: `ResolutionLanes` holds one lane for each project of the workspace."""
 
     def __init__(
         self,
@@ -371,18 +371,18 @@ class RestackLane:
         self._running: dict[str, _Entry] = {}
         self._threads: list[threading.Thread] = []
         self._finished: Future[None] = Future()
-        # What a lane of `RestackLanes` is bound to (`bind`): the account's admission of an entry,
-        # the return of its place, and the wake of the other lanes when a worker ends. A lane on its
-        # own admits every entry the project's cap allows.
+        # What a lane of `ResolutionLanes` is bound to (`bind`): the account's admission of an
+        # entry, the return of its place, and the wake of the other lanes when a worker ends. A
+        # lane on its own admits every entry the project's cap allows.
         self._admit: Callable[[StoredUnit], bool] = _admit_all
         self._release: Callable[[StoredUnit], None] = _release_none
-        self._wake: Callable[[RestackLane], None] = _wake_none
+        self._wake: Callable[[ResolutionLane], None] = _wake_none
 
     def bind(
         self,
         admit: Callable[[StoredUnit], bool],
         release: Callable[[StoredUnit], None],
-        wake: Callable[[RestackLane], None],
+        wake: Callable[[ResolutionLane], None],
     ) -> None:
         """Hold this lane's starts to `admit`, which the lane calls with its own lock held, so it
         takes no lane's lock; `release` gives the place back, and `wake` runs, with no lock held,
@@ -498,7 +498,7 @@ class RestackLane:
         with self._changed:
             return [entry.unit.id for entry in self._queue]
 
-    def __enter__(self) -> RestackLane:
+    def __enter__(self) -> ResolutionLane:
         return self
 
     def __exit__(
@@ -524,7 +524,7 @@ class RestackLane:
             # The tick's span goes into the worker by its context: a thread does not inherit it.
             context = contextvars.copy_context()
             thread = threading.Thread(
-                target=context.run, args=(self._run, entry), name="restack", daemon=True
+                target=context.run, args=(self._run, entry), name="resolve", daemon=True
             )
             try:
                 thread.start()
@@ -640,7 +640,7 @@ class RestackLane:
                 ended.set_result(None)
 
 
-class RestackLanes:
+class ResolutionLanes:
     """A lane for each project, made on first use by `make` and routed to by a unit's project.
 
     The bound of a lane is per project: two projects of one repo each run up to the cap, and a
@@ -656,7 +656,7 @@ class RestackLanes:
 
     def __init__(
         self,
-        make: Callable[[ProjectKey], RestackLane],
+        make: Callable[[ProjectKey], ResolutionLane],
         *,
         owed: Owed = lambda units: (),
         account_of: Callable[[StoredUnit], Hashable] = lambda unit: None,
@@ -665,10 +665,10 @@ class RestackLanes:
         self._make, self._owed = make, owed
         self._account_of, self._account_cap = account_of, account_cap
         self._guard = threading.Lock()
-        self._lanes: dict[ProjectKey, RestackLane] = {}
+        self._lanes: dict[ProjectKey, ResolutionLane] = {}
         self._account_running: dict[Hashable, int] = {}
 
-    def _lane(self, key: ProjectKey) -> RestackLane:
+    def _lane(self, key: ProjectKey) -> ResolutionLane:
         with self._guard:
             if key not in self._lanes:
                 lane = self._make(key)
@@ -697,7 +697,7 @@ class RestackLanes:
             else:
                 self._account_running.pop(account, None)
 
-    def _wake(self, ended: RestackLane) -> None:
+    def _wake(self, ended: ResolutionLane) -> None:
         """A place was freed: the other lanes try their waiting entries again. Each lane's lock is
         taken alone, after the count was changed, so an entry a lane refused before the change is
         met by this restart, and one it meets after is admitted by its own start. The ending lane
@@ -730,7 +730,7 @@ class RestackLanes:
         account. It is a reading at one moment: a restack may start or end the next."""
         return self.lane_full(unit) or self.account_full(unit)
 
-    def _all(self) -> list[RestackLane]:
+    def _all(self) -> list[ResolutionLane]:
         with self._guard:
             return list(self._lanes.values())
 
@@ -792,7 +792,7 @@ class RestackLanes:
     def waiting(self) -> list[str]:
         return [unit for lane in self._all() for unit in lane.waiting]
 
-    def __enter__(self) -> RestackLanes:
+    def __enter__(self) -> ResolutionLanes:
         return self
 
     def __exit__(
@@ -804,4 +804,4 @@ class RestackLanes:
         self.drain()
 
 
-Lane = RestackLane | RestackLanes
+Lane = ResolutionLane | ResolutionLanes

@@ -6,7 +6,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from pathlib import Path
 
-from agent_build_kit.pipeline.restack_lane import RestackLane
+from agent_build_kit.pipeline.resolution_lane import ResolutionLane
 from agent_build_kit.pipeline.unit_store import StoredUnit
 from agent_build_kit.pipeline.units import ProjectKey
 from tests.factories import stored_unit
@@ -26,11 +26,11 @@ class Made:
     Its lanes are owed every unit in `owed`."""
 
     def __init__(self, locks: Path, restacks: Callable[[StoredUnit], None]) -> None:
-        self.by_project: dict[ProjectKey, RestackLane] = {}
+        self.by_project: dict[ProjectKey, ResolutionLane] = {}
         self.owed: set[str] = set()
         self._locks, self._restacks = locks, restacks
 
-    def __call__(self, key: ProjectKey) -> RestackLane:
+    def __call__(self, key: ProjectKey) -> ResolutionLane:
         lane = lane_over(
             self._locks,
             self._restacks,

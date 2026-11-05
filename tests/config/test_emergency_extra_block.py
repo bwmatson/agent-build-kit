@@ -46,5 +46,6 @@ def test_an_old_setting_left_in_global_limits_keeps_its_pointer(tmp_path: Path, 
         load_text(tmp_path, f"version: 1\nglobal_limits:\n  {name}: 3\n")
 
     message = str(refused.value)
-    assert f"global_limits.{name}: moved to project_limits.{name}" in message
+    now = "max_concurrent_resolutions" if name == "max_concurrent_restacks" else name
+    assert f"global_limits.{name}: moved to project_limits.{now}" in message
     assert "abk config --migrate" in message

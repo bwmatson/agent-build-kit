@@ -93,7 +93,7 @@ def test_a_restack_run_over_the_cap_is_not_a_use_of_the_lane(
         lines = run_status(inst, monkeypatch, capsys)
         moves.release_all()
 
-    assert any(f"{owed}" in line and "restacking onto" in line for line in lines)
+    assert any(f"{owed}" in line and "resolving base" in line for line in lines)
     assert room_lines(lines) == []
     assert any(SENTENCE in line for line in full_lines(lines))
 

@@ -34,7 +34,7 @@ def lane_workspace(
         project_limits={
             "max_concurrent_stacks": workers,
             "max_units_in_progress": places,
-            "max_concurrent_restacks": restacks,
+            "max_concurrent_resolutions": restacks,
             "emergency_extra": extra,
         },
     )

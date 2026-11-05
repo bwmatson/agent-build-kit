@@ -33,7 +33,7 @@ def test_the_three_move_with_their_comments_and_the_others_stay() -> None:
         "  max_units_in_progress: 5  # five\n"
         "  max_concurrent_stacks: 4\n"
         "  # restacks\n"
-        "  max_concurrent_restacks: 2  # two\n"
+        "  max_concurrent_resolutions: 2  # two\n"
         "repos: {}\n"
     )
     assert set(migrated.moved) == {
@@ -87,7 +87,7 @@ def test_a_block_holding_only_the_three_reads_empty() -> None:
         "project_limits:\n"
         "  max_units_in_progress: 5\n"
         "  max_concurrent_stacks: 4\n"
-        "  max_concurrent_restacks: 2\n"
+        "  max_concurrent_resolutions: 2\n"
     )
 
 
@@ -107,7 +107,7 @@ def test_a_global_limits_that_still_holds_one_moves_only_that() -> None:
         "  min_unit_lines: 400\n"
         "project_limits:\n"
         "  # kept with it\n"
-        "  max_concurrent_restacks: 2  # two\n"
+        "  max_concurrent_resolutions: 2  # two\n"
         "repos: {}\n"
     )
     assert migrated.moved == ("max_concurrent_restacks",)

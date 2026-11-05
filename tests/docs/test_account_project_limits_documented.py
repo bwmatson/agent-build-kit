@@ -19,7 +19,7 @@ CHANGELOG = (ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
 BLOCK = "an account's `project_limits`"
 ACROSS = "are counted for the account across its projects, beside each project's own cap"
 REPLACES = "`max_units_in_progress` replaces the project's value for the account's slot"
-CAPS = "`max_concurrent_stacks`, `max_concurrent_restacks` and `emergency_extra`"
+CAPS = "`max_concurrent_stacks`, `max_concurrent_resolutions` and `emergency_extra`"
 OLD_KEY = "`accounts.<label>.max_units_in_progress`"
 
 DOCUMENTS = {

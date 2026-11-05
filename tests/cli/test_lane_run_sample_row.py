@@ -18,7 +18,7 @@ from agent_build_kit.cli import pipeline as cli
 from agent_build_kit.installation import Installation
 from agent_build_kit.pipeline import spans
 from agent_build_kit.pipeline.lease import Leases, lease_dir
-from agent_build_kit.pipeline.restack_lane import RestackLanes
+from agent_build_kit.pipeline.resolution_lane import ResolutionLanes
 from agent_build_kit.pipeline.unit_store import UnitStore
 from agent_build_kit.pipeline.units import IN_REVIEW, RUNNING
 from tests.tick_pass import (
@@ -100,7 +100,7 @@ class Scene:
         self.begun.wait(WAIT)
         self.release.wait(WAIT)
 
-    def poll(self, inst: Installation, *, store: UnitStore, lane: RestackLanes) -> None:
+    def poll(self, inst: Installation, *, store: UnitStore, lane: ResolutionLanes) -> None:
         # The run comes once the builds are in: a run counts toward the occupancy, so it
         # would take a build's slot if it came first.
         if self.idle or self.handed or len(self.builder.started) < self.builds:
