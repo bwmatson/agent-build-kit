@@ -78,6 +78,20 @@ def changelog_problems(text: str, name: str = "CHANGELOG.md") -> list[str]:
     return problems
 
 
+def separate_bullets(text: str) -> str:
+    """`text` with a blank line put before each bullet that runs on from the line above.
+
+    A union merge keeps a blank line that both branches added only once, so two bullets
+    added at the same place come out back to back. Nothing else in `text` changes.
+    """
+    out: list[str] = []
+    for line in text.splitlines(keepends=True):
+        if line.startswith("- ") and out and out[-1].strip() and not out[-1].startswith("##"):
+            out.append("\n")
+        out.append(line)
+    return "".join(out)
+
+
 def changelog_file_problems(
     path: Path, read: Callable[[Path], str] = lambda path: path.read_text()
 ) -> list[str]:
