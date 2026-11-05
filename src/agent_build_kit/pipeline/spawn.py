@@ -43,6 +43,16 @@ def user_manager_available(run: Run | None = None) -> bool:
     return done.stdout.strip() in _USABLE
 
 
+def _safe(unit: str) -> str:
+    return re.sub(r"[^A-Za-z0-9_.]+", "-", unit).strip("-")
+
+
+def worker_unit_prefix(inst: Installation, unit: str) -> str:
+    """The transient unit name of `unit`'s worker without its `-<6 hex>` suffix: the one place
+    the name is spelled, for the spawner and for whoever looks a worker's unit up."""
+    return f"abk-{timers.slug(inst.root)}-worker-{_safe(unit)}"
+
+
 def spawn(
     inst: Installation,
     kind: str,
@@ -64,9 +74,9 @@ def spawn(
         kind,
         unit,
     ]
-    safe = re.sub(r"[^A-Za-z0-9_.]+", "-", unit).strip("-")
+    safe = _safe(unit)
     if user_manager:
-        name = f"abk-{timers.slug(inst.root)}-worker-{safe}-{uuid.uuid4().hex[:6]}"
+        name = f"{worker_unit_prefix(inst, unit)}-{uuid.uuid4().hex[:6]}"
         limits = inst.config.workers
         properties = [
             *(["-p", f"MemoryMax={limits.memory_max}"] if limits.memory_max else []),

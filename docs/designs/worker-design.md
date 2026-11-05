@@ -150,9 +150,9 @@ The route is straight to the end state; the `workers.mode` switch is the mechani
 1. **Foundations the end state needs (done).** Branch-lock identity with a start time; the admission lock and the `starting` marker; slot occupancy computed from locks, `starting` markers and usage pauses (a lease takes no place; one pure function the thread pool also uses, so both modes agree);
    the `prs-<repo>.json` lock; and the snapshot read API with `request_refresh()`, with the existing in-thread readers moved onto it (the usage guard's per-step decisions, the PR-state reads in the graph nodes), so thread mode and worker mode read the
    same cached source.
-2. **The worker entry point and the spawner.** `abk worker build <unit>` running `build_unit` (it already re-reads the unit under the branch lock, `cli/pipeline.py` ~5934-5950), the transient-unit spawner with the `Popen` fallback, the worker's
+2. **The worker entry point and the spawner (done).** `abk worker build <unit>` running `build_unit` (it already re-reads the unit under the branch lock, `cli/pipeline.py` ~5934-5950), the transient-unit spawner with the `Popen` fallback, the worker's
    exit poke, and the wake path unit in `install-timers`.
-3. **The dispatcher mode of `abk tick`**, behind `workers.mode: threads | processes` (default `threads` until proven): admission and spawning instead of `submit`, and no waiting.
+3. **The dispatcher mode of `abk tick` (done)**, behind `workers.mode: threads | processes` (default `threads` until proven): admission and spawning instead of `submit`, and no waiting.
 4. **Restack and verify workers**, then the status, doctor and ledger changes.
 5. **Cut over** one repo, then the rest, then delete the thread pool and the pass-scoped rules.
 
