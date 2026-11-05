@@ -16,6 +16,7 @@ import re
 import threading
 from collections.abc import Callable, Collection, Iterator, Sequence
 from contextlib import contextmanager
+from datetime import datetime
 from typing import TYPE_CHECKING, Any
 from urllib.parse import quote
 
@@ -34,9 +35,11 @@ from pydantic import BaseModel, ValidationError
 
 from agent_build_kit.budget import cut_tail
 from agent_build_kit.forges.base import (
+    UNKNOWN_CHECKS,
     BaseMissing,
     Check,
     CheckStatus,
+    CommitChecks,
     DeniedRequest,
     FileChange,
     Label,
@@ -47,12 +50,15 @@ from agent_build_kit.forges.base import (
     Run,
     Stack,
     StackRefused,
+    commit_checks_of,
     failing_names,
     key,
     redacted_text,
 )
 from agent_build_kit.forges.github_models import (
     CheckNode,
+    CheckRunDoc,
+    CheckRunsDoc,
     ChecksPull,
     FileDoc,
     InlineCommentDoc,
@@ -159,6 +165,8 @@ _DRAFT = {True: "convertPullRequestToDraft", False: "markPullRequestReadyForRevi
 _PASSING = ("SUCCESS", "NEUTRAL", "SKIPPED")
 _FAILING = ("FAILURE", "TIMED_OUT")
 _CANCELLED = ("CANCELLED",)
+# Conclusions of a completed run that ran nothing.
+_NOT_RUN = ("SKIPPED", "NEUTRAL")
 _MERGEABLE = {"MERGEABLE": True, "CONFLICTING": False}
 # A failed Actions run, named in a check's link.
 _RUN_URL = re.compile(r"/actions/runs/(?P<run>\d+)")
@@ -625,6 +633,30 @@ class GitHubForge:
                     f"rerun of run {run} ({key(repo)}): {_reason(error)}"
                 ) from error
 
+    def commit_checks(
+        self, repo: RepoId, sha: str, *, branch: str = "", since: datetime | None = None
+    ) -> CommitChecks:
+        """The check runs of commit `sha`, the newest of each name (the host's default), every
+        page of them. The commit alone names them, so `branch` and `since` are not needed. Any
+        failure to ask is `unknown`, logged and not retried here."""
+        found: list[Check] = []
+        page = 1
+        try:
+            while True:
+                with self._on(repo) as gh:
+                    reply = gh.rest.checks.list_for_ref(
+                        repo.account, repo.name, sha, per_page=_PAGE, page=page
+                    )
+                runs = _parse(reply, CheckRunsDoc, "GET commits check-runs").check_runs
+                found += [_check_run(run) for run in runs]
+                if 'rel="next"' not in reply.headers.get("link", ""):
+                    break
+                page += 1
+        except TransportError as error:
+            log.warning("could not read the checks of %s in %s: %s", sha[:10], key(repo), error)
+            return UNKNOWN_CHECKS
+        return commit_checks_of(found)
+
     def failed_check_logs(self, repo: RepoId, pull: PullRequest) -> str:
         """The failed CI jobs' logs, for the rework that fixes them.
 
@@ -1018,19 +1050,42 @@ def _rollup(commits: Any) -> list[CheckNode]:
     ]
 
 
+def _status(conclusion: str | None) -> CheckStatus:
+    """A check run's conclusion in the pipeline's words. No conclusion means it has not
+    finished, and a conclusion this forge does not know is waiting, never a verdict."""
+    said = (conclusion or "").upper()
+    if said in _PASSING:
+        return CheckStatus.PASSED
+    if said in _FAILING:
+        return CheckStatus.FAILED
+    if said in _CANCELLED:
+        return CheckStatus.CANCELLED
+    return CheckStatus.PENDING
+
+
 def _check(node: CheckNode) -> Check:
-    """A check run as a check. No conclusion means it has not finished, and a
-    conclusion this forge does not know is waiting, never a verdict."""
-    conclusion = (node.conclusion or "").upper()
-    if conclusion in _PASSING:
-        status = CheckStatus.PASSED
-    elif conclusion in _FAILING:
-        status = CheckStatus.FAILED
-    elif conclusion in _CANCELLED:
-        status = CheckStatus.CANCELLED
+    """A check run of the rollup as a check."""
+    return Check(name=str(node.name), status=_status(node.conclusion), url=node.details_url or "")
+
+
+def _check_run(run: CheckRunDoc) -> Check:
+    """A check run of a commit as a check: one not `completed` is still running, whatever its
+    conclusion says. A completed one passed only on a real success: skipped and neutral ran
+    nothing (`skipped`), and a conclusion this forge does not know is a failure, since nothing
+    more will come of a completed run."""
+    if run.status != "completed":
+        said = CheckStatus.PENDING
     else:
-        status = CheckStatus.PENDING
-    return Check(name=str(node.name), status=status, url=node.details_url or "")
+        conclusion = (run.conclusion or "").upper()
+        if conclusion == "SUCCESS":
+            said = CheckStatus.PASSED
+        elif conclusion in _NOT_RUN:
+            said = CheckStatus.SKIPPED
+        elif conclusion in _CANCELLED:
+            said = CheckStatus.CANCELLED
+        else:
+            said = CheckStatus.FAILED
+    return Check(name=run.name, status=said, url=run.details_url or run.html_url or "")
 
 
 def _view(pull: PullNode) -> PullRequest:

@@ -10,10 +10,12 @@ from __future__ import annotations
 import hashlib
 import json
 from collections.abc import Callable, Collection, Sequence
+from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, TypeVar
 
 from agent_build_kit.forges.base import (
+    CommitChecks,
     DeniedRequest,
     FileChange,
     Label,
@@ -23,6 +25,7 @@ from agent_build_kit.forges.base import (
     ReviewNote,
     Run,
     Stack,
+    commit_checks_of,
     key,
     redacted_text,
 )
@@ -371,6 +374,12 @@ class LocalForge:
 
     def failed_check_logs(self, repo: RepoId, pull: PullRequest) -> str:
         return ""
+
+    def commit_checks(
+        self, repo: RepoId, sha: str, *, branch: str = "", since: datetime | None = None
+    ) -> CommitChecks:
+        """From this forge's own records, which hold no check: none, never a pass."""
+        return commit_checks_of([])
 
     def rerun_checks(self, repo: RepoId, pull: PullRequest) -> None:
         return None

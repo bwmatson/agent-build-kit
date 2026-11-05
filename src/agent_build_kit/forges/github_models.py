@@ -54,6 +54,21 @@ class InlineCommentDoc(_Rest):
     in_reply_to_id: int | None = None
 
 
+class CheckRunDoc(_Rest):
+    """One check run of a commit, as the REST API lists it."""
+
+    name: str
+    status: str = ""
+    conclusion: str | None = None
+    details_url: str | None = None
+    html_url: str | None = None
+
+
+class CheckRunsDoc(_Rest):
+    total_count: int
+    check_runs: list[CheckRunDoc]
+
+
 class LabelDoc(_Rest):
     name: str
     color: str = ""

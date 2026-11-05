@@ -21,6 +21,7 @@ import functools
 import inspect
 import subprocess
 from collections.abc import Callable, Collection, Sequence
+from datetime import datetime
 from enum import StrEnum
 from typing import TYPE_CHECKING, Any, Literal, Protocol
 
@@ -117,6 +118,10 @@ class CheckStatus(StrEnum):
     FAILED = "failed"
     CANCELLED = "cancelled"
     PENDING = "pending"
+    # A check of a commit that completed without running anything (GitHub's skipped and
+    # neutral): neither a failure nor a pass. Only the checks of a commit are read so; a pull
+    # request's own checks read such a run as passed.
+    SKIPPED = "skipped"
 
 
 class Check(Frozen):
@@ -155,6 +160,50 @@ def overall_result(checks: Sequence[Check]) -> str:
     if statuses & {CheckStatus.PENDING, CheckStatus.CANCELLED}:
         return "pending"
     return "passed"
+
+
+class CommitOutcome(StrEnum):
+    """What the checks of one commit came to as a whole. `none` (the host lists no check for
+    the commit) and `unknown` (the host could not be asked) are kept apart from `passed`, so a
+    reader cannot mistake an absence or a failed request for success."""
+
+    PASSED = "passed"
+    FAILED = "failed"
+    RUNNING = "running"
+    NONE = "none"
+    UNKNOWN = "unknown"
+
+
+class CommitChecks(Frozen):
+    """The checks of one commit and their outcome as a whole."""
+
+    outcome: CommitOutcome
+    checks: tuple[Check, ...] = ()
+
+
+# What a forge answers when the host could not be asked.
+UNKNOWN_CHECKS = CommitChecks(outcome=CommitOutcome.UNKNOWN)
+
+
+def commit_checks_of(checks: Sequence[Check]) -> CommitChecks:
+    """The checks of a commit with their outcome: `none` for no check, `failed` when one failed,
+    `running` when one has not completed, `passed` when every one passed or was skipped. A
+    cancelled check is neither a pass nor running (nothing will run it again on its own), so with
+    nothing failed or running it makes the outcome `failed`: not a pass. A skipped check does not
+    fail the commit, but a reader that needs a named check to have run reads its status, which is
+    not `passed`."""
+    statuses = {check.status for check in checks}
+    if not checks:
+        outcome = CommitOutcome.NONE
+    elif CheckStatus.FAILED in statuses:
+        outcome = CommitOutcome.FAILED
+    elif CheckStatus.PENDING in statuses:
+        outcome = CommitOutcome.RUNNING
+    elif CheckStatus.CANCELLED in statuses:
+        outcome = CommitOutcome.FAILED
+    else:
+        outcome = CommitOutcome.PASSED
+    return CommitChecks(outcome=outcome, checks=tuple(checks))
 
 
 class PullRequest(Frozen):
@@ -424,6 +473,17 @@ class Forge(RegistersStacks, Protocol):
         ...
 
     def failed_check_logs(self, repo: RepoId, pull: PullRequest) -> str: ...
+
+    def commit_checks(
+        self, repo: RepoId, sha: str, *, branch: str = "", since: datetime | None = None
+    ) -> CommitChecks:
+        """The checks the host ran on commit `sha` of `repo`, with their outcome as a whole.
+        `branch` (the branch the commit is on) and `since` (when it got there) narrow the search
+        on a host that cannot ask by commit; a host that can ignores them. Each check is named as
+        the same check is named on a pull request into `branch`. Never raises for the host: a
+        request that fails, or a host that cannot answer, is the outcome `unknown`, which is
+        never a pass."""
+        ...
 
     def rerun_checks(self, repo: RepoId, pull: PullRequest) -> None:
         """Ask the host to run `pull`'s cancelled checks again."""

@@ -26,6 +26,7 @@ import logging
 import re
 from collections.abc import Collection, Sequence
 from concurrent.futures import ThreadPoolExecutor
+from datetime import datetime
 from typing import TYPE_CHECKING, Any
 from urllib.parse import quote, unquote
 
@@ -35,21 +36,26 @@ from pydantic import BaseModel
 from agent_build_kit.forges.azure_models import (
     BuildDoc,
     ChangesDoc,
+    CommitBuildDoc,
     EvaluationDoc,
     IterationDoc,
     LabelDoc,
     MergeDoc,
+    PolicyConfigurationDoc,
     PullRequestDoc,
     RefDoc,
     RefUpdateDoc,
+    RepoIdDoc,
     ReviewerDoc,
     StatusDoc,
     ThreadDoc,
 )
 from agent_build_kit.forges.base import (
+    UNKNOWN_CHECKS,
     BaseMissing,
     Check,
     CheckStatus,
+    CommitChecks,
     DeniedRequest,
     FileChange,
     Label,
@@ -60,6 +66,7 @@ from agent_build_kit.forges.base import (
     Run,
     Stack,
     StackRefused,
+    commit_checks_of,
     failing_names,
     redacted_text,
 )
@@ -112,6 +119,17 @@ _POLICY_FAILING = ("rejected", "broken")
 # How a build says it was cancelled, in its `result`. The policy evaluation says
 # only `rejected`, so the build is asked.
 _BUILD_CANCELLED = "canceled"
+
+# How many of a repository's newest builds the checks of a commit are looked for among.
+_COMMIT_BUILDS = 200
+# A completed build's `result` in the pipeline's words. `partiallySucceeded` is not a pass, and
+# a result this forge does not know is not one either.
+_BUILD_RESULTS = {
+    "succeeded": CheckStatus.PASSED,
+    "partiallySucceeded": CheckStatus.FAILED,
+    "failed": CheckStatus.FAILED,
+    "canceled": CheckStatus.CANCELLED,
+}
 
 # What a build policy evaluation came to. `notApplicable` is not a check at all.
 _POLICY_PASSING = "approved"
@@ -773,6 +791,77 @@ class AzureDevOpsForge:
                 run=run,
             )
 
+    def commit_checks(
+        self,
+        repo: RepoId,
+        sha: str,
+        *,
+        branch: str = "",
+        since: datetime | None = None,
+        run: Run | None = None,
+    ) -> CommitChecks:
+        """The builds of commit `sha`, the newest of each pipeline, as checks. The build list
+        takes no commit, so the repository's newest builds (`_COMMIT_BUILDS` of them, of `branch`
+        and queued from `since` when given) are read and those of `sha` kept: a commit whose
+        builds are not among them reports none, which is not a pass.
+
+        A pipeline that a build policy of `branch` runs is named as a pull request's check from
+        that policy is (the policy's name), so the two can be matched; any other by its
+        pipeline's name. Any failure to ask is `unknown`, logged and not retried here."""
+        params = {
+            "repositoryType": "TfsGit",
+            "queryOrder": "queueTimeDescending",
+            "$top": str(_COMMIT_BUILDS),
+        }
+        if branch:
+            params["branchName"] = f"refs/heads/{branch}"
+        if since is not None:
+            params["minTime"] = since.isoformat()
+        try:
+            found = self._git(repo, "GET", run=run)
+            repository = _parse(found, RepoIdDoc, "GET git repository").id
+            listed = self._call(
+                repo,
+                "GET",
+                "build/builds",
+                params={"repositoryId": repository, **params},
+                run=run,
+            )
+            builds = _items(listed, CommitBuildDoc, "GET build/builds")
+            policies = self._build_policy_names(repo, repository, branch, run=run)
+        except TransportError as error:
+            log.warning("could not read the builds of %s in %s: %s", sha[:10], repo.name, error)
+            return UNKNOWN_CHECKS
+        newest: dict[str, CommitBuildDoc] = {}
+        for build in sorted(builds, key=lambda b: b.id):
+            if build.source_version != sha:
+                continue
+            definition = build.definition
+            named = policies.get(definition.id) if definition and definition.id else None
+            newest[named or (definition.name if definition else f"build {build.id}")] = build
+        return commit_checks_of(
+            [
+                Check(name=name, status=_build_status(build), url=_build_url(repo, build.id))
+                for name, build in sorted(newest.items())
+            ]
+        )
+
+    def _build_policy_names(
+        self, repo: RepoId, repository: str, branch: str, *, run: Run | None = None
+    ) -> dict[int, str]:
+        """The name a pull request's check takes from each build policy, by the pipeline the
+        policy runs: of `branch`, or of every branch when none is given."""
+        params = {"repositoryId": repository}
+        if branch:
+            params["refName"] = f"refs/heads/{branch}"
+        found = self._call(repo, "GET", "policy/configurations", params=params, run=run)
+        names: dict[int, str] = {}
+        for configuration in _items(found, PolicyConfigurationDoc, "GET policy/configurations"):
+            definition = configuration.settings.get("buildDefinitionId")
+            if configuration.type.id == _BUILD_POLICY_TYPE and isinstance(definition, int):
+                names.setdefault(definition, _configuration_name(configuration))
+        return names
+
     def failed_check_logs(self, repo: RepoId, pull: PullRequest, run: Run | None = None) -> str:
         """What the failing checks said, for the rework that fixes them.
 
@@ -1053,6 +1142,13 @@ def _build_url(repo: RepoId, build: int | None) -> str:
     )
 
 
+def _build_status(build: CommitBuildDoc) -> CheckStatus:
+    """A build as a check's status: one not completed is running."""
+    if build.status != "completed":
+        return CheckStatus.PENDING
+    return _BUILD_RESULTS.get(build.result or "", CheckStatus.FAILED)
+
+
 def _latest_statuses(statuses: list[StatusDoc]) -> list[StatusDoc]:
     """The newest status of each genre and name.
 
@@ -1067,8 +1163,12 @@ def _latest_statuses(statuses: list[StatusDoc]) -> list[StatusDoc]:
 
 
 def _policy_name(evaluation: EvaluationDoc) -> str:
-    """A policy evaluation's name: the build it runs, else the policy's type."""
-    configuration = evaluation.configuration
+    """A policy evaluation's name: its configuration's."""
+    return _configuration_name(evaluation.configuration)
+
+
+def _configuration_name(configuration: PolicyConfigurationDoc) -> str:
+    """A policy configuration's name: the build it runs, else the policy's type."""
     return str(
         configuration.settings.get("displayName")
         or configuration.type.display_name

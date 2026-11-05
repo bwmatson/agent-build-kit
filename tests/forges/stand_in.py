@@ -13,7 +13,8 @@ they do not care about.
 
 from __future__ import annotations
 
-from collections.abc import Collection, Sequence
+from collections.abc import Collection, Mapping, Sequence
+from datetime import datetime
 
 from agent_build_kit.config import RepoConfig
 from agent_build_kit.forges import (
@@ -25,7 +26,14 @@ from agent_build_kit.forges import (
     Stack,
     StackRefused,
 )
-from agent_build_kit.forges.base import DeniedRequest, FileChange, MergeRefused, Run
+from agent_build_kit.forges.base import (
+    CommitChecks,
+    CommitOutcome,
+    DeniedRequest,
+    FileChange,
+    MergeRefused,
+    Run,
+)
 from agent_build_kit.settings import Settings
 
 
@@ -69,6 +77,7 @@ class StandInForge:
         merge_refusal: str = "",
         merge_failures: Sequence[Exception] = (),
         merge_lands_before_failing: bool = False,
+        commit_checks: Mapping[str, CommitChecks] | None = None,
     ) -> None:
         self.existing = existing
         self.number = number
@@ -92,6 +101,9 @@ class StandInForge:
         self.merge_refusal = merge_refusal
         self.merge_failures = list(merge_failures)
         self.merge_lands_before_failing = merge_lands_before_failing
+        # The checks each commit answers with (none for a commit not named), and every read.
+        self.commit_check_answers = dict(commit_checks or {})
+        self.commit_check_reads: list[str] = []
         # Every `merge_pr` call as `(pr, head)`, and the commit each merged pull request produced.
         self.merge_calls: list[tuple[int, str]] = []
         self.merged: dict[int, str] = {}
@@ -233,6 +245,12 @@ class StandInForge:
 
     def failed_check_logs(self, repo: RepoId, pull: PullRequest) -> str:
         return self.logs
+
+    def commit_checks(
+        self, repo: RepoId, sha: str, *, branch: str = "", since: datetime | None = None
+    ) -> CommitChecks:
+        self.commit_check_reads.append(sha)
+        return self.commit_check_answers.get(sha, CommitChecks(outcome=CommitOutcome.NONE))
 
     def rerun_checks(self, repo: RepoId, pull: PullRequest) -> None:
         pass
