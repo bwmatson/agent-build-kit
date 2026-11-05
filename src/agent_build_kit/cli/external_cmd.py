@@ -132,10 +132,18 @@ def cmd_done(args: argparse.Namespace, inst: Installation) -> int:
         record_hand_merge(
             inst, store_for(inst), args.change, args.groups, pr=args.pr, commit=args.commit
         )
-        merged_by = str(args.pr) if args.pr is not None else args.commit
+        merged_by = str(args.pr) if args.pr is not None else args.commit or ""
         payload = {"change": args.change, "groups": list(args.groups), "merged_by": merged_by}
         shown = ", ".join(map(str, args.groups))
-        _emit(args, payload, f"{args.change} groups {shown} recorded as merged by {merged_by}")
+        if merged_by:
+            text = f"{args.change} groups {shown} recorded as merged by {merged_by}"
+        else:
+            text = (
+                f"{args.change} groups {shown} recorded as done with no merge source: taken as "
+                "done on the operator's word, and a dependent may start before the work reaches "
+                "the default branch (give --pr or --commit when that matters)"
+            )
+        _emit(args, payload, text)
         return 0
 
     return _refusing(args, "done", run)
@@ -183,9 +191,10 @@ def register(sub: argparse._SubParsersAction) -> None:
     done = command("done", "record that handed-off work is merged", cmd_done)
     done.add_argument("change")
     done.add_argument("--groups", type=int, nargs="+", required=True)
-    source = done.add_mutually_exclusive_group(required=True)
-    source.add_argument("--pr", type=int, help="a pull request the forge reports merged")
-    source.add_argument("--commit", help="a commit on the default branch")
+    # Both are optional and at most one is allowed; the record refuses both, so the refusal reads
+    # like the others and has a `--json` form.
+    done.add_argument("--pr", type=int, help="a pull request the forge reports merged")
+    done.add_argument("--commit", help="a commit on the default branch")
 
     release = command("release", "give held work back to the kit", cmd_release)
     release.add_argument("change")

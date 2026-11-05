@@ -344,6 +344,74 @@ def test_done_json_names_the_commit(
     assert result["merged_by"] == str(MERGED_PR)
 
 
+def test_done_with_only_groups_records_the_hold_and_says_what_it_costs(
+    world: World, capsys: pytest.CaptureFixture[str]
+) -> None:
+    store = world.units(stored_unit("feature/1", change="feature", groups=(1,)))
+    world.hand_off(capsys, "--groups", "1")
+
+    out, _err = world.run(capsys, "done", "feature", "--groups", "1")
+
+    assert "operator's word" in out
+    assert "before the work reaches the default branch" in out
+    assert store.get("feature/1").state == MERGED
+    assert store.get("feature/1").merge_sha is None
+    [hold] = read_holds(world.folder)
+    assert (hold.status, hold.merged_by) == (DONE, "")
+
+
+def test_done_json_with_no_source_has_an_empty_merged_by(
+    world: World, capsys: pytest.CaptureFixture[str]
+) -> None:
+    world.units(stored_unit("feature/1", change="feature", groups=(1,)))
+    world.hand_off(capsys, "--groups", "1")
+
+    out, _err = world.run(capsys, "done", "feature", "--groups", "1", "--json")
+
+    result = json.loads(out)
+    assert result["change"] == "feature" and result["groups"] == [1]
+    assert result["merged_by"] == ""
+
+
+def test_done_refuses_both_a_pull_request_and_a_commit(
+    world: World, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    store = world.units(stored_unit("feature/1", change="feature", groups=(1,)))
+    world.hand_off(capsys, "--groups", "1")
+    forge_with_merged_pr(monkeypatch)
+
+    _out, err = world.run(
+        capsys,
+        *("done", "feature", "--groups", "1", "--pr", str(MERGED_PR), "--commit", COMMIT),
+        code=1,
+    )
+
+    assert "at most one" in err
+    assert store.get("feature/1").state == PLANNED
+    assert [h.status for h in read_holds(world.folder)] == [HELD]
+
+
+def test_list_tells_a_hold_done_with_no_source_from_a_verified_one(
+    world: World, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    world.units(
+        stored_unit("feature/1", change="feature", groups=(1,)),
+        stored_unit("feature/2", change="feature", groups=(2,)),
+    )
+    world.hand_off(capsys, "--groups", "1")
+    world.hand_off(capsys, "--groups", "2")
+    forge_with_merged_pr(monkeypatch)
+    world.run(capsys, "done", "feature", "--groups", "1", "--pr", str(MERGED_PR))
+    world.run(capsys, "done", "feature", "--groups", "2")
+
+    out, _err = world.run(capsys, "list")
+
+    verified, recorded = out.splitlines()
+    assert f"done (merged by {MERGED_PR})" in verified
+    assert "no merge recorded" not in verified
+    assert "done (no merge recorded)" in recorded
+
+
 def test_status_has_a_section_for_holds(
     world: World, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
 ) -> None:

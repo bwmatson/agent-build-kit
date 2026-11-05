@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+- `abk external done` no longer needs a merge source. With neither `--pr` nor `--commit` the hold is
+  marked done with an empty `merged_by`, the boxes are ticked, and a unit whose groups are all done
+  is merged with the note "recorded by hand" and no merge record, so a dependent is released at the
+  next tick; the command says the work is taken as done on the operator's word and that a dependent
+  may start before it reaches the default branch. A pull request or commit that is given is verified
+  as before, and giving both is refused. `abk external list` shows `done (no merge recorded)` for a
+  hold done with no source and `done (merged by ...)` for a verified one.
+
 - A code host that refuses or cannot be reached is waited for once, not once for each unit. A git
   push the host refuses, or a fetch it refuses, writes one marker for the host of the repo's push
   remote, such as `github.com` or `dev.azure.com`, and each refresh of a pass makes at most one
@@ -20,6 +28,7 @@
   that works while the push is refused) reopens the same outage, so the wait keeps growing and the limit
   still counts from the first refusal. A forge API outage parks as before and writes no
   marker.
+
 - Waiting whole-suite unit-test runs are now served in the order units start, not first come first
   served. A run that finds every slot taken takes a freed one only when no live waiting run of a more
   urgent unit is ahead of it: a unit with an open pull request first, then a paused build, then new

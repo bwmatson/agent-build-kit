@@ -594,8 +594,12 @@ Work handed to someone outside the kit (see `hand-off.md`). `abk external hand-o
 (--all | --groups N…) --holder NAME --link URL [--item key=value] [--note TEXT]` records a hold
 the kit never builds around, and refuses groups a unit has already started or a change with no
 folder; repeating it (or part of it) for the same holder changes nothing. `abk external list` shows each hold with its groups, holder, link,
-status, age and the units waiting on it. `abk external done CHANGE --groups N… (--pr N | --commit
-SHA)` checks the merge and records it. `abk external release CHANGE (--groups N… | --all)` gives
+status, age and the units waiting on it. `abk external done CHANGE --groups N… [--pr N | --commit
+SHA]` records the work as done: a pull request must be reported merged and a commit must be on the
+default branch, both together are refused, and with neither the board's word is the source (the
+hold is done with an empty `merged_by`, the units are merged with no merge record, and the
+command says a dependent may start before the work reaches the default branch; `list` shows
+`done (no merge recorded)`). `abk external release CHANGE (--groups N… | --all)` gives
 held work back, naming every group the released holds covered; `--all` gives back every hold
 still held, also of a change with no groups yet. Every form takes `--json` (a refusal prints
 `{"refused": REASON}` on stdout too), and `abk status` has an external holds section.

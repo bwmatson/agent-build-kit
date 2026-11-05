@@ -21,10 +21,14 @@ class HandMergeRefused(ValueError):
     """A hand merge that cannot be recorded; the message says why."""
 
 
-def _merge_commit(inst: Installation, repo: str, pr: int | None, commit: str | None) -> str:
-    """The verified commit of a hand merge, or `HandMergeRefused` saying why not."""
-    if (pr is None) == (commit is None):
-        raise HandMergeRefused("give either a pull request number or a commit")
+def _merge_commit(inst: Installation, repo: str, pr: int | None, commit: str | None) -> str | None:
+    """The verified commit of a hand merge, or `HandMergeRefused` saying why not; None when
+    neither a pull request nor a commit is given (the work is taken as done on the word of the
+    operator)."""
+    if pr is not None and commit is not None:
+        raise HandMergeRefused("give at most one of a pull request number and a commit")
+    if pr is None and commit is None:
+        return None
     if pr is not None:
         forge, repo_id = inst.forge_of(repo)
         merged = forge.merge_commit(repo_id, pr)
@@ -52,8 +56,9 @@ def record_hand_merge(
     pr: int | None = None,
     commit: str | None = None,
 ) -> None:
-    """Verify the pull request `pr` is merged, or `commit` is on the repo's default branch, then
-    record `groups` of `change` as built by hand. Raises `HandMergeRefused` otherwise."""
+    """Record `groups` of `change` as built by hand. With `pr` the forge must report it merged,
+    with `commit` it must be on the repo's default branch; with neither nothing is verified and
+    the units are merged with no merge record. Raises `HandMergeRefused` otherwise."""
     wanted = set(groups)
     units: list[StoredUnit] = [
         unit
@@ -74,7 +79,10 @@ def record_hand_merge(
     change_dir = inst.changes_dir / change
     try:
         record_done(
-            change_dir, groups, merged_by=str(pr) if pr is not None else sha, at=datetime.now(UTC)
+            change_dir,
+            groups,
+            merged_by=str(pr) if pr is not None else sha or "",
+            at=datetime.now(UTC),
         )
     except HoldRefused as error:
         raise HandMergeRefused(str(error)) from error

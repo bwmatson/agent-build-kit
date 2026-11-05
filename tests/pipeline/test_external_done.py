@@ -23,8 +23,9 @@ from agent_build_kit.pipeline.external_file import (
     read_holds,
     record_done,
 )
+from agent_build_kit.pipeline.loaded_code import LoadedCode
 from agent_build_kit.pipeline.shell import git
-from agent_build_kit.pipeline.units import MERGED, PLANNED
+from agent_build_kit.pipeline.units import MERGED, PLANNED, waiting_on
 from agent_build_kit.settings import settings
 from tests.external_support import SINCE, change_with, hold, tasks_with, waits_of, world_of
 from tests.factories import init_repo, stored_unit
@@ -236,3 +237,90 @@ def test_a_merged_github_pull_request_is_accepted_with_its_merge_commit(
     assert (unit.state, unit.merge_sha) == (MERGED, COMMIT)
     assert len(host.graphql("mergeCommit")) == 1
     assert host.unrouted == []
+
+
+def test_groups_are_recorded_done_with_no_pull_request_or_commit(tmp_path: Path) -> None:
+    inst, store, folder = held_world(tmp_path)
+
+    record_hand_merge(inst, store, "feature", (2, 3))
+
+    unit = store.get("feature/1")
+    assert unit.state == MERGED
+    assert (unit.merge_sha, unit.merged_tick) == (None, None)
+    assert any(entry.get("note") == "recorded by hand" for entry in unit.history)
+    assert checked(folder) == ["2.1", "3.1"]
+    [recorded] = read_holds(folder)
+    assert (recorded.status, recorded.merged_by) == (DONE, "")
+
+
+def test_a_unit_with_a_second_group_stays_parked_until_it_is_recorded_with_no_source(
+    tmp_path: Path,
+) -> None:
+    inst, store, folder = held_world(tmp_path)
+
+    record_hand_merge(inst, store, "feature", (2,))
+
+    assert checked(folder) == ["2.1"]
+    assert store.get("feature/1").state == PLANNED
+    assert waits_of(inst, store)["feature/1"].reason.value == "external"
+
+    record_hand_merge(inst, store, "feature", (3,))
+
+    assert checked(folder) == ["2.1", "3.1"]
+    assert store.get("feature/1").state == MERGED
+
+
+def test_a_dependent_with_a_merge_edge_is_released_by_a_merge_with_no_record(
+    tmp_path: Path,
+) -> None:
+    inst, store, folder = world_of(
+        tmp_path,
+        stored_unit("feature/1", change="feature", groups=(2, 3)),
+        stored_unit(
+            "later/1",
+            change="later",
+            depends_on=("feature/1",),
+            needs=("feature/1",),
+            merge_needs=("feature/1",),
+        ),
+    )
+    add_hold(folder, hold((2, 3)))
+    assert waits_of(inst, store)["later/1"].waits_on == ("feature/1",)
+
+    record_hand_merge(inst, store, "feature", (2, 3))
+
+    assert waits_of(inst, store)["later/1"].reason.value == "ready"
+    # With the tick's loaded code known, a merge with no record counts as loaded in the kit's own
+    # repository too.
+    loaded = LoadedCode(number=3, kit_repo="app", kit_root=str(tmp_path), kit_head="0" * 40)
+    child = store.get("later/1")
+    assert waiting_on(child, store.all(), loaded) == []
+
+
+def test_both_a_pull_request_and_a_commit_are_refused_and_nothing_changes(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    inst, store, folder = held_world(tmp_path)
+    forge_for(inst, monkeypatch)
+
+    with pytest.raises(HandMergeRefused, match="at most one"):
+        record_hand_merge(inst, store, "feature", (2, 3), pr=MERGED_PR, commit=COMMIT)
+
+    assert store.get("feature/1").state == PLANNED
+    assert checked(folder) == []
+    assert [h.status for h in read_holds(folder)] == ["held"]
+
+
+def test_groups_already_recorded_with_no_source_are_not_recorded_again(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    inst, store, folder = held_world(tmp_path)
+    forge_for(inst, monkeypatch)
+    record_hand_merge(inst, store, "feature", (2, 3))
+
+    with pytest.raises(HandMergeRefused):
+        record_hand_merge(inst, store, "feature", (2, 3), pr=MERGED_PR)
+
+    [recorded] = read_holds(folder)
+    assert (recorded.status, recorded.merged_by) == (DONE, "")
+    assert store.get("feature/1").merge_sha is None

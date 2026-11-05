@@ -18,10 +18,19 @@ kit also skips a unit whose board item a person has taken (see "Work tracker" in
 2. Write the spec: `tasks.md`, the proposal and the design. A group added later is covered by an
    `--all` hold.
 3. Create the board items by hand (below), and the person builds the work and gets it merged.
-4. Once the work is merged, record it:
+4. Once the work is done, record it:
    `abk external done <change> --groups 2 3 --pr 17` (or `--commit <sha>` for a commit on the
-   default branch). The pull request must be reported merged by the forge, or the commit must be
-   reachable from the default branch; anything else is refused.
+   default branch). The source is optional. Given a pull request, the forge must report it
+   merged; given a commit, it must be reachable from the default branch; anything else is refused,
+   and giving both is refused. Given neither, which is the usual case when the board item has no
+   pull request linked, the board's word is the source: the hold is marked done with no merge
+   source, the units whose groups are all done become merged with the history note "recorded by
+   hand" and no merge record, and their dependents are released at the next tick. The command
+   says that the work is taken as done on the operator's word. That costs a check: the kit cannot
+   tell whether the work is on the default branch, so a dependent may start before it is. Give
+   `--pr` or `--commit` when that matters. A hold done with no source shows as
+   `done (no merge recorded)` in `abk external list`, and a pull request cannot be attached to it
+   later.
 5. To take the work back before it is done, run `abk external release <change> --groups 2 3`,
    or `--all` for every hold still held, which also works for a change with no groups yet.
    A done hold cannot be released.
@@ -50,7 +59,7 @@ holds:
     status: held
 ```
 
-A finished hold also has `merged_by` and `done_at`. The `status` is `held`, `done` or `released`.
+A finished hold also has `merged_by` (empty when it was recorded with no pull request or commit) and `done_at`. The `status` is `held`, `done` or `released`.
 
 ## Board items made by hand
 
