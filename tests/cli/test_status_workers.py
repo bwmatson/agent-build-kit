@@ -35,6 +35,20 @@ def installation(tmp_path: Path, **overrides) -> Installation:
     return make_installation(tmp_path / "planning", **overrides)
 
 
+def repo_modes(tmp_path: Path, *, top: str, app: str, platform: str | None = None) -> Installation:
+    """A workspace at `top` whose repos `app` and `platform` name their own worker mode."""
+    root = tmp_path / "planning"
+    repos = {
+        name: {
+            "path": str(root / "checkouts" / name),
+            "slug": f"example/{name}",
+            **({"workers": {"mode": mode}} if mode else {}),
+        }
+        for name, mode in (("app", app), ("platform", platform))
+    }
+    return installation(tmp_path, workers={"mode": top}, repos=repos)
+
+
 @pytest.fixture
 def inst(tmp_path: Path) -> Installation:
     return installation(tmp_path)
@@ -265,6 +279,33 @@ def test_in_threads_mode_a_held_lock_is_not_called_a_worker(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     inst = installation(tmp_path, workers={"mode": "threads"})
+    with_systemd(monkeypatch)
+    seed(inst)
+    with branch_lock(BRANCH, root=inst.locks_dir):
+        lines = run_status(inst, monkeypatch, capsys)
+
+    assert not worker_lines(lines)
+    assert none_running(lines)
+
+
+def test_a_repo_that_runs_workers_in_a_threads_workspace_has_its_worker_listed(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    inst = repo_modes(tmp_path, top="threads", app="processes")
+    with_systemd(monkeypatch)
+    seed(inst)
+    with branch_lock(BRANCH, root=inst.locks_dir):
+        lines = run_status(inst, monkeypatch, capsys)
+
+    [line] = worker_lines(lines)
+    assert f"build {UNIT}:" in line
+    assert not [row for row in lines if "builds run in the tick" in row]
+
+
+def test_a_repo_that_runs_threads_in_a_processes_workspace_has_no_worker_listed(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    inst = repo_modes(tmp_path, top="processes", app="threads", platform="processes")
     with_systemd(monkeypatch)
     seed(inst)
     with branch_lock(BRANCH, root=inst.locks_dir):

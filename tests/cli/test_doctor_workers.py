@@ -141,3 +141,23 @@ def test_threads_mode_makes_no_complaint_about_the_path(
     # The mode is reported, and nothing about the path is asked of it.
     assert checks
     assert not [check for check in checks if check.status in ("warn", "fail")]
+
+
+def test_one_repo_running_workers_in_a_threads_workspace_is_checked_for_the_path(
+    tmp_path: Path, units: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    config = configured(tmp_path, monkeypatch, "threads")
+    text = config.read_text()
+    assert "repos:" in text
+    config.write_text(
+        text.replace(
+            "    slug: example/app\n",
+            "    slug: example/app\n    workers:\n      mode: processes\n",
+            1,
+        )
+    )
+    units.mkdir()
+
+    checks = workers_checks(config, units, which=without_systemd_run)
+
+    assert any(check.status == "warn" and "systemd-run" in check.detail for check in checks)

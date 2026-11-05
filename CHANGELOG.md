@@ -90,7 +90,7 @@
   moved over one at a time, and `abk status` shows each repo's mode and lists each running worker
   (unit, pid, start time and, when systemd reports them, CPU and memory) or says none run.
   `abk doctor` checks lingering, `systemd-run` and the wake path unit when `workers.mode` is
-  `processes`.
+  `processes` for the workspace or any repo.
 
 - The installation-leak gate now reads the repository's files once for all its scans instead of
   once per scan, and the secret-leak guard module no longer scans the test tree when it is
