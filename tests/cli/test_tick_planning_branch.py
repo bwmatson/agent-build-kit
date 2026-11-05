@@ -12,6 +12,10 @@ from agent_build_kit.cli import pipeline as cli
 from agent_build_kit.pipeline.unit_store import UnitStore
 from tests.conftest import make_installation
 from tests.factories import git, init_repo
+from tests.time_limit import LOADED_TEST_TIME_LIMIT
+
+# The tests of this module run whole passes, whose time depends on the machine's load.
+pytestmark = pytest.mark.time_limit(LOADED_TEST_TIME_LIMIT)
 
 
 def test_a_tick_on_another_branch_restores_the_default_branch_before_reading_state(

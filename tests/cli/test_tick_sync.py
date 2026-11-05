@@ -11,6 +11,10 @@ import pytest
 from agent_build_kit.cli import pipeline as cli
 from tests.factories import commit, git
 from tests.planning_worktree_support import InRepo, in_repo, installation_at, publish_elsewhere
+from tests.time_limit import LOADED_TEST_TIME_LIMIT
+
+# The tests of this module run whole passes, whose time depends on the machine's load.
+pytestmark = pytest.mark.time_limit(LOADED_TEST_TIME_LIMIT)
 
 
 class Reads:

@@ -31,8 +31,13 @@ from agent_build_kit.profiles.base import ProfileUnsupported
 from agent_build_kit.runtimes import AgentRateLimited
 from tests.conftest import make_installation
 from tests.factories import git, init_repo, new_unit
+from tests.time_limit import LOADED_TEST_TIME_LIMIT
 
-pytestmark = pytest.mark.usefixtures("scripted_engine")
+# The tests of this module run whole passes, whose time depends on the machine's load.
+pytestmark = [
+    pytest.mark.usefixtures("scripted_engine"),
+    pytest.mark.time_limit(LOADED_TEST_TIME_LIMIT),
+]
 
 MOVED = "second/1"
 CLEAN = "third/1"

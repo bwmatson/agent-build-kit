@@ -22,8 +22,13 @@ from tests.pipeline.test_cli_pipeline import (  # noqa: F401 — fixtures
     isolated,
     stored,
 )
+from tests.time_limit import LOADED_TEST_TIME_LIMIT
 
-pytestmark = pytest.mark.usefixtures("scripted_engine")
+# The tests of this module run whole passes, whose time depends on the machine's load.
+pytestmark = [
+    pytest.mark.usefixtures("scripted_engine"),
+    pytest.mark.time_limit(LOADED_TEST_TIME_LIMIT),
+]
 
 LINE = "usage guard off (ABK_USAGE_GUARD) — no usage is read and no start is held for usage"
 

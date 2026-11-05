@@ -19,8 +19,13 @@ from tests import tick_pass
 from tests.e2e_schedule_fakes import TODAY, on_today, open_change, planning, scheduled_changes
 from tests.factories import stored_unit
 from tests.tick_pass import isolate
+from tests.time_limit import LOADED_TEST_TIME_LIMIT
 
-pytestmark = pytest.mark.usefixtures("scripted_engine")
+# The tests of this module run whole passes, whose time depends on the machine's load.
+pytestmark = [
+    pytest.mark.usefixtures("scripted_engine"),
+    pytest.mark.time_limit(LOADED_TEST_TIME_LIMIT),
+]
 
 
 class Calls:

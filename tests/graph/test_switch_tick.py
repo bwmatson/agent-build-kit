@@ -20,6 +20,10 @@ from agent_build_kit.pipeline.usage_guard import Decision
 from tests.conftest import make_installation
 from tests.graph_driver import fresh
 from tests.runner_fakes import Killed, Recorder, make_runner
+from tests.time_limit import LOADED_TEST_TIME_LIMIT
+
+# The tests of this module run whole passes, whose time depends on the machine's load.
+pytestmark = pytest.mark.time_limit(LOADED_TEST_TIME_LIMIT)
 
 UNIT = "add-marker/1"
 
