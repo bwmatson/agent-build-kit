@@ -63,17 +63,9 @@ class ModeProfile:
         return getattr(PYTHON, name)
 
 
-def plan(*groups: tuple[str, bool]) -> list[GroupStep]:
-    """Groups in order, each a title and whether it is test-only."""
-    return [
-        GroupStep(
-            change_dir="feature",
-            number=number,
-            title=title,
-            mode=GroupMode.TESTS_ONLY if test_only else GroupMode.TESTS_AND_CODE,
-        )
-        for number, (title, test_only) in enumerate(groups, start=1)
-    ]
+def modes(*names: str) -> tuple[GroupMode, ...]:
+    """The build modes with these names, in order."""
+    return tuple(GroupMode(name) for name in names)
 
 
 def plan_modes(*groups: tuple[str, str]) -> list[GroupStep]:
@@ -82,6 +74,13 @@ def plan_modes(*groups: tuple[str, str]) -> list[GroupStep]:
         GroupStep(change_dir="feature", number=number, title=title, mode=GroupMode(mode))
         for number, (title, mode) in enumerate(groups, start=1)
     ]
+
+
+def plan(*groups: tuple[str, bool]) -> list[GroupStep]:
+    """Groups in order, each a title and whether it is test-only."""
+    return plan_modes(
+        *((title, "tests_only" if test_only else "tests_and_code") for title, test_only in groups)
+    )
 
 
 def commit_docs(repo: Path, title: str, name: str) -> str:

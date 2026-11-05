@@ -1905,14 +1905,6 @@ class BuildPath:
             return ()
         return tuple(step.mode for step in self.runner.group_steps(self.unit))
 
-    def red_first_result(self) -> GateResult:
-        """What is recorded of the red-first gate of a unit that reached review: passed when the
-        tests came first, not applicable when no group of it is built tests first."""
-        modes = self.group_modes()
-        if modes and not any(mode.tests_first for mode in modes):
-            return GateResult.NOT_APPLICABLE
-        return GateResult.PASSED
-
     def stubbed(self) -> bool:
         """Whether this unit is built stubbed: the setting is on and its profile supports stubs."""
         config = self.runner.repo_config
@@ -2415,7 +2407,7 @@ class BuildPath:
             facts = VerdictFacts(
                 kind=kind,
                 planned_estimate=ReviewTier.parse(unit.review_tier),
-                red_first=self.red_first_result(),
+                red_first=GateResult.PASSED,
                 group_modes=self.group_modes(),
                 unit_test=GateResult.PASSED,
                 e2e_state=e2e_state_of(state, r.store.get(unit.id).e2e_state),
@@ -2997,7 +2989,7 @@ class BuildPath:
         # verdict.
         facts = VerdictFacts(
             kind=stored.tier,
-            red_first=self.red_first_result(),
+            red_first=GateResult.PASSED,
             group_modes=self.group_modes(),
             unit_test=GateResult.PASSED,
             e2e_state=stored.e2e_state,

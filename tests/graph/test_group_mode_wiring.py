@@ -9,15 +9,11 @@ from pathlib import Path
 
 from agent_build_kit.pipeline.verdict_record import VERDICTS, latest_verdict
 from tests.factories import activate_with
-from tests.graph.branch_fakes import UNIT, build, prepared, titled
+from tests.graph.branch_fakes import UNIT, build, key, prepared, titled
 from tests.graph.test_remaining_paths import capturing
 from tests.graph.test_session_continuation import Sessions, agents
 
 SEEN_TO_FAIL = "seen to fail"
-
-
-def key(number: int) -> str:
-    return f"add-marker/{number}"
 
 
 def opened_body(tmp_path: Path, modes: dict[str, str]) -> tuple[str, str]:

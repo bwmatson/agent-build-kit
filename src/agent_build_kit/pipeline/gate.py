@@ -125,7 +125,9 @@ def check_branch(
     profile = profile or profiles.get("python-uv")
     projects = projects or []
     mode = "stubbed" if stubbed else ""
-    # A tests commit no red check applies to is judged with no red run, so its result is kept apart.
+    # Every commit `commits_without_red_check` returns (a test-only group's tests commit, and the
+    # commits of a `no_code` or `refactor` group) is judged with no red run, so its result is kept
+    # apart under this cache label, kept as "test-only" so recorded results stay valid.
     only_mode = "test-only" if stubbed else ""
     no_red = commits_without_red_check(repo, base, groups if stubbed else ())
 

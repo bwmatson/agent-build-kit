@@ -32,8 +32,6 @@ class GateResult(StrEnum):
     FAILED = "failed"
     MISSING = "missing"
     PENDING = "pending"
-    # The gate does not apply to the unit: no group of it is tests-first.
-    NOT_APPLICABLE = "not_applicable"
 
 
 class ClassHistory(Frozen):
@@ -112,9 +110,8 @@ class VerdictFacts(Frozen):
     @property
     def red_first_applies(self) -> bool:
         """Whether the red-first gate is one of this unit's: some group of it is built tests
-        first, or its groups are not recorded."""
-        if self.red_first == GateResult.NOT_APPLICABLE:
-            return False
+        first, or its groups are not recorded. The one place that says so; the recorded result
+        says only what ran."""
         return not self.group_modes or any(mode.tests_first for mode in self.group_modes)
 
 

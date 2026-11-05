@@ -410,8 +410,9 @@
   changed mode. The build follows the mode: a `no_code` group takes a lone `feat:` (or an
   optional `test:` then `feat:`) and goes straight to the implementation, a `refactor` group
   takes a lone `feat:`, and a unit that mixes modes is checked group by group. No red check
-  applies to such a group, so a unit with no tests-first group no longer forces full review for
-  want of one, and its pull request text does not claim the tests were committed first.
+  applies to such a group, so for a unit with no tests-first group the verdict no longer counts
+  the red-first result, and its pull request text no longer claims the tests were committed
+  first and seen to fail.
 
 - A unit the usage guard pauses at the gate is now recorded as paused for usage until a
   time, counts toward the limit of units in progress while it waits, and is not resumed

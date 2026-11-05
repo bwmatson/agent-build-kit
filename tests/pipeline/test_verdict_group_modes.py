@@ -1,6 +1,7 @@
 """The red-first fact applies to a unit only when a group of it is `tests_and_code`; for a unit
-of `tests_only`, `no_code` and `refactor` groups it is not applicable, forces no review tier and
-the pull request text does not claim the tests came first (spec: group-build-modes)."""
+of `tests_only`, `no_code` and `refactor` groups the group modes say it does not apply, it forces
+no review tier and the pull request text does not claim the tests came first (spec:
+group-build-modes)."""
 
 from __future__ import annotations
 
@@ -13,25 +14,14 @@ from agent_build_kit.pipeline.verdict import (
     VerdictFacts,
     compute_verdict,
 )
-from agent_build_kit.pipeline.work_graph import GroupMode
+from tests.stub_gate_support import modes
 from tests.verdict_support import green_facts
 
 PROVEN = ClassHistory(samples=20, clean=20)
-NOT_APPLICABLE = "not_applicable"
 
 
-def not_applicable() -> GateResult:
-    return GateResult(NOT_APPLICABLE)
-
-
-def modes(*names: str) -> tuple[GroupMode, ...]:
-    return tuple(GroupMode(name) for name in names)
-
-
-def test_a_red_first_that_is_not_applicable_gives_no_floor() -> None:
-    verdict = compute_verdict(
-        green_facts(red_first=not_applicable(), group_modes=modes("no_code")), PROVEN
-    )
+def test_a_unit_of_no_code_groups_has_no_red_first_floor() -> None:
+    verdict = compute_verdict(green_facts(group_modes=modes("no_code")), PROVEN)
 
     assert verdict.tier is ReviewTier.AUTO
     assert "red-first" not in verdict.reason
@@ -53,7 +43,7 @@ def test_the_text_of_a_unit_of_no_code_groups_does_not_say_the_tests_came_first(
     text = verified_list(
         VerdictFacts(
             kind=TestTier.UNIT_TEST,
-            red_first=not_applicable(),
+            red_first=GateResult.PASSED,
             unit_test=GateResult.PASSED,
             group_modes=modes("no_code", "tests_only"),
         ),
@@ -69,7 +59,7 @@ def test_the_text_of_a_refactor_says_it_was_a_reorganization_and_no_test_was_add
     text = verified_list(
         VerdictFacts(
             kind=TestTier.UNIT_TEST,
-            red_first=not_applicable(),
+            red_first=GateResult.PASSED,
             unit_test=GateResult.PASSED,
             group_modes=modes("refactor"),
         ),

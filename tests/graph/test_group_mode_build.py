@@ -12,13 +12,9 @@ import pytest
 
 from agent_build_kit.graph.nodes import ROUTES
 from agent_build_kit.graph.state import Node
-from tests.graph.branch_fakes import agent_calls, built, subjects, titled
+from tests.graph.branch_fakes import agent_calls, built, key, subjects, titled
 
 PREVIOUS_TESTS = "Make the tests written in the previous commit pass"
-
-
-def key(number: int) -> str:
-    return f"add-marker/{number}"
 
 
 @pytest.mark.parametrize("mode", ["no_code", "refactor"])

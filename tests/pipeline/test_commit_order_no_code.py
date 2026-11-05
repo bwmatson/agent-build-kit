@@ -13,21 +13,17 @@ from agent_build_kit.pipeline.commit_order import (
     group_progress,
     superseded_pairs,
 )
-from agent_build_kit.pipeline.group_mode import GroupMode
 from tests.factories import commit_files
 from tests.stub_gate_support import (
     commit_docs,
     commit_feat,
     commit_tests,
+    modes,
     plan_modes,
     repo,  # noqa: F401  (the fixture)
 )
 
 CODE = "tests_and_code"
-
-
-def modes(*names: str) -> list[GroupMode]:
-    return [GroupMode(name) for name in names]
 
 
 def test_a_lone_feat_of_a_no_code_group_passes(repo: Path) -> None:  # noqa: F811 — fixture
@@ -191,3 +187,17 @@ def test_a_tests_commit_for_a_refactor_group_is_refused(repo: Path) -> None:  # 
     problems = check_structure(repo, "main", paired=True, groups=plan_modes(("Move", "refactor")))
 
     assert any("test: Move" in problem and "reorganization" in problem for problem in problems)
+
+
+def test_a_refactor_group_is_told_from_an_earlier_group_with_its_title_by_position(
+    repo: Path,  # noqa: F811 — fixture
+) -> None:
+    commit_tests(repo, "Move", "m")
+    commit_feat(repo, "Move", "moved")
+    commit_feat(repo, "Move", "moved_again")
+
+    problems = check_structure(
+        repo, "main", paired=True, groups=plan_modes(("Move", CODE), ("Move", "refactor"))
+    )
+
+    assert problems == []

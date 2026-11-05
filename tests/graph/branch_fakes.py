@@ -32,6 +32,11 @@ def agent_calls(events: list[str]) -> list[str]:
     return [event for event in events if event.startswith("claude:")]
 
 
+def key(number: int) -> str:
+    """The key a stored group mode has for group `number` of the unit's own change."""
+    return f"add-marker/{number}"
+
+
 def titled(*numbers: int) -> Groups:
     """Groups titled `G<number>`, none with a "Done when" sentence."""
     return {number: (f"G{number}", "") for number in numbers}

@@ -448,11 +448,26 @@ def check_structure(
 
     if paired:
         problems.extend(_pair_problems(subjects, test_only))
-        for group in groups:
-            if group.mode is GroupMode.REFACTOR and f"{TESTS_PREFIX}{group.title}" in subjects:
-                problems.append(
-                    f"`{TESTS_PREFIX}{group.title}` is a tests commit for a reorganization, "
-                    f"which takes a lone `{CODE_PREFIX}{group.title}`"
-                )
+        if (title := _refactor_given_tests(subjects, groups)) is not None:
+            problems.append(
+                f"`{TESTS_PREFIX}{title}` is a tests commit for a reorganization, "
+                f"which takes a lone `{CODE_PREFIX}{title}`"
+            )
 
     return problems
+
+
+def _refactor_given_tests(subjects: list[str], groups: Sequence[GroupStep]) -> str | None:
+    """The title of the `refactor` group the walk of `groups` over `subjects` stops at because its
+    place holds its own `test:` commit, None when the walk stops elsewhere or not at all. By
+    position, so a `refactor` group does not take the tests commit of an earlier group with its
+    title."""
+    position = 0
+    for group in groups:
+        size = _group_size(subjects, position, group.title, group.mode)
+        if size is None:
+            at_place = subjects[position] if position < len(subjects) else ""
+            tests = f"{TESTS_PREFIX}{group.title}"
+            return group.title if group.mode is GroupMode.REFACTOR and at_place == tests else None
+        position += size
+    return None
