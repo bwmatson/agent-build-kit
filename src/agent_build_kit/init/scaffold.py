@@ -342,9 +342,12 @@ def checked(path: Path, updated: str, expected: object) -> None:
         raise ScaffoldError(f"{path}: the entry did not produce a valid file; left alone")
 
 
-def add_project(path: Path, repo: str, entry: Mapping[str, str]) -> bool:
+def add_project(
+    path: Path, repo: str, entry: Mapping[str, str], *, inline_list: bool = True
+) -> bool:
     """Append `entry` to `repo`'s `projects:` list in the abk.yaml at `path`, creating the
-    list when the repo has none and rewriting an inline `projects: []` as a block list. Every
+    list when the repo has none and, unless `inline_list` is False (which refuses it), rewriting
+    an inline `projects: []` as a block list. Every
     other line stays as it is. True when written; False, file untouched, when the path is
     already listed with that profile. An unknown profile or repo, a path outside the repo, one
     listed with another profile, a layout whose place cannot be found as a block, or a result
@@ -363,6 +366,10 @@ def add_project(path: Path, repo: str, entry: Mapping[str, str]) -> bool:
                 f"(profile {existing.get('profile')})"
             )
     if projects >= 0 and _EMPTY_LIST.fullmatch(lines[projects].rstrip()):
+        if not inline_list:
+            raise ScaffoldError(
+                f"{path}: `projects:` of {repo!r} is not a block list; edit it by hand"
+            )
         lines[projects] = f"{child}projects:\n"
     if projects < 0:
         lines[repo_end:repo_end] = [f"{child}projects:\n", *_list_item(entry, child + "  ")]

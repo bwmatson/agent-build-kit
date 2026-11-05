@@ -45,6 +45,7 @@ def cmd_project_init(args: argparse.Namespace, inst: Installation) -> int:
             locate(args.config or settings_module.settings.config),
             args.repo,
             {"path": path, "profile": args.profile},
+            inline_list=False,
         )
     except (ProjectInitError, ScaffoldError) as error:
         print(f"abk: {error}", file=sys.stderr)
