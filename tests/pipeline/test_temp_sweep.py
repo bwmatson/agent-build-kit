@@ -103,7 +103,7 @@ def test_the_pid_file_a_run_writes_names_this_process_and_is_kept_by_the_sweep(
 def test_a_folder_younger_than_the_limit_is_kept_though_its_process_is_gone(
     installation: Installation,
 ) -> None:
-    folder = run_folder(installation, "a1b2c3d4", pid=DEAD, age_hours=23)
+    folder = run_folder(installation, "a1b2c3d4", pid=DEAD, age_hours=15)
 
     sweep(installation, [])
 
@@ -117,6 +117,29 @@ def test_the_limit_is_global_limits_temp_keep_hours(tmp_path: Path) -> None:
     sweep(short, [])
 
     assert not folder.exists()
+
+
+def test_the_default_sweep_keeps_a_folder_of_15_hours_and_removes_one_of_17(
+    installation: Installation,
+) -> None:
+    young = run_folder(installation, "a1b2c3d4", pid=DEAD, age_hours=15)
+    old = run_folder(installation, "b1b2c3d4", pid=DEAD, age_hours=17)
+
+    removed = sweep(installation, [])
+
+    assert young.is_dir()
+    assert not old.exists()
+    assert removed == [old]
+
+
+def test_a_configured_keep_time_wins_over_the_default(tmp_path: Path) -> None:
+    configured = make_installation(tmp_path, global_limits={"temp_keep_hours": 30})
+    folder = run_folder(configured, "a1b2c3d4", pid=DEAD, age_hours=17)
+
+    removed = sweep(configured, [])
+
+    assert folder.is_dir()
+    assert removed == []
 
 
 def test_nothing_outside_the_pytest_temp_root_is_touched(installation: Installation) -> None:

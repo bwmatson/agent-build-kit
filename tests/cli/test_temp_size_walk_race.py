@@ -58,7 +58,8 @@ def test_status_goes_on_when_a_file_is_removed_during_the_walk(
     fill(inst.pytest_temp_root, runs=2, megabytes=2)
     (inst.pytest_temp_root / "00000000" / GONE).write_bytes(b"x" * MEGABYTE)
 
-    lines = run_status(inst, monkeypatch, capsys)
+    assert not any("pytest temp" in line for line in run_status(inst, monkeypatch, capsys))
+    lines = run_status(inst, monkeypatch, capsys, temp=True)
 
     assert any("pytest temp" in line for line in lines)
 

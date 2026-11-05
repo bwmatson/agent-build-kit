@@ -1025,9 +1025,10 @@ def cmd_status(args: argparse.Namespace, inst: Installation) -> int:
 
     for name in inst.repos:
         log(f"workers: {name} runs in {_mode_of(inst, name)} mode")
-    if found := temp_size(inst):
-        warning = " — warning: above global_limits.temp_warn_mb" if found.warn else ""
-        log(f"pytest temp: {found.text}{warning}")
+    if getattr(args, "temp", False):
+        if found := temp_size(inst):
+            warning = " — warning: above global_limits.temp_warn_mb" if found.warn else ""
+            log(f"pytest temp: {found.text}{warning}")
     if line := lock_status_line(inst.e2e_lock):
         log(line)
     for line in slot_status_lines(
@@ -9005,6 +9006,11 @@ def register(sub: argparse._SubParsersAction) -> None:
         "--refresh",
         action="store_true",
         help="ask the usage endpoint for a fresh reading, within the minimum interval",
+    )
+    status.add_argument(
+        "--temp",
+        action="store_true",
+        help="also measure the pytest temp folder, which can take minutes",
     )
     status.set_defaults(func=cmd_status)
 
