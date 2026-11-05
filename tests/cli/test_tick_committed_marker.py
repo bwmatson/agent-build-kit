@@ -21,8 +21,13 @@ from tests.attach_driver import checked_out, head, leave_lease
 from tests.chat_serving import record_session
 from tests.conftest import make_private_trees_installation
 from tests.factories import git
+from tests.time_limit import LOADED_TEST_TIME_LIMIT
 
-pytestmark = pytest.mark.usefixtures("scripted_engine")
+# The tests of this module run whole passes, whose time depends on the machine's load.
+pytestmark = [
+    pytest.mark.usefixtures("scripted_engine"),
+    pytest.mark.time_limit(LOADED_TEST_TIME_LIMIT),
+]
 
 UNIT = "feature/1"
 

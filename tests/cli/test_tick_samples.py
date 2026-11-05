@@ -28,8 +28,13 @@ from tests.factories import new_unit
 from tests.fake_clock import START, FakeClock, install
 from tests.ledger_lines import write_ledger
 from tests.otlp import Collector, enabled
+from tests.time_limit import LOADED_TEST_TIME_LIMIT
 
-pytestmark = pytest.mark.usefixtures("scripted_engine")
+# The tests of this module run whole passes, whose time depends on the machine's load.
+pytestmark = [
+    pytest.mark.usefixtures("scripted_engine"),
+    pytest.mark.time_limit(LOADED_TEST_TIME_LIMIT),
+]
 
 SAMPLE_COUNTS = {"running", "in_review", "blocked", "queued", "free_workers", "limit", "cap"}
 

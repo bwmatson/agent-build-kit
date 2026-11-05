@@ -40,10 +40,15 @@ from agent_build_kit.profiles.base import ProfileUnsupported
 from tests.conftest import make_installation
 from tests.factories import own_group
 from tests.runtimes.stand_in import StandInRuntime
+from tests.time_limit import LOADED_TEST_TIME_LIMIT
 
 inst: Installation = cast(Installation, None)  # set per test by `isolated`
 
-pytestmark = pytest.mark.usefixtures("scripted_engine")
+# The tests of this module run whole passes, whose time depends on the machine's load.
+pytestmark = [
+    pytest.mark.usefixtures("scripted_engine"),
+    pytest.mark.time_limit(LOADED_TEST_TIME_LIMIT),
+]
 
 
 def reading(**overrides) -> UsageReading:

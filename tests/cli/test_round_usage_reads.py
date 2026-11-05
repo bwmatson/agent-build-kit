@@ -25,7 +25,11 @@ from tests.cli.vanished_fakes import keep_changes_of_unstarted_units
 from tests.conftest import make_installation
 from tests.factories import stored_unit
 from tests.otlp import enabled
+from tests.time_limit import LOADED_TEST_TIME_LIMIT
 from tests.usage_host import Host, payload
+
+# The tests of this module run whole passes, whose time depends on the machine's load.
+pytestmark = pytest.mark.time_limit(LOADED_TEST_TIME_LIMIT)
 
 
 @pytest.fixture

@@ -26,8 +26,13 @@ from agent_build_kit.pipeline.units import IN_REVIEW, PLANNED, RUNNING
 from agent_build_kit.pipeline.usage_guard import Decision
 from tests.conftest import make_installation
 from tests.factories import init_repo, new_unit
+from tests.time_limit import LOADED_TEST_TIME_LIMIT
 
-pytestmark = pytest.mark.usefixtures("scripted_engine")
+# The tests of this module run whole passes, whose time depends on the machine's load.
+pytestmark = [
+    pytest.mark.usefixtures("scripted_engine"),
+    pytest.mark.time_limit(LOADED_TEST_TIME_LIMIT),
+]
 
 WAIT = 60
 OTHER_BEGINS = 5  # how long a restack waits for the one beside it before the test fails

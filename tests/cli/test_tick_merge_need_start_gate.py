@@ -20,8 +20,13 @@ from agent_build_kit.pipeline.usage_guard import Decision
 from tests.conftest import make_installation
 from tests.factories import commit, git, new_unit
 from tests.kit_checkout import kit_at
+from tests.time_limit import LOADED_TEST_TIME_LIMIT
 
-pytestmark = pytest.mark.usefixtures("scripted_engine")
+# The tests of this module run whole passes, whose time depends on the machine's load.
+pytestmark = [
+    pytest.mark.usefixtures("scripted_engine"),
+    pytest.mark.time_limit(LOADED_TEST_TIME_LIMIT),
+]
 
 
 @pytest.fixture(autouse=True)

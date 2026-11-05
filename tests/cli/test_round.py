@@ -35,9 +35,14 @@ from agent_build_kit.pipeline.workspaces import branch_lock
 from tests.cli.vanished_fakes import keep_changes_of_unstarted_units
 from tests.conftest import make_installation
 from tests.factories import stored_unit
+from tests.time_limit import LOADED_TEST_TIME_LIMIT
 from tests.waiting import wait_for
 
-pytestmark = pytest.mark.usefixtures("scripted_engine")
+# The tests of this module run whole passes, whose time depends on the machine's load.
+pytestmark = [
+    pytest.mark.usefixtures("scripted_engine"),
+    pytest.mark.time_limit(LOADED_TEST_TIME_LIMIT),
+]
 
 # Generous: a passing wait costs nothing, and a loaded parallel run stretches the others.
 WAIT = 30
