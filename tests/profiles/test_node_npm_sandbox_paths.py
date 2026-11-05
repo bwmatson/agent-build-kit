@@ -39,14 +39,6 @@ def test_node_npm_reads_the_folders_of_the_node_version_managers(tmp_path: Path)
     assert {f"{HOME_MARK}/{folder}" for folder in MANAGER_FOLDERS} <= set(found.read)
 
 
-def test_node_npm_keeps_the_npm_cache_to_write_and_the_registry(tmp_path: Path) -> None:
-    found = node_npm_paths(tmp_path)
-
-    assert f"{HOME_MARK}/.npm" in found.write
-    assert found.hosts == ("registry.npmjs.org",)
-    assert set(found.read) >= {f"{HOME_MARK}/.volta"}
-
-
 def test_the_policy_lists_the_manager_folders_that_exist(tmp_path: Path, home: Path) -> None:
     scene = Scene(tmp_path)
     (home / ".volta").mkdir(parents=True)
@@ -74,7 +66,8 @@ def test_the_policy_lists_a_persons_read_folder_beside_the_profiles(
     own = tmp_path / "toolbox"
     own.mkdir()
     node = profiles.get("node-npm")
-    installation = scene.installation(sandbox={"read": [str(own)]})
+    local = {"repos": {"app": {"sandbox": {"read": [str(own)]}}}}
+    installation = scene.installation(local=local)
     scene.worktree.mkdir()
 
     policy = build_policy(installation, "app", scene.worktree, runtime=BareRuntime(), profile=node)

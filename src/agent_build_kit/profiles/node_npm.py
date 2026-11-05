@@ -56,7 +56,14 @@ _DIFF_LINT = (
     f"{_DIFF.format(z=' -z')} | xargs -0 npx oxfmt --check"
 )
 # Volta, nvm and fnm: read, not written, since a manager writes only to install a version.
-_VERSION_MANAGERS = (f"{HOME}/.volta", f"{HOME}/.nvm", f"{HOME}/.local/share/fnm")
+_VERSION_MANAGERS = (
+    f"{HOME}/.volta",
+    f"{HOME}/.nvm",
+    # fnm: the Linux default, the macOS folder and the legacy one.
+    f"{HOME}/.local/share/fnm",
+    f"{HOME}/Library/Application Support/fnm",
+    f"{HOME}/.fnm",
+)
 _TYPE_CHECK = "tsc"
 # The project's type check, which `project_checks` and the stubbed clean command both run.
 _TYPE_CHECK_ARGV = ["npx", _TYPE_CHECK, "--noEmit"]

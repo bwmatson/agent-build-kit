@@ -173,7 +173,11 @@ def policy_entries(
         given = toolchain.sandbox_paths(worktree)
         if isinstance(given, SandboxPaths):
             # A profile's read folders are defaults; one not on this machine is left out.
-            there = [r for r in given.read if (worktree / Path(r).expanduser()).exists()]
+            there = [
+                folder
+                for folder, path in zip(given.read, _resolved(given.read, worktree), strict=True)
+                if path.exists()
+            ]
             layers.append((f"default ({name})", ProjectSandboxConfig(read=there)))
             given = given.model_copy(update={"read": ()})
         layers.append((name, _layer(given)))
