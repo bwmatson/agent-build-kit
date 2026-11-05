@@ -9,13 +9,14 @@ all, or a forge that cannot answer: the failing tests run on the default branch 
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import pytest
 
 from agent_build_kit.forges import PullRequest, RepoId
 from agent_build_kit.forges.base import (
+    UNKNOWN_CHECKS,
     Check,
     CheckStatus,
     CommitChecks,
@@ -26,6 +27,7 @@ from agent_build_kit.pipeline import events
 from agent_build_kit.pipeline.unit_store import Pull, StoredUnit, UnitStore
 from agent_build_kit.pipeline.units import HELD, MERGED, PLANNED, SETTLING
 from tests.factories import stored_unit
+from tests.fake_clock import FakeClock, install
 from tests.forges.stand_in import StandInForge
 
 MERGE = "0123456789abcdef0123456789abcdef01234567"
@@ -47,15 +49,24 @@ class Base:
 
 
 class BaseChecks:
-    """The forge's answer for the merge commit's checks, one per poll, and the commits asked."""
+    """The forge's answer for the merge commit's checks, one per poll, and the commits asked,
+    with the branch each was asked on."""
 
     def __init__(self, *answers: CommitChecks) -> None:
         self.answers = list(answers)
         self.asked: list[str] = []
+        self.branches: list[str] = []
 
-    def __call__(self, unit: StoredUnit, sha: str) -> CommitChecks:
+    def __call__(self, unit: StoredUnit, sha: str, branch: str) -> CommitChecks:
         self.asked.append(sha)
+        self.branches.append(branch)
         return self.answers.pop(0) if len(self.answers) > 1 else self.answers[0]
+
+
+@pytest.fixture(autouse=True)
+def clock(monkeypatch: pytest.MonkeyPatch) -> FakeClock:
+    """Half an hour after the merge, well inside the wait for the merge commit's checks."""
+    return install(monkeypatch, MERGED_AT + timedelta(minutes=30))
 
 
 def checks(**statuses: CheckStatus) -> CommitChecks:
@@ -65,6 +76,7 @@ def checks(**statuses: CheckStatus) -> CommitChecks:
 PASSED = CheckStatus.PASSED
 FAILED = CheckStatus.FAILED
 PENDING = CheckStatus.PENDING
+SKIPPED = CheckStatus.SKIPPED
 
 
 def late_fix(number: int, k: int) -> Pull:
@@ -253,16 +265,101 @@ def test_the_read_asks_the_unit_s_forge_for_the_commit_s_checks() -> None:
     repo = RepoId(forge="stand_in", account="example", name="app")
     read = events.build_base_checks(for_repo=lambda name: (forge, repo))
 
-    assert read(stored_unit("add-marker/1"), MERGE) == answer
+    assert read(stored_unit("add-marker/1"), MERGE, "main") == answer
     assert forge.commit_check_reads == [MERGE]
 
 
 def test_a_forge_that_raises_is_read_as_unknown() -> None:
     class Broken(StandInForge):
-        def commit_checks(self, repo: RepoId, sha: str) -> CommitChecks:
+        def commit_checks(
+            self, repo: RepoId, sha: str, *, branch: str = "", since: datetime | None = None
+        ) -> CommitChecks:
             raise RuntimeError("the host went away")
 
     repo = RepoId(forge="stand_in", account="example", name="app")
     read = events.build_base_checks(for_repo=lambda name: (Broken(), repo))
 
-    assert read(stored_unit("add-marker/1"), MERGE).outcome == CommitOutcome.UNKNOWN
+    assert read(stored_unit("add-marker/1"), MERGE, "main").outcome == CommitOutcome.UNKNOWN
+
+
+# --- review ------------------------------------------------------------------------------
+
+
+def test_a_failed_check_skipped_on_the_merge_commit_runs_the_tests_locally(
+    tmp_path: Path,
+) -> None:
+    store = settling(tmp_path)
+    base = Base(passes=True)
+
+    late_check(store, base, BaseChecks(checks(test=SKIPPED, lint=PASSED)))
+
+    assert base.asked == ["add-marker/1"], "a skipped check ran nothing, so it is no pass"
+    assert "fixed on the base" in store.get("add-marker/1").history[-1]["note"]
+
+
+def test_the_merge_commit_s_checks_are_asked_on_the_pull_request_s_base(tmp_path: Path) -> None:
+    store = settling(tmp_path)
+    read = BaseChecks(checks(test=PASSED))
+
+    late_check(store, Base(passes=False), read)
+
+    assert read.branches == ["main"]
+
+
+def test_checks_still_running_long_after_the_merge_are_given_up_for_the_local_run(
+    tmp_path: Path, clock: FakeClock
+) -> None:
+    store = settling(tmp_path)
+    base = Base(passes=False)
+    read = BaseChecks(checks(test=PENDING))
+    clock.advance((events.BASE_CHECKS_WAIT - timedelta(minutes=31)).total_seconds())
+
+    late_check(store, base, read)
+    assert store.get("add-marker/1").state == SETTLING
+    assert base.asked == []
+
+    clock.advance(timedelta(minutes=2).total_seconds())
+    late_check(store, base, read)
+    assert base.asked == ["add-marker/1"]
+    assert store.get("add-marker/1").state == PLANNED
+
+
+def test_a_unit_after_two_late_fixes_whose_merge_commit_passed_is_merged_not_held(
+    tmp_path: Path,
+) -> None:
+    first = Pull(number=4, branch="spec/add-marker/1", merged_at=MERGED_AT, merge_sha=MERGE)
+    store = settling(tmp_path, (first, late_fix(9, 1), late_fix(12, 2)))
+    base = Base(passes=False)
+
+    late_check(store, base, BaseChecks(checks(test=PASSED)), pull=red(12))
+
+    assert store.get("add-marker/1").state == MERGED
+    assert base.asked == []
+
+
+class Recording(StandInForge):
+    def __init__(self) -> None:
+        super().__init__()
+        self.kwargs: list[dict] = []
+
+    def commit_checks(
+        self, repo: RepoId, sha: str, *, branch: str = "", since: datetime | None = None
+    ) -> CommitChecks:
+        self.kwargs.append({"branch": branch, "since": since})
+        return UNKNOWN_CHECKS
+
+
+def test_the_read_asks_for_the_branch_and_from_shortly_before_the_merge() -> None:
+    forge = Recording()
+    repo = RepoId(forge="stand_in", account="example", name="app")
+    unit = stored_unit(
+        "add-marker/1",
+        pulls=(Pull(number=4, branch="spec/add-marker/1", merged_at=MERGED_AT, merge_sha=MERGE),),
+    )
+
+    events.build_base_checks(for_repo=lambda name: (forge, repo))(unit, MERGE, "main")
+
+    [asked] = forge.kwargs
+    assert asked["branch"] == "main"
+    assert asked["since"] is not None and asked["since"] <= MERGED_AT
+    assert MERGED_AT - asked["since"] <= timedelta(hours=1)
