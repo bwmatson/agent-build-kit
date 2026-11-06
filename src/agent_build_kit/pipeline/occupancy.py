@@ -102,14 +102,17 @@ def occupied(
         runs = (
             (unit.branch or branch_name(unit)) in locks or unit.id in held or marker_live(unit, now)
         )
-        if not (runs or usage_paused(unit)):
+        # A comment rework in the resolution lane holds its place and its branch lock, and no
+        # build worker (`ready_units` shows it running with no worker).
+        comment_run = unit.in_a_comment_run
+        if not (runs or comment_run or usage_paused(unit)):
             continue
         projects[key] += 1
         accounts[account_of(unit)] += 1
         if unit.id in lane:
             emergency[key] += 1
             account_emergency[account_of(unit)] += 1
-        if runs:
+        if runs and not comment_run:
             workers[key] += 1
             account_workers[account_of(unit)] += 1
             if unit.id in lane:

@@ -45,6 +45,10 @@ class SystemClock:
 
 clock: Clock = SystemClock()
 
+# What the resolution lane worker running this code is resolving (`base` or `comment`); empty in
+# a build worker. The lane sets it in its own thread's context.
+resolving: ContextVar[str] = ContextVar("resolving", default="")
+
 # Told in the decision log with each record, and in the evidence of a failing run, so the
 # records of one process (a tick) read together.
 PROCESS_TICK = uuid.uuid4().hex[:8]
@@ -140,6 +144,9 @@ class RestackRecord(Frozen):
     retest_seconds: float = 0.0
     retest_result: str = ""
     resolution_seconds: float = 0.0
+    # What the resolution lane was resolving when the line was written (`base` or `comment`);
+    # empty for a restack a build worker made.
+    resolving: str = ""
 
 
 class Mark:

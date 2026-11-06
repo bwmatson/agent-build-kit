@@ -15,7 +15,10 @@
   review and the push) and is never handed back to a build worker; one that cannot go on is held
   for a person with a note naming the step. A unit an earlier version handed back
   (`restack_handed_back`) is still resumed by a build worker; the next release stops reading that
-  cause.
+  cause. A comment rework in the lane takes no build worker and is not counted in the slot
+  occupancy, so it never delays a build and a full set of builds never delays it; `abk status`
+  and `abk explain` say `resolving a comment` or `resolving base <name>`, and the lane's record
+  and the restack lines of the usage ledger carry which (`resolving`).
 
 - A pull request merged with a failed check is settled from the default branch's own checks when
   they already answer the question. Before the failing tests are run on the default branch, the
