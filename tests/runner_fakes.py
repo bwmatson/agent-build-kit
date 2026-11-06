@@ -8,12 +8,13 @@ re-run did nothing twice.
 from __future__ import annotations
 
 import json
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from pathlib import Path
 from typing import Any
 
 from agent_build_kit.config import active
 from agent_build_kit.pipeline.commit_order import TESTS_PREFIX
+from agent_build_kit.pipeline.group_mode import GroupMode
 from agent_build_kit.pipeline.stack_runner import UnitRunner
 from agent_build_kit.pipeline.unit_store import UnitStore
 
@@ -76,6 +77,8 @@ class Recorder:
         self.needs_result = False
         self.pr_opens = 0  # calls that found no pull request for the branch
         self.contexts: list[str] = []  # what each review was given
+        # The group modes each review was given ({} when none).
+        self.review_modes: list[dict[str, GroupMode]] = []
 
     def _after(self, event: str) -> None:
         """Record `event`, then die once if the test asked for that."""
@@ -112,8 +115,10 @@ class Recorder:
         resume_session: str = "",
         on_session: Callable[[str], None] | None = None,
         on_result: Callable[..., None] | None = None,
+        group_modes: Mapping[str, GroupMode] | None = None,
     ) -> str:
         self.contexts.append(context)
+        self.review_modes.append(dict(group_modes or {}))
         self.events.append("review")
         return self.verdicts.pop(0) if self.verdicts else approving()
 

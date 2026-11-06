@@ -123,6 +123,7 @@ from agent_build_kit.pipeline.git_output import (
     transport_failure,
     untranslated_env,
 )
+from agent_build_kit.pipeline.group_mode import GroupMode
 from agent_build_kit.pipeline.lease import Leases, lease_dir
 from agent_build_kit.pipeline.moved_base import brought_in, kinds_of, moved_base_scope
 from agent_build_kit.pipeline.own_tests import (
@@ -776,6 +777,39 @@ def build_run(
     return run_agent
 
 
+# The two parts of the review prompt that hold a change's tests to a standard; a unit with no group
+# that writes tests (see `review_prompt`) is not shown them.
+REVIEW_DETERMINISM_RULE = (
+    "- **Hold the tests to the determinism rules.** "
+    + determinism_guidance()
+    + """ A use of
+  any of these that the change introduces is a required finding, and its
+  consequence is that the test passes alone and fails under load.
+"""
+)
+
+REVIEW_REAL_SYSTEM_CHECK = """\
+**Check the tests against the real system, not against the code.** A test
+passing proves only what its fakes allow. For every fake, stub or fixture
+standing in for something outside this code — a library, a browser, a
+service, a protocol, a data format — ask: would it still pass if the real
+thing behaved differently from how the code assumes? A fake that returns what
+the implementation expects (an element whose click() "counts" as a click, a
+wrapper returning plain values it may not) tests the code against itself.
+Required where that is the case:
+
+- fakes at the protocol boundary — the raw wire shape the real system sends
+  (CDP JSON, an HTTP body, a CLI's output) — rather than in place of a
+  third-party wrapper whose behaviour is exactly what is in question;
+- fixtures for parsers of external data recorded from the real system, or
+  carrying everything the real one does (metadata, nulls, empty values), not
+  only the fields the code reads;
+- when the change is meant as a drop-in for something existing, a test of
+  the workflow a caller runs (click a field, then type into it), not only of
+  each call's arguments.
+
+"""
+
 # The reviewer reads and judges; it does not edit. Anything it wants changed it
 # says, and the build step makes the change — so its judgement is not limited to
 # what it can safely rewrite itself, and a concern it can only articulate
@@ -834,12 +868,9 @@ Every round you ask for costs a rework and another review, so:
   and the evidence that it shares the cause. It is a required change when that evidence is
   missing, and an edit to a test that the tasks neither name in a step nor list as possible is a
   required change to remove it.
-- **Hold the tests to the determinism rules.** """
-    + determinism_guidance()
-    + """ A use of
-  any of these that the change introduces is a required finding, and its
-  consequence is that the test passes alone and fails under load.
-- **Read the code around the change, not only the diff.** For each hunk, open
+"""
+    + REVIEW_DETERMINISM_RULE
+    + """- **Read the code around the change, not only the diff.** For each hunk, open
   the enclosing function and read it whole. For each removed line, ask what it
   enforced — a check, a lock, a validation, an ordering — and whether the change
   still enforces it somewhere. Follow callers and callees one step out: who
@@ -857,26 +888,9 @@ Every round you ask for costs a rework and another review, so:
 - **Separate what is required from what is optional** with each finding's
   `required` field. Only required changes block approval.
 
-**Check the tests against the real system, not against the code.** A test
-passing proves only what its fakes allow. For every fake, stub or fixture
-standing in for something outside this code — a library, a browser, a
-service, a protocol, a data format — ask: would it still pass if the real
-thing behaved differently from how the code assumes? A fake that returns what
-the implementation expects (an element whose click() "counts" as a click, a
-wrapper returning plain values it may not) tests the code against itself.
-Required where that is the case:
-
-- fakes at the protocol boundary — the raw wire shape the real system sends
-  (CDP JSON, an HTTP body, a CLI's output) — rather than in place of a
-  third-party wrapper whose behaviour is exactly what is in question;
-- fixtures for parsers of external data recorded from the real system, or
-  carrying everything the real one does (metadata, nulls, empty values), not
-  only the fields the code reads;
-- when the change is meant as a drop-in for something existing, a test of
-  the workflow a caller runs (click a field, then type into it), not only of
-  each call's arguments.
-
-A later round may find a required change the builder has reported `BLOCKED:`
+"""
+    + REVIEW_REAL_SYSTEM_CHECK
+    + """A later round may find a required change the builder has reported `BLOCKED:`
 — its environment refused the edit (a file Claude Code protects, a permission
 it does not have), not that the change was hard. If every required change left
 is blocked that way and the reason holds, set `needs_human` to true and say in
@@ -935,6 +949,44 @@ Reply with JSON and nothing else:
  "description": {"summary": "...", "changes": ["..."]}}
 """
 )
+
+REVIEW_MODE_RULES: dict[GroupMode, str] = {
+    GroupMode.TESTS_AND_CODE: (
+        "its tests were committed first and seen to fail; hold them to the test standards above."
+    ),
+    GroupMode.TESTS_ONLY: (
+        "it builds tests and no implementation; hold the tests to the test standards above, "
+        "and each must pass."
+    ),
+    GroupMode.NO_CODE: (
+        "it changes documents or configuration only and adds no test; ask whether what it says "
+        "is accurate, agrees with the code and settings it describes, and is worded to last. "
+        "No test standard applies."
+    ),
+    GroupMode.REFACTOR: (
+        "it is a reorganization and adds no test; ask whether behaviour, public surface, output "
+        "and configuration are unchanged. No test standard applies."
+    ),
+}
+
+
+def review_prompt(group_modes: Mapping[str, GroupMode] | None = None) -> str:
+    """The review prompt for a unit whose groups are built in `group_modes` (keyed by change and
+    group number). Without modes it is `REVIEW_PROMPT`; a unit with no group that writes tests
+    is not shown the test standards, and each rule for a mode names the groups it is for."""
+    if not group_modes:
+        return REVIEW_PROMPT
+    text = REVIEW_PROMPT
+    if not any(mode.writes_tests for mode in group_modes.values()):
+        text = text.replace(REVIEW_DETERMINISM_RULE, "").replace(REVIEW_REAL_SYSTEM_CHECK, "")
+    rules = []
+    for mode in GroupMode:
+        groups = sorted(key for key, found in group_modes.items() if found is mode)
+        if groups:
+            rules.append(f"- Group {', '.join(groups)} ({mode.value}): {REVIEW_MODE_RULES[mode]}")
+    heading = "**How each group of this unit is built**, and so what the review asks of it:\n\n"
+    return heading + "\n".join(rules) + "\n\n" + text
+
 
 # What review adds to the prompt when it is enabled: the classification the reviewer gives.
 REVIEW_CLASSIFICATION_PROMPT = """\
@@ -1000,11 +1052,14 @@ def build_run_review(
         resume_session: str = "",
         on_session: Callable[[str], None] | None = None,
         on_result: AgentCallback | None = None,
+        group_modes: Mapping[str, GroupMode] | None = None,
     ) -> str:
         # `context` is the runner's word on this branch — e.g. that it was
         # moved onto a predecessor that changed — ahead of the standing prompt.
         prompt = (
-            REVIEW_CLASSIFICATION_PROMPT + REVIEW_PROMPT + review_changelog_paragraph(cwd, repo)
+            REVIEW_CLASSIFICATION_PROMPT
+            + review_prompt(group_modes)
+            + review_changelog_paragraph(cwd, repo)
         )
         # Its own model, not the implementation one a build call names.
         return inner(

@@ -129,10 +129,6 @@ from agent_build_kit.pipeline.stack_runner import (
     REWORK_PROMPT,
     SCOPE_FEEDBACK,
     STUB_CHECKS_PROMPT,
-    STUBBED_TESTS_FINISH,
-    TEST_ONLY_TESTS_FINISH,
-    TESTS_FINISH,
-    TESTS_PROMPT,
     TRIED_NOTE,
     UNIT_TEST_FAILED,
     WHOLE_ASK,
@@ -149,6 +145,7 @@ from agent_build_kit.pipeline.stack_runner import (
     person_guidance,
     tests_needing_decision,
     with_response,
+    write_tests_prompt,
 )
 from agent_build_kit.pipeline.unit_store import (
     Cause,
@@ -1628,14 +1625,16 @@ class BuildPath:
             change_dir, groups = self.scope(state)
             build_boundary, _ = r.boundary_notes(unit, self.graph)
             self.say(f"write the tests ({models().implement})")
-            prompt = TESTS_PROMPT.format(
+            step = self.group_step(state)
+            prompt = write_tests_prompt(
+                step.mode if step is not None else GroupMode.TESTS_AND_CODE,
                 commands=commands_note(r.repo_config),
                 guidance=person_guidance(r.store.get(unit.id).guidance),
                 groups=groups,
                 change_dir=change_dir,
                 boundary=build_boundary,
                 changelog=changelog_note(tree, r.repo_config),
-                finish=self.tests_finish(state, stubbed=stubbed),
+                stubbed=stubbed,
             )
             prompt = self.told(prompt, self.scope_note())
             if note := r.follow_ups_note(unit):
@@ -1688,14 +1687,6 @@ class BuildPath:
             self.say(f"fixers skipped protected: {', '.join(result.skipped)}")
         if result.failed:
             self.say(f"fixers could not run: {'; '.join(result.failed)}")
-
-    def tests_finish(self, state: UnitRun, *, stubbed: bool) -> str:
-        """How the tests prompt ends; for a test-only group it says the group builds no
-        implementation."""
-        step = self.group_step(state)
-        if step is not None and step.test_only:
-            return TEST_ONLY_TESTS_FINISH
-        return STUBBED_TESTS_FINISH if stubbed else TESTS_FINISH
 
     def stub_checks(self, state: UnitRun) -> Update:
         """Lint, format and types over what the test agent wrote, no test run; the tests commit
@@ -1937,6 +1928,20 @@ class BuildPath:
             r.store.set_guidance(unit.id, "")
             kept["guidance_asked"] = guidance_asked(state, note)
         return kept
+
+    def review_group_modes(self) -> dict[str, GroupMode]:
+        """The mode of each group the unit builds, keyed by change and group number, for the
+        review prompt; empty when every group is `tests_and_code`, which the prompt assumes."""
+        built = self.group_modes()
+        keys = [
+            f"{member.change}/{number}"
+            for member in self.unit.members()
+            for number in member.groups
+        ]
+        modes = dict(zip(keys, built, strict=True)) if built else {}
+        if all(mode is GroupMode.TESTS_AND_CODE for mode in modes.values()):
+            return {}
+        return modes
 
     def group_modes(self) -> tuple[GroupMode, ...]:
         """The build mode of each group a stubbed build builds; none for a build that is not
@@ -2306,6 +2311,8 @@ class BuildPath:
         )
         if outside := self.outside_note(state, tree):
             context = {**context, "context": self.told(context.get("context", ""), outside).strip()}
+        if modes := self.review_group_modes():
+            context = {**context, "group_modes": modes}
         raw = self.agent(
             r.run_review if first else r.run_rework_review, cwd=tree, state=state, **context
         )
