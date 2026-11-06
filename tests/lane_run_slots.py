@@ -34,6 +34,13 @@ def as_comment_run(store: UnitStore, unit_id: str) -> None:
     store.set_moved_base_run(unit_id, True)
 
 
+def as_owed_comment(store: UnitStore, unit_id: str) -> None:
+    """Store the unit as an in-review unit sent back with a comment's words and not yet running:
+    owed a comment rework."""
+    store.set_feedback(unit_id, "[comment c1] remove this", source=FeedbackSource.REVIEW)
+    store.set_state(unit_id, IN_REVIEW, branch=store.get(unit_id).branch, pr=9, cause=Cause.REWORK)
+
+
 class Slots:
     """`units` in a store, a lane of `restacks` workers, and a cap of `cap` build workers. A
     unit in `flagged` carries the moved-base flag, as a unit whose run the lane makes does."""
@@ -68,6 +75,13 @@ class Slots:
         words, `running`, and flagged as a unit whose whole run the lane makes."""
         for unit_id in unit_ids:
             as_comment_run(self.store, unit_id)
+
+    def owed_comments(self, *unit_ids: str) -> None:
+        """Make each unit owed a comment rework and hand it to the lane, in this order: a full
+        lane queues it, so the order is the order it was first seen."""
+        for unit_id in unit_ids:
+            as_owed_comment(self.store, unit_id)
+        self.hand_over(*unit_ids)
 
     def hand_over(self, *unit_ids: str) -> None:
         """Hand each unit's run to the lane; those the lane has a worker for begin."""
