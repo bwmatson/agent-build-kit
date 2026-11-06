@@ -535,8 +535,9 @@ def test_an_adapt_follow_up_that_starts_a_new_session_does_not_replace_the_port(
     state = position(tmp_path).state
     assert state is not None
     recorded = state.sessions[SessionRole.BUILD].session_id
-    assert recorded != "sess-5", "not the accounting-only session"
-    assert recorded == "sess-4", "the session that did the port"
+    # The conflict is now found before the review, so no review session comes first.
+    assert recorded != "sess-4", "not the accounting-only session"
+    assert recorded == "sess-3", "the session that did the port"
 
 
 def test_a_rework_killed_in_its_continuation_resumes_on_the_model_the_session_recorded(

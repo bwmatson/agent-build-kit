@@ -80,7 +80,7 @@ def test_a_clean_move_before_the_push_is_recorded_as_before_pr(
 
     def restack(**kw: Any) -> Any:
         calls.append(1)
-        if len(calls) != 2:
+        if len(calls) != 3:
             return None
         recorder.made += 1
         recorder.store.record_approval(unit().id, recorder.head(tmp_path))
@@ -103,7 +103,7 @@ def test_the_re_test_after_a_clean_move_before_the_push_runs_under_the_point_bef
 
     def restack(**kw: Any) -> Any:
         calls.append(1)
-        if len(calls) != 2:
+        if len(calls) != 3:
             return None
         recorder.made += 1
         recorder.store.record_approval(unit().id, recorder.head(tmp_path))
@@ -148,7 +148,7 @@ def test_a_conflict_before_the_push_is_recorded_as_before_pr_with_the_outcome_co
 
     def restack(**kw: Any) -> Any:
         calls.append(1)
-        if len(calls) == 2:
+        if len(calls) == 3:
             return restacked(conflict="CONFLICT in a.py")
         return None
 

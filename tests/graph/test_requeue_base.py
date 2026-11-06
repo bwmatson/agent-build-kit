@@ -87,7 +87,8 @@ def test_a_remembered_base_that_is_gone_falls_back_to_the_stores_and_says_both(
     recorder, overrides, _ = stacked(tmp_path)
 
     def refuses_to_move(**kw: Any) -> None:
-        if kw.get("resolve") is False:
+        # The restack before the pull request, not the one before the review.
+        if kw.get("resolve") is False and "review" in recorder.events:
             raise RuntimeError("conflict")
 
     # The base the forge names at the push is a branch that is not there: the unit is sent

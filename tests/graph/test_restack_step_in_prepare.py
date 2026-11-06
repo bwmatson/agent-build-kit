@@ -183,9 +183,9 @@ def test_a_conflict_found_before_a_push_is_settled_in_the_same_run_by_prepare(
     outcome = build(tmp_path, recorder, restack_onto=restack, **agents(runtime))
 
     assert outcome.status == "open"
-    assert restack.seen == [(False, False), (True, True), (False, False)], (
-        "verify_base asks without a resolver, prepare asks with one, and the settled move "
-        "is not a second conflict"
+    assert restack.seen == [(False, False), (True, True), (False, False), (False, False)], (
+        "the restack before the review asks without a resolver, prepare asks with one, and the "
+        "settled move is not a second conflict, found again before the review or the pull request"
     )
     assert len(restack_calls(runtime)) == 2, "and only prepare's step made agent calls"
 
@@ -240,7 +240,8 @@ def test_a_clean_move_in_a_usage_pause_is_made_and_the_unit_waits_at_the_next_ga
         **agents(runtime),
     )
 
-    assert len(moves) == 1 and moves[0]["resolver"] is not None, "the move was made"
+    # `prepare`'s move, then the one before the review, which has no resolver.
+    assert len(moves) == 2 and moves[0]["resolver"] is not None, "the move was made"
     assert runtime.requests == [], "and asked no agent"
     assert outcome.status == RunStatus.PAUSED, "the unit waits at the next agent node's gate"
     stored = recorder.store.get(unit().id)

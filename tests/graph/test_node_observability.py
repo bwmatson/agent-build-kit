@@ -23,6 +23,7 @@ BUILD_PATH = (
     "tests",
     "implement",
     "checks",
+    "restack_review",
     "review",
     "verify_base",
     "new_comments",

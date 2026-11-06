@@ -78,10 +78,12 @@ def moved_run(tmp_path: Path, point: str | None) -> None:
 def test_a_re_test_run_under_a_point_is_recorded_with_that_point(
     tmp_path: Path, workspace: Installation
 ) -> None:
-    moved_run(tmp_path, "before_pr")
+    # The point before the pull request never runs the full suite, so a full re-test is one
+    # of the other points.
+    moved_run(tmp_path, "before_review")
 
     (line,) = restack_lines(workspace)
-    assert (line["point"], line["outcome"], line["retest"]) == ("before_pr", "clean", "full")
+    assert (line["point"], line["outcome"], line["retest"]) == ("before_review", "clean", "full")
 
 
 def test_a_re_test_run_under_no_point_is_recorded_with_no_point(

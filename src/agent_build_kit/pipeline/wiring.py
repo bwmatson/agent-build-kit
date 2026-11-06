@@ -1680,12 +1680,25 @@ def build_unit_test(
             retest["kind"] = "lite"
             _say(log, f"moved base: lite re-test ({lite_scope.reason})")
             return root_checks(cwd)
+        # Review has approved by the pull request's restack: the pull request check and CI are
+        # the backstop, so a clean move there never starts the full suite.
+        before_pr = (
+            scope is not None and not whole_repo and spans.restack_point.get() == "before_pr"
+        )
         if scope is not None and scope.scoped and not whole_repo:
             retest["kind"] = "scoped"
-            moved = moved_run(cwd, base, work, scope.incoming)
+            moved = moved_run(cwd, base, work, scope.incoming, final=before_pr)
             if moved is not None:
                 return moved
+            if before_pr:
+                return checks_only(cwd)
             retest["kind"] = "full"
+        elif before_pr and scope is not None:
+            _say(
+                log,
+                f"moved base: only the repo checks run before the pull request ({scope.reason})",
+            )
+            return checks_only(cwd)
         elif scope is not None:
             why = (
                 "no changelog check is configured for a lite re-test"
@@ -1722,13 +1735,19 @@ def build_unit_test(
         base: str,
         work: list[tuple[Path, ToolchainProfile, list[str]]],
         incoming: list[str],
+        *,
+        final: bool = False,
     ) -> tuple[bool, str] | None:
         """A scoped moved base: lint, the tests the unit added or changed, and the tests the
         profile names for the unit's files with the files the move brought in. None, with
-        the reason logged, when the full suite has to stand in."""
+        the reason logged, when the full suite has to stand in, or when `final` (the move
+        before the pull request) and no full suite is to start."""
+        outcome_of = (
+            "only the repo checks run before the pull request" if final else "ran the full suite"
+        )
         plan, owned, own_ids, reason = moved_plan(cwd, base, work, incoming)
         if plan is None:
-            _say(log, f"moved base: ran the full suite ({reason})")
+            _say(log, f"moved base: {outcome_of} ({reason})")
             return None
         earlier = last_full.get(spans.current_unit.get()[0])
         figures: list[tuple[float, int]] = []
@@ -1736,7 +1755,7 @@ def build_unit_test(
         flaked: list[Flake] = []
         outcome = run_selection(plan, figures, why, own_ids, flaked, base=base)
         if outcome is None:
-            _say(log, f"moved base: ran the full suite ({why[0]})")
+            _say(log, f"moved base: {outcome_of} ({why[0]})")
             return None
         if not outcome[0]:
             return outcome
@@ -2035,6 +2054,13 @@ def build_unit_test(
                 if not toolchain.tolerates_exit(command, result.returncode):
                     return False, _failure(command, result, where)
         return True, ""
+
+    def checks_only(cwd: Path) -> tuple[bool, str]:
+        """The re-test of a clean move before the pull request that no test selection could
+        scope: the repo's own checks alone, recorded as `lite`, or as `none` when the profile
+        keeps none and so nothing runs."""
+        retest["kind"] = "lite" if repo is not None and profile.extra_checks(repo) else "none"
+        return root_checks(cwd)
 
     def repeat(
         cwd: Path, base: str, ran_tests: list[tuple[Path, ToolchainProfile, list[list[str]]]]
