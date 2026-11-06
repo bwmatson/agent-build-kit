@@ -438,7 +438,7 @@
   first and seen to fail. A tests step that writes no test and says nothing is asked once
   more, then the unit stops naming the cause, before the implementation runs. The prompts
   follow the mode too: a `tests_only` group is told there is no implementation and each test
-  must pass, and the review of a unit with no tests-first group leaves out the test standards,
+  must pass, and the review of a unit none of whose groups writes tests leaves out the test standards,
   asks of a `refactor` group whether behaviour, public surface, output and configuration are
   unchanged, and names the group each rule is for when modes are mixed.
 

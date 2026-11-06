@@ -7,7 +7,12 @@ from pathlib import Path
 import pytest
 
 from agent_build_kit.pipeline.group_mode import GroupMode
-from agent_build_kit.pipeline.stack_runner import write_tests_prompt
+from agent_build_kit.pipeline.stack_runner import (
+    STUBBED_TESTS_FINISH,
+    TEST_ONLY_TESTS_FINISH,
+    TESTS_FINISH,
+    write_tests_prompt,
+)
 from agent_build_kit.pipeline.wiring import build_run_review
 from tests.factories import activate_with
 from tests.prompt_text import flat
@@ -48,6 +53,25 @@ def test_a_tests_only_tests_prompt_says_there_is_no_implementation_and_tests_mus
     assert "builds no implementation" in text
     assert "must pass" in text
     assert "must fail" not in text
+
+
+def test_a_stubbed_tests_and_code_prompt_ends_with_the_stubbed_wording() -> None:
+    text = flat(write_tests_prompt(GroupMode.TESTS_AND_CODE, stubbed=True, **FIELDS))
+
+    assert flat(STUBBED_TESTS_FINISH) in text
+    assert flat(TESTS_FINISH) not in text
+
+
+def test_a_tests_only_prompt_ends_the_same_way_stubbed_or_not() -> None:
+    plain = write_tests_prompt(GroupMode.TESTS_ONLY, **FIELDS)
+
+    assert write_tests_prompt(GroupMode.TESTS_ONLY, stubbed=True, **FIELDS) == plain
+    assert flat(TEST_ONLY_TESTS_FINISH) in flat(plain)
+
+
+def test_the_ending_follows_the_mode_so_a_caller_cannot_pass_its_own() -> None:
+    with pytest.raises(ValueError, match="finish"):
+        write_tests_prompt(GroupMode.TESTS_AND_CODE, finish="x", **FIELDS)
 
 
 @pytest.mark.parametrize("mode", [GroupMode.NO_CODE, GroupMode.REFACTOR])

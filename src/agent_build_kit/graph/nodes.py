@@ -129,9 +129,6 @@ from agent_build_kit.pipeline.stack_runner import (
     REWORK_PROMPT,
     SCOPE_FEEDBACK,
     STUB_CHECKS_PROMPT,
-    STUBBED_TESTS_FINISH,
-    TEST_ONLY_TESTS_FINISH,
-    TESTS_FINISH,
     TRIED_NOTE,
     UNIT_TEST_FAILED,
     WHOLE_ASK,
@@ -1626,7 +1623,7 @@ class BuildPath:
                 change_dir=change_dir,
                 boundary=build_boundary,
                 changelog=changelog_note(tree, r.repo_config),
-                finish=self.tests_finish(state, stubbed=stubbed),
+                stubbed=stubbed,
             )
             prompt = self.told(prompt, self.scope_note())
             if note := r.follow_ups_note(unit):
@@ -1679,14 +1676,6 @@ class BuildPath:
             self.say(f"fixers skipped protected: {', '.join(result.skipped)}")
         if result.failed:
             self.say(f"fixers could not run: {'; '.join(result.failed)}")
-
-    def tests_finish(self, state: UnitRun, *, stubbed: bool) -> str:
-        """How the tests prompt ends; for a test-only group it says the group builds no
-        implementation."""
-        step = self.group_step(state)
-        if step is not None and step.test_only:
-            return TEST_ONLY_TESTS_FINISH
-        return STUBBED_TESTS_FINISH if stubbed else TESTS_FINISH
 
     def stub_checks(self, state: UnitRun) -> Update:
         """Lint, format and types over what the test agent wrote, no test run; the tests commit
@@ -1932,12 +1921,13 @@ class BuildPath:
     def review_group_modes(self) -> dict[str, GroupMode]:
         """The mode of each group the unit builds, keyed by change and group number, for the
         review prompt; empty when every group is `tests_and_code`, which the prompt assumes."""
-        if not self.stubbed():
-            return {}
-        modes = {
-            f"{Path(step.change_dir).name}/{step.number}": step.mode
-            for step in self.runner.group_steps(self.unit)
-        }
+        built = self.group_modes()
+        keys = [
+            f"{member.change}/{number}"
+            for member in self.unit.members()
+            for number in member.groups
+        ]
+        modes = dict(zip(keys, built, strict=True)) if built else {}
         if all(mode is GroupMode.TESTS_AND_CODE for mode in modes.values()):
             return {}
         return modes

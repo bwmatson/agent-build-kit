@@ -306,12 +306,20 @@ and fix what they report.
 """
 
 
-def write_tests_prompt(mode: GroupMode, **fields: object) -> str:
-    """The tests prompt of a group built in `mode`; a mode with no tests step is refused."""
+def write_tests_prompt(mode: GroupMode, *, stubbed: bool = False, **fields: object) -> str:
+    """The tests prompt of a group built in `mode`, the one place that decides how it ends: a
+    `tests_only` group is told it builds no implementation, a stubbed build that its tests are
+    checked statically, any other that its tests must fail. A mode with no tests step is refused,
+    and so is a caller's own `finish`."""
     if not mode.writes_tests:
         raise ValueError(f"a {mode.value} group has no tests step, so no tests prompt")
-    finish = TEST_ONLY_TESTS_FINISH if mode is GroupMode.TESTS_ONLY else TESTS_FINISH
-    return TESTS_PROMPT.format(**{"finish": finish, **fields})
+    if "finish" in fields:
+        raise ValueError("the ending of the tests prompt follows the mode; pass no `finish`")
+    if mode is GroupMode.TESTS_ONLY:
+        finish = TEST_ONLY_TESTS_FINISH
+    else:
+        finish = STUBBED_TESTS_FINISH if stubbed else TESTS_FINISH
+    return TESTS_PROMPT.format(finish=finish, **fields)
 
 
 class GroupStep(Frozen):

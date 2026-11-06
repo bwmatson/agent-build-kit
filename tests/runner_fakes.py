@@ -77,6 +77,8 @@ class Recorder:
         self.needs_result = False
         self.pr_opens = 0  # calls that found no pull request for the branch
         self.contexts: list[str] = []  # what each review was given
+        # The group modes each review was given ({} when none).
+        self.review_modes: list[dict[str, GroupMode]] = []
 
     def _after(self, event: str) -> None:
         """Record `event`, then die once if the test asked for that."""
@@ -116,6 +118,7 @@ class Recorder:
         group_modes: Mapping[str, GroupMode] | None = None,
     ) -> str:
         self.contexts.append(context)
+        self.review_modes.append(dict(group_modes or {}))
         self.events.append("review")
         return self.verdicts.pop(0) if self.verdicts else approving()
 
