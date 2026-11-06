@@ -21,7 +21,7 @@ from collections.abc import Callable, Collection, Hashable, Iterable, Mapping, S
 from datetime import datetime
 from enum import IntEnum, StrEnum
 from pathlib import Path
-from typing import TYPE_CHECKING, Protocol, Self, runtime_checkable
+from typing import TYPE_CHECKING, Literal, Protocol, Self, runtime_checkable
 
 from pydantic import Field
 
@@ -130,6 +130,29 @@ class Join(Frozen):
     estimated_lines: int = 0
     # The mode of each of `groups`, keyed `<change>/<number>`.
     group_modes: dict[str, str] = Field(default_factory=dict)
+
+
+class ProjectLine(Frozen):
+    """One `Project:` line of a task group: a project change to `abk.yaml` for the group's repo."""
+
+    action: Literal["add", "remove", "replace"]
+    # The project's path; the old path of a `replace`.
+    path: str
+    # The new path of a `replace`, empty for the other actions.
+    new_path: str = ""
+    # The profile of an `add` or the new half of a `replace`, empty for a `remove`.
+    profile: str = ""
+    # The `Project:` line it was declared on.
+    line: int = 0
+
+    @property
+    def text(self) -> str:
+        """The line as it is written in tasks.md."""
+        if self.action == "add":
+            return f"Project: add {self.path} {self.profile}"
+        if self.action == "remove":
+            return f"Project: remove {self.path}"
+        return f"Project: replace {self.path} with {self.new_path} {self.profile}"
 
 
 class ManualStep(Frozen):

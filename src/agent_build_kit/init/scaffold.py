@@ -22,7 +22,7 @@ import re
 import textwrap
 from collections.abc import Callable, Iterator, Mapping, Sequence
 from contextlib import contextmanager
-from pathlib import Path, PurePosixPath
+from pathlib import Path
 from typing import Any, Literal
 
 import yaml
@@ -59,6 +59,7 @@ from agent_build_kit.pipeline.file_lock import LockTimeout, append_missing_lines
 from agent_build_kit.pipeline.original_copy import COPY_PATTERN
 from agent_build_kit.pipeline.planning_repo import toplevel
 from agent_build_kit.pipeline.shell import git
+from agent_build_kit.pipeline.work_graph import normal_project_path
 from agent_build_kit.runtimes.policy_apply import backup_and_replace
 from agent_build_kit.scrub_terms import LOCAL_LIST
 
@@ -488,15 +489,10 @@ def normal_path(path: str, root: Path) -> str:
     trailing `/`; `.` is the repo root. An absolute path under `root` is made relative to
     it. One outside `root`, or with a `..` part, names no directory of the repo and is
     refused with `ScaffoldError`."""
-    parts = PurePosixPath(path)
-    if parts.is_absolute():
-        try:
-            parts = PurePosixPath(Path(path).resolve().relative_to(root.resolve()).as_posix())
-        except ValueError:
-            raise ScaffoldError(f"{path!r} is not a path inside the repo ({root})") from None
-    if ".." in parts.parts:
-        raise ScaffoldError(f"{path!r} is not a path inside the repo ({root})")
-    return parts.as_posix()
+    try:
+        return normal_project_path(path, root)
+    except ValueError as error:
+        raise ScaffoldError(str(error)) from None
 
 
 def check_profile(profile: str) -> None:

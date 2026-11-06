@@ -479,6 +479,7 @@ from agent_build_kit.pipeline.work_graph import (
     check_tags,
     cross_repo_needs_notes,
     current_tag,
+    declared_profiles,
     declared_projects,
     declared_split_names,
     group_needs,
@@ -486,6 +487,7 @@ from agent_build_kit.pipeline.work_graph import (
     inverted_group_warnings,
     manual_runbook_warnings,
     old_test_kind_warnings,
+    project_line_applied,
     project_source_note,
     redundant_separate_warnings,
     resolved_projects,
@@ -7825,6 +7827,7 @@ def _validation_scope(inst: Installation) -> dict[str, Any]:
         "repos": tuple(inst.repos),
         "projects": declared_projects(inst.repos),
         "splits": declared_split_names(inst.repos, inst.config),
+        "project_profiles": declared_profiles(inst.repos),
     }
 
 
@@ -8022,6 +8025,7 @@ def cmd_tags(args: argparse.Namespace, inst: Installation) -> int:
             repos=tuple(inst.repos),
             projects=declared_projects(inst.repos),
             splits=declared_split_names(inst.repos, inst.config),
+            project_profiles=declared_profiles(inst.repos),
         )
         if change.lower() in cycles:
             errors.append(cycles[change.lower()])
@@ -8048,6 +8052,10 @@ def cmd_tags(args: argparse.Namespace, inst: Installation) -> int:
                 f"  {group.number}. [{group.tag}] [{group.tier}] {group.title}{urgency}"
                 f"{project_source_note(group)} [{group.mode}]"
             )
+            declared = declared_profiles(inst.repos).get(group.repo, {})
+            for given in group.project_lines:
+                state = "applied" if project_line_applied(given, declared) else "pending"
+                print(f"     line {given.line}: {given.text} — {state}")
     return 1 if failed else 0
 
 

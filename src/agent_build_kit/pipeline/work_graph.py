@@ -25,7 +25,7 @@ import sys
 import tempfile
 from collections.abc import Callable, Iterable, Mapping, Sequence
 from enum import StrEnum
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Protocol
 
 from agent_build_kit.compat_names import (
@@ -54,7 +54,13 @@ from agent_build_kit.pipeline.group_paths import (
     names_unplaced_glob,
     names_unplaced_work,
 )
-from agent_build_kit.pipeline.units import ManualStep, Priority, project_tag, reachable
+from agent_build_kit.pipeline.units import (
+    ManualStep,
+    Priority,
+    ProjectLine,
+    project_tag,
+    reachable,
+)
 from agent_build_kit.trackers.levels import task_key
 
 
@@ -296,6 +302,114 @@ MANUAL_LINE = re.compile(
 )
 CHECK_LINE = re.compile(r"^Check:\s*(?P<command>.*?)\s*$", re.I)
 
+# "Project: add <path> <profile>", "Project: remove <path>" or "Project: replace <old> with <new>
+# <profile>", inside a group: a change to the projects its heading's repo declares in abk.yaml.
+PROJECT_GRAMMAR = (
+    "`Project: add <path> <profile>`, `Project: remove <path>` or "
+    "`Project: replace <old> with <new> <profile>`"
+)
+PROJECT_ADD_LINE = re.compile(r"^Project:\s+add\s+(?P<path>\S+)\s+(?P<profile>\S+)$", re.I)
+PROJECT_REMOVE_LINE = re.compile(r"^Project:\s+remove\s+(?P<path>\S+)$", re.I)
+PROJECT_REPLACE_LINE = re.compile(
+    r"^Project:\s+replace\s+(?P<old>\S+)\s+with\s+(?P<new>\S+)\s+(?P<profile>\S+)$", re.I
+)
+
+
+def normal_project_path(path: str, root: Path | None = None) -> str:
+    """`path` relative to the repo at `root`, `/` separated, without a leading `./` or trailing
+    `/`; `.` is the repo root. An absolute path under `root` is made relative to it. One outside
+    `root` (or any, when there is no `root`), or with a `..` part, names no directory of the repo
+    and raises `ValueError`."""
+    parts = PurePosixPath(path)
+    where = f" ({root})" if root else ""
+    if parts.is_absolute():
+        if root is None:
+            raise ValueError(f"{path!r} is not a path inside the repo{where}")
+        try:
+            parts = PurePosixPath(Path(path).resolve().relative_to(root.resolve()).as_posix())
+        except ValueError:
+            raise ValueError(f"{path!r} is not a path inside the repo{where}") from None
+    if ".." in parts.parts:
+        raise ValueError(f"{path!r} is not a path inside the repo{where}")
+    return parts.as_posix()
+
+
+def declared_profiles(repos: Mapping[str, RepoConfig]) -> dict[str, dict[str, str]]:
+    """The profile of each project every repo declares, by the `path` a heading writes."""
+    return {
+        name: {tag_path(p.path): p.profile for p in repo.projects} for name, repo in repos.items()
+    }
+
+
+def project_line_applied(line: ProjectLine, declared: Mapping[str, str]) -> bool:
+    """Whether `abk.yaml` already holds what `line` says, given the repo's declared projects
+    (path to profile): an `add` is listed, a `remove` is not, a `replace` has the new path and
+    not the old."""
+    if line.action == "add":
+        return line.path in declared
+    if line.action == "remove":
+        return line.path not in declared
+    return line.path not in declared and line.new_path in declared
+
+
+def read_project_line(text: str, index: int, declared: Mapping[str, str]) -> ProjectLine | str:
+    """The `Project:` line `text` (at line `index`) says, or the problem with it as a message.
+    `declared` is the repo's declared projects, path to profile."""
+    from agent_build_kit import profiles
+
+    if found := PROJECT_ADD_LINE.match(text):
+        line = ProjectLine(action="add", path=found["path"], profile=found["profile"], line=index)
+    elif found := PROJECT_REMOVE_LINE.match(text):
+        line = ProjectLine(action="remove", path=found["path"], line=index)
+    elif found := PROJECT_REPLACE_LINE.match(text):
+        line = ProjectLine(
+            action="replace",
+            path=found["old"],
+            new_path=found["new"],
+            profile=found["profile"],
+            line=index,
+        )
+    else:
+        return f"`Project:` reads {PROJECT_GRAMMAR}"
+    try:
+        line = line.model_copy(
+            update={
+                "path": normal_project_path(line.path),
+                "new_path": normal_project_path(line.new_path) if line.new_path else "",
+            }
+        )
+    except ValueError as error:
+        return f"`Project:` {error}"
+    if line.profile and line.profile not in profiles.names():
+        return (
+            f"`Project:` profile {line.profile!r} is not registered "
+            f"(registered: {', '.join(profiles.names())})"
+        )
+    target = line.new_path or line.path
+    have = declared.get(target)
+    if line.action != "remove" and have is not None and have != line.profile:
+        return f"`Project:` gives {target!r} as {line.profile}, but abk.yaml lists it as {have}"
+    return line
+
+
+def _own_project_targets(
+    lines: Sequence[str], repos: tuple[str, ...]
+) -> list[tuple[int, str, str]]:
+    """The projects this change's groups add or replace into, as (line, repo, path): the `Project:`
+    lines that read, with the repo of the heading above them."""
+    targets: list[tuple[int, str, str]] = []
+    repo: str | None = None
+    for index, text in enumerate(lines, start=1):
+        if ANY_GROUP_HEADING.match(text):
+            tagged = GROUP_HEADING.match(text)
+            repo = split_repo_tag(tagged["repo"], repos)[0] if tagged else None
+        elif repo is not None and text.strip().lower().startswith("project:"):
+            read = read_project_line(text.strip(), index, {})
+            if isinstance(read, ProjectLine) and read.action != "remove":
+                targets.append((index, repo, read.new_path or read.path))
+    return targets
+
+
 # "Priority: 2", inside a group: how urgent its unit is, 0 (emergency) to 5, 3 when
 # unsaid. Above the first group it is the default for the change's groups.
 PRIORITY_LINE = re.compile(r"^Priority:\s*(?P<value>.*?)\s*$", re.I)
@@ -430,6 +544,8 @@ class TaskGroup(Frozen):
     # The paths of the `Support:` lines of an e2e-test group: files it may hold beside tests, docs
     # and the changelog. A trailing `/` covers a directory.
     support: tuple[str, ...] = ()
+    # The `Project:` lines of the group, for the group's repo.
+    project_lines: tuple[ProjectLine, ...] = ()
 
     @property
     def tag(self) -> str:
@@ -588,6 +704,7 @@ def validate_tasks_text(
     repos: tuple[str, ...] | None = None,
     projects: Mapping[str, tuple[str, ...]] | None = None,
     splits: Mapping[str, tuple[str, ...]] | None = None,
+    project_profiles: Mapping[str, Mapping[str, str]] | None = None,
 ) -> tuple[list[TaskGroup], list[ValidationError]]:
     """`validate_tasks` of `text` as the tasks of the change `change`, which it is written to
     under a scratch directory of that name, where the parse reads the name of its own change."""
@@ -595,7 +712,13 @@ def validate_tasks_text(
         probe = Path(scratch) / change / "tasks.md"
         probe.parent.mkdir()
         probe.write_bytes(text.encode())
-        return validate_tasks(probe, repos=repos, projects=projects, splits=splits)
+        return validate_tasks(
+            probe,
+            repos=repos,
+            projects=projects,
+            splits=splits,
+            project_profiles=project_profiles,
+        )
 
 
 def validate_tasks(
@@ -604,6 +727,7 @@ def validate_tasks(
     repos: tuple[str, ...] | None = None,
     projects: Mapping[str, tuple[str, ...]] | None = None,
     splits: Mapping[str, tuple[str, ...]] | None = None,
+    project_profiles: Mapping[str, Mapping[str, str]] | None = None,
 ) -> tuple[list[TaskGroup], list[ValidationError]]:
     """Parse a change's tasks.md and report everything wrong with its groups.
 
@@ -612,9 +736,15 @@ def validate_tasks(
     list instead of one problem per push.
     """
     repos = known_repos() if repos is None else repos
+    # The profiles of a workspace the caller scoped `projects` to are theirs to give; the active
+    # workspace's would be another workspace's, so without them no profile clash is checked.
+    if project_profiles is None:
+        project_profiles = declared_profiles(active().repos) if projects is None else {}
     projects = declared_projects(active().repos) if projects is None else projects
     splits = declared_split_names(active().repos, active()) if splits is None else splits
     lines = path.read_text().splitlines()
+    own_targets = _own_project_targets(lines, repos)
+    project_lines: dict[int, list[ProjectLine]] = {}
 
     groups: list[TaskGroup] = []
     errors: list[ValidationError] = []
@@ -786,6 +916,26 @@ def validate_tasks(
                     )
                 elif reading is not None:
                     support.setdefault(current, []).extend(re.findall(r"`([^`]+)`", found["paths"]))
+            if text.strip().lower().startswith("project:"):
+                if current is None:
+                    problem = (
+                        "`Project:` above the first group belongs to no group — write it "
+                        "inside the group it is for"
+                    )
+                elif reading is None:
+                    problem = (
+                        "`Project:` is in a group whose heading could not be read, so it "
+                        "names no repo"
+                    )
+                else:
+                    read = read_project_line(
+                        text.strip(), index, project_profiles.get(reading[1], {})
+                    )
+                    problem = read if isinstance(read, str) else ""
+                    if isinstance(read, ProjectLine):
+                        project_lines.setdefault(current, []).append(read)
+                if problem:
+                    errors.append(ValidationError(line=index, message=problem))
             if current is not None and text.strip().lower().startswith("manual:"):
                 step = MANUAL_LINE.match(text.strip())
                 if step is None or not step["text"]:
@@ -874,7 +1024,10 @@ def validate_tasks(
             )
             continue
 
-        declared = projects.get(repo, ())
+        declared = (
+            *projects.get(repo, ()),
+            *(p for at, r, p in own_targets if r == repo and at < index),
+        )
         if (
             project is not None
             and index not in root_lines
@@ -949,6 +1102,7 @@ def validate_tasks(
             independent=g.line in independent,
             manual_steps=tuple(manual.get(g.line, ())),
             support=tuple(support.get(g.line, ())),
+            project_lines=tuple(project_lines.get(g.line, ())),
             priority=priorities.get(
                 g.line, Priority.NORMAL if default_priority is None else default_priority
             ),
@@ -956,6 +1110,27 @@ def validate_tasks(
         for g in groups
     ]
     groups = [_resolved(g, projects.get(g.repo, ())) for g in groups]
+
+    for position, group in enumerate(groups):
+        for given in group.project_lines:
+            if given.action == "add":
+                continue
+            user = next(
+                (
+                    later
+                    for later in groups[position + 1 :]
+                    if later.repo == group.repo and later.project == given.path
+                ),
+                None,
+            )
+            if user is not None:
+                errors.append(
+                    ValidationError(
+                        line=given.line,
+                        message=f"`Project:` removes {given.path!r}, which is still used: group "
+                        f"{user.number} is tagged [{user.tag}]",
+                    )
+                )
 
     for line in sorted(set(stray_priority) - {g.line for g in groups}):
         errors.append(
@@ -1419,13 +1594,16 @@ def check_tags(
     repos: tuple[str, ...],
     projects: Mapping[str, tuple[str, ...]] | None = None,
     splits: Mapping[str, tuple[str, ...]] | None = None,
+    project_profiles: Mapping[str, Mapping[str, str]] | None = None,
 ) -> tuple[list[TaskGroup], list[str]]:
     """What `abk tags <change>` runs: the change's groups and every problem found, each
     printed as the command prints it; a change with no tasks file has one problem."""
     path = tasks_path(change, changes_dir)
     if not path.exists():
         return [], [f"no tasks.md for change {change!r} at {path}"]
-    groups, errors = validate_tasks(path, repos=repos, projects=projects, splits=splits)
+    groups, errors = validate_tasks(
+        path, repos=repos, projects=projects, splits=splits, project_profiles=project_profiles
+    )
     return groups, [f"{path}:{error}" for error in errors]
 
 
