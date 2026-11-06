@@ -4179,7 +4179,9 @@ def slot_occupancy(
     idle: Collection[str] = (),
 ) -> dict[ProjectKey, set[str]]:
     """The unit ids that occupy build slots in each project, each id once: the builds in
-    flight, the moved-base runs running in the lane, and the units stored `running` that no
+    flight, the moved-base runs running in the lane (a comment rework in the lane,
+    `in_a_comment_run`, occupies no slot even when it is in `lane_running`), and the units
+    stored `running` that no
     run is shown to have left (`idle`: no run holds them) and that do not wait behind the
     lane's cap (`lane_waiting`). The round and the `slots:` line of `abk status` read it;
     admission and the tick's slot samples count through `admission.current_occupancy`."""

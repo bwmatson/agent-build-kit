@@ -548,6 +548,12 @@ class StoredUnit(Unit):
             "comment" if self.sent_back_for_rework and not self.sent_back_for_conflict else "base"
         )
 
+    @property
+    def in_a_comment_run(self) -> bool:
+        """Whether the resolution lane is making this unit's comment rework: it holds a place
+        and the branch, and no build worker."""
+        return self.state == RUNNING and self.moved_base_run and self.resolving == "comment"
+
     def has_own_rework_input(self, head: str) -> bool:
         """Whether the unit has saved feedback that is not the conflict's and that review has
         not answered by approving `head`: rework of its own, which makes its run a build."""

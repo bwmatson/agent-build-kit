@@ -8,6 +8,7 @@ from pathlib import Path
 
 import pytest
 
+from agent_build_kit.pipeline import spans
 from agent_build_kit.pipeline.resolution_lane import lane_record
 from tests.emergency_lane_support import build
 from tests.graph.test_restack_lane_prepare import Scene
@@ -35,6 +36,24 @@ def test_the_lane_record_names_a_comment_rework_as_a_comment_and_a_moved_base_ru
         kinds = {entry["unit"]: entry["resolving"] for entry in lane_record(slots.inst.state_dir)}
 
     assert kinds == {"c1/1": "comment", "run1/1": "base"}
+
+
+def test_the_lane_worker_says_what_it_is_resolving_to_the_code_it_runs(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    units = [build("c1/1"), build("run1/1")]
+    seen: dict[str, str] = {}
+    with Slots(tmp_path, monkeypatch, units, flagged=["run1/1"]) as slots:
+        slots.comment_runs("c1/1")
+        for unit_id in ("c1/1", "run1/1"):
+
+            def work(unit_id: str = unit_id) -> None:
+                seen[unit_id] = spans.resolving.get()
+
+            slots.lanes.hand_over(slots.store.get(unit_id), work, claimed=False)
+        slots.lanes.drain()
+
+    assert seen == {"c1/1": "comment", "run1/1": "base"}
 
 
 def test_a_restack_line_written_in_the_lane_carries_the_kind_of_run(

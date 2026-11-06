@@ -76,7 +76,7 @@ def in_a_lane_run(unit: StoredUnit) -> bool:
 
 def in_a_comment_run(unit: StoredUnit) -> bool:
     """Whether the lane is making the unit's comment rework, which holds no build worker."""
-    return unit.state == RUNNING and unit.moved_base_run and unit.resolving == "comment"
+    return unit.in_a_comment_run
 
 
 def resolving_phrase(kind: str, base: str) -> str:

@@ -26,6 +26,14 @@ from tests.restack_lane_fakes import WAIT, Restacks, repo_behind
 from tests.tick_pass import isolate
 
 
+def as_comment_run(store: UnitStore, unit_id: str) -> None:
+    """Store the unit as a comment rework the lane is running: sent back with a comment's words,
+    `running`, and flagged as a unit whose whole run the lane makes."""
+    store.set_feedback(unit_id, "[comment c1] remove this", source=FeedbackSource.REVIEW)
+    store.set_state(unit_id, RUNNING, branch=store.get(unit_id).branch, cause=Cause.REWORK)
+    store.set_moved_base_run(unit_id, True)
+
+
 class Slots:
     """`units` in a store, a lane of `restacks` workers, and a cap of `cap` build workers. A
     unit in `flagged` carries the moved-base flag, as a unit whose run the lane makes does."""
@@ -59,13 +67,7 @@ class Slots:
         """Make each unit a comment rework the lane is running: sent back with a comment's
         words, `running`, and flagged as a unit whose whole run the lane makes."""
         for unit_id in unit_ids:
-            self.store.set_feedback(
-                unit_id, "[comment c1] remove this", source=FeedbackSource.REVIEW
-            )
-            self.store.set_state(
-                unit_id, RUNNING, branch=self.store.get(unit_id).branch, cause=Cause.REWORK
-            )
-            self.store.set_moved_base_run(unit_id, True)
+            as_comment_run(self.store, unit_id)
 
     def hand_over(self, *unit_ids: str) -> None:
         """Hand each unit's run to the lane; those the lane has a worker for begin."""
