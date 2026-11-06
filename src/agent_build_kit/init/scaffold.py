@@ -22,7 +22,7 @@ import re
 import textwrap
 from collections.abc import Callable, Iterator, Mapping, Sequence
 from contextlib import contextmanager
-from pathlib import Path, PurePosixPath
+from pathlib import Path
 from typing import Any, Literal
 
 import yaml
