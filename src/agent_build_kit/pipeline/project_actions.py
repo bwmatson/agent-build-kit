@@ -103,7 +103,8 @@ def _groups_of(inst: Installation, change: str) -> list:
     tasks = inst.changes_dir / change / "tasks.md"
     if not tasks.is_file():
         return []
-    repos = config_module.load(inst.root / CONFIG_FILE).repos
+    written = inst.root / CONFIG_FILE
+    repos = (config_module.load(written) if written.is_file() else inst.config).repos
     return validate_tasks(
         tasks,
         repos=tuple(repos),
