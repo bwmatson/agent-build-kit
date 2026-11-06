@@ -111,6 +111,17 @@ There are three test kinds, narrowest to widest: `unit-test` (one module's behav
 runs as `unit-test` and is not the pytest `integration` marker) and `e2e-test` (needs the real
 local stack). A unit of several groups takes the widest kind.
 
+## Group build modes
+
+Every task group has a build mode, and `abk tags` shows the floor of each (the lowest the planner may
+build it in; it may raise `no_code` to `tests_and_code`). No group is given build mode `refactor` yet:
+neither the planner nor the floor chooses it. The modes are build mode `tests_and_code` (a `test:` commit, then a
+`feat:`; the tests must fail first), build mode `tests_only` (a lone `test:`; each test must pass), build mode
+`no_code` (documents or configuration only: a lone `feat:`, no tests node) and build mode `refactor` (a lone
+`feat:` that edits tests only mechanically). The planner decides the mode, never below the floor. The tag
+`[unit-test]`, `[integration-test]` or `[e2e-test]` and the flags are the marker taxonomy; the kind selectors pick
+which tests run. The prompts follow a mode table: the tests prompt per group, the review prompt from the set of modes.
+
 ## Unit states
 
 A **unit** is one PR's worth of work in exactly one repo, built from one or

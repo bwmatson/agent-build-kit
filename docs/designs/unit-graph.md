@@ -1097,3 +1097,13 @@ authoritative when present, so only its entries decide the project; a `Reads:` l
 and is ignored, as are `Not changed:` and `Planning note:` lines. The resolved project is part of
 the plan's digest, so adding a project makes the plan stale, and `abk tags --fix-projects` writes it
 into the headings of groups whose units have not started.
+
+## Group build modes
+
+Each group has a build mode: build mode `tests_and_code` (tests first, then code), build mode
+`tests_only` (one `test:` commit), build mode `no_code` (documents and configuration only, a lone
+`feat:`) and build mode `refactor` (a lone `feat:`, tests edited only mechanically). No group is given
+build mode `refactor` yet: neither the planner nor the floor chooses it. The marker
+taxonomy is the tag of a group (its kind selectors say which tests run) and its flags. The
+prompts follow a mode table: the tests prompt is built per group from its mode, and the review
+prompt from the set of the unit's modes, each rule naming the group it is for.

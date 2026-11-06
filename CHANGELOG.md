@@ -472,7 +472,8 @@
   follow the mode too: a `tests_only` group is told there is no implementation and each test
   must pass, and the review of a unit none of whose groups writes tests leaves out the test standards,
   asks of a `refactor` group whether behaviour, public surface, output and configuration are
-  unchanged, and names the group each rule is for when modes are mixed.
+  unchanged, and names the group each rule is for when modes are mixed. The `abk-authoring` and
+  `abk-pipeline` skills and the architecture, command and unit-graph documents describe the modes.
 
 - A unit the usage guard pauses at the gate is now recorded as paused for usage until a
   time, counts toward the limit of units in progress while it waits, and is not resumed

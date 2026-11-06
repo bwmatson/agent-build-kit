@@ -611,6 +611,15 @@ release could move. The steps:
    a test file reads as placed, and so does a backticked name with a dot (`tracker.start`): the
    author raises the floor there.
 
+   **The group build modes.** Each group has a build mode: build mode `tests_and_code` (tests
+   first, then code), build mode `tests_only` (one `test:` commit), build mode `no_code`
+   (documents and configuration only, a lone `feat:`) and build mode `refactor` (a lone `feat:`,
+   tests edited only mechanically). No group is given build mode `refactor` yet: neither the
+   planner nor the floor chooses it. The marker taxonomy is the tag of a group (its kind selectors
+   say which tests run) and its flags. The prompts follow a mode table: the tests prompt is built
+   per group from its mode, and the review prompt from the set of the unit's modes, each rule
+   naming the group it is for.
+
    **An e2e-test group is never joined.** Every `[e2e-test]` group, flagged or not, has a
    unit of its own: the join check refuses to put it with another group, the plan check
    refuses a plan that does, and no `Separate:` line is needed. `abk tags` warns of one

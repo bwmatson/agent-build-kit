@@ -13,12 +13,17 @@ def squashed(text: str) -> str:
     return " ".join(text.replace("`", "").split())
 
 
-def entry() -> str:
-    """The `abk planning split` entry of the command reference, up to the next heading."""
+def cli_entry(heading: str) -> str:
+    """The entry of the command reference that opens with `heading`, up to the next heading."""
     text = (ROOT / "docs" / "cli.md").read_text()
-    start = text.index("### `abk planning split")
+    start = text.index(heading)
     following = re.search(r"^#{1,3} ", text[start + 4 :], re.M)
     return squashed(text[start : start + 4 + following.start() if following else None])
+
+
+def entry() -> str:
+    """The `abk planning split` entry of the command reference, up to the next heading."""
+    return cli_entry("### `abk planning split")
 
 
 def runbook_step(number: int) -> str:
