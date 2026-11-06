@@ -7352,10 +7352,10 @@ def _build_unit(
                     # A run that starts is an attempt at its base's tip; one resumed is not,
                     # unless the start it resumes stopped before its first agent call.
                     # A comment or change-request rework is no attempt at the base's tip: its
-                    # rounds are the review's.
-                    if (not unit.moved_base_run or unit.moved_base_uncounted) and about_the_move(
-                        unit
-                    ):
+                    # rounds are the review's. A run resumed after a pause has lost the cause
+                    # that started it, and is an attempt unless it is a comment's.
+                    comment_run = unit.sent_back_for_rework and not about_the_move(unit)
+                    if (not unit.moved_base_run or unit.moved_base_uncounted) and not comment_run:
                         tip = base_tip(inst, unit, store.all())
                         if not tip:
                             end("skipped, its base cannot be read", UnitOutcome.SKIPPED)
