@@ -11,7 +11,12 @@ import pytest
 
 from agent_build_kit.cli import pipeline as cli
 from agent_build_kit.pipeline.units import ProjectLine
-from agent_build_kit.pipeline.work_graph import TaskGroup, ValidationError, validate_tasks
+from agent_build_kit.pipeline.work_graph import (
+    TaskGroup,
+    ValidationError,
+    check_tags,
+    validate_tasks,
+)
 from tests.project_workspace import OPT_OUT, app_with_projects
 
 GRAMMAR = "Project: add <path> <profile>"
@@ -242,6 +247,65 @@ def test_a_remove_of_a_path_not_listed_is_valid(tmp_path: Path) -> None:
 
     assert errors == []
     assert [(p.action, p.path) for p in groups[0].project_lines] == [("remove", "gone")]
+
+
+def test_a_replace_into_a_path_listed_with_another_profile_is_reported(tmp_path: Path) -> None:
+    groups, errors = read(
+        tmp_path,
+        one("Project: replace host with member node-npm"),
+        declared=("host", "member"),
+        profiles={"member": "python-uv"},
+    )
+
+    assert [e.line for e in errors] == [line_of(tmp_path, "Project:")]
+    assert "python-uv" in errors[0].message and "node-npm" in errors[0].message
+    assert groups[0].project_lines == ()
+
+
+def test_a_group_before_the_add_may_not_tag_the_project(tmp_path: Path) -> None:
+    _, errors = read(
+        tmp_path,
+        one(heading="[app/conformance] [unit-test] Group 1"),
+        one("Project: add conformance python-uv", heading="[app] [unit-test] Group 2"),
+    )
+
+    unknown = [e for e in errors if "unknown project" in e.message]
+    assert [e.line for e in unknown] == [line_of(tmp_path, "[app/conformance]")]
+
+
+def test_a_group_before_the_replace_may_not_tag_the_new_project(tmp_path: Path) -> None:
+    _, errors = read(
+        tmp_path,
+        one(heading="[app/member] [unit-test] Group 1"),
+        one("Project: replace host with member python-uv", heading="[app] [unit-test] Group 2"),
+        declared=("host",),
+    )
+
+    unknown = [e for e in errors if "unknown project" in e.message]
+    assert [e.line for e in unknown] == [line_of(tmp_path, "[app/member]")]
+
+
+def test_check_tags_checks_profiles_against_the_scope_it_is_given_not_the_active_workspace(
+    tmp_path: Path,
+) -> None:
+    app_with_projects(tmp_path / "planning", "web")  # the active `app/web` is python-uv
+
+    def problems(profile: str) -> list[str]:
+        directory = tmp_path / "changes" / "feature"
+        directory.mkdir(parents=True, exist_ok=True)
+        (directory / "tasks.md").write_text(tasks_text(one(f"Project: add web {profile}")))
+        return check_tags(
+            "feature",
+            tmp_path / "changes",
+            repos=("app",),
+            projects={"app": ("web",)},
+            splits={"app": ("rest",)},
+            project_profiles={"app": {"web": "node-npm"}},
+        )[1]
+
+    assert problems("node-npm") == []
+    (refused,) = problems("python-uv")
+    assert "node-npm" in refused and "python-uv" in refused
 
 
 def test_an_add_listed_with_another_profile_is_reported(tmp_path: Path) -> None:

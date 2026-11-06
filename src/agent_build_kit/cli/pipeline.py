@@ -348,7 +348,6 @@ from agent_build_kit.pipeline.units import (
     Join,
     Priority,
     ProjectKey,
-    ProjectLine,
     Unit,
     UnitState,
     base_of,
@@ -7818,6 +7817,7 @@ def _validation_scope(inst: Installation) -> dict[str, Any]:
         "repos": tuple(inst.repos),
         "projects": declared_projects(inst.repos),
         "splits": declared_split_names(inst.repos, inst.config),
+        "project_profiles": declared_profiles(inst.repos),
     }
 
 
@@ -7974,15 +7974,6 @@ def _fix_change_tags(
     return True
 
 
-def _project_line_text(line: ProjectLine) -> str:
-    """A `Project:` line as it is written in tasks.md."""
-    if line.action == "add":
-        return f"Project: add {line.path} {line.profile}"
-    if line.action == "remove":
-        return f"Project: remove {line.path}"
-    return f"Project: replace {line.path} with {line.new_path} {line.profile}"
-
-
 def cmd_tags(args: argparse.Namespace, inst: Installation) -> int:
     """Validate a change's task-group tags (or every change's), or with `--fix` rewrite the old
     test-kind tags of the open changes, or with `--fix-projects` write the resolved projects into
@@ -8024,6 +8015,7 @@ def cmd_tags(args: argparse.Namespace, inst: Installation) -> int:
             repos=tuple(inst.repos),
             projects=declared_projects(inst.repos),
             splits=declared_split_names(inst.repos, inst.config),
+            project_profiles=declared_profiles(inst.repos),
         )
         if change.lower() in cycles:
             errors.append(cycles[change.lower()])
@@ -8053,7 +8045,7 @@ def cmd_tags(args: argparse.Namespace, inst: Installation) -> int:
             declared = declared_profiles(inst.repos).get(group.repo, {})
             for given in group.project_lines:
                 state = "applied" if project_line_applied(given, declared) else "pending"
-                print(f"     line {given.line}: {_project_line_text(given)} — {state}")
+                print(f"     line {given.line}: {given.text} — {state}")
     return 1 if failed else 0
 
 

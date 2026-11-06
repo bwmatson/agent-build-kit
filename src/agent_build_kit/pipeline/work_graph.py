@@ -385,9 +385,10 @@ def read_project_line(text: str, index: int, declared: Mapping[str, str]) -> Pro
             f"`Project:` profile {line.profile!r} is not registered "
             f"(registered: {', '.join(profiles.names())})"
         )
-    have = declared.get(line.path)
-    if line.action == "add" and have is not None and have != line.profile:
-        return f"`Project:` adds {line.path!r} as {line.profile}, but abk.yaml lists it as {have}"
+    target = line.new_path or line.path
+    have = declared.get(target)
+    if line.action != "remove" and have is not None and have != line.profile:
+        return f"`Project:` gives {target!r} as {line.profile}, but abk.yaml lists it as {have}"
     return line
 
 
@@ -703,6 +704,7 @@ def validate_tasks_text(
     repos: tuple[str, ...] | None = None,
     projects: Mapping[str, tuple[str, ...]] | None = None,
     splits: Mapping[str, tuple[str, ...]] | None = None,
+    project_profiles: Mapping[str, Mapping[str, str]] | None = None,
 ) -> tuple[list[TaskGroup], list[ValidationError]]:
     """`validate_tasks` of `text` as the tasks of the change `change`, which it is written to
     under a scratch directory of that name, where the parse reads the name of its own change."""
@@ -710,7 +712,13 @@ def validate_tasks_text(
         probe = Path(scratch) / change / "tasks.md"
         probe.parent.mkdir()
         probe.write_bytes(text.encode())
-        return validate_tasks(probe, repos=repos, projects=projects, splits=splits)
+        return validate_tasks(
+            probe,
+            repos=repos,
+            projects=projects,
+            splits=splits,
+            project_profiles=project_profiles,
+        )
 
 
 def validate_tasks(
@@ -728,11 +736,12 @@ def validate_tasks(
     list instead of one problem per push.
     """
     repos = known_repos() if repos is None else repos
+    # The profiles of a workspace the caller scoped `projects` to are theirs to give; the active
+    # workspace's would be another workspace's, so without them no profile clash is checked.
+    if project_profiles is None:
+        project_profiles = declared_profiles(active().repos) if projects is None else {}
     projects = declared_projects(active().repos) if projects is None else projects
     splits = declared_split_names(active().repos, active()) if splits is None else splits
-    project_profiles = (
-        declared_profiles(active().repos) if project_profiles is None else project_profiles
-    )
     lines = path.read_text().splitlines()
     own_targets = _own_project_targets(lines, repos)
     project_lines: dict[int, list[ProjectLine]] = {}
@@ -1585,13 +1594,16 @@ def check_tags(
     repos: tuple[str, ...],
     projects: Mapping[str, tuple[str, ...]] | None = None,
     splits: Mapping[str, tuple[str, ...]] | None = None,
+    project_profiles: Mapping[str, Mapping[str, str]] | None = None,
 ) -> tuple[list[TaskGroup], list[str]]:
     """What `abk tags <change>` runs: the change's groups and every problem found, each
     printed as the command prints it; a change with no tasks file has one problem."""
     path = tasks_path(change, changes_dir)
     if not path.exists():
         return [], [f"no tasks.md for change {change!r} at {path}"]
-    groups, errors = validate_tasks(path, repos=repos, projects=projects, splits=splits)
+    groups, errors = validate_tasks(
+        path, repos=repos, projects=projects, splits=splits, project_profiles=project_profiles
+    )
     return groups, [f"{path}:{error}" for error in errors]
 
 

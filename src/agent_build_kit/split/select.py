@@ -19,6 +19,7 @@ from agent_build_kit.pipeline.work_graph import (
     ANY_GROUP_HEADING,
     TaskGroup,
     ValidationError,
+    declared_profiles,
     declared_projects,
     declared_split_names,
     tag_path,
@@ -162,6 +163,7 @@ def _classify(
             repos=tuple(source.repos),
             projects=declared,
             splits=declared_split_names(source.repos, source.config),
+            project_profiles=declared_profiles(source.repos),
         )
         if bad := _unparsed_heading(tasks, groups, errors):
             unreadable.append(Unreadable(name=directory.name, line=bad[0], message=bad[1]))
