@@ -55,6 +55,15 @@ _DIFF_LINT = (
     f"{_DIFF.format(z=' -z')} | xargs -0 npx oxlint && "
     f"{_DIFF.format(z=' -z')} | xargs -0 npx oxfmt --check"
 )
+# Volta, nvm and fnm: read, not written, since a manager writes only to install a version.
+_VERSION_MANAGERS = (
+    f"{HOME}/.volta",
+    f"{HOME}/.nvm",
+    # fnm: the Linux default, the macOS folder and the legacy one.
+    f"{HOME}/.local/share/fnm",
+    f"{HOME}/Library/Application Support/fnm",
+    f"{HOME}/.fnm",
+)
 _TYPE_CHECK = "tsc"
 # The project's type check, which `project_checks` and the stubbed clean command both run.
 _TYPE_CHECK_ARGV = ["npx", _TYPE_CHECK, "--noEmit"]
@@ -188,8 +197,11 @@ class NodeNpmProfile:
         return list(_CREATED)
 
     def sandbox_paths(self, repo: Path) -> SandboxPaths:
-        """The npm cache and the registry."""
-        return SandboxPaths(write=(f"{HOME}/.npm",), hosts=("registry.npmjs.org",))
+        """The npm cache and the registry, and the folders of the Node version managers to read,
+        so `node`, `npm` and `npx` reached through a manager's shim run."""
+        return SandboxPaths(
+            read=_VERSION_MANAGERS, write=(f"{HOME}/.npm",), hosts=("registry.npmjs.org",)
+        )
 
     def scaffold_manifest(self, name: str) -> tuple[str, str]:
         return "package.json", json.dumps({"name": name, "version": "0.1.0"}, indent=2) + "\n"
