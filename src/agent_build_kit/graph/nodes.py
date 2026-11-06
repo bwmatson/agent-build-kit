@@ -1663,8 +1663,8 @@ class BuildPath:
         if step is not None and not step.mode.writes_tests:
             return False
         tree = self.tree()
-        if account.strip() or self.runner.branch_commits(tree, self.ref(state)):
-            return False
+        if not before or account.strip() or self.runner.branch_commits(tree, self.ref(state)):
+            return False  # no tree digest: a runner that cannot see a write cannot see none
         return self.runner.head(tree) == state.head and self.runner.tree_state(tree) == before
 
     def apply_fixers(self) -> None:
