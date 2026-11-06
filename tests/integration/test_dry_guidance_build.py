@@ -207,7 +207,7 @@ def test_the_tests_step_prompt_held_the_reuse_part_and_the_three_way_instruction
         + "\n---\n".join(p[:300] for p in prompts)
     )
 
-    assert reuse_guidance() in steps[0]
+    assert reuse_guidance("tests") in steps[0]
     for stem in ("(a)", "(b)", "(c)", "reused", "instead of adding"):
         assert stem in steps[0], stem
 

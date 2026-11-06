@@ -40,7 +40,7 @@ def test_one_subject_has_one_test_file_and_no_init() -> None:
 
 
 def test_the_placement_rule_cites_its_standards_once() -> None:
-    text = for_profile("python-uv")
+    text = profiles.get("python-uv").prompt_words.placement
 
     for standard in ("T2", "T3", "T21"):
         assert len(re.findall(rf"\b{standard}\b", text)) == 1

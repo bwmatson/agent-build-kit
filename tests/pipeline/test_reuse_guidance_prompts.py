@@ -26,8 +26,11 @@ from agent_build_kit.pipeline.stack_runner import (
 )
 from tests.prompt_text import filled, flat
 
+KINDS = ["source", "tests"]
+
+# The prompts that change source; the tests prompt carries the test version (see
+# test_reuse_guidance_kinds.py).
 BUILDERS = [
-    pytest.param(TESTS_PROMPT, id="tests"),
     pytest.param(IMPLEMENTATION_PROMPT, id="implementation"),
     pytest.param(CHECKS_PROMPT, id="checks"),
     pytest.param(REWORK_PROMPT, id="rework"),
@@ -45,16 +48,17 @@ CONTINUATIONS = [
 
 @pytest.mark.parametrize("prompt", BUILDERS)
 def test_each_builder_prompt_carries_the_part(prompt: str) -> None:
-    assert flat(reuse_guidance()) in flat(prompt)
+    assert flat(reuse_guidance("source")) in flat(prompt)
 
 
 @pytest.mark.parametrize("prompt", BUILDERS)
 def test_filling_a_prompt_in_leaves_the_part_unchanged(prompt: str) -> None:
-    assert flat(reuse_guidance()) in flat(filled(prompt))
+    assert flat(reuse_guidance("source")) in flat(filled(prompt))
 
 
-def test_the_part_has_no_braces_to_break_the_filling() -> None:
-    text = reuse_guidance()
+@pytest.mark.parametrize("kind", KINDS)
+def test_the_part_has_no_braces_to_break_the_filling(kind: str) -> None:
+    text = reuse_guidance(kind)
 
     assert text.strip()
     assert "{" not in text
@@ -64,40 +68,41 @@ def test_the_part_has_no_braces_to_break_the_filling() -> None:
 def test_the_adapt_prompt_does_not_carry_the_part_and_keeps_its_own_instruction() -> None:
     text = flat(ADAPT_PROMPT)
 
-    assert flat(reuse_guidance()) not in text
+    for kind in KINDS:
+        assert flat(reuse_guidance(kind)) not in text
     assert "do not re-implement anything it already provides" in text
 
 
+@pytest.mark.parametrize("kind", KINDS)
 @pytest.mark.parametrize("prompt", CONTINUATIONS)
-def test_a_continuation_prompt_does_not_repeat_the_part(prompt: str) -> None:
-    assert flat(reuse_guidance()) not in flat(prompt)
+def test_a_continuation_prompt_does_not_repeat_the_part(prompt: str, kind: str) -> None:
+    assert flat(reuse_guidance(kind)) not in flat(prompt)
 
 
 def test_the_part_says_what_to_do() -> None:
-    text = flat(reuse_guidance()).lower()
+    text = flat(reuse_guidance("source")).lower()
 
     assert re.search(r"search[^.]*before (adding|writing)", text), "search before adding"
     assert "use or extend" in text
     assert re.search(r"\bonce\b", text), "shared logic is written once"
     assert re.search(r"change together[^.]*one function|one function[^.]*change together", text)
-    assert "shared test support" in text
     assert re.search(r"\bdead\b", text), "delete what the change makes dead"
     assert re.search(r"within the change|stay in scope|stay within", text)
 
 
 def test_the_part_says_how_to_look() -> None:
-    text = flat(reuse_guidance()).lower()
+    text = flat(reuse_guidance("source")).lower()
 
     assert "import" in text, "what the neighbouring code imports"
     for name in ("utils", "common", "shared", "lib", "helpers"):
         assert name in text
-    assert "fixtures" in text, "the test runner's usual places"
     assert "convention" in text
     assert re.search(r"behaviou?r[^.]*as well as (by )?name", text)
 
 
-def test_the_part_names_no_installation_language_tool_or_path() -> None:
-    text = reuse_guidance()
+@pytest.mark.parametrize("kind", KINDS)
+def test_the_part_names_no_installation_language_tool_or_path(kind: str) -> None:
+    text = reuse_guidance(kind)
 
     assert text.strip()
     assert "/home/" not in text
@@ -109,7 +114,7 @@ def test_the_part_names_no_installation_language_tool_or_path() -> None:
 
 
 def test_the_pipeline_reads_no_repository_section_for_the_part() -> None:
-    assert not inspect.signature(reuse_guidance).parameters
+    assert list(inspect.signature(reuse_guidance).parameters) == ["kind"]
     assert not [name for name in RepoConfig.model_fields if "reuse" in name]
 
 

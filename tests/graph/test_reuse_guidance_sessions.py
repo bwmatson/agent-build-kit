@@ -25,8 +25,8 @@ from tests.runner_fakes import approving, rejecting
 OTHERS = re.compile(r"look for (the )?others of the (same )?kind", re.IGNORECASE)
 
 
-def carries(prompt: str) -> bool:
-    return flat(reuse_guidance()) in flat(prompt)
+def carries(prompt: str, kind: str = "source") -> bool:
+    return flat(reuse_guidance(kind)) in flat(prompt)
 
 
 def test_the_tests_prompt_carries_the_part_and_the_continuations_after_it_do_not(
@@ -40,7 +40,7 @@ def test_the_tests_prompt_carries_the_part_and_the_continuations_after_it_do_not
     tick(tmp_path, recorder, **agents(runtime))
 
     tests, implement, fix = runtime.built
-    assert carries(tests.prompt)
+    assert carries(tests.prompt, "tests")
     assert implement.resume_session == "sess-1" and not carries(implement.prompt)
     assert fix.resume_session == "sess-1" and not carries(fix.prompt)
 
