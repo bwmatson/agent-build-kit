@@ -16,6 +16,8 @@ import json
 from collections.abc import Callable, Sequence
 from pathlib import Path
 
+import yaml
+
 from agent_build_kit import config as config_module
 from agent_build_kit.init.scaffold import (
     ScaffoldError,
@@ -25,7 +27,7 @@ from agent_build_kit.init.scaffold import (
 from agent_build_kit.installation import Installation
 from agent_build_kit.model import Frozen
 from agent_build_kit.pipeline.file_lock import LockTimeout, atomic_write_text
-from agent_build_kit.pipeline.shell import git
+from agent_build_kit.pipeline.planning_commit import commit_and_publish
 from agent_build_kit.pipeline.unit_store import StoredUnit
 from agent_build_kit.pipeline.units import FINISHED_STATES, MERGED, SETTLING, ProjectLine
 from agent_build_kit.pipeline.work_graph import (
@@ -35,11 +37,14 @@ from agent_build_kit.pipeline.work_graph import (
     tag_path,
     validate_tasks,
 )
+from agent_build_kit.tracks.runner import RUN_ID
 
 LEDGER_FILE = "project_actions.json"
 CONFIG_FILE = "abk.yaml"
 # The states in which the unit carrying a group has merged its code.
 MERGE_REACHED = (SETTLING, MERGED)
+# What reading abk.yaml or a tasks.md can raise.
+_READ_ERRORS = (config_module.ConfigError, OSError, ValueError, yaml.YAMLError)
 
 
 class ActionReport(Frozen):
@@ -98,20 +103,23 @@ def _save(inst: Installation, ledger: dict, log: Callable[[str], None]) -> None:
         log(f"project actions: the ledger could not be written: {exc}")
 
 
-def _groups_of(inst: Installation, change: str) -> list:
-    """The groups of a change's `tasks.md`, read against the configuration as it is on disk now."""
+def _groups_of(inst: Installation, change: str, *, clean: bool = False) -> list:
+    """The groups of a change's `tasks.md`, read against the configuration as it is on disk now.
+    With `clean`, a file that has any validation error yields none: a change the planner refuses
+    gets no edit."""
     tasks = inst.changes_dir / change / "tasks.md"
     if not tasks.is_file():
         return []
     written = inst.root / CONFIG_FILE
     repos = (config_module.load(written) if written.is_file() else inst.config).repos
-    return validate_tasks(
+    groups, errors = validate_tasks(
         tasks,
         repos=tuple(repos),
         projects=declared_projects(repos),
         splits=declared_split_names(repos, inst.config),
         project_profiles=declared_profiles(repos),
-    )[0]
+    )
+    return [] if clean and errors else groups
 
 
 def _halves(change: str, group, edits: Sequence[str]) -> list[_Due]:
@@ -167,16 +175,22 @@ def _blocker(due: _Due, units: Sequence[StoredUnit], carriers: Sequence[StoredUn
 
 
 def _removals(
-    inst: Installation, units: Sequence[StoredUnit]
+    inst: Installation, units: Sequence[StoredUnit], pending: dict
 ) -> list[tuple[_Due, list[StoredUnit]]]:
+    """The removes due: those of the groups a merged unit carries, and those the ledger holds from
+    an earlier run, which outlive the change's `tasks.md` (archiving moves it)."""
     carriers = _carriers(units)
-    out: list[tuple[_Due, list[StoredUnit]]] = []
+    out: dict[str, tuple[_Due, list[StoredUnit]]] = {}
     for change in sorted({change for change, _ in carriers}):
         for group in _groups_of(inst, change):
             for due in _halves(change, group, ("remove",)):
                 if held := carriers.get((change, group.number)):
-                    out.append((due, held))
-    return out
+                    out[due.key] = (due, held)
+    for key, entry in pending.items():
+        if key not in out:
+            due = _Due.model_validate({**entry, "line": ProjectLine.model_validate(entry["line"])})
+            out[key] = (due, carriers.get((due.change, due.group), []))
+    return list(out.values())
 
 
 def apply_project_actions(
@@ -189,17 +203,34 @@ def apply_project_actions(
 ) -> ActionReport:
     """Apply what is due: the adds of the changes in `planning` (and of any add that failed
     before), and the removes of every change whose carrying unit (joined groups included) is
-    settling or merged. `publish(change, group)` commits abk.yaml after an application. A failure
-    is logged and reported, never raised."""
+    settling or merged. A remove that has come due is kept in the ledger until it is applied, so
+    archiving its change does not lose it. `publish(change, group)` commits abk.yaml after an
+    application. A failure, an unreadable abk.yaml included, is logged and reported, not raised."""
     ledger = _read(_ledger_path(inst))
     done: dict = ledger.setdefault("done", {})
     failed: dict = ledger.setdefault("failed", {})
+    pending: dict = ledger.setdefault("pending", {})
     retried = {entry["change"] for entry in failed.values()}
+    scanned = {*planning, *retried}
     due: list[tuple[_Due, list[StoredUnit]]] = []
-    for change in sorted({*planning, *retried}):
-        for group in _groups_of(inst, change):
-            due += [(d, []) for d in _halves(change, group, ("add",))]
-    due += _removals(inst, units)
+    try:
+        for change in sorted(scanned):
+            for group in _groups_of(inst, change, clean=True):
+                due += [(d, []) for d in _halves(change, group, ("add",))]
+        removals = _removals(inst, units, pending)
+    except _READ_ERRORS as exc:
+        log(f"project actions: abk.yaml or tasks.md could not be read: {exc}")
+        return ActionReport(failed=(f"could not read the project lines: {exc}",))
+    due += removals
+    for item, _ in removals:
+        if item.key not in done:
+            pending[item.key] = item.model_dump(mode="json")
+    # A failure whose line no longer exists (edited, renumbered, archived) is not retried.
+    current = {item.key for item, _ in due}
+    for key in [
+        k for k, entry in failed.items() if k not in current and entry["change"] in scanned
+    ]:
+        del failed[key]
 
     applied: list[str] = []
     waiting: list[str] = []
@@ -220,6 +251,7 @@ def apply_project_actions(
             continue
         done[item.key] = True
         failed.pop(item.key, None)
+        pending.pop(item.key, None)
         applied.append(item.text)
         _save(inst, ledger, log)
         if publish is not None:
@@ -240,9 +272,14 @@ def _apply(inst: Installation, due: _Due) -> None:
 def status_lines(inst: Installation, units: Sequence[StoredUnit]) -> list[str]:
     """The lines `abk status` shows: a `remove` waiting for a project to empty, and an edit that
     failed."""
-    done = _read(_ledger_path(inst)).get("done", {})
+    ledger = _read(_ledger_path(inst))
+    done = ledger.get("done", {})
     lines: list[str] = []
-    for item, carriers in _removals(inst, units):
+    try:
+        removals = _removals(inst, units, ledger.get("pending", {}))
+    except _READ_ERRORS:
+        return failed_lines(inst)
+    for item, carriers in removals:
         if item.key not in done and (blocker := _blocker(item, units, carriers)):
             lines.append(f"project removal waiting: {item.text} (unit {blocker} is stored in it)")
     return [*lines, *failed_lines(inst)]
@@ -260,19 +297,14 @@ def commit_project_file(
     inst: Installation, change: str, group: int, *, log: Callable[[str], None] = print
 ) -> bool:
     """Commit abk.yaml alone to the planning repo, with a message naming the change and group.
-    True when a commit was made; a refused commit is logged and returns False."""
-    staged = git(inst.root, "add", "--", CONFIG_FILE, check=False)
-    if staged.returncode != 0:
-        log(f"staging {CONFIG_FILE} for {change} group {group} failed:\n{staged.stderr}")
-        return False
-    if (
-        git(inst.root, "diff", "--cached", "--quiet", "--", CONFIG_FILE, check=False).returncode
-        == 0
-    ):
-        return False
-    message = f"{CONFIG_FILE}: apply the project lines of {change} group {group}"
-    committed = git(inst.root, "commit", "-q", "-m", message, "--", CONFIG_FILE, check=False)
-    if committed.returncode != 0:
-        log(f"committing {CONFIG_FILE} for {change} group {group} failed:\n{committed.stderr}")
-        return False
-    return True
+    True when a commit was made, and published as `planning.publish` says; a refused commit is
+    logged and returns False."""
+    return commit_and_publish(
+        inst,
+        [CONFIG_FILE],
+        message=f"{CONFIG_FILE}: apply the project lines of {change} group {group}",
+        label=f"project-{change}-{group}-{RUN_ID}",
+        body=f"abk applied the `Project:` lines of group {group} of the change `{change}`.",
+        what=f"{CONFIG_FILE} for {change} group {group}",
+        log=log,
+    )
