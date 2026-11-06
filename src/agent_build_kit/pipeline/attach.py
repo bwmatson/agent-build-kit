@@ -171,6 +171,7 @@ def planning_gate(inst: Installation, change: str) -> Callable[[Path], str]:
         from agent_build_kit import openspec
         from agent_build_kit.pipeline.work_graph import (
             check_tags,
+            declared_profiles,
             declared_projects,
             declared_split_names,
         )
@@ -185,6 +186,7 @@ def planning_gate(inst: Installation, change: str) -> Callable[[Path], str]:
             repos=tuple(inst.repos),
             projects=declared_projects(inst.repos),
             splits=declared_split_names(inst.repos, inst.config),
+            project_profiles=declared_profiles(inst.repos),
         )
         if errors:
             rejected.append(f"abk tags {change} failed:\n" + "\n".join(errors))
