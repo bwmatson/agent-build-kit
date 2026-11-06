@@ -26,6 +26,7 @@
   comes back after an accept changes nothing. `abk status` shows `settling: late check waiting for
   a unit-test slot since <time>` while it waits, and `settling: late check running on the default
   branch` once it runs.
+
 - A task group can carry `Project: add <path> <profile>`, `Project: remove <path>` and
   `Project: replace <old> with <new> <profile>` lines naming a change to the projects its
   repository declares. `abk tags` reads and checks each line, lets the change's later groups tag a
