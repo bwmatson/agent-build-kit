@@ -74,6 +74,16 @@ def in_a_lane_run(unit: StoredUnit) -> bool:
     return unit.state == RUNNING and unit.moved_base_run
 
 
+def in_a_comment_run(unit: StoredUnit) -> bool:
+    """Whether the lane is making the unit's comment rework, which holds no build worker."""
+    return unit.state == RUNNING and unit.moved_base_run and unit.resolving == "comment"
+
+
+def resolving_phrase(kind: str, base: str) -> str:
+    """How the status and `abk explain` say what a unit is resolving."""
+    return "resolving a comment" if kind == "comment" else f"resolving base {base}"
+
+
 def about_the_move(unit: StoredUnit) -> bool:
     """Whether the unit's run is about its base moving, a moved-base cause or a conflict sent
     back, and so an attempt at the base's tip; a comment or a change request is not."""
@@ -601,6 +611,7 @@ class ResolutionLane:
                 {
                     "unit": entry.unit.id,
                     "base": self._base(entry.unit),
+                    "resolving": entry.unit.resolving,
                     "status": status,
                     "since": entry.since,
                 }
@@ -645,6 +656,7 @@ class ResolutionLane:
     def _run(self, entry: _Entry) -> None:
         unit = entry.unit
         ran = False
+        spans.resolving.set(unit.resolving)
         try:
             if entry.claimed:
                 with self._claim(unit):

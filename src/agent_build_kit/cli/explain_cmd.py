@@ -17,6 +17,7 @@ from agent_build_kit.pipeline.admission_record import (
 )
 from agent_build_kit.pipeline.external_file import external_reason, held_units
 from agent_build_kit.pipeline.regression_agent import waited_fixes
+from agent_build_kit.pipeline.resolution_lane import lane_record, resolving_phrase
 from agent_build_kit.pipeline.unit_store import Cause
 from agent_build_kit.pipeline.units import PLANNED, RUNNING, history_stamp
 
@@ -120,6 +121,11 @@ def cmd_explain(args: argparse.Namespace, inst: Installation) -> int:
         )
         print(f"{args.unit} is on its {phrase}: {failure['note'] if failure else unit.note}")
         return 0
+    for entry in lane_record(inst.state_dir):
+        if entry["unit"] == args.unit:
+            phrase = resolving_phrase(entry.get("resolving", "base"), entry["base"])
+            print(f"{args.unit} is {phrase}, in the resolution lane ({entry['status']})")
+            return 0
     paused = events[-1] if events and events[-1][1]["event"] == "usage_pause" else None
     if paused and (record is None or record.kind == "usage" or paused[0] >= record.at):
         stamp, entry = paused

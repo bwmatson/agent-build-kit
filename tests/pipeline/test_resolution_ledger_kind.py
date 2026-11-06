@@ -13,9 +13,15 @@ from tests.emergency_lane_support import build
 from tests.graph.test_restack_lane_prepare import Scene
 from tests.lane_run_slots import Slots
 from tests.moved_base_fakes import restack_lines
-from tests.tick_driver import Setup
+from tests.tick_driver import OTHER, Setup, make_setup
 
 pytestmark = pytest.mark.usefixtures("scripted_engine")
+
+
+@pytest.fixture
+def graph(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Setup:
+    """A tick over one unit's thread with its edges faked (`tests/tick_driver.py`)."""
+    return make_setup(tmp_path, monkeypatch)
 
 
 def test_the_lane_record_names_a_comment_rework_as_a_comment_and_a_moved_base_run_as_base(
@@ -36,9 +42,10 @@ def test_a_restack_line_written_in_the_lane_carries_the_kind_of_run(
 ) -> None:
     scene = Scene(graph, tmp_path)
     scene.told_its_base_moved()
+    written = len(restack_lines(graph.inst))
 
     scene.lane_moves()
 
-    lines = restack_lines(graph.inst)
+    lines = [line for line in restack_lines(graph.inst)[written:] if line["unit"] == OTHER]
     assert lines, "the lane's move wrote a restack line"
     assert {line["resolving"] for line in lines} == {"base"}

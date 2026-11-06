@@ -1056,6 +1056,7 @@ class BuildPath:
         spans.record_restack(
             spans.RestackRecord(
                 at=spans.clock.now().isoformat(),
+                resolving=spans.resolving.get(),
                 unit=self.unit.id,
                 change=self.unit.change,
                 point=point,

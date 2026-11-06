@@ -19,23 +19,23 @@ from agent_build_kit.pipeline.unit_store import Cause, FeedbackSource
 from agent_build_kit.pipeline.units import RUNNING, project_key
 from tests.cli.test_status_restacks import printed
 from tests.emergency_lane_support import build
-from tests.factories import new_unit
 from tests.lane_run_slots import Slots
+from tests.restack_lane_fakes import caused
 
 pytestmark = pytest.mark.usefixtures("scripted_engine")
 
 
 def test_the_occupancy_leaves_out_a_comment_rework_running_in_the_lane() -> None:
-    comment = new_unit(
+    comment = caused(
         "c1/1",
+        RUNNING,
+        Cause.REWORK,
         branch="spec/c1/1",
-        state=RUNNING,
-        cause=Cause.REWORK,
         feedback="[comment c1] remove this",
         feedback_source=FeedbackSource.REVIEW,
         moved_base_run=True,
     )
-    other = new_unit("b1/1", branch="spec/b1/1", state=RUNNING)
+    other = caused("b1/1", RUNNING, None, branch="spec/b1/1")
 
     occupied = cli.slot_occupancy([comment, other], ["b1/1"], ["c1/1"])
 

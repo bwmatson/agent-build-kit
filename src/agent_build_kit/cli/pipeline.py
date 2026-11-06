@@ -249,11 +249,13 @@ from agent_build_kit.pipeline.resolution_lane import (
     base_tip,
     forget_run_attempt,
     hold_if_spent,
+    in_a_comment_run,
     in_a_lane_run,
     lane_record,
     owed_units,
     record_path,
     record_run_attempt,
+    resolving_phrase,
 )
 from agent_build_kit.pipeline.restack import (
     ConflictSession,
@@ -870,13 +872,15 @@ def _restack_lines(inst: Installation, units: list[StoredUnit]) -> list[str]:
     lines = [f"resolving: {len(running)} running, {len(waiting) + len(owed)} waiting"]
     for entry in [*running, *waiting]:
         where = f" ({unit_label(by_id[entry['unit']])})" if entry["unit"] in by_id else ""
-        lines.append(f"  {entry['unit']}{where} resolving base {entry['base']}")
+        phrase = resolving_phrase(entry.get("resolving", "base"), entry["base"])
+        lines.append(f"  {entry['unit']}{where} {phrase}")
     for unit_id in owed:
         unit = by_id[unit_id]
         pause = _paused_for(inst, unit)
         if pause is None or unit.cause is not Cause.RESTACK_DEFERRED:
             # Not deferred by a pause: a clean move proceeds during one.
-            lines.append(f"  {unit.id} ({unit_label(unit)}) resolving base {base_of(unit, units)}")
+            phrase = resolving_phrase(unit.resolving, base_of(unit, units))
+            lines.append(f"  {unit.id} ({unit_label(unit)}) {phrase}")
             continue
         verb = "usage pause" if pause.kind == "usage" else "paused"
         lines.append(f"  resolving waiting: {unit.id} — {pause_line(pause, verb=verb)}")
@@ -4040,6 +4044,8 @@ def _evaluate_round(
     # A unit no run holds that records a usage pause is in progress and holds its place, with no
     # worker: it is shown running, never held (`ready_units`, `no_worker`).
     paused = {unit.id for unit in units if unit.id in idle and usage_paused(unit)}
+    # A comment rework in the lane is in progress and holds its place, with no build worker.
+    paused |= {unit.id for unit in units if in_a_comment_run(unit)}
     # A unit admission sent to a worker that has not yet taken its lock is in progress as one in
     # flight is: its marker has not lapsed.
     marked = {unit.id for unit in units if marker_live(unit, now)}
@@ -4181,6 +4187,8 @@ def slot_occupancy(
     skipped = {*idle, *lane_waiting}
     occupied: dict[ProjectKey, set[str]] = {}
     for unit in units:
+        if in_a_comment_run(unit):
+            continue
         if unit.id in ids or (unit.state == RUNNING and unit.id not in skipped):
             occupied.setdefault(project_key(unit), set()).add(unit.id)
     return occupied

@@ -539,6 +539,15 @@ class StoredUnit(Unit):
             and self.feedback_source in LANE_FEEDBACK_SOURCES
         )
 
+    @property
+    def resolving(self) -> str:
+        """What the resolution lane resolves for this unit: `comment` for a rework of a comment,
+        a change request or a label, `base` for a moved base (a restack, a moved-base run or a
+        conflict)."""
+        return (
+            "comment" if self.sent_back_for_rework and not self.sent_back_for_conflict else "base"
+        )
+
     def has_own_rework_input(self, head: str) -> bool:
         """Whether the unit has saved feedback that is not the conflict's and that review has
         not answered by approving `head`: rework of its own, which makes its run a build."""
