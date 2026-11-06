@@ -11,6 +11,7 @@ import httpx
 import pytest
 
 from agent_build_kit.cli import main
+from agent_build_kit.graph.checkpointer import unit_graphs_path
 from agent_build_kit.installation import Installation
 from agent_build_kit.pipeline.events import build_claim
 from agent_build_kit.pipeline.file_lock import file_lock
@@ -24,7 +25,16 @@ from tests.serving import EXPECTED, seed_pipeline
 
 
 @pytest.fixture
-def pipeline(inst: Installation, api: httpx.Client) -> httpx.Client:
+def pipeline(
+    inst: Installation, api: httpx.Client, monkeypatch: pytest.MonkeyPatch
+) -> httpx.Client:
+    """The API over the seeded pipeline. `seed_pipeline` seeds no unit thread, so the thread-store
+    probe is answered as it would be (no thread), without the graph import and the SQLite open
+    whose time grows with the machine's load and outlasts a request's budget."""
+    from agent_build_kit.cli import pipeline as cli_pipeline
+
+    monkeypatch.setattr(cli_pipeline, "has_thread", lambda inst, unit_id: False)
+    monkeypatch.setattr(cli_pipeline, "resume_thread", lambda inst, unit, kind, **kwargs: None)
     seed_pipeline(inst)
     return api
 
@@ -155,6 +165,7 @@ def test_a_hold_waits_out_a_unit_being_built(inst: Installation, pipeline: httpx
     assert answer.status_code == 409
     assert "is being built" in answer.json()["detail"]
     assert store.get("feature/2") == before
+    assert not unit_graphs_path(inst.local_dir).exists()
 
 
 def test_a_release_is_refused_while_the_pull_request_carries_the_hold_label(
