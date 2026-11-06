@@ -7,16 +7,18 @@ the node compares."""
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
+from agent_build_kit.graph.nodes import WROTE_NOTHING_NOTE
 from agent_build_kit.pipeline.stack_runner import RunOutcome
 from agent_build_kit.pipeline.wiring import build_tree_state
-from tests.graph.branch_fakes import OnBranch, key, prepared, subjects
-from tests.graph.branch_fakes import titled as groups_titled
+from tests.graph.branch_fakes import Groups, OnBranch, key, prepared, subjects, titled
 from tests.graph.test_build_path import build
+from tests.graph.test_per_group_build import group_named
 
-GROUPS = {"add-marker": groups_titled(1)}
+GROUPS = {"add-marker": titled(1)}
 CAUSE = "the tests step wrote no test"
 
 
@@ -24,9 +26,10 @@ class Refused(OnBranch):
     """A recorder over the real tree digest whose first `refused` tests calls write nothing and
     say nothing, as a refused write does."""
 
-    def __init__(self, store: Any, *, refused: int, **options: Any) -> None:
+    def __init__(self, store: Any, *, refused: int, group: str = "", **options: Any) -> None:
         super().__init__(store, **options)
         self.refused = refused
+        self.group = group  # as the prompt names it; every group when empty
         self.tests_calls = 0
 
     def tree_state(self, cwd: Path) -> str:
@@ -34,7 +37,7 @@ class Refused(OnBranch):
 
     def claude(self, prompt: str, **kwargs: Any) -> str:
         answer = super().claude(prompt, **kwargs)
-        if self.events[-1] != "claude:tests":
+        if self.events[-1] != "claude:tests" or self.group not in ("", group_named(prompt)):
             return answer
         self.tests_calls += 1
         if self.tests_calls > self.refused:
@@ -43,9 +46,16 @@ class Refused(OnBranch):
         return ""
 
 
-def refusing(tmp_path: Path, refused: int, **options: Any) -> tuple[Refused, RunOutcome, Path]:
-    recorder, repo = prepared(tmp_path, groups=GROUPS, **options)
-    refusing_recorder = Refused(recorder.store, refused=refused)
+def refusing(
+    tmp_path: Path,
+    refused: int,
+    *,
+    group: str = "",
+    groups: Mapping[str, Groups] = GROUPS,
+    **options: Any,
+) -> tuple[Refused, RunOutcome, Path]:
+    recorder, repo = prepared(tmp_path, groups=groups, **options)
+    refusing_recorder = Refused(recorder.store, refused=refused, group=group)
     outcome = build(tmp_path, refusing_recorder, **refusing_recorder.overrides(tmp_path))
     return refusing_recorder, outcome, repo
 
@@ -61,7 +71,21 @@ def test_a_tests_node_that_writes_nothing_runs_once_more_then_fails_before_imple
     assert "claude:impl" not in recorder.events
     assert subjects(repo) == []
     first, second = recorder.prompts[:2]  # the build's first agent calls are its tests step's
-    assert second != first, "the second try carries guidance"
+    assert WROTE_NOTHING_NOTE in second
+    assert WROTE_NOTHING_NOTE not in first
+
+
+def test_a_later_group_whose_tests_node_writes_nothing_fails_without_an_empty_test_commit(
+    tmp_path: Path,
+) -> None:
+    recorder, outcome, repo = refusing(
+        tmp_path, refused=2, group="4", groups={"add-marker": titled(3, 4)}
+    )
+
+    assert outcome.status == "failed", outcome.detail
+    assert CAUSE in outcome.detail
+    assert subjects(repo) == ["test: G3", "feat: G3"], "no test: G4, empty or not"
+    assert recorder.events.count("claude:impl") == 1, "only group 3's implementation ran"
 
 
 def test_a_tests_node_that_writes_on_the_second_try_goes_on_to_implement(tmp_path: Path) -> None:

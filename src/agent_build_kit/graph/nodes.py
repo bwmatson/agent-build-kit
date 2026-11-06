@@ -1657,13 +1657,10 @@ class BuildPath:
 
     def wrote_nothing(self, state: UnitRun, before: str, account: str) -> bool:
         """Whether a tests step that has to write tests ended with the tree as it found it and
-        nothing said: a write may have been refused. A branch with commits of its own is
-        left to the empty marked `test:`, and an agent that explains itself has judged."""
-        step = self.group_step(state)
-        if step is not None and not step.mode.writes_tests:
-            return False
+        nothing said: a write may have been refused. An agent that explains itself has judged,
+        for example that the tests exist, which the empty marked `test:` then records."""
         tree = self.tree()
-        if not before or account.strip() or self.runner.branch_commits(tree, self.ref(state)):
+        if not before or account.strip():
             return False  # no tree digest: a runner that cannot see a write cannot see none
         return self.runner.head(tree) == state.head and self.runner.tree_state(tree) == before
 
