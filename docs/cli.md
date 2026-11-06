@@ -278,6 +278,14 @@ the two differ. `--keep NAME` clears the mark and leaves the file; `--delete NAM
 kept recording is marked again when a later passing run does not ask for it, or a live call
 supersedes it. NAME is as the listing prints it. Exit 1 when a NAME matches nothing waiting, or no repository has a `tests.replay` section and a NAME was given; else 0.
 
+### `abk restacks [--since TIME]`
+
+Prints one line per restack point (`prepare`, `before_review`, `before_pr`) with its moves,
+re-tests and hours, then one line per re-test kind that ran (`lite`, `scoped`, `full`).
+`--since` takes an ISO 8601 time (a time without a zone is UTC) and limits the lines to records
+from then on; a value that is not a time exits 2. An empty ledger prints `no restacks recorded`
+and exits 0.
+
 ### `abk graph`
 
 Rewrites `planning.graph_page` from `runs/units.json`. The tick does this on

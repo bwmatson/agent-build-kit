@@ -764,6 +764,18 @@ release could move. The steps:
    size limit never shortens it and the saved feedback carries it.
    A run that starts with commits on its branch fetches its repo first (a
    failed fetch is logged, not fatal), then restacks.
+   The restack happens at three points, each recorded in the ledger with its point:
+   `prepare` (the restack a run starts with), `before_review` (after the checks pass and
+   before the review, so the review sees the rebased diff) and `before_pr` (the base check
+   described next, before the pull request). A base that has not moved adds no step at
+   either of the last two, and a conflict at either goes to resolution. The lite path is taken
+   when the unit changes a file the move brought in and everything the move brought in is the
+   changelog or a `.md` or `.rst` file at the root or under `docs/`; it runs the repo's
+   whole-checkout checks (the changelog check) and no tests. A documentation-only move that
+   shares no file with the unit is re-tested by scope. A clean move before the pull request is
+   re-tested by the lite or scoped path and never starts a full suite; a move there that cannot
+   be scoped runs the repo checks alone and is recorded as lite (none when there are no
+   checks). `abk restacks` summarises the records.
 8. **Check the base, address new comments, then push.** Just before the push the repo is fetched
    again and the base is worked out afresh: a parent whose pull request the
    forge reports merged, which the store has not heard of, is recorded through
