@@ -63,7 +63,6 @@ def owed(
         Cause.BASE_CHANGED,
         Cause.RESTACK_DEFERRED,
         Cause.RESTACK_CONFLICT,
-        Cause.RESTACK_HANDED_BACK,
     ],
 )
 def test_a_unit_with_commits_stopped_for_a_moved_base_is_owed_a_run(cause: Cause) -> None:
@@ -151,7 +150,7 @@ def test_the_scan_lists_the_units_owed_a_run_and_no_others(
     units = [
         caused("feature/3", PLANNED, Cause.BASE_CHANGED, branch="spec/feature/3"),
         caused("feature/4", PLANNED, Cause.BASE_CHANGED, branch="spec/feature/4"),
-        caused("feature/5", PLANNED, Cause.RESTACK_HANDED_BACK, branch="spec/feature/5"),
+        caused("feature/5", PLANNED, Cause.RESTACK_CONFLICT, branch="spec/feature/5"),
         caused("feature/6", PLANNED, Cause.USAGE, branch="spec/feature/3"),
     ]
 

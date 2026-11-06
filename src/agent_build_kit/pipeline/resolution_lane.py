@@ -66,12 +66,45 @@ RECORD_GLOB = "restacks*.json"
 OWED_STATES = (PLANNED, RUNNING, IN_REVIEW)
 OWED_CAUSES = (Cause.BASE_CHANGED, Cause.RESTACK_DEFERRED)
 # The causes of a unit owed a moved-base run: a restack is owed for the first two only.
-MOVED_BASE_CAUSES = (*OWED_CAUSES, Cause.RESTACK_CONFLICT, Cause.RESTACK_HANDED_BACK)
+MOVED_BASE_CAUSES = (*OWED_CAUSES, Cause.RESTACK_CONFLICT)
 
 
 def in_a_lane_run(unit: StoredUnit) -> bool:
     """Whether the lane is making the unit's whole run, so it is the lane's to resume."""
     return unit.state == RUNNING and unit.moved_base_run
+
+
+def about_the_move(unit: StoredUnit) -> bool:
+    """Whether the unit's run is about its base moving, a moved-base cause or a conflict sent
+    back, and so an attempt at the base's tip; a comment or a change request is not."""
+    return unit.cause in MOVED_BASE_CAUSES or unit.sent_back_for_conflict
+
+
+class Holds:
+    """What keeps a unit from being owed a run, read once for a scan: a lease that names it, or
+    a lock on its branch."""
+
+    def __init__(self, inst: Installation) -> None:
+        self._leases = Leases(lease_dir(inst.local_dir))
+        self._locks = inst.locks_dir
+
+    def held(self, unit: StoredUnit) -> bool:
+        return branch_held(_branch_of(unit), root=self._locks)
+
+    def leased(self, unit: StoredUnit) -> bool:
+        return self._leases.holder(unit.id) is not None
+
+
+def _free_to_run(
+    unit: StoredUnit,
+    graph: list[StoredUnit],
+    *,
+    held: Callable[[StoredUnit], bool],
+    leased: Callable[[StoredUnit], bool],
+) -> bool:
+    """Whether nothing keeps `unit` from a run: it waits on no unmerged unit, no lease names it
+    and no run holds its branch."""
+    return not waiting_on(unit, graph) and not leased(unit) and not held(unit)
 
 
 def owed_a_restack(
@@ -89,9 +122,7 @@ def owed_a_restack(
     return (
         unit.state in OWED_STATES
         and unit.cause in OWED_CAUSES
-        and not waiting_on(unit, graph)
-        and not leased(unit)
-        and not held(unit)
+        and _free_to_run(unit, graph, held=held, leased=leased)
         and not holds_base(unit)
     )
 
@@ -125,10 +156,8 @@ def owed_a_moved_base_run(
     # The cause is standing, so a replan carries it and this reads the same after one.
     return (
         unit.state in (PLANNED, IN_REVIEW)
-        and (unit.cause in MOVED_BASE_CAUSES or unit.sent_back_for_conflict)
-        and not waiting_on(unit, graph)
-        and not leased(unit)
-        and not held(unit)
+        and about_the_move(unit)
+        and _free_to_run(unit, graph, held=held, leased=leased)
         and has_commits(unit)
         and not unit.has_own_rework_input(head(unit))
     )
@@ -145,9 +174,11 @@ def clear_answered_feedback(store: UnitStore, unit: StoredUnit, head: str) -> No
         store.set_feedback(unit.id, "")
 
 
-def moved_base_units(inst: Installation, units: list[StoredUnit]) -> set[str]:
+def moved_base_units(
+    inst: Installation, units: list[StoredUnit], holds: Holds | None = None
+) -> set[str]:
     """The ids of the units owed a moved-base run, read from the repositories' branches."""
-    leases = Leases(lease_dir(inst.local_dir))
+    holds = holds or Holds(inst)
     heads: dict[str, str] = {}
 
     def head_of(unit: StoredUnit) -> str:
@@ -172,8 +203,8 @@ def moved_base_units(inst: Installation, units: list[StoredUnit]) -> set[str]:
             units,
             has_commits=has_commits,
             head=head_of,
-            held=lambda unit: branch_held(_branch_of(unit), root=inst.locks_dir),
-            leased=lambda unit: leases.holder(unit.id) is not None,
+            held=holds.held,
+            leased=holds.leased,
         )
     }
 
@@ -252,23 +283,47 @@ def hold_if_spent(
     return True
 
 
-def lane_runs_owed(inst: Installation, units: list[StoredUnit]) -> set[str]:
-    """The units owed a moved-base run that the lane's scan takes: not one it handed back, which a
-    build worker takes from its step until its base moves again, and not one whose base tip
-    cannot be read, which no run can be an attempt at."""
+def owed_a_comment_rework(
+    unit: StoredUnit,
+    graph: list[StoredUnit],
+    *,
+    held: Callable[[StoredUnit], bool],
+    leased: Callable[[StoredUnit], bool],
+) -> bool:
+    """Whether `unit` is owed a comment rework: in review or planned, sent back for rework with
+    feedback, waiting on nothing, and neither leased nor held by a run."""
+    return (
+        unit.state in (PLANNED, IN_REVIEW)
+        and unit.sent_back_for_rework
+        and _free_to_run(unit, graph, held=held, leased=leased)
+    )
+
+
+def lane_runs_owed(
+    inst: Installation, units: list[StoredUnit], holds: Holds | None = None
+) -> set[str]:
+    """The units owed a moved-base run or a comment rework that the lane's scan takes: not a
+    moved-base run whose base tip cannot be read, which no run can be an attempt at."""
+    holds = holds or Holds(inst)
+    reworks = {
+        unit.id
+        for unit in units
+        if owed_a_comment_rework(unit, units, held=holds.held, leased=holds.leased)
+    }
     by_id = {unit.id: unit for unit in units}
-    return {
+    return reworks | {
         unit_id
-        for unit_id in moved_base_units(inst, units)
-        if by_id[unit_id].cause is not Cause.RESTACK_HANDED_BACK
-        and base_tip(inst, by_id[unit_id], units)
+        for unit_id in moved_base_units(inst, units, holds)
+        if base_tip(inst, by_id[unit_id], units)
     }
 
 
 def owed_units(inst: Installation, units: list[StoredUnit]) -> set[str]:
     """The ids of the units owed a restack, read from the repositories' branches, of those
-    whose run the lane was making when it was interrupted, and of those owed a moved-base run."""
-    leases = Leases(lease_dir(inst.local_dir))
+    whose run the lane was making when it was interrupted, and of those owed a moved-base run
+    or a comment rework."""
+    holds = Holds(inst)
+    held, leased = holds.held, holds.leased
     checkouts = inst.checkouts
 
     def holds_base(unit: StoredUnit) -> bool:
@@ -279,18 +334,12 @@ def owed_units(inst: Installation, units: list[StoredUnit]) -> set[str]:
         base = local_ref(base_of(unit, units), repo=unit.repo)
         return is_ancestor(repo, base, branch)
 
-    def held(unit: StoredUnit) -> bool:
-        return branch_held(_branch_of(unit), root=inst.locks_dir)
-
-    def leased(unit: StoredUnit) -> bool:
-        return leases.holder(unit.id) is not None
-
     return {
         unit.id
         for unit in units
         if owed_a_restack(unit, units, holds_base=holds_base, held=held, leased=leased)
         or (in_a_lane_run(unit) and not leased(unit) and not held(unit))
-    } | lane_runs_owed(inst, units)
+    } | lane_runs_owed(inst, units, holds)
 
 
 def record_path(state_dir: Path, key: ProjectKey) -> Path:

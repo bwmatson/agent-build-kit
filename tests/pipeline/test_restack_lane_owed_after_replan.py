@@ -16,7 +16,6 @@ OWED = {
     Cause.BASE_CHANGED: True,
     Cause.RESTACK_DEFERRED: True,
     Cause.RESTACK_CONFLICT: False,
-    Cause.RESTACK_HANDED_BACK: False,
 }
 
 

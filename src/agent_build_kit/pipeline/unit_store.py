@@ -230,6 +230,17 @@ def feedback_source_of(rework: ReworkKind | None) -> FeedbackSource:
     return FeedbackSource.REVIEW
 
 
+# The reworks the resolution lane runs: a person's words on the pull request or its conflict.
+# A failing-checks rework is a build's.
+LANE_REWORKS = (
+    ReworkKind.CONFLICT,
+    ReworkKind.COMMENT,
+    ReworkKind.CHANGES_REQUESTED,
+    ReworkKind.LABEL,
+)
+LANE_FEEDBACK_SOURCES = frozenset(feedback_source_of(kind) for kind in LANE_REWORKS)
+
+
 def corrupt_store_message(path: Path) -> str:
     return f"unit store at {path} could not be read"
 
@@ -517,6 +528,16 @@ class StoredUnit(Unit):
         """Whether the unit was sent back for its pull request's conflict: its run is the
         conflict's rework, which starts at the move."""
         return self.cause is Cause.REWORK and self.feedback_source is FeedbackSource.CONFLICT
+
+    @property
+    def sent_back_for_rework(self) -> bool:
+        """Whether the unit was sent back with feedback to rework of a kind in `LANE_REWORKS`
+        (a comment, a change request, a label or a conflict), which the resolution lane runs."""
+        return (
+            self.cause is Cause.REWORK
+            and bool(self.feedback)
+            and self.feedback_source in LANE_FEEDBACK_SOURCES
+        )
 
     def has_own_rework_input(self, head: str) -> bool:
         """Whether the unit has saved feedback that is not the conflict's and that review has

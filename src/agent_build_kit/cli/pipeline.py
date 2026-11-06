@@ -245,6 +245,7 @@ from agent_build_kit.pipeline.resolution_lane import (
     ResolutionLane,
     ResolutionLanes,
     Rest,
+    about_the_move,
     base_tip,
     forget_run_attempt,
     hold_if_spent,
@@ -4764,8 +4765,8 @@ REBUILDS_PER_PASS = 2
 # back for rework by a poll, or held by its own build because the branch it builds
 # on changed. Resuming restacks the unit onto its new base before anything else, so
 # that cause is gone by the time it runs again — unlike an unfinished upstream or a
-# full usage window, which a rerun would only meet again. `RESTACK_HANDED_BACK` is a
-# moved-base run the restack lane gave back to a build worker.
+# full usage window, which a rerun would only meet again. `RESTACK_HANDED_BACK` is written by
+# no run now: it is read only for a unit an earlier version's lane gave back to a build worker.
 READMITTED_CAUSES = frozenset({Cause.REWORK, Cause.BASE_CHANGED, Cause.RESTACK_HANDED_BACK})
 
 
@@ -6686,6 +6687,9 @@ def build_restack_lane(inst: Installation, store: UnitStore) -> ResolutionLanes:
         if in_a_lane_run(unit):
             return run_of(unit.id)  # An interrupted run: its thread resumes at its node.
         graph = store.all()
+        if unit.sent_back_for_rework and not about_the_move(unit):
+            # A comment or a change request: the run is the rework, with no attempt to spend.
+            return run_of(unit.id)
         if hold_if_spent(inst, store, unit, graph, log):
             return None
         if unit.sent_back_for_conflict:
@@ -7333,9 +7337,7 @@ def _build_unit(
                 # which is how its thread resumes it.
                 # A moved-base run may start from a unit still in review that was sent back
                 # for its conflict.
-                sent_back = (
-                    moved_base_run and unit.state == IN_REVIEW and unit.sent_back_for_conflict
-                )
+                sent_back = moved_base_run and unit.state == IN_REVIEW and unit.sent_back_for_rework
                 if unit.state not in (PLANNED, RUNNING) and not sent_back:
                     end(f"skipped, it is now {unit.state}", UnitOutcome.SKIPPED)
                     return True
@@ -7349,7 +7351,11 @@ def _build_unit(
                     # The lane's run: flagged only now that it holds the branch and may go on.
                     # A run that starts is an attempt at its base's tip; one resumed is not,
                     # unless the start it resumes stopped before its first agent call.
-                    if not unit.moved_base_run or unit.moved_base_uncounted:
+                    # A comment or change-request rework is no attempt at the base's tip: its
+                    # rounds are the review's. A run resumed after a pause has lost the cause
+                    # that started it, and is an attempt unless it is a comment's.
+                    comment_run = unit.sent_back_for_rework and not about_the_move(unit)
+                    if (not unit.moved_base_run or unit.moved_base_uncounted) and not comment_run:
                         tip = base_tip(inst, unit, store.all())
                         if not tip:
                             end("skipped, its base cannot be read", UnitOutcome.SKIPPED)
@@ -7358,8 +7364,8 @@ def _build_unit(
                         record_run_attempt(store, unit, tip)
                     store.set_moved_base_run(unit.id, True)
                     store.set_moved_base_uncounted(unit.id, False)
-                # A step recorded by an earlier run belongs to that run. A parked unit, or one
-                # the restack lane handed back, resumes at its node, which never passes
+                # A step recorded by an earlier run belongs to that run. A parked unit, or one an
+                # earlier version's lane handed back, resumes at its node, which never passes
                 # `prepare`, so it is marked running here. The cause is standing, so a replan
                 # carries it and this reads the same after one.
                 if unit.state == PLANNED and (
@@ -7403,16 +7409,8 @@ def _build_unit(
                     transcript=agent_said,
                 )
                 outcome = run_unit_thread(
-                    inst, runner, unit, base=base, graph=graph, run_log=run_log, lane=moved_base_run
+                    inst, runner, unit, base=base, graph=graph, run_log=run_log
                 )
-                if outcome.handed_back:
-                    # Not moved-base work: a build worker takes the unit from the step its
-                    # thread stands at. Leaving `running` clears the lane's flag.
-                    store.set_state(
-                        unit.id, PLANNED, note=outcome.handed_back, cause=Cause.RESTACK_HANDED_BACK
-                    )
-                    end(f"handed back — {outcome.handed_back}", UnitOutcome.INTERRUPTED)
-                    return True
         except ProfileUnsupported as error:
             # A toolchain profile the framework does not implement yet: not the
             # unit's fault, and nothing a retry changes. Held for a person.
@@ -7610,13 +7608,9 @@ def run_unit_thread(
     base: str,
     graph: list[StoredUnit],
     run_log: RunLog | None,
-    lane: bool = False,
 ) -> RunOutcome:
-    """Start or resume the unit's thread to its next wait or the end; with `lane`, as the
-    restack lane's run, which stops before work that is not about the move."""
-    return asyncio.run(
-        _on_thread(inst, runner, unit, base=base, graph=graph, run_log=run_log, lane=lane)
-    )
+    """Start or resume the unit's thread to its next wait or the end."""
+    return asyncio.run(_on_thread(inst, runner, unit, base=base, graph=graph, run_log=run_log))
 
 
 async def _on_thread(
@@ -7629,7 +7623,6 @@ async def _on_thread(
     run_log: RunLog | None,
     event: ResumeEvent | None = None,
     feedback: Callable[[], tuple[str, bool, tuple[str, ...]]] | None = None,
-    lane: bool = False,
 ) -> RunOutcome:
     """Start or resume the unit's thread to its next wait, or deliver `event` to it."""
     # Late: the graph package imports the pipeline.
@@ -7640,7 +7633,7 @@ async def _on_thread(
     async with open_unit_graphs(inst) as saver:
         if event is None:
             # Under the lock `build_unit` holds; a delivery takes its own.
-            return await run_unit(runner, unit, saver=saver, lane=lane, **common)
+            return await run_unit(runner, unit, saver=saver, **common)
         return await resume_unit(
             runner,
             unit,

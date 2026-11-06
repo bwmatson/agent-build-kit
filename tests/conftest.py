@@ -513,10 +513,10 @@ def scripted_engine(monkeypatch: pytest.MonkeyPatch) -> None:
 
     on_thread = cli.run_unit_thread
 
-    def run(inst, runner, unit, *, base, graph, run_log, lane=False):
+    def run(inst, runner, unit, *, base, graph, run_log):
         if not isinstance(runner, UnitRunner):
             return runner.run(unit, base=base, graph=graph)
-        return on_thread(inst, runner, unit, base=base, graph=graph, run_log=run_log, lane=lane)
+        return on_thread(inst, runner, unit, base=base, graph=graph, run_log=run_log)
 
     monkeypatch.setattr(cli, "run_unit_thread", run)
 
