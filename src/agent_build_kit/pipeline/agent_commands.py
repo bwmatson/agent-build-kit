@@ -50,6 +50,19 @@ def effective(repo: RepoConfig) -> list[AgentCommand]:
     return list(found.values())
 
 
+def placement_note(repo: RepoConfig | None) -> str:
+    """Where the tests prompt says a new test goes: the placement every profile the repo uses
+    (the root's and each project's) states, or `""` (the whole-file rule) when they differ, since
+    the red check runs each file with its own project's profile."""
+    if repo is None:
+        return ""
+    chosen = {
+        profiles.get(name).prompt_words.placement
+        for name in (repo.profile, *(p.profile for p in repo.projects))
+    }
+    return chosen.pop() if len(chosen) == 1 else ""
+
+
 def allow_list(repo: RepoConfig) -> str:
     """The tool list a build is started with for `repo`."""
     return wiring.allowed_tools(profiles.get(repo.profile), forges.get(repo.forge), repo.projects)

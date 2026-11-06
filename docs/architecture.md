@@ -1016,8 +1016,9 @@ The tests prompt also decides before it stubs a named function: after searching,
 existing function that does the job is tested through (no stub, "reused X instead of
 adding Y" in the summary); one that nearly does it has its missing behaviour tested and no
 new name created; with no helper and two places needing the logic, one stub at the shared
-place covers the helper and the tests cover each call site. For a profile that
-selects by id (its `prompt_words.placement`), a new case goes in the
+place covers the helper and the tests cover each call site. A profile states the
+rule in `prompt_words.placement`, and should set it only when its `red_command` selects by id; when
+the repo's profiles (the root's and each project's) differ the whole-file rule stands. A new case goes in the
 existing test file for the module it exercises, since the red check judges only the tests
 the commit added or changed; a new test file is for a new logic file, and one subject has
 one test file. A profile that runs whole files keeps new tests in files in which every test

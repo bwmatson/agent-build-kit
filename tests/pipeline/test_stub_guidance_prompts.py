@@ -111,13 +111,6 @@ def test_the_paragraph_is_in_the_tests_prompt_only(prompt: str) -> None:
 # 3.2 — red check
 
 
-def test_the_paragraph_no_longer_confines_new_tests_to_all_failing_files() -> None:
-    paragraph = stub_paragraph()
-
-    assert not re.search(r"test files? (in which|where|whose) every test fails", paragraph)
-    assert not re.search(r"add(ed)? a failing test to a file that holds passing", paragraph)
-
-
 def test_a_conversion_with_no_new_behaviour_observes_the_call_site_reaching_the_function() -> None:
     paragraph = stub_paragraph()
 

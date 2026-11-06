@@ -53,7 +53,7 @@ from agent_build_kit.pipeline import (
     spans,
     spec_snapshot,
 )
-from agent_build_kit.pipeline.agent_commands import commands_note
+from agent_build_kit.pipeline.agent_commands import commands_note, placement_note
 from agent_build_kit.pipeline.call_record import call_recorder
 from agent_build_kit.pipeline.changelog_convention import changelog_note
 from agent_build_kit.pipeline.check_failures import failed_check, with_e2e_hint
@@ -1636,9 +1636,7 @@ class BuildPath:
                 boundary=build_boundary,
                 changelog=changelog_note(tree, r.repo_config),
                 stubbed=stubbed,
-                placement=profiles.get(r.repo_config.profile).prompt_words.placement
-                if r.repo_config
-                else "",
+                placement=placement_note(r.repo_config),
             )
             prompt = self.told(prompt, self.scope_note())
             if note := r.follow_ups_note(unit):

@@ -17,19 +17,6 @@
   changes, runs just the repo's checks (the changelog check) and no tests. `abk restacks
   [--since TIME]` prints the restacks by point and by re-test kind.
 
-- The tests prompt now tells the agent to add a new case to the existing test file for the
-  module it exercises, and to create a test file only for a new logic file, since the red
-  check runs only the tests a tests commit added or changed. Where it has no test to select,
-  or pytest does not collect a selected name, it still runs the files whole, and the Node npm
-  profile still runs whole files.
-
-- For a Python repo, the tests prompt now tells the agent to add a new case to the existing
-  test file for the module it exercises, and to create a test file only for a new logic file,
-  since the red check runs only the tests a tests commit added or changed. Where it has no
-  test to select, or pytest does not collect a selected name, it still runs the files whole.
-  The Node npm profile still runs whole files, so its prompt keeps new tests in files in which
-  every test fails; a profile sets this with the new `placement` prompt word.
-
 - A review comment, a change request or a conflict on an open pull request is now reworked in the
   resolution lane, so it no longer waits behind new builds for a build slot. A run in the lane
   carries the unit through the whole build (the rework, the tests, the checks, the e2e tests, the
@@ -299,7 +286,11 @@
 - The red check at a tests commit now runs only the tests the commit added or changed (by
   `path::name`) and rejects the commit if any of them passes, so a new failing case can be added to
   the existing test file for its subject beside passing tests. A commit with no test to select, such
-  as a helper edit, still runs its files whole, and the Node npm profile keeps whole files.
+  as a helper edit, still runs its files whole, and the Node npm profile keeps whole files. For a repo whose
+  projects all select by id, the tests prompt now tells the agent to add a new case to the
+  existing test file for the module it exercises and to create a test file only for a new
+  logic file; otherwise, as for the Node npm profile, it keeps new tests in files in which
+  every test fails. A profile sets this with the new `placement` prompt word.
 
 - A selected run of affected tests whose output says testmon automatically deactivated the
   selection (for example because `-m` was used) is now logged with its reason and replaced by

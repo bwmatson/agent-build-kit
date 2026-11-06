@@ -7,18 +7,16 @@ import re
 
 from agent_build_kit import profiles
 from agent_build_kit.pipeline.stack_runner import TESTS_PROMPT
-from tests.prompt_text import flat, placeholders
+from tests.prompt_text import filled, flat
 
 
-def filled(profile: str) -> str:
+def for_profile(profile: str) -> str:
     """The tests prompt as the build fills it for a repo on `profile`."""
-    fields = dict.fromkeys(placeholders(TESTS_PROMPT), "x")
-    fields["placement"] = profiles.get(profile).prompt_words.placement
-    return TESTS_PROMPT.format(**fields)
+    return filled(TESTS_PROMPT, placement=profiles.get(profile).prompt_words.placement)
 
 
 def prompt(profile: str = "python-uv") -> str:
-    return flat(filled(profile)).lower()
+    return flat(for_profile(profile)).lower()
 
 
 def test_a_new_case_goes_in_the_existing_test_file_for_the_module() -> None:
@@ -42,7 +40,7 @@ def test_one_subject_has_one_test_file_and_no_init() -> None:
 
 
 def test_the_placement_rule_cites_its_standards_once() -> None:
-    text = filled("python-uv")
+    text = for_profile("python-uv")
 
     for standard in ("T2", "T3", "T21"):
         assert len(re.findall(rf"\b{standard}\b", text)) == 1
