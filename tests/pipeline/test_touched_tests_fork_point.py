@@ -104,8 +104,11 @@ def test_a_ref_git_cannot_resolve_is_listed_against_itself_and_the_log_says_so(
     repo = moved_on(tmp_path)
     said: list[str] = []
 
-    with pytest.raises(subprocess.CalledProcessError):
+    # Git cannot diff against it either, so the listing fails naming the ref it fell back to.
+    with pytest.raises(subprocess.CalledProcessError) as raised:
         touched_tests(repo, "no-such-ref", log=said.append)
+
+    assert "no-such-ref" in " ".join(map(str, raised.value.cmd))
 
     [line] = said
     assert "no-such-ref" in line and NOT_THE_FORK in line

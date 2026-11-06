@@ -4653,8 +4653,11 @@ def touched_in(
 ) -> list[tuple[str, str]]:
     """`touched_tests`, and with an empty name each test file the toolchains select by the file
     alone (`ListsTestFiles`) that the tree adds or changes, which has no test names to read."""
+    # Resolved once, so the log hears the fallback once. The listing still goes through
+    # `touched_tests`, the seam its callers and tests stand in for; resolving an already
+    # resolved fork again returns the same commit and says nothing.
     ref = _listed_from(tree, ref, head, log)
-    listed = _touched(tree, ref, head)
+    listed = touched_tests(tree, ref, head)
     pathspecs = sorted(
         {
             spec
