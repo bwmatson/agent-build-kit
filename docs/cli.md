@@ -209,7 +209,7 @@ A `resolving: N running, M waiting` line, which totals the lane of every project
 is owed a resolution, is followed by each unit as `<unit> resolving base <base>` or `<unit> resolving a comment`; a run waiting for a
 usage pause is listed with the pause. The lane runs the whole resolution of a unit, a restack, a moved-base run or a
 comment run, so a unit shows as resolving for the whole run; `max_concurrent_resolutions` bounds the lane, and a run the
-lane cannot go on with is held for a person (`needs_human`) with a note. A full lane overflows into a free ordinary
+lane cannot go on with is held for a person (`needs_human`) with a note. The lane's cap bounds the moved-base run. The run counts toward slot occupancy and is never held back by the limit on build workers. A unit an earlier version's lane gave back to a build worker carries the cause `restack_handed_back`; no run writes it now, and the unit resumes in the lane. A full lane overflows into a free ordinary
 build worker, and that run counts toward `max_concurrent_stacks`. A record left by a tick that has gone
 is ignored.
 A group carried by two units that have started and not finished is listed as `group N of CHANGE is

@@ -166,7 +166,7 @@ or a conflict is reworked there; the lane runs the whole run (the move, the rewo
 tests, the checks, the e2e tests and the review). A run is a restack, a moved-base run or a comment run. The cap
 `max_concurrent_resolutions` bounds the lane; its runs are charged to neither `max_concurrent_stacks` nor
 `max_units_in_progress`. It runs the thread to its next wait or end and is never handed back to a build worker as
-`planned`: a run that cannot go on is held for a person (`needs_human`) with a note. A full lane overflows into a
+`planned`: a run that cannot go on is held for a person (`needs_human`) with a note. The lane's cap bounds the moved-base run. The run counts toward slot occupancy and is never held back by the limit on build workers. A unit an earlier version's lane gave back to a build worker carries the cause `restack_handed_back`; no run writes it now, and the unit resumes in the lane. A full lane overflows into a
 free ordinary build worker, which counts toward `max_concurrent_stacks`. Each run the lane starts counts as one attempt at the tip of the
 unit's base, together with the attempts made for a conflicting pull request; when the attempts at one
 tip reach `global_limits.max_review_rounds` the unit is held for a person with a note naming the base,

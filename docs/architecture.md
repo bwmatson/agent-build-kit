@@ -377,7 +377,7 @@ resuming a build and before units that have never started; it counts toward `max
 lane's count. Each run counts as one attempt, bounded by
 `global_limits.max_review_rounds`; a unit that spends them is held with `needs_human` and a note naming the base, the tip
 and how the last run ended. A run that cannot go on is held for a person (`needs_human`) with a note, never handed back to a
-build worker. Every agent call in a run asks the usage guard first. The limits are counted for each project,
+build worker. The lane's cap bounds the moved-base run. The run counts toward slot occupancy and is never held back by the limit on build workers. A unit an earlier version's lane gave back to a build worker carries the cause `restack_handed_back`; no run writes it now, and the unit resumes in the lane. Every agent call in a run asks the usage guard first. The limits are counted for each project,
 not across all repos, and an account's `project_limits` adds a second count for its projects together (below).
 Free slots then go to
 units with an open pull request, then to those resuming a build, then to new
