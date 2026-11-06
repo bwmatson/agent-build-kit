@@ -374,10 +374,20 @@ def group_steps_of(planning_repo: Path | str, unit: Unit) -> tuple[GroupStep, ..
     return tuple(steps)
 
 
+# Where new tests go when the toolchain profile does not select the tests a commit added by id:
+# its red check runs whole files and rejects any that pass.
+WHOLE_FILE_PLACEMENT = """\
+New tests go in test files in which every test fails before the implementation:
+do not add a failing test to a file that holds passing ones, because the whole
+file is run and its passing tests are rejected."""
+
+
 class WriteTestsTemplate(PromptTemplate):
-    """The tests prompt, which ends with `TESTS_FINISH` unless a caller fills `{finish}`."""
+    """The tests prompt, which ends with `TESTS_FINISH` unless a caller fills `{finish}`, and
+    states `WHOLE_FILE_PLACEMENT` unless a caller fills `{placement}` with the profile's own."""
 
     def format(self, *args: object, **fields: object) -> str:
+        fields["placement"] = fields.get("placement") or WHOLE_FILE_PLACEMENT
         return super().format(*args, **{"finish": TESTS_FINISH, **fields})
 
 
@@ -406,9 +416,7 @@ point to asserting on a new internal helper's name; a name that is a contract
 (public API, a command, a wire shape, a name the specification requires) is
 stubbed as named.
 
-New tests go in test files in which every test fails before the implementation:
-do not add a failing test to a file that holds passing ones, because the whole
-file is run and its passing tests are rejected. A test for a conversion with no
+A test for a conversion with no
 new behaviour observes the call site reaching the shared or existing function.
 
 Use the repository's shared fixtures before writing new ones.
@@ -424,6 +432,8 @@ third-party wrapper, whose behaviour is part of what is being tested. Give a
 parser of external data fixtures recorded from the real system, or carrying
 everything the real one does (metadata, nulls, empty values), not only the
 fields the code will read.
+
+{placement}
 
 {finish}{commands}The change's files are read-only for you: do not tick boxes in its tasks.md
 or edit anything under {change_dir}. The pipeline records a task as done once

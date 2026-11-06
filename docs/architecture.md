@@ -1016,8 +1016,13 @@ The tests prompt also decides before it stubs a named function: after searching,
 existing function that does the job is tested through (no stub, "reused X instead of
 adding Y" in the summary); one that nearly does it has its missing behaviour tested and no
 new name created; with no helper and two places needing the logic, one stub at the shared
-place covers the helper and the tests cover each call site. New tests go in files in which
-every test fails, since the red check runs whole files and rejects any that pass; a
+place covers the helper and the tests cover each call site. A profile states the
+rule in `prompt_words.placement`, and should set it only when its `red_command` selects by id; when
+the repo's profiles (the root's and each project's) differ the whole-file rule stands. A new case goes in the
+existing test file for the module it exercises, since the red check judges only the tests
+the commit added or changed; a new test file is for a new logic file, and one subject has
+one test file. A profile that runs whole files keeps new tests in files in which every test
+fails. A
 conversion with no new behaviour is tested by observing the call site reach the existing
 function. The implementing prompt and its continuation (and no other continuation) let the
 agent delete a stub that duplicates existing code and repoint the test with the same
@@ -1616,7 +1621,9 @@ pairs: the first substantive commit is tests (plus stubs with no logic —
 checked with `ast` for Python), no two tests commits in a row, at least one
 implementation commit. At each tests commit, in a throwaway worktree, lint
 and format pass with type checking skipped, and the tests the commit added or changed
-run (selected by id, the files whole where none can be selected)
+run (selected by id; where the red check has no id to select, or the runner does not collect
+a selected one, it runs the files whole; selection by id does not reach a test marked
+`integration`, a later change ships that)
 **red for an accepted reason**, read from pytest's JUnit report (the console
 is a logged fallback when no report could be read): an assertion or
 `NotImplementedError`, or a missing module or attribute raised inside a test

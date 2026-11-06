@@ -12,6 +12,7 @@ def placeholders(template: str) -> set[str]:
     return {name for _, name, _, _ in string.Formatter().parse(template) if name}
 
 
-def filled(template: str) -> str:
-    """The template with every placeholder filled in, as the nodes fill them."""
-    return template.format(**dict.fromkeys(placeholders(template), "x"))
+def filled(template: str, **fields: str) -> str:
+    """The template with every placeholder filled in, as the nodes fill them; `fields` take the
+    place of the stand-in text for the placeholders they name."""
+    return template.format(**{**dict.fromkeys(placeholders(template), "x"), **fields})
