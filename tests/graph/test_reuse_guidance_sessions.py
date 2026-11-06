@@ -55,7 +55,9 @@ def test_with_reuse_off_every_build_prompt_is_a_full_one_with_the_part(tmp_path:
     tick(tmp_path, recorder, **agents(runtime))
 
     assert len(runtime.built) == 3
-    assert all(carries(request.prompt) for request in runtime.built)
+    first, *later = runtime.built
+    assert carries(first.prompt, "tests")
+    assert all(carries(request.prompt) for request in later)
 
 
 def test_a_unit_entering_past_the_tests_gets_the_part_in_its_first_prompt(tmp_path: Path) -> None:
