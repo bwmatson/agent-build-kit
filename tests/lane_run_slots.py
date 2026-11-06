@@ -18,8 +18,8 @@ import pytest
 from agent_build_kit.cli import pipeline as cli
 from agent_build_kit.installation import Installation
 from agent_build_kit.pipeline.resolution_lane import ResolutionLanes
-from agent_build_kit.pipeline.unit_store import StoredUnit, UnitStore
-from agent_build_kit.pipeline.units import IN_REVIEW, ProjectKey, UnitState, project_key
+from agent_build_kit.pipeline.unit_store import Cause, FeedbackSource, StoredUnit, UnitStore
+from agent_build_kit.pipeline.units import IN_REVIEW, RUNNING, ProjectKey, UnitState, project_key
 from agent_build_kit.pipeline.wait_log import DECISIONS_NAME
 from tests.emergency_lane_support import seeded
 from tests.restack_lane_fakes import WAIT, Restacks, repo_behind
@@ -54,6 +54,18 @@ class Slots:
             self.store.set_moved_base_run(unit_id, True)
         self.runs = Restacks()
         self.lanes: ResolutionLanes = cli.build_restack_lane(self.inst, self.store)
+
+    def comment_runs(self, *unit_ids: str) -> None:
+        """Make each unit a comment rework the lane is running: sent back with a comment's
+        words, `running`, and flagged as a unit whose whole run the lane makes."""
+        for unit_id in unit_ids:
+            self.store.set_feedback(
+                unit_id, "[comment c1] remove this", source=FeedbackSource.REVIEW
+            )
+            self.store.set_state(
+                unit_id, RUNNING, branch=self.store.get(unit_id).branch, cause=Cause.REWORK
+            )
+            self.store.set_moved_base_run(unit_id, True)
 
     def hand_over(self, *unit_ids: str) -> None:
         """Hand each unit's run to the lane; those the lane has a worker for begin."""
