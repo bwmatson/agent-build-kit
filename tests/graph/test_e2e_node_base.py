@@ -9,7 +9,7 @@ from agent_build_kit.config import E2eUnitScope
 from agent_build_kit.pipeline.wiring import E2eSession
 from agent_build_kit.profiles.python_uv import PROFILE
 from tests.e2e_base_fakes import Runs, branch, pytest_output
-from tests.factories import unit
+from tests.factories import git, unit
 from tests.graph.test_build_path import build
 from tests.graph.test_remaining_paths import fresh
 
@@ -31,6 +31,8 @@ def test_an_untouched_failing_test_is_rerun_on_the_base_the_node_runs_against(
         sha=lambda cwd: "abc1234",
     )
     recorder = fresh(tmp_path, tier="e2e-test")
+    # The node reads the remote's trunk: the base commit stands for it.
+    git(repo, "update-ref", f"refs/remotes/origin/{base_sha}", base_sha)
 
     build(
         tmp_path,

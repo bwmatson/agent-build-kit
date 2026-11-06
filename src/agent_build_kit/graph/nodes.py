@@ -2774,13 +2774,14 @@ class BuildPath:
 
     def e2e(self, state: UnitRun) -> Update:
         r, unit = self.runner, self.unit
-        base = state.base or self.base
+        # The name is the rebase's; what the scope and the run read from git is the resolved ref.
+        base, ref = state.base or self.base, self.ref(state)
         self.say("e2e-test again on the moved commit" if state.moved else "e2e-test")
         tree = self.tree()
         # A scheduled unit runs the one split its change is named for, and only a failing
         # test of that split holds it.
         own = scheduled_split(unit.change, unit.repo) if state.scheduled else None
-        if r.e2e_runs_whole(cwd=tree, base=base) and (
+        if r.e2e_runs_whole(cwd=tree, base=ref) and (
             held := r.on_e2e_gate(unit, splits=r.e2e_splits() if own is None else (own,))
         ):
             return self.park_for_fix(
@@ -2797,7 +2798,7 @@ class BuildPath:
         for split in before.parked_splits if resumed else [None]:
             split = split or own
             only = {} if split is None else {"only": split}
-            ok, part = r.run_e2e(cwd=tree, base=base, **only)
+            ok, part = r.run_e2e(cwd=tree, base=ref, **only)
             parts.append(part)
             result = r.e2e_result()
             left_out += result.parked if result else []

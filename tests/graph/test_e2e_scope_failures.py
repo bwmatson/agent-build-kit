@@ -14,7 +14,7 @@ from tests.e2e_base_fakes import Runs, pytest_output
 from tests.e2e_base_fakes import branch as plain_branch
 from tests.e2e_scope_fakes import NEW, OLD, PASSED, WHOLE, Ran, branch, session
 from tests.e2e_wait_fakes import Told
-from tests.factories import unit
+from tests.factories import git, unit
 from tests.graph.test_build_path import build
 from tests.graph.test_remaining_paths import fresh
 
@@ -25,6 +25,8 @@ UNTOUCHED = "tests/far/test_far.py::test_far"
 def drive(tmp_path: Path, repo: Path, base: str, gate, told: Told | None = None):
     recorder = fresh(tmp_path, tier="e2e-test")
     told = told or Told()
+    # The step reads the remote's trunk: the base commit stands for it.
+    git(repo, "update-ref", f"refs/remotes/origin/{base}", base)
     outcome = build(
         tmp_path,
         recorder,

@@ -13,7 +13,7 @@ from agent_build_kit.pipeline.e2e import STATUS_CONTEXT, post_status, stack_lock
 from agent_build_kit.profiles.python_uv import PythonUvProfile
 from tests.conftest import make_installation
 from tests.e2e_scope_fakes import NEW, OLD, Ran, branch, session
-from tests.factories import unit
+from tests.factories import git, unit
 from tests.forges.stand_in import StandInForge
 from tests.graph.test_build_path import build
 from tests.graph.test_remaining_paths import fresh
@@ -22,7 +22,10 @@ SKIPPED = "e2e-test skipped: no e2e test added or changed"
 
 
 def changes_no_test(tmp_path: Path) -> tuple[Path, str]:
-    return branch(tmp_path, {"src/app.py": "x = 1\n"}, base_files={"tests/t.py": OLD})
+    repo, base = branch(tmp_path, {"src/app.py": "x = 1\n"}, base_files={"tests/t.py": OLD})
+    # The node reads the remote's trunk: the base commit stands for it.
+    git(repo, "update-ref", f"refs/remotes/origin/{base}", base)
+    return repo, base
 
 
 def test_a_unit_that_changes_no_test_runs_no_command(tmp_path: Path) -> None:
