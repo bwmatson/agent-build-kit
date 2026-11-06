@@ -129,6 +129,17 @@ group where that would be wrong. A group that really edits only test code, and h
 (deleting the originals, noting something in the pull request), lists its files in a `Paths:` line, which says
 what the group names and turns the rule off.
 
+## How the planner judges a change to documents or configuration
+
+In short, only a group that touches code writes its tests first. A group that names only documents, a changelog or
+configuration files has a floor that allows the mode `no_code`; one that names a source path, or no path, is
+`tests_and_code`. The planner chooses `no_code` only when a regression in the change would be neither costly nor
+hard to see, so it judges how durable and how critical the change is. Bad: a group that edits a setting other
+code relies on, a file a tool reads at start or a rule a check enforces, left to the planner with no line, because
+a slip there is costly and hard to see. Good: a group that rewords a README or adds a changelog bullet, which
+needs no test. Where a regression would matter, say `Tests: required — <reason>` on the group; the reason is
+required, and no line lowers a floor.
+
 ## Which project a group is in
 
 When a repo declares projects and the heading names none (`[app]`), the group resolves to the project that

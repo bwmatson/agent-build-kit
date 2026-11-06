@@ -514,7 +514,8 @@ from 1, every group has tasks, `[contract]` paired with a last `[narrow]` (excep
 `fix-test-*`, a test fix, which carries `[contract]` for the full review it floors),
 `[acceptance]` present (as `e2e-test`, after everything it exercises) or opted
 out with a reasoned `Acceptance: none — ...` line. Prints each problem with
-its line, then the groups when clean. Also warns, once per group and
+its line, then the groups when clean, each with its mode (build mode `tests_and_code`, build mode
+`tests_only`, build mode `no_code` or build mode `refactor`). Also warns, once per group and
 without failing, when a group can give its unit unrelated open parents: an `[acceptance]` or
 `[narrow]` group after an `Independent:` group, an `Independent:` group followed by a later
 group of its repo, or a `Needs:` to another change's same-repo group beside a same-repo
@@ -817,7 +818,8 @@ only when its `tasks.md` changes (or its last plan failed and attempts remain);
 this is the way to ask for a plan otherwise. For each selected change it drops the
 recorded plan, asks the planner, and links the `Needs:` lines, the two steps a tick
 performs, so the units stored are what the next tick would have produced. It first
-says how many model calls it will make. It never reuses a plan preview a dry-run tick saved:
+says how many model calls it will make. The planner gives the mode of each group, and a started
+unit's modes are kept. It never reuses a plan preview a dry-run tick saved:
 it asks for a fresh answer.
 
 - **Reporting.** `--report` shows what a replan would do and does none of it: for each
