@@ -37,7 +37,6 @@ pytestmark = [
     pytest.mark.time_limit(LOADED_TEST_TIME_LIMIT),
 ]
 
-WAIT = 60
 SAMPLE_FIELDS = {
     "kind",
     "at",
@@ -96,7 +95,8 @@ class Scene:
 
         def restack() -> None:
             self.log.append("restack begun")
-            assert self.release.wait(WAIT)
+            # A build sets the release after a whole round: only the test's limit bounds the wait.
+            assert self.release.wait(LOADED_TEST_TIME_LIMIT)
             self.log.append("restack done")
 
         lane.hand_over(self.store.get("second/1"), restack)

@@ -64,7 +64,6 @@ class Scene:
         self.log: list[str] = []
         self.started: list[str] = []
         self.release = threading.Event()
-        self.patience = WAIT
         self.handed = ["second/1", "third/1"]
         self.begun: dict[str, threading.Event] = {}
         self.on_build: Callable[[StoredUnit], RunOutcome | None] = lambda unit: None
@@ -104,7 +103,8 @@ class Scene:
             for other in beside:
                 # Each waits for the others: a lane shared by all would never let it begin.
                 assert self.begun[other].wait(OTHER_BEGINS), other + " never began"
-            assert self.release.wait(self.patience)
+            # A build sets the release after a whole round: only the test's limit bounds the wait.
+            assert self.release.wait(LOADED_TEST_TIME_LIMIT)
             self.log.append(f"{unit_id} done")
 
         return work
