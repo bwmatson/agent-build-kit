@@ -26,7 +26,11 @@
   cause. A comment rework in the lane takes no build worker and is not counted in the slot
   occupancy, so it never delays a build and a full set of builds never delays it; `abk status`
   and `abk explain` say `resolving a comment` or `resolving base <name>`, and the lane's record
-  and the restack lines of the usage ledger carry which (`resolving`).
+  and the restack lines of the usage ledger carry which (`resolving`). When the lane is full, an
+  owed comment rework starts in a free build worker instead of waiting, after the units resuming
+  a build and before units that have never started; it counts toward `max_concurrent_stacks` and
+  the account's stack cap, takes no `max_units_in_progress` place, and `abk status` says it is
+  resolving in a worker.
 
 - A pull request merged with a failed check is settled from the default branch's own checks when
   they already answer the question. Before the failing tests are run on the default branch, the

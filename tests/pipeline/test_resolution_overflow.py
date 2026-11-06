@@ -18,6 +18,7 @@ from agent_build_kit.pipeline.units import IN_REVIEW
 from tests.cli.test_account_stack_cap_tick import lane_running, workspace
 from tests.emergency_lane_support import build, fresh, seeded
 from tests.lane_run_slots import Slots, as_comment_run, as_owed_comment
+from tests.tick_pass import isolate
 
 pytestmark = pytest.mark.usefixtures("scripted_engine")
 
@@ -119,7 +120,12 @@ def test_a_resume_then_the_overflow_run_then_a_new_unit_take_the_free_workers(
         assert slots.started() == starts
 
 
-def test_an_overflow_run_counts_toward_the_accounts_stack_cap(tmp_path: Path) -> None:
+def test_an_overflow_run_counts_toward_the_accounts_stack_cap(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    isolate(monkeypatch)
+    # The lane's run has its thread, so nothing reclaims it for want of a lock.
+    monkeypatch.setattr(cli, "has_thread", lambda inst, unit_id: True)
     inst = workspace(
         tmp_path,
         account={"max_concurrent_stacks": 1},
