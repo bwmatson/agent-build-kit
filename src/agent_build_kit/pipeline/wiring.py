@@ -123,6 +123,7 @@ from agent_build_kit.pipeline.git_output import (
     transport_failure,
     untranslated_env,
 )
+from agent_build_kit.pipeline.group_mode import GroupMode
 from agent_build_kit.pipeline.lease import Leases, lease_dir
 from agent_build_kit.pipeline.moved_base import brought_in, kinds_of, moved_base_scope
 from agent_build_kit.pipeline.own_tests import (
@@ -1000,6 +1001,7 @@ def build_run_review(
         resume_session: str = "",
         on_session: Callable[[str], None] | None = None,
         on_result: AgentCallback | None = None,
+        group_modes: Mapping[str, GroupMode] | None = None,
     ) -> str:
         # `context` is the runner's word on this branch — e.g. that it was
         # moved onto a predecessor that changed — ahead of the standing prompt.

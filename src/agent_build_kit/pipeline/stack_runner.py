@@ -306,6 +306,11 @@ and fix what they report.
 """
 
 
+def tests_prompt(mode: GroupMode, **fields: object) -> str:
+    """The tests prompt of a group built in `mode`; a mode with no tests step is refused."""
+    raise NotImplementedError
+
+
 class GroupStep(Frozen):
     """One task group of a unit, as a stubbed build takes it up on its own."""
 
