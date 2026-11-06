@@ -1911,7 +1911,13 @@ approved.
 - **A unit's e2e-test run is narrowed to its own tests.** Under `e2e_unit_scope: own` (the
   default; `global_limits`, with `tests.e2e_unit_scope` per repo; its earlier, numbered spelling
   still loads) a unit runs only the e2e-test tests
-  its branch added or changed, selected by identifier together with the marker. A unit with
+  its branch added or changed, selected by identifier together with the marker. "Its branch
+  added or changed" is measured from where the branch left its base (the merge base of the base
+  and the checkout), so a base that has moved on without a restack adds no test to the unit; the
+  base is the remote's trunk for a unit built on the trunk and the parent's branch for a stacked
+  unit, as in every other step, never the checkout's local trunk, which nothing updates. A base
+  git cannot resolve, or one with no history in common with the checkout, is listed against
+  itself and the run's log says so. A unit with
   none runs nothing, takes no lock and says `e2e-test skipped: no e2e test added or changed`;
   its status says that no e2e-test test ran. Only files the runner collects by default
   (`test_*.py` or `*_test.py` for python-uv) are named, so a helper module and `conftest.py` are

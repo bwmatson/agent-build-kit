@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+- A unit's e2e-test step now runs only the e2e tests the unit's own branch added or changed. The
+  tests are listed from the point the branch left its base, and the base is the remote's trunk
+  (or the parent's branch for a stacked unit) as in every other step, not the checkout's local
+  trunk. Before, a local trunk that had not been pulled, or a trunk that had moved on without a
+  restack, made tests merged to the trunk count as the unit's, and the step could run tests the
+  unit did not write. `abk e2e-test check` reads the default branch the same way. A base git
+  cannot resolve is listed against itself and the run's log says so.
+
 - A unit is now restacked onto its base after the checks pass and before the review, so the
   review sees the rebased diff, and again before the pull request if the base has moved. A clean
   move before the pull request is re-tested lightly or by scope and never starts the full suite.

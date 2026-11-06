@@ -421,7 +421,7 @@ global_limits:
   fix_reproduction_runs: 5          # times a fix unit runs its test alone and under load before its first build (0: off)
   restack_check: affected           # unit-test after a clean move: scoped by the files the move brought in (affected) or the whole suite (full); a scoped move runs the unit's own tests and the profile's selection, and the profile selects only where `checks.affected` records data; `full` applies at `prepare` and before the review, and a clean move before the pull request never starts the full suite whatever the setting
   e2e_base_runs: 1                  # run the untouched failed e2e-test tests once on the base (0: off)
-  e2e_unit_scope: own               # e2e-test per unit: only the tests it added or changed (own) or the whole marker (full); tests.e2e_unit_scope overrides per repo
+  e2e_unit_scope: own               # e2e-test per unit: only the tests it added or changed since its branch left its base, read against the remote's trunk, not the local one (own) or the whole marker (full); tests.e2e_unit_scope overrides per repo
   e2e_schedule: weekly              # whole e2e-test suite on the default branch: daily | weekly | monthly | 'off' (quote it); tests.e2e_schedule overrides per repo
   e2e_lock_wait_seconds: 5400       # longest post-merge verification waits for the e2e-test lock before reporting it busy
   e2e_durations_shown: 15           # slowest e2e-test test entries the posted result lists (0 = all)

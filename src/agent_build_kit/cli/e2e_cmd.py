@@ -46,7 +46,7 @@ from agent_build_kit.pipeline.e2e_holds import (
 )
 from agent_build_kit.pipeline.shell import fork_point
 from agent_build_kit.pipeline.unit_store import StoredUnit, UnitStore
-from agent_build_kit.pipeline.units import parked_on_split, project_tag
+from agent_build_kit.pipeline.units import local_ref, parked_on_split, project_tag
 from agent_build_kit.pipeline.vocabulary import FINISHED
 from agent_build_kit.pipeline.wiring import e2e_work, own_test_ids
 from agent_build_kit.profiles.base import AppliesE2eSelection
@@ -57,12 +57,13 @@ OwnTests = Callable[[Installation, StoredUnit], Sequence[str]]
 
 def unit_own_tests(installation: Installation, unit: StoredUnit) -> Sequence[str]:
     """The tests a unit's branch adds or changes since it forked from the default branch, as
-    the e2e-test run names them (`own_test_ids`); none for a unit with no branch yet."""
+    the e2e-test run names them (`own_test_ids`); none for a unit with no branch yet. The default
+    branch is read as the rest of the pipeline reads it (`local_ref`): the remote's trunk."""
     if not unit.branch:
         return ()
     repo = installation.repo(unit.repo)
     checkout = installation.checkouts[unit.repo]
-    fork = fork_point(checkout, repo.default_branch, unit.branch)
+    fork = fork_point(checkout, local_ref(repo.default_branch, repo=unit.repo), unit.branch)
     if not fork:
         return ()
     work = e2e_work(checkout, repo.projects, profiles.get(repo.profile), repo.tests.e2e_marker)

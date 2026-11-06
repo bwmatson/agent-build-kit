@@ -76,4 +76,4 @@ def test_the_scope_is_asked_for_the_tree_and_base_of_the_run_before_the_gate(
     assert seen == [1], "the scope function was asked first, once"
     ((tree, base),) = planning.scope.asked
     assert tree == tmp_path / "tree"
-    assert base == "release"
+    assert base == "origin/release", "the remote's trunk, as every other step reads it"
