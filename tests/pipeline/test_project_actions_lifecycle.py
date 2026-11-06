@@ -14,6 +14,7 @@ import pytest
 
 from agent_build_kit.cli import pipeline as cli
 from agent_build_kit.cli.doctor import run_doctor
+from agent_build_kit.init.scaffold import add_project
 from agent_build_kit.pipeline.project_actions import (
     apply_project_actions,
     failed_lines,
@@ -134,3 +135,30 @@ def test_abk_status_shows_a_waiting_removal(
     assert cli.cmd_status(argparse.Namespace(), inst) == 0
 
     assert "project removal waiting" in capsys.readouterr().out
+
+
+def test_two_lines_of_one_group_are_published_once_after_both_are_written(
+    planning: Planning,
+) -> None:
+    planning.tasks(("Project: add one python-uv", "Project: add two python-uv"))
+    seen: list[tuple[str, int, set[str]]] = []
+
+    def publish(change: str, group: int) -> None:
+        seen.append((change, group, set(planning.listed())))
+
+    apply_project_actions(planning.inst, [], planning=(CHANGE,), publish=publish)
+
+    assert seen == [(CHANGE, 1, {"old", "one", "two"})]
+
+
+def test_a_waiting_removal_whose_line_was_edited_applies_only_the_new_line(
+    planning: Planning,
+) -> None:
+    add_project(planning.config, "app", {"path": "older", "profile": "python-uv"})
+    planning.tasks(("Project: remove old",))
+    planning.run([carrier(), other_in_old()])
+    planning.tasks(("Project: remove older",))
+
+    planning.run([carrier(), other_in_old("merged")])
+
+    assert set(planning.listed()) == {"old"}

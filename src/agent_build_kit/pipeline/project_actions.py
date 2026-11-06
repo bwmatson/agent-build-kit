@@ -178,14 +178,24 @@ def _removals(
     inst: Installation, units: Sequence[StoredUnit], pending: dict
 ) -> list[tuple[_Due, list[StoredUnit]]]:
     """The removes due: those of the groups a merged unit carries, and those the ledger holds from
-    an earlier run, which outlive the change's `tasks.md` (archiving moves it)."""
+    an earlier run, which outlive the change's `tasks.md` (archiving moves it). While the file
+    exists it is the truth: a held remove whose line was edited or deleted is dropped from
+    `pending`."""
     carriers = _carriers(units)
     out: dict[str, tuple[_Due, list[StoredUnit]]] = {}
-    for change in sorted({change for change, _ in carriers}):
+    for change in sorted(
+        {change for change, _ in carriers} | {e["change"] for e in pending.values()}
+    ):
+        if not (inst.changes_dir / change / "tasks.md").is_file():
+            continue
+        wanted: set[str] = set()
         for group in _groups_of(inst, change):
             for due in _halves(change, group, ("remove",)):
+                wanted.add(due.key)
                 if held := carriers.get((change, group.number)):
                     out[due.key] = (due, held)
+        for key in [k for k, e in pending.items() if e["change"] == change and k not in wanted]:
+            del pending[key]
     for key, entry in pending.items():
         if key not in out:
             due = _Due.model_validate({**entry, "line": ProjectLine.model_validate(entry["line"])})
@@ -235,6 +245,7 @@ def apply_project_actions(
     applied: list[str] = []
     waiting: list[str] = []
     problems: list[str] = []
+    written: list[tuple[str, int]] = []
     for item, carriers in due:
         if item.key in done:
             continue
@@ -254,9 +265,14 @@ def apply_project_actions(
         pending.pop(item.key, None)
         applied.append(item.text)
         _save(inst, ledger, log)
-        if publish is not None:
-            publish(item.change, item.group)
+        if (item.change, item.group) not in written:
+            written.append((item.change, item.group))
     _save(inst, ledger, log)
+    # One commit and one publication for each group, after all its edits are in the file: the
+    # publication is labelled by change and group, and a second one under a label is rejected.
+    if publish is not None:
+        for change, number in written:
+            publish(change, number)
     return ActionReport(applied=tuple(applied), waiting=tuple(waiting), failed=tuple(problems))
 
 
