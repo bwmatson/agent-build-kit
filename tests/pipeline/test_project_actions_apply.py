@@ -29,6 +29,8 @@ from tests.project_workspace import OPT_OUT
 
 CHANGE = "feature"
 CONFIG = """# The workspace.
+planning:
+  state_dir: {state}
 repos:
   app:
     path: {app}
@@ -45,7 +47,7 @@ class Planning:
     def __init__(self, root: Path) -> None:
         self.root = init_repo(root)
         (root.parent / "app").mkdir(exist_ok=True)
-        self.original = CONFIG.format(app=root.parent / "app")
+        self.original = CONFIG.format(app=root.parent / "app", state=root.parent / "state")
         commit_files(root, "start", {"abk.yaml": self.original})
         self.config = root / "abk.yaml"
         self.logged: list[str] = []
@@ -129,7 +131,7 @@ def test_a_replace_adds_the_new_half_at_plan_time_and_drops_the_old_half_at_the_
     assert set(planning.listed()) == {"new"}
 
 
-@pytest.mark.parametrize("state", ["in_review", "building"])
+@pytest.mark.parametrize("state", ["in_review", "running"])
 def test_a_remove_is_not_applied_before_the_carrying_unit_settles(
     planning: Planning, state: str
 ) -> None:

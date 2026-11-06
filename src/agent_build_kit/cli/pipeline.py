@@ -240,6 +240,8 @@ from agent_build_kit.pipeline.pr_reconcile import reconcile
 from agent_build_kit.pipeline.pr_replies import build_post_replies, ignored, parse_answer
 from agent_build_kit.pipeline.product_defect import preview as preview_defect
 from agent_build_kit.pipeline.product_defect import product_defect_record
+from agent_build_kit.pipeline.project_actions import apply_project_actions, commit_project_file
+from agent_build_kit.pipeline.project_actions import status_lines as project_status_lines
 from agent_build_kit.pipeline.regression_agent import CAPPED_NOTE, judgement_of, run_room
 from agent_build_kit.pipeline.resolution_lane import (
     Lane,
@@ -1053,6 +1055,8 @@ def cmd_status(args: argparse.Namespace, inst: Installation) -> int:
         elif calls := read_calls(calls_path(inst.state_dir, claude_account.Account.default())):
             log(rate_line(derive_rate(calls, now=datetime.now(UTC))))
 
+    for line in project_status_lines(inst, store_for(inst).all()):
+        log(line)
     for name in inst.repos:
         log(f"workers: {name} runs in {inst.workers_mode(name)} mode")
     if found := temp_size(inst):
@@ -2562,6 +2566,27 @@ class _Readmission:
                 self.rebuilt[unit.id] = self.rebuilt.get(unit.id, 0) + 1
 
 
+def _apply_project_lines(inst: Installation, store: UnitStore) -> None:
+    """Apply the `Project:` lines that are due to abk.yaml and commit each edit: the adds of every
+    change in flight, and the removes of the changes whose unit has merged."""
+    changes = (
+        sorted(
+            entry.name
+            for entry in inst.changes_dir.iterdir()
+            if entry.is_dir() and entry.name != "archive"
+        )
+        if inst.changes_dir.is_dir()
+        else []
+    )
+
+    def publish(change: str, group: int) -> None:
+        commit_project_file(inst, change, group, log=log)
+
+    report = apply_project_actions(inst, store.all(), planning=changes, publish=publish, log=log)
+    for line in report.applied:
+        log(f"project line applied — {line}")
+
+
 def _verify_and_archive(inst: Installation, units: list[StoredUnit]) -> None:
     """Archive the changes whose units are all satisfied and verified live."""
 
@@ -2725,6 +2750,7 @@ def run_round(
             say=log,
         )
     if not dry_run:
+        _step("applying project lines", _apply_project_lines, inst, store)
         _step("finishing chat commits", deliver_committed, inst, store)
         _step("creating the thread store", _create_thread_store, inst)
     # Planning runs on the default account: not while the model has refused it.
