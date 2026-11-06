@@ -30,7 +30,7 @@ from agent_build_kit.forges.base import (
     redacted_text,
 )
 from agent_build_kit.pipeline.file_lock import atomic_write_text, file_lock
-from agent_build_kit.pipeline.shell import git
+from agent_build_kit.pipeline.shell import fork_point, git
 from agent_build_kit.pipeline.units import MERGED, build_ref
 
 if TYPE_CHECKING:
@@ -443,7 +443,7 @@ def _is_ancestor(checkout: Path, ancestor: str, ref: str) -> bool:
 
 def _fork(checkout: Path, trunk: str, tip: str) -> str:
     """Where the tip left the trunk, or '' when git cannot say."""
-    return git(checkout, "merge-base", trunk, tip, check=False).stdout.strip()
+    return fork_point(checkout, trunk, tip)
 
 
 def _in_trunk(checkout: Path, tip: str, trunk: str) -> bool:

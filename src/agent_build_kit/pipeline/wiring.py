@@ -185,7 +185,14 @@ from agent_build_kit.pipeline.scratch import (
     run_folder,
     selection_seed,
 )
-from agent_build_kit.pipeline.shell import changed_files, git, git_out, has_origin, porcelain
+from agent_build_kit.pipeline.shell import (
+    changed_files,
+    fork_point,
+    git,
+    git_out,
+    has_origin,
+    porcelain,
+)
 from agent_build_kit.pipeline.stack_runner import FixResult, Restacked, UnitRunner, Worktree
 from agent_build_kit.pipeline.transcript import Transcript, TranscriptEvent, transcript_dir
 from agent_build_kit.pipeline.ui_review import ui_notes_of, ui_reply_writer, unit_patch_of
@@ -1843,7 +1850,9 @@ def build_unit_test(
         length), the unit's own test ids by project, why not): the plan is None when the
         profile cannot select."""
         try:
-            touched = touched_in(cwd, base, (tc for _, tc, _ in work))
+            touched = touched_in(
+                cwd, base, (tc for _, tc, _ in work), log=lambda line: _say(log, line)
+            )
         except (subprocess.CalledProcessError, OSError) as error:
             return None, [], {}, f"the unit's tests could not be listed ({error})"
         if projects:
@@ -2124,7 +2133,13 @@ def build_unit_test(
         passed. A new test has no excuse to be flaky, so any failure fails unit-test."""
         runs = active().global_limits.unit_test_repeat_runs
         try:
-            touched = touched_in(cwd, base, (tc for _, tc, _ in ran_tests)) if runs else []
+            touched = (
+                touched_in(
+                    cwd, base, (tc for _, tc, _ in ran_tests), log=lambda line: _say(log, line)
+                )
+                if runs
+                else []
+            )
         except (subprocess.CalledProcessError, OSError) as error:
             # What the unit touched cannot be read; the checks that ran stand.
             _say(log, f"repeat check skipped, the unit's tests could not be listed ({error})")
@@ -3590,6 +3605,7 @@ def e2e_scope(
     projects: list[ProjectConfig],
     marker: str,
     dev_stack: str | None,
+    log: Callable[[str], None] | None = None,
 ) -> E2eScope:
     """The one decision of how much of e2e-test a unit runs, taken before the stack lock.
 
@@ -3620,7 +3636,7 @@ def e2e_scope(
     if base is None:
         return whole("there is no base to list the unit's tests against")
     try:
-        touched = touched_in(cwd, base, (tc for _, tc, _ in work))
+        touched = touched_in(cwd, base, (tc for _, tc, _ in work), log=log)
     except (subprocess.CalledProcessError, OSError) as error:
         return whole(f"the unit's tests could not be listed ({error})")
     runs: list[E2eRun] = []
@@ -3787,6 +3803,7 @@ class E2eSession:
             projects=self._projects,
             marker=expression,
             dev_stack=str(self._dev_stack) if self._dev_stack else None,
+            log=self._log,
         )
 
     @property
@@ -4412,7 +4429,7 @@ def own_work_starts_after(
 
     `head` names the branch when `tree` is not checked out on it.
     """
-    start = git(tree, "merge-base", base, head, check=False).stdout.strip()
+    start = fork_point(tree, base, head)
     known = list(store.all())
     index = {u.id: u for u in known}
     for dep in through_satisfied(unit, known):
@@ -4422,7 +4439,7 @@ def own_work_starts_after(
         for ref in (parent.branch, parent.pushed, parent.approved):
             if not ref:
                 continue
-            fork = git(tree, "merge-base", ref, head, check=False).stdout.strip()
+            fork = fork_point(tree, ref, head)
             # Later than what we have, and on this branch's own line.
             if fork and (not start or is_ancestor(tree, start, fork)):
                 start = fork
@@ -4695,19 +4712,50 @@ def tests_changed(tree: Path, ref: str) -> set[str]:
     return {name for _, name, _ in _changed_tests(tree, ref, qualified=False)}
 
 
-def touched_tests(tree: Path, ref: str, head: str | None = None) -> list[tuple[str, str]]:
-    """(file, test) for each test the tree adds or changes against `ref` (or the commit
-    `head` adds or changes against it), as a runner selects it: the file's path from the
+def _listed_from(tree: Path, ref: str, head: str | None, log: Callable[[str], None] | None) -> str:
+    """Where a listing of a unit's tests starts: the point the tree (or the commit `head`) left
+    `ref`, so a `ref` that has moved on adds no test to it. When git cannot say, `ref` itself,
+    and the log says that the tests were listed against it."""
+    fork = fork_point(tree, ref, head or "HEAD")
+    if fork:
+        return fork
+    if log is not None:
+        log(
+            f"the unit's tests were listed against {ref}, not the point the branch left it "
+            "(git could not find where it did)"
+        )
+    return ref
+
+
+def touched_tests(
+    tree: Path, ref: str, head: str | None = None, *, log: Callable[[str], None] | None = None
+) -> list[tuple[str, str]]:
+    """(file, test) for each test the tree adds or changes since it left `ref` (or the commit
+    `head` adds or changes since it left it), as a runner selects it: the file's path from the
     tree's root and the test's name, with its classes (`Group::test_x`). A deleted test is
-    not listed, since nothing is left to run."""
+    not listed, since nothing is left to run. What `ref` gained since is not the tree's.
+    `log` hears when `ref` itself had to stand in for that point."""
+    return _touched(tree, _listed_from(tree, ref, head, log), head)
+
+
+def _touched(tree: Path, ref: str, head: str | None) -> list[tuple[str, str]]:
     return [(p, n) for p, n, there in _changed_tests(tree, ref, qualified=True, head=head) if there]
 
 
 def touched_in(
-    tree: Path, ref: str, toolchains: Iterable[ToolchainProfile], head: str | None = None
+    tree: Path,
+    ref: str,
+    toolchains: Iterable[ToolchainProfile],
+    head: str | None = None,
+    *,
+    log: Callable[[str], None] | None = None,
 ) -> list[tuple[str, str]]:
     """`touched_tests`, and with an empty name each test file the toolchains select by the file
     alone (`ListsTestFiles`) that the tree adds or changes, which has no test names to read."""
+    # Resolved once, so the log hears the fallback once. The listing still goes through
+    # `touched_tests`, the seam its callers and tests stand in for; resolving an already
+    # resolved fork again returns the same commit and says nothing.
+    ref = _listed_from(tree, ref, head, log)
     listed = touched_tests(tree, ref, head)
     pathspecs = sorted(
         {

@@ -69,6 +69,13 @@ def changed_files(repo: Path, base: str) -> list[str]:
     return [line for line in result.stdout.splitlines() if line.strip()]
 
 
+def fork_point(repo: Path, ref: str, head: str = "HEAD") -> str:
+    """The commit where `head` (the checked-out branch unless named) left `ref`: the merge base
+    of the two. An empty string when git cannot say, for a `ref` it cannot resolve or one that
+    shares no history with `head`; a caller that wants `ref` itself then says `or ref`."""
+    return git(repo, "merge-base", ref, head, check=False).stdout.strip()
+
+
 def porcelain(path: Path, *pathspec: str) -> list[tuple[str, str]]:
     """The checkout's changes as (status code, exact path), every untracked file named, limited
     to `pathspec` when given. Raises `CalledProcessError` where `path` is not under git."""
