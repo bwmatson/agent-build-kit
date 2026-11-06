@@ -16,6 +16,11 @@
   A move that brought in only the changelog and documentation files, one of which the unit also
   changes, runs just the repo's checks (the changelog check) and no tests. `abk restacks
   [--since TIME]` prints the restacks by point and by re-test kind.
+- The tests prompt now tells the agent to add a new case to the existing test file for the
+  module it exercises, and to create a test file only for a new logic file, since the red
+  check runs only the tests a tests commit added or changed. Where it has no test to select,
+  or pytest does not collect a selected name, it still runs the files whole, and the Node npm
+  profile still runs whole files.
 
 - A review comment, a change request or a conflict on an open pull request is now reworked in the
   resolution lane, so it no longer waits behind new builds for a build slot. A run in the lane

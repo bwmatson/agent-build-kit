@@ -406,9 +406,7 @@ point to asserting on a new internal helper's name; a name that is a contract
 (public API, a command, a wire shape, a name the specification requires) is
 stubbed as named.
 
-New tests go in test files in which every test fails before the implementation:
-do not add a failing test to a file that holds passing ones, because the whole
-file is run and its passing tests are rejected. A test for a conversion with no
+A test for a conversion with no
 new behaviour observes the call site reaching the shared or existing function.
 
 Use the repository's shared fixtures before writing new ones.
@@ -424,6 +422,11 @@ third-party wrapper, whose behaviour is part of what is being tested. Give a
 parser of external data fixtures recorded from the real system, or carrying
 everything the real one does (metadata, nulls, empty values), not only the
 fields the code will read.
+
+Placement (T2, T3, T21): a new case goes in the existing test file for the module
+it exercises. A new test file is created only for a new logic file; a new behaviour
+of an existing module is a case, never a new file. One subject has one test file,
+and test directories carry no `__init__.py`.
 
 {finish}{commands}The change's files are read-only for you: do not tick boxes in its tasks.md
 or edit anything under {change_dir}. The pipeline records a task as done once

@@ -1,5 +1,7 @@
 """The tests prompt states where a new case goes (spec: red-check-by-id)."""
 
+import re
+
 from agent_build_kit.pipeline.stack_runner import TESTS_PROMPT
 from tests.prompt_text import filled, flat
 
@@ -32,7 +34,7 @@ def test_the_placement_rule_cites_its_standards_once() -> None:
     text = filled(TESTS_PROMPT)
 
     for standard in ("T2", "T3", "T21"):
-        assert text.count(standard) == 1
+        assert len(re.findall(rf"\b{standard}\b", text)) == 1
 
 
 def test_the_prompt_no_longer_keeps_new_tests_in_all_failing_files() -> None:
