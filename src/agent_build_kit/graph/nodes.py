@@ -233,6 +233,14 @@ FRESH: Update = {
 LEFTOVER_PATHS_SHOWN = 40
 ACCOUNT_LIMIT = 2000  # characters of the builder's account a recorded group keeps
 ACCOUNT_HEADING = "Already built, the builder's account:"
+WROTE_NO_TEST = (
+    "the tests step wrote no test, twice: a write may have been refused, so look at the "
+    "agent's last run"
+)
+WROTE_NOTHING_NOTE = (
+    "Your last run of this step wrote no test and said nothing. Write the tests this group "
+    "calls for; if a write is refused, say so. If the tests it needs already exist, say that."
+)
 NO_NEW_TESTS = "This group adds no new tests: the tests it needs already exist on the branch."
 TESTS_ALREADY_PASS = (
     "The tests for this group pass without further implementation: "
@@ -1623,7 +1631,19 @@ class BuildPath:
                 prompt = f"{note}\n\n{prompt}"
             if state.reproduction_guidance:
                 prompt = f"{state.reproduction_guidance}\n\n{prompt}"
+            before = r.tree_state(tree)
             account = self.agent(r.run, prompt, cwd=tree, state=state, model=models().implement)
+            if self.wrote_nothing(state, before, account):
+                self.say("the tests step wrote no test: asking once more")
+                account = self.agent(
+                    r.run,
+                    f"{WROTE_NOTHING_NOTE}\n\n{prompt}",
+                    cwd=tree,
+                    state=state,
+                    model=models().implement,
+                )
+                if self.wrote_nothing(state, before, account):
+                    return self.stop(WROTE_NO_TEST)
             if stubbed:
                 # Committed by `stub_checks`, once the stubs and tests pass the static checks.
                 step = self.group_step(state)
@@ -1634,6 +1654,18 @@ class BuildPath:
             r.commit(self.message(TESTS_PREFIX, True, state), cwd=tree, base=self.ref(state))
         kept_account = {"tests_account": account} if state.unreproduced and account else {}
         return {"head": r.head(tree), "stub_loop": False, **kept_account}
+
+    def wrote_nothing(self, state: UnitRun, before: str, account: str) -> bool:
+        """Whether a tests step that has to write tests ended with the tree as it found it and
+        nothing said: a write may have been refused. A branch with commits of its own is
+        left to the empty marked `test:`, and an agent that explains itself has judged."""
+        step = self.group_step(state)
+        if step is not None and not step.mode.writes_tests:
+            return False
+        tree = self.tree()
+        if account.strip() or self.runner.branch_commits(tree, self.ref(state)):
+            return False
+        return self.runner.head(tree) == state.head and self.runner.tree_state(tree) == before
 
     def apply_fixers(self) -> None:
         """Run the profile's fixers over the unit's own files, with no agent, and log what they

@@ -426,7 +426,8 @@
   takes a lone `feat:`, and a unit that mixes modes is checked group by group. No red check
   applies to such a group, so for a unit with no tests-first group the verdict no longer counts
   the red-first result, and its pull request text no longer claims the tests were committed
-  first and seen to fail.
+  first and seen to fail. A tests step that writes no test and says nothing is asked once
+  more, then the unit stops naming the cause, before the implementation runs.
 
 - A unit the usage guard pauses at the gate is now recorded as paused for usage until a
   time, counts toward the limit of units in progress while it waits, and is not resumed

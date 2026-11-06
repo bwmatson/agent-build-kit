@@ -1,42 +1,59 @@
-"""In a mode that writes tests, a tests node that ends with no test written and no `No-new-tests`
-marker runs once more with guidance and then fails naming the cause, before `implement` runs; a
-`no_code` group runs no tests node (spec: group-build-modes, a tests step that writes nothing
-stops early). The lone-`feat:` stop at `implement` stays the backstop, pinned in
-`test_per_group_lone_feat_message.py`. The branch is real."""
+"""In a mode that writes tests, a tests node that ends with no test written, nothing said and no
+`No-new-tests` marker runs once more with guidance and then fails naming the cause, before
+`implement` runs; a `no_code` group runs no tests node (spec: group-build-modes, a tests step
+that writes nothing stops early). The lone-`feat:` stop at `implement` stays the backstop,
+pinned in `test_per_group_lone_feat_message.py`. The branch is real, and so is the tree digest
+the node compares."""
 
 from __future__ import annotations
 
 from pathlib import Path
 from typing import Any
 
-from agent_build_kit.pipeline.unit_store import UnitStore
-from tests.graph.branch_fakes import OnBranch, built, key, prepared, subjects, titled
+from agent_build_kit.pipeline.stack_runner import RunOutcome
+from agent_build_kit.pipeline.wiring import build_tree_state
+from tests.graph.branch_fakes import OnBranch, key, prepared, subjects
+from tests.graph.branch_fakes import titled as groups_titled
 from tests.graph.test_build_path import build
 
-GROUPS = {"add-marker": titled(1)}
+GROUPS = {"add-marker": groups_titled(1)}
 CAUSE = "the tests step wrote no test"
 
 
-class WritesOnTheSecondTry(OnBranch):
-    """A recorder whose first tests call leaves the tree as it was, as a refused write does."""
+class Refused(OnBranch):
+    """A recorder over the real tree digest whose first `refused` tests calls write nothing and
+    say nothing, as a refused write does."""
 
-    def __init__(self, store: UnitStore, **options: Any) -> None:
+    def __init__(self, store: Any, *, refused: int, **options: Any) -> None:
         super().__init__(store, **options)
+        self.refused = refused
         self.tests_calls = 0
+
+    def tree_state(self, cwd: Path) -> str:
+        return build_tree_state()(cwd)
 
     def claude(self, prompt: str, **kwargs: Any) -> str:
         answer = super().claude(prompt, **kwargs)
-        if self.events[-1] == "claude:tests":
-            self.tests_calls += 1
-            if self.tests_calls == 1:
-                (kwargs["cwd"] / f"work-{len(self.prompts)}.txt").unlink()
-        return answer
+        if self.events[-1] != "claude:tests":
+            return answer
+        self.tests_calls += 1
+        if self.tests_calls > self.refused:
+            return answer
+        (kwargs["cwd"] / f"work-{len(self.prompts)}.txt").unlink()
+        return ""
+
+
+def refusing(tmp_path: Path, refused: int, **options: Any) -> tuple[Refused, RunOutcome, Path]:
+    recorder, repo = prepared(tmp_path, groups=GROUPS, **options)
+    refusing_recorder = Refused(recorder.store, refused=refused)
+    outcome = build(tmp_path, refusing_recorder, **refusing_recorder.overrides(tmp_path))
+    return refusing_recorder, outcome, repo
 
 
 def test_a_tests_node_that_writes_nothing_runs_once_more_then_fails_before_implement(
     tmp_path: Path,
 ) -> None:
-    recorder, outcome, repo = built(tmp_path, groups=GROUPS, no_tests_for="1")
+    recorder, outcome, repo = refusing(tmp_path, refused=2)
 
     assert outcome.status == "failed", outcome.detail
     assert CAUSE in outcome.detail
@@ -48,20 +65,15 @@ def test_a_tests_node_that_writes_nothing_runs_once_more_then_fails_before_imple
 
 
 def test_a_tests_node_that_writes_on_the_second_try_goes_on_to_implement(tmp_path: Path) -> None:
-    recorder, repo = prepared(tmp_path, groups=GROUPS)
-    retrying = WritesOnTheSecondTry(recorder.store)
-
-    outcome = build(tmp_path, retrying, **retrying.overrides(tmp_path))
+    recorder, outcome, repo = refusing(tmp_path, refused=1)
 
     assert outcome.status == "open", outcome.detail
-    assert retrying.events.count("claude:tests") == 2
+    assert recorder.events.count("claude:tests") == 2
     assert subjects(repo) == ["test: G1", "feat: G1"]
 
 
 def test_a_no_code_group_runs_no_tests_node(tmp_path: Path) -> None:
-    recorder, outcome, _ = built(
-        tmp_path, groups=GROUPS, no_tests_for="1", modes={key(1): "no_code"}
-    )
+    recorder, outcome, _ = refusing(tmp_path, refused=2, modes={key(1): "no_code"})
 
     assert "claude:tests" not in recorder.events
     assert CAUSE not in outcome.detail
