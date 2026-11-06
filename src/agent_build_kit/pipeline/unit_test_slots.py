@@ -16,7 +16,8 @@ the caller computes it, and this module reads no unit; a settling unit's late ch
 marker's token. A run takes a free slot only when no other live waiter comes before it in that
 order, and a run that finds a slot free while a waiter exists makes a marker and goes through the
 same rule, so it cannot take the slot of a waiter that has not polled yet. A run that finds a slot
-free and no waiter takes it at once and makes no marker."""
+free and no waiter takes it at once and makes no marker. A run confirms it comes first again once it
+holds a slot, and gives the slot back if a waiter that registered meanwhile stands before it."""
 
 from __future__ import annotations
 
@@ -125,6 +126,19 @@ def _take(paths: list[Path]) -> IO[str] | None:
             continue
         return handle
     return None
+
+
+def _gives_way(handle: IO[str], locks_dir: Path, mine: _Position | None) -> bool:
+    """Whether a live waiter stands before the run that holds `handle`'s slot (the run's own
+    marker, at `mine`, excepted); the slot is then given back, unwritten."""
+    if mine is None:
+        if not _live_waiters(locks_dir):
+            return False
+    elif _comes_first(locks_dir, mine):
+        return False
+    fcntl.flock(handle, fcntl.LOCK_UN)
+    handle.close()
+    return True
 
 
 def _holders(paths: list[Path]) -> str:
@@ -245,7 +259,11 @@ def unit_test_slot(
     clock = clock or time
     locks_dir.mkdir(parents=True, exist_ok=True)
     paths = [slot_path(locks_dir, index) for index in range(1, limit + 1)]
+    # The look before the take only saves a take that would be given back; the look after it keeps
+    # the order, since a more urgent waiter can register in between.
     handle = None if _live_waiters(locks_dir) else _take(paths)
+    if handle is not None and _gives_way(handle, locks_dir, None):
+        handle = None
     waited = 0.0
     if handle is None:
         with _waiting(locks_dir, holder, rank) as mine:
@@ -255,6 +273,8 @@ def unit_test_slot(
             polls = 0
             while True:
                 handle = _take(paths) if _comes_first(locks_dir, mine) else None
+                if handle is not None and _gives_way(handle, locks_dir, mine):
+                    handle = None
                 if handle is not None:
                     # A run that got a slot on its first poll never waited.
                     waited = clock.monotonic() - began if polls else 0.0

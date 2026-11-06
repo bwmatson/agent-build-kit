@@ -26,27 +26,8 @@ from agent_build_kit.pipeline.unit_test_slots import (
     waiting_since,
 )
 from tests.fake_clock import START, install
-from tests.unit_test_slot_fakes import live_waiter, waiting_run, waiting_units
+from tests.unit_test_slot_fakes import FakeClock, live_waiter, waiting_run, waiting_units
 from tests.waiting import wait_for
-
-
-class FakeClock:
-    """Time that passes only when the wait sleeps; `on_sleep` runs at each sleep."""
-
-    def __init__(self, on_sleep=None, *, step: float = 0.0) -> None:
-        self.now = 0.0
-        self.step = step
-        self.sleeps: list[float] = []
-        self.on_sleep = on_sleep
-
-    def monotonic(self) -> float:
-        return self.now
-
-    def sleep(self, seconds: float, /) -> None:
-        self.sleeps.append(seconds)
-        self.now += seconds + self.step
-        if self.on_sleep is not None:
-            self.on_sleep(len(self.sleeps))
 
 
 def test_with_no_limit_nothing_waits_and_no_slot_file_is_made(tmp_path: Path) -> None:
