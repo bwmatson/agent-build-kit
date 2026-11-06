@@ -1636,6 +1636,9 @@ class BuildPath:
                 boundary=build_boundary,
                 changelog=changelog_note(tree, r.repo_config),
                 stubbed=stubbed,
+                placement=profiles.get(r.repo_config.profile).prompt_words.placement
+                if r.repo_config
+                else "",
             )
             prompt = self.told(prompt, self.scope_note())
             if note := r.follow_ups_note(unit):

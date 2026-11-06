@@ -21,6 +21,12 @@
   check runs only the tests a tests commit added or changed. Where it has no test to select,
   or pytest does not collect a selected name, it still runs the files whole, and the Node npm
   profile still runs whole files.
+- For a Python repo, the tests prompt now tells the agent to add a new case to the existing
+  test file for the module it exercises, and to create a test file only for a new logic file,
+  since the red check runs only the tests a tests commit added or changed. Where it has no
+  test to select, or pytest does not collect a selected name, it still runs the files whole.
+  The Node npm profile still runs whole files, so its prompt keeps new tests in files in which
+  every test fails; a profile sets this with the new `placement` prompt word.
 
 - A review comment, a change request or a conflict on an open pull request is now reworked in the
   resolution lane, so it no longer waits behind new builds for a build slot. A run in the lane

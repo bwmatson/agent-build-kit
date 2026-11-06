@@ -32,6 +32,10 @@ class PromptWords(Frozen):
     verify: str = "linting, formatting and type checks"
     # What a permitted stub looks like in a tests-first commit.
     stub: str = "a signature whose body is only a raise-not-implemented, or a data field"
+    # Where a new test goes. Empty: the red check runs whole files, so new tests go in files
+    # in which every test fails. A profile whose `red_command` selects by id says a new case
+    # joins the existing test file.
+    placement: str = ""
 
 
 @runtime_checkable

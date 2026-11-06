@@ -1,13 +1,24 @@
-"""The tests prompt states where a new case goes (spec: red-check-by-id)."""
+"""The tests prompt states where a new case goes, by the toolchain profile (spec: red-check-by-id).
+
+A profile whose red check selects the added tests by id puts a new case in the existing test
+file; one that runs whole files keeps new tests in files in which every test fails."""
 
 import re
 
+from agent_build_kit import profiles
 from agent_build_kit.pipeline.stack_runner import TESTS_PROMPT
-from tests.prompt_text import filled, flat
+from tests.prompt_text import flat, placeholders
 
 
-def prompt() -> str:
-    return flat(filled(TESTS_PROMPT)).lower()
+def filled(profile: str) -> str:
+    """The tests prompt as the build fills it for a repo on `profile`."""
+    fields = dict.fromkeys(placeholders(TESTS_PROMPT), "x")
+    fields["placement"] = profiles.get(profile).prompt_words.placement
+    return TESTS_PROMPT.format(**fields)
+
+
+def prompt(profile: str = "python-uv") -> str:
+    return flat(filled(profile)).lower()
 
 
 def test_a_new_case_goes_in_the_existing_test_file_for_the_module() -> None:
@@ -31,7 +42,7 @@ def test_one_subject_has_one_test_file_and_no_init() -> None:
 
 
 def test_the_placement_rule_cites_its_standards_once() -> None:
-    text = filled(TESTS_PROMPT)
+    text = filled("python-uv")
 
     for standard in ("T2", "T3", "T21"):
         assert len(re.findall(rf"\b{standard}\b", text)) == 1
@@ -49,3 +60,17 @@ def test_the_prompt_does_not_say_every_new_test_must_fail() -> None:
 
     assert "which must fail" not in text
     assert "every new test must fail" not in text
+
+
+def test_a_profile_that_runs_whole_files_keeps_new_tests_in_all_failing_files() -> None:
+    text = prompt("node-npm")
+
+    assert "test files in which every test fails before the implementation" in text
+    assert "do not add a failing test to a file that holds passing ones" in text
+
+
+def test_a_profile_that_runs_whole_files_is_not_told_to_add_a_case_to_an_existing_file() -> None:
+    text = prompt("node-npm")
+
+    assert "existing test file" not in text
+    assert "__init__.py" not in text
