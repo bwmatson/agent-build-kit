@@ -21,8 +21,8 @@ def test_the_architecture_names_the_three_restack_points() -> None:
 
 
 def test_the_architecture_says_what_the_lite_path_runs() -> None:
-    assert "changelog check" in ARCHITECTURE
-    assert "documentation tests" in ARCHITECTURE
+    assert "(the changelog check) and no tests" in ARCHITECTURE
+    assert "shares no file with the unit is re-tested by scope" in ARCHITECTURE
 
 
 def test_the_architecture_says_a_clean_move_before_the_pull_request_starts_no_full_suite() -> None:

@@ -4,10 +4,10 @@
 
 - A unit is now restacked onto its base after the checks pass and before the review, so the
   review sees the rebased diff, and again before the pull request if the base has moved. A clean
-  move before the pull request is re-tested lightly or by scope and never starts the full suite,
-  and a move that brought in only changelog and documentation files runs just the changelog check
-  and the documentation tests. `abk restacks [--since TIME]` prints the restacks by point and by
-  re-test kind.
+  move before the pull request is re-tested lightly or by scope and never starts the full suite.
+  A move that brought in only the changelog and documentation files, one of which the unit also
+  changes, runs just the repo's checks (the changelog check) and no tests. `abk restacks
+  [--since TIME]` prints the restacks by point and by re-test kind.
 
 - A review comment, a change request or a conflict on an open pull request is now reworked in the
   resolution lane, so it no longer waits behind new builds for a build slot. A run in the lane

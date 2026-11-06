@@ -280,9 +280,11 @@ supersedes it. NAME is as the listing prints it. Exit 1 when a NAME matches noth
 
 ### `abk restacks [--since TIME]`
 
-Prints how often units were restacked and how long it took, by restack point (`prepare`,
-`before_review`, `before_pr`) and by re-test kind (none, lite, scoped, full), counts and hours.
-`--since` limits it to records from that time; a ledger with no restack records prints as empty.
+Prints one line per restack point (`prepare`, `before_review`, `before_pr`) with its moves,
+re-tests and hours, then one line per re-test kind that ran (`lite`, `scoped`, `full`).
+`--since` takes an ISO 8601 time (a time without a zone is UTC) and limits the lines to records
+from then on; a value that is not a time exits 2. An empty ledger prints `no restacks recorded`
+and exits 0.
 
 ### `abk graph`
 
