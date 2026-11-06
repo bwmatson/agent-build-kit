@@ -245,6 +245,7 @@ from agent_build_kit.pipeline.resolution_lane import (
     ResolutionLane,
     ResolutionLanes,
     Rest,
+    about_the_move,
     base_tip,
     forget_run_attempt,
     hold_if_spent,
@@ -4764,8 +4765,8 @@ REBUILDS_PER_PASS = 2
 # back for rework by a poll, or held by its own build because the branch it builds
 # on changed. Resuming restacks the unit onto its new base before anything else, so
 # that cause is gone by the time it runs again — unlike an unfinished upstream or a
-# full usage window, which a rerun would only meet again. `RESTACK_HANDED_BACK` is a
-# moved-base run the restack lane gave back to a build worker.
+# full usage window, which a rerun would only meet again. `RESTACK_HANDED_BACK` is written by
+# no run now: it is read only for a unit an earlier version's lane gave back to a build worker.
 READMITTED_CAUSES = frozenset({Cause.REWORK, Cause.BASE_CHANGED, Cause.RESTACK_HANDED_BACK})
 
 
@@ -6686,10 +6687,13 @@ def build_restack_lane(inst: Installation, store: UnitStore) -> ResolutionLanes:
         if in_a_lane_run(unit):
             return run_of(unit.id)  # An interrupted run: its thread resumes at its node.
         graph = store.all()
+        if unit.sent_back_for_rework and not about_the_move(unit):
+            # A comment or a change request: the run is the rework, with no attempt to spend.
+            return run_of(unit.id)
         if hold_if_spent(inst, store, unit, graph, log):
             return None
-        if unit.sent_back_for_rework:
-            # Sent back for a conflict or a comment: the run starts at the move, in this worker.
+        if unit.sent_back_for_conflict:
+            # Sent back for a conflict: the run starts at the move, in this worker.
             return run_of(unit.id)
         repo = inst.checkouts[unit.repo]
         branch = unit.branch or branch_name(unit)
@@ -7347,21 +7351,26 @@ def _build_unit(
                     # The lane's run: flagged only now that it holds the branch and may go on.
                     # A run that starts is an attempt at its base's tip; one resumed is not,
                     # unless the start it resumes stopped before its first agent call.
-                    if not unit.moved_base_run or unit.moved_base_uncounted:
+                    # A comment or change-request rework is no attempt at the base's tip: its
+                    # rounds are the review's.
+                    if (not unit.moved_base_run or unit.moved_base_uncounted) and about_the_move(
+                        unit
+                    ):
                         tip = base_tip(inst, unit, store.all())
-                        if not tip and not unit.sent_back_for_rework:
+                        if not tip:
                             end("skipped, its base cannot be read", UnitOutcome.SKIPPED)
                             return True
-                        if tip:
-                            before = unit
-                            record_run_attempt(store, unit, tip)
+                        before = unit
+                        record_run_attempt(store, unit, tip)
                     store.set_moved_base_run(unit.id, True)
                     store.set_moved_base_uncounted(unit.id, False)
-                # A step recorded by an earlier run belongs to that run. A parked unit, or one
-                # the restack lane handed back, resumes at its node, which never passes
+                # A step recorded by an earlier run belongs to that run. A parked unit, or one an
+                # earlier version's lane handed back, resumes at its node, which never passes
                 # `prepare`, so it is marked running here. The cause is standing, so a replan
                 # carries it and this reads the same after one.
-                if unit.state == PLANNED and (moved_base_run or unit.cause in PARKED_CAUSES):
+                if unit.state == PLANNED and (
+                    moved_base_run or unit.cause in (*PARKED_CAUSES, Cause.RESTACK_HANDED_BACK)
+                ):
                     # A lane run keeps why it was started: `prepare` reads a conflict sent back
                     # from it.
                     store.set_state(

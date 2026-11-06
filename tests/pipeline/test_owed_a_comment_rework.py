@@ -15,7 +15,14 @@ import pytest
 from agent_build_kit.installation import Installation
 from agent_build_kit.pipeline.lease import Leases, lease_dir
 from agent_build_kit.pipeline.resolution_lane import lane_runs_owed, owed_units
-from agent_build_kit.pipeline.unit_store import Cause, FeedbackSource, StoredUnit
+from agent_build_kit.pipeline.unit_store import (
+    LANE_REWORKS,
+    Cause,
+    FeedbackSource,
+    ReworkKind,
+    StoredUnit,
+    feedback_source_of,
+)
 from agent_build_kit.pipeline.units import HELD, IN_REVIEW, MERGED, PLANNED, RUNNING
 from agent_build_kit.pipeline.workspaces import branch_lock
 from tests.factories import git
@@ -55,6 +62,23 @@ def test_a_unit_in_review_or_planned_with_comment_feedback_is_owed_a_run(
     assert owed_units(inst, [comment_rework(IN_REVIEW)]) == OWED
     assert owed_units(inst, [comment_rework(PLANNED)]) == OWED
     assert lane_runs_owed(inst, [comment_rework()]) == OWED
+
+
+def test_a_failing_checks_rework_is_a_builds_and_not_owed_a_lane_run(inst: Installation) -> None:
+    ci = comment_rework(feedback_source=FeedbackSource.CI)
+
+    assert owed_units(inst, [ci]) == set()
+    assert lane_runs_owed(inst, [ci]) == set()
+
+
+def test_the_scan_owes_a_run_for_exactly_the_kinds_the_hand_off_takes(inst: Installation) -> None:
+    owed = {
+        kind
+        for kind in ReworkKind
+        if owed_units(inst, [comment_rework(feedback_source=feedback_source_of(kind))]) == OWED
+    }
+
+    assert owed == set(LANE_REWORKS)
 
 
 def test_a_running_unit_is_not_owed_a_run(inst: Installation) -> None:

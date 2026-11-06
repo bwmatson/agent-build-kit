@@ -92,6 +92,7 @@ from agent_build_kit.pipeline.stack_runner import PREDECESSOR_NOTE, Comment
 from agent_build_kit.pipeline.ui_review import attach_hunks
 from agent_build_kit.pipeline.unit_store import (
     KEEP,
+    LANE_REWORKS,
     Cause,
     HeldBy,
     Pull,
@@ -1255,7 +1256,7 @@ def reconsider_depth_hold(
         # child in the merge itself.
         log(f"{unit.id}: restack onto {new_base} failed — {type(error).__name__}: {error}")
         return False
-    log(f"{unit.id}: {'handed to the restack lane' if lane else 'restacked'} onto {new_base}")
+    log(f"{unit.id}: {'handed to the resolution lane' if lane else 'restacked'} onto {new_base}")
     return False
 
 
@@ -1749,12 +1750,7 @@ def _requeue_with(
     )
 
 
-LANE_REWORKS = (ReworkKind.CONFLICT, ReworkKind.COMMENT, ReworkKind.CHANGES_REQUESTED)
-
-
-def _lane_for_conflict(
-    lane: Lane | None, rework: ReworkKind | None, unit: StoredUnit
-) -> Lane | None:
+def _lane_for_rework(lane: Lane | None, rework: ReworkKind | None, unit: StoredUnit) -> Lane | None:
     """The resolution lane that makes the run of a conflict, a comment or a change request sent
     back for `unit`, which is in review; None for any other rework, which is a build."""
     if lane is not None and rework in LANE_REWORKS and unit.state in (IN_REVIEW, PLANNED):
@@ -1781,9 +1777,10 @@ def on_rework(
 ) -> bool:
     """Put a unit back in the queue with what review asked for.
 
-    A conflict rework for a unit that is owed a moved-base run is handed to the `lane`, which
-    makes the whole run and counts its attempt, instead of waiting for a build worker. Any other
-    conflict rework is the first attempt at the base's tip, recorded here with `base_tip`.
+    A rework of a kind in `LANE_REWORKS` (a conflict, a comment, a change request or a label) for
+    a unit in review is handed to the resolution `lane`, which makes the whole run instead of
+    waiting for a build worker. Any other rework is a build's. Without a `lane`, a conflict
+    rework is the first attempt at the base's tip, recorded here with `base_tip`.
 
     False when the unit did not take it (it is held, or being built): the
     poller then keeps the event to report again. `waiting` remembers which
@@ -1820,7 +1817,7 @@ def on_rework(
         if resume(unit, "rework", reason, feedback, rework=rework):
             log(f"rework #{pr}: {unit.id} resumed — {reason}")
             taken = True
-            handing_to = _lane_for_conflict(lane, rework, unit)
+            handing_to = _lane_for_rework(lane, rework, unit)
         else:
             with claim(unit):
                 # Re-read under the lock: a build that has just ended moved it.
@@ -1829,7 +1826,7 @@ def on_rework(
                     taken := _not_for_now(current, pr=pr, reason=reason, waiting=heard, log=log)
                 ) is not None:
                     return taken
-                handing_to = _lane_for_conflict(lane, rework, current)
+                handing_to = _lane_for_rework(lane, rework, current)
                 # Only now, with the unit taking it: a deferred rework asks for nothing.
                 taken = _requeue_with(
                     current,
@@ -1845,7 +1842,7 @@ def on_rework(
     if handing_to is not None:
         # Outside the claim: the lane's run takes the branch itself.
         handing_to.hand_over(unit, claimed=False)
-        log(f"rework #{pr}: {unit.id} handed to the restack lane")
+        log(f"rework #{pr}: {unit.id} handed to the resolution lane")
     elif taken and rework is ReworkKind.CONFLICT and base_tip is not None:
         _record_first_attempt(store, repo, pr, base_tip, log)
     return taken
@@ -1976,7 +1973,7 @@ def on_conflict(
     try:
         if resume(unit, "rework", CONFLICT_REASON, feedback, rework=ReworkKind.CONFLICT):
             log(f"conflict #{pr}: {unit.id} resumed — {CONFLICT_REASON}")
-            if (handing_to := _lane_for_conflict(lane, ReworkKind.CONFLICT, unit)) is None:
+            if (handing_to := _lane_for_rework(lane, ReworkKind.CONFLICT, unit)) is None:
                 counted()
                 return True
         if handing_to is None:
@@ -1985,9 +1982,7 @@ def on_conflict(
                 if current.state != IN_REVIEW or current.pushed != unit.pushed:
                     return True
                 if done > 0 or base_of(current, store.all()) != trunk:
-                    if (
-                        handing_to := _lane_for_conflict(lane, ReworkKind.CONFLICT, current)
-                    ) is None:
+                    if (handing_to := _lane_for_rework(lane, ReworkKind.CONFLICT, current)) is None:
                         reworked(current)
                         return True
                     # The lane makes the run, which counts its own attempt when it starts: the
@@ -2009,7 +2004,7 @@ def on_conflict(
         return _deferred(f"conflict #{pr}", unit, error, log)
     if handing_to is not None:
         handing_to.hand_over(unit, claimed=False)
-        log(f"conflict #{pr}: {unit.id} handed to the restack lane")
+        log(f"conflict #{pr}: {unit.id} handed to the resolution lane")
         return True
     # Outside the unit's claim: the lane takes the branch claim itself, and the move, which may
     # run the resolver, runs there and not in the poll.
@@ -2025,7 +2020,7 @@ def on_conflict(
 
     assert lane is not None  # only a lane is left to hand the move to
     lane.hand_over(unit, work)
-    log(f"conflict #{pr}: {unit.id} handed to the restack lane")
+    log(f"conflict #{pr}: {unit.id} handed to the resolution lane")
     return True
 
 

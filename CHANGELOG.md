@@ -6,7 +6,9 @@
   resolution lane, so it no longer waits behind new builds for a build slot. A run in the lane
   carries the unit through the whole build (the rework, the tests, the checks, the e2e tests, the
   review and the push) and is never handed back to a build worker; one that cannot go on is held
-  for a person with a note naming the step.
+  for a person with a note naming the step. A unit an earlier version handed back
+  (`restack_handed_back`) is still resumed by a build worker; the next release stops reading that
+  cause.
 
 - A pull request merged with a failed check is settled from the default branch's own checks when
   they already answer the question. Before the failing tests are run on the default branch, the

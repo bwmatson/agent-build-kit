@@ -13,7 +13,7 @@ from pathlib import Path
 import pytest
 
 from agent_build_kit.pipeline.pr_poller import CONFLICT_REASON
-from agent_build_kit.pipeline.unit_store import Cause, FeedbackSource, ReworkKind
+from agent_build_kit.pipeline.unit_store import LANE_REWORKS, Cause, FeedbackSource, ReworkKind
 from agent_build_kit.pipeline.units import PLANNED
 from tests.conflict_event_fakes import UNIT, ConflictRig, FakeLane
 
@@ -39,6 +39,21 @@ def test_a_comment_or_a_change_request_is_handed_to_the_lane(
     stored = rig.stored()
     assert (stored.state, stored.cause) == (PLANNED, Cause.REWORK)
     assert stored.feedback, "the lane's run has the words to rework"
+
+
+def test_the_hand_off_takes_exactly_the_kinds_the_scan_owes_a_run(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    handed = set()
+    for kind in ReworkKind:
+        lane = FakeLane()
+        rig = ConflictRig(tmp_path / kind.value, monkeypatch)
+        rig.lane = lane
+        rig.rework(COMMENT, kind)
+        if lane.handed:
+            handed.add(kind)
+
+    assert handed == set(LANE_REWORKS)
 
 
 def test_a_comment_delivered_to_a_parked_thread_is_handed_over_once(

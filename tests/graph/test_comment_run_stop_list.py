@@ -7,20 +7,22 @@ which agents ran, whether the lane ran them, and what the unit was left as.
 
 from __future__ import annotations
 
+import threading
 from pathlib import Path
 from typing import Any
 
 import pytest
 
 from agent_build_kit.cli import pipeline as cli
+from agent_build_kit.pipeline.pr_poller import CONFLICT_REASON
 from agent_build_kit.pipeline.restack import Moved
 from agent_build_kit.pipeline.unit_store import Cause, ReworkKind
-from agent_build_kit.pipeline.units import HELD, IN_REVIEW, PLANNED
+from agent_build_kit.pipeline.units import FAILED, HELD, IN_REVIEW, PLANNED, RUNNING, branch_name
 from agent_build_kit.pipeline.wiring import build_restack_onto
 from tests.factories import git
 from tests.graph.test_restack_lane_prepare import Scene, adapting
 from tests.runner_fakes import rejecting
-from tests.tick_driver import OTHER, Setup
+from tests.tick_driver import OTHER, UNIT, Setup
 
 COMMENT = "[comment c1] a.txt:1 — rename the marker"
 
@@ -50,7 +52,8 @@ def comment_run(scene: Scene) -> int:
     event = ("rework", {"reason": COMMENT, "rework": ReworkKind.COMMENT})
     with cli.build_restack_lane(scene.graph.inst, scene.graph.store) as lane:
         scene.lane = lane
-        assert scene.graph.poll(event, pr=8, lane=lane) == [True]
+        pr = scene.graph.store.get(OTHER).pr
+        assert scene.graph.poll(event, pr=pr or 0, lane=lane) == [True]
         lane.drain()
     return before
 
@@ -92,7 +95,7 @@ def test_a_restack_meeting_a_review_for_changes_reworks_in_the_same_worker(
 
     assert in_the_lane.get("claude:rework") is True, "the lane did the rework itself"
     stored = scene.graph.store.get(OTHER)
-    assert stored.state != PLANNED, "not handed back to a build worker"
+    assert stored.state == IN_REVIEW, stored.note
 
 
 def test_a_restack_meeting_failing_checks_fixes_them_in_the_same_worker(scene: Scene) -> None:
@@ -103,7 +106,9 @@ def test_a_restack_meeting_failing_checks_fixes_them_in_the_same_worker(scene: S
     scene.lane_moves()
 
     assert in_the_lane.get("claude:fix_checks") is True, "the lane fixed the checks itself"
-    assert scene.graph.store.get(OTHER).state != PLANNED
+    stored = scene.graph.store.get(OTHER)
+    # The checks never pass, so the run ends as a build's would: not handed back.
+    assert (stored.state, "checks still failing" in stored.note) == (FAILED, True), stored.note
 
 
 def test_a_restack_of_an_end_to_end_unit_runs_its_e2e_tests_in_the_lane(
@@ -116,7 +121,8 @@ def test_a_restack_of_an_end_to_end_unit_runs_its_e2e_tests_in_the_lane(
     scene.lane_moves()
 
     assert "e2e-test" in graph.recorder.events[built:]
-    assert graph.store.get(OTHER).state != PLANNED
+    stored = graph.store.get(OTHER)
+    assert stored.state == IN_REVIEW, stored.note
 
 
 def test_a_run_whose_review_rounds_are_spent_is_held_for_a_person_with_a_note(
@@ -130,4 +136,66 @@ def test_a_run_whose_review_rounds_are_spent_is_held_for_a_person_with_a_note(
 
     stored = scene.graph.store.get(OTHER)
     assert (stored.state, stored.cause) == (HELD, Cause.NEEDS_HUMAN)
-    assert stored.note, "the note names the step the run could not finish"
+    assert "rounds spent" in stored.note, "the note names the step the run could not finish"
+    assert not stored.note.startswith("restack held")
+
+
+def based_on_a_branch(scene: Scene) -> None:
+    """The unit's base, its parent's branch, exists, so the lane can read the tip of it."""
+    parent = scene.graph.store.get(UNIT)
+    git(scene.repo, "branch", parent.branch or branch_name(parent), "main")
+
+
+def test_comment_reworks_beyond_the_review_rounds_are_each_run_and_never_held(
+    scene: Scene,
+) -> None:
+    based_on_a_branch(scene)
+    rounds = scene.graph.inst.config.global_limits.max_review_rounds
+    in_the_lane = agents_in_the_lane(scene)
+
+    for _ in range(rounds + 1):
+        before = len(scene.graph.recorder.events)
+        comment_run(scene)
+
+        assert "claude:rework" in scene.graph.recorder.events[before:], "each comment is reworked"
+        stored = scene.graph.store.get(OTHER)
+        assert stored.state == IN_REVIEW, stored.note
+        assert stored.conflict_attempts == 0, "a comment is no attempt at the base's tip"
+    assert in_the_lane["claude:rework"] is True
+
+
+def test_a_conflict_rework_whose_base_tip_cannot_be_read_is_skipped(scene: Scene) -> None:
+    event = ("rework", {"reason": CONFLICT_REASON, "rework": ReworkKind.CONFLICT})
+    before = len(scene.graph.recorder.events)
+
+    with cli.build_restack_lane(scene.graph.inst, scene.graph.store) as lane:
+        scene.lane = lane
+        assert scene.graph.poll(event, pr=8, lane=lane) == [True]
+        lane.drain()
+
+    assert "claude:rework" not in scene.graph.recorder.events[before:]
+    assert scene.graph.store.get(OTHER).conflict_attempts == 0
+
+
+def test_a_unit_an_earlier_version_handed_back_is_marked_running_as_a_worker_resumes_it(
+    scene: Scene,
+) -> None:
+    event = ("rework", {"reason": COMMENT, "rework": ReworkKind.COMMENT})
+    assert scene.graph.poll(event, pr=8) == [True]
+    store = scene.graph.store
+    store.set_state(OTHER, PLANNED, note="rework: handed back", cause=Cause.RESTACK_HANDED_BACK)
+    recorder = scene.graph.recorder
+    seen: list[tuple[str, str]] = []
+
+    def agent(prompt: str, **kwargs: Any) -> str:
+        answer = recorder.claude(prompt, **kwargs)
+        if recorder.events[-1] == "claude:rework":
+            seen.append((store.get(OTHER).state, threading.current_thread().name))
+        return answer
+
+    scene.graph.options["run"] = agent
+
+    scene.graph.tick()
+
+    assert seen, "a build worker took the unit up at its step"
+    assert all(state == RUNNING for state, _ in seen)
