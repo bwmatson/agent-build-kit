@@ -45,6 +45,11 @@ and checks again. If it still fails, the tick records the environment as unhealt
 the output, starts nothing and exits non-zero. `abk status` prints the recorded state.
 Units failed with the cause `environment` are resumed in the pass once it is healthy.
 
+The temp sweep (run folders of the pytest temp root older than `global_limits.temp_keep_hours`
+whose process is gone) starts in a background thread at that point, so no unit waits for it. The
+tick waits for the thread, up to a bound, before it returns; a folder it left half removed is
+finished by the next tick's sweep, and a failure in it is logged and never fails the tick.
+
 A repository's own `environment` runs in the unit's worktree (`prepare_worktree`): in the
 tests node and before every unit-test it hashes the inputs there, runs `sync` when the hash
 differs from the one recorded in the worktree's git directory, then `check`. A failure with

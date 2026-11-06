@@ -45,6 +45,11 @@
   a unit-test slot since <time>` while it waits, and `settling: late check running on the default
   branch` once it runs.
 
+- The tick's temp sweep now runs in the background, so a tick that follows a busy day starts its
+  builds at once instead of sitting at "temp sweep: removed ..." first. The tick waits for the
+  sweep, up to a bound, before it returns, and a folder left half removed is finished by the next
+  tick.
+
 - A task group can carry `Project: add <path> <profile>`, `Project: remove <path>` and
   `Project: replace <old> with <new> <profile>` lines naming a change to the projects its
   repository declares. `abk tags` reads and checks each line, lets the change's later groups tag a
