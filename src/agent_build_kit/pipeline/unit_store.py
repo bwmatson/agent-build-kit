@@ -554,6 +554,22 @@ class StoredUnit(Unit):
         and the branch, and no build worker."""
         return self.state == RUNNING and self.moved_base_run and self.resolving == "comment"
 
+    def in_a_worker(self, *, locked: bool, lane_held: Collection[str]) -> bool:
+        """Whether a comment rework is run by a build worker, which holds a worker as a build
+        does: a comment run whose branch lock is held (`locked`) and that no live record of the
+        resolution lane names (`lane_held`). One a full lane passed over to a worker is one."""
+        return self.in_a_comment_run and locked and self.id not in lane_held
+
+    @property
+    def comment_rework_owed(self) -> bool:
+        """Whether the unit is in review or planned, sent back for a comment's rework: the run
+        a build worker takes when the resolution lane is full, as the same resolution run."""
+        return (
+            self.state in (PLANNED, IN_REVIEW)
+            and self.sent_back_for_rework
+            and self.resolving == "comment"
+        )
+
     def has_own_rework_input(self, head: str) -> bool:
         """Whether the unit has saved feedback that is not the conflict's and that review has
         not answered by approving `head`: rework of its own, which makes its run a build."""

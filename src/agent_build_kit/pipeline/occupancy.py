@@ -78,12 +78,15 @@ def occupied(
     now: datetime,
     lane: Collection[str] = (),
     held: Collection[str] = (),
+    lane_held: Collection[str] = (),
     account_of: Callable[[Unit], str | None] = no_account,
 ) -> Occupancy:
     """The occupancy of `units`: those a run holds, which hold a worker and a place: whose branch
     is in `locks` (the branches live locks name), whose `starting` marker has not lapsed at
     `now`, or that a run the caller knows of holds (`held`: its builds in flight and the runs of
-    its restack lane, which have not all written a lock yet). A unit that records a usage pause
+    its restack lane, which have not all written a lock yet). A comment rework with its branch
+    locked that no record of the resolution lane names (`lane_held`) is a build worker's and holds
+    a worker as a build does. A unit that records a usage pause
     and no run holds a place and no worker. A unit whose id is in `leases` (the units live
     leases name) is recorded as leased, and a lease alone takes neither: a person chatting with a
     unit is not a build. Those also in `lane` count in their project's emergency lane."""
@@ -103,8 +106,12 @@ def occupied(
             (unit.branch or branch_name(unit)) in locks or unit.id in held or marker_live(unit, now)
         )
         # A comment rework in the resolution lane holds its place and its branch lock, and no
-        # build worker (`ready_units` shows it running with no worker).
-        comment_run = unit.in_a_comment_run
+        # build worker (`ready_units` shows it running with no worker); one a build worker runs
+        # (the branch locked, no record of the lane naming it) holds a worker as a build does.
+        locked = (unit.branch or branch_name(unit)) in locks
+        comment_run = unit.in_a_comment_run and not unit.in_a_worker(
+            locked=locked, lane_held=lane_held
+        )
         if not (runs or comment_run or usage_paused(unit)):
             continue
         projects[key] += 1

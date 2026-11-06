@@ -27,7 +27,15 @@ def cmd_worker_build(args: argparse.Namespace, inst: Installation) -> int:
         except KeyError:
             print(f"abk worker build: skipped {args.unit!r}, it is not in the store")
             return 0
-        build_unit(inst, unit, store=store, from_snapshot=True)
+        # A comment rework a full resolution lane passed over is the same resolution run here,
+        # as `abk tick` starts it in a worker thread.
+        build_unit(
+            inst,
+            unit,
+            store=store,
+            moved_base_run=unit.comment_rework_owed,
+            from_snapshot=True,
+        )
     finally:
         wake.touch(inst.state_dir)
         # A worker is a short-lived process: what it recorded would be lost at exit.

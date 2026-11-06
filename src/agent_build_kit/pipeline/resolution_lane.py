@@ -373,6 +373,11 @@ def lane_record(state_dir: Path) -> list[dict[str, str]]:
     return held
 
 
+def lane_held_by_record(state_dir: Path) -> set[str]:
+    """The ids of the units the lanes of a live tick hold, running or waiting (`lane_record`)."""
+    return {entry["unit"] for entry in lane_record(state_dir)}
+
+
 def _admit_all(unit: StoredUnit) -> bool:
     return True
 
@@ -491,6 +496,17 @@ class ResolutionLane:
             )
             self._start()
             self._write()
+
+    def withdraw(self, unit: StoredUnit) -> bool:
+        """Take the unit's queued entry out of the lane, for a build worker to run it instead;
+        whether it was queued. A run already going in the lane stays."""
+        with self._changed:
+            for index, entry in enumerate(self._queue):
+                if entry.unit.id == unit.id:
+                    del self._queue[index]
+                    self._write()
+                    return True
+        return False
 
     def scan(self, units: list[StoredUnit]) -> None:
         """Hand over every unit the lane's `owed` names that is not already queued."""
@@ -804,6 +820,12 @@ class ResolutionLanes:
         claimed: bool = True,
     ) -> None:
         self._lane(project_key(unit)).hand_over(unit, work, done=done, claimed=claimed)
+
+    def withdraw(self, unit: StoredUnit) -> bool:
+        """Take the unit's queued entry out of its project's lane (`ResolutionLane.withdraw`)."""
+        with self._guard:
+            lane = self._lanes.get(project_key(unit))
+        return lane is not None and lane.withdraw(unit)
 
     def scan(self, units: list[StoredUnit]) -> None:
         """Hand each owed unit to the lane of its project, making that lane if need be."""

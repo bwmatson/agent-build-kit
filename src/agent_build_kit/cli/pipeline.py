@@ -252,6 +252,7 @@ from agent_build_kit.pipeline.resolution_lane import (
     hold_if_spent,
     in_a_comment_run,
     in_a_lane_run,
+    lane_held_by_record,
     lane_record,
     owed_units,
     record_path,
@@ -870,9 +871,17 @@ def _restack_lines(inst: Installation, units: list[StoredUnit]) -> list[str]:
     owed = sorted(owed_units(inst, units) - in_lane)
     running = [entry for entry in held if entry["status"] == "running"]
     waiting = [entry for entry in held if entry["status"] != "running"]
-    if not (running or waiting or owed):
+    # A comment rework that overflowed from a full lane runs in a build worker: it is resolving,
+    # and is no lane run.
+    worker_ids = in_a_worker(inst, units)
+    in_workers = [unit for unit in units if unit.id in worker_ids]
+    if not (running or waiting or owed or in_workers):
         return []
     lines = [f"resolving: {len(running)} running, {len(waiting) + len(owed)} waiting"]
+    lines.extend(
+        f"  {unit.id} ({unit_label(unit)}) {resolving_phrase('comment', '')} in a worker"
+        for unit in in_workers
+    )
     for entry in [*running, *waiting]:
         where = f" ({unit_label(by_id[entry['unit']])})" if entry["unit"] in by_id else ""
         phrase = resolving_phrase(entry.get("resolving", "base"), entry["base"])
@@ -911,7 +920,10 @@ def _occupancy_now(
         for unit in units
         if unit.state == RUNNING and not branch_is_held(inst, unit.branch or branch_name(unit))
     }
-    return slot_occupancy(units, (), restacking, lane_waiting=waiting, idle=unheld), restacking
+    occupied = slot_occupancy(
+        units, in_a_worker(inst, units), restacking, lane_waiting=waiting, idle=unheld
+    )
+    return occupied, restacking
 
 
 def _slots_line(inst: Installation, units: list[StoredUnit]) -> str | None:
@@ -2832,7 +2844,11 @@ def run_round(
     # as a run in flight does.
     sent = {unit.id for unit in units if marker_live(unit, spans.clock.now())}
     occupied = slot_occupancy(
-        units, in_flight | sent, lane_running, lane_waiting=lane_waiting, idle=idle
+        units,
+        in_flight | sent | in_a_worker(inst, units),
+        lane_running,
+        lane_waiting=lane_waiting,
+        idle=idle,
     )
     workers = set().union(*occupied.values())
     # The emergency lane's units take no worker of the project's own: a rework or a resume
@@ -2882,13 +2898,29 @@ def run_round(
     )
     resumable = _within_workers(waiting_to_resume, taken, cap=inst.max_concurrent_stacks)
     resumed = {unit.id for unit in resumable}
+    # A comment rework the full lane queues takes a free worker after the resumes and before
+    # the units that have never started: it counts as a build from here.
+    overflow = _overflow_runs(
+        inst,
+        units,
+        lane,
+        candidates=[
+            stored_by_id[uid] for uid in (lane.waiting if lane else ()) if uid in stored_by_id
+        ],
+        workers=workers,
+        resumable=resumable,
+        taken=taken,
+        eligible=lambda unit: (not only or unit.id in only) and model_refusal(unit.repo) is None,
+        dry_run=dry_run,
+    )
+    overflowed = {unit.id for unit in overflow}
     reads = RoundReads()
     evaluated, view, _excluded, for_the_lane, lane_starts = _evaluate_round(
         inst,
         units,
         reads=reads,
         started=set(started),
-        building=in_flight | resumed | lane_running,
+        building=in_flight | resumed | overflowed | lane_running,
         only=only,
         # A running unit waiting behind the lane's cap holds no worker, as one no run holds
         # does not (one with a recorded usage pause still counts toward `max_units_in_progress`,
@@ -2936,7 +2968,7 @@ def run_round(
     if not dry_run:
         evaluated = _claim_starts(inst, store, units, evaluated, reads)
         lane_starts = lane_starts & {unit.id for unit in evaluated}
-    ready = [*resumable, *evaluated]
+    ready = [*resumable, *overflow, *evaluated]
     for unit in evaluated:
         if unit.id in lane_starts and not dry_run:
             emergency_lane.enter(inst.state_dir, unit)
@@ -4073,8 +4105,10 @@ def _evaluate_round(
     # A unit no run holds that records a usage pause is in progress and holds its place, with no
     # worker: it is shown running, never held (`ready_units`, `no_worker`).
     paused = {unit.id for unit in units if unit.id in idle and usage_paused(unit)}
-    # A comment rework in the lane is in progress and holds its place, with no build worker.
-    paused |= {unit.id for unit in units if in_a_comment_run(unit)}
+    # A comment rework in the lane is in progress and holds its place, with no build worker; one
+    # a build worker runs (`in_a_worker`) holds a worker.
+    in_workers = in_a_worker(inst, units)
+    paused |= {unit.id for unit in units if in_a_comment_run(unit) and unit.id not in in_workers}
     # A unit admission sent to a worker that has not yet taken its lock is in progress as one in
     # flight is: its marker has not lapsed.
     marked = {unit.id for unit in units if marker_live(unit, now)}
@@ -4199,6 +4233,68 @@ def _within_workers[U: Unit](
     return chosen
 
 
+def in_a_worker(inst: Installation, units: Iterable[StoredUnit]) -> set[str]:
+    """The ids of the comment reworks a build worker runs, which hold a worker as a build does:
+    each holds its branch's lock and no live record of the resolution lane names it
+    (`StoredUnit.in_a_worker`). The slot counts, the round and `abk status` read this one rule."""
+    held = lane_held_by_record(inst.state_dir)
+    return {
+        unit.id
+        for unit in units
+        if unit.in_a_worker(
+            locked=branch_is_held(inst, unit.branch or branch_name(unit)), lane_held=held
+        )
+    }
+
+
+def _overflow_runs(
+    inst: Installation,
+    units: list[StoredUnit],
+    lane: Lane | None,
+    *,
+    candidates: list[StoredUnit],
+    workers: Collection[str],
+    resumable: Sequence[Unit],
+    taken: Mapping[ProjectKey, int],
+    eligible: Callable[[StoredUnit], bool],
+    dry_run: bool = False,
+) -> list[StoredUnit]:
+    """The comment reworks the full lane queues that a free build worker takes, first seen
+    first: each leaves the lane's queue and counts as a build from here. A project's workers
+    are `max_concurrent_stacks` less the builds in `taken` and the resumes (the cap
+    `_within_workers` holds the others to), and an account that caps its builds is held to that
+    cap across its projects, as a build is. A dry run names the same units and leaves the queue
+    as it is."""
+    if lane is None:
+        return []
+    slot_of = _slot_of(inst)
+    cap_of = _slot_stack_limit(inst)
+    used = dict(taken)
+    in_slot: dict[Hashable, int] = {}
+    for unit in units:
+        if unit.id in workers:
+            in_slot[slot_of(unit)] = in_slot.get(slot_of(unit), 0) + 1
+    for unit in resumable:
+        used[project_key(unit)] = used.get(project_key(unit), 0) + 1
+        in_slot[slot_of(unit)] = in_slot.get(slot_of(unit), 0) + 1
+    fits = _within_workers(
+        [unit for unit in candidates if unit.comment_rework_owed and eligible(unit)],
+        used,
+        cap=inst.max_concurrent_stacks,
+    )
+    chosen: list[StoredUnit] = []
+    for unit in fits:
+        slot = slot_of(unit)
+        cap = cap_of(slot)
+        if cap is not None and in_slot.get(slot, 0) >= cap:
+            continue
+        if not dry_run and not lane.withdraw(unit):
+            continue
+        in_slot[slot] = in_slot.get(slot, 0) + 1
+        chosen.append(unit)
+    return chosen
+
+
 def slot_occupancy(
     units: Iterable[StoredUnit],
     building: Collection[str],
@@ -4218,7 +4314,8 @@ def slot_occupancy(
     skipped = {*idle, *lane_waiting}
     occupied: dict[ProjectKey, set[str]] = {}
     for unit in units:
-        if in_a_comment_run(unit):
+        # A comment rework a build worker runs (`building`) is a build; one in the lane is not.
+        if in_a_comment_run(unit) and unit.id not in building:
             continue
         if unit.id in ids or (unit.state == RUNNING and unit.id not in skipped):
             occupied.setdefault(project_key(unit), set()).add(unit.id)
@@ -4998,6 +5095,8 @@ def _schedule(
                     unit,
                     store=store,
                     queued=queued.pop(unit.id, None),
+                    # A comment rework the full lane passed over is the same resolution run.
+                    moved_base_run=store.get(unit.id).comment_rework_owed,
                     lane=lane,
                 )
                 building[pool.submit(work.run, run)] = unit
@@ -6861,7 +6960,12 @@ def build_restack_lane(inst: Installation, store: UnitStore) -> ResolutionLanes:
 
     lanes = ResolutionLanes(
         make,
-        owed=lambda units: owed_units(inst, units),
+        # A unit admission has sent to a build worker (its marker has not lapsed) is that
+        # worker's, not the lane's.
+        owed=lambda units: (
+            owed_units(inst, units)
+            - {unit.id for unit in units if marker_live(unit, spans.clock.now())}
+        ),
         # An account that sets `max_concurrent_resolutions` is held to it across its lanes.
         account_of=_slot_of(inst),
         account_cap=_slot_restack_limit(inst),
