@@ -514,8 +514,10 @@ from 1, every group has tasks, `[contract]` paired with a last `[narrow]` (excep
 `fix-test-*`, a test fix, which carries `[contract]` for the full review it floors),
 `[acceptance]` present (as `e2e-test`, after everything it exercises) or opted
 out with a reasoned `Acceptance: none — ...` line. Prints each problem with
-its line, then the groups when clean, each with its mode (build mode `tests_and_code`, build mode
-`tests_only`, build mode `no_code` or build mode `refactor`). Also warns, once per group and
+its line, then the groups when clean, each with its floor mode: the lowest build mode the planner
+may build it in (build mode `tests_and_code`, build mode `tests_only` or build mode `no_code`).
+The planner may raise a `no_code` group to `tests_and_code`. No group is given build mode
+`refactor` yet: neither the planner nor the floor chooses it. Also warns, once per group and
 without failing, when a group can give its unit unrelated open parents: an `[acceptance]` or
 `[narrow]` group after an `Independent:` group, an `Independent:` group followed by a later
 group of its repo, or a `Needs:` to another change's same-repo group beside a same-repo

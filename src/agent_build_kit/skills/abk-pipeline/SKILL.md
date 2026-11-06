@@ -113,7 +113,9 @@ local stack). A unit of several groups takes the widest kind.
 
 ## Group build modes
 
-Every task group has a build mode, which `abk tags` shows: build mode `tests_and_code` (a `test:` commit, then a
+Every task group has a build mode, and `abk tags` shows the floor of each (the lowest the planner may
+build it in; it may raise `no_code` to `tests_and_code`). No group is given build mode `refactor` yet:
+neither the planner nor the floor chooses it. The modes are build mode `tests_and_code` (a `test:` commit, then a
 `feat:`; the tests must fail first), build mode `tests_only` (a lone `test:`; each test must pass), build mode
 `no_code` (documents or configuration only: a lone `feat:`, no tests node) and build mode `refactor` (a lone
 `feat:` that edits tests only mechanically). The planner decides the mode, never below the floor. The tag

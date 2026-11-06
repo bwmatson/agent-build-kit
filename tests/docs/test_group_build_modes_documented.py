@@ -6,21 +6,13 @@ from __future__ import annotations
 import pytest
 
 from agent_build_kit import skills
-from tests.doc_text import ROOT, squashed, unreleased_bullets
+from tests.doc_text import ROOT, cli_entry, squashed, unreleased_bullets
 
 MODES = ("tests_and_code", "tests_only", "no_code", "refactor")
 DOCUMENTS = {
     "architecture": ROOT / "docs" / "architecture.md",
     "unit-graph": ROOT / "docs" / "designs" / "unit-graph.md",
 }
-
-
-def cli_entry(heading: str) -> str:
-    """One entry of the command reference, up to the next heading."""
-    text = (ROOT / "docs" / "cli.md").read_text(encoding="utf-8")
-    start = text.index(heading)
-    end = text.find("\n#", start + len(heading))
-    return squashed(text[start : end if end != -1 else None])
 
 
 def test_the_pipeline_skill_describes_the_four_modes_and_the_prompt_table() -> None:
