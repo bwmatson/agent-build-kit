@@ -1012,19 +1012,29 @@ push and a pull request, whose description says it is over its ceiling and not s
 call is needed, so it proceeds even while planning is refused. `review.unsplittable: hold` keeps
 the old behaviour: the unit is held again for a person.
 
-**Builders are told to reuse before they write.** One packaged, language-neutral part
-(`reuse_guidance.reuse_guidance`, `templates/reuse-guidance.md`) is appended to the full
-prompts for writing tests, implementing, fixing checks and reworking after review or
-feedback: search for an existing helper, constant, pattern or fixture first, write shared
-logic once, give calls that change together one function, use the shared test support,
+**Builders are told to reuse before they write.** Two packaged, language-neutral parts
+(`reuse_guidance.reuse_guidance(kind)`) carry the guidance, and neither reads anything from
+the repository. The source version (`templates/reuse-guidance.md`) is appended to the full
+implement, fix-checks and rework prompts: search for an existing helper, constant or
+pattern first, write shared logic once, give calls that change together one function,
 delete what the change makes dead and stay within the change. It says how to look (what
-neighbouring code imports, shared-code modules, the test runner's support places, the
-language's or common conventions, search by behaviour as well as name) and reads nothing
-from the repository. A continuation prompt does not repeat it, so in a reused session it
-appears once, in the prompt that writes the tests; a node that starts a new session gets it
-in its full prompt. The adapt prompt keeps its own instruction not to re-implement what the
-predecessor provides. The rework prompt also tells the agent to look for the others of the
-kind, and the tests prompt points to the shared fixtures.
+neighbouring code imports, shared-code modules, the language's or common conventions,
+search by behaviour as well as name). The test version (`templates/reuse-guidance-tests.md`)
+is appended to the tests step's prompt. A rework carries both versions when the group it
+rebuilds names a test file. A `tests_only` group's tests prompt carries
+the test version; a `no_code` or `refactor` group builds no tests prompt and carries neither.
+A continuation prompt carries neither, so in a reused session the guidance appears once; a
+node that starts a new session gets it in its full prompt. The adapt prompt keeps its own
+instruction not to re-implement what the predecessor provides. The rework prompt also tells
+the agent to look for the others of the kind, and the tests prompt points to the shared
+fixtures.
+
+The test version adds the points the placement rule does not: parametrise cases that
+differ only in data (T21); keep one shared fixture or helper per need in the shared test
+support, since the same setup block in several files is a missing fixture (T8a, T21); and
+never write a test whose subject is another test or a test helper (T22), because the repeat
+check re-runs a changed test. The placement rule is stated once, in the tests prompt, and the
+test version points to it and does not restate it.
 
 The tests prompt also decides before it stubs a named function: after searching, an
 existing function that does the job is tested through (no stub, "reused X instead of
