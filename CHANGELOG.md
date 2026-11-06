@@ -36,6 +36,7 @@
   comes back after an accept changes nothing. `abk status` shows `settling: late check waiting for
   a unit-test slot since <time>` while it waits, and `settling: late check running on the default
   branch` once it runs.
+
 - The tick's temp sweep now runs in the background, so a tick that follows a busy day starts its
   builds at once instead of sitting at "temp sweep: removed ..." first. The tick waits for the
   sweep, up to a bound, before it returns, and a folder left half removed is finished by the next
