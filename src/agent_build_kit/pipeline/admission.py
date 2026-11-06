@@ -20,6 +20,7 @@ from agent_build_kit.pipeline.occupancy import (
     no_account,
     occupied,
 )
+from agent_build_kit.pipeline.resolution_lane import lane_held_by_record
 from agent_build_kit.pipeline.slots import account_labels, extra_of, slot_stack_limit
 from agent_build_kit.pipeline.unit_store import Starting, StoredUnit, UnitStore
 from agent_build_kit.pipeline.units import Unit, branch_name, in_progress, project_key
@@ -76,6 +77,7 @@ def current_occupancy(
         now=now,
         lane=lane_units(inst.state_dir),
         held=held,
+        lane_held=lane_held_by_record(inst.state_dir),
         account_of=account_of(inst),
     )
 

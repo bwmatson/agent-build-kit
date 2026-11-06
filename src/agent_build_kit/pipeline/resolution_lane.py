@@ -373,6 +373,11 @@ def lane_record(state_dir: Path) -> list[dict[str, str]]:
     return held
 
 
+def lane_held_by_record(state_dir: Path) -> set[str]:
+    """The ids of the units the lanes of a live tick hold, running or waiting (`lane_record`)."""
+    return {entry["unit"] for entry in lane_record(state_dir)}
+
+
 def _admit_all(unit: StoredUnit) -> bool:
     return True
 

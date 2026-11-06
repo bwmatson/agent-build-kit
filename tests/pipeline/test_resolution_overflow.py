@@ -9,12 +9,17 @@ named by the test. A comment rework owed while the lane is full is queued in the
 
 from __future__ import annotations
 
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import pytest
 
 from agent_build_kit.cli import pipeline as cli
+from agent_build_kit.pipeline import spans
+from agent_build_kit.pipeline.admission import admit
+from agent_build_kit.pipeline.unit_store import Starting
 from agent_build_kit.pipeline.units import IN_REVIEW
+from agent_build_kit.pipeline.workspaces import branch_lock
 from tests.cli.test_account_stack_cap_tick import lane_running, workspace
 from tests.emergency_lane_support import build, fresh, seeded
 from tests.lane_run_slots import Slots, as_comment_run, as_owed_comment
@@ -48,11 +53,61 @@ def test_the_overflow_run_is_not_started_again_when_the_lane_has_room(
         slots.run("c1/1")
         slots.owed_comments("c2/1")
         assert slots.started() == ["c2/1"]
+        # Admission marks the unit it let start; the lane's scan leaves it to its worker.
+        marker = Starting(worker="tick-1", until=datetime.now(UTC) + timedelta(minutes=10))
+        slots.store.set_starting("c2/1", marker)
+        slots.lanes.scan(slots.store.all())
+        assert slots.lanes.waiting == [], "the scan did not queue it again"
 
         slots.end("c1/1")
 
         assert slots.runs.started == ["c1/1"], "the lane did not take the run the worker has"
         assert slots.lanes.waiting == []
+
+
+def test_a_dry_round_names_the_overflow_run_and_leaves_the_lane_queue_as_it_is(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    units = [build("c1/1"), build("c2/1", IN_REVIEW)]
+    with Slots(tmp_path, monkeypatch, units, restacks=1) as slots:
+        slots.comment_runs("c1/1")
+        slots.run("c1/1")
+        slots.owed_comments("c2/1")
+
+        ready = cli.run_round(
+            slots.inst,
+            slots.store,
+            building=(),
+            only=frozenset(),
+            submit=True,
+            lane=slots.lanes,
+            dry_run=True,
+        )
+
+        assert [unit.id for unit in ready] == ["c2/1"]
+        assert slots.lanes.waiting == ["c2/1"], "a dry round writes no state"
+
+
+def test_an_overflow_run_in_a_worker_holds_it_for_another_tick_once_its_marker_lapsed(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # `c2/1` runs in a worker of another tick: stored as a comment run, its branch locked, no
+    # start marker, and no live record of the lane naming it.
+    units = [build("c2/1", IN_REVIEW), fresh("r1/1")]
+    with Slots(tmp_path, monkeypatch, units, cap=1) as slots:
+        slots.comment_runs("c2/1")
+        with branch_lock(slots.store.get("c2/1").branch, root=slots.inst.locks_dir):
+            assert slots.started() == [], "the one worker is the overflow run's"
+            admitted = admit(
+                slots.inst,
+                slots.store,
+                [slots.store.get("r1/1")],
+                worker="tick-2",
+                now=spans.clock.now(),
+                ttl=timedelta(minutes=10),
+            )
+
+            assert admitted == []
 
 
 def test_the_overflow_run_counts_toward_the_stacks_and_not_the_lane(

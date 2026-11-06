@@ -5,11 +5,15 @@ waits on)."""
 
 from __future__ import annotations
 
+import json
+import os
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 from agent_build_kit.installation import Installation
+from agent_build_kit.pipeline import host
 from agent_build_kit.pipeline.admission import admit, current_occupancy
+from agent_build_kit.pipeline.resolution_lane import record_path
 from agent_build_kit.pipeline.unit_store import UnitStore
 from agent_build_kit.pipeline.units import RUNNING, project_key
 from agent_build_kit.pipeline.workspaces import branch_lock
@@ -51,6 +55,9 @@ def test_a_comment_rework_holding_its_branch_lock_takes_no_worker_from_admission
 ) -> None:
     inst, store = workspace(tmp_path)
     as_comment_run(store, "run1/1")
+    # The lane's live record names the run, as the lane writes it when the run starts.
+    record = {"pid": os.getpid(), "host": host.this_host(), "units": [{"unit": "run1/1"}]}
+    record_path(inst.state_dir, project_key(store.get("run1/1"))).write_text(json.dumps(record))
 
     with branch_lock("spec/run1/1", root=inst.locks_dir):
         found = current_occupancy(inst, store.all(), datetime.now(UTC))
