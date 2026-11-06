@@ -7,7 +7,7 @@ from pathlib import Path
 import pytest
 
 from agent_build_kit.pipeline.group_mode import GroupMode
-from agent_build_kit.pipeline.stack_runner import tests_prompt
+from agent_build_kit.pipeline.stack_runner import write_tests_prompt
 from agent_build_kit.pipeline.wiring import build_run_review
 from tests.factories import activate_with
 from tests.prompt_text import flat
@@ -23,8 +23,8 @@ FIELDS = {
 }
 
 
-def tests_text(mode: GroupMode) -> str:
-    return flat(tests_prompt(mode, **FIELDS)).lower()
+def prompt_text_of(mode: GroupMode) -> str:
+    return flat(write_tests_prompt(mode, **FIELDS)).lower()
 
 
 def review_text(tmp_path: Path, modes: dict[str, GroupMode] | None) -> str:
@@ -35,7 +35,7 @@ def review_text(tmp_path: Path, modes: dict[str, GroupMode] | None) -> str:
 
 
 def test_a_tests_and_code_tests_prompt_carries_the_standards_and_says_tests_must_fail() -> None:
-    text = tests_text(GroupMode.TESTS_AND_CODE)
+    text = prompt_text_of(GroupMode.TESTS_AND_CODE)
 
     assert "protocol boundary" in text
     assert "recorded from the real system" in text
@@ -43,7 +43,7 @@ def test_a_tests_and_code_tests_prompt_carries_the_standards_and_says_tests_must
 
 
 def test_a_tests_only_tests_prompt_says_there_is_no_implementation_and_tests_must_pass() -> None:
-    text = tests_text(GroupMode.TESTS_ONLY)
+    text = prompt_text_of(GroupMode.TESTS_ONLY)
 
     assert "builds no implementation" in text
     assert "must pass" in text
@@ -53,7 +53,7 @@ def test_a_tests_only_tests_prompt_says_there_is_no_implementation_and_tests_mus
 @pytest.mark.parametrize("mode", [GroupMode.NO_CODE, GroupMode.REFACTOR])
 def test_a_group_with_no_tests_node_has_no_tests_prompt(mode: GroupMode) -> None:
     with pytest.raises(ValueError, match="tests"):
-        tests_prompt(mode, **FIELDS)
+        write_tests_prompt(mode, **FIELDS)
 
 
 def test_a_no_code_review_prompt_carries_no_test_standard(tmp_path: Path) -> None:

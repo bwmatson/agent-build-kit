@@ -8,12 +8,13 @@ re-run did nothing twice.
 from __future__ import annotations
 
 import json
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from pathlib import Path
 from typing import Any
 
 from agent_build_kit.config import active
 from agent_build_kit.pipeline.commit_order import TESTS_PREFIX
+from agent_build_kit.pipeline.group_mode import GroupMode
 from agent_build_kit.pipeline.stack_runner import UnitRunner
 from agent_build_kit.pipeline.unit_store import UnitStore
 
@@ -112,6 +113,7 @@ class Recorder:
         resume_session: str = "",
         on_session: Callable[[str], None] | None = None,
         on_result: Callable[..., None] | None = None,
+        group_modes: Mapping[str, GroupMode] | None = None,
     ) -> str:
         self.contexts.append(context)
         self.events.append("review")

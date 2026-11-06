@@ -132,7 +132,6 @@ from agent_build_kit.pipeline.stack_runner import (
     STUBBED_TESTS_FINISH,
     TEST_ONLY_TESTS_FINISH,
     TESTS_FINISH,
-    TESTS_PROMPT,
     TRIED_NOTE,
     UNIT_TEST_FAILED,
     WHOLE_ASK,
@@ -149,6 +148,7 @@ from agent_build_kit.pipeline.stack_runner import (
     person_guidance,
     tests_needing_decision,
     with_response,
+    write_tests_prompt,
 )
 from agent_build_kit.pipeline.unit_store import (
     Cause,
@@ -1617,7 +1617,9 @@ class BuildPath:
             change_dir, groups = self.scope(state)
             build_boundary, _ = r.boundary_notes(unit, self.graph)
             self.say(f"write the tests ({models().implement})")
-            prompt = TESTS_PROMPT.format(
+            step = self.group_step(state)
+            prompt = write_tests_prompt(
+                step.mode if step is not None else GroupMode.TESTS_AND_CODE,
                 commands=commands_note(r.repo_config),
                 guidance=person_guidance(r.store.get(unit.id).guidance),
                 groups=groups,
@@ -1926,6 +1928,19 @@ class BuildPath:
             r.store.set_guidance(unit.id, "")
             kept["guidance_asked"] = guidance_asked(state, note)
         return kept
+
+    def review_group_modes(self) -> dict[str, GroupMode]:
+        """The mode of each group the unit builds, keyed by change and group number, for the
+        review prompt; empty when every group is `tests_and_code`, which the prompt assumes."""
+        if not self.stubbed():
+            return {}
+        modes = {
+            f"{Path(step.change_dir).name}/{step.number}": step.mode
+            for step in self.runner.group_steps(self.unit)
+        }
+        if all(mode is GroupMode.TESTS_AND_CODE for mode in modes.values()):
+            return {}
+        return modes
 
     def group_modes(self) -> tuple[GroupMode, ...]:
         """The build mode of each group a stubbed build builds; none for a build that is not
@@ -2295,6 +2310,8 @@ class BuildPath:
         )
         if outside := self.outside_note(state, tree):
             context = {**context, "context": self.told(context.get("context", ""), outside).strip()}
+        if modes := self.review_group_modes():
+            context = {**context, "group_modes": modes}
         raw = self.agent(
             r.run_review if first else r.run_rework_review, cwd=tree, state=state, **context
         )

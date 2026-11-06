@@ -299,16 +299,19 @@ Do not write the implementation.
 TEST_ONLY_TESTS_FINISH = """\
 This is the only step this group gets: it builds no implementation and none follows, so work every
 task of the group here, test-support code included, not only the test tasks. Its work is committed
-on its own. Nothing it tests is missing, so it needs no stubs. Do not run tests that need the
-live stack; they are run later against the real stack.
+on its own. Nothing it tests is missing, so it needs no stubs and each test must pass. Do not run
+tests that need the live stack; they are run later against the real stack.
 Before you finish: the tests you wrote must pass lint, format and types, so run those checks
 and fix what they report.
 """
 
 
-def tests_prompt(mode: GroupMode, **fields: object) -> str:
+def write_tests_prompt(mode: GroupMode, **fields: object) -> str:
     """The tests prompt of a group built in `mode`; a mode with no tests step is refused."""
-    raise NotImplementedError
+    if not mode.writes_tests:
+        raise ValueError(f"a {mode.value} group has no tests step, so no tests prompt")
+    finish = TEST_ONLY_TESTS_FINISH if mode is GroupMode.TESTS_ONLY else TESTS_FINISH
+    return TESTS_PROMPT.format(**{"finish": finish, **fields})
 
 
 class GroupStep(Frozen):
