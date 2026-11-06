@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+- The restack lane is now the resolution lane. A review comment, a change request or a conflict
+  on an open pull request is reworked there beside restacks and moved-base runs, at most
+  `project_limits.max_concurrent_resolutions` at once, so a comment no longer waits behind new
+  builds. A run is carried through the whole build and is held for a person when it cannot go
+  on, never handed back to a build worker, and a full lane overflows into a free build worker.
+  `abk status` says whether a unit is resolving a base or a comment. The old key
+  `max_concurrent_restacks` still loads with a deprecation notice and `abk config --migrate`
+  renames it; it will be dropped in a later release.
+
 - A unit's e2e-test step now runs only the e2e tests the unit's own branch added or changed. The
   tests are listed from the point the branch left its base, and the base is the remote's trunk
   (or the parent's branch for a stacked unit) as in every other step, not the checkout's local

@@ -206,12 +206,11 @@ A settling unit shows `settling: waiting for <checks> since <time>` while its pu
 A split with a `gate` adds a `gate usage:` line: the split, the provider, the amount used against the budget and as a percent, the threshold now (and what it moves towards while it ramps), when the window resets, whether the split is held or usable or its usage unknown (with the reason), and the source and age of the reading. A command gate shows its result and reason. A split held by another source shows that source as the hold. Without `--refresh` only the cache is read, so no provider is asked and no command is run; `--refresh` reads afresh.
 The `queue is full` lines are one for each project at its limit, as the tick paragraph above says.
 A `resolving: N running, M waiting` line, which totals the lane of every project, printed only while the resolution lane has work or a unit
-is owed a restack, is followed by each unit as `<unit> resolving base <base>`; a run waiting for a
-usage pause is listed with the pause. The lane runs the whole moved-base run of a unit whose base moved, so a unit
-shows as `resolving base <base>` for the whole run, not only the move; the lane's cap bounds the moved-base run, and a
-run the lane cannot go on with is handed back to a build worker, `planned` with the cause `restack_handed_back`. The
-slots line shows that the run counts toward slot occupancy, so it may read over the cap, as in `slots: 5/4, 1 restacking` (the line totals every project, like the resolving line, and its cap is the per-project cap times the projects with unfinished work): the run is
-never held back by the limit on build workers, but no build starts at or above it. A record left by a tick that has gone
+is owed a resolution, is followed by each unit as `<unit> resolving base <base>` or `<unit> resolving a comment`; a run waiting for a
+usage pause is listed with the pause. The lane runs the whole resolution of a unit, a restack, a moved-base run or a
+comment run, so a unit shows as resolving for the whole run; `max_concurrent_resolutions` bounds the lane, and a run the
+lane cannot go on with is held for a person (`needs_human`) with a note. A full lane overflows into a free ordinary
+build worker, and that run counts toward `max_concurrent_stacks`. A record left by a tick that has gone
 is ignored.
 A group carried by two units that have started and not finished is listed as `group N of CHANGE is
 carried by A (state), B (state) — suggestion: abk retire A --reason "..."`, suggesting the unit
