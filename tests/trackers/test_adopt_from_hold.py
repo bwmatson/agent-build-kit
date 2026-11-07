@@ -19,9 +19,12 @@ from agent_build_kit.pipeline.tracker_file import (
     read_tracker,
     write_tracker,
 )
+from agent_build_kit.pipeline.unit_store import UnitStore
 from agent_build_kit.pipeline.units import UnitState
+from agent_build_kit.trackers.apply import apply_changes
 from agent_build_kit.trackers.base import Item
 from agent_build_kit.trackers.local import EPIC_TYPE
+from agent_build_kit.trackers.poll import poll_board
 from agent_build_kit.trackers.reconciler import PassReport, read_snapshot, reconcile
 from tests.trackers.board_support import (
     CHANGE,
@@ -412,3 +415,89 @@ def test_a_group_item_covering_several_groups_goes_to_the_lowest_with_a_conflict
     assert recorded(world).groups[f"{CHANGE}:1"].id == both.id
     assert named(report, f"{CHANGE}:2")
     assert recorded(world).groups.get(f"{CHANGE}:2", Synced(id="")).id != both.id
+
+
+def test_an_adopted_group_retitled_on_the_board_is_not_pushed_over_by_the_spec(
+    tmp_path: Path,
+) -> None:
+    world = world_for(tmp_path, ["change", "group"])
+    change = hand_made(world, "change", "Remember lanes")
+    group = hand_made(world, "group", PERSON_TITLE, change.id)
+    hold_with(world, {"change": change.id, "group": group.id})
+    run(world)
+    poll_board("app", state_dir=world.state_dir, log=world.logs.append)
+
+    world.tracker.as_identity("alice@example.test").update(group.id, {"title": "Sam, again"})
+    changes = poll_board("app", state_dir=world.state_dir, log=world.logs.append)
+    applied = apply_changes(
+        "app",
+        changes,
+        changes_dir=world.changes_dir,
+        store=UnitStore(tmp_path / "units.json"),
+        log=world.logs.append,
+    )
+    world.tracker.calls.clear()
+    world.run([covering(f"{CHANGE}/1", (1,), UnitState.IN_REVIEW)])
+
+    assert not applied.conflicts
+    assert world.tracker.get(group.id).title == "Sam, again"
+    assert all("title" not in call.args[1] for call in world.tracker.made("update"))
+    entry = recorded(world).groups[f"{CHANGE}:1"]
+    assert entry.adopted
+    assert entry.fields["title"] == "Sam, again"
+
+
+def test_a_group_id_is_not_adopted_while_its_change_item_is_in_conflict(tmp_path: Path) -> None:
+    world = world_for(tmp_path, ["change", "group"])
+    other = hand_made(world, "change", "Another change")
+    group = hand_made(world, "group", PERSON_TITLE, other.id)
+    write_change(world.changes_dir, OTHER)
+    write_tracker(
+        world.changes_dir / OTHER,
+        TrackerFile(
+            kind=world.section.kind,
+            target=mapping_target(world.section),
+            change=Synced(id=other.id),
+        ),
+    )
+    hold_with(world, {"change": other.id, "group": group.id})
+
+    report = run(world)
+
+    assert recorded(world).groups == {}
+    assert named(report, f"{CHANGE}:1", CHANGE)
+    assert ("group", f"{CHANGE}:1") not in creates(world)
+
+
+def test_a_group_only_hold_does_not_adopt_a_group_hung_under_another_item(
+    tmp_path: Path,
+) -> None:
+    world = world_for(tmp_path, ["change", "group"])
+    elsewhere = hand_made(world, "change", "Hung on another item")
+    group = hand_made(world, "group", PERSON_TITLE, elsewhere.id)
+    hold_with(world, {"group": group.id})
+
+    run(world)
+    assert f"{CHANGE}:1" not in recorded(world).groups
+    assert ("group", f"{CHANGE}:1") not in creates(world)
+
+    report = run(world)
+    assert f"{CHANGE}:1" not in recorded(world).groups
+    assert named(report, f"{CHANGE}:1", "hangs under")
+
+
+def test_a_group_already_synced_keeps_updating_under_a_hold_that_covers_it_too(
+    tmp_path: Path,
+) -> None:
+    world = world_for(tmp_path, ["change", "group"])
+    run(world, 1, 2)
+    mapping = recorded(world)
+    assert mapping.change is not None
+    second = mapping.groups[f"{CHANGE}:2"]
+    both = hand_made(world, "group", PERSON_TITLE, mapping.change.id)
+    hold_with(world, {"group": both.id}, scope=(1, 2))
+
+    report = world.run([covering(f"{CHANGE}/1", (2,), UnitState.IN_REVIEW)])
+
+    assert not named(report, f"{CHANGE}:2")
+    assert any(call.args[0] == second.id for call in world.tracker.made("update"))

@@ -7,7 +7,7 @@ does not check out is a conflict for a person, with nothing created in its place
 
 from __future__ import annotations
 
-from collections.abc import Collection, Sequence
+from collections.abc import Collection, Mapping, Sequence
 from pathlib import Path
 
 from agent_build_kit.forges.transport import NotFound
@@ -132,6 +132,14 @@ class _Seed:
             )
             return False
         expected = parent_item(self.file, self.section, wanted.level, marker)
+        if expected is None and self.section.parent_level(wanted.level) in ("change", "group"):
+            # Its parent item is not recorded yet: checked on a later pass, once it is.
+            parent = wanted.parent_marker
+            if parent in self.blocked:
+                self.conflict(marker, f"its parent {parent} is in conflict: item {found.id} waits")
+            else:
+                self.blocked.add(marker)
+            return False
         if wanted.level != "change" and expected is not None and found.parent_id != expected:
             self.conflict(
                 marker,
@@ -162,7 +170,7 @@ class _Seed:
             tasks = {**self.file.tasks, wanted.marker: entry}
             self.file = self.file.model_copy(update={"tasks": tasks})
 
-    def _recorded(self, wanted: WantedItem) -> bool:
+    def recorded(self, wanted: WantedItem) -> bool:
         if wanted.level == "change":
             return self.file.change is not None
         if wanted.level == "group":
@@ -171,7 +179,7 @@ class _Seed:
 
     def seed(self, wanted: WantedItem, item_id: str | None) -> None:
         """Adopt the item `item_id` names for `wanted`, else the one its marker finds."""
-        if self._recorded(wanted):
+        if self.recorded(wanted):
             return
         if item_id is not None:
             found = self._read(wanted, item_id)
@@ -244,6 +252,8 @@ def _seed_hold(
 ) -> None:
     assigned, extras = _hold_items(changes_dir, seed.name, hold, by_level)
     for item in extras:
+        if seed.recorded(item):
+            continue  # already synced: it keeps updating
         lowest = assigned[0][0].marker
         seed.conflict(
             item.marker,
@@ -258,7 +268,7 @@ def _seed_hold(
 
 def claimed_markers(
     section: TrackerSection,
-    files: Collection[str],
+    files: Mapping[str, TrackerFile],
     wanted: Sequence[WantedItem],
     changes_dir: Path,
 ) -> frozenset[str]:
@@ -271,9 +281,10 @@ def claimed_markers(
             if _ids(hold, _CHANGE_KEYS):
                 claimed.update(item.marker for item in by_level.get("change", []))
             assigned, extras = _hold_items(changes_dir, name, hold, by_level)
-            claimed.update(item.marker for item in extras)
+            recorded = files[name].groups
+            claimed.update(item.marker for item in extras if item.marker not in recorded)
             claimed.update(item.marker for item, item_id in assigned if item_id is not None)
-            held = {item.marker for item, item_id in assigned if item_id is not None}
+            held = {item.marker for item, _ in assigned}
             claimed.update(
                 item.marker for item, item_id in _task_pairs(hold, by_level, held) if item_id
             )

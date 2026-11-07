@@ -116,7 +116,7 @@ def _coverage(change_dir: Path, holds: Sequence[Hold]) -> list[tuple[Hold, froze
 
 def hold_groups(change_dir: Path, hold: Hold) -> frozenset[int]:
     """The groups `hold` covers in the change's file: an `all` hold leaves out those a done hold
-    has taken. None when the file has no such hold."""
+    has taken. Empty when the file has no such hold."""
     for other, groups in _coverage(change_dir, read_holds(change_dir)):
         if other == hold:
             return groups

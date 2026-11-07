@@ -22,7 +22,6 @@ from agent_build_kit.pipeline.task_progress import (
 )
 from agent_build_kit.pipeline.tracker_file import (
     ConflictRecord,
-    Synced,
     TargetMismatch,
     TaskEntry,
     TrackerFile,
@@ -293,11 +292,15 @@ class _Apply:
         if item.title == spec:
             self._close(where.change, item.id, "title")
             return
-        self._conflict(item.id, "title", spec, item.title, "edited on the board; the spec's wins")
-        moved = Synced(
-            id=entry.id, fields={**entry.fields, "title": item.title}, revision=item.revision
+        if not entry.adopted:  # an adopted item keeps the board's wording: no conflict
+            self._conflict(
+                item.id, "title", spec, item.title, "edited on the board; the spec's wins"
+            )
+        moved = entry.model_copy(
+            update={"fields": {**entry.fields, "title": item.title}, "revision": item.revision}
         )
         current = self.files[where.change]
+        self.dirty.add(where.change)
         if where.level == "change":
             self.files[where.change] = current.model_copy(update={"change": moved})
         else:

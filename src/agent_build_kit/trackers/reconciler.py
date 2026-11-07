@@ -332,7 +332,7 @@ def _seed(
     real pass would adopt. When adopting fails, nothing is created this pass for a change that has
     a hold, so a hand-made item is never made twice; items already recorded still update."""
     if dry_run:
-        claimed = claimed_markers(section, list(files), wanted, changes_dir)
+        claimed = claimed_markers(section, files, wanted, changes_dir)
         return _Seeding(seeded=Seeded(blocked=claimed))
     try:
         seeded = seed_from_holds(
