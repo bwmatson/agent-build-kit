@@ -186,7 +186,16 @@ PermissionMode = Literal["edit", "allowed_tools_only"]
 # The abk-level roles every call site resolves a model for today
 # (config.ModelsConfig). A runtime with no equivalent split may point every
 # role at the same model name.
-Role = Literal["implement", "review", "rework_review", "generic"]
+Role = Literal[
+    "implement",
+    "rework",
+    "review",
+    "rework_review",
+    "regression",
+    "plan",
+    "restack",
+    "login_refresh",
+]
 
 # How much of what an agent does abk can interpose on. `all_calls`: every
 # tool call reaches abk before it runs (Claude Code's hook; an ACP agent that
@@ -213,7 +222,7 @@ class AgentRequest(Frozen):
     """One call to an agent, in abk's own terms."""
 
     prompt: str
-    role: Role = "generic"
+    role: Role
     cwd: Path | None = None  # None for a call with no worktree (the planner's graph call)
     add_dirs: tuple[Path, ...] = ()  # readable beyond cwd; Claude Code's --add-dir
     model: str | None = None  # already resolved to this runtime's own name — see Config
@@ -377,7 +386,7 @@ runtime's names: `claude_code` declares `sonnet` for implementing and reworking 
 declares no names at all, and a role no config names runs on whichever agent
 `runtimes.acp.command` spawns and its own default. Role to model is deliberately
 many-to-one: a runtime with no "expensive versus cheap reviewer" split may
-point `rework_review` at the same model as `review`, and a `generic` role
+point `rework_review` at the same model as `review`, and a `plan` role
 (init's research and propose, the planner) may fall back to `implement`'s.
 
 **The tracks keep their own `tracks.model` and tool lists**, under `tracks:`,

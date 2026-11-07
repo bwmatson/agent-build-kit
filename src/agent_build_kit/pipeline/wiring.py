@@ -685,7 +685,7 @@ def build_run(
         is_confined = sandbox is not None and step_confined(
             sandbox.required, agent.sandbox_coverage
         )
-        recorder = _recorder(record_for, place, role)
+        recorder = _recorder(record_for, place, call_role)
 
         git_refused: list[str] = []
 
