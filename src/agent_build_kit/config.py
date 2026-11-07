@@ -209,6 +209,13 @@ class ModelsConfig(Frozen):
     # strongest model.
     plan: str = "opus"
 
+    def __getitem__(self, role: str) -> str:
+        raise NotImplementedError
+
+
+# The one table of defaults, role name to model; filled in with the mapping change.
+DEFAULT_MODELS: dict[str, str] = {}
+
 
 class RuntimeModelsConfig(Frozen):
     """One runtime's own names for the roles in `ModelsConfig`. A role left
@@ -220,6 +227,9 @@ class RuntimeModelsConfig(Frozen):
     rework_review: str | None = None
     regression: str | None = None
     plan: str | None = None
+
+    def __getitem__(self, role: str) -> str | None:
+        raise NotImplementedError
 
 
 # Points a unit is assumed to spend of each window before the history says otherwise.
