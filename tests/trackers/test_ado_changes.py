@@ -73,7 +73,6 @@ def test_an_item_changed_again_after_the_cursor_is_returned_with_its_new_revisio
     item = host.seed("Issue", "First", changed=INSTANT)
     _, cursor = tracker.changed_since(None)
     host.edit(item, title="Renamed")
-    host.changed_at(item, at(40))
 
     changes, _ = tracker.changed_since(cursor)
 
@@ -84,8 +83,7 @@ def test_an_item_a_person_made_is_returned_flagged_foreign() -> None:
     host = WorkItemHost()
     tracker = tracker_on(host)
     ours = tracker.create("change", "Ours", markers=("feature",))
-    host.changed_at(ours.id, at(1))
-    theirs = host.seed("Issue", "Theirs", assigned_to="person@example.com", changed=at(2))
+    theirs = host.seed("Issue", "Theirs", assigned_to="person@example.com")
 
     changes, _ = tracker.changed_since(None)
 
@@ -101,3 +99,41 @@ def test_an_item_outside_the_area_path_is_not_returned() -> None:
     changes, _ = tracker.changed_since(None)
 
     assert [c.item_id for c in changes] == [inside]
+
+
+def test_dates_the_service_writes_without_trailing_zeros_come_back_in_time_order() -> None:
+    host = WorkItemHost()
+    tracker = tracker_on(host)
+    late = host.seed("Issue", "Late", changed="2026-10-20T09:14:03Z")
+    tenth = host.seed("Issue", "Fraction", changed="2026-10-20T09:14:02.413Z")
+    short = host.seed("Issue", "Short fraction", changed="2026-10-20T09:14:02.4Z")
+
+    changes, cursor = tracker.changed_since(None)
+
+    assert [c.item_id for c in changes] == [short, tenth, late]
+    assert tracker.changed_since(cursor)[0] == ()
+
+
+def test_an_item_edited_between_the_query_and_the_read_does_not_hide_the_ones_not_listed() -> None:
+    host = WorkItemHost(page_size=2)
+    tracker = tracker_on(host)
+    ids = [host.seed("Issue", f"Item {n}", changed=INSTANT) for n in range(3)]
+    host.restamp_on_read(ids[1])
+
+    changes, cursor = tracker.changed_since(None)
+
+    assert sorted(c.item_id for c in changes) == sorted(ids)
+    assert len(changes) == len(ids)
+    assert tracker.changed_since(cursor)[0] == ()
+
+
+def test_an_item_deleted_between_the_query_and_the_read_is_left_out() -> None:
+    host = WorkItemHost()
+    tracker = tracker_on(host)
+    kept = host.seed("Issue", "Kept", changed=at(1))
+    gone = host.seed("Issue", "Gone", changed=at(2))
+    host.vanish_on_read(gone)
+
+    changes, _ = tracker.changed_since(None)
+
+    assert [c.item_id for c in changes] == [kept]
