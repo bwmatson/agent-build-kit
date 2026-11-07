@@ -33,7 +33,7 @@ from pathlib import Path
 from agent_build_kit import profiles
 from agent_build_kit.budget import cut_tail
 from agent_build_kit.config import ProjectConfig, by_project
-from agent_build_kit.pipeline.check_runner import CheckCache, run_at_commit
+from agent_build_kit.pipeline.check_runner import CheckCache, CommandResult, run_at_commit
 from agent_build_kit.pipeline.commit_order import (
     check_structure,
     classify_paths,
@@ -92,6 +92,64 @@ def _red_command(
         return toolchain.red_command(owned)
     chosen = {file: [i for i in ids if i.split("::")[0] == file] for file in owned}
     return toolchain.red_command(owned, [i for file in owned for i in chosen[file] or [file]])
+
+
+def _where(sha: str, owner: ProjectConfig | None) -> str:
+    """The label a problem of `sha` carries, naming the project when it is not the root."""
+    return f"{sha[:8]}: " + (f"{owner.path}: " if owner and owner.prefix else "")
+
+
+def _judged_red(
+    toolchain: ToolchainProfile,
+    red: CommandResult,
+    sha: str,
+    owner: ProjectConfig | None,
+    stubbed: bool,
+) -> list[str]:
+    """The labelled problems the toolchain finds in one red run of `sha`; none when it is red
+    for the right reason. The one reading both the push gate and the build's red check use."""
+    output = red.stdout + red.stderr
+    ok, found = (
+        toolchain.interpret_red(output, red.exit_code, stubbed=True)
+        if stubbed
+        else toolchain.interpret_red(output, red.exit_code)
+    )
+    return [] if ok else [f"{_where(sha, owner)}{problem}" for problem in found]
+
+
+def red_problems(
+    repo: Path,
+    sha: str,
+    *,
+    profile: ToolchainProfile,
+    projects: list[ProjectConfig] | None = None,
+    stubbed: bool = False,
+    cache: CheckCache | None = None,
+) -> list[str]:
+    """Every reason the tests commit `sha` was not seen to fail for the right reason, or an
+    empty list: only its red run, judged as `check_branch` judges it. A commit `cache` holds is
+    not run again; its results are kept apart from the gate's, which cover more."""
+    projects = projects or []
+    label = "red-stubbed" if stubbed else "red"
+    if cache is not None:
+        cached = cache.lookup(repo, sha, mode=label)
+        if cached is not None:
+            return [] if cached else [f"{sha[:8]}: previously failed the red check"]
+
+    def is_test(path: str) -> bool:
+        return profiles.for_path(projects, path, profile).is_test_path(path)
+
+    problems: list[str] = []
+    touched = _touched_in(repo, sha)
+    for owner, owned in by_project(projects, _test_files_in(repo, sha, is_test)):
+        toolchain = profiles.for_project(owner, profile)
+        prefix = owner.prefix if owner else ""
+        command = _red_command(toolchain, owned, touched, repo, prefix)
+        (red,) = run_at_commit(repo, sha, [command], subdir=prefix or ".")
+        problems.extend(_judged_red(toolchain, red, sha, owner, stubbed))
+    if cache is not None:
+        cache.record(repo, sha, ok=not problems, mode=label)
+    return problems
 
 
 def check_branch(
@@ -162,7 +220,7 @@ def check_branch(
         for owner, owned in by_project(projects, files):
             toolchain = profiles.for_project(owner, profile)
             prefix = owner.prefix if owner else ""
-            where = f"{sha[:8]}: " + (f"{owner.path}: " if prefix and owner else "")
+            where = _where(sha, owner)
             clean_line = (
                 toolchain.clean_command(types=True) if stubbed else toolchain.clean_command()
             )
@@ -186,13 +244,7 @@ def check_branch(
                     f"{cut_tail(clean.stdout, 2000)}"
                 )
             for red in red_run:
-                ok, red_problems = (
-                    toolchain.interpret_red(red.stdout + red.stderr, red.exit_code, stubbed=True)
-                    if stubbed
-                    else toolchain.interpret_red(red.stdout + red.stderr, red.exit_code)
-                )
-                if not ok:
-                    commit_problems.extend(f"{where}{problem}" for problem in red_problems)
+                commit_problems.extend(_judged_red(toolchain, red, sha, owner, stubbed))
 
         if cache is not None:
             cache.record(repo, sha, ok=not commit_problems, mode=commit_mode)

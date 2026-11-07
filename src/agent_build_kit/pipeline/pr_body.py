@@ -392,7 +392,7 @@ def verified_list(facts: VerdictFacts | None, rounds: int | None) -> str:
     a result that is not recorded as not recorded."""
     facts = facts or VerdictFacts(kind=TestTier.UNIT_TEST)
     lines = [_result_line("unit-test", facts.unit_test)]
-    if facts.red_first_applies:
+    if facts.red_first_claimed:
         lines.insert(
             0,
             "- Tests were committed first and seen to fail first."
@@ -528,7 +528,7 @@ def build_pr_body(
 
     first = (
         ""
-        if facts is not None and not facts.red_first_applies
+        if facts is not None and not facts.red_first_claimed
         else "Tests were committed first and seen to fail before any implementation existed; "
     )
     built = (

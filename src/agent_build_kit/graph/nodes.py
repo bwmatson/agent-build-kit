@@ -240,6 +240,10 @@ WROTE_NOTHING_NOTE = (
     "Your last run of this step wrote no test and said nothing. Write the tests this group "
     "calls for; if a write is refused, say so. If the tests it needs already exist, say that."
 )
+RED_CHECK_NOTE = (
+    "The red check ran your tests before any implementation exists and rejected them:\n"
+    "{reason}\nRewrite them so each new test fails with an assertion, for the right reason."
+)
 NO_NEW_TESTS = "This group adds no new tests: the tests it needs already exist on the branch."
 TESTS_ALREADY_PASS = (
     "The tests for this group pass without further implementation: "
@@ -1644,6 +1648,8 @@ class BuildPath:
                 placement=placement_note(r.repo_config),
             )
             prompt = self.told(prompt, self.scope_note())
+            if (stored := r.store.get(unit.id)).feedback_source is FeedbackSource.RED_CHECK:
+                prompt = self.told(prompt, RED_CHECK_NOTE.format(reason=stored.feedback))
             if note := r.follow_ups_note(unit):
                 prompt = f"{note}\n\n{prompt}"
             if state.reproduction_guidance:
@@ -1710,7 +1716,13 @@ class BuildPath:
         if step is None or not step.test_only:
             self.record_no_new_tests(state, ref, made)
             done: Update = {"head": r.head(tree), "stub_loop": False, "stub_rounds": 0}
-            return {**done, "test_only_done": False, "red_check_due": True}
+            return {
+                **done,
+                "test_only_done": False,
+                # Only a tests commit made here is judged: none, or the empty marked one, is not.
+                "red_check_due": bool(made),
+                "red_returned": False,
+            }
         done = {"head": r.head(tree), "stub_loop": False, "stub_rounds": 0}
         # A test-only group's lone tests commit satisfies it: no implementation follows.
         if (stopped := self.record_built(state, ref, made, state.tests_account)) is not None:
@@ -1744,10 +1756,43 @@ class BuildPath:
         r.commit_built(f"{self.message(TESTS_PREFIX, True, state)}\n\n{NO_NEW_TESTS}", cwd=tree)
         return True
 
+    def red_first(self, state: UnitRun) -> GateResult:
+        """The red check's own result for the unit: what it found, or skipped when it never ran."""
+        return GateResult(state.red_result) if state.red_result else GateResult.SKIPPED
+
     def red_check(self, state: UnitRun) -> Update:
-        """The place a later change fills with the red check at the tests commit, run for a
-        `tests_and_code` group only; it does nothing yet."""
-        return {"red_check_due": False}
+        """Run the red check at the tests commit of a `tests_and_code` group. Tests it rejects
+        come off the branch and go back to the tests step with the reason, each return one round
+        of `max_check_rounds`; tests that fail by an assertion go on to the implementation."""
+        r, unit = self.runner, self.unit
+        tree = self.tree()
+        self.say("red check at the tests commit")
+        ok, reason = r.run_red_check(cwd=tree)
+        if ok:
+            if r.store.get(unit.id).feedback_source is FeedbackSource.RED_CHECK:
+                r.store.set_feedback(unit.id, "")
+            return {
+                "red_check_due": False,
+                "red_rounds": 0,
+                "red_result": str(GateResult.PASSED),
+            }
+        self.say(reason)
+        r.store.set_feedback(unit.id, reason, source=FeedbackSource.RED_CHECK)
+        if (budget := check_loop.out_of_rounds(state.red_rounds)) is not None:
+            return {
+                "red_result": str(GateResult.FAILED),
+                **self.stop(f"the red check rejected the tests after {budget} returns"),
+            }
+        # The rejected commit comes off, its files left for the tests step to rewrite; only a
+        # commit of this unit's branch, never the base's.
+        if r.branch_commits(tree, self.ref(state)):
+            git(tree, "reset", "--soft", "HEAD~1")
+        return {
+            "red_check_due": False,
+            "red_rounds": state.red_rounds + 1,
+            "red_returned": True,
+            "head": r.head(tree),
+        }
 
     def fix_stub_checks(self, state: UnitRun) -> Update:
         self._leftovers = self._leftovers or self._stub_leftovers
@@ -2463,7 +2508,7 @@ class BuildPath:
             facts = VerdictFacts(
                 kind=kind,
                 planned_estimate=ReviewTier.parse(unit.review_tier),
-                red_first=GateResult.PASSED,
+                red_first=self.red_first(state),
                 group_modes=self.group_modes(),
                 unit_test=GateResult.PASSED,
                 e2e_state=e2e_state_of(state, r.store.get(unit.id).e2e_state),
@@ -3086,7 +3131,7 @@ class BuildPath:
         # verdict.
         facts = VerdictFacts(
             kind=stored.tier,
-            red_first=GateResult.PASSED,
+            red_first=self.red_first(state),
             group_modes=self.group_modes(),
             unit_test=GateResult.PASSED,
             e2e_state=stored.e2e_state,
@@ -3523,7 +3568,7 @@ def after_stub_checks(state: UnitRun) -> Node:
 
 
 def after_red_check(state: UnitRun) -> Node:
-    return halted(state) or Node.IMPLEMENT
+    return halted(state) or (Node.TESTS if state.red_returned else Node.IMPLEMENT)
 
 
 def after_fix_stub_checks(state: UnitRun) -> Node:
@@ -3697,7 +3742,7 @@ ROUTES: Mapping[Node, tuple[Callable[[UnitRun], Target], tuple[Target, ...]]] = 
             Node.TESTS,
         ),
     ),
-    Node.RED_CHECK: (after_red_check, (Node.HELD, Node.FAILED, Node.IMPLEMENT)),
+    Node.RED_CHECK: (after_red_check, (Node.HELD, Node.FAILED, Node.TESTS, Node.IMPLEMENT)),
     Node.FIX_STUB_CHECKS: (after_fix_stub_checks, (Node.HELD, Node.FAILED, Node.STUB_CHECKS)),
     Node.IMPLEMENT: (
         after_implement,

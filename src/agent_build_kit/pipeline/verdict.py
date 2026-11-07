@@ -32,6 +32,7 @@ class GateResult(StrEnum):
     FAILED = "failed"
     MISSING = "missing"
     PENDING = "pending"
+    SKIPPED = "skipped"
 
 
 class ClassHistory(Frozen):
@@ -113,6 +114,12 @@ class VerdictFacts(Frozen):
         first, or its groups are not recorded. The one place that says so; the recorded result
         says only what ran."""
         return not self.group_modes or any(mode.tests_first for mode in self.group_modes)
+
+    @property
+    def red_first_claimed(self) -> bool:
+        """Whether the pull request may speak of the red-first result: the gate is one of this
+        unit's and the red check ran (a skipped result says nothing)."""
+        return self.red_first_applies and self.red_first != GateResult.SKIPPED
 
 
 class TierVerdict(Frozen):

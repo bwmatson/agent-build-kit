@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- The build now runs the red check at each tests commit, before the implementation is written.
+  Tests that pass, fail for the wrong reason or cannot be collected go back to the tests step
+  with the check's reason, within `max_check_rounds`. The result recorded for a unit is the
+  check's own, and a pull request says its tests were seen to fail first only when the check
+  ran.
+
 - The tracker sync now adopts board items a person made by hand and wrote into a hold's `items`
   (`change`, `group`, `tasks`, `epic`; `feature` and `story` still work) instead of creating
   duplicates. Each id is checked first: it must exist, be of the right type, not belong to another
