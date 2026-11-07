@@ -383,6 +383,7 @@ def write_change(
         request = recorded(
             AgentRequest(
                 prompt=full_prompt,
+                role="plan",
                 cwd=planning,
                 add_dirs=reads,
                 allowed_tools=ALLOWED_TOOLS,

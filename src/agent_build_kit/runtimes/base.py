@@ -49,7 +49,6 @@ Role = Literal[
     "plan",
     "restack",
     "login_refresh",
-    "generic",
 ]
 
 # How much of what an agent does abk can interpose on. `all_calls`: every
@@ -140,7 +139,7 @@ class AgentRequest(Frozen):
     """One call to an agent, in abk's own terms."""
 
     prompt: str
-    role: Role = "generic"
+    role: Role
     change: str = ""  # the change the call is for, when it names one
     cwd: Path | None = None  # None for a call with no worktree (the planner's graph call)
     add_dirs: tuple[Path, ...] = ()  # readable beyond cwd; Claude Code's --add-dir

@@ -221,7 +221,7 @@ def test_a_transcript_that_mentions_rate_limits_is_not_a_refusal(tmp_path: Path)
 def test_a_run_that_is_not_a_stream_is_classified_on_its_text(tmp_path: Path) -> None:
     """Plain `-p` prints no events: what it printed is what it said."""
     fake = FakeClaude(stdout="Claude AI usage limit reached|1919763200\n", returncode=1)
-    request = AgentRequest(prompt="Plan.", permission_mode="allowed_tools_only")
+    request = AgentRequest(prompt="Plan.", role="plan", permission_mode="allowed_tools_only")
 
     with pytest.raises(AgentRateLimited) as caught:
         ClaudeCodeRuntime(execute=fake).run(request)
@@ -241,7 +241,9 @@ def test_a_kept_record_is_the_raw_output_and_its_answer_the_text(tmp_path: Path)
     """A track phase writes the whole record to its raw output file and reads
     the answer out of it."""
     fake = FakeClaude(stdout=record("No findings."))
-    request = AgentRequest(prompt="Run the health track for app.", cwd=tmp_path, keep_record=True)
+    request = AgentRequest(
+        prompt="Run the health track for app.", role="implement", cwd=tmp_path, keep_record=True
+    )
 
     result = ClaudeCodeRuntime(execute=fake).run(request)
 
@@ -257,7 +259,11 @@ def test_streaming_wins_over_a_kept_record(tmp_path: Path) -> None:
     single JSON record."""
     fake = FakeClaude(stdout=finished_build(tmp_path, "done"))
     request = AgentRequest(
-        prompt="Implement.", cwd=tmp_path, on_event=lambda line: None, keep_record=True
+        prompt="Implement.",
+        role="implement",
+        cwd=tmp_path,
+        on_event=lambda line: None,
+        keep_record=True,
     )
 
     result = ClaudeCodeRuntime(execute=fake).run(request)

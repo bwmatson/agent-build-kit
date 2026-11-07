@@ -95,7 +95,7 @@ def test_the_ledger_row_is_the_one_written_without_an_account(
     assert (row["node"], row["unit"], row["role"], row["model"]) == (
         "login_refresh",
         "",
-        "generic",
+        "login_refresh",
         "haiku",
     )
     assert row["usage_source"] == "none"

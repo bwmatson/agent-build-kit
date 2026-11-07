@@ -71,7 +71,7 @@ def assert_delivered_on_stdin(process: StandIn, prompt: str) -> None:
 
 
 def test_a_large_prompt_arrives_whole_on_standard_input(process: StandIn) -> None:
-    result = run(AgentRequest(prompt=LARGE_PROMPT))
+    result = run(AgentRequest(prompt=LARGE_PROMPT, role="implement"))
 
     assert result.ok
     assert result.text == "the reply"
@@ -79,7 +79,7 @@ def test_a_large_prompt_arrives_whole_on_standard_input(process: StandIn) -> Non
 
 
 def test_a_large_prompt_arrives_whole_on_the_streamed_path(process: StandIn) -> None:
-    result = run(AgentRequest(prompt=LARGE_PROMPT, on_event=lambda line: None))
+    result = run(AgentRequest(prompt=LARGE_PROMPT, role="implement", on_event=lambda line: None))
 
     assert result.text == "the reply"
     assert_delivered_on_stdin(process, LARGE_PROMPT)
@@ -89,7 +89,9 @@ def test_a_large_prompt_arrives_whole_on_the_streamed_path(process: StandIn) -> 
 def test_a_resumed_run_that_keeps_its_record_carries_a_large_prompt_the_same_way(
     process: StandIn,
 ) -> None:
-    result = run(AgentRequest(prompt=LARGE_PROMPT, resume_session="abc", keep_record=True))
+    result = run(
+        AgentRequest(prompt=LARGE_PROMPT, role="implement", resume_session="abc", keep_record=True)
+    )
 
     assert result.text == "the reply"
     assert_delivered_on_stdin(process, LARGE_PROMPT)
@@ -98,7 +100,9 @@ def test_a_resumed_run_that_keeps_its_record_carries_a_large_prompt_the_same_way
 
 def test_a_resumed_streamed_run_carries_a_large_prompt_the_same_way(process: StandIn) -> None:
     result = run(
-        AgentRequest(prompt=LARGE_PROMPT, resume_session="abc", on_event=lambda line: None)
+        AgentRequest(
+            prompt=LARGE_PROMPT, role="implement", resume_session="abc", on_event=lambda line: None
+        )
     )
 
     assert result.text == "the reply"
@@ -106,7 +110,9 @@ def test_a_resumed_streamed_run_carries_a_large_prompt_the_same_way(process: Sta
 
 
 def test_a_short_prompt_changes_nothing_but_where_it_travels(process: StandIn) -> None:
-    request = AgentRequest(prompt="Say hello to the world now", model="haiku", allowed_tools="Read")
+    request = AgentRequest(
+        prompt="Say hello to the world now", role="implement", model="haiku", allowed_tools="Read"
+    )
 
     result = run(request)
 
@@ -131,6 +137,6 @@ def test_a_short_prompt_changes_nothing_but_where_it_travels(process: StandIn) -
 def test_a_prompt_of_a_hundred_bytes_is_delivered_on_standard_input_too(process: StandIn) -> None:
     prompt = "p" * 100
 
-    run(AgentRequest(prompt=prompt))
+    run(AgentRequest(prompt=prompt, role="implement"))
 
     assert_delivered_on_stdin(process, prompt)

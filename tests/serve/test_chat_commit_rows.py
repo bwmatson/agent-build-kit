@@ -57,4 +57,4 @@ def test_the_fix_turn_writes_a_chat_commit_row_beside_the_chat_turn(
         stored.repo,
         stored.tier,
     )
-    assert (fix["role"], fix["model"], fix["outcome"]) == ("generic", "opus", "ok")
+    assert (fix["role"], fix["model"], fix["outcome"]) == ("implement", "opus", "ok")

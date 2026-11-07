@@ -63,7 +63,7 @@ def test_a_call_with_no_unit_records_one_row_with_the_reported_figures(
             duration_ms=61_000,
             usage_source="reported",
         ),
-        role="generic",
+        role="plan",
         model=None,
         runtime="claude_code",
     )
@@ -73,7 +73,7 @@ def test_a_call_with_no_unit_records_one_row_with_the_reported_figures(
     assert row["node"] == "plan"
     assert row["unit"] == ""
     assert (row["change"], row["repo"], row["tier"]) == ("add-marker", "app", "")
-    assert (row["role"], row["model"], row["runtime"]) == ("generic", None, "claude_code")
+    assert (row["role"], row["model"], row["runtime"]) == ("plan", None, "claude_code")
     assert row["input_tokens"] == 120
     assert row["output_tokens"] == 40
     assert row["cache_read_input_tokens"] == 900
@@ -97,7 +97,7 @@ def test_a_failed_result_is_recorded_as_failed_with_its_figures(workspace: Insta
             cost_usd=0.05,
             usage_source="reported",
         ),
-        role="generic",
+        role="plan",
         model=None,
         runtime="claude_code",
     )
@@ -114,7 +114,7 @@ def test_a_result_with_no_usage_records_absent_figures_and_never_zero(
 ) -> None:
     record = call_recorder("plan", say=print)
 
-    record(finished(), role="generic", model=None, runtime="claude_code")
+    record(finished(), role="plan", model=None, runtime="claude_code")
 
     (row,) = rows(workspace)
     for figure in (
@@ -230,7 +230,7 @@ def test_the_row_keeps_its_unit_and_node_as_written_through_the_ledgers_writer(
 
     record(
         AgentResult(ok=False, text="", error="died"),
-        role="generic",
+        role="plan",
         model=None,
         runtime="claude_code",
     )
@@ -273,7 +273,7 @@ def test_a_recorded_request_writes_its_row_with_its_own_role_model_and_runtime_a
     runtime = StandInRuntime()
     request = AgentRequest(
         prompt="plan it",
-        role="generic",
+        role="plan",
         model="m-1",
         on_result=lambda result: told.append(f"{len(rows(workspace))} rows when called"),
     )
@@ -286,7 +286,7 @@ def test_a_recorded_request_writes_its_row_with_its_own_role_model_and_runtime_a
     (row,) = rows(workspace)
     assert (row["node"], row["role"], row["model"], row["runtime"]) == (
         "plan",
-        "generic",
+        "plan",
         "m-1",
         runtime.name,
     )

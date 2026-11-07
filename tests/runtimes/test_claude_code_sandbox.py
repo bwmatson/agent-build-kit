@@ -222,7 +222,9 @@ def test_the_policy_hosts_include_the_model_endpoint_the_run_calls(
     base = SandboxPolicy(
         write=(tmp_path,), read=(), hosts=("api.anthropic.com",), required=Coverage.FILES
     )
-    request = AgentRequest(prompt="Go.", cwd=tmp_path, env=env, policy=ToolPolicy(sandbox=base))
+    request = AgentRequest(
+        prompt="Go.", role="implement", cwd=tmp_path, env=env, policy=ToolPolicy(sandbox=base)
+    )
 
     ClaudeCodeRuntime(execute=capture).run(request)
 

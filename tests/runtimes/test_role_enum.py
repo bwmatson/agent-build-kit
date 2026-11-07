@@ -6,6 +6,8 @@ does, whatever type the field has."""
 from __future__ import annotations
 
 import subprocess
+from enum import Enum
+from typing import get_args
 
 import pytest
 from pydantic import ValidationError
@@ -28,13 +30,12 @@ ROLES = {
 
 
 def role_names() -> set[str]:
-    """The names the request's role accepts, read off its schema whether it is a literal or an
-    enum."""
-    schema = AgentRequest.model_json_schema()
-    role = schema["properties"]["role"]
-    if "$ref" in role:
-        role = schema["$defs"][role["$ref"].rsplit("/", 1)[-1]]
-    return set(role["enum"])
+    """The names the request's role accepts, read off its annotation whether it is a literal or
+    an enum."""
+    annotation = AgentRequest.model_fields["role"].annotation
+    if isinstance(annotation, type) and issubclass(annotation, Enum):
+        return {str(member.value) for member in annotation}
+    return {str(name) for name in get_args(annotation)}
 
 
 def test_the_roles_are_the_eight_and_there_is_no_generic() -> None:

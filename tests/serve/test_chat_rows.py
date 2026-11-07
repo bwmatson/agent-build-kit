@@ -58,7 +58,7 @@ def test_a_turn_on_a_units_session_writes_one_chat_row_naming_the_unit(
         stored.change,
         stored.repo,
         stored.tier,
-        "generic",
+        "implement",
     )
     assert row["runtime"] == "claude_code"
     assert row["session_id"] == SESSION

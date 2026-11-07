@@ -24,7 +24,10 @@ def test_the_agent_run_that_answers_review_is_a_rework_call(tmp_path: Path) -> N
     tick(tmp_path, recorder, run=run)
 
     # The recorder's own way of telling a rework's prompt from the build's.
-    answering = [r.role for r in runtime.requests if "Review asked for" in r.prompt]
-    building = [r.role for r in runtime.requests if "Review asked for" not in r.prompt]
+    def reworking(prompt: str) -> bool:
+        return "review of this branch" in prompt or "Review asked for" in prompt
+
+    answering = [r.role for r in runtime.requests if reworking(r.prompt)]
+    building = [r.role for r in runtime.requests if not reworking(r.prompt)]
     assert answering == ["rework"]
     assert set(building) == {"implement"}

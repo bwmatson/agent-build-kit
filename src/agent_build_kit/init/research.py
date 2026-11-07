@@ -130,6 +130,7 @@ def research(
     request = recorded(
         AgentRequest(
             prompt=build_prompt(language, built_in=built_in, today=day),
+            role="plan",
             allowed_tools=ALLOWED_TOOLS,
             permission_mode="allowed_tools_only",
         ),

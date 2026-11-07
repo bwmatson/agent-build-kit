@@ -16,7 +16,7 @@ from tests.runtimes.stand_in import StandInRuntime
 
 
 def written(workspace: Installation, account: Account | None) -> dict:
-    request = AgentRequest(prompt="build it", role="generic", model="m-1", account=account)
+    request = AgentRequest(prompt="build it", role="plan", model="m-1", account=account)
     request = recorded(request, StandInRuntime(), node="implement", unit="add-marker/1", say=print)
     assert request.on_result is not None
     request.on_result(AgentResult(ok=True, text="done"))

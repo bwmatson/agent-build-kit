@@ -272,7 +272,7 @@ def refresh_login(
             text="",
             duration_ms=round((time.monotonic() - started) * 1000),
         ),
-        role="generic",
+        role="login_refresh",
         model="haiku",
         runtime=NAME,
     )

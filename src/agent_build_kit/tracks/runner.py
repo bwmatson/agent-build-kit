@@ -732,6 +732,7 @@ def claude_phase(
     request = recorded(
         AgentRequest(
             prompt=render_prompt(inst, project, name, focus),
+            role="implement",
             cwd=cwd,
             add_dirs=tuple(path for path in (inst.root, project.path) if path != cwd),
             model=tracks.model,

@@ -1054,6 +1054,7 @@ def claude_resolver(
     def ask(text: str, *, session: str) -> AgentResult:
         request = AgentRequest(
             prompt=text,
+            role="restack",
             cwd=cwd,
             # It edits because its tool list says so, and is granted nothing more.
             allowed_tools=RESOLVER_TOOLS,
