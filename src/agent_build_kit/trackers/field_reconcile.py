@@ -41,4 +41,21 @@ def reconcile_field(
     spec_who: str = "spec",
     tracker_who: str = "",
 ) -> FieldOutcome:
-    raise NotImplementedError
+    spec_changed = spec != base
+    tracker_changed = tracker != base
+    if spec == tracker:
+        return FieldOutcome(action="none", value=spec)
+    if not spec_changed:
+        return FieldOutcome(action="tracker", value=tracker)
+    if not tracker_changed:
+        return FieldOutcome(action="outbound", value=spec)
+    kept: Literal["spec", "tracker"] = "spec" if field in TEXT_FIELDS else "tracker"
+    conflict = FieldConflict(
+        field=field,
+        spec_value=spec,
+        tracker_value=tracker,
+        kept=kept,
+        spec_who=spec_who,
+        tracker_who=tracker_who,
+    )
+    return FieldOutcome(action=kept, value=spec if kept == "spec" else tracker, conflict=conflict)
