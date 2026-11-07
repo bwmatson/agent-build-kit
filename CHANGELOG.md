@@ -5,7 +5,9 @@
 - Every agent call now names its role, and there is no `generic` role. Rework calls are recorded
   as `rework` instead of `implement`, conflict-resolver calls as `restack` and login refreshes
   under a role of their own, so the usage report, the metrics page and telemetry tell their cost
-  apart. Older ledger rows keep reading as they were written.
+  apart. Older ledger rows keep reading as they were written. Every role also has a model: set
+  the `restack` and login-refresh roles under `models:` or `runtimes.<name>.models` like the
+  others (both default to `haiku`), and an unknown key is refused with the list of roles.
 
 - Rerunning failed tests no longer breaks on a parametrized test whose id has spaces. The id is
   now read whole from pytest's summary and passed as one argument. When pytest cannot find an

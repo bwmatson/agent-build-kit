@@ -254,7 +254,8 @@ def refresh_login(
     default account."""
     account = account or claude_account.Account.default()
     started = time.monotonic()
-    argv = [*command(), "-p", "Reply with OK and nothing else.", "--model", "haiku"]
+    model = config.models("claude_code")["login_refresh"]
+    argv = [*command(), "-p", "Reply with OK and nothing else.", "--model", model]
     done = run(
         argv,
         capture_output=True,
@@ -273,7 +274,7 @@ def refresh_login(
             duration_ms=round((time.monotonic() - started) * 1000),
         ),
         role="login_refresh",
-        model="haiku",
+        model=model,
         runtime=NAME,
     )
 

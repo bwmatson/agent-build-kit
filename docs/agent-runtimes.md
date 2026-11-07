@@ -82,7 +82,7 @@ Before the seam, each of these built its own `claude` argv:
 |---|---|---|
 | `pipeline/wiring.py` `build_run`/`build_run_review` | build, review, rework-review | `--add-dir`, `--settings` (hook), `--allowedTools`/`--disallowedTools`, `--permission-mode acceptEdits`, `--model`, streamed via `--output-format stream-json` |
 | `pipeline/planner.py` | the planning graph call | a plain `claude` call that reads the prompt on standard input, with `--output-format stream-json --verbose` (a recorded call streams, for its usage); no `--permission-mode`, no cwd, no tool policy, no injected executor shared with anything else |
-| `pipeline/restack.py` `claude_resolver` | conflict resolution edit | `--allowedTools` only — no `--permission-mode` (it edits because its tool list says so), no model, no commit — a narrower Claude Code call than the others, built independently |
+| `pipeline/restack.py` `claude_resolver` | conflict resolution edit | `--allowedTools` only — no `--permission-mode` (it edits because its tool list says so), the `restack` role's model, no commit — a narrower Claude Code call than the others, built independently |
 | `tracks/runner.py` | health/improve/recommend/implement tracks | `--worktree`, `--add-dir`, `--permission-mode acceptEdits`, `--allowedTools`/`--disallowedTools`, `--model`, `--output-format stream-json --verbose` |
 | `init/research.py` `research` | writes the toolchain recommendations doc | `--allowedTools` (web access), `--output-format stream-json --verbose`; no `--permission-mode` |
 | `init/propose.py` `propose` | writes an OpenSpec change | `--add-dir`, `--settings` (hook), `--allowedTools`, `--permission-mode acceptEdits` |
@@ -101,7 +101,7 @@ one unless a test injects another:
 |---|---|
 | build, review, rework-review | `pipeline/wiring.py` `build_run` (`build_run_review` wraps it); `runtime=` injects. `build_run` takes the model per call, and the graph nodes pick it: the implement model for `tests`, `implement` and `fix_checks` (the model the build session began on), the rework model for `rework`, `restack` and `adapt`; a node that continues a session runs on the model that session recorded |
 | the planning graph call | `pipeline/planner.py` `_ask`; `plan_round(runtime=...)` injects; a prompt over the transport's safe size fails the planning attempt, naming the size of each part |
-| conflict resolution | in a run, `prepare`'s restack resolves through `build_run` as node `restack`, in the build session, on the rework model (or the model the session recorded); the stack-move handler uses `pipeline/restack.py` `claude_resolver` (`runtime=` injects), whose second call continues the first call's session; a refusal is re-raised by `move_branch_onto` rather than read as a conflict |
+| conflict resolution | in a run, `prepare`'s restack resolves through `build_run` as node `restack`, in the build session, on the rework model (or the model the session recorded); the stack-move handler uses `pipeline/restack.py` `claude_resolver` (`runtime=` injects), run on the `restack` model, whose second call continues the first call's session; a refusal is re-raised by `move_branch_onto` rather than read as a conflict |
 | the scheduled tracks | `tracks/runner.py` `claude_phase`; `runtime=` injects (through `run_track`, each track and `claude_phase`), and a refusal is logged and fails the phase rather than raising |
 | research | `init/research.py` `research` |
 | a proposal | `init/propose.py` `propose` |
@@ -348,6 +348,9 @@ runtimes:
       review: opus
       rework_review: opus
       regression: opus
+      plan: opus
+      restack: haiku           # the conflict resolver
+      login_refresh: haiku     # the token-refresh call
 ```
 
 The `regression` role is the model of the regression agent, which works out why a test fails and

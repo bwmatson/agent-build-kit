@@ -86,6 +86,8 @@ runtimes:                     # only for a runtime needing a fact abk cannot
                               # the author; if the author is opus, set this to another
       regression: opus        # works out why a test fails and writes the fix change
       plan: opus              # the planner's graph call
+      restack: haiku          # the conflict resolver
+      login_refresh: haiku    # the token-refresh call
     usage_limits:             # with the same settings (called `limits` before; that spelling is
                               # deprecated, `abk config --migrate` renames it to `usage_limits`)
       session:                # the 5-hour window

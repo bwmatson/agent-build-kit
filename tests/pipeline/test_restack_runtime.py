@@ -106,7 +106,9 @@ def test_the_diff_the_resolver_is_shown_is_whole_lines_from_the_start_of_it(
     assert whole[len(carried)] == "\n", "the cut falls between lines"
 
 
-def test_under_claude_code_the_resolver_sends_the_command_it_sent_before(tmp_path: Path) -> None:
+def test_under_claude_code_the_resolver_sends_its_command_with_the_restack_model(
+    tmp_path: Path,
+) -> None:
     fake = FakeClaude(stdout="Resolved both conflicts.")
 
     restack.claude_resolver(
@@ -116,6 +118,7 @@ def test_under_claude_code_the_resolver_sends_the_command_it_sent_before(tmp_pat
     assert flags(fake.argv, "Resolve the conflicts.") == {
         "-p": None,
         "--allowedTools": RESOLVER_TOOLS,
+        "--model": "haiku",
         # Streamed, as every recorded call is: the cost it reports is in the stream.
         "--output-format": "stream-json",
         "--verbose": None,
