@@ -548,6 +548,9 @@ repos:                          # ordered: deploy order is derived from
                                 #   - path: services/api
                                 #     languages: [python]
                                 #     profile: python-uv
+                                # A change edits this list with a `Project:` line
+                                # in its tasks (add, remove or replace); the kit
+                                # applies it and commits `abk.yaml`.
                                 # A file belongs to the deepest project holding
                                 # it. Left empty, checks run at the repo root —
                                 # which fails outright when the repo root is not

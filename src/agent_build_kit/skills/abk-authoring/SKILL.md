@@ -158,6 +158,28 @@ Declare `Manual: <slug> — <what to do> — runbook: <path>#<heading>`, with an
 heading); `abk tags` warns when the file or heading is missing. The unit waits until the check
 exits 0.
 
+## `Project:` lines
+
+Declare a change to the repository's `projects:` list in `abk.yaml` in the group of the repository
+it concerns, instead of a `Manual:` step. There are three forms; paths are relative to the repo root:
+
+```
+Project: add <path> <profile>
+Project: remove <path>
+Project: replace <old> with <new> <profile>
+```
+
+- `Project: add` applies when the change is planned, so a later group may tag `[repo/<path>]` before
+  the file lists it. An add already present with that profile is valid; with another profile it is
+  an error.
+- `Project: remove` applies when the unit carrying the group is settling or merged, and only once
+  no unfinished unit is stored in that project. A remove of an absent path is valid. A later group
+  of the change must not tag the path.
+- `Project: replace` adds the new path at plan time and removes the old one as a remove does.
+
+Several lines may sit in one group. The kit edits `abk.yaml`, keeps its comments, and commits the
+whole file; `abk tags` shows each line as pending or applied.
+
 ## `Needs:` lines
 
 A group that cannot pass until a group of *another* change has landed says

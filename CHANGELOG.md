@@ -80,7 +80,8 @@
   planned, a remove (and the old half) once the unit that carries the group is settling or
   merged, held while an unfinished unit is stored in the project. Each application is made once,
   committed alone to the planning repository, and a failed one is logged, retried on the next
-  tick and shown by `abk status` and `abk doctor`.
+  tick and shown by `abk status` and `abk doctor`. The `abk-authoring` skill and the docs describe
+  the line.
 
 - The restack lane is now the resolution lane: `abk status` prints `resolving: N running, M waiting`
   and `<unit> resolving base <name>`, and the lane's worker thread is named `resolve`. The cap
