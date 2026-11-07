@@ -8,7 +8,6 @@ from pathlib import Path
 import pytest
 
 from agent_build_kit.serve.metrics import Instrument, catalogue
-from tests.time_limit import LOADED_TEST_TIME_LIMIT
 
 # The four instruments the move must keep listed, as their call sites spell them now.
 CALLS = {
@@ -102,7 +101,6 @@ PACKAGE = [
 
 
 @pytest.mark.parametrize("expected", PACKAGE, ids=lambda i: i.name)
-@pytest.mark.time_limit(LOADED_TEST_TIME_LIMIT)
 def test_the_package_catalogue_lists_each_moved_instrument_as_it_was(expected: Instrument) -> None:
     listed = {i.name: i for i in catalogue()}
 

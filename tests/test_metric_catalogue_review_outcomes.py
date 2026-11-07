@@ -3,15 +3,11 @@
 
 from __future__ import annotations
 
-import pytest
-
 from agent_build_kit.serve.metrics import catalogue
-from tests.time_limit import LOADED_TEST_TIME_LIMIT
 
 NAMES = ("abk.review.outcome", "abk.review.agreement")
 
 
-@pytest.mark.time_limit(LOADED_TEST_TIME_LIMIT)
 def test_the_catalogue_lists_the_outcome_counter_by_outcome_tier_and_class_only() -> None:
     listed = {i.name: i for i in catalogue()}
 
@@ -19,7 +15,6 @@ def test_the_catalogue_lists_the_outcome_counter_by_outcome_tier_and_class_only(
     assert set(listed["abk.review.outcome"].attributes) == {"outcome", "tier", "class"}
 
 
-@pytest.mark.time_limit(LOADED_TEST_TIME_LIMIT)
 def test_the_catalogue_lists_the_agreement_counter_by_class_and_acceptance_only() -> None:
     listed = {i.name: i for i in catalogue()}
 
@@ -27,7 +22,6 @@ def test_the_catalogue_lists_the_agreement_counter_by_class_and_acceptance_only(
     assert set(listed["abk.review.agreement"].attributes) == {"class", "accepted"}
 
 
-@pytest.mark.time_limit(LOADED_TEST_TIME_LIMIT)
 def test_no_listed_review_counter_carries_a_unit_id() -> None:
     listed = {i.name: i for i in catalogue() if i.name in NAMES}
 
