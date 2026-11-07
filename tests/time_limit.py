@@ -21,12 +21,36 @@ import threading
 import pytest
 
 from agent_build_kit.compat_names import old_spelling
-from agent_build_kit.model import TestTier
+from agent_build_kit.model import Frozen, TestTier
 
 DEFAULT_TEST_TIME_LIMIT = 60
 # For a test whose work (a repo scan, a unit-graph pass) takes several times longer when loaded.
 LOADED_TEST_TIME_LIMIT = DEFAULT_TEST_TIME_LIMIT * 5
 DEFAULT_E2E_TEST_TIME_LIMIT = 30 * 60
+# The wall-clock backstop is this many times the CPU budget.
+BACKSTOP_FACTOR = 5
+
+
+class Budget(Frozen):
+    """What a phase may use: CPU seconds of the process and its children, and wall seconds
+    as a backstop; zero turns a clock off."""
+
+    cpu: float
+    wall: float
+
+
+def budget_for(item: pytest.Item) -> Budget:
+    raise NotImplementedError
+
+
+def clock_fired(budget: Budget, cpu_used: float, wall_elapsed: float) -> str | None:
+    """ "cpu" or "wall" once that clock passes its budget, else None."""
+    raise NotImplementedError
+
+
+def exceeded_text(clock: str, budget: Budget) -> str:
+    """The failure sentence that names the clock that fired."""
+    raise NotImplementedError
 
 
 class TimedOut(BaseException):
