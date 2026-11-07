@@ -29,3 +29,9 @@ class StandInBackend:
     def command(self, policy: SandboxPolicy, argv: Sequence[str]) -> list[str]:
         self.asked.append((policy, list(argv)))
         return list(argv) if self.runs_as_given else ["stand-in", *argv]
+
+
+def platform_stand_in() -> StandInBackend:
+    """The passing stand-in for the platform's backend that a test outside `tests/sandboxes/` sees
+    in place of the host's kernel."""
+    return StandInBackend("landlock", "", runs_as_given=True)

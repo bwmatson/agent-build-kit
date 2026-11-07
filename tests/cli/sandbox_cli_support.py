@@ -1,6 +1,9 @@
 """What the sandbox tests of `abk doctor`, `abk init`, `abk policy check` and `abk status` share:
 a registry holding a stand-in backend whose probe a test counts, and the lines that switch the
-sandbox on in an `abk.yaml`."""
+sandbox on in an `abk.yaml`.
+
+The fixtures isolate the registry with the platform stand-in kept, so a run that probes `auto`
+(an `abk init` before the backend is switched) never reaches the host's sandbox."""
 
 from __future__ import annotations
 
@@ -12,7 +15,7 @@ import yaml
 
 from agent_build_kit import sandboxes
 from agent_build_kit.sandboxes import Availability, SandboxPolicy
-from tests.sandboxes.stand_in import StandInBackend
+from tests.sandboxes.stand_in import StandInBackend, platform_stand_in
 
 NAME = "stand-in"
 
@@ -57,6 +60,7 @@ def switch_off(config: Path) -> None:
 def stand_in() -> Iterator[CountingBackend]:
     """A working stand-in registered under `NAME` for one test."""
     with sandboxes.isolated():
+        sandboxes.register(platform_stand_in())
         backend = CountingBackend()
         sandboxes.register(backend)
         yield backend
@@ -66,6 +70,7 @@ def stand_in() -> Iterator[CountingBackend]:
 def broken_stand_in() -> Iterator[CountingBackend]:
     """The same backend, whose probe fails with a cause and a fix."""
     with sandboxes.isolated():
+        sandboxes.register(platform_stand_in())
         backend = CountingBackend(ok=False)
         sandboxes.register(backend)
         yield backend

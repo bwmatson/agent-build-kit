@@ -47,7 +47,7 @@ from tests.checkout_env import without_checkout_env
 from tests.forges.azure_rest_host import refusal
 from tests.forges.github_server import FakeGitHub
 from tests.forges.mock_host import MockHost, ok, recorded
-from tests.sandboxes.stand_in import StandInBackend
+from tests.sandboxes.stand_in import platform_stand_in
 from tests.usage_host import Host
 
 # The child pytest sources are files for `tests/child_pytest.py`, not tests of this repository.
@@ -235,7 +235,7 @@ def stand_in_sandbox_backend(request: pytest.FixtureRequest) -> Iterator[None]:
         yield
         return
     with sandboxes.isolated():
-        sandboxes.register(StandInBackend("landlock", "", runs_as_given=True))
+        sandboxes.register(platform_stand_in())
         yield
 
 
