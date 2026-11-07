@@ -94,6 +94,44 @@ def _red_command(
     return toolchain.red_command(owned, [i for file in owned for i in chosen[file] or [file]])
 
 
+def red_problems(
+    repo: Path,
+    sha: str,
+    *,
+    profile: ToolchainProfile,
+    projects: list[ProjectConfig] | None = None,
+    stubbed: bool = False,
+    cache: CheckCache | None = None,
+) -> list[str]:
+    """Every reason the tests commit `sha` was not seen to fail for the right reason, or an
+    empty list: only its red run, judged as `check_branch` judges it. A commit `cache` holds is
+    not run again; its results are kept apart from the gate's, which cover more."""
+    projects = projects or []
+    label = "red-stubbed" if stubbed else "red"
+    if cache is not None:
+        cached = cache.lookup(repo, sha, mode=label)
+        if cached is not None:
+            return [] if cached else [f"{sha[:8]}: previously failed the red check"]
+
+    def is_test(path: str) -> bool:
+        return profiles.for_path(projects, path, profile).is_test_path(path)
+
+    problems: list[str] = []
+    touched = _touched_in(repo, sha)
+    for owner, owned in by_project(projects, _test_files_in(repo, sha, is_test)):
+        toolchain = profiles.for_project(owner, profile)
+        prefix = owner.prefix if owner else ""
+        where = f"{sha[:8]}: " + (f"{owner.path}: " if prefix and owner else "")
+        command = _red_command(toolchain, owned, touched, repo, prefix)
+        (red,) = run_at_commit(repo, sha, [command], subdir=prefix or ".")
+        ok, found = toolchain.interpret_red(red.stdout + red.stderr, red.exit_code, stubbed=stubbed)
+        if not ok:
+            problems.extend(f"{where}{problem}" for problem in found)
+    if cache is not None:
+        cache.record(repo, sha, ok=not problems, mode=label)
+    return problems
+
+
 def check_branch(
     repo: Path,
     base: str,

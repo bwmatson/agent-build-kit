@@ -114,7 +114,7 @@ def test_the_start_here_section_lists_the_recorded_results_and_the_verdict_tier(
     build(tmp_path, recorder, open_pr=capturing(recorder, bodies))
 
     start = start_section(bodies[0]["body"])
-    assert "seen to fail first" in start
+    assert "seen to fail first" not in start, "this build ran no red check"
     assert "unit-test result: passed" in start
     assert "Review took 1 review round" in start
     reason = json.loads((tmp_path / VERDICTS).read_text())["add-marker/1"]["reason"]
@@ -134,4 +134,4 @@ def test_with_review_on_and_no_readable_verdict_the_pull_request_opens_without_a
     assert bodies, "the pull request was still opened"
     start = start_section(bodies[0]["body"])
     assert "Review tier" not in start
-    assert "seen to fail first" in start
+    assert "seen to fail first" not in start, "this build ran no red check"

@@ -32,6 +32,7 @@ class GateResult(StrEnum):
     FAILED = "failed"
     MISSING = "missing"
     PENDING = "pending"
+    SKIPPED = "skipped"
 
 
 class ClassHistory(Frozen):

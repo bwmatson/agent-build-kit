@@ -150,6 +150,9 @@ class UnitRun(Frozen):
     red_check_due: bool = (
         False  # the tests just committed are a tests-first group's: red check next
     )
+    red_rounds: int = 0  # returns of the tests to the tests step by the red check, in this group
+    red_returned: bool = False  # the red check sent the tests back: the tests step runs again
+    red_result: str = ""  # a `GateResult` value: the red check's result; empty: it never ran
     tests_account: str = ""  # what the tests agent last said, kept for a test-only group's record
     review_round: int = 0
     checks_ok: bool = False

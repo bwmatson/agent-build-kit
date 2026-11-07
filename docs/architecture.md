@@ -591,6 +591,16 @@ release could move. The steps:
    gets a lone empty `test:` commit marked `Already-built: yes` that holds the account). If those unit tests fail, nothing is
    recorded and the unit stops, so a forgotten implementation still stops the unit.
 
+   **The red check, in the build.** After `stub_checks` commits a `tests_and_code` group's `test:`
+   commit, the `red_check` step runs the profile's red command on it, selecting the tests the
+   commit added or changed by id, and judges the run as the push gate does. Tests that fail with
+   an assertion go on to the implementation. Tests that pass, fail for another reason, or cannot
+   be collected come off the branch and go back to the tests step with the check's reason, each
+   return one round of `global_limits.max_check_rounds`; the rounds spent stop the unit. A commit
+   already judged (same patch id) is not run again. A test-only, no-code or refactor group does
+   not run it. The unit's recorded red result is the check's own, or skipped when it never ran,
+   and the pull request says the tests were seen to fail first only for a check that ran.
+
    A group with no new tests, in a unit that has commits, gets an empty `test:` commit marked
    `Already-built: yes` at the end of its tests step, and the implementation then completes the
    pair: a real `feat:` commit, or an empty one marked the same way once the whole-repository unit

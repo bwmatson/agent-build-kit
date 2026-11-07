@@ -68,7 +68,7 @@ from agent_build_kit.path_patterns import matches_any
 from agent_build_kit.pipeline import code_host, failure_evidence, snapshots, spans
 from agent_build_kit.pipeline.changelog_convention import review_changelog_paragraph
 from agent_build_kit.pipeline.check_failures import failed_in
-from agent_build_kit.pipeline.check_runner import worktree_at
+from agent_build_kit.pipeline.check_runner import CheckCache, worktree_at
 from agent_build_kit.pipeline.command_limit import SUSPENDED_NOTE, TIMED_OUT_EXIT, run_limited
 from agent_build_kit.pipeline.commit_order import ALREADY_BUILT_TRAILER, branch_subjects
 from agent_build_kit.pipeline.config_guard import config_unchanged
@@ -1387,6 +1387,28 @@ def build_fixers(
         )
 
     return run_fixers
+
+
+def build_red_check(
+    *,
+    profile: ToolchainProfile,
+    projects: list[ProjectConfig] | None = None,
+    stubbed: bool = False,
+    cache: CheckCache | None = None,
+) -> Callable[..., tuple[bool, str]]:
+    """The runner's `run_red_check(*, cwd)`: the red check of the tests commit at the head of
+    `cwd`, judged as the push gate judges it and not run again for a commit `cache` holds."""
+    # Imported here: the gate itself imports this module.
+    from agent_build_kit.pipeline.gate import red_problems
+
+    def check(*, cwd: Path) -> tuple[bool, str]:
+        sha = _run(["git", "rev-parse", "HEAD"], cwd=cwd).stdout.strip()
+        problems = red_problems(
+            cwd, sha, profile=profile, projects=projects, stubbed=stubbed, cache=cache
+        )
+        return not problems, "\n".join(problems)
+
+    return check
 
 
 # The passes a project's fixers make at most: a second covers a hook that reformats the
@@ -5228,6 +5250,13 @@ def build_runner(
         ),
         commit_built=build_commit_built(unit_id=unit.id),
         run_stub_checks=build_stub_checks(profile=profile, projects=repo.projects),
+        # Only a stubbed build reaches the red check.
+        run_red_check=build_red_check(
+            profile=profile,
+            projects=repo.projects,
+            stubbed=True,
+            cache=CheckCache(root / "red-check-cache.json"),
+        ),
         run_fixers=build_fixers(profile=profile, projects=repo.projects, repo_name=unit.repo),
         tree_state=build_tree_state(),
         branch_commits=branch_commits,

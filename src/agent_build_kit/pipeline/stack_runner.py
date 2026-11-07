@@ -1563,6 +1563,10 @@ def _no_stub_checks(*, cwd: Path) -> tuple[bool, str]:
     raise RuntimeError("this runner was not given a way to run the stub checks")
 
 
+def _no_red_check(*, cwd: Path) -> tuple[bool, str]:
+    return True, ""
+
+
 def _no_tree_state(cwd: Path) -> str:
     """A runner with no way to read the tree: the head alone says whether a fix round changed
     anything, as it did in the checks loop before the loops shared a routine."""
@@ -1746,6 +1750,9 @@ class UnitRunner(BaseModel):
     # `cwd=`, before a commit; what it changed, skipped and could not run. A runner given none
     # changes nothing. See `wiring.build_fixers`.
     run_fixers: Callable[..., FixResult] = _no_fixers
+    # The red check at the tests commit at the tree's head, given `cwd=`: whether the tests it
+    # added or changed fail for the right reason, and the reasons when they do not.
+    run_red_check: Callable[..., tuple[bool, str]] = _no_red_check
     # A digest of the working tree, which says whether a fix changed it.
     tree_state: Callable[[Path], str] = _no_tree_state
     # Told the unit and each flake when unit-test raises `FlakeFound`: records it, and with
