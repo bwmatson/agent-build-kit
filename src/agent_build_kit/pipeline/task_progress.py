@@ -168,8 +168,18 @@ def _matching_task(tasks: Path, key: str, text_hash: str) -> Task:
 
 
 def _task_lines(prefix: str, text: str) -> list[str]:
-    first, *rest = text.strip().split("\n")
-    return [f"{prefix}{first}\n", *(f"      {line.strip()}\n" for line in rest)]
+    """The lines of a task: the first after `prefix`, the others as indented continuations. A
+    blank line is dropped, as it would end the task. Raises `ValueError` for a blank text."""
+    lines = [line.strip() for line in text.strip().split("\n") if line.strip()]
+    if not lines:
+        raise ValueError("a task needs text")
+    return [f"{prefix}{lines[0]}\n", *(f"      {line}\n" for line in lines[1:])]
+
+
+def _stored_text(tasks: Path, key: str) -> str:
+    """The text the file now holds for task `key`, which is what the spec reads."""
+    found = next(task for task in read_tasks(tasks, key.rsplit(":", 1)[0]) if task.key == key)
+    return found.text
 
 
 def mark_task(tasks: Path, key: str, *, done: bool, text_hash: str) -> None:
@@ -184,25 +194,28 @@ def mark_task(tasks: Path, key: str, *, done: bool, text_hash: str) -> None:
         tasks.write_text("".join(lines))
 
 
-def rewrite_task(tasks: Path, key: str, *, text: str, text_hash: str) -> None:
-    """Replace the text of task `key`, continuation lines included, keeping its number and box.
+def rewrite_task(tasks: Path, key: str, *, text: str, text_hash: str) -> str:
+    """Replace the text of task `key`, continuation lines included, keeping its number and box,
+    and return the text the file now holds for it (blank lines dropped).
 
-    Raises `TaskConflict` and writes nothing when the line's first-line hash is not `text_hash`."""
+    Raises `TaskConflict` and writes nothing when the line's first-line hash is not `text_hash`,
+    and `ValueError` when `text` is blank."""
     with tasks_lock(tasks):
         found = _matching_task(tasks, key, text_hash)
         lines = tasks.read_text().splitlines(keepends=True)
         start = found.line - 1
         head = _TASK.match(lines[start])
         assert head is not None
-        lines[start : start + len(found.text.split("\n"))] = _task_lines(
-            f"{head[1]}[{head[2]}]{head[3]}", text
-        )
+        new = _task_lines(f"{head[1]}[{head[2]}]{head[3]}", text)
+        lines[start : start + len(found.text.split("\n"))] = new
         tasks.write_text("".join(lines))
+        return _stored_text(tasks, key)
 
 
-def append_task(tasks: Path, change: str, group: int, text: str) -> int:
+def append_task(tasks: Path, change: str, group: int, text: str) -> tuple[int, str]:
     """Add an unticked task with `text` after the last task of `group`, numbered after the
-    group's highest, and return its number. Raises `ValueError` when the file has no such group."""
+    group's highest, and return its number and the text the file now holds for it (blank lines
+    dropped). Raises `ValueError` when `text` is blank or the group has no task to follow."""
     with tasks_lock(tasks):
         found = [task for task in read_tasks(tasks, change) if task.group == group]
         lines = tasks.read_text().splitlines(keepends=True)
@@ -213,4 +226,4 @@ def append_task(tasks: Path, change: str, group: int, text: str) -> int:
         number = max(task.number for task in found) + 1
         lines[at:at] = _task_lines(f"- [ ] {group}.{number} ", text)
         tasks.write_text("".join(lines))
-        return number
+        return number, _stored_text(tasks, f"{change}:{group}.{number}")

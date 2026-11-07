@@ -7,7 +7,6 @@ goes through the pipeline's functions, which hold the change's lock."""
 from __future__ import annotations
 
 from collections.abc import Callable, Sequence
-from dataclasses import dataclass
 from pathlib import Path
 
 from agent_build_kit import trackers
@@ -35,9 +34,9 @@ from agent_build_kit.trackers.base import Change, Item, Tracker
 from agent_build_kit.trackers.config import TrackerConfigError, TrackerSection, section_for
 from agent_build_kit.trackers.field_reconcile import reconcile_field
 from agent_build_kit.trackers.levels import task_key
+from agent_build_kit.trackers.start_decision import covered_by, others
 
 BLOCKED = "blocked"
-ASSIGNED_NOTE = "assigned to "
 BLOCKED_NOTE = "group item blocked on the board"
 RELEASED_NOTE = "the board no longer holds it"
 _FIELDS = frozenset({"title", "body", "state", "tags"})
@@ -61,8 +60,7 @@ class Applied(Frozen):
     conflicts: tuple[ApplyConflict, ...] = ()
 
 
-@dataclass
-class _Where:
+class _Where(Frozen):
     """Where a board item sits in a change: its level, and its key (the change's name, a group
     key or a task key)."""
 
@@ -70,6 +68,10 @@ class _Where:
     level: str
     key: str
     group: int | None = None
+
+
+def _board_state(item: Item) -> str:
+    return "done" if (item.kit_state or item.state) == "done" else "new"
 
 
 class _Apply:
@@ -106,12 +108,13 @@ class _Apply:
             name = folder.name
             self.files[name] = found
             if found.change:
-                self.places[found.change.id] = _Where(name, "change", name)
+                self.places[found.change.id] = _Where(change=name, level="change", key=name)
             for key, entry in found.groups.items():
-                self.places[entry.id] = _Where(name, "group", key, int(key.rsplit(":", 1)[1]))
+                group = int(key.rsplit(":", 1)[1])
+                self.places[entry.id] = _Where(change=name, level="group", key=key, group=group)
             for key, task in found.tasks.items():
                 group = int(key.rsplit(":", 1)[1].split(".")[0])
-                self.places[task.id] = _Where(name, "task", key, group)
+                self.places[task.id] = _Where(change=name, level="task", key=key, group=group)
 
     def _tasks_path(self, change: str) -> Path:
         return self.changes_dir / change / "tasks.md"
@@ -126,50 +129,47 @@ class _Apply:
 
     # --- holds ------------------------------------------------------------------------------
 
-    def _reason(self, change: str, unit: StoredUnit) -> str:
-        """Why the board holds `unit`: a person on, or a block on, a group item it covers, or a
-        person on a task item under one; empty when nothing does."""
-        file = self.files[change]
-        member_groups = [g for m in unit.members() if m.change == change for g in m.groups]
-        for group in member_groups:
-            entry = file.groups.get(f"{change}:{group}")
-            if entry is None:
-                continue
-            item = self.tracker.get(entry.id)
-            if (item.kit_state or item.state) == BLOCKED:
-                return BLOCKED_NOTE
-            for each in (item, *self.tracker.children(entry.id)):
-                if (who := self._person(each)) is not None:
-                    return f"{ASSIGNED_NOTE}{who}"
-        return ""
+    def _reason(self, unit: StoredUnit) -> str:
+        """Why the board holds `unit`: a person on, or a block on, an item it covers (read once
+        each, by the same rule as the claim gate); empty when nothing does."""
+        try:
+            covered = covered_by(unit, self.section, self.changes_dir)
+        except TargetMismatch:
+            return ""
+        if covered is None:
+            return ""
+        people: list[str] = []
+        blocked = False
+        for item_id in dict.fromkeys(covered[0]):
+            item = self.tracker.get(item_id)
+            blocked = blocked or (
+                item.kind == "group" and (item.kit_state or item.state) == BLOCKED
+            )
+            people.extend(who for who in others(item, self.sync) if who not in people)
+        if people:
+            return f"assigned to {', '.join(people)}"
+        return BLOCKED_NOTE if blocked else ""
 
-    def _person(self, item: Item) -> str | None:
-        for index, assignee in enumerate(item.assignees):
-            if assignee != self.sync:
-                names = item.assignee_names
-                return names[index] if index < len(names) else assignee
-        return None
-
-    def _ours(self, unit: StoredUnit) -> bool:
-        return (
-            unit.state == HELD
-            and unit.held_by == HeldBy.NONE
-            and unit.cause == Cause.NEEDS_HUMAN
-            and unit.note.startswith((ASSIGNED_NOTE, BLOCKED_NOTE))
-        )
-
-    def holds(self, change: str, groups: set[int]) -> None:
+    def holds(self, change: str, groups: set[int], done: set[str]) -> None:
+        """Hold or release each unit not yet in `done` that builds one of `groups` of `change`."""
         for unit in self.store.all():
             covered = {g for m in unit.members() if m.change == change for g in m.groups}
-            if not covered & groups:
+            if unit.id in done or not covered & groups:
                 continue
-            reason = self._reason(change, unit)
+            done.add(unit.id)
+            try:
+                reason = self._reason(unit)
+            except Exception as error:  # noqa: BLE001 — a host answers in its own errors
+                self.log(f"tracker: the board was not read for {unit.id}: {error}")
+                continue
             if unit.state in FINISHED:
                 if reason:
                     self.recorded.append(f"{unit.id} is {unit.state}: {reason} not applied")
             elif reason and unit.state != HELD:
-                self.store.set_state(unit.id, HELD, note=reason, cause=Cause.NEEDS_HUMAN)
-            elif not reason and self._ours(unit):
+                self.store.set_state(
+                    unit.id, HELD, note=reason, held_by=HeldBy.BOARD, cause=Cause.NEEDS_HUMAN
+                )
+            elif not reason and unit.state == HELD and unit.held_by == HeldBy.BOARD:
                 back = UnitState.IN_REVIEW if unit.pr else PLANNED
                 self.store.set_state(unit.id, back, note=RELEASED_NOTE, cause=Cause.RELEASED)
 
@@ -182,10 +182,7 @@ class _Apply:
         update = {k: v for k, v in changes.items() if k not in _FIELDS}
         self.files[change] = file.model_copy(
             update={
-                "tasks": {
-                    **file.tasks,
-                    key: entry.model_copy(update={"fields": fields, **update}),
-                }
+                "tasks": {**file.tasks, key: entry.model_copy(update={"fields": fields, **update})}
             }
         )
         self.dirty.add(change)
@@ -203,7 +200,7 @@ class _Apply:
     def _state(
         self, item: Item, entry: TaskEntry, current: Task, path: Path, where: _Where
     ) -> None:
-        board = "done" if (item.kit_state or item.state) == "done" else "new"
+        board = _board_state(item)
         base = entry.fields.get("state", "")
         spec = "done" if current.done else "new"
         outcome = reconcile_field("state", base, spec, board, spec_who="spec", tracker_who="board")
@@ -231,19 +228,20 @@ class _Apply:
             return
         if outcome.action != "tracker":
             return
-        current_hash = first_line_hash(current.text)
         try:
-            rewrite_task(path, where.key, text=board, text_hash=current_hash)
-        except TaskConflict as error:
+            stored = rewrite_task(
+                path, where.key, text=board, text_hash=first_line_hash(current.text)
+            )
+        except (TaskConflict, ValueError) as error:
             self._conflict(item.id, "body", current.text, board, str(error))
             return
         self._update_entry(
             where.change,
             where.key,
-            title=board.split("\n", 1)[0],
-            body=board,
+            title=stored.split("\n", 1)[0],
+            body=stored,
             revision=item.revision,
-            text_hash=first_line_hash(board),
+            text_hash=first_line_hash(stored),
         )
         self.recorded.append(f"{where.key} text rewritten from the board; a replan may follow")
 
@@ -261,20 +259,29 @@ class _Apply:
             return
         change = parent.change
         path = self._tasks_path(change)
-        group = self._lowest_group(change, parent, path)
         text = item.title if not item.body else f"{item.title}\n{item.body}"
-        number = append_task(path, change, group, text)
+        try:
+            group = self._lowest_group(change, parent, path)
+            number, stored = append_task(path, change, group, text)
+        except ValueError as error:
+            self._conflict(item.id, "item", "", item.title, str(error))
+            return
         key = task_key(change, group, number)
         file = self.files[change]
-        board_state = "done" if (item.kit_state or item.state) == "done" else "new"
+        # The base is what the board holds, so the next outbound pass pushes the spec's text.
         entry = TaskEntry(
             id=item.id,
-            fields={"title": item.title, "body": text, "state": board_state, "tags": ""},
+            fields={
+                "title": item.title,
+                "body": item.body,
+                "state": _board_state(item),
+                "tags": "",
+            },
             revision=item.revision,
-            text_hash=first_line_hash(text),
+            text_hash=first_line_hash(stored),
         )
         self.files[change] = file.model_copy(update={"tasks": {**file.tasks, key: entry}})
-        self.places[item.id] = _Where(change, "task", key, group)
+        self.places[item.id] = _Where(change=change, level="task", key=key, group=group)
         self.dirty.add(change)
         self.recorded.append(f"{key} added from the board; a replan may follow")
 
@@ -282,10 +289,10 @@ class _Apply:
         covered = [
             g
             for unit in self.store.all()
+            if unit.state not in FINISHED
             for m in unit.members()
-            if m.change == change and unit.state not in FINISHED
+            if m.change == change and (parent.group is None or parent.group in m.groups)
             for g in m.groups
-            if parent.group is None or parent.group in m.groups
         ]
         if covered:
             return min(covered)
@@ -296,6 +303,7 @@ class _Apply:
     def save(self) -> None:
         for change in sorted(self.dirty):
             write_tracker(self.changes_dir / change, self.files[change])
+        self.dirty.clear()
 
 
 def apply_changes(
@@ -303,12 +311,14 @@ def apply_changes(
     changes: Sequence[Change],
     *,
     changes_dir: Path,
-    state_dir: Path,
     store: UnitStore,
     log: Callable[[str], None] = print,
 ) -> Applied:
     """Hold or release units, tick or untick boxes, rewrite task lines and append tasks for the
-    board changes `changes` of `repo`, writing the planning files only through the pipeline."""
+    board changes `changes` of `repo`, writing the planning files only through the pipeline.
+
+    A failure on one item or unit is logged and leaves the others to run; the tracker files are
+    always saved after the item edits, before the holds are read."""
     try:
         section = section_for(repo)
         tracker = trackers.for_repo(repo) if section is not None else None
@@ -320,23 +330,26 @@ def apply_changes(
     run = _Apply(tracker, section, changes_dir, store, log)
     touched: dict[str, set[int]] = {}
     seen: set[str] = set()
-    for change in changes:
-        if change.item_id in seen:
-            continue
-        seen.add(change.item_id)
-        try:
-            item = tracker.get(change.item_id)
-        except Exception as error:  # noqa: BLE001 — a host answers in its own errors
-            log(f"tracker {repo}: item {change.item_id} not read: {error}")
-            continue
-        where = run.places.get(item.id)
-        if where is None:
-            run.added(item)
-        elif where.level == "task":
-            run.task(where, item)
-        if where is not None and where.group is not None:
-            touched.setdefault(where.change, set()).add(where.group)
+    try:
+        for change in changes:
+            if change.item_id in seen:
+                continue
+            seen.add(change.item_id)
+            try:
+                item = tracker.get(change.item_id)
+                where = run.places.get(item.id)
+                if where is None:
+                    run.added(item)
+                elif where.level == "task":
+                    run.task(where, item)
+            except Exception as error:  # noqa: BLE001 — a host answers in its own errors
+                log(f"tracker {repo}: item {change.item_id} not applied: {error}")
+                continue
+            if where is not None and where.group is not None:
+                touched.setdefault(where.change, set()).add(where.group)
+    finally:
+        run.save()
+    held: set[str] = set()
     for name, groups in touched.items():
-        run.holds(name, groups)
-    run.save()
+        run.holds(name, groups, held)
     return Applied(recorded=tuple(run.recorded), conflicts=tuple(run.conflicts))

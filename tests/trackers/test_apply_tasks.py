@@ -10,10 +10,13 @@ from pathlib import Path
 import pytest
 
 from agent_build_kit import trackers
+from agent_build_kit.pipeline.planner import parse_plan
 from agent_build_kit.pipeline.task_progress import first_line_hash
 from agent_build_kit.pipeline.tracker_file import read_tracker
 from agent_build_kit.pipeline.units import UnitState
+from agent_build_kit.pipeline.work_graph import read_tasks, validate_tasks
 from agent_build_kit.trackers import apply
+from tests.cli.replan_driver import answer, planned
 from tests.trackers.apply_support import AppliedBoard, building
 from tests.trackers.board_support import CHANGE, TASKS
 
@@ -59,6 +62,79 @@ def test_edited_text_rewrites_that_tasks_lines_and_updates_its_hash(tmp_path: Pa
     assert recorded.tasks[f"{CHANGE}:2.2"].text_hash == first_line_hash(EDITED)
 
 
+def test_editing_a_two_line_task_replaces_both_of_its_lines(tmp_path: Path) -> None:
+    run = AppliedBoard(tmp_path, LEVELS)
+    both = (
+        "- [ ] 1.2 Add the fill in `src/app/lanes.py`, covered by `tests/lanes/test_conflict.py`.\n"
+        "      Verify: 1.1 passes.\n"
+    )
+    assert both in TASKS
+
+    run.board.person().update(run.item_id("1.2"), {"title": EDITED, "body": EDITED})
+    run.apply()
+
+    assert run.tasks.read_text() == TASKS.replace(both, f"- [ ] 1.2 {EDITED}\n")
+
+
+def test_a_task_added_with_only_a_title_survives_being_marked_done(tmp_path: Path) -> None:
+    run = AppliedBoard(tmp_path, LEVELS, [building("lane-dedupe/1", 1, 2)])
+    added = run.board.person().create("task", ADDED, "", parent=run.item_id("1"))
+    run.apply()
+
+    run.board.person().update(added.id, {"state": "done"})
+    applied = run.apply()
+
+    assert f"- [x] 1.3 {ADDED}\n" in run.tasks.read_text()
+    assert applied.conflicts == ()
+    recorded = read_tracker(run.world.change_dir)
+    assert recorded is not None
+    assert recorded.tasks[f"{CHANGE}:1.3"].fields["state"] == "done"
+
+
+def test_a_board_body_with_a_blank_line_is_written_whole_into_the_task(tmp_path: Path) -> None:
+    run = AppliedBoard(tmp_path, LEVELS)
+    body = "Do X\n\nVerify: Y"
+
+    run.board.person().update(run.item_id("2.2"), {"title": "Do X", "body": body})
+    run.apply()
+
+    [task] = [t for t in read_tasks(run.tasks, CHANGE) if t.key == f"{CHANGE}:2.2"]
+    assert task.text == "Do X\nVerify: Y"
+    assert run.tasks.read_text().count("Verify: Y") == 1
+
+
+def test_a_task_edited_to_nothing_on_the_board_is_a_conflict_and_nothing_is_written(
+    tmp_path: Path,
+) -> None:
+    run = AppliedBoard(tmp_path, LEVELS)
+
+    run.board.person().update(run.item_id("2.2"), {"title": "", "body": ""})
+    applied = run.apply()
+
+    assert run.tasks.read_text() == TASKS
+    assert [conflict.item_id for conflict in applied.conflicts] == [run.item_id("2.2")]
+
+
+def test_a_failed_read_of_the_board_during_holds_still_records_the_ticked_task(
+    tmp_path: Path,
+) -> None:
+    run = AppliedBoard(tmp_path, LEVELS, [building("lane-dedupe/1", 2)])
+    group = run.item_id("2")
+    run.board.fail = lambda call: (
+        RuntimeError("the board timed out")
+        if call.name == "get" and call.args[0] == group
+        else None
+    )
+
+    run.board.person().update(run.item_id("2.1"), {"state": "done"})
+    run.apply()
+
+    assert "- [x] 2.1 " in run.tasks.read_text()
+    recorded = read_tracker(run.world.change_dir)
+    assert recorded is not None
+    assert recorded.tasks[f"{CHANGE}:2.1"].fields["state"] == "done"
+
+
 def test_a_task_also_edited_in_the_spec_is_a_conflict_and_nothing_is_written(
     tmp_path: Path,
 ) -> None:
@@ -84,9 +160,9 @@ def test_a_task_added_under_a_group_item_is_appended_unticked_to_the_lowest_cove
     added = run.board.person().create("task", ADDED, "", parent=run.item_id("2"))
     run.apply()
 
-    text = run.tasks.read_text()
-    assert text.index(f"- [ ] 1.3 {ADDED}\n") < text.index("## 2.")
-    assert text.index("1.2 Add the fill") < text.index("- [ ] 1.3 ")
+    assert run.tasks.read_text() == TASKS.replace(
+        "      Verify: 1.1 passes.\n", f"      Verify: 1.1 passes.\n- [ ] 1.3 {ADDED}\n"
+    )
     recorded = read_tracker(run.world.change_dir)
     assert recorded is not None
     assert recorded.tasks[f"{CHANGE}:1.3"].id == added.id
@@ -119,14 +195,23 @@ def test_an_item_with_no_level_below_is_a_conflict_and_adds_no_line(tmp_path: Pa
 
 
 def test_a_started_unit_keeps_its_id_and_branch_after_a_task_is_appended(tmp_path: Path) -> None:
-    started = building("lane-dedupe/1", 1, 2)
+    # The unit builds group 1 alone: an e2e-test group (2) always has a unit of its own.
+    started = building("lane-dedupe/1", 1)
     run = AppliedBoard(tmp_path, LEVELS, [started])
 
-    run.board.person().create("task", ADDED, "", parent=run.item_id("2"))
+    run.board.person().create("task", ADDED, "", parent=run.item_id("1"))
     run.apply()
 
-    assert run.tasks.read_text() != TASKS
-    run.store.upsert([started.model_copy(update={"state": UnitState.PLANNED})], change=CHANGE)
+    text = run.tasks.read_text()
+    assert text != TASKS
+    groups, _ = validate_tasks(run.tasks)
+    plan = parse_plan(
+        answer(planned("lane-dedupe/1", (1,)), planned("lane-dedupe/2", (2,))),
+        groups=groups,
+        change=CHANGE,
+        tasks=text,
+    )
+    run.store.upsert(list(plan.units), change=CHANGE)
     kept = run.unit("lane-dedupe/1")
     assert kept.branch == "spec/lane-dedupe/1"
     assert kept.state == UnitState.RUNNING

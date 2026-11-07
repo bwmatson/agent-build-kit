@@ -93,6 +93,8 @@ class HeldBy(StrEnum):
     DEPTH = "depth"
     TOOLCHAIN = "toolchain"
     SIZE = "size"
+    # A person's assignment or block on the work tracker's board.
+    BOARD = "board"
 
 
 class Cause(StrEnum):
