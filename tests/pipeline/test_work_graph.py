@@ -93,7 +93,7 @@ def test_unknown_repos_are_rejected(repo: str, tmp_path: Path) -> None:
     assert "repo" in errors[0].message
 
 
-@pytest.mark.parametrize("tier", ["tier3", "integration", "local_stack", "2", ""])
+@pytest.mark.parametrize("tier", ["tier3", "integration", "e2e", "2", ""])
 def test_unknown_tiers_are_rejected(tier: str, tmp_path: Path) -> None:
     _, errors = parse(f"# Tasks\n\n## 1. [app] [{tier}] Do it\n\n- [ ] 1.1 Do it.\n", tmp_path)
 

@@ -8,7 +8,7 @@ change; there is no consumer surface beyond it.
 Done when `tests/integration/test_acp_build_unit.py` passes against the graph
 engine at e2e-test and a failing e2e-test leaves its output tail in the run log.
 
-- [x] 1.1 Test (`local_stack`): the three failing tests in
+- [x] 1.1 Test (`e2e`): the three failing tests in
       `tests/integration/test_acp_build_unit.py` read steps as
       `<unit>: <node>: …` using the graph's node names, find the review round,
       the first agent step and the progress lines inside it, and pass.

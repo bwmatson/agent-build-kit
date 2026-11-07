@@ -175,12 +175,12 @@ new session, a continued session and an action working together, and the walk is
 reuses. This group is the Claude half of the former single acceptance test; group 12 is the ACP half. Estimate: about 200
 changed lines.
 
-- [x] 11.1 Test (`local_stack`, `CLAUDE_CODE_PARAMS`): extract `walk_unit_through_review(scratch, api, runtime)` into
+- [x] 11.1 Test (`e2e`, `CLAUDE_CODE_PARAMS`): extract `walk_unit_through_review(scratch, api, runtime)` into
       `tests/integration/` support, neutral to the runtime (no `runtime_*` tag of its own), and use it in a Claude test over a
       scratch installation with a real Claude: read a unit's page, stream a live step with the composer disabled, see its
       recorded history with tool calls, chat once it ends and see the unit resume from its node after release, start a new
       session, and requeue a failed unit.
-- [x] 11.2 Test (`local_stack`, `CLAUDE_CODE_PARAMS`): over the same scratch installation, continue a session started
+- [x] 11.2 Test (`e2e`, `CLAUDE_CODE_PARAMS`): over the same scratch installation, continue a session started
       elsewhere with a real Claude (resumed in place when no process holds it, forked when one does).
 - [x] 11.3 Write the acceptance run and document how to run it, including that the ACP half is group 12.
 
@@ -194,7 +194,7 @@ Done when a real run with a real ACP agent shows the same walk as group 11 throu
 ACP-only on purpose and is held while the ACP split is held; it never carries a Claude test. Estimate: about 150 changed
 lines.
 
-- [ ] 12.1 Test (`local_stack`, `RUNTIME_PARAMS` used only here, in an ACP group; no module-level `runtime_acp` mark): over a
+- [ ] 12.1 Test (`e2e`, `RUNTIME_PARAMS` used only here, in an ACP group; no module-level `runtime_acp` mark): over a
       scratch installation with a real ACP agent, call `walk_unit_through_review(scratch, api, runtime)` with the ACP runtime
       and the ACP-specific expectations: a live step with the composer disabled, its recorded history with tool calls, a chat
       once it ends and the unit resuming from its node after release, a new session, and, for a session the agent cannot

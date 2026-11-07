@@ -16,7 +16,7 @@ from tests.live_tag_drift import (
 from tests.runtime_tag_collection import ROOT
 from tests.time_limit import LOADED_TEST_TIME_LIMIT
 
-HEADER = "import pytest\n\npytestmark = pytest.mark.local_stack\n"
+HEADER = "import pytest\n\npytestmark = pytest.mark.e2e\n"
 PLAIN = "\n\ndef test_plain():\n    pass\n"
 DETECT = "from agent_build_kit.runtimes.acp import AcpRuntime\n"
 

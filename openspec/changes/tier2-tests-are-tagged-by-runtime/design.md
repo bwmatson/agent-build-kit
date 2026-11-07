@@ -57,13 +57,13 @@ was re-read at that commit; where it differs from the plan this change was writt
 - `cli/policy_cmd.py` `register(sub)` and `COMMAND_MODULES` in `cli/__init__.py`: a command group is a module with `register` and a tuple entry; `needs_installation` is a
   `set_defaults` key. `runtimes/policy_apply.py`: `BACKUP_SUFFIX = ".abk-backup"`, the backup copied once, the text built by pure insertion, written through a temporary file
   beside the target by `_replace`, refusals as `ApplyRefused`; it only adds to a list.
-- Tests: `pyproject.toml` registers `integration`, `local_stack` and `serial`, not `dev_stack`, and `addopts` is `-m 'not integration and not local_stack'` without strict
+- Tests: `pyproject.toml` registers `integration`, `e2e` and `serial`, not `dev_stack`, and `addopts` is `-m 'not integration and not e2e'` without strict
   markers. `tests/conftest.py` lists `pytest_plugins` (`pytester`, the replay, time-limit and time-split plugins); `no_real_agent` and `no_direct_claude` return early for a
-  `local_stack` test; `tests/time_limit.py` is a plugin reading `item.get_closest_marker("local_stack")` per phase; `tests/time_split.py` requires each test of the scratch modules to
+  `e2e` test; `tests/time_limit.py` is a plugin reading `item.get_closest_marker("e2e")` per phase; `tests/time_split.py` requires each test of the scratch modules to
   request the scratch ledger fixture (`tests/test_e2e_time_split.py` lists the two modules by name).
 - The four live files: `test_acp_build_unit.py` and `test_graph_acp_unit.py` both write `runtimes: acp: command: <<redacted>>` into the scratch `abk.yaml`, set
   `ABK_RUNTIME=acp` and the agent home, and fail (not skip) with no command; `test_telemetry_stack.py` does the same through `run_tick` and reads the stores back;
-  `test_init_conventions_workspace.py` is `local_stack` with no agent. A `-m` expression naming a marker that is not registered is accepted by pytest under strict markers
+  `test_init_conventions_workspace.py` is `e2e` with no agent. A `-m` expression naming a marker that is not registered is accepted by pytest under strict markers
   (tried on a fixture file), so a base expression may name tags a repo has not registered.
 
 ## Decisions
@@ -73,7 +73,7 @@ was re-read at that commit; where it differs from the plan this change was writt
 `runtime_<name>` for each key of `runtimes` (`runtime_claude_code`, `runtime_acp`); untagged is the base and always runs. The registered list is static in the project file; a test
 ties it to the runtime registry plus the protocol runtime's name, because the protocol runtime is registered only with its extra installed. The "at most one" check is a plugin beside
 `tests/time_limit.py`: at collection it reads `item.iter_markers()` (so a test, class, module or parameter tag all count), takes the distinct `runtime_*` names, and for a
-`local_stack` item with two or more raises a usage error naming every such item and its tags. A parametrised scenario therefore tags each parameter and no module. Strict markers
+`e2e` item with two or more raises a usage error naming every such item and its tags. A parametrised scenario therefore tags each parameter and no module. Strict markers
 are turned on in `addopts`; the first task of that group runs the whole default suite and registers any marker it finds unregistered.
 
 ### One expression, a listing hook for the rest
@@ -221,12 +221,12 @@ Searched for `test_acp_build_unit`, `test_graph_acp_unit`, `acp_build_unit`, `gr
 
 agent-build-kit `origin/main` (updated by group 14 and checked by its test; the changelog's history is exempt):
 
-- `docs/agent-runtimes.md` (about 870 and 875): the build run and its report check, and the `pytest -m local_stack` line, name `test_acp_build_unit.py`.
+- `docs/agent-runtimes.md` (about 870 and 875): the build run and its report check, and the `pytest -m e2e` line, name `test_acp_build_unit.py`.
 - `tests/pipeline/test_scratch_change_tasks.py` (12): `from tests.integration.test_acp_build_unit import TASKS` (the import must follow the rename; `TASKS` stays in the build test).
 - `tests/test_e2e_time_split.py` (200): the parametrised module list `["test_acp_build_unit.py", "test_graph_acp_unit.py"]`.
 - Not renamed, so unchanged: `test_telemetry_stack.py` (`docs/agent-runtimes.md` 876 and 886, `CHANGELOG.md` 1304, `tests/test_timing_guard.py` 253, `tests/timing_hazards.py` 45) and
   `test_init_conventions_workspace.py` (`docs/init.md` 142).
-- No project-file task, poe task, script, workflow or shipped skill names any of the old files (`test-local-stack` is `pytest -m local_stack`).
+- No project-file task, poe task, script, workflow or shipped skill names any of the old files (`test-local-stack` is `pytest -m e2e`).
 
 The planning repository, every change under `openspec/changes/` outside the archive (read only; their units read from `runs/units.json`, also read only). All are changes whose units are
 merged or started, so none is edited; the wording to use is recorded here.

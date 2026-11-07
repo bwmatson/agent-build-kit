@@ -9,7 +9,7 @@ tokens. The policy step reads the agent's configuration and starts no agent. The
 they receive the chosen runtime). The `--policy-only` runs read a configuration in a scratch
 agent home, never the host's. Needs node for the OpenSpec CLI, as the end-to-end init test does.
 
-Run with `uv run pytest -m local_stack tests/integration/test_init_runtime_live_stack.py`; the
+Run with `uv run pytest -m e2e tests/integration/test_init_runtime_live_stack.py`; the
 last test starts the agent installed on the host, is in the `acp` split, and skips without one.
 """
 
@@ -39,7 +39,7 @@ from tests.spelling_rows import AMEND
 from tests.split_sources import snapshot_tree
 
 pytestmark = [
-    pytest.mark.local_stack,
+    pytest.mark.e2e,
     pytest.mark.runtime_acp,
     pytest.mark.skipif(shutil.which("npx") is None, reason="npx is not on PATH"),
 ]

@@ -21,7 +21,7 @@ Read in the agent-build-kit checkout at `main` (556c728), and, read-only, the tw
 - `tests/conftest.py`: the autouse guards. `no_real_agent` replaces `claude_code.spawn` with a refusal;
   `no_direct_claude` replaces `subprocess.Popen` with a subclass that refuses a program whose basename is `claude`;
   `no_real_login_refresh` and `no_real_usage_reading` replace the adapter's refresh and usage readers; `no_real_gh`,
-  `no_real_github` and `no_real_forge_host` keep `gh` and the code host off the network. `local_stack` is registered in
+  `no_real_github` and `no_real_forge_host` keep `gh` and the code host off the network. `e2e` is registered in
   `pyproject.toml` and excluded by default.
 - `pipeline/wiring.py` `Tier2Gate`: per project it runs each of the toolchain's tier 2 commands under `stack_lock`, parses
   the summary, appends `$ command\n<out>` to `outputs` for a failing command (and the last 1500 characters of a passing
@@ -82,9 +82,9 @@ remove the helper.
 
 ## 2. A tier 2 test may start a real agent
 
-The decision per guard, for a test marked `local_stack` (the marker on the test, its class or its module):
+The decision per guard, for a test marked `e2e` (the marker on the test, its class or its module):
 
-| Guard | For a `local_stack` test | Why |
+| Guard | For a `e2e` test | Why |
 |---|---|---|
 | `no_real_agent` (`claude_code.spawn`) | not applied | The marker means the test uses a real agent. |
 | `no_direct_claude` (`subprocess.Popen` refusing `claude`) | not applied | The real Claude runtime starts `claude` through `subprocess.Popen`, so lifting `no_real_agent` alone changes nothing: the next guard refuses the same process. The guard's job (finding a call site that bypasses the runtime) is done by every test that is not tier 2. |
@@ -92,14 +92,14 @@ The decision per guard, for a test marked `local_stack` (the marker on the test,
 | `no_real_usage_reading` | applied | It reads the person's live usage endpoint with their token; a tier 2 test injects readers or avoids the adapter's default, as it does for a limit. |
 | `no_real_gh`, `no_real_github`, `no_real_forge_host` | applied | The scratch code host is the fake one; reaching GitHub is never what a test means. |
 
-The two lifted guards keep their code. Each reads `request.node.get_closest_marker("local_stack")` through the `request`
+The two lifted guards keep their code. Each reads `request.node.get_closest_marker("e2e")` through the `request`
 fixture and returns without patching when it is set. Tier 1 (unmarked) tests are exactly as before. A marked test that
 needs a refresh or a usage reading and finds the guard in the way fails with the guard's own message, which says what to
-inject; it does not pass silently. UNVERIFIED: that no `local_stack` test of the two units reaches the refresh or the
+inject; it does not pass silently. UNVERIFIED: that no `e2e` test of the two units reaches the refresh or the
 usage readers on `main`'s code path; if one does, the table's decision for that guard is revisited in the rework of the
 unit, not by lifting it here.
 
-**A real agent call in a `local_stack` test is expected to be recorded and replayed.** Lifting the two guards lets a tier
+**A real agent call in a `e2e` test is expected to be recorded and replayed.** Lifting the two guards lets a tier
 2 test start the agent with whatever arguments it is given, including a set not seen before. That is accepted, on the
 condition the change `tier2-replays-unchanged-calls` provides: a call with new arguments goes to the real endpoint and is
 recorded, and the same call seen again is answered from the recording. That change's reverse proxy covers the Claude
@@ -107,7 +107,7 @@ runtime if the agent honours a base-URL override, which its design marks UNVERIF
 real, unrecorded one. This change does not depend on it (no `Needs:` line) and does not build any recording.
 
 The guard test uses `pytester` with a conftest that imports the real fixtures (`from tests.conftest import no_real_agent,
-no_direct_claude`) and a registered `local_stack` marker, runs an unmarked and a marked test, and asserts the first is
+no_direct_claude`) and a registered `e2e` marker, runs an unmarked and a marked test, and asserts the first is
 refused with the guard's message and the second reaches a harmless argv (`sys.executable`) through the original
 `spawn`, bound before the patch.
 

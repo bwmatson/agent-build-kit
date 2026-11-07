@@ -18,13 +18,13 @@ Done when `start_server` takes an environment for the agents it starts, a chat t
 
 ## 2. [agent-build-kit] [tier1] A tier 2 test may start a real agent
 
-Done when a test marked `local_stack` is not refused by the runtime-spawn and direct-`claude` guards, every other test still is, and the other guards apply to all.
+Done when a test marked `e2e` is not refused by the runtime-spawn and direct-`claude` guards, every other test still is, and the other guards apply to all.
 
-- [x] 2.1 Test: `tests/test_spawn_guards.py` runs `pytester` with a conftest importing the real guards and the `local_stack` marker registered, and asserts an unmarked test that starts the runtime's real spawn fails with the guard's message.
-- [x] 2.2 Test: the same file asserts a test marked `local_stack` starts a harmless program (`sys.executable`) through the original `spawn`, bound before the patch, and is not refused; and that a module-level mark gives the same result.
+- [x] 2.1 Test: `tests/test_spawn_guards.py` runs `pytester` with a conftest importing the real guards and the `e2e` marker registered, and asserts an unmarked test that starts the runtime's real spawn fails with the guard's message.
+- [x] 2.2 Test: the same file asserts a test marked `e2e` starts a harmless program (`sys.executable`) through the original `spawn`, bound before the patch, and is not refused; and that a module-level mark gives the same result.
 - [x] 2.3 Test: the same file asserts a program named `claude` is refused for an unmarked test and not by the guard for a marked one (a fake `claude` script on `PATH` that exits 0).
 - [x] 2.4 Test: the same file asserts a marked test that refreshes the login, reads the usage window, runs `gh` or calls the code host fails with that guard's message.
-- [x] 2.5 Make `no_real_agent` and `no_direct_claude` in `tests/conftest.py` return without patching when `request.node.get_closest_marker("local_stack")` is set, keep every other guard as it is, and say why in each docstring.
+- [x] 2.5 Make `no_real_agent` and `no_direct_claude` in `tests/conftest.py` return without patching when `request.node.get_closest_marker("e2e")` is set, keep every other guard as it is, and say why in each docstring.
 - [x] 2.6 Document the rule in `AGENTS.md`'s test section of the agent-build-kit repository and in the docstring of `tests/conftest.py`, and add a changelog entry.
 
 ## 3. [agent-build-kit] [tier1] A failed tier 2 run lists the first error of every failed test

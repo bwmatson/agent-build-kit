@@ -61,7 +61,7 @@ def test_a_group_declared_rest_with_an_own_test_in_acp_is_warned_about(
 def test_the_exit_status_is_the_one_it_would_be_without_the_warning(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    overlap = Pytest({**CLEAN, "local_stack and runtime_claude_code": [CLAUDE, ACP]})
+    overlap = Pytest({**CLEAN, "e2e and runtime_claude_code": [CLAUDE, ACP]})
     inst = installation(tmp_path)
     plan(inst, stored_unit("feature/1", change="feature", split="rest", groups=(3,)))
     without = check(inst, capsys, Lookup({}), overlap)[0]

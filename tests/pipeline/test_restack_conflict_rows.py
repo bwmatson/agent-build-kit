@@ -36,7 +36,7 @@ class Spending(StandInRuntime):
     def run(self, request: AgentRequest) -> AgentResult:
         self.requests.append(request)
         assert request.cwd is not None
-        (request.cwd / "markers.py").write_text('markers = ["integration", "local_stack"]\n')
+        (request.cwd / "markers.py").write_text('markers = ["integration", "e2e"]\n')
         result = AgentResult(
             ok=True,
             text="resolved",
@@ -56,7 +56,7 @@ def conflicting(path: Path) -> Path:
     commit(repo, "markers.py", "markers = []\n")
     git(repo, "checkout", "-q", "-b", "spec/c/1")
     git(repo, "checkout", "-q", "-b", "spec/c/2")
-    commit(repo, "markers.py", 'markers = ["local_stack"]\n')
+    commit(repo, "markers.py", 'markers = ["e2e"]\n')
     git(repo, "checkout", "-q", "main")
     commit(repo, "markers.py", 'markers = ["integration"]\n')
     return repo
@@ -83,7 +83,7 @@ def move(repo: Path, runtime) -> restack.Moved:
         moving_unit=UNIT,
         moving_change="add-marker",
         moving_repo="app",
-        moving_intent="Register the local_stack marker in app",
+        moving_intent="Register the e2e marker in app",
         onto_unit="add-integration/1",
         onto_intent="Register the integration marker in app",
         resolve=partial(restack.claude_resolver, runtime=runtime),

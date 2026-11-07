@@ -48,7 +48,7 @@ Done when a real unit is built, reviewed in the UI, reworked, approved and merge
 no remote pull request. The acceptance runs on Claude Code only: the acp split is held (its model backend is
 out of budget), so a `runtime_acp` test here would park and run nothing. Estimate: about 40 changed lines.
 
-- [x] 3.1 Test (`local_stack`): over a scratch installation whose repo has no remote and a real agent,
+- [x] 3.1 Test (`e2e`): over a scratch installation whose repo has no remote and a real agent,
       a unit reaches review, a UI comment sends it back and it is reworked, Approve is recorded, a
       person merges with git, and the unit is recorded merged and its dependent starts. The scratch
       change's second group names the first group's function in its own test (so any plan makes it
@@ -63,4 +63,4 @@ out of budget), so a `runtime_acp` test here would park and run nothing. Estimat
       and its `monkeypatch.setenv` loop are removed, because it lists sessions with ACP `session/list`, which a
       Claude Code agent does not offer (the assertions on the unit's state, branch and plan shape stay); and
       `ACP_ONLY_REASONS` is deleted, with its comment. Test: collecting the module under
-      `-m "local_stack and runtime_claude_code"` selects the test, and under `runtime_acp` none.
+      `-m "e2e and runtime_claude_code"` selects the test, and under `runtime_acp` none.

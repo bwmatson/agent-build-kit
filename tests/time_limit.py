@@ -3,7 +3,7 @@
 The limit, on each of a test's setup, call and teardown, is a CPU budget (the CPU time of
 the process and its children) of `--test-time-limit` seconds (default
 `DEFAULT_TEST_TIME_LIMIT`), with a wall-clock backstop of `BACKSTOP_FACTOR` times it. A
-test with the `local_stack` (e2e-test) marker has `--e2e-test-time-limit` seconds of wall
+test with the `e2e` (e2e-test) marker has `--e2e-test-time-limit` seconds of wall
 time (default `DEFAULT_E2E_TEST_TIME_LIMIT`) and no CPU budget; a test marked
 `time_limit(<seconds>)` gets that budget in place of the first; zero turns a limit off. A
 watcher thread polls the CPU and a timer the wall clock, and each signals the main thread
@@ -47,7 +47,7 @@ def budget_for(item: pytest.Item) -> Budget:
     """The budgets of a test's setup, call or teardown: its limit as CPU seconds with a wall
     backstop of `BACKSTOP_FACTOR` times it; an e2e test has only its wall limit."""
     limit = max(limit_for(item), 0)
-    if item.get_closest_marker("local_stack") is not None:
+    if item.get_closest_marker("e2e") is not None:
         return Budget(cpu=0, wall=limit)
     return Budget(cpu=limit, wall=limit * BACKSTOP_FACTOR)
 
@@ -201,7 +201,7 @@ def e2e_limit(config: pytest.Config) -> float:
 
 def limit_for(item: pytest.Item) -> float:
     """The seconds a test's setup, call or teardown may run: marker, e2e or default."""
-    if item.get_closest_marker("local_stack") is not None:
+    if item.get_closest_marker("e2e") is not None:
         return e2e_limit(item.config)
     own = item.get_closest_marker("time_limit")
     if own is None:
@@ -215,7 +215,7 @@ def limit_for(item: pytest.Item) -> float:
 def _under_limit(item: pytest.Item, phase: str):
     """Run the rest of a hook, setup, call or teardown, under its budgets."""
     budget = budget_for(item)
-    kind = "e2e-test " if item.get_closest_marker("local_stack") is not None else ""
+    kind = "e2e-test " if item.get_closest_marker("e2e") is not None else ""
     off = budget.cpu <= 0 and budget.wall <= 0
     if off or threading.current_thread() is not threading.main_thread():
         return (yield)

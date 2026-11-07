@@ -37,7 +37,7 @@ def test_each_entry_is_a_row_with_its_unit_change_marker_test_phase_and_millisec
         assert (row["unit"], row["change"], row["marker"]) == (
             "add-marker/1",
             "add-marker",
-            "local_stack",
+            "e2e",
         )
         assert row["at"]
         assert not {"agent_ms", "checks_ms", "other_ms"} & set(row)

@@ -198,7 +198,7 @@ from tests.scratch_dump_support import *  # noqa: F403
 
 def run_children(pytester: pytest.Pytester, body: str, *, plugin: bool = True) -> pytest.RunResult:
     """Run generated live tests, with the dump plugin unless `plugin` is false."""
-    pytester.makeini("[pytest]\nmarkers =\n    local_stack: a live test\n")
+    pytester.makeini("[pytest]\nmarkers =\n    e2e: a live test\n")
     pytester.makepyfile(test_child=PRELUDE + body)
     plugins = ["-p", "tests.scratch_dump"] if plugin else []
     return pytester.runpytest_inprocess(*plugins, "-p", "no:cacheprovider")

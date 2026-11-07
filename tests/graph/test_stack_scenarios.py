@@ -202,7 +202,7 @@ def test_work_is_built_on_the_remote_trunk_but_the_pr_targets_main(tmp_path: Pat
     assert pr_bases == ["main"]
 
 
-def test_a_unit_test_unit_does_not_touch_the_local_stack(tmp_path: Path) -> None:
+def test_a_unit_test_unit_does_not_touch_the_e2e(tmp_path: Path) -> None:
     """E2e-test is serialized, so running it needlessly would block other work."""
     recorder = fresh(tmp_path)
 

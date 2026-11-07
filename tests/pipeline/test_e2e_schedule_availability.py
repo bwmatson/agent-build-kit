@@ -14,7 +14,7 @@ from tests.e2e_check_support import marker_matches
 from tests.e2e_scope_fakes import Ran, branch
 from tests.e2e_scope_fakes import session as shared_session
 
-MARKER = "local_stack"
+MARKER = "e2e"
 SPLITS = (
     E2eSplit(name="acp", marker="runtime_acp"),
     E2eSplit(name="claude_code", marker="runtime_claude_code"),

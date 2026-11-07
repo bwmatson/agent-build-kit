@@ -41,7 +41,7 @@ Read-only against agent-build-kit `origin/main` (`7e04c86`); paths are under `sr
   (`plan_all`, a model call) only when `_may_build` admits, behind the usage guard. `_preview_fixes` prints the fix changes of recorded failures on
   `--dry-run` before the `has_work` return.
 - `config.py` `limits`: `unit_test_repeat_runs`, `restack_check` (a `StrEnum`, `RestackCheck`), `e2e_base_runs`, `e2e_lock_wait_seconds`,
-  `max_units_in_progress` (5). `tests.e2e_marker` (default `local_stack`) is a field of every repo, so it does not say whether a repo has an e2e-test
+  `max_units_in_progress` (5). `tests.e2e_marker` (default `e2e`) is a field of every repo, so it does not say whether a repo has an e2e-test
   suite. `abk config --show` prints the whole effective config; `abk doctor` reports no `limits` value today.
 
 ## Where the settings live

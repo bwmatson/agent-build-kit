@@ -13,12 +13,12 @@ from agent_build_kit.pipeline.red_check import REPORT_MARK
 from tests.node_npx_fake import VITEST
 from tests.node_workspace import touch, workspace
 
-MARKED = "src/live.local_stack.test.ts"
+MARKED = "src/live.e2e.test.ts"
 UNMARKED = "src/unit.test.ts"
 # Carries both markers: e2e-test selects it, and only the exclusion keeps it out of acceptance.
-DEV = "src/dev.dev_stack.local_stack.test.ts"
+DEV = "src/dev.dev_stack.e2e.test.ts"
 # The marker is not right before `test`, so it is not an e2e file.
-DETACHED = "src/x.local_stack.browser.test.ts"
+DETACHED = "src/x.e2e.browser.test.ts"
 
 
 @pytest.fixture
@@ -37,7 +37,7 @@ def test_e2e_selects_the_files_carrying_the_marker_and_not_the_unmarked(
 ) -> None:
     touch(tmp_path, MARKED, UNMARKED)
 
-    (command,) = profile.e2e_commands(tmp_path, marker="local_stack")
+    (command,) = profile.e2e_commands(tmp_path, marker="e2e")
 
     assert selects(command, MARKED)
     assert not selects(command, UNMARKED)
@@ -56,7 +56,7 @@ def test_e2e_of_a_workspace_runs_each_member_in_its_directory(profile, tmp_path:
     workspace(tmp_path, ["packages/a", "packages/b"])
     touch(tmp_path, f"packages/a/{MARKED}", f"packages/b/{MARKED}")
 
-    commands = profile.e2e_commands(tmp_path, marker="local_stack")
+    commands = profile.e2e_commands(tmp_path, marker="e2e")
 
     assert len(commands) == 2
     assert sorted("packages/a" in " ".join(c) for c in commands) == [False, True]
@@ -65,7 +65,7 @@ def test_e2e_of_a_workspace_runs_each_member_in_its_directory(profile, tmp_path:
 
 def acceptance(profile, root: Path, paths: list[str]) -> list[list[str]]:
     return profile.acceptance_commands(
-        root, paths, marker="local_stack", exclude_marker="dev_stack", root_extras=[]
+        root, paths, marker="e2e", exclude_marker="dev_stack", root_extras=[]
     )
 
 
@@ -80,7 +80,7 @@ def test_acceptance_names_the_changed_marked_files_only(profile, tmp_path: Path)
 
 def test_acceptance_leaves_out_the_dev_stack_markers_files(profile, tmp_path: Path) -> None:
     touch(tmp_path, MARKED, DEV)
-    (e2e,) = profile.e2e_commands(tmp_path, marker="local_stack")
+    (e2e,) = profile.e2e_commands(tmp_path, marker="e2e")
 
     assert selects(e2e, DEV)
 
@@ -95,7 +95,7 @@ def test_acceptance_has_nothing_to_run_without_a_changed_marked_file(
 ) -> None:
     touch(tmp_path, MARKED, UNMARKED)
 
-    assert acceptance(profile, tmp_path, [UNMARKED, "src/gone.local_stack.test.ts"]) == []
+    assert acceptance(profile, tmp_path, [UNMARKED, "src/gone.e2e.test.ts"]) == []
 
 
 def test_each_tests_time_comes_from_the_recorded_e2e_report(profile) -> None:
@@ -104,8 +104,8 @@ def test_each_tests_time_comes_from_the_recorded_e2e_report(profile) -> None:
     times = profile.parse_test_durations(output)
 
     assert [(t.test, t.phase) for t in times] == [
-        ("live.local_stack.test.ts > waits", "call"),
-        ("live.local_stack.test.ts > answers", "call"),
+        ("live.e2e.test.ts > waits", "call"),
+        ("live.e2e.test.ts > answers", "call"),
     ]
     assert all(isinstance(t, TestTime) for t in times)
     assert times[0].seconds == pytest.approx(0.0532, abs=0.001)
@@ -116,7 +116,7 @@ def test_a_marker_not_right_before_test_is_a_e2e_file_for_neither_run(
     profile, tmp_path: Path
 ) -> None:
     touch(tmp_path, DETACHED)
-    (e2e,) = profile.e2e_commands(tmp_path, marker="local_stack")
+    (e2e,) = profile.e2e_commands(tmp_path, marker="e2e")
 
     assert not selects(e2e, DETACHED)
     assert acceptance(profile, tmp_path, [DETACHED]) == []

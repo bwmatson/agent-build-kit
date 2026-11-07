@@ -188,7 +188,7 @@ tests look at what it wrote. It follows groups 1 to 3 in the build order, so it 
 they merged. It depends on two merged changes, checked in the framework's history: `scratch-app-ignores-its-lock`
 group 1 (commit "The scratch app's worktree stays clean under its own tier-1 commands", #189), without which the
 unit's worktree holds an untracked lock after its first tier-1 run and the second step is held; and
-`tier2-tests-have-their-own-time-limit` (#178), which gives a `local_stack` test thirty minutes instead of sixty
+`tier2-tests-have-their-own-time-limit` (#178), which gives a `e2e` test thirty minutes instead of sixty
 seconds. The first carries a `Needs:` line; the second needs none because it is merged and nothing in flight
 reshapes it.
 

@@ -74,13 +74,13 @@ def parsed(text: str) -> ast.Module:
     return ast.parse(text)
 
 
-def marks_local_stack(tree: ast.AST) -> bool:
-    return any(isinstance(n, ast.Attribute) and n.attr == "local_stack" for n in ast.walk(tree))
+def marks_e2e(tree: ast.AST) -> bool:
+    return any(isinstance(n, ast.Attribute) and n.attr == "e2e" for n in ast.walk(tree))
 
 
 def find_live_modules(tests_root: Path) -> list[Path]:
     """Every Python file under `tests_root`, at any depth and whatever its name, whose syntax
-    marks a test `local_stack` (`pytestmark`, a decorator, a `pytest.param` mark, a class
+    marks a test `e2e` (`pytestmark`, a decorator, a `pytest.param` mark, a class
     decorator), sorted. A word in a string or comment does not count. Fails, naming the files,
     on one that cannot be parsed."""
     live, broken = [], []
@@ -92,7 +92,7 @@ def find_live_modules(tests_root: Path) -> list[Path]:
         except SyntaxError:
             broken.append(path)
             continue
-        if marks_local_stack(tree):
+        if marks_e2e(tree):
             live.append(path)
     if broken:
         pytest.fail("cannot parse: " + ", ".join(str(p) for p in broken), pytrace=False)
@@ -300,7 +300,7 @@ def drift(items: list[pytest.Item]) -> list[str]:
         tags = runtime_tags(item)
         if len(tags) > 1:
             found.append(f"{item.nodeid}: carries {len(tags)} runtime tags: {', '.join(tags)}")
-        elif item.get_closest_marker("local_stack"):
+        elif item.get_closest_marker("e2e"):
             started = AgentStart.of(item)
             if not tags and started.starts:
                 found.append(f"{item.nodeid}: starts an agent and carries no runtime tag")
@@ -450,7 +450,7 @@ def value_name_drift(
     test also carries that value."""
     carried: dict[tuple[str, str], set[str]] = defaultdict(set)  # (module, test name) to markers
     for item in items:
-        if item.get_closest_marker("local_stack") is not None:
+        if item.get_closest_marker("e2e") is not None:
             key = (str(item.path), getattr(item, "originalname", item.name))
             carried[key] |= {m.name for m in item.iter_markers()}
 

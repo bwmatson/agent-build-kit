@@ -49,7 +49,7 @@ def test_a_unit_that_adds_one_test_and_changes_another_runs_exactly_those_two(
     # The marker and every other option of the whole run stay; only the paths are the ids.
     assert command[: len(WHOLE)] == WHOLE
     assert sorted(command[len(WHOLE) :]) == OWN_IDS
-    assert "local_stack" in command
+    assert "e2e" in command
 
 
 def test_a_changed_test_without_the_marker_is_not_run_and_collecting_nothing_is_no_test(
@@ -67,7 +67,7 @@ def test_a_changed_test_without_the_marker_is_not_run_and_collecting_nothing_is_
 
     # The marker is on the command, so the runner deselects the test; nothing is a failure.
     assert ok
-    assert "local_stack" in ran.commands[0]
+    assert "e2e" in ran.commands[0]
     assert gate.result is not None
     assert gate.result.ran_no_tests
     assert gate.result.passed == gate.result.failed == 0
@@ -117,7 +117,7 @@ def decide(repo: Path, base: str | None, setting: E2eUnitScope = E2eUnitScope.OW
         setting=setting,
         profile=PROFILE,
         projects=[],
-        marker="local_stack",
+        marker="e2e",
         dev_stack=None,
     )
 
@@ -212,7 +212,7 @@ def test_a_changed_live_test_of_one_member_runs_only_that_members_command_with_r
     [command] = ran.commands
     assert command[command.index("--directory") + 1] == "svc-a"
     assert command[-1] == "tests/live/test_new.py::test_new"
-    assert "local_stack" in command
+    assert "e2e" in command
 
 
 def test_a_changed_test_outside_every_member_runs_nothing_and_skips_the_lock(

@@ -1,6 +1,6 @@
 """A pytest plugin that splits an e2e test's time by agent role, checks and the rest.
 
-For each phase (setup, call, teardown) of a `local_stack` test that requests the
+For each phase (setup, call, teardown) of a `e2e` test that requests the
 `scratch_ledger` fixture, a path to the scratch installation's usage ledger, the plugin reads
 the rows appended since the last phase that used that ledger, so a module fixture's rows fall
 in the setup of the first test using it. At the end of the session it prints one line per
@@ -78,7 +78,7 @@ def _split(
 
 
 def _ledger(item: pytest.Item) -> Path | None:
-    if item.get_closest_marker("local_stack") is None:
+    if item.get_closest_marker("e2e") is None:
         return None
     found = (getattr(item, "funcargs", None) or {}).get(LEDGER_FIXTURE)
     return Path(found) if found is not None else None

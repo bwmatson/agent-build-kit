@@ -19,7 +19,7 @@ FAILURE = build_snapshot(
         failed=1,
         skipped=0,
         duration_seconds=1.5,
-        command="uv run pytest -m local_stack",
+        command="uv run pytest -m e2e",
         output="\n".join([*(f"line {n}" for n in range(1, 60)), *TAIL]),
     )
 )

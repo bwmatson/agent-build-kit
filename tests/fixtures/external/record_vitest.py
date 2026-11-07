@@ -77,7 +77,7 @@ CASES = {
         {"h.test.ts": HEADER + "test('holds', () => {\n  expect(1).toBe(1);\n});\n"},
     ),
     "e2e": (
-        "live.local_stack.test.ts",
+        "live.e2e.test.ts",
         HEADER
         + "test('waits', async () => {\n"
         + "  await new Promise((done) => setTimeout(done, 50));\n  expect(1).toBe(1);\n});\n"

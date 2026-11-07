@@ -92,7 +92,7 @@ pytester_example_dir = "tests/child_modules"
 filterwarnings = ["error:Pydantic serializer warnings:UserWarning"]
 markers = [
     "integration: needs node (npx) and the network for the real OpenSpec CLI, or reads the whole repository (a wide scan); excluded by default, run with `pytest -m integration`",
-    "local_stack: drives the real CLI against a real agent on this host, bills on demand and takes minutes; excluded by default, run with `pytest -m local_stack`",
+    "e2e: drives the real CLI against a real agent on this host, bills on demand and takes minutes; excluded by default, run with `pytest -m e2e`",
     "runtime_claude_code: a live-stack test that drives the claude_code runtime; at most one runtime tag per test, none is the untagged base that always runs",
     "runtime_acp: a live-stack test that drives the protocol (acp) runtime; at most one runtime tag per test",
     "telemetry_otel: a live-stack test that needs the shared telemetry stack's dev instance and the `ABK_ACCEPTANCE_*` variables",
@@ -101,7 +101,7 @@ markers = [
     "dev_stack: needs the repo's dev stack up; left out of acceptance runs",
     "sandbox_probe: a test of doctor's `sandbox` check: doctor runs the real probes instead of the suite's stand-in",
 ]
-addopts = "--strict-markers -m 'not integration and not local_stack'"
+addopts = "--strict-markers -m 'not integration and not e2e'"
 # A passing test's temp folder is deleted and a failing run keeps its folders, up to the count.
 tmp_path_retention_policy = "failed"
 tmp_path_retention_count = 2
@@ -114,7 +114,7 @@ format = { sequence = [
 ] }
 test = "pytest -n auto --maxprocesses=8"
 test-integration = "pytest -m integration"
-test-local-stack = "pytest -m local_stack"
+test-e2e = "pytest -m e2e"
 scrub = "pytest tests/test_no_installation_leaks.py"
 web-check = "npm run --prefix web check"
 web-build = "npm run --prefix web build"

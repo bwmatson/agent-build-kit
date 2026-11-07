@@ -2,7 +2,7 @@
 
 `tests/runtimes/test_policy_agent_harness.py::test_an_agent_that_never_answers_ends_at_the_deadline_with_nothing_left` failed under load and passed alone, twice, when run again by itself. A test like that fails units that did not touch it.
 
-It ran as `uv run pytest -n auto --maxprocesses=8 -m '(not integration and not local_stack) and not serial' -q` and failed with:
+It ran as `uv run pytest -n auto --maxprocesses=8 -m '(not integration and not e2e) and not serial' -q` and failed with:
 
 ```
 n 3.14.6 /home/<redacted>/.local/share/<redacted>/worktrees/agent-build-kit/spec_policy_check_asks_the_agents_own_matcher_4/.venv/bin/python

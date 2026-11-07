@@ -86,7 +86,7 @@ def test_a_per_repo_tests_block_is_read_the_same_way(
     from_new = config.load(write(tmp_path, repo_block(new, value)))
 
     assert from_old == from_new
-    assert from_old != config.load(write(tmp_path, repo_block("tier2_marker", "local_stack")))
+    assert from_old != config.load(write(tmp_path, repo_block("tier2_marker", "e2e")))
 
 
 @pytest.mark.parametrize("key", ["tier2_marker", "e2e_marker"])

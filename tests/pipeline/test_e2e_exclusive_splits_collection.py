@@ -17,13 +17,12 @@ SPLITS = (
     E2eSplit(name="claude_code", marker="runtime_claude_code"),
     E2eSplit(name="rest"),
 )
-COMMAND = [sys.executable, "-m", "pytest", "-m", "local_stack"]
+COMMAND = [sys.executable, "-m", "pytest", "-m", "e2e"]
 
 
 def repo(root: Path, body: str) -> Path:
     (root / "pyproject.toml").write_text(
-        "[tool.pytest.ini_options]\n"
-        'markers = ["local_stack", "runtime_acp", "runtime_claude_code"]\n'
+        '[tool.pytest.ini_options]\nmarkers = ["e2e", "runtime_acp", "runtime_claude_code"]\n'
     )
     (root / "test_live.py").write_text("import pytest\n\n" + body)
     return root
@@ -33,13 +32,13 @@ def check(root: Path) -> Any:
     def run(argv: list[str], **kwargs: Any) -> subprocess.CompletedProcess:
         return subprocess.run(argv, cwd=root, **kwargs)
 
-    return check_splits(PROFILE, COMMAND, "local_stack", SPLITS, run=run)
+    return check_splits(PROFILE, COMMAND, "e2e", SPLITS, run=run)
 
 
 def test_a_test_carrying_the_markers_of_two_splits_is_found_in_both(tmp_path: Path) -> None:
     root = repo(
         tmp_path,
-        "@pytest.mark.local_stack\n@pytest.mark.runtime_acp\n@pytest.mark.runtime_claude_code\n"
+        "@pytest.mark.e2e\n@pytest.mark.runtime_acp\n@pytest.mark.runtime_claude_code\n"
         "def test_both(): ...\n",
     )
 
@@ -53,8 +52,8 @@ def test_a_test_carrying_the_markers_of_two_splits_is_found_in_both(tmp_path: Pa
 def test_a_test_carrying_one_marker_is_not_found(tmp_path: Path) -> None:
     root = repo(
         tmp_path,
-        "@pytest.mark.local_stack\n@pytest.mark.runtime_acp\ndef test_one(): ...\n\n"
-        "@pytest.mark.local_stack\ndef test_plain(): ...\n",
+        "@pytest.mark.e2e\n@pytest.mark.runtime_acp\ndef test_one(): ...\n\n"
+        "@pytest.mark.e2e\ndef test_plain(): ...\n",
     )
 
     result = check(root)

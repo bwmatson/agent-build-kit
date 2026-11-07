@@ -18,7 +18,7 @@ from tests.e2e_park_fakes import GATE_CLEARED
 from tests.e2e_scope_fakes import KIT_SPLITS
 from tests.scheduled_e2e_fakes import ScheduledRun, archiving
 
-MARKER = "local_stack"
+MARKER = "e2e"
 REASON = "the provider is down"
 SPLITS = ("rest", "acp", "claude_code")
 

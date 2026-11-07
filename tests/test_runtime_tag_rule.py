@@ -22,7 +22,7 @@ def test_two_tags_on_the_test_fail_naming_the_test_and_both(pytester: pytest.Pyt
 import pytest
 
 
-@pytest.mark.local_stack
+@pytest.mark.e2e
 @pytest.mark.runtime_acp
 @pytest.mark.runtime_claude_code
 def test_drives_two():
@@ -42,7 +42,7 @@ import pytest
 
 @pytest.mark.runtime_acp
 class TestLive:
-    @pytest.mark.local_stack
+    @pytest.mark.e2e
     @pytest.mark.runtime_claude_code
     def test_drives_two(self):
         pass
@@ -61,7 +61,7 @@ import pytest
 pytestmark = pytest.mark.runtime_acp
 
 
-@pytest.mark.local_stack
+@pytest.mark.e2e
 @pytest.mark.runtime_claude_code
 def test_drives_two():
     pass
@@ -77,7 +77,7 @@ def test_a_parameter_tag_and_a_module_tag_fail_naming_the_item(pytester: pytest.
         test_param_module="""
 import pytest
 
-pytestmark = [pytest.mark.local_stack, pytest.mark.runtime_acp]
+pytestmark = [pytest.mark.e2e, pytest.mark.runtime_acp]
 
 
 @pytest.mark.parametrize(
@@ -99,7 +99,7 @@ def test_one_tag_collects(pytester: pytest.Pytester) -> None:
 import pytest
 
 
-@pytest.mark.local_stack
+@pytest.mark.e2e
 @pytest.mark.runtime_acp
 def test_drives_one():
     pass
@@ -117,7 +117,7 @@ def test_no_tag_collects_as_the_base(pytester: pytest.Pytester) -> None:
 import pytest
 
 
-@pytest.mark.local_stack
+@pytest.mark.e2e
 def test_drives_no_agent():
     pass
 """,
@@ -136,7 +136,7 @@ import pytest
 pytestmark = pytest.mark.runtime_acp
 
 
-@pytest.mark.local_stack
+@pytest.mark.e2e
 @pytest.mark.runtime_acp
 def test_drives_one():
     pass
@@ -167,7 +167,7 @@ PARAMETERS_EACH_TAGGED = """
 import pytest
 
 
-@pytest.mark.local_stack
+@pytest.mark.e2e
 @pytest.mark.parametrize(
     "runtime",
     [

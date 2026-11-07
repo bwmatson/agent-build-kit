@@ -18,7 +18,7 @@ from tests.stub_gate_support import (
     repo,  # noqa: F401  (the fixture)
 )
 
-LIVE_TESTS = "import pytest\n\n\n@pytest.mark.local_stack\ndef test_drive(): assert False\n"
+LIVE_TESTS = "import pytest\n\n\n@pytest.mark.e2e\ndef test_drive(): assert False\n"
 
 
 class RedProfile(ModeProfile):

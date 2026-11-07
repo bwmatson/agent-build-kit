@@ -9,7 +9,7 @@ from agent_build_kit.config import E2eSplit
 from agent_build_kit.pipeline.e2e import build_selection
 from agent_build_kit.profiles.python_uv import PROFILE
 
-MARKER = "local_stack"
+MARKER = "e2e"
 OTEL = "telemetry_otel"
 SPLITS = (
     E2eSplit(name="acp", marker="runtime_acp"),

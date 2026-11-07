@@ -1276,7 +1276,7 @@ markers left, the moving unit's own tokens still present, none of its own tests
 missing), and a failed check is named in the next call. Files edited beyond the
 conflict are accepted and named among those resolved. Leaving a replayed file
 unchanged accepts it, editing it replaces what's cached for the next replay, and
-planting a `<<<<<<<` in it rejects the replay: that forgets the cached entry so
+planting a conflict marker (a line of seven `<`) in it rejects the replay: that forgets the cached entry so
 the next sibling sees the conflict fresh, and fails the step's check, so the
 second call follows instead of the move aborting. What two steps leave
 unsettled goes, in a run, to the `adapt` port in the same session, told which
@@ -1783,15 +1783,15 @@ approved.
 - **A test time limit.** `tests/time_limit.py` fails a test that runs past
   its limit from a timer thread, in setup, call and teardown alike: `--test-time-limit` (sixty
   seconds) of CPU, the test's process and its children, with a wall-clock backstop of five times
-  it, for a test without the `local_stack` marker, `--e2e-test-time-limit` (thirty
-  minutes of wall time) for one with it, zero turning either off. A test without `local_stack`
+  it, for a test without the `e2e` marker, `--e2e-test-time-limit` (thirty
+  minutes of wall time) for one with it, zero turning either off. A test without `e2e`
   marked `time_limit(<seconds>)` gets that many CPU seconds in place of `--test-time-limit`; a
-  `local_stack` test keeps the e2e limit even with the marker. The marker is for a test whose
+  `e2e` test keeps the e2e limit even with the marker. The marker is for a test whose
   time is outside its control, such as a download, or that grows with the machine's load: a
   test built on the tick driver (`tests/tick_driver.py`) gets the loaded limit from a
   collection hook in `tests/conftest.py`. The failure names the limit and its kind;
   the run goes on (see `docs/agent-runtimes.md`, Test markers).
-- **A test time split.** `tests/time_split.py` reports where a `local_stack` test's time went.
+- **A test time split.** `tests/time_split.py` reports where a `e2e` test's time went.
   For each phase of a test that requests the `scratch_ledger` fixture (the scratch
   installation's usage ledger) it reads the rows appended since the last phase on that
   ledger, so a module fixture's rows fall in the setup of the first test using it, and
@@ -2131,7 +2131,7 @@ backstop; `abk e2e-test check` warns about a declaration that differs from a gro
 
 ### A failed live test says what its scratch tick did
 
-A live test (`local_stack`, under `tests/integration/`) runs `abk tick` through
+A live test (`e2e`, under `tests/integration/`) runs `abk tick` through
 `tests/scratch_tick.py` and reads a unit's branch through its `commits_on_unit_branch`.
 `run_tick` stamps each output line as it arrives and remembers the last three ticks of a
 scratch. A branch that never reached the remote fails with a first line `cause hints:`
@@ -2140,7 +2140,7 @@ reason), then the tick's output, the wait reasons, the run log tail, the pause m
 who pushed, not with a git error.
 
 `tests/scratch_dump.py`, listed in `tests/conftest.py` beside `tests.time_split`, adds a
-`SCRATCH STATE` section to the report of a failed or errored `local_stack` test (setup,
+`SCRATCH STATE` section to the report of a failed or errored `e2e` test (setup,
 call or teardown) that has a scratch: a fixture argument named `scratch`, the `scratch` attribute of any
 fixture argument (a module-scoped fixture that builds one), or one passed to
 `register_scratch` during the test. It is the last part of that test's failure block and opens with the

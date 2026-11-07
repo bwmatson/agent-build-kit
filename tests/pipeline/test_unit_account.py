@@ -110,7 +110,7 @@ def test_a_planner_request_carries_no_account_beside_a_unit_that_does(
 
 def keeps_both(request: AgentRequest) -> None:
     assert request.cwd is not None
-    (request.cwd / "markers.py").write_text('markers = ["integration", "local_stack"]\n')
+    (request.cwd / "markers.py").write_text('markers = ["integration", "e2e"]\n')
 
 
 def test_a_restack_resolution_carries_the_moving_units_repo_account(tmp_path: Path) -> None:
@@ -119,7 +119,7 @@ def test_a_restack_resolution_carries_the_moving_units_repo_account(tmp_path: Pa
     commit(repo, "markers.py", "markers = []\n")
     git(repo, "checkout", "-q", "-b", "spec/c/1")
     git(repo, "checkout", "-q", "-b", "spec/c/2")
-    commit(repo, "markers.py", 'markers = ["local_stack"]\n')
+    commit(repo, "markers.py", 'markers = ["e2e"]\n')
     git(repo, "checkout", "-q", "main")
     commit(repo, "markers.py", 'markers = ["integration"]\n')
     runtime = StandInRuntime(act=keeps_both)
@@ -130,7 +130,7 @@ def test_a_restack_resolution_carries_the_moving_units_repo_account(tmp_path: Pa
         new_base="main",
         old_base="spec/c/1",
         moving_unit="add-marker/2",
-        moving_intent="Register the local_stack marker",
+        moving_intent="Register the e2e marker",
         onto_unit="add-integration/1",
         onto_intent="Register the integration marker",
         moving_repo="app",

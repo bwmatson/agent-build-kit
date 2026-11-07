@@ -13,7 +13,7 @@ Two units are failed and blocked on tier 2, and a third thing blinds the diagnos
   scratch installation's configuration. Two tests of `ui-chat-editing/5` fail this way.
 - **A tier 2 test cannot start a real agent.** The autouse guard `no_real_agent` replaces the Claude runtime's spawn
   with a refusal for every test, and `no_direct_claude` refuses any process whose program is `claude`. A test marked
-  `local_stack` exists to use real agents; `abk-web-ui/11` fails at its new `claude_code` session with
+  `e2e` exists to use real agents; `abk-web-ui/11` fails at its new `claude_code` session with
   `a test tried to spawn a real agent process`.
 - **A full tier 2 run loses its first errors.** The result keeps the last 4000 characters of a failing command's output.
   In a full run, four tests of `tests/integration/test_acp_build_unit.py` failed, and the same file run alone by hand with
@@ -27,8 +27,8 @@ Two units are failed and blocked on tier 2, and a third thing blinds the diagnos
 - **The server takes an environment for its agents.** `start_server` (and `create_app`) accept an optional environment;
   every agent process the server starts or asks, for a chat turn, a new or continued session, and the check whether a
   session would be resumed, runs in it. Without one, the process environment is used as it is now. `abk serve` passes none.
-- **The tier 2 spawn guards step aside for `local_stack`.** `no_real_agent` and `no_direct_claude` are not applied to a test
-  marked `local_stack`; they apply to every other test as before. The guards on the login refresh, the usage reading,
+- **The tier 2 spawn guards step aside for `e2e`.** `no_real_agent` and `no_direct_claude` are not applied to a test
+  marked `e2e`; they apply to every other test as before. The guards on the login refresh, the usage reading,
   `gh` and the code host stay for every test, decided one by one in the design.
 - **A failed tier 2 run keeps its first errors.** The tier 2 command asks for a short failure summary, through the
   toolchain profile; the full output of each run is written to a file under the state directory, redacted and pruned like

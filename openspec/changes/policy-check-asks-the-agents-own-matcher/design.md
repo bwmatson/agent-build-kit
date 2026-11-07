@@ -41,7 +41,7 @@ called, nothing built.
   `check_policy` returns `PolicyReport(ok=True)` locally (`policy_check_prompts_agent = False`).
 - **VERIFIED, the cache.** `runtimes/policy_check.py` is `checked` (a JSON file `policy-check.json` in the state directory,
   15 minutes, per runtime), `cache_path`, and the pure helpers `describe`, `unrefused`, `classes_of`, `fix_for`.
-- **VERIFIED, the e2e-test limit.** A `local_stack` test is limited by `--e2e-test-time-limit` (thirty minutes by default;
+- **VERIFIED, the e2e-test limit.** A `e2e` test is limited by `--e2e-test-time-limit` (thirty minutes by default;
   `docs/architecture.md`, `tests/time_limit.py`). Existing e2e-test tests find the agent through
   `<redacted>` and skip without it (`tests/integration/test_acp_build_unit.py`).
 - **UNVERIFIED, for the builder to confirm and correct here:**
@@ -134,7 +134,7 @@ covered, so nothing is exempted by being hard to refuse. A person who wants the 
 
 ## 6. The acceptance test: the matcher agrees with the agent
 
-One `local_stack` test (e2e-test, last group, the only place the kit runs the agent for this) drives the real agent, named by
+One `e2e` test (e2e-test, last group, the only place the kit runs the agent for this) drives the real agent, named by
 `<redacted>` as the sibling e2e-test tests do, over every `PROBE_CLASSES` command and asserts, per command,
 that the agent's observed behaviour equals the static verdict over the configuration the agent runs with.
 

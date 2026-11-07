@@ -7,7 +7,7 @@ needed; the OpenSpec CLI is real. The repos are read back the way a person would
 read them: their files and `git status`.
 
 Needs node for the OpenSpec CLI. Marked e2e-test and excluded from the default suite;
-run it with `uv run pytest -m local_stack tests/integration/test_init_conventions_workspace.py`.
+run it with `uv run pytest -m e2e tests/integration/test_init_conventions_workspace.py`.
 """
 
 from __future__ import annotations
@@ -23,7 +23,7 @@ from tests.factories import git, init_repo
 from tests.scripted_abk import Machine, machine
 
 pytestmark = [
-    pytest.mark.local_stack,
+    pytest.mark.e2e,
     pytest.mark.skipif(shutil.which("npx") is None, reason="npx is not on PATH"),
 ]
 

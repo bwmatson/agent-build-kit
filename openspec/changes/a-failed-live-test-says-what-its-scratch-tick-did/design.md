@@ -58,7 +58,7 @@ setups. Merging the three setups is not done here.
 ## The dump
 
 New plugin `tests/scratch_dump.py`, listed in `tests/conftest.py` beside `tests.time_split`. A `pytest_runtest_makereport` wrapper adds a section
-named `SCRATCH STATE` to the report of any call, setup or teardown that failed, for a test marked `local_stack` that has a scratch.
+named `SCRATCH STATE` to the report of any call, setup or teardown that failed, for a test marked `e2e` that has a scratch.
 
 Placement. Three places were weighed. `tests/time_split.py` is about time and reads one fixture (the ledger path); the dump reads a dozen sources
 and would turn it into two plugins in one file. `tests/conftest.py` holds the plugin list and shared fixtures, and a hook there would be

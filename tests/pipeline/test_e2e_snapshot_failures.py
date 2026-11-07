@@ -15,7 +15,7 @@ def _result(failures: list[TestFailure]) -> E2eResult:
         failed=len(failures),
         skipped=0,
         duration_seconds=1.5,
-        command="uv run pytest -m local_stack",
+        command="uv run pytest -m e2e",
         output="the cut output",
         failures=failures,
     )

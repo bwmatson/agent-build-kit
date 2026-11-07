@@ -34,7 +34,7 @@ written, and archiving a change keeps its totals.
 Done when one fixture unit built through the real agent runtime reports totals that
 equal its ledger records and the sum of its run log's agent calls.
 
-- [x] 2.1 Test (`local_stack`): build one unit through the real agent runtime; the
+- [x] 2.1 Test (`e2e`): build one unit through the real agent runtime; the
       report for it has one agent record per call in its run log, tokens and time that
       sum to the ledger's, and each figure's source is shown.
 - [x] 2.2 Write the acceptance run and document how to run it.

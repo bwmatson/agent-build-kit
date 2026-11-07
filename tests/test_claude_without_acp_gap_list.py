@@ -18,7 +18,7 @@ from tests.live_tag_drift import (
 from tests.runtime_tag_collection import ROOT
 
 DOCUMENT = ROOT / "docs" / "agent-runtimes.md"
-HEADER = "import pytest\n\npytestmark = pytest.mark.local_stack\n"
+HEADER = "import pytest\n\npytestmark = pytest.mark.e2e\n"
 CLAUDE_ONLY = f"{HEADER}\n\n@pytest.mark.runtime_claude_code\ndef test_builds_a_unit():\n    pass\n"
 ACP_ONLY = f"{HEADER}\n\n@pytest.mark.runtime_acp\ndef test_lists_sessions():\n    pass\n"
 BOTH_RUNTIMES = f"""{HEADER}

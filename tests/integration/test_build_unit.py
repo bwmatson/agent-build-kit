@@ -42,7 +42,7 @@ from tests.runtime_scratch import RUNTIME_PARAMS, runtime_scratch
 from tests.scratch_tick import TickResult, commits_on_unit_branch, run_tick
 
 pytestmark = [
-    pytest.mark.local_stack,
+    pytest.mark.e2e,
     pytest.mark.skipif(shutil.which("npx") is None, reason="npx is not on PATH"),
     pytest.mark.skipif(shutil.which("uv") is None, reason="uv is not on PATH"),
 ]

@@ -24,7 +24,7 @@ DIMENSIONS = {
     "telemetry": {"otel": {"marker": "telemetry_otel"}, "local": {"marker": "telemetry_local"}},
 }
 REGISTERED = (
-    "local_stack",
+    "e2e",
     "runtime_claude_code",
     "runtime_acp",
     "telemetry_otel",
@@ -32,10 +32,10 @@ REGISTERED = (
 )
 LIVE = "tests/integration/test_live.py::"
 CLEAN = {
-    f"{LIVE}test_runtime_neutral[claude_code]": {"local_stack", "runtime_claude_code"},
-    f"{LIVE}test_runtime_neutral[acp]": {"local_stack", "runtime_acp"},
-    f"{LIVE}test_sink": {"local_stack", "runtime_acp", "telemetry_otel"},
-    f"{LIVE}test_plain": {"local_stack"},
+    f"{LIVE}test_runtime_neutral[claude_code]": {"e2e", "runtime_claude_code"},
+    f"{LIVE}test_runtime_neutral[acp]": {"e2e", "runtime_acp"},
+    f"{LIVE}test_sink": {"e2e", "runtime_acp", "telemetry_otel"},
+    f"{LIVE}test_plain": {"e2e"},
 }
 
 
@@ -75,7 +75,7 @@ def test_a_repo_with_each_test_carrying_at_most_one_value_per_dimension_has_no_f
 def test_a_test_with_two_values_of_one_dimension_is_named_with_the_dimension_and_the_values(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    both = {**CLEAN, f"{LIVE}test_both": {"local_stack", "runtime_claude_code", "runtime_acp"}}
+    both = {**CLEAN, f"{LIVE}test_both": {"e2e", "runtime_claude_code", "runtime_acp"}}
 
     code, lines = check(tmp_path, runner(both), capsys)
 
@@ -90,7 +90,7 @@ def test_a_test_with_two_values_of_one_dimension_is_named_with_the_dimension_and
 def test_a_marker_the_runner_does_not_register_is_a_finding_naming_it(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    run = runner(CLEAN, registered=("local_stack", "runtime_claude_code", "runtime_acp"))
+    run = runner(CLEAN, registered=("e2e", "runtime_claude_code", "runtime_acp"))
 
     code, lines = check(tmp_path, run, capsys)
 
@@ -108,11 +108,11 @@ def test_a_marker_declared_by_two_values_is_a_finding_naming_the_marker_and_both
 
     result = check_dimensions(
         PROFILE,
-        ["uv", "run", "pytest", "-m", "local_stack"],
-        "local_stack",
+        ["uv", "run", "pytest", "-m", "e2e"],
+        "e2e",
         dimensions,
         (),
-        run=runner({}, registered=("local_stack", "runtime_shared")),
+        run=runner({}, registered=("e2e", "runtime_shared")),
     )
 
     (finding,) = [f for f in result.findings if "runtime_shared" in f]

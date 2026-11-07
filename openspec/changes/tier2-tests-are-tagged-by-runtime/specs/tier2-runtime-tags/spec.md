@@ -57,8 +57,8 @@ One function SHALL build the e2e-test marker expression from the repo's e2e-test
 #### Scenario: Nothing blocked
 
 - **GIVEN** no blocked runtime
-- **WHEN** the selection is built for the marker `local_stack`
-- **THEN** the expression is `local_stack`, and the commands are the ones built before this change
+- **WHEN** the selection is built for the marker `e2e`
+- **THEN** the expression is `e2e`, and the commands are the ones built before this change
 
 #### Scenario: A blocked runtime is left out
 

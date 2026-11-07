@@ -1,7 +1,7 @@
 """The suite's guards against a real agent process let an e2e test through
 (spec: test-determinism).
 
-A test marked `local_stack` — on the test, its class or its module — may start the
+A test marked `e2e` — on the test, its class or its module — may start the
 runtime's real spawn and a program named `claude`; every other test is refused, and the
 guards on the login refresh, the usage window, `gh` and the code host hold for both. The
 guards are driven in a child pytest whose conftest imports the real fixtures.
@@ -33,7 +33,7 @@ from tests.conftest import (
 INI = """\
 [pytest]
 markers =
-    local_stack: an e2e test
+    e2e: an e2e test
 """
 
 # `original_spawn` is bound at import, before the autouse guard replaces `spawn` on the module;
@@ -62,7 +62,7 @@ def test_unmarked_spawn():
     start()
 
 
-@pytest.mark.local_stack
+@pytest.mark.e2e
 def test_marked_spawn():
     assert start().returncode == 0
 """
@@ -72,7 +72,7 @@ MARKED = (
     HEADER
     + """
 
-@pytest.mark.local_stack
+@pytest.mark.e2e
 def test_marked_spawn():
     assert claude_code.spawn is original_spawn
     done = start()
@@ -80,7 +80,7 @@ def test_marked_spawn():
     assert done.stdout.strip() == "ran"
 
 
-@pytest.mark.local_stack
+@pytest.mark.e2e
 class TestMarkedClass:
     def test_spawn(self):
         assert claude_code.spawn is original_spawn
@@ -91,7 +91,7 @@ class TestMarkedClass:
 MODULE_MARKED = (
     HEADER
     + """
-pytestmark = pytest.mark.local_stack
+pytestmark = pytest.mark.e2e
 
 
 def test_module_marked_spawn():
@@ -108,7 +108,7 @@ def test_unmarked_claude():
     subprocess.run(["claude"], check=False)
 
 
-@pytest.mark.local_stack
+@pytest.mark.e2e
 def test_marked_claude():
     assert subprocess.run(["claude"], check=False).returncode == 0
 """
@@ -127,25 +127,25 @@ def lifted():
     assert start().returncode == 0
 
 
-@pytest.mark.local_stack
+@pytest.mark.e2e
 def test_refresh_is_refused():
     with pytest.raises(AssertionError, match="refresh the login"):
         claude_code.refresh_login()
 
 
-@pytest.mark.local_stack
+@pytest.mark.e2e
 def test_usage_reading_is_refused():
     with pytest.raises(AssertionError, match="real usage window"):
         claude_code.read_live_usage()
 
 
-@pytest.mark.local_stack
+@pytest.mark.e2e
 def test_gh_is_refused():
     with pytest.raises(AssertionError, match="real gh command: gh auth status"):
         subprocess.run(["gh", "auth", "status"], check=False)
 
 
-@pytest.mark.local_stack
+@pytest.mark.e2e
 def test_code_host_is_the_stand_in():
     assert forges.get("github") is not github.FORGE
 """

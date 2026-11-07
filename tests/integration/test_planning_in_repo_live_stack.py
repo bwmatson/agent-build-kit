@@ -12,7 +12,7 @@ The tests share one scratch repository, and a test that needs another's effect (
 landed and archived change) asks for it through a module-scoped fixture that makes it once, so any
 test runs alone or in any order.
 
-Needs node for the OpenSpec CLI and uv. Marked `local_stack` and excluded from the default suite.
+Needs node for the OpenSpec CLI and uv. Marked `e2e` and excluded from the default suite.
 """
 
 from __future__ import annotations
@@ -41,7 +41,7 @@ from tests.planning_worktree_support import InRepo, publish_elsewhere, working_c
 from tests.runtimes import acp_agent
 
 pytestmark = [
-    pytest.mark.local_stack,
+    pytest.mark.e2e,
     pytest.mark.skipif(shutil.which("npx") is None, reason="npx is not on PATH"),
     pytest.mark.skipif(shutil.which("uv") is None, reason="uv is not on PATH"),
 ]

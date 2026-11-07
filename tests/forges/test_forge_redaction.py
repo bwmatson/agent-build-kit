@@ -43,7 +43,7 @@ def _failing_e2e_body() -> str:
             failed=1,
             skipped=0,
             duration_seconds=1.5,
-            command="uv run pytest -m local_stack",
+            command="uv run pytest -m e2e",
             output=f"FAILED tests/live/test_it.py - Scratch(env={SECRET})",
         )
     )

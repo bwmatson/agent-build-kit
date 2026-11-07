@@ -15,11 +15,11 @@ SPLITS = (
     E2eSplit(name="claude_code", marker="runtime_claude_code"),
     E2eSplit(name="rest"),
 )
-COMMAND = ["uv", "run", "pytest", "-m", "local_stack"]
+COMMAND = ["uv", "run", "pytest", "-m", "e2e"]
 A = "tests/integration/test_live.py::test_a"
 B = "tests/integration/test_live.py::test_b"
 C = "tests/integration/test_live.py::test_c"
-REGISTERED = ["local_stack", "runtime_acp", "runtime_claude_code"]
+REGISTERED = ["e2e", "runtime_acp", "runtime_claude_code"]
 
 
 class FakeProfile:
@@ -53,7 +53,7 @@ def never_run(argv: list[str], **kwargs: Any) -> subprocess.CompletedProcess:
 
 
 def check(profile: FakeProfile, splits: Any = SPLITS) -> Any:
-    return check_splits(profile, COMMAND, "local_stack", splits, run=never_run)
+    return check_splits(profile, COMMAND, "e2e", splits, run=never_run)
 
 
 def counts(result: Any) -> dict[str, int | None]:
@@ -121,7 +121,7 @@ def test_a_selector_the_runner_does_not_register_is_reported() -> None:
     result = check(
         FakeProfile(
             {"acp": [A], "claude_code": [B], "rest": [C]},
-            registered=["local_stack", "runtime_acp"],
+            registered=["e2e", "runtime_acp"],
         )
     )
 

@@ -7,9 +7,9 @@ because a split held for an out-of-budget backend must park exactly the tests th
 (`872fa344`) found six ways a test can start an agent, or be tagged for the wrong one, and pass the test:
 
 1. **Discovery is shallow.** `live_modules()` globs `INTEGRATION.glob("test_*.py")` (`tests/live_tag_drift.py:33`): not recursive and only `test_`
-   names. It misses `tests/integration/replay_unit_build.py` (a driver-run file; on branch `spec/tier2-replays-unchanged-calls/3`, `local_stack` at
+   names. It misses `tests/integration/replay_unit_build.py` (a driver-run file; on branch `spec/tier2-replays-unchanged-calls/3`, `e2e` at
    line 52, `runtime_scratch("claude_code", ...)` at line 149) and `tests/integration/runtimes/test_policy_check_agrees_with_agent_live_stack.py`
-   (branch `spec/policy-check-asks-the-agents-own-matcher/6`, marks at lines 36-37). It also reads "is live" from the text `local_stack` anywhere in a
+   (branch `spec/policy-check-asks-the-agents-own-matcher/6`, marks at lines 36-37). It also reads "is live" from the text `e2e` anywhere in a
    file (`:34`), so a fixture string counts and a differently spelled mark does not.
 2. **Agent-start detection is two imports and one environment name.** `starts_an_agent` (`:60-62`) is true when the module's source holds
    `<redacted>` or imports `tests.runtime_scratch` or `tests.agent_home` (`:21-24`, `:44-57`). It is per module, not per test. A test
@@ -26,7 +26,7 @@ because a split held for an out-of-budget backend must park exactly the tests th
 
 ## What Changes
 
-- Discovery is recursive over `tests/`, finds a live module by the `local_stack` mark in its syntax tree (a decorator, `pytestmark`, or a
+- Discovery is recursive over `tests/`, finds a live module by the `e2e` mark in its syntax tree (a decorator, `pytestmark`, or a
   parametrization mark) and includes non-`test_` helper modules that are run by path.
 - "Starts an agent" is decided per test, from a named table of signals (the helper imports, calls such as `AcpRuntime().detect` / `list_models`,
   `shutil.which` of an agent program, `runtime_scratch`, `run_tick`, the policy agent harness, the agent command setting), looking through the
@@ -49,8 +49,8 @@ because a split held for an out-of-budget backend must park exactly the tests th
 
 ## Not included
 
-- <redacted> and <redacted> have no drift test and no `runtime_*` markers (<redacted> `pyproject.toml:48-51` registers `local_stack` and `dev_stack`
-  only; <redacted> `pyproject.toml:92-94` registers `local_stack`; neither has a file like `test_live_tests_are_tagged.py`). Whether they need runtime
+- <redacted> and <redacted> have no drift test and no `runtime_*` markers (<redacted> `pyproject.toml:48-51` registers `e2e` and `dev_stack`
+  only; <redacted> `pyproject.toml:92-94` registers `e2e`; neither has a file like `test_live_tests_are_tagged.py`). Whether they need runtime
   markers is a follow-up: nothing in them is split by agent runtime today.
 - Turning `abk e2e-test check`'s split-declaration warning into an error (a product change against `split-start-gate`).
 - Adding the missing ACP halves of the Claude scenarios (`acp-variants-of-the-runtime-tests`).

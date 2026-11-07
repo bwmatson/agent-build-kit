@@ -3,7 +3,7 @@ from collections.abc import Callable
 import pytest
 
 
-@pytest.mark.local_stack
+@pytest.mark.e2e
 def test_e2e_is_slow(spin: Callable[[float], None]) -> None:
     spin(3)
 

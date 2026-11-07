@@ -110,7 +110,7 @@ Done when a real run goes from an uncommitted chat edit to a reviewed commit, wi
 stale attachment handled, on Claude Code; the same flows on ACP are group 6, which waits for the ACP split to be
 released.
 
-- [x] 5.1 Test (`local_stack`, tagged `runtime_claude_code` through `CLAUDE_CODE_PARAMS`, as
+- [x] 5.1 Test (`e2e`, tagged `runtime_claude_code` through `CLAUDE_CODE_PARAMS`, as
       `tests/integration/test_graph_unit.py` does; the module carries no `runtime_acp` mark and never
       `RUNTIME_PARAMS`, since a test may carry one runtime tag): over a scratch installation with a real agent, a build-session chat edits a
       test and its code without committing, a hook failure is fixed by the agent, the commit is adopted,
@@ -140,7 +140,7 @@ Split: acp
 Done when the flows of group 5 are proven on the ACP runtime, in the ACP split, which stays held until the
 backend has budget; nothing in the Claude Code group changes.
 
-- [ ] 6.1 Test (`local_stack`, tagged `runtime_acp` through `RUNTIME_PARAMS`' ACP parameter, the module with no
+- [ ] 6.1 Test (`e2e`, tagged `runtime_acp` through `RUNTIME_PARAMS`' ACP parameter, the module with no
       Claude Code mark): `tests/integration/test_chat_editing_acp.py` imports group 5's fixture and helpers and
       runs its scenarios (flag, edit-hook-commit-review, free session over two checkouts, outside commit listed,
       stale attachment released from the command line) with the runtime parameter `"acp"`: the scratch installation

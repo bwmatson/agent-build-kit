@@ -15,7 +15,7 @@ Read-only against the agent-build-kit checkout.
   `CLAUDE_CODE_OAUTH_TOKEN` set in the environment; `usage_guard.CREDENTIALS_PATH` and `DEFAULT_ANCHOR_PATH` patched to files under the home;
   `urllib.request.urlopen` replaced by `slow_endpoint`'s function, which appends a line to the `calls` file and waits `CALL_SECONDS` (0.4) on an event;
   `time.sleep` replaced by a no-op; `config.activate(WorkspaceConfig(), None)`; the logged-failures set cleared; and a seeded cache file 20 minutes old.
-- `pyproject.toml` has `[tool.pytest.ini_options]` with `markers`, `addopts = "-m 'not integration and not local_stack'"` and no `filterwarnings`. The
+- `pyproject.toml` has `[tool.pytest.ini_options]` with `markers`, `addopts = "-m 'not integration and not e2e'"` and no `filterwarnings`. The
   parallel pass is `pytest -n auto --maxprocesses=8 -m 'not serial ...'`, so the runner is multi-threaded (xdist's workers); `serial` is a registered marker
   that selects a second, non-parallel pass.
 - Run read-only on this machine, `uv run pytest -q -W error::DeprecationWarning tests/pipeline/test_usage_one_authority.py -k several_processes` passes

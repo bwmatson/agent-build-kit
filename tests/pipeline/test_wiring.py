@@ -1079,7 +1079,7 @@ def test_e2e_runs_each_member_on_its_own_as_unit_test_does(tmp_path: Path) -> No
     no path, so the member's own pytest configuration decides what is collected."""
     from agent_build_kit.profiles.python_uv import PROFILE
 
-    commands = PROFILE.e2e_commands(_workspace(tmp_path), marker="local_stack")
+    commands = PROFILE.e2e_commands(_workspace(tmp_path), marker="e2e")
 
     assert len(commands) == 2
     for command, member, package in zip(
@@ -1090,7 +1090,7 @@ def test_e2e_runs_each_member_on_its_own_as_unit_test_does(tmp_path: Path) -> No
         assert command[command.index("--package") + 1] == package
         assert "--isolated" in command
         after_pytest = command[command.index("pytest") + 1 :]
-        assert after_pytest[:3] == ["-m", "local_stack", "-vv"]
+        assert after_pytest[:3] == ["-m", "e2e", "-vv"]
 
 
 def test_e2e_runs_only_the_members_that_have_tests(tmp_path: Path) -> None:
@@ -1099,7 +1099,7 @@ def test_e2e_runs_only_the_members_that_have_tests(tmp_path: Path) -> None:
     repo = _workspace(tmp_path)
     (repo / "svc-b" / "tests").rmdir()
 
-    commands = PROFILE.e2e_commands(repo, marker="local_stack")
+    commands = PROFILE.e2e_commands(repo, marker="e2e")
 
     assert len(commands) == 1
     assert commands[0][commands[0].index("--directory") + 1] == "svc-a"
@@ -1108,8 +1108,8 @@ def test_e2e_runs_only_the_members_that_have_tests(tmp_path: Path) -> None:
 def test_e2e_without_members_runs_once_from_the_root(tmp_path: Path) -> None:
     from agent_build_kit.profiles.python_uv import PROFILE
 
-    (command,) = PROFILE.e2e_commands(tmp_path, marker="local_stack")
-    assert command[:6] == ["uv", "run", "pytest", "-m", "local_stack", "-vv"]
+    (command,) = PROFILE.e2e_commands(tmp_path, marker="e2e")
+    assert command[:6] == ["uv", "run", "pytest", "-m", "e2e", "-vv"]
 
 
 def _e2e_with_stack_versions(
@@ -1174,7 +1174,7 @@ def test_a_stack_versions_command_that_fails_with_no_output_is_unchanged(
 
 def test_a_member_with_no_live_stack_tests_does_not_fail_e2e(tmp_path: Path) -> None:
     """pytest exits 5 when every test is deselected — most members, for
-    `-m local_stack`. That is nothing to run, not a failure."""
+    `-m e2e`. That is nothing to run, not a failure."""
     outcomes = iter(
         [
             subprocess.CompletedProcess([], 0, "3 passed in 4.00s", ""),

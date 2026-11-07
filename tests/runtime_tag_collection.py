@@ -35,7 +35,7 @@ def collect(pytester: pytest.Pytester, expression: str = "", **files: str) -> py
 
 
 def assert_runs_on_claude_code_alone(pytester: pytest.Pytester, module: Path) -> None:
-    """Every item `module` collects is a `local_stack` test of the `claude_code` parameter and
+    """Every item `module` collects is a `e2e` test of the `claude_code` parameter and
     carries the `runtime_claude_code` tag alone."""
     items, _ = pytester.inline_genitems(str(module))
 
@@ -43,5 +43,5 @@ def assert_runs_on_claude_code_alone(pytester: pytest.Pytester, module: Path) ->
     assert [
         (i.nodeid, runtime_tags(i)) for i in items if runtime_tags(i) != ["runtime_claude_code"]
     ] == []
-    assert all(i.get_closest_marker("local_stack") is not None for i in items)
+    assert all(i.get_closest_marker("e2e") is not None for i in items)
     assert all("claude_code" in i.nodeid for i in items)

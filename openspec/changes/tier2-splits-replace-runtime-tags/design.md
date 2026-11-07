@@ -11,7 +11,7 @@ yet):
 
 | Unit | Group | State | What it built or builds |
 | --- | --- | --- | --- |
-| /1 | 1 | merged #336 | `tests/runtime_tags.py` (plugin, one runtime tag per `local_stack` test), `tests/runtime_tag_collection.py`, the registered `runtime_claude_code`, `runtime_acp`, `dev_stack` markers and `--strict-markers` in `pyproject.toml` |
+| /1 | 1 | merged #336 | `tests/runtime_tags.py` (plugin, one runtime tag per `e2e` test), `tests/runtime_tag_collection.py`, the registered `runtime_claude_code`, `runtime_acp`, `dev_stack` markers and `--strict-markers` in `pyproject.toml` |
 | /2 | 2 | merged #341 | `pipeline/e2e.py`: `e2e_selection(marker, blocked, *, only, configured)`, `E2eSelection`, `selection_unavailable`, `RUNTIME_TAG_PREFIX`; `profiles/base.py`: `ListsSelectedTests.selected_tests`; `profiles/python_uv.py`: `selected_tests`, `_is_serial_split`, `serial_rerun_command` keeping `-m` |
 | /3 | 3, 4 | merged #346 | `config.py`: `RuntimeTestsConfig` (`runtimes_blocked`, `runtimes_allowed`, `e2e_runtimes`), `WorkspaceConfig.tests`, `TestsConfig.e2e_runtimes`, `BASE_GROUP`, `e2e_variants`, `known_runtime_names`, `_e2e_runtime_lists`; `pipeline/e2e_blocks.py`: `BLOCKED_FILE = e2e-blocked.json`, `Block`, `Blocks`, `blocked_runtimes`, `write_block`, `SOURCE_COMMAND`, `ORIGIN_CONFIGURATION`, `ORIGIN_FILE` |
 | /4 | 5 | merged #349 | `config_text_edit.py`: `add_runtime`, `remove_runtime`, `TextEdit`, `ConfigTextEditError` over `runtimes/policy_apply.backup_and_replace` |

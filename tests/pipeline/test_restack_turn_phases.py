@@ -53,7 +53,7 @@ from tests.restack_turn_fakes import (
 
 CONTEXT = ConflictContext(
     moving_unit="c/2",
-    moving_intent="Register the local_stack marker",
+    moving_intent="Register the e2e marker",
     onto_unit="c/1",
     onto_intent="Register the integration marker",
 )

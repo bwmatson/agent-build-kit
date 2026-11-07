@@ -48,7 +48,7 @@ class Scene:
         self.repo = init_repo(graph.inst.checkouts["app"])
         commit_file(self.repo, "markers.py", "markers = []\n")
         git(self.repo, "checkout", "-q", "-b", BRANCH)
-        commit_file(self.repo, "markers.py", 'markers = ["local_stack"]\n')
+        commit_file(self.repo, "markers.py", 'markers = ["e2e"]\n')
         git(self.repo, "checkout", "-q", "main")
         commit_file(self.repo, "markers.py", 'markers = ["integration"]\n')
         self.resolved: list[list[str]] = []

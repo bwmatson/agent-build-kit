@@ -8,7 +8,7 @@ from tests.live_tag_drift import drifted
 
 # Each ACP-only scenario states its reason, so only the tag-against-start comparison can name one.
 REASONS = 'ACP_ONLY_REASONS = {"test_wrong": "r", "test_adapter": "r", "test_mismatch": "r"}\n'
-HEADER = "import pytest\n\npytestmark = pytest.mark.local_stack\n" + REASONS
+HEADER = "import pytest\n\npytestmark = pytest.mark.e2e\n" + REASONS
 SCRATCH = "from tests.runtime_scratch import RUNTIME_PARAMS, runtime_scratch\n"
 ACP_TAG = "\n\n@pytest.mark.runtime_acp\n"
 CLAUDE_TAG = "\n\n@pytest.mark.runtime_claude_code\n"

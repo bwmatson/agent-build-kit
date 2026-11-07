@@ -728,5 +728,5 @@ tags` must pass first. The pipeline's own review bottleneck is the reason the
 phases that help a reviewer come before any that changes who merges.
 
 Tests follow the layout rules in `AGENTS.md`. Run `uv run poe test`,
-`poe format` and `poe scrub` for each phase, and the `local_stack` tests for
+`poe format` and `poe scrub` for each phase, and the `e2e` tests for
 Phase 4.

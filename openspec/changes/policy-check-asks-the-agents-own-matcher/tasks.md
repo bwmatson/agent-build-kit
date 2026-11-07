@@ -150,13 +150,13 @@ and the test keeps its `ACP_ONLY_REASONS` entry (scenario name to the reason: on
 and carries no Claude variant. Its ACP run did not finish within 600 s, so a person runs the step 6.4 asks for by hand on a
 machine that has the first known agent; the tests 6.1 to 6.3 are written and held with the ACP split until then.
 
-- [ ] 6.1 Test (`local_stack`): `tests/integration/runtimes/test_policy_check_agrees_with_agent_live_stack.py` skips without
+- [ ] 6.1 Test (`e2e`): `tests/integration/runtimes/test_policy_check_agrees_with_agent_live_stack.py` skips without
   `<redacted>`, runs the group 4 harness over `PROBE_CLASSES` with the agent's own configuration, computes the
   verdict with the group 1 function, and asserts for each command that the observed refusal equals the verdict, failing by name
   with the command, the verdict and the pattern or its absence.
-- [ ] 6.2 Test (`local_stack`): the same file asserts the test is non-vacuous: it fails saying the configuration holds no
+- [ ] 6.2 Test (`e2e`): the same file asserts the test is non-vacuous: it fails saying the configuration holds no
   policy when the verdict refuses no command, and a did-not-finish result fails it with how many commands were judged.
-- [ ] 6.3 Test (`local_stack`): the same file asserts its deadline is under the e2e-test time limit and that after it ends, pass
+- [ ] 6.3 Test (`e2e`): the same file asserts its deadline is under the e2e-test time limit and that after it ends, pass
   or fail, no agent process of its group and no temporary directory of the harness remain.
 - [ ] 6.4 Run it once on a machine that has the first known agent; where a command disagrees, correct the kit's dialect or the
   recommendation, or record the difference as a known gap, in the same change.

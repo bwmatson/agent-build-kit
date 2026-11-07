@@ -165,8 +165,8 @@ def test_a_base_that_cannot_be_checked_out_leaves_the_unit_failing_as_before(
 
 
 def test_each_failed_command_is_repeated_on_the_base_with_its_own_tests(tmp_path: Path) -> None:
-    first = ["uv", "run", "--directory", "a", "pytest", "-m", "local_stack"]
-    second = ["uv", "run", "--directory", "b", "pytest", "-m", "local_stack"]
+    first = ["uv", "run", "--directory", "a", "pytest", "-m", "e2e"]
+    second = ["uv", "run", "--directory", "b", "pytest", "-m", "e2e"]
 
     class Members(PythonUvProfile):
         def e2e_commands(self, repo: Path, *, marker: str) -> list[list[str]]:

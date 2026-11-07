@@ -2,29 +2,29 @@
 
 ### Requirement: The drift test finds every live-stack module of the kit
 
-The kit's drift test SHALL examine every Python file under `tests/`, at any depth and whatever its name, whose syntax marks a test `local_stack`, and SHALL name a file it cannot parse. A word `local_stack` in a string or comment SHALL NOT make a file live.
+The kit's drift test SHALL examine every Python file under `tests/`, at any depth and whatever its name, whose syntax marks a test `e2e`, and SHALL name a file it cannot parse. A word `e2e` in a string or comment SHALL NOT make a file live.
 
 #### Scenario: A module in a subdirectory
 
-- **GIVEN** a live module `tests/integration/runtimes/test_x.py` with a `local_stack` test that starts an agent and has no runtime tag
+- **GIVEN** a live module `tests/integration/runtimes/test_x.py` with a `e2e` test that starts an agent and has no runtime tag
 - **WHEN** the drift test runs
 - **THEN** it names the test
 
 #### Scenario: A helper module run by path
 
-- **GIVEN** `tests/integration/replay_unit_x.py`, not named `test_*.py`, that marks a test `local_stack`
+- **GIVEN** `tests/integration/replay_unit_x.py`, not named `test_*.py`, that marks a test `e2e`
 - **WHEN** the drift test runs
 - **THEN** the file is among the live modules
 
 #### Scenario: A string is not a mark
 
-- **GIVEN** a file that holds `"@pytest.mark.local_stack"` only inside a string
+- **GIVEN** a file that holds `"@pytest.mark.e2e"` only inside a string
 - **WHEN** the live modules are listed
 - **THEN** it is not among them
 
 #### Scenario: A file that cannot be parsed
 
-- **GIVEN** a file under `tests/` with a syntax error that mentions `local_stack`
+- **GIVEN** a file under `tests/` with a syntax error that mentions `e2e`
 - **WHEN** the drift test runs
 - **THEN** it fails naming the file
 

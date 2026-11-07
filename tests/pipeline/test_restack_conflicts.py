@@ -37,7 +37,7 @@ def conflicting(tmp_path: Path) -> Path:
 
     git(repo, "checkout", "-q", "-b", "spec/c/1")
     git(repo, "checkout", "-q", "-b", "spec/c/2")
-    commit(repo, "markers.py", 'markers = ["local_stack"]\n')
+    commit(repo, "markers.py", 'markers = ["e2e"]\n')
 
     git(repo, "checkout", "-q", "main")
     commit(repo, "markers.py", 'markers = ["integration"]\n')
@@ -47,7 +47,7 @@ def conflicting(tmp_path: Path) -> Path:
 def context() -> ConflictContext:
     return ConflictContext(
         moving_unit="add-marker/2",
-        moving_intent="Register the local_stack marker in app",
+        moving_intent="Register the e2e marker in app",
         onto_unit="add-integration/1",
         onto_intent="Register the integration marker in app",
     )
@@ -66,7 +66,7 @@ def test_the_resolver_is_told_what_both_sides_were_doing(conflicting: Path) -> N
 
     def resolver(prompt: str, *, cwd: Path) -> None:
         seen["prompt"] = prompt
-        (cwd / "markers.py").write_text('markers = ["integration", "local_stack"]\n')
+        (cwd / "markers.py").write_text('markers = ["integration", "e2e"]\n')
 
     move_branch_onto(
         conflicting,
@@ -77,14 +77,14 @@ def test_the_resolver_is_told_what_both_sides_were_doing(conflicting: Path) -> N
         context=context(),
     )
 
-    assert "local_stack marker in app" in seen["prompt"]
+    assert "e2e marker in app" in seen["prompt"]
     assert "integration marker in app" in seen["prompt"]
     assert "markers.py" in seen["prompt"]
 
 
 def test_a_good_resolution_completes_the_move_keeping_both_changes(conflicting: Path) -> None:
     def resolver(prompt: str, *, cwd: Path) -> None:
-        (cwd / "markers.py").write_text('markers = ["integration", "local_stack"]\n')
+        (cwd / "markers.py").write_text('markers = ["integration", "e2e"]\n')
 
     move_branch_onto(
         conflicting,
@@ -97,7 +97,7 @@ def test_a_good_resolution_completes_the_move_keeping_both_changes(conflicting: 
 
     git(conflicting, "checkout", "-q", "spec/c/2")
     resolved = (conflicting / "markers.py").read_text()
-    assert "local_stack" in resolved
+    assert "e2e" in resolved
     assert "integration" in resolved
     assert not (conflicting / ".git" / "rebase-merge").exists()
 
@@ -134,7 +134,7 @@ def test_dropping_the_moving_units_own_change_is_refused(conflicting: Path) -> N
             old_base="spec/c/1",
             resolve=takes_theirs,
             context=context(),
-            must_keep=["local_stack"],
+            must_keep=["e2e"],
         )
 
 
@@ -185,7 +185,7 @@ def test_the_prompt_says_resolution_is_not_a_licence_to_rewrite(conflicting: Pat
 
     def resolver(prompt: str, *, cwd: Path) -> None:
         seen["prompt"] = prompt
-        (cwd / "markers.py").write_text('markers = ["integration", "local_stack"]\n')
+        (cwd / "markers.py").write_text('markers = ["integration", "e2e"]\n')
 
     move_branch_onto(
         conflicting,
@@ -221,7 +221,7 @@ def test_a_genuine_resolution_still_passes_the_derived_guard(conflicting: Path) 
     """The guard must not be so strict that keeping both sides is refused."""
 
     def keeps_both(prompt: str, *, cwd: Path) -> None:
-        (cwd / "markers.py").write_text('markers = ["integration", "local_stack"]\n')
+        (cwd / "markers.py").write_text('markers = ["integration", "e2e"]\n')
 
     move_branch_onto(
         conflicting,
@@ -233,4 +233,4 @@ def test_a_genuine_resolution_still_passes_the_derived_guard(conflicting: Path) 
     )
 
     git(conflicting, "checkout", "-q", "spec/c/2")
-    assert "local_stack" in (conflicting / "markers.py").read_text()
+    assert "e2e" in (conflicting / "markers.py").read_text()

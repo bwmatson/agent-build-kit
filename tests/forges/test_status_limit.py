@@ -32,7 +32,7 @@ def result() -> E2eResult:
         failed=0,
         skipped=1,
         duration_seconds=12.5,
-        command="uv run pytest -m local_stack",
+        command="uv run pytest -m e2e",
         output="4 passed, 1 skipped in 12.50s",
     )
 

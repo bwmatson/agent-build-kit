@@ -12,12 +12,12 @@ from agent_build_kit import profiles
 from agent_build_kit.pipeline.red_check import REPORT_MARK
 from tests.node_workspace import manifest, touch, workspace
 
-MARKER = "local_stack"
+MARKER = "e2e"
 A_ONE = "packages/a/src/one.test.ts"
 A_TWO = "packages/a/src/two.test.ts"
 A_OTHER = "packages/a/src/other.test.ts"
 B_ONE = "packages/b/src/one.test.ts"
-A_LIVE = "packages/a/src/live.local_stack.test.ts"
+A_LIVE = "packages/a/src/live.e2e.test.ts"
 SCRIPT = 2
 DIRECTORY = 4
 FILTERS = 5
@@ -83,7 +83,7 @@ def test_a_run_that_carries_filters_is_narrowed_to_the_chosen_files_that_match_t
 
     assert again is not None
     assert again[DIRECTORY] == "packages/a"
-    assert again[FILTERS:] == ["src/live.local_stack.test.ts"]
+    assert again[FILTERS:] == ["src/live.e2e.test.ts"]
     assert REPORT_MARK in again[SCRIPT]
 
 

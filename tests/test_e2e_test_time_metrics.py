@@ -64,7 +64,7 @@ def test_a_phase_adds_its_seconds_with_the_marker_the_file_and_the_phase(
         "setup": (1, 3.0),
     }
     for point in points.values():
-        assert point.attributes["marker"] == "local_stack"
+        assert point.attributes["marker"] == "e2e"
         assert point.attributes["file"] == E2E
 
 

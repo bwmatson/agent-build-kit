@@ -16,7 +16,7 @@ LONG_ID = "test_the_unit_is_built_reviewed_and_pushed_through_the_runtime_and_th
 TESTS = f'''\
 import pytest
 
-pytestmark = pytest.mark.local_stack
+pytestmark = pytest.mark.e2e
 
 
 @pytest.fixture(scope="module")
@@ -43,9 +43,9 @@ def test_a_real_run_at_the_e2e_flags_keeps_the_whole_first_line_of_every_message
     monkeypatch.delenv("CI", raising=False)
     monkeypatch.delenv("GITHUB_ACTIONS", raising=False)
     monkeypatch.setenv("COLUMNS", "80")
-    pytester.makeini("[pytest]\nmarkers =\n    local_stack: needs the live stack\n")
+    pytester.makeini("[pytest]\nmarkers =\n    e2e: needs the live stack\n")
     pytester.makepyfile(test_live=TESTS)
-    (command,) = PROFILE.e2e_commands(pytester.path, marker="local_stack")
+    (command,) = PROFILE.e2e_commands(pytester.path, marker="e2e")
 
     result = pytester.runpytest_subprocess(*command[command.index("pytest") + 1 :])
 

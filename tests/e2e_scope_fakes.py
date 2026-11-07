@@ -27,7 +27,7 @@ NEW = "def test_new():\n    assert True\n"
 PASSED = "=" * 20 + " 2 passed in 0.10s " + "=" * 20 + "\n"
 NOTHING = "=" * 20 + " 3 deselected in 0.10s " + "=" * 20 + "\n"
 # The command e2e-test runs for a repo with no members, before any narrowing.
-WHOLE = PROFILE.e2e_commands(Path("."), marker="local_stack")[0]
+WHOLE = PROFILE.e2e_commands(Path("."), marker="e2e")[0]
 # A split for each runtime the kit knows, tagged `runtime_<name>`, and `rest`.
 KIT_SPLITS = (
     *(E2eSplit(name=name, marker=f"runtime_{name}") for name in sorted(known_runtime_names())),

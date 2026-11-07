@@ -10,9 +10,9 @@ Code at agent-build-kit `origin/main` (3063b9d0). Read first: `.github/scripts/w
   longer delay (the failures were slow downloads, not a registry that came back after a pause).
 - **`timeout-minutes: 20`.** The worst case is 3 x 300 + 10 + 20 = 930 s, 15.5 minutes. 20 leaves four and a half minutes for `uv run` start-up inside the
   step. A step limit equal to the worst case would cut the last attempt's own message.
-- **A per-test marker, because none exists.** The time-limit plugin has two limits chosen by the `local_stack` marker (`time_limit.py:62-64`); there is no way
+- **A per-test marker, because none exists.** The time-limit plugin has two limits chosen by the `e2e` marker (`time_limit.py:62-64`); there is no way
   to give one test more time. Choices weighed: raise `--test-time-limit` for the integration step (widens every test of the tier, and the existing
-  `test_the_test_step_still_runs_pytest_integration_with_no_time_limit_option` pins the step command), give the test `local_stack` (changes its tier and the
+  `test_the_test_step_still_runs_pytest_integration_with_no_time_limit_option` pins the step command), give the test `e2e` (changes its tier and the
   limit to 30 minutes), or add `time_limit(seconds)`. The marker is about eight lines in `_under_limit`: `item.get_closest_marker("time_limit")` and its first
   argument replace the default for that item. It does not touch the e2e limit: a test with both markers keeps the e2e limit.
 - **The vitest test gets 180 s**, three times the 60 that the download overran, and well under the 300 s of the fetch.

@@ -3,7 +3,7 @@ runs, past the default time limit when the test is e2e, and it stops only after 
 gone, even when a time limit is what ends the wait.
 
 Run as inner pytest sessions with the time-limit plugin, a one-second default limit, and a
-generated `local_stack` test that runs a child tick through the `replay` fixture's proxy."""
+generated `e2e` test that runs a child tick through the `replay` fixture's proxy."""
 
 from __future__ import annotations
 
@@ -26,7 +26,7 @@ from tests import scratch_tick
 from tests.scratch_fakes import hand_scratch
 from tests.scratch_tick import run_tick
 
-pytestmark = pytest.mark.local_stack
+pytestmark = pytest.mark.e2e
 
 OUT = Path(os.environ["LIFETIME_OUT"])
 

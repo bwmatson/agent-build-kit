@@ -5,9 +5,9 @@
 Read-only against `origin/main` of `<home>/agent-build-kit` at `872fa344` (after `git fetch`). Paths are under the repo root.
 
 - `tests/live_tag_drift.py`: `ROOT`/`INTEGRATION` (`:16,20`); `AGENT_HELPERS = ("tests.runtime_scratch", "tests.agent_home")` (`:22`);
-  `live_modules()` globs `INTEGRATION.glob("test_*.py")` and keeps files whose text matches `\blocal_stack\b` (`:28-35`);
+  `live_modules()` globs `INTEGRATION.glob("test_*.py")` and keeps files whose text matches `\be2e\b` (`:28-35`);
   `imports_an_agent_helper` (`:44-57`); `starts_an_agent` = `AGENT_COMMAND in source or imports_an_agent_helper(source)` (`:60-62`), per module;
-  `drift` (`:65-92`) reports more than one tag, an untagged agent-starting `local_stack` item, an ACP scenario without a `claude_code` sibling and
+  `drift` (`:65-92`) reports more than one tag, an untagged agent-starting `e2e` item, an ACP scenario without a `claude_code` sibling and
   not in `ACP_ONLY_REASONS` (`:80-85`), and an empty reason (`:86-91`). `AGENT_COMMAND` comes from `tests/runtime_scratch.py:18`.
 - `tests/test_live_tests_are_tagged.py`: the kit-wide test is `:68-76`; `:58-65` pins that the init-conventions module (which starts only a `claude`
   stub, `tests/integration/test_init_conventions_workspace.py:52-54,79`) passes untagged; `:146-155` pin that a Claude test with no ACP sibling is not named.
@@ -37,9 +37,9 @@ Read-only against `origin/main` of `<home>/agent-build-kit` at `872fa344` (after
 
 ### Discovery (item 1)
 
-`live_modules()` walks every `*.py` under `tests/` recursively, parses it, and keeps a module that uses the attribute `pytest.mark.local_stack` (in
+`live_modules()` walks every `*.py` under `tests/` recursively, parses it, and keeps a module that uses the attribute `pytest.mark.e2e` (in
 `pytestmark`, a decorator, a `pytest.param(..., marks=...)` or a class decorator). Syntax, not text: `tests/cli/test_e2e_check_cmd.py:58` and
-`tests/e2e_check_support.py:19-21` hold the word `local_stack` in strings and are not live modules. Files that the project's pytest would not collect by
+`tests/e2e_check_support.py:19-21` hold the word `e2e` in strings and are not live modules. Files that the project's pytest would not collect by
 name (`replay_unit_build.py`) are collected by their path in the drift test's own `inline_genitems`, as the kit-wide test already does with explicit
 paths (`tests/test_live_tests_are_tagged.py:73`). A module that fails to parse is named in the failure, not skipped.
 
@@ -104,7 +104,7 @@ new or stale scenarios; it never fails. Today's list is the build test, the grap
 - Per-test detection needs the AST of fixtures in other modules (`conftest.py`); it follows imports of `tests.*` helpers one level and treats an
   unresolvable fixture as not starting an agent, and says so in a note line of the test output, not in silence.
 - The new signals can name a test that starts an agent only to count it (the `test_runtime_scratch_*` modules call `runtime_scratch` with a stub check).
-  They are not `local_stack` and are not checked.
+  They are not `e2e` and are not checked.
 
 ## Relationship to other changes
 

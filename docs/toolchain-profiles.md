@@ -168,7 +168,7 @@ What it runs, exactly:
 **The marker is a file-name segment.** Vitest has no tag filter that serves selection,
 exclusion and path-based acceptance together, so a node project's e2e tests are the
 files named `<name>.<marker>.test.ts[x]`, with `<marker>` the repo's `tests.e2e_marker`
-(`local_stack` by default). The e2e-test run takes the files carrying it; post-merge verify leaves out
+(`e2e` by default). The e2e-test run takes the files carrying it; post-merge verify leaves out
 the files carrying `tests.dev_stack_marker`; acceptance runs the changed marked files.
 Unit-test is the project's or member's whole Vitest run and does not leave marked files
 out, so a marked test must skip itself when the stack is absent. Excluding marked files in the

@@ -96,7 +96,7 @@ def test_a_failing_e2e_is_saved_and_said_without_the_value(tmp_path: Path) -> No
             failed=1,
             skipped=0,
             duration_seconds=1.5,
-            command="uv run pytest -m local_stack",
+            command="uv run pytest -m e2e",
             output=f"FAILED tests/live/test_it.py - Scratch(env={SECRET})",
         )
     )

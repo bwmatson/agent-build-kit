@@ -8,7 +8,7 @@ from agent_build_kit.config import E2eSplit
 from agent_build_kit.pipeline.e2e import build_selection
 from agent_build_kit.profiles.python_uv import PROFILE
 
-MARKER = "local_stack"
+MARKER = "e2e"
 SPLITS = (
     E2eSplit(name="acp", marker="runtime_acp"),
     E2eSplit(name="claude_code", marker="runtime_claude_code"),
@@ -35,7 +35,7 @@ def test_each_held_split_is_left_out() -> None:
     assert selection.left_out == ("acp", "claude_code")
     assert (
         PROFILE.expression(MARKER, selection)
-        == "local_stack and not runtime_acp and not runtime_claude_code"
+        == "e2e and not runtime_acp and not runtime_claude_code"
     )
 
 
@@ -43,7 +43,7 @@ def test_one_split_asked_for_alone_is_the_marker_and_its_selector() -> None:
     selection = build_selection(MARKER, SPLITS, only="acp")
 
     assert selection.only == "acp"
-    assert PROFILE.expression(MARKER, selection) == "local_stack and runtime_acp"
+    assert PROFILE.expression(MARKER, selection) == "e2e and runtime_acp"
 
 
 def test_rest_alone_leaves_out_every_declared_split() -> None:
@@ -53,7 +53,7 @@ def test_rest_alone_leaves_out_every_declared_split() -> None:
     assert selection.left_out == ("acp", "claude_code")
     assert (
         PROFILE.expression(MARKER, selection)
-        == "local_stack and not runtime_acp and not runtime_claude_code"
+        == "e2e and not runtime_acp and not runtime_claude_code"
     )
 
 
@@ -62,10 +62,7 @@ def test_rest_held_keeps_only_the_declared_splits() -> None:
 
     assert "rest" in selection.left_out
     assert not selection.empty
-    assert (
-        PROFILE.expression(MARKER, selection)
-        == "local_stack and (runtime_acp or runtime_claude_code)"
-    )
+    assert PROFILE.expression(MARKER, selection) == "e2e and (runtime_acp or runtime_claude_code)"
 
 
 def test_every_split_held_selects_nothing_and_says_so() -> None:

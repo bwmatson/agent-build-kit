@@ -2,7 +2,7 @@
 
 `tests/runtimes/test_policy_agent_harness.py::test_a_command_refused_without_a_terminal_request_is_refused_and_one_run_is_reached` failed under load and passed alone, twice, when run again by itself. A test like that fails units that did not touch it.
 
-It ran as `uv run pytest -n auto --maxprocesses=8 -m '(not integration and not local_stack) and not serial' -q` and failed with:
+It ran as `uv run pytest -n auto --maxprocesses=8 -m '(not integration and not e2e) and not serial' -q` and failed with:
 
 ```
 ........................................................................ [ 88%]

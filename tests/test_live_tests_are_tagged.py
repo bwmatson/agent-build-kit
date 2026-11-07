@@ -25,7 +25,7 @@ SCRATCH_IMPORT = "from tests.runtime_scratch import runtime_scratch\n"
 AGENT_HOME_IMPORT = "from tests.agent_home import agent_home\n"
 SCRATCH_MODULE_IMPORT = "from tests import runtime_scratch\n"
 HOME_MODULE_IMPORT = "from tests import agent_home\n"
-HEADER = "import pytest\n\npytestmark = pytest.mark.local_stack\n"
+HEADER = "import pytest\n\npytestmark = pytest.mark.e2e\n"
 BUILDS_ONE_TAGGED = (
     f"{HEADER}{SCRATCH_IMPORT}\n\n@pytest.mark.runtime_claude_code\n"
     "def test_builds_a_unit():\n    pass\n"
@@ -95,7 +95,7 @@ def test_every_test_of_the_kits_live_modules_that_starts_an_agent_has_exactly_on
 ACP_MODULE = """
 import pytest
 
-pytestmark = pytest.mark.local_stack
+pytestmark = pytest.mark.e2e
 {import_}
 
 @pytest.mark.runtime_acp
@@ -110,7 +110,7 @@ import pytest
 
 from tests.runtime_scratch import RUNTIME_PARAMS
 
-pytestmark = pytest.mark.local_stack
+pytestmark = pytest.mark.e2e
 
 
 @pytest.mark.parametrize("runtime", RUNTIME_PARAMS)

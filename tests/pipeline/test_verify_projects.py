@@ -69,7 +69,7 @@ def test_each_projects_live_tests_run_from_its_directory_with_its_own_paths(
         },
     )
     manifest(checkout / "web", "web")
-    touch(checkout, "web/src/live.local_stack.test.ts", "tests/integration/test_live.py")
+    touch(checkout, "web/src/live.e2e.test.ts", "tests/integration/test_live.py")
     ran: list[tuple[Path, list[str]]] = []
 
     def run(command, *, cwd, env=None, **kwargs):
@@ -82,7 +82,7 @@ def test_each_projects_live_tests_run_from_its_directory_with_its_own_paths(
         [stored_unit("c/1", change="c", repo="platform", state="merged", pr=1)],
         installation=installation,
         pr_files=lambda repo, pr: [
-            "web/src/live.local_stack.test.ts",
+            "web/src/live.e2e.test.ts",
             "tests/integration/test_live.py",
         ],
         run=run,
@@ -93,8 +93,8 @@ def test_each_projects_live_tests_run_from_its_directory_with_its_own_paths(
     (node,) = [(cwd, c) for cwd, c in live if "sh" == c[0]]
     (python,) = [(cwd, c) for cwd, c in live if "pytest" in c]
     assert node[0] == checkout / "web"
-    assert "src/live.local_stack.test.ts" in node[1]
-    assert "web/src/live.local_stack.test.ts" not in node[1]
+    assert "src/live.e2e.test.ts" in node[1]
+    assert "web/src/live.e2e.test.ts" not in node[1]
     assert python[0] == checkout
     assert python[1][-1] == "tests/integration/test_live.py"
     assert not any("web/" in word for word in python[1])

@@ -3761,7 +3761,7 @@ class E2eSession:
         log: Callable[[str], None] = print,
         under: Callable[[], Path] | None = None,
         profile: ToolchainProfile | None = None,
-        marker: str = "local_stack",
+        marker: str = "e2e",
         scope: E2eUnitScope = E2eUnitScope.OWN,
         dev_stack: str | None = "scripts/dev-stack.sh",
         stack_versions_command: list[str] | None = None,

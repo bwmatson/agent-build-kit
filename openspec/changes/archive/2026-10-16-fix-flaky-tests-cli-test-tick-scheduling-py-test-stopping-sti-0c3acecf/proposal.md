@@ -2,7 +2,7 @@
 
 `tests/cli/test_tick_scheduling.py::test_stopping_still_awaits_the_builds_in_flight` failed under load and passed alone, twice, when run again by itself. A test like that fails units that did not touch it.
 
-It ran as `uv run pytest -n auto --maxprocesses=8 -m '(not integration and not local_stack) and not serial' -q` and failed with:
+It ran as `uv run pytest -n auto --maxprocesses=8 -m '(not integration and not e2e) and not serial' -q` and failed with:
 
 ```
 ........................................................................ [ 89%]

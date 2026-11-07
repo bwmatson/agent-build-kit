@@ -29,9 +29,9 @@ SPLITS = {"acp": {"marker": "runtime_acp"}, "claude_code": {"marker": "runtime_c
 ACP = "tests/integration/test_live.py::test_acp"
 CLAUDE = "tests/integration/test_live.py::test_claude"
 PLAIN = "tests/integration/test_live.py::test_plain"
-BASE = "local_stack"
+BASE = "e2e"
 MARKERS = (
-    "@pytest.mark.local_stack: live stack\n\n"
+    "@pytest.mark.e2e: live stack\n\n"
     "@pytest.mark.runtime_acp: acp\n\n"
     "@pytest.mark.runtime_claude_code: claude code\n"
 )

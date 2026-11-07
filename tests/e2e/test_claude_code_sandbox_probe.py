@@ -45,7 +45,7 @@ from agent_build_kit.sandboxes import Coverage
 from agent_build_kit.sandboxes.policy import build_policy
 from tests.factories import git, init_repo
 
-pytestmark = [pytest.mark.local_stack, pytest.mark.runtime_claude_code]
+pytestmark = [pytest.mark.e2e, pytest.mark.runtime_claude_code]
 
 CLAUDE_ONLY_REASONS = {
     "test_a_real_claude_step_is_confined_and_reaches_the_model_only_through_the_proxy": (

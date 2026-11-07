@@ -74,7 +74,7 @@ class Parking:
             failed=0 if step.ok else 1,
             skipped=0,
             duration_seconds=1.5,
-            command="uv run pytest -m local_stack",
+            command="uv run pytest -m e2e",
             output=step.snapshot,
             parked=list(step.parked),
         )

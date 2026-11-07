@@ -170,8 +170,8 @@ docs/              architecture, configuration, cli, toolchain-profiles, agent-r
   unmarked one by its syntax (`tests/wide_scans.py`); the scans unmarked today are in
   `tests/wide_scans_baseline.txt`, which may only shrink. Tests driving a real agent on
   the host are `e2e-test` tests: they live under `tests/integration/` too, are marked
-  `local_stack`, are excluded by default and run with `uv run pytest -m
-  local_stack`. A `local_stack` test is the only one the guards let start a real
+  `e2e`, are excluded by default and run with `uv run pytest -m
+  e2e`. A `e2e` test is the only one the guards let start a real
   agent (the runtime's spawn, a `claude` program); the other guards (login refresh,
   usage window, `gh`, code host) apply to it too. `poe test` runs the suite in parallel workers, and
   `pytest <file>` runs without workers, so a test never assumes the machine to itself: session
@@ -262,7 +262,7 @@ instead of adding another.
 uv sync --group dev
 uv run poe test              # the suite, fixture-only: parallel workers (capped at 8)
 uv run poe test-integration  # needs node: runs the real OpenSpec CLI via npx
-uv run poe test-local-stack  # e2e-test: a real agent on this host (ABK_ACCEPTANCE_ACP_COMMAND), bills on demand
+uv run poe test-e2e  # e2e-test: a real agent on this host (ABK_ACCEPTANCE_ACP_COMMAND), bills on demand
 uv run poe format            # pre-commit: ruff, ruff-format, pyrefly (from the lock), yamllint
 uv run poe scrub             # the structural no-installation-leaks check
 npm install --prefix web     # once: the web UI's dependencies

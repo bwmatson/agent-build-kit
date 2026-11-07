@@ -91,7 +91,7 @@ Estimate: about 120 changed lines.
       were promoted. [Review point 3.1 (round 1) is already fixed, commit 40ec5a8a; the changes below are the
       Claude-only conversion of that code.]
 - [x] 3.2 Test: the build the three steps run (`tests/integration/replay_unit_build.py`) is an e2e-test test in its own
-      session: collecting that file under the options the driver passes shows its test carries the `local_stack`
+      session: collecting that file under the options the driver passes shows its test carries the `e2e`
       marker, so it runs under the e2e-test time limit and not the 60-second default. (The file has no marker today
       and the driver runs it with `-o addopts=`, so the build is cut at 60 seconds: `test exceeded the time limit
       of 60 seconds`.)
@@ -119,7 +119,7 @@ Estimate: about 120 changed lines.
       `RUNTIME_PARAMS`, and no module-level `runtime_acp` `pytestmark` (`tests/runtime_tags.py` refuses two runtime
       tags); where a fixture must be parametrized use `CLAUDE_CODE_PARAMS`, as `tests/integration/test_graph_unit.py`
       does. The three `ACP_ONLY_REASONS` entries are deleted. Test: collecting the module under
-      `-m "local_stack and runtime_claude_code"` selects the three tests and under `runtime_acp` none.
+      `-m "e2e and runtime_claude_code"` selects the three tests and under `runtime_acp` none.
 - [x] 3.10 Test: `test_the_unit_is_built` is a helper that the driver runs by id, not a test of the suite, and when
       `ABK_REPLAY_UNIT_ROOT`, `ABK_REPLAY_UNIT_CASSETTES` and `ABK_REPLAY_UNIT_MARKER` are not all set it is skipped
       with a reason naming the missing ones (a module-level `skipif`), not an error: the kit's e2e selection names

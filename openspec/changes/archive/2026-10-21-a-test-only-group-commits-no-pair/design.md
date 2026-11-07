@@ -16,9 +16,9 @@ Code at agent-build-kit `origin/main` (e0d26911):
   reads the output with `interpret_red`. It is the command form of the rule "for a person or a hook" (`docs/architecture.md:1218-1219`). Neither it nor
   `check_structure` is given the plan: they know only commit subjects and paths. `check_branch`'s callers are `abk gate` only; the runner's own push
   condition is the approved-SHA check, so the pair count in `implement` is what stopped `asr-streaming-service/10`.
-- **How e2e (local_stack) tests are treated today, in both modes** (read from the code; nothing in the gate or the red reading names the e2e marker):
+- **How e2e (e2e) tests are treated today, in both modes** (read from the code; nothing in the gate or the red reading names the e2e marker):
   - `check_branch` runs `uv run pytest <the test files the commit touched> -p no:cacheprovider --tb=line -q` (`profiles/python_uv.py:353-358`),
-    under the repo's own pytest options. `grep` for the e2e marker (`repo.tests.e2e_marker`, default `local_stack`, `config.py:889`) finds it read
+    under the repo's own pytest options. `grep` for the e2e marker (`repo.tests.e2e_marker`, default `e2e`, `config.py:889`) finds it read
     only by the e2e step, `abk e2e-test` and verify (`cli/e2e_cmd.py`, `pipeline/verify.py`), never by `gate.py`, `red_check.py` or the
     profiles' `interpret_red`.
   - If the repo deselects the marker in its default options, an e2e-only tests commit collects nothing and `interpret_red` rejects it as "no tests

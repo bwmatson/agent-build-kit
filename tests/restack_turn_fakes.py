@@ -55,14 +55,14 @@ def conflicting_repo(path: Path) -> Path:
     commit_file(repo, "notes.md", "notes\n")
     git(repo, "checkout", "-q", "-b", OLD_BASE)
     git(repo, "checkout", "-q", "-b", BRANCH)
-    commit_file(repo, "markers.py", 'markers = ["local_stack"]\n')
+    commit_file(repo, "markers.py", 'markers = ["e2e"]\n')
     git(repo, "checkout", "-q", "main")
     commit_file(repo, "markers.py", 'markers = ["integration"]\n')
     return repo
 
 
 def keeps_both(cwd: Path) -> None:
-    (cwd / "markers.py").write_text('markers = ["integration", "local_stack"]\n')
+    (cwd / "markers.py").write_text('markers = ["integration", "e2e"]\n')
 
 
 def extra_commit(repo: Path, branch: str, name: str, scratch: Path) -> str:
@@ -192,7 +192,7 @@ class Rig:
         self.lock = self.installation.state_dir / "locks" / "repo-app.lock"
         self.store = UnitStore(tmp_path / "units.json")
         self.child: StoredUnit = stored_unit(
-            "c/2", change="c", title="Register the local_stack marker", branch=BRANCH
+            "c/2", change="c", title="Register the e2e marker", branch=BRANCH
         )
         self.parent: StoredUnit = stored_unit(
             "c/1", change="c", title="Register the integration marker", branch=OLD_BASE

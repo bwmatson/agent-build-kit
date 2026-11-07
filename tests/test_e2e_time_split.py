@@ -57,7 +57,7 @@ def scratch_ledger(tmp_path_factory):
 
 SPLIT_CALL = """\
 
-@pytest.mark.local_stack
+@pytest.mark.e2e
 def test_split(scratch_ledger):
     append(scratch_ledger, agent("implement", 120), span(30, "uv run pytest"), span(100))
     time_split.clock.advance(200)
@@ -67,10 +67,10 @@ def test_split(scratch_ledger):
 def split_lines(
     pytester: pytest.Pytester, monkeypatch: pytest.MonkeyPatch, body: str
 ) -> tuple[list[str], list[dict]]:
-    """Run generated `local_stack` tests with the plugin; return the output's lines and the
+    """Run generated `e2e` tests with the plugin; return the output's lines and the
     `ABK-TIME` entries it printed."""
     monkeypatch.setattr(time_split, "clock", fake_clock.FakeClock())
-    pytester.makeini("[pytest]\nmarkers =\n    local_stack: an e2e test\n")
+    pytester.makeini("[pytest]\nmarkers =\n    e2e: an e2e test\n")
     pytester.makepyfile(test_child=PRELUDE + body)
     result = pytester.runpytest_inprocess("-p", "tests.time_split", "-p", "no:cacheprovider")
     assert result.ret == 0, result.outlines
@@ -103,7 +103,7 @@ def test_two_agent_rows_for_one_role_are_two_calls_and_their_sum(
 ) -> None:
     body = """\
 
-@pytest.mark.local_stack
+@pytest.mark.e2e
 def test_retry(scratch_ledger):
     append(scratch_ledger, agent("implement", 60), agent("implement", 40))
     time_split.clock.advance(300)
@@ -121,7 +121,7 @@ def test_parts_above_the_wall_time_leave_no_remainder_and_say_they_overlap(
 ) -> None:
     body = """\
 
-@pytest.mark.local_stack
+@pytest.mark.e2e
 def test_parallel(scratch_ledger):
     append(scratch_ledger, agent("implement", 120), span(30, "uv run pytest"))
     time_split.clock.advance(100)
@@ -147,12 +147,12 @@ def built(scratch_ledger):
     time_split.clock.advance(120)
 
 
-@pytest.mark.local_stack
+@pytest.mark.e2e
 def test_first(built):
     pass
 
 
-@pytest.mark.local_stack
+@pytest.mark.e2e
 def test_second(built):
     pass
 """
@@ -163,14 +163,14 @@ def test_second(built):
     assert with_agent == [("test_first", "setup")], entries
 
 
-def test_a_local_stack_test_without_the_scratch_ledger_gets_no_line(
+def test_a_e2e_test_without_the_scratch_ledger_gets_no_line(
     pytester: pytest.Pytester, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     body = (
         SPLIT_CALL
         + """\
 
-@pytest.mark.local_stack
+@pytest.mark.e2e
 def test_plain():
     time_split.clock.advance(5)
 """
