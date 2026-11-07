@@ -39,7 +39,8 @@ def run_scenario(
 
 def collect_listing(*targets: str) -> ChildRun:
     """The `--collect-only -q` listing of a child pytest run on `targets` (paths below the
-    repository root), so a test of what is collected reads a few files, never the whole suite."""
+    repository root, and any options, such as `-m`, that go with them), so a test of what is
+    collected reads a few files, never the whole suite."""
     result = subprocess.run(
         [
             sys.executable,
