@@ -4,6 +4,7 @@
 
 - Planning a change with a long task list costs less CPU: the review-tier floor now parses each
   protected path pattern once instead of once for every word of the task text.
+
 - The metrics page of `abk serve` answers its first request sooner: the list of instruments the
   code emits is now read from each source file in one pass instead of one walk per function.
 
