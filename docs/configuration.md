@@ -739,13 +739,21 @@ notifications:                  # tell a person when a unit waits on them (off b
 The key was `max_concurrent_restacks`. The old name still loads, with a deprecation notice, as the
 same value; `abk config --migrate` renames it, and a file that sets both is refused.
 
-A unit whose only reason to run is that its base moved runs its whole moved-base run in the
-restack lane: the move, the resolver, the port of a conflict and the checks and review of the
-moved branch. The lane's cap bounds the moved-base run. The run counts toward slot occupancy but
-is never held back by the limit `max_concurrent_stacks`: no build starts at or above that cap,
-and the occupancy may read over it. A run stops before any work that is not about the move (a rework of other feedback, a fix of checks, the end-to-end tests, tests or implementation),
-and what it cannot go on with is handed back,
-`planned` with the cause `restack_handed_back`. The attempts at one base tip are bounded by
+The old key `max_concurrent_restacks` is deprecated: it loads as this one, `abk config --migrate`
+moves it, and in `abk.local.yaml` a notice prints the exact lines.
+
+A unit whose base moved, or whose pull request has a review comment, a change request or a
+conflict, runs in the resolution lane: a restack, a moved-base run or a comment run, each carried
+through the whole build (the move, the rework, implementation, tests, checks, e2e tests, review and
+push). The lane's cap bounds the run. A restack or moved-base run holds a build worker, so the run
+counts toward slot occupancy (no build starts at or above `max_concurrent_stacks`, and the occupancy
+may read over it) and is never held back by the limit on build workers. A comment run holds the unit's
+place and its branch but no build worker, so it never waits behind new builds and takes no place of its
+own under `max_units_in_progress`. When the lane is full, a run that is owed starts in a free ordinary
+build worker and counts toward `max_concurrent_stacks`. A run that cannot go on is held for a person
+(`needs_human`). A unit an earlier version's lane handed back (`restack_handed_back`) is let back in by a
+build worker in the same pass and resumes at its node; no run writes that cause now. The attempts at one
+base tip of a restack or moved-base run, and the rounds of a comment run, are each bounded by
 `global_limits.max_review_rounds`, after which the unit is held for a person. Every limit in
 the top-level `project_limits` is counted for each project, not across all repos; an account's
 `project_limits` caps its projects together (see "The Claude Code account").

@@ -364,19 +364,24 @@ pass it. A blocked unit that had work gives its place to a ready, never-run prer
 it waits on (a handoff unit): one prerequisite starts for each blocked unit's
 place (one unit for each place; several by effective priority, then effective age; it
 starts among the new units by the order below, so it never goes ahead of a more urgent one),
-within the limit and `max_concurrent_stacks`. A unit whose only reason to run is that its base moved runs
-its whole moved-base run in the restack lane: the merge, release and depth handlers, and the poller on a conflicting
-pull request, hand each such unit to the restack lane of the unit's project (each project has its own lane, with
-`project_limits.max_concurrent_resolutions` workers and a queue in the order restacks were seen, so a busy project does not
-hold back another's) instead of restacking inline. The lane's cap bounds the moved-base run: it is the move, the
-resolver, the port of a conflict the resolver could not settle and the checks and review of the moved branch, and it
-stops before any work that is not about the move (a rework of other feedback, a fix of checks, the end-to-end tests, tests or implementation), leaving the unit
-`planned` with a note naming the step for a build worker. A run is never held back by the limit on build workers, but
-the run counts toward slot occupancy: no build starts while the occupancy is at or above `max_concurrent_stacks`, and the
-occupancy may read over it. Each run counts as one attempt at the tip of the unit's base, bounded by
+within the limit and `max_concurrent_stacks`. A unit whose base moved, or whose pull request has a review comment, a
+change request or a conflict, runs its whole resolution in the resolution lane: the merge, release and depth handlers
+and the poller hand each such unit to the resolution lane of the unit's project (each project has its own lane, with
+`project_limits.max_concurrent_resolutions` workers and a queue in the order resolutions were seen, so a busy project does not
+hold back another's) instead of restacking inline. A run is of a kind: a restack, a moved-base run or a comment run
+(the rework of a review comment). It carries the unit through the whole build: the move if the base moved, the rework agent,
+implementation, the unit's tests, the checks, the e2e tests and the review, and the push. The lane's cap bounds
+the run. A restack or moved-base run holds a build worker, so the run counts toward slot occupancy (no build
+starts at or above `max_concurrent_stacks`, and the occupancy may read over it) and is never held back by the
+limit on build workers. A comment run holds the unit's place and its branch but no build worker, so it never
+waits behind new builds and takes no place of its own under `max_units_in_progress`. When the lane holds its
+cap and another run is owed, the run starts in an ordinary build worker if the project has one free, after the units already
+resuming a build and before units that have never started; it counts toward `max_concurrent_stacks` while it runs and not in the
+lane's count. Each run counts as one attempt, bounded by
 `global_limits.max_review_rounds`; a unit that spends them is held with `needs_human` and a note naming the base, the tip
-and how the last run ended. A run the lane cannot go on with is handed back to a build worker, `planned` with the cause
-`restack_handed_back`. Every agent call in a run asks the usage guard first. The limits are counted for each project,
+and how the last run ended. A run that cannot go on is held for a person (`needs_human`) with a note, never handed back to a
+build worker. A unit an earlier version's lane handed back (`restack_handed_back`) is let back in by a build
+worker in the same pass and resumes at its node; no run writes that cause now. Every agent call in a run asks the usage guard first. The limits are counted for each project,
 not across all repos, and an account's `project_limits` adds a second count for its projects together (below).
 Free slots then go to
 units with an open pull request, then to those resuming a build, then to new
@@ -390,9 +395,9 @@ An account takes the same project limits as the top level (`runtimes.claude_code
 the same type, resolved by one function), and only the fields it sets apply: a field it leaves out
 adds no cap. `max_concurrent_stacks`, `max_concurrent_resolutions` and `emergency_extra` of an account's
 `project_limits` are counted for the account across its projects, beside each project's own cap, and a
-unit needs room under both. The stack count includes units running in the restack lane. The restack
-lanes of one account's projects share a counter: a restack held by the account's cap waits and starts at
-once when a restack of the account ends, in whichever project's lane, and the lanes report whether a
+unit needs room under both. The stack count includes units an overflow run holds in a build worker, not lane runs. The resolution
+lanes of one account's projects share a counter: a run held by the account's cap waits and starts at
+once when a run of the account ends, in whichever project's lane, and the lanes report whether a
 project's lane, and its account's, is at its cap. An account's `max_units_in_progress` replaces the
 project's value for the account's slot, as before. `abk status`, a unit's wait reason and its admission
 record name the cap that held a unit, and the free-worker figure is the lesser of the project's room and

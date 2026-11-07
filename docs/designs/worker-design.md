@@ -29,9 +29,9 @@ Each [migration step](#migration) can become its own OpenSpec change.
   oneshot that is `activating` cannot be started again, so timer fires during a long tick do nothing (`cli/pipeline.py` ~3760-3767). One process runs a first `run_round`, then
   `_schedule` (~3832): a `ThreadPoolExecutor` runs each unit's build graph in a worker thread (`build_unit`, ~5781; the graph is LangGraph with a SQLite WAL checkpointer,
   `runs/unit-graphs.sqlite`), and the loop wakes on a build finishing or every `REFRESH_SECONDS = 300` to run a quiet round and fill free slots. It exits only when nothing is in flight and the
-  restack lane is empty. Agent steps are subprocesses of those threads; killing the tick kills every build in it, and the next tick resumes them from their checkpoints.
+  resolution lane is empty. Agent steps are subprocesses of those threads; killing the tick kills every build in it, and the next tick resumes them from their checkpoints.
 - **Order of a tick** (~1293-1450): planning sync, the `has_work` early exit (an idle tick costs about a second and makes no host call), allowance refresh, `environment.ensure`, the
-  restack lane, a first round (usage guard, `fetch_all` and `poll_all`, `land_units` in the first round only, planning, reclaim, gates, verify and archive, label sweeps, ready computation and admission), then `_schedule`.
+  resolution lane, a first round (usage guard, `fetch_all` and `poll_all`, `land_units` in the first round only, planning, reclaim, gates, verify and archive, label sweeps, ready computation and admission), then `_schedule`.
 - **Loaded once per process:** the configuration (`abk.yaml`, `abk.local.yaml`), the kit code (`loaded_code.running_tick`, `runs/tick.json`), the planning sync, the usage allowances and the pool size
   (`(max_concurrent_stacks + emergency_extra) x live projects`). **Refreshed every round:** the unit store, planned hashes, PR snapshots, pause markers and leases.
 - **Locks and shared state that already work across processes:** `runs/units.json` (flock plus atomic writes), the branch lock `runs/locks/<branch>.lock` (a pid file, `O_EXCL`),
@@ -57,7 +57,7 @@ Each [migration step](#migration) can become its own OpenSpec change.
 ```
  timer (1-2 min) ──┐                              ┌── worker: build  unit-A ──┐
  wake path  ───────┼──► dispatcher (short) ──────►├── worker: build  unit-B ──┼─► exit ─► touch runs/wake
- person: requeue,  │    lock · collect · plan ·   ├── worker: restack proj-X ─┤
+ person: requeue,  │    lock · collect · plan ·   ├── worker: resolve proj-X ─┤
  release, approve ─┘    land · verify · admit ·   └── worker: verify change ──┘
                         spawn · exit
           shared files (flock, atomic):  units.json · unit-graphs.sqlite · locks/ · snapshots (prs, usage, pauses)
@@ -73,7 +73,7 @@ except a deploy-and-test verification (up to 3,600 s per deploy), which becomes 
 
 `abk worker <kind> <unit>` runs one piece of work, started by the dispatcher as a **transient systemd unit** (`systemd-run --user --collect --unit abk-<installation>-worker-<unit>-<n>`), with a
 `Popen(start_new_session=True)` fallback where the user manager is not available. A `build` worker loads the current kit code and configuration, takes the branch lock, runs the unit's graph to its next wait (review, a park, a failure or done),
-records the outcome, releases the lock, **pokes the dispatcher** and exits. The kinds are `build`, `restack` (today's restack lane, limited by `max_concurrent_resolutions`) and `verify`.
+records the outcome, releases the lock, **pokes the dispatcher** and exits. The kinds are `build`, `resolve` (today's resolution lane, limited by `max_concurrent_resolutions`; it was `restack` when the lane only restacked, and it also runs a comment run) and `verify`.
 
 Each worker is its own cgroup. A memory ceiling (`MemoryMax`) and a CPU weight can be set per worker, and an out-of-memory kill takes one worker, not every build in a process.
 
@@ -118,9 +118,9 @@ Each worker is a new process, so it imports the current kit code and reads the c
 admission. The merge-edge rule keys on the worker, not the tick: a dependent starts when its parent's merge is visible and, for a kit parent, when the kit HEAD recorded for the worker contains the merge commit (the `kit_head` check that exists
 in `pipeline/units.py` ~897-912). The `merged_tick` / `loaded.number` rule is deleted.
 
-### 8. Restack, verify and the locks
+### 8. Resolve, verify and the locks
 
-The restack lane's per-project threads become `restack` workers. `repo_turn` (the per-repo git flock) and `e2e.lock` already work across processes. A conflicted restack holds `repo_turn` through the resolver's model run; as separate
+The resolution lane's per-project threads become `resolve` workers (a restack, a moved-base run or a comment run). `repo_turn` (the per-repo git flock) and `e2e.lock` already work across processes. A conflicted restack holds `repo_turn` through the resolver's model run; as separate
 processes this blocks only that repo's git operations, and narrowing it is a later change, not a prerequisite.
 
 ### 9. Resume and failure
@@ -153,7 +153,7 @@ The route is straight to the end state; the `workers.mode` switch is the mechani
 2. **The worker entry point and the spawner (done).** `abk worker build <unit>` running `build_unit` (it already re-reads the unit under the branch lock, `cli/pipeline.py` ~5934-5950), the transient-unit spawner with the `Popen` fallback, the worker's
    exit poke, and the wake path unit in `install-timers`.
 3. **The dispatcher mode of `abk tick` (done)**, behind `workers.mode: threads | processes` (default `threads` until proven): admission and spawning instead of `submit`, and no waiting.
-4. **Restack and verify workers**, then the status, doctor and ledger changes.
+4. **Resolve and verify workers**, then the status, doctor and ledger changes.
 5. **Cut over** one repo, then the rest, then delete the thread pool and the pass-scoped rules.
 
 Tests: the controlled builder in `tests/tick_pass.py` generalised to a fake spawner; a two-dispatcher race test for admission; a killed-worker resume test; the merge-edge test rewritten around the worker's kit HEAD; and the drift test for the collector rule.
