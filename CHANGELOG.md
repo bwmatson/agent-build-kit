@@ -5,6 +5,9 @@
 - Planning a change with a long task list costs less CPU: the review-tier floor now parses each
   protected path pattern once instead of once for every word of the task text.
 
+- The metrics page of `abk serve` answers its first request sooner: the list of instruments the
+  code emits is now read from each source file in one pass instead of one walk per function.
+
 - The restack lane is now the resolution lane. A review comment, a change request or a conflict
   on an open pull request is reworked there beside restacks and moved-base runs, at most
   `project_limits.max_concurrent_resolutions` at once, so a comment no longer waits behind new

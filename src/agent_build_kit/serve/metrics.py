@@ -11,7 +11,7 @@ from __future__ import annotations
 import ast
 import json
 from collections import defaultdict
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from datetime import UTC, datetime, timedelta
 from functools import cache
 from importlib import resources
@@ -85,23 +85,17 @@ def dashboard_uid() -> str:
     return str(json.loads(path.read_text())["uid"])
 
 
-def _dict_keys(scope: ast.AST) -> dict[str, list[str]]:
-    """The keys of every `name = {"key": ...}` assigned within `scope`."""
-    keys: dict[str, list[str]] = {}
-    for node in ast.walk(scope):
-        if isinstance(node, ast.Assign):
-            targets, value = node.targets, node.value
-        elif isinstance(node, ast.AnnAssign) and node.value is not None:
-            targets, value = [node.target], node.value
-        else:
-            continue
-        if not isinstance(value, ast.Dict):
-            continue
-        literal = [str(k.value) for k in value.keys if isinstance(k, ast.Constant)]
-        for target in targets:
-            if isinstance(target, ast.Name):
-                keys[target.id] = literal
-    return keys
+def _dict_literal(node: ast.AST) -> tuple[Sequence[ast.expr], list[str]] | None:
+    """The targets and the literal keys of `name = {"key": ...}`, or None for any other node."""
+    if isinstance(node, ast.Assign):
+        targets, value = node.targets, node.value
+    elif isinstance(node, ast.AnnAssign) and node.value is not None:
+        targets, value = [node.target], node.value
+    else:
+        return None
+    if not isinstance(value, ast.Dict):
+        return None
+    return targets, [str(k.value) for k in value.keys if isinstance(k, ast.Constant)]
 
 
 def _attribute_names(
@@ -119,13 +113,32 @@ def _attribute_names(
     return [n for n in names if n not in NOT_ATTRIBUTES and n not in own]
 
 
-def _calls_with_scope(tree: ast.Module) -> list[tuple[ast.Call, dict[str, list[str]]]]:
-    scopes: list[ast.AST] = [tree]
-    scopes += [n for n in ast.walk(tree) if isinstance(n, ast.FunctionDef | ast.AsyncFunctionDef)]
-    found = []
-    for scope in scopes:
-        dicts = _dict_keys(scope)
-        found += [(n, dicts) for n in ast.walk(scope) if isinstance(n, ast.Call)]
+def _calls_with_scope(tree: ast.Module) -> list[tuple[ast.Call, list[dict[str, list[str]]]]]:
+    """Each instrument call with the dict literals visible to it, one mapping per
+    enclosing scope (the module first). Reads the tree in one pass; within a scope a name
+    keeps its deepest assignment, the later one at equal depth."""
+    depths: dict[int, dict[str, int]] = {}  # id of a scope's mapping -> name -> depth kept
+    found: list[tuple[ast.Call, list[dict[str, list[str]]]]] = []
+
+    def visit(node: ast.AST, chain: list[dict[str, list[str]]], depth: int) -> None:
+        if isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef):
+            chain = [*chain, {}]
+        literal = _dict_literal(node)
+        if literal is not None:
+            targets, keys = literal
+            for target in targets:
+                if isinstance(target, ast.Name):
+                    for scope in chain:
+                        kept = depths.setdefault(id(scope), {})
+                        if kept.get(target.id, -1) <= depth:
+                            kept[target.id] = depth
+                            scope[target.id] = keys
+        elif isinstance(node, ast.Call) and _instrument_call(node) is not None:
+            found.append((node, chain))
+        for child in ast.iter_child_nodes(node):
+            visit(child, chain, depth + 1)
+
+    visit(tree, [{}], 0)
     return found
 
 
@@ -177,7 +190,7 @@ def _read_catalogue(root: Path) -> list[Instrument]:
             tree = ast.parse(source)
         except (OSError, SyntaxError, ValueError):
             continue
-        for node, dicts in _calls_with_scope(tree):
+        for node, chain in _calls_with_scope(tree):
             read = _instrument_call(node)
             if read is None:
                 continue
@@ -185,7 +198,8 @@ def _read_catalogue(root: Path) -> list[Instrument]:
             known = found.get(name)
             attributes = list(known.attributes) if known else []
             own = HELPER_PARAMETERS if isinstance(node.func, ast.Name) else set()
-            attributes += [a for a in _attribute_names(node, dicts, own) if a not in attributes]
+            for dicts in chain:
+                attributes += [a for a in _attribute_names(node, dicts, own) if a not in attributes]
             found[name] = Instrument(
                 name=name,
                 type=TYPES[kind],
