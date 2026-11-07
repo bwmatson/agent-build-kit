@@ -61,7 +61,6 @@ ALLOWED: Mapping[str, str] = {
     "tests/test_scratch_dump.py": REASON,
     "tests/test_scratch_dump_bounds.py": REASON,
     "tests/test_spawn_guards.py": REASON,
-    "tests/test_time_limit.py": REASON,
     "tests/test_warning_filters.py": REASON,
 }
 
