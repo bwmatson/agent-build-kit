@@ -39,6 +39,13 @@
   `global_limits.suspended_run_gap_seconds` (default 300), its failures are not rerun or
   fixed, the ledger row says it was disturbed and by how much, and the checks run once more.
   A second disturbed run holds the unit for a person.
+- `abk tracker` shows and runs the work-tracker mirror by hand. `status` summarises each repo's
+  target, identity, mirrored counts, items waiting, last push and pull and open conflicts;
+  `sync [--dry-run]` runs the push and then the pull once and announces a first backfill; `link`
+  adopts an item a person made for a change or group, or records the change's `Epic:` item
+  without writing to it; `conflicts [--resolve ID]` lists conflicts and closes one once the
+  board and the spec agree. A repo with no tracker section prints that none is configured, and
+  every form takes `--json`.
 
 - Every agent call now names its role, and there is no `generic` role. Rework calls are recorded
   as `rework` instead of `implement`, conflict-resolver calls as `restack` and login refreshes

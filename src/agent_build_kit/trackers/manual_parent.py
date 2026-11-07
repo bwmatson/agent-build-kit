@@ -13,11 +13,13 @@ from agent_build_kit.model import Frozen
 
 
 class ManualParent(Frozen):
-    """An existing board item that may stand above a change: its id, title and board type."""
+    """An existing board item that may stand above a change: its id, title and board type, and
+    whether it belongs to the board the configuration names (its project and area)."""
 
     id: str
     title: str
     type: str
+    in_scope: bool = True
 
 
 class ManualParentError(ValueError):

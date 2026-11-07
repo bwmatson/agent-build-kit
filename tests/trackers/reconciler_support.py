@@ -9,7 +9,7 @@ from typing import Any, NamedTuple
 from agent_build_kit import trackers
 from agent_build_kit.pipeline.tracker_file import TrackerFile, mapping_target, write_tracker
 from agent_build_kit.pipeline.units import Unit
-from agent_build_kit.trackers.base import Capabilities, Item, ItemKind
+from agent_build_kit.trackers.base import Capabilities, Change, Cursor, Item, ItemKind
 from agent_build_kit.trackers.config import TrackerSection
 from agent_build_kit.trackers.local import LocalTracker
 from agent_build_kit.trackers.manual_parent import ManualParent
@@ -42,9 +42,12 @@ class RecordingTracker(LocalTracker):
     board and then raises, once."""
 
     def __init__(
-        self, levels: Sequence[ItemKind] | None = None, capabilities: Capabilities | None = None
+        self,
+        levels: Sequence[ItemKind] | None = None,
+        capabilities: Capabilities | None = None,
+        board_types: Mapping[str, str] | None = None,
     ) -> None:
-        super().__init__(capabilities, SYNC, levels)
+        super().__init__(capabilities, SYNC, levels, board_types)
         self.calls: list[Call] = []
         self.fail: Callable[[Call], Exception | None] = lambda call: None
         self.lose_answer: str | None = None
@@ -76,6 +79,10 @@ class RecordingTracker(LocalTracker):
     def read_manual_parent(self, item_id: str) -> ManualParent | None:
         self._enter("read_manual_parent", item_id)
         return super().read_manual_parent(item_id)
+
+    def changed_since(self, cursor: Cursor | None) -> tuple[Sequence[Change], Cursor]:
+        self._enter("changed_since", cursor)
+        return super().changed_since(cursor)
 
     def find_by_marker(self, marker: str) -> Item | None:
         self._enter("find_by_marker", marker)

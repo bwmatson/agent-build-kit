@@ -35,7 +35,7 @@ from agent_build_kit.trackers.manual_parent import (
 from tests.forges.conftest import PAT
 from tests.task_priority_files import tasks_md
 from tests.trackers import contract
-from tests.trackers.ado_support import section, tracker_on
+from tests.trackers.ado_support import AREA_PATH, section, tracker_on
 from tests.trackers.ado_work_item_host import WorkItemHost
 
 
@@ -288,6 +288,46 @@ def test_an_azure_item_of_another_type_is_refused_naming_the_id_and_both_types(t
     message = str(refused.value)
     assert other in message and type_ in message and "Epic" in message
     assert [s.method for s in host.seen if s.route == f"wit/workitems/{other}"] == ["GET"]
+
+
+@pytest.mark.parametrize(
+    ("fields", "in_scope"),
+    [
+        ({}, True),
+        ({"System.AreaPath": f"{AREA_PATH}\\Sub"}, True),
+        ({"System.AreaPath": AREA_PATH.upper()}, True),
+        ({"System.AreaPath": f"{AREA_PATH}B"}, False),
+        ({"System.AreaPath": "Some Project"}, False),
+        (
+            {"System.TeamProject": "Other Project", "System.AreaPath": "Other Project\\Team A"},
+            False,
+        ),
+        ({"System.TeamProject": "Other Project"}, False),
+        ({"System.TeamProject": "SOME PROJECT"}, True),
+    ],
+    ids=[
+        "the template's own area",
+        "a child area",
+        "the same path in another case",
+        "a sibling area sharing the prefix",
+        "the parent area",
+        "another project",
+        "another project, same area words",
+        "the project in another case",
+    ],
+)
+def test_an_azure_item_reads_as_in_scope_only_inside_the_configured_project_and_area(
+    fields: dict[str, str], in_scope: bool
+) -> None:
+    host = WorkItemHost()
+    tracker = tracker_on(host, "basic")
+    seeded = host.seed("Epic", "A person's epic")
+    host.edit(seeded, **fields)
+
+    found = tracker.read_manual_parent(seeded)
+
+    assert found is not None
+    assert found.in_scope is in_scope
 
 
 class Candidates:

@@ -24,6 +24,8 @@ class FieldsDoc(_Doc):
     state: str = Field(alias="System.State")
     description: str = Field(default="", alias="System.Description")
     tags: str = Field(default="", alias="System.Tags")
+    project: str | None = Field(default=None, alias="System.TeamProject")
+    area_path: str | None = Field(default=None, alias="System.AreaPath")
     assigned_to: IdentityDoc | None = Field(default=None, alias="System.AssignedTo")
     changed_date: str = Field(default="", alias="System.ChangedDate")
     changed_by: IdentityDoc | None = Field(default=None, alias="System.ChangedBy")

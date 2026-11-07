@@ -54,6 +54,7 @@ COMMAND_MODULES = (
     "agent_build_kit.cli.install_config",
     "agent_build_kit.cli.manual_cmd",
     "agent_build_kit.cli.external_cmd",
+    "agent_build_kit.cli.tracker_cmd",
     "agent_build_kit.cli.review_report",
     "agent_build_kit.cli.units_cmd",
     "agent_build_kit.cli.worker",

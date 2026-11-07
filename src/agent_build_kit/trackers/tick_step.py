@@ -80,7 +80,7 @@ def note_state_change(inst: Installation, repo: str) -> None:
         mark_dirty(inst.state_dir, repo)
 
 
-def _has_group_for(tasks: Path, repo: str) -> bool:
+def has_group_for(tasks: Path, repo: str) -> bool:
     try:
         groups, _ = validate_tasks(tasks)
     except Exception:  # noqa: BLE001 — a change that does not parse is not mirrored
@@ -88,9 +88,9 @@ def _has_group_for(tasks: Path, repo: str) -> bool:
     return any(group.repo == repo for group in groups)
 
 
-def _changes_of(inst: Installation, repo: str) -> list[str]:
+def changes_of(inst: Installation, repo: str) -> list[str]:
     """The changes in flight with a task group for `repo`."""
-    return [tasks.parent.name for tasks in inst.tasks_files() if _has_group_for(tasks, repo)]
+    return [tasks.parent.name for tasks in inst.tasks_files() if has_group_for(tasks, repo)]
 
 
 def _unfinished_archived(
@@ -127,7 +127,7 @@ def _unfinished_archived(
             for marker, entry in synced.items()
             if entry and entry.fields.get("state") != "done"
         }
-        if not pending or not _has_group_for(archive[name] / TASKS_FILE, repo):
+        if not pending or not has_group_for(archive[name] / TASKS_FILE, repo):
             continue
         wanted = wanted_board(
             section,
@@ -201,13 +201,22 @@ def _attach_all(
             failed(unit.id, error)
 
 
-def _sync_repo(
-    inst: Installation, repo: str, units: Sequence[StoredUnit], log: Callable[[str], None]
-) -> None:
+def sync_repo(
+    inst: Installation,
+    repo: str,
+    units: Sequence[StoredUnit],
+    log: Callable[[str], None],
+    *,
+    dry_run: bool = False,
+    uncapped: bool = False,
+) -> PassReport | None:
+    """One push pass over `repo`, then the attach of its pull requests; None when the repo names
+    no tracker. A dry run lists the creates and writes and attaches nothing; `uncapped` lifts the
+    per-tick cap on creates, to count what a first pass has to make."""
     section = section_for(repo)
     if section is None:
-        return
-    live = _changes_of(inst, repo)
+        return None
+    live = changes_of(inst, repo)
     archive = archived_entries(inst.changes_dir)
     browse = _browse_of(inst)
     archived = _unfinished_archived(inst, repo, section, units, live, archive, browse)
@@ -221,10 +230,12 @@ def _sync_repo(
         tracking_dir=progress_root(inst),
         archived=archived,
         log=log,
-        create_cap=section.create_cap,
+        create_cap=None if uncapped else section.create_cap,
+        dry_run=dry_run,
     )
-    if not (report.stopped or report.failed):
+    if not (dry_run or report.stopped or report.failed):
         _attach_all(inst, repo, units, archive, log)
+    return report
 
 
 def sync_trackers(
@@ -237,7 +248,7 @@ def sync_trackers(
     for repo in named:
         try:
             _clear_dirty(inst.state_dir, repo)
-            _sync_repo(inst, repo, units, log)
+            sync_repo(inst, repo, units, log)
         except TrackerConfigError as error:
             log(f"tracker {repo}: skipped: {error}")
         except Exception as error:  # noqa: BLE001 — a repo's failure never stops another's

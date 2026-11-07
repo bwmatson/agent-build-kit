@@ -220,7 +220,23 @@ class AzureDevOpsWorkItems:
             doc = self._read(item_id)
         except NotFound:
             return None
-        return ManualParent(id=str(doc.id), title=doc.fields.title, type=doc.fields.type)
+        return ManualParent(
+            id=str(doc.id),
+            title=doc.fields.title,
+            type=doc.fields.type,
+            in_scope=self._in_scope(doc.fields),
+        )
+
+    def _in_scope(self, fields: FieldsDoc) -> bool:
+        """Whether the work item sits in the configured project and under the configured area
+        path; a document that does not carry them is taken as in scope."""
+        section = self._section
+        if fields.project is not None and fields.project.casefold() != section.project.casefold():
+            return False
+        if fields.area_path is None:
+            return True
+        area, root = fields.area_path.casefold(), section.area_path.casefold()
+        return area == root or area.startswith(f"{root}\\")
 
     def find_manual_parents(self, title: str) -> Sequence[ManualParent]:
         """The work items whose whole title is `title`, in any case: the caller settles case."""
