@@ -9,7 +9,7 @@ lines about the feedback in hand stay in both forms (spec: dry-guidance).
 import re
 from pathlib import Path
 
-from agent_build_kit.pipeline.reuse_guidance import reuse_guidance
+from agent_build_kit.pipeline.reuse_guidance import Kind, reuse_guidance
 from tests.graph.agent_fakes import distinct_models
 from tests.graph.test_session_continuation import (
     REWORK_ASK,
@@ -25,7 +25,7 @@ from tests.runner_fakes import approving, rejecting
 OTHERS = re.compile(r"look for (the )?others of the (same )?kind", re.IGNORECASE)
 
 
-def carries(prompt: str, kind: str = "source") -> bool:
+def carries(prompt: str, kind: Kind = "source") -> bool:
     return flat(reuse_guidance(kind)) in flat(prompt)
 
 

@@ -198,12 +198,14 @@ and finish the task from there.
 
 
 class PromptTemplate(str):
-    """A prompt with a `{guidance}` place and a `{commands}` place, each empty unless a caller
-    fills it, so a caller with no person's note or no agent commands formats it as it always
-    did."""
+    """A prompt with a `{guidance}`, a `{commands}` and a `{tests_guidance}` place, each empty
+    unless a caller fills it, so a caller with no person's note, no agent commands or no test
+    file to edit formats it as it always did."""
 
     def format(self, *args: object, **fields: object) -> str:
-        return super().format(*args, **{"guidance": "", "commands": "", **fields})
+        return super().format(
+            *args, **{"guidance": "", "commands": "", "tests_guidance": "", **fields}
+        )
 
 
 _PERSON_GUIDANCE = """\
@@ -473,24 +475,13 @@ you finish; the pipeline runs the whole suite.
 """
 
 
-class ReworkTemplate(PromptTemplate):
-    """A prompt for reworking a branch after review or feedback, which carries the test version
-    of the reuse guidance only where a caller fills `{tests_guidance}` with it. The default of ""
-    is for the tests that fill the template without a unit; the pipeline's callers pass it."""
-
-    def format(self, *args: object, **fields: object) -> str:
-        return super().format(*args, **{"tests_guidance": "", **fields})
-
-
-def rework_tests_guidance(planning_repo: Path | str, unit: Unit) -> str:
-    """The test version of the reuse guidance when a group the unit builds names a test file,
+def rework_tests_guidance(steps: Sequence[GroupStep]) -> str:
+    """The test version of the reuse guidance when a group among `steps` names a test file,
     else nothing: a rework that edits no test is not told how to write one."""
-    return (
-        TESTS_REUSE_NOTE if any(step.tests for step in group_steps_of(planning_repo, unit)) else ""
-    )
+    return TESTS_REUSE_NOTE if any(step.tests for step in steps) else ""
 
 
-REVIEW_FEEDBACK_PROMPT = ReworkTemplate(
+REVIEW_FEEDBACK_PROMPT = PromptTemplate(
     """\
 {guidance}A review of this branch asked for changes, for change {change_dir}, task
 group(s) {groups}:
@@ -917,7 +908,7 @@ counts); unit-test runs before anything is pushed.
 """
 
 
-REWORK_PROMPT = ReworkTemplate(
+REWORK_PROMPT = PromptTemplate(
     """\
 {guidance}Review asked for a change to the work already on this branch, specified at
 {change_dir}, task group(s) {groups}. This is PR #{pr}.

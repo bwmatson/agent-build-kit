@@ -10,7 +10,9 @@ test carry no test version.
 from __future__ import annotations
 
 import re
+from collections.abc import Callable
 from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -23,8 +25,12 @@ from agent_build_kit.pipeline.stack_runner import (
     TESTS_PROMPT,
     write_tests_prompt,
 )
+from agent_build_kit.pipeline.unit_store import FeedbackSource
+from tests.factories import unit
 from tests.graph.branch_fakes import prepared, titled
 from tests.graph.test_build_path import build
+from tests.graph.test_rework_guidance import requeue
+from tests.graph_driver import fresh, tick
 from tests.prompt_text import filled, flat
 from tests.runner_fakes import rejecting
 
@@ -70,14 +76,18 @@ def test_the_test_version_names_its_points_and_cites_the_standards() -> None:
     assert re.search(r"test (of|for) a test|subject is (another|a) test", TESTS, re.IGNORECASE)
 
 
-def test_the_test_version_points_to_the_placement_rule_and_does_not_restate_it() -> None:
-    text = TESTS.lower()
-    placement = flat(profiles.get("python-uv").prompt_words.placement).lower()
+def test_the_test_version_points_to_the_placement_rule() -> None:
+    assert "placement rule" in TESTS.lower()
 
-    assert "placement rule" in text
-    assert "existing test file for the module" in placement
-    assert "existing test file for the module" not in text
-    assert "new test file is created only" not in text
+
+@pytest.mark.parametrize("name", profiles.names())
+def test_the_test_version_does_not_restate_a_profiles_placement_rule(name: str) -> None:
+    placement = flat(profiles.get(name).prompt_words.placement).lower()
+    # The rule's sentences, less its "Placement (T2, ...):" label; a profile with no rule has none.
+    sentences = [s.strip() for s in placement.split("):", 1)[-1].split(".")]
+
+    for sentence in filter(None, sentences):
+        assert sentence not in TESTS.lower()
 
 
 def test_the_test_version_keeps_the_reuse_basics_for_test_support() -> None:
@@ -151,11 +161,23 @@ def test_a_group_with_no_tests_step_builds_no_tests_prompt(mode: GroupMode) -> N
 REWORK_START = "A review of this branch asked for changes"
 
 
-def reworked(tmp_path: Path, tasks: str) -> str:
-    """The rework prompt of a unit whose group 1 has `tasks` for its tasks."""
-    recorder, _ = prepared(tmp_path, groups={"add-marker": titled(1)})
+FEEDBACK_REWORK_START = "Review asked for a change to the work already on this branch"
+TEST_NAMED = (
+    "- [ ] 1.1 Test: `tests/pipeline/test_marker.py` — the marker\n- [ ] 1.2 Do the marker\n"
+)
+NO_TEST_NAMED = "- [ ] 1.1 Test: the marker\n- [ ] 1.2 Do the marker in `src/marker.py`\n"
+
+
+def write_group_tasks(tmp_path: Path, tasks: str) -> None:
     path = tmp_path / "meta" / "openspec" / "changes" / "add-marker" / "tasks.md"
+    path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(f"## 1. [app] [unit-test] G1\n\n{tasks}")
+
+
+def review_loop_rework(tmp_path: Path, tasks: str) -> str:
+    """The review loop's rework prompt for a unit whose group 1 has `tasks` for its tasks."""
+    recorder, _ = prepared(tmp_path, groups={"add-marker": titled(1)})
+    write_group_tasks(tmp_path, tasks)
     recorder.verdicts = [rejecting("rename it")]
 
     build(tmp_path, recorder, **recorder.overrides(tmp_path))
@@ -163,23 +185,47 @@ def reworked(tmp_path: Path, tasks: str) -> str:
     return next(p for p in map(flat, recorder.prompts) if REWORK_START in p)
 
 
-def test_a_rework_whose_group_names_a_test_file_carries_both_versions(tmp_path: Path) -> None:
-    text = reworked(
-        tmp_path,
-        "- [ ] 1.1 Test: `tests/pipeline/test_marker.py` — the marker\n- [ ] 1.2 Do the marker\n",
-    )
+def requeue_rework(tmp_path: Path, tasks: str) -> str:
+    """The rework prompt of a requeued unit with saved review feedback, whose group 1 has
+    `tasks` for its tasks."""
+    recorder = fresh(tmp_path)
+    tick(tmp_path, recorder)
+    write_group_tasks(tmp_path, tasks)
+    recorder.store.set_feedback(unit().id, "rename it", source=FeedbackSource.REVIEW)
+    prompts: list[str] = []
+
+    def agent(prompt: str, **kwargs: Any) -> str:
+        prompts.append(prompt)
+        return recorder.claude(prompt, **kwargs)
+
+    tick(tmp_path, recorder, event=requeue(""))
+    tick(tmp_path, recorder, run=agent)
+
+    [prompt] = prompts
+    assert prompt.startswith(FEEDBACK_REWORK_START)
+    return flat(prompt)
+
+
+REWORKS = pytest.mark.parametrize(
+    "rework", [review_loop_rework, requeue_rework], ids=["review-loop", "requeue"]
+)
+
+
+@REWORKS
+def test_a_rework_whose_group_names_a_test_file_carries_both_versions(
+    tmp_path: Path, rework: Callable[[Path, str], str]
+) -> None:
+    text = rework(tmp_path, TEST_NAMED)
 
     assert SOURCE in text
     assert TESTS in text
 
 
+@REWORKS
 def test_a_rework_whose_group_names_no_test_file_carries_the_source_version_only(
-    tmp_path: Path,
+    tmp_path: Path, rework: Callable[[Path, str], str]
 ) -> None:
-    text = reworked(
-        tmp_path,
-        "- [ ] 1.1 Test: the marker\n- [ ] 1.2 Do the marker in `src/marker.py`\n",
-    )
+    text = rework(tmp_path, NO_TEST_NAMED)
 
     assert SOURCE in text
     assert TESTS not in text

@@ -10,7 +10,7 @@ import re
 import pytest
 
 from agent_build_kit.config import RepoConfig
-from agent_build_kit.pipeline.reuse_guidance import reuse_guidance
+from agent_build_kit.pipeline.reuse_guidance import Kind, reuse_guidance
 from agent_build_kit.pipeline.stack_runner import (
     ADAPT_CONTINUATION,
     ADAPT_PROMPT,
@@ -26,7 +26,7 @@ from agent_build_kit.pipeline.stack_runner import (
 )
 from tests.prompt_text import filled, flat
 
-KINDS = ["source", "tests"]
+KINDS: list[Kind] = ["source", "tests"]
 
 # The prompts that change source; the tests prompt carries the test version (see
 # test_reuse_guidance_kinds.py).
@@ -57,7 +57,7 @@ def test_filling_a_prompt_in_leaves_the_part_unchanged(prompt: str) -> None:
 
 
 @pytest.mark.parametrize("kind", KINDS)
-def test_the_part_has_no_braces_to_break_the_filling(kind: str) -> None:
+def test_the_part_has_no_braces_to_break_the_filling(kind: Kind) -> None:
     text = reuse_guidance(kind)
 
     assert text.strip()
@@ -75,7 +75,7 @@ def test_the_adapt_prompt_does_not_carry_the_part_and_keeps_its_own_instruction(
 
 @pytest.mark.parametrize("kind", KINDS)
 @pytest.mark.parametrize("prompt", CONTINUATIONS)
-def test_a_continuation_prompt_does_not_repeat_the_part(prompt: str, kind: str) -> None:
+def test_a_continuation_prompt_does_not_repeat_the_part(prompt: str, kind: Kind) -> None:
     assert flat(reuse_guidance(kind)) not in flat(prompt)
 
 
@@ -101,7 +101,7 @@ def test_the_part_says_how_to_look() -> None:
 
 
 @pytest.mark.parametrize("kind", KINDS)
-def test_the_part_names_no_installation_language_tool_or_path(kind: str) -> None:
+def test_the_part_names_no_installation_language_tool_or_path(kind: Kind) -> None:
     text = reuse_guidance(kind)
 
     assert text.strip()
