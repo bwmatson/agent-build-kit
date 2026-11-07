@@ -147,6 +147,7 @@ from agent_build_kit.pipeline.product_defect import (
     product_defect_record,
     wait_on_product_defect,
 )
+from agent_build_kit.pipeline.red_check import ids_not_found
 from agent_build_kit.pipeline.regression_agent import (
     FixKind,
     RegressionRunCapped,
@@ -2387,10 +2388,27 @@ def build_unit_test(
             return True
         rerun = rerun_command(command, tests)
         timed_out: list[str] = []
+        left_out: list[str] = []
         timeouts = 0
         for number in range(1, FLAKE_RERUNS + 1):
             began = begin_evidence(where, toolchain) if evidence is not None else None
             again = ran(rerun, where, toolchain)
+            while again.returncode == NOT_FOUND_EXIT and (
+                missing := [
+                    test
+                    for test in ids_not_found(f"{again.stdout}\n{again.stderr}")
+                    if test in tests
+                ]
+            ):
+                # Pytest stops at an id it cannot find: those failures stand unrerun, and the
+                # others are run again.
+                left_out.extend(missing)
+                tests = [test for test in tests if test not in missing]
+                _say(log, f"{len(missing)} failed tests not found, not rerun: {', '.join(missing)}")
+                if not tests:
+                    return False
+                rerun = rerun_command(command, tests)
+                again = ran(rerun, where, toolchain)
             if evidence is not None and began is not None:
                 started, machine_before, tree_before = began
                 ended = clock()
@@ -2408,6 +2426,7 @@ def build_unit_test(
                         "started": started.isoformat(),
                         "ended": ended.isoformat(),
                         "seconds": seconds,
+                        "left_out": list(left_out),
                     },
                     machine={"start": machine_before, "end": dict(last_sample)},
                     worktree=failure_evidence.worktree_changes(

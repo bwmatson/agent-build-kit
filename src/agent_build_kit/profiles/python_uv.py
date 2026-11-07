@@ -95,9 +95,9 @@ PATH_SOURCES_NOTE = (
 TYPE_HOOKS = frozenset({"pyrefly-check", "pyrefly", "mypy", "pyright"})
 _PYTEST = re.compile(r"\bpytest\b")
 # pytest's short summary: `FAILED path::test - why` and `ERROR path::test - why`.
-_FAILED_TEST = re.compile(r"^(?:FAILED|ERROR) (\S+::\S+)", re.MULTILINE)
+_FAILED_TEST = re.compile(r"^(?:FAILED|ERROR) (\S+::.+?)(?: - .*)?$", re.MULTILINE)
 # The same line when the reason is a test's time limit (the pytest-timeout plugin's message).
-_TIME_LIMIT_FAILURE = re.compile(r"^(?:FAILED|ERROR) (\S+::\S+) - .*Timeout >", re.MULTILINE)
+_TIME_LIMIT_FAILURE = re.compile(r"^(?:FAILED|ERROR) (\S+::.+?) - .*Timeout >", re.MULTILINE)
 # The line xdist opens a failed test's block with, which names the worker that ran the test.
 _WORKER_LINE = re.compile(r"^\[(gw\d+)\]", re.MULTILINE)
 # The `FAILURES` part of pytest's console output ends at the rule of the section that follows
@@ -524,7 +524,7 @@ class PythonUvProfile:
         # pytest does not collect (a class it skips, a fixture) is a usage error that runs
         # nothing, so that run is followed by the files whole, whose report and status stand.
         options = "-p no:cacheprovider --tb=line -q"
-        pytest = f"uv run pytest {' '.join(ids or files)} {options}"
+        pytest = f"uv run pytest {shlex.join(ids or files)} {options}"
         whole = f"uv run pytest {' '.join(files)} {options}" if ids else None
         return wrap_report_command(
             pytest, "--junitxml", retry=whole, retry_on=self.usage_error_exit
