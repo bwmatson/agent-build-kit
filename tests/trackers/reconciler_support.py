@@ -98,6 +98,10 @@ class RecordingTracker(LocalTracker):
             raise RuntimeError("the answer to the create never arrived")
         return item
 
+    def add_marker(self, item_id: str, marker: str, expected_revision: str | None = None) -> Item:
+        self._enter("add_marker", item_id, marker, expected_revision)
+        return super().add_marker(item_id, marker, expected_revision)
+
     def update(
         self, item_id: str, changes: Mapping[str, str], expected_revision: str | None = None
     ) -> Item:

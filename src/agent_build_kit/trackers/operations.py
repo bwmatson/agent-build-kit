@@ -17,6 +17,7 @@ OPERATIONS: Mapping[str, OperationSpec] = {
     "changed_since": _READ,
     "find_by_marker": _READ,
     "update": _WRITE,
+    "add_marker": _WRITE,
     "set_assignee": _WRITE,
     "link": _WRITE,
     "create": OperationSpec(kind="create", lands="find_by_marker"),

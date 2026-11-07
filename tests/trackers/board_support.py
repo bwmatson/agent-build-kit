@@ -100,13 +100,20 @@ def groups_tasks(count: int) -> str:
     return "\n".join(parts)
 
 
-def board_section(levels: Sequence[str], *, epic: bool = False) -> TrackerSection:
+def board_section(
+    levels: Sequence[str], *, epic: bool = False, epic_type: str | None = None
+) -> TrackerSection:
+    """The section for `levels`; `epic_type` names the board type of the manual parent where a
+    stand-in reports another type than the fixtures'."""
     configure(
         app={
             "kind": "azure_devops",
             "levels": list(levels),
             "epic": epic,
-            "azure_devops": {**AZURE_BLOCK, "types": TYPES},
+            "azure_devops": {
+                **AZURE_BLOCK,
+                "types": {**TYPES, **({"epic": epic_type} if epic_type else {})},
+            },
         }
     )
     section = section_for("app")

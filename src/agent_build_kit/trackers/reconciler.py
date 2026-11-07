@@ -30,13 +30,18 @@ from agent_build_kit.pipeline.tracker_file import (
     write_tracker,
 )
 from agent_build_kit.pipeline.units import Unit
-from agent_build_kit.trackers.adopt_from_hold import Seeded, seed_from_holds
+from agent_build_kit.trackers.adopt_from_hold import (
+    Seeded,
+    claimed_markers,
+    holding_changes,
+    seed_from_holds,
+)
 from agent_build_kit.trackers.base import (
     REPO_FAILURES,
-    STATUS_TAGS,
     Item,
     StaleRevision,
     Tracker,
+    board_snapshot,
 )
 from agent_build_kit.trackers.config import TrackerConfigError, TrackerSection, section_for
 from agent_build_kit.trackers.folders import tracker_read_dir, tracker_write_dir
@@ -114,6 +119,7 @@ class _Pass:
         create_cap: int | None = None,
         dry_run: bool = False,
         blocked: Collection[str] = (),
+        written: dict[str, list[str]] | None = None,
     ) -> None:
         self.blocked = frozenset(blocked)
         self.state_dir = state_dir
@@ -127,7 +133,7 @@ class _Pass:
         self.created = 0
         self.updated = 0
         self.awaiting: list[str] = []
-        self.written: dict[str, list[str]] = {}
+        self.written: dict[str, list[str]] = {} if written is None else written
         # Set once a create was refused for the cap: no further item without a record is looked up.
         self.capped = False
 
@@ -177,7 +183,13 @@ class _Pass:
             return
         self.updated += 1
         self._wrote(updated)
-        self._record(name, item, Synced(id=updated.id, fields=wanted, revision=updated.revision))
+        # An adopted item's stored copy stays the person's, with only what was written changed.
+        fields = {**synced.fields, **changes} if synced.adopted else wanted
+        self._record(
+            name,
+            item,
+            Synced(id=updated.id, fields=fields, revision=updated.revision, adopted=synced.adopted),
+        )
 
     def _create_or_adopt(
         self, change: str, item: WantedItem, parent: str | None, wanted: Mapping[str, str]
@@ -186,13 +198,7 @@ class _Pass:
         holds what the board shows in the kit's words, so the next diff compares like with like."""
         found = self._lookup(item.marker)
         if found is not None:
-            snapshot = {
-                "title": found.title,
-                "body": found.body,
-                "state": found.kit_state or found.state,
-                "tags": "; ".join(sorted(tag for tag in found.tags if tag in STATUS_TAGS)),
-            }
-            synced = Synced(id=found.id, fields=snapshot, revision=found.revision)
+            synced = Synced(id=found.id, fields=board_snapshot(found), revision=found.revision)
         else:
             if self.create_cap is not None and self.created >= self.create_cap:
                 self.capped = True
@@ -300,29 +306,56 @@ def last_reconciled(path: Path) -> datetime | None:
     return found if found.tzinfo else found.replace(tzinfo=UTC)
 
 
+class _Seeding(Frozen):
+    """How adopting what the holds record went: what it found, whether a rate limit ended the
+    pass and how many errors it counted."""
+
+    seeded: Seeded
+    stopped: bool = False
+    errors: int = 0
+
+
 def _seed(
     tracker: Tracker,
     section: TrackerSection,
     files: dict[str, TrackerFile],
     wanted: Sequence[WantedItem],
+    *,
     changes_dir: Path,
     state_dir: Path,
+    written: dict[str, list[str]],
+    dry_run: bool,
     count_error: Callable[[], None],
     log: Callable[[str], None],
-) -> Seeded:
-    """Adopt what the holds record before anything is created. A failure is logged and counted,
-    and the pass goes on with nothing adopted."""
+) -> _Seeding:
+    """Adopt what the holds record before anything is created. A dry run only names the markers a
+    real pass would adopt. When adopting fails, nothing is created this pass for a change that has
+    a hold, so a hand-made item is never made twice; items already recorded still update."""
+    if dry_run:
+        claimed = claimed_markers(section, list(files), wanted, changes_dir)
+        return _Seeding(seeded=Seeded(blocked=claimed))
     try:
         seeded = seed_from_holds(
-            tracker, section, files, wanted, changes_dir=changes_dir, state_dir=state_dir
+            tracker,
+            section,
+            files,
+            wanted,
+            changes_dir=changes_dir,
+            state_dir=state_dir,
+            written=written,
         )
-    except Exception as error:  # a host answers in its own errors; seeding never stops the pass
+    except RateLimited as error:
+        log(f"tracker: rate limited while adopting, resuming next tick: {error}")
+        return _Seeding(seeded=Seeded(), stopped=True)
+    except Exception as error:  # a host answers in its own errors
         count_error()
-        log(f"tracker: adopting the items a hold records failed: {error}")
-        return Seeded()
+        log(f"tracker: adopting the items a hold records failed, creating none for them: {error}")
+        held = set(holding_changes(list(files), changes_dir))
+        blocked = frozenset(i.marker for i in wanted if i.marker.split(":", 1)[0] in held)
+        return _Seeding(seeded=Seeded(blocked=blocked), errors=1)
     for conflict in seeded.conflicts:
         log(f"tracker: conflict: {conflict}")
-    return seeded
+    return _Seeding(seeded=seeded)
 
 
 def reconcile(
@@ -381,11 +414,21 @@ def reconcile(
         tracking_dir=tracking_dir,
     )
 
-    seeded = (
-        Seeded()
-        if dry_run
-        else _seed(tracker, section, files, wanted, changes_dir, state_dir, count_error, log)
+    written: dict[str, list[str]] = {}
+    seeding = _seed(
+        tracker,
+        section,
+        files,
+        wanted,
+        changes_dir=changes_dir,
+        state_dir=state_dir,
+        written=written,
+        dry_run=dry_run,
+        count_error=count_error,
+        log=log,
     )
+    seeded = seeding.seeded
+    errors += seeding.errors
     run = _Pass(
         tracker,
         section,
@@ -395,10 +438,12 @@ def reconcile(
         create_cap=create_cap,
         dry_run=dry_run,
         blocked=seeded.blocked,
+        written=written,
     )
-    stopped = failed = False
+    stopped = seeding.stopped
+    failed = False
     left = 0
-    for item in wanted:
+    for item in () if stopped else wanted:
         # A group that is no longer wanted keeps what its item last showed: nothing is deleted.
         if item.state == "removed":
             continue

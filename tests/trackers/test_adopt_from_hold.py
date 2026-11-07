@@ -10,6 +10,7 @@ from pathlib import Path
 import pytest
 
 from agent_build_kit import trackers
+from agent_build_kit.forges.transport import RateLimited
 from agent_build_kit.pipeline.external_file import Hold, write_holds
 from agent_build_kit.pipeline.tracker_file import (
     Synced,
@@ -18,9 +19,17 @@ from agent_build_kit.pipeline.tracker_file import (
     read_tracker,
     write_tracker,
 )
+from agent_build_kit.pipeline.units import UnitState
 from agent_build_kit.trackers.base import Item
-from agent_build_kit.trackers.reconciler import PassReport
-from tests.trackers.board_support import CHANGE, board_section, covering, write_change
+from agent_build_kit.trackers.local import EPIC_TYPE
+from agent_build_kit.trackers.reconciler import PassReport, read_snapshot, reconcile
+from tests.trackers.board_support import (
+    CHANGE,
+    board_section,
+    browse_example,
+    covering,
+    write_change,
+)
 from tests.trackers.reconciler_support import RecordingTracker, World
 
 OTHER = "other-change"
@@ -34,7 +43,9 @@ def registered_kind() -> Iterator[None]:
 
 
 def world_for(tmp_path: Path, levels: list[str], *, epic: bool = False) -> World:
-    return World(tmp_path, board_section(levels, epic=epic), RecordingTracker())
+    # The stand-in reports a manual parent under its own type name.
+    section = board_section(levels, epic=epic, epic_type=EPIC_TYPE if epic else None)
+    return World(tmp_path, section, RecordingTracker())
 
 
 def hand_made(
@@ -188,7 +199,7 @@ def test_an_adopted_item_keeps_the_persons_wording(tmp_path: Path) -> None:
     assert recorded(world).groups[f"{CHANGE}:1"].fields["title"] == PERSON_TITLE
 
 
-def test_the_marker_line_is_appended_without_a_conflict(tmp_path: Path) -> None:
+def test_the_marker_is_attached_without_a_conflict_and_finds_the_item(tmp_path: Path) -> None:
     world = world_for(tmp_path, ["change", "group"])
     change = hand_made(world, "change", "Remember lanes")
     group = hand_made(world, "group", PERSON_TITLE, change.id, body="what Sam wrote")
@@ -197,12 +208,118 @@ def test_the_marker_line_is_appended_without_a_conflict(tmp_path: Path) -> None:
     first = run(world)
     second = run(world)
 
-    body = world.tracker.get(group.id).body
-    marker = f"<!-- {world.section.marker_prefix}:{CHANGE}:1 -->"
-    assert body.startswith("what Sam wrote")
-    assert body.splitlines()[-1] == marker
-    assert body.count(marker) == 1
+    found = world.tracker.find_by_marker(f"{CHANGE}:1")
+    assert found is not None and found.id == group.id
+    assert found.body == "what Sam wrote"
+    assert len(world.tracker.made("add_marker")) == 2, "one for the change, one for the group"
     assert first.conflicts == () and second.conflicts == ()
+
+
+def test_the_markers_the_kit_wrote_when_adopting_are_recorded_as_its_own(tmp_path: Path) -> None:
+    world = world_for(tmp_path, ["change", "group"])
+    change = hand_made(world, "change", "Remember lanes")
+    group = hand_made(world, "group", PERSON_TITLE, change.id)
+    hold_with(world, {"change": change.id, "group": group.id})
+
+    run(world)
+
+    written = read_snapshot(world.snapshot)["written"]
+    assert isinstance(written, dict)
+    assert world.tracker.get(group.id).revision in written[group.id]
+    assert world.tracker.get(change.id).revision in written[change.id]
+
+
+def test_an_adopted_item_keeps_its_wording_when_its_unit_moves_and_the_heading_changes(
+    tmp_path: Path,
+) -> None:
+    world = world_for(tmp_path, ["change", "group"])
+    change = hand_made(world, "change", "Remember lanes")
+    group = hand_made(world, "group", PERSON_TITLE, change.id, body="what Sam wrote")
+    hold_with(world, {"change": change.id, "group": group.id})
+    key = f"{CHANGE}:1"
+    run(world)
+
+    world.run([covering(f"{CHANGE}/1", (1,), UnitState.IN_REVIEW)])
+    tasks = world.change_dir / "tasks.md"
+    tasks.write_text(
+        tasks.read_text().replace("Gap fill, conflicts and remembered lanes", "Renamed")
+    )
+    world.run([covering(f"{CHANGE}/1", (1,), UnitState.IN_REVIEW)])
+
+    on_group = [call for call in world.tracker.made("update") if call.args[0] == group.id]
+    assert on_group, "the move to review was written"
+    assert all(not {"title", "body"} & set(call.args[1]) for call in on_group)
+    assert world.tracker.get(group.id).title == PERSON_TITLE
+    entry = recorded(world).groups[key]
+    assert entry.adopted
+    assert entry.fields["title"] == PERSON_TITLE
+    assert entry.fields["body"] == "what Sam wrote"
+
+
+def test_when_adopting_fails_nothing_is_created_for_the_held_change(tmp_path: Path) -> None:
+    world = world_for(tmp_path, ["change", "group"])
+    change = hand_made(world, "change", "Remember lanes")
+    hold_with(world, {"change": change.id})
+    world.tracker.fail = lambda call: (
+        RuntimeError("the board is down") if call.name == "get" else None
+    )
+
+    report = run(world)
+
+    assert creates(world) == []
+    assert report.errors == 1
+
+
+def test_a_rate_limit_while_adopting_ends_the_pass(tmp_path: Path) -> None:
+    world = world_for(tmp_path, ["change", "group"])
+    change = hand_made(world, "change", "Remember lanes")
+    hold_with(world, {"change": change.id})
+    world.tracker.fail = lambda call: (
+        RateLimited("slow down", retry_after=None) if call.name == "get" else None
+    )
+
+    report = run(world)
+
+    assert report.stopped
+    assert creates(world) == []
+
+
+def test_a_dry_run_does_not_list_what_a_hold_records_by_id(tmp_path: Path) -> None:
+    world = world_for(tmp_path, ["change", "group"])
+    change = hand_made(world, "change", "Remember lanes")
+    group = hand_made(world, "group", PERSON_TITLE, change.id)
+    hold_with(world, {"change": change.id, "group": group.id})
+
+    report = reconcile(
+        "app",
+        changes_dir=world.changes_dir,
+        changes=[CHANGE],
+        units=[],
+        browse=browse_example,
+        state_dir=world.state_dir,
+        log=world.logs.append,
+        dry_run=True,
+    )
+
+    assert report.listed == (f"{CHANGE}:2",)
+    assert world.tracker.writes() == []
+
+
+def test_an_id_another_board_mapped_is_not_mapped_elsewhere(tmp_path: Path) -> None:
+    world = world_for(tmp_path, ["change", "group"])
+    write_change(world.changes_dir, OTHER)
+    taken = hand_made(world, "change", "Remember lanes")
+    write_tracker(
+        world.changes_dir / OTHER,
+        TrackerFile(kind=world.section.kind, target="another board", change=Synced(id=taken.id)),
+    )
+    hold_with(world, {"change": taken.id})
+
+    report = run(world)
+
+    assert report.conflicts == ()
+    mapping = recorded(world)
+    assert mapping.change is not None and mapping.change.id == taken.id
 
 
 def test_an_id_of_the_wrong_type_is_a_conflict_and_nothing_is_adopted_or_created(

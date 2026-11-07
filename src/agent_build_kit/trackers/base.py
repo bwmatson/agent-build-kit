@@ -67,6 +67,20 @@ class Item(Frozen):
 STATUS_TAGS = ("in-review", "blocked")
 
 
+class UnknownWorkItemType(ValueError):
+    """A work item of a type no level of the configuration uses."""
+
+
+def board_snapshot(item: Item) -> dict[str, str]:
+    """What the board shows of `item` in the kit's words: the base the next diff compares with."""
+    return {
+        "title": item.title,
+        "body": item.body,
+        "state": item.kit_state or item.state,
+        "tags": "; ".join(sorted(tag for tag in item.tags if tag in STATUS_TAGS)),
+    }
+
+
 def split_tags(text: str) -> tuple[str, ...]:
     """The tags of a `;`-separated tag string."""
     return tuple(tag.strip() for tag in text.split(";") if tag.strip())
@@ -125,6 +139,10 @@ class Tracker(Protocol):
     def update(
         self, item_id: str, changes: Mapping[str, str], expected_revision: str | None = None
     ) -> Item: ...
+
+    def add_marker(self, item_id: str, marker: str, expected_revision: str | None = None) -> Item:
+        """Make `marker` find an item a person made, leaving its title and body as written."""
+        ...
 
     def children(self, item_id: str) -> Sequence[Item]: ...
 
