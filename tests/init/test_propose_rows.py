@@ -54,7 +54,7 @@ def test_a_valid_proposal_writes_one_init_propose_row(
         "",
         CHANGE,
         "app",
-        "generic",
+        "plan",
     )
     assert row["input_tokens"] == 1200
 

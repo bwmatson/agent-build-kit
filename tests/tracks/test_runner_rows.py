@@ -27,7 +27,7 @@ def test_a_health_phase_writes_one_track_health_row_for_the_project(inst: Instal
         "track_health",
         "",
         "app",
-        "generic",
+        "implement",
     )
     assert row["model"] == "haiku"
     assert row["input_tokens"] == 1200

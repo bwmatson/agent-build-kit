@@ -30,7 +30,7 @@ def test_a_research_call_writes_one_init_research_row(
         "",
         "",
         "",
-        "generic",
+        "plan",
     )
     assert row["input_tokens"] == 1200
     assert row["outcome"] == "ok"

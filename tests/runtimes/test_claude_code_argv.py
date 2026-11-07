@@ -200,6 +200,7 @@ def test_the_hook_scopes_its_rule_to_the_workspace_s_branch_prefix(tmp_path: Pat
     fake = FakeClaude(stdout=finished_build(tmp_path, "done"))
     request = AgentRequest(
         prompt="Implement it.",
+        role="implement",
         cwd=tmp_path,
         add_dirs=(specs,),
         model="opus",
@@ -223,6 +224,7 @@ def test_a_track_phase_carries_the_flags_it_carries_today(tmp_path: Path) -> Non
     fake = FakeClaude(stdout=record)
     request = AgentRequest(
         prompt="Run the health track for app.",
+        role="implement",
         cwd=checkout,
         add_dirs=(planning,),
         model="haiku",
@@ -253,7 +255,7 @@ def test_a_run_with_no_policy_carries_no_hook_and_no_added_denies(tmp_path: Path
     a track phase has never carried either. Its settings are only the switch
     that keeps Claude Code's attribution out of commits."""
     fake = FakeClaude(stdout=stream({"type": "result", "result": "ok"}))
-    request = AgentRequest(prompt="Say ok.", cwd=tmp_path, allowed_tools="Read")
+    request = AgentRequest(prompt="Say ok.", role="implement", cwd=tmp_path, allowed_tools="Read")
 
     carried = flags(_run(request, fake), request.prompt)
 
@@ -266,9 +268,9 @@ def test_every_run_turns_off_claude_codes_commit_and_pr_attribution(tmp_path: Pa
     rewrite a commit it already made, so no run adds one: not a policed build,
     a track run in the planning repo, nor a bare call."""
     for request in (
-        AgentRequest(prompt="p", cwd=tmp_path, policy=ToolPolicy()),
-        AgentRequest(prompt="p", cwd=tmp_path, planning_repo=tmp_path),
-        AgentRequest(prompt="p", cwd=tmp_path),
+        AgentRequest(prompt="p", role="implement", cwd=tmp_path, policy=ToolPolicy()),
+        AgentRequest(prompt="p", role="implement", cwd=tmp_path, planning_repo=tmp_path),
+        AgentRequest(prompt="p", role="implement", cwd=tmp_path),
     ):
         settings = json.loads(
             flags(_run(request, FakeClaude(stdout="{}")), "p")["--settings"] or ""
@@ -290,7 +292,7 @@ def test_a_configured_command_starts_every_run_and_the_login_refresh() -> None:
     fake = FakeClaude(stdout="ok")
     refreshes: list[list[str]] = []
 
-    argv = _run(AgentRequest(prompt="Say ok."), fake)
+    argv = _run(AgentRequest(prompt="Say ok.", role="implement"), fake)
     real_refresh_login(run=lambda argv, **kwargs: refreshes.append(argv))
 
     assert argv[:3] == ["/opt/agent-wrapper", "--quiet", "-p"]
@@ -302,7 +304,9 @@ def test_the_planner_s_graph_call_carries_only_what_it_carries_today() -> None:
     its prompt in the planning repo, and must not gain auto-accepted edits
     there by going through the adapter."""
     fake = FakeClaude(stdout='{"units": []}')
-    request = AgentRequest(prompt="Plan the graph.", permission_mode="allowed_tools_only")
+    request = AgentRequest(
+        prompt="Plan the graph.", role="plan", permission_mode="allowed_tools_only"
+    )
 
     argv = _run(request, fake)
 
@@ -319,6 +323,7 @@ def test_research_carries_the_flags_it_carries_today() -> None:
     fake = FakeClaude(stdout="## Formatting\n")
     request = AgentRequest(
         prompt="Research python conventions.",
+        role="plan",
         allowed_tools=RESEARCH_TOOLS,
         permission_mode="allowed_tools_only",
     )
@@ -347,6 +352,7 @@ def test_a_proposal_carries_the_flags_it_carries_today(tmp_path: Path) -> None:
     fake = FakeClaude(stdout="Wrote the change.")
     request = AgentRequest(
         prompt="Propose testing-infrastructure for app.",
+        role="plan",
         cwd=planning,
         add_dirs=(code,),
         allowed_tools=PROPOSE_TOOLS,
@@ -375,6 +381,7 @@ def test_the_restack_resolver_carries_the_flags_it_carries_today(tmp_path: Path)
     fake = FakeClaude(stdout="Resolved.")
     request = AgentRequest(
         prompt="Resolve the conflicts.",
+        role="restack",
         cwd=tmp_path,
         allowed_tools=RESOLVER_TOOLS,
         permission_mode="allowed_tools_only",
@@ -410,7 +417,7 @@ def test_a_policed_run_is_told_which_branches_repos_integrate_on() -> None:
     }
     config.activate(current.model_copy(update={"repos": repos}), config.active_root())
 
-    argv = claude_code.build_argv(AgentRequest(prompt="p", policy=ToolPolicy()))
+    argv = claude_code.build_argv(AgentRequest(prompt="p", role="implement", policy=ToolPolicy()))
 
     settings = json.loads(argv[argv.index("--settings") + 1])
     command = settings["hooks"]["PreToolUse"][0]["hooks"][0]["command"]
@@ -421,7 +428,7 @@ def test_a_policed_run_is_told_which_branches_repos_integrate_on() -> None:
 
 
 def test_a_workspace_on_main_adds_no_flag() -> None:
-    argv = claude_code.build_argv(AgentRequest(prompt="p", policy=ToolPolicy()))
+    argv = claude_code.build_argv(AgentRequest(prompt="p", role="implement", policy=ToolPolicy()))
 
     settings = json.loads(argv[argv.index("--settings") + 1])
     assert "--protected-branches" not in settings["hooks"]["PreToolUse"][0]["hooks"][0]["command"]
@@ -443,6 +450,7 @@ def test_a_builders_turn_carries_the_hook_with_pushing_and_committing_refused(
     worktree = tmp_path / "worktrees" / "app"
     request = AgentRequest(
         prompt="Rename it.",
+        role="implement",
         cwd=worktree,
         resume_session="sess-1",
         policy=ToolPolicy(specs_dir=specs, no_commit=True),
@@ -462,6 +470,7 @@ def test_a_free_sessions_turn_carries_none_of_the_builders_policy_but_refuses_co
     worktree = tmp_path / "worktrees" / "app"
     request = AgentRequest(
         prompt="Look at it.",
+        role="implement",
         cwd=worktree,
         resume_session="sess-2",
         policy=ToolPolicy(scoped=False, no_commit=True),

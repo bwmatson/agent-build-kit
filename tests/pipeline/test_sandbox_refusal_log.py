@@ -36,7 +36,11 @@ def confined(tmp_path: Path, lines: list[str]) -> AgentRequest:
         write=(tmp_path,), read=(), hosts=("api.anthropic.com",), required=Coverage.FILES
     )
     return AgentRequest(
-        prompt="Go.", cwd=tmp_path, policy=ToolPolicy(sandbox=policy), on_event=lines.append
+        prompt="Go.",
+        role="implement",
+        cwd=tmp_path,
+        policy=ToolPolicy(sandbox=policy),
+        on_event=lines.append,
     )
 
 
@@ -90,7 +94,9 @@ def test_an_unconfined_step_is_not_given_the_callback(tmp_path: Path) -> None:
         seen.update(kwargs)
         return subprocess.CompletedProcess(argv, 0, "done\n", "")
 
-    ClaudeCodeRuntime(execute=execute).run(AgentRequest(prompt="Go.", cwd=tmp_path))
+    ClaudeCodeRuntime(execute=execute).run(
+        AgentRequest(prompt="Go.", role="implement", cwd=tmp_path)
+    )
 
     assert "on_refused" not in seen
 

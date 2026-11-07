@@ -40,7 +40,16 @@ PermissionMode = Literal["edit", "allowed_tools_only"]
 # The abk-level roles every call site resolves a model for today
 # (config.ModelsConfig). A runtime with no equivalent split may point every
 # role at the same model name.
-Role = Literal["implement", "review", "rework_review", "regression", "plan", "generic"]
+Role = Literal[
+    "implement",
+    "rework",
+    "review",
+    "rework_review",
+    "regression",
+    "plan",
+    "restack",
+    "login_refresh",
+]
 
 # How much of what an agent does abk can interpose on. `all_calls`: every
 # tool call reaches abk before it runs (Claude Code's hook; an ACP agent that
@@ -130,7 +139,7 @@ class AgentRequest(Frozen):
     """One call to an agent, in abk's own terms."""
 
     prompt: str
-    role: Role = "generic"
+    role: Role
     change: str = ""  # the change the call is for, when it names one
     cwd: Path | None = None  # None for a call with no worktree (the planner's graph call)
     add_dirs: tuple[Path, ...] = ()  # readable beyond cwd; Claude Code's --add-dir

@@ -33,21 +33,24 @@ def first_line(error: pytest.ExceptionInfo[PromptTooLarge]) -> str:
 def test_a_prompt_of_exactly_the_safe_size_is_delivered_and_one_byte_more_is_refused(
     transport: PromptTransport, limit: int
 ) -> None:
-    assert check_prompt_size(AgentRequest(prompt="x" * limit), transport) == limit
+    assert check_prompt_size(AgentRequest(prompt="x" * limit, role="plan"), transport) == limit
 
     with pytest.raises(PromptTooLarge):
-        check_prompt_size(AgentRequest(prompt="x" * (limit + 1)), transport)
+        check_prompt_size(AgentRequest(prompt="x" * (limit + 1), role="plan"), transport)
 
 
 def test_the_size_is_counted_in_utf_8_bytes() -> None:
     prompt = "é" * 50_001
 
     with pytest.raises(PromptTooLarge) as refused:
-        check_prompt_size(AgentRequest(prompt=prompt), PromptTransport.ARGUMENT)
+        check_prompt_size(AgentRequest(prompt=prompt, role="plan"), PromptTransport.ARGUMENT)
 
     assert re.search(r"100,?002 bytes", first_line(refused))
     assert (
-        check_prompt_size(AgentRequest(prompt=prompt[:50_000]), PromptTransport.ARGUMENT) == 100_000
+        check_prompt_size(
+            AgentRequest(prompt=prompt[:50_000], role="plan"), PromptTransport.ARGUMENT
+        )
+        == 100_000
     )
 
 
@@ -64,7 +67,7 @@ def test_the_refusal_names_the_role_the_size_the_limit_and_the_transport() -> No
 
 
 def test_the_refusal_names_the_change_when_the_request_names_one() -> None:
-    request = AgentRequest(prompt="x" * 2_000_001, role="generic", change="add-marker")
+    request = AgentRequest(prompt="x" * 2_000_001, role="plan", change="add-marker")
 
     with pytest.raises(PromptTooLarge) as refused:
         check_prompt_size(request, PromptTransport.STDIN)
@@ -93,7 +96,7 @@ def test_run_refuses_an_oversize_prompt_before_its_executor_is_called(tmp_path: 
     runtime = ArgumentRuntime(execute=refusing_executor)
 
     with pytest.raises(PromptTooLarge) as refused:
-        runtime.run(AgentRequest(prompt="x" * 100_001, cwd=tmp_path))
+        runtime.run(AgentRequest(prompt="x" * 100_001, role="plan", cwd=tmp_path))
 
     assert "Argument list too long" not in str(refused.value)
     assert re.search(r"100,?001 bytes", first_line(refused))
@@ -104,6 +107,6 @@ def test_run_refuses_a_prompt_over_the_stdin_size_before_its_executor_is_called(
     runtime = ClaudeCodeRuntime(execute=refusing_executor)
 
     with pytest.raises(PromptTooLarge) as refused:
-        runtime.run(AgentRequest(prompt="x" * 2_000_001))
+        runtime.run(AgentRequest(prompt="x" * 2_000_001, role="plan"))
 
     assert "stdin" in first_line(refused)

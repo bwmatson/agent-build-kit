@@ -102,7 +102,7 @@ def test_a_conflicting_restack_writes_one_restack_row_naming_the_unit_being_move
     move(conflicting(tmp_path / "repo"), Spending())
 
     (row,) = rows(workspace)
-    assert (row["node"], row["unit"], row["role"]) == ("restack", UNIT, "generic")
+    assert (row["node"], row["unit"], row["role"]) == ("restack", UNIT, "restack")
     assert (row["change"], row["repo"]) == ("add-marker", "app")
     assert row["runtime"] == "spending"
     assert row["input_tokens"] == 1200

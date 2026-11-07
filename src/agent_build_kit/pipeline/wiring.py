@@ -441,6 +441,17 @@ INTERRUPTED_PROMPT = (
 )
 
 
+# The nodes that answer a review or adapt a branch: their build calls are `rework` calls.
+REWORK_NODES = frozenset({"rework", "adapt"})
+
+
+def _node_and_round(place: str) -> tuple[str, str]:
+    """The node and round of a `<unit>:<node>:<round>` place; empty for a call outside a node."""
+    _, _, rest = place.partition(":")
+    node, _, number = rest.rpartition(":")
+    return node, number
+
+
 def _recorder(
     record_for: tuple[Unit, Path, datetime] | None, place: str, role: Role
 ) -> Transcript | None:
@@ -452,8 +463,7 @@ def _recorder(
     if record_for is None:
         return None
     unit, directory, started = record_for
-    _, _, rest = place.partition(":")
-    node, _, number = rest.rpartition(":")
+    node, number = _node_and_round(place)
     return Transcript(
         directory,
         unit,
@@ -630,6 +640,9 @@ def build_run(
         # totals reach the callback beside what the agent reports, and it is
         # revoked however the call ends.
         place = attribution.get()
+        call_role: Role = (
+            "rework" if role == "implement" and _node_and_round(place)[0] in REWORK_NODES else role
+        )
         source = configured_source(log or print, warned) if on_result and place else None
         if source is not None and not agent.passes_env:
             (log or print)(
@@ -672,7 +685,7 @@ def build_run(
         is_confined = sandbox is not None and step_confined(
             sandbox.required, agent.sandbox_coverage
         )
-        recorder = _recorder(record_for, place, role)
+        recorder = _recorder(record_for, place, call_role)
 
         git_refused: list[str] = []
 
@@ -702,11 +715,11 @@ def build_run(
             resume_session=resume_session,
             on_session=on_session,
             on_result=(
-                partial(on_result, role=role, model=model, runtime=agent.name, **gateway)
+                partial(on_result, role=call_role, model=model, runtime=agent.name, **gateway)
                 if on_result
                 else None
             ),
-            role=role,
+            role=call_role,
             account=account,
             cwd=cwd,
             env=env,

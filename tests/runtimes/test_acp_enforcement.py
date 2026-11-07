@@ -499,7 +499,7 @@ def test_a_run_relying_on_headless_denial_has_every_permission_request_refused(
 
     result = AcpRuntime().run(
         AgentRequest(
-            prompt="Plan.", role="generic", cwd=worktree, permission_mode="allowed_tools_only"
+            prompt="Plan.", role="plan", cwd=worktree, permission_mode="allowed_tools_only"
         )
     )
 

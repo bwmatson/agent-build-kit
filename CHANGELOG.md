@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Every agent call now names its role, and there is no `generic` role. Rework calls are recorded
+  as `rework` instead of `implement`, conflict-resolver calls as `restack` and login refreshes
+  under a role of their own, so the usage report, the metrics page and telemetry tell their cost
+  apart. Older ledger rows keep reading as they were written.
+
 - A poll step for a repo's work-tracker board is added, ready for the tick to call. It keeps a
   cursor, ignores the board writes the kit itself made, only records on its first run, and backs
   off after repeated failures. No tick runs it yet, so nothing changes in a run.

@@ -27,7 +27,7 @@ def test_a_refresh_writes_one_login_refresh_row_with_no_figures(workspace: Insta
     assert (row["node"], row["unit"], row["role"], row["model"]) == (
         "login_refresh",
         "",
-        "generic",
+        "login_refresh",
         "haiku",
     )
     assert row["usage_source"] == "none"

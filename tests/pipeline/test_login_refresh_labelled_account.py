@@ -136,7 +136,7 @@ def test_the_ledger_row_of_a_labelled_refresh_still_names_the_runtime(
     assert (row["node"], row["unit"], row["role"], row["model"]) == (
         "login_refresh",
         "",
-        "generic",
+        "login_refresh",
         "haiku",
     )
     assert row["outcome"] == "ok"

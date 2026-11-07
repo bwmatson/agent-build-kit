@@ -538,6 +538,7 @@ class Chat:
             prompt = change_context(self.installation.changes_dir, builder.members()) + prompt
         return AgentRequest(
             prompt=prompt,
+            role="implement",
             cwd=cwd,
             model=model or None,
             resume_session=resume,

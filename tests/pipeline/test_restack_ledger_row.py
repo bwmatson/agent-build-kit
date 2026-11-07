@@ -96,5 +96,5 @@ def test_a_stack_moves_calls_are_recorded_as_restack_for_the_child(rig: Rig) -> 
         (rig.child.id, rig.child.change, rig.child.repo)
     }
     assert rows[0].session_id == rows[1].session_id, "the calls are one session"
-    # Made outside a run: the generic role and no tier, which is what a run's rows differ by.
-    assert {(r.role, r.tier) for r in rows} == {("generic", "")}
+    # Made outside a run: the restack role and no tier, which is what a run's rows differ by.
+    assert {(r.role, r.tier) for r in rows} == {("restack", "")}
