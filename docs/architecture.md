@@ -1775,9 +1775,10 @@ approved.
   wait, in the order they will be served, and `abk doctor` notes when no limit is set.
 - **A test time limit.** `tests/time_limit.py` fails a test that runs past
   its limit from a timer thread, in setup, call and teardown alike: `--test-time-limit` (sixty
-  seconds) for a test without the `local_stack` marker, `--e2e-test-time-limit` (thirty
-  minutes) for one with it, zero turning either off. A test without `local_stack` marked
-  `time_limit(<seconds>)` gets that many seconds in place of `--test-time-limit`; a
+  seconds) of CPU, the test's process and its children, with a wall-clock backstop of five times
+  it, for a test without the `local_stack` marker, `--e2e-test-time-limit` (thirty
+  minutes of wall time) for one with it, zero turning either off. A test without `local_stack`
+  marked `time_limit(<seconds>)` gets that many CPU seconds in place of `--test-time-limit`; a
   `local_stack` test keeps the e2e limit even with the marker. The marker is for a test whose
   time is outside its control, such as a download, or that grows with the machine's load: a
   test built on the tick driver (`tests/tick_driver.py`) gets the loaded limit from a

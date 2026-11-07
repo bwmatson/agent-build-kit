@@ -21,8 +21,8 @@ def test_a_test_stopped_at_its_limit_has_the_stack_of_every_thread_after_the_lim
     )
 
     assert result.code == 1, result.output
-    assert "time limit of 1 seconds" in result.output, result.output
+    assert "wall-clock backstop of 5 s" in result.output, result.output
     assert "waiting_in_the_test_itself" in result.output, "the test's own thread"
     assert "parked_in_a_worker_thread" in result.output, "another thread"
-    limit = result.output.index("test exceeded the time limit of 1 seconds")
+    limit = result.output.index("test exceeded the wall-clock backstop of 5 s")
     assert limit < result.output.index("parked_in_a_worker_thread"), result.output

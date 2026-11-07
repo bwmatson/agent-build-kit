@@ -992,13 +992,16 @@ the old account starts fresh) and set the usage windows for the new plan under
   store, with a working directory under the test temporary directory, and are
   never removed.
 - Every test runs under a time limit on each of its setup, call and teardown.
-  A test without the `local_stack` marker has `--test-time-limit` seconds
-  (default 60); a `local_stack` test has `--e2e-test-time-limit` seconds
+  A test without the `local_stack` marker has a CPU budget of `--test-time-limit` seconds
+  (default 60), the CPU time of the test's process and its children, and a wall-clock backstop
+  of five times it that ends a test using no CPU; a test starved of CPU but under its budget
+  passes. A `local_stack` test has `--e2e-test-time-limit` seconds of wall time
   (default 1800, thirty minutes). Zero turns a limit off, and each option leaves
-  the other alone. A failure names the limit passed: "test exceeded the time
-  limit of 60 seconds", or "test exceeded the e2e-test time limit of 1800
-  seconds". A test without `local_stack` that is marked `time_limit(<seconds>)` has that
-  many seconds in place of `--test-time-limit`; a `local_stack` test keeps the e2e limit even
+  the other alone. A failure names the clock that fired: "test exceeded the CPU time budget
+  of 60 s", "test exceeded the wall-clock backstop of 300 s", or "test exceeded the e2e-test
+  time limit of 1800 seconds". A test without `local_stack` that is marked
+  `time_limit(<seconds>)` has that many CPU seconds in place of `--test-time-limit`; a
+  `local_stack` test keeps the e2e limit even
   when it carries the marker. The marker is for a test whose time is outside its control, such
   as a download.
 - The same build run (`tests/integration/test_build_unit.py`) also checks

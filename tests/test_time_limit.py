@@ -13,7 +13,6 @@ recorder, so no outcome there depends on how long anything takes.
 from __future__ import annotations
 
 import os
-import re
 import subprocess
 import sys
 from pathlib import Path
@@ -96,7 +95,7 @@ def test_a_test_that_hangs_fails_naming_the_limit_and_the_run_goes_on(tmp_path: 
     output = result.stdout + result.stderr
     assert result.returncode == 1, output
     assert "1 failed, 1 passed" in output
-    assert re.search(r"time limit of 1 seconds?", output), output
+    assert "exceeded the CPU time budget of 1 s" in output, output
 
 
 def test_a_fixture_that_hangs_in_setup_or_teardown_is_an_error_naming_the_limit(
@@ -109,7 +108,7 @@ def test_a_fixture_that_hangs_in_setup_or_teardown_is_an_error_naming_the_limit(
     output = result.stdout + result.stderr
     assert result.returncode == 1, output
     assert "2 passed, 2 errors" in output, output
-    assert len(re.findall(r"time limit of 1 seconds?", output)) >= 2, output
+    assert output.count("exceeded the CPU time budget of 1 s") >= 2, output
     assert "test setup exceeded" in output
     assert "test teardown exceeded" in output
 
@@ -200,7 +199,7 @@ def test_a_test_without_the_marker_still_fails_at_the_fast_limit_with_the_old_me
     assert result.code == 1, result.output
     assert "1 failed, 1 passed" in result.output, result.output
     assert "FAILED slow_both.py::test_fast_is_slow" in result.output, result.output
-    assert "test exceeded the time limit of 1 seconds" in result.output, result.output
+    assert "test exceeded the CPU time budget of 1 s" in result.output, result.output
     assert "e2e-test" not in result.output, result.output
 
 
@@ -223,7 +222,7 @@ def test_a_e2e_limit_of_zero_turns_it_off_and_leaves_the_fast_limit(
 
     assert "1 failed, 1 passed" in result.output, result.output
     assert "FAILED slow_both.py::test_fast_is_slow" in result.output, result.output
-    assert "test exceeded the time limit of 1 seconds" in result.output, result.output
+    assert "test exceeded the CPU time budget of 1 s" in result.output, result.output
 
 
 def test_the_old_flag_still_limits_an_e2e_test_and_says_it_is_deprecated(
@@ -310,7 +309,7 @@ def test_a_marked_test_past_its_own_limit_fails_naming_that_limit(
     ).output
 
     assert "FAILED blocks.py::test_marked_runs_past_its_own_limit" in output, output
-    assert "test exceeded the time limit of 1 seconds" in output, output
+    assert "test exceeded the wall-clock backstop of 5 s" in output, output
 
 
 def test_an_unmarked_test_beside_a_marked_one_still_fails_at_the_default(
@@ -327,5 +326,5 @@ def test_an_unmarked_test_beside_a_marked_one_still_fails_at_the_default(
     ).output
 
     assert "FAILED blocks.py::test_unmarked_beside_them" in output, output
-    assert "test exceeded the time limit of 20 seconds" in output, output
+    assert "test exceeded the wall-clock backstop of 100 s" in output, output
     assert "2 failed" in output, output

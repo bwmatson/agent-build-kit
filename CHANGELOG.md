@@ -7,6 +7,11 @@
   with the check's reason, within `max_check_rounds`. The result recorded for a unit is the
   check's own, and a pull request says its tests were seen to fail first only when the check
   ran.
+- A test's time limit now counts CPU time, not wall time: the CPU of the test's process and its
+  children, with a wall-clock backstop of five times the limit for a test that sleeps or blocks.
+  A test on a loaded or suspended machine no longer fails for the machine's state, and the failure
+  message says whether the CPU budget or the wall-clock backstop fired. End-to-end tests keep
+  their wall-clock limit.
 
 - The tracker sync now adopts board items a person made by hand and wrote into a hold's `items`
   (`change`, `group`, `tasks`, `epic`; `feature` and `story` still work) instead of creating
