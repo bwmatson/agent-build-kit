@@ -9,6 +9,12 @@
   is created in its place. Adopted items keep their title and body, gain the marker line, and the
   sync fills in the missing group and task items under them.
 
+- A unit-test run the machine was suspended in is no longer judged. When a failed test
+  command's wall time exceeds the duration the test runner reports by more than
+  `global_limits.suspended_run_gap_seconds` (default 300), its failures are not rerun or
+  fixed, the ledger row says it was disturbed and by how much, and the checks run once more.
+  A second disturbed run holds the unit for a person.
+
 - Every agent call now names its role, and there is no `generic` role. Rework calls are recorded
   as `rework` instead of `implement`, conflict-resolver calls as `restack` and login refreshes
   under a role of their own, so the usage report, the metrics page and telemetry tell their cost

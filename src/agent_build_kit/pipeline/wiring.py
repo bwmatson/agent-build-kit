@@ -69,7 +69,7 @@ from agent_build_kit.pipeline import code_host, failure_evidence, snapshots, spa
 from agent_build_kit.pipeline.changelog_convention import review_changelog_paragraph
 from agent_build_kit.pipeline.check_failures import failed_in
 from agent_build_kit.pipeline.check_runner import worktree_at
-from agent_build_kit.pipeline.command_limit import TIMED_OUT_EXIT, run_limited
+from agent_build_kit.pipeline.command_limit import SUSPENDED_NOTE, TIMED_OUT_EXIT, run_limited
 from agent_build_kit.pipeline.commit_order import ALREADY_BUILT_TRAILER, branch_subjects
 from agent_build_kit.pipeline.config_guard import config_unchanged
 from agent_build_kit.pipeline.determinism_guidance import determinism_guidance
@@ -1640,6 +1640,7 @@ def build_unit_test(
         run_detail.clear()
         outcome = "failed"
         failed: list[str] = []
+        gap: float | None = None
         try:
             passed, output = retested(cwd, base, whole_repo, failed_output, moved_from)
         except FlakeFound as found:
@@ -1647,6 +1648,9 @@ def build_unit_test(
             raise
         except FailedOnBase as found_on_base:
             failed = [failure.test for failure in found_on_base.failures]
+            raise
+        except SuspendedRun as suspended_run:
+            outcome, gap = "disturbed", suspended_run.seconds
             raise
         else:
             outcome = "passed" if passed else "failed"
@@ -1677,6 +1681,7 @@ def build_unit_test(
                         failed_detail=[run_detail[test] for test in failed if test in run_detail],
                         cpus=cpus,
                         load_high=load_high,
+                        disturbed_seconds=gap,
                     ),
                 )
             except OSError as error:
@@ -1696,14 +1701,24 @@ def build_unit_test(
         is held for the whole run (the reruns inside it take none) and given back however it
         ends."""
         with _test_slot(installation, log) as waited:
-            return recorded(
-                cwd=cwd,
-                base=base,
-                whole_repo=whole_repo,
-                failed_output=failed_output,
-                moved_from=moved_from,
-                waited=waited,
-            )
+            for attempt in (1, 2):
+                try:
+                    return recorded(
+                        cwd=cwd,
+                        base=base,
+                        whole_repo=whole_repo,
+                        failed_output=failed_output,
+                        moved_from=moved_from,
+                        waited=waited,
+                    )
+                except SuspendedRun as suspended_run:
+                    _say(
+                        log,
+                        f"unit-test: a suspend of {suspended_run.seconds:.0f} s disturbed the "
+                        "run, so its failures are not judged"
+                        + ("; the checks run again" if attempt == 1 else ""),
+                    )
+            return False, SUSPENDED_NOTE
 
     def tested(
         cwd: Path,
@@ -2528,6 +2543,7 @@ def build_unit_test(
         """Run `command` in `where`, spanned and logged; `root` is the checkout `where` is in
         when that is not the unit's (a worktree of its base)."""
         started = time.monotonic()
+        wall_start = clock() if test_runs is not None else None
         mark = spans.Mark()
         outcome = "error"
         command = located(toolchain, command, where, root or checkout.get("root", where))
@@ -2552,6 +2568,11 @@ def build_unit_test(
             )
         if test_runs is not None and not ok:
             text = f"{result.stdout or ''}\n{result.stderr or ''}"
+            own_seconds = toolchain.parse_test_summary(text)[3]
+            if wall_start is not None and own_seconds:
+                gap = (clock() - wall_start).total_seconds() - own_seconds
+                if gap > active().global_limits.suspended_run_gap_seconds:
+                    raise SuspendedRun(gap)
             named = failed_ids(toolchain, text)
             run_failed.extend(test for test in named if test not in run_failed)
             workers = getattr(toolchain, "failed_workers", lambda output: {})(text)
@@ -2568,6 +2589,15 @@ def build_unit_test(
         return result
 
     return unit_test
+
+
+class SuspendedRun(Exception):
+    """A failed unit-test command whose wall time exceeded its own duration by `seconds`, more
+    than `global_limits.suspended_run_gap_seconds`: the machine was suspended in it."""
+
+    def __init__(self, seconds: float) -> None:
+        super().__init__(f"{seconds:.0f} s")
+        self.seconds = seconds
 
 
 def _running_units(installation: Installation | None) -> list[str]:

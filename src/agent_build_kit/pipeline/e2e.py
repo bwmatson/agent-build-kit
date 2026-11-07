@@ -468,10 +468,16 @@ DURATION = re.compile(r"in ([\d.]+)s")
 def parse_pytest_summary(output: str) -> tuple[int, int, int, float]:
     """(passed, failed, skipped, seconds) from pytest's summary line."""
     counts = {"passed": 0, "failed": 0, "skipped": 0, "error": 0}
-    for number, label in COUNTS.findall(output):
+    # The counts and the duration are the final summary line's: text before it (a diff showing
+    # another run's output, a captured log line) may hold a `5 passed` or an `in <n>s` of its own.
+    duration = None
+    summary = output
+    for line in reversed(output.splitlines()):
+        if (COUNTS.search(line) or "no tests ran" in line) and (found := DURATION.search(line)):
+            duration, summary = found, line
+            break
+    for number, label in COUNTS.findall(summary):
         counts[label] += int(number)
-
-    duration = DURATION.search(output)
     return (
         counts["passed"],
         counts["failed"] + counts["error"],

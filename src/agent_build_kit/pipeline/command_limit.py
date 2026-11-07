@@ -23,6 +23,8 @@ _TIMED_OUT_LINE = re.compile(
     + r"$",
     re.MULTILINE,
 )
+# The note of checks the machine was suspended in twice, which holds the unit for a person.
+SUSPENDED_NOTE = "the machine was suspended during the checks, twice: a person judges the run"
 # How long to wait for the output of a killed group before giving up on a pipe that a
 # process outside the group still holds open.
 DRAIN_SECONDS = 5
@@ -70,6 +72,11 @@ def timed_out_after(output: str) -> float | None:
 def timed_out(output: str) -> bool:
     """Whether `output` is that of a run that ended at its limit."""
     return timed_out_after(output) is not None
+
+
+def suspended(output: str) -> bool:
+    """Whether `output` is the note of checks the machine was suspended in twice."""
+    return SUSPENDED_NOTE in output
 
 
 def _signal_group(process: subprocess.Popen, number: signal.Signals) -> None:

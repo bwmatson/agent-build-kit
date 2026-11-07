@@ -176,6 +176,7 @@ global_limits:
   stack_depth_build_cap: 3    # longest chain of in-review PRs from main
   stack_depth_rebase_cap:     # deepest a merge restacks a dependent; unset = the build cap
   max_flakes_per_run: 5       # more flaky tests than this in one run are one recorded storm, no fix change each
+  suspended_run_gap_seconds: 300  # secs a failed test command's wall time may exceed the duration the test runner reports before it counts as a suspend: rerun once, not judged (> 0)
   checks_register_seconds: 120  # secs after a push a PR with no checks yet reads `checking`
   temp_keep_hours: 16         # hours a unit-test run's temp folder lives before a tick may sweep it, its process gone (>= 1)
   temp_warn_mb: 2048          # megabytes the pytest temp root may hold before `abk doctor --temp` and `abk status --temp` warn (>= 1)

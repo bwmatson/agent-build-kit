@@ -57,7 +57,7 @@ from agent_build_kit.pipeline.agent_commands import commands_note, placement_not
 from agent_build_kit.pipeline.call_record import call_recorder
 from agent_build_kit.pipeline.changelog_convention import changelog_note
 from agent_build_kit.pipeline.check_failures import failed_check, with_e2e_hint
-from agent_build_kit.pipeline.command_limit import timed_out_after
+from agent_build_kit.pipeline.command_limit import SUSPENDED_NOTE, suspended, timed_out_after
 from agent_build_kit.pipeline.commit_body import commit_body
 from agent_build_kit.pipeline.commit_order import (
     CODE_PREFIX,
@@ -1117,15 +1117,19 @@ class BuildPath:
             "blocked_by_environment": True,
         }
 
-    def timed_out(self, output: str, stage: str) -> Update | None:
+    def held_for_a_person(self, output: str, stage: str) -> Update | None:
         """Hold the unit for a person when `output` is that of a run that ended at the command's
-        time limit: it names no failing test and says nothing of the code, so no fix agent runs
-        and nothing is saved for one. None for any other output."""
-        if (limit := timed_out_after(output)) is None:
+        time limit, or of checks the machine was suspended in twice: neither names a failing test
+        or says anything of the code, so no fix agent runs and nothing is saved for one. None
+        for any other output."""
+        limit = timed_out_after(output)
+        if limit is None and not suspended(output):
             return None
         note = (
-            f"{stage} reached its {limit:g} s time limit: the machine was busy or a test hung, "
-            "so a person judges it — `abk requeue` runs it again"
+            f"{stage}: {SUSPENDED_NOTE} — `abk requeue` runs it again"
+            if limit is None
+            else f"{stage} reached its {limit:g} s time limit: the machine was busy or a test "
+            "hung, so a person judges it — `abk requeue` runs it again"
         )
         # A failure saved by an earlier round stays until a pass clears it, and a requeue would
         # read it as feedback to rework: the held unit starts its checks again with none.
@@ -1898,7 +1902,9 @@ class BuildPath:
                 return parked
             ok, output = self.set_aside(failed)
         if not ok:
-            if (held := self.timed_out(output, "the unit tests of a built group")) is not None:
+            if (
+                held := self.held_for_a_person(output, "the unit tests of a built group")
+            ) is not None:
                 return held
             if (broken := self.failed_unit_test(output)) is not None:
                 return broken
@@ -2075,7 +2081,7 @@ class BuildPath:
                 if (parked := self.wait_for_fix(failed)) is not None:
                     raise CheckParked({**parked, "checks_ok": False}) from failed
                 ok, output = self.set_aside(failed)
-            if not ok and (held := self.timed_out(output, "the checks")) is not None:
+            if not ok and (held := self.held_for_a_person(output, "the checks")) is not None:
                 raise CheckParked({**held, "checks_ok": False})
             if not ok and (parked := self.wait_for_open_fix(output)) is not None:
                 raise CheckParked({**parked, "checks_ok": False})
@@ -2744,7 +2750,7 @@ class BuildPath:
                 return parked
             ok, output = self.set_aside(failed)
         self.say(f"unit-test {'passed' if ok else 'failed'}")
-        if not ok and (held := self.timed_out(output, "unit-test")) is not None:
+        if not ok and (held := self.held_for_a_person(output, "unit-test")) is not None:
             return held
         if not ok and (parked := self.wait_for_open_fix(output)) is not None:
             return parked
