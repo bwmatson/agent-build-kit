@@ -41,6 +41,33 @@ def test_a_person_made_change_item_is_adopted_and_the_next_sync_fills_under_it(
     assert code == 0, out
     assert "change" not in create_kinds(mirror.board)
     assert {call.args[3] for call in mirror.board.made("create")} == {issue.id}
+    assert_wording_kept(mirror, issue.id, "Made by a person")
+
+
+def assert_wording_kept(mirror: Mirror, item_id: str, title: str) -> None:
+    """The sync left the title and body the person wrote, and wrote neither to the item."""
+    assert mirror.board.get(item_id).title == title
+    assert mirror.board.get(item_id).body == ""
+    written = [c for c in mirror.board.made("update") if c.args[0] == item_id]
+    assert all(not {"title", "body"} & set(c.args[1]) for c in written)
+
+
+def test_a_title_edit_on_a_linked_item_is_not_a_conflict(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    mirror = Mirror(tmp_path)
+    issue = mirror.board.create("change", "Made by a person")
+    code, out = mirror.run(capsys, "link", CHANGE, issue.id)
+    assert code == 0, out
+    code, out = mirror.run(capsys, "sync")  # the first pull only records its place
+    assert code == 0, out
+    mirror.board.as_identity("alice@example.test").update(issue.id, {"title": "Retitled"})
+
+    code, out = mirror.run(capsys, "sync")
+
+    assert code == 0, out
+    assert [r for r in mirror.tracker_file().conflicts if r.status == "open"] == []
+    assert mirror.board.get(issue.id).title == "Retitled"
 
 
 def test_a_person_made_group_item_is_adopted_with_the_option(
@@ -58,6 +85,7 @@ def test_a_person_made_group_item_is_adopted_with_the_option(
     assert code == 0, out
     markers = [call.kwargs["markers"] for call in mirror.board.made("create")]
     assert (f"{CHANGE}:2",) not in markers
+    assert_wording_kept(mirror, group.id, "Made by a person")
 
 
 def test_an_item_of_the_wrong_type_is_refused_naming_both_types(

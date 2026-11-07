@@ -42,8 +42,9 @@
 - `abk tracker` shows and runs the work-tracker mirror by hand. `status` summarises each repo's
   target, identity, mirrored counts, items waiting, last push and pull and open conflicts;
   `sync [--dry-run]` runs the push and then the pull once and announces a first backfill; `link`
-  adopts an item a person made for a change or group, or records the change's `Epic:` item
-  without writing to it; `conflicts [--resolve ID]` lists conflicts and closes one once the
+  adopts an item a person made for a change or group (it keeps the title and body they wrote,
+  and the sync still updates its state and tags and fills in the items under it), or records the
+  change's `Epic:` item without writing to it; `conflicts [--resolve ID]` lists conflicts and closes one once the
   board and the spec agree. A repo with no tracker section prints that none is configured, and
   every form takes `--json`.
 
