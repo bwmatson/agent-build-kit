@@ -33,6 +33,10 @@ _CONDITION = re.compile(
     r"\[([\w.]+)\]\s+(Not Contains Words|Contains Words|Contains|=)\s+'((?:[^']|'')*)'",
     re.IGNORECASE,
 )
+_CHANGE_CONDITION = re.compile(
+    r"\[(System\.ChangedDate|System\.AreaPath)\]\s+(>=|>|UNDER|=)\s+'((?:[^']|'')*)'",
+    re.IGNORECASE,
+)
 _FIELDS = {"title": "System.Title", "state": "System.State"}
 # The fields whose text is HTML, which the query language matches only by word.
 LONG_TEXT_FIELDS = ("System.Description",)
@@ -55,9 +59,17 @@ class CreateRequest(Frozen):
 
 
 class WorkItemHost(httpx.MockTransport):
-    def __init__(self, *, lose_create_answer: bool = False, conflict_status: int = 412) -> None:
+    def __init__(
+        self,
+        *,
+        lose_create_answer: bool = False,
+        conflict_status: int = 412,
+        page_size: int | None = None,
+    ) -> None:
         """With `lose_create_answer`, the first create is made and answered with a 500.
-        `conflict_status` answers a failed revision test: 409 or 412, by the service's version."""
+        `conflict_status` answers a failed revision test: 409 or 412, by the service's version.
+        With `page_size`, a query on the change date answers that many items at most."""
+        self._page_size = page_size
         self._conflict_status = conflict_status
         self._races: dict[int, dict[str, Any]] = {}
         self.creates: list[CreateRequest] = []
@@ -79,15 +91,26 @@ class WorkItemHost(httpx.MockTransport):
         state: str | None = None,
         assigned_to: str | None = None,
         tags: str = "",
+        area_path: str | None = None,
+        changed: str | None = None,
     ) -> str:
-        """An item that already exists on the board, as a person made it; its id."""
+        """An item that already exists on the board, as a person made it; its id. `changed` is
+        its change date as the service writes it."""
         relations = [{"op": "add", "value": {"rel": REVERSE, "url": self._url(parent)}}]
         fields: dict[str, Any] = {"System.Title": title, "System.Tags": tags}
         if state:
             fields["System.State"] = state
         if assigned_to:
             fields["System.AssignedTo"] = assigned_to
+        if area_path:
+            fields["System.AreaPath"] = area_path
+        if changed:
+            fields["System.ChangedDate"] = changed
         return str(self._store(type, fields, relations if parent else [])["id"])
+
+    def changed_at(self, item_id: str, when: str) -> None:
+        """The service stamps an item changed at `when`, as it writes a date."""
+        self.items[int(item_id)]["fields"]["System.ChangedDate"] = when
 
     def edit(self, item_id: str, **fields: str | dict[str, str]) -> None:
         """Another identity changes an item (`title`, `state` or `assigned_to`, the last a unique
@@ -195,6 +218,8 @@ class WorkItemHost(httpx.MockTransport):
                 )
             return answer(REPOSITORY)
         if rest.lower() == "wit/wiql" and method == "POST":
+            if "[System.ChangedDate]" in body["query"]:
+                return self._changed_query(body["query"])
             return self._query(body["query"])
         raise AssertionError(f"the stand-in host was not expecting {method} {rest}")
 
@@ -282,3 +307,29 @@ class WorkItemHost(httpx.MockTransport):
         reply = deepcopy(load("wiql_result").body)
         reply["workItems"] = found
         return answer(reply)
+
+    def _changed_query(self, query: str) -> httpx.Response:
+        """A query on the change date and the area path, answered in order of change date and
+        then id, cut at the page size; the service's `>` is strict and `>=` is not."""
+        conditions = [
+            (field.lower(), operator.upper(), wanted.replace("''", "'"))
+            for field, operator, wanted in _CHANGE_CONDITION.findall(query)
+        ]
+        found = sorted(
+            (doc["fields"]["System.ChangedDate"], number)
+            for number, doc in self.items.items()
+            if all(self._holds(doc["fields"], *condition) for condition in conditions)
+        )
+        reply = deepcopy(load("wiql_result").body)
+        reply["workItems"] = [
+            {"id": number, "url": self._url(str(number))} for _, number in found[: self._page_size]
+        ]
+        return answer(reply)
+
+    @staticmethod
+    def _holds(fields: dict[str, Any], field: str, operator: str, wanted: str) -> bool:
+        if field == "system.areapath":
+            area = fields["System.AreaPath"]
+            return area == wanted or area.startswith(wanted + "\\")
+        changed = fields["System.ChangedDate"]
+        return changed > wanted if operator == ">" else changed >= wanted

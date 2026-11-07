@@ -34,6 +34,8 @@ from agent_build_kit.trackers.azure_work_item_models import (
 )
 from agent_build_kit.trackers.base import (
     PULL_REQUEST_RELATION,
+    Change,
+    Cursor,
     Identity,
     Item,
     ItemKind,
@@ -257,6 +259,9 @@ class AzureDevOpsWorkItems:
         patch = [{"op": "add", "path": "/relations/-", "value": link}]
         self._call("PATCH", f"wit/workitems/{item_id}", json=patch, content_type=PATCH)
         return True
+
+    def changed_since(self, cursor: Cursor | None) -> tuple[Sequence[Change], Cursor]:
+        raise NotImplementedError
 
     def find_by_marker(self, marker: str) -> Item | None:
         # `Contains` is a substring match: `change` is also in `change:group`.
