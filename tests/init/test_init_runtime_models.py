@@ -11,17 +11,7 @@ from agent_build_kit.config import load
 from agent_build_kit.init.scaffold import draft_config, write_planning_repo
 from tests.factories import fake_openspec, recognised_planning
 from tests.init.test_scaffold import detection
-
-ROLES = (
-    "implement",
-    "rework",
-    "review",
-    "rework_review",
-    "regression",
-    "plan",
-    "restack",
-    "login_refresh",
-)
+from tests.role_names import ROLES
 
 
 def written_file(tmp_path: Path) -> Path:

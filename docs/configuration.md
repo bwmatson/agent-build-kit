@@ -176,7 +176,7 @@ runtimes:                       # one entry per runtime that needs a fact abk
                                 # ABK_*_MODEL overrides win over both. A second
                                 # runtime names its own models under its own entry
       implement: sonnet         # the tests, implementation and check-fix runs
-      rework: sonnet            # reworks, restack conflict resolution, adapt, when they
+      rework: sonnet            # reworks and adapt, when they
                                 # start a new session; a continued build session
                                 # keeps its model
       review: opus              # the first review of a fresh build
@@ -186,6 +186,8 @@ runtimes:                       # one entry per runtime that needs a fact abk
       regression: opus          # the `regression` role: works out why a test fails and
                                 # writes the fix change
       plan: opus                # the planner's graph call
+      restack: haiku            # the conflict resolver
+      login_refresh: haiku      # the token-refresh call (always run on claude_code)
     context_windows: {}         # model id or alias -> window in tokens, for when the
                                 # result does not name it (read by this runtime only;
                                 # an acp agent says its own window); recorded as an

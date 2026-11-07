@@ -12,22 +12,13 @@ from pathlib import Path
 import pytest
 
 from agent_build_kit import config, runtimes
-from agent_build_kit.config import DEFAULT_MODELS, ConfigError
+from agent_build_kit.config import DEFAULT_MODELS, ConfigError, ModelsConfig, RuntimeModelsConfig
 from agent_build_kit.runtimes.claude_code import refresh_login
+from agent_build_kit.settings import Settings
 from tests.call_rows import agent_rows
 from tests.conftest import make_installation
+from tests.role_names import ROLES
 from tests.runtimes.selectable import SelectableRuntime, select
-
-ROLES = (
-    "implement",
-    "rework",
-    "review",
-    "rework_review",
-    "regression",
-    "plan",
-    "restack",
-    "login_refresh",
-)
 
 
 def activate(root: Path, text: str) -> config.WorkspaceConfig:
@@ -39,7 +30,6 @@ def activate(root: Path, text: str) -> config.WorkspaceConfig:
 
 
 def test_every_role_has_a_default_model_in_the_one_table() -> None:
-    assert {role: DEFAULT_MODELS[role] for role in ROLES}
     assert set(DEFAULT_MODELS) == set(ROLES)
 
 
@@ -163,3 +153,52 @@ def test_login_refresh_defaults_to_the_table_s_model(tmp_path: Path) -> None:
     (argv,) = asked
     assert argv[argv.index("--model") + 1] == DEFAULT_MODELS["login_refresh"]
     assert agent_rows(installation)[0]["model"] == DEFAULT_MODELS["login_refresh"]
+
+
+@pytest.mark.parametrize("role", ROLES)
+def test_the_machine_override_wins_over_the_runtime_block_and_the_flat_block(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, role: str
+) -> None:
+    monkeypatch.setenv(f"ABK_{role.upper()}_MODEL", "machine-model")
+    monkeypatch.setattr("agent_build_kit.settings.settings", Settings(_env_file=None))
+    activate(
+        tmp_path,
+        f"version: 1\nmodels:\n  {role}: flat-model\n"
+        f"runtimes:\n  claude_code:\n    models:\n      {role}: own-model\n",
+    )
+
+    assert config.models()[role] == "machine-model"
+
+
+def test_a_name_that_is_not_a_role_is_a_key_error(tmp_path: Path) -> None:
+    activate(tmp_path, "version: 1\n")
+
+    with pytest.raises(KeyError):
+        config.models()["model_dump"]
+    with pytest.raises(KeyError):
+        config.runtime_entry().models["model_dump"]
+
+
+def test_the_defaults_table_and_the_role_type_name_the_same_roles() -> None:
+    assert set(DEFAULT_MODELS) == set(ROLES)
+    assert set(ModelsConfig.model_fields) == set(ROLES)
+    assert set(RuntimeModelsConfig.model_fields) == set(ROLES)
+    assert all(f"{role}_model" in Settings.model_fields for role in ROLES)
+
+
+def test_login_refresh_uses_the_claude_code_model_whatever_the_active_runtime(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    blank = ModelsConfig(**{role: "" for role in DEFAULT_MODELS})
+    select(monkeypatch, SelectableRuntime("other", default_models=blank))
+    make_installation(tmp_path, runtime="other")
+    asked: list[list[str]] = []
+
+    def run(argv, **kwargs) -> subprocess.CompletedProcess[str]:
+        asked.append(list(argv))
+        return subprocess.CompletedProcess(argv, 0, "", "")
+
+    refresh_login(run=run)
+
+    (argv,) = asked
+    assert argv[argv.index("--model") + 1] == "haiku"

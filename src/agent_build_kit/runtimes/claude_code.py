@@ -254,7 +254,7 @@ def refresh_login(
     default account."""
     account = account or claude_account.Account.default()
     started = time.monotonic()
-    model = config.models()["login_refresh"]
+    model = config.models("claude_code")["login_refresh"]
     argv = [*command(), "-p", "Reply with OK and nothing else.", "--model", model]
     done = run(
         argv,

@@ -188,7 +188,9 @@ class GitConfig(Frozen):
     branch_prefix: str = "spec/"
 
 
-# The one table of defaults, role name to model: a new role is one row here (and one field below).
+# The one table of defaults, role name to model. A new role is a row here, a field on both
+# `ModelsConfig` and `RuntimeModelsConfig`, an `ABK_<ROLE>_MODEL` field in settings and a row in
+# each runtime's `default_models`; a test ties this table to `runtimes.base.Role`.
 # Bare aliases, not pinned ids, so they track new releases on their own.
 DEFAULT_MODELS: dict[str, str] = {
     "implement": "sonnet",
@@ -222,6 +224,13 @@ def _refuse_unknown_roles(data: object) -> object:
     return data
 
 
+def _model_of_role(models: Frozen, role: str) -> str | None:
+    """The field a role names; a name that is not a role is a KeyError."""
+    if role not in DEFAULT_MODELS:
+        raise KeyError(role)
+    return getattr(models, role)
+
+
 class ModelsConfig(Frozen):
     """Which model runs which part of a unit, by role. In abk.yaml's flat `models:` block
     only the roles the file names count: one it leaves out takes the active
@@ -239,7 +248,7 @@ class ModelsConfig(Frozen):
     _known_roles = model_validator(mode="before")(_refuse_unknown_roles)
 
     def __getitem__(self, role: str) -> str:
-        return getattr(self, role)
+        return _model_of_role(self, role) or ""
 
 
 class RuntimeModelsConfig(Frozen):
@@ -258,7 +267,7 @@ class RuntimeModelsConfig(Frozen):
     _known_roles = model_validator(mode="before")(_refuse_unknown_roles)
 
     def __getitem__(self, role: str) -> str | None:
-        return getattr(self, role)
+        return _model_of_role(self, role)
 
 
 # Points a unit is assumed to spend of each window before the history says otherwise.
@@ -2744,20 +2753,20 @@ def active_root() -> Path | None:
     return _active_root
 
 
-def models() -> ModelsConfig:
-    """The active workspace's models for the runtime in force, role by role:
-    this machine's `ABK_*_MODEL`, then that runtime's own
+def models(runtime: str | None = None) -> ModelsConfig:
+    """The active workspace's models for the runtime in force (or for `runtime`, by name),
+    role by role: this machine's `ABK_*_MODEL`, then that runtime's own
     `runtimes.<name>.models`, then a role the flat `models:` block names, then
     the runtime's own default — never another runtime's names."""
     from agent_build_kit.settings import settings
 
-    own = runtime_entry().models
+    own = runtime_entry(name=runtime).models
     named = _active.models.model_fields_set
     flat = {role: getattr(_active.models, role) for role in named}
-    default = runtimes.active().default_models
+    default = (runtimes.get(runtime) if runtime else runtimes.active()).default_models
 
     def pick(role: str) -> str:
-        machine = getattr(settings, f"{role}_model", None)
+        machine = getattr(settings, f"{role}_model")
         return machine or own[role] or flat.get(role) or default[role]
 
     return ModelsConfig(**{role: pick(role) for role in DEFAULT_MODELS})

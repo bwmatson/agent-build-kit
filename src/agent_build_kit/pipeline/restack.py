@@ -34,7 +34,7 @@ from pathlib import Path
 from agent_build_kit import claude_account, runtimes
 from agent_build_kit.budget import cut_head
 from agent_build_kit.changelog_form import separate_bullets
-from agent_build_kit.config import RepoConfig, active
+from agent_build_kit.config import RepoConfig, active, models
 from agent_build_kit.forges.transport import HostUnavailable
 from agent_build_kit.model import Frozen
 from agent_build_kit.pipeline import shell
@@ -1055,6 +1055,7 @@ def claude_resolver(
         request = AgentRequest(
             prompt=text,
             role="restack",
+            model=models()["restack"] or None,
             cwd=cwd,
             # It edits because its tool list says so, and is granted nothing more.
             allowed_tools=RESOLVER_TOOLS,
