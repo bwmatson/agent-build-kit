@@ -2,7 +2,10 @@
 the e2e time limit and not the 60-second default, which a real build overruns.
 
 Collected under the command the driver runs, so a change to that command that stops the build
-being selected, or a marker the time-limit plugin does not see, fails here."""
+being selected, or a marker the time-limit plugin does not see, fails here.
+
+Each test starts a child pytest from the repository root, whose start depends on the machine's
+load, so the module is held to the loaded limit."""
 
 from __future__ import annotations
 
@@ -14,6 +17,9 @@ from pathlib import Path
 import pytest
 
 from tests.integration import replay_unit_build as build
+from tests.time_limit import LOADED_TEST_TIME_LIMIT
+
+pytestmark = pytest.mark.time_limit(LOADED_TEST_TIME_LIMIT)
 
 BUILD_ID = "replay_unit_build.py::test_the_unit_is_built"
 

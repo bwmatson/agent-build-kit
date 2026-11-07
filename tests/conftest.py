@@ -574,7 +574,9 @@ def pytest_collection_modifyitems(items: list[pytest.Item]) -> None:
     the tick telemetry tests runs whole faked passes, whose time depends on the machine's load,
     so it is held to the loaded limit unless it names its own. So is a test that reads the
     package's metric catalogue: the catalogue's first read in a worker scans the whole package,
-    and its time depends on the machine's load."""
+    and its time depends on the machine's load. So is a test that runs a child pytest from the
+    repository root through `collect_listing`: the child loads the suite's own conftest and the
+    package, and its time depends on the machine's load."""
     # Nothing is imported here: a module that used a driver has already imported it, and a run
     # that uses none must not fail on an import error in the driver's modules.
     # `tests.time_limit` is already loaded as a plugin.
@@ -588,6 +590,7 @@ def pytest_collection_modifyitems(items: list[pytest.Item]) -> None:
         ("tests.split_changed_support", ("deliver_to_graph", "Reworks")),
         ("tests.cli.test_tick_telemetry", ("ticks",)),
         ("agent_build_kit.serve.metrics", ("catalogue", "metrics_page")),
+        ("tests.child_pytest", ("collect_listing",)),
     )
     drivers = [
         getattr(sys.modules[name], attr)
