@@ -86,6 +86,15 @@ def failed_ids(toolchain: ToolchainProfile, output: str) -> list[str]:
     return reader(output) if reader is not None else []
 
 
+def ids_not_found(
+    toolchain: ToolchainProfile, output: str, cwd: Path, among: list[str] | None = None
+) -> list[str]:
+    """The ids a runner's usage error names as not found, as the profile reads them (those of
+    `among` they stand for, when given); none when it cannot."""
+    reader = getattr(toolchain, "ids_not_found", None)
+    return reader(output, cwd, among) if reader is not None else []
+
+
 def written_by_unit(test_file: Path, changed: Collection[str]) -> bool:
     """Whether the unit wrote the test in `test_file` (relative to the checkout): the file is
     among the paths its branch changed against its base, or a `conftest.py` beside it is."""

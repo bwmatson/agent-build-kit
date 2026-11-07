@@ -129,6 +129,7 @@ from agent_build_kit.pipeline.moved_base import brought_in, kinds_of, moved_base
 from agent_build_kit.pipeline.own_tests import (
     defined_tests_in_range,
     failed_ids,
+    ids_not_found,
     tests_in,
     written_by_unit,
 )
@@ -2387,10 +2388,23 @@ def build_unit_test(
             return True
         rerun = rerun_command(command, tests)
         timed_out: list[str] = []
+        left_out: list[str] = []
         timeouts = 0
         for number in range(1, FLAKE_RERUNS + 1):
             began = begin_evidence(where, toolchain) if evidence is not None else None
             again = ran(rerun, where, toolchain)
+            while again.returncode == getattr(toolchain, "usage_error_exit", None) and (
+                missing := ids_not_found(toolchain, f"{again.stdout}\n{again.stderr}", where, tests)
+            ):
+                # The runner stops at an id it cannot find: those failures stand unrerun, and
+                # the others are run again.
+                left_out.extend(missing)
+                tests = [test for test in tests if test not in missing]
+                _say(log, f"{len(missing)} failed tests not found, not rerun: {', '.join(missing)}")
+                if not tests:
+                    break
+                rerun = rerun_command(command, tests)
+                again = ran(rerun, where, toolchain)
             if evidence is not None and began is not None:
                 started, machine_before, tree_before = began
                 ended = clock()
@@ -2408,12 +2422,15 @@ def build_unit_test(
                         "started": started.isoformat(),
                         "ended": ended.isoformat(),
                         "seconds": seconds,
+                        "left_out": list(left_out),
                     },
                     machine={"start": machine_before, "end": dict(last_sample)},
                     worktree=failure_evidence.worktree_changes(
                         tree_before, failure_evidence.worktree_state(run, where, toolchain)
                     ),
                 )
+            if not tests:
+                return False
             if toolchain.tolerates_exit(rerun, again.returncode):
                 continue
             again_output = f"{again.stdout}\n{again.stderr}"
@@ -5251,13 +5268,6 @@ def build_runner(
     )
 
 
-# What a test runner says, and the exit status it gives, for an id that collection does not find
-# (pytest: "ERROR: not found: ..." and a usage error). Any other output that merely says "not
-# found" is a crash, not a missing test.
-NOT_FOUND = "ERROR: not found:"
-NOT_FOUND_EXIT = 4
-
-
 def build_reproduce(
     *,
     profile: ToolchainProfile,
@@ -5324,7 +5334,12 @@ def build_reproduce(
                 return Attempt.FAILED
             if result.returncode != 0 and (
                 result.returncode == toolchain.no_tests_collected_exit
-                or (result.returncode == NOT_FOUND_EXIT and NOT_FOUND in output)
+                # A usage error naming an id is a missing test; any other output that merely says
+                # "not found" is a crash.
+                or (
+                    result.returncode == getattr(toolchain, "usage_error_exit", None)
+                    and ids_not_found(toolchain, output, where)
+                )
             ):
                 return Attempt.NOT_COLLECTED
             if not whole_file and not toolchain.tolerates_exit(argv, result.returncode):

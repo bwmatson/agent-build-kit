@@ -245,3 +245,105 @@ def test_a_lint_failure_is_never_run_again(tmp_path: Path) -> None:
     assert not passed
     assert message.startswith("$ lint (exit 1)")
     assert runs.serial_runs == []
+
+
+# --- ids pytest cannot find -----------------------------------------------------------
+
+SPACED = [
+    f"tests/test_one.py::test_cases[no conversation found with session id sess-{n}]"
+    for n in range(16)
+]
+PLAIN = ["tests/test_one.py::test_plain", "tests/test_one.py::TestGroup::test_method"]
+
+
+def test_a_summary_names_a_parametrized_id_with_spaces_whole_and_leaves_the_reason_out() -> None:
+    odd = "tests/a/test_x.py::test_y[a - b]"
+    output = (
+        "=========== short test summary info ===========\n"
+        f"FAILED {SPACED[0]} - AssertionError: no conversation\n"
+        "FAILED tests/a/test_x.py::test_plain - AssertionError: no\n"
+        f"ERROR {SPACED[1]}\n"
+        "ERROR tests/a/test_x.py::TestGroup::test_setup[a b] - RuntimeError: boom\n"
+        f"FAILED {odd} - assert x[1] == 2\n"
+    )
+
+    assert PythonUvProfile().failed_tests(output) == [
+        SPACED[0],
+        "tests/a/test_x.py::test_plain",
+        SPACED[1],
+        "tests/a/test_x.py::TestGroup::test_setup[a b]",
+        odd,
+    ]
+
+
+class NotFoundRuns(Runs):
+    """Answers a serial rerun naming a test of `missing` as pytest does: a usage error whose
+    stderr names the absolute path and the names without the parametrization, then says why on
+    the next line. Any other rerun fails again."""
+
+    def __init__(self, failed: list[str], missing: list[str]) -> None:
+        super().__init__(reruns=[])
+        self.failed = failed
+        self.missing = missing
+
+    def __call__(self, command: list[str], **kwargs: object) -> subprocess.CompletedProcess:
+        if command == ["lint"]:
+            return subprocess.CompletedProcess(command, 0, "", "")
+        if not any("::" in argument for argument in command):
+            lines = "".join(f"FAILED {test} - AssertionError: no\n" for test in self.failed)
+            return subprocess.CompletedProcess(
+                command, 1, f"=== short test summary info ===\n{lines}", ""
+            )
+        self.commands.append(command)
+        absent = [test for test in dict.fromkeys(self.missing) if test in command]
+        if absent:
+            where = Path(str(kwargs["cwd"]))
+            lines = "".join(
+                f"ERROR: not found: {where / test.split('[')[0]}\n"
+                "(no match in any of [<Module test_one.py>])\n"
+                for test in dict.fromkeys(test.split("[")[0] for test in absent)
+            )
+            return subprocess.CompletedProcess(command, 4, "", lines)
+        return subprocess.CompletedProcess(command, 1, "1 failed, 4 passed in 0.03s\n", "")
+
+
+def test_the_ids_pytest_cannot_find_are_left_out_named_and_the_others_rerun(
+    tmp_path: Path,
+) -> None:
+    runs = NotFoundRuns([*PLAIN, *SPACED], missing=SPACED)
+    log: list[str] = []
+
+    passed, _ = build_unit_test(
+        profile=cast(ToolchainProfile, HookedProfile()),
+        run=runs,
+        changed=lambda *a: ["tests/test_one.py"],
+        log=log.append,
+    )(cwd=tmp_path, base="main")
+
+    assert not passed, "the failures that stand fail the unit"
+    assert set(runs.serial_runs[0]) >= {*PLAIN, *SPACED}, "the first rerun names every id"
+    reduced = runs.serial_runs[1]
+    assert set(PLAIN) <= set(reduced)
+    assert not set(SPACED) & set(reduced)
+    named = "\n".join(log)
+    for test in SPACED:
+        assert test in named
+
+
+def test_when_every_id_is_not_found_nothing_is_rerun_and_every_failure_stands(
+    tmp_path: Path,
+) -> None:
+    runs = NotFoundRuns(SPACED, missing=SPACED)
+    log: list[str] = []
+
+    passed, _ = build_unit_test(
+        profile=cast(ToolchainProfile, HookedProfile()),
+        run=runs,
+        changed=lambda *a: ["tests/test_one.py"],
+        log=log.append,
+    )(cwd=tmp_path, base="main")
+
+    assert not passed
+    assert len(runs.serial_runs) == 1, "only the attempt that found none of them"
+    assert set(runs.serial_runs[0]) >= set(SPACED)
+    assert all(test in "\n".join(log) for test in SPACED)
