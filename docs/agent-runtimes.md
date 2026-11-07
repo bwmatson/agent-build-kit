@@ -410,6 +410,22 @@ checks every fact its adapter lists in `requires` is set in its
 `ConfigError` naming it. Only the selected runtime's entry is checked, so an
 entry left over from trying another runtime out is never made to be complete.
 
+## What a role affects
+
+The role a call carries is what labels it and picks its model. These are the roles: `implement`,
+`rework`, `review`, `rework_review`, `regression`, `plan`, `restack` and `login_refresh`.
+
+- **The ledger label.** The role is the ledger's `role` column, so the usage report's spend by
+  role and node reads it.
+- **Telemetry.** Traces report `rework_review` as `review`; every other role reports as it is named.
+- **The usage forecast.** A unit's forecast cost is estimated from past calls grouped by role,
+  node, round and model.
+- **The model.** Each role has a model, set under `models:` or `runtimes.<name>.models` by the
+  role's name; a role left out takes the active runtime's default.
+- **Session reuse.** `session_reuse` has two keys, each a group of roles: `build` covers
+  `implement` and `rework`, and `review` covers `review` and `rework_review` (and is always
+  false). The other roles never continue a session.
+
 ## Tool scoping
 
 `AgentRequest.allowed_tools`/`denied_tools` carry Claude Code's own

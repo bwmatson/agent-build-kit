@@ -263,7 +263,12 @@ from agent_build_kit.profiles.base import (
 )
 from agent_build_kit.redaction import WITHHELD, redact_leaves, redact_text
 from agent_build_kit.runtimes import AgentRequest, AgentRuntime, ToolPolicy
-from agent_build_kit.runtimes.base import PermissionMode, Role, SessionUnavailable
+from agent_build_kit.runtimes.base import (
+    SESSION_GROUPS,
+    PermissionMode,
+    Role,
+    SessionUnavailable,
+)
 from agent_build_kit.runtimes.claude_code import through
 from agent_build_kit.sandboxes import Coverage, SandboxPolicy, step_confined
 from agent_build_kit.sandboxes.confinement import SandboxRefused
@@ -513,7 +518,7 @@ def sandbox_policy(
 
 
 # The roles whose reply is a verdict on a branch.
-REVIEW_ROLES: tuple[Role, ...] = ("review", "rework_review")
+REVIEW_ROLES: tuple[Role, ...] = SESSION_GROUPS["review"]
 
 SANDBOX_DENIAL = re.compile(r"EACCES|permission denied", re.IGNORECASE)
 

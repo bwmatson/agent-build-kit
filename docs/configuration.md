@@ -1274,6 +1274,22 @@ with a name that holds no value, the value appearing in the parameter id. No two
 differ in name only by a value; the drift test says "merge into one parametrized test". A
 value-neutral name holds a value token only when it is the only test carrying that value.
 
+## What a role affects
+
+The role a call carries is what labels it and picks its model. These are the roles: `implement`,
+`rework`, `review`, `rework_review`, `regression`, `plan`, `restack` and `login_refresh`.
+
+- **The ledger label.** The role is the ledger's `role` column, so the usage report's spend by
+  role and node reads it.
+- **Telemetry.** Traces report `rework_review` as `review`; every other role reports as it is named.
+- **The usage forecast.** A unit's forecast cost is estimated from past calls grouped by role,
+  node, round and model.
+- **The model.** Each role has a model, set under `models:` or `runtimes.<name>.models` by the
+  role's name; a role left out takes the active runtime's default.
+- **Session reuse.** `session_reuse` has two keys, each a group of roles: `build` covers
+  `implement` and `rework`, and `review` covers `review` and `rework_review` (and is always
+  false). The other roles never continue a session.
+
 ## Environment variables and `.env`
 
 `settings.py` reads these with pydantic-settings: from the process

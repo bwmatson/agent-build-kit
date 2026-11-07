@@ -47,6 +47,7 @@ from agent_build_kit.model import Frozen, TestTier
 from agent_build_kit.path_discovery import find_up
 from agent_build_kit.replay.models import DEFAULT_KEYED_HEADERS, UpstreamKind
 from agent_build_kit.runtimes import known_agents, providers
+from agent_build_kit.runtimes.base import SESSION_GROUPS
 from agent_build_kit.sandboxes.base import Coverage
 
 if TYPE_CHECKING:
@@ -1657,7 +1658,7 @@ CLAUDE_CODE = "claude_code"
 
 
 # Mirrors graph.state.SessionRole, which config cannot import; a test keeps them in step.
-SESSION_REUSE_ROLES = ("build", "review")
+SESSION_REUSE_ROLES = tuple(SESSION_GROUPS)
 
 
 # The root key `global_limits` was called `limits` before; the old name still loads.

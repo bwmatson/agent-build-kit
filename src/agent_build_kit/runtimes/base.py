@@ -51,6 +51,13 @@ Role = Literal[
     "login_refresh",
 ]
 
+# The groups `session_reuse` names, each a set of roles: `build` continues one session across
+# the roles that author a unit, `review` covers the roles whose reply is a verdict on a branch.
+SESSION_GROUPS: dict[str, tuple[Role, ...]] = {
+    "build": ("implement", "rework"),
+    "review": ("review", "rework_review"),
+}
+
 # How much of what an agent does abk can interpose on. `all_calls`: every
 # tool call reaches abk before it runs (Claude Code's hook; an ACP agent that
 # defers file and terminal work to the client). `agent_flagged`: only the
