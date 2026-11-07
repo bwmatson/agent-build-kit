@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Planning a change with a long task list costs less CPU: the review-tier floor now parses each
+  protected path pattern once instead of once for every word of the task text.
+
 - The restack lane is now the resolution lane. A review comment, a change request or a conflict
   on an open pull request is reworked there beside restacks and moved-base runs, at most
   `project_limits.max_concurrent_resolutions` at once, so a comment no longer waits behind new
