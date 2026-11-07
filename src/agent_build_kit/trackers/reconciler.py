@@ -44,6 +44,8 @@ from agent_build_kit.trackers.wanted_board import WantedItem, wanted_board
 ERRORS_COUNTER = "abk.tracker.errors"
 SNAPSHOT_ITEMS = "items"
 SNAPSHOT_RECONCILED = "reconciled_at"
+# The revisions the kit wrote, by item id, that the inbound poll has not yet passed.
+SNAPSHOT_WRITTEN = "written"
 
 
 class PassReport(Frozen):
@@ -120,6 +122,7 @@ class _Pass:
         self.created = 0
         self.updated = 0
         self.awaiting: list[str] = []
+        self.written: dict[str, list[str]] = {}
         # Set once a create was refused for the cap: no further item without a record is looked up.
         self.capped = False
 
@@ -160,6 +163,7 @@ class _Pass:
             self.awaiting.append(item.marker)
             return
         self.updated += 1
+        self._wrote(updated)
         self._record(name, item, Synced(id=updated.id, fields=wanted, revision=updated.revision))
 
     def _create_or_adopt(
@@ -184,6 +188,7 @@ class _Pass:
                 item.level, item.title, item.body, parent, markers=(item.marker,)
             )
             self.created += 1
+            self._wrote(made)
             snapshot = {
                 "title": item.title,
                 "body": item.body,
@@ -193,6 +198,11 @@ class _Pass:
             synced = Synced(id=made.id, fields=snapshot, revision=made.revision)
         self._record(change, item, synced)
         return synced
+
+    def _wrote(self, item: Item) -> None:
+        """Remember a revision the kit's own write produced, so the poll can tell it from a
+        person's."""
+        self.written.setdefault(item.id, []).append(item.revision)
 
     def _lookup(self, marker: str) -> Item | None:
         """The item that carries `marker`; a project that is not there fails the whole repo."""
@@ -240,6 +250,23 @@ def _write_snapshot(path: Path, files: Mapping[str, TrackerFile]) -> None:
         for marker, entry in _entries(tracker_file, change).items()
     }
     update_snapshot(path, lambda kept: kept.update({SNAPSHOT_ITEMS: items}))
+
+
+def _record_written(path: Path, written: Mapping[str, Sequence[str]]) -> None:
+    """Add the revisions the pass wrote to those the inbound poll has yet to pass."""
+
+    def add(kept: dict[str, object]) -> None:
+        raw = kept.get(SNAPSHOT_WRITTEN)
+        current: dict[str, list[str]] = (
+            {key: list(value) for key, value in raw.items() if isinstance(value, list)}
+            if isinstance(raw, dict)
+            else {}
+        )
+        for item_id, revisions in written.items():
+            current.setdefault(item_id, []).extend(revisions)
+        kept[SNAPSHOT_WRITTEN] = current
+
+    update_snapshot(path, add)
 
 
 def _record_reconciled(path: Path) -> None:
@@ -348,6 +375,8 @@ def reconcile(
             log(f"tracker {repo}: {item.marker}: {error}")
     if left:
         log(f"tracker {repo}: create cap reached, {left} items left to create on a later tick")
+    if run.written and not dry_run:
+        _record_written(snapshot_path(state_dir, repo), run.written)
     if not failed and not dry_run:
         _write_snapshot(snapshot_path(state_dir, repo), run.files)
         if not stopped:

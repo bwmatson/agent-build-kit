@@ -80,6 +80,26 @@ def test_the_kits_own_write_is_ignored_by_its_recorded_revision(world: World) ->
     assert poll(world) == ()
 
 
+def test_every_write_the_kit_made_since_the_last_poll_is_its_own(world: World) -> None:
+    poll(world)
+
+    world.run([covering(f"{CHANGE}/1", (1,), UnitState.RUNNING)])
+    world.run([covering(f"{CHANGE}/1", (1,), UnitState.HELD)])
+
+    assert poll(world) == ()
+
+
+def test_an_item_created_and_moved_in_one_pass_is_the_kits_own(
+    tmp_path: Path, clock: fake_clock.FakeClock
+) -> None:
+    fresh = World(tmp_path, board_section(["change", "group"]), ReadCounting())
+    assert poll(fresh) == ()  # records the cursor before the kit writes anything
+
+    fresh.run([covering(f"{CHANGE}/1", (1,), UnitState.RUNNING)])
+
+    assert poll(fresh) == ()
+
+
 def test_a_persons_change_after_the_kits_write_is_still_reported(world: World) -> None:
     poll(world)
     world.run([covering(f"{CHANGE}/1", (1,), UnitState.RUNNING)])
@@ -105,7 +125,9 @@ def test_two_failed_polls_back_the_next_off_until_the_interval_has_passed(
         HostUnavailable("changed_since", "down", 3) if call.name == "changed_since" else None
     )
     poll(world)
-    poll(world)
+    assert len(world.tracker.made("changed_since")) == 2
+    poll(world)  # one failure alone did not back the poll off
+    assert len(world.tracker.made("changed_since")) == 3
     reads = len(world.tracker.made("changed_since"))
     world.tracker.fail = lambda call: None
     item_id = person_assigns(world, GROUP)
@@ -116,7 +138,7 @@ def test_two_failed_polls_back_the_next_off_until_the_interval_has_passed(
 
     clock.advance(24 * 3600)
     assert [change.item_id for change in poll(world)] == [item_id]
-    assert world.logs
+    assert any("poll failed" in line for line in world.logs)
 
 
 def test_with_no_tracker_section_the_step_makes_no_call(tmp_path: Path) -> None:

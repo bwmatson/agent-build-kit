@@ -16,7 +16,7 @@ from agent_build_kit.pipeline.pr_poller import BACKOFF, FAILURES_BEFORE_BACKOFF
 from agent_build_kit.trackers.base import Change, Cursor
 from agent_build_kit.trackers.config import TrackerConfigError, section_for
 from agent_build_kit.trackers.reconciler import (
-    SNAPSHOT_ITEMS,
+    SNAPSHOT_WRITTEN,
     read_snapshot,
     snapshot_path,
     update_snapshot,
@@ -27,16 +27,23 @@ FAILURES_KEY = "poll_failures"
 QUIET_UNTIL_KEY = "poll_quiet_until"
 
 
-def _own_revisions(kept: Mapping[str, object]) -> dict[str, str]:
-    """The revision the kit last wrote for each item id."""
-    items = kept.get(SNAPSHOT_ITEMS)
-    if not isinstance(items, dict):
+def _own_revisions(kept: Mapping[str, object]) -> dict[str, set[str]]:
+    """Every revision the kit wrote for each item id since the poll last passed."""
+    written = kept.get(SNAPSHOT_WRITTEN)
+    if not isinstance(written, dict):
         return {}
     return {
-        str(entry["id"]): str(entry["revision"])
-        for entry in items.values()
-        if isinstance(entry, dict) and "id" in entry and "revision" in entry
+        str(item_id): {str(revision) for revision in revisions}
+        for item_id, revisions in written.items()
+        if isinstance(revisions, list)
     }
+
+
+def _failure_count(current: Mapping[str, object]) -> int:
+    try:
+        return int(str(current.get(FAILURES_KEY, 0)))
+    except ValueError:
+        return 0
 
 
 def _quiet(kept: Mapping[str, object]) -> bool:
@@ -73,10 +80,10 @@ def poll_board(
         changes, moved = tracker.changed_since(cursor)
     except Exception as error:  # noqa: BLE001 — a host answers in its own errors
         log(f"tracker {repo}: poll failed: {type(error).__name__}: {error}")
-        failures = int(str(kept.get(FAILURES_KEY, 0))) + 1
         quiet = (spans.clock.now() + BACKOFF).isoformat()
 
         def failed(current: dict[str, object]) -> None:
+            failures = _failure_count(current) + 1
             current[FAILURES_KEY] = failures
             if failures >= FAILURES_BEFORE_BACKOFF:
                 current[QUIET_UNTIL_KEY] = quiet
@@ -84,13 +91,23 @@ def poll_board(
         update_snapshot(path, failed)
         return ()
 
+    own = _own_revisions(kept)
+
     def advance(current: dict[str, object]) -> None:
         current[CURSOR_KEY] = moved.value
+        # Forget the revisions this poll has passed; a write made since is kept for the next.
+        remaining = {
+            item_id: sorted(left)
+            for item_id, revisions in _own_revisions(current).items()
+            if (left := revisions - own.get(item_id, set()))
+        }
+        current[SNAPSHOT_WRITTEN] = remaining
         current.pop(FAILURES_KEY, None)
         current.pop(QUIET_UNTIL_KEY, None)
 
     update_snapshot(path, advance)
     if cursor is None:
         return ()
-    own = _own_revisions(kept)
-    return tuple(change for change in changes if own.get(change.item_id) != change.revision)
+    return tuple(
+        change for change in changes if change.revision not in own.get(change.item_id, set())
+    )
