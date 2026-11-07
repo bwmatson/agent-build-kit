@@ -1,7 +1,8 @@
 """An in-process OTLP/HTTP receiver that decodes the real protobuf bodies the
 exporters post, into the spans and metric points a test asserts on.
 
-`enabled` points telemetry at it through the settings a person would set.
+`enabled` points telemetry at it through the settings a person would set. The
+collector stops within a bound and its thread is joined before the test ends.
 """
 
 from __future__ import annotations
@@ -18,6 +19,9 @@ import pytest
 
 from agent_build_kit import telemetry
 from agent_build_kit.settings import reload
+
+STOP_SECONDS = 30
+POLL_SECONDS = 0.05
 
 ENV_KEYS = (
     "ABK_OTEL_ENABLED",
@@ -152,13 +156,25 @@ def serving() -> Iterator[Collector]:
             pass
 
     server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Handler)
-    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    server.timeout = POLL_SECONDS
+    stop = threading.Event()
+
+    def serve() -> None:
+        while not stop.is_set():
+            server.handle_request()
+
+    thread = threading.Thread(target=serve, name="otlp-collector", daemon=True)
     thread.start()
     try:
         yield Collector(port=server.server_address[1], posts=posts)
     finally:
-        server.shutdown()
+        stop.set()
+        thread.join(STOP_SECONDS)
         server.server_close()
+        if thread.is_alive():
+            raise AssertionError(
+                f"the {thread.name} thread was alive {STOP_SECONDS} s after it was told to stop"
+            )
 
 
 @contextmanager
