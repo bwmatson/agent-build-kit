@@ -7,6 +7,7 @@
   with the check's reason, within `max_check_rounds`. The result recorded for a unit is the
   check's own, and a pull request says its tests were seen to fail first only when the check
   ran.
+
 - A test's time limit now counts CPU time, not wall time: the CPU of the test's process and its
   children, with a wall-clock backstop of five times the limit for a test that sleeps or blocks.
   A slow or loaded machine no longer fails a test unless it is starved past the backstop, and the
