@@ -115,6 +115,12 @@ class VerdictFacts(Frozen):
         says only what ran."""
         return not self.group_modes or any(mode.tests_first for mode in self.group_modes)
 
+    @property
+    def red_first_claimed(self) -> bool:
+        """Whether the pull request may speak of the red-first result: the gate is one of this
+        unit's and the red check ran (a skipped result says nothing)."""
+        return self.red_first_applies and self.red_first != GateResult.SKIPPED
+
 
 class TierVerdict(Frozen):
     tier: ReviewTier

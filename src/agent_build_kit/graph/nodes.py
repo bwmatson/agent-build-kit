@@ -1719,7 +1719,8 @@ class BuildPath:
             return {
                 **done,
                 "test_only_done": False,
-                "red_check_due": True,
+                # Only a tests commit made here is judged: none, or the empty marked one, is not.
+                "red_check_due": bool(made),
                 "red_returned": False,
             }
         done = {"head": r.head(tree), "stub_loop": False, "stub_rounds": 0}
@@ -1782,8 +1783,10 @@ class BuildPath:
                 "red_result": str(GateResult.FAILED),
                 **self.stop(f"the red check rejected the tests after {budget} returns"),
             }
-        # The rejected commit comes off, its files left for the tests step to rewrite.
-        git(tree, "reset", "--soft", "HEAD~1")
+        # The rejected commit comes off, its files left for the tests step to rewrite; only a
+        # commit of this unit's branch, never the base's.
+        if r.branch_commits(tree, self.ref(state)):
+            git(tree, "reset", "--soft", "HEAD~1")
         return {
             "red_check_due": False,
             "red_rounds": state.red_rounds + 1,

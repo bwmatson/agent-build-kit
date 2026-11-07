@@ -33,7 +33,7 @@ from pathlib import Path
 from agent_build_kit import profiles
 from agent_build_kit.budget import cut_tail
 from agent_build_kit.config import ProjectConfig, by_project
-from agent_build_kit.pipeline.check_runner import CheckCache, run_at_commit
+from agent_build_kit.pipeline.check_runner import CheckCache, CommandResult, run_at_commit
 from agent_build_kit.pipeline.commit_order import (
     check_structure,
     classify_paths,
@@ -94,6 +94,29 @@ def _red_command(
     return toolchain.red_command(owned, [i for file in owned for i in chosen[file] or [file]])
 
 
+def _where(sha: str, owner: ProjectConfig | None) -> str:
+    """The label a problem of `sha` carries, naming the project when it is not the root."""
+    return f"{sha[:8]}: " + (f"{owner.path}: " if owner and owner.prefix else "")
+
+
+def _judged_red(
+    toolchain: ToolchainProfile,
+    red: CommandResult,
+    sha: str,
+    owner: ProjectConfig | None,
+    stubbed: bool,
+) -> list[str]:
+    """The labelled problems the toolchain finds in one red run of `sha`; none when it is red
+    for the right reason. The one reading both the push gate and the build's red check use."""
+    output = red.stdout + red.stderr
+    ok, found = (
+        toolchain.interpret_red(output, red.exit_code, stubbed=True)
+        if stubbed
+        else toolchain.interpret_red(output, red.exit_code)
+    )
+    return [] if ok else [f"{_where(sha, owner)}{problem}" for problem in found]
+
+
 def red_problems(
     repo: Path,
     sha: str,
@@ -121,12 +144,9 @@ def red_problems(
     for owner, owned in by_project(projects, _test_files_in(repo, sha, is_test)):
         toolchain = profiles.for_project(owner, profile)
         prefix = owner.prefix if owner else ""
-        where = f"{sha[:8]}: " + (f"{owner.path}: " if prefix and owner else "")
         command = _red_command(toolchain, owned, touched, repo, prefix)
         (red,) = run_at_commit(repo, sha, [command], subdir=prefix or ".")
-        ok, found = toolchain.interpret_red(red.stdout + red.stderr, red.exit_code, stubbed=stubbed)
-        if not ok:
-            problems.extend(f"{where}{problem}" for problem in found)
+        problems.extend(_judged_red(toolchain, red, sha, owner, stubbed))
     if cache is not None:
         cache.record(repo, sha, ok=not problems, mode=label)
     return problems
@@ -200,7 +220,7 @@ def check_branch(
         for owner, owned in by_project(projects, files):
             toolchain = profiles.for_project(owner, profile)
             prefix = owner.prefix if owner else ""
-            where = f"{sha[:8]}: " + (f"{owner.path}: " if prefix and owner else "")
+            where = _where(sha, owner)
             clean_line = (
                 toolchain.clean_command(types=True) if stubbed else toolchain.clean_command()
             )
@@ -224,13 +244,7 @@ def check_branch(
                     f"{cut_tail(clean.stdout, 2000)}"
                 )
             for red in red_run:
-                ok, red_problems = (
-                    toolchain.interpret_red(red.stdout + red.stderr, red.exit_code, stubbed=True)
-                    if stubbed
-                    else toolchain.interpret_red(red.stdout + red.stderr, red.exit_code)
-                )
-                if not ok:
-                    commit_problems.extend(f"{where}{problem}" for problem in red_problems)
+                commit_problems.extend(_judged_red(toolchain, red, sha, owner, stubbed))
 
         if cache is not None:
             cache.record(repo, sha, ok=not commit_problems, mode=commit_mode)

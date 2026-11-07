@@ -11,14 +11,25 @@ from typing import Any
 
 from agent_build_kit.pipeline.stack_runner import RunOutcome
 from tests.factories import activate_with
-from tests.graph.branch_fakes import UNIT, agent_calls, build, key, prepared, titled
+from tests.graph.branch_fakes import (
+    ACCOUNT,
+    UNIT,
+    agent_calls,
+    build,
+    key,
+    prepared,
+    subjects,
+    titled,
+)
 from tests.graph.test_build_path import limited
+from tests.graph.test_pr_description_wiring import start_section
 from tests.graph.test_remaining_paths import capturing
 from tests.runner_fakes import Recorder
 
 PASSED_REASON = "RED-REASON-1: test_new passed before any implementation existed"
 COLLECTION_REASON = "RED-REASON-2: test_new could not be collected"
 SEEN_TO_FAIL = "seen to fail"
+SEEN_TO_FAIL_LINE = "- Tests were committed first and seen to fail first."
 
 
 class RedAnswers:
@@ -109,11 +120,25 @@ def test_a_group_with_no_tests_commit_to_judge_does_not_run_the_check(tmp_path: 
     assert recorder.events.count("red-check") == 1, "the one group that writes tests and code"
 
 
-def test_the_pull_request_says_seen_to_fail_for_a_check_that_ran(tmp_path: Path) -> None:
-    recorder, _ = prepared(tmp_path, groups={"add-marker": titled(1)})
+def test_a_rejected_tests_commit_comes_off_the_branch(tmp_path: Path) -> None:
+    recorder, repo = prepared(tmp_path, groups={"add-marker": titled(1)})
+    red = RedAnswers(recorder, [(False, PASSED_REASON), (True, "")])
+
+    build(tmp_path, recorder, run_red_check=red, **recorder.overrides(tmp_path))
+
+    assert recorder.events.count("red-check") == 2
+    assert subjects(repo) == ["test: G1", "feat: G1"]
+
+
+def opened_start(
+    tmp_path: Path, answers: list[tuple[bool, str]], **options: Any
+) -> tuple[str, str]:
+    """The Start here section and the whole body of the pull request a one-group build opens,
+    the red check answering from `answers`."""
+    recorder, _ = prepared(tmp_path, groups={"add-marker": titled(1)}, **options)
     activate_with(builders={"stubbed_tdd_commits": True}, review={"enabled": True})
     bodies: list[dict[str, str]] = []
-    red = RedAnswers(recorder, [(False, PASSED_REASON), (True, "")])
+    red = RedAnswers(recorder, answers)
 
     build(
         tmp_path,
@@ -123,5 +148,40 @@ def test_the_pull_request_says_seen_to_fail_for_a_check_that_ran(tmp_path: Path)
         **recorder.overrides(tmp_path),
     )
 
-    assert recorder.events.count("red-check") == 2
-    assert SEEN_TO_FAIL in bodies[0]["body"]
+    return start_section(bodies[0]["body"]), bodies[0]["body"]
+
+
+def test_the_pull_request_says_seen_to_fail_for_a_check_that_ran(tmp_path: Path) -> None:
+    start, _ = opened_start(tmp_path, [(False, PASSED_REASON), (True, "")])
+
+    assert SEEN_TO_FAIL_LINE in start.splitlines()
+
+
+def test_a_build_whose_tests_step_commits_nothing_runs_no_check_and_claims_nothing(
+    tmp_path: Path,
+) -> None:
+    """Group 1 is already on the branch; group 2's tests agent says the tests exist and writes
+    nothing, so its empty marked `test:` is the only commit there is to look at."""
+    recorder, repo = prepared(
+        tmp_path,
+        groups={"add-marker": titled(1, 2)},
+        seeded=["test: G1", "feat: G1"],
+        silent_groups=(2,),
+        accounts={"2": ACCOUNT},
+        tests_accounts={"2": ACCOUNT},
+    )
+    activate_with(builders={"stubbed_tdd_commits": True}, review={"enabled": True})
+    bodies: list[dict[str, str]] = []
+    red = RedAnswers(recorder, [(False, PASSED_REASON)])
+
+    build(
+        tmp_path,
+        recorder,
+        run_red_check=red,
+        open_pr=capturing(recorder, bodies),
+        **recorder.overrides(tmp_path),
+    )
+
+    assert "red-check" not in recorder.events
+    assert subjects(repo) == ["test: G1", "feat: G1", "test: G2", "feat: G2"], "base commits kept"
+    assert SEEN_TO_FAIL not in bodies[0]["body"]
