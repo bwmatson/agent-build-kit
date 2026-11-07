@@ -94,6 +94,12 @@
   a unit-test slot since <time>` while it waits, and `settling: late check running on the default
   branch` once it runs.
 
+- `abk doctor` and `abk status` no longer walk the pytest temp folder, which could take minutes
+  when the unit-test step had left thousands of files. Pass `--temp` to either command to get the
+  `pytest temp` check or line as before. The default `global_limits.temp_keep_hours` is now 16
+  (it was 24), so a tick clears a dead unit-test run's temp folder sooner; a value set in
+  `abk.yaml` still wins.
+
 - The tick's temp sweep now runs in the background, so a tick that follows a busy day starts its
   builds at once instead of sitting at "temp sweep: removed ..." first. The tick waits for the
   sweep, up to a bound, before it returns, and a folder left half removed is finished by the next

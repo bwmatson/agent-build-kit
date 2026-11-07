@@ -61,8 +61,10 @@ def with_pipeline_worktree(config: Path) -> Path:
     return worktree
 
 
-def checks_of(config: Path, *, mount_of: Callable[[Path], Mount] | None = None) -> list[Check]:
-    return run_doctor(config, run=Answers(), which=which_all, mount_of=mount_of)
+def checks_of(
+    config: Path, *, mount_of: Callable[[Path], Mount] | None = None, temp: bool = False
+) -> list[Check]:
+    return run_doctor(config, run=Answers(), which=which_all, mount_of=mount_of, temp=temp)
 
 
 def named(checks: list[Check], word: str) -> list[Check]:
