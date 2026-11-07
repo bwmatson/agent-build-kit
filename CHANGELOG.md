@@ -10,6 +10,7 @@
   `abk status` says whether a unit is resolving a base or a comment. The old key
   `max_concurrent_restacks` still loads with a deprecation notice and `abk config --migrate`
   renames it; it will be dropped in a later release.
+
 - A change's tasks can now edit the repository's `projects:` list with a `Project:` line (`add`,
   `remove` or `replace`) instead of a manual step. `abk tags` validates each line and shows it as
   pending or applied; the kit applies it, keeps the comments of `abk.yaml`, and commits the file.
