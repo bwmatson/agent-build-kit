@@ -1343,8 +1343,10 @@ is applied when the change is planned; a remove (and the old half of a replace) 
 step of the round, after the refresh and the landing and before planning and the archive, once the
 carrying unit is settling or merged and no unfinished unit is stored in the project. A ledger
 keyed by change, group and a hash of the line makes a replan or a repeated tick a no-op. The step
-then commits `abk.yaml` alone, with a message naming the change and group; a failed edit or a
-refused commit is logged, retried on the next tick and shown by `abk status` and `abk doctor`.
+then commits `abk.yaml` alone, with a message naming the change and group. A failed edit is
+logged, retried on the next tick and shown by `abk status` and `abk doctor`. A refused commit is
+only logged: the edit stays in `abk.yaml` uncommitted and goes into the next commit of the file
+(the kit's next `Project:` commit or a person's).
 
 ## Work tracker
 

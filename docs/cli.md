@@ -512,10 +512,6 @@ archive failed), when it passed but the change was not archived.
 
 ### `abk tags [CHANGE] [--all]`
 
-`abk tags` also reads each `Project: add|remove|replace` line of a group (the forms are in the
-`abk-authoring` skill, and `abk project init` makes the same edit by hand), reports a malformed
-one, and shows each line as pending or applied.
-
 Validates the task-group heading contract of one change's `tasks.md`, or
 every active change's with `--all`: tags present and known, groups numbered
 from 1, every group has tasks, `[contract]` paired with a last `[narrow]` (except in a change named
@@ -541,6 +537,10 @@ an `[e2e-test]` group that names no path but asks for a product change in words:
 a `Test:`, documentation, changelog or `Support:` task and begins with fix, change, add,
 implement, update, refactor, remove, rename or make. The warning names the two routes: a
 `product-defect` block, or a `[unit-test]` group first that the e2e group `Needs:`. Exit 1 if any change has a problem or no `tasks.md`.
+
+`abk tags` also reads each `Project: add|remove|replace` line of a group (the forms are in the
+`abk-authoring` skill, and `abk project init` makes the same edit by hand), reports a malformed
+one, and shows each line as pending or applied.
 
 A group whose heading names no project resolves to the declared project that owns every path it
 names; anything outside every project, two projects, or no paths leaves it in the root, and
@@ -1170,9 +1170,6 @@ temporary file and a rename), and the exit code is 1. On success it prints
 
 ### `abk project init PATH --profile NAME --repo REPO [--scaffold]`
 
-(A change's tasks can make the same edit with a `Project:` line, which the kit applies and commits
-itself; see `abk tags`.)
-
 Registers a project in `REPO`'s `projects:` list before its directory exists (it is
 pending until it does). `PATH` is relative to the repo root; an absolute path under the
 repo is stored relative, and one outside it (or with a `..` part) is refused. The entry is added to the file's own lines, so comments, key
@@ -1181,7 +1178,8 @@ rewritten. It refuses a path the repo already registers, a profile that is not
 registered and a repo that is not in `repos:`, each leaving `abk.yaml` unchanged and
 exiting 1. `--scaffold` also writes the smallest manifest the profile's detection
 recognises under the new path (the profile supplies it) and leaves an existing manifest
-alone, saying so.
+alone, saying so. A change's tasks can make the same edit with a `Project:` line, which the kit
+applies and commits itself (see `abk tags`).
 
 ### `abk planning split --repo REPO --to DIR [--project PATH] [--allow-mixed source|destination] [--spec CAPABILITY ...] [--scrub] [--remove] [--apply | --dry-run]`
 

@@ -18,8 +18,8 @@ def text(path: Path) -> str:
 def test_the_authoring_skill_has_a_project_section_beside_manual_and_support() -> None:
     body = (SKILLS / "abk-authoring" / "SKILL.md").read_text(encoding="utf-8")
     headings = re.findall(r"^#+ (.*)$", body, re.M)
-    assert any("Project:" in h for h in headings), headings
-    assert any("Manual:" in h for h in headings), headings
+    manual = next(i for i, h in enumerate(headings) if "Manual:" in h)
+    assert "Project:" in headings[manual + 1], headings
 
 
 def test_the_authoring_skill_gives_the_three_forms_and_when_each_applies() -> None:
