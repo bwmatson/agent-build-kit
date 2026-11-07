@@ -71,16 +71,24 @@ def _match(pieces: tuple[str, ...], parts: tuple[str, ...]) -> bool:
     return bool(_component(head).fullmatch(parts[0])) and _match(rest, parts[1:])
 
 
+@cache
+def _pieces(pattern: str) -> tuple[str, ...] | None:
+    """The pattern's components, parsed once per distinct pattern; None for a literal that
+    leaves the repository, which matches nothing. ValueError for a pattern that does not parse."""
+    if is_outside_literal(pattern):
+        return None
+    return tuple(normalize(pattern).split("/"))
+
+
 def matches(pattern: str, path: str) -> bool:
     """Whether `path` (relative, `/`-separated) is matched by `pattern`."""
-    if is_outside_literal(pattern):
+    pieces = _pieces(pattern)
+    if pieces is None:
         return False  # a worktree-relative path never leaves the repository
     parts = tuple(part for part in path.split("/") if part and part != ".")
-    if GIT_DIR in parts:
+    if GIT_DIR in parts or not parts:
         return False
-    if not parts:
-        return False
-    return _match(tuple(normalize(pattern).split("/")), parts)
+    return _match(pieces, parts)
 
 
 def matches_any(patterns: Iterable[str], path: str) -> bool:
