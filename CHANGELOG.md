@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- A poll step for a repo's work-tracker board is added, ready for the tick to call. It keeps a
+  cursor, ignores the board writes the kit itself made, only records on its first run, and backs
+  off after repeated failures. No tick runs it yet, so nothing changes in a run.
+
 - Planning a change with a long task list costs less CPU: the review-tier floor now parses each
   protected path pattern once instead of once for every word of the task text.
 
