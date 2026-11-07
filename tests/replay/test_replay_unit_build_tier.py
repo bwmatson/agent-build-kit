@@ -2,24 +2,20 @@
 the e2e time limit and not the 60-second default, which a real build overruns.
 
 Collected under the command the driver runs, so a change to that command that stops the build
-being selected, or a marker the time-limit plugin does not see, fails here.
-
-Each test starts a child pytest from the repository root, whose start depends on the machine's
-load, so the module is held to the loaded limit."""
+being selected, or a marker the time-limit plugin does not see, fails here."""
 
 from __future__ import annotations
 
 import os
 import subprocess
-import sys
 from pathlib import Path
 
 import pytest
 
+from tests.child_pytest import collect_listing
 from tests.integration import replay_unit_build as build
-from tests.time_limit import LOADED_TEST_TIME_LIMIT
-
-pytestmark = pytest.mark.time_limit(LOADED_TEST_TIME_LIMIT)
+from tests.time_limit import LOADED_TEST_TIME_LIMIT, limit_for
+from tests.tracked_files import ROOT
 
 BUILD_ID = "replay_unit_build.py::test_the_unit_is_built"
 
@@ -33,6 +29,13 @@ def collect(basetemp: Path, *extra: str) -> str:
         timeout=120,
     )
     return done.stdout + done.stderr
+
+
+def test_a_test_whose_module_takes_collect_listing_gets_the_loaded_limit(
+    request: pytest.FixtureRequest,
+) -> None:
+    assert callable(collect_listing)
+    assert limit_for(request.node) == LOADED_TEST_TIME_LIMIT
 
 
 def test_the_build_is_collected_under_the_drivers_command(tmp_path: Path) -> None:
@@ -53,25 +56,10 @@ ACCEPTANCE_TESTS = {
 
 
 def collected_ids(selection: str) -> set[str]:
-    done = subprocess.run(
-        [
-            sys.executable,
-            "-m",
-            "pytest",
-            "-o",
-            "addopts=",
-            "--collect-only",
-            "-q",
-            "-m",
-            selection,
-            str(ACCEPTANCE),
-        ],
-        cwd=build.REPO,
-        capture_output=True,
-        text=True,
-        timeout=120,
-    )
-    return {line.rpartition("::")[2] for line in done.stdout.splitlines() if "::" in line}
+    listing = collect_listing(
+        "-o", "addopts=", "-m", selection, str(ACCEPTANCE.relative_to(ROOT))
+    ).output
+    return {line.rpartition("::")[2] for line in listing.splitlines() if "::" in line}
 
 
 def test_the_build_session_declares_the_session_rule(pytester: pytest.Pytester) -> None:
