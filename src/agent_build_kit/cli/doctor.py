@@ -109,6 +109,7 @@ from agent_build_kit.pipeline.planning_view import (
     installation_state_inside_repo,
     working_copy_view,
 )
+from agent_build_kit.pipeline.project_actions import failed_lines
 from agent_build_kit.pipeline.shell import git, git_out, is_ignored, is_tracked, tracked_toplevel
 from agent_build_kit.pipeline.temp_sweep import temp_size
 from agent_build_kit.pipeline.usage_guard import gate_result
@@ -250,6 +251,14 @@ def _pending_projects(inst: Installation) -> list[Check]:
         for name, repo in inst.repos.items()
         if inst.checkouts[name].is_dir()  # a missing repo is already a failure
         for project in pending_projects(inst.checkouts[name], repo.projects)
+    ]
+
+
+def _project_actions(inst: Installation) -> list[Check]:
+    """`Project:` edits of abk.yaml that failed and are retried each tick."""
+    return [
+        _warn("project edit", line, "fix what the line says; the next tick retries it")
+        for line in failed_lines(inst)
     ]
 
 
@@ -2375,6 +2384,7 @@ def run_doctor(
     checks += _e2e_dimensions(inst)
     checks += _gate_usage(inst, run, which)
     checks += _pending_projects(inst)
+    checks += _project_actions(inst)
     checks += _changelogs(inst)
     checks += _review(inst)
     checks += _cassettes(inst)

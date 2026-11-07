@@ -214,8 +214,8 @@ from agent_build_kit.pipeline.planner import (
     promote_ancestors,
     unit_priority,
 )
+from agent_build_kit.pipeline.planning_commit import commit_and_publish
 from agent_build_kit.pipeline.planning_repo import (
-    current_branch,
     default_branch_of,
     is_repo,
     repo_sharing,
@@ -223,7 +223,6 @@ from agent_build_kit.pipeline.planning_repo import (
 )
 from agent_build_kit.pipeline.planning_sync import (
     PlanningMode,
-    in_repo_default_branch,
     planning_mode,
     sync_or_stop,
 )
@@ -240,6 +239,8 @@ from agent_build_kit.pipeline.pr_reconcile import reconcile
 from agent_build_kit.pipeline.pr_replies import build_post_replies, ignored, parse_answer
 from agent_build_kit.pipeline.product_defect import preview as preview_defect
 from agent_build_kit.pipeline.product_defect import product_defect_record
+from agent_build_kit.pipeline.project_actions import apply_project_actions, commit_project_file
+from agent_build_kit.pipeline.project_actions import status_lines as project_status_lines
 from agent_build_kit.pipeline.regression_agent import CAPPED_NOTE, judgement_of, run_room
 from agent_build_kit.pipeline.resolution_lane import (
     Lane,
@@ -525,7 +526,7 @@ from agent_build_kit.trackers.folders import archived_entries
 from agent_build_kit.trackers.report import standing
 from agent_build_kit.trackers.start_decision import RoundReads, StartDecision, start_gate
 from agent_build_kit.trackers.tick_step import note_state_change, sync_trackers, tracker_pass
-from agent_build_kit.tracks.runner import RUN_ID, publish_commit
+from agent_build_kit.tracks.runner import RUN_ID
 
 if TYPE_CHECKING:
     from agent_build_kit.graph.unit import Position
@@ -1053,6 +1054,8 @@ def cmd_status(args: argparse.Namespace, inst: Installation) -> int:
         elif calls := read_calls(calls_path(inst.state_dir, claude_account.Account.default())):
             log(rate_line(derive_rate(calls, now=datetime.now(UTC))))
 
+    for line in project_status_lines(inst, store_for(inst).all()):
+        log(line)
     for name in inst.repos:
         log(f"workers: {name} runs in {inst.workers_mode(name)} mode")
     if found := temp_size(inst):
@@ -1563,29 +1566,14 @@ def _archive_publisher(inst: Installation) -> Callable[[str], None]:
             if (inst.root / path).exists()
             or git(inst.root, "ls-files", "--", path, check=False).stdout.strip()
         ]
-        staged = git(inst.root, "add", "-A", "--", *paths, check=False)
-        if staged.returncode != 0:
-            log(f"staging the archive of {change} failed:\n{staged.stderr}")
-            return
-        if git(inst.root, "diff", "--cached", "--quiet", "--", *paths, check=False).returncode == 0:
-            return
-        message = f"archive: {change}"
-        earlier = git(inst.root, "rev-parse", "HEAD").stdout.strip()
-        committed = git(inst.root, "commit", "-q", "-m", message, "--", *paths, check=False)
-        if committed.returncode != 0:
-            log(f"committing the archive of {change} failed:\n{committed.stderr}")
-            return
-        if planning_mode(inst) == PlanningMode.PIPELINE_WORKTREE:
-            branch = in_repo_default_branch(inst)
-        else:
-            branch = current_branch(inst.root)
-        publish_commit(
+        commit_and_publish(
             inst,
-            branch,
-            f"archive-{change}-{RUN_ID}",
-            message,
-            earlier,
-            f"abk archived the change `{change}` once all of its units merged.",
+            paths,
+            message=f"archive: {change}",
+            label=f"archive-{change}-{RUN_ID}",
+            body=f"abk archived the change `{change}` once all of its units merged.",
+            what=f"the archive of {change}",
+            log=log,
         )
 
     return publish
@@ -2562,6 +2550,24 @@ class _Readmission:
                 self.rebuilt[unit.id] = self.rebuilt.get(unit.id, 0) + 1
 
 
+def apply_project_lines(inst: Installation, store: UnitStore) -> None:
+    """Apply the `Project:` lines that are due to abk.yaml and commit each edit: the adds of every
+    change that has been planned (a recorded plan that succeeded, for a change still in
+    `openspec/changes`), and the removes of the changes whose unit has merged."""
+    changes = sorted(
+        change
+        for change, record in planned_hashes(inst).items()
+        if record.get("ok") and (inst.changes_dir / change).is_dir()
+    )
+
+    def publish(change: str, group: int) -> None:
+        commit_project_file(inst, change, group, log=log)
+
+    report = apply_project_actions(inst, store.all(), planning=changes, publish=publish, log=log)
+    for line in report.applied:
+        log(f"project line applied — {line}")
+
+
 def _verify_and_archive(inst: Installation, units: list[StoredUnit]) -> None:
     """Archive the changes whose units are all satisfied and verified live."""
 
@@ -2725,6 +2731,7 @@ def run_round(
             say=log,
         )
     if not dry_run:
+        _step("applying project lines", apply_project_lines, inst, store)
         _step("finishing chat commits", deliver_committed, inst, store)
         _step("creating the thread store", _create_thread_store, inst)
     # Planning runs on the default account: not while the model has refused it.
