@@ -46,6 +46,8 @@ class Synced(Frozen):
     id: str
     fields: dict[str, str] = {}
     revision: str = ""
+    # An item a person made and the sync adopted: its title and body stay the person's.
+    adopted: bool = False
 
 
 class TaskEntry(Synced):

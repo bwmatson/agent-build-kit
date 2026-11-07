@@ -130,6 +130,13 @@ class LocalTracker:
             )
         return self._change(item_id, **values)
 
+    def add_marker(self, item_id: str, marker: str, expected_revision: str | None = None) -> Item:
+        current = self._items[item_id]
+        self._check_revision(current, expected_revision)
+        if marker in current.markers:
+            return current
+        return self._change(item_id, markers=(*current.markers, marker))
+
     def children(self, item_id: str) -> Sequence[Item]:
         return [item for item in self._items.values() if item.parent_id == item_id]
 

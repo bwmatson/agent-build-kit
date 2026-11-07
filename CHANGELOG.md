@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- The tracker sync now adopts board items a person made by hand and wrote into a hold's `items`
+  (`change`, `group`, `tasks`, `epic`; `feature` and `story` still work) instead of creating
+  duplicates. Each id is checked first: it must exist, be of the right type, not belong to another
+  change and hang under the adopted parent. An id that fails is reported as a conflict and nothing
+  is created in its place. Adopted items keep their title and body, gain the marker line, and the
+  sync fills in the missing group and task items under them.
+
 - Every agent call now names its role, and there is no `generic` role. Rework calls are recorded
   as `rework` instead of `implement`, conflict-resolver calls as `restack` and login refreshes
   under a role of their own, so the usage report, the metrics page and telemetry tell their cost

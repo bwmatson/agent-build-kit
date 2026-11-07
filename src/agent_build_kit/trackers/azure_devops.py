@@ -40,6 +40,7 @@ from agent_build_kit.trackers.base import (
     NotLinkable,
     Relation,
     StaleRevision,
+    UnknownWorkItemType,
     split_tags,
     with_status_tags,
 )
@@ -58,10 +59,6 @@ PATCH = "application/json-patch+json"
 STALE_STATUSES = (409, 412)
 # The version `connectionData` is served at.
 PREVIEW_VERSION = "7.1-preview.1"
-
-
-class UnknownWorkItemType(ValueError):
-    """A work item of a type no level of the configuration uses."""
 
 
 class AzureDevOpsWorkItems:
@@ -149,6 +146,18 @@ class AzureDevOpsWorkItems:
             else:
                 raise ValueError(f"cannot update {name!r} of a work item")
         return self._patch(item_id, values, expected_revision or item.revision)
+
+    def add_marker(self, item_id: str, marker: str, expected_revision: str | None = None) -> Item:
+        """Tag the item and append the marker comment to its description as it stands (already
+        HTML, so it is not escaped again); a person's title, text and tags stay."""
+        doc = self._read_level(item_id)
+        item = self._to_item(doc)
+        if marker in item.markers:
+            return item
+        tags = [*split_tags(doc.fields.tags), self._tag(marker)]
+        description = "\n".join(filter(None, [doc.fields.description, self._comment(marker)]))
+        values = {"System.Tags": "; ".join(tags), "System.Description": description}
+        return self._patch(item_id, values, expected_revision or str(doc.rev))
 
     def set_assignee(self, item_id: str, who: str, expected_revision: str | None = None) -> Item:
         doc = self._read_level(item_id)

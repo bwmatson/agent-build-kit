@@ -12,11 +12,20 @@ from agent_build_kit.pipeline.units import Unit
 from agent_build_kit.trackers.base import Capabilities, Item, ItemKind
 from agent_build_kit.trackers.config import TrackerSection
 from agent_build_kit.trackers.local import LocalTracker
+from agent_build_kit.trackers.manual_parent import ManualParent
 from agent_build_kit.trackers.reconciler import PassReport, reconcile
 from tests.trackers.board_support import CHANGE, browse_example, write_change
 
 READS = frozenset(
-    {"capabilities", "identity", "get", "children", "changed_since", "find_by_marker"}
+    {
+        "capabilities",
+        "identity",
+        "get",
+        "children",
+        "changed_since",
+        "find_by_marker",
+        "read_manual_parent",
+    }
 )
 SYNC = "sync-bot"
 
@@ -64,6 +73,10 @@ class RecordingTracker(LocalTracker):
         self._enter("children", item_id)
         return super().children(item_id)
 
+    def read_manual_parent(self, item_id: str) -> ManualParent | None:
+        self._enter("read_manual_parent", item_id)
+        return super().read_manual_parent(item_id)
+
     def find_by_marker(self, marker: str) -> Item | None:
         self._enter("find_by_marker", marker)
         return super().find_by_marker(marker)
@@ -84,6 +97,10 @@ class RecordingTracker(LocalTracker):
             self.lose_answer = None
             raise RuntimeError("the answer to the create never arrived")
         return item
+
+    def add_marker(self, item_id: str, marker: str, expected_revision: str | None = None) -> Item:
+        self._enter("add_marker", item_id, marker, expected_revision)
+        return super().add_marker(item_id, marker, expected_revision)
 
     def update(
         self, item_id: str, changes: Mapping[str, str], expected_revision: str | None = None
