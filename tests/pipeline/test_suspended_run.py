@@ -15,6 +15,7 @@ from typing import NamedTuple, cast
 
 import pytest
 
+from agent_build_kit.installation import Installation
 from agent_build_kit.pipeline.flakes import FailedOnBase, FlakeFound
 from agent_build_kit.pipeline.wiring import build_unit_test
 from agent_build_kit.profiles.base import ToolchainProfile
@@ -29,10 +30,14 @@ class Attempt(NamedTuple):
     exit: int
     own: float
     wall: float
+    # A line printed ahead of pytest's summary that holds an `in <n>s` of its own.
+    noise: str = ""
 
 
-# The run of the 2026-11-06 evidence: 2127 s of its own, 8118 s on the wall.
+# A failing run whose wall time is far beyond its own duration: the machine slept through it.
 SUSPENDED = Attempt(1, 2127, 8118)
+# The same sort of run with an `in <n>s` in the output before the summary line.
+NOISY = "E   AssertionError: assert '5 passed in 0.03s' == 'retrying in 1s'\n"
 CLEAN = Attempt(0, 12, 12)
 
 
@@ -70,16 +75,15 @@ class SuspendedMachine(BundleMachine):
         if attempt.exit == 0:
             output = f"5 passed in {attempt.own:.2f}s\n"
         else:
-            output = done.stdout.replace("in 0.01s", f"in {attempt.own:.2f}s")
+            output = attempt.noise + done.stdout.replace("in 0.01s", f"in {attempt.own:.2f}s")
         return subprocess.CompletedProcess(command, attempt.exit, output, "")
 
 
 def run(
-    scratch: Path, tmp_path: Path, attempts: list[Attempt]
+    scratch: Path, tmp_path: Path, attempts: list[Attempt], installation: Installation
 ) -> tuple[SuspendedMachine, Path, object]:
     """One unit-test call; returns the machine, the ledger and the result (None when the call
     raised a flake or a failure on the base)."""
-    installation = make_installation(scratch, global_limits=dict(max_flakes_per_run=2))
     wall = Wall()
     machine = SuspendedMachine(scratch, wall, attempts)
     ledger = tmp_path / "test-runs.jsonl"
@@ -104,10 +108,15 @@ def rows(ledger: Path) -> list[dict]:
     return [json.loads(line) for line in ledger.read_text().splitlines()]
 
 
+@pytest.fixture
+def installation(scratch: Path) -> Installation:
+    return make_installation(scratch, global_limits=dict(max_flakes_per_run=2))
+
+
 def test_a_suspended_failing_run_is_not_judged_and_the_checks_run_again(
-    scratch: Path, tmp_path: Path
+    scratch: Path, tmp_path: Path, installation: Installation
 ) -> None:
-    machine, ledger, result = run(scratch, tmp_path, [SUSPENDED, CLEAN])
+    machine, ledger, result = run(scratch, tmp_path, [SUSPENDED, CLEAN], installation)
 
     assert machine.test_runs == 2
     assert result == (True, "")
@@ -118,12 +127,10 @@ def test_a_suspended_failing_run_is_not_judged_and_the_checks_run_again(
     assert second.get("disturbed_seconds") is None
 
 
-def test_a_suspended_run_is_neither_a_flake_nor_a_storm_nor_a_fix_round(
-    scratch: Path, tmp_path: Path
+def test_a_suspended_run_is_neither_a_flake_nor_a_storm(
+    scratch: Path, tmp_path: Path, installation: Installation
 ) -> None:
-    installation = make_installation(scratch, global_limits=dict(max_flakes_per_run=2))
-
-    machine, _, result = run(scratch, tmp_path, [SUSPENDED, CLEAN])
+    machine, _, result = run(scratch, tmp_path, [SUSPENDED, CLEAN], installation)
 
     assert result == (True, "")
     assert not [c for c in machine.commands if any("::" in a for a in c)], "no failed test reran"
@@ -131,9 +138,9 @@ def test_a_suspended_run_is_neither_a_flake_nor_a_storm_nor_a_fix_round(
 
 
 def test_a_second_disturbed_run_holds_the_unit_with_a_note_naming_the_suspend(
-    scratch: Path, tmp_path: Path
+    scratch: Path, tmp_path: Path, installation: Installation
 ) -> None:
-    machine, ledger, result = run(scratch, tmp_path, [SUSPENDED, SUSPENDED, CLEAN])
+    machine, ledger, result = run(scratch, tmp_path, [SUSPENDED, SUSPENDED, CLEAN], installation)
 
     assert machine.test_runs == 2, "the checks ran once more and no third time"
     assert isinstance(result, tuple)
@@ -143,8 +150,10 @@ def test_a_second_disturbed_run_holds_the_unit_with_a_note_naming_the_suspend(
     assert [row["outcome"] for row in rows(ledger)] == ["disturbed", "disturbed"]
 
 
-def test_a_slow_run_whose_clocks_agree_is_judged(scratch: Path, tmp_path: Path) -> None:
-    machine, ledger, result = run(scratch, tmp_path, [Attempt(1, 8000, 8100)])
+def test_a_slow_run_whose_clocks_agree_is_judged(
+    scratch: Path, tmp_path: Path, installation: Installation
+) -> None:
+    machine, ledger, result = run(scratch, tmp_path, [Attempt(1, 8000, 8100)], installation)
 
     assert machine.test_runs == 1
     assert result != (True, "")
@@ -153,8 +162,34 @@ def test_a_slow_run_whose_clocks_agree_is_judged(scratch: Path, tmp_path: Path) 
     assert row.get("disturbed_seconds") is None
 
 
-def test_a_gap_below_the_limit_is_judged(scratch: Path, tmp_path: Path) -> None:
-    machine, ledger, result = run(scratch, tmp_path, [Attempt(1, 100, 100 + 250)])
+def test_a_gap_below_the_limit_is_judged(
+    scratch: Path, tmp_path: Path, installation: Installation
+) -> None:
+    machine, ledger, result = run(scratch, tmp_path, [Attempt(1, 100, 100 + 250)], installation)
+
+    assert machine.test_runs == 1
+    assert result != (True, "")
+    (row,) = rows(ledger)
+    assert row["outcome"] != "disturbed"
+
+
+def test_the_duration_is_the_final_summary_lines_not_an_earlier_one() -> None:
+    output = (
+        "E   AssertionError: assert '5 passed in 0.03s' == 'retrying in 1s'\n"
+        "=========== short test summary info ===========\n"
+        "FAILED test_one.py::test_plain - assert 1 == 2\n"
+        "=========== 1 failed, 4 passed in 2127.00s (0:35:27) ===========\n"
+    )
+
+    assert BundleProfile().parse_test_summary(output) == (4, 1, 0, 2127.0)
+
+
+def test_a_failing_run_with_an_earlier_in_n_s_line_is_judged_on_its_real_duration(
+    scratch: Path, tmp_path: Path, installation: Installation
+) -> None:
+    attempt = Attempt(1, 2127, 2200, noise=NOISY)
+
+    machine, ledger, result = run(scratch, tmp_path, [attempt], installation)
 
     assert machine.test_runs == 1
     assert result != (True, "")

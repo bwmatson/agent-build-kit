@@ -355,8 +355,9 @@ global_limits:
   max_flakes_per_run: 5         # more tests than this failing a run's first pass and passing
                                 # alone is one recorded storm, no fix change per test
   suspended_run_gap_seconds: 300  # seconds a failed unit-test command's wall time may exceed
-                                # pytest's own duration before the machine counts as suspended
-                                # in it: the run is rerun once, not judged (above 0)
+                                # the duration the test runner reports (pytest's, for example)
+                                # before the machine counts as suspended in it: the run is
+                                # rerun once, not judged (above 0)
   checks_register_seconds: 120  # seconds after a push in which a pull request with no
                                 # checks yet still reads `checking`
   temp_keep_hours: 16           # hours a unit-test run's temp folder under <data home>/<repo name>/tmp

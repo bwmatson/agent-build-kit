@@ -1810,7 +1810,7 @@ approved.
   wait. `abk status` lists each flaky test with its count and fix change, and the load it was
   met under when that is known.
   **A disturbed run is not judged.** A failed unit-test command whose wall time exceeds the
-  duration pytest reports for it by more than `global_limits.suspended_run_gap_seconds` is a run
+  duration the test runner reports for it (pytest's, for example) by more than `global_limits.suspended_run_gap_seconds` is a run
   the machine was suspended in: its failures say nothing about the code, so they are neither
   rerun nor handed to a fix agent, and no fix round is spent. The ledger row has outcome
   `disturbed` and `disturbed_seconds`, the gap. The checks run once more; a second disturbed

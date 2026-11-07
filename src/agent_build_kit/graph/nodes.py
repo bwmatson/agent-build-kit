@@ -1117,10 +1117,11 @@ class BuildPath:
             "blocked_by_environment": True,
         }
 
-    def timed_out(self, output: str, stage: str) -> Update | None:
+    def held_for_a_person(self, output: str, stage: str) -> Update | None:
         """Hold the unit for a person when `output` is that of a run that ended at the command's
-        time limit: it names no failing test and says nothing of the code, so no fix agent runs
-        and nothing is saved for one. None for any other output."""
+        time limit, or of checks the machine was suspended in twice: neither names a failing test
+        or says anything of the code, so no fix agent runs and nothing is saved for one. None
+        for any other output."""
         limit = timed_out_after(output)
         if limit is None and not suspended(output):
             return None
@@ -1901,7 +1902,9 @@ class BuildPath:
                 return parked
             ok, output = self.set_aside(failed)
         if not ok:
-            if (held := self.timed_out(output, "the unit tests of a built group")) is not None:
+            if (
+                held := self.held_for_a_person(output, "the unit tests of a built group")
+            ) is not None:
                 return held
             if (broken := self.failed_unit_test(output)) is not None:
                 return broken
@@ -2078,7 +2081,7 @@ class BuildPath:
                 if (parked := self.wait_for_fix(failed)) is not None:
                     raise CheckParked({**parked, "checks_ok": False}) from failed
                 ok, output = self.set_aside(failed)
-            if not ok and (held := self.timed_out(output, "the checks")) is not None:
+            if not ok and (held := self.held_for_a_person(output, "the checks")) is not None:
                 raise CheckParked({**held, "checks_ok": False})
             if not ok and (parked := self.wait_for_open_fix(output)) is not None:
                 raise CheckParked({**parked, "checks_ok": False})
@@ -2747,7 +2750,7 @@ class BuildPath:
                 return parked
             ok, output = self.set_aside(failed)
         self.say(f"unit-test {'passed' if ok else 'failed'}")
-        if not ok and (held := self.timed_out(output, "unit-test")) is not None:
+        if not ok and (held := self.held_for_a_person(output, "unit-test")) is not None:
             return held
         if not ok and (parked := self.wait_for_open_fix(output)) is not None:
             return parked
