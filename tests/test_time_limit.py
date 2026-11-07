@@ -12,101 +12,37 @@ recorder, so no outcome there depends on how long anything takes.
 
 from __future__ import annotations
 
-import os
-import subprocess
-import sys
-from pathlib import Path
-
 import pytest
 
 from tests import time_limit
 from tests.child_pytest import run_scenario
 
-ROOT = Path(__file__).parent.parent
+CPU_SCENARIO = "cpu_time_limit"
 E2E_SCENARIO = "fast_and_e2e_time_limit"
 MARKED_SCENARIO = "marked_time_limit"
 
-HANGING = """\
-import time
 
-
-def test_hangs():
-    deadline = time.monotonic() + 20
-    while time.monotonic() < deadline:
-        pass
-
-
-def test_after_it():
-    pass
-"""
-
-
-SLOW_TEARDOWN = """\
-import time
-
-import pytest
-
-
-@pytest.fixture
-def slow_teardown():
-    yield
-    deadline = time.monotonic() + 20
-    while time.monotonic() < deadline:
-        pass
-
-
-@pytest.fixture
-def slow_setup():
-    deadline = time.monotonic() + 20
-    while time.monotonic() < deadline:
-        pass
-
-
-def test_with_a_slow_teardown(slow_teardown):
-    pass
-
-
-def test_with_a_slow_setup(slow_setup):
-    pass
-
-
-def test_after_them():
-    pass
-"""
-
-
-def run_pytest(folder: Path, *args: str) -> subprocess.CompletedProcess[str]:
-    env = {**os.environ, "PYTHONPATH": str(ROOT)}
-    return subprocess.run(
-        [sys.executable, "-m", "pytest", "-p", "tests.time_limit", "-p", "no:cacheprovider", *args],
-        cwd=folder,
-        env=env,
-        capture_output=True,
-        text=True,
-        check=False,
+def test_a_test_that_hangs_fails_naming_the_limit_and_the_run_goes_on(
+    pytester: pytest.Pytester, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    result = run_scenario(
+        pytester, CPU_SCENARIO, "hangs.py", "--test-time-limit=1", monkeypatch=monkeypatch
     )
 
-
-def test_a_test_that_hangs_fails_naming_the_limit_and_the_run_goes_on(tmp_path: Path) -> None:
-    (tmp_path / "test_hang.py").write_text(HANGING)
-
-    result = run_pytest(tmp_path, "--test-time-limit=1", "-q")
-
-    output = result.stdout + result.stderr
-    assert result.returncode == 1, output
-    assert "1 failed, 1 passed" in output
-    assert "exceeded the CPU time budget of 1 s" in output, output
+    assert result.code == 1, result.output
+    assert "1 failed, 1 passed" in result.output
+    assert "exceeded the CPU time budget of 1 s" in result.output, result.output
 
 
 def test_a_fixture_that_hangs_in_setup_or_teardown_is_an_error_naming_the_limit(
-    tmp_path: Path,
+    pytester: pytest.Pytester, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    (tmp_path / "test_fixtures.py").write_text(SLOW_TEARDOWN)
+    result = run_scenario(
+        pytester, CPU_SCENARIO, "slow_fixtures.py", "--test-time-limit=1", monkeypatch=monkeypatch
+    )
 
-    result = run_pytest(tmp_path, "--test-time-limit=1", "-q")
-
-    output = result.stdout + result.stderr
-    assert result.returncode == 1, output
+    output = result.output
+    assert result.code == 1, output
     assert "2 passed, 2 errors" in output, output
     assert output.count("exceeded the CPU time budget of 1 s") >= 2, output
     assert "test setup exceeded" in output

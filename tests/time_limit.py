@@ -32,7 +32,7 @@ DEFAULT_TEST_TIME_LIMIT = 60
 LOADED_TEST_TIME_LIMIT = DEFAULT_TEST_TIME_LIMIT * 5
 DEFAULT_E2E_TEST_TIME_LIMIT = 30 * 60
 # The wall-clock backstop is this many times the CPU budget.
-BACKSTOP_FACTOR = 5
+BACKSTOP_FACTOR: int = 5
 
 
 class Budget(Frozen):
@@ -72,24 +72,43 @@ POLL_SECONDS = 0.25
 _TICKS = os.sysconf("SC_CLK_TCK")
 
 
-def live_descendants_cpu() -> float:
-    """CPU seconds, from /proc, of the process's running descendants, including what each has
-    already collected from its own finished children. A host without /proc counts none."""
+def _stat_fields(pid: int | str) -> list[str]:
+    """The fields of /proc/<pid>/stat after the command name, which sits in parentheses and may
+    hold spaces. Raises OSError for a process that has gone."""
+    with open(f"/proc/{pid}/stat") as stat:
+        text = stat.read()
+    return text[text.rindex(")") + 2 :].split()
+
+
+def _spent(fields: list[str]) -> float:
+    """utime, stime and what the process collected from its finished children (cutime, cstime)."""
+    return sum(int(value) for value in fields[11:15]) / _TICKS
+
+
+def _child_pids(pid: int) -> list[int]:
+    """The direct children of a process, from /proc/<pid>/task/*/children; none for a process
+    that has gone."""
+    found: list[int] = []
     try:
-        names = [name for name in os.listdir("/proc") if name.isdigit()]
+        for task in os.listdir(f"/proc/{pid}/task"):
+            with open(f"/proc/{pid}/task/{task}/children") as children:
+                found.extend(int(child) for child in children.read().split())
     except OSError:
-        return 0.0
+        pass
+    return found
+
+
+def _scan_descendants_cpu() -> float:
+    """The same sum for a kernel without per-task children files: every process is read."""
     children: dict[int, list[tuple[int, float]]] = {}
-    for name in names:
+    for name in os.listdir("/proc"):
+        if not name.isdigit():
+            continue
         try:
-            with open(f"/proc/{name}/stat") as stat:
-                text = stat.read()
+            fields = _stat_fields(name)
         except OSError:
             continue
-        # The command name sits in parentheses and may hold spaces; the fields follow it.
-        fields = text[text.rindex(")") + 2 :].split()
-        spent = sum(int(value) for value in fields[11:15]) / _TICKS
-        children.setdefault(int(fields[1]), []).append((int(name), spent))
+        children.setdefault(int(fields[1]), []).append((int(name), _spent(fields)))
     total = 0.0
     pending = [os.getpid()]
     while pending:
@@ -97,6 +116,28 @@ def live_descendants_cpu() -> float:
             total += spent
             pending.append(pid)
     return total
+
+
+def live_descendants_cpu() -> float:
+    """CPU seconds, from /proc, of the process's running descendants, including what each has
+    already collected from its own finished children. Only descendants are read, so a test with
+    no children costs one small read. A host without /proc counts none."""
+    me = os.getpid()
+    try:
+        if not os.path.exists(f"/proc/{me}/task/{me}/children"):
+            return _scan_descendants_cpu()
+        pending = _child_pids(me)
+        total = 0.0
+        while pending:
+            pid = pending.pop()
+            try:
+                total += _spent(_stat_fields(pid))
+            except OSError:
+                continue
+            pending.extend(_child_pids(pid))
+        return total
+    except OSError:
+        return 0.0
 
 
 def read_cpu() -> float:
@@ -186,13 +227,19 @@ def _under_limit(item: pytest.Item, phase: str):
         if running:
             raise TimedOut(thread_stacks())
 
+    first = threading.Lock()
+
     def stop(clock: str) -> None:
-        fired.append(clock)
+        # Only the first clock signals: a second signal would land in the failure being built.
+        with first:
+            if fired:
+                return
+            fired.append(clock)
         signal.pthread_kill(main, signal.SIGUSR2)
 
     previous = signal.signal(signal.SIGUSR2, interrupt)
     done = threading.Event()
-    cpu_start = read_cpu()
+    cpu_start = read_cpu() if budget.cpu > 0 else 0.0
     wall_start = time.monotonic()
 
     def watch_cpu() -> None:
@@ -212,6 +259,7 @@ def _under_limit(item: pytest.Item, phase: str):
             watcher.start()
         return (yield)
     except TimedOut as stopped:
+        running = False
         what = "test" if phase == "call" else f"test {phase}"
         if kind:
             sentence = f"exceeded the {kind}time limit of {budget.wall:g} seconds"
