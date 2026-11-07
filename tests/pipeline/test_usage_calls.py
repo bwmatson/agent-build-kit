@@ -47,6 +47,7 @@ from agent_build_kit.tracks import runner as tracks_runner
 from tests.conftest import make_installation
 from tests.factories import stored_unit
 from tests.otlp import Collector, enabled
+from tests.time_limit import LOADED_TEST_TIME_LIMIT
 from tests.usage_host import SECRET, Host, payload, refusal, server_error
 
 NOW = datetime(2030, 1, 2, 12, 0, tzinfo=UTC)
@@ -396,6 +397,7 @@ def test_the_interval_is_exported_as_a_gauge_of_whole_seconds(
     assert gauge.value == 600
 
 
+@pytest.mark.time_limit(LOADED_TEST_TIME_LIMIT)
 def test_the_figures_are_shown_from_the_record_when_the_metrics_store_is_not_available(
     tmp_path: Path,
 ) -> None:
@@ -424,6 +426,7 @@ def test_the_figures_are_shown_from_the_record_when_the_metrics_store_is_not_ava
     assert [v for s in interval for _, v in s.points] == [600]
 
 
+@pytest.mark.time_limit(LOADED_TEST_TIME_LIMIT)
 def test_the_metrics_page_draws_the_call_record_when_the_store_is_down(tmp_path: Path) -> None:
     day = datetime.now(UTC) - timedelta(hours=3)
     (tmp_path / CALLS_NAME).write_text(

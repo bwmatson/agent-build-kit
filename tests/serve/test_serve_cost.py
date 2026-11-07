@@ -9,6 +9,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from agent_build_kit.installation import Installation
+from agent_build_kit.serve import metrics
 from agent_build_kit.serve.server import create_app
 from agent_build_kit.settings import reload
 from tests.ledger_lines import costed_line, legacy_line, worked_session, write_ledger
@@ -51,6 +52,14 @@ def test_the_local_cost_metric_adds_incremental_figures_and_nothing_for_an_absen
     monkeypatch.setenv("ABK_PROMETHEUS_URL", "http://127.0.0.1:1")
     monkeypatch.setenv("ABK_TEMPO_URL", "http://127.0.0.1:1")
     reload(None)
+    # The package catalogue is a package-wide scan whose cost grows with the machine's load, and
+    # this test is about the local source's sum, so it lists only the instrument under test.
+    cost_instrument = metrics.Instrument(
+        name="abk.agent.cost",
+        type="counter",
+        attributes=("repo", "tier", "node", "role", "model", "source"),
+    )
+    monkeypatch.setattr(metrics, "catalogue", lambda root=None: [cost_instrument])
     write_ledger(
         inst.state_dir / "usage-ledger.jsonl",
         costed_line(1.5, 9.0, session_id="a", node="tests"),
@@ -62,5 +71,6 @@ def test_the_local_cost_metric_adds_incremental_figures_and_nothing_for_an_absen
     answer = TestClient(create_app(inst)).get("/api/metrics").json()
 
     cost = next(m for m in answer["metrics"] if m["name"] == "abk.agent.cost")
+    assert [m["name"] for m in answer["metrics"]] == ["abk.agent.cost"]
     assert answer["source"] == "local"
     assert sum(p[1] for s in cost["series"] for p in s["points"]) == pytest.approx(3.75)
