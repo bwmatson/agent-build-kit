@@ -56,15 +56,15 @@ def test_the_ids_a_real_pytest_cannot_find_are_every_parametrization_of_the_repo
     pytester: pytest.Pytester,
 ) -> None:
     pytester.copy_example("ids_not_found")
-    lost = ["test_x.py::test_y[e f]", "test_x.py::test_y[g h]"]
-    kept = ["test_x.py::test_y[a b]"]
+    lost = ["params.py::test_y[e f]", "params.py::test_y[g h]"]
+    kept = ["params.py::test_y[a b]"]
 
     ran = pytester.runpytest_subprocess(*lost[:1])
     output = f"{ran.stdout.str()}\n{ran.stderr.str()}"
 
     assert ran.ret == PythonUvProfile().usage_error_exit
     profile = PythonUvProfile()
-    assert profile.ids_not_found(output, pytester.path) == ["test_x.py::test_y"]
+    assert profile.ids_not_found(output, pytester.path) == ["params.py::test_y"]
     assert profile.ids_not_found(output, pytester.path, [*lost, *kept]) == [*lost, *kept]
 
 
