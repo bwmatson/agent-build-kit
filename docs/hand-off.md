@@ -88,15 +88,19 @@ Create them so the tracker sync can adopt them later:
 Once a repo has a tracker, the sync adopts the items above and the hold hands its blocking over to
 the board:
 
-- When the adopted group item, or a task under it, is assigned on the board to someone other than
-  the sync account, the hold's `status` becomes `handed_over` and its `note` names them. The claim
-  gate and the inbound sync block the unit from then on, and clearing the assignment later does not
-  bring the hold back.
-- While nobody is assigned there, the hold stays `held` and keeps blocking, and `abk external list`
-  and `abk status` say "nobody assigned on the board". Assign it on the board, which hands it over
-  at the next sync, or release it with `abk external release`.
+- When every group the hold covers is adopted and has its group item, or a task under it, assigned
+  on the board to someone other than the sync account, the hold's `status` becomes `handed_over`
+  and its `note` names them. The hold stops blocking then: the claim gate and the inbound sync
+  block the units from there on, and clearing the assignment later does not bring the hold back.
+- While a group has nobody assigned there, the hold stays `held` and keeps blocking all its
+  groups, and `abk external list` and `abk status` say "nobody assigned on the board for group N".
+  Assign it on the board, which hands it over at the next sync, or release it with
+  `abk external release`.
 - A group item moved to done on the board is not a merge: while its unit is not recorded merged the
   sync records a conflict, "closed on the board; merge not recorded". `abk external done`, after it
   verifies the merge, merges the unit and closes the conflict.
 
 A repo with no tracker keeps the hold as its only mechanism.
+
+A sync writes the new `board` field and the `handed_over` status into `external.yaml`, so a file
+written by this version needs this version or later to be read.

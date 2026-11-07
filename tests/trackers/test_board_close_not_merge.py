@@ -13,7 +13,7 @@ from agent_build_kit.pipeline.external_done import record_hand_merge
 from agent_build_kit.pipeline.external_file import add_hold
 from agent_build_kit.pipeline.tracker_file import ConflictRecord, read_tracker
 from agent_build_kit.pipeline.unit_store import UnitStore
-from agent_build_kit.pipeline.units import MERGED
+from agent_build_kit.pipeline.units import MERGED, UnitState
 from agent_build_kit.trackers.apply import Applied, apply_changes
 from agent_build_kit.trackers.poll import poll_board
 from tests.external_support import hold
@@ -53,17 +53,26 @@ def open_conflicts(world: World) -> list[ConflictRecord]:
     return [record for record in recorded.conflicts if record.status == "open"]
 
 
-def held_unit_with_closed_group_item(
-    tmp_path: Path,
-) -> tuple[World, Installation, UnitStore, str, Applied]:
+def held_unit(tmp_path: Path) -> tuple[World, Installation, UnitStore, str]:
+    """A planned unit on group 1, held by hand, with the inbound cursor at the end of the push."""
     world, inst = board_in(tmp_path)
     store = store_of(inst)
     fresh(store, FIRST)
     add_hold(inst.changes_dir / CHANGE, hold((1,)))
-    inbound(world, store)  # the cursor is at the end of the push
-    group = item(world, "1")
-    world.tracker.as_identity(PERSON).update(group, {"state": "done"})
-    return world, inst, store, group, inbound(world, store)
+    inbound(world, store)
+    return world, inst, store, item(world, "1")
+
+
+def person_edits(world: World, store: UnitStore, group: str, **fields: str) -> Applied:
+    world.tracker.as_identity(PERSON).update(group, fields)
+    return inbound(world, store)
+
+
+def held_unit_with_closed_group_item(
+    tmp_path: Path,
+) -> tuple[World, Installation, UnitStore, str, Applied]:
+    world, inst, store, group = held_unit(tmp_path)
+    return world, inst, store, group, person_edits(world, store, group, state="done")
 
 
 def test_a_group_item_closed_on_the_board_records_a_conflict_and_does_not_merge(
@@ -90,3 +99,32 @@ def test_recording_the_verified_hand_merge_merges_the_unit_and_closes_the_confli
 
     assert store.get(FIRST).state == MERGED
     assert open_conflicts(world) == []
+
+
+@pytest.mark.parametrize("state", [UnitState.SATISFIED, UnitState.SETTLING])
+def test_a_person_editing_an_item_the_kit_shows_done_records_no_conflict(
+    tmp_path: Path, state: UnitState
+) -> None:
+    world, _, store, group = held_unit(tmp_path)
+    store.set_state(FIRST, state)
+
+    applied = person_edits(world, store, group, state="done", title="Sam's wording")
+
+    assert not any(CLOSED_NOTE in conflict.note for conflict in applied.conflicts)
+    assert not [record for record in open_conflicts(world) if record.field == "closed"]
+
+
+def test_a_group_with_a_closed_superseded_unit_and_a_merged_one_records_no_conflict(
+    tmp_path: Path,
+) -> None:
+    world, _, store, group = held_unit(tmp_path)
+    later = f"{CHANGE}/3"
+    fresh(store, later, groups=(1,))
+    store.set_state(later, MERGED)
+    store.set_state(FIRST, UnitState.CLOSED)
+    store.upsert([store.get(FIRST).model_copy(update={"superseded_by": (later,)})])
+
+    applied = person_edits(world, store, group, state="done")
+
+    assert not any(CLOSED_NOTE in conflict.note for conflict in applied.conflicts)
+    assert not [record for record in open_conflicts(world) if record.field == "closed"]

@@ -30,7 +30,7 @@ from agent_build_kit.pipeline.tracker_file import (
     write_tracker,
 )
 from agent_build_kit.pipeline.unit_store import Cause, HeldBy, StoredUnit, UnitStore
-from agent_build_kit.pipeline.units import BUILDS_NOTHING, HELD, MERGED, PLANNED, UnitState
+from agent_build_kit.pipeline.units import HELD, PLANNED, UnitState
 from agent_build_kit.pipeline.vocabulary import FINISHED
 from agent_build_kit.pipeline.work_graph import Task, read_tasks
 from agent_build_kit.trackers.base import Change, Item, Tracker
@@ -38,12 +38,13 @@ from agent_build_kit.trackers.config import TrackerConfigError, TrackerSection, 
 from agent_build_kit.trackers.field_reconcile import reconcile_field
 from agent_build_kit.trackers.levels import task_key
 from agent_build_kit.trackers.start_decision import covered_by, others
+from agent_build_kit.trackers.wanted_board import group_state
 
 BLOCKED = "blocked"
 BLOCKED_NOTE = "group item blocked on the board"
 RELEASED_NOTE = "the board no longer holds it"
 REMOVED = "removed"
-CLOSED = "closed"
+CLOSED_FIELD = "closed"
 CLOSED_NOTE = "closed on the board; merge not recorded"
 _CLOSED_EPIC = frozenset({"done", REMOVED})
 _FIELDS = frozenset({"title", "body", "state", "tags"})
@@ -265,7 +266,7 @@ class _Apply:
         of the spec."""
         for change, file in list(self.files.items()):
             for record in file.conflicts:
-                if record.status != "open" or record.field not in ("title", REMOVED, CLOSED):
+                if record.status != "open" or record.field not in ("title", REMOVED, CLOSED_FIELD):
                     continue
                 try:
                     item = self.tracker.get(record.item_id)
@@ -275,7 +276,7 @@ class _Apply:
                 where = self.places.get(record.item_id)
                 if record.field == "title":
                     agreed = item.title == record.spec_value
-                elif record.field == CLOSED:
+                elif record.field == CLOSED_FIELD:
                     agreed = _board_state(item) != "done" or not (
                         where is not None and self._unmerged(where)
                     )
@@ -287,13 +288,12 @@ class _Apply:
                     self._close(change, record.item_id, record.field)
 
     def _unmerged(self, where: _Where) -> bool:
-        """Whether a unit that builds the group of `where` is not recorded merged."""
-        return any(
-            unit.state not in (MERGED, *BUILDS_NOTHING)
-            for unit in self.store.all()
-            for member in unit.members()
-            if member.change == where.change and where.group in member.groups
-        )
+        """Whether the units that build the group of `where` leave it unfinished, by the rule
+        that moves its item to done on the board; a group nothing builds any more is not."""
+        if where.group is None:
+            return False
+        state, _ = group_state(where.change, where.group, self.store.all())
+        return state not in ("done", "removed")
 
     def closed(self, where: _Where, item: Item) -> None:
         """A group item closed on the board is not a merge: while its unit is not recorded
@@ -301,9 +301,9 @@ class _Apply:
         if where.level != "group":
             return
         if _board_state(item) == "done" and self._unmerged(where):
-            self._conflict(item.id, CLOSED, "not merged", "done", CLOSED_NOTE)
+            self._conflict(item.id, CLOSED_FIELD, "not merged", "done", CLOSED_NOTE)
         else:
-            self._close(where.change, item.id, CLOSED)
+            self._close(where.change, item.id, CLOSED_FIELD)
 
     def title(self, where: _Where, item: Item) -> None:
         """A change or group item retitled on the board keeps the spec's title: the edit is a

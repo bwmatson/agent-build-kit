@@ -14,6 +14,7 @@ from agent_build_kit.pipeline.external_file import (
     HELD,
     Hold,
     blocked_groups,
+    held_units,
     hold_rows,
     hold_status_lines,
     hold_text,
@@ -21,7 +22,7 @@ from agent_build_kit.pipeline.external_file import (
 )
 from agent_build_kit.trackers.reconciler import PassReport
 from agent_build_kit.trackers.start_decision import start_decision
-from tests.trackers.adoption_support import adopted_board
+from tests.trackers.adoption_support import adopted_board, hold_with
 from tests.trackers.board_support import CHANGE, covering
 from tests.trackers.reconciler_support import World
 from tests.trackers.start_support import PERSON
@@ -78,6 +79,8 @@ def test_a_group_item_assigned_to_a_person_hands_the_hold_over_naming_them(
     assert hold.status == HANDED_OVER
     assert PERSON in hold.note
     assert tracker_skips(world)
+    assert 1 not in blocked_groups(world.change_dir)
+    assert held_units(world.changes_dir, [covering(UNIT, (1,))]) == {}
     (row,) = hold_rows(world.changes_dir, [], NOW)
     assert NOBODY not in hold_text(row)
 
@@ -144,3 +147,26 @@ def test_clearing_the_assignment_later_does_not_revive_the_hold(tmp_path: Path) 
     hold = the_hold(world)
     assert hold.status == HANDED_OVER
     assert PERSON in hold.note
+    assert 1 not in blocked_groups(world.change_dir)
+
+
+def test_a_hold_on_two_groups_is_handed_over_only_when_each_has_someone_assigned(
+    tmp_path: Path,
+) -> None:
+    world, change, first = adopted_board(tmp_path, ["change", "group"])
+    second = world.tracker.create("group", "Sam's other lane", "", change.id)
+    hold_with(world, {"change": change.id, "group": [first.id, second.id]}, scope=(1, 2))
+    assign(world, first.id)
+    units = [covering(UNIT, (1,)), covering(f"{CHANGE}/2", (2,))]
+
+    world.run(units)
+
+    hold = the_hold(world)
+    assert hold.status == HELD
+    assert 2 in blocked_groups(world.change_dir)
+    assert "group 2" in hold.board
+    assign(world, second.id)
+
+    world.run(units)
+
+    assert the_hold(world).status == HANDED_OVER

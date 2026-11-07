@@ -163,16 +163,18 @@ def already_held(change_dir: Path, hold: Hold) -> bool:
 
 def _holding(change_dir: Path, *, recorded: bool = False) -> dict[int, Hold]:
     """Each group the kit must leave alone, with the hold that has it: those of every hold
-    neither done nor released, and with `recorded` those done by hand too."""
+    neither done, released nor handed over to the board, and with `recorded` those done by hand
+    too."""
     holding: dict[int, Hold] = {}
     for hold, groups in _coverage(change_dir, read_holds(change_dir)):
-        if hold.status != RELEASED and (recorded or hold.status != DONE):
+        if hold.status not in (RELEASED, HANDED_OVER) and (recorded or hold.status != DONE):
             holding.update({number: hold for number in groups})
     return holding
 
 
 def blocked_groups(change_dir: Path) -> frozenset[int]:
-    """The groups the kit must leave alone: those of every hold neither done nor released."""
+    """The groups the kit must leave alone: those of every hold neither done, released nor
+    handed over to the board."""
     return frozenset(_holding(change_dir))
 
 
@@ -316,16 +318,19 @@ def record_done(change_dir: Path, groups: Sequence[int], *, merged_by: str, at: 
         _write(path, out)
 
 
-def record_board(change_dir: Path, hold: Hold, assigned_to: Sequence[str]) -> None:
-    """Record what the board shows of `hold`, still held: with people assigned it is handed over
-    to the board and the note names them, with nobody the hold says so and keeps blocking. A
-    hold that has changed since it was read is left alone."""
+def record_board(
+    change_dir: Path, hold: Hold, assigned_to: Sequence[str], waiting: Sequence[int]
+) -> None:
+    """Record what the board shows of `hold`, still held: when every group has someone assigned
+    (`waiting` is empty) it is handed over to the board and the note names them; otherwise the
+    hold says which groups have nobody and keeps blocking. A hold that has changed since it was
+    read is left alone."""
     path = external_path(change_dir)
     with file_lock(_lock(path)):
         holds = read_holds(change_dir)
         if hold not in holds:
             return
-        if assigned_to:
+        if assigned_to and not waiting:
             named = f"assigned to {', '.join(assigned_to)} on the board"
             update = {
                 "status": HANDED_OVER,
@@ -333,7 +338,8 @@ def record_board(change_dir: Path, hold: Hold, assigned_to: Sequence[str]) -> No
                 "board": "",
             }
         else:
-            update = {"board": NOBODY_ASSIGNED}
+            shown = ", ".join(str(number) for number in waiting)
+            update = {"board": f"{NOBODY_ASSIGNED} for group {shown}"}
         if all(getattr(hold, key) == value for key, value in update.items()):
             return
         changed = hold.model_copy(update=update)
