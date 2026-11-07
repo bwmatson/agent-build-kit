@@ -8,6 +8,7 @@
   change and hang under the adopted parent. An id that fails is reported as a conflict and nothing
   is created in its place. Adopted items keep their title and body, gain the marker line, and the
   sync fills in the missing group and task items under them.
+
 - A unit-test run the machine was suspended in is no longer judged. When a failed test
   command's wall time exceeds the duration pytest reports by more than
   `global_limits.suspended_run_gap_seconds` (default 300), its failures are not rerun or
