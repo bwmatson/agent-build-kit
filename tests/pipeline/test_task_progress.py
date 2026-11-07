@@ -2,7 +2,15 @@
 
 from pathlib import Path
 
-from agent_build_kit.pipeline.task_progress import without_boxes
+import pytest
+
+from agent_build_kit.pipeline.task_progress import (
+    append_task,
+    first_line_hash,
+    rewrite_task,
+    without_boxes,
+)
+from agent_build_kit.pipeline.work_graph import read_tasks
 from tests.progress_support import (
     TASKS,
     copy_file,
@@ -79,3 +87,46 @@ def test_without_boxes_of_the_copy_is_that_of_the_repository_file(tmp_path: Path
 
     assert without_boxes(copy_file(inst, CHANGE).read_text()) == without_boxes(TASKS)
     assert copy_file(inst, CHANGE).read_text() != TASKS
+
+
+def test_a_rewrite_with_a_blank_line_in_the_body_keeps_the_whole_text_in_the_task(
+    tmp_path: Path,
+) -> None:
+    tasks = tmp_path / "tasks.md"
+    tasks.write_text("# Tasks\n\n## 1. [app] [unit-test] First\n\n- [ ] 1.1 Old\n- [ ] 1.2 Next\n")
+
+    stored = rewrite_task(
+        tasks, f"{CHANGE}:1.1", text="Do X\n\nVerify: Y", text_hash=first_line_hash("Old")
+    )
+
+    [first, second] = read_tasks(tasks, CHANGE)
+    assert first.text == stored == "Do X\nVerify: Y"
+    assert second.text == "Next"
+    assert tasks.read_text().count("Verify: Y") == 1
+    assert "\n      \n" not in tasks.read_text()
+
+
+def test_an_appended_task_with_a_blank_line_in_the_text_is_read_back_whole(
+    tmp_path: Path,
+) -> None:
+    tasks = tmp_path / "tasks.md"
+    tasks.write_text("# Tasks\n\n## 1. [app] [unit-test] First\n\n- [ ] 1.1 Old\n")
+
+    number, stored = append_task(tasks, CHANGE, 1, "Do X\n\nVerify: Y")
+
+    assert number == 2
+    assert stored == "Do X\nVerify: Y"
+    assert [task.text for task in read_tasks(tasks, CHANGE)] == ["Old", stored]
+
+
+def test_a_blank_text_is_refused_and_writes_nothing(tmp_path: Path) -> None:
+    tasks = tmp_path / "tasks.md"
+    text = "# Tasks\n\n## 1. [app] [unit-test] First\n\n- [ ] 1.1 Old\n"
+    tasks.write_text(text)
+
+    with pytest.raises(ValueError):
+        rewrite_task(tasks, f"{CHANGE}:1.1", text=" \n ", text_hash=first_line_hash("Old"))
+    with pytest.raises(ValueError):
+        append_task(tasks, CHANGE, 1, "")
+
+    assert tasks.read_text() == text

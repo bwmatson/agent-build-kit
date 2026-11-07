@@ -179,14 +179,16 @@ def _unreadable(unit: Unit, error: Exception) -> StartDecision:
     return StartDecision(outcome="wait", reason=reason)
 
 
-def _covered_by(
+def covered_by(
     unit: Unit,
     section: TrackerSection,
     changes_dir: Path,
     only: Collection[tuple[str, int]] | None = None,
 ) -> tuple[list[str], list[str]] | None:
-    """The items the unit covers: all those checked and those the claim acts on; None when one
-    has no board item yet. With `only` (pairs of change and group), just those groups count."""
+    """The items the unit covers, from the levels in use and each member change's tracker file:
+    all those checked for an owner and those the claim acts on; None when one has no board item
+    yet. With `only` (pairs of change and group), just those groups count. The claim gate and the
+    inbound apply step both read what a unit covers here."""
     wanted: list[str] = []
     claimable: list[str] = []
     for member in unit.members():
@@ -219,7 +221,7 @@ def release_claims(
     section = section_for(unit.repo)
     if section is None or (tracker := trackers.for_repo(unit.repo)) is None:
         return []
-    if (covered := _covered_by(unit, section, changes_dir, groups)) is None:
+    if (covered := covered_by(unit, section, changes_dir, groups)) is None:
         return []
     return _release(tracker, tracker.identity().name, covered[1])
 
@@ -239,7 +241,7 @@ def _decide(
     tracker = trackers.for_repo(unit.repo)
     if tracker is None:
         return StartDecision(outcome="start")
-    if (covered := _covered_by(unit, section, changes_dir)) is None:
+    if (covered := covered_by(unit, section, changes_dir)) is None:
         return StartDecision(outcome="wait", reason=NO_BOARD_ITEM)
     wanted, claimable = covered
     taken: list[str] = []

@@ -24,7 +24,7 @@ from typing import Protocol
 
 from agent_build_kit.config import active_local_dir
 from agent_build_kit.pipeline.file_lock import change_lock, change_lock_path, file_lock
-from agent_build_kit.pipeline.work_graph import read_tasks
+from agent_build_kit.pipeline.work_graph import Task, read_tasks
 
 _ANY_BOX = re.compile(r"^(\s*- )\[[ xX]\]( \d+\.\d+ )", re.M)
 _TASK = re.compile(r"^(\s*- )\[([ xX])\]( (\d+)\.(\d+) )")
@@ -159,16 +159,71 @@ def first_line_hash(text: str) -> str:
     return hashlib.sha256(first.encode()).hexdigest()[:12]
 
 
+def _matching_task(tasks: Path, key: str, text_hash: str) -> Task:
+    change = key.rsplit(":", 1)[0]
+    found = next((task for task in read_tasks(tasks, change) if task.key == key), None)
+    if found is None or first_line_hash(found.text) != text_hash:
+        raise TaskConflict(f"task {key} no longer matches the text recorded for it")
+    return found
+
+
+def _task_lines(prefix: str, text: str) -> list[str]:
+    """The lines of a task: the first after `prefix`, the others as indented continuations. A
+    blank line is dropped, as it would end the task. Raises `ValueError` for a blank text."""
+    lines = [line.strip() for line in text.strip().split("\n") if line.strip()]
+    if not lines:
+        raise ValueError("a task needs text")
+    return [f"{prefix}{lines[0]}\n", *(f"      {line}\n" for line in lines[1:])]
+
+
+def _stored_text(tasks: Path, key: str) -> str:
+    """The text the file now holds for task `key`, which is what the spec reads."""
+    found = next(task for task in read_tasks(tasks, key.rsplit(":", 1)[0]) if task.key == key)
+    return found.text
+
+
 def mark_task(tasks: Path, key: str, *, done: bool, text_hash: str) -> None:
     """Set the one box of task `key` (`<change>:<group>.<task>`) to done or not done.
 
     Raises `TaskConflict` and writes nothing when the line's first-line hash is not `text_hash`."""
-    change = key.rsplit(":", 1)[0]
     with tasks_lock(tasks):
-        found = next((task for task in read_tasks(tasks, change) if task.key == key), None)
-        if found is None or first_line_hash(found.text) != text_hash:
-            raise TaskConflict(f"task {key} no longer matches the text recorded for it")
+        found = _matching_task(tasks, key, text_hash)
         lines = tasks.read_text().splitlines(keepends=True)
         mark = "x" if done else " "
         lines[found.line - 1] = re.sub(r"\[[ xX]\]", f"[{mark}]", lines[found.line - 1], count=1)
         tasks.write_text("".join(lines))
+
+
+def rewrite_task(tasks: Path, key: str, *, text: str, text_hash: str) -> str:
+    """Replace the text of task `key`, continuation lines included, keeping its number and box,
+    and return the text the file now holds for it (blank lines dropped).
+
+    Raises `TaskConflict` and writes nothing when the line's first-line hash is not `text_hash`,
+    and `ValueError` when `text` is blank."""
+    with tasks_lock(tasks):
+        found = _matching_task(tasks, key, text_hash)
+        lines = tasks.read_text().splitlines(keepends=True)
+        start = found.line - 1
+        head = _TASK.match(lines[start])
+        assert head is not None
+        new = _task_lines(f"{head[1]}[{head[2]}]{head[3]}", text)
+        lines[start : start + len(found.text.split("\n"))] = new
+        tasks.write_text("".join(lines))
+        return _stored_text(tasks, key)
+
+
+def append_task(tasks: Path, change: str, group: int, text: str) -> tuple[int, str]:
+    """Add an unticked task with `text` after the last task of `group`, numbered after the
+    group's highest, and return its number and the text the file now holds for it (blank lines
+    dropped). Raises `ValueError` when `text` is blank or the group has no task to follow."""
+    with tasks_lock(tasks):
+        found = [task for task in read_tasks(tasks, change) if task.group == group]
+        lines = tasks.read_text().splitlines(keepends=True)
+        if not found:
+            raise ValueError(f"{tasks} has no task in group {group} to append after")
+        last = found[-1]
+        at = last.line - 1 + len(last.text.split("\n"))
+        number = max(task.number for task in found) + 1
+        lines[at:at] = _task_lines(f"- [ ] {group}.{number} ", text)
+        tasks.write_text("".join(lines))
+        return number, _stored_text(tasks, f"{change}:{group}.{number}")
