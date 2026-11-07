@@ -11,11 +11,6 @@
   `max_concurrent_restacks` still loads with a deprecation notice and `abk config --migrate`
   renames it; it will be dropped in a later release.
 
-- A change's tasks can now edit the repository's `projects:` list with a `Project:` line (`add`,
-  `remove` or `replace`) instead of a manual step. `abk tags` validates each line and shows it as
-  pending or applied; the kit applies it, keeps the comments of `abk.yaml`, and commits the file.
-  The skill and docs describe the line.
-
 - A unit's e2e-test step now runs only the e2e tests the unit's own branch added or changed. The
   tests are listed from the point the branch left its base, and the base is the remote's trunk
   (or the parent's branch for a stacked unit) as in every other step, not the checkout's local
