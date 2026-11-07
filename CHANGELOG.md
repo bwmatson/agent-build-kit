@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- The kit can now read a repo's work-tracker board for changes people made since its last look.
+  Each poll keeps a cursor, ignores the kit's own writes, only records on the first poll after a
+  restart, and backs off after repeated failures. Nothing is applied from it yet.
+
 - Planning a change with a long task list costs less CPU: the review-tier floor now parses each
   protected path pattern once instead of once for every word of the task text.
 
