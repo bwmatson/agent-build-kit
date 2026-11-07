@@ -168,15 +168,6 @@ REPORT_MARK = "--- abk junit report ---"
 LOG = logging.getLogger(__name__)
 
 _REPORT_SPAN = re.compile(r"<testsuites\b.*?</testsuites>", re.DOTALL)
-# pytest's usage error for a test id it cannot find: one line per id, then why.
-_NOT_FOUND_LINE = re.compile(
-    r"^ERROR: not found: (?P<id>.+?)(?: \(no match in any of .*)?$", re.MULTILINE
-)
-
-
-def ids_not_found(output: str) -> list[str]:
-    """The test ids a runner's usage error says it could not find, in order, each once."""
-    return list(dict.fromkeys(m["id"] for m in _NOT_FOUND_LINE.finditer(output)))
 
 
 def split_report(output: str) -> tuple[str | None, str]:

@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+import shlex
 from typing import Any
+
+import pytest
 
 from agent_build_kit.profiles.python_uv import PythonUvProfile
 
@@ -32,3 +35,37 @@ def test_without_ids_the_command_is_the_whole_file_run_and_with_them_it_is_not()
     assert profile.red_command(FILES, []) == whole
     assert profile.red_command(FILES) == whole
     assert profile.red_command(FILES, IDS) != whole
+
+
+SPACED = "tests/a/test_x.py::test_y[no conversation found with session id sess-1]"
+
+
+def test_the_by_id_red_command_passes_an_id_with_spaces_and_brackets_as_one_argument() -> None:
+    profile: Any = PythonUvProfile()
+
+    command = profile.red_command(["tests/a/test_x.py"], [SPACED])
+
+    first, _, after = command.partition('if [ "$status" -eq 4 ]; then ')
+    assert shlex.quote(SPACED) in first
+    assert shlex.quote(SPACED) not in after, "the retry runs the files whole"
+    assert after.startswith("uv run pytest tests/a/test_x.py -p no:cacheprovider")
+
+
+def test_the_ids_a_real_pytest_cannot_find_are_every_parametrization_of_the_reported_function(
+    pytester: pytest.Pytester,
+) -> None:
+    pytester.makepyfile(
+        test_x=(
+            "import pytest\n\n@pytest.mark.parametrize('n', ['a b', 'c d'])\ndef test_y(n): ...\n"
+        )
+    )
+    lost = ["test_x.py::test_y[e f]", "test_x.py::test_y[g h]"]
+    kept = ["test_x.py::test_y[a b]"]
+
+    ran = pytester.runpytest_subprocess(*lost[:1])
+    output = f"{ran.stdout.str()}\n{ran.stderr.str()}"
+
+    assert ran.ret == PythonUvProfile().usage_error_exit
+    profile = PythonUvProfile()
+    assert profile.ids_not_found(output, pytester.path) == ["test_x.py::test_y"]
+    assert profile.ids_not_found(output, pytester.path, [*lost, *kept]) == [*lost, *kept]

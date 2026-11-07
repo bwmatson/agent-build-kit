@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 import shlex
+import subprocess
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import cast
@@ -280,3 +281,61 @@ def test_a_pre_existing_row_carries_the_evidence_of_its_verdict(tmp_path: Path) 
     assert recorded.ran_at == verdict.ran_at
     assert recorded.conditions == verdict.conditions
     assert recorded.base_output, "its clipped fields stay"
+
+
+# --- ids pytest cannot find ---------------------------------------------------------------
+
+FAILED = [
+    "test_one.py::test_plain",
+    "test_one.py::TestGroup::test_method",
+    "test_one.py::test_cases[2]",
+    "test_two.py::test_other",
+    "test_one.py::test_setup_error",
+]
+LOST = "test_one.py::test_cases[2]"
+
+
+class NotFoundMachine(BundleMachine):
+    """A serial rerun naming a test of `missing` ends as pytest's usage error does: the
+    absolute path and names without the parametrization, and why on the next line."""
+
+    def __init__(self, root: Path, *, missing: list[str], reruns: list[int]) -> None:
+        super().__init__(root, reruns=reruns)
+        self.missing = missing
+
+    def __call__(self, command: list[str], **kwargs: object):
+        if absent := [test for test in self.missing if test in command]:
+            self.commands.append(command)
+            lines = "".join(
+                f"ERROR: not found: {self.root / test.split('[')[0]}\n"
+                "(no match in any of [<Module test_one.py>])\n"
+                for test in dict.fromkeys(absent)
+            )
+            return subprocess.CompletedProcess(command, 4, "", lines)
+        return super().__call__(command, **kwargs)
+
+
+def test_a_rerun_names_the_ids_left_out_in_its_evidence(scratch: Path, tmp_path: Path) -> None:
+    directory = tmp_path / "bundles"
+    machine = NotFoundMachine(scratch, missing=[LOST], reruns=[1, 1])
+
+    passed, _ = unit_test_of(scratch, machine, directory)(cwd=scratch, base="main")
+
+    assert not passed
+    context = read(only_bundle(directory) / "reruns" / "1" / "context.json")
+    assert context["left_out"] == [LOST]
+    assert LOST not in context["command"]
+
+
+def test_a_rerun_that_finds_none_of_its_ids_still_keeps_its_evidence(
+    scratch: Path, tmp_path: Path
+) -> None:
+    directory = tmp_path / "bundles"
+    machine = NotFoundMachine(scratch, missing=FAILED, reruns=[])
+
+    passed, _ = unit_test_of(scratch, machine, directory)(cwd=scratch, base="main")
+
+    assert not passed
+    context = read(only_bundle(directory) / "reruns" / "1" / "context.json")
+    assert context["left_out"] == FAILED
+    assert context["exit"] == 4

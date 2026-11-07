@@ -95,9 +95,16 @@ PATH_SOURCES_NOTE = (
 TYPE_HOOKS = frozenset({"pyrefly-check", "pyrefly", "mypy", "pyright"})
 _PYTEST = re.compile(r"\bpytest\b")
 # pytest's short summary: `FAILED path::test - why` and `ERROR path::test - why`.
-_FAILED_TEST = re.compile(r"^(?:FAILED|ERROR) (\S+::.+?)(?: - .*)?$", re.MULTILINE)
+# The id is `path::names`, then a parametrization to its closing bracket, which may hold spaces
+# and ` - ` itself; the reason follows the first ` - ` after it.
+_TEST_ID = r"\S+::[^\s\[]+(?:\[.*?\](?= - |$))?"
+_FAILED_TEST = re.compile(rf"^(?:FAILED|ERROR) ({_TEST_ID})(?: - .*)?$", re.MULTILINE)
 # The same line when the reason is a test's time limit (the pytest-timeout plugin's message).
-_TIME_LIMIT_FAILURE = re.compile(r"^(?:FAILED|ERROR) (\S+::.+?) - .*Timeout >", re.MULTILINE)
+_TIME_LIMIT_FAILURE = re.compile(rf"^(?:FAILED|ERROR) ({_TEST_ID}) - .*Timeout >", re.MULTILINE)
+# pytest's usage error for an id it cannot find. It names the absolute path and the names, never
+# the parametrization, and says why on the next line (or after the id, in older output).
+_NOT_FOUND = re.compile(r"^ERROR: not found: (?P<id>.+?)(?: \(no match in any of .*)?$", re.M)
+_PARAMETRIZATION = re.compile(r"\[.*\]$")
 # The line xdist opens a failed test's block with, which names the worker that ran the test.
 _WORKER_LINE = re.compile(r"^\[(gw\d+)\]", re.MULTILINE)
 # The `FAILURES` part of pytest's console output ends at the rule of the section that follows
@@ -638,6 +645,25 @@ class PythonUvProfile:
             if (match := _WORKER_LINE.search(block))
         }
         return found
+
+    def ids_not_found(self, output: str, cwd: Path, among: list[str] | None = None) -> list[str]:
+        """The ids a usage error in `output` says pytest could not find, as `path::names` with
+        the path relative to `cwd`, the directory pytest ran in. Given `among` (requested ids),
+        those of them it names instead: pytest reports no parametrization, so every
+        parametrization of a reported function is one."""
+        reported = []
+        for found in _NOT_FOUND.finditer(output):
+            path, _, names = found["id"].partition("::")
+            if Path(path).is_absolute():
+                path = (
+                    Path(path).relative_to(cwd).as_posix()
+                    if Path(path).is_relative_to(cwd)
+                    else path
+                )
+            reported.append(f"{path}::{names}")
+        if among is None:
+            return list(dict.fromkeys(reported))
+        return [test for test in among if _PARAMETRIZATION.sub("", test) in reported]
 
     def time_limit_tests(self, output: str) -> list[str]:
         """The identifiers of the failed tests whose failure is the test's own time limit."""
