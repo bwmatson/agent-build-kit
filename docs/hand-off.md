@@ -8,6 +8,12 @@ The hold is the path for work a person builds outside the kit. Where a repo name
 kit also skips a unit whose board item a person has taken (see "Work tracker" in
 `docs/architecture.md`). The hold is the permanent path for a repo with no tracker.
 
+With a tracker configured, a person's claimed item and merged pull request replace the two
+commands `abk external hand-off` and `abk external done`: when a pull request that carries the
+`AB#` reference of a group item the person holds is merged (on a branch of any name), the next
+tick records the hold for those groups (holder the person's display name, link the pull request)
+if none exists, then the hand merge. A pull request closed without merging records nothing.
+
 ## The order
 
 1. Record the hold first, before any spec is written, so the planner honours it from its first
