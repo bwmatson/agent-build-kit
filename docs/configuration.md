@@ -745,10 +745,15 @@ moves it, and in `abk.local.yaml` a notice prints the exact lines.
 A unit whose base moved, or whose pull request has a review comment, a change request or a
 conflict, runs in the resolution lane: a restack, a moved-base run or a comment run, each carried
 through the whole build (the move, the rework, implementation, tests, checks, e2e tests, review and
-push). The cap bounds the lane's runs, and they are not charged to `max_concurrent_stacks` or
-`max_units_in_progress`. When the lane is full, a run that is owed starts in a free ordinary build
-worker and counts toward `max_concurrent_stacks`. A run that cannot go on is held for a person
-(`needs_human`). The lane's cap bounds the moved-base run. The run counts toward slot occupancy and is never held back by the limit on build workers. A unit an earlier version's lane gave back to a build worker carries the cause `restack_handed_back`; no run writes it now, and the unit resumes in the lane. The attempts of a comment run are bounded by
+push). The lane's cap bounds the run. A restack or moved-base run holds a build worker, so the run
+counts toward slot occupancy (no build starts at or above `max_concurrent_stacks`, and the occupancy
+may read over it) and is never held back by the limit on build workers. A comment run holds the unit's
+place and its branch but no build worker, so it never waits behind new builds and takes no place of its
+own under `max_units_in_progress`. When the lane is full, a run that is owed starts in a free ordinary
+build worker and counts toward `max_concurrent_stacks`. A run that cannot go on is held for a person
+(`needs_human`). A unit an earlier version's lane handed back (`restack_handed_back`) is let back in by a
+build worker in the same pass and resumes at its node; no run writes that cause now. The attempts at one
+base tip of a restack or moved-base run, and the rounds of a comment run, are each bounded by
 `global_limits.max_review_rounds`, after which the unit is held for a person. Every limit in
 the top-level `project_limits` is counted for each project, not across all repos; an account's
 `project_limits` caps its projects together (see "The Claude Code account").

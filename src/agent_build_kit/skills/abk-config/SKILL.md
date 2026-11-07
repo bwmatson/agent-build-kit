@@ -164,7 +164,7 @@ context:
 # Scheduling is set once for every project; there is no per-repo override.
 project_limits:
   max_concurrent_stacks: 4    # units implemented at once, in each project
-  max_concurrent_resolutions: 2  # resolution lane runs (a restack, a moved-base run or a comment run) at once, in each project; never charged to max_concurrent_stacks. Was `max_concurrent_restacks` (deprecated; abk config --migrate moves it)
+  max_concurrent_resolutions: 2  # resolution lane runs (a restack, a moved-base run or a comment run) at once, in each project; a restack or moved-base run counts toward slot occupancy, a comment run holds no build worker. Was `max_concurrent_restacks` (deprecated; abk config --migrate moves it)
   max_units_in_progress: 5    # (counted per account instead, against the account's `project_limits.max_units_in_progress`, once an account is named) started, unfinished units (>= 1) in each project, not counting blocked or failed-waiting ones; at it no never-started unit starts
   emergency_extra: 1          # the emergency lane cap, in each project: priority-0 units that may start past the limits above (default 1; 0 is off)
 

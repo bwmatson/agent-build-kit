@@ -370,14 +370,18 @@ and the poller hand each such unit to the resolution lane of the unit's project 
 `project_limits.max_concurrent_resolutions` workers and a queue in the order resolutions were seen, so a busy project does not
 hold back another's) instead of restacking inline. A run is of a kind: a restack, a moved-base run or a comment run
 (the rework of a review comment). It carries the unit through the whole build: the move if the base moved, the rework agent,
-implementation, the unit's tests, the checks, the e2e tests and the review, and the push. It is not charged to
-`max_concurrent_stacks` or `max_units_in_progress`, so a comment run never waits behind new builds. When the lane holds its
+implementation, the unit's tests, the checks, the e2e tests and the review, and the push. The lane's cap bounds
+the run. A restack or moved-base run holds a build worker, so the run counts toward slot occupancy (no build
+starts at or above `max_concurrent_stacks`, and the occupancy may read over it) and is never held back by the
+limit on build workers. A comment run holds the unit's place and its branch but no build worker, so it never
+waits behind new builds and takes no place of its own under `max_units_in_progress`. When the lane holds its
 cap and another run is owed, the run starts in an ordinary build worker if the project has one free, after the units already
 resuming a build and before units that have never started; it counts toward `max_concurrent_stacks` while it runs and not in the
 lane's count. Each run counts as one attempt, bounded by
 `global_limits.max_review_rounds`; a unit that spends them is held with `needs_human` and a note naming the base, the tip
 and how the last run ended. A run that cannot go on is held for a person (`needs_human`) with a note, never handed back to a
-build worker. The lane's cap bounds the moved-base run. The run counts toward slot occupancy and is never held back by the limit on build workers. A unit an earlier version's lane gave back to a build worker carries the cause `restack_handed_back`; no run writes it now, and the unit resumes in the lane. Every agent call in a run asks the usage guard first. The limits are counted for each project,
+build worker. A unit an earlier version's lane handed back (`restack_handed_back`) is let back in by a build
+worker in the same pass and resumes at its node; no run writes that cause now. Every agent call in a run asks the usage guard first. The limits are counted for each project,
 not across all repos, and an account's `project_limits` adds a second count for its projects together (below).
 Free slots then go to
 units with an open pull request, then to those resuming a build, then to new
