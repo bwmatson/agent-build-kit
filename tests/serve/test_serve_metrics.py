@@ -23,6 +23,7 @@ from tests.http_thread import serving
 from tests.ledger_lines import agent_line, span_line, write_ledger
 from tests.metric_names import emitted_names
 from tests.serving import seed_pipeline
+from tests.time_limit import LOADED_TEST_TIME_LIMIT
 
 
 class FakePrometheus:
@@ -143,6 +144,7 @@ def page(inst: Installation) -> TestClient:
     return TestClient(create_app(inst))
 
 
+@pytest.mark.time_limit(LOADED_TEST_TIME_LIMIT)
 def test_the_catalogue_lists_every_instrument_the_package_emits() -> None:
     listed = {instrument.name for instrument in catalogue()}
 
@@ -174,6 +176,7 @@ def test_a_new_instrument_appears_without_an_edit(tmp_path: Path) -> None:
     }
 
 
+@pytest.mark.time_limit(LOADED_TEST_TIME_LIMIT)
 def test_the_page_serves_the_catalogue_with_a_chart_for_each_metric(
     page: TestClient, prometheus: FakePrometheus, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -185,6 +188,7 @@ def test_the_page_serves_the_catalogue_with_a_chart_for_each_metric(
     assert all("series" in m and m["type"] for m in answer["metrics"])
 
 
+@pytest.mark.time_limit(LOADED_TEST_TIME_LIMIT)
 def test_with_prometheus_answering_charts_use_windowed_sums(
     page: TestClient, prometheus: FakePrometheus, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -204,6 +208,7 @@ def test_with_prometheus_answering_charts_use_windowed_sums(
     assert 42 in values
 
 
+@pytest.mark.time_limit(LOADED_TEST_TIME_LIMIT)
 def test_with_prometheus_down_the_same_metrics_come_from_local_records(
     inst: Installation, page: TestClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -227,6 +232,7 @@ def metric(answer: dict, name: str) -> dict:
     return next(m for m in answer["metrics"] if m["name"] == name)
 
 
+@pytest.mark.time_limit(LOADED_TEST_TIME_LIMIT)
 def test_with_prometheus_down_durations_and_unit_counts_come_from_local_files(
     inst: Installation, page: TestClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -266,6 +272,7 @@ def test_with_prometheus_down_durations_and_unit_counts_come_from_local_files(
     }
 
 
+@pytest.mark.time_limit(LOADED_TEST_TIME_LIMIT)
 def test_units_reading_reworking_or_rebasing_are_counted_as_running(
     inst: Installation, page: TestClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -285,6 +292,7 @@ def test_units_reading_reworking_or_rebasing_are_counted_as_running(
     assert "rebasing" not in counted
 
 
+@pytest.mark.time_limit(LOADED_TEST_TIME_LIMIT)
 def test_with_prometheus_down_the_ledgers_metric_records_draw_their_charts(
     inst: Installation, page: TestClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -320,6 +328,7 @@ def test_with_prometheus_down_the_ledgers_metric_records_draw_their_charts(
     ]
 
 
+@pytest.mark.time_limit(LOADED_TEST_TIME_LIMIT)
 def test_a_query_prometheus_refuses_leaves_one_chart_empty_not_the_page_local(
     page: TestClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -353,6 +362,7 @@ def test_a_query_prometheus_refuses_leaves_one_chart_empty_not_the_page_local(
     assert metric(answer, "abk.units")["series"]
 
 
+@pytest.mark.time_limit(LOADED_TEST_TIME_LIMIT)
 def test_the_catalogue_gives_the_ledger_metrics_all_their_attributes() -> None:
     listed = {i.name: set(i.attributes) for i in catalogue()}
     ledger = {"repo", "tier", "node", "role", "model", "source"}
@@ -361,6 +371,7 @@ def test_the_catalogue_gives_the_ledger_metrics_all_their_attributes() -> None:
     assert listed["abk.agent.tokens"] == ledger | {"kind"}
 
 
+@pytest.mark.time_limit(LOADED_TEST_TIME_LIMIT)
 def test_the_tokens_query_selects_one_of_the_two_series_that_write_the_counter(
     page: TestClient, prometheus: FakePrometheus, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -373,6 +384,7 @@ def test_the_tokens_query_selects_one_of_the_two_series_that_write_the_counter(
     assert all(re.search(r"abk_agent_tokens_total\{[^}]*source\s*!?=", q) for q in tokens), tokens
 
 
+@pytest.mark.time_limit(LOADED_TEST_TIME_LIMIT)
 def test_with_tempo_answering_the_page_lists_its_traces(
     page: TestClient, tempo: FakeTempo, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -396,6 +408,7 @@ def test_with_tempo_answering_the_page_lists_its_traces(
 
 
 @pytest.mark.parametrize("down", [False, True])
+@pytest.mark.time_limit(LOADED_TEST_TIME_LIMIT)
 def test_with_tempo_down_or_unset_traces_come_from_the_ledger_spans(
     inst: Installation, page: TestClient, monkeypatch: pytest.MonkeyPatch, down: bool
 ) -> None:
@@ -413,6 +426,7 @@ def test_with_tempo_down_or_unset_traces_come_from_the_ledger_spans(
     assert [(t["name"], t["duration_ms"]) for t in traces["items"]] == [("implement", 1500)]
 
 
+@pytest.mark.time_limit(LOADED_TEST_TIME_LIMIT)
 def test_the_dashboard_link_opens_the_pipeline_dashboard(
     page: TestClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -425,5 +439,6 @@ def test_the_dashboard_link_opens_the_pipeline_dashboard(
     assert dashboard == "http://grafana.example:3000/d/abk-pipeline"
 
 
+@pytest.mark.time_limit(LOADED_TEST_TIME_LIMIT)
 def test_with_no_store_configured_the_page_says_local(page: TestClient) -> None:
     assert page.get("/api/metrics").json()["source"] == "local"

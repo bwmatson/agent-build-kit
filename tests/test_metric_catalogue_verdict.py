@@ -15,6 +15,7 @@ from agent_build_kit.pipeline.verdict import ClassHistory, GateResult, ReviewTie
 from agent_build_kit.pipeline.verdict_record import record_verdict
 from agent_build_kit.serve.metrics import catalogue
 from tests.otlp import Collector, enabled
+from tests.time_limit import LOADED_TEST_TIME_LIMIT
 
 COUNTER = "abk.verdict"
 ACCURACY = "abk.planner.accuracy"
@@ -51,6 +52,7 @@ def verdict(
     telemetry.shutdown()
 
 
+@pytest.mark.time_limit(LOADED_TEST_TIME_LIMIT)
 def test_the_catalogue_lists_the_verdict_counter_with_tier_estimate_and_class_only() -> None:
     listed = {i.name: i for i in catalogue()}
 
@@ -58,6 +60,7 @@ def test_the_catalogue_lists_the_verdict_counter_with_tier_estimate_and_class_on
     assert set(listed[COUNTER].attributes) == {"tier", "estimate", "class"}
 
 
+@pytest.mark.time_limit(LOADED_TEST_TIME_LIMIT)
 def test_the_catalogue_lists_the_planner_accuracy_reading_by_repo_and_class() -> None:
     listed = {i.name: i for i in catalogue()}
 
