@@ -524,7 +524,7 @@ from agent_build_kit.runtimes.guards import guard_lines
 from agent_build_kit.serve.review import ReviewStore
 from agent_build_kit.trackers.folders import archived_entries
 from agent_build_kit.trackers.hand_built import record_hand_built
-from agent_build_kit.trackers.report import standing
+from agent_build_kit.trackers.report import conflict_lines, standing
 from agent_build_kit.trackers.start_decision import RoundReads, StartDecision, start_gate
 from agent_build_kit.trackers.tick_step import note_state_change, sync_trackers, tracker_pass
 from agent_build_kit.tracks.runner import RUN_ID
@@ -1087,6 +1087,9 @@ def cmd_status(args: argparse.Namespace, inst: Installation) -> int:
     for name in inst.repos:
         if found := standing(name, ask=False):
             log(found.text if found.state == "invalid" else f"tracker {name}: {found.text}")
+
+    for line in conflict_lines(inst.changes_dir):
+        log(line)
 
     for line in project_source_lines(inst, store_for(inst).all()):
         print(line)

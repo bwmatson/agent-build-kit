@@ -7,10 +7,12 @@ goes through the pipeline's functions, which hold the change's lock."""
 from __future__ import annotations
 
 from collections.abc import Callable, Sequence
+from functools import cached_property
 from pathlib import Path
 
 from agent_build_kit import trackers
 from agent_build_kit.model import Frozen
+from agent_build_kit.pipeline import spans
 from agent_build_kit.pipeline.task_progress import (
     TaskConflict,
     append_task,
@@ -19,6 +21,8 @@ from agent_build_kit.pipeline.task_progress import (
     rewrite_task,
 )
 from agent_build_kit.pipeline.tracker_file import (
+    ConflictRecord,
+    Synced,
     TargetMismatch,
     TaskEntry,
     TrackerFile,
@@ -39,6 +43,8 @@ from agent_build_kit.trackers.start_decision import covered_by, others
 BLOCKED = "blocked"
 BLOCKED_NOTE = "group item blocked on the board"
 RELEASED_NOTE = "the board no longer holds it"
+REMOVED = "removed"
+_CLOSED_EPIC = frozenset({"done", REMOVED})
 _FIELDS = frozenset({"title", "body", "state", "tags"})
 
 
@@ -88,16 +94,24 @@ class _Apply:
         self.changes_dir = changes_dir
         self.store = store
         self.log = log
-        self.sync = tracker.identity().name
         self.recorded: list[str] = []
         self.conflicts: list[ApplyConflict] = []
         self.files: dict[str, TrackerFile] = {}
         self.dirty: set[str] = set()
         self.places: dict[str, _Where] = {}
+        # The board change that last reached each item: who made it and when.
+        self.made: dict[str, Change] = {}
+        self.epics: dict[str, list[str]] = {}
         self._index()
+
+    @cached_property
+    def sync(self) -> str:
+        return self.tracker.identity().name
 
     def _index(self) -> None:
         target = mapping_target(self.section)
+        if not self.changes_dir.is_dir():
+            return
         for folder in sorted(self.changes_dir.iterdir()):
             try:
                 found = read_for_target(folder, self.section.kind, target)
@@ -107,6 +121,8 @@ class _Apply:
                 continue
             name = folder.name
             self.files[name] = found
+            if found.epic:
+                self.epics.setdefault(found.epic, []).append(name)
             if found.change:
                 self.places[found.change.id] = _Where(change=name, level="change", key=name)
             for key, entry in found.groups.items():
@@ -119,13 +135,174 @@ class _Apply:
     def _tasks_path(self, change: str) -> Path:
         return self.changes_dir / change / "tasks.md"
 
-    def _conflict(self, item_id: str, field: str, spec: str, board: str, note: str) -> None:
+    def _conflict(
+        self,
+        item_id: str,
+        field: str,
+        spec: str,
+        board: str,
+        note: str,
+        change: str | None = None,
+    ) -> None:
+        name = change or (self.places[item_id].change if item_id in self.places else None)
+        if name in self.files:
+            self._record_conflict(name, item_id, field, spec, board)
         self.conflicts.append(
             ApplyConflict(
                 item_id=item_id, field=field, spec_value=spec, tracker_value=board, note=note
             )
         )
         self.log(f"tracker: {item_id} {field}: {note}")
+
+    # --- conflict records -------------------------------------------------------------------
+
+    def _open_record(self, change: str, item_id: str, field: str) -> ConflictRecord | None:
+        return next(
+            (
+                r
+                for r in self.files[change].conflicts
+                if (r.item_id, r.field, r.status) == (item_id, field, "open")
+            ),
+            None,
+        )
+
+    def _record_conflict(
+        self, change: str, item_id: str, field: str, spec: str, board: str
+    ) -> None:
+        """Record the conflict as open; one already open for the item and field keeps its
+        comment and takes the new values."""
+        file = self.files[change]
+        existing = self._open_record(change, item_id, field)
+        seen = self.made.get(item_id)
+        record = ConflictRecord(
+            item_id=item_id,
+            field=field,
+            spec_value=spec,
+            tracker_value=board,
+            who=seen.who if seen else "",
+            when=seen.when if seen else spans.clock.now().isoformat(),
+            commented=existing.commented if existing else False,
+        )
+        kept = tuple(r for r in file.conflicts if r is not existing)
+        self.files[change] = file.model_copy(update={"conflicts": (*kept, record)})
+        self.dirty.add(change)
+
+    def _close(self, change: str, item_id: str, field: str) -> None:
+        """Close the open conflict for the item and field: the two sides agree again."""
+        existing = self._open_record(change, item_id, field)
+        if existing is None:
+            return
+        file = self.files[change]
+        closed = existing.model_copy(update={"status": "closed"})
+        swapped = tuple(closed if r is existing else r for r in file.conflicts)
+        self.files[change] = file.model_copy(update={"conflicts": swapped})
+        self.dirty.add(change)
+
+    def surface(self) -> None:
+        """Comment once on the item of each open conflict not yet commented."""
+        for change, file in list(self.files.items()):
+            for record in file.conflicts:
+                if record.status != "open" or record.commented:
+                    continue
+                text = (
+                    f"The kit left a conflict on {record.field} for a person to settle: "
+                    f"the spec has {record.spec_value!r}, the board has {record.tracker_value!r}."
+                )
+                try:
+                    self.tracker.comment(record.item_id, text)
+                except Exception as error:  # noqa: BLE001 — a host answers in its own errors
+                    self.log(f"tracker: no comment on {record.item_id}: {error}")
+                    continue
+                current = self.files[change]
+                marked = tuple(
+                    r.model_copy(update={"commented": True}) if r is record else r
+                    for r in current.conflicts
+                )
+                self.files[change] = current.model_copy(update={"conflicts": marked})
+                self.dirty.add(change)
+
+    # --- removals, titles and the epic ------------------------------------------------------
+
+    def epic(self, changes: Sequence[str], item: Item) -> None:
+        """The manual epic is a person's: nothing is applied, and a closed or removed one is
+        warned about once for each change that names it."""
+        closed = (item.kit_state or item.state) in _CLOSED_EPIC
+        for change in changes:
+            file = self.files[change]
+            if closed and not file.epic_warned:
+                self.log(
+                    f"tracker: epic {item.id} of change {change} is closed or removed on the board"
+                )
+            if closed != file.epic_warned:
+                self.files[change] = file.model_copy(update={"epic_warned": closed})
+                self.dirty.add(change)
+
+    def removal(self, where: _Where, item: Item) -> bool:
+        """Whether the item is removed on the board: that is a conflict for a person, and
+        restoring the item closes it."""
+        if (item.kit_state or item.state) != REMOVED:
+            self._close(where.change, item.id, REMOVED)
+            return False
+        self._conflict(item.id, REMOVED, "", REMOVED, "removed on the board; the spec is kept")
+        return True
+
+    def _gone_from_spec(self, where: _Where) -> bool:
+        """Whether the group or task a board item stands for is no longer in `tasks.md`."""
+        if where.level == "change":
+            return False
+        try:
+            tasks = read_tasks(self._tasks_path(where.change), where.change)
+        except (OSError, ValueError):
+            return False
+        if where.level == "task":
+            return where.key not in {task.key for task in tasks}
+        return where.group not in {task.group for task in tasks}
+
+    def settle(self) -> None:
+        """Close the open conflicts whose two sides agree again without a board change to show
+        it: the outbound pass put the spec's title back, or the person took the removed task out
+        of the spec."""
+        for change, file in list(self.files.items()):
+            for record in file.conflicts:
+                if record.status != "open" or record.field not in ("title", REMOVED):
+                    continue
+                try:
+                    item = self.tracker.get(record.item_id)
+                except Exception as error:  # noqa: BLE001 — a host answers in its own errors
+                    self.log(f"tracker: the board was not read for {record.item_id}: {error}")
+                    continue
+                where = self.places.get(record.item_id)
+                if record.field == "title":
+                    agreed = item.title == record.spec_value
+                else:
+                    agreed = (item.kit_state or item.state) != REMOVED or (
+                        where is not None and self._gone_from_spec(where)
+                    )
+                if agreed:
+                    self._close(change, record.item_id, record.field)
+
+    def title(self, where: _Where, item: Item) -> None:
+        """A change or group item retitled on the board keeps the spec's title: the edit is a
+        conflict and the recorded copy is the board's, so the outbound pass pushes the spec's."""
+        file = self.files[where.change]
+        entry = file.change if where.level == "change" else file.groups.get(where.key)
+        if entry is None:
+            return
+        open_record = self._open_record(where.change, item.id, "title")
+        spec = open_record.spec_value if open_record else entry.fields.get("title", "")
+        if item.title == spec:
+            self._close(where.change, item.id, "title")
+            return
+        self._conflict(item.id, "title", spec, item.title, "edited on the board; the spec's wins")
+        moved = Synced(
+            id=entry.id, fields={**entry.fields, "title": item.title}, revision=item.revision
+        )
+        current = self.files[where.change]
+        if where.level == "change":
+            self.files[where.change] = current.model_copy(update={"change": moved})
+        else:
+            groups = {**current.groups, where.key: moved}
+            self.files[where.change] = current.model_copy(update={"groups": groups})
 
     # --- holds ------------------------------------------------------------------------------
 
@@ -205,12 +382,14 @@ class _Apply:
         spec = "done" if current.done else "new"
         outcome = reconcile_field("state", base, spec, board, spec_who="spec", tracker_who="board")
         if outcome.action != "tracker":
+            self._close(where.change, item.id, "state")
             return
         try:
             mark_task(path, where.key, done=board == "done", text_hash=entry.text_hash)
         except TaskConflict as error:
             self._conflict(item.id, "state", spec, board, str(error))
             return
+        self._close(where.change, item.id, "state")
         self._update_entry(where.change, where.key, state=board, revision=item.revision)
 
     def _text(self, item: Item, entry: TaskEntry, current: Task, path: Path, where: _Where) -> None:
@@ -226,6 +405,7 @@ class _Apply:
                 item.id, "body", current.text, board, "edited in the spec and on the board"
             )
             return
+        self._close(where.change, item.id, "body")
         if outcome.action != "tracker":
             return
         try:
@@ -252,10 +432,14 @@ class _Apply:
         if parent is None or item.kind != "task":
             return
         if "task" not in self.section.levels:
-            self._conflict(item.id, "item", "", item.title, "it has no level to join")
+            self._conflict(
+                item.id, "item", "", item.title, "it has no level to join", parent.change
+            )
             return
         if parent.level == "change" and "group" in self.section.levels:
-            self._conflict(item.id, "item", "", item.title, "it has no group item to join")
+            self._conflict(
+                item.id, "item", "", item.title, "it has no group item to join", parent.change
+            )
             return
         change = parent.change
         path = self._tasks_path(change)
@@ -264,7 +448,7 @@ class _Apply:
             group = self._lowest_group(change, parent, path)
             number, stored = append_task(path, change, group, text)
         except ValueError as error:
-            self._conflict(item.id, "item", "", item.title, str(error))
+            self._conflict(item.id, "item", "", item.title, str(error), change)
             return
         key = task_key(change, group, number)
         file = self.files[change]
@@ -325,7 +509,7 @@ def apply_changes(
     except TrackerConfigError as error:
         log(f"tracker {repo}: apply skipped: {error}")
         return Applied()
-    if section is None or tracker is None or not changes:
+    if section is None or tracker is None:
         return Applied()
     run = _Apply(tracker, section, changes_dir, store, log)
     touched: dict[str, set[int]] = {}
@@ -335,19 +519,29 @@ def apply_changes(
             if change.item_id in seen:
                 continue
             seen.add(change.item_id)
+            run.made[change.item_id] = change
             try:
                 item = tracker.get(change.item_id)
+                if item.id in run.epics:
+                    run.epic(run.epics[item.id], item)
+                    continue
                 where = run.places.get(item.id)
                 if where is None:
                     run.added(item)
+                elif run.removal(where, item):
+                    continue
                 elif where.level == "task":
                     run.task(where, item)
+                else:
+                    run.title(where, item)
             except Exception as error:  # noqa: BLE001 — a host answers in its own errors
                 log(f"tracker {repo}: item {change.item_id} not applied: {error}")
                 continue
             if where is not None and where.group is not None:
                 touched.setdefault(where.change, set()).add(where.group)
     finally:
+        run.settle()
+        run.surface()
         run.save()
     held: set[str] = set()
     for name, groups in touched.items():

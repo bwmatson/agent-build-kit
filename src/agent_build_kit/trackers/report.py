@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Literal
 
 from agent_build_kit import trackers
 from agent_build_kit.model import Frozen
+from agent_build_kit.pipeline.tracker_file import read_tracker
 from agent_build_kit.trackers.config import TrackerConfigError, section_for
 
 
@@ -44,3 +46,25 @@ def standing(repo: str, *, ask: bool) -> Standing | None:
     except Exception as error:  # the host answers in its own errors; all mean no identity
         return Standing(state="refused", text=f"{section.target}: {error}", **known)
     return Standing(state="ok", text=f"{section.target} as {who}", **known)
+
+
+def conflict_lines(changes_dir: Path) -> list[str]:
+    """One line for each conflict a change's tracker file records as open (the change, the item
+    and field, and both values) and for each change whose manual epic was closed or removed."""
+    lines: list[str] = []
+    for folder in sorted(changes_dir.glob("*/tracker.yaml")):
+        try:
+            recorded = read_tracker(folder.parent)
+        except (OSError, ValueError):
+            continue
+        if recorded is not None and recorded.epic_warned:
+            lines.append(
+                f"tracker epic: {folder.parent.name} epic {recorded.epic} was closed or removed"
+            )
+        for record in recorded.conflicts if recorded else ():
+            if record.status == "open":
+                lines.append(
+                    f"tracker conflict: {folder.parent.name} item {record.item_id} "
+                    f"{record.field}: spec {record.spec_value!r}, board {record.tracker_value!r}"
+                )
+    return lines
