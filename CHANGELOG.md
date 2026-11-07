@@ -9,7 +9,11 @@
 
 - A poll step for a repo's work-tracker board is added, ready for the tick to call. It keeps a
   cursor, ignores the board writes the kit itself made, only records on its first run, and backs
-  off after repeated failures. No tick runs it yet, so nothing changes in a run.
+  off after repeated failures. An apply step turns what people did on the board into pipeline
+  changes: a person on a group or task item, or a blocked group item, holds the units that build
+  it and clearing it releases them; a task marked done or reopened ticks or unticks its box; an
+  edited task rewrites its lines; a task added under a group item is appended to the unit's
+  lowest group. No tick runs them yet, so nothing changes in a run.
 
 - Planning a change with a long task list costs less CPU: the review-tier floor now parses each
   protected path pattern once instead of once for every word of the task text.
