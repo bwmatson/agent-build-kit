@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import shlex
+from pathlib import Path
 from typing import Any
 
 import pytest
@@ -54,11 +55,7 @@ def test_the_by_id_red_command_passes_an_id_with_spaces_and_brackets_as_one_argu
 def test_the_ids_a_real_pytest_cannot_find_are_every_parametrization_of_the_reported_function(
     pytester: pytest.Pytester,
 ) -> None:
-    pytester.makepyfile(
-        test_x=(
-            "import pytest\n\n@pytest.mark.parametrize('n', ['a b', 'c d'])\ndef test_y(n): ...\n"
-        )
-    )
+    pytester.copy_example("ids_not_found")
     lost = ["test_x.py::test_y[e f]", "test_x.py::test_y[g h]"]
     kept = ["test_x.py::test_y[a b]"]
 
@@ -69,3 +66,17 @@ def test_the_ids_a_real_pytest_cannot_find_are_every_parametrization_of_the_repo
     profile = PythonUvProfile()
     assert profile.ids_not_found(output, pytester.path) == ["test_x.py::test_y"]
     assert profile.ids_not_found(output, pytester.path, [*lost, *kept]) == [*lost, *kept]
+
+
+def test_a_reported_path_is_made_relative_through_a_symlinked_working_directory(
+    tmp_path: Path,
+) -> None:
+    real = tmp_path / "real"
+    real.mkdir()
+    link = tmp_path / "link"
+    link.symlink_to(real, target_is_directory=True)
+    output = f"ERROR: not found: {real / 'tests' / 'test_x.py'}::test_y\n(no match in any of [])\n"
+
+    found = PythonUvProfile().ids_not_found(output, link, ["tests/test_x.py::test_y[a b]"])
+
+    assert found == ["tests/test_x.py::test_y[a b]"]

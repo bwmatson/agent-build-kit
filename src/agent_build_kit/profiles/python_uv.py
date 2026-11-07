@@ -655,11 +655,10 @@ class PythonUvProfile:
         for found in _NOT_FOUND.finditer(output):
             path, _, names = found["id"].partition("::")
             if Path(path).is_absolute():
-                path = (
-                    Path(path).relative_to(cwd).as_posix()
-                    if Path(path).is_relative_to(cwd)
-                    else path
-                )
+                # pytest builds the path from the resolved working directory.
+                where, named = cwd.resolve(), Path(path).resolve()
+                if named.is_relative_to(where):
+                    path = named.relative_to(where).as_posix()
             reported.append(f"{path}::{names}")
         if among is None:
             return list(dict.fromkeys(reported))
