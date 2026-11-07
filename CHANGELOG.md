@@ -13,7 +13,11 @@
   changes: a person on a group or task item, or a blocked group item, holds the units that build
   it and clearing it releases them; a task marked done or reopened ticks or unticks its box; an
   edited task rewrites its lines; a task added under a group item is appended to the unit's
-  lowest group. No tick runs them yet, so nothing changes in a run.
+  lowest group. An item removed on the board, or a change or group item retitled there, is
+  recorded as a conflict and never applied: the spec stays as it is and the next push restores
+  the title. A conflict is commented on its item once, listed by `abk status` and closed when
+  the two sides agree again; the manual epic is left alone and a closed one is warned about
+  once. No tick runs them yet, so nothing changes in a run.
 
 - Planning a change with a long task list costs less CPU: the review-tier floor now parses each
   protected path pattern once instead of once for every word of the task text.

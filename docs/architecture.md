@@ -430,7 +430,9 @@ planning, reclaim, the notification reconciliation, verification and archive, th
 closes and replies owed, the state-label sweep, the tracker step (which pushes the wanted board of each repo that names
 a tracker, once its kind is registered; a state change only marks the mirror dirty and makes
 no tracker call, and a pull request description links the board items of the groups a unit
-built), then readiness. A change added or
+built; what people change on the board is applied by `trackers/apply.py`, which never deletes spec
+text: a removed item or a retitled change or group item becomes a conflict in `tracker.yaml`,
+commented on the item once and listed by `abk status`), then readiness. A change added or
 edited during a pass is planned by its next refresh (a change whose tasks are
 unchanged costs no model call), a unit sent back is let in again, and a step
 that raises is logged while the others still run. Only the model's own

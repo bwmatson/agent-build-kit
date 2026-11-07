@@ -81,6 +81,8 @@ class TrackerFile(Frozen):
     groups: dict[str, Synced] = {}
     tasks: dict[str, TaskEntry] = {}
     conflicts: tuple[ConflictRecord, ...] = ()
+    # Set once the epic has been reported closed or removed, so the report is made once.
+    epic_warned: bool = False
 
     @model_validator(mode="before")
     @classmethod
