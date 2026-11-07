@@ -188,33 +188,58 @@ class GitConfig(Frozen):
     branch_prefix: str = "spec/"
 
 
+# The one table of defaults, role name to model: a new role is one row here (and one field below).
+# Bare aliases, not pinned ids, so they track new releases on their own.
+DEFAULT_MODELS: dict[str, str] = {
+    "implement": "sonnet",
+    "rework": "sonnet",
+    "review": "opus",
+    # A rework is a small targeted edit and the model that made it is the worst judge of whether
+    # it landed. With sonnet building and reworking, opus reviewing both is already a different
+    # model; an author set to opus wants this set to something else.
+    "rework_review": "opus",
+    # The regression agent works out why a test fails and writes the fix change; it reasons
+    # across history, so it gets the strongest model.
+    "regression": "opus",
+    # The planner's graph call judges as well as sorts (the review tier), so it gets the
+    # strongest model.
+    "plan": "opus",
+    # Overhead calls need no judgement, so they get the cheap model.
+    "restack": "haiku",
+    "login_refresh": "haiku",
+}
+
+
+def _refuse_unknown_roles(data: object) -> object:
+    """A key that is not a role is refused naming the roles, not only the key."""
+    if isinstance(data, dict):
+        unknown = sorted(str(key) for key in data if key not in DEFAULT_MODELS)
+        if unknown:
+            raise ValueError(
+                f"unknown model role {', '.join(unknown)}; the roles are "
+                + ", ".join(DEFAULT_MODELS)
+            )
+    return data
+
+
 class ModelsConfig(Frozen):
-    """Which model runs which part of a unit. Bare aliases, not pinned ids, so
-    they track new releases on their own. In abk.yaml's flat `models:` block
+    """Which model runs which part of a unit, by role. In abk.yaml's flat `models:` block
     only the roles the file names count: one it leaves out takes the active
     runtime's own `default_models` (`config.models()`), not these defaults."""
 
-    implement: str = "sonnet"
-    rework: str = "sonnet"
-    review: str = "opus"
-    # A rework is a small targeted edit and the model that made it is the worst
-    # judge of whether it landed. With sonnet building and reworking, opus
-    # reviewing both is already a different model; an author set to opus wants
-    # this set to something else.
-    rework_review: str = "opus"
-    # The regression agent works out why a test fails and writes the fix change; it reasons
-    # across history, so it gets the strongest model.
-    regression: str = "opus"
-    # The planner's graph call judges as well as sorts (the review tier), so it gets the
-    # strongest model.
-    plan: str = "opus"
+    implement: str = DEFAULT_MODELS["implement"]
+    rework: str = DEFAULT_MODELS["rework"]
+    review: str = DEFAULT_MODELS["review"]
+    rework_review: str = DEFAULT_MODELS["rework_review"]
+    regression: str = DEFAULT_MODELS["regression"]
+    plan: str = DEFAULT_MODELS["plan"]
+    restack: str = DEFAULT_MODELS["restack"]
+    login_refresh: str = DEFAULT_MODELS["login_refresh"]
+
+    _known_roles = model_validator(mode="before")(_refuse_unknown_roles)
 
     def __getitem__(self, role: str) -> str:
-        raise NotImplementedError
-
-
-# The one table of defaults, role name to model; filled in with the mapping change.
-DEFAULT_MODELS: dict[str, str] = {}
+        return getattr(self, role)
 
 
 class RuntimeModelsConfig(Frozen):
@@ -227,9 +252,13 @@ class RuntimeModelsConfig(Frozen):
     rework_review: str | None = None
     regression: str | None = None
     plan: str | None = None
+    restack: str | None = None
+    login_refresh: str | None = None
+
+    _known_roles = model_validator(mode="before")(_refuse_unknown_roles)
 
     def __getitem__(self, role: str) -> str | None:
-        raise NotImplementedError
+        return getattr(self, role)
 
 
 # Points a unit is assumed to spend of each window before the history says otherwise.
@@ -2727,14 +2756,8 @@ def models() -> ModelsConfig:
     flat = {role: getattr(_active.models, role) for role in named}
     default = runtimes.active().default_models
 
-    def pick(role: str, machine: str | None) -> str:
-        return machine or getattr(own, role) or flat.get(role) or getattr(default, role)
+    def pick(role: str) -> str:
+        machine = getattr(settings, f"{role}_model", None)
+        return machine or own[role] or flat.get(role) or default[role]
 
-    return ModelsConfig(
-        implement=pick("implement", settings.implement_model),
-        rework=pick("rework", settings.rework_model),
-        review=pick("review", settings.review_model),
-        rework_review=pick("rework_review", settings.rework_review_model),
-        regression=pick("regression", settings.regression_model),
-        plan=pick("plan", settings.plan_model),
-    )
+    return ModelsConfig(**{role: pick(role) for role in DEFAULT_MODELS})
