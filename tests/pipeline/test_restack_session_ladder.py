@@ -141,9 +141,9 @@ def test_a_missing_token_gets_a_second_call_naming_it_with_leave_for_dependent_f
 
     first, second = resolver.calls
     assert second.cwd == first.cwd
-    assert "e2e" in second.follow_up
+    assert "smoke_run" in second.follow_up
     assert "depend" in flat(second.follow_up).lower()
-    assert "e2e" in second.prompt, "a new session is told what failed too"
+    assert "smoke_run" in second.prompt, "a new session is told what failed too"
     assert "depend on the conflict" in flat(second.prompt).lower(), "and the order"
     assert set(moved.resolved) == {"markers.py", "notes.md"}
     assert git(repo, "show", f"{BRANCH}:notes.md") == "notes, for the renamed marker"

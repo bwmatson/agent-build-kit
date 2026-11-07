@@ -34,7 +34,7 @@ def conflicting(tmp_path: Path) -> Path:
     commit(repo, "markers.py", "markers = []\n")
     git(repo, "checkout", "-q", "-b", "spec/c/1")
     git(repo, "checkout", "-q", "-b", "spec/c/2")
-    commit(repo, "markers.py", 'markers = ["e2e"]\n')
+    commit(repo, "markers.py", 'markers = ["smoke_run"]\n')
     git(repo, "checkout", "-q", "main")
     commit(repo, "markers.py", 'markers = ["integration"]\n')
     return repo
@@ -56,7 +56,7 @@ def move(repo: Path, **kwargs) -> restack.Moved:
 
 def keeps_both(request: AgentRequest) -> None:
     assert request.cwd is not None
-    (request.cwd / "markers.py").write_text('markers = ["integration", "e2e"]\n')
+    (request.cwd / "markers.py").write_text('markers = ["integration", "smoke_run"]\n')
 
 
 def test_conflict_resolution_runs_through_the_runtime_it_is_given(conflicting: Path) -> None:

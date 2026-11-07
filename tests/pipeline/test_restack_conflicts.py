@@ -37,7 +37,7 @@ def conflicting(tmp_path: Path) -> Path:
 
     git(repo, "checkout", "-q", "-b", "spec/c/1")
     git(repo, "checkout", "-q", "-b", "spec/c/2")
-    commit(repo, "markers.py", 'markers = ["e2e"]\n')
+    commit(repo, "markers.py", 'markers = ["smoke_run"]\n')
 
     git(repo, "checkout", "-q", "main")
     commit(repo, "markers.py", 'markers = ["integration"]\n')
@@ -66,7 +66,7 @@ def test_the_resolver_is_told_what_both_sides_were_doing(conflicting: Path) -> N
 
     def resolver(prompt: str, *, cwd: Path) -> None:
         seen["prompt"] = prompt
-        (cwd / "markers.py").write_text('markers = ["integration", "e2e"]\n')
+        (cwd / "markers.py").write_text('markers = ["integration", "smoke_run"]\n')
 
     move_branch_onto(
         conflicting,
@@ -84,7 +84,7 @@ def test_the_resolver_is_told_what_both_sides_were_doing(conflicting: Path) -> N
 
 def test_a_good_resolution_completes_the_move_keeping_both_changes(conflicting: Path) -> None:
     def resolver(prompt: str, *, cwd: Path) -> None:
-        (cwd / "markers.py").write_text('markers = ["integration", "e2e"]\n')
+        (cwd / "markers.py").write_text('markers = ["integration", "smoke_run"]\n')
 
     move_branch_onto(
         conflicting,
@@ -97,7 +97,7 @@ def test_a_good_resolution_completes_the_move_keeping_both_changes(conflicting: 
 
     git(conflicting, "checkout", "-q", "spec/c/2")
     resolved = (conflicting / "markers.py").read_text()
-    assert "e2e" in resolved
+    assert "smoke_run" in resolved
     assert "integration" in resolved
     assert not (conflicting / ".git" / "rebase-merge").exists()
 
@@ -134,7 +134,7 @@ def test_dropping_the_moving_units_own_change_is_refused(conflicting: Path) -> N
             old_base="spec/c/1",
             resolve=takes_theirs,
             context=context(),
-            must_keep=["e2e"],
+            must_keep=["smoke_run"],
         )
 
 
@@ -185,7 +185,7 @@ def test_the_prompt_says_resolution_is_not_a_licence_to_rewrite(conflicting: Pat
 
     def resolver(prompt: str, *, cwd: Path) -> None:
         seen["prompt"] = prompt
-        (cwd / "markers.py").write_text('markers = ["integration", "e2e"]\n')
+        (cwd / "markers.py").write_text('markers = ["integration", "smoke_run"]\n')
 
     move_branch_onto(
         conflicting,
@@ -221,7 +221,7 @@ def test_a_genuine_resolution_still_passes_the_derived_guard(conflicting: Path) 
     """The guard must not be so strict that keeping both sides is refused."""
 
     def keeps_both(prompt: str, *, cwd: Path) -> None:
-        (cwd / "markers.py").write_text('markers = ["integration", "e2e"]\n')
+        (cwd / "markers.py").write_text('markers = ["integration", "smoke_run"]\n')
 
     move_branch_onto(
         conflicting,
@@ -233,4 +233,4 @@ def test_a_genuine_resolution_still_passes_the_derived_guard(conflicting: Path) 
     )
 
     git(conflicting, "checkout", "-q", "spec/c/2")
-    assert "e2e" in (conflicting / "markers.py").read_text()
+    assert "smoke_run" in (conflicting / "markers.py").read_text()

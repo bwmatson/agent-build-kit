@@ -55,14 +55,14 @@ def conflicting_repo(path: Path) -> Path:
     commit_file(repo, "notes.md", "notes\n")
     git(repo, "checkout", "-q", "-b", OLD_BASE)
     git(repo, "checkout", "-q", "-b", BRANCH)
-    commit_file(repo, "markers.py", 'markers = ["e2e"]\n')
+    commit_file(repo, "markers.py", 'markers = ["smoke_run"]\n')
     git(repo, "checkout", "-q", "main")
     commit_file(repo, "markers.py", 'markers = ["integration"]\n')
     return repo
 
 
 def keeps_both(cwd: Path) -> None:
-    (cwd / "markers.py").write_text('markers = ["integration", "e2e"]\n')
+    (cwd / "markers.py").write_text('markers = ["integration", "smoke_run"]\n')
 
 
 def extra_commit(repo: Path, branch: str, name: str, scratch: Path) -> str:
