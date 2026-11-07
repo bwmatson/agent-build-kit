@@ -9,7 +9,7 @@ lines about the feedback in hand stay in both forms (spec: dry-guidance).
 import re
 from pathlib import Path
 
-from agent_build_kit.pipeline.reuse_guidance import reuse_guidance
+from agent_build_kit.pipeline.reuse_guidance import Kind, reuse_guidance
 from tests.graph.agent_fakes import distinct_models
 from tests.graph.test_session_continuation import (
     REWORK_ASK,
@@ -25,8 +25,8 @@ from tests.runner_fakes import approving, rejecting
 OTHERS = re.compile(r"look for (the )?others of the (same )?kind", re.IGNORECASE)
 
 
-def carries(prompt: str) -> bool:
-    return flat(reuse_guidance()) in flat(prompt)
+def carries(prompt: str, kind: Kind = "source") -> bool:
+    return flat(reuse_guidance(kind)) in flat(prompt)
 
 
 def test_the_tests_prompt_carries_the_part_and_the_continuations_after_it_do_not(
@@ -40,7 +40,7 @@ def test_the_tests_prompt_carries_the_part_and_the_continuations_after_it_do_not
     tick(tmp_path, recorder, **agents(runtime))
 
     tests, implement, fix = runtime.built
-    assert carries(tests.prompt)
+    assert carries(tests.prompt, "tests")
     assert implement.resume_session == "sess-1" and not carries(implement.prompt)
     assert fix.resume_session == "sess-1" and not carries(fix.prompt)
 
@@ -55,7 +55,9 @@ def test_with_reuse_off_every_build_prompt_is_a_full_one_with_the_part(tmp_path:
     tick(tmp_path, recorder, **agents(runtime))
 
     assert len(runtime.built) == 3
-    assert all(carries(request.prompt) for request in runtime.built)
+    first, *later = runtime.built
+    assert carries(first.prompt, "tests")
+    assert all(carries(request.prompt) for request in later)
 
 
 def test_a_unit_entering_past_the_tests_gets_the_part_in_its_first_prompt(tmp_path: Path) -> None:

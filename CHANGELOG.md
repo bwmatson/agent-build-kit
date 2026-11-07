@@ -11,6 +11,12 @@
   `max_concurrent_restacks` still loads with a deprecation notice and `abk config --migrate`
   renames it; it will be dropped in a later release.
 
+- The reuse guidance builders are given now has two versions. The tests step gets a test
+  version (parametrise cases that differ only in data, one shared fixture or helper per need,
+  no test of a test), a rework carries it too when its group names a test file, and the
+  implement, fix-checks and rework prompts keep the source version. Before, one block served
+  both and said little about tests, so test files multiplied for one subject.
+
 - A unit's e2e-test step now runs only the e2e tests the unit's own branch added or changed. The
   tests are listed from the point the branch left its base, and the base is the remote's trunk
   (or the parent's branch for a stacked unit) as in every other step, not the checkout's local

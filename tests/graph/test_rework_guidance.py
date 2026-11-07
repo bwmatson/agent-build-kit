@@ -45,13 +45,14 @@ FIELDS: dict[str, Any] = dict(
 # as they were before guidance existed, then moved on purpose when the prompt's text changed: the
 # note that the pipeline commits the work (`REWORK_PROMPT`, `REVIEW_FEEDBACK_PROMPT`), the output
 # convention and the finish line's tests-by-file-or-id wording (every template here), and the
-# local-server sentence (`CHECKS_PROMPT`, `CHECKS_CONTINUATION`).
+# local-server sentence (`CHECKS_PROMPT`, `CHECKS_CONTINUATION`), and the source version of the
+# reuse guidance (the three full prompts).
 TEMPLATES = {
-    "CHECKS_PROMPT": (CHECKS_PROMPT, "7503a10f4e579c7b"),
+    "CHECKS_PROMPT": (CHECKS_PROMPT, "b00d1e69bf9b9d13"),
     "CHECKS_CONTINUATION": (CHECKS_CONTINUATION, "99f524238fc27f52"),
-    "REWORK_PROMPT": (REWORK_PROMPT, "f6bfdb00a23b334a"),
+    "REWORK_PROMPT": (REWORK_PROMPT, "677a06d0f8fc59d6"),
     "REWORK_CONTINUATION": (REWORK_CONTINUATION, "0bb826bddf700c15"),
-    "REVIEW_FEEDBACK_PROMPT": (REVIEW_FEEDBACK_PROMPT, "17f115ec8d614895"),
+    "REVIEW_FEEDBACK_PROMPT": (REVIEW_FEEDBACK_PROMPT, "f9578bebcda33c91"),
     "REVIEW_FEEDBACK_CONTINUATION": (REVIEW_FEEDBACK_CONTINUATION, "55673cf6125cc43d"),
 }
 

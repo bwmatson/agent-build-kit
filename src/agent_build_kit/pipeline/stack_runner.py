@@ -48,6 +48,7 @@ from agent_build_kit.pipeline.fix_reproduction import Outcome, Reproduction
 from agent_build_kit.pipeline.flakes import OnFlake
 from agent_build_kit.pipeline.git_output import FetchFailed, TransportFailure
 from agent_build_kit.pipeline.group_mode import GroupMode
+from agent_build_kit.pipeline.group_paths import named_test_paths
 from agent_build_kit.pipeline.install_record import ALWAYS_INSTALLABLE, STAGING
 from agent_build_kit.pipeline.lease import Leases
 from agent_build_kit.pipeline.pr_replies import last_json, parse_answer
@@ -170,7 +171,9 @@ names (or one the installation lists under `builders.installable_files`), inside
 """
 
 # Part of a full prompt only: a continued session already holds it.
-REUSE_NOTE = "\n" + reuse_guidance() + "\n"
+REUSE_NOTE = "\n" + reuse_guidance("source") + "\n"
+# The tests prompt, and a rework whose group names a test file, carry the test version.
+TESTS_REUSE_NOTE = "\n" + reuse_guidance("tests") + "\n"
 
 # Said in the prompts that edit tests: the line a regression change carries for tests that share
 # its cause only possibly (spec: regression-same-exposure).
@@ -195,12 +198,14 @@ and finish the task from there.
 
 
 class PromptTemplate(str):
-    """A prompt with a `{guidance}` place and a `{commands}` place, each empty unless a caller
-    fills it, so a caller with no person's note or no agent commands formats it as it always
-    did."""
+    """A prompt with a `{guidance}`, a `{commands}` and a `{tests_guidance}` place, each empty
+    unless a caller fills it, so a caller with no person's note, no agent commands or no test
+    file to edit formats it as it always did."""
 
     def format(self, *args: object, **fields: object) -> str:
-        return super().format(*args, **{"guidance": "", "commands": "", **fields})
+        return super().format(
+            *args, **{"guidance": "", "commands": "", "tests_guidance": "", **fields}
+        )
 
 
 _PERSON_GUIDANCE = """\
@@ -333,6 +338,7 @@ class GroupStep(Frozen):
     # How the group is built; `tests_and_code` when its heading cannot be read.
     mode: GroupMode = GroupMode.TESTS_AND_CODE
     support: tuple[str, ...] = ()  # the paths its `Support:` lines declare
+    tests: tuple[str, ...] = ()  # the test paths its tasks name, () when it names none
 
     @property
     def test_only(self) -> bool:
@@ -368,6 +374,7 @@ def group_steps_of(planning_repo: Path | str, unit: Unit) -> tuple[GroupStep, ..
                     )
                 ),
                 support=found[number].support if number in found else (),
+                tests=tuple(named_test_paths(found[number])) if number in found else (),
             )
             for number in member.groups
         )
@@ -443,7 +450,7 @@ the unit has passed review, unit-test and been pushed.
     + PIPELINE_PUSHES_NOTE
     + PIPELINE_COMMITS_NOTE
     + OUTPUT_NOTE
-    + REUSE_NOTE
+    + TESTS_REUSE_NOTE
     + INSTALL_NOTE
     + POSSIBLE_TESTS_NOTE
 )
@@ -468,6 +475,12 @@ you finish; the pipeline runs the whole suite.
 """
 
 
+def rework_tests_guidance(steps: Sequence[GroupStep]) -> str:
+    """The test version of the reuse guidance when a group among `steps` names a test file,
+    else nothing: a rework that edits no test is not told how to write one."""
+    return TESTS_REUSE_NOTE if any(step.tests for step in steps) else ""
+
+
 REVIEW_FEEDBACK_PROMPT = PromptTemplate(
     """\
 {guidance}A review of this branch asked for changes, for change {change_dir}, task
@@ -489,6 +502,7 @@ the unit has passed review, unit-test and been pushed.
     + PIPELINE_COMMITS_NOTE
     + OUTPUT_NOTE
     + REUSE_NOTE
+    + "{tests_guidance}"
     + INSTALL_NOTE
     + NO_REWRITE_NOTE
     + POSSIBLE_TESTS_NOTE
@@ -893,6 +907,7 @@ commit it describes — and leave out your own verification (lint, types, test
 counts); unit-test runs before anything is pushed.
 """
 
+
 REWORK_PROMPT = PromptTemplate(
     """\
 {guidance}Review asked for a change to the work already on this branch, specified at
@@ -914,6 +929,7 @@ the unit has passed review, unit-test and been pushed.
     + PIPELINE_COMMITS_NOTE
     + OUTPUT_NOTE
     + REUSE_NOTE
+    + "{tests_guidance}"
     + INSTALL_NOTE
     + NO_REWRITE_NOTE
     + POSSIBLE_TESTS_NOTE

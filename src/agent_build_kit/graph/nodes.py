@@ -143,6 +143,7 @@ from agent_build_kit.pipeline.stack_runner import (
     escalates,
     parse_test_decisions,
     person_guidance,
+    rework_tests_guidance,
     tests_needing_decision,
     with_response,
     write_tests_prompt,
@@ -2534,6 +2535,7 @@ class BuildPath:
                     REVIEW_FEEDBACK_PROMPT.format(
                         commands=commands_note(r.repo_config),
                         guidance=note,
+                        tests_guidance=rework_tests_guidance(r.group_steps(unit)),
                         change_dir=change_dir,
                         groups=groups,
                         feedback=feedback,
@@ -2586,6 +2588,7 @@ class BuildPath:
                     else REWORK_PROMPT.format(
                         commands=commands_note(r.repo_config),
                         guidance=note,
+                        tests_guidance=rework_tests_guidance(r.group_steps(unit)),
                         groups=groups,
                         change_dir=change_dir,
                         feedback=feedback,
