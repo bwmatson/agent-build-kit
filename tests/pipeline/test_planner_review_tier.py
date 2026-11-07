@@ -6,6 +6,9 @@ import json
 
 import pytest
 
+from agent_build_kit import path_patterns
+from agent_build_kit.config import active
+from agent_build_kit.pipeline import review_paths
 from agent_build_kit.pipeline.planner import PlannerError, parse_graph
 from agent_build_kit.pipeline.units import Unit
 from agent_build_kit.pipeline.work_graph import TaskGroup
@@ -136,3 +139,22 @@ def test_an_omitted_value_takes_the_floor() -> None:
     units = plan((1,), (2,), flags=("", "contract"), tier=None)
 
     assert [u.review_tier for u in units] == ["auto", "full"]
+
+
+def test_a_floor_check_parses_each_protected_glob_at_most_once(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    real = path_patterns.normalize
+    calls: list[str] = []
+
+    def counting(pattern: str) -> str:
+        calls.append(pattern)
+        return real(pattern)
+
+    monkeypatch.setattr(path_patterns, "normalize", counting)
+    body = " ".join(f"word{n}" for n in range(1_000))
+
+    units = plan((1,), flags=("",), bodies=(body,), tier=None)
+
+    assert len(calls) <= len(review_paths.protected_globs(active(), "app"))
+    assert units[0].review_tier == "auto"
