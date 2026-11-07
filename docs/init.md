@@ -293,6 +293,11 @@ with `abk project init <path> --profile <name> --repo <repo>` (see `docs/cli.md`
 writes the same `projects:` entry into `abk.yaml` without touching its comments, and
 with `--scaffold` the minimal manifest that detection recognises as that profile's.
 
+A change can also add, remove or replace a project with a `Project:` line in its tasks; the kit then
+edits `abk.yaml` itself and commits the whole file as a commit of its own, so a person's
+uncommitted edit of `abk.yaml` goes in with it. A person can still edit `abk.yaml` by hand at any
+time; the `Project:` line only saves the `Manual:` step.
+
 ## `install-skills` and the three skills
 
 `abk install-skills` copies `skills/*/SKILL.md` into `.claude/skills/` — of

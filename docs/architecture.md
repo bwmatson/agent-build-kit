@@ -1336,6 +1336,16 @@ rejected push is retried once after a rebase, then the commit is kept and logged
 `planning/archive-<change>-<run id>`, opens a pull request and resets HEAD. The copy is then
 removed. `abk verify <change>` archives the same way.
 
+### The `Project:` step
+
+A group's `Project:` lines edit `projects:` in `abk.yaml`. An add (and the new half of a replace)
+is applied when the change is planned; a remove (and the old half of a replace) is applied by a
+step of the round, after the refresh and the landing and before planning and the archive, once the
+carrying unit is settling or merged and no unfinished unit is stored in the project. A ledger
+keyed by change, group and a hash of the line makes a replan or a repeated tick a no-op. The step
+then commits `abk.yaml` alone, with a message naming the change and group; a failed edit or a
+refused commit is logged, retried on the next tick and shown by `abk status` and `abk doctor`.
+
 ## Work tracker
 
 A repo may name a work tracker in `abk.yaml` (`tracker:`), independent of its code host: the

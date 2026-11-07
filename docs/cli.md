@@ -512,6 +512,10 @@ archive failed), when it passed but the change was not archived.
 
 ### `abk tags [CHANGE] [--all]`
 
+`abk tags` also reads each `Project: add|remove|replace` line of a group (the forms are in the
+`abk-authoring` skill, and `abk project init` makes the same edit by hand), reports a malformed
+one, and shows each line as pending or applied.
+
 Validates the task-group heading contract of one change's `tasks.md`, or
 every active change's with `--all`: tags present and known, groups numbered
 from 1, every group has tasks, `[contract]` paired with a last `[narrow]` (except in a change named
@@ -1165,6 +1169,9 @@ temporary file and a rename), and the exit code is 1. On success it prints
 `installed <target> sha256=<hash> size=<bytes>`, and that line is copied to the unit's run log.
 
 ### `abk project init PATH --profile NAME --repo REPO [--scaffold]`
+
+(A change's tasks can make the same edit with a `Project:` line, which the kit applies and commits
+itself; see `abk tags`.)
 
 Registers a project in `REPO`'s `projects:` list before its directory exists (it is
 pending until it does). `PATH` is relative to the repo root; an absolute path under the
