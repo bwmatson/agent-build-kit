@@ -58,7 +58,6 @@ def test_the_two_versions_are_different_texts() -> None:
 
 
 def test_the_source_version_has_no_test_advice() -> None:
-    assert SOURCE != TESTS
     assert not carries_test_points(SOURCE)
     assert "shared test support" not in SOURCE.lower()
 
@@ -84,7 +83,6 @@ def test_the_test_version_points_to_the_placement_rule_and_does_not_restate_it()
 def test_the_test_version_keeps_the_reuse_basics_for_test_support() -> None:
     text = TESTS.lower()
 
-    assert SOURCE != TESTS
     assert "shared test support" in text
     assert "fixtures" in text
 
@@ -92,18 +90,15 @@ def test_the_test_version_keeps_the_reuse_basics_for_test_support() -> None:
 # --- which prompt carries which -----------------------------------------------------
 
 
-def test_the_tests_prompt_carries_the_test_version_and_not_the_source_one() -> None:
-    text = flat(write_tests_prompt(GroupMode.TESTS_AND_CODE, **FIELDS))
-
-    assert SOURCE != TESTS
-    assert TESTS in text
-    assert SOURCE not in text
-
-
-def test_the_unfilled_tests_prompt_carries_the_test_version() -> None:
-    text = flat(filled(TESTS_PROMPT))
-
-    assert SOURCE != TESTS
+@pytest.mark.parametrize(
+    "text",
+    [
+        flat(write_tests_prompt(GroupMode.TESTS_AND_CODE, **FIELDS)),
+        flat(filled(TESTS_PROMPT)),
+    ],
+    ids=["written", "unfilled"],
+)
+def test_the_tests_prompt_carries_the_test_version_and_not_the_source_one(text: str) -> None:
     assert TESTS in text
     assert SOURCE not in text
 
@@ -123,7 +118,6 @@ def test_the_implement_and_fix_checks_prompts_carry_the_source_version_and_no_te
 ) -> None:
     text = flat(filled(prompt))
 
-    assert SOURCE != TESTS
     assert SOURCE in text
     assert TESTS not in text
     assert not carries_test_points(text)
@@ -132,7 +126,6 @@ def test_the_implement_and_fix_checks_prompts_carry_the_source_version_and_no_te
 def test_the_implementation_of_a_group_with_no_tests_step_carries_the_source_version_only() -> None:
     text = flat(IMPLEMENTATION_PROMPT.format(no_tests=True, **FIELDS))
 
-    assert SOURCE != TESTS
     assert SOURCE in text
     assert TESTS not in text
     assert not carries_test_points(text)
@@ -141,20 +134,15 @@ def test_the_implementation_of_a_group_with_no_tests_step_carries_the_source_ver
 def test_a_tests_only_prompt_carries_the_test_version_and_says_its_tests_must_pass() -> None:
     text = flat(write_tests_prompt(GroupMode.TESTS_ONLY, **FIELDS))
 
-    assert SOURCE != TESTS
     assert TESTS in text
     assert SOURCE not in text
     assert "must pass" in text
 
 
 @pytest.mark.parametrize("mode", [GroupMode.NO_CODE, GroupMode.REFACTOR])
-def test_a_group_with_no_tests_node_builds_no_prompt_with_the_test_version(
-    mode: GroupMode,
-) -> None:
+def test_a_group_with_no_tests_step_builds_no_tests_prompt(mode: GroupMode) -> None:
     with pytest.raises(ValueError, match="tests"):
         write_tests_prompt(mode, **FIELDS)
-
-    assert SOURCE != TESTS
 
 
 # --- a rework --------------------------------------------------------------------------
@@ -181,7 +169,6 @@ def test_a_rework_whose_group_names_a_test_file_carries_both_versions(tmp_path: 
         "- [ ] 1.1 Test: `tests/pipeline/test_marker.py` — the marker\n- [ ] 1.2 Do the marker\n",
     )
 
-    assert SOURCE != TESTS
     assert SOURCE in text
     assert TESTS in text
 
@@ -194,7 +181,6 @@ def test_a_rework_whose_group_names_no_test_file_carries_the_source_version_only
         "- [ ] 1.1 Test: the marker\n- [ ] 1.2 Do the marker in `src/marker.py`\n",
     )
 
-    assert SOURCE != TESTS
     assert SOURCE in text
     assert TESTS not in text
     assert not carries_test_points(text)

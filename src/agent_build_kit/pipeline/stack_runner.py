@@ -336,6 +336,7 @@ class GroupStep(Frozen):
     # How the group is built; `tests_and_code` when its heading cannot be read.
     mode: GroupMode = GroupMode.TESTS_AND_CODE
     support: tuple[str, ...] = ()  # the paths its `Support:` lines declare
+    tests: tuple[str, ...] = ()  # the test paths its tasks name, () when it names none
 
     @property
     def test_only(self) -> bool:
@@ -371,6 +372,7 @@ def group_steps_of(planning_repo: Path | str, unit: Unit) -> tuple[GroupStep, ..
                     )
                 ),
                 support=found[number].support if number in found else (),
+                tests=tuple(named_test_paths(found[number])) if number in found else (),
             )
             for number in member.groups
         )
@@ -473,7 +475,8 @@ you finish; the pipeline runs the whole suite.
 
 class ReworkTemplate(PromptTemplate):
     """A prompt for reworking a branch after review or feedback, which carries the test version
-    of the reuse guidance only where a caller fills `{tests_guidance}` with it."""
+    of the reuse guidance only where a caller fills `{tests_guidance}` with it. The default of ""
+    is for the tests that fill the template without a unit; the pipeline's callers pass it."""
 
     def format(self, *args: object, **fields: object) -> str:
         return super().format(*args, **{"tests_guidance": "", **fields})
@@ -482,14 +485,9 @@ class ReworkTemplate(PromptTemplate):
 def rework_tests_guidance(planning_repo: Path | str, unit: Unit) -> str:
     """The test version of the reuse guidance when a group the unit builds names a test file,
     else nothing: a rework that edits no test is not told how to write one."""
-    for member in unit.members():
-        tasks = change_dir_of(planning_repo, member.change) / "tasks.md"
-        if not tasks.exists():
-            continue
-        for group in validate_tasks(tasks)[0]:
-            if group.number in member.groups and named_test_paths(group):
-                return TESTS_REUSE_NOTE
-    return ""
+    return (
+        TESTS_REUSE_NOTE if any(step.tests for step in group_steps_of(planning_repo, unit)) else ""
+    )
 
 
 REVIEW_FEEDBACK_PROMPT = ReworkTemplate(
