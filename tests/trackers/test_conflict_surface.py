@@ -99,3 +99,31 @@ def test_status_lists_each_open_conflict_with_its_item_and_field(
     assert any("4411" in line and "title" in line for line in lines)
     assert any("4412" in line and "removed" in line for line in lines)
     assert not any("4413" in line for line in lines)
+
+
+def test_a_conflict_records_who_changed_the_item_and_when(tmp_path: Path) -> None:
+    run = AppliedBoard(tmp_path, LEVELS)
+    removed = run.item_id("1")
+
+    run.board.person().update(removed, {"state": "removed"})
+    run.apply()
+
+    [record] = run.open_conflicts()
+    made = [c for c in run.board.changed_since(None)[0] if c.item_id == removed][-1]
+    assert (record.who, record.when) == (made.who, made.when)
+
+
+def test_status_says_when_a_changes_epic_was_closed(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    config = planned(tmp_path, SECTION)
+    folder = config.parent / "openspec" / "changes" / "feature"
+    folder.mkdir(parents=True)
+    recorded = TrackerFile(kind=KIND, target="example-org", epic="9001", epic_warned=True)
+    tracker_path(folder).write_text(yaml.safe_dump(recorded.model_dump(mode="json")))
+
+    with served():
+        code, out, err = abk(config, capsys, "status")
+
+    assert code == 0, err
+    assert any("feature" in line and "9001" in line for line in out + err)

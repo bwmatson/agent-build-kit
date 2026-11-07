@@ -28,8 +28,8 @@ _OLD_LABEL_WORDS = {"change": "feature", "group": "story", "task": "task"}
 # The kit's states on each process template's board; CMMI's differ by type, so it names none.
 _PROCESS_STATES: dict[str, dict[str, str]] = {
     "basic": {"new": "To Do", "active": "Doing", "done": "Done"},
-    "agile": {"new": "New", "active": "Active", "done": "Closed"},
-    "scrum": {"new": "New", "active": "Committed", "done": "Done"},
+    "agile": {"new": "New", "active": "Active", "done": "Closed", "removed": "Removed"},
+    "scrum": {"new": "New", "active": "Committed", "done": "Done", "removed": "Removed"},
 }
 
 
@@ -166,7 +166,7 @@ class AzureDevOpsTracker(TrackerSection):
     def kit_state(self, work_item_type: str, board_word: str) -> str | None:
         """The kit state a board state stands for on one work item type; None when none of the
         kit's states maps to it."""
-        for state in ("new", "active", "done"):
+        for state in ("new", "active", "done", "removed"):
             try:
                 if self.board_state(work_item_type, state) == board_word:
                     return state

@@ -217,6 +217,24 @@ def test_a_started_unit_keeps_its_id_and_branch_after_a_task_is_appended(tmp_pat
     assert kept.state == UnitState.RUNNING
 
 
+def test_a_state_conflict_closes_once_the_hash_mismatch_is_gone(tmp_path: Path) -> None:
+    run = AppliedBoard(tmp_path, LEVELS)
+    task = run.item_id("2.1")
+    in_spec = TASKS.replace("the report lists each lane", "the report lists every lane")
+    run.tasks.write_text(in_spec)
+    run.board.person().update(task, {"state": "done"})
+    applied = run.apply()
+    assert [(c.item_id, c.field) for c in applied.conflicts] == [(task, "state")]
+    assert [c.field for c in run.open_conflicts()] == ["state"]
+
+    run.tasks.write_text(TASKS)
+    run.board.person().update(task, {"tags": "again"})
+    run.apply()
+
+    assert "- [x] 2.1 " in run.tasks.read_text()
+    assert run.open_conflicts() == []
+
+
 def test_the_apply_step_writes_the_planning_files_only_through_the_pipelines_functions() -> None:
     source = inspect.getsource(apply)
 

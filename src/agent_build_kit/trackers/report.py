@@ -49,14 +49,18 @@ def standing(repo: str, *, ask: bool) -> Standing | None:
 
 
 def conflict_lines(changes_dir: Path) -> list[str]:
-    """One line for each conflict a change's tracker file records as open: the change, the item
-    and field, and both values."""
+    """One line for each conflict a change's tracker file records as open (the change, the item
+    and field, and both values) and for each change whose manual epic was closed or removed."""
     lines: list[str] = []
     for folder in sorted(changes_dir.glob("*/tracker.yaml")):
         try:
             recorded = read_tracker(folder.parent)
         except (OSError, ValueError):
             continue
+        if recorded is not None and recorded.epic_warned:
+            lines.append(
+                f"tracker epic: {folder.parent.name} epic {recorded.epic} was closed or removed"
+            )
         for record in recorded.conflicts if recorded else ():
             if record.status == "open":
                 lines.append(

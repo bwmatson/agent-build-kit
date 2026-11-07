@@ -45,23 +45,67 @@ def test_an_item_removed_on_the_board_is_a_conflict_and_leaves_the_spec_alone(
     assert [(c.item_id, c.field) for c in run.open_conflicts()] == [(removed, "removed")]
 
 
+SPEC_EDITS = {
+    "change": ("# Remember lanes between runs", "# Remember lanes between every run"),
+    "group": ("Gap fill, conflicts and remembered lanes", "Gap fill and lane memory"),
+    "task": (
+        "Add the report in `src/app/report.py`.",
+        "Add the whole report in `src/app/report.py`.",
+    ),
+}
+MARKERS = {"change": CHANGE, "group": f"{CHANGE}:1", "task": f"{CHANGE}:2.2"}
+
+
 @pytest.mark.parametrize("level", ["change", "group", "task"])
-def test_an_item_removed_on_the_board_is_not_recreated_by_the_outbound_pass(
+def test_an_item_removed_on_the_board_is_not_recreated_or_pushed_to_by_the_outbound_pass(
     tmp_path: Path, level: str
 ) -> None:
     run = AppliedBoard(tmp_path, LEVELS)
     removed = item_of(run, level)
     run.board.person().update(removed, {"state": "removed"})
     run.apply()
+    old, new = SPEC_EDITS[level]
+    run.tasks.write_text(TASKS.replace(old, new))
     before = len(run.board.calls)
 
-    run.world.run()
+    report = run.world.run()
 
     after = run.board.calls[before:]
+    assert MARKERS[level] in report.awaiting
     assert [call for call in after if call.name == "create"] == []
+    assert [call for call in after if call.name != "get" and call.args[:1] == (removed,)] == []
     assert [c.item_id for c in run.open_conflicts()] == [removed]
     assert run.board.get(removed).state == "removed"
-    assert [call for call in after if call.name == "update" and call.args[0] == removed] == []
+
+
+def test_a_title_conflict_closes_once_the_outbound_pass_restores_the_spec_title(
+    tmp_path: Path,
+) -> None:
+    run = AppliedBoard(tmp_path, LEVELS)
+    edited = run.item_id("1")
+    run.board.person().update(edited, {"title": "A title a person chose"})
+    run.apply()
+    assert len(run.open_conflicts()) == 1
+
+    run.world.run()
+    run.apply()
+
+    assert run.open_conflicts() == []
+
+
+def test_a_removal_conflict_closes_once_the_task_is_deleted_from_the_spec(tmp_path: Path) -> None:
+    run = AppliedBoard(tmp_path, LEVELS)
+    removed = run.item_id("2.2")
+    run.board.person().update(removed, {"state": "removed"})
+    run.apply()
+    assert len(run.open_conflicts()) == 1
+
+    run.tasks.write_text(
+        "".join(line for line in TASKS.splitlines(keepends=True) if "- [ ] 2.2 " not in line)
+    )
+    run.apply()
+
+    assert run.open_conflicts() == []
 
 
 def test_restoring_a_removed_item_closes_its_conflict(tmp_path: Path) -> None:
