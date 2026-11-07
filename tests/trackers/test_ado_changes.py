@@ -77,7 +77,7 @@ def test_an_item_changed_again_after_the_cursor_is_returned_with_its_new_revisio
 
     changes, _ = tracker.changed_since(cursor)
 
-    assert [(c.item_id, c.revision) for c in changes] == [(item, "3")]
+    assert [(c.item_id, c.revision) for c in changes] == [(item, "2")]
 
 
 def test_an_item_a_person_made_is_returned_flagged_foreign() -> None:

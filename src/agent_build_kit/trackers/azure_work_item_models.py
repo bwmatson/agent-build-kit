@@ -25,6 +25,8 @@ class FieldsDoc(_Doc):
     description: str = Field(default="", alias="System.Description")
     tags: str = Field(default="", alias="System.Tags")
     assigned_to: IdentityDoc | None = Field(default=None, alias="System.AssignedTo")
+    changed_date: str = Field(default="", alias="System.ChangedDate")
+    changed_by: IdentityDoc | None = Field(default=None, alias="System.ChangedBy")
 
 
 class RelationDoc(_Doc):

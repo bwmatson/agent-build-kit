@@ -11,9 +11,10 @@ Hierarchy is the reverse link on the child, and the forward link on the parent l
 from __future__ import annotations
 
 import html
+import json
 import re
 from collections.abc import Mapping, Sequence
-from typing import cast, get_args
+from typing import Any, cast, get_args
 from urllib.parse import quote, unquote
 
 import httpx
@@ -261,7 +262,66 @@ class AzureDevOpsWorkItems:
         return True
 
     def changed_since(self, cursor: Cursor | None) -> tuple[Sequence[Change], Cursor]:
-        raise NotImplementedError
+        """The items in the area path changed since `cursor`, in order of change date and id.
+
+        The service's dates have limited precision, so the cursor is the latest change date seen
+        and the ids already handled at that instant. The next listing takes what is left at the
+        instant (an item handled there and changed since is later, so it is found again), then
+        what is later. Each query is one page, so it repeats until both are empty."""
+        state: dict[str, Any] = json.loads(cursor.value) if cursor else {"at": "", "ids": []}
+        at: str = state["at"]
+        handled: list[int] = list(state["ids"])
+        changes: list[Change] = []
+        while True:
+            ids = (self._changed_ids(at, handled) if at else []) or self._changed_ids(at, None)
+            if not ids:
+                return tuple(changes), Cursor(value=json.dumps({"at": at, "ids": handled}))
+            for doc in self._read_many(ids):
+                when = doc.fields.changed_date
+                if when != at:
+                    at, handled = when, []
+                handled.append(doc.id)
+                changes.append(self._change_of(doc, when))
+
+    def _changed_ids(self, at: str, handled: Sequence[int] | None) -> list[str]:
+        """The ids changed at `at` other than `handled`, or, with none given, changed after it."""
+        area = self._section.area_path.replace("'", "''")
+        query = (
+            "SELECT [System.Id] FROM WorkItems WHERE [System.TeamProject] = @project "
+            f"AND [System.AreaPath] UNDER '{area}'"
+        )
+        if handled is not None:
+            query += f" AND [System.ChangedDate] = '{at}'"
+            if handled:
+                query += f" AND [System.Id] NOT IN ({','.join(str(i) for i in handled)})"
+        elif at:
+            query += f" AND [System.ChangedDate] > '{at}'"
+        query += " ORDER BY [System.ChangedDate] ASC, [System.Id] ASC"
+        response = self._call("POST", "wit/wiql", json={"query": query})
+        found = validated(WiqlDoc, response.data, "wiql", response.text)
+        return [str(candidate.id) for candidate in found.work_items]
+
+    def _read_many(self, ids: Sequence[str]) -> list[WorkItemDoc]:
+        docs: list[WorkItemDoc] = []
+        for start in range(0, len(ids), 200):
+            listed = self._call("GET", "wit/workitems", {"ids": ",".join(ids[start : start + 200])})
+            docs.extend(validated(WorkItemsDoc, listed.data, "workitems", listed.text).value)
+        return sorted(docs, key=lambda doc: (doc.fields.changed_date, doc.id))
+
+    def _change_of(self, doc: WorkItemDoc, when: str) -> Change:
+        prefix = self._section.marker_prefix
+        fields = doc.fields
+        ours = f"<!-- {prefix}:" in fields.description or any(
+            tag.startswith(f"{prefix}:") for tag in split_tags(fields.tags)
+        )
+        return Change(
+            item_id=str(doc.id),
+            revision=str(doc.rev),
+            fields=(),
+            who=fields.changed_by.unique_name if fields.changed_by else "",
+            when=when,
+            foreign=not ours,
+        )
 
     def find_by_marker(self, marker: str) -> Item | None:
         # `Contains` is a substring match: `change` is also in `change:group`.

@@ -37,6 +37,7 @@ _CHANGE_CONDITION = re.compile(
     r"\[(System\.ChangedDate|System\.AreaPath)\]\s+(>=|>|UNDER|=)\s+'((?:[^']|'')*)'",
     re.IGNORECASE,
 )
+_NOT_IN = re.compile(r"\[System\.Id\]\s+NOT IN\s+\(([\d,\s]*)\)", re.IGNORECASE)
 _FIELDS = {"title": "System.Title", "state": "System.State"}
 # The fields whose text is HTML, which the query language matches only by word.
 LONG_TEXT_FIELDS = ("System.Description",)
@@ -315,10 +316,17 @@ class WorkItemHost(httpx.MockTransport):
             (field.lower(), operator.upper(), wanted.replace("''", "'"))
             for field, operator, wanted in _CHANGE_CONDITION.findall(query)
         ]
+        left_out = {
+            int(number)
+            for group in _NOT_IN.findall(query)
+            for number in group.split(",")
+            if number.strip()
+        }
         found = sorted(
             (doc["fields"]["System.ChangedDate"], number)
             for number, doc in self.items.items()
-            if all(self._holds(doc["fields"], *condition) for condition in conditions)
+            if number not in left_out
+            and all(self._holds(doc["fields"], *condition) for condition in conditions)
         )
         reply = deepcopy(load("wiql_result").body)
         reply["workItems"] = [
@@ -332,4 +340,4 @@ class WorkItemHost(httpx.MockTransport):
             area = fields["System.AreaPath"]
             return area == wanted or area.startswith(wanted + "\\")
         changed = fields["System.ChangedDate"]
-        return changed > wanted if operator == ">" else changed >= wanted
+        return {">": changed > wanted, "=": changed == wanted}.get(operator, changed >= wanted)
