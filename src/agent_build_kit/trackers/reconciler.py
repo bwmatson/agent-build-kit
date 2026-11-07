@@ -61,6 +61,8 @@ class PassReport(Frozen):
     failed: bool = False
     # The markers a dry run would have created.
     listed: tuple[str, ...] = ()
+    # What a person must settle before the item is adopted (spec: external-hold-adoption).
+    conflicts: tuple[str, ...] = ()
 
 
 class _CapReached(Exception):
