@@ -30,6 +30,7 @@ from agent_build_kit.pipeline.tracker_file import (
     write_tracker,
 )
 from agent_build_kit.pipeline.units import Unit
+from agent_build_kit.trackers.adopt_from_hold import Seeded, seed_from_holds
 from agent_build_kit.trackers.base import (
     REPO_FAILURES,
     STATUS_TAGS,
@@ -112,7 +113,9 @@ class _Pass:
         *,
         create_cap: int | None = None,
         dry_run: bool = False,
+        blocked: Collection[str] = (),
     ) -> None:
+        self.blocked = frozenset(blocked)
         self.state_dir = state_dir
         self.create_cap = create_cap
         self.dry_run = dry_run
@@ -140,6 +143,8 @@ class _Pass:
 
     def push(self, item: WantedItem) -> None:
         name = item.marker.split(":", 1)[0]
+        if item.marker in self.blocked:
+            return  # a conflict a person settles: neither adopted nor created again
         if self.dry_run:
             self._list(item, name)
             return
@@ -152,7 +157,13 @@ class _Pass:
             if self.capped:
                 raise _CapReached
             synced = self._create_or_adopt(name, item, parent, wanted)
-        changes = {key: value for key, value in wanted.items() if synced.fields.get(key) != value}
+        # An adopted item keeps the title and body a person wrote.
+        kept = ("title", "body") if synced.adopted else ()
+        changes = {
+            key: value
+            for key, value in wanted.items()
+            if key not in kept and synced.fields.get(key) != value
+        }
         if not changes:
             return
         current = self.tracker.get(synced.id)
@@ -289,6 +300,31 @@ def last_reconciled(path: Path) -> datetime | None:
     return found if found.tzinfo else found.replace(tzinfo=UTC)
 
 
+def _seed(
+    tracker: Tracker,
+    section: TrackerSection,
+    files: dict[str, TrackerFile],
+    wanted: Sequence[WantedItem],
+    changes_dir: Path,
+    state_dir: Path,
+    count_error: Callable[[], None],
+    log: Callable[[str], None],
+) -> Seeded:
+    """Adopt what the holds record before anything is created. A failure is logged and counted,
+    and the pass goes on with nothing adopted."""
+    try:
+        seeded = seed_from_holds(
+            tracker, section, files, wanted, changes_dir=changes_dir, state_dir=state_dir
+        )
+    except Exception as error:  # a host answers in its own errors; seeding never stops the pass
+        count_error()
+        log(f"tracker: adopting the items a hold records failed: {error}")
+        return Seeded()
+    for conflict in seeded.conflicts:
+        log(f"tracker: conflict: {conflict}")
+    return seeded
+
+
 def reconcile(
     repo: str,
     *,
@@ -345,8 +381,20 @@ def reconcile(
         tracking_dir=tracking_dir,
     )
 
+    seeded = (
+        Seeded()
+        if dry_run
+        else _seed(tracker, section, files, wanted, changes_dir, state_dir, count_error, log)
+    )
     run = _Pass(
-        tracker, section, files, changes_dir, state_dir, create_cap=create_cap, dry_run=dry_run
+        tracker,
+        section,
+        files,
+        changes_dir,
+        state_dir,
+        create_cap=create_cap,
+        dry_run=dry_run,
+        blocked=seeded.blocked,
     )
     stopped = failed = False
     left = 0
@@ -391,4 +439,5 @@ def reconcile(
         stopped=stopped,
         failed=failed,
         listed=tuple(run.listed),
+        conflicts=seeded.conflicts,
     )
