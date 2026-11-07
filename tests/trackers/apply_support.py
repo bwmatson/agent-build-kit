@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections.abc import Sequence
 from pathlib import Path
 
+from agent_build_kit.pipeline.tracker_file import ConflictRecord, read_tracker
 from agent_build_kit.pipeline.unit_store import StoredUnit, UnitStore
 from agent_build_kit.pipeline.units import Member, UnitState
 from agent_build_kit.trackers.apply import Applied, apply_changes
@@ -45,11 +46,17 @@ class AppliedBoard:
         units: Sequence[StoredUnit] = (),
         *,
         also: Sequence[str] = (),
+        epic: bool = False,
     ) -> None:
-        """`also` names further changes, each with the fixture's tasks, mirrored beside it."""
-        self.world = World(tmp_path, board_section(levels), NamedBoard())
+        """`also` names further changes, each with the fixture's tasks, mirrored beside it;
+        `epic` gives the change a manual epic item, recorded before the first pass."""
+        self.world = World(tmp_path, board_section(levels, epic=epic), NamedBoard())
         self.store = UnitStore(tmp_path / "units.json")
         self.store.import_units(list(units))
+        self.epic_id = ""
+        if epic:
+            self.epic_id = self.board.add_epic("The epic").id
+            self.world.record_epic(self.epic_id)
         for name in also:
             write_change(self.world.changes_dir, name)
         self.world.run(changes=(CHANGE, *also))
@@ -78,6 +85,16 @@ class AppliedBoard:
             store=self.store,
             log=self.world.logs.append,
         )
+
+    def open_conflicts(self) -> list[ConflictRecord]:
+        """The conflicts the change's `tracker.yaml` records as still open."""
+        recorded = read_tracker(self.world.change_dir)
+        assert recorded is not None
+        return [record for record in recorded.conflicts if record.status == "open"]
+
+    def comments_on(self, item_id: str) -> list[str]:
+        """The text of each comment the kit made on the item."""
+        return [call.args[1] for call in self.board.made("comment") if call.args[0] == item_id]
 
     def unit(self, uid: str) -> StoredUnit:
         return self.store.get(uid)

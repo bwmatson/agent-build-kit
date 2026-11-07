@@ -14,7 +14,7 @@ import hashlib
 import json
 from collections.abc import Callable
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 import yaml
 from pydantic import model_validator
@@ -54,6 +54,21 @@ class TaskEntry(Synced):
     text_hash: str
 
 
+class ConflictRecord(Frozen):
+    """A disagreement between the spec and the board that a person must settle: the item, the
+    field, both values, who changed what and when, and whether it is still `open`. `commented`
+    is set once the item has been commented on."""
+
+    item_id: str
+    field: str
+    spec_value: str = ""
+    tracker_value: str = ""
+    who: str = ""
+    when: str = ""
+    status: Literal["open", "closed"] = "open"
+    commented: bool = False
+
+
 class TrackerFile(Frozen):
     """What `tracker.yaml` holds. `target` is a short label, never a secret."""
 
@@ -65,6 +80,7 @@ class TrackerFile(Frozen):
     epic: str | None = None
     groups: dict[str, Synced] = {}
     tasks: dict[str, TaskEntry] = {}
+    conflicts: tuple[ConflictRecord, ...] = ()
 
     @model_validator(mode="before")
     @classmethod
