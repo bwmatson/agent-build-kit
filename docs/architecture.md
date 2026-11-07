@@ -1809,6 +1809,12 @@ approved.
   has merged: it restacks and runs unit-test again. A unit of the fix change itself does not
   wait. `abk status` lists each flaky test with its count and fix change, and the load it was
   met under when that is known.
+  **A disturbed run is not judged.** A failed unit-test command whose wall time exceeds the
+  duration pytest reports for it by more than `global_limits.suspended_run_gap_seconds` is a run
+  the machine was suspended in: its failures say nothing about the code, so they are neither
+  rerun nor handed to a fix agent, and no fix round is spent. The ledger row has outcome
+  `disturbed` and `disturbed_seconds`, the gap. The checks run once more; a second disturbed
+  run holds the unit for a person with a note naming the suspend.
   **Evidence of the conditions.** A failing unit-test run saves a bundle under
   `runs/test-failures/<unit>-<stamp>/`: `output.txt` (the whole output, redacted, cut at a byte
   cap with a note), `context.json`, `machine.json` and `worktree.json`, and a `reruns/<n>/` folder

@@ -95,7 +95,8 @@ class TestRun(Frozen):
     # The run's start, an ISO 8601 time.
     started: str
     seconds: float
-    # `passed`, `failed` (also when the failure is not the unit's) or `flake`.
+    # `passed`, `failed` (also when the failure is not the unit's), `flake` or `disturbed` (the
+    # machine was suspended in the run, so its failures were not judged).
     outcome: str
     failed: list[str]
     # The one-minute load average at the start and end, when the machine says.
@@ -115,6 +116,8 @@ class TestRun(Frozen):
     load_high: bool | None = None
     # The worker and time-limit hit of each test of `failed`.
     failed_detail: list[FailedTest] = []
+    # For a `disturbed` run: how many seconds its wall time exceeded the duration pytest reported.
+    disturbed_seconds: float | None = None
 
 
 def append_test_run(path: Path, run: TestRun, *, max_bytes: int = TEST_RUNS_MAX_BYTES) -> None:

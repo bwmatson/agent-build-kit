@@ -890,6 +890,9 @@ class LimitsConfig(TestKindSettings):
     # Most tests that may fail a run's first pass and pass the serial rerun before the run
     # is recorded as one flake storm (a disturbed host), with no fix change per test.
     max_flakes_per_run: Annotated[int, Field(ge=1)] = 5
+    # Seconds a unit-test run's wall time may exceed the duration pytest reports for it before the
+    # run counts as one the machine was suspended in: it is rerun once, not judged.
+    suspended_run_gap_seconds: Annotated[float, Field(gt=0)] = 300
     # Hours a unit-test run's temp folder under the installation's temp root lives before a tick may
     # sweep it, if its process is gone.
     temp_keep_hours: Annotated[int, Field(ge=1)] = 16
