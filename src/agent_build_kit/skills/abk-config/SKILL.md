@@ -351,6 +351,10 @@ repos:                        # ordered; a task group's [repo] tag is a key here
                               # `{changed_files}`, `{failed_ids}` and `{workers}`
                               # (`-n <workers> --maxprocesses=<max>`) each expand to
                               # separate arguments (a word of its own, not `--f={...}`)
+        base_data_kept: 3     # recordings of the base's selection data kept, oldest removed
+                              # first; above zero
+        base_data_max_age_hours: 12  # a moved base is recorded again once the last recording
+                              # is older than this many hours; above zero
     dev_stack: null           # {script: scripts/dev-stack.sh} — a script with
                               # up/test/down; e2e-test runs on it, not live
     environment: null         # the same shape as the top-level `environment`, with paths

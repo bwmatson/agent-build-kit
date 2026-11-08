@@ -151,6 +151,21 @@ def test_the_recordings_are_listed_oldest_first(base: Base) -> None:
     assert len(stamps) == 2 and stamps == sorted(stamps)
 
 
+def test_a_recording_that_fails_leaves_no_data_file_in_the_store(base: Base) -> None:
+    def fails(commit: str, data: Path) -> None:
+        data.parent.mkdir(parents=True, exist_ok=True)
+        data.write_text("partial")
+        raise RuntimeError("the recording run failed")
+
+    base.recorder = fails  # type: ignore[assignment]
+
+    with pytest.raises(RuntimeError):
+        base.refresh()
+
+    assert list(base.store.iterdir()) == []
+    assert kept_recordings(base.store) == []
+
+
 def test_a_store_that_does_not_exist_holds_no_recording(base: Base) -> None:
     base.refresh()  # the module exists and runs
 

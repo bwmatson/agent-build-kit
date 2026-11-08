@@ -57,7 +57,11 @@ def refresh_base_data(
         return None
     store.mkdir(parents=True, exist_ok=True)
     data = store / f"{tip}.data"
-    record(tip, data)
+    try:
+        record(tip, data)
+    except BaseException:
+        data.unlink(missing_ok=True)
+        raise
     when = now()
     (store / f"{tip}.json").write_text(json.dumps({"recorded_at": when.isoformat()}))
     for old in kept_recordings(store)[:-kept]:
