@@ -8,21 +8,12 @@ from urllib.parse import quote
 from pydantic import BaseModel
 
 from agent_build_kit.forges.transport import AuthError, AzureRest, NotFound, validated
-from agent_build_kit.model import Frozen
 from agent_build_kit.trackers.azure_work_item_models import BacklogsDoc, WorkItemTypesDoc
-from agent_build_kit.trackers.base import Identity
+from agent_build_kit.trackers.base import Identity, ProbeLine
 from agent_build_kit.trackers.config import AzureDevOpsTracker
 
 # The kit's states, whose mapping onto each type's states is checked.
 KIT_STATES = ("new", "active", "done", "removed")
-
-
-class ProbeLine(Frozen):
-    """One check: whether it passed, and what it found, naming the level, type or state at
-    fault. Never a credential."""
-
-    ok: bool
-    text: str
 
 
 def probe(
@@ -55,6 +46,7 @@ def probe(
             )
         )
         return lines
+    lines.append(ProbeLine(ok=True, text="work item access: the credential can read work items"))
     lines += _types(section, types)
     lines += _states(section, types)
     team = section.team
@@ -64,8 +56,10 @@ def probe(
         lines.append(ProbeLine(ok=False, text=f"team: {team} does not exist in {project}"))
     else:
         lines.append(ProbeLine(ok=True, text=f"team: {team} exists"))
-        levels = [tuple(t.name for t in level.work_item_types) for level in backlogs.value]
-        lines += _nesting(section, levels)
+        # The list's order says nothing; the rank does, the highest being the top level.
+        ranked = sorted(backlogs.value, key=lambda level: level.rank, reverse=True)
+        levels = [tuple(t.name for t in level.work_item_types) for level in ranked]
+        lines += _nesting(section, types, levels)
     for tree, label, path in (
         ("areas", "area path", section.area_path),
         ("iterations", "iteration path", section.iteration_path),
@@ -103,6 +97,14 @@ def _states(section: AzureDevOpsTracker, types: dict[str, tuple[str, ...]]) -> l
             try:
                 board = section.board_state(name, state)
             except ValueError:  # the process names no board state for it
+                if state != "removed":  # the kit moves an item through the other three
+                    lines.append(
+                        ProbeLine(
+                            ok=False,
+                            text=f"states: type {name} has no board state for the kit's {state}; "
+                            "map it in `states` or `states_by_type`",
+                        )
+                    )
                 continue
             if board not in types[name]:
                 lines.append(
@@ -114,15 +116,19 @@ def _states(section: AzureDevOpsTracker, types: dict[str, tuple[str, ...]]) -> l
     return lines or [ProbeLine(ok=True, text="states: every mapped state exists for its type")]
 
 
-def _nesting(section: AzureDevOpsTracker, backlogs: list[tuple[str, ...]]) -> list[ProbeLine]:
+def _nesting(
+    section: AzureDevOpsTracker, types: dict[str, tuple[str, ...]], backlogs: list[tuple[str, ...]]
+) -> list[ProbeLine]:
     """The epic must sit on a level above the first level's type, and each level's type on a
-    level below the one above it."""
+    level below the one above it. `backlogs` is top level first. A type the project has but no
+    backlog level holds cannot be nested, so it is said (one the project lacks is said by the
+    types line)."""
     level_of = {name: position for position, names in enumerate(backlogs) for name in names}
     chain = [section.level_types[level] for level in section.levels]
     lines: list[ProbeLine] = []
     if section.epic:
         epic = section.level_types["epic"]
-        if epic in level_of and level_of[epic] < level_of.get(chain[0], len(backlogs)):
+        if epic in level_of and chain[0] in level_of and level_of[epic] < level_of[chain[0]]:
             lines.append(ProbeLine(ok=True, text=f"epic: {epic} sits above {chain[0]}"))
         else:
             lines.append(
@@ -131,6 +137,11 @@ def _nesting(section: AzureDevOpsTracker, backlogs: list[tuple[str, ...]]) -> li
                     text=f"epic: type {epic} does not exist above the first level ({chain[0]})",
                 )
             )
+    unplaced = [
+        ProbeLine(ok=False, text=f"nesting: level {level}'s type {name} is on no backlog level")
+        for level, name in zip(section.levels, chain, strict=True)
+        if name in types and name not in level_of
+    ]
     refused = [
         ProbeLine(
             ok=False,
@@ -141,5 +152,6 @@ def _nesting(section: AzureDevOpsTracker, backlogs: list[tuple[str, ...]]) -> li
     ]
     return [
         *lines,
+        *unplaced,
         *(refused or [ProbeLine(ok=True, text="nesting: each level fits under the one above")]),
     ]

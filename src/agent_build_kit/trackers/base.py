@@ -25,6 +25,14 @@ class Identity(Frozen):
     name: str
 
 
+class ProbeLine(Frozen):
+    """One line of what `abk doctor` says about a tracker's project: whether the check passed,
+    and what it found, naming the level, type or state at fault. Never a credential."""
+
+    ok: bool
+    text: str
+
+
 class Cursor(Frozen):
     """Where a `changed_since` listing stopped; opaque to callers."""
 

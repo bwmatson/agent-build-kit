@@ -9,7 +9,8 @@ from agent_build_kit.model import Frozen
 class ProjectShape(Frozen):
     """`types`: each work item type's states. `backlogs`: the types on each backlog level, top
     level first. `areas` and `iterations`: the classification nodes below the project's root.
-    `work_item_access` is false for a credential without work item scope."""
+    `work_item_access` is false for a credential without work item scope. The host lists the
+    levels bottom first when `backlogs_bottom_first`: the service's order is not the nesting."""
 
     types: dict[str, tuple[str, ...]]
     backlogs: tuple[tuple[str, ...], ...]
@@ -17,6 +18,7 @@ class ProjectShape(Frozen):
     areas: tuple[str, ...] = ("Team A",)
     iterations: tuple[str, ...] = ("Sprint 1",)
     work_item_access: bool = True
+    backlogs_bottom_first: bool = False
 
 
 BASIC_STATES = ("To Do", "Doing", "Done")

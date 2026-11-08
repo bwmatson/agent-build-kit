@@ -27,7 +27,7 @@ from agent_build_kit.forges.transport import (
     TransportError,
     validated,
 )
-from agent_build_kit.trackers.azure_probe import ProbeLine, probe
+from agent_build_kit.trackers.azure_probe import probe
 from agent_build_kit.trackers.azure_work_item_models import (
     ConnectionDataDoc,
     FieldsDoc,
@@ -46,6 +46,7 @@ from agent_build_kit.trackers.base import (
     Item,
     ItemKind,
     NotLinkable,
+    ProbeLine,
     Relation,
     StaleRevision,
     UnknownWorkItemType,
@@ -221,7 +222,7 @@ class AzureDevOpsWorkItems:
         self._call(
             "POST",
             f"wit/workitems/{item_id}/comments",
-            json={"text": text},
+            json={"text": self._html(text)},
             version=COMMENTS_VERSION,
         )
 
@@ -449,9 +450,14 @@ class AzureDevOpsWorkItems:
         return self._item(response)
 
     def _description(self, body: str, markers: Sequence[str]) -> str:
-        # HTML collapses a newline, so a line break is written as one and read back as one.
-        text = html.escape(body, quote=False).replace("\n", "<br>")
+        text = self._html(body)
         return "\n".join(([text] if body else []) + [self._comment(marker) for marker in markers])
+
+    @staticmethod
+    def _html(text: str) -> str:
+        """Plain text as the service renders it: HTML collapses a newline, so a line break is
+        written as one and read back as one."""
+        return html.escape(text, quote=False).replace("\n", "<br>")
 
     def _check_parent(self, kind: ItemKind, parent: str) -> None:
         """Read the parent, never write it, and refuse one that is not of the level above

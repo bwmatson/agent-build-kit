@@ -225,3 +225,12 @@ def test_a_level_not_in_use_cannot_be_created() -> None:
 
     with pytest.raises(ValueError, match="no work item type"):
         tracker_on(host, "basic").create("task", "Task")
+
+
+def test_a_comment_is_stored_as_escaped_html_with_line_breaks() -> None:
+    host = WorkItemHost()
+    change = host.seed("Issue", "Change")
+
+    tracker_on(host).comment(change, "a <b>x</b>\nb")
+
+    assert host.comments[change] == ["a &lt;b&gt;x&lt;/b&gt;<br>b"]

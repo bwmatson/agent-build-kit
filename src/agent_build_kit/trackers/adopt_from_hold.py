@@ -112,12 +112,27 @@ class _Seed:
 
     def _read(self, wanted: WantedItem, item_id: str) -> Item | None:
         try:
-            return self.tracker.get(item_id)
+            found = self.tracker.get(item_id)
         except (KeyError, NotFound):
             self.conflict(wanted.marker, f"item {item_id} does not exist on the tracker")
+            return None
         except UnknownWorkItemType as error:
             self._wrong_type(wanted, item_id, error)
-        return None
+            return None
+        if self._is_epic(item_id):
+            # The tracker reads the manual epic as an item of the first level; it is only read.
+            self.conflict(
+                wanted.marker, f"item {item_id} is the manual epic, not a {wanted.level} item"
+            )
+            return None
+        return found
+
+    def _is_epic(self, item_id: str) -> bool:
+        if not self.section.epic or not hasattr(self.tracker, "read_manual_parent"):
+            return False
+        source: ManualParentSource = self.tracker  # type: ignore[assignment]
+        parent = source.read_manual_parent(item_id)
+        return parent is not None and parent.type == self.section.level_types.get("epic")
 
     def _checked(self, wanted: WantedItem, found: Item) -> bool:
         marker = wanted.marker

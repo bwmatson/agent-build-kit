@@ -1,0 +1,55 @@
+{
+  "fixture": {
+    "source": "reference",
+    "page": "https://learn.microsoft.com/en-us/rest/api/azure/devops/wit/work-item-types/list?view=azure-devops-rest-7.1",
+    "date": "2026-11-05"
+  },
+  "body": {
+    "count": 1,
+    "value": [
+      {
+        "name": "Bug",
+        "referenceName": "Microsoft.VSTS.WorkItemTypes.Bug",
+        "description": "Describes a divergence between required and actual behavior",
+        "color": "CC293D",
+        "icon": {
+          "id": "icon_insect",
+          "url": "https://dev.azure.com/example/_apis/wit/workItemIcons/icon_insect?color=CC293D&v=2"
+        },
+        "isDisabled": false,
+        "xmlForm": "<FORM></FORM>",
+        "fields": [
+          {
+            "name": "Title",
+            "referenceName": "System.Title",
+            "alwaysRequired": true,
+            "defaultValue": null,
+            "helpText": "The title of the work item",
+            "url": "https://dev.azure.com/example/_apis/wit/fields/System.Title"
+          }
+        ],
+        "fieldInstances": [
+          {
+            "name": "Title",
+            "referenceName": "System.Title",
+            "alwaysRequired": true,
+            "url": "https://dev.azure.com/example/_apis/wit/fields/System.Title"
+          }
+        ],
+        "transitions": {
+          "Active": [{"to": "Resolved"}],
+          "Resolved": [{"to": "Active"}, {"to": "Closed"}]
+        },
+        "states": [
+          {"name": "Active", "color": "b2b2b2", "category": "Proposed"}
+        ],
+        "_links": {
+          "self": {
+            "href": "https://dev.azure.com/example/Some%20Project/_apis/wit/workItemTypes/Bug"
+          }
+        },
+        "url": "https://dev.azure.com/example/Some%20Project/_apis/wit/workItemTypes/Bug"
+      }
+    ]
+  }
+}

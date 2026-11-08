@@ -30,6 +30,8 @@ BASE = "https://dev.azure.com/example/Some%20Project"
 REPOSITORY = load("repository").body
 PROJECT_ID = REPOSITORY["project"]["id"]
 REPOSITORY_ID = REPOSITORY["id"]
+WORK_ITEM_TYPES = load("work_item_types").body
+BACKLOGS = load("backlogs").body
 _ROUTE = re.compile(r"^/(?P<org>[^/]+)/(?P<project>[^/]+)(?:/(?P<team>[^/]+))?/_apis/(?P<rest>.*)$")
 _NODE = re.compile(
     r"wit/classificationnodes/(?P<tree>areas|iterations)/(?P<path>.+)", re.IGNORECASE
@@ -272,21 +274,17 @@ class WorkItemHost(httpx.MockTransport):
         if method != "GET":
             return None
         if rest.lower() == "wit/workitemtypes":
-            return answer(
+            template = WORK_ITEM_TYPES["value"][0]
+            state = template["states"][0]
+            found = [
                 {
-                    "count": len(project.types),
-                    "value": [
-                        {
-                            "name": name,
-                            "states": [
-                                {"name": state, "color": "b2b2b2", "category": "Proposed"}
-                                for state in states
-                            ],
-                        }
-                        for name, states in project.types.items()
-                    ],
+                    **template,
+                    "name": name,
+                    "states": [{**state, "name": each} for each in states],
                 }
-            )
+                for name, states in project.types.items()
+            ]
+            return answer({**WORK_ITEM_TYPES, "count": len(found), "value": found})
         if rest.lower() == "work/backlogs":
             if team not in project.teams:
                 return refusal(
@@ -294,19 +292,30 @@ class WorkItemHost(httpx.MockTransport):
                     f"TF50000: The team {team} does not exist in the project.",
                     "ProjectTeamNotFoundException",
                 )
-            # Top level first, as the levels nest.
+            template = BACKLOGS["value"][0]
+            depth = len(project.backlogs)
             levels = [
                 {
+                    **template,
                     "id": f"Custom.Backlog{position}",
                     "name": f"Level {position}",
-                    "type": "portfolio" if position < len(project.backlogs) - 2 else "requirement",
-                    "isHidden": False,
-                    "workItemTypes": [{"name": name} for name in names],
-                    "defaultWorkItemType": {"name": names[0]},
+                    # The task level is rank 0 and the top is the highest.
+                    "rank": depth - 1 - position,
+                    "type": (
+                        "task"
+                        if position == depth - 1
+                        else "requirement"
+                        if position == depth - 2
+                        else "portfolio"
+                    ),
+                    "workItemTypes": [{**template["workItemTypes"][0], "name": n} for n in names],
+                    "defaultWorkItemType": {**template["defaultWorkItemType"], "name": names[0]},
                 }
                 for position, names in enumerate(project.backlogs)
             ]
-            return answer({"count": len(levels), "value": levels})
+            if project.backlogs_bottom_first:
+                levels.reverse()
+            return answer({**BACKLOGS, "count": len(levels), "value": levels})
         node = _NODE.fullmatch(rest)
         if node:
             known = project.areas if node["tree"].lower() == "areas" else project.iterations

@@ -111,6 +111,10 @@ class WorkItemTypesDoc(_Doc):
 
 
 class BacklogDoc(_Doc):
+    """One backlog level. `rank` orders the levels, the highest for the top of the nesting; the
+    order of the list says nothing."""
+
+    rank: int
     work_item_types: tuple[NamedDoc, ...] = Field(default=(), alias="workItemTypes")
 
 

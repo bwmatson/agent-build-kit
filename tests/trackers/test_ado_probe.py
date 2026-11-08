@@ -5,15 +5,16 @@ from __future__ import annotations
 
 import pytest
 
-from agent_build_kit.trackers.azure_probe import ProbeLine
+from agent_build_kit.trackers.azure_devops import AzureDevOpsWorkItems
+from agent_build_kit.trackers.base import ProbeLine
 from tests.forges.conftest import PAT
 from tests.trackers.ado_project import BASIC, BASIC_STATES, SCRUM, ProjectShape
-from tests.trackers.ado_support import PROCESS_TYPES, tracker_on
+from tests.trackers.ado_support import PROCESS_TYPES, section, tracker_on
 from tests.trackers.ado_work_item_host import WorkItemHost
 
 pytestmark = pytest.mark.usefixtures("rest_env")
 
-CHECKS = ("type", "state", "nesting", "epic", "team", "path")
+CHECKS = ("access", "type", "state", "nesting", "epic", "team", "path")
 
 
 def probe(project: ProjectShape, process: str = "basic", **overrides: object) -> list[ProbeLine]:
@@ -52,6 +53,32 @@ def test_a_missing_type_names_the_level() -> None:
 
     assert "group" in text
     assert "User Story" in text
+
+
+def test_the_backlog_levels_are_ordered_by_rank_not_by_their_place_in_the_list() -> None:
+    task_first = BASIC.model_copy(update={"backlogs_bottom_first": True})
+
+    assert failures(probe(task_first)) == []
+
+
+def test_a_type_on_no_backlog_level_is_named() -> None:
+    no_task_level = BASIC.model_copy(update={"backlogs": (("Epic",), ("Issue",))})
+
+    [text] = failures(probe(no_task_level))
+
+    assert "nesting" in text
+    assert "Task" in text
+    assert "no backlog level" in text
+
+
+def test_a_process_with_no_state_map_names_the_type_and_the_kit_state() -> None:
+    cmmi = section("basic").model_copy(update={"process": "cmmi"})
+
+    texts = failures(AzureDevOpsWorkItems(cmmi, http=WorkItemHost(project=BASIC)).probe())
+
+    assert texts, "cmmi has no default states to fall back on"
+    assert all("states" in text and "`states`" in text for text in texts)
+    assert any("Issue" in text and "new" in text for text in texts)
 
 
 def test_a_mapped_state_the_type_lacks_names_both() -> None:
