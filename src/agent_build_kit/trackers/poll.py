@@ -25,6 +25,7 @@ from agent_build_kit.trackers.reconciler import (
 CURSOR_KEY = "poll_cursor"
 FAILURES_KEY = "poll_failures"
 QUIET_UNTIL_KEY = "poll_quiet_until"
+PULLED_KEY = "pulled_at"
 
 
 def _own_revisions(kept: Mapping[str, object]) -> dict[str, set[str]]:
@@ -92,9 +93,11 @@ def poll_board(
         return ()
 
     own = _own_revisions(kept)
+    pulled = spans.clock.now().isoformat()
 
     def advance(current: dict[str, object]) -> None:
         current[CURSOR_KEY] = moved.value
+        current[PULLED_KEY] = pulled
         # Forget the revisions this poll has passed; a write made since is kept for the next.
         remaining = {
             item_id: sorted(left)

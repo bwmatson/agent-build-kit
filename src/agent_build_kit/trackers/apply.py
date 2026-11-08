@@ -6,7 +6,7 @@ goes through the pipeline's functions, which hold the change's lock."""
 
 from __future__ import annotations
 
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from functools import cached_property
 from pathlib import Path
 
@@ -30,7 +30,7 @@ from agent_build_kit.pipeline.tracker_file import (
     write_tracker,
 )
 from agent_build_kit.pipeline.unit_store import Cause, HeldBy, StoredUnit, UnitStore
-from agent_build_kit.pipeline.units import HELD, PLANNED, UnitState
+from agent_build_kit.pipeline.units import HELD, PLANNED, Unit, UnitState
 from agent_build_kit.pipeline.vocabulary import FINISHED
 from agent_build_kit.pipeline.work_graph import Task, read_tasks
 from agent_build_kit.trackers.base import Change, Item, Tracker
@@ -68,7 +68,7 @@ class Applied(Frozen):
     conflicts: tuple[ApplyConflict, ...] = ()
 
 
-class _Where(Frozen):
+class Place(Frozen):
     """Where a board item sits in a change: its level, and its key (the change's name, a group
     key or a task key)."""
 
@@ -78,8 +78,79 @@ class _Where(Frozen):
     group: int | None = None
 
 
-def _board_state(item: Item) -> str:
+def board_state(item: Item) -> str:
+    """The kit's reading of an item's state on the board: `done`, else `new`."""
     return "done" if (item.kit_state or item.state) == "done" else "new"
+
+
+def board_text(item: Item, entry: TaskEntry) -> str:
+    """The text a task has on the board: its body, or, when only the title was edited, the
+    new title over the body last synced."""
+    base_title, base_body = entry.fields.get("title", ""), entry.fields.get("body", "")
+    if item.body == base_body and item.title != base_title:
+        return "\n".join([item.title, *base_body.split("\n")[1:]])
+    return item.body
+
+
+def unmerged(where: Place, units: Sequence[Unit]) -> bool:
+    """Whether the units that build the group of `where` leave it unfinished, by the rule that
+    moves its item to done on the board; a group nothing builds any more is not."""
+    if where.group is None:
+        return False
+    state, _ = group_state(where.change, where.group, units)
+    return state not in ("done", "removed")
+
+
+def closed_agrees(item: Item, where: Place, units: Sequence[Unit]) -> bool:
+    """Whether a `closed` conflict is settled: the board no longer shows the group item done,
+    or the group is no longer unmerged."""
+    return board_state(item) != "done" or not unmerged(where, units)
+
+
+def places_of(files: Mapping[str, TrackerFile]) -> dict[str, Place]:
+    """Where each recorded item sits, by item id, over the tracker files of the changes."""
+    places: dict[str, Place] = {}
+    for name, found in files.items():
+        if found.change:
+            places[found.change.id] = Place(change=name, level="change", key=name)
+        for key, entry in found.groups.items():
+            group = int(key.rsplit(":", 1)[1])
+            places[entry.id] = Place(change=name, level="group", key=key, group=group)
+        for key, task in found.tasks.items():
+            group = int(key.rsplit(":", 1)[1].split(".")[0])
+            places[task.id] = Place(change=name, level="task", key=key, group=group)
+    return places
+
+
+def open_record(file: TrackerFile, item_id: str, field: str) -> ConflictRecord | None:
+    """The open conflict of the file for the item and field."""
+    return next(
+        (r for r in file.conflicts if (r.item_id, r.field, r.status) == (item_id, field, "open")),
+        None,
+    )
+
+
+def close_conflict(file: TrackerFile, item_id: str, field: str) -> TrackerFile | None:
+    """The file with the open conflict for the item and field closed; None when none is open."""
+    existing = open_record(file, item_id, field)
+    if existing is None:
+        return None
+    closed = existing.model_copy(update={"status": "closed"})
+    swapped = tuple(closed if r is existing else r for r in file.conflicts)
+    return file.model_copy(update={"conflicts": swapped})
+
+
+def gone_from_spec(tasks_path: Path, place: Place) -> bool:
+    """Whether the group or task a board item stands for is no longer in `tasks.md`."""
+    if place.level == "change":
+        return False
+    try:
+        tasks = read_tasks(tasks_path, place.change)
+    except (OSError, ValueError):
+        return False
+    if place.level == "task":
+        return place.key not in {task.key for task in tasks}
+    return place.group not in {task.group for task in tasks}
 
 
 class _Apply:
@@ -100,7 +171,7 @@ class _Apply:
         self.conflicts: list[ApplyConflict] = []
         self.files: dict[str, TrackerFile] = {}
         self.dirty: set[str] = set()
-        self.places: dict[str, _Where] = {}
+        self.places: dict[str, Place] = {}
         # The board change that last reached each item: who made it and when.
         self.made: dict[str, Change] = {}
         self.epics: dict[str, list[str]] = {}
@@ -125,14 +196,7 @@ class _Apply:
             self.files[name] = found
             if found.epic:
                 self.epics.setdefault(found.epic, []).append(name)
-            if found.change:
-                self.places[found.change.id] = _Where(change=name, level="change", key=name)
-            for key, entry in found.groups.items():
-                group = int(key.rsplit(":", 1)[1])
-                self.places[entry.id] = _Where(change=name, level="group", key=key, group=group)
-            for key, task in found.tasks.items():
-                group = int(key.rsplit(":", 1)[1].split(".")[0])
-                self.places[task.id] = _Where(change=name, level="task", key=key, group=group)
+        self.places = places_of(self.files)
 
     def _tasks_path(self, change: str) -> Path:
         return self.changes_dir / change / "tasks.md"
@@ -159,14 +223,7 @@ class _Apply:
     # --- conflict records -------------------------------------------------------------------
 
     def _open_record(self, change: str, item_id: str, field: str) -> ConflictRecord | None:
-        return next(
-            (
-                r
-                for r in self.files[change].conflicts
-                if (r.item_id, r.field, r.status) == (item_id, field, "open")
-            ),
-            None,
-        )
+        return open_record(self.files[change], item_id, field)
 
     def _record_conflict(
         self, change: str, item_id: str, field: str, spec: str, board: str
@@ -191,13 +248,10 @@ class _Apply:
 
     def _close(self, change: str, item_id: str, field: str) -> None:
         """Close the open conflict for the item and field: the two sides agree again."""
-        existing = self._open_record(change, item_id, field)
-        if existing is None:
+        closed = close_conflict(self.files[change], item_id, field)
+        if closed is None:
             return
-        file = self.files[change]
-        closed = existing.model_copy(update={"status": "closed"})
-        swapped = tuple(closed if r is existing else r for r in file.conflicts)
-        self.files[change] = file.model_copy(update={"conflicts": swapped})
+        self.files[change] = closed
         self.dirty.add(change)
 
     def surface(self) -> None:
@@ -239,7 +293,7 @@ class _Apply:
                 self.files[change] = file.model_copy(update={"epic_warned": closed})
                 self.dirty.add(change)
 
-    def removal(self, where: _Where, item: Item) -> bool:
+    def removal(self, where: Place, item: Item) -> bool:
         """Whether the item is removed on the board: that is a conflict for a person, and
         restoring the item closes it."""
         if (item.kit_state or item.state) != REMOVED:
@@ -248,17 +302,9 @@ class _Apply:
         self._conflict(item.id, REMOVED, "", REMOVED, "removed on the board; the spec is kept")
         return True
 
-    def _gone_from_spec(self, where: _Where) -> bool:
+    def _gone_from_spec(self, where: Place) -> bool:
         """Whether the group or task a board item stands for is no longer in `tasks.md`."""
-        if where.level == "change":
-            return False
-        try:
-            tasks = read_tasks(self._tasks_path(where.change), where.change)
-        except (OSError, ValueError):
-            return False
-        if where.level == "task":
-            return where.key not in {task.key for task in tasks}
-        return where.group not in {task.group for task in tasks}
+        return gone_from_spec(self._tasks_path(where.change), where)
 
     def settle(self) -> None:
         """Close the open conflicts whose two sides agree again without a board change to show
@@ -277,9 +323,7 @@ class _Apply:
                 if record.field == "title":
                     agreed = item.title == record.spec_value
                 elif record.field == CLOSED_FIELD:
-                    agreed = _board_state(item) != "done" or not (
-                        where is not None and self._unmerged(where)
-                    )
+                    agreed = where is None or closed_agrees(item, where, self.store.all())
                 else:
                     agreed = (item.kit_state or item.state) != REMOVED or (
                         where is not None and self._gone_from_spec(where)
@@ -287,25 +331,20 @@ class _Apply:
                 if agreed:
                     self._close(change, record.item_id, record.field)
 
-    def _unmerged(self, where: _Where) -> bool:
-        """Whether the units that build the group of `where` leave it unfinished, by the rule
-        that moves its item to done on the board; a group nothing builds any more is not."""
-        if where.group is None:
-            return False
-        state, _ = group_state(where.change, where.group, self.store.all())
-        return state not in ("done", "removed")
+    def _unmerged(self, where: Place) -> bool:
+        return unmerged(where, self.store.all())
 
-    def closed(self, where: _Where, item: Item) -> None:
+    def closed(self, where: Place, item: Item) -> None:
         """A group item closed on the board is not a merge: while its unit is not recorded
         merged it is a conflict for a person, and the unit is left as it is."""
         if where.level != "group":
             return
-        if _board_state(item) == "done" and self._unmerged(where):
+        if board_state(item) == "done" and self._unmerged(where):
             self._conflict(item.id, CLOSED_FIELD, "not merged", "done", CLOSED_NOTE)
         else:
             self._close(where.change, item.id, CLOSED_FIELD)
 
-    def title(self, where: _Where, item: Item) -> None:
+    def title(self, where: Place, item: Item) -> None:
         """A change or group item retitled on the board keeps the spec's title: the edit is a
         conflict and the recorded copy is the board's, so the outbound pass pushes the spec's.
         An adopted item keeps the board's wording instead, with no conflict."""
@@ -393,7 +432,7 @@ class _Apply:
         )
         self.dirty.add(change)
 
-    def task(self, where: _Where, item: Item) -> None:
+    def task(self, where: Place, item: Item) -> None:
         change, key = where.change, where.key
         entry = self.files[change].tasks[key]
         path = self._tasks_path(change)
@@ -403,10 +442,8 @@ class _Apply:
         self._state(item, entry, current, path, where)
         self._text(item, entry, current, path, where)
 
-    def _state(
-        self, item: Item, entry: TaskEntry, current: Task, path: Path, where: _Where
-    ) -> None:
-        board = _board_state(item)
+    def _state(self, item: Item, entry: TaskEntry, current: Task, path: Path, where: Place) -> None:
+        board = board_state(item)
         base = entry.fields.get("state", "")
         spec = "done" if current.done else "new"
         outcome = reconcile_field("state", base, spec, board, spec_who="spec", tracker_who="board")
@@ -421,11 +458,9 @@ class _Apply:
         self._close(where.change, item.id, "state")
         self._update_entry(where.change, where.key, state=board, revision=item.revision)
 
-    def _text(self, item: Item, entry: TaskEntry, current: Task, path: Path, where: _Where) -> None:
-        base_title, base_body = entry.fields.get("title", ""), entry.fields.get("body", "")
-        board = item.body
-        if item.body == base_body and item.title != base_title:
-            board = "\n".join([item.title, *base_body.split("\n")[1:]])
+    def _text(self, item: Item, entry: TaskEntry, current: Task, path: Path, where: Place) -> None:
+        base_body = entry.fields.get("body", "")
+        board = board_text(item, entry)
         outcome = reconcile_field(
             "body", base_body, current.text, board, spec_who="spec", tracker_who="board"
         )
@@ -487,18 +522,18 @@ class _Apply:
             fields={
                 "title": item.title,
                 "body": item.body,
-                "state": _board_state(item),
+                "state": board_state(item),
                 "tags": "",
             },
             revision=item.revision,
             text_hash=first_line_hash(stored),
         )
         self.files[change] = file.model_copy(update={"tasks": {**file.tasks, key: entry}})
-        self.places[item.id] = _Where(change=change, level="task", key=key, group=group)
+        self.places[item.id] = Place(change=change, level="task", key=key, group=group)
         self.dirty.add(change)
         self.recorded.append(f"{key} added from the board; a replan may follow")
 
-    def _lowest_group(self, change: str, parent: _Where, path: Path) -> int:
+    def _lowest_group(self, change: str, parent: Place, path: Path) -> int:
         covered = [
             g
             for unit in self.store.all()

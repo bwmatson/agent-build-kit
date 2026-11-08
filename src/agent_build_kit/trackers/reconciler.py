@@ -108,6 +108,12 @@ def _with(tracker_file: TrackerFile, item: WantedItem, synced: Synced) -> Tracke
     return tracker_file.model_copy(update={"tasks": {**tracker_file.tasks, item.marker: entry}})
 
 
+def adopted_entry(found: Item) -> Synced:
+    """The record of an item already on the board that the kit takes as its own: what the board
+    shows, in the kit's words, so the next diff compares like with like."""
+    return Synced(id=found.id, fields=board_snapshot(found), revision=found.revision)
+
+
 class _Pass:
     def __init__(
         self,
@@ -199,7 +205,7 @@ class _Pass:
         holds what the board shows in the kit's words, so the next diff compares like with like."""
         found = self._lookup(item.marker)
         if found is not None:
-            synced = Synced(id=found.id, fields=board_snapshot(found), revision=found.revision)
+            synced = adopted_entry(found)
         else:
             if self.create_cap is not None and self.created >= self.create_cap:
                 self.capped = True

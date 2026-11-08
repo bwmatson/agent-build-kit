@@ -31,8 +31,13 @@ class LocalTracker:
         capabilities: Capabilities | None = None,
         who: str = "sync",
         levels: Sequence[ItemKind] | None = None,
+        board_types: Mapping[str, str] | None = None,
     ) -> None:
         self._levels = tuple(levels) if levels is not None else None
+        # The board type a manual-parent read reports for each kind (and `epic`), where a
+        # test gives the board words that differ from the kit's.
+        self._board_types = dict(board_types or {})
+        self._outside: set[str] = set()
         self._capabilities = capabilities or Capabilities()
         self._who = who
         self._items: dict[str, Item] = {}
@@ -43,7 +48,8 @@ class LocalTracker:
 
     def as_identity(self, who: str) -> LocalTracker:
         """A view of the same items acting as another identity: the competing writer."""
-        view = LocalTracker(self._capabilities, who, self._levels)
+        view = LocalTracker(self._capabilities, who, self._levels, self._board_types)
+        view._outside = self._outside
         view._items = self._items
         view._log = self._log
         view._comments = self._comments
@@ -56,6 +62,17 @@ class LocalTracker:
         item = self._add("change", title, "", None, ())
         self._epics.add(item.id)
         return item
+
+    def show_board_state(self, item_id: str, board_word: str, kit_word: str) -> None:
+        """Make the item read as a board that has its own words for states shows it: the
+        board's `state`, and the kit's word for it."""
+        self._items[item_id] = self._items[item_id].model_copy(
+            update={"state": board_word, "kit_state": kit_word}
+        )
+
+    def mark_out_of_scope(self, item_id: str) -> None:
+        """Make the item read as outside the board the configuration names."""
+        self._outside.add(item_id)
 
     def read_manual_parent(self, item_id: str) -> ManualParent | None:
         item = self._items.get(item_id)
@@ -70,8 +87,11 @@ class LocalTracker:
         ]
 
     def _as_manual_parent(self, item: Item) -> ManualParent:
-        type_ = EPIC_TYPE if item.id in self._epics else item.kind
-        return ManualParent(id=item.id, title=item.title, type=type_)
+        kind = "epic" if item.id in self._epics else item.kind
+        type_ = self._board_types.get(kind, EPIC_TYPE if kind == "epic" else kind)
+        return ManualParent(
+            id=item.id, title=item.title, type=type_, in_scope=item.id not in self._outside
+        )
 
     def capabilities(self) -> Capabilities:
         return self._capabilities

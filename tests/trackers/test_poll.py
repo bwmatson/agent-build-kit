@@ -3,7 +3,7 @@ a backoff after failures (spec: tracker-pull)."""
 
 from __future__ import annotations
 
-from collections.abc import Iterator, Sequence
+from collections.abc import Iterator
 from pathlib import Path
 
 import pytest
@@ -11,7 +11,7 @@ import pytest
 from agent_build_kit import trackers
 from agent_build_kit.forges.transport import HostUnavailable
 from agent_build_kit.pipeline.units import UnitState
-from agent_build_kit.trackers.base import Change, Cursor
+from agent_build_kit.trackers.base import Change
 from agent_build_kit.trackers.poll import poll_board
 from tests import fake_clock
 from tests.trackers.board_support import CHANGE, board_section, covering
@@ -23,11 +23,7 @@ GROUP = f"{CHANGE}:1"
 
 
 class ReadCounting(RecordingTracker):
-    """The recording stand-in that also records, and may fail, the poll's read."""
-
-    def changed_since(self, cursor: Cursor | None) -> tuple[Sequence[Change], Cursor]:
-        self._enter("changed_since", cursor)
-        return super().changed_since(cursor)
+    """The recording stand-in, which records, and may fail, the poll's read."""
 
 
 @pytest.fixture(autouse=True)
