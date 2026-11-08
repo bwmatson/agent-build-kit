@@ -8,6 +8,11 @@ them, and a run owed beyond that is admitted as an ordinary build worker."""
 from __future__ import annotations
 
 import argparse
+import json
+import os
+import re
+import subprocess
+import sys
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
@@ -18,10 +23,25 @@ from agent_build_kit.cli import pipeline as cli
 from agent_build_kit.cli import worker as worker_cli
 from agent_build_kit.cli.worker import cmd_worker_resolve
 from agent_build_kit.installation import Installation
+from agent_build_kit.pipeline.admission import STARTING_TTL
 from agent_build_kit.pipeline.file_lock import LockTimeout, file_lock
+from agent_build_kit.pipeline.lease import Leases
+from agent_build_kit.pipeline.resolution_lane import (
+    clear_worker_record,
+    lane_held_by_record,
+    write_worker_record,
+)
 from agent_build_kit.pipeline.snapshots import WAKE
-from agent_build_kit.pipeline.unit_store import UnitStore
-from agent_build_kit.pipeline.units import IN_REVIEW, PLANNED, RUNNING, project_tag
+from agent_build_kit.pipeline.unit_store import Cause, UnitStore
+from agent_build_kit.pipeline.units import (
+    HELD,
+    IN_REVIEW,
+    PLANNED,
+    RUNNING,
+    project_key,
+    project_tag,
+)
+from tests import fake_clock
 from tests.dispatcher_support import (
     FakeSpawner,
     install_spawner,
@@ -29,7 +49,9 @@ from tests.dispatcher_support import (
     parse_worker_command,
 )
 from tests.emergency_lane_support import build
+from tests.factories import git
 from tests.lane_run_slots import as_owed_comment
+from tests.restack_lane_fakes import moved, repo_behind
 from tests.tick_pass import (
     Builder,
     install_builder,
@@ -200,20 +222,100 @@ def test_an_overflow_run_ranks_after_a_unit_resuming_a_build_and_before_a_never_
     assert builder.store.get("new/1").state == PLANNED
 
 
-def test_a_run_whose_worker_was_killed_is_retried_once_its_marker_has_lapsed(
-    tmp_path: Path, builder: Builder, spawner: FakeSpawner
+def test_a_resolve_worker_killed_mid_run_is_started_again_once_its_claim_has_lapsed(
+    tmp_path: Path, builder: Builder, spawner: FakeSpawner, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    clock = fake_clock.install(monkeypatch)
     inst = lane_workspace(tmp_path, stacks=4, resolutions=1)
     project = owe_comment_reworks(builder.store, "c1/1")
     assert tick(inst) == 0
     assert [unit for kind, unit in spawner.calls if kind == "resolve"] == [project]
-    # The worker died: the branch lock file is stale and nothing holds it.
-    branch = builder.store.get("c1/1").branch
-    assert branch is not None
-    (inst.locks_dir).mkdir(parents=True, exist_ok=True)
-    for marked in builder.store.all():
-        builder.store.set_starting(marked.id, None)
+    # The worker was killed in its run: the record it wrote names a pid that has gone, and the
+    # branch's lock file is left with nothing holding it. Its claim on the unit is not cleared.
+    unit = builder.store.get("c1/1")
+    assert unit.branch is not None
+    gone = subprocess.Popen([sys.executable, "-c", "pass"])
+    gone.wait()
+    write_worker_record(inst.state_dir, project_key(unit), unit, base="main", pid=gone.pid)
+    inst.locks_dir.mkdir(parents=True, exist_ok=True)
+    stale = inst.locks_dir / f"{re.sub(r'[^A-Za-z0-9]', '_', unit.branch)}.lock"
+    stale.write_text(json.dumps({"pid": gone.pid}))
+    assert lane_held_by_record(inst.state_dir) == set(), "a record of a dead pid holds nothing"
+    clock.advance((STARTING_TTL + timedelta(seconds=1)).total_seconds())
 
     assert tick(inst) == 0
 
     assert [unit for kind, unit in spawner.calls if kind == "resolve"] == [project, project]
+
+
+def test_two_resolve_workers_of_one_project_keep_their_own_records(tmp_path: Path) -> None:
+    store = UnitStore(tmp_path / "units.json")
+    owe_comment_reworks(store, "c1/1", "c2/1")
+    first, second = store.get("c1/1"), store.get("c2/1")
+    key = project_key(first)
+    other = os.getppid()  # a process that is alive
+
+    mine = write_worker_record(tmp_path, key, first, base="main")
+    theirs = write_worker_record(tmp_path, key, second, base="main", pid=other)
+
+    assert mine != theirs
+    assert lane_held_by_record(tmp_path) == {"c1/1", "c2/1"}
+    clear_worker_record(mine)
+    assert lane_held_by_record(tmp_path) == {"c2/1"}
+
+
+def test_an_in_review_unit_owed_a_restack_is_moved_onto_its_base_and_not_built(
+    tmp_path: Path, builder: Builder, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    inst = repo_behind(tmp_path, monkeypatch)
+    repo = inst.checkouts["app"]
+    builder.store.upsert([stored("feature/3")])
+    builder.store.set_state(
+        "feature/3", IN_REVIEW, branch="spec/feature/3", pr=9, cause=Cause.BASE_CHANGED
+    )
+    restacked: list[str] = []
+
+    def restack(**kwargs: Any) -> None:
+        restacked.append(kwargs["branch"])
+        moved(inst)
+
+    monkeypatch.setattr(worker_cli, "build_stack_moves", lambda *a, **k: {"restack": restack})
+
+    assert resolve(inst, "app") == 0
+
+    assert restacked == ["spec/feature/3"]
+    assert git(repo, "rev-parse", "spec/feature/3") == git(repo, "rev-parse", "main")
+    assert builder.store.get("feature/3").state == IN_REVIEW
+    assert builder.started == [], "a restack is the move only, the unit is not built"
+
+
+def test_a_unit_whose_attempts_at_its_base_are_spent_is_held_and_not_built(
+    tmp_path: Path, builder: Builder, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    inst = repo_behind(tmp_path, monkeypatch)
+    builder.store.upsert([stored("feature/3")])
+    builder.store.set_state(
+        "feature/3", IN_REVIEW, branch="spec/feature/3", pr=9, cause=Cause.BASE_CHANGED
+    )
+    builder.store.record_conflict_attempt(
+        "feature/3",
+        tip=git(inst.checkouts["app"], "rev-parse", "main"),
+        head="",
+        attempts=inst.config.global_limits.max_review_rounds,
+        at=datetime.now(UTC),
+    )
+
+    assert resolve(inst, "app") == 0
+
+    assert builder.store.get("feature/3").state == HELD
+    assert builder.started == []
+
+
+def test_a_unit_a_person_holds_the_lease_of_is_not_built(tmp_path: Path, builder: Builder) -> None:
+    inst = workspace(tmp_path)
+    project = owe_comment_reworks(builder.store, "c1/1")
+    assert Leases(inst.leases_dir).take("c1/1", "tab:a")
+
+    assert resolve(inst, project) == 0
+
+    assert builder.started == []

@@ -121,6 +121,7 @@ from agent_build_kit.pipeline.e2e import (
     NO_TEST_RAN,
     latest_full_output,
     lock_status_line,
+    stack_held,
     stack_lock,
 )
 from agent_build_kit.pipeline.e2e_holds import (
@@ -1462,6 +1463,19 @@ def verify_one(
     lock, since both touch the one live stack e2e-test also uses. Waits
     `global_limits.e2e_lock_wait_seconds` for the lock, or `wait` seconds when given,
     then raises `StackBusy`."""
+    return _verify_locked(inst, change, units, wait=wait, reuse_recorded=False)
+
+
+def verify_once(inst: Installation, change: str, units: list) -> Verification:
+    """`verify_one`, but a result already on record over the change's current merged units,
+    found once the stack lock is held (another worker verified them while this one waited), is
+    returned and nothing is deployed."""
+    return _verify_locked(inst, change, units, wait=None, reuse_recorded=True)
+
+
+def _verify_locked(
+    inst: Installation, change: str, units: list, *, wait: float | None, reuse_recorded: bool
+) -> Verification:
     # A wait the caller chose is its own; only the configured one names the setting.
     timeout = inst.config.global_limits.e2e_lock_wait_seconds if wait is None else wait
     setting = LOCK_WAIT_SETTING if wait is None else None
@@ -1472,6 +1486,10 @@ def verify_one(
             )
         except TimeoutError as error:
             raise StackBusy(str(error)) from error
+        if reuse_recorded:
+            last = VerifyRecord(inst.state_dir / "verified.json").get(change)
+            if last is not None and last.units == _merged_ids(change, units):
+                return last
         outcome = verify_change(
             change,
             units,
@@ -1511,6 +1529,42 @@ def _unverified(inst: Installation, units: list, record: VerifyRecord) -> list[s
     )
 
 
+def verify_and_record(
+    inst: Installation, change: str, units: list, verify: Callable[[str, list], Verification]
+) -> Verification | None:
+    """Verify one change with `verify`, record the outcome in `verified.json` and demote the
+    units a failure implicates: the one rule the tick and `abk worker verify` share.
+
+    Returns None, recording nothing, when the live stack is in use or a split is held (the change
+    is tried again later). Any other exception is recorded as a failed verification. An outcome
+    already on record (another worker verified the same units first) is returned as it is."""
+    try:
+        outcome = verify(change, units)
+    except StackBusy:
+        log(f"verifying {change} skipped — the live stack is in use; tried again next round")
+        return None
+    except SplitHeld as held:
+        log(f"verifying {change} skipped — {held}; tried again next round")
+        return None
+    except Exception as error:  # noqa: BLE001 — recorded, never silently skipped
+        outcome = Verification(
+            change=change,
+            passed=False,
+            detail=f"{type(error).__name__}: {error}",
+            units=_merged_ids(change, units),
+        )
+    record = VerifyRecord(inst.state_dir / "verified.json")
+    if record.get(change) == outcome:
+        return outcome
+    record.put(outcome)
+    if outcome.passed:
+        log(f"verified {change}: {', '.join(outcome.deployed) or 'nothing to deploy'}")
+    else:
+        log(f"NOT archiving {change} — verification failed:\n{outcome.detail}")
+        _demote_failed_verify(inst, change, units)
+    return outcome
+
+
 def verify_ready(
     inst: Installation,
     units: list,
@@ -1531,28 +1585,9 @@ def verify_ready(
     for change in _unverified(inst, units, record):
         if change in exclude:
             continue
-        merged = _merged_ids(change, units)
         log(f"verifying {change} live: deploy, then its live-stack tests")
-        try:
-            outcome = verify(change, units)
-        except StackBusy:
-            log(f"verifying {change} skipped — the live stack is in use; tried again next round")
+        if verify_and_record(inst, change, units, verify) is None:
             skipped.add(change)
-            continue
-        except SplitHeld as held:
-            log(f"verifying {change} skipped — {held}; tried again next round")
-            skipped.add(change)
-            continue
-        except Exception as error:  # noqa: BLE001 — recorded, never silently skipped
-            outcome = Verification(
-                change=change, passed=False, detail=f"{type(error).__name__}: {error}", units=merged
-            )
-        record.put(outcome)
-        if outcome.passed:
-            log(f"verified {change}: {', '.join(outcome.deployed) or 'nothing to deploy'}")
-        else:
-            log(f"NOT archiving {change} — verification failed:\n{outcome.detail}")
-            _demote_failed_verify(inst, change, units)
 
     def may_archive(change: str) -> bool:
         # A skipped change has no verification over its current units, whatever
@@ -2662,14 +2697,6 @@ def _verified_by_worker(inst: Installation, units: Sequence[StoredUnit], change:
     return bool(repos) and all(inst.workers_mode(repo) == "processes" for repo in repos)
 
 
-def _lock_held(path: Path) -> bool:
-    try:
-        with file_lock(path, 0):
-            return False
-    except LockTimeout:
-        return True
-
-
 def _start_verify_workers(
     inst: Installation, units: list[StoredUnit], changes: Collection[str], *, dry_run: bool
 ) -> None:
@@ -2679,7 +2706,7 @@ def _start_verify_workers(
     is verifying), and started again once the lock is free, as when a worker was killed."""
     record = VerifyRecord(inst.state_dir / "verified.json")
     waiting = [change for change in _unverified(inst, units, record) if change in changes]
-    if dry_run or not waiting or _lock_held(inst.e2e_lock):
+    if dry_run or not waiting or stack_held(inst.e2e_lock):
         return
     user_manager = spawn.user_manager_available()
     for change in waiting:
@@ -6976,18 +7003,30 @@ def build_turned_move(
     return move
 
 
-def build_restack_lane(inst: Installation, store: UnitStore) -> ResolutionLanes:
-    """The tick's lanes, one for each project: each has `project_limits.max_concurrent_resolutions`
-    workers apart from the build workers, moving a unit onto the base it has when it starts."""
+def resolution_procedure(
+    inst: Installation,
+    store: UnitStore,
+    *,
+    moves: StackMoves,
+    move: Callable[..., Moved],
+    refusals: set[str],
+    defer: Callable[[str, datetime | None], None],
+    lane: Callable[[], Lane | None] = lambda: None,
+    build: Callable[..., bool] | None = None,
+) -> Callable[[StoredUnit], Rest | None]:
+    """What is done for a unit owed a resolution run, whoever does it: the lane's worker thread
+    or an `abk worker resolve` process. The returned function holds the unit's attempt budget,
+    makes the move its state calls for (a restack of a unit in review, a move through `prepare`,
+    a move in a temporary tree) with its RESTACK_CONFLICT / RESTACK_DEFERRED bookkeeping, and
+    returns what remains: the unit's own run (which checks the unit's lease and branch lock when
+    it starts), or None when the move was all there was.
 
-    refusals: set[str] = set()
-
-    def refused(unit_id: str, resume_at: datetime | None) -> None:
-        refusals.add(unit_id)
-        lanes.defer_until(unit_id, resume_at)
-
-    moves = build_stack_moves(store, inst, gated=True, refused=refused)
-    move = build_turned_move(inst, gated=True, refused=refused)
+    `refusals` is the set the caller's `refused` hook of `moves` and `move` adds to; `defer` is
+    told when the usage guard allows a refused move or a paused run again (a worker, which
+    ends, passes a no-op); `lane` returns the lane handed to the run, which gives it to the
+    poller (called when the run starts, so a lane may be made after this); `build`
+    makes the run (`build_unit` unless the caller reads usage from the snapshot, as a worker
+    does)."""
 
     def run_of(unit_id: str) -> Rest:
         """What remains of a moved-base run once the move is made: the unit's own run, here in
@@ -7003,14 +7042,14 @@ def build_restack_lane(inst: Installation, store: UnitStore) -> ResolutionLanes:
             if branch_is_held(inst, store.get(unit_id).branch or branch_name(store.get(unit_id))):
                 raise BranchBusy(f"the branch of {unit_id} is held by another run")
             # The run flags itself once it holds the branch and the unit is runnable.
-            build_unit(
+            (build or build_unit)(
                 inst,
                 store.get(unit_id),
                 store=store,
                 moved_base_run=True,
                 # A pause that stopped the run: the lane tries it again from the guard's time.
-                on_pause=lambda resume_at: lanes.defer_until(unit_id, resume_at),
-                lane=lanes,
+                on_pause=lambda resume_at: defer(unit_id, resume_at),
+                lane=lane(),
             )
 
         return run
@@ -7055,7 +7094,7 @@ def build_restack_lane(inst: Installation, store: UnitStore) -> ResolutionLanes:
                 ended = advance_thread_through_prepare(inst, unit, store=store)
             except AgentRateLimited as error:
                 # The guard refused the resolver: the move is tried again when it allows.
-                lanes.defer_until(unit.id, error.resets_at)
+                defer(unit.id, error.resets_at)
                 store.set_state(
                     unit.id,
                     RUNNING,
@@ -7126,6 +7165,31 @@ def build_restack_lane(inst: Installation, store: UnitStore) -> ResolutionLanes:
                 ),
                 cause=Cause.RESTACK_CONFLICT,
             )
+
+    return move_unit
+
+
+def build_restack_lane(inst: Installation, store: UnitStore) -> ResolutionLanes:
+    """The tick's lanes, one for each project: each has `project_limits.max_concurrent_resolutions`
+    workers apart from the build workers, moving a unit onto the base it has when it starts."""
+
+    refusals: set[str] = set()
+
+    def refused(unit_id: str, resume_at: datetime | None) -> None:
+        refusals.add(unit_id)
+        lanes.defer_until(unit_id, resume_at)
+
+    moves = build_stack_moves(store, inst, gated=True, refused=refused)
+    move = build_turned_move(inst, gated=True, refused=refused)
+    move_unit = resolution_procedure(
+        inst,
+        store,
+        moves=moves,
+        move=move,
+        refusals=refusals,
+        defer=lambda unit_id, resume_at: lanes.defer_until(unit_id, resume_at),
+        lane=lambda: lanes,
+    )
 
     def stamp(owed: StoredUnit) -> tuple[str, str]:
         """The heads a restack of the unit depends on: its branch and the base it moves onto."""

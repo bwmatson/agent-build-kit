@@ -15,7 +15,6 @@ from agent_build_kit.cli import build_parser
 from agent_build_kit.installation import Installation
 from agent_build_kit.pipeline import spawn
 from agent_build_kit.pipeline.spawn import Worker
-from tests.conftest import make_installation
 from tests.tick_pass import workspace
 
 
@@ -48,16 +47,8 @@ def install_spawner(monkeypatch: pytest.MonkeyPatch) -> FakeSpawner:
 def lane_workspace(tmp_path: Path, *, stacks: int, resolutions: int) -> Installation:
     """A `processes` workspace with `stacks` build workers and `resolutions` resolution workers
     at once."""
-    return make_installation(
-        tmp_path,
-        planning={"state_dir": ".", "worktree_root": str(tmp_path.parent / "trees")},
-        limits={"stack_depth_build_cap": 3},
-        project_limits={
-            "max_concurrent_stacks": stacks,
-            "max_concurrent_resolutions": resolutions,
-            "max_units_in_progress": 50,
-        },
-        workers={"mode": "processes"},
+    return workspace(
+        tmp_path, max_concurrent=stacks, resolutions=resolutions, workers={"mode": "processes"}
     )
 
 

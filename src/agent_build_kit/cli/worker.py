@@ -3,16 +3,18 @@
 from __future__ import annotations
 
 import argparse
+from datetime import datetime
 from typing import Any
 
 from agent_build_kit import telemetry
 from agent_build_kit.cli.pipeline import (
-    StackBusy,
-    _demote_failed_verify,
-    _merged_ids,
+    build_stack_moves,
+    build_turned_move,
     build_unit,
+    resolution_procedure,
     store_for,
-    verify_one,
+    verify_and_record,
+    verify_once,
 )
 from agent_build_kit.installation import Installation
 from agent_build_kit.pipeline import spans, wake
@@ -24,7 +26,7 @@ from agent_build_kit.pipeline.resolution_lane import (
     write_worker_record,
 )
 from agent_build_kit.pipeline.units import base_of, project_key, project_tag
-from agent_build_kit.pipeline.verify import SplitHeld, Verification, VerifyRecord
+from agent_build_kit.pipeline.workspaces import BranchBusy
 
 
 def cmd_worker_build(args: argparse.Namespace, inst: Installation) -> int:
@@ -63,11 +65,28 @@ def cmd_worker_resolve(args: argparse.Namespace, inst: Installation) -> int:
     """Run the pending resolution runs of `args.project` (a project as a person spells it:
     `repo`, or `repo/project`), each carrying its unit through the whole build.
 
-    A run is the unit's own build flagged as a moved-base run: it never hands the unit back as
-    planned, and `build_unit` takes the repo's turn only for the phases that write shared git
-    state. A unit another process holds, or one no longer owed, is skipped there."""
+    Each unit gets what the resolution lane gives it (`resolution_procedure`): its attempt budget
+    is held, the move its state calls for is made, and the run that remains (a moved-base run
+    that never hands the unit back as planned, taking the repo's turn only for the phases that
+    write shared git state) is made here, reading usage from the snapshot. A unit a person's tab
+    or another run holds, or one no longer owed, is skipped."""
     store = store_for(inst)
     telemetry.init()
+    refusals: set[str] = set()
+
+    def refused(unit_id: str, resume_at: datetime | None) -> None:
+        # The process ends after its units: the dispatcher asks the guard again next round.
+        refusals.add(unit_id)
+
+    procedure = resolution_procedure(
+        inst,
+        store,
+        moves=build_stack_moves(store, inst, gated=True, refused=refused),
+        move=build_turned_move(inst, gated=True, refused=refused),
+        refusals=refusals,
+        defer=lambda unit_id, resume_at: None,
+        build=lambda *args, **kwargs: build_unit(*args, from_snapshot=True, **kwargs),
+    )
     try:
         units = store.all()
         owed = owed_units(inst, units)
@@ -89,8 +108,16 @@ def cmd_worker_resolve(args: argparse.Namespace, inst: Installation) -> int:
                 unit,
                 base=base_of(unit, units),
             )
+            # The record names the run from here, so the claim that started this worker is spent
+            # (left live it would count the worker twice until it lapses).
+            if resolve_claimed(unit, now):
+                store.set_starting(unit.id, None)
             try:
-                build_unit(inst, unit, store=store, moved_base_run=True, from_snapshot=True)
+                rest = procedure(unit)
+                if rest is not None:
+                    rest()
+            except BranchBusy as busy:
+                print(f"abk worker resolve: skipped {unit.id} — {busy}")
             finally:
                 clear_worker_record(record)
     finally:
@@ -110,24 +137,17 @@ def cmd_worker_verify(args: argparse.Namespace, inst: Installation) -> int:
     try:
         units = store.all()
         try:
+            # With the environment lock held, and the e2e lock `verify_once` takes: a result a
+            # worker recorded while this one waited is the result, not deployed again.
             with file_lock(inst.environment_lock):
-                outcome = verify_one(inst, args.change, units)
-        except (StackBusy, SplitHeld, LockTimeout) as busy:
+                verify_and_record(
+                    inst,
+                    args.change,
+                    units,
+                    lambda change, units: verify_once(inst, change, units),
+                )
+        except LockTimeout as busy:
             print(f"abk worker verify: {args.change} not verified now — {busy}")
-            return 0
-        except Exception as error:  # noqa: BLE001 — recorded, never silently skipped
-            outcome = Verification(
-                change=args.change,
-                passed=False,
-                detail=f"{type(error).__name__}: {error}",
-                units=_merged_ids(args.change, units),
-            )
-        VerifyRecord(inst.state_dir / "verified.json").put(outcome)
-        if outcome.passed:
-            print(f"verified {args.change}: {', '.join(outcome.deployed) or 'nothing to deploy'}")
-        else:
-            print(f"verification of {args.change} failed:\n{outcome.detail}")
-            _demote_failed_verify(inst, args.change, units)
     finally:
         wake.touch(inst.state_dir)
         telemetry.shutdown()

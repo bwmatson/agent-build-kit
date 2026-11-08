@@ -399,6 +399,26 @@ def stack_lock(
         yield
 
 
+def stack_held(path: Path) -> bool:
+    """Whether another process holds the stack lock at `path` now, under its name or, when `path`
+    is the lock file, the old one `stack_lock` honours. A moment's reading: the file is created
+    if missing, and the lock is taken and released at once when free."""
+    names = [path]
+    if path.name == E2E_LOCK_FILE:
+        old = path.with_name(_OLD_LOCK_FILE)
+        if old.exists():
+            names.append(old)
+    for each in names:
+        each.parent.mkdir(parents=True, exist_ok=True)
+        with each.open("a") as handle:
+            try:
+                fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            except BlockingIOError:
+                return True
+            fcntl.flock(handle, fcntl.LOCK_UN)
+    return False
+
+
 @contextmanager
 def hold_lock(
     path: Path,

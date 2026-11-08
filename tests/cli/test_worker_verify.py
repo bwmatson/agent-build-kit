@@ -190,3 +190,22 @@ def test_a_verify_worker_killed_while_deploying_leaves_a_stale_lock_and_is_retri
 
     assert spawner.calls == [("verify", CHANGE), ("verify", CHANGE)]
     assert archived == []
+
+
+def test_a_verify_worker_finding_a_current_result_once_it_holds_the_locks_does_not_deploy_again(
+    tmp_path: Path, builder: Builder, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    inst = processes_workspace(tmp_path)
+    merged_change(builder)
+    record = VerifyRecord(inst.state_dir / "verified.json")
+    earlier = Verification(change=CHANGE, passed=True, units=[f"{CHANGE}/1"], deployed=["svc-a"])
+    record.put(earlier)
+
+    def deploys(*args: object, **kwargs: object) -> Verification:
+        raise AssertionError("a second worker deployed a change already verified")
+
+    monkeypatch.setattr(cli, "verify_change", deploys)
+
+    assert verify(inst) == 0
+
+    assert record.get(CHANGE) == earlier
