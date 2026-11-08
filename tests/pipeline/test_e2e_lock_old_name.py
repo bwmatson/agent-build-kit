@@ -8,7 +8,7 @@ import pytest
 
 from agent_build_kit.compat_names import old_spelling
 from agent_build_kit.model import TestTier
-from agent_build_kit.pipeline.e2e import stack_lock
+from agent_build_kit.pipeline.e2e import stack_held, stack_lock
 from tests.e2e_lock_fakes import Foreign, SleepingTime, install_clock
 
 OLD_LOCK = f"{old_spelling(TestTier.E2E_TEST)}.lock"
@@ -59,6 +59,23 @@ def test_an_old_holder_still_blocks_a_later_lock_after_an_earlier_one_was_taken_
             pass
 
     other.release()
+
+
+@pytest.mark.parametrize(
+    ("held", "expected"),
+    [(OLD_LOCK, True), ("e2e.lock", True), (None, False)],
+    ids=["old name held", "new name held", "neither held"],
+)
+def test_the_stack_reads_as_held_when_either_file_is_held(
+    tmp_path: Path, held: str | None, expected: bool
+) -> None:
+    (tmp_path / OLD_LOCK).touch()
+    other = Foreign(tmp_path / held) if held else None
+
+    assert stack_held(tmp_path / "e2e.lock") is expected
+
+    if other:
+        other.release()
 
 
 def test_without_an_old_file_none_is_created(tmp_path: Path, clock: SleepingTime) -> None:

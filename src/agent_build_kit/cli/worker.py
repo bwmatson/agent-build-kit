@@ -18,10 +18,12 @@ from agent_build_kit.cli.pipeline import (
 )
 from agent_build_kit.installation import Installation
 from agent_build_kit.pipeline import spans, wake
+from agent_build_kit.pipeline.admission import ADMISSION_LOCK
 from agent_build_kit.pipeline.file_lock import LockTimeout, file_lock
 from agent_build_kit.pipeline.occupancy import marker_live, resolve_claimed
 from agent_build_kit.pipeline.resolution_lane import (
     clear_worker_record,
+    lane_held_by_record,
     owed_units,
     write_worker_record,
 )
@@ -90,28 +92,34 @@ def cmd_worker_resolve(args: argparse.Namespace, inst: Installation) -> int:
     try:
         units = store.all()
         owed = owed_units(inst, units)
-        now = spans.clock.now()
         for each in units:
             if each.id not in owed or project_tag(each.repo, each.project) != args.project:
                 continue
-            try:
-                unit = store.get(each.id)
-            except KeyError:
-                continue
-            # A build worker the dispatcher started for the unit (an overflow run) has it.
-            if marker_live(unit, now) and not resolve_claimed(unit, now):
-                continue
-            # While the run lasts the record names it as the lane's, held by this process.
-            record = write_worker_record(
-                inst.state_dir,
-                project_key(unit),
-                unit,
-                base=base_of(unit, units),
-            )
-            # The record names the run from here, so the claim that started this worker is spent
-            # (left live it would count the worker twice until it lapses).
-            if resolve_claimed(unit, now):
-                store.set_starting(unit.id, None)
+            # Another worker of the project reads the same owed units: the unit is taken under
+            # the admission lock, from what is true now, and the record that names this worker
+            # as its run is written before the lock is let go.
+            with file_lock(inst.locks_dir / ADMISSION_LOCK):
+                try:
+                    unit = store.get(each.id)
+                except KeyError:
+                    continue
+                now = spans.clock.now()
+                current = store.all()
+                if unit.id not in owed_units(inst, current):
+                    continue  # Run by another worker meanwhile, or no longer owed.
+                if unit.id in lane_held_by_record(inst.state_dir):
+                    continue  # Another live resolve worker's record names it.
+                # A build worker the dispatcher started for the unit (an overflow run) has it.
+                if marker_live(unit, now) and not resolve_claimed(unit, now):
+                    continue
+                # While the run lasts the record names it as the lane's, held by this process.
+                record = write_worker_record(
+                    inst.state_dir, project_key(unit), unit, base=base_of(unit, current)
+                )
+                # The record names the run from here, so the claim that started this worker is
+                # spent (left live it would count the worker twice until it lapses).
+                if resolve_claimed(unit, now):
+                    store.set_starting(unit.id, None)
             try:
                 rest = procedure(unit)
                 if rest is not None:

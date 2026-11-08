@@ -40,7 +40,7 @@ from agent_build_kit.forges import Forge, RepoId
 from agent_build_kit.model import E2E_LOCK_FILE, Frozen, TestTier
 from agent_build_kit.pipeline import host, spans
 from agent_build_kit.pipeline.failure_record import Evidenced
-from agent_build_kit.pipeline.file_lock import process_alive, wait_for_flock
+from agent_build_kit.pipeline.file_lock import process_alive, try_file_lock, wait_for_flock
 from agent_build_kit.pipeline.workspaces import holder_alive
 
 # Shown on the PR beside the Actions checks.
@@ -387,35 +387,28 @@ def stack_lock(
 ):
     """`hold_lock` on `path`; when `path` is the lock file, a lock held under the old name is
     waited for and honoured until released."""
-    old = path.with_name(_OLD_LOCK_FILE)
     with ExitStack() as held:
-        if path.name == E2E_LOCK_FILE and old.exists():
+        for each in stack_lock_paths(path):
             held.enter_context(
-                hold_lock(old, timeout, setting, holder=holder, on_wait=on_wait, on_stale=on_stale)
+                hold_lock(each, timeout, setting, holder=holder, on_wait=on_wait, on_stale=on_stale)
             )
-        held.enter_context(
-            hold_lock(path, timeout, setting, holder=holder, on_wait=on_wait, on_stale=on_stale)
-        )
         yield
 
 
+def stack_lock_paths(path: Path) -> list[Path]:
+    """The files that make up the stack lock at `path`, in the order they are taken: the old
+    name first while it exists (when `path` is the lock file), then `path`."""
+    old = path.with_name(_OLD_LOCK_FILE)
+    return [old, path] if path.name == E2E_LOCK_FILE and old.exists() else [path]
+
+
 def stack_held(path: Path) -> bool:
-    """Whether another process holds the stack lock at `path` now, under its name or, when `path`
-    is the lock file, the old one `stack_lock` honours. A moment's reading: the file is created
-    if missing, and the lock is taken and released at once when free."""
-    names = [path]
-    if path.name == E2E_LOCK_FILE:
-        old = path.with_name(_OLD_LOCK_FILE)
-        if old.exists():
-            names.append(old)
-    for each in names:
-        each.parent.mkdir(parents=True, exist_ok=True)
-        with each.open("a") as handle:
-            try:
-                fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
-            except BlockingIOError:
+    """Whether another process holds the stack lock at `path` now: any file of
+    `stack_lock_paths`. A moment's reading: a free lock is taken and released at once."""
+    for each in stack_lock_paths(path):
+        with try_file_lock(each) as taken:
+            if not taken:
                 return True
-            fcntl.flock(handle, fcntl.LOCK_UN)
     return False
 
 

@@ -264,6 +264,20 @@ def test_two_resolve_workers_of_one_project_keep_their_own_records(tmp_path: Pat
     assert lane_held_by_record(tmp_path) == {"c2/1"}
 
 
+def test_a_resolve_worker_leaves_a_unit_another_live_workers_record_names(
+    tmp_path: Path, builder: Builder
+) -> None:
+    inst = workspace(tmp_path)
+    project = owe_comment_reworks(builder.store, "c1/1", "c2/1")
+    taken = builder.store.get("c1/1")
+    # Another resolve worker, alive, is running c1.
+    write_worker_record(inst.state_dir, project_key(taken), taken, base="main", pid=os.getppid())
+
+    assert resolve(inst, project) == 0
+
+    assert builder.started == ["c2/1"]
+
+
 def test_an_in_review_unit_owed_a_restack_is_moved_onto_its_base_and_not_built(
     tmp_path: Path, builder: Builder, monkeypatch: pytest.MonkeyPatch
 ) -> None:
