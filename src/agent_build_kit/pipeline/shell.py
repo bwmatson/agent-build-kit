@@ -43,7 +43,22 @@ def git(repo: Path, *args: str, check: bool = True, **kwargs) -> subprocess.Comp
 
 def git_running_in(worktree: Path) -> bool:
     """Whether a git process is running with `worktree` as its working directory."""
-    raise NotImplementedError
+    proc = Path("/proc")
+    if not proc.is_dir():
+        return True  # cannot tell, so assume one is
+    here = worktree.resolve()
+    for entry in proc.iterdir():
+        if not entry.name.isdigit():
+            continue
+        try:
+            if (entry / "comm").read_text().strip() != "git":
+                continue
+            cwd = (entry / "cwd").resolve()
+        except OSError:
+            continue
+        if cwd == here or here in cwd.parents:
+            return True
+    return False
 
 
 def is_tracked(root: Path, name: str) -> bool:

@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- A restack now names a git lock file that stops it, with the lock's path and the command,
+  instead of the exit status alone. Before a turn it clears an empty `MERGE_RR.lock` or
+  `index.lock` a dead git process left in the worktree, once it is older than
+  `global_limits.stale_git_lock_seconds` (default 600) and no git process runs there; any
+  other lock is left and named.
+
 - The build now runs the red check at each tests commit, before the implementation is written.
   Tests that pass, fail for the wrong reason or cannot be collected go back to the tests step
   with the check's reason, within `max_check_rounds`. The result recorded for a unit is the

@@ -364,6 +364,8 @@ global_limits:
                                 # lives; a tick removes older ones whose process is gone
   temp_warn_mb: 2048            # megabytes the pytest temp root may hold before `abk doctor --temp`
                                 # and `abk status --temp` warn
+  stale_git_lock_seconds: 600   # age past which a restack clears an empty `MERGE_RR.lock` or
+                                # `index.lock` a dead git process left in a worktree
   wait_end_requeue: auto        # how a failed unit is requeued once when its wait ends:
                                 # auto (default; the mode follows its record), resume,
                                 # rework, or off (only a person requeues it)

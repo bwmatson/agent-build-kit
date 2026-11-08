@@ -56,6 +56,9 @@ class FetchFailed(RuntimeError):
         self.failure = failure
 
 
+# git's text when it cannot take a lock another process (or a dead one) holds.
+LOCK_EXISTS = re.compile(r"Unable to create '(?P<path>[^']+\.lock)': File exists")
+
 REPLAYED_NOTICE = re.compile(r"^Resolved '(.+)' using previous resolution\.$", re.MULTILINE)
 
 # A porcelain push prints one `<flag>\t<from>:<to>\t<summary> (<reason>)` line per ref;
@@ -113,7 +116,8 @@ def transport_failure(output: str) -> TransportFailure | None:
 def lock_failure(output: str) -> str | None:
     """The path of the lock file a failed git command says already exists; None for any other
     failure."""
-    raise NotImplementedError
+    found = LOCK_EXISTS.search(output)
+    return found["path"] if found else None
 
 
 def untranslated_env() -> dict[str, str]:

@@ -24,8 +24,10 @@ wrong once:
 
 from __future__ import annotations
 
+import logging
 import re
 import subprocess
+import time
 from collections.abc import Callable, Iterator
 from contextlib import AbstractContextManager, contextmanager, nullcontext
 from contextvars import ContextVar
@@ -46,7 +48,9 @@ from agent_build_kit.pipeline.changelog_convention import (
 )
 from agent_build_kit.pipeline.git_output import (
     PUSH_OPERATION,
+    GitLockFailed,
     git_push_outcome,
+    lock_failure,
     replayed_files,
     untranslated_env,
 )
@@ -91,6 +95,8 @@ Turn = Callable[[], AbstractContextManager[None]]
 
 CONFLICT_MARKERS = ("<<<<<<<", ">>>>>>>", "=======")
 
+log = logging.getLogger(__name__)
+
 # `-c`, not the repository's own config: an operator working in the same
 # checkout is unaffected unless they turn rerere on themselves. `autoUpdate`
 # stays off deliberately — a replayed resolution lands in the file, but the
@@ -107,7 +113,55 @@ def git(repo: Path, *args: str, **kwargs) -> subprocess.CompletedProcess[str]:
     what makes git read and write it on the pipeline's own invocations rather
     than nowhere.
     """
-    return shell.git(repo, *RERERE, *args, **kwargs)
+    check = kwargs.pop("check", True)
+    kwargs.setdefault("env", untranslated_env())
+    result = shell.git(repo, *RERERE, *args, check=False, **kwargs)
+    if check and result.returncode:
+        if (lock := lock_failure(result.stderr)) is not None:
+            command = " ".join(("git", *args))
+            raise GitLockFailed(
+                f"`{command}` could not take the lock {lock} (exit status {result.returncode})",
+                path=lock,
+                command=command,
+            )
+        raise subprocess.CalledProcessError(
+            result.returncode,
+            ["git", *RERERE, *args],
+            output=result.stdout,
+            stderr=result.stderr,
+        )
+    return result
+
+
+# The locks a restack clears when a dead git process left them behind.
+CLEARABLE_LOCKS = ("MERGE_RR.lock", "index.lock")
+
+
+def clear_dead_locks(repo: Path) -> None:
+    """Remove a lock in the worktree's own git directory that is clearly dead: named in
+    `CLEARABLE_LOCKS`, empty, older than `global_limits.stale_git_lock_seconds`, with no git
+    process running in the worktree. Any other lock is left and named. Inside the turn."""
+    git_dir = Path(git(repo, "rev-parse", "--absolute-git-dir").stdout.strip())
+    limit = active().global_limits.stale_git_lock_seconds
+    for lock in sorted(git_dir.glob("*.lock")):
+        try:
+            stat = lock.stat()
+        except OSError:
+            continue
+        age = time.time() - stat.st_mtime
+        if lock.name not in CLEARABLE_LOCKS:
+            why = "not a lock this clears"
+        elif stat.st_size:
+            why = "not empty"
+        elif age <= limit:
+            why = f"younger than {limit}s"
+        elif shell.git_running_in(repo):
+            why = "a git process is running in the worktree"
+        else:
+            lock.unlink(missing_ok=True)
+            log.info("cleared the dead lock %s (empty, %d seconds old)", lock, int(age))
+            continue
+        log.warning("left the lock %s (%d seconds old): %s", lock, int(age), why)
 
 
 class RestackConflict(RuntimeError):
@@ -507,6 +561,7 @@ def move_branch_onto(
     """
     repo_config = repo_config or (context.repo if context else None)
     with turn():
+        clear_dead_locks(repo)
         # The head that is rebased: a detached tree's own, which was made at the branch
         # head and may since have been left behind by another writer, else the branch's.
         started = (
