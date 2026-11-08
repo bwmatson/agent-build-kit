@@ -74,8 +74,19 @@ def parsed(text: str) -> ast.Module:
     return ast.parse(text)
 
 
+def is_mark(node: ast.AST, name: str) -> TypeGuard[ast.Attribute]:
+    """Whether `node` is `pytest.mark.<name>` or `mark.<name>` (imported as `from pytest import
+    mark`); another attribute called `<name>` is not a mark."""
+    if not (isinstance(node, ast.Attribute) and node.attr == name):
+        return False
+    owner = node.value
+    return (isinstance(owner, ast.Attribute) and owner.attr == "mark") or (
+        isinstance(owner, ast.Name) and owner.id == "mark"
+    )
+
+
 def marks_e2e(tree: ast.AST) -> bool:
-    return any(isinstance(n, ast.Attribute) and n.attr == "e2e" for n in ast.walk(tree))
+    return any(is_mark(n, "e2e") for n in ast.walk(tree))
 
 
 def find_live_modules(tests_root: Path) -> list[Path]:
@@ -377,11 +388,10 @@ def splits_by_syntax(tests_root: Path) -> dict[Path, set[str]]:
 def is_runtime_mark(node: ast.AST) -> TypeGuard[ast.Attribute]:
     """Whether `node` is `pytest.mark.runtime_<name>` or `mark.runtime_<name>` (imported as
     `from pytest import mark`); another attribute that starts with `runtime_` is not a mark."""
-    if not (isinstance(node, ast.Attribute) and node.attr.startswith(PREFIX)):
-        return False
-    owner = node.value
-    return (isinstance(owner, ast.Attribute) and owner.attr == "mark") or (
-        isinstance(owner, ast.Name) and owner.id == "mark"
+    return (
+        isinstance(node, ast.Attribute)
+        and node.attr.startswith(PREFIX)
+        and is_mark(node, node.attr)
     )
 
 

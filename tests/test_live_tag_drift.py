@@ -56,6 +56,19 @@ def test_a_word_in_a_string_or_a_comment_does_not_make_a_module_live(tmp_path: P
     assert find_live_modules(tmp_path / "tests") == [live]
 
 
+def test_an_attribute_named_e2e_that_is_not_a_mark_does_not_make_a_module_live(
+    tmp_path: Path,
+) -> None:
+    write(
+        tmp_path,
+        "test_fakes.py",
+        "def use(recorder, self):\n    recorder.e2e(cwd=None)\n    return dict(run_e2e=self.e2e)\n",
+    )
+    live = write(tmp_path, "integration/test_live.py", MARKS["pytestmark"])
+
+    assert find_live_modules(tmp_path / "tests") == [live]
+
+
 def test_a_module_that_cannot_be_parsed_is_named_in_a_failure(tmp_path: Path) -> None:
     write(tmp_path, "integration/test_broken.py", "def test_x(:\n    e2e\n")
 
@@ -77,7 +90,9 @@ def test_a_file_listed_and_gone_before_it_is_read_is_skipped(tmp_path: Path) -> 
 @pytest.mark.integration
 def test_every_module_the_old_glob_and_text_match_found_is_still_found() -> None:
     old = [
-        path for path in INTEGRATION.glob("test_*.py") if re.search(r"\be2e\b", path.read_text())
+        path
+        for path in INTEGRATION.glob("test_*.py")
+        if re.search(r"\bmark\.e2e\b", path.read_text())
     ]
     assert old
 
