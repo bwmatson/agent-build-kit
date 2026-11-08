@@ -33,7 +33,7 @@ from contextlib import AbstractContextManager, contextmanager, nullcontext
 from datetime import UTC, datetime
 from functools import partial
 from pathlib import Path
-from typing import Any, Protocol, cast
+from typing import Any, Protocol
 
 from agent_build_kit import claude_account, forges, infra, openspec, profiles, runtimes, sandboxes
 from agent_build_kit.budget import Section, cut_head, cut_tail, fit
@@ -2420,8 +2420,17 @@ def build_unit_test(
         if not tests:
             return False
         # Errors after the first time-limit hit of their worker are its consequences: they are
-        # neither rerun nor judged, and the hit is what is classified.
-        cascade = _consequences(toolchain, output, tests)
+        # neither rerun nor judged, and the hit is what is classified. A test the unit wrote is
+        # never one: its error stands, so it is rerun and judged like any other.
+        cascade = {
+            test
+            for test in _consequences(toolchain, output, tests)
+            if not (own is not None and test in own)
+            and not (base is not None and wrote([test], where, base))
+        }
+        for test in set(tests) & set(run_detail) - cascade:
+            if run_detail[test].consequence:
+                run_detail[test] = run_detail[test].model_copy(update={"consequence": False})
         tests = [test for test in tests if test not in cascade]
         hits = set(getattr(toolchain, "time_limit_tests", lambda text: [])(output))
         shared = set(getattr(toolchain, "shared_resource_tests", lambda text: [])(output))
@@ -2457,8 +2466,12 @@ def build_unit_test(
 
         def loaded() -> bool:
             """Whether the host was under high load over the run and its reruns."""
-            conditions = cast(dict[str, object], evidenced().get("conditions", {}))
-            return conditions.get("load_high") is True
+            if evidence is None:
+                return False
+            _, high = failure_evidence.load_reading(
+                [evidence[1][1], last_sample], active().tests.load_high_per_cpu
+            )
+            return high is True
 
         def flakes_of(
             names: list[str], base_output: str = "", *, classify: bool = False
@@ -2700,26 +2713,10 @@ def build_unit_test(
 
 def _consequences(toolchain: ToolchainProfile, text: str, named: list[str]) -> set[str]:
     """The tests of `named` that errored in a worker after the first time-limit hit of that
-    worker: consequences of the hit, in the order the output names them. Empty when the profile
-    cannot say which worker ran a test, or which tests errored."""
-    try:
-        workers = getattr(toolchain, "failed_workers", lambda output: {})(text)
-    except AttributeError:
-        # A profile that reads a test's section by a hook it lacks cannot say.
-        return set()
-    limited = set(getattr(toolchain, "time_limit_tests", lambda output: [])(text))
-    errored = set(getattr(toolchain, "errored_tests", lambda output: [])(text))
-    hit: set[str] = set()
-    found: set[str] = set()
-    for test in named:
-        worker = workers.get(test)
-        if worker is None:
-            continue
-        if test in limited:
-            hit.add(worker)
-        elif test in errored and worker in hit:
-            found.add(test)
-    return found
+    worker, which the profile reads from the workers' own chronology. Empty when the profile
+    gives none: the order of the short summary is not the order of time."""
+    found = getattr(toolchain, "consequence_errors", lambda output: [])(text)
+    return {test for test in found if test in named}
 
 
 class SuspendedRun(Exception):

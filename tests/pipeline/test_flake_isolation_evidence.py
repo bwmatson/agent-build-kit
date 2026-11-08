@@ -356,8 +356,10 @@ Entry = tuple[str, str, str, str]
 
 
 def xdist_output(entries: list[Entry]) -> str:
-    """A `-n` run's console output for `entries`, in the order given in the short summary: the
-    block of each failed test opens with the `[gwN]` line xdist writes."""
+    """A `-n -vv` run's console output for `entries`, given in the order they happened: a progress
+    line for each as its worker finishes it, the block of each failed test (which opens with the
+    `[gwN]` line xdist writes), and, as pytest groups it, a short summary with every FAILED line
+    before every ERROR line."""
 
     def block(status: str, test: str, worker: str, reason: str) -> str:
         name = test.rsplit("::", 1)[-1]
@@ -367,12 +369,20 @@ def xdist_output(entries: list[Entry]) -> str:
             f"tests/test_x.py:3: in {name}\nE   {reason}\n"
         )
 
-    parts = []
+    progress = "".join(
+        f"[{worker}] [ 50%] {status} {test}\n" for status, test, worker, _ in entries
+    )
+    parts = [progress]
     for status, heading in (("ERROR", "ERRORS"), ("FAILED", "FAILURES")):
         chosen = [entry for entry in entries if entry[0] == status]
         if chosen:
             parts.append(f"===== {heading} =====\n" + "".join(block(*entry) for entry in chosen))
-    summary = "".join(f"{status} {test} - {why}\n" for status, test, _, why in entries)
+    summary = "".join(
+        f"{status} {test} - {why}\n"
+        for wanted in ("FAILED", "ERROR")
+        for status, test, _, why in entries
+        if status == wanted
+    )
     parts.append(f"===== short test summary info =====\n{summary}{len(entries)} failed in 0.01s\n")
     return "\n".join(parts)
 
@@ -410,7 +420,14 @@ class Classified:
     """One unit-test run over `OutputMachine`, its ledger and the installation it ran in."""
 
     def __init__(
-        self, scratch: Path, tmp_path: Path, entries: list[Entry], *, reruns: list[int], load: float
+        self,
+        scratch: Path,
+        tmp_path: Path,
+        entries: list[Entry],
+        *,
+        reruns: list[int],
+        load: float,
+        written: list[str] | None = None,
     ) -> None:
         self.installation = make_installation(
             scratch,
@@ -423,7 +440,7 @@ class Classified:
         self.unit_test = build_unit_test(
             profile=cast(ToolchainProfile, BundleProfile()),
             run=self.machine,
-            changed=lambda *a: ["tests/test_one.py"],
+            changed=lambda *a: written or ["tests/test_one.py"],
             failures_dir=tmp_path / "bundles",
             test_runs=self.ledger,
             installation=self.installation,
@@ -495,6 +512,44 @@ def test_errors_after_the_first_hit_of_a_worker_are_consequences_and_are_not_rer
     assert storms(run.installation) == [], "four failures would be a storm over the limit of two"
     assert [entry.test for entry in run.recorded()] == [SLOW]
     assert run.ledger_detail() == {SLOW: False, **dict.fromkeys(consequences, True)}
+
+
+def test_an_error_before_the_hit_of_its_worker_is_rerun_and_is_not_a_consequence(
+    scratch: Path, tmp_path: Path
+) -> None:
+    # In pytest's summary the FAILED hit is listed before the ERROR, though the error came first.
+    early = setup_errors("gw0", 1, "test_early")
+    run = Classified(scratch, tmp_path, [*early, hit()], reruns=[0, 0], load=HIGH_LOAD)
+
+    with contextlib.suppress(FlakeFound):
+        run.run()
+
+    assert run.machine.reruns_made, "the failed tests were rerun"
+    for rerun in run.machine.reruns_made:
+        assert early[0][1] in rerun
+    assert run.ledger_detail()[early[0][1]] is False
+
+
+def test_an_error_in_a_test_the_unit_wrote_is_never_a_consequence_of_a_hit(
+    scratch: Path, tmp_path: Path
+) -> None:
+    mine = setup_errors("gw0", 1, "test_new")
+    run = Classified(
+        scratch,
+        tmp_path,
+        [hit(), *mine],
+        reruns=[1],
+        load=HIGH_LOAD,
+        written=["tests/test_new.py"],
+    )
+
+    passed, _ = run.run()
+
+    assert not passed, "the unit's own error stands"
+    assert run.machine.reruns_made
+    for rerun in run.machine.reruns_made:
+        assert mine[0][1] in rerun
+    assert run.ledger_detail()[mine[0][1]] is False
 
 
 def test_an_error_in_a_worker_with_no_earlier_hit_is_judged_as_before(

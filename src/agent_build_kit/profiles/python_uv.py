@@ -102,8 +102,12 @@ _TEST_ID = r"\S+::[^\s\[]+(?:\[.*?\](?= - |$))?"
 _FAILED_TEST = re.compile(rf"^(?:FAILED|ERROR) ({_TEST_ID})(?: - .*)?$", re.MULTILINE)
 # The same line when the reason is a test's time limit (the pytest-timeout plugin's message).
 _TIME_LIMIT_FAILURE = re.compile(rf"^(?:FAILED|ERROR) ({_TEST_ID}) - .*Timeout >", re.MULTILINE)
-# The same line when the test errored (in a fixture), not failed.
-_ERRORED_TEST = re.compile(rf"^ERROR ({_TEST_ID})(?: - .*)?$", re.MULTILINE)
+# The line xdist writes under `-v` as a worker finishes a test: `[gw0] [ 12%] ERROR path::test`.
+# Unlike the short summary, which pytest groups by status, these come in the order of time.
+_PROGRESS_LINE = re.compile(
+    rf"^\[(gw\d+)\] \[\s*\d+%\] (PASSED|FAILED|ERROR|SKIPPED|XFAIL|XPASS) ({_TEST_ID})",
+    re.MULTILINE,
+)
 # The same line when the reason is a resource the machine shares: a port or a lock in use.
 _SHARED_RESOURCE_FAILURE = re.compile(
     rf"^(?:FAILED|ERROR) ({_TEST_ID}) - .*(?:Address already in use|Errno 98|Errno 48|"
@@ -677,9 +681,20 @@ class PythonUvProfile:
         """The identifiers of the failed tests whose failure is the test's own time limit."""
         return list(dict.fromkeys(_TIME_LIMIT_FAILURE.findall(output)))
 
-    def errored_tests(self, output: str) -> list[str]:
-        """The identifiers of the tests that errored (in a fixture) rather than failed."""
-        return list(dict.fromkeys(_ERRORED_TEST.findall(output)))
+    def consequence_errors(self, output: str) -> list[str]:
+        """The identifiers of the tests that errored in a worker after that worker's first
+        time-limit hit, by the order the workers' progress lines (`-v`) give. Empty when the
+        output has no such lines: the short summary is grouped by status, so its order says
+        nothing of time."""
+        limited = set(self.time_limit_tests(output))
+        hit: set[str] = set()
+        found: list[str] = []
+        for worker, status, test in _PROGRESS_LINE.findall(output):
+            if test in limited:
+                hit.add(worker)
+            elif status == "ERROR" and worker in hit:
+                found.append(test)
+        return list(dict.fromkeys(found))
 
     def shared_resource_tests(self, output: str) -> list[str]:
         """The identifiers of the failed tests whose failure is a resource the machine shares."""

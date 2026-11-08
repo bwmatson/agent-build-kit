@@ -113,6 +113,12 @@ def flake_record(inst: Installation) -> FailureRecord[Flake]:
     return FailureRecord(inst.state_dir / "flakes.jsonl", Flake)
 
 
+def _active_flake_record() -> FailureRecord[Flake] | None:
+    """The flake record of the loaded workspace, or None when none is loaded."""
+    root = active_root()
+    return None if root is None else flake_record(Installation(active(), root))
+
+
 def record_storm(
     unit: str,
     tests: list[str],
@@ -128,10 +134,9 @@ def record_storm(
     keeps `failures`, the failure sections of the first few, and the `evidence` bundle, the
     time the run started and the `conditions` it ran under. No
     row is written when no workspace is loaded."""
-    root = active_root()
-    if root is None:
+    if (record := _active_flake_record()) is None:
         return
-    flake_record(Installation(active(), root)).append(
+    record.append(
         Storm(
             unit=unit,
             at=datetime.now(UTC),
@@ -150,10 +155,8 @@ def record_load(unit: str, flakes: tuple[Flake, ...]) -> None:
     """Record each of `flakes` as a `load` failure of `unit`: a time limit hit under high load that
     passed alone. No fix change is written for it, so none is named. Nothing is written when no
     workspace is loaded."""
-    root = active_root()
-    if root is None:
+    if (record := _active_flake_record()) is None:
         return
-    record = flake_record(Installation(active(), root))
     for flake in flakes:
         record.append(flake.model_copy(update={"unit": unit, "classification": "load"}))
 

@@ -10,8 +10,10 @@
 - A failed test run is no longer judged as the code's fault when the machine was busy. A time
   limit hit under high host load that passes rerun alone is recorded as `load` and writes no
   fix change; a failure on a shared resource on an idle host that passes alone is recorded as
-  `isolation`. Errors that follow the first time-limit hit in a worker are marked as
-  consequences of it and are neither rerun nor counted.
+  `isolation`. Errors that follow the first time-limit hit in a worker, by the order the worker
+  ran its tests (read from the verbose progress lines; none are marked without them), are
+  marked as consequences of it and are neither rerun nor counted. A test the unit wrote is never
+  one.
 
 - The three kinds of test are now stated once, in the `integration` and `e2e` marker
   descriptions and in `AGENTS.md`, with the same rule for each. The tests step now checks that
