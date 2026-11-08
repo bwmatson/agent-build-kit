@@ -57,9 +57,22 @@ def no_account(unit: Unit) -> str | None:
     return None
 
 
+RESOLVE_CLAIM = "resolve-"
+
+
 def marker_live(unit: StoredUnit, now: datetime) -> bool:
     """Whether the unit's `starting` marker has not lapsed at `now`."""
     return unit.starting is not None and unit.starting.until > now
+
+
+def resolve_claimed(unit: StoredUnit, now: datetime) -> bool:
+    """Whether the unit's live `starting` marker is the claim of a resolve worker (its `worker`
+    starts with `RESOLVE_CLAIM`): a place in the resolution lane, not a build worker."""
+    return (
+        marker_live(unit, now)
+        and unit.starting is not None
+        and (unit.starting.worker.startswith(RESOLVE_CLAIM))
+    )
 
 
 def usage_paused(unit: StoredUnit) -> bool:
@@ -102,8 +115,12 @@ def occupied(
         key = project_key(unit)
         if unit.id in leases:
             leased[key] += 1
+        # A resolve worker's claim holds a place in the lane and no build worker.
+        claimed = resolve_claimed(unit, now)
         runs = (
-            (unit.branch or branch_name(unit)) in locks or unit.id in held or marker_live(unit, now)
+            (unit.branch or branch_name(unit)) in locks
+            or unit.id in held
+            or (marker_live(unit, now) and not claimed)
         )
         # A comment rework in the resolution lane holds its place and its branch lock, and no
         # build worker (`ready_units` shows it running with no worker); one a build worker runs
@@ -112,7 +129,7 @@ def occupied(
         comment_run = unit.in_a_comment_run and not unit.in_a_worker(
             locked=locked, lane_held=lane_held
         )
-        if not (runs or comment_run or usage_paused(unit)):
+        if not (runs or comment_run or claimed or usage_paused(unit)):
             continue
         projects[key] += 1
         accounts[account_of(unit)] += 1
