@@ -27,6 +27,10 @@ FILE_NAME = "external.yaml"
 HELD = "held"
 DONE = "done"
 RELEASED = "released"
+# The board blocks the work: a person is assigned there, so the hold no longer has to.
+HANDED_OVER = "handed_over"
+# What the sync saw on the board of a hold still held.
+NOBODY_ASSIGNED = "nobody assigned on the board"
 
 # `all` covers every group of the change's `tasks.md`, those added later too. A list of groups
 # names at least one.
@@ -51,6 +55,7 @@ class Hold(Frozen):
     status: str = HELD
     merged_by: str = ""
     done_at: datetime | None = None
+    board: str = ""
 
 
 def external_path(change_dir: Path) -> Path:
@@ -158,16 +163,18 @@ def already_held(change_dir: Path, hold: Hold) -> bool:
 
 def _holding(change_dir: Path, *, recorded: bool = False) -> dict[int, Hold]:
     """Each group the kit must leave alone, with the hold that has it: those of every hold
-    neither done nor released, and with `recorded` those done by hand too."""
+    neither done, released nor handed over to the board, and with `recorded` those done by hand
+    too."""
     holding: dict[int, Hold] = {}
     for hold, groups in _coverage(change_dir, read_holds(change_dir)):
-        if hold.status != RELEASED and (recorded or hold.status != DONE):
+        if hold.status not in (RELEASED, HANDED_OVER) and (recorded or hold.status != DONE):
             holding.update({number: hold for number in groups})
     return holding
 
 
 def blocked_groups(change_dir: Path) -> frozenset[int]:
-    """The groups the kit must leave alone: those of every hold neither done nor released."""
+    """The groups the kit must leave alone: those of every hold neither done, released nor
+    handed over to the board."""
     return frozenset(_holding(change_dir))
 
 
@@ -296,7 +303,7 @@ def record_done(change_dir: Path, groups: Sequence[int], *, merged_by: str, at: 
         todo = set(groups)
         for hold, covered in _coverage(change_dir, read_holds(change_dir)):
             mine = covered & todo
-            if hold.status != HELD or not mine:
+            if hold.status not in (HELD, HANDED_OVER) or not mine:
                 out.append(hold)
                 continue
             todo -= mine
@@ -311,6 +318,34 @@ def record_done(change_dir: Path, groups: Sequence[int], *, merged_by: str, at: 
         _write(path, out)
 
 
+def record_board(
+    change_dir: Path, hold: Hold, assigned_to: Sequence[str], waiting: Sequence[int]
+) -> None:
+    """Record what the board shows of `hold`, still held: when every group has someone assigned
+    (`waiting` is empty) it is handed over to the board and the note names them; otherwise the
+    hold says which groups have nobody and keeps blocking. A hold that has changed since it was
+    read is left alone."""
+    path = external_path(change_dir)
+    with file_lock(_lock(path)):
+        holds = read_holds(change_dir)
+        if hold not in holds:
+            return
+        if assigned_to and not waiting:
+            named = f"assigned to {', '.join(assigned_to)} on the board"
+            update = {
+                "status": HANDED_OVER,
+                "note": f"{hold.note}; {named}" if hold.note else named,
+                "board": "",
+            }
+        else:
+            shown = ", ".join(str(number) for number in waiting)
+            update = {"board": f"{NOBODY_ASSIGNED} for group {shown}"}
+        if all(getattr(hold, key) == value for key, value in update.items()):
+            return
+        changed = hold.model_copy(update=update)
+        _write(path, [changed if other == hold else other for other in holds])
+
+
 class HoldRow(Frozen):
     """One hold as `abk external list` and `abk status` show it."""
 
@@ -321,6 +356,7 @@ class HoldRow(Frozen):
     status: str
     merged_by: str = ""
     items: dict[str, str | list[str]]
+    board: str = ""
     note: str
     since: datetime
     age: str
@@ -361,6 +397,7 @@ def hold_rows(changes_dir: Path, units: Sequence[StoredUnit], now: datetime) -> 
                     status=hold.status,
                     merged_by=hold.merged_by,
                     items=hold.items,
+                    board=hold.board,
                     note=hold.note,
                     since=hold.since,
                     age=age_text(hold.since, now),
@@ -378,6 +415,10 @@ def hold_text(row: HoldRow) -> str:
     if status == DONE:
         status += f" (merged by {row.merged_by})" if row.merged_by else " (no merge recorded)"
     text = f"{row.change} groups {groups}: {status} by {row.holder} ({row.link}), {row.age}"
+    if row.status == HANDED_OVER and row.note:
+        text += f"; {row.note}"
+    if row.board:
+        text += f"; {row.board}"
     if row.units:
         text += f"; units {', '.join(row.units)}"
     if row.waiting:

@@ -38,11 +38,14 @@ from agent_build_kit.trackers.config import TrackerConfigError, TrackerSection, 
 from agent_build_kit.trackers.field_reconcile import reconcile_field
 from agent_build_kit.trackers.levels import task_key
 from agent_build_kit.trackers.start_decision import covered_by, others
+from agent_build_kit.trackers.wanted_board import group_state
 
 BLOCKED = "blocked"
 BLOCKED_NOTE = "group item blocked on the board"
 RELEASED_NOTE = "the board no longer holds it"
 REMOVED = "removed"
+CLOSED_FIELD = "closed"
+CLOSED_NOTE = "closed on the board; merge not recorded"
 _CLOSED_EPIC = frozenset({"done", REMOVED})
 _FIELDS = frozenset({"title", "body", "state", "tags"})
 
@@ -263,7 +266,7 @@ class _Apply:
         of the spec."""
         for change, file in list(self.files.items()):
             for record in file.conflicts:
-                if record.status != "open" or record.field not in ("title", REMOVED):
+                if record.status != "open" or record.field not in ("title", REMOVED, CLOSED_FIELD):
                     continue
                 try:
                     item = self.tracker.get(record.item_id)
@@ -273,6 +276,10 @@ class _Apply:
                 where = self.places.get(record.item_id)
                 if record.field == "title":
                     agreed = item.title == record.spec_value
+                elif record.field == CLOSED_FIELD:
+                    agreed = _board_state(item) != "done" or not (
+                        where is not None and self._unmerged(where)
+                    )
                 else:
                     agreed = (item.kit_state or item.state) != REMOVED or (
                         where is not None and self._gone_from_spec(where)
@@ -280,9 +287,28 @@ class _Apply:
                 if agreed:
                     self._close(change, record.item_id, record.field)
 
+    def _unmerged(self, where: _Where) -> bool:
+        """Whether the units that build the group of `where` leave it unfinished, by the rule
+        that moves its item to done on the board; a group nothing builds any more is not."""
+        if where.group is None:
+            return False
+        state, _ = group_state(where.change, where.group, self.store.all())
+        return state not in ("done", "removed")
+
+    def closed(self, where: _Where, item: Item) -> None:
+        """A group item closed on the board is not a merge: while its unit is not recorded
+        merged it is a conflict for a person, and the unit is left as it is."""
+        if where.level != "group":
+            return
+        if _board_state(item) == "done" and self._unmerged(where):
+            self._conflict(item.id, CLOSED_FIELD, "not merged", "done", CLOSED_NOTE)
+        else:
+            self._close(where.change, item.id, CLOSED_FIELD)
+
     def title(self, where: _Where, item: Item) -> None:
         """A change or group item retitled on the board keeps the spec's title: the edit is a
-        conflict and the recorded copy is the board's, so the outbound pass pushes the spec's."""
+        conflict and the recorded copy is the board's, so the outbound pass pushes the spec's.
+        An adopted item keeps the board's wording instead, with no conflict."""
         file = self.files[where.change]
         entry = file.change if where.level == "change" else file.groups.get(where.key)
         if entry is None:
@@ -537,6 +563,7 @@ def apply_changes(
                     run.task(where, item)
                 else:
                     run.title(where, item)
+                    run.closed(where, item)
             except Exception as error:  # noqa: BLE001 — a host answers in its own errors
                 log(f"tracker {repo}: item {change.item_id} not applied: {error}")
                 continue

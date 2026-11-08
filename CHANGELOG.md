@@ -19,7 +19,12 @@
   duplicates. Each id is checked first: it must exist, be of the right type, not belong to another
   change and hang under the adopted parent. An id that fails is reported as a conflict and nothing
   is created in its place. Adopted items keep their title and body, gain the marker line, and the
-  sync fills in the missing group and task items under them.
+  sync fills in the missing group and task items under them. Once the board blocks, the hold
+  hands its blocking over: when every group it covers is adopted and assigned to a person (on the
+  group item or a task under it) the hold becomes `handed_over` and stops blocking, while a hold
+  with a group nobody holds stays `held` and `abk external list` and `abk status` say which. An
+  `external.yaml` the sync has written needs this version or later to be read. A group item closed on the board is not a merge: it is a conflict until
+  the hand merge is recorded.
 
 - A unit-test run the machine was suspended in is no longer judged. When a failed test
   command's wall time exceeds the duration the test runner reports by more than

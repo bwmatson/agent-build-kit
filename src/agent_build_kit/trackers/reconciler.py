@@ -45,6 +45,7 @@ from agent_build_kit.trackers.base import (
 )
 from agent_build_kit.trackers.config import TrackerConfigError, TrackerSection, section_for
 from agent_build_kit.trackers.folders import tracker_read_dir, tracker_write_dir
+from agent_build_kit.trackers.hand_over import hand_over
 from agent_build_kit.trackers.wanted_board import WantedItem, wanted_board
 
 ERRORS_COUNTER = "abk.tracker.errors"
@@ -470,6 +471,13 @@ def reconcile(
             log(f"tracker {repo}: {item.marker}: {error}")
     if left:
         log(f"tracker {repo}: create cap reached, {left} items left to create on a later tick")
+    if not (dry_run or failed or stopped):
+        try:
+            hand_over(tracker, run.files, changes_dir)
+        except Exception as error:  # a host answers in its own errors
+            errors += 1
+            count_error()
+            log(f"tracker {repo}: the holds were not compared with the board: {error}")
     if run.written and not dry_run:
         _record_written(snapshot_path(state_dir, repo), run.written)
     if not failed and not dry_run:

@@ -115,7 +115,7 @@ def _group_body(group: TaskGroup) -> str:
     return "\n\n".join(parts)
 
 
-def _group_state(change: str, number: int, units: Sequence[Unit]) -> tuple[str, tuple[str, ...]]:
+def group_state(change: str, number: int, units: Sequence[Unit]) -> tuple[str, tuple[str, ...]]:
     """The state of a group's item from the units that cover it, whatever their order. A
     superseded unit and one that builds nothing say nothing while another unit covers the group;
     an unfinished unit beats a finished one, and the group is done when all of them are."""
@@ -189,7 +189,7 @@ def wanted_board(
             if copy and copy.is_file()
             else {}
         )
-        states = {group.number: _group_state(name, group.number, units) for group in groups}
+        states = {group.number: group_state(name, group.number, units) for group in groups}
 
         if "change" in per_level:
             marker_of, epic_id = _parent(section, "change", name, 0, epics)
