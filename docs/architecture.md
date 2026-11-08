@@ -1072,6 +1072,16 @@ agent delete a stub that duplicates existing code and repoint the test with the 
 assertions, saying so in its summary; "Do not weaken or delete a test" stays. The reviewer
 counts a stub added by the tests commit, and a repointed test is not a finding.
 
+**Builders are given the test standards, the reviewer a checklist.** The tests, implementation
+and rework prompts carry a compact table of the test standards once per session
+(`templates/test-standards.md`, loaded by `pipeline/standards_guidance.py`), one line per
+standard, and ask the agent to cite a standard's ID in its summary where a choice depends on
+one; a continuation prompt does not repeat it. The review prompt carries a checklist of the
+judgements a program cannot make (kind, placement, name, surface, injected time, one
+behaviour, assertions that bite, no test of a test, typed fakes, a missing environment as a
+skip), and says that a finding on a standard a guard enforces is not accepted. The table is
+written by hand for now; a generated catalogue replaces the hand-written table later.
+
 **Long command output goes to an ignored file.** Every worktree carries
 `.abk/out/`, named once in the repository's local `info/exclude` (never a tracked
 ignore file), so `git status`, `git add -A` and the leftover commit never see it.

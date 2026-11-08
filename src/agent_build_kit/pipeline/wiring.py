@@ -804,8 +804,19 @@ def build_run(
     return run_agent
 
 
-# The two parts of the review prompt that hold a change's tests to a standard; a unit with no group
-# that writes tests (see `review_prompt`) is not shown them.
+# The three parts of the review prompt that hold a change's tests to a standard; a unit with no
+# group that writes tests (see `review_prompt`) is not shown them.
+REVIEW_STANDARDS_CHECKLIST = """\
+- **Judge the tests on what a program cannot.** For each test the diff adds, ask: is it one kind
+  and in the right place (T1, T2)? Does its name state one behaviour (T3)? Does it use only the
+  public surface (T4)? Is the clock injected (T10) and a changing external value read through
+  one helper (T13)? Does it check one behaviour, arranged, acted and asserted (T19), with
+  assertions that fail if the behaviour is removed (T20)? Is it a test of a test (T22)? Does a
+  fake satisfy the seam instead of mocking an internal (T23)? Is a missing environment a skip or
+  a configuration error, not a failure (T25)? A finding on a standard a guard enforces is not
+  accepted: the guard already fails it.
+"""
+
 REVIEW_DETERMINISM_RULE = (
     "- **Hold the tests to the determinism rules.** "
     + determinism_guidance()
@@ -896,6 +907,7 @@ Every round you ask for costs a rework and another review, so:
   missing, and an edit to a test that the tasks neither name in a step nor list as possible is a
   required change to remove it.
 """
+    + REVIEW_STANDARDS_CHECKLIST
     + REVIEW_DETERMINISM_RULE
     + """- **Read the code around the change, not only the diff.** For each hunk, open
   the enclosing function and read it whole. For each removed line, ask what it
@@ -1005,7 +1017,8 @@ def review_prompt(group_modes: Mapping[str, GroupMode] | None = None) -> str:
         return REVIEW_PROMPT
     text = REVIEW_PROMPT
     if not any(mode.writes_tests for mode in group_modes.values()):
-        text = text.replace(REVIEW_DETERMINISM_RULE, "").replace(REVIEW_REAL_SYSTEM_CHECK, "")
+        for part in (REVIEW_STANDARDS_CHECKLIST, REVIEW_DETERMINISM_RULE, REVIEW_REAL_SYSTEM_CHECK):
+            text = text.replace(part, "")
     rules = []
     for mode in GroupMode:
         groups = sorted(key for key, found in group_modes.items() if found is mode)

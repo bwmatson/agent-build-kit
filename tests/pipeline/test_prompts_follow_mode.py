@@ -80,6 +80,16 @@ def test_a_group_with_no_tests_node_has_no_tests_prompt(mode: GroupMode) -> None
         write_tests_prompt(mode, **FIELDS)
 
 
+@pytest.mark.parametrize("mode", [GroupMode.NO_CODE, GroupMode.REFACTOR])
+def test_a_review_prompt_of_a_unit_with_no_tests_leaves_out_the_standards_checklist(
+    tmp_path: Path, mode: GroupMode
+) -> None:
+    text = review_text(tmp_path, {"feature/1": mode})
+
+    assert "judge the tests on what a program cannot" not in text
+    assert "t19" not in text
+
+
 def test_a_no_code_review_prompt_carries_no_test_standard(tmp_path: Path) -> None:
     text = review_text(tmp_path, {"feature/1": GroupMode.NO_CODE})
 
@@ -100,6 +110,7 @@ def test_a_refactor_review_prompt_asks_what_must_be_unchanged(tmp_path: Path) ->
 def test_a_review_prompt_with_no_modes_keeps_the_test_standards(tmp_path: Path) -> None:
     text = review_text(tmp_path, None)
 
+    assert "judge the tests on what a program cannot" in text
     assert "hold the tests to the determinism rules" in text
     assert "check the tests against the real system" in text
 
@@ -111,5 +122,6 @@ def test_a_mixed_unit_review_prompt_names_the_group_each_rule_is_for(tmp_path: P
 
     assert "feature/1" in text
     assert "feature/2" in text
+    assert "judge the tests on what a program cannot" in text
     assert "check the tests against the real system" in text
     assert "unchanged" in text

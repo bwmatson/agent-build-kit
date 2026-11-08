@@ -14,6 +14,7 @@ Three things carry real weight:
   pushed again on every restack.
 """
 
+import re
 import subprocess
 from collections.abc import Mapping
 from pathlib import Path
@@ -1063,6 +1064,41 @@ def test_a_review_can_be_told_what_happened_to_the_branch(tmp_path: Path) -> Non
     prompt = recorder.commands[0][recorder.commands[0].index("-p") + 1]
     assert prompt.startswith("MOVED ONTO A CHANGED PREDECESSOR")
     assert "Reply with JSON" in prompt
+
+
+REVIEW_CHECKLIST_IDS = ["T1", "T2", "T3", "T4", "T10", "T13", "T19", "T20", "T22", "T23", "T25"]
+
+
+def _review_prompt_sent(tmp_path: Path, **kwargs: object) -> str:
+    recorder = Recorder()
+
+    build_run_review(run=recorder)(cwd=tmp_path, **kwargs)
+
+    command = recorder.commands[0]
+    return " ".join(command[command.index("-p") + 1].split())
+
+
+def test_a_new_review_carries_the_checklist_of_judgements(tmp_path: Path) -> None:
+    prompt = _review_prompt_sent(tmp_path)
+
+    for standard_id in REVIEW_CHECKLIST_IDS:
+        assert re.search(rf"\b{standard_id}\b", prompt), standard_id
+    assert not re.search(r"\bT5\b", prompt)
+
+
+def test_a_new_review_refuses_a_finding_on_a_standard_a_guard_enforces(tmp_path: Path) -> None:
+    prompt = _review_prompt_sent(tmp_path)
+
+    assert re.search(r"guard enforces[^.]*(not accepted|is not a finding)", prompt)
+
+
+def test_a_continued_review_does_not_repeat_the_checklist(tmp_path: Path) -> None:
+    assert re.search(r"\bT19\b", _review_prompt_sent(tmp_path))
+
+    prompt = _review_prompt_sent(tmp_path, resume_session="session-1")
+
+    assert not re.search(r"\bT19\b", prompt)
+    assert "guard enforces" not in prompt
 
 
 def _workspace(tmp_path: Path) -> Path:
