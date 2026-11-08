@@ -117,13 +117,8 @@ def git(repo: Path, *args: str, **kwargs) -> subprocess.CompletedProcess[str]:
     kwargs.setdefault("env", untranslated_env())
     result = shell.git(repo, *RERERE, *args, check=False, **kwargs)
     if check and result.returncode:
-        if (lock := lock_failure(result.stderr)) is not None:
-            command = " ".join(("git", *args))
-            raise GitLockFailed(
-                f"`{command}` could not take the lock {lock} (exit status {result.returncode})",
-                path=lock,
-                command=command,
-            )
+        if (error := _lock_error(result, args)) is not None:
+            raise error
         raise subprocess.CalledProcessError(
             result.returncode,
             ["git", *RERERE, *args],
@@ -162,6 +157,28 @@ def clear_dead_locks(repo: Path) -> None:
             log.info("cleared the dead lock %s (empty, %d seconds old)", lock, int(age))
             continue
         log.warning("left the lock %s (%d seconds old): %s", lock, int(age), why)
+
+
+def _raise_if_lock(repo: Path, result: subprocess.CompletedProcess[str], *args: str) -> None:
+    """A rebase that stopped because a lock file exists is not a conflict: leave nothing
+    half-done and name the lock and the command. Inside the turn."""
+    if (error := _lock_error(result, args)) is not None:
+        git(repo, "rebase", "--abort", check=False)
+        raise error
+
+
+def _lock_error(
+    result: subprocess.CompletedProcess[str], args: tuple[str, ...]
+) -> GitLockFailed | None:
+    """The named failure for a git result that met a lock file; None for any other."""
+    if (lock := lock_failure(result.stderr)) is None:
+        return None
+    command = " ".join(("git", *args))
+    return GitLockFailed(
+        f"`{command}` could not take the lock {lock} (exit status {result.returncode})",
+        path=lock,
+        command=command,
+    )
 
 
 class RestackConflict(RuntimeError):
@@ -456,24 +473,27 @@ def _separate_changelog(repo: Path, config: RepoConfig | None) -> None:
     path.write_text(separated)
     # No hooks: the edit is only the blank lines the convention requires, and a hook that
     # rejects it must not turn a finished move into an error.
-    committed = git(repo, "add", "--", name, check=False)
-    if committed.returncode == 0:
-        committed = git(
+    step = git(repo, "add", "--", name, check=False)
+    if step.returncode == 0:
+        step = git(
             repo, "commit", "-q", "--no-verify", "-m", CHANGELOG_SEPARATED, "--", name, check=False
         )
-    if committed.returncode == 0:
+    if step.returncode == 0:
         return
     subject = git(repo, "log", "-1", "--format=%s", check=False).stdout.strip()
     clean = not git(repo, "status", "--porcelain", "--", name, check=False).stdout.strip()
     if subject == CHANGELOG_SEPARATED and clean:
         return
     # Nothing landed: the file goes back as the rebase left it, and the move is still done.
-    git(repo, "reset", "-q", "--", name, check=False)
+    unstaged = git(repo, "reset", "-q", "--", name, check=False)
     path.write_text(text)
     log.warning(
-        "the changelog separation of %s failed and was dropped: %s",
+        "the changelog separation of %s failed and was dropped: %s%s",
         name,
-        (committed.stderr or committed.stdout).strip(),
+        (step.stderr or step.stdout).strip(),
+        ""
+        if unstaged.returncode == 0
+        else f" (and the index still holds the separated file: {unstaged.stderr.strip()})",
     )
 
 
@@ -602,6 +622,7 @@ def move_branch_onto(
                 return _land_detached(repo, branch, started=started)
             return Moved(sha=git(repo, "rev-parse", branch).stdout.strip())
 
+        _raise_if_lock(repo, result, "rebase", "--onto", new_base, old_base)
         if resolve is None or context is None:
             raise _abort(
                 repo,
@@ -720,6 +741,7 @@ def move_branch_onto(
         git(repo, "add", "-A")
         finished = git(repo, "-c", "core.editor=true", "rebase", "--continue", check=False)
         if finished.returncode != 0:
+            _raise_if_lock(repo, finished, "rebase", "--continue")
             raise _abort(
                 repo,
                 f"the rebase did not complete after resolution:\n"

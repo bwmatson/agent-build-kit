@@ -13,7 +13,7 @@ import pytest
 
 from agent_build_kit.pipeline import restack, shell
 from agent_build_kit.pipeline.git_output import GitLockFailed
-from agent_build_kit.pipeline.restack import Moved, move_branch_onto
+from agent_build_kit.pipeline.restack import ConflictContext, Moved, move_branch_onto
 from tests.factories import commit, git, init_repo
 
 DAY = 24 * 3600
@@ -73,6 +73,34 @@ def test_a_commit_that_meets_a_lock_reports_its_path_and_the_command(tree: Tree)
     assert raised.value.path == str(lock)
     assert "MERGE_RR.lock" in str(raised.value)
     assert "commit" in raised.value.command
+
+
+def test_a_rebase_stopped_by_a_lock_is_named_and_never_handed_to_the_resolver(
+    tree: Tree,
+) -> None:
+    lock = tree.lock("index.lock", age=60)
+    head = git(tree.path, "rev-parse", "spec/x/1")
+    asked: list[str] = []
+
+    def resolve(prompt: str, **kwargs: object) -> None:
+        asked.append(prompt)
+
+    with pytest.raises(GitLockFailed) as raised:
+        move_branch_onto(
+            tree.path,
+            "spec/x/1",
+            new_base=tree.new_base,
+            old_base=tree.old_base,
+            resolve=resolve,
+            context=ConflictContext(
+                moving_unit="x/1", moving_intent="a", onto_unit="x/0", onto_intent="b"
+            ),
+        )
+
+    assert raised.value.path == str(lock)
+    assert "rebase" in raised.value.command
+    assert asked == []
+    assert git(tree.path, "rev-parse", "spec/x/1") == head
 
 
 def test_an_empty_old_rerere_lock_is_cleared_and_the_log_names_it(

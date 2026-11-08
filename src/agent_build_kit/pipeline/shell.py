@@ -41,9 +41,9 @@ def git(repo: Path, *args: str, check: bool = True, **kwargs) -> subprocess.Comp
     )
 
 
-def git_running_in(worktree: Path) -> bool:
-    """Whether a git process is running with `worktree` as its working directory."""
-    proc = Path("/proc")
+def git_running_in(worktree: Path, proc: Path = Path("/proc")) -> bool:
+    """Whether a git process is running with `worktree` as its working directory; `proc` is
+    the process table, a parameter so a test can give it a fake one."""
     if not proc.is_dir():
         return True  # cannot tell, so assume one is
     here = worktree.resolve()
