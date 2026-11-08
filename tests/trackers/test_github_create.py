@@ -9,7 +9,7 @@ from typing import Any
 import pytest
 
 from agent_build_kit.forges.transport import HostError
-from agent_build_kit.trackers.base import Item, ItemKind, marker_comment
+from agent_build_kit.trackers.base import Item, ItemKind, UnknownWorkItemType, marker_comment
 from agent_build_kit.trackers.github import GithubIssues, SubIssueLimitExceeded
 from tests.trackers.github_issue_host import IssueHost
 from tests.trackers.github_support import MODE_TYPES, tracker_on
@@ -28,6 +28,14 @@ def create_down_to(tracker: GithubIssues, level: ItemKind) -> Item:
             return made
         parent = made.id
     raise AssertionError(level)
+
+
+def full_parent(host: IssueHost) -> str:
+    """An issue already holding the most sub-issues the host allows; its number."""
+    change = host.seed("Change")
+    for number in range(100):
+        host.seed(f"Group {number}", parent=change)
+    return change
 
 
 def test_a_group_item_is_created_as_an_issue_with_the_marker_under_its_change() -> None:
@@ -107,16 +115,15 @@ def test_an_item_whose_create_answer_was_lost_is_found_and_not_created_twice() -
 
 
 def test_a_parent_at_the_sub_issue_limit_is_refused_naming_it_and_the_limit() -> None:
-    host = IssueHost(sub_issue_limit=2)
-    change = host.seed("Change")
-    host.seed("First", parent=change)
-    host.seed("Second", parent=change)
+    host = IssueHost()
+    change = full_parent(host)
 
     with pytest.raises(SubIssueLimitExceeded) as refused:
-        tracker_on(host).create("group", "Third", parent=change, markers=("feature:g3",))
+        tracker_on(host).create("group", "Extra", parent=change, markers=("feature:g101",))
 
+    assert (refused.value.parent, refused.value.total, refused.value.limit) == (change, 100, 100)
     assert f"#{change}" in str(refused.value)
-    assert "2" in str(refused.value)
+    assert "100" in str(refused.value)
 
 
 @pytest.mark.parametrize("level", LEVELS)
@@ -156,19 +163,43 @@ def test_without_types_each_level_is_a_label(host_options: dict[str, Any], level
 
 
 def test_the_issue_made_for_a_refused_nesting_is_closed_and_no_marker_finds_it() -> None:
-    host = IssueHost(sub_issue_limit=2)
-    change = host.seed("Change")
-    host.seed("First", parent=change)
-    host.seed("Second", parent=change)
+    host = IssueHost()
+    change = full_parent(host)
     tracker = tracker_on(host)
 
     with pytest.raises(SubIssueLimitExceeded):
-        tracker.create("group", "Third", parent=change, markers=("feature:g3",))
+        tracker.create("group", "Extra", parent=change, markers=("feature:g101",))
 
     stray = host.issues[len(host.issues)]
     assert (stray["state"], stray["state_reason"]) == ("closed", "not_planned")
     assert not re.search(r"<!--.*-->", stray["body"])
-    assert tracker.find_by_marker("feature:g3") is None
+    assert tracker.find_by_marker("feature:g101") is None
+
+
+def test_an_issue_of_no_level_is_refused_as_an_unknown_type_naming_it() -> None:
+    host = IssueHost()
+    person = host.seed("A person's issue", labels=("question",))
+
+    with pytest.raises(UnknownWorkItemType, match=rf"#{person}.*'question'.*change, group"):
+        tracker_on(host).get(person)
+
+
+@pytest.mark.parametrize(
+    "options",
+    [{"disabled_types": ("Story",)}, {"missing_types": ("Story",)}],
+    ids=["disabled", "not listed"],
+)
+def test_an_organization_lacking_an_enabled_level_type_falls_back_to_labels(
+    options: dict[str, Any],
+) -> None:
+    host = IssueHost(**options)
+    tracker = tracker_on(host, "organization", levels=("change", "group"))
+
+    made = create_down_to(tracker, "group")
+
+    assert not tracker.capabilities().typed
+    assert host.issues[int(made.id)].get("type") is None
+    assert [label["name"] for label in host.issues[int(made.id)]["labels"]] == ["Story"]
 
 
 def test_a_closed_item_is_still_found_by_its_marker() -> None:

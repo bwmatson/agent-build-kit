@@ -26,13 +26,14 @@ from agent_build_kit.trackers.base import (
     Capabilities,
     Item,
     ItemKind,
+    UnknownWorkItemType,
     kind_types,
     marker_comment,
     markers_in,
     without_markers,
 )
 from agent_build_kit.trackers.config import GithubTracker
-from agent_build_kit.trackers.github_models import IssueDoc, NamedDoc, OwnerDoc
+from agent_build_kit.trackers.github_models import IssueDoc, IssueTypeDoc, NamedDoc, OwnerDoc
 
 # The most sub-issues one parent holds.
 SUB_ISSUE_LIMIT = 100
@@ -41,7 +42,15 @@ _PAGE = 100
 
 class SubIssueLimitExceeded(ValueError):
     """A parent that already holds the most sub-issues the host allows: a configuration problem,
-    naming the parent and the limit."""
+    naming the parent, how many it holds and the limit."""
+
+    def __init__(self, parent: str, total: int) -> None:
+        super().__init__(
+            f"#{parent} holds {total} sub-issues, the most the host allows ({SUB_ISSUE_LIMIT})"
+        )
+        self.parent = parent
+        self.total = total
+        self.limit = SUB_ISSUE_LIMIT
 
 
 class GithubIssues:
@@ -133,19 +142,27 @@ class GithubIssues:
         return validated(IssueDoc, reply.data, "issues", reply.text)
 
     def _has_types(self) -> bool:
-        """Whether the owner is an organization with issue types enabled, read once."""
+        """Whether levels are issue types: the owner is an organization and every configured
+        level's type is one of its enabled issue types, read once. An organization missing one
+        (or having it disabled) falls back to labels, named as the configuration names the
+        levels, so items can still be made."""
         if self._typed is None:
-            owner = self._section.owner
-            kind = validated(OwnerDoc, self._call("GET", f"/users/{owner}").data, "users", "").type
-            self._typed = kind == "Organization" and self._org_has_types()
+            reply = self._call("GET", f"/users/{self._section.owner}")
+            kind = validated(OwnerDoc, reply.data, "users", reply.text).type
+            self._typed = kind == "Organization" and self._levels_are_enabled_types()
         return self._typed
 
-    def _org_has_types(self) -> bool:
+    def _levels_are_enabled_types(self) -> bool:
+        path = f"/orgs/{self._section.owner}/issue-types"
         try:
-            reply = self._call("GET", f"/orgs/{self._section.owner}/issue-types")
+            reply = self._call("GET", path)
         except NotFound:
             return False
-        return bool(reply.data)
+        if not isinstance(reply.data, list):
+            raise TransportError(f"GET {path}: not a list: {reply.text[:200]}")
+        listed = (validated(IssueTypeDoc, entry, path, reply.text) for entry in reply.data)
+        enabled = {entry.name for entry in listed if entry.is_enabled}
+        return bool(self._levels) and set(self._levels.values()) <= enabled
 
     def _nest(self, parent: str, child: IssueDoc) -> None:
         try:
@@ -170,12 +187,12 @@ class GithubIssues:
                     ),
                 },
             )
-            if "limit" not in error.body.lower():
+            # A 422 is the limit when the parent already holds the most the host allows; the
+            # parent's own count says so, not the wording of the refusal.
+            summary = self._issue(self._call("GET", self._path(parent))).sub_issues_summary
+            if summary is None or summary.total < SUB_ISSUE_LIMIT:
                 raise
-            raise SubIssueLimitExceeded(
-                f"#{parent} cannot take another sub-issue (the host allows at most "
-                f"{SUB_ISSUE_LIMIT}): {error.body}"
-            ) from error
+            raise SubIssueLimitExceeded(parent, summary.total) from error
 
     # --- items --------------------------------------------------------------------
 
@@ -195,7 +212,12 @@ class GithubIssues:
         host's `parent_issue_url`."""
         kind = self._kind_of(doc)
         if kind is None:
-            raise ValueError(f"issue #{doc.number} is of no level of the configuration")
+            seen = [doc.type.name] if doc.type else [label.name for label in doc.labels]
+            raise UnknownWorkItemType(
+                f"issue #{doc.number} has {'type' if doc.type else 'labels'} "
+                f"{', '.join(map(repr, seen)) or 'none'}, which no level of the configuration "
+                f"uses (levels: {', '.join(self._section.levels)})"
+            )
         text = without_markers(self._section.marker_prefix, doc.body or "").rstrip("\n")
         if parent is None and doc.parent_issue_url:
             parent = doc.parent_issue_url.rsplit("/", 1)[-1]

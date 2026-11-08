@@ -24,6 +24,8 @@ API = "https://api.github.com/repos/example/app/issues"
 HTML = "https://github.com/example/app/issues"
 # An issue's id is not its number, so a call that sends one for the other fails.
 ID_OFFSET = 1000
+# The most sub-issues a parent holds, as GitHub documents it (not read from the tracker).
+SUB_ISSUE_LIMIT = 100
 _ROUTE = re.compile(r"^/repos/example/app/issues(?:/(?P<number>\d+))?(?P<rest>/sub_issues)?$")
 
 
@@ -41,20 +43,31 @@ class IssueHost(httpx.MockTransport):
         *,
         owner_kind: Literal["Organization", "User"] = "Organization",
         types_enabled: bool = True,
-        sub_issue_limit: int = 100,
+        disabled_types: Sequence[str] = (),
+        missing_types: Sequence[str] = (),
         lose_create_answer: bool = False,
     ) -> None:
         """With `lose_create_answer`, the first create is made and answered with a 500.
-        `sub_issue_limit` is the most sub-issues a parent holds. `types_enabled` only counts
-        for an organization."""
+        `types_enabled` only counts for an organization; of its types, `disabled_types` are
+        listed with `is_enabled` false and `missing_types` are not listed. A parent holds at
+        most `SUB_ISSUE_LIMIT` sub-issues, as the host does."""
         self.issues = {}
         self.creates = []
         self._children: dict[int, list[int]] = {}
         self._owner = load(
             owner_kind.lower() if owner_kind == "User" else "organization", RECORDED_GITHUB
         ).body
-        self._types = load("issue_types", RECORDED_GITHUB).body if types_enabled else None
-        self._limit = sub_issue_limit
+        listed = load("issue_types", RECORDED_GITHUB).body
+        self._types = (
+            [
+                {**entry, "is_enabled": entry["name"] not in disabled_types}
+                for entry in listed
+                if entry["name"] not in missing_types
+            ]
+            if types_enabled
+            else None
+        )
+        self._refusal = load("sub_issue_refused", RECORDED_GITHUB).body
         self._lose_create_answer = lose_create_answer
         # What a person's issue and what a create answer look like, and where a sub-issue's
         # parent is written, each as recorded.
@@ -191,8 +204,7 @@ class IssueHost(httpx.MockTransport):
         child = body["sub_issue_id"] - ID_OFFSET
         if child not in self.issues:
             return _json(404, {"message": "Not Found"})
-        if len(self._children.get(parent, [])) >= self._limit:
-            message = f"Validation Failed: sub-issues limit of {self._limit} reached"
-            return _json(422, {"message": message})
+        if len(self._children.get(parent, [])) >= SUB_ISSUE_LIMIT:
+            return _json(422, self._refusal)
         self._nest(parent, child)
         return _json(201, self.issues[parent])

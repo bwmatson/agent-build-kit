@@ -12,7 +12,15 @@ from tests.trackers.ado_recorded import FixtureHeaderMissing, load
 from tests.trackers.github_issue_host import RECORDED_GITHUB
 
 # The bodies the issue tests rely on, each written from the GitHub documentation.
-BODIES = ("issue", "issue_created", "sub_issues", "issue_types", "organization", "user")
+BODIES = (
+    "issue",
+    "issue_created",
+    "sub_issues",
+    "sub_issue_refused",
+    "issue_types",
+    "organization",
+    "user",
+)
 
 
 @pytest.mark.integration

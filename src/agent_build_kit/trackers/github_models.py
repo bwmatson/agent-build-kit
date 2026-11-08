@@ -25,6 +25,10 @@ class OwnerDoc(_Doc):
     type: str
 
 
+class SubIssuesSummaryDoc(_Doc):
+    total: int
+
+
 class IssueDoc(_Doc):
     id: int
     number: int
@@ -37,5 +41,11 @@ class IssueDoc(_Doc):
     type: NamedDoc | None = None
     assignees: tuple[LoginDoc, ...] = ()
     parent_issue_url: str | None = None
+    sub_issues_summary: SubIssuesSummaryDoc | None = None
     # Present only on a pull request, which the issues list also returns.
     pull_request: dict[str, object] | None = None
+
+
+class IssueTypeDoc(_Doc):
+    name: str
+    is_enabled: bool = True
