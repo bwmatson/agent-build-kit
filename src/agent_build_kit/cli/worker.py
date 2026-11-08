@@ -43,6 +43,18 @@ def cmd_worker_build(args: argparse.Namespace, inst: Installation) -> int:
     return 0
 
 
+def cmd_worker_resolve(args: argparse.Namespace, inst: Installation) -> int:
+    """Run the pending resolution runs of `args.project` (a project as a person spells it:
+    `repo`, or `repo/project`), each carrying its unit through the whole build."""
+    raise NotImplementedError
+
+
+def cmd_worker_verify(args: argparse.Namespace, inst: Installation) -> int:
+    """Deploy and run the live tests of `args.change` under the e2e and environment locks, and
+    record the result for the dispatcher."""
+    raise NotImplementedError
+
+
 def register(sub: Any) -> None:
     worker = sub.add_parser("worker", help="run one piece of work as its own process")
     kinds = worker.add_subparsers(dest="worker_command", required=True)

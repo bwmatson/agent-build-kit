@@ -6,13 +6,16 @@ that attribute (and `user_manager_available`); no worker process is started."""
 
 from __future__ import annotations
 
+import argparse
 from pathlib import Path
 
 import pytest
 
+from agent_build_kit.cli import build_parser
 from agent_build_kit.installation import Installation
 from agent_build_kit.pipeline import spawn
 from agent_build_kit.pipeline.spawn import Worker
+from tests.conftest import make_installation
 from tests.tick_pass import workspace
 
 
@@ -42,5 +45,29 @@ def install_spawner(monkeypatch: pytest.MonkeyPatch) -> FakeSpawner:
     return fake
 
 
+def lane_workspace(tmp_path: Path, *, stacks: int, resolutions: int) -> Installation:
+    """A `processes` workspace with `stacks` build workers and `resolutions` resolution workers
+    at once."""
+    return make_installation(
+        tmp_path,
+        planning={"state_dir": ".", "worktree_root": str(tmp_path.parent / "trees")},
+        limits={"stack_depth_build_cap": 3},
+        project_limits={
+            "max_concurrent_stacks": stacks,
+            "max_concurrent_resolutions": resolutions,
+            "max_units_in_progress": 50,
+        },
+        workers={"mode": "processes"},
+    )
+
+
 def processes_workspace(tmp_path: Path, **kwargs: int) -> Installation:
     return workspace(tmp_path, workers={"mode": "processes"}, **kwargs)
+
+
+def parse_worker_command(*argv: str) -> argparse.Namespace:
+    """What `abk worker <argv>` parses to; an assertion failure when it is not a command."""
+    try:
+        return build_parser().parse_args(["worker", *argv])
+    except SystemExit as error:
+        raise AssertionError(f"`abk worker {' '.join(argv)}` is not a command") from error
