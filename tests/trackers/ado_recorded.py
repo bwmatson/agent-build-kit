@@ -23,7 +23,7 @@ class Recorded(Frozen):
     source: str
     page: str
     date: str
-    body: dict[str, Any]
+    body: Any
 
 
 def load(name: str, directory: Path = RECORDED) -> Recorded:

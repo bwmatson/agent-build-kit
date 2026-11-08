@@ -1,0 +1,39 @@
+{
+  "fixture": {
+    "source": "reference",
+    "page": "https://docs.github.com/en/rest/orgs/issue-types?apiVersion=2022-11-28#list-issue-types-for-an-organization",
+    "date": "2026-11-07"
+  },
+  "body": [
+    {
+      "id": 410,
+      "node_id": "IT_kwDNAd3NAZo",
+      "name": "Task",
+      "description": "A specific piece of work",
+      "color": "yellow",
+      "created_at": "2024-12-11T14:39:09Z",
+      "updated_at": "2024-12-11T14:39:09Z",
+      "is_enabled": true
+    },
+    {
+      "id": 411,
+      "node_id": "IT_kwDNAd3NAZ8",
+      "name": "Feature",
+      "description": "A request, idea, or new functionality",
+      "color": "blue",
+      "created_at": "2024-12-11T14:39:09Z",
+      "updated_at": "2024-12-11T14:39:09Z",
+      "is_enabled": true
+    },
+    {
+      "id": 412,
+      "node_id": "IT_kwDNAd3NAaA",
+      "name": "Story",
+      "description": "A user story",
+      "color": "green",
+      "created_at": "2024-12-11T14:39:09Z",
+      "updated_at": "2024-12-11T14:39:09Z",
+      "is_enabled": true
+    }
+  ]
+}
