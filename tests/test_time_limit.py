@@ -3,6 +3,13 @@
 A hung test must fail in a minute, naming the limit, and the run must go on. The plugin
 is driven in a child pytest, over a test that busy-waits past a one second limit.
 
+The limit is a CPU budget with a wall-clock backstop of five times it (spec: test-determinism).
+`budget_for` gives a test's budgets from the item alone, `clock_fired` is the step the timer
+thread takes at each poll and `exceeded_text` is the failure sentence, so those cases pass the
+readings in and wait on no clock. The CPU-bound child scenarios in
+`tests/child_modules/cpu_time_limit/` make the backstop unreachable (`tests/cpu_spin.py`), and one
+of them proves the CPU of a child the test waits on counts.
+
 A test marked `time_limit(<seconds>)` is held to that many seconds (spec:
 ci-gives-npm-a-longer-timeout), and a `local_stack` test to `--e2e-test-time-limit` (spec:
 e2e-tests-have-their-own-time-limit). `limit_for` gives a test's limit from the item alone. The
@@ -12,106 +19,136 @@ recorder, so no outcome there depends on how long anything takes.
 
 from __future__ import annotations
 
-import os
-import re
-import subprocess
-import sys
-from pathlib import Path
-
 import pytest
 
 from tests import time_limit
 from tests.child_pytest import run_scenario
+from tests.time_limit import Budget
 
-ROOT = Path(__file__).parent.parent
+CPU_SCENARIO = "cpu_time_limit"
 E2E_SCENARIO = "fast_and_e2e_time_limit"
 MARKED_SCENARIO = "marked_time_limit"
 
-HANGING = """\
-import time
 
-
-def test_hangs():
-    deadline = time.monotonic() + 20
-    while time.monotonic() < deadline:
-        pass
-
-
-def test_after_it():
-    pass
-"""
-
-
-SLOW_TEARDOWN = """\
-import time
-
-import pytest
-
-
-@pytest.fixture
-def slow_teardown():
-    yield
-    deadline = time.monotonic() + 20
-    while time.monotonic() < deadline:
-        pass
-
-
-@pytest.fixture
-def slow_setup():
-    deadline = time.monotonic() + 20
-    while time.monotonic() < deadline:
-        pass
-
-
-def test_with_a_slow_teardown(slow_teardown):
-    pass
-
-
-def test_with_a_slow_setup(slow_setup):
-    pass
-
-
-def test_after_them():
-    pass
-"""
-
-
-def run_pytest(folder: Path, *args: str) -> subprocess.CompletedProcess[str]:
-    env = {**os.environ, "PYTHONPATH": str(ROOT)}
-    return subprocess.run(
-        [sys.executable, "-m", "pytest", "-p", "tests.time_limit", "-p", "no:cacheprovider", *args],
-        cwd=folder,
-        env=env,
-        capture_output=True,
-        text=True,
-        check=False,
+def test_a_test_that_hangs_fails_naming_the_limit_and_the_run_goes_on(
+    pytester: pytest.Pytester, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    result = run_scenario(
+        pytester, CPU_SCENARIO, "hangs.py", "--test-time-limit=1", monkeypatch=monkeypatch
     )
 
-
-def test_a_test_that_hangs_fails_naming_the_limit_and_the_run_goes_on(tmp_path: Path) -> None:
-    (tmp_path / "test_hang.py").write_text(HANGING)
-
-    result = run_pytest(tmp_path, "--test-time-limit=1", "-q")
-
-    output = result.stdout + result.stderr
-    assert result.returncode == 1, output
-    assert "1 failed, 1 passed" in output
-    assert re.search(r"time limit of 1 seconds?", output), output
+    assert result.code == 1, result.output
+    assert "1 failed, 1 passed" in result.output
+    assert "exceeded the CPU time budget of 1 s" in result.output, result.output
 
 
 def test_a_fixture_that_hangs_in_setup_or_teardown_is_an_error_naming_the_limit(
-    tmp_path: Path,
+    pytester: pytest.Pytester, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    (tmp_path / "test_fixtures.py").write_text(SLOW_TEARDOWN)
+    result = run_scenario(
+        pytester, CPU_SCENARIO, "slow_fixtures.py", "--test-time-limit=1", monkeypatch=monkeypatch
+    )
 
-    result = run_pytest(tmp_path, "--test-time-limit=1", "-q")
-
-    output = result.stdout + result.stderr
-    assert result.returncode == 1, output
+    output = result.output
+    assert result.code == 1, output
     assert "2 passed, 2 errors" in output, output
-    assert len(re.findall(r"time limit of 1 seconds?", output)) >= 2, output
+    assert output.count("exceeded the CPU time budget of 1 s") >= 2, output
     assert "test setup exceeded" in output
     assert "test teardown exceeded" in output
+
+
+def test_the_backstop_is_five_times_the_budget(request: pytest.FixtureRequest) -> None:
+    request.applymarker(pytest.mark.time_limit(5))
+
+    assert time_limit.budget_for(request.node) == Budget(cpu=5, wall=25)
+
+
+def test_an_unmarked_test_has_the_default_as_its_cpu_budget(
+    request: pytest.FixtureRequest,
+) -> None:
+    default = time_limit.DEFAULT_TEST_TIME_LIMIT
+
+    assert time_limit.budget_for(request.node) == Budget(cpu=default, wall=default * 5)
+
+
+def test_a_test_marked_with_the_loaded_limit_has_it_as_cpu_budget_and_five_times_as_backstop(
+    request: pytest.FixtureRequest,
+) -> None:
+    request.applymarker(pytest.mark.time_limit(time_limit.LOADED_TEST_TIME_LIMIT))
+
+    loaded = time_limit.LOADED_TEST_TIME_LIMIT
+    assert time_limit.budget_for(request.node) == Budget(cpu=loaded, wall=loaded * 5)
+
+
+def test_an_e2e_test_keeps_its_wall_clock_limit_and_has_no_cpu_budget(
+    request: pytest.FixtureRequest,
+) -> None:
+    request.applymarker(pytest.mark.local_stack)
+
+    budget = time_limit.budget_for(request.node)
+
+    assert budget == Budget(cpu=0, wall=time_limit.e2e_limit(request.config))
+
+
+def test_a_limit_of_zero_turns_both_clocks_off(request: pytest.FixtureRequest) -> None:
+    request.applymarker(pytest.mark.time_limit(0))
+
+    assert time_limit.budget_for(request.node) == Budget(cpu=0, wall=0)
+
+
+def test_a_test_that_uses_more_cpu_than_its_budget_fires_the_cpu_clock() -> None:
+    budget = Budget(cpu=60, wall=300)
+
+    assert time_limit.clock_fired(budget, cpu_used=60.5, wall_elapsed=61) == "cpu"
+
+
+def test_a_test_that_uses_no_cpu_fires_the_wall_clock_at_the_backstop() -> None:
+    budget = Budget(cpu=60, wall=300)
+
+    assert time_limit.clock_fired(budget, cpu_used=0, wall_elapsed=299) is None
+    assert time_limit.clock_fired(budget, cpu_used=0, wall_elapsed=300.5) == "wall"
+
+
+def test_a_test_starved_of_cpu_passes_until_the_backstop() -> None:
+    budget = Budget(cpu=60, wall=300)
+
+    assert time_limit.clock_fired(budget, cpu_used=12, wall_elapsed=250) is None
+
+
+def test_an_e2e_budget_fires_only_on_wall_time() -> None:
+    budget = Budget(cpu=0, wall=1800)
+
+    assert time_limit.clock_fired(budget, cpu_used=5000, wall_elapsed=1000) is None
+    assert time_limit.clock_fired(budget, cpu_used=5000, wall_elapsed=1801) == "wall"
+
+
+def test_a_zero_budget_never_fires() -> None:
+    budget = Budget(cpu=0, wall=0)
+
+    assert time_limit.clock_fired(budget, cpu_used=1e6, wall_elapsed=1e6) is None
+
+
+def test_the_cpu_failure_text_names_the_cpu_time_budget() -> None:
+    text = time_limit.exceeded_text("cpu", Budget(cpu=60, wall=300))
+
+    assert "exceeded the CPU time budget of 60 s" in text
+
+
+def test_the_wall_failure_text_names_the_wall_clock_backstop() -> None:
+    text = time_limit.exceeded_text("wall", Budget(cpu=60, wall=300))
+
+    assert "exceeded the wall-clock backstop of 300 s" in text
+
+
+def test_the_cpu_of_a_child_counts(
+    pytester: pytest.Pytester, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    result = run_scenario(
+        pytester, CPU_SCENARIO, "child_spins.py", "--test-time-limit=1", monkeypatch=monkeypatch
+    )
+
+    assert result.code == 1, result.output
+    assert "exceeded the CPU time budget of 1 s" in result.output, result.output
 
 
 def test_the_default_limit_is_a_minute() -> None:
@@ -200,7 +237,7 @@ def test_a_test_without_the_marker_still_fails_at_the_fast_limit_with_the_old_me
     assert result.code == 1, result.output
     assert "1 failed, 1 passed" in result.output, result.output
     assert "FAILED slow_both.py::test_fast_is_slow" in result.output, result.output
-    assert "test exceeded the time limit of 1 seconds" in result.output, result.output
+    assert "test exceeded the CPU time budget of 1 s" in result.output, result.output
     assert "e2e-test" not in result.output, result.output
 
 
@@ -223,7 +260,7 @@ def test_a_e2e_limit_of_zero_turns_it_off_and_leaves_the_fast_limit(
 
     assert "1 failed, 1 passed" in result.output, result.output
     assert "FAILED slow_both.py::test_fast_is_slow" in result.output, result.output
-    assert "test exceeded the time limit of 1 seconds" in result.output, result.output
+    assert "test exceeded the CPU time budget of 1 s" in result.output, result.output
 
 
 def test_the_old_flag_still_limits_an_e2e_test_and_says_it_is_deprecated(
@@ -310,7 +347,7 @@ def test_a_marked_test_past_its_own_limit_fails_naming_that_limit(
     ).output
 
     assert "FAILED blocks.py::test_marked_runs_past_its_own_limit" in output, output
-    assert "test exceeded the time limit of 1 seconds" in output, output
+    assert "test exceeded the wall-clock backstop of 5 s" in output, output
 
 
 def test_an_unmarked_test_beside_a_marked_one_still_fails_at_the_default(
@@ -327,5 +364,5 @@ def test_an_unmarked_test_beside_a_marked_one_still_fails_at_the_default(
     ).output
 
     assert "FAILED blocks.py::test_unmarked_beside_them" in output, output
-    assert "test exceeded the time limit of 20 seconds" in output, output
+    assert "test exceeded the wall-clock backstop of 100 s" in output, output
     assert "2 failed" in output, output
