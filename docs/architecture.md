@@ -66,6 +66,13 @@ stays in the worktree. A restack restores an unchanged tracked lock before it mo
 branch, since a rebase refuses a tree with an unstaged change. The same rules apply to a
 commit adopted from a chat.
 
+A git lock file (`MERGE_RR.lock`, `index.lock`) is a different thing: git's own, left behind when a
+git process dies. A restack names one that stops a command, with its path. At the start of a turn
+it removes one in the worktree's own git directory only when it is empty, older than
+`global_limits.stale_git_lock_seconds` and no git process runs in that worktree; any other lock is
+left and named. The changelog separation after a move is cosmetic and never fails it: a commit that
+landed before git failed is done, and one that landed nothing is dropped with the file restored.
+
 The files a toolchain profile says its own commands create (`created_files`) are owned the
 same way in a repository with no `environment` section, so a unit-test command that writes one
 does not hold the next step as a dirty worktree. `owned_paths` merges them with the lock files

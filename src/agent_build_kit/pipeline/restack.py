@@ -454,10 +454,27 @@ def _separate_changelog(repo: Path, config: RepoConfig | None) -> None:
     if separated == text:
         return
     path.write_text(separated)
-    git(repo, "add", "--", name)
     # No hooks: the edit is only the blank lines the convention requires, and a hook that
     # rejects it must not turn a finished move into an error.
-    git(repo, "commit", "-q", "--no-verify", "-m", CHANGELOG_SEPARATED, "--", name)
+    committed = git(repo, "add", "--", name, check=False)
+    if committed.returncode == 0:
+        committed = git(
+            repo, "commit", "-q", "--no-verify", "-m", CHANGELOG_SEPARATED, "--", name, check=False
+        )
+    if committed.returncode == 0:
+        return
+    subject = git(repo, "log", "-1", "--format=%s", check=False).stdout.strip()
+    clean = not git(repo, "status", "--porcelain", "--", name, check=False).stdout.strip()
+    if subject == CHANGELOG_SEPARATED and clean:
+        return
+    # Nothing landed: the file goes back as the rebase left it, and the move is still done.
+    git(repo, "reset", "-q", "--", name, check=False)
+    path.write_text(text)
+    log.warning(
+        "the changelog separation of %s failed and was dropped: %s",
+        name,
+        (committed.stderr or committed.stdout).strip(),
+    )
 
 
 class Conflict(Frozen):

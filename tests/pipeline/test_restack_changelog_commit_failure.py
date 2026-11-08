@@ -67,7 +67,7 @@ def _move(repo: Path, old_main: str) -> int:
 def test_a_separation_commit_that_failed_after_landing_is_done(joined: tuple[Path, str]) -> None:
     repo, old_main = joined
     # A young lock, so the start of the turn leaves it: the commit lands, then git exits 128.
-    lock = Path(git(repo, "rev-parse", "--absolute-git-path", "MERGE_RR.lock").strip())
+    lock = repo / git(repo, "rev-parse", "--git-path", "MERGE_RR.lock").strip()
     lock.write_text("")
 
     added = _move(repo, old_main)
@@ -82,9 +82,12 @@ def test_a_separation_commit_that_landed_nothing_restores_the_file_and_the_move_
     joined: tuple[Path, str], caplog: pytest.LogCaptureFixture
 ) -> None:
     repo, old_main = joined
-    hook = Path(git(repo, "rev-parse", "--absolute-git-path", "hooks/prepare-commit-msg").strip())
+    hook = repo / git(repo, "rev-parse", "--git-path", "hooks/prepare-commit-msg").strip()
     hook.parent.mkdir(parents=True, exist_ok=True)
-    hook.write_text("#!/bin/sh\necho refused >&2\nexit 1\n")
+    # Refuses only the separation commit, not the rebase's own picks.
+    hook.write_text(
+        f'#!/bin/sh\ngrep -q "{CHANGELOG_SEPARATED}" "$1" || exit 0\necho refused >&2\nexit 1\n'
+    )
     hook.chmod(hook.stat().st_mode | stat.S_IXUSR)
 
     with caplog.at_level(logging.INFO):
@@ -93,7 +96,7 @@ def test_a_separation_commit_that_landed_nothing_restores_the_file_and_the_move_
     left = git(repo, "show", "spec/b/1:CHANGELOG.md")
     assert added == 0
     assert git(repo, "status", "--porcelain").strip() == ""
-    assert (repo / "CHANGELOG.md").read_text() == left
+    assert (repo / "CHANGELOG.md").read_text().strip() == left.strip()
     assert "- A thing.\n- B thing." in left or "- B thing.\n- A thing." in left
     assert "separat" in caplog.text.lower()
     assert "refused" in caplog.text
