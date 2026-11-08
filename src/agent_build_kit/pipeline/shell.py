@@ -41,6 +41,11 @@ def git(repo: Path, *args: str, check: bool = True, **kwargs) -> subprocess.Comp
     )
 
 
+def git_running_in(worktree: Path) -> bool:
+    """Whether a git process is running with `worktree` as its working directory."""
+    raise NotImplementedError
+
+
 def is_tracked(root: Path, name: str) -> bool:
     return git(root, "ls-files", "--error-unmatch", name, check=False).returncode == 0
 

@@ -38,6 +38,16 @@ class TransportFailure(Frozen):
     message: str
 
 
+class GitLockFailed(RuntimeError):
+    """A git command that failed because a lock file already existed: the lock's path and the
+    command that met it, not the exit status alone."""
+
+    def __init__(self, message: str, *, path: str, command: str) -> None:
+        super().__init__(message)
+        self.path = path
+        self.command = command
+
+
 class FetchFailed(RuntimeError):
     """A fetch that failed. `failure` is set when the host refused it or could not be reached."""
 
@@ -98,6 +108,12 @@ def transport_failure(output: str) -> TransportFailure | None:
     if HOST_UNREACHABLE.search(message):
         return TransportFailure(kind="unreachable", message=message)
     return None
+
+
+def lock_failure(output: str) -> str | None:
+    """The path of the lock file a failed git command says already exists; None for any other
+    failure."""
+    raise NotImplementedError
 
 
 def untranslated_env() -> dict[str, str]:
