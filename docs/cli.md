@@ -650,14 +650,15 @@ first pass of a repo with no record announces the backfill it expects, creates u
 `create_cap` items and says how many remain. `abk tracker link CHANGE ID [--group N]` adopts an
 item a person made as the change's item (or group N's), after checking it exists, is in the
 board the section names, is of the type the level takes, that group N is one of the change's
-for that repo, and that it is not mapped to another change; the linked item keeps the title and
+for that repo, and that it is not mapped to another change or to another slot of this one; the linked item keeps the title and
 body the person wrote (a later edit of its title on the board is not a conflict), and the sync
 still updates its state and tags and fills in the items under it. A task item is refused, since
 tasks are tied to lines of `tasks.md`. `abk tracker link CHANGE --epic` resolves the change's `Epic:` line (an id
 or an exact title), checks the item is of the `epic` type and records its id; the item is only
 read. `abk tracker conflicts` lists the open conflicts with both values, and `--resolve ID` (the
 `id` the list shows) closes one once the board's value equals what the spec says now (a title, a
-task's text or state; a removed task closes once it is back on the board or out of `tasks.md`),
+task's text or state; a removed task closes once it is back on the board or out of `tasks.md`;
+a group item closed too early closes once it is reopened on the board or its group is merged),
 showing the difference otherwise. A conflict on an `item` added on the board has no check and is
 settled by hand. A repo with no section prints `no tracker configured for <repo>` and exits 0; every
 form takes `--json`.

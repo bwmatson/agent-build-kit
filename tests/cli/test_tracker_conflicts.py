@@ -163,6 +163,26 @@ def test_a_removed_conflict_resolves_when_the_item_is_back_on_the_board(
     assert [r.status for r in mirror.tracker_file().conflicts] == ["closed"]
 
 
+def test_a_closed_conflict_resolves_once_the_item_is_reopened_on_the_board(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    mirror, group_id, _ = mirrored(tmp_path, capsys)
+    mirror.record_conflict(group_id, "closed", "", "done")
+    mirror.board.show_board_state(group_id, "Done", "done")
+    (conflict,) = [
+        row for row in mirror.run_json(capsys, "conflicts")["conflicts"] if row["field"] == "closed"
+    ]
+    code, out = mirror.run(capsys, "conflicts", "--resolve", conflict["id"])
+    assert code != 0, out
+    assert "done" in out and "unmerged" in out
+
+    mirror.board.show_board_state(group_id, "To Do", "new")
+    code, out = mirror.run(capsys, "conflicts", "--resolve", conflict["id"])
+
+    assert code == 0, out
+    assert [r.status for r in mirror.tracker_file().conflicts if r.field == "closed"] == ["closed"]
+
+
 def test_resolving_an_archived_change_keeps_the_local_copys_other_entries(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:

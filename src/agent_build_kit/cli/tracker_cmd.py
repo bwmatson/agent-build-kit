@@ -29,12 +29,14 @@ from agent_build_kit.pipeline.tracker_file import (
 )
 from agent_build_kit.pipeline.work_graph import epic_reference, read_tasks, validate_tasks
 from agent_build_kit.trackers.apply import (
+    CLOSED_FIELD,
     REMOVED,
     Place,
     apply_changes,
     board_state,
     board_text,
     close_conflict,
+    closed_agrees,
     gone_from_spec,
     places_of,
 )
@@ -296,10 +298,10 @@ def _repo_of_change(inst: Installation, change: str) -> tuple[str | None, list[s
     return None, repos
 
 
-def _held_by(inst: Installation, repo: str, change: str, item_id: str) -> str | None:
-    """The change, other than `change`, whose tracker file holds the item."""
+def _held_elsewhere(inst: Installation, repo: str, target: str, item_id: str) -> Place | None:
+    """Where the tracker files record the item, when that is not the slot keyed `target`."""
     place = places_of(_files(inst, repo)).get(item_id)
-    return place.change if place is not None and place.change != change else None
+    return place if place is not None and place.key != target else None
 
 
 def _write(inst: Installation, change: str, recorded: TrackerFile) -> None:
@@ -371,9 +373,12 @@ def _link_item(
         )
     if number is not None:
         _check_group(inst, repo, args.change, number)
-    holder = _held_by(inst, repo, args.change, found.id)
+    target = args.change if number is None else group_key(args.change, number)
+    holder = _held_elsewhere(inst, repo, target, found.id)
     if holder is not None:
-        raise Refused(f"item {found.id} is already mapped to change {holder}")
+        if holder.change != args.change:
+            raise Refused(f"item {found.id} is already mapped to change {holder.change}")
+        raise Refused(f"item {found.id} is already mapped to {holder.key}")
     recorded = _current(inst, section, args.change)
     # A person's item keeps the title and body they wrote, as an item adopted from a hold does.
     entry: Synced = adopted_entry(tracker.get(found.id)).model_copy(update={"adopted": True})
@@ -401,6 +406,8 @@ def cmd_link(args: argparse.Namespace, inst: Installation) -> int:
         tracker = trackers.for_repo(repo)
         assert section is not None and tracker is not None
         if args.epic:
+            if args.item is not None or args.group is not None:
+                raise Refused("--epic takes the Epic: line's item; give no item id or --group")
             text = _link_epic(inst, repo, section, tracker, args.change)
         elif args.item is None:
             raise Refused("give the board item id to link, or --epic")
@@ -468,6 +475,12 @@ def _resolve(inst: Installation, repo: str, row: dict[str, str]) -> str:
             raise Refused(
                 f"item {item.id} is still removed on the board and still in the spec: "
                 "restore it on the board or take it out of tasks.md"
+            )
+    elif field == CLOSED_FIELD:
+        if not closed_agrees(item, place, store_for(inst).all()):
+            raise Refused(
+                f"item {item.id} is still done on the board ({board_state(item)}) and its "
+                f"group is still unmerged: reopen the item on the board or merge the group"
             )
     else:
         spec, board = _sides(inst, section, files, place, field, item)

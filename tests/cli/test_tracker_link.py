@@ -117,6 +117,31 @@ def test_an_item_already_mapped_to_another_change_is_refused_naming_it(
     assert not (mirror.change_dir / "tracker.yaml").exists()
 
 
+def test_an_item_already_mapped_to_another_group_of_the_change_is_refused_naming_it(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    mirror = Mirror(tmp_path)
+    group = mirror.board.create("group", "Made by a person")
+    code, out = mirror.run(capsys, "link", CHANGE, group.id, "--group", "1")
+    assert code == 0, out
+
+    code, out = mirror.run(capsys, "link", CHANGE, group.id, "--group", "2")
+
+    refused(code, out, f"{CHANGE}:1")
+    assert f"{CHANGE}:2" not in mirror.tracker_file().groups
+
+
+@pytest.mark.parametrize("extra", [["ITEM"], ["--group", "1"]])
+def test_epic_with_an_item_id_or_a_group_is_refused(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], extra: list[str]
+) -> None:
+    mirror = Mirror(tmp_path)
+
+    code, out = mirror.run(capsys, "link", CHANGE, *extra, "--epic")
+
+    refused(code, out, "--epic")
+
+
 def test_a_task_item_is_refused_with_the_reason(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:

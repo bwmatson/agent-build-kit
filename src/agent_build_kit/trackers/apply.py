@@ -30,7 +30,7 @@ from agent_build_kit.pipeline.tracker_file import (
     write_tracker,
 )
 from agent_build_kit.pipeline.unit_store import Cause, HeldBy, StoredUnit, UnitStore
-from agent_build_kit.pipeline.units import HELD, PLANNED, UnitState
+from agent_build_kit.pipeline.units import HELD, PLANNED, Unit, UnitState
 from agent_build_kit.pipeline.vocabulary import FINISHED
 from agent_build_kit.pipeline.work_graph import Task, read_tasks
 from agent_build_kit.trackers.base import Change, Item, Tracker
@@ -90,6 +90,21 @@ def board_text(item: Item, entry: TaskEntry) -> str:
     if item.body == base_body and item.title != base_title:
         return "\n".join([item.title, *base_body.split("\n")[1:]])
     return item.body
+
+
+def unmerged(where: Place, units: Sequence[Unit]) -> bool:
+    """Whether the units that build the group of `where` leave it unfinished, by the rule that
+    moves its item to done on the board; a group nothing builds any more is not."""
+    if where.group is None:
+        return False
+    state, _ = group_state(where.change, where.group, units)
+    return state not in ("done", "removed")
+
+
+def closed_agrees(item: Item, where: Place, units: Sequence[Unit]) -> bool:
+    """Whether a `closed` conflict is settled: the board no longer shows the group item done,
+    or the group is no longer unmerged."""
+    return board_state(item) != "done" or not unmerged(where, units)
 
 
 def places_of(files: Mapping[str, TrackerFile]) -> dict[str, Place]:
@@ -308,9 +323,7 @@ class _Apply:
                 if record.field == "title":
                     agreed = item.title == record.spec_value
                 elif record.field == CLOSED_FIELD:
-                    agreed = board_state(item) != "done" or not (
-                        where is not None and self._unmerged(where)
-                    )
+                    agreed = where is None or closed_agrees(item, where, self.store.all())
                 else:
                     agreed = (item.kit_state or item.state) != REMOVED or (
                         where is not None and self._gone_from_spec(where)
@@ -319,12 +332,7 @@ class _Apply:
                     self._close(change, record.item_id, record.field)
 
     def _unmerged(self, where: Place) -> bool:
-        """Whether the units that build the group of `where` leave it unfinished, by the rule
-        that moves its item to done on the board; a group nothing builds any more is not."""
-        if where.group is None:
-            return False
-        state, _ = group_state(where.change, where.group, self.store.all())
-        return state not in ("done", "removed")
+        return unmerged(where, self.store.all())
 
     def closed(self, where: Place, item: Item) -> None:
         """A group item closed on the board is not a merge: while its unit is not recorded
