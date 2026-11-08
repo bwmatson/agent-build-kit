@@ -39,7 +39,7 @@ from agent_build_kit.budget import Section, cut_head, fit
 from agent_build_kit.claude_account import Account
 from agent_build_kit.config import RepoConfig, active, active_local_dir, active_state_dir
 from agent_build_kit.installation import changes_dir_under
-from agent_build_kit.model import Frozen
+from agent_build_kit.model import Frozen, TestTier
 from agent_build_kit.pipeline.determinism_guidance import determinism_guidance
 from agent_build_kit.pipeline.e2e import E2eResult, E2eVerdict, latest_full_output
 from agent_build_kit.pipeline.e2e_holds import Holds
@@ -339,6 +339,7 @@ class GroupStep(Frozen):
     mode: GroupMode = GroupMode.TESTS_AND_CODE
     support: tuple[str, ...] = ()  # the paths its `Support:` lines declare
     tests: tuple[str, ...] = ()  # the test paths its tasks name, () when it names none
+    tier: TestTier = TestTier.UNIT_TEST  # the kind of test its heading tags it with
 
     @property
     def test_only(self) -> bool:
@@ -375,6 +376,7 @@ def group_steps_of(planning_repo: Path | str, unit: Unit) -> tuple[GroupStep, ..
                 ),
                 support=found[number].support if number in found else (),
                 tests=tuple(named_test_paths(found[number])) if number in found else (),
+                tier=found[number].tier if number in found else TestTier.UNIT_TEST,
             )
             for number in member.groups
         )

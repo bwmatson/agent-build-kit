@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- The three kinds of test are now stated once, in the `integration` and `e2e` marker
+  descriptions and in `AGENTS.md`, with the same rule for each. The tests step now checks that
+  the tests an `[integration-test]` group adds carry the `integration` selector, and sends
+  them back with a reason naming the test when they do not.
+
 - A restack now names a git lock file that stops it, with the lock's path and the command,
   instead of the exit status alone. Before a turn it clears an empty `MERGE_RR.lock` or
   `index.lock` a dead git process left in the worktree, once it is older than

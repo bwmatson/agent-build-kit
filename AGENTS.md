@@ -103,9 +103,10 @@ abk is moving from "every unit is reviewed by a person" to "every unit is verifi
 can't vouch for". The reasoning is in `docs/designs/agent-efficient-coding-philosophy.md` and the plan, phase by phase, is in
 `docs/designs/risk-tiered-review-design.md`. Work in flight should move toward it and not assume the old shape stays:
 
-- **Test kinds.** There are three kinds of test, narrowest to widest: `unit-test` (one module's behaviour), `integration-test`
-  (behaviour across modules or files in the ordinary suite with no live stack; a label that behaves as `unit-test`, and not the
-  pytest `integration` marker) and `e2e-test` (needs the real local stack). The word "tier" is kept for review tiers. Where your
+- **Test kinds.** There are three kinds of test, narrowest to widest: `unit-test` (one module's behaviour; needs nothing running),
+  `integration-test` (behaviour across modules or files in the ordinary suite; needs no live stack and no configuration of its own,
+  so it runs in CI; a label that behaves as `unit-test`, and not the pytest `integration` marker) and `e2e-test` (needs the real
+  local stack and is never run in CI). The word "tier" is kept for review tiers. Where your
   change leaves a name to you (a helper, a fake, a test file, a local variable), use `unit_test` and `e2e`, never the earlier numbered
   spellings. Names a change's spec fixes (a setting, a tag, a metric) stay as the spec says.
 - **Size ceilings.** Each review tier has its own ceiling on a unit (`review.ceilings`); there is no single ceiling. Do not add a

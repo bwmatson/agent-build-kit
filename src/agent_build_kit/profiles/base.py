@@ -277,6 +277,17 @@ class RepeatsTests(Protocol):
 
 
 @runtime_checkable
+class ChecksSelector(Protocol):
+    """The optional hook of a profile whose tests carry a selector for the `integration-test`
+    kind: which of a file's tests lack it. A profile without it has no selector check."""
+
+    def unselected_tests(self, path: str, content: str, tests: list[str]) -> list[str]:
+        """The names among `tests` (as the runner selects them, with their classes) defined in
+        the file `path` holding `content` that do not carry the `integration` selector."""
+        ...
+
+
+@runtime_checkable
 class ListsTestFiles(Protocol):
     """The optional hook of a profile whose runner selects a test by its file alone: the git
     pathspecs of its test files, so a unit's added or changed file is an identifier although

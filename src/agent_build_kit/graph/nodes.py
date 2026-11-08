@@ -1767,7 +1767,12 @@ class BuildPath:
         r, unit = self.runner, self.unit
         tree = self.tree()
         self.say("red check at the tests commit")
-        ok, reason = r.run_red_check(cwd=tree)
+        step = self.group_step(state)
+        ok, reason = True, ""
+        if step is not None and step.tier == TestTier.INTEGRATION_TEST:
+            ok, reason = r.run_selector_check(cwd=tree)
+        if ok:
+            ok, reason = r.run_red_check(cwd=tree)
         if ok:
             if r.store.get(unit.id).feedback_source is FeedbackSource.RED_CHECK:
                 r.store.set_feedback(unit.id, "")

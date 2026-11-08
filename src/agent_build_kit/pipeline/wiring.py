@@ -250,6 +250,7 @@ from agent_build_kit.profiles.base import (
     AgentEnvironment,
     AppliesE2eSelection,
     AppliesFixers,
+    ChecksSelector,
     ListsTestFiles,
     ProjectChecks,
     RecordsSelectionData,
@@ -1416,7 +1417,24 @@ def build_selector_check(
 ) -> Callable[..., tuple[bool, str]]:
     """The runner's `run_selector_check(*, cwd)`: whether the tests the commit at the head of
     `cwd` adds carry the `integration` selector, and the reason naming each that does not."""
-    raise NotImplementedError
+
+    def check(*, cwd: Path) -> tuple[bool, str]:
+        problems: list[str] = []
+        touched: dict[str, list[str]] = {}
+        for path, name in touched_tests(cwd, "HEAD^", "HEAD"):
+            touched.setdefault(path, []).append(name)
+        for path, names in touched.items():
+            toolchain = profiles.for_path(projects or [], path, profile)
+            if not isinstance(toolchain, ChecksSelector):
+                continue
+            content = _run(["git", "show", f"HEAD:{path}"], cwd=cwd).stdout
+            problems.extend(
+                f"{path}::{name} has no `integration` selector"
+                for name in toolchain.unselected_tests(path, content, names)
+            )
+        return not problems, "\n".join(problems)
+
+    return check
 
 
 # The passes a project's fixers make at most: a second covers a hook that reformats the
@@ -5265,6 +5283,7 @@ def build_runner(
             stubbed=True,
             cache=CheckCache(root / "red-check-cache.json"),
         ),
+        run_selector_check=build_selector_check(profile=profile, projects=repo.projects),
         run_fixers=build_fixers(profile=profile, projects=repo.projects, repo_name=unit.repo),
         tree_state=build_tree_state(),
         branch_commits=branch_commits,
