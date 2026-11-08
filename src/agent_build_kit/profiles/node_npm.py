@@ -96,6 +96,22 @@ def _script_or(script: str, generic: str) -> str:
 _LINT_ALL = (
     f"{_script_or('lint', 'npx oxlint .')} && {_script_or('format:check', 'npx oxfmt --check .')}"
 )
+# The type check follows the project's `typecheck` script the same way.
+_TYPE_CHECK_ALL = _script_or("typecheck", shlex.join(_TYPE_CHECK_ARGV))
+
+
+def _project_type_check(project: Path) -> list[str]:
+    """`npm run typecheck` when the `package.json` in `project` defines that script, else the
+    generic type check."""
+    try:
+        scripts = json.loads((project / "package.json").read_text()).get("scripts")
+    except (OSError, ValueError, AttributeError):
+        return list(_TYPE_CHECK_ARGV)
+    if isinstance(scripts, dict) and "typecheck" in scripts:
+        return ["npm", "run", "typecheck"]
+    return list(_TYPE_CHECK_ARGV)
+
+
 # The red command lists the files it was given, one per line before the report, so the judge
 # can tell their suites from any other the runner's substring filters selected.
 _RED_FILE = "abk red file: "
@@ -308,7 +324,7 @@ class NodeNpmProfile:
             words = shlex.split(command or header.removeprefix("$ "))
         except ValueError:
             return "lint"
-        if words[:2] == ["npx", _TYPE_CHECK]:
+        if words[:2] == ["npx", _TYPE_CHECK] or words[:3] == ["npm", "run", "typecheck"]:
             return "types"
         is_tests = words[:2] == ["sh", "-c"] and words[2:3] and words[2] in _TEST_SCRIPTS
         return "test" if is_tests else "lint"
@@ -318,7 +334,7 @@ class NodeNpmProfile:
 
     def project_checks(self, repo: RepoConfig) -> list[list[str]]:
         """The type check, over the whole project: `tsc` cannot be scoped to files."""
-        return [list(_TYPE_CHECK_ARGV)]
+        return [_project_type_check(repo.path)]
 
     def e2e_commands(self, repo: Path, *, marker: str) -> list[list[str]]:
         """The files named for `marker`, in each member of a workspace or else the project."""
@@ -362,7 +378,7 @@ class NodeNpmProfile:
         """Lint and the format check over the project; with `types`, the project's type check
         too. Without it none runs, since in a build that is not stubbed a test importing what
         does not exist yet is the expected state at the tests commit."""
-        return f"{_LINT_ALL} && {shlex.join(_TYPE_CHECK_ARGV)}" if types else _LINT_ALL
+        return f"{_LINT_ALL} && {_TYPE_CHECK_ALL}" if types else _LINT_ALL
 
     def red_command(self, files: list[str], ids: list[str] | None = None) -> str:
         """Vitest with `files` as its filters, its JUnit report printed after the marker so it
