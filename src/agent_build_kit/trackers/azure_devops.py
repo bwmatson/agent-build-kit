@@ -15,7 +15,7 @@ import json
 import re
 from collections.abc import Mapping, Sequence
 from datetime import datetime
-from typing import Any
+from typing import Any, cast
 from urllib.parse import quote, unquote
 
 import httpx
