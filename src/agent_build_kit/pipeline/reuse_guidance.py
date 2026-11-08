@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
-from importlib import resources
 from typing import Literal
+
+from agent_build_kit.pipeline.packaged_template import packaged_template
 
 Kind = Literal["source", "tests"]
 
@@ -15,6 +16,4 @@ def reuse_guidance(kind: Kind = "source") -> str:
     version for the prompts that change source, the `"tests"` version for those that write tests."""
     if kind not in _FILES:
         raise ValueError(f"no {kind!r} reuse guidance; one of {', '.join(_FILES)}")
-    return (
-        resources.files("agent_build_kit").joinpath("templates", _FILES[kind]).read_text().strip()
-    )
+    return packaged_template(_FILES[kind])

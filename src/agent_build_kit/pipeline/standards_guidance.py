@@ -2,14 +2,9 @@
 
 from __future__ import annotations
 
-from importlib import resources
+from agent_build_kit.pipeline.packaged_template import packaged_template
 
 
 def standards_guidance() -> str:
     """The packaged table: a heading line, then one line per standard, each opening with its ID."""
-    return (
-        resources.files("agent_build_kit")
-        .joinpath("templates", "test-standards.md")
-        .read_text()
-        .strip()
-    )
+    return packaged_template("test-standards.md")
