@@ -21,6 +21,7 @@
   A slow or loaded machine no longer fails a test unless it is starved past the backstop, and the
   failure message says whether the CPU budget or the wall-clock backstop fired. End-to-end tests keep
   their wall-clock limit.
+
 - The marker for tests that drive a real stack is now `e2e` instead of `local_stack`, matching
   the name of the test kind. The default of `tests.e2e_marker`, the registered marker, the
   default deselection and the script that runs them (`poe test-e2e`) follow, and the default run
