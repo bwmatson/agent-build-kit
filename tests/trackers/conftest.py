@@ -7,7 +7,7 @@ import pytest
 
 from agent_build_kit import forges
 from agent_build_kit.trackers import start_decision
-from tests.forges.conftest import rest_env  # noqa: F401
+from tests.forges.conftest import github_env, rest_env  # noqa: F401
 from tests.forges.stand_in import StandInForge, lookup
 
 
