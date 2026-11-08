@@ -55,6 +55,7 @@ from agent_build_kit.pipeline.pr_replies import last_json, parse_answer
 from agent_build_kit.pipeline.product_defect import ProductDefect
 from agent_build_kit.pipeline.reuse_guidance import reuse_guidance
 from agent_build_kit.pipeline.scratch import output_convention
+from agent_build_kit.pipeline.standards_guidance import standards_guidance
 from agent_build_kit.pipeline.task_progress import mark_groups, progress_dir
 from agent_build_kit.pipeline.unit_store import (
     Cause,
@@ -174,6 +175,8 @@ names (or one the installation lists under `builders.installable_files`), inside
 REUSE_NOTE = "\n" + reuse_guidance("source") + "\n"
 # The tests prompt, and a rework whose group names a test file, carry the test version.
 TESTS_REUSE_NOTE = "\n" + reuse_guidance("tests") + "\n"
+# The test standards table: in the full tests, implementation and rework prompts only.
+STANDARDS_NOTE = "\n" + standards_guidance() + "\n"
 
 # Said in the prompts that edit tests: the line a regression change carries for tests that share
 # its cause only possibly (spec: regression-same-exposure).
@@ -453,6 +456,7 @@ the unit has passed review, unit-test and been pushed.
     + PIPELINE_COMMITS_NOTE
     + OUTPUT_NOTE
     + TESTS_REUSE_NOTE
+    + STANDARDS_NOTE
     + INSTALL_NOTE
     + POSSIBLE_TESTS_NOTE
 )
@@ -932,6 +936,7 @@ the unit has passed review, unit-test and been pushed.
     + OUTPUT_NOTE
     + REUSE_NOTE
     + "{tests_guidance}"
+    + STANDARDS_NOTE
     + INSTALL_NOTE
     + NO_REWRITE_NOTE
     + POSSIBLE_TESTS_NOTE
@@ -980,6 +985,7 @@ the unit has passed review, unit-test and been pushed.
     + PIPELINE_COMMITS_NOTE
     + OUTPUT_NOTE
     + REUSE_NOTE
+    + STANDARDS_NOTE
     + INSTALL_NOTE
     + POSSIBLE_TESTS_NOTE
 )

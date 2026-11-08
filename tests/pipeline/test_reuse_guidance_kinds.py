@@ -25,6 +25,7 @@ from agent_build_kit.pipeline.stack_runner import (
     TESTS_PROMPT,
     write_tests_prompt,
 )
+from agent_build_kit.pipeline.standards_guidance import standards_guidance
 from agent_build_kit.pipeline.unit_store import FeedbackSource
 from tests.factories import unit
 from tests.graph.branch_fakes import prepared, titled
@@ -52,7 +53,10 @@ TESTS = flat(reuse_guidance("tests"))
 
 
 def carries_test_points(text: str) -> bool:
-    return any(re.search(point, text, re.IGNORECASE) for point in TEST_POINTS)
+    """Whether the reuse note in `text` has test advice; the standards table, which names the
+    same standards, is a separate part of the prompt and is left out."""
+    note = text.replace(flat(standards_guidance()), "")
+    return any(re.search(point, note, re.IGNORECASE) for point in TEST_POINTS)
 
 
 # --- the two versions ---------------------------------------------------------------

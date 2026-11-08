@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- The agents that write tests, implement a group and rework a pull request are now given a
+  short table of the test standards (kind, placement, naming, determinism, isolation) at the
+  start of a session, and asked to cite a standard's ID in their summary where a choice
+  depends on it. A reused session is not told again.
+
 - The three kinds of test are now stated once, in the `integration` and `e2e` marker
   descriptions and in `AGENTS.md`, with the same rule for each. The tests step now checks that
   the tests an `[integration-test]` group adds carry the `integration` selector, and sends
