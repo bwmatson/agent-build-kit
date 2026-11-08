@@ -1567,6 +1567,10 @@ def _no_red_check(*, cwd: Path) -> tuple[bool, str]:
     return True, ""
 
 
+def _no_selector_check(*, cwd: Path) -> tuple[bool, str]:
+    return True, ""
+
+
 def _no_tree_state(cwd: Path) -> str:
     """A runner with no way to read the tree: the head alone says whether a fix round changed
     anything, as it did in the checks loop before the loops shared a routine."""
@@ -1753,6 +1757,10 @@ class UnitRunner(BaseModel):
     # The red check at the tests commit at the tree's head, given `cwd=`: whether the tests it
     # added or changed fail for the right reason, and the reasons when they do not.
     run_red_check: Callable[..., tuple[bool, str]] = _no_red_check
+    # The selector check at the tests commit at the tree's head of an `[integration-test]` group,
+    # given `cwd=`: whether the tests it added carry the `integration` selector, and the reason
+    # naming the test when they do not.
+    run_selector_check: Callable[..., tuple[bool, str]] = _no_selector_check
     # A digest of the working tree, which says whether a fix changed it.
     tree_state: Callable[[Path], str] = _no_tree_state
     # Told the unit and each flake when unit-test raises `FlakeFound`: records it, and with

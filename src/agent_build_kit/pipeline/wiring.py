@@ -1411,6 +1411,14 @@ def build_red_check(
     return check
 
 
+def build_selector_check(
+    *, profile: ToolchainProfile, projects: list[ProjectConfig] | None = None
+) -> Callable[..., tuple[bool, str]]:
+    """The runner's `run_selector_check(*, cwd)`: whether the tests the commit at the head of
+    `cwd` adds carry the `integration` selector, and the reason naming each that does not."""
+    raise NotImplementedError
+
+
 # The passes a project's fixers make at most: a second covers a hook that reformats the
 # first one's output, and no loop is needed beyond it.
 FIXER_PASSES = 2
