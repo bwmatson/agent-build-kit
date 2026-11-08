@@ -45,9 +45,9 @@
   `sync [--dry-run]` runs the push and then the pull once and announces a first backfill; `link`
   adopts an item a person made for a change or group (it keeps the title and body they wrote,
   and the sync still updates its state and tags and fills in the items under it), or records the
-  change's `Epic:` item without writing to it; `conflicts [--resolve ID]` lists conflicts and closes one once the
-  board and the spec agree. A repo with no tracker section prints that none is configured, and
-  every form takes `--json`.
+  change's `Epic:` item without writing to it; `conflicts [--resolve ID]` lists conflicts and
+  closes one once the board and the spec agree. A repo with no tracker section prints that none
+  is configured, and every form takes `--json`.
 
 - Every agent call now names its role, and there is no `generic` role. Rework calls are recorded
   as `rework` instead of `implement`, conflict-resolver calls as `restack` and login refreshes
