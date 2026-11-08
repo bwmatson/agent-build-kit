@@ -15,6 +15,7 @@ from agent_build_kit.installation import Installation
 from agent_build_kit.pipeline import wake
 from agent_build_kit.pipeline.unit_store import Cause
 from agent_build_kit.pipeline.units import HELD, IN_REVIEW, MERGED, PLANNED
+from agent_build_kit.pipeline.verify import Verification, VerifyRecord
 from tests.dispatcher_support import FakeSpawner, install_spawner, processes_workspace
 from tests.factories import commit, git
 from tests.kit_checkout import kit_at
@@ -81,6 +82,10 @@ def test_a_dependent_on_a_merged_kit_parent_starts_when_the_kit_head_has_the_mer
     builder.store.upsert([stored("dep/1"), stored("feature/1", depends_on=("dep/1",))])
     builder.store.set_state("dep/1", MERGED, pr=3)
     builder.store.set_merge_record("dep/1", merge_sha=fix, merged_tick=None)
+    # The merged change is already verified, so only builds are started here.
+    VerifyRecord(inst.state_dir / "verified.json").put(
+        Verification(change="dep", passed=True, units=["dep/1"])
+    )
     builder.store.set_needs("feature/1", ("dep/1",))
     builder.store.set_merge_needs("feature/1", ("dep/1",))
 
