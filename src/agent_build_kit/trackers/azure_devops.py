@@ -27,6 +27,7 @@ from agent_build_kit.forges.transport import (
     TransportError,
     validated,
 )
+from agent_build_kit.trackers.azure_probe import ProbeLine
 from agent_build_kit.trackers.azure_work_item_models import (
     ConnectionDataDoc,
     FieldsDoc,
@@ -37,6 +38,7 @@ from agent_build_kit.trackers.azure_work_item_models import (
 )
 from agent_build_kit.trackers.base import (
     PULL_REQUEST_RELATION,
+    Capabilities,
     Change,
     Cursor,
     Identity,
@@ -125,6 +127,10 @@ class AzureDevOpsWorkItems:
         path = f"wit/workitems/${quote(self._types[kind])}"
         return self._item(self._call("POST", path, json=patch, content_type=PATCH))
 
+    def capabilities(self) -> Capabilities:
+        """Revision-checked writes and typed items, which this tracker has."""
+        raise NotImplementedError
+
     def identity(self) -> Identity:
         """The authenticated user, by the unique name an assignment uses."""
         if self._identity is None:
@@ -136,6 +142,11 @@ class AzureDevOpsWorkItems:
                 raise TransportError("connectionData: the authenticated user has no account name")
             self._identity = Identity(name=account.value)
         return self._identity
+
+    def probe(self) -> list[ProbeLine]:
+        """What `abk doctor` says about the project: the identity, the types, states, nesting,
+        epic, team, paths and work item access, each as its own line."""
+        raise NotImplementedError
 
     def update(
         self, item_id: str, changes: Mapping[str, str], expected_revision: str | None = None
@@ -188,6 +199,10 @@ class AzureDevOpsWorkItems:
         except StaleRevision:
             return False
         return True
+
+    def comment(self, item_id: str, text: str) -> None:
+        """Add a comment to the item's discussion."""
+        raise NotImplementedError
 
     def set_tag(self, item_id: str, tag: str, present: bool) -> Item:
         """Add or remove one tag (the blocked and in-review markers), leaving the state."""
