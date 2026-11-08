@@ -146,6 +146,18 @@ def record_storm(
     )
 
 
+def record_load(unit: str, flakes: tuple[Flake, ...]) -> None:
+    """Record each of `flakes` as a `load` failure of `unit`: a time limit hit under high load that
+    passed alone. No fix change is written for it, so none is named. Nothing is written when no
+    workspace is loaded."""
+    root = active_root()
+    if root is None:
+        return
+    record = flake_record(Installation(active(), root))
+    for flake in flakes:
+        record.append(flake.model_copy(update={"unit": unit, "classification": "load"}))
+
+
 def flake_change_name(test: str) -> str:
     """The name of the change that fixes the flaky `test`."""
     return fix_change_name(test, FIX_PREFIX)

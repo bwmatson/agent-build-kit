@@ -33,7 +33,7 @@ from contextlib import AbstractContextManager, contextmanager, nullcontext
 from datetime import UTC, datetime
 from functools import partial
 from pathlib import Path
-from typing import Any, Protocol
+from typing import Any, Protocol, cast
 
 from agent_build_kit import claude_account, forges, infra, openspec, profiles, runtimes, sandboxes
 from agent_build_kit.budget import Section, cut_head, cut_tail, fit
@@ -114,6 +114,7 @@ from agent_build_kit.pipeline.flakes import (
     OnFlake,
     covered_tests,
     flake_record,
+    record_load,
     record_storm,
 )
 from agent_build_kit.pipeline.gateway_usage import Spend, attribution, configured_source
@@ -1628,6 +1629,9 @@ def build_unit_test(
     run_failed: list[str] = []
     # The worker and time-limit hit of each of those tests, for the same row.
     run_detail: dict[str, FailedTest] = {}
+    # Set when the current run's failures were classified as load and let the run go on: the
+    # ledger row then keeps the failed tests though the run passed.
+    run_loaded: list[bool] = []
     # The kind of re-test the current run after a move is: `full` unless it was `lite` or `scoped`.
     retest: dict[str, str] = {"kind": "full"}
     # What a test is, as the profile of the project a path sits in says, and the repo's
@@ -1708,6 +1712,7 @@ def build_unit_test(
         run_facts.clear()
         run_failed.clear()
         run_detail.clear()
+        run_loaded.clear()
         outcome = "failed"
         failed: list[str] = []
         gap: float | None = None
@@ -1724,7 +1729,7 @@ def build_unit_test(
             raise
         else:
             outcome = "passed" if passed else "failed"
-            failed = [] if passed else list(run_failed)
+            failed = list(run_failed) if run_loaded or not passed else []
             return passed, output
         finally:
             ended = clock()
@@ -2414,6 +2419,12 @@ def build_unit_test(
         tests = failed_ids(toolchain, output)
         if not tests:
             return False
+        # Errors after the first time-limit hit of their worker are its consequences: they are
+        # neither rerun nor judged, and the hit is what is classified.
+        cascade = _consequences(toolchain, output, tests)
+        tests = [test for test in tests if test not in cascade]
+        hits = set(getattr(toolchain, "time_limit_tests", lambda text: [])(output))
+        shared = set(getattr(toolchain, "shared_resource_tests", lambda text: [])(output))
         # Read from the redacted text, so what is kept of a section holds no secret.
         sections = _failure_sections(toolchain, stored)
         at = datetime.now(UTC)
@@ -2444,7 +2455,15 @@ def build_unit_test(
                 "conditions": conditions,
             }
 
-        def flakes_of(names: list[str], base_output: str = "") -> tuple[Flake, ...]:
+        def loaded() -> bool:
+            """Whether the host was under high load over the run and its reruns."""
+            conditions = cast(dict[str, object], evidenced().get("conditions", {}))
+            return conditions.get("load_high") is True
+
+        def flakes_of(
+            names: list[str], base_output: str = "", *, classify: bool = False
+        ) -> tuple[Flake, ...]:
+            isolated = classify and not loaded()
             return tuple(
                 Flake(
                     test=test,
@@ -2457,6 +2476,7 @@ def build_unit_test(
                     # selected run): the agent still reads that tree.
                     base=base or ref or "",
                     base_output=base_output,
+                    classification="isolation" if isolated and test in shared else "flake",
                     **evidenced(),
                 )
                 for test in names
@@ -2535,6 +2555,17 @@ def build_unit_test(
             return False
         if own is not None and any(test in own for test in tests):
             return False
+        if (slow := [test for test in tests if test in hits]) and loaded():
+            # A time limit hit in a busy run that passed alone twice is the machine's, not the
+            # test's: recorded as load, with no fix change.
+            record_load(spans.current_unit.get()[0], flakes_of(slow))
+            run_loaded.append(True)
+            # Another command of this round that fails these same tests does not rerun them.
+            stormed.setdefault(spans.current_unit.get(), set()).update(slow)
+            _say(log, f"{len(slow)} time limit hits under high load passed alone: recorded as load")
+            tests = [test for test in tests if test not in slow]
+            if not tests:
+                return True
         if len(tests) > active().global_limits.max_flakes_per_run:
             failures = [
                 cut_tail(sections.get(test, ""), STORM_FAILURE_CHARS)
@@ -2550,7 +2581,7 @@ def build_unit_test(
                 "as one storm, no fix changes" + "".join(f"\n{failure}" for failure in failures),
             )
             return True
-        raise FlakeFound(flakes_of(tests), scoped=own is not None)
+        raise FlakeFound(flakes_of(tests, classify=True), scoped=own is not None)
 
     def wrote(tests: list[str], where: Path, base: str) -> bool:
         """Whether the unit wrote any of `tests`: its file, or the `conftest.py` beside it,
@@ -2647,10 +2678,16 @@ def build_unit_test(
             run_failed.extend(test for test in named if test not in run_failed)
             workers = getattr(toolchain, "failed_workers", lambda output: {})(text)
             limited = getattr(toolchain, "time_limit_tests", lambda output: [])(text)
+            cascade = _consequences(toolchain, text, named)
             for test in named:
                 run_detail.setdefault(
                     test,
-                    FailedTest(test=test, worker=workers.get(test), time_limit=test in limited),
+                    FailedTest(
+                        test=test,
+                        worker=workers.get(test),
+                        time_limit=test in limited,
+                        consequence=test in cascade,
+                    ),
                 )
         if log is not None:
             passed = "passed" if ok else f"exit {result.returncode}"
@@ -2659,6 +2696,30 @@ def build_unit_test(
         return result
 
     return unit_test
+
+
+def _consequences(toolchain: ToolchainProfile, text: str, named: list[str]) -> set[str]:
+    """The tests of `named` that errored in a worker after the first time-limit hit of that
+    worker: consequences of the hit, in the order the output names them. Empty when the profile
+    cannot say which worker ran a test, or which tests errored."""
+    try:
+        workers = getattr(toolchain, "failed_workers", lambda output: {})(text)
+    except AttributeError:
+        # A profile that reads a test's section by a hook it lacks cannot say.
+        return set()
+    limited = set(getattr(toolchain, "time_limit_tests", lambda output: [])(text))
+    errored = set(getattr(toolchain, "errored_tests", lambda output: [])(text))
+    hit: set[str] = set()
+    found: set[str] = set()
+    for test in named:
+        worker = workers.get(test)
+        if worker is None:
+            continue
+        if test in limited:
+            hit.add(worker)
+        elif test in errored and worker in hit:
+            found.add(test)
+    return found
 
 
 class SuspendedRun(Exception):

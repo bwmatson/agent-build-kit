@@ -102,6 +102,14 @@ _TEST_ID = r"\S+::[^\s\[]+(?:\[.*?\](?= - |$))?"
 _FAILED_TEST = re.compile(rf"^(?:FAILED|ERROR) ({_TEST_ID})(?: - .*)?$", re.MULTILINE)
 # The same line when the reason is a test's time limit (the pytest-timeout plugin's message).
 _TIME_LIMIT_FAILURE = re.compile(rf"^(?:FAILED|ERROR) ({_TEST_ID}) - .*Timeout >", re.MULTILINE)
+# The same line when the test errored (in a fixture), not failed.
+_ERRORED_TEST = re.compile(rf"^ERROR ({_TEST_ID})(?: - .*)?$", re.MULTILINE)
+# The same line when the reason is a resource the machine shares: a port or a lock in use.
+_SHARED_RESOURCE_FAILURE = re.compile(
+    rf"^(?:FAILED|ERROR) ({_TEST_ID}) - .*(?:Address already in use|Errno 98|Errno 48|"
+    r"database is locked|EADDRINUSE)",
+    re.MULTILINE,
+)
 # pytest's usage error for an id it cannot find. It names the absolute path and the names, never
 # the parametrization, and says why on the next line (or after the id, in older output).
 _NOT_FOUND = re.compile(r"^ERROR: not found: (?P<id>.+?)(?: \(no match in any of .*)?$", re.M)
@@ -668,6 +676,14 @@ class PythonUvProfile:
     def time_limit_tests(self, output: str) -> list[str]:
         """The identifiers of the failed tests whose failure is the test's own time limit."""
         return list(dict.fromkeys(_TIME_LIMIT_FAILURE.findall(output)))
+
+    def errored_tests(self, output: str) -> list[str]:
+        """The identifiers of the tests that errored (in a fixture) rather than failed."""
+        return list(dict.fromkeys(_ERRORED_TEST.findall(output)))
+
+    def shared_resource_tests(self, output: str) -> list[str]:
+        """The identifiers of the failed tests whose failure is a resource the machine shares."""
+        return list(dict.fromkeys(_SHARED_RESOURCE_FAILURE.findall(output)))
 
     def failure_sections(self, output: str) -> dict[str, str]:
         """Each failed test's own section of `output` (its `___ name ___` block), by the
