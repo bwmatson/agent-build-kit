@@ -424,7 +424,9 @@ The role a call carries is what labels it and picks its model. These are the rol
   role's name; a role left out takes the active runtime's default.
 - **Session reuse.** `session_reuse` has two keys, each a group of roles: `build` covers
   `implement` and `rework`, and `review` covers `review` and `rework_review` (and is always
-  false). The other roles never continue a session.
+  false). Only those two groups are governed by `session_reuse`. A `restack` resolution continues
+  its own session from one conflicted commit to the next within a single move, whatever
+  `session_reuse` says; `regression`, `plan` and `login_refresh` never continue a session.
 
 ## Tool scoping
 

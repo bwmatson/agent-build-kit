@@ -16,7 +16,13 @@ DOCUMENTS = [
     ROOT / "src" / "agent_build_kit" / "skills" / "abk-config" / "SKILL.md",
 ]
 HEADING = re.compile(r"^#+ .*what a role affects.*$", re.IGNORECASE | re.MULTILINE)
-EFFECTS = ["ledger", "telemetry", "forecast", "model", "session_reuse"]
+EFFECTS = [
+    "The ledger label",
+    "Telemetry",
+    "The usage forecast",
+    "The model",
+    "Session reuse",
+]
 
 
 def section(path: Path) -> str:
@@ -42,7 +48,15 @@ def test_the_section_names_every_role(path: Path) -> None:
 @pytest.mark.parametrize("path", DOCUMENTS, ids=lambda path: path.name)
 @pytest.mark.parametrize("effect", EFFECTS)
 def test_the_section_says_what_a_role_affects(path: Path, effect: str) -> None:
-    assert effect in section(path).lower(), f"{path.name} does not mention {effect}"
+    assert f"**{effect}.**" in section(path), f"{path.name} has no bullet for {effect}"
+
+
+@pytest.mark.parametrize("path", DOCUMENTS, ids=lambda path: path.name)
+def test_the_section_says_restack_continues_its_own_session(path: Path) -> None:
+    text = section(path)
+
+    assert re.search(r"\brestack\b.{0,80}continues its own session", text)
+    assert re.search(r"\bregression\b.{0,40}\bplan\b.{0,40}\blogin_refresh\b.{0,40}never", text)
 
 
 @pytest.mark.parametrize("path", DOCUMENTS, ids=lambda path: path.name)
