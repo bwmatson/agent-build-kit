@@ -56,7 +56,12 @@ class IssueHost(httpx.MockTransport):
         self._types = load("issue_types", RECORDED_GITHUB).body if types_enabled else None
         self._limit = sub_issue_limit
         self._lose_create_answer = lose_create_answer
-        self._template = load("issue", RECORDED_GITHUB).body
+        # What a person's issue and what a create answer look like, and where a sub-issue's
+        # parent is written, each as recorded.
+        self._seeded = load("issue", RECORDED_GITHUB).body
+        self._created = load("issue_created", RECORDED_GITHUB).body
+        nested = load("sub_issues", RECORDED_GITHUB).body[0]
+        self._parent_base = nested["parent_issue_url"].rsplit("/", 1)[0]
         self._lock = threading.Lock()
         super().__init__(self._handle)
 
@@ -69,11 +74,20 @@ class IssueHost(httpx.MockTransport):
         parent: str | None = None,
         labels: Sequence[str] = (),
         type: str | None = None,
+        body: str = "",
+        state: Literal["open", "closed"] = "open",
     ) -> str:
         """An issue that already exists, as a person made it; its number."""
-        number = self._store(title, "", labels, type)
+        number = self._store(self._seeded, title, body, labels, type)
+        self.issues[number]["state"] = state
         if parent is not None:
             self._nest(int(parent), number)
+        return str(number)
+
+    def seed_pull_request(self, title: str, body: str = "") -> str:
+        """A pull request, which the issues list also returns; its number."""
+        number = self._store(self._seeded, title, body, (), None)
+        self.issues[number]["pull_request"] = {"url": f"{API}/{number}".replace("issues", "pulls")}
         return str(number)
 
     def sub_issues_of(self, parent: str) -> list[str]:
@@ -82,9 +96,16 @@ class IssueHost(httpx.MockTransport):
 
     # --- the service --------------------------------------------------------------
 
-    def _store(self, title: str, body: str, labels: Sequence[str], type: str | None) -> int:
+    def _store(
+        self,
+        template: dict[str, Any],
+        title: str,
+        body: str,
+        labels: Sequence[str],
+        type: str | None,
+    ) -> int:
         number = len(self.issues) + 1
-        doc = deepcopy(self._template)
+        doc = deepcopy(template)
         doc.update(
             id=ID_OFFSET + number,
             number=number,
@@ -100,7 +121,7 @@ class IssueHost(httpx.MockTransport):
 
     def _nest(self, parent: int, child: int) -> None:
         self._children.setdefault(parent, []).append(child)
-        self.issues[child]["parent_issue_url"] = f"{API}/{parent}"
+        self.issues[child]["parent_issue_url"] = f"{self._parent_base}/{parent}"
         self.issues[parent]["sub_issues_summary"]["total"] = len(self._children[parent])
 
     def _handle(self, request: httpx.Request) -> httpx.Response:
@@ -132,7 +153,8 @@ class IssueHost(httpx.MockTransport):
             self.issues[number].update(body)
             return _json(200, self.issues[number])
         if number is not None and route["rest"] and method == "GET":
-            return _json(200, [self.issues[n] for n in self._children.get(number, [])])
+            shown = [self.issues[n] for n in self._children.get(number, [])]
+            return _json(200, self._page(shown, request.url.params))
         if number is not None and route["rest"] and method == "POST":
             return self._add_sub_issue(number, body)
         raise AssertionError(f"not a route of the stand-in: {method} {path}")
@@ -140,16 +162,30 @@ class IssueHost(httpx.MockTransport):
     def _create(self, body: dict[str, Any]) -> httpx.Response:
         self.creates.append(body)
         number = self._store(
-            body["title"], body.get("body", ""), body.get("labels", []), body.get("type")
+            self._created,
+            body["title"],
+            body.get("body", ""),
+            body.get("labels", []),
+            body.get("type"),
         )
         if self._lose_create_answer and len(self.creates) == 1:
             return _json(500, {"message": "Server Error"})
         return _json(201, self.issues[number])
 
-    def _list(self, params: httpx.QueryParams) -> httpx.Response:
+    @staticmethod
+    def _page(shown: list[dict[str, Any]], params: httpx.QueryParams) -> list[dict[str, Any]]:
         size, page = int(params.get("per_page", 30)), int(params.get("page", 1))
-        shown = [self.issues[n] for n in sorted(self.issues)]
-        return _json(200, shown[(page - 1) * size : page * size])
+        return shown[(page - 1) * size : page * size]
+
+    def _list(self, params: httpx.QueryParams) -> httpx.Response:
+        """Open issues unless `state` says otherwise, pull requests among them, as the host does."""
+        state = params.get("state", "open")
+        shown = [
+            self.issues[n]
+            for n in sorted(self.issues)
+            if state == "all" or self.issues[n]["state"] == state
+        ]
+        return _json(200, self._page(shown, params))
 
     def _add_sub_issue(self, parent: int, body: dict[str, Any]) -> httpx.Response:
         child = body["sub_issue_id"] - ID_OFFSET

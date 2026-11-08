@@ -15,7 +15,7 @@ import json
 import re
 from collections.abc import Mapping, Sequence
 from datetime import datetime
-from typing import Any, cast, get_args
+from typing import Any
 from urllib.parse import quote, unquote
 
 import httpx
@@ -46,8 +46,12 @@ from agent_build_kit.trackers.base import (
     Relation,
     StaleRevision,
     UnknownWorkItemType,
+    kind_types,
+    marker_comment,
+    markers_in,
     split_tags,
     with_status_tags,
+    without_markers,
 )
 from agent_build_kit.trackers.config import AzureDevOpsTracker
 from agent_build_kit.trackers.manual_parent import ManualParent
@@ -79,12 +83,7 @@ class AzureDevOpsWorkItems:
         self._section = section
         self._rest = AzureRest(http)
         self._identity: Identity | None = None
-        types = section.level_types
-        self._types: dict[ItemKind, str] = {
-            cast(ItemKind, level): type_
-            for level, type_ in types.items()
-            if level in get_args(ItemKind)
-        }
+        self._types: dict[ItemKind, str] = kind_types(section.level_types)
         self._kinds: dict[str, ItemKind] = {type_: kind for kind, type_ in self._types.items()}
 
     def create(
@@ -452,18 +451,14 @@ class AzureDevOpsWorkItems:
         return self._rest.url(section.organization, section.project, f"wit/workitems/{item_id}")
 
     def _comment(self, marker: str) -> str:
-        return f"<!-- {self._section.marker_prefix}:{marker} -->"
+        return marker_comment(self._section.marker_prefix, marker)
 
     def _tag(self, marker: str) -> str:
         return f"{self._section.marker_prefix}:{marker}"
 
-    def _marker_comment(self) -> re.Pattern[str]:
-        """The pattern `_comment` writes, with the marker captured."""
-        return re.compile(rf"<!-- {re.escape(self._section.marker_prefix)}:(.*?) -->")
-
     def _markers_of(self, fields: FieldsDoc) -> tuple[str, ...]:
         """The markers in an item's description."""
-        return tuple(self._marker_comment().findall(fields.description))
+        return markers_in(self._section.marker_prefix, fields.description)
 
     def _is_marker_tag(self, tag: str) -> bool:
         """Whether `tag` is one `_tag` wrote, and not a person's."""
@@ -488,7 +483,9 @@ class AzureDevOpsWorkItems:
             kind=kind,
             title=doc.fields.title,
             body=html.unescape(
-                self._marker_comment().sub("", description).rstrip("\n").replace("<br>", "\n")
+                without_markers(self._section.marker_prefix, description)
+                .rstrip("\n")
+                .replace("<br>", "\n")
             ),
             state=doc.fields.state,
             assignees=(doc.fields.assigned_to.unique_name,) if doc.fields.assigned_to else (),

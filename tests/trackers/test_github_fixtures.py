@@ -9,8 +9,8 @@ from pathlib import Path
 import pytest
 
 from tests.trackers.ado_recorded import FixtureHeaderMissing, load
+from tests.trackers.github_issue_host import RECORDED_GITHUB
 
-RECORDED_GITHUB = Path(__file__).parent / "recorded" / "github"
 # The bodies the issue tests rely on, each written from the GitHub documentation.
 BODIES = ("issue", "issue_created", "sub_issues", "issue_types", "organization", "user")
 

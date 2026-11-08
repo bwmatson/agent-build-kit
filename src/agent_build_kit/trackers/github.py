@@ -8,9 +8,8 @@ number, so a create reads the id from the answer.
 
 from __future__ import annotations
 
-import re
 from collections.abc import Mapping, Sequence
-from typing import Any, cast, get_args
+from typing import Any
 
 import httpx
 
@@ -23,7 +22,15 @@ from agent_build_kit.forges.transport import (
     validated,
 )
 from agent_build_kit.settings import settings
-from agent_build_kit.trackers.base import Capabilities, Item, ItemKind
+from agent_build_kit.trackers.base import (
+    Capabilities,
+    Item,
+    ItemKind,
+    kind_types,
+    marker_comment,
+    markers_in,
+    without_markers,
+)
 from agent_build_kit.trackers.config import GithubTracker
 from agent_build_kit.trackers.github_models import IssueDoc, NamedDoc, OwnerDoc
 
@@ -43,11 +50,7 @@ class GithubIssues:
         self._http = http
         self._transport: Transport | None = None
         self._typed: bool | None = None
-        self._levels: dict[ItemKind, str] = {
-            cast(ItemKind, level): name
-            for level, name in section.level_types.items()
-            if level in get_args(ItemKind)
-        }
+        self._levels: dict[ItemKind, str] = kind_types(section.level_types)
 
     def capabilities(self) -> Capabilities:
         return Capabilities(
@@ -80,14 +83,14 @@ class GithubIssues:
         if parent is not None:
             self._nest(parent, made)
             made = self._issue(self._call("GET", self._path(str(made.number))))
-        return self._to_item(made)
+        return self._to_item(made, parent)
 
     def get(self, item_id: str) -> Item:
         return self._to_item(self._issue(self._call("GET", self._path(item_id))))
 
     def children(self, item_id: str) -> Sequence[Item]:
         docs = self._pages(self._path(item_id, "sub_issues"))
-        return [self._to_item(doc) for doc in docs if self._kind_of(doc) is not None]
+        return [self._to_item(doc, item_id) for doc in docs if self._kind_of(doc) is not None]
 
     def find_by_marker(self, marker: str) -> Item | None:
         for doc in self._pages(self._path(), state="all"):
@@ -152,40 +155,50 @@ class GithubIssues:
                 json={"sub_issue_id": child.id},
             )
         except TransportError as error:
-            if getattr(error, "status", None) != 422:
+            if error.status != 422:
                 raise
-            # The issue was made before it could be nested: leave it closed, not a stray.
+            # The issue was made before it could be nested: close it, and take the marker out
+            # so a later look-up by marker does not adopt the stray in place of a new item.
             self._call(
                 "PATCH",
                 self._path(str(child.number)),
-                json={"state": "closed", "state_reason": "not_planned"},
+                json={
+                    "state": "closed",
+                    "state_reason": "not_planned",
+                    "body": without_markers(self._section.marker_prefix, child.body or "").rstrip(
+                        "\n"
+                    ),
+                },
             )
+            if "limit" not in error.body.lower():
+                raise
             raise SubIssueLimitExceeded(
                 f"#{parent} cannot take another sub-issue (the host allows at most "
-                f"{SUB_ISSUE_LIMIT}): {getattr(error, 'body', '')}"
+                f"{SUB_ISSUE_LIMIT}): {error.body}"
             ) from error
 
     # --- items --------------------------------------------------------------------
 
     def _comment(self, marker: str) -> str:
-        return f"<!-- {self._section.marker_prefix}:{marker} -->"
-
-    def _marker_comment(self) -> re.Pattern[str]:
-        return re.compile(rf"<!-- {re.escape(self._section.marker_prefix)}:(.*?) -->")
+        return marker_comment(self._section.marker_prefix, marker)
 
     def _markers_of(self, doc: IssueDoc) -> tuple[str, ...]:
-        return tuple(self._marker_comment().findall(doc.body or ""))
+        return markers_in(self._section.marker_prefix, doc.body or "")
 
     def _kind_of(self, doc: IssueDoc) -> ItemKind | None:
         names = {name: kind for kind, name in self._levels.items()}
         named: list[NamedDoc] = [doc.type] if doc.type else list(doc.labels)
         return next((names[entry.name] for entry in named if entry.name in names), None)
 
-    def _to_item(self, doc: IssueDoc) -> Item:
+    def _to_item(self, doc: IssueDoc, parent: str | None = None) -> Item:
+        """`parent` is the issue the caller knows `doc` hangs under, which is not left to the
+        host's `parent_issue_url`."""
         kind = self._kind_of(doc)
         if kind is None:
             raise ValueError(f"issue #{doc.number} is of no level of the configuration")
-        text = self._marker_comment().sub("", doc.body or "").rstrip("\n")
+        text = without_markers(self._section.marker_prefix, doc.body or "").rstrip("\n")
+        if parent is None and doc.parent_issue_url:
+            parent = doc.parent_issue_url.rsplit("/", 1)[-1]
         return Item(
             id=str(doc.number),
             kind=kind,
@@ -193,7 +206,7 @@ class GithubIssues:
             body=text,
             state=doc.state,
             assignees=tuple(who.login for who in doc.assignees),
-            parent_id=doc.parent_issue_url.rsplit("/", 1)[-1] if doc.parent_issue_url else None,
+            parent_id=parent,
             revision=doc.updated_at,
             url=doc.html_url,
             markers=self._markers_of(doc),

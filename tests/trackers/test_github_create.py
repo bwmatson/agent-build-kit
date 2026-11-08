@@ -9,7 +9,7 @@ from typing import Any
 import pytest
 
 from agent_build_kit.forges.transport import HostError
-from agent_build_kit.trackers.base import Item, ItemKind
+from agent_build_kit.trackers.base import Item, ItemKind, marker_comment
 from agent_build_kit.trackers.github import GithubIssues, SubIssueLimitExceeded
 from tests.trackers.github_issue_host import IssueHost
 from tests.trackers.github_support import MODE_TYPES, tracker_on
@@ -153,3 +153,59 @@ def test_without_types_each_level_is_a_label(host_options: dict[str, Any], level
     assert [label["name"] for label in issue["labels"]] == [MODE_TYPES["user"][level]]
     assert issue.get("type") is None
     assert not tracker.capabilities().typed
+
+
+def test_the_issue_made_for_a_refused_nesting_is_closed_and_no_marker_finds_it() -> None:
+    host = IssueHost(sub_issue_limit=2)
+    change = host.seed("Change")
+    host.seed("First", parent=change)
+    host.seed("Second", parent=change)
+    tracker = tracker_on(host)
+
+    with pytest.raises(SubIssueLimitExceeded):
+        tracker.create("group", "Third", parent=change, markers=("feature:g3",))
+
+    stray = host.issues[len(host.issues)]
+    assert (stray["state"], stray["state_reason"]) == ("closed", "not_planned")
+    assert not re.search(r"<!--.*-->", stray["body"])
+    assert tracker.find_by_marker("feature:g3") is None
+
+
+def test_a_closed_item_is_still_found_by_its_marker() -> None:
+    host = IssueHost()
+    closed = host.seed(
+        "Done group", type="Story", state="closed", body=marker_comment("abk", "feature:g1")
+    )
+
+    found = tracker_on(host).find_by_marker("feature:g1")
+
+    assert found is not None
+    assert found.id == closed
+
+
+def test_a_pull_request_quoting_a_marker_is_not_the_item() -> None:
+    host = IssueHost()
+    host.seed_pull_request("Quotes it", marker_comment("abk", "feature:g1"))
+
+    assert tracker_on(host).find_by_marker("feature:g1") is None
+
+
+def test_every_page_of_the_issues_is_read_when_looking_for_a_marker() -> None:
+    host = IssueHost()
+    for number in range(101):
+        host.seed(f"Person's issue {number}", type="Story")
+    wanted = host.seed("Group", type="Story", body=marker_comment("abk", "feature:g1"))
+
+    found = tracker_on(host).find_by_marker("feature:g1")
+
+    assert found is not None
+    assert found.id == wanted
+
+
+def test_every_page_of_the_sub_issues_is_listed() -> None:
+    host = IssueHost()
+    change = host.seed("Change")
+    for number in range(101):
+        host.seed(f"Group {number}", type="Story", parent=change)
+
+    assert len(tracker_on(host).children(change)) == 101
