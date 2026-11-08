@@ -515,7 +515,10 @@ repos:                          # ordered: deploy order is derived from
                                 # board type of each level in use (`types`) and the state
                                 # names (`states`, kit state -> board state):
       #   organization: ""        # azure_devops: organization, project, team, area_path,
-      #   project: ""             # iteration_path, types, states, states_by_type.
+      #   project: ""             # iteration_path, process, types, states, states_by_type.
+      #   process: basic          # basic, agile, scrum or cmmi: the default states. The
+                                  # doctor probe checks the types, states, nesting, epic,
+                                  # team and paths against the project.
       #   types: {epic: Epic, change: Issue, group: Task}
       #   states: {new: To Do, active: Doing, done: Done}
       # github:                   # github: owner, repo, host, project_number, types (a

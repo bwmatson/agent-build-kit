@@ -27,11 +27,12 @@ from agent_build_kit.forges.transport import (
     TransportError,
     validated,
 )
-from agent_build_kit.trackers.azure_probe import ProbeLine
+from agent_build_kit.trackers.azure_probe import ProbeLine, probe
 from agent_build_kit.trackers.azure_work_item_models import (
     ConnectionDataDoc,
     FieldsDoc,
     RepositoryDoc,
+    UpdateDoc,
     WiqlDoc,
     WorkItemDoc,
     WorkItemsDoc,
@@ -57,6 +58,19 @@ from agent_build_kit.trackers.manual_parent import ManualParent
 PARENT_LINK = "System.LinkTypes.Hierarchy-Reverse"
 CHILD_LINK = "System.LinkTypes.Hierarchy-Forward"
 ARTIFACT_LINK = "ArtifactLink"
+# The kit's relation between two work items to the link type that stands for it.
+WORK_ITEM_LINKS = {
+    "blocks": "System.LinkTypes.Dependency-Forward",
+    "related": "System.LinkTypes.Related",
+}
+# The kit's name for each field an update reports as changed.
+FIELD_NAMES = {
+    "System.Title": "title",
+    "System.Description": "body",
+    "System.State": "state",
+    "System.Tags": "tags",
+    "System.AssignedTo": "assignee",
+}
 _PULL_REQUEST_URL = re.compile(
     r"^https://dev\.azure\.com/(?P<organization>[^/]+)/(?P<project>[^/]+)/_git/(?P<repository>[^/]+)"
     r"/pullrequest/(?P<number>\d+)/?$"
@@ -66,6 +80,8 @@ PATCH = "application/json-patch+json"
 STALE_STATUSES = (409, 412)
 # The version `connectionData` is served at.
 PREVIEW_VERSION = "7.1-preview.1"
+# The version the comments route is served at.
+COMMENTS_VERSION = "7.1-preview.4"
 # The most work items a batch read takes by id, and the page a change query is asked for.
 PAGE_SIZE = 200
 
@@ -129,7 +145,7 @@ class AzureDevOpsWorkItems:
 
     def capabilities(self) -> Capabilities:
         """Revision-checked writes and typed items, which this tracker has."""
-        raise NotImplementedError
+        return Capabilities()
 
     def identity(self) -> Identity:
         """The authenticated user, by the unique name an assignment uses."""
@@ -146,7 +162,7 @@ class AzureDevOpsWorkItems:
     def probe(self) -> list[ProbeLine]:
         """What `abk doctor` says about the project: the identity, the types, states, nesting,
         epic, team, paths and work item access, each as its own line."""
-        raise NotImplementedError
+        return probe(self._section, self._rest, self.identity)
 
     def update(
         self, item_id: str, changes: Mapping[str, str], expected_revision: str | None = None
@@ -202,7 +218,12 @@ class AzureDevOpsWorkItems:
 
     def comment(self, item_id: str, text: str) -> None:
         """Add a comment to the item's discussion."""
-        raise NotImplementedError
+        self._call(
+            "POST",
+            f"wit/workitems/{item_id}/comments",
+            json={"text": text},
+            version=COMMENTS_VERSION,
+        )
 
     def set_tag(self, item_id: str, tag: str, present: bool) -> Item:
         """Add or remove one tag (the blocked and in-review markers), leaving the state."""
@@ -214,7 +235,8 @@ class AzureDevOpsWorkItems:
         return self._patch(item_id, {"System.Tags": "; ".join(tags)}, str(doc.rev))
 
     def get(self, item_id: str) -> Item:
-        return self._to_item(self._read(item_id))
+        """The item, or, read only, the manual epic above the first level, as an item of it."""
+        return self._to_item(self._read(item_id), epic_ok=True)
 
     def children(self, item_id: str) -> Sequence[Item]:
         """The children of an item that are of a configured level; a person's Bug, or any
@@ -247,6 +269,11 @@ class AzureDevOpsWorkItems:
         """Relate a work item to a pull request, given as its web address
         (`.../_git/<repository>/pullrequest/<number>`): the artifact link needs the ids of the
         project and the repository, which one read of the repository gives."""
+        if relation in WORK_ITEM_LINKS:
+            link = {"rel": WORK_ITEM_LINKS[relation], "url": self._url_of(target_id)}
+            patch = [{"op": "add", "path": "/relations/-", "value": link}]
+            self._call("PATCH", f"wit/workitems/{item_id}", json=patch, content_type=PATCH)
+            return Relation(kind=relation, source_id=item_id, target_id=target_id)
         if relation != PULL_REQUEST_RELATION:
             raise ValueError(f"cannot link a work item by {relation!r}")
         found = _PULL_REQUEST_URL.search(target_id)
@@ -355,10 +382,12 @@ class AzureDevOpsWorkItems:
         ours = bool(self._markers_of(fields)) or any(
             map(self._is_marker_tag, split_tags(fields.tags))
         )
+        update = self._call("GET", f"wit/workitems/{doc.id}/updates/{doc.rev}")
+        changed = validated(UpdateDoc, update.data, "updates", update.text).fields
         return Change(
             item_id=str(doc.id),
             revision=str(doc.rev),
-            fields=(),
+            fields=tuple(FIELD_NAMES[name] for name in changed if name in FIELD_NAMES),
             who=fields.changed_by.unique_name if fields.changed_by else "",
             when=when,
             foreign=not ours,
@@ -487,8 +516,10 @@ class AzureDevOpsWorkItems:
     def _item(self, response: Response) -> Item:
         return self._to_item(validated(WorkItemDoc, response.data, "workitems", response.text))
 
-    def _to_item(self, doc: WorkItemDoc) -> Item:
+    def _to_item(self, doc: WorkItemDoc, *, epic_ok: bool = False) -> Item:
         kind = self._kinds.get(doc.fields.type)
+        if kind is None and epic_ok and doc.fields.type == self._section.level_types.get("epic"):
+            kind = cast(ItemKind, self._section.levels[0])
         if kind is None:
             raise UnknownWorkItemType(
                 f"work item {doc.id} is a {doc.fields.type!r}, which no level of the "

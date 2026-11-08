@@ -376,7 +376,11 @@
   writing to it, and can attach a pull request to a work item once as an artifact link. An
   update carries the revision it was read at and is refused as stale when the item has moved,
   a claim reports whether it won, and the kit's states map to the board's through `states`
-  and `states_by_type` (with defaults for the Basic, Agile and Scrum processes).
+  and `states_by_type` (with defaults for the Basic, Agile and Scrum processes). A doctor
+  probe reads the project's real work item types, states and backlog levels and says in one
+  line each whether the credential has work item access, every configured type and mapped
+  state exists, the levels may nest as configured, the epic sits above the first level, and
+  the team and paths exist.
 
 - The pull-request snapshot (`prs-<repo>.json`) is now written under a file lock and replaced
   whole, with each repo's section stamped with `collected_at`, so two writers can no longer lose

@@ -92,6 +92,8 @@ class WorkItemHost(httpx.MockTransport):
         token in `rejected_tokens` is answered 401, as an expired one is."""
         self._project = project
         self.comments: dict[str, list[str]] = {}
+        # The fields each revision of an item changed, by (item, revision).
+        self._revised: dict[tuple[int, int], list[str]] = {}
         self.rejected_tokens: set[str] = set()
         self._acting = ""
         self._page_size = page_size
@@ -180,6 +182,10 @@ class WorkItemHost(httpx.MockTransport):
 
     def _write(self, number: int, fields: dict[str, Any]) -> None:
         doc = self.items[number]
+        self._revised[(number, doc["rev"] + 1)] = [
+            "System.AssignedTo" if name == "assigned_to" else _FIELDS.get(name, name)
+            for name in fields
+        ]
         for name, value in fields.items():
             if name == "assigned_to":
                 doc["fields"]["System.AssignedTo"] = _person(value)
@@ -333,6 +339,18 @@ class WorkItemHost(httpx.MockTransport):
                     "WorkItemDoesNotExistException",
                 )
             return answer(self._shown(self.items[int(one[1])], params))
+        update = re.fullmatch(r"wit/workitems/(\d+)/updates/(\d+)", rest, re.IGNORECASE)
+        if update and method == "GET" and int(update[1]) in self.items:
+            # An update lists the fields it changed, each with the value it set.
+            changed = self._revised.get((int(update[1]), int(update[2])), [])
+            values = self.items[int(update[1])]["fields"]
+            return answer(
+                {
+                    "id": int(update[2]),
+                    "rev": int(update[2]),
+                    "fields": {name: {"newValue": values.get(name)} for name in changed},
+                }
+            )
         comments = re.fullmatch(r"wit/workitems/(\d+)/comments", rest, re.IGNORECASE)
         if comments and method == "POST" and int(comments[1]) in self.items:
             self.comments.setdefault(comments[1], []).append(body["text"])
@@ -424,6 +442,9 @@ class WorkItemHost(httpx.MockTransport):
                     f"VS403357: Revision {doc['rev']} of work item {number} is not {op['value']}.",
                     "WorkItemRevisionMismatchException",
                 )
+        self._revised[(number, doc["rev"] + 1)] = [
+            op["path"].removeprefix("/fields/") for op in ops if op["path"].startswith("/fields/")
+        ]
         for op in ops:
             if op["op"] == "add" and op["path"] == "/relations/-":
                 doc["relations"].append(op["value"])

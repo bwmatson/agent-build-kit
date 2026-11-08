@@ -85,3 +85,34 @@ class AuthenticatedUserDoc(_Doc):
 
 class ConnectionDataDoc(_Doc):
     authenticated_user: AuthenticatedUserDoc = Field(alias="authenticatedUser")
+
+
+class UpdateDoc(_Doc):
+    """One revision of a work item: the fields it changed, each with the value it set."""
+
+    fields: dict[str, object] = {}
+
+
+class NamedDoc(_Doc):
+    name: str
+
+
+class StateDoc(_Doc):
+    name: str
+
+
+class WorkItemTypeDoc(_Doc):
+    name: str
+    states: tuple[StateDoc, ...] = ()
+
+
+class WorkItemTypesDoc(_Doc):
+    value: tuple[WorkItemTypeDoc, ...] = ()
+
+
+class BacklogDoc(_Doc):
+    work_item_types: tuple[NamedDoc, ...] = Field(default=(), alias="workItemTypes")
+
+
+class BacklogsDoc(_Doc):
+    value: tuple[BacklogDoc, ...] = ()
