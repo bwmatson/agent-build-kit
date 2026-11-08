@@ -48,16 +48,23 @@ def write_tasks(
     groups: Groups,
     *,
     e2e: Collection[int] = (),
+    integration: Collection[int] = (),
     tests_only: Collection[int] = (),
 ) -> None:
     """The change's tasks file in the planning repo, where titles and goals are read from.
-    The groups in `e2e` are headed `[e2e-test]`, the others `[unit-test]`; those in
-    `tests_only` hold nothing but `Test:` tasks."""
+    The groups in `e2e` are headed `[e2e-test]`, those in `integration` `[integration-test]`,
+    the others `[unit-test]`; those in `tests_only` hold nothing but `Test:` tasks."""
     path = tmp_path / "meta" / "openspec" / "changes" / change / "tasks.md"
     path.parent.mkdir(parents=True, exist_ok=True)
+
+    def kind_of(number: int) -> str:
+        if number in e2e:
+            return "e2e-test"
+        return "integration-test" if number in integration else "unit-test"
+
     path.write_text(
         "".join(
-            f"## {n}. [app] [{'e2e-test' if n in e2e else 'unit-test'}] {title}\n\n"
+            f"## {n}. [app] [{kind_of(n)}] {title}\n\n"
             + (f"{goal}\n\n" if goal else "")
             + f"- [ ] {n}.1 Test: a\n"
             + ("" if n in tests_only else f"- [ ] {n}.2 Do a\n")
@@ -176,17 +183,18 @@ def prepared(
     meanwhile: Callable[[Path], None] | None = None,
     guidance: str = "",
     e2e: Collection[int] = (),
+    integration: Collection[int] = (),
     tests_only: Collection[int] = (),
     modes: Mapping[str, str] | None = None,
     **options: Any,
 ) -> tuple[OnBranch, Path]:
     """The recorder and the branch for building the unit over a branch holding `seeded`
     subjects. `groups` is each change's tasks, the unit's own change first; the unit builds
-    the groups listed under its own change and those the members in `carries` name. `e2e` and
-    `tests_only` are the numbers of its own change's groups headed `[e2e-test]` and holding only
-    tests. `modes` is the stored build mode of groups, keyed `<change>/<number>`. `meanwhile`
-    acts on the branch before the build starts, and `guidance` is a person's note saved on the
-    unit before it does."""
+    the groups listed under its own change and those the members in `carries` name. `e2e`,
+    `integration` and `tests_only` are the numbers of its own change's groups headed
+    `[e2e-test]`, headed `[integration-test]` and holding only tests. `modes` is the stored
+    build mode of groups, keyed `<change>/<number>`. `meanwhile` acts on the branch before the
+    build starts, and `guidance` is a person's note saved on the unit before it does."""
     activate_with(builders={"stubbed_tdd_commits": setting})
     tasks = groups or {"add-marker": titled(1, 2, 3)}
     for change, listed in tasks.items():
@@ -196,6 +204,7 @@ def prepared(
             change,
             listed,
             e2e=e2e if own else (),
+            integration=integration if own else (),
             tests_only=tests_only if own else (),
         )
     repo = seeded_branch(tmp_path, seeded or [])

@@ -10,6 +10,7 @@ environment, so the collision cannot happen.
 
 from __future__ import annotations
 
+import ast
 import json
 import os
 import re
@@ -788,6 +789,69 @@ class PythonUvProfile:
             for line in result.stdout.splitlines()
             if (match := _MARKER_LINE.match(line))
         ]
+
+    def unselected_tests(self, path: str, content: str, tests: list[str]) -> list[str]:
+        """The names among `tests` whose function, class or module carries no
+        `pytest.mark.integration` (a decorator, or a `pytestmark` assignment)."""
+        try:
+            module = ast.parse(content)
+        except SyntaxError:
+            return []
+
+        def marks(node: ast.AST) -> bool:
+            return any(
+                isinstance(each, ast.Attribute)
+                and each.attr == "integration"
+                and (
+                    (isinstance(each.value, ast.Attribute) and each.value.attr == "mark")
+                    or (isinstance(each.value, ast.Name) and each.value.id == "mark")
+                )
+                for each in ast.walk(node)
+            )
+
+        def assigned(body: list[ast.stmt]) -> bool:
+            return any(
+                isinstance(stmt, ast.Assign | ast.AnnAssign)
+                and stmt.value is not None
+                and any(
+                    isinstance(t, ast.Name) and t.id == "pytestmark"
+                    for t in (stmt.targets if isinstance(stmt, ast.Assign) else [stmt.target])
+                )
+                and marks(stmt.value)
+                for stmt in body
+            )
+
+        if assigned(module.body):
+            return []
+        missing: list[str] = []
+        for name in tests:
+            *classes, test = name.split("::")
+            body: list[ast.stmt] = module.body
+            carried = False
+            for class_name in classes:
+                found = next(
+                    (s for s in body if isinstance(s, ast.ClassDef) and s.name == class_name),
+                    None,
+                )
+                if found is None:
+                    body = []
+                    break
+                carried = carried or any(marks(d) for d in found.decorator_list)
+                carried = carried or assigned(found.body)
+                body = found.body
+            function = next(
+                (
+                    s
+                    for s in body
+                    if isinstance(s, ast.FunctionDef | ast.AsyncFunctionDef) and s.name == test
+                ),
+                None,
+            )
+            if function is not None and not carried:
+                carried = any(marks(d) for d in function.decorator_list)
+            if function is not None and not carried:
+                missing.append(name)
+        return missing
 
     def repeat_command(self, command: list[str], tests: list[str]) -> list[str] | None:
         """`command`, a test run, as one of exactly those node ids of `tests` that fall under

@@ -197,6 +197,7 @@ class FeedbackSource(StrEnum):
     E2E = "e2e-test"
     STUB_CHECKS = "stub-checks"
     RED_CHECK = "red-check"
+    SELECTOR_CHECK = "selector-check"
     SCOPE = "scope"
 
     @classmethod

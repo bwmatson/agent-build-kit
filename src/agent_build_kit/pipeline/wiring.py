@@ -250,6 +250,7 @@ from agent_build_kit.profiles.base import (
     AgentEnvironment,
     AppliesE2eSelection,
     AppliesFixers,
+    ChecksSelector,
     ListsTestFiles,
     ProjectChecks,
     RecordsSelectionData,
@@ -1406,6 +1407,35 @@ def build_red_check(
         problems = red_problems(
             cwd, sha, profile=profile, projects=projects, stubbed=stubbed, cache=cache
         )
+        return not problems, "\n".join(problems)
+
+    return check
+
+
+def build_selector_check(
+    *, profile: ToolchainProfile, projects: list[ProjectConfig] | None = None
+) -> Callable[..., tuple[bool, str]]:
+    """The runner's `run_selector_check(*, cwd)`: whether the tests the commit at the head of
+    `cwd` adds carry the `integration` selector, and the reason naming each that does not.
+    A test the commit only changes is not checked."""
+
+    def check(*, cwd: Path) -> tuple[bool, str]:
+        problems: list[str] = []
+        touched: dict[str, list[str]] = {}
+        for path, name, _ in _changed_tests(cwd, "HEAD^", qualified=True, head="HEAD"):
+            old = git(cwd, "show", f"HEAD^:{path}", check=False, errors="replace")
+            if old.returncode == 0 and name in _test_bodies(old.stdout, qualified=True):
+                continue
+            touched.setdefault(path, []).append(name)
+        for path, names in touched.items():
+            toolchain = profiles.for_path(projects or [], path, profile)
+            if not isinstance(toolchain, ChecksSelector):
+                continue
+            content = _run(["git", "show", f"HEAD:{path}"], cwd=cwd).stdout
+            problems.extend(
+                f"{path}::{name} has no `integration` selector"
+                for name in toolchain.unselected_tests(path, content, names)
+            )
         return not problems, "\n".join(problems)
 
     return check
@@ -5257,6 +5287,7 @@ def build_runner(
             stubbed=True,
             cache=CheckCache(root / "red-check-cache.json"),
         ),
+        run_selector_check=build_selector_check(profile=profile, projects=repo.projects),
         run_fixers=build_fixers(profile=profile, projects=repo.projects, repo_name=unit.repo),
         tree_state=build_tree_state(),
         branch_commits=branch_commits,
