@@ -15,6 +15,7 @@ from tests.trackers.github_issue_host import RECORDED_GITHUB
 BODIES = ("issue", "issue_created", "sub_issues", "issue_types", "organization", "user")
 
 
+@pytest.mark.integration
 def test_the_reference_bodies_are_the_ones_the_tests_rely_on() -> None:
     assert sorted(path.stem for path in RECORDED_GITHUB.glob("*.json")) == sorted(BODIES)
 

@@ -78,7 +78,11 @@ HOME_PRODUCT_DIR = re.compile(rf'Path\.home\(\)\s*/\s*"\.(?!(?:{_TOOL_DIR_NAMES}
 HOME_PATH = re.compile(rf"(?<![\w/])~/(?!\.(?:{_TOOL_DIR_NAMES})\b)|/home/[a-z]")
 # The part of `HOME_PATH` that names a user: a tilde-relative path names none.
 ABSOLUTE_HOME_PATH = re.compile(r"/home/[a-z]")
-GITHUB_SLUG = re.compile(r"github\.com[:/](?P<owner>[A-Za-z0-9-]+)/[A-Za-z0-9._-]+")
+# The host's own documentation and API sites are not a repository's address: their paths
+# (`docs.github.com/en/rest`, `api.github.com/repos/<owner>/<name>`) are not slugs.
+GITHUB_SLUG = re.compile(
+    r"(?<!docs\.)(?<!api\.)github\.com[:/](?P<owner>[A-Za-z0-9-]+)/[A-Za-z0-9._-]+"
+)
 AZURE_ORG = re.compile(r"dev\.azure\.com[:/](?:v3/)?(?!v3/)(?P<org>[A-Za-z0-9._-]+)")
 NOREPLY = re.compile(r"\d+\+[A-Za-z0-9-]+@users\.noreply\.github\.com")
 # The shared reference pattern, less a fixture owner's own: `example/app#15` is a fixture.
