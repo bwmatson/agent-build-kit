@@ -879,6 +879,8 @@ class WaitEndRequeue(StrEnum):
 class LimitsConfig(TestKindSettings):
     # How a failed unit that waited on another unit is requeued once, when its wait ends.
     wait_end_requeue: WaitEndRequeue = WaitEndRequeue.AUTO
+    # Age past which an empty lock a dead git process left in a worktree is cleared.
+    stale_git_lock_seconds: Annotated[int, Field(gt=0)] = 600
     # Most regression-agent runs the pipeline starts in an hour.
     max_regression_runs_per_hour: Annotated[int, Field(ge=1)] = 10
     # Longest chain of in-review PRs from main to a branch that a unit may
