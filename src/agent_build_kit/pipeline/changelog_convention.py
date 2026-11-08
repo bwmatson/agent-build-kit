@@ -9,10 +9,10 @@ it are safe.
 """
 
 import re
-from importlib import resources
 from pathlib import Path
 
 from agent_build_kit.config import RepoConfig
+from agent_build_kit.pipeline.packaged_template import packaged_template
 
 _DEFAULT_FILE = "CHANGELOG.md"
 _BLOCK_CLOSE = "<!-- /abk:changelog -->"
@@ -46,12 +46,7 @@ def changelog_path(repo: RepoConfig | None) -> str | None:
 
 def packaged_convention(changelog: str = _DEFAULT_FILE) -> str:
     """The framework's own convention text, for a repo keeping its changelog at `changelog`."""
-    packaged = (
-        resources.files("agent_build_kit")
-        .joinpath("templates", "changelog-convention.md")
-        .read_text()
-        .strip()
-    )
+    packaged = packaged_template("changelog-convention.md")
     return packaged.replace(f"`{_DEFAULT_FILE}`", f"`{changelog}`")
 
 
