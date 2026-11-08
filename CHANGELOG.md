@@ -36,6 +36,10 @@
   them back with a reason naming the test when they do not. The check applies where the
   toolchain profile provides it (today the Python one); a repository on another profile is
   not checked.
+- The kit can keep recordings of the affected-test selection data made on the base: one is
+  made when the base has moved and the last is older than `checks.affected.base_data_max_age_hours`
+  (default 12), at most `checks.affected.base_data_kept` (default 3) are kept, and a recording
+  waits for a unit-test slot behind every unit's check.
 
 - A restack now names a git lock file that stops it, with the lock's path and the command,
   instead of the exit status alone. Before a turn it clears an empty `MERGE_RR.lock` or
