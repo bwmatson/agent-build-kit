@@ -23,6 +23,10 @@
   ran its tests (read from the verbose progress lines; none are marked without them), are
   marked as consequences of it and are neither rerun nor counted. A test the unit wrote is never
   one.
+- The node profile's whole-folder lint and format check now run the project's own `lint` and
+  `format:check` scripts when its `package.json` defines them, and the generic tools for the
+  ones it does not, so files outside the folders a project's scripts cover no longer fail
+  the gate.
 
 - The three kinds of test are now stated once, in the `integration` and `e2e` marker
   descriptions and in `AGENTS.md`, with the same rule for each. The tests step now checks that

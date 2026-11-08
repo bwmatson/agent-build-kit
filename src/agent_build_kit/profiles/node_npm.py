@@ -81,7 +81,21 @@ _FILTERED = wrap_report_command(f'cd "$1" && shift && {_RUN} "$@"', "--outputFil
 _TEST_SCRIPTS = (_TESTS, _MEMBER_TESTS, _FILTERED)
 # The directory of a project that is not a workspace, or the root of one.
 _HERE = "./"
-_LINT_ALL = "npx oxlint . && npx oxfmt --check ."
+
+
+def _script_or(script: str, generic: str) -> str:
+    """A shell command running the project's own `script` when its `package.json` (in the
+    folder the command runs in) defines it, and `generic` otherwise."""
+    # The `scripts` object is read with sed and grep, so the probe needs no runtime of its own.
+    block = "sed -n '/\"scripts\"/,/}/p' package.json 2>/dev/null"
+    probe = f"{block} | grep -q {shlex.quote(f'"{script}"[[:space:]]*:')}"
+    return f"if {probe}; then npm run {script}; else {generic}; fi"
+
+
+# The whole-folder lint and format check: each follows the project's script when it has one.
+_LINT_ALL = (
+    f"{_script_or('lint', 'npx oxlint .')} && {_script_or('format:check', 'npx oxfmt --check .')}"
+)
 # The red command lists the files it was given, one per line before the report, so the judge
 # can tell their suites from any other the runner's substring filters selected.
 _RED_FILE = "abk red file: "

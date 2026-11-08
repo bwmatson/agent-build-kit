@@ -73,7 +73,7 @@ def calls(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     return log
 
 
-def make_project(where: Path, scripts: dict[str, str] | None) -> Path:
+def make_project(where: Path, scripts: dict[str, str] | None, *, malformatted: bool = True) -> Path:
     """A project in a git repository at `where` whose `package.json` has `scripts` (no field
     when None), with a malformatted document outside the folder the scripts cover."""
     work = init_repo(where)
@@ -83,7 +83,7 @@ def make_project(where: Path, scripts: dict[str, str] | None) -> Path:
     (work / "package.json").write_text(json.dumps(manifest))
     (work / "src").mkdir()
     (work / "src/a.ts").write_text("export const a = 1;\n")
-    (work / "README.md").write_text("malformatted   document\n")
+    (work / "README.md").write_text("malformatted   document\n" if malformatted else "fine\n")
     git(work, "add", "-A")
     git(work, "commit", "-qm", "base")
     return work
@@ -106,7 +106,7 @@ def calls_per_choice(
     """The calls `command()` makes in a project of each kind in CHOICES."""
     made = {}
     for index, (name, (scripts, _)) in enumerate(CHOICES.items()):
-        project = make_project(tmp_path / f"project{index}", scripts)
+        project = make_project(tmp_path / f"project{index}", scripts, malformatted=False)
         made[name] = run(command(), project, log)[1]
     return made
 
