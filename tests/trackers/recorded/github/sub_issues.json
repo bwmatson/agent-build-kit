@@ -1,0 +1,30 @@
+{
+  "fixture": {
+    "source": "reference",
+    "page": "https://docs.github.com/en/rest/issues/sub-issues?apiVersion=2022-11-28#list-sub-issues",
+    "date": "2026-11-07"
+  },
+  "body": [
+    {
+      "id": 301,
+      "node_id": "I_kwDOAAAAAQ",
+      "number": 301,
+      "url": "https://api.github.com/repos/example/app/issues/301",
+      "html_url": "https://github.com/example/app/issues/301",
+      "title": "A sub-issue",
+      "body": "",
+      "state": "open",
+      "state_reason": null,
+      "labels": [],
+      "type": null,
+      "assignee": null,
+      "assignees": [],
+      "user": {"login": "sync-account", "id": 9, "type": "User"},
+      "created_at": "2026-10-20T09:20:00Z",
+      "updated_at": "2026-10-20T09:20:00Z",
+      "closed_at": null,
+      "parent_issue_url": "https://api.github.com/repos/example/app/issues/299",
+      "sub_issues_summary": {"total": 0, "completed": 0, "percent_completed": 0}
+    }
+  ]
+}

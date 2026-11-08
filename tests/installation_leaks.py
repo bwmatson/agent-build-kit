@@ -78,7 +78,13 @@ HOME_PRODUCT_DIR = re.compile(rf'Path\.home\(\)\s*/\s*"\.(?!(?:{_TOOL_DIR_NAMES}
 HOME_PATH = re.compile(rf"(?<![\w/])~/(?!\.(?:{_TOOL_DIR_NAMES})\b)|/home/[a-z]")
 # The part of `HOME_PATH` that names a user: a tilde-relative path names none.
 ABSOLUTE_HOME_PATH = re.compile(r"/home/[a-z]")
-GITHUB_SLUG = re.compile(r"github\.com[:/](?P<owner>[A-Za-z0-9-]+)/[A-Za-z0-9._-]+")
+# The host's documentation site is not a repository's address: its paths
+# (`docs.github.com/en/rest`) are not slugs. The API site's are, after the resource segment:
+# `api.github.com/repos/<owner>/<name>` names the owner like any other address.
+GITHUB_SLUG = re.compile(
+    r"(?<!docs\.)(?<!api\.)github\.com[:/](?P<owner>[A-Za-z0-9-]+)/[A-Za-z0-9._-]+"
+    r"|api\.github\.com/(?:repos|orgs|users)/(?P<api_owner>[A-Za-z0-9-]+)"
+)
 AZURE_ORG = re.compile(r"dev\.azure\.com[:/](?:v3/)?(?!v3/)(?P<org>[A-Za-z0-9._-]+)")
 NOREPLY = re.compile(r"\d+\+[A-Za-z0-9-]+@users\.noreply\.github\.com")
 # The shared reference pattern, less a fixture owner's own: `example/app#15` is a fixture.
@@ -136,10 +142,11 @@ def foreign_azure_orgs(text: str) -> list[str]:
 
 
 def foreign_slug_owners(text: str) -> list[str]:
+    owners = (match["owner"] or match["api_owner"] for match in GITHUB_SLUG.finditer(text))
     return [
-        match["owner"]
-        for match in GITHUB_SLUG.finditer(text)
-        if match["owner"] not in FIXTURE_OWNERS and match["owner"].lower() not in UPSTREAM_OWNERS
+        owner
+        for owner in owners
+        if owner not in FIXTURE_OWNERS and owner.lower() not in UPSTREAM_OWNERS
     ]
 
 

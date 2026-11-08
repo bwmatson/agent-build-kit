@@ -1,0 +1,13 @@
+{
+  "fixture": {
+    "source": "reference",
+    "page": "https://docs.github.com/en/rest/issues/sub-issues?apiVersion=2022-11-28#add-sub-issue",
+    "date": "2026-11-08"
+  },
+  "body": {
+    "message": "Validation Failed",
+    "errors": [{"resource": "Issue", "code": "invalid", "field": "sub_issue_id"}],
+    "documentation_url": "https://docs.github.com/rest/issues/sub-issues#add-sub-issue",
+    "status": "422"
+  }
+}

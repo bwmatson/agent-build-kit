@@ -60,6 +60,32 @@ def test_a_non_fixture_slug_in_the_config_fails_with_file_and_line(tmp_path: Pat
     assert found[0].startswith("abk.yaml:4:")
 
 
+def test_a_non_fixture_owner_in_an_api_address_fails_with_file_and_line(tmp_path: Path) -> None:
+    write(
+        tmp_path,
+        "abk.yaml",
+        "repos:\n  app:\n    path: .\n    url: https://api.github.com/repos/acme-corp/x/issues\n",
+    )
+
+    found = leaks(tmp_path)
+
+    assert len(found) == 1
+    assert found[0].startswith("abk.yaml:4:")
+
+
+def test_a_fixture_owner_in_an_api_address_and_a_documentation_address_pass(
+    tmp_path: Path,
+) -> None:
+    write(
+        tmp_path,
+        "abk.yaml",
+        "repos:\n  app:\n    path: .\n    url: https://api.github.com/repos/example/app/issues\n"
+        "    docs: https://docs.github.com/en/rest/issues/issues\n",
+    )
+
+    assert leaks(tmp_path) == []
+
+
 def test_a_home_path_in_the_store_fails_with_file_and_line(tmp_path: Path) -> None:
     write(tmp_path, "runs/units.json", '{"units": [\n"/home/someone/work"\n]}\n')
 

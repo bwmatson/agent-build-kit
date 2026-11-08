@@ -1,0 +1,13 @@
+{
+  "fixture": {
+    "source": "reference",
+    "page": "https://docs.github.com/en/rest/users/users?apiVersion=2022-11-28#get-a-user",
+    "date": "2026-11-07"
+  },
+  "body": {
+    "login": "example",
+    "id": 5,
+    "type": "Organization",
+    "html_url": "https://github.com/example"
+  }
+}

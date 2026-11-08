@@ -7,8 +7,9 @@ node ids both fit.
 
 from __future__ import annotations
 
+import re
 from collections.abc import Mapping, Sequence
-from typing import Literal, Protocol
+from typing import Literal, Protocol, cast, get_args
 
 from agent_build_kit.forges.transport import AuthError, HostError, HostUnavailable
 from agent_build_kit.model import Frozen
@@ -86,6 +87,32 @@ def board_snapshot(item: Item) -> dict[str, str]:
         "body": item.body,
         "state": item.kit_state or item.state,
         "tags": "; ".join(sorted(tag for tag in item.tags if tag in STATUS_TAGS)),
+    }
+
+
+def marker_comment(prefix: str, marker: str) -> str:
+    """The hidden comment that marks an item as the kit's, in its body."""
+    return f"<!-- {prefix}:{marker} -->"
+
+
+def _marker_pattern(prefix: str) -> re.Pattern[str]:
+    return re.compile(rf"<!-- {re.escape(prefix)}:(.*?) -->")
+
+
+def markers_in(prefix: str, text: str) -> tuple[str, ...]:
+    """The markers `marker_comment` wrote into `text`."""
+    return tuple(_marker_pattern(prefix).findall(text))
+
+
+def without_markers(prefix: str, text: str) -> str:
+    """`text` with the marker comments taken out."""
+    return _marker_pattern(prefix).sub("", text)
+
+
+def kind_types(types: Mapping[str, str]) -> dict[ItemKind, str]:
+    """The board type of each kit level in `types`, leaving out the epic and any other key."""
+    return {
+        cast(ItemKind, level): name for level, name in types.items() if level in get_args(ItemKind)
     }
 
 
