@@ -37,9 +37,6 @@
   toolchain profile provides it (today the Python one); a repository on another profile is
   not checked.
 
-- The kit can keep recordings of the affected-test selection data made on the base: one is
-  made when the base has moved and the last is older than `checks.affected.base_data_max_age_hours`
-
 - The affected-test selection data is to be recorded once on the base and given to each unit.
   The kit now has the store for it: a recording is kept with its commit, a moved base is
   recorded again once the last is older than `checks.affected.base_data_max_age_hours`

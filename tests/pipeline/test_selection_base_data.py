@@ -166,7 +166,37 @@ def test_a_recording_that_fails_leaves_no_data_file_in_the_store(base: Base) -> 
     assert kept_recordings(base.store) == []
 
 
-def test_a_store_that_does_not_exist_holds_no_recording(base: Base) -> None:
-    base.refresh()  # the module exists and runs
+def test_a_failed_recording_of_a_commit_already_kept_leaves_that_recording_listed(
+    base: Base,
+) -> None:
+    first = base.tip()
+    base.refresh()
+    base.later(13)
+    base.move()
+    base.refresh()
+    base.later(13)
+    git(base.repo, "reset", "--hard", first)
 
-    assert kept_recordings(base.store.parent / "elsewhere") == []
+    def fails(commit: str, data: Path) -> None:
+        data.write_text("partial")
+        raise RuntimeError("the recording run failed")
+
+    base.recorder = fails  # type: ignore[assignment]
+    with pytest.raises(RuntimeError):
+        base.refresh()
+
+    listed = {r.commit: r for r in kept_recordings(base.store)}
+    assert listed[first].path.read_text() == f"data@{first}"
+    assert len(listed) == 2
+    assert not list(base.store.glob("*.tmp"))
+
+
+def test_no_recordings_may_be_kept_below_one(base: Base) -> None:
+    with pytest.raises(ValueError):
+        base.refresh(kept=0)
+
+    assert kept_recordings(base.store) == []
+
+
+def test_a_store_that_does_not_exist_holds_no_recording(tmp_path: Path) -> None:
+    assert kept_recordings(tmp_path / "missing") == []

@@ -49,6 +49,8 @@ def refresh_base_data(
     """Record the base's tip when it has moved and the last recording is older than
     `max_age_hours`, by calling `record(commit, data_file)`; keep `kept` recordings. The new
     recording, or None when none was made."""
+    if kept < 1:
+        raise ValueError(f"kept must be above zero, not {kept}")
     tip = git_out(repo, "rev-parse", base)
     last = kept_recordings(store)
     if last and (
@@ -57,10 +59,13 @@ def refresh_base_data(
         return None
     store.mkdir(parents=True, exist_ok=True)
     data = store / f"{tip}.data"
+    # Recorded under a temporary name, so a failed run never touches a recording already kept.
+    partial = store / f"{tip}.data.tmp"
     try:
-        record(tip, data)
+        record(tip, partial)
+        partial.replace(data)
     except BaseException:
-        data.unlink(missing_ok=True)
+        partial.unlink(missing_ok=True)
         raise
     when = now()
     (store / f"{tip}.json").write_text(json.dumps({"recorded_at": when.isoformat()}))
