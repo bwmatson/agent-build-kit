@@ -13,6 +13,7 @@ import json
 import re
 import threading
 from copy import deepcopy
+from datetime import UTC, datetime, timedelta
 from typing import Any
 from urllib.parse import unquote
 
@@ -33,9 +34,26 @@ _CONDITION = re.compile(
     r"\[([\w.]+)\]\s+(Not Contains Words|Contains Words|Contains|=)\s+'((?:[^']|'')*)'",
     re.IGNORECASE,
 )
+_CHANGE_CONDITION = re.compile(
+    r"\[(System\.ChangedDate|System\.AreaPath)\]\s+(>=|>|UNDER|=)\s+'((?:[^']|'')*)'",
+    re.IGNORECASE,
+)
+_NOT_IN = re.compile(r"\[System\.Id\]\s+NOT IN\s+\(([\d,\s]*)\)", re.IGNORECASE)
 _FIELDS = {"title": "System.Title", "state": "System.State"}
 # The fields whose text is HTML, which the query language matches only by word.
 LONG_TEXT_FIELDS = ("System.Description",)
+
+
+CLOCK_START = datetime(2026, 10, 21, tzinfo=UTC)
+TIME_WITH_DATE_PRECISION = (
+    "You cannot supply a time with the date when running a query using date precision"
+)
+
+
+def instant(text: str) -> datetime:
+    """A date as the service writes it: the fraction's trailing zeros are dropped, so the text
+    of two dates does not order as the dates do."""
+    return datetime.fromisoformat(text)
 
 
 def _person(who: Any) -> Any:
@@ -55,9 +73,19 @@ class CreateRequest(Frozen):
 
 
 class WorkItemHost(httpx.MockTransport):
-    def __init__(self, *, lose_create_answer: bool = False, conflict_status: int = 412) -> None:
+    def __init__(
+        self,
+        *,
+        lose_create_answer: bool = False,
+        conflict_status: int = 412,
+        page_size: int | None = None,
+    ) -> None:
         """With `lose_create_answer`, the first create is made and answered with a 500.
-        `conflict_status` answers a failed revision test: 409 or 412, by the service's version."""
+        `conflict_status` answers a failed revision test: 409 or 412, by the service's version.
+        With `page_size`, a query on the change date answers that many items at most."""
+        self._page_size = page_size
+        self._ticks = 0
+        self._read_races: dict[int, str] = {}
         self._conflict_status = conflict_status
         self._races: dict[int, dict[str, Any]] = {}
         self.creates: list[CreateRequest] = []
@@ -79,20 +107,56 @@ class WorkItemHost(httpx.MockTransport):
         state: str | None = None,
         assigned_to: str | None = None,
         tags: str = "",
+        area_path: str | None = None,
+        changed: str | None = None,
     ) -> str:
-        """An item that already exists on the board, as a person made it; its id."""
+        """An item that already exists on the board, as a person made it; its id. `changed` is
+        its change date as the service writes it."""
         relations = [{"op": "add", "value": {"rel": REVERSE, "url": self._url(parent)}}]
         fields: dict[str, Any] = {"System.Title": title, "System.Tags": tags}
         if state:
             fields["System.State"] = state
         if assigned_to:
             fields["System.AssignedTo"] = assigned_to
+        if area_path:
+            fields["System.AreaPath"] = area_path
+        if changed:
+            fields["System.ChangedDate"] = changed
         return str(self._store(type, fields, relations if parent else [])["id"])
+
+    def changed_at(self, item_id: str, when: str) -> None:
+        """The service stamps an item changed at `when`, as it writes a date."""
+        self.items[int(item_id)]["fields"]["System.ChangedDate"] = when
 
     def edit(self, item_id: str, **fields: str | dict[str, str]) -> None:
         """Another identity changes an item (`title`, `state` or `assigned_to`, the last a unique
         name or a whole identity as the service sends it); the revision moves on."""
         self._write(int(item_id), fields)
+
+    def restamp_on_read(self, item_id: str) -> None:
+        """Another identity edits an item between a query that listed it and the read of it: the
+        next batch read of the item finds it changed after the query."""
+        self._read_races[int(item_id)] = "edit"
+
+    def vanish_on_read(self, item_id: str) -> None:
+        """Another identity deletes an item between a query that listed it and the read of it."""
+        self._read_races[int(item_id)] = "delete"
+
+    def _on_read(self, number: int) -> None:
+        match self._read_races.pop(number, None):
+            case "edit":
+                self._write(number, {})
+            case "delete":
+                del self.items[number]
+
+    def _now(self) -> str:
+        """The service's clock, which moves one second on each write."""
+        moment = CLOCK_START + timedelta(seconds=self._ticks)
+        return moment.strftime("%Y-%m-%dT%H:%M:%S.000Z")
+
+    def _stamp(self) -> str:
+        self._ticks += 1
+        return self._now()
 
     def race(self, item_id: str, **fields: str) -> None:
         """Another identity changes an item just before the next write to it arrives."""
@@ -106,6 +170,7 @@ class WorkItemHost(httpx.MockTransport):
             else:
                 doc["fields"][_FIELDS.get(name, name)] = value
         doc["rev"] += 1
+        doc["fields"]["System.ChangedDate"] = self._stamp()
 
     def calls(self, method: str | None = None, route: str | None = None) -> list[Seen]:
         return [
@@ -129,6 +194,7 @@ class WorkItemHost(httpx.MockTransport):
         doc["fields"].update(
             {"System.WorkItemType": type, "System.State": "To Do", "System.Description": ""}
         )
+        doc["fields"]["System.ChangedDate"] = self._stamp()
         doc["fields"].update(fields)
         if "System.AssignedTo" in fields:
             doc["fields"]["System.AssignedTo"] = _person(fields["System.AssignedTo"])
@@ -171,7 +237,17 @@ class WorkItemHost(httpx.MockTransport):
             return self._patch(int(one[1]), body, params)
         if rest.lower() == "wit/workitems" and method == "GET":
             ids = [int(i) for i in params["ids"].split(",")]
-            shown = [self._shown(self.items[i], params) for i in ids]
+            for number in ids:
+                self._on_read(number)
+            if params.get("errorPolicy", "").lower() != "omit" and not all(
+                number in self.items for number in ids
+            ):
+                return refusal(
+                    404,
+                    "TF401232: Work item does not exist, or you do not have permission to read it.",
+                    "WorkItemDoesNotExistException",
+                )
+            shown = [self._shown(self.items[i], params) if i in self.items else None for i in ids]
             return answer({"count": len(ids), "value": shown})
         if rest.lower() == "connectiondata" and method == "GET":
             if "-preview" not in params.get("api-version", ""):
@@ -195,6 +271,8 @@ class WorkItemHost(httpx.MockTransport):
                 )
             return answer(REPOSITORY)
         if rest.lower() == "wit/wiql" and method == "POST":
+            if "[System.ChangedDate]" in body["query"]:
+                return self._changed_query(body["query"], params)
             return self._query(body["query"])
         raise AssertionError(f"the stand-in host was not expecting {method} {rest}")
 
@@ -253,6 +331,7 @@ class WorkItemHost(httpx.MockTransport):
                 else:
                     doc["fields"][name] = _person(value) if name == "System.AssignedTo" else value
         doc["rev"] += 1
+        doc["fields"]["System.ChangedDate"] = self._stamp()
         return answer(self._shown(doc, params))
 
     @staticmethod
@@ -282,3 +361,56 @@ class WorkItemHost(httpx.MockTransport):
         reply = deepcopy(load("wiql_result").body)
         reply["workItems"] = found
         return answer(reply)
+
+    def _changed_query(self, query: str, params: httpx.QueryParams) -> httpx.Response:
+        """A query on the change date and the area path, answered in order of change date and
+        then id; the service's `>` is strict and `>=` is not.
+
+        A date with a time is refused unless `timePrecision` is true. The answer is cut at `$top`
+        and at the page size, and with the page size set and no `$top` a result that is longer
+        is refused, as the service refuses one past its cap. It says when it answered."""
+        conditions = [
+            (field.lower(), operator.upper(), wanted.replace("''", "'"))
+            for field, operator, wanted in _CHANGE_CONDITION.findall(query)
+        ]
+        if params.get("timePrecision", "").lower() != "true" and any(
+            "T" in wanted for field, _, wanted in conditions if field == "system.changeddate"
+        ):
+            return refusal(400, f"VS402351: {TIME_WITH_DATE_PRECISION}.", "WorkItemQueryException")
+        left_out = {
+            int(number)
+            for group in _NOT_IN.findall(query)
+            for number in group.split(",")
+            if number.strip()
+        }
+        found = sorted(
+            (instant(doc["fields"]["System.ChangedDate"]), number)
+            for number, doc in self.items.items()
+            if number not in left_out
+            and all(self._holds(doc["fields"], *condition) for condition in conditions)
+        )
+        limits = [int(params["$top"])] if "$top" in params else []
+        if self._page_size is not None:
+            if not limits and len(found) > self._page_size:
+                return refusal(
+                    400,
+                    f"VS402337: The number of work items returned exceeds the size limit of "
+                    f"{self._page_size}. Please add additional filters.",
+                    "WorkItemQueryResultSizeLimitExceededException",
+                )
+            limits.append(self._page_size)
+        reply = deepcopy(load("wiql_result").body)
+        reply["asOf"] = self._now()
+        reply["workItems"] = [
+            {"id": number, "url": self._url(str(number))}
+            for _, number in found[: min(limits, default=len(found))]
+        ]
+        return answer(reply)
+
+    @staticmethod
+    def _holds(fields: dict[str, Any], field: str, operator: str, wanted: str) -> bool:
+        if field == "system.areapath":
+            area = fields["System.AreaPath"]
+            return area == wanted or area.startswith(wanted + "\\")
+        changed, asked = instant(fields["System.ChangedDate"]), instant(wanted)
+        return {">": changed > asked, "=": changed == asked}.get(operator, changed >= asked)

@@ -11,9 +11,11 @@ Hierarchy is the reverse link on the child, and the forward link on the parent l
 from __future__ import annotations
 
 import html
+import json
 import re
 from collections.abc import Mapping, Sequence
-from typing import cast, get_args
+from datetime import datetime
+from typing import Any, cast, get_args
 from urllib.parse import quote, unquote
 
 import httpx
@@ -27,6 +29,7 @@ from agent_build_kit.forges.transport import (
 )
 from agent_build_kit.trackers.azure_work_item_models import (
     ConnectionDataDoc,
+    FieldsDoc,
     RepositoryDoc,
     WiqlDoc,
     WorkItemDoc,
@@ -34,6 +37,8 @@ from agent_build_kit.trackers.azure_work_item_models import (
 )
 from agent_build_kit.trackers.base import (
     PULL_REQUEST_RELATION,
+    Change,
+    Cursor,
     Identity,
     Item,
     ItemKind,
@@ -59,6 +64,14 @@ PATCH = "application/json-patch+json"
 STALE_STATUSES = (409, 412)
 # The version `connectionData` is served at.
 PREVIEW_VERSION = "7.1-preview.1"
+# The most work items a batch read takes by id, and the page a change query is asked for.
+PAGE_SIZE = 200
+
+
+def _instant(text: str) -> datetime:
+    """A date as the service writes it, which drops the trailing zeros of the fraction, so the
+    text of two dates does not order as the dates do."""
+    return datetime.fromisoformat(text)
 
 
 class AzureDevOpsWorkItems:
@@ -195,9 +208,8 @@ class AzureDevOpsWorkItems:
         ids = [r.url.rsplit("/", 1)[-1] for r in parent.relations if r.rel == CHILD_LINK]
         if not ids:
             return ()
-        listed = self._call("GET", "wit/workitems", {"ids": ",".join(ids), "$expand": "relations"})
-        found = validated(WorkItemsDoc, listed.data, "workitems", listed.text)
-        return tuple(self._to_item(doc) for doc in found.value if doc.fields.type in self._kinds)
+        docs = self._read_many(ids, expand="relations")
+        return tuple(self._to_item(doc) for doc in docs if doc.fields.type in self._kinds)
 
     def read_manual_parent(self, item_id: str) -> ManualParent | None:
         """The work item with this id, of any type (an epic is not one of the levels); none when
@@ -258,6 +270,85 @@ class AzureDevOpsWorkItems:
         self._call("PATCH", f"wit/workitems/{item_id}", json=patch, content_type=PATCH)
         return True
 
+    def changed_since(self, cursor: Cursor | None) -> tuple[Sequence[Change], Cursor]:
+        """The items in the area path changed since `cursor`, in order of change date and id.
+
+        The service's dates have limited precision, so the cursor is the latest change date seen
+        and the ids already handled at that instant. The next listing takes what is left at the
+        instant (an item handled there and changed since is later, so it is found again), then
+        what is later. Each query is one page, so it repeats until both are empty."""
+        state: dict[str, Any] = json.loads(cursor.value) if cursor else {"at": "", "ids": []}
+        at: str = state["at"]
+        handled: list[int] = list(state["ids"])
+        changes: list[Change] = []
+        while True:
+            listed = self._changed_page(at, handled) if at else None
+            if listed is None or not listed.work_items:
+                listed = self._changed_page(at, None)
+            if not listed.work_items:
+                return tuple(changes), Cursor(value=json.dumps({"at": at, "ids": handled}))
+            ids = [str(ref.id) for ref in listed.work_items]
+            by_id = {doc.id: doc for doc in self._read_many(ids)}
+            # An item edited after the query was answered has a later date than the query's;
+            # leaving it out keeps the cursor from passing items the page did not list, and the
+            # next query lists it again at its new date.
+            asked = _instant(listed.as_of) if listed.as_of else None
+            for ref in listed.work_items:
+                doc = by_id.get(ref.id)
+                if doc is None or (asked and _instant(doc.fields.changed_date) > asked):
+                    continue
+                when = doc.fields.changed_date
+                if when != at:
+                    at, handled = when, []
+                handled.append(doc.id)
+                changes.append(self._change_of(doc, when))
+
+    def _changed_page(self, at: str, handled: Sequence[int] | None) -> WiqlDoc:
+        """One page of the ids changed at `at` other than `handled`, or, with none given, changed
+        after it, in the order of change date and then id."""
+        area = self._section.area_path.replace("'", "''")
+        query = (
+            "SELECT [System.Id] FROM WorkItems WHERE [System.TeamProject] = @project "
+            f"AND [System.AreaPath] UNDER '{area}'"
+        )
+        if handled is not None:
+            query += f" AND [System.ChangedDate] = '{at}'"
+            if handled:
+                query += f" AND [System.Id] NOT IN ({','.join(str(i) for i in handled)})"
+        elif at:
+            query += f" AND [System.ChangedDate] > '{at}'"
+        query += " ORDER BY [System.ChangedDate] ASC, [System.Id] ASC"
+        # A date with a time needs `timePrecision`; without `$top` the service answers the
+        # whole area path, or refuses it past its result cap.
+        return self._query(query, {"timePrecision": "true", "$top": str(PAGE_SIZE)})
+
+    def _read_many(self, ids: Sequence[str], expand: str | None = None) -> list[WorkItemDoc]:
+        """The work items with these ids, read at the service's limit of ids to a request; one
+        deleted since it was listed is left out."""
+        docs: list[WorkItemDoc] = []
+        for start in range(0, len(ids), PAGE_SIZE):
+            params = {"ids": ",".join(ids[start : start + PAGE_SIZE]), "errorPolicy": "Omit"}
+            if expand:
+                params["$expand"] = expand
+            listed = self._call("GET", "wit/workitems", params)
+            found = validated(WorkItemsDoc, listed.data, "workitems", listed.text)
+            docs.extend(doc for doc in found.value if doc is not None)
+        return docs
+
+    def _change_of(self, doc: WorkItemDoc, when: str) -> Change:
+        fields = doc.fields
+        ours = bool(self._markers_of(fields)) or any(
+            map(self._is_marker_tag, split_tags(fields.tags))
+        )
+        return Change(
+            item_id=str(doc.id),
+            revision=str(doc.rev),
+            fields=(),
+            who=fields.changed_by.unique_name if fields.changed_by else "",
+            when=when,
+            foreign=not ours,
+        )
+
     def find_by_marker(self, marker: str) -> Item | None:
         # `Contains` is a substring match: `change` is also in `change:group`.
         for item_id in self._ids_where("System.Tags", "Contains", self._tag(marker)):
@@ -274,9 +365,11 @@ class AzureDevOpsWorkItems:
             "SELECT [System.Id] FROM WorkItems WHERE [System.TeamProject] = @project "
             f"AND [{field}] {operator} '{escaped}'"
         )
-        response = self._call("POST", "wit/wiql", json={"query": query})
-        found = validated(WiqlDoc, response.data, "wiql", response.text)
-        return [str(candidate.id) for candidate in found.work_items]
+        return [str(candidate.id) for candidate in self._query(query).work_items]
+
+    def _query(self, query: str, params: dict[str, str] | None = None) -> WiqlDoc:
+        response = self._call("POST", "wit/wiql", params, json={"query": query})
+        return validated(WiqlDoc, response.data, "wiql", response.text)
 
     def _read(self, item_id: str) -> WorkItemDoc:
         response = self._call("GET", f"wit/workitems/{item_id}", {"$expand": "relations"})
@@ -364,6 +457,18 @@ class AzureDevOpsWorkItems:
     def _tag(self, marker: str) -> str:
         return f"{self._section.marker_prefix}:{marker}"
 
+    def _marker_comment(self) -> re.Pattern[str]:
+        """The pattern `_comment` writes, with the marker captured."""
+        return re.compile(rf"<!-- {re.escape(self._section.marker_prefix)}:(.*?) -->")
+
+    def _markers_of(self, fields: FieldsDoc) -> tuple[str, ...]:
+        """The markers in an item's description."""
+        return tuple(self._marker_comment().findall(fields.description))
+
+    def _is_marker_tag(self, tag: str) -> bool:
+        """Whether `tag` is one `_tag` wrote, and not a person's."""
+        return tag.startswith(f"{self._section.marker_prefix}:")
+
     def _item(self, response: Response) -> Item:
         return self._to_item(validated(WorkItemDoc, response.data, "workitems", response.text))
 
@@ -374,8 +479,6 @@ class AzureDevOpsWorkItems:
                 f"work item {doc.id} is a {doc.fields.type!r}, which no level of the "
                 f"configuration uses (levels: {', '.join(self._section.levels)})"
             )
-        prefix = re.escape(self._section.marker_prefix)
-        marker = re.compile(rf"<!-- {prefix}:(.*?) -->")
         description = doc.fields.description
         parent = next(
             (r.url.rsplit("/", 1)[-1] for r in doc.relations if r.rel == PARENT_LINK), None
@@ -384,7 +487,9 @@ class AzureDevOpsWorkItems:
             id=str(doc.id),
             kind=kind,
             title=doc.fields.title,
-            body=html.unescape(marker.sub("", description).rstrip("\n").replace("<br>", "\n")),
+            body=html.unescape(
+                self._marker_comment().sub("", description).rstrip("\n").replace("<br>", "\n")
+            ),
             state=doc.fields.state,
             assignees=(doc.fields.assigned_to.unique_name,) if doc.fields.assigned_to else (),
             assignee_names=(
@@ -395,11 +500,7 @@ class AzureDevOpsWorkItems:
             parent_id=parent,
             revision=str(doc.rev),
             url=doc.links.html.href if doc.links and doc.links.html else doc.url,
-            markers=tuple(marker.findall(description)),
-            tags=tuple(
-                tag
-                for tag in split_tags(doc.fields.tags)
-                if not tag.startswith(f"{self._section.marker_prefix}:")
-            ),
+            markers=self._markers_of(doc.fields),
+            tags=tuple(tag for tag in split_tags(doc.fields.tags) if not self._is_marker_tag(tag)),
             kit_state=self._section.kit_state(doc.fields.type, doc.fields.state),
         )

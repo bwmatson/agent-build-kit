@@ -25,6 +25,8 @@ class FieldsDoc(_Doc):
     description: str = Field(default="", alias="System.Description")
     tags: str = Field(default="", alias="System.Tags")
     assigned_to: IdentityDoc | None = Field(default=None, alias="System.AssignedTo")
+    changed_date: str = Field(default="", alias="System.ChangedDate")
+    changed_by: IdentityDoc | None = Field(default=None, alias="System.ChangedBy")
 
 
 class RelationDoc(_Doc):
@@ -50,7 +52,8 @@ class WorkItemDoc(_Doc):
 
 
 class WorkItemsDoc(_Doc):
-    value: tuple[WorkItemDoc, ...] = ()
+    # `errorPolicy=Omit` answers null for an id that no longer exists.
+    value: tuple[WorkItemDoc | None, ...] = ()
 
 
 class WiqlRefDoc(_Doc):
@@ -58,6 +61,8 @@ class WiqlRefDoc(_Doc):
 
 
 class WiqlDoc(_Doc):
+    # When the service answered the query: an item with a later change date was edited since.
+    as_of: str = Field(default="", alias="asOf")
     work_items: tuple[WiqlRefDoc, ...] = Field(default=(), alias="workItems")
 
 

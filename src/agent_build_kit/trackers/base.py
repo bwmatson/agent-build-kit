@@ -103,6 +103,8 @@ class Change(Frozen):
     fields: tuple[str, ...]
     who: str
     when: str
+    # The item was not made by the kit: it carries none of its markers.
+    foreign: bool = False
 
 
 PULL_REQUEST_RELATION = "pull_request"
