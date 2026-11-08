@@ -184,7 +184,11 @@ def unreachable_url() -> str:
 
 @contextmanager
 def answering_garbage() -> Iterator[str]:
-    """The URL of a port that answers every request with a malformed status line."""
+    """The URL of a port that answers every request with a malformed status line.
+
+    The listener is closed only after its thread has ended, so no later socket that reuses
+    its descriptor is answered by it.
+    """
     server = socket.socket()
     server.bind(("127.0.0.1", 0))
     server.listen()
@@ -210,4 +214,11 @@ def answering_garbage() -> Iterator[str]:
         yield f"http://127.0.0.1:{server.getsockname()[1]}"
     finally:
         stop.set()
+        try:
+            with socket.create_connection(server.getsockname(), timeout=2):
+                pass
+        except OSError:
+            pass
+        thread.join(timeout=5)
+        assert not thread.is_alive(), "answering_garbage: its accept thread did not end"
         server.close()
