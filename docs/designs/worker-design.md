@@ -1,5 +1,9 @@
 # A short dispatcher and detached unit workers
 
+> The direction from here is [orchestration.md](orchestration.md): the same dispatcher-and-workers shape as one model with a local and a cloud deployment, each
+> part an interface with an implementation per deployment. The mechanisms below (local locks, the wake file, transient systemd units) are what its local
+> implementations start from.
+
 Today one `abk tick` process owns every build: it starts them as threads, cannot exit while any of them runs, and holds the kit code, the
 configuration and the pool size it loaded when it started. A tick that is building a unit therefore lasts as long as the longest unit in it, which has been
 hours, and everything that needs a fresh process waits for it. This document describes the end state that removes that coupling: a short **dispatcher** that decides what
