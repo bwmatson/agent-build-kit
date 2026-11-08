@@ -995,7 +995,7 @@ the old account starts fresh) and set the usage windows for the new plan under
   A test without the `local_stack` marker has a CPU budget of `--test-time-limit` seconds
   (default 60), the CPU time of the test's process and its children, and a wall-clock backstop
   of five times it that ends a test using no CPU; a test starved of CPU but under its budget
-  passes. A `local_stack` test has `--e2e-test-time-limit` seconds of wall time
+  passes, until the backstop. A `local_stack` test has `--e2e-test-time-limit` seconds of wall time
   (default 1800, thirty minutes). Zero turns a limit off, and each option leaves
   the other alone. A failure names the clock that fired: "test exceeded the CPU time budget
   of 60 s", "test exceeded the wall-clock backstop of 300 s", or "test exceeded the e2e-test

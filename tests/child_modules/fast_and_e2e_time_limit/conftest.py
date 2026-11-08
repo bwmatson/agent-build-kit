@@ -3,21 +3,14 @@ from collections.abc import Callable
 
 import pytest
 
-import tests.time_limit
+from tests.cpu_spin import busy_cpu, make_backstop_unreachable
 
-# The wall backstop is out of reach, so a CPU-bound test meets its CPU budget at any load.
-tests.time_limit.BACKSTOP_FACTOR = 10_000
+make_backstop_unreachable()
 
 
 def busy_wait(seconds: float) -> None:
     deadline = time.monotonic() + seconds
     while time.monotonic() < deadline:
-        pass
-
-
-def busy_cpu(seconds: float) -> None:
-    deadline = time.process_time() + seconds
-    while time.process_time() < deadline:
         pass
 
 
