@@ -13,7 +13,7 @@ import hashlib
 import re
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Protocol, runtime_checkable
+from typing import Literal, Protocol, runtime_checkable
 
 from agent_build_kit.config import active, active_root
 from agent_build_kit.installation import Installation
@@ -63,6 +63,10 @@ class Flake(Recorded, Evidenced):
     # The output of the test's run on `base`; empty when it was not run there (a failure by the
     # time limit alone cannot be told apart on the base).
     base_output: str = ""
+    # The class the classification reached for a test that passed alone: `flake`, `load` (a time
+    # limit hit in a run under high load: no fix change) or `isolation` (a shared resource, with
+    # no high load).
+    classification: Literal["flake", "load", "isolation"] = "flake"
 
 
 def waiting_note(tests: list[str], *, failing: bool = False) -> str:

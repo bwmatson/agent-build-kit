@@ -84,6 +84,8 @@ class FailedTest(Frozen):
     test: str
     worker: str | None = None
     time_limit: bool = False
+    # Whether the test errored after the first time-limit hit of its worker: a consequence of it.
+    consequence: bool = False
 
 
 class TestRun(Frozen):
