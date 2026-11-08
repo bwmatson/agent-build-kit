@@ -5,7 +5,14 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+
+from agent_build_kit import trackers
 from agent_build_kit.cli.doctor import Check, run_doctor
+from agent_build_kit.forges.transport import clear_credentials
+from agent_build_kit.trackers.azure_devops import AzureDevOpsWorkItems
+from agent_build_kit.trackers.base import Tracker
+from agent_build_kit.trackers.config import AzureDevOpsTracker, TrackerSection
 from agent_build_kit.trackers.local import LocalTracker
 from tests.cli.test_doctor import Answers
 from tests.cli.tracker_fakes import (
@@ -19,6 +26,8 @@ from tests.cli.tracker_fakes import (
     served,
 )
 from tests.factories import which_all
+from tests.trackers.ado_project import BASIC
+from tests.trackers.ado_work_item_host import WorkItemHost
 
 
 def tracker_checks(config: Path) -> list[Check]:
@@ -83,6 +92,36 @@ def test_an_invalid_section_reports_its_error(tmp_path: Path) -> None:
     assert "project" in check.detail
     assert "app" in check.detail
     assert "repos.app.tracker" in check.fix
+
+
+def test_the_probe_of_a_tracker_that_has_one_is_a_check_for_each_of_its_lines(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("ABK_ADO_PAT", "pat-secret")  # the run reloads settings from the environment
+    clear_credentials()
+    host = WorkItemHost(project=BASIC)
+    wrong_type = SECTION.replace("      token_env: TRACKER_PAT\n", "").replace(
+        "      story_type: User Story\n",
+        "      types:\n        change: Issue\n        group: User Story\n",
+    )
+
+    def factory(section: TrackerSection) -> Tracker:
+        assert isinstance(section, AzureDevOpsTracker)
+        return AzureDevOpsWorkItems(section, http=host)
+
+    trackers.register(KIND, factory)
+    try:
+        checks = tracker_checks(planned(tmp_path, wrong_type))
+    finally:
+        trackers.unregister(KIND)
+        clear_credentials()
+
+    failing = [check for check in checks if check.status == "FAIL"]
+    [types] = [check for check in failing if "group" in check.detail]
+    assert "User Story" in types.detail
+    assert "repos.app.tracker" in types.fix
+    assert any(check.status == "ok" and "work item access" in check.detail for check in checks)
+    assert "pat-secret" not in " ".join(check.detail for check in checks)
 
 
 def test_a_repo_with_no_section_adds_no_line(tmp_path: Path) -> None:

@@ -10,7 +10,14 @@ import pytest
 from tests.trackers.ado_recorded import FixtureHeaderMissing, load
 
 # The bodies the work item tests rely on, each written from the REST reference.
-BODIES = ("work_item", "work_item_created", "wiql_result", "connection_data")
+BODIES = (
+    "work_item",
+    "work_item_created",
+    "wiql_result",
+    "connection_data",
+    "work_item_types",
+    "backlogs",
+)
 HEADER = {
     "source": "reference",
     "page": "https://learn.microsoft.com/rest/api",

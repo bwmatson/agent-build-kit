@@ -8,6 +8,7 @@ from typing import Literal
 from agent_build_kit import trackers
 from agent_build_kit.model import Frozen
 from agent_build_kit.pipeline.tracker_file import read_tracker
+from agent_build_kit.trackers.base import ProbeLine
 from agent_build_kit.trackers.config import TrackerConfigError, section_for
 
 
@@ -46,6 +47,21 @@ def standing(repo: str, *, ask: bool) -> Standing | None:
     except Exception as error:  # the host answers in its own errors; all mean no identity
         return Standing(state="refused", text=f"{section.target}: {error}", **known)
     return Standing(state="ok", text=f"{section.target} as {who}", **known)
+
+
+def probe_lines(repo: str) -> list[ProbeLine]:
+    """What the repo's tracker says about its project, one line for each check; none for a
+    tracker with no probe (it is not part of the `Tracker` protocol) or no tracker at all."""
+    try:
+        tracker = trackers.for_repo(repo)
+    except TrackerConfigError:
+        return []
+    if tracker is None or not hasattr(tracker, "probe"):
+        return []
+    try:
+        return list(tracker.probe())
+    except Exception as error:  # the host answers in its own errors
+        return [ProbeLine(ok=False, text=f"probe: the host could not be read ({error})")]
 
 
 def conflict_lines(changes_dir: Path) -> list[str]:

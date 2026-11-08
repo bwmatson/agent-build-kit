@@ -96,3 +96,21 @@ def test_an_id_of_a_type_no_level_uses_is_a_conflict_and_no_group_item_is_made(
     assert not [made for made in host.creates if made.fields.get("System.Tags") == tag]
     mapping = read_tracker(world.change_dir)
     assert mapping is not None and f"{CHANGE}:1" not in mapping.groups
+
+
+def test_a_hold_naming_the_manual_epic_as_the_change_is_a_conflict_and_the_epic_is_not_written(
+    tmp_path: Path,
+) -> None:
+    host = WorkItemHost()
+    section = board_section(["change", "group"], epic=True)
+    assert isinstance(section, AzureDevOpsTracker)
+    world = World(tmp_path, section, AzureDevOpsWorkItems(section, http=host))
+    epic = host.seed(TYPES["epic"], "Manual epic")
+    hold_with(world, change=epic)
+
+    report = world.run([covering(f"{CHANGE}/1", (1,))])
+
+    assert any(epic in conflict and "epic" in conflict for conflict in report.conflicts)
+    assert not [seen for seen in host.calls("PATCH") if seen.route.endswith(f"workitems/{epic}")]
+    mapping = read_tracker(world.change_dir)
+    assert mapping is None or mapping.change is None

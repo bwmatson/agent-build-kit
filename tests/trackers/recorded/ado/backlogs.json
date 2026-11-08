@@ -1,0 +1,48 @@
+{
+  "fixture": {
+    "source": "reference",
+    "page": "https://learn.microsoft.com/en-us/rest/api/azure/devops/work/backlogs/list?view=azure-devops-rest-7.1",
+    "date": "2026-11-05"
+  },
+  "body": {
+    "count": 1,
+    "value": [
+      {
+        "id": "Microsoft.RequirementCategory",
+        "name": "Stories",
+        "rank": 1,
+        "workItemCountLimit": 1000,
+        "type": "requirement",
+        "isHidden": false,
+        "color": "009CCC",
+        "addPanelFields": [
+          {
+            "referenceName": "System.Title",
+            "name": "Title",
+            "url": "https://dev.azure.com/example/_apis/wit/fields/System.Title"
+          }
+        ],
+        "columnFields": [
+          {
+            "columnFieldReference": {
+              "referenceName": "System.Title",
+              "name": "Title",
+              "url": "https://dev.azure.com/example/_apis/wit/fields/System.Title"
+            },
+            "width": 400
+          }
+        ],
+        "defaultWorkItemType": {
+          "name": "User Story",
+          "url": "https://dev.azure.com/example/Some%20Project/_apis/wit/workItemTypes/User%20Story"
+        },
+        "workItemTypes": [
+          {
+            "name": "User Story",
+            "url": "https://dev.azure.com/example/Some%20Project/_apis/wit/workItemTypes/User%20Story"
+          }
+        ]
+      }
+    ]
+  }
+}

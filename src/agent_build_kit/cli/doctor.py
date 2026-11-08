@@ -131,7 +131,7 @@ from agent_build_kit.sandboxes.policy import (
     policy_entries,
 )
 from agent_build_kit.settings import settings
-from agent_build_kit.trackers.report import standing
+from agent_build_kit.trackers.report import probe_lines, standing
 
 Status = Literal["ok", "info", "warn", "FAIL"]
 
@@ -1185,6 +1185,12 @@ def _trackers(inst: Installation) -> list[Check]:
         match found.state:
             case "ok":
                 checks.append(_ok(title, found.text))
+                for line in probe_lines(name):
+                    checks.append(
+                        _ok(title, line.text)
+                        if line.ok
+                        else _fail(title, line.text, f"fix repos.{name}.tracker in abk.yaml")
+                    )
             case "refused":
                 credential = (
                     f"check the token in {found.token_env}"

@@ -21,6 +21,7 @@ import httpx
 
 from agent_build_kit.model import Frozen
 from tests.forges.azure_rest_host import Seen, answer, refusal
+from tests.trackers.ado_project import ProjectShape
 from tests.trackers.ado_recorded import load
 
 REVERSE = "System.LinkTypes.Hierarchy-Reverse"
@@ -29,7 +30,12 @@ BASE = "https://dev.azure.com/example/Some%20Project"
 REPOSITORY = load("repository").body
 PROJECT_ID = REPOSITORY["project"]["id"]
 REPOSITORY_ID = REPOSITORY["id"]
-_ROUTE = re.compile(r"^/(?P<org>[^/]+)/(?P<project>[^/]+)/_apis/(?P<rest>.*)$")
+WORK_ITEM_TYPES = load("work_item_types").body
+BACKLOGS = load("backlogs").body
+_ROUTE = re.compile(r"^/(?P<org>[^/]+)/(?P<project>[^/]+)(?:/(?P<team>[^/]+))?/_apis/(?P<rest>.*)$")
+_NODE = re.compile(
+    r"wit/classificationnodes/(?P<tree>areas|iterations)/(?P<path>.+)", re.IGNORECASE
+)
 _CONDITION = re.compile(
     r"\[([\w.]+)\]\s+(Not Contains Words|Contains Words|Contains|=)\s+'((?:[^']|'')*)'",
     re.IGNORECASE,
@@ -79,10 +85,19 @@ class WorkItemHost(httpx.MockTransport):
         lose_create_answer: bool = False,
         conflict_status: int = 412,
         page_size: int | None = None,
+        project: ProjectShape | None = None,
     ) -> None:
         """With `lose_create_answer`, the first create is made and answered with a 500.
         `conflict_status` answers a failed revision test: 409 or 412, by the service's version.
-        With `page_size`, a query on the change date answers that many items at most."""
+        With `page_size`, a query on the change date answers that many items at most. With
+        `project`, it also answers for the project's types, backlog levels, team and paths. A
+        token in `rejected_tokens` is answered 401, as an expired one is."""
+        self._project = project
+        self.comments: dict[str, list[str]] = {}
+        # The fields each revision of an item changed, by (item, revision).
+        self._revised: dict[tuple[int, int], list[str]] = {}
+        self.rejected_tokens: set[str] = set()
+        self._acting = ""
         self._page_size = page_size
         self._ticks = 0
         self._read_races: dict[int, str] = {}
@@ -124,6 +139,11 @@ class WorkItemHost(httpx.MockTransport):
             fields["System.ChangedDate"] = changed
         return str(self._store(type, fields, relations if parent else [])["id"])
 
+    def as_identity(self, name: str) -> httpx.MockTransport:
+        """This host reached by another identity: `connectionData` answers as `name`, and what
+        it creates or updates is changed by `name`."""
+        return httpx.MockTransport(lambda request: self._handle(request, name))
+
     def changed_at(self, item_id: str, when: str) -> None:
         """The service stamps an item changed at `when`, as it writes a date."""
         self.items[int(item_id)]["fields"]["System.ChangedDate"] = when
@@ -164,6 +184,10 @@ class WorkItemHost(httpx.MockTransport):
 
     def _write(self, number: int, fields: dict[str, Any]) -> None:
         doc = self.items[number]
+        self._revised[(number, doc["rev"] + 1)] = [
+            "System.AssignedTo" if name == "assigned_to" else _FIELDS.get(name, name)
+            for name in fields
+        ]
         for name, value in fields.items():
             if name == "assigned_to":
                 doc["fields"]["System.AssignedTo"] = _person(value)
@@ -196,6 +220,10 @@ class WorkItemHost(httpx.MockTransport):
         )
         doc["fields"]["System.ChangedDate"] = self._stamp()
         doc["fields"].update(fields)
+        if self._acting:
+            doc["fields"]["System.CreatedBy"] = doc["fields"]["System.ChangedBy"] = _person(
+                self._acting
+            )
         if "System.AssignedTo" in fields:
             doc["fields"]["System.AssignedTo"] = _person(fields["System.AssignedTo"])
         for relation in relations:
@@ -208,7 +236,7 @@ class WorkItemHost(httpx.MockTransport):
         self.items[number] = doc
         return doc
 
-    def _handle(self, request: httpx.Request) -> httpx.Response:
+    def _handle(self, request: httpx.Request, acting: str = "") -> httpx.Response:
         match = _ROUTE.match(unquote(request.url.path))
         if not match:
             raise AssertionError(f"not an Azure DevOps REST path: {request.url.path}")
@@ -216,10 +244,97 @@ class WorkItemHost(httpx.MockTransport):
         body = json.loads(request.content) if request.content else None
         with self._lock:
             self.seen.append(Seen(request, route, body))
-            return self._route(request, match["rest"].strip("/"), body)
+            self._acting = acting
+            if request.headers.get("authorization", "").removeprefix("Bearer ") in (
+                self.rejected_tokens
+            ):
+                return refusal(401, "TF400813: The user is not authorized to access this resource.")
+            return self._route(request, match["rest"].strip("/"), body, match["team"])
 
-    def _route(self, request: httpx.Request, rest: str, body: Any) -> httpx.Response:
+    def _connection(self) -> dict[str, Any]:
+        """`connectionData` as the acting identity."""
+        body = deepcopy(load("connection_data").body)
+        if self._acting:
+            body["authenticatedUser"]["properties"]["Account"]["$value"] = self._acting
+        return body
+
+    def _project_route(self, rest: str, method: str, team: str | None) -> httpx.Response | None:
+        """The project's types, backlog levels and paths, from the shape the host was given; None
+        for a route that is not one of them. A credential without work item scope is refused
+        every route under `wit/` and `work/`."""
+        project = self._project
+        if project is None or not rest.lower().startswith(("wit/", "work/")):
+            return None
+        if not project.work_item_access:
+            return refusal(
+                401,
+                "TF400813: The user is not authorized to access this resource.",
+                "VssUnauthorizedException",
+            )
+        if method != "GET":
+            return None
+        if rest.lower() == "wit/workitemtypes":
+            template = WORK_ITEM_TYPES["value"][0]
+            state = template["states"][0]
+            found = [
+                {
+                    **template,
+                    "name": name,
+                    "states": [{**state, "name": each} for each in states],
+                }
+                for name, states in project.types.items()
+            ]
+            return answer({**WORK_ITEM_TYPES, "count": len(found), "value": found})
+        if rest.lower() == "work/backlogs":
+            if team not in project.teams:
+                return refusal(
+                    404,
+                    f"TF50000: The team {team} does not exist in the project.",
+                    "ProjectTeamNotFoundException",
+                )
+            template = BACKLOGS["value"][0]
+            depth = len(project.backlogs)
+            levels = [
+                {
+                    **template,
+                    "id": f"Custom.Backlog{position}",
+                    "name": f"Level {position}",
+                    # The task level is rank 0 and the top is the highest.
+                    "rank": depth - 1 - position,
+                    "type": (
+                        "task"
+                        if position == depth - 1
+                        else "requirement"
+                        if position == depth - 2
+                        else "portfolio"
+                    ),
+                    "workItemTypes": [{**template["workItemTypes"][0], "name": n} for n in names],
+                    "defaultWorkItemType": {**template["defaultWorkItemType"], "name": names[0]},
+                }
+                for position, names in enumerate(project.backlogs)
+            ]
+            if project.backlogs_bottom_first:
+                levels.reverse()
+            return answer({**BACKLOGS, "count": len(levels), "value": levels})
+        node = _NODE.fullmatch(rest)
+        if node:
+            known = project.areas if node["tree"].lower() == "areas" else project.iterations
+            if node["path"] not in known:
+                return refusal(
+                    404,
+                    f"TF401243: The path {node['path']} does not exist.",
+                    "ClassificationNodeNotFoundException",
+                )
+            return answer({"id": 1, "name": node["path"].rsplit("/", 1)[-1], "hasChildren": False})
+        return None
+
+    def _route(
+        self, request: httpx.Request, rest: str, body: Any, team: str | None = None
+    ) -> httpx.Response:
         method, params = request.method, request.url.params
+        shown = self._project_route(rest, method, team)
+        if shown is not None:
+            return shown
         created = re.fullmatch(r"wit/workitems/\$(.+)", rest, re.IGNORECASE)
         if created and method == "POST":
             return self._create(request, created[1], body)
@@ -233,6 +348,22 @@ class WorkItemHost(httpx.MockTransport):
                     "WorkItemDoesNotExistException",
                 )
             return answer(self._shown(self.items[int(one[1])], params))
+        update = re.fullmatch(r"wit/workitems/(\d+)/updates/(\d+)", rest, re.IGNORECASE)
+        if update and method == "GET" and int(update[1]) in self.items:
+            # An update lists the fields it changed, each with the value it set.
+            changed = self._revised.get((int(update[1]), int(update[2])), [])
+            values = self.items[int(update[1])]["fields"]
+            return answer(
+                {
+                    "id": int(update[2]),
+                    "rev": int(update[2]),
+                    "fields": {name: {"newValue": values.get(name)} for name in changed},
+                }
+            )
+        comments = re.fullmatch(r"wit/workitems/(\d+)/comments", rest, re.IGNORECASE)
+        if comments and method == "POST" and int(comments[1]) in self.items:
+            self.comments.setdefault(comments[1], []).append(body["text"])
+            return answer({"id": len(self.comments[comments[1]]), "text": body["text"]})
         if one and method == "PATCH":
             return self._patch(int(one[1]), body, params)
         if rest.lower() == "wit/workitems" and method == "GET":
@@ -257,7 +388,7 @@ class WorkItemHost(httpx.MockTransport):
                     "must be supplied in the api-version for such requests.",
                     "VssInvalidPreviewVersionException",
                 )
-            return answer(load("connection_data").body)
+            return answer(self._connection())
         repository = re.fullmatch(r"git/repositories/([^/]+)", rest, re.IGNORECASE)
         if repository and method == "GET":
             # The repository exists in its own project only, as on the service.
@@ -320,6 +451,9 @@ class WorkItemHost(httpx.MockTransport):
                     f"VS403357: Revision {doc['rev']} of work item {number} is not {op['value']}.",
                     "WorkItemRevisionMismatchException",
                 )
+        self._revised[(number, doc["rev"] + 1)] = [
+            op["path"].removeprefix("/fields/") for op in ops if op["path"].startswith("/fields/")
+        ]
         for op in ops:
             if op["op"] == "add" and op["path"] == "/relations/-":
                 doc["relations"].append(op["value"])
@@ -332,6 +466,8 @@ class WorkItemHost(httpx.MockTransport):
                     doc["fields"][name] = _person(value) if name == "System.AssignedTo" else value
         doc["rev"] += 1
         doc["fields"]["System.ChangedDate"] = self._stamp()
+        if self._acting:
+            doc["fields"]["System.ChangedBy"] = _person(self._acting)
         return answer(self._shown(doc, params))
 
     @staticmethod
