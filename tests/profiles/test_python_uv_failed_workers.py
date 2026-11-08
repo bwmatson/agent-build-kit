@@ -30,6 +30,12 @@ def test_the_recorded_summary_order_gives_no_consequences_without_progress_lines
     assert PythonUvProfile().consequence_errors(XDIST) == []
 
 
+def test_a_recorded_verbose_run_gives_the_error_after_the_hit_and_not_the_one_before() -> None:
+    recorded = (RECORDED / "console_xdist_verbose_timeout.txt").read_text()
+
+    assert PythonUvProfile().consequence_errors(recorded) == ["test_one.py::test_after"]
+
+
 def test_only_errors_after_the_first_hit_of_their_worker_are_consequences() -> None:
     output = (
         "[gw0] [ 10%] ERROR tests/a.py::test_before\n"

@@ -209,7 +209,9 @@ def test_a_second_command_failing_the_stormed_tests_is_not_rerun_nor_recorded_ag
 
     assert passed
     failing_runs = [
-        c for c in machine.commands if c[-4:-1] == ["-q", "--durations=15", "--durations-min=3.0"]
+        c
+        for c in machine.commands
+        if c[-4:-3] in (["-q"], ["-v"]) and c[-3:-1] == ["--durations=15", "--durations-min=3.0"]
     ]
     assert len(failing_runs) == 2, "the profile's two test commands both ran and failed"
     assert len(storms(installation)) == 1

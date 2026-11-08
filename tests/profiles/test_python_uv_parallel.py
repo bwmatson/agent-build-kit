@@ -12,7 +12,7 @@ from agent_build_kit.profiles.python_uv import PROFILE, UNIT_REPORT_FLAGS
 REPORT = UNIT_REPORT_FLAGS
 PLAIN = ["uv", "run", "pytest", "-q", *REPORT]
 PARALLEL = [
-    *["uv", "run", "pytest", "-n", "auto", "--maxprocesses=8", "-m", "not serial", "-q"],
+    *["uv", "run", "pytest", "-n", "auto", "--maxprocesses=8", "-m", "not serial", "-v"],
     *REPORT,
 ]
 SERIAL = ["uv", "run", "pytest", "-m", "serial", "-q", *REPORT]
@@ -38,6 +38,20 @@ def test_xdist_in_a_dependency_group_runs_a_parallel_then_a_serial_pass(tmp_path
 
     assert PROFILE.test_commands(repo, ["tests/test_x.py"], root_extras=[]) == [PARALLEL, SERIAL]
     assert PROFILE.test_commands_all(repo, root_extras=[]) == [PARALLEL, SERIAL]
+
+
+def test_the_parallel_pass_runs_at_verbosity_one_or_more_also_when_selected(
+    tmp_path: Path,
+) -> None:
+    """xdist prints each worker's progress lines only from `-v`; the consequence reader needs
+    them, so a testmon selection (which nets `-q` back to the default) must not lose them."""
+    repo = repo_with(tmp_path, '[dependency-groups]\ndev = ["pytest-xdist"]\n')
+    parallel, _ = PROFILE.test_commands_all(repo, root_extras=[])
+
+    selected = PROFILE.seeding_command(parallel, tmp_path / "seed", select=True)
+
+    for command in (parallel, selected):
+        assert command.count("-v") - command.count("-q") >= 1
 
 
 def test_xdist_among_the_project_dependencies_counts(tmp_path: Path) -> None:
@@ -80,7 +94,7 @@ def test_a_workspace_member_that_declares_xdist_runs_both_passes(tmp_path: Path)
 
     head = ["uv", "run", "--package", "svc-a", "--isolated", "pytest", "svc-a"]
     assert commands == [
-        [*head, "-n", "auto", "--maxprocesses=8", "-m", "not serial", "-q", *REPORT],
+        [*head, "-n", "auto", "--maxprocesses=8", "-m", "not serial", "-v", *REPORT],
         [*head, "-m", "serial", "-q", *REPORT],
         ["uv", "run", "--package", "svc-b", "--isolated", "pytest", "svc-b", "-q", *REPORT],
     ]

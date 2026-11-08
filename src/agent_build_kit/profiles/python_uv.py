@@ -615,7 +615,11 @@ class PythonUvProfile:
                 *xdist,
                 "-m",
                 _marker_selection(repo, "not serial"),
-                "-q",
+                # `-v`, not `-q`: xdist then prints a progress line as each worker finishes a
+                # test, the only record of the order a worker ran them in (see
+                # `consequence_errors`). A testmon selection keeps it, as it only raises a
+                # `-q` back to the default.
+                "-v",
                 *UNIT_REPORT_FLAGS,
             ],
             [*command, "-m", _marker_selection(repo, "serial"), "-q", *UNIT_REPORT_FLAGS],
