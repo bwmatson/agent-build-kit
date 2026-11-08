@@ -244,6 +244,10 @@ RED_CHECK_NOTE = (
     "The red check ran your tests before any implementation exists and rejected them:\n"
     "{reason}\nRewrite them so each new test fails with an assertion, for the right reason."
 )
+SELECTOR_CHECK_NOTE = (
+    "This group's tests are integration tests, and the selector check rejected them:\n"
+    "{reason}\nAdd the `integration` selector to each test named, and change nothing else."
+)
 NO_NEW_TESTS = "This group adds no new tests: the tests it needs already exist on the branch."
 TESTS_ALREADY_PASS = (
     "The tests for this group pass without further implementation: "
@@ -1650,6 +1654,8 @@ class BuildPath:
             prompt = self.told(prompt, self.scope_note())
             if (stored := r.store.get(unit.id)).feedback_source is FeedbackSource.RED_CHECK:
                 prompt = self.told(prompt, RED_CHECK_NOTE.format(reason=stored.feedback))
+            if stored.feedback_source is FeedbackSource.SELECTOR_CHECK:
+                prompt = self.told(prompt, SELECTOR_CHECK_NOTE.format(reason=stored.feedback))
             if note := r.follow_ups_note(unit):
                 prompt = f"{note}\n\n{prompt}"
             if state.reproduction_guidance:
@@ -1769,12 +1775,17 @@ class BuildPath:
         self.say("red check at the tests commit")
         step = self.group_step(state)
         ok, reason = True, ""
+        source, name = FeedbackSource.SELECTOR_CHECK, "selector check"
         if step is not None and step.tier == TestTier.INTEGRATION_TEST:
             ok, reason = r.run_selector_check(cwd=tree)
         if ok:
+            source, name = FeedbackSource.RED_CHECK, "red check"
             ok, reason = r.run_red_check(cwd=tree)
         if ok:
-            if r.store.get(unit.id).feedback_source is FeedbackSource.RED_CHECK:
+            if r.store.get(unit.id).feedback_source in (
+                FeedbackSource.RED_CHECK,
+                FeedbackSource.SELECTOR_CHECK,
+            ):
                 r.store.set_feedback(unit.id, "")
             return {
                 "red_check_due": False,
@@ -1782,11 +1793,11 @@ class BuildPath:
                 "red_result": str(GateResult.PASSED),
             }
         self.say(reason)
-        r.store.set_feedback(unit.id, reason, source=FeedbackSource.RED_CHECK)
+        r.store.set_feedback(unit.id, reason, source=source)
         if (budget := check_loop.out_of_rounds(state.red_rounds)) is not None:
             return {
                 "red_result": str(GateResult.FAILED),
-                **self.stop(f"the red check rejected the tests after {budget} returns"),
+                **self.stop(f"the {name} rejected the tests after {budget} returns"),
             }
         # The rejected commit comes off, its files left for the tests step to rewrite; only a
         # commit of this unit's branch, never the base's.

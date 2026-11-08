@@ -10,11 +10,10 @@ from pathlib import Path
 
 import pytest
 
+from agent_build_kit.cli.doctor import OLD_E2E_MARKER
 from tests.child_pytest import run_scenario
 
 ROOT = Path(__file__).resolve().parents[1]
-# Built in parts so this file carries no old name for the guard to find.
-OLD = "local" + "_stack"
 
 
 def pytest_options() -> dict:
@@ -37,7 +36,7 @@ def test_the_old_marker_name_is_not_registered() -> None:
     markers = pytest_options()["markers"]
 
     assert any(marker.startswith("e2e:") for marker in markers)
-    assert not any(marker.startswith(OLD) for marker in markers)
+    assert not any(marker.startswith(OLD_E2E_MARKER) for marker in markers)
 
 
 def test_the_default_run_excludes_it_and_the_integration_tier() -> None:
@@ -45,7 +44,7 @@ def test_the_default_run_excludes_it_and_the_integration_tier() -> None:
 
     assert "not e2e" in addopts
     assert "not integration" in addopts
-    assert OLD not in addopts
+    assert OLD_E2E_MARKER not in addopts
 
 
 def test_the_default_run_deselects_the_same_tests_as_before(
@@ -76,4 +75,4 @@ def test_the_docs_describe_it_beside_the_integration_marker() -> None:
         text = " ".join(path.read_text().split())
 
         assert "pytest -m e2e" in text, path
-        assert OLD not in text, path
+        assert OLD_E2E_MARKER not in text, path

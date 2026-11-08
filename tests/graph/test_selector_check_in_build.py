@@ -23,8 +23,11 @@ class SelectorAnswers:
         self.recorder = recorder
         self.answers = answers
         self.asked = 0
+        # The agent calls made before each check: which group it ran for.
+        self.after_calls: list[list[str]] = []
 
     def __call__(self, *, cwd: Path) -> tuple[bool, str]:
+        self.after_calls.append(agent_calls(self.recorder.events))
         self.recorder.events.append("selector-check")
         answer = self.answers[min(self.asked, len(self.answers) - 1)]
         self.asked += 1
@@ -33,17 +36,17 @@ class SelectorAnswers:
 
 def selector_build(
     tmp_path: Path, answers: list[tuple[bool, str]], **options: Any
-) -> tuple[Recorder, RunOutcome]:
+) -> tuple[Recorder, SelectorAnswers, RunOutcome]:
     options.setdefault("groups", {"add-marker": titled(1)})
     options.setdefault("integration", (1,))
     recorder, _ = prepared(tmp_path, **options)
     selector = SelectorAnswers(recorder, answers)
     outcome = build(tmp_path, recorder, run_selector_check=selector, **recorder.overrides(tmp_path))
-    return recorder, outcome
+    return recorder, selector, outcome
 
 
 def test_tests_that_carry_the_selector_go_on_to_the_implementation(tmp_path: Path) -> None:
-    recorder, outcome = selector_build(tmp_path, [(True, "")])
+    recorder, _, outcome = selector_build(tmp_path, [(True, "")])
 
     assert outcome.status == "open"
     assert recorder.events.count("selector-check") == 1
@@ -54,12 +57,14 @@ def test_tests_that_carry_the_selector_go_on_to_the_implementation(tmp_path: Pat
 def test_tests_without_the_selector_go_back_to_the_tests_step_with_the_reason(
     tmp_path: Path,
 ) -> None:
-    recorder, outcome = selector_build(tmp_path, [(False, MISSING_REASON), (True, "")])
+    recorder, _, outcome = selector_build(tmp_path, [(False, MISSING_REASON), (True, "")])
 
     assert outcome.status == "open"
     assert agent_calls(recorder.events) == ["claude:tests", "claude:tests", "claude:impl"]
     assert recorder.events.count("selector-check") == 2
-    assert any(MISSING_REASON in prompt for prompt in recorder.prompts)
+    (returned,) = (prompt for prompt in recorder.prompts if MISSING_REASON in prompt)
+    assert "Add the `integration` selector to each test named" in returned
+    assert "fails with an assertion" not in returned
 
 
 def test_the_returns_are_counted_against_max_check_rounds(tmp_path: Path) -> None:
@@ -76,7 +81,7 @@ def test_the_returns_are_counted_against_max_check_rounds(tmp_path: Path) -> Non
 
 
 def test_a_unit_test_group_is_not_checked_for_the_selector(tmp_path: Path) -> None:
-    recorder, outcome = selector_build(
+    recorder, selector, outcome = selector_build(
         tmp_path,
         [(True, "")],
         groups={"add-marker": titled(1, 2)},
@@ -85,3 +90,6 @@ def test_a_unit_test_group_is_not_checked_for_the_selector(tmp_path: Path) -> No
 
     assert outcome.status == "open"
     assert recorder.events.count("selector-check") == 1, "the one integration-test group"
+    assert selector.after_calls == [["claude:tests", "claude:impl", "claude:tests"]], (
+        "it ran after group 2's tests step, not group 1's"
+    )

@@ -10,13 +10,12 @@ from pathlib import Path
 
 import pytest
 
+from agent_build_kit.cli.doctor import OLD_E2E_MARKER
 from tests.factories import commit_files, init_repo
 from tests.old_marker_name import old_marker_problems
 from tests.time_limit import LOADED_TEST_TIME_LIMIT
 
 REPOSITORY = Path(__file__).resolve().parents[1]
-# Built in parts so this file carries no old name for the guard to find.
-OLD = "local" + "_stack"
 
 
 @pytest.mark.parametrize(
@@ -25,7 +24,7 @@ OLD = "local" + "_stack"
 )
 def test_a_file_holding_the_old_name_fails_naming_the_file(tmp_path: Path, path: str) -> None:
     root = init_repo(tmp_path)
-    commit_files(root, "old", {path: "x = 1\nMARKER = '" + OLD + "'\n"})
+    commit_files(root, "old", {path: "x = 1\nMARKER = '" + OLD_E2E_MARKER + "'\n"})
 
     problems = old_marker_problems(root)
 
@@ -35,7 +34,9 @@ def test_a_file_holding_the_old_name_fails_naming_the_file(tmp_path: Path, path:
 
 def test_the_changelog_may_hold_the_old_name(tmp_path: Path) -> None:
     root = init_repo(tmp_path)
-    commit_files(root, "log", {"CHANGELOG.md": "## Unreleased\n\n- Renamed `" + OLD + "`.\n"})
+    commit_files(
+        root, "log", {"CHANGELOG.md": "## Unreleased\n\n- Renamed `" + OLD_E2E_MARKER + "`.\n"}
+    )
 
     assert old_marker_problems(root) == []
 
@@ -45,7 +46,7 @@ def test_the_changelog_holding_it_passes_beside_clean_files(tmp_path: Path) -> N
     commit_files(
         root,
         "mixed",
-        {"CHANGELOG.md": "- `" + OLD + "`\n", "src/step.py": "MARKER = 'e2e'\n"},
+        {"CHANGELOG.md": "- `" + OLD_E2E_MARKER + "`\n", "src/step.py": "MARKER = 'e2e'\n"},
     )
 
     assert old_marker_problems(root) == []

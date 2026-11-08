@@ -1416,12 +1416,16 @@ def build_selector_check(
     *, profile: ToolchainProfile, projects: list[ProjectConfig] | None = None
 ) -> Callable[..., tuple[bool, str]]:
     """The runner's `run_selector_check(*, cwd)`: whether the tests the commit at the head of
-    `cwd` adds carry the `integration` selector, and the reason naming each that does not."""
+    `cwd` adds carry the `integration` selector, and the reason naming each that does not.
+    A test the commit only changes is not checked."""
 
     def check(*, cwd: Path) -> tuple[bool, str]:
         problems: list[str] = []
         touched: dict[str, list[str]] = {}
-        for path, name in touched_tests(cwd, "HEAD^", "HEAD"):
+        for path, name, _ in _changed_tests(cwd, "HEAD^", qualified=True, head="HEAD"):
+            old = git(cwd, "show", f"HEAD^:{path}", check=False, errors="replace")
+            if old.returncode == 0 and name in _test_bodies(old.stdout, qualified=True):
+                continue
             touched.setdefault(path, []).append(name)
         for path, names in touched.items():
             toolchain = profiles.for_path(projects or [], path, profile)

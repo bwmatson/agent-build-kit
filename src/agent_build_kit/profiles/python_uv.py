@@ -800,14 +800,23 @@ class PythonUvProfile:
 
         def marks(node: ast.AST) -> bool:
             return any(
-                isinstance(each, ast.Attribute) and each.attr == "integration"
+                isinstance(each, ast.Attribute)
+                and each.attr == "integration"
+                and (
+                    (isinstance(each.value, ast.Attribute) and each.value.attr == "mark")
+                    or (isinstance(each.value, ast.Name) and each.value.id == "mark")
+                )
                 for each in ast.walk(node)
             )
 
         def assigned(body: list[ast.stmt]) -> bool:
             return any(
-                isinstance(stmt, ast.Assign)
-                and any(isinstance(t, ast.Name) and t.id == "pytestmark" for t in stmt.targets)
+                isinstance(stmt, ast.Assign | ast.AnnAssign)
+                and stmt.value is not None
+                and any(
+                    isinstance(t, ast.Name) and t.id == "pytestmark"
+                    for t in (stmt.targets if isinstance(stmt, ast.Assign) else [stmt.target])
+                )
                 and marks(stmt.value)
                 for stmt in body
             )
@@ -825,6 +834,7 @@ class PythonUvProfile:
                     None,
                 )
                 if found is None:
+                    body = []
                     break
                 carried = carried or any(marks(d) for d in found.decorator_list)
                 carried = carried or assigned(found.body)
