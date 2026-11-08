@@ -17,7 +17,7 @@ Read-only against the agent-build-kit checkout (paths under `src/agent_build_kit
 - `touched_tests(tree, ref)` lists `(file, test)` for tests added or changed against `ref`. It lists test functions, not files, and not a changed
   `conftest.py` or support module.
 - `profiles/python_uv.py`: `failed_tests(output)` reads failed ids from output with a regex; `serial_rerun_command(command, tests)` keeps the
-  command up to the pytest program and replaces the rest with the ids and `-q`, so it also turns an e2e-test command (`... pytest -m local_stack -v`)
+  command up to the pytest program and replaces the rest with the ids and `-q`, so it also turns an e2e-test command (`... pytest -m e2e -v`)
   into one that runs those ids alone, the marker dropped. Explicit ids select a test whatever its markers.
 - `pipeline/flakes.py`: `flake_change_name` (name from the id, capped at `NAME_LIMIT` with a hash), `_open_change` / `_next_name` /
   `_candidates` (the open change, the archived earlier attempt, the successor's name), `wait_on_fix` (under `flakes.lock`: ensure the change,

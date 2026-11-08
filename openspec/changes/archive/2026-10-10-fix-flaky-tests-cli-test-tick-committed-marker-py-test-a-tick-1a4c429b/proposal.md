@@ -2,7 +2,7 @@
 
 `tests/cli/test_tick_committed_marker.py::test_a_tick_delivers_a_commit_made_and_not_delivered_once_and_removes_the_lease` failed under load and passed alone, twice, when run again by itself. A test like that fails units that did not touch it.
 
-It ran as `uv run pytest -n auto --maxprocesses=8 -m '(not integration and not local_stack) and not serial' -q` and failed with:
+It ran as `uv run pytest -n auto --maxprocesses=8 -m '(not integration and not e2e) and not serial' -q` and failed with:
 
 ```
 aller that has its own.

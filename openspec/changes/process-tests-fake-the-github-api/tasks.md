@@ -38,7 +38,7 @@ Needs: acp-runs-without-a-model group 1 merged — every node over the ACP runti
 Done when the two ACP tests pass against the fake host with the real agent, every route the forge calls in them is served
 by the fake, and no process test fakes the forge as a `gh` script beyond `gh auth token`.
 
-- [x] 3.1 Test (`local_stack`): run `test_the_unit_is_built_reviewed_and_pushed_through_the_runtime` first and read its tick
+- [x] 3.1 Test (`e2e`): run `test_the_unit_is_built_reviewed_and_pushed_through_the_runtime` first and read its tick
       output and the fake's `unrouted()` list before changing anything; every route it lists is served by the fake, or the
       test fails naming the route (an e2e-test failure keeps only the last four thousand characters, so run it).
 - [x] 3.2 Test: a review written by the test with an inline comment gets its own id, path and line and is served at the
@@ -48,10 +48,10 @@ by the fake, and no process test fakes the forge as a `gh` script beyond `gh aut
       branch protection) that 3.1 shows they call, from the recorded answers.
 - [x] 3.4 Test: both integration test modules assert `host.unrouted() == []` in a module-level teardown, so a route the
       fake does not serve fails every test in the module and names the route.
-- [x] 3.5 Test (`local_stack`): `test_graph_acp_unit.py` builds the unit, opens pull request 7 on the fake host, resumes it
+- [x] 3.5 Test (`e2e`): `test_graph_acp_unit.py` builds the unit, opens pull request 7 on the fake host, resumes it
       into rework on an inline review comment the test writes, sees the agent's reply in that comment's thread, and ends at
       merge.
-- [x] 3.6 Test (`local_stack`): `test_acp_build_unit.py` reaches `in review: PR #7` with the fake host holding the pull
+- [x] 3.6 Test (`e2e`): `test_acp_build_unit.py` reaches `in review: PR #7` with the fake host holding the pull
       request.
 - [x] 3.7 Add the inline review comment, the reply and review-by-id routes and any route 3.1 shows, and the teardown check.
 - [x] 3.8 Replace the `gh` stand-in in both tests, and in `test_telemetry_stack.py`, with the fixture, keeping only

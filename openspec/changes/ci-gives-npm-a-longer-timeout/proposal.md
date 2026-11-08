@@ -10,8 +10,8 @@ down. The step in `.github/workflows/ci.yml:78-86` has `timeout-minutes: 10`.
 **The vitest test.** `tests/integration/test_node_npm_red_command_vitest.py:24-48` runs `npx vitest` (with `npm_config_yes=true`) in an empty directory, so it
 downloads vitest at test time. It failed with "test exceeded the time limit of 60 seconds" in runs 39666378362 and 39711335246. The 60 comes from
 `DEFAULT_TEST_TIME_LIMIT = 60` in `tests/time_limit.py:23`, a plugin loaded by `tests/conftest.py:51`. It applies to every test that does not carry the
-`local_stack` marker (`:62-63`), and so to `integration`-marked tests; `pyproject.toml:84-100` sets no limit of its own. The only per-test choice today is the
-`local_stack` marker, which would also select the test into a different tier. So 60 s is not set for this test and is right for most others; a global rise
+`e2e` marker (`:62-63`), and so to `integration`-marked tests; `pyproject.toml:84-100` sets no limit of its own. The only per-test choice today is the
+`e2e` marker, which would also select the test into a different tier. So 60 s is not set for this test and is right for most others; a global rise
 for `integration` would loosen every test of that tier to fix one.
 
 ## What Changes

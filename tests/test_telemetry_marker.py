@@ -22,7 +22,7 @@ SPLITS = (
     E2eSplit(name="telemetry", marker=MARKER),
     E2eSplit(name="rest"),
 )
-COMMAND = [sys.executable, "-m", "pytest", "-m", "local_stack", "tests/integration"]
+COMMAND = [sys.executable, "-m", "pytest", "-m", "e2e", "tests/integration"]
 
 
 def otel_item(item: pytest.Item) -> bool:
@@ -54,7 +54,7 @@ def test_a_split_on_the_marker_selects_the_otel_items_and_no_other_live_test(
     module_tests = {item.nodeid.split("/")[-1] for item in items if otel_item(item)}
     other_tests = {item.nodeid.split("/")[-1] for item in items if not otel_item(item)}
 
-    result = check_splits(PROFILE, COMMAND, "local_stack", SPLITS, run=run_in_root)
+    result = check_splits(PROFILE, COMMAND, "e2e", SPLITS, run=run_in_root)
     tests = {listing.name: listing.tests or () for listing in result.listings}
 
     assert result.findings == ()

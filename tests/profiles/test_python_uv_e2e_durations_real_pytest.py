@@ -12,7 +12,7 @@ from agent_build_kit.profiles.python_uv import PROFILE
 TESTS = """\
 import pytest
 
-pytestmark = pytest.mark.local_stack
+pytestmark = pytest.mark.e2e
 
 
 @pytest.fixture
@@ -30,9 +30,9 @@ def test_two():
 
 
 def _run(pytester: pytest.Pytester, *extra: str) -> str:
-    pytester.makeini("[pytest]\nmarkers =\n    local_stack: needs the live stack\n")
+    pytester.makeini("[pytest]\nmarkers =\n    e2e: needs the live stack\n")
     pytester.makepyfile(test_live=TESTS)
-    (command,) = PROFILE.e2e_commands(pytester.path, marker="local_stack")
+    (command,) = PROFILE.e2e_commands(pytester.path, marker="e2e")
     result = pytester.runpytest_subprocess(*command[command.index("pytest") + 1 :], *extra)
     return result.stdout.str()
 

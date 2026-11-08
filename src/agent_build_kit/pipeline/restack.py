@@ -309,7 +309,7 @@ MAX_MARKERS = 3
 
 # Identifiers and quoted strings. Deliberately *tokens*, not whole lines: a
 # good resolution usually rewrites the conflicting line to hold both sides
-# (`["integration", "local_stack"]`), so requiring the original line verbatim
+# (`["integration", "e2e"]`), so requiring the original line verbatim
 # would refuse exactly the resolutions we want.
 TOKEN = re.compile(rf"[A-Za-z_][A-Za-z0-9_]{{{MIN_MARKER_LENGTH - 1},}}")
 

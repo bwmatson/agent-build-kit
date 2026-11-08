@@ -136,19 +136,19 @@ def test_a_dump_that_would_pass_the_session_budget_is_left_out_and_every_one_aft
     monkeypatch.setattr(scratch_dump, "SESSION_CHARS", budget)
     body = """\
 
-@pytest.mark.local_stack
+@pytest.mark.e2e
 def test_one(tmp_path, monkeypatch):
     ticked_scratch(tmp_path, monkeypatch)
     pytest.fail("one")
 
 
-@pytest.mark.local_stack
+@pytest.mark.e2e
 def test_two(tmp_path, monkeypatch):
     ticked_scratch(tmp_path, monkeypatch)
     pytest.fail("two")
 
 
-@pytest.mark.local_stack
+@pytest.mark.e2e
 def test_tre(tmp_path, monkeypatch):
     ticked_scratch(tmp_path, monkeypatch)
     pytest.fail("tre")

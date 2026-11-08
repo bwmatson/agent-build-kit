@@ -592,10 +592,10 @@ repos:                          # ordered: deploy order is derived from
                                 # `auto` or a positive integer
       max_workers: 8            # its `--maxprocesses` cap (a positive integer); xdist
                                 # starts no more than this, whatever `workers` says
-      e2e_marker: local_stack   # the pytest marker on tests needing the real
+      e2e_marker: e2e   # the pytest marker on tests needing the real
                                 # stack (e2e-test, and post-merge verify); for a
                                 # node project a file-name segment instead:
-                                # `<name>.local_stack.test.ts`
+                                # `<name>.e2e.test.ts`
       e2e_sandbox:              # what an [e2e-test] step's sandbox allows beyond
         read: []                # a unit-test step's; no other step gets any of
         write: []               # it. Relative paths are taken from the worktree.

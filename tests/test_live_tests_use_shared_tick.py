@@ -21,7 +21,7 @@ SHARED = TESTS / "scratch_tick.py"
 
 
 def live_files() -> list[Path]:
-    """The three live tests and every other integration test marked `local_stack`."""
+    """The three live tests and every other integration test marked `e2e`."""
     return sorted({GRAPH, BUILD, TELEMETRY, *find_live_modules(ROOT / "tests")})
 
 
@@ -134,7 +134,7 @@ def test_a_copy_of_the_graph_test_with_a_tick_that_builds_nothing_fails_with_hin
         "    program.chmod(program.stat().st_mode | stat.S_IXUSR)\n"
         '    monkeypatch.setattr(scratch_tick, "ABK", program)\n'
     )
-    pytester.makeini("[pytest]\nmarkers =\n    local_stack: a live test\n")
+    pytester.makeini("[pytest]\nmarkers =\n    e2e: a live test\n")
 
     result = pytester.runpytest_inprocess("-p", "tests.scratch_dump", "-p", "no:cacheprovider")
 

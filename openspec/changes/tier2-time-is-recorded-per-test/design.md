@@ -22,7 +22,7 @@ Read-only against the agent-build-kit checkout; paths are under `src/agent_build
   never unit ids (the `telemetry` spec). `unit-timeline-is-recorded` fixes the convention for new ledger kinds: readers skip kinds they do not know,
   so no reader changes.
 - Tests: `tests/time_limit.py` is a plugin loaded through `pytest_plugins` in `tests/conftest.py` that already hooks setup, call and teardown of
-  tests carrying `local_stack`; `tests/factories.py` has `scratch_app`; e2e-test tests are those marked `local_stack` under `tests/` (`pyproject.toml`
+  tests carrying `e2e`; `tests/factories.py` has `scratch_app`; e2e-test tests are those marked `e2e` under `tests/` (`pyproject.toml`
   registers it and excludes it by default).
 
 UNVERIFIED: the location of the live scratch-installation fixtures the 12 to 61 minute runs use (there is no `tests/scratch_stack.py` in the checkout;
@@ -78,7 +78,7 @@ The window of a phase is the byte offset range of the ledger file: the plugin no
 appended by its end. Offsets are used rather than timestamps because the scratch ledger belongs to one test run and the clock is faked in some
 tests. A module-scoped fixture's time falls in the setup phase of the first test that uses it, which is what the table should say.
 
-The plugin is a pytest plugin in `tests/` beside `time_limit.py` (loaded the same way), acting only on tests with `local_stack` that request a
+The plugin is a pytest plugin in `tests/` beside `time_limit.py` (loaded the same way), acting only on tests with `e2e` that request a
 `scratch_ledger` fixture (a path, or none). At the end of the session it prints, to the terminal summary, one line per entry:
 
 ```

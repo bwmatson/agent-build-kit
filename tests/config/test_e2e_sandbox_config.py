@@ -45,7 +45,7 @@ def test_the_four_lists_load_and_hold_what_is_written(tmp_path: Path) -> None:
 
 
 def test_a_repo_with_no_block_has_four_empty_lists(tmp_path: Path) -> None:
-    loaded = load(write(tmp_path, "    tests:\n      e2e_marker: local_stack\n"))
+    loaded = load(write(tmp_path, "    tests:\n      e2e_marker: e2e\n"))
 
     given = loaded.repos["app"].tests.e2e_sandbox
     assert (given.read, given.write, given.hosts, given.ports) == ([], [], [], [])

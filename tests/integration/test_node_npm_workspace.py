@@ -9,7 +9,7 @@ it, and the dependents of the shared package are read from the manifests.
 This is the one test that reaches the npm registry: the point is a real install and a real
 runner. Needs node and npm; skipped when either is absent. Marked e2e-test and excluded from the
 default suite; run it with
-`uv run pytest -m local_stack tests/integration/test_node_npm_workspace.py`.
+`uv run pytest -m e2e tests/integration/test_node_npm_workspace.py`.
 """
 
 from __future__ import annotations
@@ -28,14 +28,14 @@ from agent_build_kit.config import RepoConfig
 from agent_build_kit.profiles.node_npm import PROFILE
 
 pytestmark = [
-    pytest.mark.local_stack,
+    pytest.mark.e2e,
     pytest.mark.skipif(
         shutil.which("node") is None or shutil.which("npm") is None,
         reason="node and npm are not on PATH; the workspace test needs both",
     ),
 ]
 
-MARKER = "local_stack"
+MARKER = "e2e"
 CORE = "packages/core"
 APP = "packages/app"
 # The fixture's files are written as oxfmt prints them, so its format check has nothing to fix.

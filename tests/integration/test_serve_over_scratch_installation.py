@@ -8,8 +8,8 @@ remote, and only the code host is faked. The server runs in this process over th
 (`tests/integration/unit_walk.py`), which is neutral to the runtime so the ACP half reuses it.
 
 Needs a logged-in `claude`, node for the OpenSpec CLI and uv. Bills on demand and takes
-minutes, so it is marked `local_stack` and excluded from the default suite; run it with
-`uv run pytest -m local_stack tests/integration/test_serve_over_scratch_installation.py`.
+minutes, so it is marked `e2e` and excluded from the default suite; run it with
+`uv run pytest -m e2e tests/integration/test_serve_over_scratch_installation.py`.
 """
 
 from __future__ import annotations
@@ -32,7 +32,7 @@ from tests.marker_scratch import TASKS, Scratch, build_scratch, serving_host
 from tests.runtime_scratch import CLAUDE_CODE_PARAMS, runtime_scratch
 
 pytestmark = [
-    pytest.mark.local_stack,
+    pytest.mark.e2e,
     pytest.mark.skipif(shutil.which("npx") is None, reason="npx is not on PATH"),
     pytest.mark.skipif(shutil.which("uv") is None, reason="uv is not on PATH"),
     pytest.mark.skipif(shutil.which("claude") is None, reason="claude is not on PATH"),

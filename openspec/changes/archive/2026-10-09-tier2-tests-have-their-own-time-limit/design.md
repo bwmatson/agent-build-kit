@@ -4,7 +4,7 @@
 
 The plugin that enforces the per-test limit reads one option today and applies it to every test. It gains a second, for tests that carry
 the tier-2 marker, and picks one per test: a test with the marker gets the tier-2 limit, any other test the existing one. The marker is the
-one the project already names for tier 2 (`local_stack`), so a test is not put in a different class by anything but the marker it already
+one the project already names for tier 2 (`e2e`), so a test is not put in a different class by anything but the marker it already
 carries for the pipeline's own tier-2 selection.
 
 The tier-2 limit is thirty minutes by default, per phase as the existing one is: a build with a real agent runs for minutes, and a tick

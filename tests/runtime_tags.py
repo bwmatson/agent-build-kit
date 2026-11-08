@@ -1,9 +1,9 @@
 """A pytest plugin: a live-stack test carries at most one runtime tag (spec: e2e-runtime-tags).
 
 At collection it reads every marker an item has (its own, its class's, its module's and a
-parameter's), takes the distinct `runtime_<name>` names, and for a `local_stack` item with
+parameter's), takes the distinct `runtime_<name>` names, and for a `e2e` item with
 two or more fails collection naming each such item and its tags. No tag is the untagged
-base; a test that is not `local_stack` is not checked.
+base; a test that is not `e2e` is not checked.
 """
 
 from __future__ import annotations
@@ -35,7 +35,7 @@ def pytest_collection_modifyitems(items: list[pytest.Item]) -> None:
     offenders = [
         f"{item.nodeid}: {', '.join(tags)}"
         for item in items
-        if item.get_closest_marker("local_stack") is not None and (tags := tags_carried_twice(item))
+        if item.get_closest_marker("e2e") is not None and (tags := tags_carried_twice(item))
     ]
     if offenders:
         raise pytest.UsageError(

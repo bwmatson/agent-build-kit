@@ -21,7 +21,7 @@ def test_a_scheduled_change_is_full_under_own_with_the_reason(tmp_path: Path) ->
         setting=E2eUnitScope.OWN,
         profile=PROFILE,
         projects=[],
-        marker="local_stack",
+        marker="e2e",
         dev_stack=None,
     )
 

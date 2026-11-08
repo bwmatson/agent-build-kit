@@ -1,6 +1,6 @@
 """A pytest plugin that prints a scratch installation's state with a failed live test.
 
-For a `local_stack` test whose setup, call or teardown failed and that has a scratch, a section
+For a `e2e` test whose setup, call or teardown failed and that has a scratch, a section
 named `SCRATCH STATE` is added to the report, last in the test's failure block. The scratch is
 found, in this order, as a fixture argument named `scratch`, as the `scratch` attribute of any
 fixture argument (a module-scoped fixture that builds one and hands its tick on), or as the one
@@ -236,7 +236,7 @@ def scratch_state(scratch: Scratch) -> str:
 
 
 def _scratch_of(item: pytest.Item) -> Scratch | None:
-    if item.get_closest_marker("local_stack") is None:
+    if item.get_closest_marker("e2e") is None:
         return None
     funcargs = getattr(item, "funcargs", None) or {}
     if funcargs.get("scratch") is not None:

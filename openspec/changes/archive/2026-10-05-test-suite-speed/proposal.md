@@ -22,7 +22,7 @@ wall-clock and as a person waits.
   others is marked and run serially.
 - **A single test file stays simple.** A bare `pytest <file>` is not made to
   spawn workers; the parallel run is the whole-suite command and CI.
-- **The tiers keep their meaning.** Tier 2 (`local_stack`) stays serial, since
+- **The tiers keep their meaning.** Tier 2 (`e2e`) stays serial, since
   it drives a real agent on the host and is serialized on purpose.
 - **The profile knows the command.** The python profile's test command gains
   the workers flag, so what a unit's tier 1 runs is what a developer runs.

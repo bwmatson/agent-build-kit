@@ -58,7 +58,7 @@ def test_a_project_in_a_subdirectory_runs_from_it(tmp_path: Path) -> None:
     assert ok
     assert calls
     assert {cwd for _, cwd in calls} == {root / "api"}
-    assert calls[0][0] == PYTHON_UV.e2e_commands(root / "api", marker="local_stack")[0]
+    assert calls[0][0] == PYTHON_UV.e2e_commands(root / "api", marker="e2e")[0]
 
 
 def test_each_project_uses_its_own_profile(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -79,8 +79,8 @@ def test_each_project_uses_its_own_profile(tmp_path: Path, monkeypatch: pytest.M
 
     assert ok
     assert calls == [
-        (PYTHON_UV.e2e_commands(root / "api", marker="local_stack")[0], root / "api"),
-        (["npm", "run", "local_stack"], root / "web"),
+        (PYTHON_UV.e2e_commands(root / "api", marker="e2e")[0], root / "api"),
+        (["npm", "run", "e2e"], root / "web"),
     ]
 
 
@@ -91,7 +91,7 @@ def test_no_projects_runs_once_from_the_root(tmp_path: Path) -> None:
 
     session.run(cwd=root)
 
-    assert calls == [(PYTHON_UV.e2e_commands(root, marker="local_stack")[0], root)]
+    assert calls == [(PYTHON_UV.e2e_commands(root, marker="e2e")[0], root)]
 
 
 def test_projects_run_in_the_order_declared(tmp_path: Path) -> None:
@@ -166,10 +166,10 @@ def test_real_pytest_in_a_project_collects_only_its_testpaths(tmp_path: Path) ->
     (project / "tests").mkdir(parents=True)
     (project / "pyproject.toml").write_text(
         '[project]\nname = "api"\n\n[tool.pytest.ini_options]\n'
-        'testpaths = ["tests"]\nmarkers = ["local_stack: needs the live stack"]\n'
+        'testpaths = ["tests"]\nmarkers = ["e2e: needs the live stack"]\n'
     )
     (project / "tests" / "test_live.py").write_text(
-        "import pytest\n\n\n@pytest.mark.local_stack\ndef test_live() -> None:\n    pass\n"
+        "import pytest\n\n\n@pytest.mark.e2e\ndef test_live() -> None:\n    pass\n"
     )
     decoy = 'raise SystemExit("optional package missing")\n'
     (project / "smoke_test.py").write_text(decoy)

@@ -14,20 +14,17 @@ import pytest
 from tests.live_tag_drift import INTEGRATION, find_live_modules
 from tests.runtime_tag_collection import ROOT
 
-# One module per way a test is marked `local_stack`.
+# One module per way a test is marked `e2e`.
 MARKS = {
-    "pytestmark": (
-        "import pytest\n\npytestmark = pytest.mark.local_stack\n\n\ndef test_x():\n    pass\n"
-    ),
-    "decorator": "import pytest\n\n\n@pytest.mark.local_stack\ndef test_x():\n    pass\n",
+    "pytestmark": ("import pytest\n\npytestmark = pytest.mark.e2e\n\n\ndef test_x():\n    pass\n"),
+    "decorator": "import pytest\n\n\n@pytest.mark.e2e\ndef test_x():\n    pass\n",
     "param": (
         "import pytest\n\n\n@pytest.mark.parametrize(\n"
-        '    "n", [pytest.param(1, marks=pytest.mark.local_stack)]\n)\n'
+        '    "n", [pytest.param(1, marks=pytest.mark.e2e)]\n)\n'
         "def test_x(n):\n    pass\n"
     ),
     "class": (
-        "import pytest\n\n\n@pytest.mark.local_stack\n"
-        "class TestX:\n    def test_x(self):\n        pass\n"
+        "import pytest\n\n\n@pytest.mark.e2e\nclass TestX:\n    def test_x(self):\n        pass\n"
     ),
 }
 PLACES = ["integration/runtimes/test_x.py", "integration/replay_unit_x.py"]
@@ -42,7 +39,7 @@ def write(root: Path, relative: str, text: str) -> Path:
 
 @pytest.mark.parametrize("mark", MARKS)
 @pytest.mark.parametrize("place", PLACES)
-def test_a_module_marked_local_stack_is_found_in_any_place_under_any_name(
+def test_a_module_marked_e2e_is_found_in_any_place_under_any_name(
     tmp_path: Path, mark: str, place: str
 ) -> None:
     path = write(tmp_path, place, MARKS[mark])
@@ -52,15 +49,28 @@ def test_a_module_marked_local_stack_is_found_in_any_place_under_any_name(
 
 
 def test_a_word_in_a_string_or_a_comment_does_not_make_a_module_live(tmp_path: Path) -> None:
-    write(tmp_path, "test_string.py", 'TEXT = "@pytest.mark.local_stack"\n')
-    write(tmp_path, "test_comment.py", "# pytestmark = pytest.mark.local_stack\n")
+    write(tmp_path, "test_string.py", 'TEXT = "@pytest.mark.e2e"\n')
+    write(tmp_path, "test_comment.py", "# pytestmark = pytest.mark.e2e\n")
+    live = write(tmp_path, "integration/test_live.py", MARKS["pytestmark"])
+
+    assert find_live_modules(tmp_path / "tests") == [live]
+
+
+def test_an_attribute_named_e2e_that_is_not_a_mark_does_not_make_a_module_live(
+    tmp_path: Path,
+) -> None:
+    write(
+        tmp_path,
+        "test_fakes.py",
+        "def use(recorder, self):\n    recorder.e2e(cwd=None)\n    return dict(run_e2e=self.e2e)\n",
+    )
     live = write(tmp_path, "integration/test_live.py", MARKS["pytestmark"])
 
     assert find_live_modules(tmp_path / "tests") == [live]
 
 
 def test_a_module_that_cannot_be_parsed_is_named_in_a_failure(tmp_path: Path) -> None:
-    write(tmp_path, "integration/test_broken.py", "def test_x(:\n    local_stack\n")
+    write(tmp_path, "integration/test_broken.py", "def test_x(:\n    e2e\n")
 
     with pytest.raises(pytest.fail.Exception, match="test_broken.py"):
         find_live_modules(tmp_path / "tests")
@@ -82,7 +92,7 @@ def test_every_module_the_old_glob_and_text_match_found_is_still_found() -> None
     old = [
         path
         for path in INTEGRATION.glob("test_*.py")
-        if re.search(r"\blocal_stack\b", path.read_text())
+        if re.search(r"\bmark\.e2e\b", path.read_text())
     ]
     assert old
 

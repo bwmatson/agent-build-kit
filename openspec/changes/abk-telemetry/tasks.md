@@ -65,16 +65,16 @@ Done when a tick run against a fixture planning repo with telemetry enabled
 leaves its trace in the stack's trace store and its metrics in the metrics
 store, found by the queries a person would use.
 
-- [x] 3.1 Test (`local_stack`): with the shared stack's dev instance up and
+- [x] 3.1 Test (`e2e`): with the shared stack's dev instance up and
       telemetry pointed at its trace and metrics intake, a tick that builds a
       fixture unit leaves a trace whose root is the tick, with a unit span and
       a step span below it, found through the trace store's search API by the
       unit id.
-- [x] 3.2 Test (`local_stack`): the same tick's `abk.unit.duration` and
+- [x] 3.2 Test (`e2e`): the same tick's `abk.unit.duration` and
       `abk.step.duration` series are returned by the metrics store's query API
       with the repo, tier and outcome attributes, and no series carries a unit
       id.
-- [x] 3.3 Test (`local_stack`): with the endpoint pointing at nothing, the same
+- [x] 3.3 Test (`e2e`): with the endpoint pointing at nothing, the same
       tick finishes with the same outcome and no trace or series is written.
 - [x] 3.4 Write the acceptance run: start the fixture tick with the switch and
       both intake endpoints taken from the dev stack's published ports, wait

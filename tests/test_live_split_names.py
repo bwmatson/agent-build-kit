@@ -21,7 +21,7 @@ DOCUMENT = ROOT / "docs" / "agent-runtimes.md"
 
 def pyproject_with(tmp_path: Path, *markers: str) -> Path:
     path = tmp_path / "pyproject.toml"
-    lines = ",\n".join(f'    "{m}: a marker"' for m in ("local_stack", *markers))
+    lines = ",\n".join(f'    "{m}: a marker"' for m in ("e2e", *markers))
     path.write_text(f"[tool.pytest.ini_options]\nmarkers = [\n{lines},\n]\n")
     return path
 

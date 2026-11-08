@@ -32,13 +32,13 @@ feature on, idempotently, without touching anything else, and shows it in the dr
 
 ## 2. [agent-build-kit] [e2e-test] [acceptance] Init on a scratch workspace
 
-Needs: process-tests-fake-the-github-api group 3 merged — e2e-test runs the whole `local_stack` suite, and
+Needs: process-tests-fake-the-github-api group 3 merged — e2e-test runs the whole `e2e` suite, and
 two ACP tests in it fail against the real GitHub host until they use the fake one
 
 Done when the real `abk init` run over a scratch workspace leaves each repo as the spec
 says and a second run changes nothing.
 
-- [x] 2.1 Test (`local_stack`): init over a scratch workspace with three code repos (one
+- [x] 2.1 Test (`e2e`): init over a scratch workspace with three code repos (one
       with an `AGENTS.md`, one with only a `CLAUDE.md`, one with neither and no changelog)
       leaves each with the block in the right file, a changelog and the merge rule, creates
       no `CLAUDE.md` in the third, and a second run reports nothing to do and writes

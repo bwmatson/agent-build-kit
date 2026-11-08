@@ -304,7 +304,7 @@ def snapshot(output: str, *, failures: list[TestFailure] | None = None) -> str:
             failed=len(failures) if failures else 1,
             skipped=0,
             duration_seconds=1.5,
-            command="uv run pytest -m local_stack",
+            command="uv run pytest -m e2e",
             output=output,
             failures=failures or [],
         )

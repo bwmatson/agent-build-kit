@@ -44,7 +44,7 @@ def test_the_build_is_collected_under_the_drivers_command(tmp_path: Path) -> Non
 
 def test_the_build_collected_that_way_carries_the_e2e_marker(tmp_path: Path) -> None:
     # `-m` selects by the marks the time-limit plugin's `get_closest_marker` reads.
-    assert BUILD_ID in collect(tmp_path, "-m", "local_stack")
+    assert BUILD_ID in collect(tmp_path, "-m", "e2e")
 
 
 ACCEPTANCE = build.REPO / "tests" / "integration" / "test_replay_unit.py"
@@ -77,8 +77,8 @@ def test_the_build_session_declares_the_session_rule(pytester: pytest.Pytester) 
 
 
 def test_the_acceptance_runs_on_claude_code_alone() -> None:
-    assert collected_ids("local_stack and runtime_claude_code") == ACCEPTANCE_TESTS
-    assert collected_ids("local_stack and runtime_acp") == set()
+    assert collected_ids("e2e and runtime_claude_code") == ACCEPTANCE_TESTS
+    assert collected_ids("e2e and runtime_acp") == set()
 
 
 def test_the_build_without_the_drivers_environment_is_skipped_naming_what_is_missing(

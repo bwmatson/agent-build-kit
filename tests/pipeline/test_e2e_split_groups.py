@@ -29,7 +29,7 @@ from tests.e2e_check_support import marker_matches
 from tests.e2e_scope_fakes import PASSED, Ran, branch
 from tests.e2e_scope_fakes import session as shared_session
 
-MARKER = "local_stack"
+MARKER = "e2e"
 # The repo's two declared splits, and `rest`, the tests in neither.
 SPLITS = (
     E2eSplit(name="acp", marker="runtime_acp"),
@@ -389,7 +389,7 @@ def test_a_held_split_is_left_out_by_the_marker_the_repo_declared_for_it(tmp_pat
     gate.run(cwd=repo, base=base)
 
     [command] = ran.runs
-    assert expression_of(command) == "local_stack and not slow_acp"
+    assert expression_of(command) == "e2e and not slow_acp"
     assert "runtime_acp" not in " ".join(command)
 
 

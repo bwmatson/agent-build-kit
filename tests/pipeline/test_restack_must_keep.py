@@ -28,11 +28,11 @@ def repo(tmp_path: Path) -> Path:
 
 
 def test_a_line_the_branch_added_becomes_the_marker(repo: Path) -> None:
-    commit(repo, "markers.py", 'markers = ["local_stack"]\n')
+    commit(repo, "markers.py", 'markers = ["smoke_run"]\n')
 
     keep = derive_must_keep(repo, "spec/c/1", old_base="main", files=["markers.py"])
 
-    assert any("local_stack" in item for item in keep)
+    assert any("smoke_run" in item for item in keep)
 
 
 def test_a_line_the_base_already_has_is_not_distinctive(repo: Path) -> None:
@@ -62,7 +62,7 @@ def test_trivial_lines_are_not_markers(repo: Path) -> None:
 def test_only_conflicted_files_are_considered(repo: Path) -> None:
     """A marker from an untouched file would be trivially satisfied, so the
     guard would never fire."""
-    commit(repo, "markers.py", 'markers = ["local_stack"]\n')
+    commit(repo, "markers.py", 'markers = ["smoke_run"]\n')
     commit(repo, "other.py", "elsewhere = 'not in the conflict'\n")
 
     keep = derive_must_keep(repo, "spec/c/1", old_base="main", files=["markers.py"])

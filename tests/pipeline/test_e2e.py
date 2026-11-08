@@ -84,7 +84,7 @@ def result(**overrides) -> E2eResult:
         "failed": 0,
         "skipped": 1,
         "duration_seconds": 12.5,
-        "command": "uv run pytest -m local_stack",
+        "command": "uv run pytest -m e2e",
         "output": "4 passed, 1 skipped in 12.50s",
         "stack_versions": {"platform": "9f2a1c0", "model alias": "local"},
     }
@@ -97,7 +97,7 @@ def test_the_snapshot_says_what_ran_and_against_what() -> None:
     snapshot = build_snapshot(result())
 
     assert "abc1234" in snapshot
-    assert "uv run pytest -m local_stack" in snapshot
+    assert "uv run pytest -m e2e" in snapshot
     assert "4 passed" in snapshot
     assert "12.5" in snapshot
     assert "platform" in snapshot

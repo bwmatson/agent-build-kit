@@ -1214,7 +1214,7 @@ class TestsConfig(TestKindSettings):
     # follows the profile and the empty list turns the fixer pass off.
     fix_command: list[str] | None = None
     # The pytest marker on tests that need the real local stack (e2e-test).
-    e2e_marker: str = Field("local_stack", alias="e2e_marker")
+    e2e_marker: str = Field("e2e", alias="e2e_marker")
     # What an e2e-test step's sandbox allows beyond a unit-test step's.
     e2e_sandbox: E2eSandboxConfig = E2eSandboxConfig()
     # This repo's e2e-test scope; None follows `global_limits.e2e_unit_scope`.

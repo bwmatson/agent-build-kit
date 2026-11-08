@@ -57,10 +57,10 @@ check that a repo follows it.
 ## Test layout & kinds of test
 
 - **Rule:** pytest with three markers — `integration` (needs a real
-  datastore), `local_stack` (needs the real local stack) and `dev_stack`
+  datastore), `e2e` (needs the real local stack) and `dev_stack`
   (only the disposable dev stack can run it) — all excluded by default.
   **Tool:** pytest ≥ 8, `[tool.pytest.ini_options]` with `markers` and
-  `addopts = "-m 'not integration and not local_stack and not dev_stack'"`.
+  `addopts = "-m 'not integration and not e2e and not dev_stack'"`.
   **Why:** a bare `pytest` must pass anywhere, including CI with no services;
   the marked kinds of test are run on purpose with `pytest -m <marker>`.
   **Verify:** the three markers are declared; `pytest` on a fresh checkout

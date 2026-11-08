@@ -19,7 +19,7 @@ from tests.live_tag_drift import (
 from tests.prompt_text import flat
 from tests.runtime_tag_collection import ROOT
 
-HEADER = "import pytest\n\npytestmark = pytest.mark.local_stack\n"
+HEADER = "import pytest\n\npytestmark = pytest.mark.e2e\n"
 MERGE = "merge into one parametrized test"
 
 

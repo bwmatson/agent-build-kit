@@ -29,7 +29,7 @@ def test_an_entry_keeps_the_test_unit_command_line_time_and_base_result(
     (read,) = preexisting_record(installation).entries()
     assert read == kept, "read back by a later reader"
     assert (read.test, read.unit, read.line) == (TEST, "feature/1", "assert 1 == 2")
-    assert read.command == "uv run pytest -m local_stack -v"
+    assert read.command == "uv run pytest -m e2e -v"
     assert read.at == datetime(2026, 3, 1, 9, 30, tzinfo=UTC)
     assert read.base_result == "failed"
 

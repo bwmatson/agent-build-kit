@@ -966,11 +966,11 @@ the old account starts fresh) and set the usage windows for the new plan under
 
 - `integration` needs node (`npx`) and the network for the real OpenSpec CLI.
   Run with `pytest -m integration`.
-- `local_stack` is the e2e-test marker the acceptance tests carry: they build a
+- `e2e` is the e2e-test marker the acceptance tests carry: they build a
   unit through the `acp` runtime with a real agent on the host, named by
   `ABK_ACCEPTANCE_ACP_COMMAND`, and run `abk tick` as a process. They bill on
-  demand and take minutes. Run with `pytest -m local_stack` (or `uv run poe
-  test-local-stack`).
+  demand and take minutes. Run with `pytest -m e2e` (or `uv run poe
+  test-e2e`).
   Some agents refuse to open their real session store below a pytest process,
   so a build keeps no sessions and a step that resumes one fails. Three
   `verify.env` entries give the agent a scratch home of its own:
@@ -992,16 +992,16 @@ the old account starts fresh) and set the usage windows for the new plan under
   store, with a working directory under the test temporary directory, and are
   never removed.
 - Every test runs under a time limit on each of its setup, call and teardown.
-  A test without the `local_stack` marker has a CPU budget of `--test-time-limit` seconds
+  A test without the `e2e` marker has a CPU budget of `--test-time-limit` seconds
   (default 60), the CPU time of the test's process and its children, and a wall-clock backstop
   of five times it that ends a test using no CPU; a test starved of CPU but under its budget
-  passes, until the backstop. A `local_stack` test has `--e2e-test-time-limit` seconds of wall time
+  passes, until the backstop. A `e2e` test has `--e2e-test-time-limit` seconds of wall time
   (default 1800, thirty minutes). Zero turns a limit off, and each option leaves
   the other alone. A failure names the clock that fired: "test exceeded the CPU time budget
   of 60 s", "test exceeded the wall-clock backstop of 300 s", or "test exceeded the e2e-test
-  time limit of 1800 seconds". A test without `local_stack` that is marked
+  time limit of 1800 seconds". A test without `e2e` that is marked
   `time_limit(<seconds>)` has that many CPU seconds in place of `--test-time-limit`; a
-  `local_stack` test keeps the e2e limit even
+  `e2e` test keeps the e2e limit even
   when it carries the marker. The marker is for a test whose time is outside its control, such
   as a download.
 - The same build run (`tests/integration/test_build_unit.py`) also checks
@@ -1009,17 +1009,17 @@ the old account starts fresh) and set the usage windows for the new plan under
   per agent call in its run log, and its tokens and agent time equal the sums of
   the unit's usage-ledger records, with each figure's source named in the JSON
   and the table. It needs nothing beyond the agent above. Run with `uv run
-  pytest -m local_stack tests/integration/test_build_unit.py`.
+  pytest -m e2e tests/integration/test_build_unit.py`.
 - The `abk init` acceptance run (`tests/integration/test_init_runtime_live_stack.py`,
-  also `local_stack`) runs the real command as a process against a stand-in agent
+  also `e2e`) runs the real command as a process against a stand-in agent
   and makes no model call: the stand-in is the protocol test agent placed on a
   `PATH` of its own under a known agent's program name, and it records every
   request it is sent. It needs node for the OpenSpec CLI and nothing else; its
   last test uses a protocol agent installed on the host and skips without one.
-  Run with `uv run pytest -m local_stack
+  Run with `uv run pytest -m e2e
   tests/integration/test_init_runtime_live_stack.py`.
 - The telemetry acceptance run (`tests/integration/test_telemetry_stack.py`,
-  also `local_stack`) ticks a fixture unit with `ABK_OTEL_ENABLED` on, once per
+  also `e2e`) ticks a fixture unit with `ABK_OTEL_ENABLED` on, once per
   runtime and telemetry value, and reads the trace and the duration series back
   from the sink: the shared stack's stores (`otel`) or a file written by a local
   receiver (`local`). The `otel` value
@@ -1029,10 +1029,10 @@ the old account starts fresh) and set the usage windows for the new plan under
   OTLP/HTTP intake URLs), `ABK_ACCEPTANCE_TRACES_URL` (the trace store's search
   API) and `ABK_ACCEPTANCE_METRICS_URL` (the metrics store's query API). Each
   run uses a service name of its own, so earlier runs in the stores do not
-  answer for it. Run with `uv run pytest -m local_stack
+  answer for it. Run with `uv run pytest -m e2e
   tests/integration/test_telemetry_stack.py`.
 - The dry-guidance acceptance run (`tests/integration/test_dry_guidance_build.py`
-  and `tests/integration/test_dry_guidance_review.py`) is `local_stack`, tagged
+  and `tests/integration/test_dry_guidance_review.py`) is `e2e`, tagged
   `runtime_claude_code` (the ACP form is a separate module), and needs a Claude
   Code account. It bills per token and takes minutes per case. Each case runs
   once: three builds (reuse, generalize, share) and two reviews (a seeded
@@ -1042,10 +1042,10 @@ the old account starts fresh) and set the usage windows for the new plan under
   prompts it was sent, recorded by `tests/claude_recorder.py`, a wrapper set as
   `runtimes.claude_code.command` that appends each run's arguments and prompt to a
   file and then `exec`s `claude`; none is a model's judgement. Run with
-  `uv run pytest -m local_stack tests/integration/test_dry_guidance_build.py
+  `uv run pytest -m e2e tests/integration/test_dry_guidance_build.py
   tests/integration/test_dry_guidance_review.py`.
 - The planning-in-the-working-copy acceptance run
-  (`tests/integration/test_planning_in_repo_live_stack.py`, `local_stack`) builds a
+  (`tests/integration/test_planning_in_repo_live_stack.py`, `e2e`) builds a
   scratch repository that is its own planning repo (a bare origin, a working copy on a
   feature branch with an uncommitted source edit, the local forge) and drives the real
   `abk` as processes: `install-timers --no-enable` (the pipeline worktree, its marker and
@@ -1057,14 +1057,14 @@ the old account starts fresh) and set the usage windows for the new plan under
   scripted ACP agent the adapter's tests use, so it needs no real agent and does not
   bill; it needs node (npx) and uv. The tests share one scratch repository, and a test
   that needs another's effect asks for it through a module-scoped fixture, so any test
-  runs alone or in any order: `uv run pytest -m local_stack
+  runs alone or in any order: `uv run pytest -m e2e
   tests/integration/test_planning_in_repo_live_stack.py`.
 - `replay` (the `tests/replay/` plugin, see "Record and replay of external calls"
   below) puts a reverse proxy in front of an e2e-test test's calls to the model
   provider and package index, so a rerun of an unchanged call is answered from a
   recording. It is off unless `ABK_REPLAY_MODE` says otherwise.
 - The chat-editing acceptance run (`tests/integration/test_chat_editing_claude_code.py`,
-  `local_stack`, tagged `runtime_claude_code`) builds a scratch unit to review,
+  `e2e`, tagged `runtime_claude_code`) builds a scratch unit to review,
   then drives the real server over HTTP with a real Claude Code: a chat edit
   fixed for a rejecting hook and committed in one request, a request against a
   requirement flagged, a free session committing code and a task file per
@@ -1075,9 +1075,9 @@ the old account starts fresh) and set the usage windows for the new plan under
   scratch installation comes from a fixture that takes the runtime as its
   parameter, so a module for another runtime can import it. It needs node, uv
   and Claude Code, bills on demand and takes minutes. Run with `uv run pytest
-  -m local_stack tests/integration/test_chat_editing_claude_code.py`.
+  -m e2e tests/integration/test_chat_editing_claude_code.py`.
 - The web UI acceptance run's Claude half
-  (`tests/integration/test_serve_over_scratch_installation.py`, also `local_stack`,
+  (`tests/integration/test_serve_over_scratch_installation.py`, also `e2e`,
   tagged `runtime_claude_code`) builds a unit with a real `claude`, then drives the API
   of `abk serve` over the same state: the unit's page and recorded history, a live
   step with its composer disabled, a chat turn and the unit resuming after the lease
@@ -1087,17 +1087,17 @@ the old account starts fresh) and set the usage windows for the new plan under
   (`tests/integration/unit_walk.py`), neutral to the runtime so that the ACP half,
   which is a separate group of the same change, reuses it. The run needs node, uv and
   a logged-in `claude` on PATH; the sessions it starts land in `claude`'s own home.
-  Run with `uv run pytest -m local_stack
+  Run with `uv run pytest -m e2e
   tests/integration/test_serve_over_scratch_installation.py`.
 - The local forge acceptance run (`tests/integration/test_local_forge_unit.py`,
-  `local_stack`, tagged `runtime_claude_code`) builds a unit in a repo with no
+  `e2e`, tagged `runtime_claude_code`) builds a unit in a repo with no
   remote and `forge: local`, sends it back with a comment posted to the web
   UI's own endpoint, records Approve through the decision endpoint, merges the
   branch with git as a person would, and checks the unit is recorded merged and
   its dependent starts. It needs Claude Code, node and uv. Run with `uv run
-  pytest -m local_stack tests/integration/test_local_forge_unit.py`.
+  pytest -m e2e tests/integration/test_local_forge_unit.py`.
 - `runtime_<name>` (`runtime_claude_code`, `runtime_acp`) names the one agent
-  runtime a `local_stack` test drives; a test with none is the untagged base and
+  runtime a `e2e` test drives; a test with none is the untagged base and
   needs no agent. The tag is the runtime the test starts, as decided from `AGENT_SIGNALS`,
   and the drift test fails a mismatch (see below). Two different runtime tags on one live-stack test, from the test,
   its class, its module or a parameter, fail collection naming the test, so a
@@ -1152,7 +1152,7 @@ uses. A test keeps the example and the markers registered in `pyproject.toml` in
 
 A drift test (`tests/test_live_tests_are_tagged.py`) keeps the tags honest. It finds every
 live-stack module by syntax: any Python file under `tests/`, at any depth and whatever its
-name, that marks a test `local_stack`. Whether a test starts an agent is decided per test
+name, that marks a test `e2e`. Whether a test starts an agent is decided per test
 from the table `AGENT_SIGNALS` in `tests/live_tag_drift.py` (the shared helpers that start
 one, the program lookups and the agent command setting), through the fixtures the test
 requests and the functions of its module it calls; a stand-in agent is not counted. It
@@ -1268,7 +1268,7 @@ and `fixture.environment()` give them. The mode is `ABK_REPLAY_MODE`.
 `tests/integration/test_replay_unit.py` builds one scratch unit three times with the Claude Code
 agent, each time as a pytest session with the replay plugin over one
 cassette directory: in `record` mode, in `replay` mode with nothing changed, and in `replay`
-mode with the task text edited. Run it with `uv run pytest -m local_stack
+mode with the task text edited. Run it with `uv run pytest -m e2e
 tests/integration/test_replay_unit.py`; it needs node, uv and an agent, bills on demand and
 takes minutes. Every run records fresh into a temporary cassette directory and sets the mode
 of each session itself, so the test keeps no recordings to refresh and goes live against the

@@ -14,7 +14,7 @@ from tests.factories import git, init_repo, unit
 
 TEST_BODY = "def test_a():\n    assert True\n"
 # The command e2e-test runs for a repo with no members.
-E2E_COMMAND = PROFILE.e2e_commands(Path("."), marker="local_stack")[0]
+E2E_COMMAND = PROFILE.e2e_commands(Path("."), marker="e2e")[0]
 
 
 def pytest_output(

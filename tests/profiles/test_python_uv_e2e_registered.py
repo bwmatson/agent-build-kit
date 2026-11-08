@@ -11,7 +11,7 @@ from typing import Any
 from agent_build_kit.profiles.python_uv import PROFILE
 
 MARKERS = (
-    "@pytest.mark.local_stack: tests that need the live stack\n\n"
+    "@pytest.mark.e2e: tests that need the live stack\n\n"
     "@pytest.mark.runtime_acp: needs the acp runtime\n\n"
     "@pytest.mark.timeout(timeout, method=None): a timeout\n\n"
     "@pytest.mark.parametrize(argnames, argvalues): run with several sets\n"
@@ -32,10 +32,10 @@ class Runner:
 def test_the_registered_selectors_are_the_runners_marker_names() -> None:
     run = Runner(MARKERS)
 
-    found = PROFILE.registered_selectors(["uv", "run", "pytest", "-m", "local_stack"], run=run)
+    found = PROFILE.registered_selectors(["uv", "run", "pytest", "-m", "e2e"], run=run)
 
     assert found is not None
-    assert {"local_stack", "runtime_acp", "timeout", "parametrize"} <= set(found)
+    assert {"e2e", "runtime_acp", "timeout", "parametrize"} <= set(found)
     assert "runtime_claude_code" not in found
     (listed,) = run.commands
     assert "--markers" in listed
@@ -49,7 +49,7 @@ def test_a_failed_marker_listing_is_unknown_not_an_empty_list() -> None:
 
 def test_a_marker_the_runner_registers_is_listed_by_a_real_pytest(tmp_path: Path) -> None:
     (tmp_path / "pyproject.toml").write_text(
-        '[tool.pytest.ini_options]\nmarkers = ["local_stack", "runtime_acp"]\n'
+        '[tool.pytest.ini_options]\nmarkers = ["e2e", "runtime_acp"]\n'
     )
 
     def run(argv: list[str], **kwargs: Any) -> subprocess.CompletedProcess:
@@ -58,5 +58,5 @@ def test_a_marker_the_runner_registers_is_listed_by_a_real_pytest(tmp_path: Path
     found = PROFILE.registered_selectors([sys.executable, "-m", "pytest"], run=run)
 
     assert found is not None
-    assert {"local_stack", "runtime_acp"} <= set(found)
+    assert {"e2e", "runtime_acp"} <= set(found)
     assert "runtime_claude_code" not in found

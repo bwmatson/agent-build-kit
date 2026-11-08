@@ -40,7 +40,7 @@ def test_a_mistyped_runtime_tag_fails_collection_naming_it(pytester: pytest.Pyte
 import pytest
 
 
-@pytest.mark.local_stack
+@pytest.mark.e2e
 @pytest.mark.runtime_typo
 def test_drives_something():
     pass

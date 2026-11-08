@@ -32,7 +32,7 @@ from tests.scratch_tick import TickResult, commits_on_unit_branch
 
 FAILS = """\
 
-@pytest.mark.local_stack
+@pytest.mark.e2e
 def test_fails(tmp_path, monkeypatch):
     ticked_scratch(tmp_path, monkeypatch, env={"ABK_RUNTIME": "claude_code", "AB_TOKEN": "x"})
     print("CAPTURED-STDOUT")
@@ -99,7 +99,7 @@ def scratch(tmp_path, monkeypatch):
     return made
 
 
-@pytest.mark.local_stack
+@pytest.mark.e2e
 def test_fails(scratch):
     pytest.fail("the plain failure")
 """
@@ -127,12 +127,12 @@ def built(tmp_path_factory):
     monkeypatch.undo()
 
 
-@pytest.mark.local_stack
+@pytest.mark.e2e
 def test_one(built):
     pytest.fail("one")
 
 
-@pytest.mark.local_stack
+@pytest.mark.e2e
 def test_two(built):
     pytest.fail("two")
 """
@@ -160,12 +160,12 @@ def test_a_test_that_passes_is_skipped_is_unmarked_or_has_no_scratch_gets_no_sec
 ) -> None:
     body = """\
 
-@pytest.mark.local_stack
+@pytest.mark.e2e
 def test_passes(tmp_path, monkeypatch):
     ticked_scratch(tmp_path, monkeypatch)
 
 
-@pytest.mark.local_stack
+@pytest.mark.e2e
 def test_skipped(tmp_path, monkeypatch):
     ticked_scratch(tmp_path / "again", monkeypatch)
     pytest.skip("not today")
@@ -176,7 +176,7 @@ def test_unmarked_fails(tmp_path, monkeypatch):
     pytest.fail("unmarked")
 
 
-@pytest.mark.local_stack
+@pytest.mark.e2e
 def test_with_no_scratch_fails():
     pytest.fail("no scratch of its own, though earlier tests registered theirs")
 """
@@ -205,12 +205,12 @@ def broken_teardown(tmp_path, monkeypatch):
     raise RuntimeError("teardown broke")
 
 
-@pytest.mark.local_stack
+@pytest.mark.e2e
 def test_a(broken_setup):
     pass
 
 
-@pytest.mark.local_stack
+@pytest.mark.e2e
 def test_b(broken_teardown):
     pass
 """
@@ -242,7 +242,7 @@ def test_a_source_that_cannot_be_read_is_one_line_naming_the_error_and_hides_not
 ) -> None:
     body = """\
 
-@pytest.mark.local_stack
+@pytest.mark.e2e
 def test_fails(tmp_path, monkeypatch):
     scratch = ticked_scratch(tmp_path, monkeypatch)
     (scratch.state / "units.json").unlink()
@@ -310,7 +310,7 @@ def test_the_outcome_and_traceback_are_those_of_the_same_run_without_the_plugin(
 ) -> None:
     body = """\
 
-@pytest.mark.local_stack
+@pytest.mark.e2e
 def test_fails(tmp_path, monkeypatch):
     scratch = ticked_scratch(tmp_path, monkeypatch)
     (scratch.state / "units.json").unlink()
@@ -318,7 +318,7 @@ def test_fails(tmp_path, monkeypatch):
     pytest.fail("the plain failure")
 
 
-@pytest.mark.local_stack
+@pytest.mark.e2e
 def test_unreadable_scratch(monkeypatch):
     register_scratch(object())
     assert [1, 2] == [1, 3]

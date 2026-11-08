@@ -52,7 +52,7 @@ def missing_environment() -> list[str]:
 pytestmark = [
     # An e2e test in its own session: it starts a real agent and takes minutes, so it is under
     # the e2e time limit and not the default one.
-    pytest.mark.local_stack,
+    pytest.mark.e2e,
     pytest.mark.runtime_claude_code,
     pytest.mark.skipif(
         bool(missing_environment()),
@@ -112,7 +112,7 @@ REPO = Path(__file__).resolve().parents[2]
 
 def session_argv(basetemp: Path) -> list[str]:
     """The command that runs this file as its own pytest session, which the driver runs from
-    `REPO`. `-o addopts=` is what keeps the repository's `-m 'not local_stack'` from deselecting
+    `REPO`. `-o addopts=` is what keeps the repository's `-m 'not e2e'` from deselecting
     the build; the same `basetemp` for every session puts the agent's home at the same path."""
     return [
         sys.executable,

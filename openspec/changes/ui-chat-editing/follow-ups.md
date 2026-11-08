@@ -22,4 +22,4 @@
 
 ## From `ui-chat-editing/5`
 
-- The live Claude Code acceptance module (tests/integration/test_chat_editing_claude_code.py) has still not been run against a real agent by the builder: it collects five `[claude_code]` scenarios under `-m local_stack`. Run it once with `uv run pytest -m local_stack tests/integration/test_chat_editing_claude_code.py` before or after merge to confirm the acceptance holds end to end.
+- The live Claude Code acceptance module (tests/integration/test_chat_editing_claude_code.py) has still not been run against a real agent by the builder: it collects five `[claude_code]` scenarios under `-m e2e`. Run it once with `uv run pytest -m e2e tests/integration/test_chat_editing_claude_code.py` before or after merge to confirm the acceptance holds end to end.

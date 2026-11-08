@@ -15,7 +15,7 @@ from agent_build_kit.pipeline.e2e import build_selection, selection_unavailable
 from agent_build_kit.profiles import node_npm
 from agent_build_kit.profiles.python_uv import PROFILE
 
-EXPECTED = "local_stack and not runtime_acp"
+EXPECTED = "e2e and not runtime_acp"
 SPLITS = (
     E2eSplit(name="acp", marker="runtime_acp"),
     E2eSplit(name="claude_code", marker="runtime_claude_code"),
@@ -24,11 +24,11 @@ SPLITS = (
 
 
 def selection(**kwargs: Any) -> Any:
-    return build_selection("local_stack", SPLITS, **kwargs)
+    return build_selection("e2e", SPLITS, **kwargs)
 
 
 def expression(**kwargs: Any) -> str:
-    return PROFILE.expression("local_stack", selection(**({"held": ["acp"]} | kwargs)))
+    return PROFILE.expression("e2e", selection(**({"held": ["acp"]} | kwargs)))
 
 
 def test_the_profile_reports_marker_as_its_one_selector_kind() -> None:
@@ -36,21 +36,18 @@ def test_the_profile_reports_marker_as_its_one_selector_kind() -> None:
 
 
 def test_expression_renders_each_selection_as_the_same_m_text() -> None:
-    assert expression(held=[]) == "local_stack"
+    assert expression(held=[]) == "e2e"
     assert expression(held=["acp"]) == EXPECTED
-    assert expression(held=[], only="claude_code") == "local_stack and runtime_claude_code"
-    assert (
-        expression(held=[], only="rest")
-        == "local_stack and not runtime_acp and not runtime_claude_code"
-    )
-    assert expression(held=["rest"]) == "local_stack and (runtime_acp or runtime_claude_code)"
+    assert expression(held=[], only="claude_code") == "e2e and runtime_claude_code"
+    assert expression(held=[], only="rest") == "e2e and not runtime_acp and not runtime_claude_code"
+    assert expression(held=["rest"]) == "e2e and (runtime_acp or runtime_claude_code)"
 
 
 def test_an_empty_selection_has_no_expression_and_the_error_names_the_held_splits() -> None:
     held = selection(held=["acp", "claude_code", "rest"])
 
     with pytest.raises(ValueError, match="acp, claude_code, rest"):
-        PROFILE.expression("local_stack", held)
+        PROFILE.expression("e2e", held)
 
 
 def test_an_empty_selection_cannot_be_listed() -> None:
@@ -181,7 +178,7 @@ LISTING = (
 
 
 def test_list_tests_returns_what_the_selection_selects(tmp_path: Path) -> None:
-    (command,) = PROFILE.e2e_commands(flat_repo(tmp_path), marker="local_stack")
+    (command,) = PROFILE.e2e_commands(flat_repo(tmp_path), marker="e2e")
     run = Runner(LISTING)
 
     found = PROFILE.list_tests(command, selection(only="acp"), run=run)
@@ -191,12 +188,12 @@ def test_list_tests_returns_what_the_selection_selects(tmp_path: Path) -> None:
         "tests/integration/test_live.py::TestGroup::test_b[acp]",
     ]
     (listed,) = run.commands
-    assert after_m(listed) == "local_stack and runtime_acp"
+    assert after_m(listed) == "e2e and runtime_acp"
     assert "--collect-only" in listed
 
 
 def test_list_tests_gives_ids_from_the_repository_root_for_a_member(tmp_path: Path) -> None:
-    command = PROFILE.e2e_commands(workspace(tmp_path), marker="local_stack")[0]
+    command = PROFILE.e2e_commands(workspace(tmp_path), marker="e2e")[0]
     run = Runner("tests/integration/test_live.py::test_a\n\n1 test collected in 0.01s\n")
 
     found = PROFILE.list_tests(command, selection(only="acp"), run=run)
@@ -205,7 +202,7 @@ def test_list_tests_gives_ids_from_the_repository_root_for_a_member(tmp_path: Pa
 
 
 def test_list_tests_narrows_to_the_given_ids(tmp_path: Path) -> None:
-    (command,) = PROFILE.e2e_commands(flat_repo(tmp_path), marker="local_stack")
+    (command,) = PROFILE.e2e_commands(flat_repo(tmp_path), marker="e2e")
     run = Runner("tests/integration/test_live.py::test_a\n\n1 test collected in 0.01s\n")
 
     found = PROFILE.list_tests(
@@ -217,7 +214,7 @@ def test_list_tests_narrows_to_the_given_ids(tmp_path: Path) -> None:
 
 
 def test_list_tests_returns_an_empty_list_for_the_empty_listing(tmp_path: Path) -> None:
-    (command,) = PROFILE.e2e_commands(flat_repo(tmp_path), marker="local_stack")
+    (command,) = PROFILE.e2e_commands(flat_repo(tmp_path), marker="e2e")
     run = Runner("\nno tests collected in 0.01s\n", returncode=5)
 
     assert PROFILE.list_tests(command, selection(only="acp"), run=run) == []
@@ -225,14 +222,14 @@ def test_list_tests_returns_an_empty_list_for_the_empty_listing(tmp_path: Path) 
 
 def test_list_tests_names_tests_under_a_repo_whose_addopts_are_quiet(tmp_path: Path) -> None:
     (tmp_path / "pyproject.toml").write_text(
-        '[tool.pytest.ini_options]\naddopts = "-q"\nmarkers = ["local_stack", "runtime_acp"]\n'
+        '[tool.pytest.ini_options]\naddopts = "-q"\nmarkers = ["e2e", "runtime_acp"]\n'
     )
     (tmp_path / "test_live.py").write_text(
         "import pytest\n\n"
-        "@pytest.mark.local_stack\n@pytest.mark.runtime_acp\ndef test_tagged(): ...\n\n"
-        "@pytest.mark.local_stack\ndef test_base(): ...\n"
+        "@pytest.mark.e2e\n@pytest.mark.runtime_acp\ndef test_tagged(): ...\n\n"
+        "@pytest.mark.e2e\ndef test_base(): ...\n"
     )
-    command = [sys.executable, "-m", "pytest", "-m", "local_stack"]
+    command = [sys.executable, "-m", "pytest", "-m", "e2e"]
 
     def run(argv: list[str], **kwargs: Any) -> subprocess.CompletedProcess:
         return subprocess.run(argv, cwd=tmp_path, **kwargs)
@@ -243,7 +240,7 @@ def test_list_tests_names_tests_under_a_repo_whose_addopts_are_quiet(tmp_path: P
 
 
 def test_list_tests_returns_unknown_when_the_listing_fails(tmp_path: Path) -> None:
-    (command,) = PROFILE.e2e_commands(flat_repo(tmp_path), marker="local_stack")
+    (command,) = PROFILE.e2e_commands(flat_repo(tmp_path), marker="e2e")
     run = Runner("ERROR: file or directory not found\n", returncode=4)
 
     assert PROFILE.list_tests(command, selection(only="acp"), run=run) is None

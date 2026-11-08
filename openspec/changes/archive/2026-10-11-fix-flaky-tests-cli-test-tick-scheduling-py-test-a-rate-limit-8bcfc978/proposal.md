@@ -2,7 +2,7 @@
 
 `tests/cli/test_tick_scheduling.py::test_a_rate_limit_pause_ends_at_its_deadline_within_the_pass` failed under load and passed alone, twice, when run again by itself. A test like that fails units that did not touch it.
 
-It ran as `uv run pytest -n auto --maxprocesses=8 -m '(not integration and not local_stack) and not serial' -q` and failed with:
+It ran as `uv run pytest -n auto --maxprocesses=8 -m '(not integration and not e2e) and not serial' -q` and failed with:
 
 ```
 trees/agent-build-kit/spec_local_forge_3/.venv/bin/python

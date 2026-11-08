@@ -43,7 +43,7 @@ from tests.restack_turn_fakes import (
 )
 
 TEST_FILE = "test_markers.py"
-UNIT_TEST = "test_local_stack_is_registered"
+UNIT_TEST = "test_e2e_is_registered"
 TESTS = f"def {UNIT_TEST}():\n    assert True\n"
 
 
@@ -70,7 +70,7 @@ class Steps:
 def context() -> ConflictContext:
     return ConflictContext(
         moving_unit="c/2",
-        moving_intent="Register the local_stack marker in app",
+        moving_intent="Register the e2e marker in app",
         onto_unit="c/1",
         onto_intent="Register the integration marker in app",
     )
@@ -141,9 +141,9 @@ def test_a_missing_token_gets_a_second_call_naming_it_with_leave_for_dependent_f
 
     first, second = resolver.calls
     assert second.cwd == first.cwd
-    assert "local_stack" in second.follow_up
+    assert "smoke_run" in second.follow_up
     assert "depend" in flat(second.follow_up).lower()
-    assert "local_stack" in second.prompt, "a new session is told what failed too"
+    assert "smoke_run" in second.prompt, "a new session is told what failed too"
     assert "depend on the conflict" in flat(second.prompt).lower(), "and the order"
     assert set(moved.resolved) == {"markers.py", "notes.md"}
     assert git(repo, "show", f"{BRANCH}:notes.md") == "notes, for the renamed marker"

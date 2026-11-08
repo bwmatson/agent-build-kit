@@ -55,7 +55,7 @@ def test_a_test_in_two_splits_is_printed_with_both_names_and_exits_one(
 def test_an_unknown_selector_is_printed_and_exits_one(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    markers = "@pytest.mark.local_stack: live stack\n\n@pytest.mark.runtime_acp: acp\n"
+    markers = "@pytest.mark.e2e: live stack\n\n@pytest.mark.runtime_acp: acp\n"
 
     code, lines = check(installation(tmp_path), Pytest(CLEAN, markers=markers), capsys)
 

@@ -35,7 +35,7 @@ def e2e_feedback(*, output_file: str = LOG, withheld: bool = False) -> str:
         failed=1,
         skipped=0,
         duration_seconds=1.5,
-        command="uv run pytest -m local_stack",
+        command="uv run pytest -m e2e",
         output="output line\nTAIL FAILED tests/test_bar.py::test_bar",
         output_file=output_file,
         output_withheld=withheld,

@@ -29,7 +29,7 @@
 
 ## From `test-kinds-are-unit-test-and-e2e-test/15`
 
-- tests/graph/test_stack_scenarios.py:202 — Some mechanically renamed test names read awkwardly: `test_a_unit_test_unit_does_not_touch_the_local_stack`, `test_a_commit_unit_test_makes_before_the_review_is_the_commit_that_is_reviewed`, and `test_the_restacks_unit_test_is_the_setting_of_the_repo_the_branch_is_in` in tests/cli/test_restack_wiring.py:101.
+- tests/graph/test_stack_scenarios.py:202 — Some mechanically renamed test names read awkwardly: `test_a_unit_test_unit_does_not_touch_the_e2e`, `test_a_commit_unit_test_makes_before_the_review_is_the_commit_that_is_reviewed`, and `test_the_restacks_unit_test_is_the_setting_of_the_repo_the_branch_is_in` in tests/cli/test_restack_wiring.py:101.
 
 ## From `test-kinds-are-unit-test-and-e2e-test/18`
 

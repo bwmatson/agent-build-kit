@@ -147,7 +147,7 @@ WITH_LOGIC_TESTS = [
     "test_path_discovery_git.py",
     "test_child_pytest_sources_are_real_files.py",
 ]
-DEFAULT_RUN = ["-m", "not integration and not local_stack"]
+DEFAULT_RUN = ["-m", "not integration and not e2e"]
 
 
 def test_the_baseline_holds_none_of_the_named_scans() -> None:

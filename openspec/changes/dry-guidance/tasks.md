@@ -118,7 +118,7 @@ is group 5.
       wrapper, set as `runtimes.claude_code.command` and run over a stub `claude` that echoes its arguments and
       standard input, records the standard input and the arguments of each run, passes both on to `claude`
       unchanged and leaves no process of its own once `claude` runs (it `exec`s). It fails before 4.6.
-- [x] 4.3 Test: `tests/integration/test_dry_guidance_build.py`, marked `local_stack`, skipped without `npx` or
+- [x] 4.3 Test: `tests/integration/test_dry_guidance_build.py`, marked `e2e`, skipped without `npx` or
       `uv`, its runtime chosen by `CLAUDE_CODE_PARAMS` and `runtime_scratch("claude_code", ...)` as
       `tests/integration/test_graph_unit.py` does, so the module is tagged `runtime_claude_code`, carries no
       `runtime_acp` mark and never `RUNTIME_PARAMS` (a test may carry one runtime tag), and no longer reads
@@ -169,11 +169,11 @@ is group 5.
       which splits a Claude recording into runs at the header lines and returns each run's text with its
       resume id. UNVERIFIED offline: the shape of the standard input of a `-p` run (plain text is assumed); the
       first recorded run settles it and the parser is fixed to match, a fix to test code.
-- [x] 4.7 Run each new test once with the configured agent (`uv run pytest -m local_stack
+- [x] 4.7 Run each new test once with the configured agent (`uv run pytest -m e2e
       tests/integration/test_dry_guidance_build.py tests/integration/test_dry_guidance_review.py`), report per
       case what the run showed and, for a red one, which of the three causes in design.md it was. Do not weaken
       an assertion to pass; a change to the fixture or the helper is a fix to test code and says why.
-- [x] 4.8 Update the test markers paragraph in `docs/agent-runtimes.md`: these tests are `local_stack`, tagged
+- [x] 4.8 Update the test markers paragraph in `docs/agent-runtimes.md`: these tests are `e2e`, tagged
       `runtime_claude_code` (the ACP form is group 5), need a Claude Code account, bill per token, take minutes each, run once per case, and are held to the
       tier-2 time limit; and add a changelog entry.
 
@@ -187,7 +187,7 @@ Done when, with a real ACP agent, the prompts the agent was sent held the reuse 
 instruction (tests step), the repointing line (implementing step) and the prior-art clause (review), as group 4
 shows for Claude Code; the ACP split stays held until the backend has budget, and nothing in group 4 changes.
 
-- [ ] 5.1 Test: `tests/integration/test_dry_guidance_prompts_acp.py`, marked `local_stack` and `runtime_acp`
+- [ ] 5.1 Test: `tests/integration/test_dry_guidance_prompts_acp.py`, marked `e2e` and `runtime_acp`
       (through the ACP parameter of `RUNTIME_PARAMS`, no Claude Code mark), skipped without `npx` or `uv` and
       failing (not skipping) when `<redacted>` names no agent, as `test_graph_acp_unit.py` does.
       One module-scoped fixture ticks case (a) once with `ticked_case("acp", ...)` under the line-forwarding ACP
@@ -197,7 +197,7 @@ shows for Claude Code; the ACP split stays held until the backend has budget, an
       line, and no continuation prompt holds the reuse part. The structural assertions of (a) are not repeated.
 - [ ] 5.2 Test: in the same file, the seeded duplicate of 4.5 is ticked once under the ACP recorder and the review
       prompt recorded holds the prior-art clause group 2 pinned. The findings are not asserted again.
-- [ ] 5.3 Run each test once with the configured agent (`uv run pytest -m local_stack
+- [ ] 5.3 Run each test once with the configured agent (`uv run pytest -m e2e
       tests/integration/test_dry_guidance_prompts_acp.py`), report what the run showed and, for a red one, which
       of the first two causes in design.md it was (the prompt was not delivered, or the recording's shape was
       not what `session_prompts` reads); do not weaken an assertion to pass. Two agent runs in all: a build and a

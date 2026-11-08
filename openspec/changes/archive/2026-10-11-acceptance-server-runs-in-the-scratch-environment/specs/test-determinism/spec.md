@@ -15,24 +15,24 @@ apply to every test, tier 2 included, and a tier 2 test that reaches one SHALL f
 
 #### Scenario: A tier 2 test is not refused
 
-- **GIVEN** a test marked `local_stack` that starts a harmless program through the runtime's real spawn
+- **GIVEN** a test marked `e2e` that starts a harmless program through the runtime's real spawn
 - **WHEN** it runs
 - **THEN** the program runs and no guard refuses it
 
 #### Scenario: The marker on the module counts
 
-- **GIVEN** a module whose tests are all marked `local_stack` through a module-level mark
+- **GIVEN** a module whose tests are all marked `e2e` through a module-level mark
 - **WHEN** one of them starts the real spawn
 - **THEN** it is not refused
 
 #### Scenario: The direct start follows the same rule
 
-- **GIVEN** a test marked `local_stack` and one without the marker, each starting a program whose name is `claude`
+- **GIVEN** a test marked `e2e` and one without the marker, each starting a program whose name is `claude`
 - **WHEN** they run
 - **THEN** the first is not refused by the guard and the second is, with the guard's message
 
 #### Scenario: The other guards hold for a tier 2 test
 
-- **GIVEN** a test marked `local_stack` that refreshes the login, reads the usage window, runs `gh` or calls the code host
+- **GIVEN** a test marked `e2e` that refreshes the login, reads the usage window, runs `gh` or calls the code host
 - **WHEN** it runs
 - **THEN** it fails with that guard's message

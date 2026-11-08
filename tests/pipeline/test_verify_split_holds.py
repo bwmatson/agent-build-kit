@@ -22,7 +22,7 @@ LIVE = "svc-a/tests/integration/test_drive_live_stack.py"
 OTHER_LIVE = "svc-b/tests/integration/test_other_live_stack.py"
 ACP_TEST = f"{LIVE}::test_acp_scenario"
 PLAIN_TEST = f"{LIVE}::test_plain_scenario"
-PLAIN = "local_stack and not dev_stack"
+PLAIN = "e2e and not dev_stack"
 
 # What the change merged: a service change to deploy, and the live test beside it.
 FILES = {

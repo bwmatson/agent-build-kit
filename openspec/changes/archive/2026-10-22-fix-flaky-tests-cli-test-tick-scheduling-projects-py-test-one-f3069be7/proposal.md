@@ -2,7 +2,7 @@
 
 `tests/cli/test_tick_scheduling_projects.py::test_one_project_starts_its_next_unit_as_one_of_its_builds_ends_and_the_other_does_not` failed under load and passed alone, twice, when run again by itself. A test like that fails units that did not touch it.
 
-It ran as `uv run pytest -n auto --maxprocesses=8 -m '(not integration and not local_stack) and not serial' -q` and failed with:
+It ran as `uv run pytest -n auto --maxprocesses=8 -m '(not integration and not e2e) and not serial' -q` and failed with:
 
 ```
 [21:40:51] web3/1: open — open web3/1

@@ -6,10 +6,10 @@ Priority: 2
 
 ## 1. [agent-build-kit] [unit-test] The drift test finds every live-stack module under tests/, not only test_*.py files in tests/integration
 
-Done when the set of live modules is every Python file anywhere under `tests/` whose syntax marks a test `local_stack`, including helper modules run by path, and a module that cannot be parsed is named. Estimate: about 120 changed lines.
+Done when the set of live modules is every Python file anywhere under `tests/` whose syntax marks a test `e2e`, including helper modules run by path, and a module that cannot be parsed is named. Estimate: about 120 changed lines.
 
-- [x] 1.1 Test: `tests/test_live_modules_are_found.py` builds a fixture tree with a `tests/integration/runtimes/test_x.py` and a non-`test_` `tests/integration/replay_unit_x.py`, each marking a test `local_stack` (by `pytestmark`, a decorator, a `pytest.param` mark and a class decorator), and asserts all are found.
-- [x] 1.2 Test: the same file asserts a module that only holds the word `local_stack` in a string or a comment is not found, and a module with a syntax error is named in a failure and not skipped.
+- [x] 1.1 Test: `tests/test_live_modules_are_found.py` builds a fixture tree with a `tests/integration/runtimes/test_x.py` and a non-`test_` `tests/integration/replay_unit_x.py`, each marking a test `e2e` (by `pytestmark`, a decorator, a `pytest.param` mark and a class decorator), and asserts all are found.
+- [x] 1.2 Test: the same file asserts a module that only holds the word `e2e` in a string or a comment is not found, and a module with a syntax error is named in a failure and not skipped.
 - [x] 1.3 Test: the same file asserts every file the old `INTEGRATION.glob("test_*.py")` plus text match found on the kit's tree is still found, so nothing is lost.
 - [x] 1.4 Replace `live_modules()` in `tests/live_tag_drift.py` (and `test_the_init_conventions_module_which_starts_no_agent_passes_untagged`'s membership check) with the recursive, syntax-based discovery.
 

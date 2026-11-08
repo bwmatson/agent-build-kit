@@ -20,7 +20,7 @@ def _workspace(root: Path) -> None:
 
 
 def test_a_repo_without_members_asks_for_every_duration(tmp_path: Path) -> None:
-    (command,) = PROFILE.e2e_commands(tmp_path, marker="local_stack")
+    (command,) = PROFILE.e2e_commands(tmp_path, marker="e2e")
 
     for flag in FLAGS:
         assert flag in command
@@ -29,7 +29,7 @@ def test_a_repo_without_members_asks_for_every_duration(tmp_path: Path) -> None:
 def test_every_member_asks_for_every_duration(tmp_path: Path) -> None:
     _workspace(tmp_path)
 
-    commands = PROFILE.e2e_commands(tmp_path, marker="local_stack")
+    commands = PROFILE.e2e_commands(tmp_path, marker="e2e")
 
     assert len(commands) == 2
     for command in commands:

@@ -323,7 +323,7 @@ def test_the_live_tests_get_the_consumer_env_and_the_repo_s_credentials(inst) ->
     assert env["CONSUMER_KEY"] == "sk-consumer"
     assert env["GATEWAY_MASTER_KEY"] == "sk-master"
     # only the live-stack tests, and never the ones only a dev stack can run
-    assert command[command.index("-m") + 1] == "local_stack and not dev_stack"
+    assert command[command.index("-m") + 1] == "e2e and not dev_stack"
 
 
 def test_a_failing_live_test_fails_the_change_with_what_failed(inst) -> None:

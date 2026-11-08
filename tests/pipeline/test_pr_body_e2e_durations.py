@@ -18,7 +18,7 @@ def _snapshot(output: str) -> str:
             failed=0,
             skipped=0,
             duration_seconds=1.5,
-            command="uv run pytest -m local_stack",
+            command="uv run pytest -m e2e",
             output=output,
             durations=ENTRIES,
         )

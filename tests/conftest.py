@@ -3,7 +3,7 @@
 Nothing a test runs may touch the host: refreshing the Claude login, spawning a
 real agent, the adapter's reading of the real usage window and any `gh` call
 each fail loudly here unless a test injects its own. A test marked
-`local_stack` is the exception for the agent: the runtime's spawn and a
+`e2e` is the exception for the agent: the runtime's spawn and a
 program named `claude` are let through. The guards on the login refresh, the
 usage window, `gh` and the code host apply to it too.
 
@@ -179,9 +179,9 @@ def no_real_agent(request: pytest.FixtureRequest, monkeypatch: pytest.MonkeyPatc
     reaching the adapter's real executor fails. A call site that still spawns
     `claude` itself is stopped by `no_direct_claude` instead.
 
-    Not applied to a `local_stack` test (on the test, its class or its
+    Not applied to a `e2e` test (on the test, its class or its
     module): that marker means the test drives a real agent."""
-    if request.node.get_closest_marker("local_stack"):
+    if request.node.get_closest_marker("e2e"):
         return
 
     def refuse(*args, **kwargs):
@@ -197,11 +197,10 @@ def no_sandbox_probes(request: pytest.FixtureRequest, monkeypatch: pytest.Monkey
     configuration that leaves the sandbox on cost seconds it did not need. A doctor run in the
     suite gets a stand-in that starts nothing; a test of the check marks itself `sandbox_probe`.
 
-    Not applied to a `sandbox_probe`, `local_stack` or `integration` test (on the test, its
+    Not applied to a `sandbox_probe`, `e2e` or `integration` test (on the test, its
     class or its module): those mean the real check."""
     if any(
-        request.node.get_closest_marker(name)
-        for name in ("sandbox_probe", "local_stack", "integration")
+        request.node.get_closest_marker(name) for name in ("sandbox_probe", "e2e", "integration")
     ):
         return
 
@@ -229,7 +228,7 @@ def stand_in_sandbox_backend(request: pytest.FixtureRequest) -> Iterator[None]:
     and the ones that drive a real stack keep the real backends."""
     if (
         not SANDBOX_STAND_IN_DIRECTORIES.intersection(request.path.parts)
-        or request.node.get_closest_marker("local_stack")
+        or request.node.get_closest_marker("e2e")
         or request.node.get_closest_marker("integration")
     ):
         yield
@@ -285,10 +284,10 @@ def no_direct_claude(request: pytest.FixtureRequest, monkeypatch: pytest.MonkeyP
     `claude` argv, instead of going through the runtime, fails rather than
     starting a real agent on the machine running the suite.
 
-    Not applied to a `local_stack` test: the real runtime starts `claude`
+    Not applied to a `e2e` test: the real runtime starts `claude`
     through `subprocess.Popen`, so lifting `no_real_agent` alone would change
     nothing. Every other test still finds a bypassing call site here."""
-    if request.node.get_closest_marker("local_stack"):
+    if request.node.get_closest_marker("e2e"):
         return
     monkeypatch.setattr(subprocess, "Popen", _NoClaudePopen)
 

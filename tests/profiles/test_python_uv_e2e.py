@@ -11,7 +11,7 @@ from pathlib import Path
 
 from agent_build_kit.profiles.python_uv import PROFILE
 
-MARKED_TEST = "import pytest\n\n\n@pytest.mark.local_stack\ndef test_live() -> None:\n    pass\n"
+MARKED_TEST = "import pytest\n\n\n@pytest.mark.e2e\ndef test_live() -> None:\n    pass\n"
 DECOY = 'raise SystemExit("optional package missing")\n'
 
 
@@ -24,7 +24,7 @@ def _member(root: Path, *, testpaths: bool, decoy: str) -> Path:
     narrowing = 'testpaths = ["tests"]\n' if testpaths else ""
     (member / "pyproject.toml").write_text(
         '[project]\nname = "svc-a"\n\n[tool.pytest.ini_options]\n'
-        f'markers = ["local_stack: needs the live stack"]\n{narrowing}'
+        f'markers = ["e2e: needs the live stack"]\n{narrowing}'
     )
     (member / "tests" / "test_live.py").write_text(MARKED_TEST)
     (member / decoy).write_text(DECOY)
@@ -32,7 +32,7 @@ def _member(root: Path, *, testpaths: bool, decoy: str) -> Path:
 
 
 def _run_e2e(root: Path) -> subprocess.CompletedProcess:
-    (command,) = PROFILE.e2e_commands(root, marker="local_stack")
+    (command,) = PROFILE.e2e_commands(root, marker="e2e")
     directory = root / command[command.index("--directory") + 1]
     pytest_args = command[command.index("pytest") + 1 :]
     return subprocess.run(

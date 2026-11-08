@@ -16,7 +16,7 @@ def _result(*durations: TestTime) -> E2eResult:
         failed=0,
         skipped=0,
         duration_seconds=1.5,
-        command="uv run pytest -m local_stack",
+        command="uv run pytest -m e2e",
         output="3 passed in 1.50s",
         durations=list(durations),
     )

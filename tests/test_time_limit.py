@@ -11,7 +11,7 @@ readings in and wait on no clock. The CPU-bound child scenarios in
 of them proves the CPU of a child the test waits on counts.
 
 A test marked `time_limit(<seconds>)` is held to that many seconds (spec:
-ci-gives-npm-a-longer-timeout), and a `local_stack` test to `--e2e-test-time-limit` (spec:
+ci-gives-npm-a-longer-timeout), and a `e2e` test to `--e2e-test-time-limit` (spec:
 e2e-tests-have-their-own-time-limit). `limit_for` gives a test's limit from the item alone. The
 marked-limit scenarios in `tests/child_modules/marked_time_limit/` swap `threading.Timer` for a
 recorder, so no outcome there depends on how long anything takes.
@@ -83,7 +83,7 @@ def test_a_test_marked_with_the_loaded_limit_has_it_as_cpu_budget_and_five_times
 def test_an_e2e_test_keeps_its_wall_clock_limit_and_has_no_cpu_budget(
     request: pytest.FixtureRequest,
 ) -> None:
-    request.applymarker(pytest.mark.local_stack)
+    request.applymarker(pytest.mark.e2e)
 
     budget = time_limit.budget_for(request.node)
 
@@ -183,7 +183,7 @@ def test_an_unmarked_test_gets_the_fast_limit(request: pytest.FixtureRequest) ->
 def test_an_e2e_test_keeps_the_e2e_limit_over_its_marker(
     request: pytest.FixtureRequest,
 ) -> None:
-    request.applymarker(pytest.mark.local_stack)
+    request.applymarker(pytest.mark.e2e)
     request.applymarker(pytest.mark.time_limit(1))
 
     assert time_limit.limit_for(request.node) == time_limit.e2e_limit(request.config)

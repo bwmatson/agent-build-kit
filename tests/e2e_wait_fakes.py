@@ -14,7 +14,7 @@ OTHER_OLD = "tests/far/test_older.py::test_older"
 FIX = "fix-failing-test-old"
 OLD_OUTPUT = "OLD-OUTPUT-MARK the base fails this one too"
 OWN_OUTPUT = "OWN-OUTPUT-MARK the unit's own test fails"
-COMMAND = "uv run pytest -m local_stack -v"
+COMMAND = "uv run pytest -m e2e -v"
 
 
 def failure(test: str, group: str = "") -> TestFailure:

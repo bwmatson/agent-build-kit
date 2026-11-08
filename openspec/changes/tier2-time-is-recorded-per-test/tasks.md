@@ -22,9 +22,9 @@ Done when the e2e-test command asks for durations, the parsed entries are listed
 
 Done when an e2e-test test using the scratch installation prints, per phase, its agent time by role, checks time and remainder from the ledger rows written during that phase.
 
-- [x] 2.1 Test: `tests/test_e2e_time_split.py` runs a `pytester` test marked `local_stack` that appends an `agent` row of 120 s for `implement` and a command span of 30 s to a fake scratch ledger and asserts its call line gives agent 120 s with one call, checks 30 s and other as the remainder.
+- [x] 2.1 Test: `tests/test_e2e_time_split.py` runs a `pytester` test marked `e2e` that appends an `agent` row of 120 s for `implement` and a command span of 30 s to a fake scratch ledger and asserts its call line gives agent 120 s with one call, checks 30 s and other as the remainder.
 - [x] 2.2 Test: the same file asserts two `agent` rows for one role give two calls and their sum, and parts above the wall time give other zero and say they overlap.
-- [x] 2.3 Test: the same file asserts a module fixture's rows land in the setup of the first test using it and in no other entry, and a `local_stack` test without the scratch ledger gets no line.
+- [x] 2.3 Test: the same file asserts a module fixture's rows land in the setup of the first test using it and in no other entry, and a `e2e` test without the scratch ledger gets no line.
 - [x] 2.4 Test: the line's prefix and JSON round-trip through the framework's reader, and a malformed line is ignored.
 - [x] 2.5 Add the plugin `tests/time_split.py` (loaded beside `tests.time_limit`), the `scratch_ledger` fixture for the live scratch-installation tests, and the framework's reader of its lines.
 - [x] 2.6 Document the plugin and the line format in `docs/architecture.md` and add a changelog entry.

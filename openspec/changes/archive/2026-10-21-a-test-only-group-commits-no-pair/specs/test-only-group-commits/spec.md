@@ -145,7 +145,7 @@ be cached apart from one recorded with a red run.
 
 #### Scenario: An e2e-only tests commit of a test-only group
 
-- **GIVEN** a test-only group's `test:` commit holding only `local_stack` tests that collect nothing or fail on a refused connection
+- **GIVEN** a test-only group's `test:` commit holding only `e2e` tests that collect nothing or fail on a refused connection
 - **WHEN** the push gate runs
 - **THEN** it is not refused for "no tests ran" or for an unrecognised failure, and its lint, format and types are still checked
 

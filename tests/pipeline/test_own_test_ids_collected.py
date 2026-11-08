@@ -29,7 +29,7 @@ def decide(repo: Path, base: str) -> E2eScope:
         setting=E2eUnitScope.OWN,
         profile=PROFILE,
         projects=[],
-        marker="local_stack",
+        marker="e2e",
         dev_stack=None,
     )
 

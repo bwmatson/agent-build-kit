@@ -33,7 +33,7 @@ from tests.prompt_text import flat
 from tests.runtime_scratch import CLAUDE_CODE_PARAMS
 
 pytestmark = [
-    pytest.mark.local_stack,
+    pytest.mark.e2e,
     pytest.mark.skipif(shutil.which("npx") is None, reason="npx is not on PATH"),
     pytest.mark.skipif(shutil.which("uv") is None, reason="uv is not on PATH"),
 ]

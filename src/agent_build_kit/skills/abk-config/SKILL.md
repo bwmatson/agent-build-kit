@@ -322,8 +322,8 @@ repos:                        # ordered; a task group's [repo] tag is a key here
         write: []                # taken from the worktree. `abk.local.yaml` adds to these
         hosts: []                # lists per machine.
         ports: []                # local TCP ports opened beside the proxy's, e.g. `[5432]`
-      e2e_marker: local_stack    # for a node project the marker is a file-name segment:
-                                 # `<name>.local_stack.test.ts[x]` (`<name>.<marker>.test.<ext>`)
+      e2e_marker: e2e    # for a node project the marker is a file-name segment:
+                                 # `<name>.e2e.test.ts[x]` (`<name>.<marker>.test.<ext>`)
                                  # is e2e-test. Unit-test still runs the whole Vitest run, marked
                                  # files included, so a marked test must skip itself without the
                                  # stack; a Vitest `exclude` of them hides them from e2e-test too.

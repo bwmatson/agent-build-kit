@@ -34,7 +34,7 @@ from tests.integration import replay_unit_build as build
 from tests.replay.support import replaced_cassettes, replayed_cassettes
 
 pytestmark = [
-    pytest.mark.local_stack,
+    pytest.mark.e2e,
     pytest.mark.skipif(shutil.which("npx") is None, reason="npx is not on PATH"),
     pytest.mark.skipif(shutil.which("uv") is None, reason="uv is not on PATH"),
 ]

@@ -17,7 +17,7 @@ from tests.node_workspace import manifest
 
 CANNOT = "cannot select tests by identifier"
 SKIPPED = "e2e-test skipped"
-WEB_E2E = "web/src/a.local_stack.test.ts"
+WEB_E2E = "web/src/a.e2e.test.ts"
 
 
 PROJECTS = [ProjectConfig(path="api"), ProjectConfig(path="web", profile="node-npm")]
@@ -41,7 +41,7 @@ def scope_of(repo: Path, base: str) -> E2eScope:
         setting=E2eUnitScope.OWN,
         profile=PROFILE,
         projects=PROJECTS,
-        marker="local_stack",
+        marker="e2e",
         dev_stack=None,
     )
 
@@ -82,7 +82,7 @@ def test_a_unit_that_changed_only_a_node_e2e_test_runs_it_in_the_node_project(
     assert SKIPPED not in scope.reason
     assert [run.where for run in scope.runs] == [repo / "web"]
     [command] = scope.runs[0].commands
-    assert command[5:] == ["src/a.local_stack.test.ts"]
+    assert command[5:] == ["src/a.e2e.test.ts"]
     assert WEB_E2E in scope.ids
 
 
@@ -100,17 +100,17 @@ def test_a_node_e2e_test_the_unit_deleted_is_not_run(tmp_path: Path) -> None:
 def test_a_node_e2e_test_not_yet_committed_is_run(tmp_path: Path) -> None:
     repo, base = checkout(tmp_path)
     (repo / WEB_E2E).write_text("// edited\n")
-    (repo / "web/src/b.local_stack.test.ts").write_text("// new\n")
+    (repo / "web/src/b.e2e.test.ts").write_text("// new\n")
 
     scope = scope_of(repo, base)
 
     assert {run.where for run in scope.runs} == {repo / "api", repo / "web"}
-    assert {WEB_E2E, "web/src/b.local_stack.test.ts"} <= set(scope.ids)
+    assert {WEB_E2E, "web/src/b.e2e.test.ts"} <= set(scope.ids)
 
 
 def test_the_own_test_ids_of_a_commit_include_its_node_test_files(tmp_path: Path) -> None:
     repo, base = checkout(tmp_path, {WEB_E2E: "// changed\n"})
-    work = e2e_work(repo, PROJECTS, PROFILE, "local_stack")
+    work = e2e_work(repo, PROJECTS, PROFILE, "e2e")
 
     assert own_test_ids(repo, base, work, head="HEAD") == [WEB_E2E]
 

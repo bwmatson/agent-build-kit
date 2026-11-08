@@ -2,7 +2,7 @@
 
 `tests/runtimes/test_policy_agent_harness.py::test_a_run_ended_once_the_agent_is_up_leaves_no_process_and_no_directory` failed under load and passed alone, twice, when run again by itself. A test like that fails units that did not touch it.
 
-It ran as `uv run pytest -n auto --maxprocesses=8 -m '(not integration and not local_stack) and not serial' -q` and failed with:
+It ran as `uv run pytest -n auto --maxprocesses=8 -m '(not integration and not e2e) and not serial' -q` and failed with:
 
 ```
 >       return [int((record / name).read_text()) for name in ("agent.pid", "child.pid")]

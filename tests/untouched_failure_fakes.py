@@ -22,7 +22,7 @@ def failing(
     return PreExisting(
         test=test,
         unit=unit,
-        command="uv run pytest -m local_stack -v",
+        command="uv run pytest -m e2e -v",
         line=line,
         at=datetime(2026, 3, 1, 9, 30, tzinfo=UTC),
         base_output=base_output,

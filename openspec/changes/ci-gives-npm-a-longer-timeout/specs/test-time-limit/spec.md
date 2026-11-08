@@ -3,7 +3,7 @@
 ### Requirement: A test can carry its own time limit
 
 A test marked `time_limit(<seconds>)` SHALL be held to that many seconds on its setup, call and teardown, in place of the default `--test-time-limit`, and
-fail with "test exceeded the time limit of <n> seconds" when it passes it. Every test without the marker, and the e2e limit of a `local_stack` test, SHALL
+fail with "test exceeded the time limit of <n> seconds" when it passes it. Every test without the marker, and the e2e limit of a `e2e` test, SHALL
 be as before. The marker SHALL be registered, so `--strict-markers` accepts it. The vitest integration test SHALL carry `time_limit(180)`.
 
 #### Scenario: A marked test runs past the default
