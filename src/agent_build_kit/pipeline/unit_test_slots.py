@@ -49,6 +49,9 @@ Rank = tuple[int, ...]
 # Served after every rank a unit's start key can have (those begin with 0, 1 or 2).
 LEAST_URGENT: Rank = (sys.maxsize,)
 
+# The rank of a recording of the base's selection data: served after every unit's check.
+RECORDING_RANK: Rank = (0,)
+
 # Served before every rank a unit's start key can have, whatever its length: the rank of a
 # settling unit's late check. A settling unit holds its branch and its children and is not
 # waiting to start, so its run is the cheapest work to finish.
