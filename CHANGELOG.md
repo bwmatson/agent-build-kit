@@ -26,7 +26,8 @@
   the name of the test kind. The default of `tests.e2e_marker`, the registered marker, the
   default deselection and the script that runs them (`poe test-e2e`) follow, and the default run
   still deselects the same tests. The old name is not accepted as a synonym: a repository that
-  still sets `tests.e2e_marker: local_stack` keeps working only because it names its own marker.
+  still sets `tests.e2e_marker: local_stack` keeps working only because it names its own marker, and `abk doctor` warns of it,
+  naming the key and `e2e`.
 
 - The tracker sync now adopts board items a person made by hand and wrote into a hold's `items`
   (`change`, `group`, `tasks`, `epic`; `feature` and `story` still work) instead of creating

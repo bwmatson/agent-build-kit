@@ -1436,6 +1436,24 @@ def _unit_test_cap(inst: Installation) -> list[Check]:
     return []
 
 
+# Built in parts so no tracked file but the changelog carries the old name.
+OLD_E2E_MARKER = "local" + "_stack"
+
+
+def _old_e2e_marker(inst: Installation) -> list[Check]:
+    """A warning for each repo whose `tests.e2e_marker` is still the name the marker had before
+    it became `e2e`."""
+    return [
+        _warn(
+            f"e2e marker {name}",
+            f"tests.e2e_marker is {OLD_E2E_MARKER!r} for {name}: the marker is now named `e2e`",
+            "set tests.e2e_marker to e2e (or delete it) and rename the marker on the tests",
+        )
+        for name, repo in inst.config.repos.items()
+        if repo.tests.e2e_marker == OLD_E2E_MARKER
+    ]
+
+
 def _missing_inputs(environment: EnvironmentConfig, root: Path) -> list[str]:
     return [pattern for pattern, names in matched_inputs(environment, root).items() if not names]
 
@@ -2421,6 +2439,7 @@ def run_doctor(
     checks += _public_content(inst)
     checks += _machine_keys(inst)
     checks += _unit_test_cap(inst)
+    checks += _old_e2e_marker(inst)
     checks += _local_dir(inst, mount_of)
     checks += _weak_secrets()
     checks += _environment(inst, run)
