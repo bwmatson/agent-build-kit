@@ -727,10 +727,10 @@ class _Session:
                     TranscriptEvent(kind="reasoning" if kind == "reasoning" else "text", text=text)
                 )
 
-    def _refused(self, line: str, reason: str, layer: str) -> None:
+    def _refused(self, line: str, reason: str, layer: str, tool: str = "execute") -> None:
         """The one progress line an operator reads to learn what refused a
-        command, and so which rules to tighten."""
-        self.refused_calls.append(RefusedCall(tool="execute", subject=line, reason=reason))
+        call, and so which rules to tighten; `tool` is the call's ACP kind."""
+        self.refused_calls.append(RefusedCall(tool=tool, subject=line, reason=reason))
         self._tell(f"refused `{line}` by {layer}: {reason}")
 
     def _attribute_own_refusal(self, call_id: str, update: ToolCallProgress) -> None:
@@ -794,9 +794,13 @@ class _Session:
         self._answered.add(tool_call.tool_call_id)
         if not verdict.allowed:
             self._refused(
-                _command_of(known.raw_input) or tool_call.title or tool_call.tool_call_id,
+                _command_of(known.raw_input)
+                or (known.paths[0] if known.paths else None)
+                or tool_call.title
+                or tool_call.tool_call_id,
                 verdict.reason,
                 "abk's command rules",
+                known.kind or "execute",
             )
         if verdict.allowed and self._permission is not None:
             # A person answers: only for a call the rules already allow.

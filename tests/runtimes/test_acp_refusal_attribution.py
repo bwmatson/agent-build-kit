@@ -10,7 +10,7 @@ from typing import Any
 import pytest
 
 from agent_build_kit.pipeline.command_policy import check_command
-from agent_build_kit.runtimes import AgentRequest, ToolPolicy
+from agent_build_kit.runtimes import AgentRequest, AgentResult, ToolPolicy
 from agent_build_kit.runtimes.acp import AcpRuntime
 from tests.factories import git, init_repo
 from tests.runtimes.acp_agent import use_agent
@@ -310,9 +310,28 @@ def test_a_titled_terminal_failure_that_is_not_a_denial_is_not_the_agents_policy
 def test_the_refusals_it_logs_are_returned_on_the_result(
     tmp_path: Path, worktree: Path, specs: Path
 ) -> None:
-    use_agent(tmp_path / "agent.jsonl", act=[{"ask": "execute", "command": LINE}])
+    result = _result(tmp_path, worktree, specs, [{"ask": "execute", "command": LINE}])
 
-    result = AcpRuntime().run(
+    assert [(call.tool, call.subject, call.reason) for call in result.refused_calls] == [
+        ("execute", LINE, check_command(LINE, branch=BRANCH).reason)
+    ]
+
+
+def test_a_refused_edit_is_returned_with_its_kind_and_path(
+    tmp_path: Path, worktree: Path, specs: Path
+) -> None:
+    outside = str(tmp_path / "elsewhere.txt")
+
+    result = _result(tmp_path, worktree, specs, [{"ask": "edit", "paths": [outside]}])
+
+    [call] = result.refused_calls
+    assert (call.tool, call.subject) == ("edit", outside)
+    assert f"{outside} is outside the worktree" in call.reason
+
+
+def _result(tmp_path: Path, worktree: Path, specs: Path, act: list[dict]) -> AgentResult:
+    use_agent(tmp_path / "agent.jsonl", act=act)
+    return AcpRuntime().run(
         AgentRequest(
             prompt="Implement group 1 of add-marker.",
             role="implement",
@@ -322,7 +341,3 @@ def test_the_refusals_it_logs_are_returned_on_the_result(
             on_event=lambda line: None,
         )
     )
-
-    assert [(call.subject, call.reason) for call in result.refused_calls] == [
-        (LINE, check_command(LINE, branch=BRANCH).reason)
-    ]

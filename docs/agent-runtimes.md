@@ -803,8 +803,12 @@ before. The pipeline decides what a weak sign means (`pipeline/network_probe.py`
 `RefusedCall` (tool, subject — the command or path — and reason). The claude runtime reads
 them from the closing event's `permission_denials` list and takes each reason from the
 error tool result of the same call; a stream with no list has none. The ACP runtime returns
-the refusals it attributes and logs. Each is said once in the unit's log as
-"refused `<command>` by the agent's permissions: <reason>". A refused call did not run.
+the refusals it attributes and logs, with the call's ACP kind (`execute`, `edit`, `read`)
+as the tool and the command or the path it named as the subject. Each is said once in the
+unit's log. The claude runtime writes "refused `<subject>` by the agent's permissions:
+<reason>"; the ACP runtime writes "refused `<subject>` by <layer>: <reason>", where the layer
+is abk's command rules, the agent's own policy or the agent's own configuration. A refused
+call did not run.
 
 ## A failing model service is a typed error
 

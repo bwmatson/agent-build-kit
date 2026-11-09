@@ -207,6 +207,19 @@ def result_event(stdout: str) -> ResultEvent | None:
     return None
 
 
+def tool_results(stdout: str) -> dict[str, str]:
+    """Each tool call's result text, by the call's id, over a whole stream."""
+    found: dict[str, str] = {}
+    for line in stdout.splitlines():
+        event = _parse(line)
+        if event is None:
+            continue
+        for block in _content(event):
+            if block.get("type") == "tool_result":
+                found[str(block.get("tool_use_id") or "")] = _result_text(block.get("content"))
+    return found
+
+
 def own_words(stdout: str) -> str:
     """What the CLI itself said about how the run ended, and nothing the run
     did on the way: the `result` event's text and its `errors`, or, with no
@@ -313,11 +326,11 @@ def _block(block: dict, whole: bool = False) -> str:
     if block.get("type") == "text":
         return f"says: {keep(block.get('text', ''))}" if block.get("text", "").strip() else ""
     if block.get("type") == "tool_use":
-        return f"{block.get('name', '?')} {keep(_tool_target(block.get('input') or {}))}".rstrip()
+        return f"{block.get('name', '?')} {keep(tool_target(block.get('input') or {}))}".rstrip()
     return ""
 
 
-def _tool_target(tool_input: dict) -> str:
+def tool_target(tool_input: dict) -> str:
     """What a tool call acts on — the part that says what the model is doing."""
     for key in ("file_path", "path", "command", "pattern", "url", "description"):
         if value := tool_input.get(key):

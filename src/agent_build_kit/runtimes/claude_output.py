@@ -6,13 +6,12 @@ else from its own words, and a session that is gone or too long to continue from
 own words. Callers use the typed result and never read the text again.
 """
 
-import json
 import re
 from datetime import datetime
 from typing import Literal
 
 from agent_build_kit.model import Frozen
-from agent_build_kit.pipeline.claude_stream import ResultEvent
+from agent_build_kit.pipeline.claude_stream import ResultEvent, tool_results, tool_target
 from agent_build_kit.pipeline.usage_guard import rate_limit_reset
 from agent_build_kit.runtimes.base import RefusedCall
 
@@ -73,40 +72,15 @@ def refused_calls(stdout: str, event: ResultEvent | None) -> tuple[RefusedCall, 
     error tool result of the same call says why (the list names the call, not the reason)."""
     if event is None or not event.permission_denials:
         return ()
-    reasons: dict[str, str] = {}
-    for line in stdout.splitlines():
-        try:
-            parsed = json.loads(line)
-        except ValueError:
-            continue
-        message = parsed.get("message") if isinstance(parsed, dict) else None
-        content = message.get("content") if isinstance(message, dict) else None
-        for block in content if isinstance(content, list) else []:
-            if isinstance(block, dict) and block.get("type") == "tool_result":
-                reasons[str(block.get("tool_use_id"))] = _text_of(block.get("content"))
+    reasons = tool_results(stdout)
     refused = []
     for denial in event.permission_denials:
         given = denial.get("tool_input")
-        given = given if isinstance(given, dict) else {}
-        subject = next(
-            (str(given[k]) for k in ("command", "file_path", "path") if given.get(k)),
-            next((v for v in given.values() if isinstance(v, str)), ""),
-        )
         refused.append(
             RefusedCall(
                 tool=str(denial.get("tool_name", "")),
-                subject=subject,
+                subject=tool_target(given if isinstance(given, dict) else {}),
                 reason=reasons.get(str(denial.get("tool_use_id")), ""),
             )
         )
     return tuple(refused)
-
-
-def _text_of(content: object) -> str:
-    if isinstance(content, str):
-        return content
-    if isinstance(content, list):
-        return " ".join(
-            b["text"] for b in content if isinstance(b, dict) and isinstance(b.get("text"), str)
-        )
-    return ""

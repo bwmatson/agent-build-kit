@@ -28,10 +28,10 @@ from agent_build_kit.runtimes import (
     AgentInterrupted,
     AgentRateLimited,
     AgentRequest,
+    RefusedCall,
     ToolPolicy,
     claude_code,
 )
-from agent_build_kit.runtimes.base import RefusedCall
 from agent_build_kit.runtimes.claude_code import ClaudeCodeRuntime
 from tests.runtimes.claude_cli import (
     FakeClaude,
@@ -325,19 +325,15 @@ def test_a_refused_bash_call_is_returned_with_its_command_and_reason(tmp_path: P
 
 
 @pytest.mark.parametrize("with_list", [True, False], ids=["empty list", "no list"])
-def test_a_stream_without_a_refusal_list_succeeds_with_none_beside_one_that_has_it(
+def test_an_error_tool_result_with_no_denial_listed_is_not_a_refusal(
     tmp_path: Path, with_list: bool
 ) -> None:
-    """The error tool result alone is no refusal: the same run reads one only when listed."""
     bare = refused_call_build(tmp_path, COMMAND, REASON, listed=False, with_list=with_list)
-    listed = refused_call_build(tmp_path, COMMAND, REASON)
 
     result = ClaudeCodeRuntime(execute=FakeClaude(stdout=bare)).run(_request(tmp_path))
-    seen = ClaudeCodeRuntime(execute=FakeClaude(stdout=listed)).run(_request(tmp_path))
 
     assert result.ok is True
     assert result.refused_calls == ()
-    assert len(seen.refused_calls) == 1
 
 
 def test_each_refused_call_is_said_once_in_the_unit_log(tmp_path: Path) -> None:
