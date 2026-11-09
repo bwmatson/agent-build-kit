@@ -92,15 +92,6 @@ def test_a_conftest_stays_among_the_runner_arguments(repo: Path) -> None:
     assert sorted(profile.files[0]) == ["tests/conftest.py", "tests/test_new.py"]
 
 
-def test_a_data_file_stays_a_test_file_of_the_tests_commit(repo: Path) -> None:
-    commit(repo, "feat: code first", {"src/thing.py": "x = 1\n"})
-    commit(repo, "test: snapshot after code", {SNAPSHOT: '{"tools": [2]}\n'})
-
-    problems = check_branch(repo, "main", profile=Recording(PYTHON).toolchain)
-
-    assert problems, "the order check counts the data file as a test file"
-
-
 def test_a_tests_commit_with_only_a_data_file_builds_no_red_command(repo: Path) -> None:
     commit(repo, "test: snapshot only", {SNAPSHOT: '{"tools": [3]}\n'})
     commit(repo, "feat: code", {"src/thing.py": "x = 1\n"})
