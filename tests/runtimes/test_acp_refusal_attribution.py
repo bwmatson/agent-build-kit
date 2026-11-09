@@ -305,3 +305,24 @@ def test_a_titled_terminal_failure_that_is_not_a_denial_is_not_the_agents_policy
         act=[{"titled_terminal": LINE, "output": "error: nothing to amend"}],
     )
     assert refusals == _expected("the agent's own configuration")
+
+
+def test_the_refusals_it_logs_are_returned_on_the_result(
+    tmp_path: Path, worktree: Path, specs: Path
+) -> None:
+    use_agent(tmp_path / "agent.jsonl", act=[{"ask": "execute", "command": LINE}])
+
+    result = AcpRuntime().run(
+        AgentRequest(
+            prompt="Implement group 1 of add-marker.",
+            role="implement",
+            cwd=worktree,
+            add_dirs=(specs,),
+            policy=ToolPolicy(specs_dir=specs),
+            on_event=lambda line: None,
+        )
+    )
+
+    assert [(call.subject, call.reason) for call in result.refused_calls] == [
+        (LINE, check_command(LINE, branch=BRANCH).reason)
+    ]

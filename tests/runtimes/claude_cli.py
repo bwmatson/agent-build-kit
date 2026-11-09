@@ -87,6 +87,8 @@ def _result(
     ms: int = 81234,
     subtype: str = "success",
     api_error_status: int | None = None,
+    denials: list[dict] | None = None,
+    with_denials: bool = True,
 ) -> dict:
     """The closing event. Only a `success` result — a usage-limit refusal
     among them, flagged `is_error` — carries `result`; an error subtype has
@@ -105,7 +107,7 @@ def _result(
         "total_cost_usd": 0.0 if is_error else 0.4127,
         "usage": USAGE if not is_error else dict.fromkeys(USAGE, 0) | {"service_tier": None},
         "modelUsage": {} if is_error else {MODEL: {"inputTokens": 4, "outputTokens": 212}},
-        "permission_denials": [],
+        **({"permission_denials": denials or []} if with_denials else {}),
         "uuid": "9a4e2c71-8b3d-4f6a-a5e0-7c1b9d2f8e63",
     }
 
@@ -296,6 +298,48 @@ def failed_build(cwd: Path, message: str) -> str:
         },
         _result(message, is_error=True, turns=2, subtype="error_during_execution")
         | {"session_id": session},
+    )
+
+
+def refused_call_build(
+    cwd: Path, command: str, reason: str, *, listed: bool = True, with_list: bool = True
+) -> str:
+    """A run whose one Bash call the CLI's permission layer refused: the call's tool result
+    is an error holding the reason, and the closing event lists the call alone. `listed`
+    False leaves the list empty, `with_list` False leaves the key out of the event."""
+    call = "toolu_01RefusedBashCall0001"
+    denial = {"tool_name": "Bash", "tool_use_id": call, "tool_input": {"command": command}}
+    return stream(
+        _init(cwd),
+        _assistant(
+            [
+                {
+                    "type": "tool_use",
+                    "id": call,
+                    "name": "Bash",
+                    "input": {"command": command, "description": "Append and test"},
+                }
+            ]
+        ),
+        {
+            "type": "user",
+            "message": {
+                "role": "user",
+                "content": [
+                    {
+                        "tool_use_id": call,
+                        "type": "tool_result",
+                        "content": reason,
+                        "is_error": True,
+                    }
+                ],
+            },
+            "parent_tool_use_id": None,
+            "session_id": SESSION,
+            "uuid": "e1b4c7a2-5d8f-4e3a-9c6b-0a2f8d1e7b53",
+        },
+        _assistant([{"type": "text", "text": "Done."}]),
+        _result("Done.", denials=[denial] if listed else [], with_denials=with_list),
     )
 
 

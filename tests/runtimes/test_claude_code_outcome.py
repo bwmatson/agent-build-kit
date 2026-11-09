@@ -31,6 +31,7 @@ from agent_build_kit.runtimes import (
     ToolPolicy,
     claude_code,
 )
+from agent_build_kit.runtimes.base import RefusedCall
 from agent_build_kit.runtimes.claude_code import ClaudeCodeRuntime
 from tests.runtimes.claude_cli import (
     FakeClaude,
@@ -38,6 +39,7 @@ from tests.runtimes.claude_cli import (
     finished_build,
     record,
     refused,
+    refused_call_build,
     stream,
 )
 
@@ -306,3 +308,43 @@ def test_spawn_runs_to_completion_when_nobody_is_listening(tmp_path: Path) -> No
 
     assert done.returncode == 0
     assert final_text(done.stdout) == "ok"
+
+
+COMMAND = "echo 'def test_marker(): ...' >> tests/test_app.py && pytest > $ABK_OUT/t.log"
+REASON = "A variable in this command can't be checked before it runs"
+
+
+def test_a_refused_bash_call_is_returned_with_its_command_and_reason(tmp_path: Path) -> None:
+    """The result event lists only the call; the error tool result supplies the reason."""
+    fake = FakeClaude(stdout=refused_call_build(tmp_path, COMMAND, REASON))
+
+    result = ClaudeCodeRuntime(execute=fake).run(_request(tmp_path))
+
+    assert result.ok is True
+    assert result.refused_calls == (RefusedCall(tool="Bash", subject=COMMAND, reason=REASON),)
+
+
+@pytest.mark.parametrize("with_list", [True, False], ids=["empty list", "no list"])
+def test_a_stream_without_a_refusal_list_succeeds_with_none_beside_one_that_has_it(
+    tmp_path: Path, with_list: bool
+) -> None:
+    """The error tool result alone is no refusal: the same run reads one only when listed."""
+    bare = refused_call_build(tmp_path, COMMAND, REASON, listed=False, with_list=with_list)
+    listed = refused_call_build(tmp_path, COMMAND, REASON)
+
+    result = ClaudeCodeRuntime(execute=FakeClaude(stdout=bare)).run(_request(tmp_path))
+    seen = ClaudeCodeRuntime(execute=FakeClaude(stdout=listed)).run(_request(tmp_path))
+
+    assert result.ok is True
+    assert result.refused_calls == ()
+    assert len(seen.refused_calls) == 1
+
+
+def test_each_refused_call_is_said_once_in_the_unit_log(tmp_path: Path) -> None:
+    lines: list[str] = []
+    fake = FakeClaude(stdout=refused_call_build(tmp_path, COMMAND, REASON))
+
+    ClaudeCodeRuntime(execute=fake).run(_request(tmp_path, on_event=lines.append))
+
+    said = [line.strip() for line in lines if "refused" in line]
+    assert said == [f"refused `{COMMAND}` by the agent's permissions: {REASON}"]

@@ -216,6 +216,14 @@ def full_environment(environment: dict[str, str] | None, env: dict[str, str]) ->
     return {**(os.environ if environment is None else environment), **env}
 
 
+class RefusedCall(Frozen):
+    """A tool call the agent's permission layer refused: it did not run."""
+
+    tool: str
+    subject: str  # the command or path the call named
+    reason: str
+
+
 class AgentResult(Frozen):
     """What a call answered — not a subprocess's returncode and stdout."""
 
@@ -233,6 +241,7 @@ class AgentResult(Frozen):
     usage_source: UsageSource = "none"
     context: Context | None = None  # the context window's use over the call, when it says
     reported_model: str | None = None  # the model the runtime says ran, when it says
+    refused_calls: tuple[RefusedCall, ...] = ()  # calls the agent's permissions refused
 
     @property
     def succeeded(self) -> bool:
