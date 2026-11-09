@@ -166,6 +166,29 @@ def test_the_prompt_asks_for_the_kind_line_of_each_kind(
     assert outcome == FixOutcome(change=agent.name), "the stand-in names the kind it is asked for"
 
 
+@pytest.mark.parametrize("reached", ["flake", "isolation"])
+def test_the_prompt_of_a_flaky_test_names_the_reruns_and_the_class_reached_and_no_base_run(
+    installation: Installation, tmp_path: Path, reached: str
+) -> None:
+    agent = Attempts(installation, next_fix_name(installation, TEST), {})
+
+    run(
+        installation,
+        tmp_path,
+        agent.runtime,
+        kind=FixKind.FLAKY,
+        failed=failure(classification=reached),
+    )
+
+    prompt = agent.runtime.request.prompt
+    assert "two serial reruns" in prompt, "the reruns made alone"
+    assert f"Class reached: {reached}" in prompt
+    assert "It was not run on the base." in prompt, (
+        "a flake passed its reruns and was not run there"
+    )
+    assert f"run on the base ({BASE})" not in prompt
+
+
 def test_the_prompt_asks_for_the_failing_test_line(
     installation: Installation, tmp_path: Path
 ) -> None:
