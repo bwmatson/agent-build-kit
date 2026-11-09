@@ -93,7 +93,10 @@
   the tests an `[integration-test]` group adds carry the `integration` selector, and sends
   them back with a reason naming the test when they do not. The check applies where the
   toolchain profile provides it (today the Python one); a repository on another profile is
-  not checked.
+  not checked. A guard now fails a test with the `integration` selector that loads a settings
+  model without overriding a required field, reads an environment variable with no default,
+  starts a real agent or calls a host other than loopback, so it cannot fail CI for a reason
+  unrelated to the code; today's violators are on a baseline that may only shrink.
 
 - The affected-test selection data is to be recorded once on the base and given to each unit.
   The kit now has the store for it: a recording is kept with its commit, a moved base is
