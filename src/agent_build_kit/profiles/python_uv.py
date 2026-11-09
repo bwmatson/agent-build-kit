@@ -720,6 +720,24 @@ class PythonUvProfile:
         found = _FAILED_TEST.findall(output)
         return list(dict.fromkeys(found))
 
+    def declared_kinds(self, repo: Path) -> tuple[str, ...]:
+        raise NotImplementedError
+
+    def default_run_leaves_out(self, repo: Path) -> tuple[str, ...]:
+        raise NotImplementedError
+
+    def by_id_overrides_default(self, repo: Path) -> bool:
+        raise NotImplementedError
+
+    def refused_kinds(self, repo: Path, kinds: list[str]) -> list[str]:
+        raise NotImplementedError
+
+    def kinds_of(self, repo: Path, path: str, content: str = "") -> list[str]:
+        raise NotImplementedError
+
+    def per_test_limit_option(self, repo: Path) -> str | None:
+        raise NotImplementedError
+
     def failed_workers(self, output: str) -> dict[str, str]:
         """The worker (`gw3`) that ran each failed test, read from the `[gw3] ...` line xdist
         writes at the head of the test's block in the failures; a test with no such line (a run

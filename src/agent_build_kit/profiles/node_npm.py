@@ -350,6 +350,24 @@ class NodeNpmProfile:
                 files.append(relative)
         return ["sh", "-c", _FILTERED, "sh", directory, *files] if files else None
 
+    def declared_kinds(self, repo: Path) -> tuple[str, ...]:
+        raise NotImplementedError
+
+    def default_run_leaves_out(self, repo: Path) -> tuple[str, ...]:
+        raise NotImplementedError
+
+    def by_id_overrides_default(self, repo: Path) -> bool:
+        raise NotImplementedError
+
+    def refused_kinds(self, repo: Path, kinds: list[str]) -> list[str]:
+        raise NotImplementedError
+
+    def kinds_of(self, repo: Path, path: str, content: str = "") -> list[str]:
+        raise NotImplementedError
+
+    def per_test_limit_option(self, repo: Path) -> str | None:
+        raise NotImplementedError
+
     def test_file_pathspecs(self) -> list[str]:
         """The `.test` and `.spec` files and those under `__tests__/`; Vitest selects by file."""
         return [

@@ -20,6 +20,8 @@ import pytest
 from agent_build_kit import profiles
 from agent_build_kit.pipeline.e2e import TestFailure
 from agent_build_kit.pipeline.red_check import REPORT_MARK
+from agent_build_kit.profiles.base import SelectsByKind
+from agent_build_kit.profiles.capabilities import selector_problems
 
 VITEST = Path(__file__).resolve().parents[1] / "fixtures" / "external" / "vitest"
 
@@ -168,3 +170,74 @@ def test_the_report_is_still_in_the_output_after_the_commands_temporary_file_is_
     assert REPORT_MARK in output
     assert profile.parse_test_summary(output)[:3] == (1, 1, 1)
     assert [f.test for f in profile.parse_test_failures(output)] != []
+
+
+VITEST_CONFIG = """\
+import { defineConfig } from "vitest/config";
+
+export default defineConfig({
+  test: {
+    include: ["src/**/*.test.ts"],
+    exclude: [%s],
+    testTimeout: 5000,
+  },
+});
+"""
+BOTH_CONVENTIONS = '"**/*.integration.test.ts", "**/*.e2e.test.ts"'
+
+
+def _selecting() -> SelectsByKind:
+    profile = profiles.get("node-npm")
+    assert isinstance(profile, SelectsByKind)
+    return profile
+
+
+def _configured(tmp_path: Path, exclude: str) -> Path:
+    (tmp_path / "vitest.config.ts").write_text(VITEST_CONFIG % exclude)
+    return tmp_path
+
+
+@pytest.mark.parametrize(
+    ("exclude", "left_out"),
+    [
+        (BOTH_CONVENTIONS, {"integration", "e2e"}),
+        ('"**/*.integration.test.ts"', {"integration"}),
+        ("", set()),
+    ],
+)
+@pytest.mark.integration
+def test_the_kinds_the_default_run_leaves_out_are_read_from_the_runners_exclude_patterns(
+    tmp_path: Path, exclude: str, left_out: set[str]
+) -> None:
+    root = _configured(tmp_path, exclude)
+    assert set(_selecting().default_run_leaves_out(root)) == left_out
+
+
+@pytest.mark.parametrize(
+    ("path", "kinds"),
+    [
+        ("src/a.test.ts", []),
+        ("src/a.integration.test.ts", ["integration"]),
+        ("src/a.e2e.test.ts", ["e2e"]),
+        ("src/a.integration.e2e.test.ts", ["integration", "e2e"]),
+    ],
+)
+@pytest.mark.integration
+def test_a_files_kinds_are_the_conventions_its_name_matches(
+    tmp_path: Path, path: str, kinds: list[str]
+) -> None:
+    root = _configured(tmp_path, BOTH_CONVENTIONS)
+    assert _selecting().kinds_of(root, path) == kinds
+
+
+@pytest.mark.integration
+def test_a_file_matching_two_conventions_fails_the_selector_check(tmp_path: Path) -> None:
+    root = _configured(tmp_path, BOTH_CONVENTIONS)
+    problems = selector_problems(profiles.get("node-npm"), root, ["src/a.integration.e2e.test.ts"])
+    assert any("src/a.integration.e2e.test.ts" in p for p in problems)
+
+
+@pytest.mark.integration
+def test_the_per_test_timeout_option_is_the_runners(tmp_path: Path) -> None:
+    root = _configured(tmp_path, "")
+    assert _selecting().per_test_limit_option(root) == "testTimeout"
