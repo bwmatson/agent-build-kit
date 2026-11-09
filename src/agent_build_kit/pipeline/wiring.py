@@ -2774,6 +2774,12 @@ def build_on_flake(
 
     def on_flake(unit: Unit, flake: Flake, *, wait: bool = True) -> str | None:
         met = flake.model_copy(update={"unit": unit.id})
+        if flake.classification == "load":
+            # A time limit hit under high load says about the machine, not the test: recorded
+            # and listed by `abk status`, with no fix change and nothing to wait on.
+            flake_record(installation).append(met)
+            log(f"{unit.id}: test {flake.test} hit a time limit under load — recorded, no change")
+            return None
         stored = store.get(unit.id)
         # A failure the base run shows was already failing there is a pre-existing one. One by its
         # time limit alone was never run on the base, and so is a test an open change already

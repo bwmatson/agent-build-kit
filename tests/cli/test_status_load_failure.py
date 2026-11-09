@@ -32,6 +32,34 @@ def failing(test: str, conditions: dict[str, object]) -> Flake:
     )
 
 
+def test_status_lists_the_load_failures_with_how_many_and_not_as_flaky(
+    installation: Installation, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    UnitStore(installation.state_dir / "units.json").upsert([stored_unit("one/1", change="one")])
+    record = flake_record(installation)
+    for unit in ("one/1", "two/1"):
+        record.append(
+            failing(SLOW, {"cpus": 4, "load_high": True}).model_copy(
+                update={"failing": False, "classification": "load", "unit": unit}
+            )
+        )
+    record.append(
+        failing(BROKEN, {"cpus": 4, "load_high": True}).model_copy(
+            update={"failing": False, "classification": "load"}
+        )
+    )
+    monkeypatch.setattr(cli, "current_usage", lambda: None)
+
+    assert cli.cmd_status(argparse.Namespace(), installation) == 0
+
+    lines = capsys.readouterr().out.splitlines()
+    slow = next(line for line in lines if SLOW in line)
+    broken = next(line for line in lines if BROKEN in line)
+    assert slow.strip().startswith("load:") and "2 times" in slow
+    assert broken.strip().startswith("load:") and "1 time" in broken and "times" not in broken
+    assert not any("flaky:" in line for line in lines), "a load failure is not a flake"
+
+
 def test_a_loaded_flake_of_a_test_does_not_mark_its_later_unloaded_failure_as_load(
     installation: Installation, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:

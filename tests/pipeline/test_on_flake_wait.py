@@ -62,6 +62,21 @@ def test_a_flake_that_does_not_wait_is_recorded_with_its_fix_change_and_no_needs
     assert (recorded.test, recorded.unit, recorded.change) == (TEST, "feature/1", fix)
 
 
+def test_a_load_failure_is_recorded_and_causes_no_fix_change_and_no_wait(
+    installation: Installation,
+) -> None:
+    code_repo(installation)
+    on_flake, (unit,) = on_flake_of(installation, "feature")
+
+    fix = on_flake(unit, flaked().model_copy(update={"classification": "load"}), wait=True)
+
+    assert fix is None
+    assert changes(installation) == {"feature"}, "no fix change is written"
+    assert waits_on(installation, "feature") == []
+    (recorded,) = flake_record(installation).entries()
+    assert (recorded.test, recorded.classification, recorded.change) == (TEST, "load", "")
+
+
 def test_two_units_meeting_the_flake_without_waiting_make_one_change(
     installation: Installation,
 ) -> None:

@@ -232,7 +232,7 @@ Kind of failure: {kind}
 Checkout (the unit's base, {base}): {cwd}
 Command: {command}
 Unit: {unit}
-
+{decisions}
 Evidence from the run:
 {evidence}
 
@@ -319,6 +319,14 @@ def run_regression_agent(
         evidence=failure.evidence or "none recorded",
         output=failure.output.strip(),
         base_section=on_base,
+        decisions=(
+            "The kit decided, in this order, and you do not decide it again: the test was run "
+            "alone twice, serially (the two serial reruns), and passed both; then it was run on "
+            f"the base (run on the base ({base})).\n"
+            f"Class reached: {failure.classification}\n"
+            if kind is FixKind.FLAKY
+            else ""
+        ),
         history="\nEarlier failures of this test:\n" + "\n".join(earlier) if earlier else "",
         standards=STANDARD_HINTS,
         failing_label=FAILING_TEST_LABEL,
