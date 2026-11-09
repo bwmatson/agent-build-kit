@@ -10,6 +10,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 
 from agent_build_kit.model import Frozen
+from agent_build_kit.pipeline.file_lock import atomic_write_bytes, atomic_write_text
 from agent_build_kit.pipeline.shell import git_out
 
 
@@ -59,16 +60,16 @@ def refresh_base_data(
         return None
     store.mkdir(parents=True, exist_ok=True)
     data = store / f"{tip}.data"
-    # Recorded under a temporary name, so a failed run never touches a recording already kept.
-    partial = store / f"{tip}.data.tmp"
+    # Recorded aside, then written into place through the shared atomic write, so a failed run
+    # never touches a recording already kept.
+    aside = store / f"{tip}.data.tmp"
     try:
-        record(tip, partial)
-        partial.replace(data)
-    except BaseException:
-        partial.unlink(missing_ok=True)
-        raise
+        record(tip, aside)
+        atomic_write_bytes(data, aside.read_bytes())
+    finally:
+        aside.unlink(missing_ok=True)
     when = now()
-    (store / f"{tip}.json").write_text(json.dumps({"recorded_at": when.isoformat()}))
+    atomic_write_text(store / f"{tip}.json", json.dumps({"recorded_at": when.isoformat()}))
     for old in kept_recordings(store)[:-kept]:
         old.path.unlink(missing_ok=True)
         old.path.with_suffix(".json").unlink(missing_ok=True)
