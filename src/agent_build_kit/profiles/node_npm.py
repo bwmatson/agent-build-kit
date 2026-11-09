@@ -195,6 +195,20 @@ def _failure(case: ElementTree.Element) -> tuple[str, ElementTree.Element | None
     return name, bad if bad is not None else case.find("error")
 
 
+def _defines(folder: Path, script: str) -> bool:
+    """Whether the `package.json` in `folder` defines `script` (the Python twin of the probe
+    `_script_or` runs in the shell)."""
+    try:
+        scripts = json.loads((folder / "package.json").read_text()).get("scripts")
+    except (OSError, ValueError, AttributeError):
+        return False
+    return isinstance(scripts, dict) and isinstance(scripts.get(script), str)
+
+
+def _chosen(folder: Path, script: str, generic: list[str]) -> list[str]:
+    return ["npm", "run", script] if _defines(folder, script) else generic
+
+
 class NodeNpmProfile:
     name: str = "node-npm"
     detect_markers: tuple[str, ...] = ("package-lock.json", "package.json")
@@ -237,6 +251,25 @@ class NodeNpmProfile:
 
     def lint_command_all_files(self) -> list[str]:
         return ["sh", "-c", _LINT_ALL]
+
+    def reproduce_commands(self, folder: Path) -> list[list[str]]:
+        """The whole-folder lint and format check the gate runs in `folder`."""
+        return [
+            _chosen(folder, "lint", ["npx", "oxlint", "."]),
+            _chosen(folder, "format:check", ["npx", "oxfmt", "--check", "."]),
+        ]
+
+    def agent_commands_in(self, folder: Path) -> tuple[AgentCommand, ...]:
+        """The commands a build agent may run in `folder`: the gate's own lint, format check
+        and type check, beside the profile's test command."""
+        lint, fmt = self.reproduce_commands(folder)
+        check = _chosen(folder, "typecheck", list(_TYPE_CHECK_ARGV))
+        return (
+            self.agent_commands[0],
+            AgentCommand(purpose=AgentPurpose.LINT, command=lint),
+            AgentCommand(purpose=AgentPurpose.FORMAT, command=fmt),
+            AgentCommand(purpose=AgentPurpose.CHECK, command=check),
+        )
 
     def test_commands(
         self,

@@ -132,6 +132,7 @@ from agent_build_kit.pipeline.workspaces import (
     unit_tree,
 )
 from agent_build_kit.pipeline.workspaces import remove_worktree as drop_worktree
+from agent_build_kit.profiles.base import ReproduceCommands
 from agent_build_kit.runtimes.base import (
     AgentInterrupted,
     AgentRateLimited,
@@ -1498,7 +1499,11 @@ def _reproduce_note(repo: str) -> str:
     entry = active().repos.get(repo)
     if entry is None:
         return ""
-    lint = " ".join(profiles.get(entry.profile).lint_command_all_files())
+    profile = profiles.get(entry.profile)
+    if isinstance(profile, ReproduceCommands):
+        lint = "`, `".join(" ".join(c) for c in profile.reproduce_commands(entry.path))
+    else:
+        lint = " ".join(profile.lint_command_all_files())
     return (
         "CI runs the repository's own checks over the whole repo. Before you change "
         f"anything, run them here to see what it saw: `{lint}`, then the tests. Fix what "

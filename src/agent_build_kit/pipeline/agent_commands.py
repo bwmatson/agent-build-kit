@@ -6,10 +6,12 @@ it, so each is judged by the same matcher the ACP runtime applies."""
 
 from __future__ import annotations
 
+from pathlib import Path
+
 from agent_build_kit import forges, profiles
 from agent_build_kit.config import AGENT_PATH_WORD, AgentCommand, AgentScope, RepoConfig
 from agent_build_kit.pipeline import wiring
-from agent_build_kit.profiles.base import AgentCommands
+from agent_build_kit.profiles.base import AgentCommands, AgentCommandsIn
 from agent_build_kit.tool_patterns import allows
 
 # The most a prompt's section may add, in characters.
@@ -33,7 +35,9 @@ _SCOPE_WORDS = {
 _SAMPLE_WORD = "sample"
 
 
-def _own(profile: object) -> tuple[AgentCommand, ...]:
+def _own(profile: object, folder: Path) -> tuple[AgentCommand, ...]:
+    if isinstance(profile, AgentCommandsIn):
+        return profile.agent_commands_in(folder)
     return profile.agent_commands if isinstance(profile, AgentCommands) else ()
 
 
@@ -42,10 +46,13 @@ def effective(repo: RepoConfig) -> list[AgentCommand]:
     each once, in that order."""
     if repo.agent_commands is not None:
         return list(repo.agent_commands)
-    chosen = [profiles.get(repo.profile), *(profiles.get(p.profile) for p in repo.projects)]
+    chosen = [
+        (profiles.get(repo.profile), repo.path),
+        *((profiles.get(p.profile), repo.path / p.path) for p in repo.projects),
+    ]
     found: dict[tuple[str, tuple[str, ...], str], AgentCommand] = {}
-    for profile in chosen:
-        for item in _own(profile):
+    for profile, folder in chosen:
+        for item in _own(profile, folder):
             found.setdefault((item.purpose, tuple(item.command), item.scope), item)
     return list(found.values())
 

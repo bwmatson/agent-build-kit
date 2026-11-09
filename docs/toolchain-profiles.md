@@ -157,10 +157,10 @@ What it runs, exactly:
 | Method | Command |
 |---|---|
 | `lint_command(base)` | `npx oxlint` and `npx oxfmt --check` over the `ts`, `tsx`, `js`, `jsx` and `mts` files that differ from `base`, relative to the project; fails when `base` does not resolve |
-| `lint_command_all_files()` | `npx oxlint . && npx oxfmt --check .` |
-| `clean_command()` | the same, with no `tsc`: a test importing what does not exist yet is the expected state at the tests commit |
+| `lint_command_all_files()` | `npm run lint` and `npm run format:check` when the project's `package.json` defines those scripts, and `npx oxlint .` and `npx oxfmt --check .` for each it does not |
+| `clean_command()` | the same lint and format check, with no type check: a test importing what does not exist yet is the expected state at the tests commit |
 | `fix_command(files)` | `npx oxfmt` then `npx oxlint --fix` over the source files of `files` (a non-zero `oxlint` does not undo the formatter); `None` when there are none |
-| `project_checks` | `npx tsc --noEmit`, the type check as its own check, over the whole project in its directory |
+| `project_checks` | `npm run typecheck` when the project defines it, else `npx tsc --noEmit`, the type check as its own check, over the whole project in its directory |
 | `red_command(files, ids=None)` | `npx vitest run <files> --reporter=junit` (`ids` ignored: the files run whole), the report printed after a marker, after a line for each given file |
 | `test_commands`, single package | `npx vitest run --passWithNoTests --reporter=junit`, the report in a temporary file printed after the report marker |
 | `test_commands`, workspace | one such run in the directory of each member a changed path is under, or in **every** member when a non-documentation path outside all members changed (the root manifest, shared configuration); a test file outside every member is run from the root, filtered to it |

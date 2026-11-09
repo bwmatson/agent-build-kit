@@ -81,6 +81,26 @@ class AgentCommands(Protocol):
 
 
 @runtime_checkable
+class AgentCommandsIn(Protocol):
+    """The optional hook a profile adds when the commands a build agent may run depend on the
+    project's own files (its scripts). Used in place of `agent_commands` when present."""
+
+    def agent_commands_in(self, folder: Path) -> tuple[AgentCommand, ...]:
+        """The commands for the project in `folder`."""
+        ...
+
+
+@runtime_checkable
+class ReproduceCommands(Protocol):
+    """The optional hook a profile adds to name the whole-folder checks the gate runs in a
+    project's folder, as argv lists, for the note a rework gets."""
+
+    def reproduce_commands(self, folder: Path) -> list[list[str]]:
+        """The checks for the project in `folder`."""
+        ...
+
+
+@runtime_checkable
 class AgentEnvironment(Protocol):
     """The optional hook a profile adds to name the variables a build agent's environment
     carries for the commands it lists (the data file of its affected-tests command). A profile
