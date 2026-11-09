@@ -6242,7 +6242,10 @@ def plan_all(
         units = store.all()
         landed = {SETTLING, MERGED, SATISFIED}
         context = _plan_context(units, change)
-        omitted = sum(1 for u in units if u.state in landed and u.change != change)
+        shown = {item["id"] for item in context}
+        omitted = sum(
+            1 for u in units if u.state in landed and u.id not in shown and u.change != change
+        )
         ratios = calibrations(units)
         answers: list[str] = []
         try:
@@ -6501,7 +6504,15 @@ def _plan_context(units: Sequence[StoredUnit], change: str) -> list[dict]:
     return [
         in_flight_item(u, units)
         for u in units
-        if (u.state in _STARTED and (u.state not in landed or u.change == change))
+        if (
+            u.state in _STARTED
+            and (
+                u.state not in landed
+                or u.change == change
+                # A landed unit of another change that carries one of this change's groups.
+                or any(member.change == change for member in u.members())
+            )
+        )
         or (u.state == PLANNED and u.change != change)
         # Shown with what replaced it, so the planner knows its groups are carried.
         or (u.state == UnitState.UNPLANNED and u.superseded_by and u.change == change)

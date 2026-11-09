@@ -2020,7 +2020,7 @@ def test_a_merged_unit_carrying_nothing_of_the_change_is_not_shown(
     [
         ("third/1", "third", IN_REVIEW, {}),
         ("third/1", "third", PLANNED, {}),
-        ("add-marker/1", "add-marker", UnitState.UNPLANNED, {"superseded_by": ("add-marker/3",)}),
+        ("add-marker/1", "add-marker", UnitState.UNPLANNED, {}),
         ("add-marker/1", "add-marker", UnitState.RETIRED, {}),
     ],
 )
@@ -2034,8 +2034,14 @@ def test_the_units_already_shown_are_still_shown_beside_a_carrier(
 ) -> None:
     write_change(tmp_path, "add-marker", TWO_GROUPS)
     store = carrier_store(tmp_path)
-    store.upsert([stored(uid, change=change, groups=(1,), **extra)])
-    store.set_state(uid, state, branch=f"spec/{uid}")
+    # Group 1 of `add-marker` is built by the merged carrier, so the store would reduce it away.
+    own = (2,) if change == "add-marker" else (1,)
+    store.upsert([stored(uid, change=change, groups=own, **extra)])
+    unbuilt = state == UnitState.UNPLANNED  # with no branch it owns no group
+    store.set_state(uid, state, branch=None if unbuilt else f"spec/{uid}")
+    if state == UnitState.UNPLANNED:
+        # An unplanned unit is shown with what replaced it, which the store records.
+        store.upsert([stored("add-marker/3", groups=(2,))], change="add-marker")
     seen: list[dict] = []
     monkeypatch.setattr(
         cli, "plan_round", lambda **k: seen.append(k) or Plan(units=(stored("add-marker/2"),))

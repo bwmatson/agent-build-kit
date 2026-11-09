@@ -157,7 +157,7 @@ members. Once per
 change — and again only when the change's specification changes (its
 `tasks.md` with checkboxes and `Needs:` lines stripped, hashed into
 `runs/planned.json`) — the planner (`pipeline/planner.py`) sends the change,
-the units already in flight (the list omits merged and satisfied units of other changes, which are in the trunk and cannot affect a plan, and says how many it left out) and `abk.yaml`'s `relationships`/`consumes` prose
+the units already in flight (the list omits merged and satisfied units of other changes, which are in the trunk and cannot affect a plan, and says how many it left out, except one that carries a group of the change being planned, joined or its own, which is listed so that group is marked built) and `abk.yaml`'s `relationships`/`consumes` prose
 to a model and gets the whole graph back as JSON: a label for each unit (used only inside
 that reply), repo, tier, `depends_on`, `estimated_lines`, `groups`. The change text it is sent marks the
 heading of each group a started unit builds `(built by <unit id>)`, and the prompt says
