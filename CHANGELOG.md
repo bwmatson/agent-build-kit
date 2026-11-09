@@ -633,6 +633,9 @@
   asks of a `refactor` group whether behaviour, public surface, output and configuration are
   unchanged, and names the group each rule is for when modes are mixed. The `abk-authoring` and
   `abk-pipeline` skills and the architecture, command and unit-graph documents describe the modes.
+  The planner may give `refactor` to a group that names source files when it is a
+  reorganization (a move, rename or split with no new behaviour), and the authoring skill
+  says how to write one.
 
 - A unit the usage guard pauses at the gate is now recorded as paused for usage until a
   time, counts toward the limit of units in progress while it waits, and is not resumed

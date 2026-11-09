@@ -140,6 +140,13 @@ a slip there is costly and hard to see. Good: a group that rewords a README or a
 needs no test. Where a regression would matter, say `Tests: required — <reason>` on the group; the reason is
 required, and no line lowers a floor.
 
+### Writing a reorganization group
+
+A group that moves, renames or splits code and changes no behaviour is a reorganization. Say so in its
+title and tasks ("move X to Y, no behaviour change"); the planner then builds it in the mode `refactor`: one
+code commit, no new test, and the existing tests edited only mechanically (imports, paths, names). Bad: a
+group that moves a function and also changes what it returns. Good: a group that moves it and fixes the imports.
+
 ## Which project a group is in
 
 When a repo declares projects and the heading names none (`[app]`), the group resolves to the project that

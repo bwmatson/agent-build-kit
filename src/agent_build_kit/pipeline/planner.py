@@ -113,7 +113,10 @@ code relies on, a file a tool reads at start or a rule a check enforces. A group
 source path or no path is `tests_and_code`, and a group whose paths are all test files, like an
 `[e2e-test]` group, is `tests_only`; a mode below that floor is refused. A group you leave out
 takes its floor, which for a documents or configuration group is `no_code`, so name every group
-that must keep its tests as `tests_and_code`.
+that must keep its tests as `tests_and_code`. Give `refactor` to a group that is a reorganization:
+it moves, renames or splits code and changes no behaviour, so it adds no test and edits the
+existing tests only mechanically (imports, paths, names). It may name source files; never give
+it to a group that adds or changes behaviour.
 
 """
 
@@ -366,7 +369,12 @@ def _with_review_tier(unit: Unit, groups: Sequence[TaskGroup], tasks: str) -> Un
 
 
 # The modes a planner reply may give; `refactor` is declared by the reorganization change.
-PLANNER_MODES = (GroupMode.TESTS_AND_CODE, GroupMode.TESTS_ONLY, GroupMode.NO_CODE)
+PLANNER_MODES = (
+    GroupMode.TESTS_AND_CODE,
+    GroupMode.TESTS_ONLY,
+    GroupMode.NO_CODE,
+    GroupMode.REFACTOR,
+)
 
 
 def _group_modes(
@@ -397,7 +405,7 @@ def _group_modes(
         allowed = {
             GroupMode.TESTS_ONLY: (GroupMode.TESTS_ONLY,),
             GroupMode.NO_CODE: (GroupMode.NO_CODE, GroupMode.TESTS_AND_CODE),
-            GroupMode.TESTS_AND_CODE: (GroupMode.TESTS_AND_CODE,),
+            GroupMode.TESTS_AND_CODE: (GroupMode.TESTS_AND_CODE, GroupMode.REFACTOR),
         }[floor]
         if value is not None and value not in allowed:
             raise PlannerError(
