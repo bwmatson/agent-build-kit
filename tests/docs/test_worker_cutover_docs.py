@@ -61,4 +61,25 @@ def test_the_pipeline_skill_says_what_a_worker_is_and_how_to_read_the_status_wor
 
     assert re.search(r"a worker is", text, re.I)
     assert "abk worker build" in text
-    assert re.search(r"abk status.{0,200}workers?\b.{0,200}(pid|kind)", text, re.I)
+    assert re.search(r"abk status.{0,200}workers?\b.{0,400}(pid)", text, re.I)
+    assert "link to the unit's log" not in text
+
+
+def test_the_orchestration_document_describes_no_thread_pool_and_no_processes_mode() -> None:
+    text = squashed((DOCS / "designs" / "orchestration.md").read_text(encoding="utf-8"))
+    # The roadmap line for the change in flight names what it deletes; the archive updates it.
+    text = text.replace("the tick's thread pool is deleted", "")
+
+    assert THREAD_POOL.search(text) is None
+    assert "`processes` mode" not in text
+    assert "abk worker build|resolve|verify" in text
+
+
+def test_the_worker_design_is_written_as_what_is_built() -> None:
+    text = (DOCS / "designs" / "worker-design.md").read_text(encoding="utf-8")
+    headings = re.findall(r"^## (.+)$", text, re.M)
+    before_history, history_and_after = text.split("\n## History", 1)
+    after_history = re.split(r"^## ", history_and_after, maxsplit=1, flags=re.M)[-1]
+
+    assert "Where we are" not in headings
+    assert "ThreadPoolExecutor" not in before_history + after_history

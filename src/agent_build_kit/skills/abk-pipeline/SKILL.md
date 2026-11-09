@@ -106,11 +106,13 @@ next tick sync again.
 
 ## Workers
 
-A worker is a detached process that carries one unit's work: `abk worker build <unit>`, `abk worker resolve` for
-restacks and reworks, `abk worker verify` for live verification. `abk tick` is only a dispatcher: it admits ready
-units up to the limits, starts a worker for each and exits without waiting. In `abk status` the worker list shows each
-running worker's kind, unit, pid, start time, CPU and memory, and a link to the unit's log; no worker for a `running`
-unit means it was killed and the next tick resumes it.
+A worker is a detached process that carries one unit's work: `abk worker build <unit>`, `abk worker resolve <project>`
+(a project's resolution runs: a restack, a moved-base run or a comment rework) and `abk worker verify <change>` (a
+deploy-and-test verification). `abk tick` is only a dispatcher: it admits ready units up to the limits, starts a worker
+for each and exits without waiting. In `abk status` the worker list is read from the branch locks: one line per live
+holder, showing the unit (or the branch when no unit names it), the pid and the start time in UTC, and for a transient
+systemd unit its CPU seconds and memory. A resolve or verify worker that holds no branch lock is not listed; no worker
+for a `running` unit means it was killed and the next tick resumes it.
 
 ## Test kinds
 
