@@ -14,7 +14,8 @@ from agent_build_kit.pipeline.selection_base import (
     kept_recordings,
     refresh_base_data,
 )
-from agent_build_kit.pipeline.shell import git, git_out
+from agent_build_kit.pipeline.shell import git
+from tests.selection_base_fakes import BaseRepo
 
 START = datetime(2026, 11, 8, 9, 0, tzinfo=UTC)
 
@@ -31,30 +32,14 @@ class Recorder:
         data.write_text(f"data@{commit}")
 
 
-class Base:
+class Base(BaseRepo):
     """A repository whose `main` is the base, and the store the recordings are kept in."""
 
     def __init__(self, tmp_path: Path) -> None:
-        self.repo = tmp_path / "app"
+        super().__init__(tmp_path / "app")
         self.store = tmp_path / "state" / "selection-base"
         self.recorder = Recorder()
         self.now = START
-        self.repo.mkdir()
-        git(self.repo, "init", "-b", "main")
-        git(self.repo, "config", "user.email", "a@example.com")
-        git(self.repo, "config", "user.name", "a")
-        self.move()
-
-    def tip(self) -> str:
-        return git_out(self.repo, "rev-parse", "main").strip()
-
-    def move(self) -> str:
-        """A new commit on the base; its hash."""
-        marker = self.repo / "marker.txt"
-        marker.write_text(marker.read_text() + "x" if marker.exists() else "x")
-        git(self.repo, "add", "-A")
-        git(self.repo, "commit", "-m", "move")
-        return self.tip()
 
     def refresh(self, *, kept: int = 3, max_age_hours: float = 12) -> BaseRecording | None:
         return refresh_base_data(
