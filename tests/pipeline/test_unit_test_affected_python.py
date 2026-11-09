@@ -7,8 +7,10 @@ and the time it took on a fake clock; the profile is the real python-uv one.
 
 from __future__ import annotations
 
+import json
 import subprocess
 from collections.abc import Callable, Iterator
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import pytest
@@ -18,12 +20,18 @@ from agent_build_kit.installation import Installation
 from agent_build_kit.pipeline import spans
 from agent_build_kit.pipeline.command_limit import TIMED_OUT_EXIT
 from agent_build_kit.pipeline.scratch import ensure_scratch, selection_seed
+from agent_build_kit.pipeline.selection_base import (
+    hand_over,
+    handed_over_at,
+    refresh_base_data,
+)
 from agent_build_kit.pipeline.shell import git, git_out
 from agent_build_kit.pipeline.usage_ledger import forget_told
 from agent_build_kit.pipeline.wiring import build_unit_test
 from agent_build_kit.profiles.python_uv import PythonUvProfile
 from tests.fake_clock import FakeClock, install
 from tests.moved_base_fakes import affected_lines
+from tests.selection_base_fakes import BaseRepo
 
 ID = "tests/test_a.py::test_one"
 FAILED_OUTPUT = f"FAILED {ID} - assert 1 == 2"
@@ -162,6 +170,125 @@ def test_a_full_failure_after_a_selected_pass_reads_disagreed(
     assert not passed
     (line,) = affected_lines(workspace)
     assert line["outcome"] == "disagreed"
+
+
+NOW = datetime(2026, 11, 8, 12, 0, tzinfo=UTC)
+
+
+def base_recording_handed_to(tmp_path: Path, worktree: Path, *, age_hours: float) -> None:
+    """A base repository with a kept recording `age_hours` old at `NOW`, handed to `worktree`."""
+    base = BaseRepo(tmp_path / "base").repo
+    store = tmp_path / "state" / "selection-base"
+
+    def record(_commit: str, data: Path) -> None:
+        data.write_bytes(b"recorded")
+
+    refresh_base_data(
+        store=store,
+        repo=base,
+        base="main",
+        record=record,
+        kept=3,
+        max_age_hours=12,
+        now=lambda: NOW - timedelta(hours=age_hours),
+    )
+    assert hand_over(store=store, repo=base, base="main", worktree=worktree) is not None
+
+
+def ledger_rows(path: Path) -> list[dict]:
+    return [json.loads(line) for line in path.read_text().splitlines() if line.strip()]
+
+
+def ledgered_unit_test(repo: Path, runner: Runner, ledger: Path) -> Callable[..., tuple[bool, str]]:
+    return build_unit_test(
+        run=runner,
+        changed=lambda *a: ["src/x.py"],
+        repo=RepoConfig(path=repo, changelog=None, checks={"affected": {"mode": "profile"}}),
+        test_runs=ledger,
+        now=lambda: NOW,
+        machine=lambda: {"load": [1.0, 1.0, 1.0]},
+    )
+
+
+def test_a_first_round_on_the_bases_data_selects_and_does_not_start_with_a_full_run(
+    tmp_path: Path, clock: FakeClock
+) -> None:
+    repo = repo_at(tmp_path / "unit")
+    base_recording_handed_to(tmp_path, repo, age_hours=5)
+    runner = Runner(clock)
+
+    passed, _ = unit_test_for(repo, runner)(cwd=repo, base="main")
+
+    assert passed
+    first = next(c for c in runner.ran if "pytest" in c)
+    assert "--testmon-forceselect" in first and "--testmon-noselect" not in first
+
+
+def test_a_handover_ends_with_the_first_round_when_no_ledger_is_kept(
+    tmp_path: Path, clock: FakeClock
+) -> None:
+    repo = repo_at(tmp_path / "unit")
+    base_recording_handed_to(tmp_path, repo, age_hours=5)
+    runner = Runner(clock)
+    unit_test = unit_test_for(repo, runner)
+
+    unit_test(cwd=repo, base="main")
+    assert handed_over_at(repo) is None
+    runner.ran.clear()
+    unit_test(cwd=repo, base="main")
+
+    first = next(c for c in runner.ran if "pytest" in c)
+    assert not Runner.is_selected(first)
+
+
+def test_a_first_round_with_no_recording_is_a_full_run_that_records(
+    tmp_path: Path, clock: FakeClock
+) -> None:
+    repo = repo_at(tmp_path / "unit")
+    runner = Runner(clock)
+    ledger = tmp_path / "test-runs.jsonl"
+
+    ledgered_unit_test(repo, runner, ledger)(cwd=repo, base="main")
+
+    assert ledger_rows(ledger)[0]["data_source"] == "none"
+    first = next(c for c in runner.ran if "pytest" in c)
+    assert not Runner.is_selected(first)
+    assert any("testmon" in word for word in first)
+    assert any(str(selection_seed(repo)) in word for word in first)
+
+
+@pytest.mark.parametrize("source", ["none", "own", "base"])
+def test_the_ledger_row_names_where_the_runs_selection_data_came_from(
+    tmp_path: Path, clock: FakeClock, source: str
+) -> None:
+    repo = repo_at(tmp_path / "unit")
+    if source == "own":
+        selection_seed(repo).write_bytes(b"recorded by the unit's own run")
+    if source == "base":
+        base_recording_handed_to(tmp_path, repo, age_hours=5)
+    ledger = tmp_path / "test-runs.jsonl"
+
+    ledgered_unit_test(repo, Runner(clock), ledger)(cwd=repo, base="main")
+
+    (row,) = ledger_rows(ledger)
+    assert row["data_source"] == source
+    assert row["data_age_hours"] == (5.0 if source == "base" else None)
+
+
+def test_a_later_round_after_a_base_start_names_the_units_own_data(
+    tmp_path: Path, clock: FakeClock
+) -> None:
+    repo = repo_at(tmp_path / "unit")
+    base_recording_handed_to(tmp_path, repo, age_hours=5)
+    ledger = tmp_path / "test-runs.jsonl"
+    unit_test = ledgered_unit_test(repo, Runner(clock), ledger)
+
+    unit_test(cwd=repo, base="main")
+    unit_test(cwd=repo, base="main", failed_output=FAILED_OUTPUT)
+
+    rows = ledger_rows(ledger)
+    assert [row["data_source"] for row in rows] == ["base", "own"]
+    assert rows[1]["data_age_hours"] is None
 
 
 def test_a_failed_selected_run_reads_not_run(

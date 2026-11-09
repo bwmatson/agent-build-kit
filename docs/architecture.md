@@ -1770,7 +1770,10 @@ approved.
   copy of the pipeline's (`.abk/affected-agent`, copied from `.abk/affected` at the start of each
   step when the pipeline has recorded it), so an agent's runs neither move the pipeline's baseline
   nor leave data its own selection would trust. Until the unit's first full run has recorded the
-  data the selection runs the whole suite. A repo with declared projects gets neither the command
+  data the selection runs the whole suite, unless the unit was handed the base's recording (a copy
+  of the nearest one at or before its base, noted beside the data), which its first round selects
+  from; the ledger row names the data `base` (with its age), `own` or `none`. A repo with
+  declared projects gets neither the command
   nor the variables, the regression agent is not granted it, and a runtime that does not pass the
   agent's environment to its terminals (ACP, in a confined step) runs it with no data file, so
   testmon writes `.testmondata` in the worktree, which the worktree's local exclude hides from git.

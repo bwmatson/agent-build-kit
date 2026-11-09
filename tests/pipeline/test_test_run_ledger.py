@@ -66,10 +66,11 @@ def test_a_row_is_a_line_appended_after_the_others(tmp_path: Path) -> None:
 
 def test_a_ledger_at_its_size_limit_is_rotated_before_the_next_row(tmp_path: Path) -> None:
     path = run_ledger_path(tmp_path)
-    append_test_run(path, _entry("old/1"), max_bytes=300)
-    append_test_run(path, _entry("old/2", failed=["x" * 400]), max_bytes=300)
+    # A short row is a little over 300 bytes, so the limit leaves room for one of them.
+    append_test_run(path, _entry("old/1"), max_bytes=500)
+    append_test_run(path, _entry("old/2", failed=["x" * 400]), max_bytes=500)
 
-    append_test_run(path, _entry("new/1"), max_bytes=300)
+    append_test_run(path, _entry("new/1"), max_bytes=500)
 
     assert [row["unit"] for row in _rows(path)] == ["new/1"]
     rotated = path.with_name(path.name + ".1")
