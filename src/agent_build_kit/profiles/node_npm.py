@@ -490,7 +490,7 @@ class NodeNpmProfile:
         return self.is_test_path(path)
 
     def runs_path(self, path: str) -> bool:
-        raise NotImplementedError
+        return True
 
     def detect_environment(self, root: Path, *, framework: bool) -> EnvironmentConfig | None:
         return node_environment.detect_environment(root)

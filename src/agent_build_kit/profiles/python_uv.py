@@ -501,7 +501,7 @@ class PythonUvProfile:
         return bool(_COLLECTED_FILE.match(path.split("/")[-1]))
 
     def runs_path(self, path: str) -> bool:
-        raise NotImplementedError
+        return path.endswith(".py")
 
     def stub_violations(self, path: str, content: str) -> list[str]:
         return _stub_violations(path, content)

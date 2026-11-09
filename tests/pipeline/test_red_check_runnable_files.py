@@ -16,8 +16,7 @@ from agent_build_kit.profiles.base import ToolchainProfile
 from agent_build_kit.profiles.node_npm import PROFILE as NODE
 from agent_build_kit.profiles.python_uv import PROFILE as PYTHON
 from tests.factories import commit_files as commit
-from tests.factories import git
-from tests.stub_gate_support import repo_on_branch
+from tests.factories import git, init_repo
 
 SNAPSHOT = "tests/snapshots/default_tools.json"
 FAILING = "def test_new():\n    assert False\n"
@@ -40,6 +39,9 @@ class Recording:
         self.commands.append(self.real.red_command(files, ids))
         return "exit 1"
 
+    def clean_command(self, *, types: bool = False) -> str:
+        return "true"
+
     def interpret_red(
         self, output: str, exit_code: int, *, stubbed: bool = False
     ) -> tuple[bool, list[str]]:
@@ -51,8 +53,14 @@ class Recording:
 
 @pytest.fixture
 def repo(tmp_path: Path) -> Path:
-    work = repo_on_branch(tmp_path)
-    commit(work, "chore: snapshot", {SNAPSHOT: '{"tools": []}\n', "tests/test_old.py": "x = 1\n"})
+    """The files the unit's commits change already exist on main, so none is a tests commit."""
+    work = init_repo(tmp_path / "repo")
+    commit(
+        work,
+        "base",
+        {"README.md": "base\n", SNAPSHOT: '{"tools": []}\n', "tests/test_old.py": "x = 1\n"},
+    )
+    git(work, "checkout", "-q", "-b", "spec/change/1-unit")
     return work
 
 
