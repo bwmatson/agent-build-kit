@@ -72,12 +72,12 @@ class Setup:
         )
 
     @contextmanager
-    def in_thread(self, run: Runner) -> Iterator[threading.Thread]:
+    def in_thread(self, run: Runner, *, limit: int | None = 1) -> Iterator[threading.Thread]:
         """A refresh on a thread of its own, joined when the block ends."""
 
         def go() -> None:
             try:
-                self.record(run)
+                self.record(run, limit=limit)
             except BaseException as error:  # noqa: BLE001 - handed to the test thread
                 self.errors.append(error)
 
@@ -185,17 +185,49 @@ def test_a_unit_check_is_served_before_a_recording_that_began_waiting_first(
     assert setup.errors == []
 
 
-def test_a_second_refresh_that_waited_behind_the_first_makes_no_new_recording(
-    setup: Setup,
+class BlockingRunner(Runner):
+    """A runner that says it has started and holds its run until told to go on."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.started = threading.Event()
+        self.go_on = threading.Event()
+
+    def __call__(self, command: list[str], *, cwd: Path) -> subprocess.CompletedProcess:
+        self.started.set()
+        self.go_on.wait(timeout=20)
+        return super().__call__(command, cwd=cwd)
+
+
+@pytest.mark.parametrize("limit", [None, 2], ids=["no-limit", "room-for-both"])
+def test_a_refresh_that_finds_another_recording_the_base_returns_at_once_and_runs_nothing(
+    setup: Setup, limit: int | None
 ) -> None:
-    first, second = Runner(), Runner()
-    with ExitStack() as stack:
-        with unit_test_slot(setup.locks, 1, holder="holder/1"):
-            stack.enter_context(setup.in_thread(first))
-            wait_for(lambda: waiting_units(setup.locks) == [RECORDING_HOLDER], what="the first")
-            stack.enter_context(setup.in_thread(second))
-            wait_for(lambda: len(waiting_units(setup.locks)) == 2, what="the second")
+    first, second = BlockingRunner(), Runner()
+    with setup.in_thread(first, limit=limit):
+        wait_for(first.started.is_set, what="the first recording to start")
+
+        assert setup.record(second, limit=limit) is None
+
+        first.go_on.set()
 
     assert setup.errors == []
-    assert len(first.ran) + len(second.ran) == 1
+    assert second.ran == []
+    assert len(first.ran) == 1
     assert len(kept_recordings(setup.store)) == 1
+    assert not list(setup.store.glob("*.tmp"))
+
+
+def test_the_next_refresh_removes_what_a_cut_short_one_left_in_the_store(setup: Setup) -> None:
+    setup.store.mkdir(parents=True)
+    (setup.store / ("a" * 40 + ".data")).write_text("orphan")
+    (setup.store / ("b" * 40 + ".json")).write_text("{}")
+    (setup.store / ("c" * 40 + ".data.tmp")).write_text("partial")
+
+    made = setup.record(Runner())
+
+    assert made is not None
+    assert sorted(p.name for p in setup.store.iterdir()) == [
+        f"{made.commit}.data",
+        f"{made.commit}.json",
+    ]

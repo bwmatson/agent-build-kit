@@ -10,10 +10,11 @@ import json
 from collections.abc import Callable
 from datetime import datetime, timedelta
 from pathlib import Path
+from typing import Protocol, runtime_checkable
 
 from agent_build_kit.model import Frozen
 from agent_build_kit.pipeline.check_runner import worktree_at
-from agent_build_kit.pipeline.file_lock import Clock, atomic_move, atomic_write_text
+from agent_build_kit.pipeline.file_lock import Clock, atomic_move, atomic_write_text, try_file_lock
 from agent_build_kit.pipeline.shell import Run, git_out
 from agent_build_kit.pipeline.unit_test_slots import RECORDING_RANK, unit_test_slot
 from agent_build_kit.profiles.base import RecordsSelectionData, ToolchainProfile
@@ -87,12 +88,30 @@ def refresh_base_data(
     for old in kept_recordings(store)[:-kept]:
         old.path.unlink(missing_ok=True)
         old.path.with_suffix(".json").unlink(missing_ok=True)
+    _sweep_strays(store)
     return BaseRecording(commit=tip, recorded_at=when, path=data)
 
 
+def _sweep_strays(store: Path) -> None:
+    """Remove what a refresh that was cut short left: a data file with no metadata beside it
+    (never listed, so never pruned), metadata with no data file, and an aside file."""
+    for data in store.glob("*.data"):
+        if not data.with_suffix(".json").exists():
+            data.unlink(missing_ok=True)
+    for meta in store.glob("*.json"):
+        if not meta.with_suffix(".data").exists():
+            meta.unlink(missing_ok=True)
+    for aside in store.glob("*.data.tmp"):
+        aside.unlink(missing_ok=True)
+
+
+@runtime_checkable
+class RecordingProfile(ToolchainProfile, RecordsSelectionData, Protocol):
+    """A toolchain profile that also records selection data."""
+
+
 def _recording_run(
-    profile: ToolchainProfile,
-    recorder: RecordsSelectionData,
+    profile: RecordingProfile,
     *,
     repo: Path,
     run: Run,
@@ -108,7 +127,7 @@ def _recording_run(
             for command in profile.test_commands_all(
                 checkout, root_extras=root_extras, workers=workers, max_workers=max_workers
             ):
-                result = run(recorder.seeding_command(command, seed), cwd=checkout)
+                result = run(profile.seeding_command(command, seed), cwd=checkout)
                 if result.returncode and not profile.tolerates_exit(command, result.returncode):
                     raise RuntimeError(
                         f"the recording run of {commit} failed (exit {result.returncode})"
@@ -135,30 +154,33 @@ def record_base_data(
     clock: Clock | None = None,
 ) -> BaseRecording | None:
     """Refresh the base's recording with a full unit-test run that holds one of the `limit`
-    unit-test slots at `RECORDING_RANK`, so a unit's check is served before it. The refresh rule
-    is asked again once the slot is held, so two ticks that both queued record a tip once. None
-    when the profile records no selection data or nothing is due."""
-    if not isinstance(profile, RecordsSelectionData):
+    unit-test slots at `RECORDING_RANK`, so a unit's check is served before it. One refresh runs
+    at a time, whatever the limit: it holds a lock file beside the store, and a call that finds
+    it held returns None because another refresh is already recording. None too when the profile
+    records no selection data or nothing is due."""
+    if not isinstance(profile, RecordingProfile):
         return None
-    if not _due(store, git_out(repo, "rev-parse", base), max_age_hours, now()):
-        return None
-    with unit_test_slot(
-        locks_dir, limit, holder=RECORDING_HOLDER, rank=RECORDING_RANK, clock=clock
-    ):
-        return refresh_base_data(
-            store=store,
-            repo=repo,
-            base=base,
-            record=_recording_run(
-                profile,
-                profile,
+    with try_file_lock(store.with_name(store.name + ".lock")) as taken:
+        if not taken:
+            return None
+        if not _due(store, git_out(repo, "rev-parse", base), max_age_hours, now()):
+            return None
+        with unit_test_slot(
+            locks_dir, limit, holder=RECORDING_HOLDER, rank=RECORDING_RANK, clock=clock
+        ):
+            return refresh_base_data(
+                store=store,
                 repo=repo,
-                run=run,
-                root_extras=root_extras or [],
-                workers=workers,
-                max_workers=max_workers,
-            ),
-            kept=kept,
-            max_age_hours=max_age_hours,
-            now=now,
-        )
+                base=base,
+                record=_recording_run(
+                    profile,
+                    repo=repo,
+                    run=run,
+                    root_extras=root_extras or [],
+                    workers=workers,
+                    max_workers=max_workers,
+                ),
+                kept=kept,
+                max_age_hours=max_age_hours,
+                now=now,
+            )
