@@ -7,6 +7,7 @@ command, that holds a unit-test slot at the rank behind every unit's check."""
 from __future__ import annotations
 
 import json
+import shutil
 from collections.abc import Callable
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -15,7 +16,8 @@ from typing import Protocol, runtime_checkable
 from agent_build_kit.model import Frozen
 from agent_build_kit.pipeline.check_runner import worktree_at
 from agent_build_kit.pipeline.file_lock import Clock, atomic_move, atomic_write_text, try_file_lock
-from agent_build_kit.pipeline.shell import Run, git_out
+from agent_build_kit.pipeline.scratch import selection_seed
+from agent_build_kit.pipeline.shell import Run, git, git_out
 from agent_build_kit.pipeline.unit_test_slots import RECORDING_RANK, unit_test_slot
 from agent_build_kit.profiles.base import RecordsSelectionData, ToolchainProfile
 
@@ -44,6 +46,40 @@ def kept_recordings(store: Path) -> list[BaseRecording]:
             continue
         found.append(BaseRecording(commit=meta.stem, recorded_at=when, path=data))
     return sorted(found, key=lambda r: (r.recorded_at, r.commit))
+
+
+def hand_over(*, store: Path, repo: Path, base: str, worktree: Path) -> BaseRecording | None:
+    """Copy the recording nearest at or before `base` (a commit of `repo`) to where `worktree`
+    keeps its selection data, noting its source; the recording, or None when there is none."""
+    tip = git_out(repo, "rev-parse", base)
+    for found in reversed(kept_recordings(store)):
+        if git(repo, "merge-base", "--is-ancestor", found.commit, tip, check=False).returncode:
+            continue
+        seed = selection_seed(worktree)
+        shutil.copyfile(found.path, seed)
+        _note(seed).write_text(json.dumps({"recorded_at": found.recorded_at.isoformat()}))
+        return found
+    return None
+
+
+def _note(seed: Path) -> Path:
+    return seed.with_name(f"{seed.name}-source.json")
+
+
+def handed_over_at(worktree: Path) -> datetime | None:
+    """When the base recording a worktree was handed was made; None when its data is not one
+    that was handed over and not yet run on."""
+    try:
+        return datetime.fromisoformat(
+            json.loads(_note(selection_seed(worktree)).read_text())["recorded_at"]
+        )
+    except (OSError, ValueError, KeyError, TypeError):
+        return None
+
+
+def forget_handover(worktree: Path) -> None:
+    """The worktree's data is its own from here on: the note of its source is removed."""
+    _note(selection_seed(worktree)).unlink(missing_ok=True)
 
 
 def _due(store: Path, tip: str, max_age_hours: float, now: datetime) -> bool:

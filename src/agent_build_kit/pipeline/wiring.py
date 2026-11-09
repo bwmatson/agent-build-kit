@@ -187,6 +187,7 @@ from agent_build_kit.pipeline.scratch import (
     run_folder,
     selection_seed,
 )
+from agent_build_kit.pipeline.selection_base import forget_handover, handed_over_at
 from agent_build_kit.pipeline.shell import (
     changed_files,
     fork_point,
@@ -1716,6 +1717,12 @@ def build_unit_test(
         outcome = "failed"
         failed: list[str] = []
         gap: float | None = None
+        handed = handed_over_at(cwd)
+        if handed is not None:
+            data_source, data_age = "base", (started - handed).total_seconds() / 3600
+        else:
+            data_source = "own" if selection_seed(cwd).is_file() else "none"
+            data_age = None
         try:
             passed, output = retested(cwd, base, whole_repo, failed_output, moved_from)
         except FlakeFound as found:
@@ -1732,6 +1739,7 @@ def build_unit_test(
             failed = list(run_failed) if run_loaded or not passed else []
             return passed, output
         finally:
+            forget_handover(cwd)
             ended = clock()
             workers = run_facts.get("workers_setting")
             sample_end = sample()
@@ -1757,6 +1765,8 @@ def build_unit_test(
                         cpus=cpus,
                         load_high=load_high,
                         disturbed_seconds=gap,
+                        data_source=data_source,
+                        data_age_hours=data_age,
                     ),
                 )
             except OSError as error:
@@ -1873,7 +1883,11 @@ def build_unit_test(
             )
             _say(log, f"moved base: ran the full suite ({why})")
         plan = None
-        if affected is not None and not whole_repo and failed_output.strip():
+        if (
+            affected is not None
+            and not whole_repo
+            and (failed_output.strip() or handed_over_at(cwd) is not None)
+        ):
             plan = selection(base, work, failed_output)
         if plan is None:
             return full(cwd, base, work, whole_repo, lint=True)

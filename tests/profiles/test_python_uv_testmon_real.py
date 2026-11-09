@@ -20,10 +20,14 @@ import os
 import re
 import sqlite3
 import subprocess
+from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
 
+from agent_build_kit.pipeline.scratch import selection_seed
+from agent_build_kit.pipeline.selection_base import hand_over, refresh_base_data
+from agent_build_kit.pipeline.shell import git
 from agent_build_kit.profiles.python_uv import PROFILE
 
 pytestmark = pytest.mark.integration
@@ -118,25 +122,36 @@ class Tiny:
         # The parallel pass, then the serial pass: what a full run is.
         self.parallel, self.serial = PROFILE.test_commands_all(root, root_extras=[])
 
-    def run(self, command: list[str]) -> subprocess.CompletedProcess[str]:
+    def run(
+        self, command: list[str], *, cwd: Path | None = None
+    ) -> subprocess.CompletedProcess[str]:
         env = {k: v for k, v in os.environ.items() if k not in ("VIRTUAL_ENV", "PYTEST_ADDOPTS")}
         return subprocess.run(
             [*command, "-rf", "-p", "no:cacheprovider"],
-            cwd=self.root,
+            cwd=cwd or self.root,
             env=env,
             capture_output=True,
             text=True,
             check=False,
         )
 
-    def record(self) -> None:
+    def record(self, seed: Path | None = None) -> None:
         for command in (self.parallel, self.serial):
-            done = self.run(PROFILE.seeding_command(command, self.seed))
+            done = self.run(PROFILE.seeding_command(command, seed or self.seed))
             assert done.returncode in (0, NO_TESTS_COLLECTED), done.stdout + done.stderr
             assert DYNAMIC_CONTEXTS not in done.stdout + done.stderr
 
-    def select(self, command: list[str] | None = None) -> subprocess.CompletedProcess[str]:
-        return self.run(PROFILE.seeding_command(command or self.parallel, self.seed, select=True))
+    def select(
+        self,
+        command: list[str] | None = None,
+        *,
+        seed: Path | None = None,
+        cwd: Path | None = None,
+    ) -> subprocess.CompletedProcess[str]:
+        return self.run(
+            PROFILE.seeding_command(command or self.parallel, seed or self.seed, select=True),
+            cwd=cwd,
+        )
 
     def break_add(self) -> None:
         rewrite(self.root / "calc.py", BROKEN_CALC)
@@ -363,6 +378,67 @@ def test_data_recorded_in_another_environment_is_not_read_and_the_tests_run_in_f
 
     assert ran(selected.stdout) == CROWD, selected.stdout
     assert "ctrace" in crowd.environments()
+
+
+def unit_worktree_on_base_data(tmp_path: Path, *, strip: tuple[str, ...] = ()) -> tuple[Tiny, Path]:
+    """A committed project that is the base, its data recorded and kept as the pipeline keeps it,
+    and a worktree of it at another path that is handed the data."""
+    project = Tiny(tmp_path / "base")
+    git(project.root, "init", "-q", "-b", "main")
+    git(project.root, "config", "user.email", "a@example.com")
+    git(project.root, "config", "user.name", "a")
+    git(project.root, "add", "-A")
+    git(project.root, "commit", "-qm", "base")
+
+    def record(_commit: str, data: Path) -> None:
+        for command in (project.parallel, project.serial):
+            seeding = [w for w in PROFILE.seeding_command(command, data) if w not in strip]
+            done = project.run(seeding)
+            assert done.returncode in (0, NO_TESTS_COLLECTED), done.stdout + done.stderr
+
+    store = tmp_path / "state" / "selection-base"
+    now = datetime(2026, 11, 8, 9, 0, tzinfo=UTC)
+    refresh_base_data(
+        store=store,
+        repo=project.root,
+        base="main",
+        record=record,
+        kept=3,
+        max_age_hours=12,
+        now=lambda: now,
+    )
+    unit = tmp_path / "elsewhere" / "unit"
+    unit.parent.mkdir()
+    git(project.root, "worktree", "add", "-q", "-b", "unit", str(unit), "main")
+    assert hand_over(store=store, repo=project.root, base="main", worktree=unit) is not None
+    return project, unit
+
+
+def test_data_recorded_on_a_base_worktree_selects_correctly_in_a_unit_worktree_at_another_path(
+    tmp_path: Path,
+) -> None:
+    project, unit = unit_worktree_on_base_data(tmp_path)
+    rewrite(unit / "calc.py", BROKEN_CALC)
+    seed = selection_seed(unit)
+
+    selected = project.select([*project.parallel, "-v"], seed=seed, cwd=unit)
+    everything = project.run([*project.parallel, "-v"], cwd=unit)
+
+    assert "deactivated" not in selected.stdout
+    assert ran(selected.stdout) == AFFECTED
+    assert failed(selected.stdout) == AFFECTED
+    assert failed(everything.stdout) == failed(selected.stdout)
+
+
+def test_base_data_recorded_in_another_environment_makes_the_units_first_round_a_full_run(
+    tmp_path: Path,
+) -> None:
+    project, unit = unit_worktree_on_base_data(tmp_path, strip=(CORE, TESTMON_ENV))
+    rewrite(unit / "calc.py", BROKEN_CALC)
+
+    selected = project.select([*project.parallel, "-v"], seed=selection_seed(unit), cwd=unit)
+
+    assert ran(selected.stdout) == AFFECTED | {"test_mul", "test_unrelated"}, selected.stdout
 
 
 def test_a_rewrite_of_the_same_size_is_run_by_the_next_process(tmp_path: Path) -> None:

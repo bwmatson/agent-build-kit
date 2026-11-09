@@ -120,6 +120,10 @@ class TestRun(Frozen):
     failed_detail: list[FailedTest] = []
     # For a `disturbed` run: how many seconds its wall time exceeded the duration pytest reported.
     disturbed_seconds: float | None = None
+    # Where the run's selection data came from: `base`, `own` or `none`; and for `base` the age of
+    # the recording in hours.
+    data_source: str | None = None
+    data_age_hours: float | None = None
 
 
 def append_test_run(path: Path, run: TestRun, *, max_bytes: int = TEST_RUNS_MAX_BYTES) -> None:

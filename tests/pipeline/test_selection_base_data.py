@@ -9,8 +9,10 @@ from pathlib import Path
 
 import pytest
 
+from agent_build_kit.pipeline.scratch import selection_seed
 from agent_build_kit.pipeline.selection_base import (
     BaseRecording,
+    hand_over,
     kept_recordings,
     refresh_base_data,
 )
@@ -185,3 +187,61 @@ def test_no_recordings_may_be_kept_below_one(base: Base) -> None:
 
 def test_a_store_that_does_not_exist_holds_no_recording(tmp_path: Path) -> None:
     assert kept_recordings(tmp_path / "missing") == []
+
+
+@pytest.mark.parametrize(
+    ("unit_base", "expected"),
+    [(3, 2), (2, 2), (1, 0), (0, 0)],
+    ids=["after the last", "at the last", "between", "at the first"],
+)
+def test_a_unit_is_given_the_recording_nearest_at_or_before_its_base(
+    base: Base, tmp_path: Path, unit_base: int, expected: int
+) -> None:
+    # Four commits of the base; recordings sit at the first and the third.
+    commits = [base.tip()]
+    base.refresh()
+    base.later(13)
+    commits.append(base.move())
+    commits.append(base.move())
+    base.refresh()
+    commits.append(base.move())
+    worktree = tmp_path / "unit"
+
+    given = hand_over(store=base.store, repo=base.repo, base=commits[unit_base], worktree=worktree)
+
+    assert given is not None
+    assert given.commit == commits[expected]
+    assert selection_seed(worktree).read_text() == f"data@{commits[expected]}"
+
+
+def test_a_recording_made_after_the_units_base_is_not_given(base: Base, tmp_path: Path) -> None:
+    first = base.tip()
+    base.move()
+    base.refresh()
+    worktree = tmp_path / "unit"
+
+    given = hand_over(store=base.store, repo=base.repo, base=first, worktree=worktree)
+
+    assert given is None
+    assert not selection_seed(worktree).exists()
+
+
+def test_a_unit_gets_a_copy_so_its_own_rounds_leave_the_kept_recording_alone(
+    base: Base, tmp_path: Path
+) -> None:
+    base.refresh()
+    worktree = tmp_path / "unit"
+    given = hand_over(store=base.store, repo=base.repo, base=base.tip(), worktree=worktree)
+    assert given is not None
+
+    selection_seed(worktree).write_text("moved on by the unit's run")
+
+    assert given.path.read_text() == f"data@{given.commit}"
+    assert [r.commit for r in kept_recordings(base.store)] == [given.commit]
+
+
+def test_no_recording_gives_a_unit_nothing(base: Base, tmp_path: Path) -> None:
+    worktree = tmp_path / "unit"
+
+    assert hand_over(store=base.store, repo=base.repo, base="main", worktree=worktree) is None
+    assert not selection_seed(worktree).exists()
