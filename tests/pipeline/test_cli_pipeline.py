@@ -33,7 +33,7 @@ from agent_build_kit.pipeline.planner import Plan
 from agent_build_kit.pipeline.pr_poller import Poller, state_path
 from agent_build_kit.pipeline.stack_runner import PauseInfo, RunOutcome
 from agent_build_kit.pipeline.unit_store import ClosePending, StoredUnit, UnitStore
-from agent_build_kit.pipeline.units import IN_REVIEW, PLANNED, UnitState
+from agent_build_kit.pipeline.units import IN_REVIEW, PLANNED, Member, UnitState
 from agent_build_kit.pipeline.usage_guard import Decision, UsageReading
 from agent_build_kit.pipeline.workspaces import BranchBusy
 from agent_build_kit.profiles.base import ProfileUnsupported
@@ -1936,3 +1936,113 @@ def test_status_is_silent_about_the_queue_below_the_limit(
     assert cli.cmd_status(argv_namespace(), workspace_inst) == 0
 
     assert "units in progress, limit" not in capsys.readouterr().out.lower()
+
+
+def carrier_store(tmp_path: Path, *, joined_groups: tuple[int, ...] = (1,)) -> UnitStore:
+    """`other/1`, merged, whose own group is another change's and which carries
+    `add-marker`'s `joined_groups` (none: nothing of `add-marker`)."""
+    store = UnitStore(tmp_path / "units.json")
+    joined = (Member(change="add-marker", groups=joined_groups),) if joined_groups else ()
+    store.upsert([stored("other/1", change="other", groups=(1,), joined=joined)])
+    store.set_state("other/1", UnitState.MERGED, pr=9, branch="spec/other/1")
+    return store
+
+
+def test_a_plan_is_shown_the_merged_unit_that_carries_its_group(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    write_change(tmp_path, "add-marker", TWO_GROUPS)
+    store = carrier_store(tmp_path)
+    runtime = planner_answering(
+        monkeypatch, plan_output({"id": "add-marker/2", "groups": [2], "estimated_lines": 100})
+    )
+
+    real_plan_all(inst, store=store)
+
+    prompt = runtime.request.prompt
+    assert "other/1" in prompt
+    headings = [line for line in prompt.splitlines() if line.startswith("## 1.")]
+    assert [line for line in headings if line.endswith("(built by other/1)")] != []
+
+
+def test_a_plan_leaving_out_the_group_a_carrier_built_is_accepted(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    write_change(tmp_path, "add-marker", TWO_GROUPS)
+    store = carrier_store(tmp_path)
+    runtime = planner_answering(
+        monkeypatch, plan_output({"id": "add-marker/2", "groups": [2], "estimated_lines": 100})
+    )
+
+    real_plan_all(inst, store=store)
+
+    assert "other/1" in runtime.request.prompt
+    assert [u.groups for u in store.all() if u.change == "add-marker"] == [(2,)]
+
+
+def test_a_plan_claiming_the_group_a_carrier_built_is_refused(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys
+) -> None:
+    write_change(tmp_path, "add-marker", TWO_GROUPS)
+    store = carrier_store(tmp_path)
+    runtime = planner_answering(
+        monkeypatch, plan_output({"id": "add-marker/2", "groups": [1, 2], "estimated_lines": 100})
+    )
+
+    real_plan_all(inst, store=store)
+
+    assert "other/1" in runtime.request.prompt
+    assert [u for u in store.all() if u.change == "add-marker"] == []
+    assert "group 1" in capsys.readouterr().out
+
+
+def test_a_merged_unit_carrying_nothing_of_the_change_is_not_shown(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    write_change(tmp_path, "add-marker", TWO_GROUPS)
+    store = carrier_store(tmp_path)
+    store.upsert([stored("third/1", change="third", groups=(1,))])
+    store.set_state("third/1", UnitState.MERGED, pr=10, branch="spec/third/1")
+    seen: list[dict] = []
+    monkeypatch.setattr(
+        cli, "plan_round", lambda **k: seen.append(k) or Plan(units=(stored("add-marker/2"),))
+    )
+
+    real_plan_all(inst, store=store)
+
+    shown = [u["id"] for u in seen[0]["in_flight"]]
+    assert "other/1" in shown
+    assert "third/1" not in shown
+
+
+@pytest.mark.parametrize(
+    ("uid", "change", "state", "extra"),
+    [
+        ("third/1", "third", IN_REVIEW, {}),
+        ("third/1", "third", PLANNED, {}),
+        ("add-marker/1", "add-marker", UnitState.UNPLANNED, {"superseded_by": ("add-marker/3",)}),
+        ("add-marker/1", "add-marker", UnitState.RETIRED, {}),
+    ],
+)
+def test_the_units_already_shown_are_still_shown_beside_a_carrier(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    uid: str,
+    change: str,
+    state: UnitState,
+    extra: dict,
+) -> None:
+    write_change(tmp_path, "add-marker", TWO_GROUPS)
+    store = carrier_store(tmp_path)
+    store.upsert([stored(uid, change=change, groups=(1,), **extra)])
+    store.set_state(uid, state, branch=f"spec/{uid}")
+    seen: list[dict] = []
+    monkeypatch.setattr(
+        cli, "plan_round", lambda **k: seen.append(k) or Plan(units=(stored("add-marker/2"),))
+    )
+
+    real_plan_all(inst, store=store)
+
+    shown = [u["id"] for u in seen[0]["in_flight"]]
+    assert uid in shown
+    assert "other/1" in shown
