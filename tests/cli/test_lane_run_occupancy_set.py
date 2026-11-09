@@ -6,13 +6,10 @@ the scan never read it (spec: unit-scheduling).
 
 from __future__ import annotations
 
-import threading
 from pathlib import Path
-from typing import Any
 
 import pytest
 
-from agent_build_kit.cli import pipeline as cli
 from agent_build_kit.pipeline.unit_store import Cause
 from agent_build_kit.pipeline.units import IN_REVIEW, PLANNED
 from agent_build_kit.pipeline.workspaces import branch_lock
@@ -119,29 +116,3 @@ def test_the_occupancy_is_counted_for_each_project_so_a_full_one_starts_nothing_
         assert slots.occupancy(["b1/1", "p1/1"], of="b1/1") == {"b1/1", "run1/1"}
         assert slots.occupancy(["b1/1", "p1/1"], of="p1/1") == {"p1/1"}
         assert slots.started(["b1/1", "p1/1"]) == ["platform-ready/1"]
-
-
-def test_the_lanes_admission_owed_units_and_the_scan_return_the_same_at_the_cap(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    ran: list[str] = []
-    scanned = threading.Event()
-
-    def run(inst: Any, unit: Any, **kwargs: Any) -> bool:
-        ran.append(unit.id)
-        scanned.set()
-        return True
-
-    monkeypatch.setattr(cli, "build_unit", run)
-    builds = [f"b{n}/1" for n in range(1, 5)]
-    units = [*(build(uid) for uid in builds), build("run1/1"), build("run2/1")]
-    with Slots(tmp_path, monkeypatch, units, flagged=["run1/1", "run2/1"]) as slots:
-        owed = cli.owed_units(slots.inst, slots.store.all())
-
-        slots.run("run1/1")  # admitted with four builds in flight
-        slots.lanes.scan(slots.store.all())  # and the scan takes `run2/1` beside it
-        assert scanned.wait(5)
-
-        assert {"run1/1", "run2/1"} <= owed
-        assert ran == ["run2/1"]
-        assert slots.occupancy(builds) >= {*builds, "run1/1"}

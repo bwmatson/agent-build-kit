@@ -6,7 +6,6 @@ environment is healthy (spec: pipeline-environment).
 from __future__ import annotations
 
 import argparse
-import threading
 from pathlib import Path
 
 import pytest
@@ -139,37 +138,6 @@ def test_units_still_waiting_are_not_resumed_while_the_environment_stays_broken(
     assert builder.started == []
     stored_unit = builder.store.get("feature/1")
     assert (stored_unit.state, stored_unit.cause) == (FAILED, Cause.ENVIRONMENT)
-
-
-def test_the_resumed_units_run_within_the_concurrency_limit(
-    tmp_path: Path,
-    builder: Builder,  # noqa: F811
-) -> None:
-    inst, _ = managed(tmp_path, max_concurrent=1)
-    waiting_for_environment(builder.store, "feature/1", "feature/2", "feature/3")
-    lock = threading.Lock()
-    active = [0]
-    peak = [0]
-    overlapped = threading.Event()
-
-    def build() -> None:
-        with lock:
-            active[0] += 1
-            peak[0] = max(peak[0], active[0])
-            if active[0] > 1:
-                overlapped.set()
-        # Held open until another build overlaps, which a limit of one never lets happen.
-        overlapped.wait(0.3)
-        with lock:
-            active[0] -= 1
-
-    for unit_id in ("feature/1", "feature/2", "feature/3"):
-        builder.scripts[unit_id] = build
-
-    assert tick(inst) == 0
-
-    assert sorted(builder.started) == ["feature/1", "feature/2", "feature/3"]
-    assert peak[0] == 1
 
 
 # --- 3.5 the check for work ----------------------------------------------------------

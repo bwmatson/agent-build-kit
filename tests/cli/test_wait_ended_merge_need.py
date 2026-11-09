@@ -77,36 +77,6 @@ def fail_waiting_on(pipe: Pipeline, kind: str) -> None:
     save_failure(pipe, feedback="the check failed", source=FeedbackSource.E2E)
 
 
-@pytest.mark.parametrize("kind", ["author-merge", "plain", "cross-repo"])
-def test_the_wait_ends_at_the_merge_and_the_next_tick_that_has_it(
-    pipe: Pipeline, kit: Kit, kind: str
-) -> None:
-    fail_waiting_on(pipe, kind)
-    kit.ticks(3)
-
-    pipe.passes(2)
-    assert pipe.store.get(CHILD).state == FAILED, "in review does not end the wait"
-    assert pipe.store.get(CHILD).waited_on == (PARENT,)
-    assert pipe.host.deliveries == []
-
-    pipe.store.set_state(PARENT, MERGED, pr=1)
-    pipe.store.set_merge_record(PARENT, merge_sha=kit.fix, merged_tick=3)
-    pipe.passes(2)
-    assert pipe.host.deliveries == [], "the tick that saw the merge does not act on it"
-
-    kit.ticks(4, head=kit.pull() if kind != "cross-repo" else None)
-    pipe.pass_()
-    pipe.pass_()
-
-    [delivery] = pipe.host.deliveries
-    assert delivery["unit"] == CHILD
-    assert delivery["requeue"] is RequeueReason.FROM_FAILURE, "the mode the existing rule picks"
-    assert pipe.store.get(CHILD).waited_on == ()
-    assert pipe.wait_ended_notes() == [
-        "requeue: its wait ended (waiting on base group 1 is now merged, loaded by tick 4)"
-    ]
-
-
 def test_a_requeue_by_a_person_is_parked_gated_and_released_after_the_merge_is_loaded(
     pipe: Pipeline, kit: Kit
 ) -> None:

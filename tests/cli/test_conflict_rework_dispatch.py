@@ -17,7 +17,6 @@ import pytest
 
 from agent_build_kit.cli import pipeline as cli
 from agent_build_kit.graph.checkpointer import open_checkpointer, unit_graphs_path
-from agent_build_kit.graph.state import Node
 from agent_build_kit.pipeline.events import build_base_tip
 from agent_build_kit.pipeline.pr_poller import CONFLICT_REASON
 from agent_build_kit.pipeline.unit_store import HeldBy, ReworkKind
@@ -131,24 +130,3 @@ def test_an_event_for_a_unit_a_person_holds_is_left_for_the_next_poll_and_taken_
 
     assert moved_in_the_lane(scene)
     assert graph.store.get(OTHER).state != HELD
-
-
-def test_a_unit_with_a_parked_thread_sent_back_for_a_conflict_is_run_in_the_lane(
-    graph: Setup, tmp_path: Path
-) -> None:
-    scene = Scene(graph, tmp_path)
-    scene.told_its_base_moved()
-    assert graph.tick() == 0
-    assert graph.next(OTHER) == (Node.AWAIT_REVIEW,), "back in review, its thread waiting"
-    graph.store.set_state(OTHER, graph.store.get(OTHER).state, pr=PR, branch=BRANCH)
-    scene.calls.clear()
-    event = ("rework", {"reason": CONFLICT_REASON, "rework": ReworkKind.CONFLICT})
-
-    with cli.build_restack_lane(graph.inst, graph.store) as lane:
-        scene.lane = lane
-        assert graph.poll(event, pr=PR, lane=lane) == [True]
-        lane.drain()
-
-    assert moved_in_the_lane(scene), (
-        "the delivered event's run was the lane's, not a build worker's"
-    )

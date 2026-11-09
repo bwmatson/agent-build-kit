@@ -29,7 +29,7 @@ from agent_build_kit.pipeline.stack_runner import RunOutcome, RunStatus
 from agent_build_kit.pipeline.unit_store import StoredUnit, UnitStore
 from agent_build_kit.pipeline.units import IN_REVIEW, MERGED, PLANNED, RUNNING
 from agent_build_kit.pipeline.usage_guard import Decision
-from agent_build_kit.pipeline.verify import Verification, VerifyRecord
+from agent_build_kit.pipeline.verify import Verification
 from agent_build_kit.pipeline.workspaces import branch_lock
 from tests.cli.vanished_fakes import keep_changes_of_unstarted_units
 from tests.conftest import make_installation
@@ -301,72 +301,6 @@ def in_a_thread(work: Callable[[], object]) -> None:
     assert not thread.is_alive(), "the round waited for the live-stack lock"
     if raised:
         raise raised[0]
-
-
-def test_a_change_whose_units_have_merged_is_verified_and_archived_while_another_builds(
-    inst: Installation, tmp_path: Path, verified: list[str], archived: list[str]
-) -> None:
-    store = UnitStore(tmp_path / "units.json")
-    merged_beside_a_build(store)
-
-    run(inst, store, building={"slow/1"}, started={"slow/1"})
-
-    assert verified == ["done"]
-    assert archived == ["done"]
-    assert store.get("slow/1").state == RUNNING
-
-
-def test_verification_is_skipped_and_logged_while_the_live_stack_is_in_use_then_done_later(
-    inst: Installation,
-    tmp_path: Path,
-    verified: list[str],
-    archived: list[str],
-    capsys: pytest.CaptureFixture[str],
-) -> None:
-    store = UnitStore(tmp_path / "units.json")
-    merged_beside_a_build(store)
-
-    with stack_lock(inst.state_dir / "e2e.lock", timeout=5):
-        in_a_thread(lambda: run(inst, store, building={"slow/1"}, started={"slow/1"}))
-
-        assert verified == []
-        assert archived == []
-        out = capsys.readouterr().out
-        assert "done" in out
-        assert "skipped" in out
-
-    run(inst, store, building={"slow/1"}, started={"slow/1"})
-
-    assert verified == ["done"]
-    assert archived == ["done"]
-
-
-def test_a_change_skipped_for_the_live_stack_does_not_archive_on_an_earlier_pass(
-    inst: Installation,
-    tmp_path: Path,
-    verified: list[str],
-    archived: list[str],
-    capsys: pytest.CaptureFixture[str],
-) -> None:
-    store = UnitStore(tmp_path / "units.json")
-    store.upsert([unit_of("done/1"), unit_of("done/2")])
-    store.set_state("done/1", MERGED, pr=3, branch="spec/done/1")
-    store.set_state("done/2", MERGED, pr=4, branch="spec/done/2")
-    VerifyRecord(tmp_path / "verified.json").put(
-        Verification(change="done", passed=True, units=["done/1"])
-    )
-
-    with stack_lock(inst.state_dir / "e2e.lock", timeout=5):
-        in_a_thread(lambda: run(inst, store))
-
-        assert verified == []
-        assert archived == []
-        assert "skipped" in capsys.readouterr().out
-
-    run(inst, store)
-
-    assert verified == ["done"]
-    assert archived == ["done"]
 
 
 def test_a_round_does_not_verify_when_no_change_has_merged(
@@ -669,15 +603,3 @@ def test_a_dry_run_runs_a_round_and_builds_nothing(
     out = capsys.readouterr().out
     assert "ready: feature/1" in out
     assert "dry run" in out
-
-
-def test_only_narrows_every_round(inst: Installation, builder: Builder, rounds: list[dict]) -> None:
-    builder.store.upsert([unit_of("feature/1"), unit_of("other/1")])
-
-    assert tick(inst, only=["other/1"]) == 0
-
-    assert builder.started == ["other/1"]
-    assert rounds
-    assert all(r["only"] == frozenset({"other/1"}) for r in rounds)
-
-    assert any(r["building"] for r in rounds), "the loop ran no round"

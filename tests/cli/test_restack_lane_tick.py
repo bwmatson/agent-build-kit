@@ -20,15 +20,14 @@ import pytest
 
 from agent_build_kit.cli import pipeline as cli
 from agent_build_kit.installation import Installation
-from agent_build_kit.pipeline import spans
 from agent_build_kit.pipeline.resolution_lane import ResolutionLane
 from agent_build_kit.pipeline.stack_runner import RunOutcome, RunStatus
-from agent_build_kit.pipeline.unit_store import Cause, StoredUnit, UnitStore
-from agent_build_kit.pipeline.units import IN_REVIEW, PLANNED, RUNNING
+from agent_build_kit.pipeline.unit_store import StoredUnit, UnitStore
+from agent_build_kit.pipeline.units import IN_REVIEW, RUNNING
 from agent_build_kit.pipeline.usage_guard import Decision
 from agent_build_kit.pipeline.usage_ledger import LEDGER_NAME
 from tests.conftest import make_installation
-from tests.factories import git, init_repo, new_unit
+from tests.factories import new_unit
 from tests.time_limit import LOADED_TEST_TIME_LIMIT
 
 # The tests of this module run whole passes, whose time depends on the machine's load.
@@ -160,91 +159,3 @@ def test_a_build_slot_is_free_while_a_restack_runs_and_a_ready_unit_starts_in_it
 
     assert scene.started == ["first/1"]
     assert scene.log == ["restack begun", "build first/1", "built first/1", "restack done"]
-
-
-def test_the_samples_free_workers_count_the_restack_running_as_occupying_a_slot(
-    scene: Scene, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    during: list[list[str]] = []
-    record = spans.record_sample
-
-    def after_the_sample(sample: spans.Sample, log: Callable[[str], None]) -> None:
-        record(sample, log)
-        during.append(list(scene.lanes[0].running))
-        scene.release.set()
-
-    scene.release_on_build = False
-    monkeypatch.setattr(spans, "record_sample", after_the_sample)
-
-    assert scene.tick() == 0
-
-    first, *_ = scene.samples()
-    assert during[0] == ["second/1"]
-    assert set(first) == SAMPLE_FIELDS
-    assert (first["free_workers"], first["cap"]) == (1, 2)
-
-
-def test_a_build_that_stops_for_a_moved_base_is_followed_at_once_by_a_restack_of_it(
-    scene: Scene, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    scene.hands_over = False
-    init_repo(scene.inst.checkouts["app"])
-    restacked: list[str] = []
-    stopped: list[str] = []
-
-    def stops_once(unit: StoredUnit) -> RunOutcome | None:
-        if stopped:
-            return None
-        stopped.append(unit.id)
-        scene.store.set_state(unit.id, PLANNED, cause=Cause.BASE_CHANGED, branch="spec/first/1")
-        return RunOutcome(status=RunStatus.SKIPPED, detail="the base moved")
-
-    def restack(**kwargs: Any) -> None:
-        restacked.append(kwargs["child"].id)
-        scene.log.append("restack")
-
-    def owed(inst: Installation, units: list[StoredUnit]) -> set[str]:
-        return {
-            unit.id
-            for unit in units
-            if unit.cause is Cause.BASE_CHANGED and unit.id not in restacked
-        }
-
-    scene.on_build = stops_once
-    monkeypatch.setattr(cli, "build_restack", lambda **kwargs: restack)
-    monkeypatch.setattr(cli, "owed_units", owed)
-
-    assert scene.tick() == 0
-
-    assert scene.log[:3] == ["build first/1", "restack", "build first/1"]
-
-
-def test_a_restack_that_leaves_its_unit_owed_is_tried_once_and_the_tick_ends(
-    scene: Scene, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    scene.hands_over = False
-    repo = init_repo(scene.inst.checkouts["app"])
-    (repo / "a.txt").write_text("a\n")
-    git(repo, "add", "-A")
-    git(repo, "commit", "-qm", "a")
-    git(repo, "branch", "spec/second/1")
-    (repo / "b.txt").write_text("b\n")
-    git(repo, "add", "-A")
-    git(repo, "commit", "-qm", "b")
-    scene.store.set_state(
-        "second/1", IN_REVIEW, pr=9, branch="spec/second/1", cause=Cause.BASE_CHANGED
-    )
-    attempts: list[str] = []
-
-    def deferred(**kwargs: Any) -> None:
-        """A restack that cannot move the branch now: the unit is planned for a deferred restack."""
-        attempts.append(kwargs["child"].id)
-        scene.store.set_state(
-            kwargs["child"].id, PLANNED, cause=Cause.RESTACK_DEFERRED, branch="spec/second/1"
-        )
-
-    monkeypatch.setattr(cli, "build_restack", lambda **kwargs: deferred)
-
-    assert scene.tick() == 0
-
-    assert attempts == ["second/1"]

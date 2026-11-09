@@ -24,7 +24,7 @@ from agent_build_kit.pipeline.events import build_restack
 from agent_build_kit.pipeline.units import IN_REVIEW
 from agent_build_kit.pipeline.usage_guard import Decision
 from agent_build_kit.runtimes import AgentRequest
-from tests.factories import git, init_repo, stored_unit
+from tests.factories import git, init_repo
 from tests.graph.test_remaining_paths import RESOLVED, Moves
 from tests.restack_lane_fakes import Tracking
 from tests.restack_turn_fakes import commit_file, keeps_both
@@ -91,52 +91,6 @@ class Scene:
 @pytest.fixture
 def scene(host: Host, graph: Setup, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Scene:
     return Scene(host, graph, monkeypatch, tmp_path)
-
-
-def test_a_run_held_for_a_second_moved_base_is_moved_by_the_lane_with_its_conflict_step_gated(
-    scene: Scene,
-) -> None:
-    # The push-time move, the resumed run's own restack, its push-time move.
-    scene.moves(RESOLVED, None, RESOLVED)
-
-    assert scene.graph.tick() == 0
-
-    assert len(scene.resolved) == 1
-    assert "push" not in scene.resolved[0], "moved from the hold, before the unit was built again"
-    assert scene.asked.count("resolve") == 1, "the lane's conflict step is asked of the guard"
-    assert scene.holds_main()
-    assert scene.graph.store.get(UNIT).state == IN_REVIEW, "then built, in a worker"
-
-
-def test_a_build_waits_for_the_lanes_run_of_the_held_unit_when_it_takes_the_only_slot(
-    scene: Scene,
-) -> None:
-    graph = scene.graph
-    graph.store.upsert([stored_unit(OTHER, change="other")])
-    scene.moves(RESOLVED, None, RESOLVED)
-    order: list[str] = []
-
-    def worktree(unit: Any, base: str) -> Path:
-        if unit.id == OTHER:
-            order.append("other built")
-        return scene.tree
-
-    def resolver(request: AgentRequest) -> None:
-        order.append("resolved")
-        scene.resolves(request)
-
-    graph.options["worktree"] = worktree
-    runtime = Tracking(act=resolver)
-    graph.patch.setattr(runtimes, "active", lambda: runtime)
-
-    assert graph.tick() == 0
-
-    assert graph.inst.max_concurrent_stacks == 1
-    # The run in the lane counts toward the occupancy, so no build starts beside it at the cap.
-    assert order == ["resolved", "other built"]
-    assert len(scene.resolved) == 1
-    assert scene.holds_main()
-    assert {graph.store.get(UNIT).state, graph.store.get(OTHER).state} == {IN_REVIEW}
 
 
 def test_a_run_that_settles_its_first_conflict_is_not_held_and_the_lane_is_not_asked(

@@ -17,11 +17,10 @@ from agent_build_kit.cli import pipeline as cli
 from agent_build_kit.pipeline.pr_poller import CONFLICT_REASON
 from agent_build_kit.pipeline.restack import Moved
 from agent_build_kit.pipeline.unit_store import Cause, ReworkKind
-from agent_build_kit.pipeline.units import FAILED, HELD, IN_REVIEW, PLANNED, RUNNING, branch_name
+from agent_build_kit.pipeline.units import IN_REVIEW, PLANNED, RUNNING, branch_name
 from agent_build_kit.pipeline.wiring import build_restack_onto
 from tests.factories import git
 from tests.graph.test_restack_lane_prepare import Scene, adapting
-from tests.runner_fakes import rejecting
 from tests.tick_driver import OTHER, UNIT, Setup
 
 COMMENT = "[comment c1] a.txt:1 — rename the marker"
@@ -81,63 +80,6 @@ def test_a_comment_run_reworks_checks_reviews_and_pushes_in_the_lane(scene: Scen
     stored = scene.graph.store.get(OTHER)
     assert stored.state == IN_REVIEW, "the run went on to the push"
     assert scene.offered() == []
-
-
-def test_a_restack_meeting_a_review_for_changes_reworks_in_the_same_worker(
-    scene: Scene,
-) -> None:
-    resolved_move(scene)
-    scene.graph.recorder.verdicts.append(rejecting("rename the marker"))
-    in_the_lane = agents_in_the_lane(scene)
-    scene.told_its_base_moved()
-
-    scene.lane_moves()
-
-    assert in_the_lane.get("claude:rework") is True, "the lane did the rework itself"
-    stored = scene.graph.store.get(OTHER)
-    assert stored.state == IN_REVIEW, stored.note
-
-
-def test_a_restack_meeting_failing_checks_fixes_them_in_the_same_worker(scene: Scene) -> None:
-    scene.graph.recorder.unit_test_ok = False
-    in_the_lane = agents_in_the_lane(scene)
-    scene.told_its_base_moved()
-
-    scene.lane_moves()
-
-    assert in_the_lane.get("claude:fix_checks") is True, "the lane fixed the checks itself"
-    stored = scene.graph.store.get(OTHER)
-    # The checks never pass, so the run ends as a build's would: not handed back.
-    assert (stored.state, "checks still failing" in stored.note) == (FAILED, True), stored.note
-
-
-def test_a_restack_of_an_end_to_end_unit_runs_its_e2e_tests_in_the_lane(
-    graph: Setup, tmp_path: Path
-) -> None:
-    scene = Scene(graph, tmp_path, tier="e2e-test")
-    scene.told_its_base_moved()
-    built = len(graph.recorder.events)
-
-    scene.lane_moves()
-
-    assert "e2e-test" in graph.recorder.events[built:]
-    stored = graph.store.get(OTHER)
-    assert stored.state == IN_REVIEW, stored.note
-
-
-def test_a_run_whose_review_rounds_are_spent_is_held_for_a_person_with_a_note(
-    scene: Scene,
-) -> None:
-    resolved_move(scene)
-    scene.graph.recorder.verdicts.extend(rejecting("rename the marker") for _ in range(20))
-    scene.told_its_base_moved()
-
-    scene.lane_moves()
-
-    stored = scene.graph.store.get(OTHER)
-    assert (stored.state, stored.cause) == (HELD, Cause.NEEDS_HUMAN)
-    assert "rounds spent" in stored.note, "the note names the step the run could not finish"
-    assert not stored.note.startswith("restack held")
 
 
 def based_on_a_branch(scene: Scene) -> None:

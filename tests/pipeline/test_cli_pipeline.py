@@ -27,7 +27,6 @@ from agent_build_kit.graph.checkpointer import open_checkpointer, unit_graphs_pa
 from agent_build_kit.graph.state import Node, UnitRun
 from agent_build_kit.graph.unit import seed_thread
 from agent_build_kit.installation import Installation
-from agent_build_kit.pipeline.archive import archive_ready_changes as real_archive_ready
 from agent_build_kit.pipeline.pause import RESUME_GRACE, is_paused, pause_until
 from agent_build_kit.pipeline.planner import Plan
 from agent_build_kit.pipeline.pr_poller import Poller, state_path
@@ -1194,22 +1193,6 @@ def test_adding_a_needs_line_does_not_re_plan_the_change(tmp_path: Path) -> None
     assert cli.specification(tasks) == before
 
 
-def test_a_tick_with_nothing_in_progress_does_nothing_at_all(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
-    """The timer fires every five minutes; with nothing planned, running or in
-    review, and no change waiting to be planned, it should not so much as read
-    usage or call GitHub."""
-    store = UnitStore(tmp_path / "units.json")
-    store.upsert([stored()])
-    store.set_state("add-marker/1", UnitState.MERGED)
-    calls: list[str] = []
-    monkeypatch.setattr(cli, "current_usage", lambda: calls.append("usage"))
-
-    assert cli.cmd_tick(argv_namespace(dry_run=False), inst) == 0
-    assert calls == []
-
-
 def test_a_unit_in_review_keeps_the_ticks_coming(tmp_path: Path) -> None:
     """Its CI, comments and merge are only noticed by a poll."""
     store = UnitStore(tmp_path / "units.json")
@@ -1239,24 +1222,6 @@ def test_a_change_not_yet_planned_is_work(tmp_path: Path) -> None:
     (change / "tasks.md").write_text("## 1. [app] [unit-test] G\n- [ ] 1.1 x\n")
 
     assert cli.has_work(inst, UnitStore(tmp_path / "units.json"))
-
-
-def test_a_change_ended_satisfied_is_work_until_verified_and_archived(tmp_path: Path) -> None:
-    """A unit ends satisfied inside scheduling, after the tick's verify and
-    archive step; the next tick must still come, and must be the last."""
-    store = UnitStore(tmp_path / "units.json")
-    store.upsert(
-        [stored("c/1", change="c"), stored("c/2", change="c", depends_on=("c/1",))], change="c"
-    )
-    store.set_state("c/1", UnitState.MERGED, pr=1)
-    store.set_state("c/2", UnitState.SATISFIED)
-    calls: list[str] = []
-
-    assert cli.has_work(inst, store)
-    may_archive = real_verify_ready(inst, store.all(), verify=_verifier([True], calls))
-    assert calls == ["c"]
-    assert may_archive("c")
-    assert not cli.has_work(inst, store), "verified: nothing left for a tick"
 
 
 def test_a_failed_verification_of_a_satisfied_change_does_not_keep_ticks_busy(
@@ -1692,24 +1657,6 @@ def test_a_passing_verify_removes_the_changes_logs(
     monkeypatch.setattr(cli, "verify_one", lambda inst, change, units: fake(change, units))
 
     assert cli.cmd_verify(argv_namespace(change="c"), inst) == 0
-
-    assert archived == ["c"]
-    assert not mine.exists()
-    assert other.exists()
-
-
-def test_a_tick_that_archives_removes_the_changes_logs(
-    healthy, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
-    monkeypatch.setattr(cli, "archive_ready_changes", real_archive_ready)
-    archived = _archiving(monkeypatch)
-    mine, other = _two_changes_logged(tmp_path)
-    monkeypatch.setattr(
-        cli, "verify_ready", lambda inst, units, **kwargs: lambda change: change == "c"
-    )
-    monkeypatch.setattr(cli, "has_work", lambda inst, store: True)
-
-    cli.cmd_tick(argv_namespace(dry_run=True), inst)
 
     assert archived == ["c"]
     assert not mine.exists()

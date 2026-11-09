@@ -482,7 +482,10 @@ def test_a_run_holds_the_branch_lock_between_its_nodes(graph: Setup) -> None:
     assert held
     assert all(held), "held before every agent node, between nodes"
     assert graph.store.get(UNIT).state == IN_REVIEW
-    assert not list(locks.glob("*.lock")), "released once the thread waits"
+    # The dispatcher's own lock file stays; no branch's lock is left.
+    assert not [path for path in locks.glob("*.lock") if path.name != cli.DISPATCHER_LOCK], (
+        "released once the thread waits"
+    )
 
 
 def test_a_build_for_a_unit_another_run_is_between_nodes_on_is_skipped(graph: Setup) -> None:

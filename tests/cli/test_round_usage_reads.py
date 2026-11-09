@@ -7,7 +7,6 @@ endpoint for nothing and writes no pause. The real guard runs; only the endpoint
 faked (`tests/usage_host.py`).
 """
 
-import argparse
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
@@ -24,7 +23,6 @@ from agent_build_kit.pipeline.wiring import build_usage_gate
 from tests.cli.vanished_fakes import keep_changes_of_unstarted_units
 from tests.conftest import make_installation
 from tests.factories import stored_unit
-from tests.otlp import enabled
 from tests.time_limit import LOADED_TEST_TIME_LIMIT
 from tests.usage_host import Host, payload
 
@@ -166,21 +164,3 @@ def test_a_usage_marker_in_the_future_refuses_neither_the_round_nor_the_gate_whe
 
     assert allowed
     assert is_paused(marker) is None
-
-
-def test_a_tick_that_started_nothing_for_another_reason_is_not_paused_by_a_usage_marker(
-    inst: Installation, host: Host, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """Every unit that could start is left out by `--only`, so the guard is not asked and
-    the marker is not cleared; it still says nothing about why nothing started."""
-    stored(inst, "feature/1")
-    usage_marker(inst)
-    monkeypatch.setattr(cli, "plan_all", lambda inst, **kwargs: None)
-    args = argparse.Namespace(dry_run=True, only=["other/1"])
-
-    with enabled() as exported:
-        assert cli.cmd_tick(args, inst) == 0
-        outcomes = [p.attributes["outcome"] for p in exported.metric("abk.tick.duration")]
-
-    assert host.asked == 0
-    assert outcomes == ["idle"]

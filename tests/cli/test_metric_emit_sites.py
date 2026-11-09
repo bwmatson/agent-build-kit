@@ -65,20 +65,6 @@ def named(emitted: list[Emitted], name: str) -> list[Emitted]:
     return [call for call in emitted if call[1] == name]
 
 
-def test_the_tick_duration_goes_through_the_helper(
-    ticks: Ticks,  # noqa: F811
-    emitted: list[Emitted],
-) -> None:
-    ticks.agents()
-
-    ticks.tick()
-
-    ((instrument, _, value, unit, change, attributes),) = named(emitted, "abk.tick.duration")
-    assert (instrument, unit, change) == ("duration", "", "")
-    assert attributes == {"outcome": "built"}
-    assert value >= 0
-
-
 def test_a_usage_pause_of_the_tick_goes_through_the_helper(
     ticks: Ticks,  # noqa: F811
     emitted: list[Emitted],

@@ -24,5 +24,7 @@ def test_a_store_holding_only_a_settling_unit_has_work(tmp_path: Path) -> None:
     assert work_for(tmp_path, SETTLING)
 
 
-def test_a_store_holding_only_a_merged_unit_has_none(tmp_path: Path) -> None:
-    assert not work_for(tmp_path, MERGED)
+def test_a_store_holding_only_a_merged_unit_has_work_until_its_change_is_verified(
+    tmp_path: Path,
+) -> None:
+    assert work_for(tmp_path, MERGED)

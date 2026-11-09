@@ -25,6 +25,8 @@ from agent_build_kit.pipeline.resolution_lane import Lane
 from agent_build_kit.pipeline.usage_guard import Decision
 from tests.conftest import make_installation
 from tests.graph_driver import GRAPH_DRIVER_TIME_LIMIT, fresh
+from tests.inline_workers import install as install_inline_workers
+from tests.inline_workers import tick_and_wait
 from tests.runner_fakes import Recorder, make_runner
 from tests.waiting import wait_for
 
@@ -78,7 +80,7 @@ class Setup:
         self.store = recorder.store
 
     def tick(self) -> int:
-        return cli.cmd_tick(argparse.Namespace(dry_run=False, only=None), self.inst)
+        return tick_and_wait(self.inst, argparse.Namespace(dry_run=False, only=None))
 
     def dry_tick(self) -> int:
         return cli.cmd_tick(argparse.Namespace(dry_run=True, only=None), self.inst)
@@ -132,6 +134,7 @@ def make_setup(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Setup:
     def runner(u: Any, **kwargs: Any) -> Any:
         return make_runner(recorder.store, recorder, tmp_path, **options)
 
+    install_inline_workers(monkeypatch)
     monkeypatch.setattr(cli, "build_runner", runner)
     monkeypatch.setattr(cli, "fetch_all", lambda inst: None)
     monkeypatch.setattr(cli, "poll_all", lambda inst, **kwargs: None)
