@@ -772,6 +772,17 @@ def _committed_config_dirs(document: dict[str, Any]) -> list[str]:
     ]
 
 
+def _committed_azure_settings(document: dict[str, Any]) -> list[str]:
+    """The keys of `deployment.azure.<setting>` the document sets: machine settings."""
+    deployment = document.get("deployment")
+    azure = deployment.get("azure") if isinstance(deployment, dict) else None
+    if not isinstance(azure, dict):
+        return []
+    return [
+        f"deployment.azure.{name}" for name in azure if name in AzureDeploymentConfig.model_fields
+    ]
+
+
 class RuntimeConfig(Frozen):
     """What one agent runtime needs from this installation (`runtimes.<name>`)."""
 
@@ -1884,7 +1895,7 @@ class AzureDeploymentConfig(Frozen):
 class DeploymentConfig(Frozen):
     """Which deployment this installation is (`deployment`)."""
 
-    kind: Literal["unset"] = "unset"
+    kind: Literal["local", "azure"] = "local"
     azure: AzureDeploymentConfig = AzureDeploymentConfig()
 
 
@@ -2408,6 +2419,11 @@ def load(path: Path) -> WorkspaceConfig:
         raise ConfigError(
             f"{path}: {key}: a machine path is never committed; "
             "set it in the machine-local overlay beside this file"
+        )
+    for key in _committed_azure_settings(raw):
+        raise ConfigError(
+            f"{path}: {key}: a machine setting is never committed; "
+            f"set it in {OVERLAY_FILENAME} beside this file"
         )
     merged = raw if local is None else merge_local(raw, local)
     try:

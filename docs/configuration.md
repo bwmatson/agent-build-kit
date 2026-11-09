@@ -34,6 +34,8 @@ Ask of any line: *would this be wrong on another person's machine?* If it would,
 | `verify.env.<NAME>.file` (where a settings file sits) | `abk.local.yaml` | a path on one disk; the entry and its `path` stay in `abk.yaml` |
 | `repos.<name>.account` (which Claude account builds a repo) | `abk.local.yaml` | depends on who runs the pipeline and which accounts they have; a person with one account sets nothing |
 | `runtimes.claude_code.accounts.<label>`: `config_dir`, `usage_limits`, `project_limits` | `abk.local.yaml` | a directory and a plan's allowances |
+| `deployment.kind` (`local` or `azure`) | `abk.yaml` | which deployment the installation is describes the workspace; defaults to `local` |
+| `deployment.azure.<setting>`: `subscription`, `resource_group`, `storage_account`, `database_host`, `key_vault`, `identity_client_id` | `abk.local.yaml` | names one subscription or machine; one in the committed file is refused, naming the key |
 | `runtimes.claude_code.usage_limits` (the default account's usage thresholds) and `usage_cache_*` | `abk.local.yaml` | a plan's allowances differ per person |
 | `runtimes.<name>.models` (which model does which role) | `abk.yaml` | a model alias is that runtime's own name and describes the workspace |
 | `runtimes.<name>.command` and `policy_fix`, where the program is an absolute path | `abk.local.yaml` or `.env` | where a program sits differs per machine; a bare program name on the PATH is fine in `abk.yaml` |
