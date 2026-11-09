@@ -62,6 +62,8 @@ class ResultEvent(BaseModel):
     total_cost_usd: Annotated[float | None, Salvaged] = None
     duration_ms: Annotated[int | None, Salvaged] = None
     session_id: Annotated[str | None, Salvaged] = None
+    # The tool calls the CLI's permission layer refused; absent or malformed is none.
+    permission_denials: Annotated[list[dict] | None, Salvaged] = None
     # Per model, what the run spent; a newer claude adds each model's `contextWindow`.
     model_usage: Annotated[dict[str, dict] | None, Salvaged] = Field(
         default=None, alias="modelUsage"

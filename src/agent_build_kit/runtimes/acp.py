@@ -124,6 +124,7 @@ from agent_build_kit.runtimes.base import (
     PromptTransport,
     Question,
     QuestionKind,
+    RefusedCall,
     Run,
     SessionUnavailable,
     ToolPolicy,
@@ -579,6 +580,7 @@ class _Session:
         # tied to the execute calls open when it happens, not to a command
         # string, so an agent that describes a command one way and runs it
         # another is still attributed once.
+        self.refused_calls: list[RefusedCall] = []
         self._answered: set[str] = set()
         self._ended: set[str] = set()
 
@@ -728,6 +730,7 @@ class _Session:
     def _refused(self, line: str, reason: str, layer: str) -> None:
         """The one progress line an operator reads to learn what refused a
         command, and so which rules to tighten."""
+        self.refused_calls.append(RefusedCall(tool="execute", subject=line, reason=reason))
         self._tell(f"refused `{line}` by {layer}: {reason}")
 
     def _attribute_own_refusal(self, call_id: str, update: ToolCallProgress) -> None:
@@ -1521,6 +1524,7 @@ class AcpRuntime:
                     f"was cancelled rather than permitted: {session.refused_cancel}",
                     stop_reason=stop_reason,
                     raw="\n".join(raw_lines),
+                    refused_calls=tuple(session.refused_calls),
                     **spent,
                 )
             raise AgentInterrupted("the agent's turn was cancelled")
@@ -1532,6 +1536,7 @@ class AcpRuntime:
                 error=error,
                 stop_reason=stop_reason,
                 raw="\n".join(raw_lines),
+                refused_calls=tuple(session.refused_calls),
                 **spent,
             )
         return AgentResult(
@@ -1539,6 +1544,7 @@ class AcpRuntime:
             text=session.answer,
             stop_reason=stop_reason,
             raw="\n".join(raw_lines),
+            refused_calls=tuple(session.refused_calls),
             **spent,
         )
 
