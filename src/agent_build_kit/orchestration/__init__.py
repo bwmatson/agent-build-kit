@@ -56,10 +56,13 @@ def import_sdk(extra: str, module: str) -> ModuleType:
     """Import `module`, which belongs to the optional `extra`, or refuse naming the extra."""
     try:
         return importlib.import_module(module)
-    except ImportError as error:
+    except ModuleNotFoundError as error:
+        parents = [".".join(module.split(".")[:n]) for n in range(1, module.count(".") + 2)]
+        if error.name not in parents:
+            raise
         raise Refused(
-            f"{module} is not installed; it belongs to the {extra!r} extra. "
-            f"Install it with: pip install 'agent-build-kit[{extra}]'"
+            f"{module} is not installed; it belongs to the {extra!r} extra: "
+            f"install agent-build-kit[{extra}]"
         ) from error
 
 

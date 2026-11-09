@@ -17,26 +17,7 @@ from agent_build_kit import orchestration
 from agent_build_kit.installation import Installation
 from tests.conftest import make_installation
 
-NO_AZURE_IMPORTED = """
-import sys
-from pathlib import Path
-from agent_build_kit import orchestration
-from agent_build_kit.config import WorkspaceConfig
-from agent_build_kit.installation import Installation
-
-root = Path(sys.argv[1])
-root.mkdir(parents=True, exist_ok=True)
-installation = Installation(WorkspaceConfig.model_validate(dict(repos=dict())), root)
-orchestration.register("store", "local", lambda inst: "local")
-assert orchestration.get("store", installation) == "local"
-print(sorted(m for m in sys.modules if m.split(".")[0] == "azure"))
-"""
-
-BUILTIN_MODULE = """
-from agent_build_kit import orchestration
-
-orchestration.register("store", "local", lambda installation: "built-in")
-"""
+CHILD_MODULES = Path(__file__).parents[1] / "child_modules" / "orchestration"
 
 
 @pytest.fixture(autouse=True)
@@ -90,10 +71,7 @@ def test_the_kinds_registered_for_an_interface_are_listed() -> None:
 def test_the_built_in_registrations_load_on_the_first_lookup(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    module = tmp_path / "plugins" / "builtin_example_impls.py"
-    module.parent.mkdir()
-    module.write_text(BUILTIN_MODULE)
-    monkeypatch.syspath_prepend(str(module.parent))
+    monkeypatch.syspath_prepend(str(CHILD_MODULES))
     monkeypatch.setattr(orchestration, "BUILTIN_MODULES", ("builtin_example_impls",))
 
     assert orchestration.get("store", installation_of(tmp_path, "local")) == "built-in"
@@ -127,7 +105,12 @@ def test_an_azure_implementation_whose_sdk_is_missing_is_refused_when_it_is_look
 
 def test_looking_up_a_local_implementation_imports_no_azure_module(tmp_path: Path) -> None:
     done = subprocess.run(
-        [sys.executable, "-I", "-c", NO_AZURE_IMPORTED, str(tmp_path / "planning")],
+        [
+            sys.executable,
+            "-I",
+            str(CHILD_MODULES / "lookup_without_azure.py"),
+            str(tmp_path / "planning"),
+        ],
         capture_output=True,
         text=True,
         timeout=60,
@@ -136,3 +119,14 @@ def test_looking_up_a_local_implementation_imports_no_azure_module(tmp_path: Pat
 
     assert done.returncode == 0, done.stderr
     assert done.stdout.strip() == "[]"
+
+
+def test_an_sdk_that_is_installed_but_fails_on_a_dependency_is_not_reported_as_missing(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.syspath_prepend(str(CHILD_MODULES))
+
+    with pytest.raises(ModuleNotFoundError) as caught:
+        orchestration.import_sdk("azure", "broken_sdk")
+
+    assert caught.value.name == "azure_dependency_that_is_not_installed"
