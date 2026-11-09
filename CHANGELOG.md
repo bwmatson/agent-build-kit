@@ -23,8 +23,8 @@
   ran its tests (read from the verbose progress lines; none are marked without them), are
   marked as consequences of it and are neither rerun nor counted. A test the unit wrote is never
   one. A `load` failure writes no fix change and the unit does not wait; `abk status` lists it
-  on a `load:` line with its count, and the regression agent is told the order of the reruns,
-  the run on the base and the class reached.
+  on a `load:` line with its count, and the regression agent is told of the two
+  serial reruns, the class reached and whether a run on the base happened.
 
 - The node profile's whole-folder lint and format check now run the project's own `lint` and
   `format:check` scripts when its `package.json` defines them, and the generic tools for the

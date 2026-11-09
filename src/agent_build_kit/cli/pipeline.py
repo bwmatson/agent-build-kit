@@ -1178,15 +1178,17 @@ def cmd_status(args: argparse.Namespace, inst: Installation) -> int:
 
     for loaded_test in flake_record(inst).counts(lambda entry: entry.classification == "load"):
         times = f"{loaded_test.count} time{'' if loaded_test.count == 1 else 's'}"
-        print(
-            f"  load: {loaded_test.test} — hit a time limit under high load {times}, no fix change"
-        )
+        log(f"  load: {loaded_test.test} — hit a time limit under high load {times}, no fix change")
 
     for flaky in flake_record(inst).counts(
         lambda entry: not entry.failing and entry.classification != "load"
     ):
         times = f"{flaky.count} time{'' if flaky.count == 1 else 's'}"
-        load = load_text(e for e in flake_rows if e.test == flaky.test and not e.failing)
+        load = load_text(
+            e
+            for e in flake_rows
+            if e.test == flaky.test and not e.failing and e.classification != "load"
+        )
         log(
             f"  flaky: {flaky.test} — flaked {times}, fix {flaky.change or 'not written yet'}"
             + (f" ({load})" if load else "")

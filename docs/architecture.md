@@ -1839,8 +1839,8 @@ approved.
   met under when that is known. A `load` failure (a time limit hit under high load that passed
   alone) is recorded with its class, writes no fix change and adds no wait; `abk status` lists it
   on a `load:` line with how many times it happened. The regression agent's input for a flaky
-  test names the order the kit decided in (two serial reruns, then the run on the base) and the
-  class reached.
+  test names the two serial reruns it passed and the class reached, and says whether the test
+  was run on the base.
   **A disturbed run is not judged.** A failed unit-test command whose wall time exceeds the
   duration the test runner reports for it (pytest's, for example) by more than `global_limits.suspended_run_gap_seconds` is a run
   the machine was suspended in: its failures say nothing about the code, so they are neither

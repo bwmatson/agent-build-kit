@@ -320,10 +320,14 @@ def run_regression_agent(
         output=failure.output.strip(),
         base_section=on_base,
         decisions=(
-            "The kit decided, in this order, and you do not decide it again: the test was run "
-            "alone twice, serially (the two serial reruns), and passed both; then it was run on "
-            f"the base (run on the base ({base})).\n"
-            f"Class reached: {failure.classification}\n"
+            "\nThe kit decided, and you do not decide it again: the test was run alone twice, "
+            "serially (the two serial reruns), and passed both. "
+            + (
+                f"It was then run on the base ({base})."
+                if failure.base_output
+                else "It was not run on the base."
+            )
+            + f"\nClass reached: {failure.classification}\n"
             if kind is FixKind.FLAKY
             else ""
         ),
