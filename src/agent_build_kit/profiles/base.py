@@ -11,7 +11,7 @@ from __future__ import annotations
 import subprocess
 from collections.abc import Callable
 from pathlib import Path
-from typing import TYPE_CHECKING, Protocol, runtime_checkable
+from typing import TYPE_CHECKING, Literal, Protocol, runtime_checkable
 
 from agent_build_kit.config import AgentCommand, BuildersConfig, EnvironmentConfig, RepoConfig
 from agent_build_kit.model import Frozen
@@ -284,6 +284,34 @@ class ChecksSelector(Protocol):
     def unselected_tests(self, path: str, content: str, tests: list[str]) -> list[str]:
         """The names among `tests` (as the runner selects them, with their classes) defined in
         the file `path` holding `content` that do not carry the `integration` selector."""
+        ...
+
+
+class ChangedTest(Frozen):
+    """One thing in a test file whose version differs from another version of it.
+
+    `kind` is `changed` for a name in both versions whose content differs (with `reason`),
+    `absent` for a name only the first has, and `added` for one only the second has. The
+    `fingerprint` of an absent or added item is the same text for the same content wherever it
+    is written, so a move between files can be told from a change. `is_test` is false for a
+    constant, helper or fixture the tests share."""
+
+    test: str
+    kind: Literal["changed", "absent", "added"]
+    reason: str
+    fingerprint: str = ""
+    is_test: bool = True
+
+
+@runtime_checkable
+class ComparesTests(Protocol):
+    """The optional hook of a profile that can read two versions of a test file and say how they
+    differ beyond a mechanical edit. A profile without it has no before-and-after comparison."""
+
+    def compare_test_sources(self, path: str, before: str, after: str) -> list[ChangedTest]:
+        """How `after` differs from `before`, each the content (empty for none) of the file at
+        `path`. Nothing for a file the profile does not read, such as data kept beside the
+        tests. Renamed imports and names, and a moved or reordered test, are not differences."""
         ...
 
 
