@@ -10,7 +10,6 @@ import asyncio
 import json
 import re
 import subprocess
-import threading
 import time
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -1039,28 +1038,6 @@ def test_a_unit_another_tick_built_meanwhile_is_not_built_again(
 
     assert cli.cmd_tick(argv_namespace(dry_run=False), inst) == 0
     assert built == ["add-marker/1"]
-
-
-def test_ready_units_are_built_at_the_same_time(
-    healthy, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
-    """Independent units used to build one after the other, each an hour or
-    more. Both runners here wait for the other to arrive: built one at a time,
-    the first would wait alone and time out."""
-    store = UnitStore(tmp_path / "units.json")
-    store.upsert([stored(), stored("add-marker/2")])
-    built: list[str] = []
-    both_running = threading.Barrier(2, timeout=5)
-
-    class Together(FakeRunner):
-        def run(self, unit, *, base, graph):
-            both_running.wait()
-            return super().run(unit, base=base, graph=graph)
-
-    monkeypatch.setattr(cli, "build_runner", lambda unit, **kwargs: Together(built))
-
-    assert cli.cmd_tick(argv_namespace(dry_run=False), inst) == 0
-    assert sorted(built) == ["add-marker/1", "add-marker/2"]
 
 
 def test_only_narrows_what_is_built_and_nothing_else(

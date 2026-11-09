@@ -31,8 +31,6 @@ SHARED_HELPERS: frozenset[str] = frozenset(
         # The fake servers and stand-ins that run a thread or listen on a port.
         "chat_serving.py",
         "fake_gateway.py",
-        # The in-process workers: a thread started when a tick spawns, joined when it returns.
-        "inline_workers.py",
         "forges/azure_rest_host.py",
         "forges/github_server.py",
         "otlp.py",
