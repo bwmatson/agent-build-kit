@@ -649,6 +649,10 @@ repos:                          # ordered: deploy order is derived from
                                 # the project directory under the unit-test time limit;
                                 # the profile's "no tests collected" exit counts as
                                 # a pass, and the full run still confirms it
+        base_data_kept: 3       # how many recordings of the base's selection data
+                                # are kept, the oldest removed first; above zero
+        base_data_max_age_hours: 12  # a moved base is recorded again once the last
+                                # recording is older than this many hours; above zero
     dev_stack: null             # {script: scripts/dev-stack.sh}: a script with
                                 # `up`, `test` and `down`. E2e-test runs the
                                 # unit's branch on it instead of the live

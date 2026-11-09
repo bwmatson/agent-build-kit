@@ -1278,6 +1278,10 @@ class AffectedConfig(Frozen):
     # In `command` mode: a template whose `{changed_files}`, `{failed_ids}` and `{workers}`
     # are each replaced by separate arguments.
     command: str | None = None
+    # How many recordings of the base's selection data are kept, and the hours the last may be
+    # old before a moved base is recorded again.
+    base_data_kept: Annotated[int, Field(gt=0)] = 3
+    base_data_max_age_hours: Annotated[float, Field(gt=0)] = 12
 
     mode_off = field_validator("mode", mode="before")(_unquoted_off)
 

@@ -21,6 +21,8 @@ from agent_build_kit.pipeline.e2e import read_lock_record
 from agent_build_kit.pipeline.file_lock import POLL_SECONDS
 from agent_build_kit.pipeline.unit_test_slots import (
     AHEAD_OF_START_KEYS,
+    LEAST_URGENT,
+    RECORDING_RANK,
     slot_path,
     unit_test_slot,
     waiting_since,
@@ -522,3 +524,11 @@ def test_waiting_since_names_each_waiting_unit_with_when_it_began(
 
     assert found == {"late/1": START}
     assert waiting_since(tmp_path) == {}, "a marker no longer held names no one"
+
+
+def test_the_recording_rank_is_after_every_rank_a_unit_can_wait_at() -> None:
+    assert RECORDING_RANK > (2, 10**6)
+
+
+def test_the_recording_rank_is_after_the_rank_of_a_check_with_no_stored_rank() -> None:
+    assert RECORDING_RANK > LEAST_URGENT

@@ -226,21 +226,27 @@ def _replace_through_partial(path: Path, write: Callable[[Path], object]) -> Non
     partial = path.with_name(f"{path.name}.{name}.{os.getpid()}.tmp")
     try:
         write(partial)
-        _sync(partial)
-        delay = _RENAME_FIRST_DELAY
-        for attempt in range(_RENAME_RETRIES + 1):
-            try:
-                os.replace(partial, path)
-                break
-            except OSError as error:
-                if not _rename_refused(error) or attempt == _RENAME_RETRIES:
-                    raise
-                time.sleep(delay)
-                delay *= 2
-        _sync_directory(path.parent)
+        atomic_move(partial, path)
     except BaseException:
         partial.unlink(missing_ok=True)
         raise
+
+
+def atomic_move(source: Path, path: Path) -> None:
+    """Move the finished file `source`, in `path`'s folder, over `path` so a reader sees the old
+    file or the new, never half; `source` is synced first and the rename retried while refused."""
+    _sync(source)
+    delay = _RENAME_FIRST_DELAY
+    for attempt in range(_RENAME_RETRIES + 1):
+        try:
+            os.replace(source, path)
+            break
+        except OSError as error:
+            if not _rename_refused(error) or attempt == _RENAME_RETRIES:
+                raise
+            time.sleep(delay)
+            delay *= 2
+    _sync_directory(path.parent)
 
 
 def _sync(path: Path) -> None:

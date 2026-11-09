@@ -37,6 +37,13 @@
   toolchain profile provides it (today the Python one); a repository on another profile is
   not checked.
 
+- The affected-test selection data is to be recorded once on the base and given to each unit.
+  The kit now has the store for it: a recording is kept with its commit, a moved base is
+  recorded again once the last is older than `checks.affected.base_data_max_age_hours`
+  (default 12), at most `checks.affected.base_data_kept` (default 3) are kept, and a recording
+  is made by a full unit-test run of the base's tip that waits for a unit-test slot behind
+  every unit's check. Nothing starts that run yet.
+
 - A restack now names a git lock file that stops it, with the lock's path and the command,
   instead of the exit status alone. Before a turn it clears an empty `MERGE_RR.lock` or
   `index.lock` a dead git process left in the worktree, once it is older than
