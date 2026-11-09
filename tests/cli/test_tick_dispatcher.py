@@ -5,6 +5,7 @@ is given no worker and still holds its place."""
 
 from __future__ import annotations
 
+import json
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
@@ -15,6 +16,7 @@ from agent_build_kit.pipeline.file_lock import file_lock
 from agent_build_kit.pipeline.unit_store import Cause
 from agent_build_kit.pipeline.units import HELD, RUNNING
 from agent_build_kit.pipeline.usage_guard import Decision
+from agent_build_kit.pipeline.usage_ledger import LEDGER_NAME
 from tests.dispatcher_support import FakeSpawner, install_spawner, processes_workspace
 from tests.tick_pass import Builder, install_builder, isolate, stored, tick, warm_unit_graphs
 
@@ -54,6 +56,26 @@ def test_a_tick_admits_up_to_the_limit_marks_and_spawns_and_does_not_build(
     marked = [unit.id for unit in builder.store.all() if unit.starting is not None]
     assert sorted(marked) == ["a/1", "b/1"]
     assert builder.started == [], "the dispatcher builds nothing itself"
+
+
+def test_a_tick_writes_one_sample_row_and_the_slot_gauges_for_the_slots_it_left(
+    tmp_path: Path, builder: Builder, spawner: FakeSpawner, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    inst = processes_workspace(tmp_path, max_concurrent=1)
+    builder.store.upsert([stored("a/1"), stored("b/1")])
+    gauges: dict[str, int] = {}
+    monkeypatch.setattr(
+        cli.telemetry, "level", lambda name, value, **attributes: gauges.update({name: value})
+    )
+
+    assert tick(inst) == 0
+
+    lines = [json.loads(line) for line in (inst.state_dir / LEDGER_NAME).read_text().splitlines()]
+    (sample,) = [line for line in lines if line.get("kind") == "sample"]
+    assert (sample["running"], sample["queued"], sample["free_workers"]) == (1, 1, 0)
+    assert (sample["limit"], sample["cap"]) == (50, 1)
+    assert gauges["abk.slots.free"] == sample["free_workers"] == 0
+    assert gauges["abk.slots.idle_with_ready"] == 0
 
 
 def test_an_idle_tick_starts_nothing_and_makes_no_host_call(

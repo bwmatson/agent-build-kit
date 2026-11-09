@@ -81,6 +81,8 @@ from agent_build_kit.pipeline.admission import (
     ADMISSION_LOCK,
     STARTING_TTL,
     admit,
+    current_occupancy,
+    limits_of,
 )
 from agent_build_kit.pipeline.admission_record import (
     ADMISSIONS_NAME,
@@ -181,6 +183,7 @@ from agent_build_kit.pipeline.manual_steps import (
 from agent_build_kit.pipeline.metric_records import emit_metric
 from agent_build_kit.pipeline.occupancy import (
     RESOLVE_CLAIM,
+    free_workers,
     marker_live,
     resolve_claimed,
     usage_paused,
@@ -1884,6 +1887,8 @@ def _tick_with(
         dry_run=args.dry_run,
     )
     if not ready:
+        if not args.dry_run:
+            _step("recording the slots", _record_sample, inst, store, lane, only=only)
         held = pauses_in_force(inst.state_dir)
         # As `_may_build` holds a round: when the model has refused every account a unit could
         # start on. One account's refusal beside idle accounts is an idle tick.
@@ -1911,6 +1916,7 @@ def _tick_with(
         return 1
 
     _dispatch(inst, ready, store=store)
+    _step("recording the slots", _record_sample, inst, store, lane, only=only)
     tick.outcome = "dispatched"
     return 0
 
@@ -2021,6 +2027,51 @@ def _dispatch(inst: Installation, ready: list[Unit], *, store: UnitStore) -> Non
         if unit.id in counts:
             store.set_rebuilds(unit.id, *counts[unit.id])
         log(f"{unit.id}: worker {worker.id} started")
+
+
+def _record_sample(
+    inst: Installation, store: UnitStore, lane: Lane, *, only: frozenset[str]
+) -> None:
+    """One `sample` row of the ledger and the slot gauges, as a tick leaves the slots: what runs
+    is what the durable facts show (live locks, markers and records), and what is queued is the
+    units that could start but for the slots, which admission did not start."""
+    units = store.all()
+    now = spans.clock.now()
+    going = {unit.id for unit in units if unit.state == RUNNING or marker_live(unit, now)}
+    could_start = _evaluate(
+        inst, units, started=set(), building=going, only=only, max_concurrent=len(units) + 1
+    )
+    queued = len(could_start)
+    occupied = current_occupancy(inst, units, spans.clock.now(), held=set(lane.running))
+    # Totals over the projects with a unit not yet finished, for reporting only.
+    live = _unfinished_projects(units)
+    spare = free_workers(
+        occupied,
+        limits_of(inst),
+        live,
+        lambda key: claude_account.for_repo(inst.config, key.repo).label,
+    )
+    spans.record_sample(
+        spans.Sample(
+            at=spans.clock.now().isoformat(),
+            running=sum(occupied.workers.values()),
+            in_review=sum(1 for unit in units if unit.state == IN_REVIEW),
+            blocked=sum(1 for unit in units if unit.state == PLANNED and waiting_on(unit, units)),
+            queued=queued,
+            free_workers=spare,
+            limit=_slots_capacity(inst, units, live),
+            cap=inst.max_concurrent_stacks * len(live),
+        ),
+        log,
+    )
+    telemetry.level("abk.slots.free", spare)
+    telemetry.level("abk.slots.idle_with_ready", min(spare, queued))
+    telemetry.level(
+        "abk.slots.emergency_used",
+        len(emergency_lane.users(inst.state_dir, _with_builds_running(units, ()))),
+    )
+    telemetry.level("abk.restacks.running", len(lane.running))
+    telemetry.level("abk.restacks.waiting", len(lane.waiting))
 
 
 def _preview_changes(inst: Installation) -> None:
@@ -2627,12 +2678,6 @@ def apply_project_lines(inst: Installation, store: UnitStore) -> None:
         log(f"project line applied — {line}")
 
 
-def _verified_by_worker(inst: Installation, units: Sequence[StoredUnit], change: str) -> bool:
-    """Whether `change` is verified by a worker: it is whenever a unit carries it, and every
-    change is verified that way now."""
-    return any(unit.carries(change) for unit in units)
-
-
 def _start_verify_workers(
     inst: Installation, units: list[StoredUnit], changes: Collection[str], *, dry_run: bool
 ) -> None:
@@ -2668,12 +2713,8 @@ def _verify_and_archive(
         return False
 
     may_archive: Callable[[str], bool] = never
-    by_worker = {
-        member.change
-        for unit in units
-        for member in unit.members()
-        if _verified_by_worker(inst, units, member.change)
-    }
+    # Every change a unit carries is verified by a worker.
+    by_worker = {member.change for unit in units for member in unit.members()}
     try:
         local = verify_ready(
             inst,
@@ -6320,13 +6361,7 @@ def has_work(inst: Installation, store: UnitStore) -> bool:
     # A merged unit's change a worker verifies is work too, until the worker's result is
     # archived: the tick that found the merge only starts the worker.
     satisfied = [
-        u
-        for u in units
-        if u.state == SATISFIED
-        or (
-            u.state == MERGED
-            and any(_verified_by_worker(inst, units, m.change) for m in u.members())
-        )
+        u for u in units if u.state == SATISFIED or (u.state == MERGED and bool(u.members()))
     ]
     if satisfied:
         record = VerifyRecord(inst.state_dir / "verified.json")
@@ -6335,9 +6370,7 @@ def has_work(inst: Installation, store: UnitStore) -> bool:
         waiting |= {
             change
             for change in _unarchived(inst, units)
-            if _verified_by_worker(inst, units, change)
-            and (last := record.get(change)) is not None
-            and last.passed
+            if (last := record.get(change)) is not None and last.passed
         }
         if any(m.change in waiting for u in satisfied for m in u.members()):
             return True

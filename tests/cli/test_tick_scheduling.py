@@ -32,6 +32,7 @@ from agent_build_kit.pipeline.units import (
     RUNNING,
     SETTLING,
     UnitState,
+    ready_units,
 )
 from agent_build_kit.pipeline.usage_guard import Decision, RateLimited
 from agent_build_kit.pipeline.wiring import (
@@ -50,6 +51,7 @@ from tests.tick_pass import (
     isolate,
     stored,
     tick,
+    tick_until_idle,
     warm_unit_graphs,
     workspace,
 )
@@ -627,3 +629,131 @@ def test_a_rate_limit_pause_recorded_while_a_round_decides_is_not_cleared_by_it(
     assert held.kind == "rate_limit"
     assert builder.started == []
     assert {builder.store.get(unit).state for unit in ("mid/1", "slow/1", "later/1")} == {PLANNED}
+
+
+def test_no_more_than_the_concurrency_cap_build_at_once(
+    builder: Builder, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Evaluating again after each worker ends must not overshoot the cap: a unit just
+    handed out is not `running` in the store until its worker says so.
+
+    Measured where units are handed out rather than where they build. The cap applies to each
+    project, so one repo."""
+    inst = workspace(tmp_path, max_concurrent=2)
+    ids = [f"many/{n}" for n in range(1, 7)]
+    builder.store.upsert([stored(uid, repo="app") for uid in ids])
+
+    handed_out = 0
+    at_each_evaluation: list[int] = []
+
+    def evaluate(graph, **kwargs):
+        nonlocal handed_out
+        ready = ready_units(graph, **kwargs)
+        if kwargs["max_concurrent"] > inst.max_concurrent_stacks:
+            return ready  # the look at who is only waiting for a slot hands nothing out
+        in_flight = handed_out - len(builder.finished)
+        at_each_evaluation.append(in_flight + len(ready))
+        handed_out += len(ready)
+        return ready
+
+    monkeypatch.setattr(cli, "ready_units", evaluate)
+
+    assert tick_until_idle(inst) == 0
+
+    assert sorted(builder.started) == sorted(ids)
+    assert len(at_each_evaluation) > 2
+    assert max(at_each_evaluation) <= 2, at_each_evaluation
+
+
+def test_a_chain_past_the_depth_cap_is_still_held_back(builder: Builder, tmp_path: Path) -> None:
+    """Ticking again builds a chain link by link — until it has run as far ahead of review as
+    the depth cap allows, where it stops."""
+    inst = workspace(tmp_path, depth_cap=2)
+    builder.store.upsert(
+        [
+            stored("chain/1"),
+            stored("chain/2", depends_on=("chain/1",)),
+            stored("chain/3", depends_on=("chain/2",)),
+        ]
+    )
+
+    assert tick_until_idle(inst) == 0
+
+    assert builder.started == ["chain/1", "chain/2"]
+    assert builder.store.get("chain/3").state == PLANNED
+
+
+def test_only_narrows_every_evaluation(builder: Builder, tmp_path: Path) -> None:
+    """Narrowed to two links of a chain, the ticks build both — the second once the first
+    unblocks it — and not the third, which the second's completion unblocks in turn."""
+    inst = workspace(tmp_path)
+    builder.store.upsert(
+        [
+            stored("chain/1"),
+            stored("chain/2", depends_on=("chain/1",)),
+            stored("chain/3", depends_on=("chain/2",)),
+        ]
+    )
+
+    assert tick_until_idle(inst, only=["chain/1", "chain/2"]) == 0
+
+    assert builder.started == ["chain/1", "chain/2"]
+    assert builder.store.get("chain/3").state == PLANNED
+
+
+def test_one_short_of_the_limit_starts_one_new_unit_not_all(
+    builder: Builder, tmp_path: Path
+) -> None:
+    inst = limit_workspace(tmp_path, 2)
+    open_pr(builder, "one/1", 11)
+    builder.store.upsert([stored("new/1"), stored("new/2")])
+
+    assert tick(inst) == 0
+
+    assert builder.started == ["new/1"]
+
+
+def test_a_rework_runs_and_reaches_review_at_the_limit(builder: Builder, tmp_path: Path) -> None:
+    inst = limit_workspace(tmp_path, 2)
+    open_pr(builder, "one/1", 11)
+    open_pr(builder, "two/1", 12)
+    builder.store.set_state("two/1", PLANNED, pr=12)
+    builder.store.upsert([stored("new/1")])
+
+    assert tick(inst) == 0
+
+    assert builder.started == ["two/1"]
+    assert builder.store.get("two/1").state == IN_REVIEW
+    assert builder.store.get("new/1").state == PLANNED
+
+
+def test_a_merge_lets_the_waiting_unit_start(builder: Builder, tmp_path: Path) -> None:
+    inst = limit_workspace(tmp_path, 2)
+    open_pr(builder, "one/1", 11)
+    open_pr(builder, "two/1", 12)
+    builder.store.upsert([stored("new/1")])
+    assert tick(inst) == 0
+    assert builder.started == []
+
+    builder.store.set_state("one/1", MERGED, pr=11)
+
+    assert tick(inst) == 0
+    assert builder.started == ["new/1"]
+
+
+def test_a_runtime_without_a_usage_window_builds_past_a_refusing_guard(
+    builder: Builder,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    on_demand,
+) -> None:
+    asked: list[str] = []
+    refusing_usage(monkeypatch, asked)
+    builder.store.upsert([stored("feature/1")])
+
+    assert tick(workspace(tmp_path)) == 0
+
+    assert builder.started == ["feature/1"]
+    assert asked == []
+    assert capsys.readouterr().out.count("has no usage window") == 1

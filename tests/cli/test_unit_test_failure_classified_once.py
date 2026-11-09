@@ -63,3 +63,38 @@ def exported_and_recorded(ticks: Ticks, exported: Collector) -> tuple[set[Any], 
         if r.metric == "abk.checks.failures"
     }
     return points, records
+
+
+@pytest.mark.parametrize("fail", SITES)
+def test_a_unit_test_failure_is_classified_once_and_telemetry_and_the_record_agree(
+    ticks: Ticks,  # noqa: F811
+    exported: Collector,  # noqa: F811
+    monkeypatch: pytest.MonkeyPatch,
+    fail: Callable[[Ticks], None],
+) -> None:
+    asked = classifying(monkeypatch)
+    fail(ticks)
+
+    ticks.tick()
+
+    assert len(asked) == 1
+    assert exported_and_recorded(ticks, exported) == ({"types"}, {"types"})
+
+
+@pytest.mark.parametrize("fail", SITES)
+def test_a_classification_that_fails_falls_back_to_unknown_for_both(
+    ticks: Ticks,  # noqa: F811
+    exported: Collector,  # noqa: F811
+    monkeypatch: pytest.MonkeyPatch,
+    fail: Callable[[Ticks], None],
+) -> None:
+    def unreadable(output: str) -> str:
+        raise ValueError("a hook this profile does not know")
+
+    asked = classifying(monkeypatch, unreadable)
+    fail(ticks)
+
+    ticks.tick()
+
+    assert len(asked) == 1
+    assert exported_and_recorded(ticks, exported) == ({"unknown"}, {"unknown"})

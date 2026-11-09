@@ -22,12 +22,13 @@ from agent_build_kit.cli import pipeline as cli
 from agent_build_kit.installation import Installation
 from agent_build_kit.pipeline.events import Review
 from agent_build_kit.pipeline.usage_guard import Decision
+from agent_build_kit.pipeline.wiring import CommitRejected
 from agent_build_kit.runtimes import AgentRequest
 from agent_build_kit.runtimes.claude_code import ClaudeCodeRuntime
 from tests.conftest import make_installation
 from tests.graph_driver import fresh
 from tests.otlp import Collector, Point, Span, enabled
-from tests.runner_fakes import Recorder, make_runner
+from tests.runner_fakes import Recorder, make_runner, rejecting
 from tests.runtimes.claude_cli import MODEL, FakeClaude, finished_build
 
 UNIT = "add-marker/1"
@@ -157,3 +158,97 @@ def allow_once_then_refuse(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 # --- the flush ---------------------------------------------------------------------------
+
+
+def test_no_span_or_metric_carries_feedback_a_prompt_a_diff_or_a_commit_message(
+    ticks: Ticks, exported: Collector
+) -> None:
+    feedback = "SENTINEL-comment: rename the lock in registry.py"
+    ticks.recorder.verdicts = [rejecting(feedback)]
+    ticks.recorder.unit_test_results = [(False, FAILING), (True, "")]
+    ticks.answer = DIFF
+    messages: list[str] = []
+    real_commit = ticks.recorder.commit
+
+    def commit(message: str, *, cwd: Path, base: str = "") -> int:
+        messages.append(message)
+        return real_commit(message, cwd=cwd)
+
+    ticks.options["commit"] = commit
+    ticks.agents()
+
+    ticks.tick()
+
+    spans, points = exported.spans(), exported.points()
+    assert spans and points
+    assert any("SENTINEL" in prompt for prompt in ticks.recorder.prompts), "the comment was used"
+    secrets = [feedback, DIFF, FAILING, *ticks.recorder.prompts, *ticks.recorder.contexts]
+    secrets += messages
+    values = texts(spans, points)
+    for secret in secrets:
+        assert not [value for value in values if secret in value], secret
+    assert not [value for value in values if "SENTINEL" in value or "MARKER" in value]
+
+
+def test_a_commit_the_gate_rejects_leaves_its_text_on_no_span(
+    ticks: Ticks, exported: Collector
+) -> None:
+    def rejected(message: str, *, cwd: Path, base: str = "") -> int:
+        raise CommitRejected("git commit was rejected: SENTINEL-gate said\n" + DIFF)
+
+    ticks.options["commit"] = rejected
+    ticks.agents()
+
+    ticks.tick()
+
+    spans = exported.spans()
+    assert spans
+    assert not [value for span in spans for value in span.texts() if "SENTINEL" in value]
+    assert not [span for span in spans if span.events], "no exception event on any span"
+    failed = [span for span in steps(spans) if span.status_code == ERROR]
+    assert failed, "the step the rejection passed through is marked as an error"
+    assert all(span.status_message == "" for span in failed)
+
+
+def test_a_failure_is_recorded_by_its_category_and_not_by_its_text(
+    ticks: Ticks, exported: Collector
+) -> None:
+    ticks.recorder.unit_test_ok = False
+    ticks.recorder.unit_test_output = "E   ImportError: SENTINEL-output cannot import 'geo'"
+    ticks.agents()
+
+    ticks.tick()
+
+    spans, points = exported.spans(), exported.points()
+    assert one(spans, "unit").attributes["outcome"] == "failed"
+    assert not [value for value in texts(spans, points) if "SENTINEL" in value or "geo" in value]
+
+
+def test_unit_ids_and_change_names_are_on_spans_and_on_no_metric(
+    ticks: Ticks, exported: Collector
+) -> None:
+    ticks.agents()
+
+    ticks.tick()
+
+    spans, points = exported.spans(), exported.points()
+    on_spans = [value for span in spans for value in span.attributes.values()]
+    assert UNIT in on_spans and "add-marker" in on_spans
+    assert points
+    for point in points:
+        assert not {"unit", "unit.id", "change"} & set(point.attributes), point.metric
+        assert (
+            UNIT not in point.attributes.values() and "add-marker" not in point.attributes.values()
+        )
+
+
+def test_a_tick_flushes_before_it_returns(ticks: Ticks, exported: Collector) -> None:
+    ticks.agents()
+
+    ticks.tick()
+
+    # Read at once, with no shutdown by the test and long before a periodic
+    # export of metrics would have run.
+    assert "tick" in {span.name for span in exported.spans()}
+    assert exported.metric("abk.tick.duration")
+    assert exported.metric("abk.unit.duration")

@@ -124,3 +124,40 @@ def test_a_failed_unit_appends_the_failed_outcome(ticks: Ticks) -> None:  # noqa
 
 
 # --- against what telemetry exports ---------------------------------------------------
+
+
+def test_a_tick_appends_its_duration_and_how_it_ended(ticks: Ticks) -> None:  # noqa: F811
+    ticks.agents()
+
+    assert ticks.tick() == 0
+
+    (tick,) = records(ticks, "abk.tick.duration")
+    assert tick.attributes == {"outcome": "built"}
+    assert tick.value >= 0
+    assert tick.kind == "metric"
+
+
+def test_durations_and_counts_in_the_records_equal_the_exported_figures(
+    ticks: Ticks,  # noqa: F811
+    collector: Collector,
+) -> None:
+    ticks.recorder.verdicts = [rejecting("rename the lock")]
+    ticks.recorder.unit_test_results = [(False, FAILING), (True, "")]
+    ticks.agents()
+
+    assert ticks.tick() == 0
+
+    for name in ("abk.tick.duration", "abk.unit.duration", "abk.review.rounds"):
+        (point,) = collector.metric(name)
+        (record,) = records(ticks, name)
+        assert record.attributes == point.attributes, name
+        assert record.value == pytest.approx(point.value, rel=1e-9), name
+    exported = {
+        (p.attributes["check"], p.attributes["round"]): p.value
+        for p in collector.metric("abk.checks.failures")
+    }
+    local: dict[tuple[Any, Any], float] = {}
+    for record in records(ticks, "abk.checks.failures"):
+        key = (record.attributes["check"], record.attributes["round"])
+        local[key] = local.get(key, 0) + record.value
+    assert exported and local == exported
