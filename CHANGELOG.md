@@ -28,6 +28,7 @@
   describe a tick as a dispatcher that starts worker processes, and say how to read the
   worker list in `abk status`, which is read from the branch locks. The worker design is now a description of what exists, with
   a short history in place of its migration plan.
+
 - A tool call that an agent's permissions refused is now seen by the kit: both runtimes
   return it on the call's result with its tool, command and reason, and the unit's log
   says each one in a `refused` line, so a refused command is no longer mistaken for work
