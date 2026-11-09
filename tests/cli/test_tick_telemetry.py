@@ -12,9 +12,7 @@ is the tick's job.
 from __future__ import annotations
 
 import argparse
-import threading
 from collections.abc import Callable, Iterator
-from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -23,14 +21,11 @@ import pytest
 from agent_build_kit.cli import pipeline as cli
 from agent_build_kit.installation import Installation
 from agent_build_kit.pipeline.events import Review
-from agent_build_kit.pipeline.units import PLANNED, RUNNING, branch_name
-from agent_build_kit.pipeline.usage_guard import Decision, RateLimited
+from agent_build_kit.pipeline.usage_guard import Decision
 from agent_build_kit.pipeline.wiring import CommitRejected
-from agent_build_kit.pipeline.workspaces import branch_lock
-from agent_build_kit.runtimes import AgentRequest, claude_code
+from agent_build_kit.runtimes import AgentRequest
 from agent_build_kit.runtimes.claude_code import ClaudeCodeRuntime
 from tests.conftest import make_installation
-from tests.factories import unit
 from tests.graph_driver import fresh
 from tests.otlp import Collector, Point, Span, enabled
 from tests.runner_fakes import Recorder, make_runner, rejecting
@@ -145,77 +140,6 @@ def texts(spans: list[Span], points: list[Point]) -> list[str]:
 # --- the shape of a run -----------------------------------------------------------
 
 
-def test_a_unit_reviewed_twice_is_traced_from_the_tick_to_each_agent_call(
-    ticks: Ticks, exported: Collector
-) -> None:
-    ticks.recorder.verdicts = [rejecting("rename the lock")]
-    ticks.agents()
-
-    assert ticks.tick() == 0
-
-    spans = exported.spans()
-    tick = one(spans, "tick")
-    run = one(spans, "unit")
-    assert run.parent_id == tick.span_id
-    assert {span.trace_id for span in spans} == {tick.trace_id}
-    assert run.attributes["unit.id"] == UNIT
-    assert run.attributes["change"] == "add-marker"
-    assert run.attributes["repo"] == "app"
-    assert run.attributes["tier"] == "unit-test"
-    assert run.attributes["outcome"] == "open"
-
-    in_run = steps(spans)
-    assert {span.parent_id for span in in_run} == {run.span_id}
-    assert SPEC_STEPS <= {span.attributes["step"] for span in in_run}
-    reviews = [span for span in in_run if span.attributes["step"] == "review"]
-    assert [span.attributes["round"] for span in reviews] == [1, 2]
-    for review in reviews:
-        agents = below(spans, review)
-        assert [agent.name for agent in agents] == ["agent"]
-        assert agents[0].attributes["role"] == "review"
-    rework = next(span for span in in_run if span.attributes["step"] == "rework")
-    assert [agent.attributes["role"] for agent in below(spans, rework)] == ["implement"]
-
-    agents = [span for span in spans if span.name == "agent"]
-    assert agents, "no agent span"
-    for agent in agents:
-        assert agent.parent_id in {span.span_id for span in in_run}
-        assert agent.attributes["runtime"] == claude_code.RUNTIME.name
-        assert agent.attributes["model"] == MODEL
-        assert agent.attributes["turns"] == 3
-        assert agent.attributes["outcome"] == "ok"
-
-
-def test_the_units_of_a_tick_built_in_parallel_threads_share_the_ticks_trace(
-    ticks: Ticks, exported: Collector
-) -> None:
-    ticks.store.upsert([unit(OTHER, change="other")])
-    ticks.agents()
-    both = threading.Barrier(2, timeout=30)
-    waited: set[str] = set()
-    implement = ticks.options["run"]
-
-    def meet(*args: Any, **kwargs: Any) -> Any:
-        # Each unit's first agent call waits for the other's: they run at once.
-        if threading.current_thread().name not in waited:
-            waited.add(threading.current_thread().name)
-            both.wait()
-        return implement(*args, **kwargs)
-
-    ticks.options["run"] = meet
-
-    assert ticks.tick() == 0
-
-    spans = exported.spans()
-    tick = one(spans, "tick")
-    runs = [span for span in spans if span.name == "unit"]
-    assert {span.attributes["unit.id"] for span in runs} == {UNIT, OTHER}
-    assert {span.parent_id for span in runs} == {tick.span_id}
-    assert {span.trace_id for span in spans} == {tick.trace_id}
-    own = {run.span_id: [s for s in below(spans, run) if "step" in s.attributes] for run in runs}
-    assert all(own.values()), "each unit's steps sit below its own span"
-
-
 def allow_once_then_refuse(monkeypatch: pytest.MonkeyPatch) -> None:
     """The round admits the unit, then the window is spent: the guard the build
     meets agrees with the rounds after it, as a real one does."""
@@ -227,75 +151,13 @@ def allow_once_then_refuse(monkeypatch: pytest.MonkeyPatch) -> None:
     )
 
 
-def test_a_unit_resumed_in_a_later_tick_links_to_its_earlier_trace(
-    ticks: Ticks, exported: Collector, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    ticks.agents()
-    ticks.options["may_start"] = lambda: (False, "session usage at 88%")
-    ticks.options["resume_at"] = lambda: datetime.now(UTC) + timedelta(hours=1)
-    allow_once_then_refuse(monkeypatch)
-    ticks.tick()
-    monkeypatch.setattr(cli, "may_start_unit", lambda r: Decision(may_start=True, reason="plenty"))
-    earlier = one(exported.spans(), "unit")
-    assert ticks.store.get(UNIT).state == RUNNING
-
-    ticks.options["may_start"] = lambda: (True, "usage fine")
-    ticks.tick()
-
-    later = [
-        span for span in exported.spans() if span.name == "unit" and span.span_id != earlier.span_id
-    ]
-    resumed = next(span for span in later if span.trace_id != earlier.trace_id)
-    assert resumed.attributes["unit.id"] == UNIT
-    assert earlier.trace_id in resumed.links
-    assert earlier.links == (), "the first run has nothing to link to"
-
-
-def test_a_tick_that_skips_a_unit_leaves_the_trace_of_the_run_that_built_it(
-    ticks: Ticks, exported: Collector, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    ticks.agents()
-    ticks.options["may_start"] = lambda: (False, "session usage at 88%")
-    ticks.options["resume_at"] = lambda: datetime.now(UTC) + timedelta(hours=1)
-    allow_once_then_refuse(monkeypatch)
-    ticks.tick()
-    monkeypatch.setattr(cli, "may_start_unit", lambda r: Decision(may_start=True, reason="plenty"))
-    first = one(exported.spans(), "unit")
-    built = ticks.store.get(UNIT).trace
-    assert built.startswith(first.trace_id)
-    ticks.options["may_start"] = lambda: (True, "usage fine")
-    # The pass's evaluation lags the store: it offers a unit another tick holds.
-    evaluated = cli.ready_units
-    stale = [True]
-    monkeypatch.setattr(
-        cli,
-        "ready_units",
-        lambda graph, **kw: (
-            [u for u in graph if u.id == UNIT] if stale[0] else evaluated(graph, **kw)
-        ),
-    )
-
-    with branch_lock(branch_name(ticks.store.get(UNIT)), root=ticks.inst.state_dir / "locks"):
-        ticks.tick()
-
-    skipped = [s for s in exported.spans() if s.name == "unit" and s.span_id != first.span_id]
-    assert [s.attributes["outcome"] for s in skipped] == ["skipped"]
-    assert ticks.store.get(UNIT).trace == built
-
-    stale[0] = False
-    ticks.tick()
-
-    last = [
-        s
-        for s in exported.spans()
-        if s.name == "unit" and s.span_id not in {first.span_id, skipped[0].span_id}
-    ]
-    assert len(last) == 1
-    assert first.trace_id in last[0].links
-    assert skipped[0].trace_id not in last[0].links
-
-
 # --- what is never attached ----------------------------------------------------------
+
+
+# --- the metrics table -----------------------------------------------------------------
+
+
+# --- the flush ---------------------------------------------------------------------------
 
 
 def test_no_span_or_metric_carries_feedback_a_prompt_a_diff_or_a_commit_message(
@@ -348,19 +210,6 @@ def test_a_commit_the_gate_rejects_leaves_its_text_on_no_span(
     assert all(span.status_message == "" for span in failed)
 
 
-def test_a_step_that_waits_for_review_is_not_an_error(ticks: Ticks, exported: Collector) -> None:
-    ticks.agents()
-
-    ticks.tick()
-
-    spans = exported.spans()
-    waiting = one(spans, "await_review")
-    assert waiting.events == ()
-    assert waiting.status_code == 0
-    assert waiting.attributes["outcome"] == "waiting"
-    assert not [span for span in spans if span.status_code == ERROR]
-
-
 def test_a_failure_is_recorded_by_its_category_and_not_by_its_text(
     ticks: Ticks, exported: Collector
 ) -> None:
@@ -393,133 +242,6 @@ def test_unit_ids_and_change_names_are_on_spans_and_on_no_metric(
         )
 
 
-# --- the metrics table -----------------------------------------------------------------
-
-
-def test_a_unit_built_reviewed_twice_and_pushed_records_the_tables_instruments(
-    ticks: Ticks, exported: Collector
-) -> None:
-    ticks.recorder.verdicts = [rejecting("rename the lock")]
-    ticks.recorder.unit_test_results = [(False, FAILING), (True, "")]
-    ticks.agents()
-
-    assert ticks.tick() == 0
-
-    def attributes(name: str) -> list[set[str]]:
-        return [set(point.attributes) for point in exported.metric(name)]
-
-    assert attributes("abk.tick.duration") == [{"outcome"}]
-    assert attributes("abk.unit.duration") == [{"repo", "tier", "outcome"}]
-    unit_duration = exported.metric("abk.unit.duration")[0]
-    assert unit_duration.attributes == {"repo": "app", "tier": "unit-test", "outcome": "open"}
-
-    step_duration = exported.metric("abk.step.duration")
-    assert {set(point.attributes) == {"step", "outcome"} for point in step_duration} == {True}
-    assert SPEC_STEPS <= {point.attributes["step"] for point in step_duration}
-
-    (rounds,) = exported.metric("abk.review.rounds")
-    assert rounds.attributes == {"repo": "app", "outcome": "open"}
-    assert (rounds.count, rounds.value) == (1, 2), "one unit, two rounds"
-
-    failures = exported.metric("abk.checks.failures")
-    assert failures and all(set(point.attributes) == {"check", "round"} for point in failures)
-    assert {point.attributes["check"] for point in failures} == {"types"}
-
-    turns = exported.metric("abk.agent.turns")
-    assert turns and all(set(point.attributes) == {"role", "model"} for point in turns)
-    assert {point.attributes["model"] for point in turns} == {MODEL}
-    assert {"implement", "review"} <= {point.attributes["role"] for point in turns}
-
-    tokens = exported.metric("abk.agent.tokens")
-    assert all(set(point.attributes) == {"role", "model", "kind"} for point in tokens)
-    assert {point.attributes["kind"] for point in tokens} == {"input", "output", "cache"}
-
-    states = {point.attributes["state"] for point in exported.metric("abk.units")}
-    assert states and states <= {"planned", "running", "in_review", "held", "failed"}
-    assert not exported.metric("abk.usage.pauses")
-    assert not exported.metric("abk.units.reclaimed")
-
-
-def test_a_tick_paused_for_the_usage_window_counts_a_pause_with_its_kind(
-    ticks: Ticks, exported: Collector, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    resume = datetime.now(UTC) + timedelta(hours=1)
-    monkeypatch.setattr(
-        cli,
-        "may_start_unit",
-        lambda r: Decision(may_start=False, reason="session usage at 90%", resume_at=resume),
-    )
-
-    assert ticks.tick() == 0
-
-    (paused,) = exported.metric("abk.usage.pauses")
-    assert paused.attributes == {"kind": "usage"}
-    assert paused.value == 1
-    assert ticks.recorder.events == [], "nothing was built"
-
-
-def test_a_run_refused_by_the_agents_rate_limit_counts_a_rate_limit_pause(
-    ticks: Ticks, exported: Collector
-) -> None:
-    def refused(*args: Any, **kwargs: Any) -> str:
-        raise RateLimited("usage limit reached", resets_at=datetime.now(UTC) + timedelta(hours=2))
-
-    ticks.options["run"] = refused
-
-    ticks.tick()
-
-    assert [p.attributes for p in exported.metric("abk.usage.pauses")] == [{"kind": "rate_limit"}]
-
-
-def test_a_step_refused_by_the_agents_rate_limit_is_not_an_error(
-    ticks: Ticks, exported: Collector
-) -> None:
-    calls: list[str] = []
-    claude = ticks.recorder.claude
-
-    def refused(*args: Any, **kwargs: Any) -> str:
-        # The tests agent goes through; the implement agent is refused.
-        calls.append("agent")
-        if len(calls) == 1:
-            return claude(*args, **kwargs)
-        raise RateLimited("usage limit reached", resets_at=datetime.now(UTC) + timedelta(hours=2))
-
-    ticks.options["run"] = refused
-
-    ticks.tick()
-
-    implement = next(s for s in steps(exported.spans()) if s.attributes["step"] == "implement")
-    assert implement.status_code == 0
-    assert implement.attributes["outcome"] == "rate_limited"
-    (point,) = [
-        p for p in exported.metric("abk.step.duration") if p.attributes["step"] == "implement"
-    ]
-    assert point.attributes["outcome"] == "rate_limited"
-
-
-def test_a_unit_no_run_holds_is_counted_when_the_tick_reclaims_it(
-    ticks: Ticks, exported: Collector, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    ticks.store.set_state(UNIT, RUNNING, note="killed before a thread")
-    monkeypatch.setattr(
-        cli,
-        "may_start_unit",
-        lambda r: Decision(
-            may_start=False, reason="usage", resume_at=datetime.now(UTC) + timedelta(hours=1)
-        ),
-    )
-
-    ticks.tick()
-
-    assert ticks.store.get(UNIT).state == PLANNED
-    (reclaimed,) = exported.metric("abk.units.reclaimed")
-    assert reclaimed.value == 1
-    assert reclaimed.attributes == {}
-
-
-# --- the flush ---------------------------------------------------------------------------
-
-
 def test_a_tick_flushes_before_it_returns(ticks: Ticks, exported: Collector) -> None:
     ticks.agents()
 
@@ -529,4 +251,6 @@ def test_a_tick_flushes_before_it_returns(ticks: Ticks, exported: Collector) -> 
     # export of metrics would have run.
     assert "tick" in {span.name for span in exported.spans()}
     assert exported.metric("abk.tick.duration")
+    # A real worker records and flushes this in its own process; the in-process worker shares
+    # the tick's providers, so it is on the tick's export here.
     assert exported.metric("abk.unit.duration")

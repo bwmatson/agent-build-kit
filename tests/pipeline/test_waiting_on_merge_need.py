@@ -78,45 +78,6 @@ def test_a_merge_commit_the_head_lacks_or_the_checkout_does_not_know_holds_it(
     assert held_by(MERGED, kit.loaded(number=9), merge_sha=merge_sha, merged_tick=1) == ["base/1"]
 
 
-def test_a_merged_parent_with_no_record_of_its_merge_counts_as_loaded(kit: Kit) -> None:
-    """Everything merged before the fields existed: no history is rewritten, nothing delayed."""
-    loaded = kit.loaded(number=5)
-
-    assert held_by(MERGED, loaded, merged_tick=5) == ["base/1"]
-    assert held_by(MERGED, loaded) == []
-
-
-def test_the_tick_rule_releases_only_for_a_later_tick_than_the_one_that_saw_the_merge(
-    kit: Kit,
-) -> None:
-    """Without a merge commit to ask the head about, the tick number decides."""
-    assert held_by(MERGED, kit.loaded(number=5), merged_tick=5) == ["base/1"]
-    assert held_by(MERGED, kit.loaded(number=6), merged_tick=5) == []
-
-
-def test_an_unknown_head_falls_back_to_the_tick_rule(kit: Kit) -> None:
-    unreadable = LoadedCode(number=5, kit_repo="app", kit_root=str(kit.path), kit_head=None)
-
-    assert held_by(MERGED, unreadable, merge_sha=kit.merged, merged_tick=5) == ["base/1"]
-    assert (
-        held_by(
-            MERGED, unreadable.model_copy(update={"number": 6}), merge_sha=kit.merged, merged_tick=5
-        )
-        == []
-    )
-
-
-def test_a_parent_in_another_repository_needs_the_merge_and_a_later_tick(kit: Kit) -> None:
-    """The sha test is for the kit's repository alone; for any other the tick rule decides,
-    so a merge the running tick saw is acted on by the next one."""
-    same = kit.loaded(number=5)
-    later = kit.loaded(number=6)
-
-    assert held_by(IN_REVIEW, later, repo="platform") == ["base/1"]
-    assert held_by(MERGED, same, repo="platform", merge_sha=kit.merged, merged_tick=5) == ["base/1"]
-    assert held_by(MERGED, later, repo="platform", merge_sha=kit.merged, merged_tick=5) == []
-
-
 def test_a_satisfied_parent_is_met_once_its_work_landed(kit: Kit) -> None:
     """A satisfied unit never merges itself; it is met when the same-repo unit it was built
     on has merged, and that merge is in the code like any other."""

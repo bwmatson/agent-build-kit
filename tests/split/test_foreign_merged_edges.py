@@ -1,11 +1,8 @@
 """A dependency on a merged unit of another repo is carried as satisfied history."""
 
-from datetime import UTC, datetime
-
 import pytest
 
-from agent_build_kit.pipeline import loaded_code
-from agent_build_kit.pipeline.loaded_code import LoadedCode, TickRecord
+from agent_build_kit.pipeline.loaded_code import LoadedCode
 from agent_build_kit.pipeline.unit_store import UnitStore
 from agent_build_kit.pipeline.units import waiting_on
 from agent_build_kit.split import scrubbing
@@ -25,13 +22,6 @@ from tests.split_sources import snapshot_tree, source_installation, write_change
 
 TERM = "secret-term"
 TICK = 5
-
-
-@pytest.fixture(autouse=True)
-def tick():
-    loaded_code.running_tick(TickRecord(number=TICK, started_at=datetime(2026, 1, 1, tzinfo=UTC)))
-    yield
-    loaded_code.running_tick(None)
 
 
 def installations(tmp_path):
@@ -93,22 +83,6 @@ def test_a_foreign_unit_that_is_not_merged_is_the_dangling_error(tmp_path, state
 
     (error,) = found.errors
     assert all(word in error for word in ("moves/2", "depends_on", "bad/1"))
-    assert [edge.target for edge in found.dropped] == ["other/1"]
-
-
-def test_a_merged_foreign_unit_whose_merge_is_not_loaded_says_to_run_a_tick(tmp_path):
-    source, destination = installations(tmp_path)
-    write_units(
-        source,
-        moved_with(("other/1", "late/1")),
-        foreign(merged_tick=1),
-        foreign("late/1", merged_tick=TICK),
-    )
-
-    found = preflight(source, destination, plan_split(source, "app"))
-
-    (error,) = found.errors
-    assert all(word in error for word in ("moves/2", "late/1", "tick"))
     assert [edge.target for edge in found.dropped] == ["other/1"]
 
 

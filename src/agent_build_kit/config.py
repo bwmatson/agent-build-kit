@@ -468,14 +468,6 @@ def review_ceiling(
     return getattr(ceilings, tier.value)
 
 
-def workers_mode(repo: RepoConfig | None, config: WorkspaceConfig) -> str:
-    """The worker mode in effect for the units of `repo`: its own `workers.mode`, else the
-    workspace's."""
-    if repo is not None and repo.workers.mode is not None:
-        return repo.workers.mode
-    return config.workers.mode
-
-
 def ceilings_in_effect(repo: RepoConfig | None, config: WorkspaceConfig) -> CeilingsConfig:
     """The ceilings in effect for `repo`: its own value for a tier if set, else the workspace's
     (which is all of them for a repo that is None)."""
@@ -1344,10 +1336,20 @@ class DeployConfig(Frozen):
     credentials: CredentialsConfig | None = None
 
 
-class WorkersConfig(Frozen):
-    """How a unit's build runs: as a thread of the tick or as a worker process of its own."""
+def _refuse_removed_mode(data: Any) -> Any:
+    """`workers.mode` chose between the tick's thread pool and worker processes; every unit is a
+    worker now, so a file that still names it is refused."""
+    if isinstance(data, dict) and "mode" in data:
+        raise ValueError(
+            "workers.mode has been removed: every unit runs as a worker process; delete the key"
+        )
+    return data
 
-    mode: Literal["threads", "processes"] = "threads"
+
+class WorkersConfig(Frozen):
+    """How a unit's build runs: as a worker process of its own, with these limits."""
+
+    _no_mode = model_validator(mode="before")(_refuse_removed_mode)
     # A worker's systemd `MemoryMax` (for example `4G`) and `CPUWeight`; unset sets no limit.
     memory_max: str | None = None
     cpu_weight: Annotated[int, Field(ge=1, le=10000)] | None = None
@@ -1504,9 +1506,9 @@ class RepoReviewConfig(Frozen):
 
 
 class RepoWorkersConfig(Frozen):
-    """A repo's own worker mode; unset, the workspace's `workers.mode` applies."""
+    """A repo's own worker settings: none now, since every unit runs as a worker."""
 
-    mode: Literal["threads", "processes"] | None = None
+    _no_mode = model_validator(mode="before")(_refuse_removed_mode)
 
 
 class RepoConfig(Frozen):

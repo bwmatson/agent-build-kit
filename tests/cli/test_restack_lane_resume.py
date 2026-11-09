@@ -18,7 +18,6 @@ from agent_build_kit.installation import Installation
 from agent_build_kit.pipeline.stack_runner import RunOutcome, RunStatus
 from agent_build_kit.pipeline.unit_store import Cause, StoredUnit, UnitStore
 from agent_build_kit.pipeline.units import RUNNING
-from agent_build_kit.pipeline.workspaces import branch_lock
 from tests.factories import new_unit
 from tests.restack_lane_fakes import repo_behind
 
@@ -77,58 +76,3 @@ def test_a_flagged_running_unit_is_the_lanes_and_an_unflagged_one_a_build_worker
 
     assert UNIT in scene.owed(), "the lane's scan lists it"
     assert scene.offered() == [], "and no build worker is offered it"
-
-
-def test_the_lane_resumes_a_flagged_unit_at_its_node_and_a_build_worker_never_does(
-    scene: Scene,
-) -> None:
-    scene.flag()
-
-    scene.lane_scans()
-
-    assert scene.ran == [UNIT]
-    assert scene.threads == ["resolve"]
-    assert scene.offered() == []
-
-
-def test_a_held_branch_leaves_the_flagged_unit_owed_until_it_is_free(scene: Scene) -> None:
-    scene.flag()
-
-    with branch_lock(BRANCH, root=scene.inst.state_dir / "locks"):
-        scene.lane_scans()
-        assert scene.ran == []
-        assert scene.offered() == [], "still the lane's, not a build worker's"
-
-    scene.lane_scans()
-
-    assert scene.ran == [UNIT]
-
-
-def test_a_flag_left_by_a_killed_process_is_resumed_by_the_next_scan_in_the_lane(
-    scene: Scene, tmp_path: Path
-) -> None:
-    scene.flag()
-    reopened = UnitStore(tmp_path / "units.json")
-    assert reopened.get(UNIT).moved_base_run, "the flag survives the process that set it"
-
-    scene.lane_scans()
-
-    assert scene.ran == [UNIT]
-    assert scene.threads == ["resolve"]
-
-
-def test_a_lane_that_met_the_held_branch_runs_the_flagged_unit_when_it_is_free(
-    scene: Scene,
-) -> None:
-    scene.flag()
-
-    with cli.build_restack_lane(scene.inst, scene.store) as lanes:
-        with branch_lock(BRANCH, root=scene.inst.state_dir / "locks"):
-            lanes.hand_over(scene.store.get(UNIT), claimed=False)
-            lanes.drain()
-        assert scene.ran == []
-
-        lanes.scan(scene.store.all())
-        lanes.drain()
-
-    assert scene.ran == [UNIT]

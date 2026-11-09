@@ -1,5 +1,5 @@
 """What the dispatcher tests share: a fake spawner standing in for `pipeline.spawn`, and a
-workspace running in `workers.mode: processes`.
+workspace for the dispatcher's limits.
 
 The dispatcher reaches the spawner as `spawn.spawn(...)` through its module, so a test replaces
 that attribute (and `user_manager_available`); no worker process is started."""
@@ -45,15 +45,12 @@ def install_spawner(monkeypatch: pytest.MonkeyPatch) -> FakeSpawner:
 
 
 def lane_workspace(tmp_path: Path, *, stacks: int, resolutions: int) -> Installation:
-    """A `processes` workspace with `stacks` build workers and `resolutions` resolution workers
-    at once."""
-    return workspace(
-        tmp_path, max_concurrent=stacks, resolutions=resolutions, workers={"mode": "processes"}
-    )
+    """A workspace with `stacks` build workers and `resolutions` resolution workers at once."""
+    return workspace(tmp_path, max_concurrent=stacks, resolutions=resolutions)
 
 
 def processes_workspace(tmp_path: Path, **kwargs: int) -> Installation:
-    return workspace(tmp_path, workers={"mode": "processes"}, **kwargs)
+    return workspace(tmp_path, **kwargs)
 
 
 def parse_worker_command(*argv: str) -> argparse.Namespace:

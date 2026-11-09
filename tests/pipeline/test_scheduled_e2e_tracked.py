@@ -83,6 +83,26 @@ def test_the_scheduled_unit_is_listed_by_status_with_its_change_and_state(
     assert NAME in listed[0] and PLANNED in listed[0]
 
 
+def test_a_scheduled_unit_waits_for_a_held_e2e_lock_without_failing(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    inst, store, _ = installation(tmp_path, monkeypatch)
+    assert tick(inst) == 0
+    clock = install_clock(monkeypatch, AT)
+    other = Foreign(inst.state_dir / "e2e.lock")
+    clock.release_at(2 * HOUR, other.release)
+    log: list[str] = []
+    runner, ran = e2e_runner(inst, store, monkeypatch, log, store.get(UNIT))
+    tree = tmp_path / "tree"
+    tree.mkdir()
+
+    ok, _ = runner.run_e2e(cwd=tree)
+
+    assert ok and ran.record_seen is not None, "it ran when the lock was free"
+    assert clock.elapsed() >= 2 * HOUR
+    assert any("e2e-test is busy" in line for line in log)
+
+
 def test_the_limit_counts_the_scheduled_unit_and_holds_it_until_a_place_is_free(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -113,26 +133,6 @@ def test_a_started_scheduled_unit_takes_a_place_from_the_next_unit(
 
     assert store.get(UNIT).state == IN_REVIEW
     assert store.get("late/1").state == PLANNED, "the scheduled unit holds the one place"
-
-
-def test_a_scheduled_unit_waits_for_a_held_e2e_lock_without_failing(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    inst, store, _ = installation(tmp_path, monkeypatch)
-    assert tick(inst) == 0
-    clock = install_clock(monkeypatch, AT)
-    other = Foreign(inst.state_dir / "e2e.lock")
-    clock.release_at(2 * HOUR, other.release)
-    log: list[str] = []
-    runner, ran = e2e_runner(inst, store, monkeypatch, log, store.get(UNIT))
-    tree = tmp_path / "tree"
-    tree.mkdir()
-
-    ok, _ = runner.run_e2e(cwd=tree)
-
-    assert ok and ran.record_seen is not None, "it ran when the lock was free"
-    assert clock.elapsed() >= 2 * HOUR
-    assert any("e2e-test is busy" in line for line in log)
 
 
 def test_a_usage_refusal_delays_the_scheduled_unit_until_the_guard_admits_a_unit(

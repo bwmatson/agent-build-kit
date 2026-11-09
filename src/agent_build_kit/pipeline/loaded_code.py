@@ -65,16 +65,6 @@ class TickRecord(LoadedCode):
     started_at: datetime
 
 
-# The record of the tick in this process, set by `cmd_tick` for the length of the tick.
-_running: TickRecord | None = None
-
-
-def running_tick(record: TickRecord | None) -> None:
-    """Make `record` the code the tick of this process runs, or None once it has ended."""
-    global _running
-    _running = record
-
-
 def read_record(path: Path) -> TickRecord | None:
     """The record in `path`; None when there is none or it cannot be read."""
     try:
@@ -84,10 +74,8 @@ def read_record(path: Path) -> TickRecord | None:
 
 
 def current() -> TickRecord | None:
-    """The code a tick runs: this process's tick, else the last record in the state directory
-    of the active workspace; None when there is neither."""
-    if _running is not None:
-        return _running
+    """The code a tick runs: the last record in the state directory of the active workspace;
+    None when there is none."""
     state_dir = active_state_dir()
     if state_dir is None:
         return None

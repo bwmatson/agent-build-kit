@@ -11,10 +11,8 @@ import pytest
 from agent_build_kit.pipeline import spans
 from agent_build_kit.pipeline.resolution_lane import lane_record
 from tests.emergency_lane_support import build
-from tests.graph.test_restack_lane_prepare import Scene
 from tests.lane_run_slots import Slots
-from tests.moved_base_fakes import restack_lines
-from tests.tick_driver import OTHER, Setup, make_setup
+from tests.tick_driver import Setup, make_setup
 
 pytestmark = pytest.mark.usefixtures("scripted_engine")
 
@@ -54,17 +52,3 @@ def test_the_lane_worker_says_what_it_is_resolving_to_the_code_it_runs(
         slots.lanes.drain()
 
     assert seen == {"c1/1": "comment", "run1/1": "base"}
-
-
-def test_a_restack_line_written_in_the_lane_carries_the_kind_of_run(
-    graph: Setup, tmp_path: Path
-) -> None:
-    scene = Scene(graph, tmp_path)
-    scene.told_its_base_moved()
-    written = len(restack_lines(graph.inst))
-
-    scene.lane_moves()
-
-    lines = [line for line in restack_lines(graph.inst)[written:] if line["unit"] == OTHER]
-    assert lines, "the lane's move wrote a restack line"
-    assert {line["resolving"] for line in lines} == {"base"}

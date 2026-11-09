@@ -298,11 +298,8 @@ def test_a_round_logs_needs_person_for_a_unit_this_pass_started_and_a_hold_ended
     inst = installation(tmp_path)
     store = UnitStore(tmp_path / "units.json")
     held(store, inst)
-    readmit = cli._Readmission()
-    # Started before the hold was recorded: the hold is the last entry of its history.
-    readmit.started["second/1"] = len(store.get("second/1").history) - 1
 
-    cli.run_round(inst, store, building=(), only=frozenset(), submit=True, readmit=readmit)
+    cli.run_round(inst, store, building=(), started={"second/1"}, only=frozenset(), submit=True)
 
     assert [(r["unit"], r["reason"]) for r in decisions(inst)] == [("second/1", "needs_person")]
 

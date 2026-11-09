@@ -17,7 +17,7 @@ def document(name: str) -> str:
 def test_the_architecture_document_describes_the_mode_and_the_wake_path() -> None:
     text = document("architecture.md")
 
-    assert "workers.mode" in text
+    assert "workers.mode" not in text
     assert re.search(r"processes.{0,200}dispatcher|dispatcher.{0,200}processes", text, re.I)
     assert "runs/wake" in text
     assert re.search(r"path unit", text, re.I)
@@ -33,10 +33,9 @@ def test_the_architecture_document_describes_the_limits() -> None:
 def test_the_configuration_document_describes_each_workers_key() -> None:
     text = document("configuration.md")
 
-    for key in ("workers.mode", "workers.memory_max", "workers.cpu_weight"):
+    for key in ("workers.memory_max", "workers.cpu_weight"):
         assert key in text
-    assert re.search(r"threads.{0,200}default|default.{0,200}threads", text, re.I)
-    assert "processes" in text
+    assert re.search(r"workers\.mode.{0,40}removed", text, re.I)
 
 
 def test_the_configuration_document_says_where_the_wake_file_is_and_what_touches_it() -> None:

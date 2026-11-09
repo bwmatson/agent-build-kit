@@ -13,7 +13,6 @@ import argparse
 import threading
 from collections.abc import Callable
 from pathlib import Path
-from typing import Any
 
 import pytest
 
@@ -21,11 +20,11 @@ from agent_build_kit.cli import pipeline as cli
 from agent_build_kit.installation import Installation
 from agent_build_kit.pipeline.resolution_lane import Lane
 from agent_build_kit.pipeline.stack_runner import RunOutcome, RunStatus
-from agent_build_kit.pipeline.unit_store import Cause, StoredUnit, UnitStore
-from agent_build_kit.pipeline.units import IN_REVIEW, PLANNED, RUNNING
+from agent_build_kit.pipeline.unit_store import StoredUnit, UnitStore
+from agent_build_kit.pipeline.units import IN_REVIEW, RUNNING
 from agent_build_kit.pipeline.usage_guard import Decision
 from tests.conftest import make_installation
-from tests.factories import init_repo, new_unit
+from tests.factories import new_unit
 from tests.time_limit import LOADED_TEST_TIME_LIMIT
 
 # The tests of this module run whole passes, whose time depends on the machine's load.
@@ -134,44 +133,6 @@ def test_a_pass_with_restacks_running_in_two_projects_lanes_does_not_end_while_e
     assert scene.tick() == 0
 
     assert sorted(scene.log[-2:]) == ["second/1 done", "third/1 done"]
-
-
-def test_a_restack_that_ends_after_a_round_left_its_unit_out_is_followed_by_one_more_round(
-    scene: Scene, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    init_repo(scene.inst.checkouts["app"])
-    scene.handed = ["second/1"]
-    restacked: list[str] = []
-    stopped: list[str] = []
-
-    def stops_once(unit: StoredUnit) -> RunOutcome | None:
-        if stopped:
-            return None
-        stopped.append(unit.id)
-        scene.store.set_state(unit.id, PLANNED, cause=Cause.BASE_CHANGED, branch="spec/first/1")
-        return RunOutcome(status=RunStatus.SKIPPED, detail="the base moved")
-
-    def restack(**kwargs: Any) -> None:
-        restacked.append(kwargs["child"].id)
-        scene.log.append("restack first/1")
-        scene.release.set()
-
-    def owed(inst: Installation, units: list[StoredUnit]) -> set[str]:
-        return {
-            unit.id
-            for unit in units
-            if unit.cause is Cause.BASE_CHANGED and unit.id not in restacked
-        }
-
-    scene.on_build = stops_once
-    monkeypatch.setattr(cli, "build_restack", lambda **kwargs: restack)
-    monkeypatch.setattr(cli, "owed_units", owed)
-
-    assert scene.tick() == 0
-
-    assert scene.log.count("build first/1") == 2
-    # `second/1` holds its project's only worker until `first/1`, of another project, is moved.
-    assert scene.log.index("restack first/1") < scene.log.index("second/1 done")
 
 
 def test_each_project_of_a_repo_runs_max_concurrent_resolutions_from_project_limits(

@@ -15,9 +15,10 @@ change (tasks.md) ─► plan ─► units ─► build ─► PR ─► review 
 
 How a tick is meant to start and run units (a short dispatcher and detached workers) is in [worker-design.md](designs/worker-design.md).
 
-**Workers.** With `workers.mode: processes` (the default is `threads`, where the tick builds in
-its own threads) `abk tick` is a dispatcher: it takes the dispatcher lock, admits ready units up
-to the limits, starts `abk worker build <unit>` for each and exits without waiting. A worker is
+**Workers.** `abk tick` is a dispatcher of worker processes: it takes the dispatcher lock, admits ready units up
+to the limits, starts `abk worker build <unit>` for each and exits without waiting; resolution
+runs and live verification are workers too (`abk worker resolve`, `abk worker verify`), and
+the worker processes are the only thing that builds. A worker is
 a transient systemd user unit (`systemd-run --user --collect`), or a detached process where the
 user manager is not available; `workers.memory_max` and `workers.cpu_weight` set its
 `MemoryMax` and `CPUWeight`, and unset add no limit. A worker's exit, `abk requeue`,

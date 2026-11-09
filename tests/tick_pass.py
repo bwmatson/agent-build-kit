@@ -28,6 +28,7 @@ from agent_build_kit.pipeline.units import HELD, IN_REVIEW, PLANNED, RUNNING, Un
 from agent_build_kit.pipeline.usage_guard import Decision
 from tests.conftest import make_installation
 from tests.factories import own_group
+from tests.inline_workers import WORKERS
 
 MOVED_NOTE = "held before implement: its base moved from spec/a/1 to main while it built"
 
@@ -94,10 +95,23 @@ def stored(uid: str, **overrides) -> StoredUnit:
 
 
 def tick(inst: Installation, *, only: list[str] | None = None) -> int:
+    """`abk tick` once; the workers it started have run to their ends when it returns."""
     args = argparse.Namespace(dry_run=False)
     if only is not None:
         args.only = only
     return cli.cmd_tick(args, inst)
+
+
+def tick_until_idle(inst: Installation, *, only: list[str] | None = None, ticks: int = 20) -> int:
+    """`tick` again for as long as a tick starts a worker, as the timer and the workers' wake-ups
+    do: a unit that reaches review releases its child, which the next tick starts. The first
+    tick that fails ends it, with its code."""
+    for _ in range(ticks):
+        before = WORKERS.started
+        code = tick(inst, only=only)
+        if code or WORKERS.started == before:
+            return code
+    raise AssertionError(f"still starting workers after {ticks} ticks")
 
 
 class Builder:

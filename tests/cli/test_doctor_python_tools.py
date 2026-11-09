@@ -61,7 +61,9 @@ def planning(tmp_path: Path) -> Path:
 def doctor(planning: Path, tmp_path: Path, *, pyproject_text: str, hooks: str) -> list[Check]:
     (tmp_path / "app" / "pyproject.toml").write_text(pyproject_text)
     (tmp_path / "app" / HOOKS_FILE).write_text(hooks)
-    return run_doctor(planning / "abk.yaml", run=ok_run, which=which_all)
+    checks = run_doctor(planning / "abk.yaml", run=ok_run, which=which_all)
+    # The worker path (timers, lingering) is not what these tests are about.
+    return [c for c in checks if c.name not in ("workers", "linger")]
 
 
 def warnings(checks: list[Check], tool: str) -> list[Check]:

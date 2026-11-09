@@ -27,6 +27,7 @@ from tests.dispatcher_support import (
     parse_worker_command,
     processes_workspace,
 )
+from tests.inline_workers import WORKERS
 from tests.tick_pass import Builder, install_builder, isolate, stored, tick, warm_unit_graphs
 
 pytestmark = pytest.mark.usefixtures("scripted_engine")
@@ -159,6 +160,29 @@ def test_the_dispatcher_starts_a_verify_worker_without_deploying_or_waiting(
 
     assert spawner.calls == [("verify", CHANGE)]
     assert archived == [], "nothing is archived until the verification is recorded"
+
+
+def test_a_tick_over_a_merged_change_runs_the_verify_command_and_no_build(
+    tmp_path: Path, builder: Builder, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    inst = processes_workspace(tmp_path)
+    merged_change(builder)
+    verified: list[str] = []
+
+    def deploy_and_test(change: str, units: list[StoredUnit], **kwargs: object) -> Verification:
+        verified.append(change)
+        return Verification(change=change, passed=True, units=[f"{CHANGE}/1"])
+
+    monkeypatch.setattr(cli, "verify_change", deploy_and_test)
+
+    # The in-process workers raise whatever a worker raised when the tick returns.
+    assert tick(inst) == 0
+
+    assert WORKERS.ran == [("verify", CHANGE)]
+    assert verified == [CHANGE]
+    assert builder.started == [], "a verification is not a build"
+    recorded = VerifyRecord(inst.state_dir / "verified.json").get(CHANGE)
+    assert recorded is not None and recorded.passed
 
 
 def test_the_dispatcher_archives_a_verified_change_on_the_next_round(

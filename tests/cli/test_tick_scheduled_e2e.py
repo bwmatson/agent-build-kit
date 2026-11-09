@@ -127,24 +127,6 @@ def test_a_tick_with_nothing_else_to_do_and_a_due_repo_is_not_idle_and_writes_th
     assert calls.plans >= 1, "the change is planned in the round that wrote it"
 
 
-def test_a_tick_with_nothing_due_returns_idle_without_reading_usage(
-    tmp_path: Path, calls: Calls, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    inst, store = installation(tmp_path)
-    assert tick(inst) == 0
-    (name,) = scheduled_changes(inst)
-    (inst.changes_dir / "archive").mkdir()
-    (inst.changes_dir / name).rename(inst.changes_dir / "archive" / f"{TODAY}-{name}")
-    monkeypatch.setattr(cli, "current_usage", lambda: pytest.fail("read the usage window"))
-    plans = calls.plans
-
-    assert not cli.has_work(inst, store)
-    assert tick(inst) == 0
-
-    assert calls.plans == plans
-    assert scheduled_changes(inst) == []
-
-
 def test_the_change_is_written_before_planning(
     tmp_path: Path, calls: Calls, monkeypatch: pytest.MonkeyPatch
 ) -> None:

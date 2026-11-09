@@ -15,7 +15,6 @@ import threading
 from collections.abc import Callable
 from contextlib import closing
 from pathlib import Path
-from types import SimpleNamespace
 
 import pytest
 
@@ -27,16 +26,15 @@ from agent_build_kit.pipeline.e2e import stack_lock
 from agent_build_kit.pipeline.pause import is_paused
 from agent_build_kit.pipeline.planner import Plan
 from agent_build_kit.pipeline.stack_runner import RunOutcome, RunStatus
-from agent_build_kit.pipeline.unit_store import Cause, StoredUnit, UnitStore
+from agent_build_kit.pipeline.unit_store import StoredUnit, UnitStore
 from agent_build_kit.pipeline.units import IN_REVIEW, MERGED, PLANNED, RUNNING
 from agent_build_kit.pipeline.usage_guard import Decision
-from agent_build_kit.pipeline.verify import Verification, VerifyRecord
+from agent_build_kit.pipeline.verify import Verification
 from agent_build_kit.pipeline.workspaces import branch_lock
 from tests.cli.vanished_fakes import keep_changes_of_unstarted_units
 from tests.conftest import make_installation
 from tests.factories import stored_unit
 from tests.time_limit import LOADED_TEST_TIME_LIMIT
-from tests.waiting import wait_for
 
 # The tests of this module run whole passes, whose time depends on the machine's load.
 pytestmark = [
@@ -305,72 +303,6 @@ def in_a_thread(work: Callable[[], object]) -> None:
         raise raised[0]
 
 
-def test_a_change_whose_units_have_merged_is_verified_and_archived_while_another_builds(
-    inst: Installation, tmp_path: Path, verified: list[str], archived: list[str]
-) -> None:
-    store = UnitStore(tmp_path / "units.json")
-    merged_beside_a_build(store)
-
-    run(inst, store, building={"slow/1"}, started={"slow/1"})
-
-    assert verified == ["done"]
-    assert archived == ["done"]
-    assert store.get("slow/1").state == RUNNING
-
-
-def test_verification_is_skipped_and_logged_while_the_live_stack_is_in_use_then_done_later(
-    inst: Installation,
-    tmp_path: Path,
-    verified: list[str],
-    archived: list[str],
-    capsys: pytest.CaptureFixture[str],
-) -> None:
-    store = UnitStore(tmp_path / "units.json")
-    merged_beside_a_build(store)
-
-    with stack_lock(inst.state_dir / "e2e.lock", timeout=5):
-        in_a_thread(lambda: run(inst, store, building={"slow/1"}, started={"slow/1"}))
-
-        assert verified == []
-        assert archived == []
-        out = capsys.readouterr().out
-        assert "done" in out
-        assert "skipped" in out
-
-    run(inst, store, building={"slow/1"}, started={"slow/1"})
-
-    assert verified == ["done"]
-    assert archived == ["done"]
-
-
-def test_a_change_skipped_for_the_live_stack_does_not_archive_on_an_earlier_pass(
-    inst: Installation,
-    tmp_path: Path,
-    verified: list[str],
-    archived: list[str],
-    capsys: pytest.CaptureFixture[str],
-) -> None:
-    store = UnitStore(tmp_path / "units.json")
-    store.upsert([unit_of("done/1"), unit_of("done/2")])
-    store.set_state("done/1", MERGED, pr=3, branch="spec/done/1")
-    store.set_state("done/2", MERGED, pr=4, branch="spec/done/2")
-    VerifyRecord(tmp_path / "verified.json").put(
-        Verification(change="done", passed=True, units=["done/1"])
-    )
-
-    with stack_lock(inst.state_dir / "e2e.lock", timeout=5):
-        in_a_thread(lambda: run(inst, store))
-
-        assert verified == []
-        assert archived == []
-        assert "skipped" in capsys.readouterr().out
-
-    run(inst, store)
-
-    assert verified == ["done"]
-    assert archived == ["done"]
-
-
 def test_a_round_does_not_verify_when_no_change_has_merged(
     inst: Installation, tmp_path: Path, verified: list[str]
 ) -> None:
@@ -427,23 +359,6 @@ def test_a_unit_in_the_passes_building_set_is_not_reclaimed(
     run(inst, store, building={"building/1"}, started={"building/1"})
 
     assert store.get("building/1").state == RUNNING
-
-
-def test_a_round_given_both_started_and_a_readmission_refuses_rather_than_ignore_one(
-    inst: Installation, tmp_path: Path
-) -> None:
-    store = UnitStore(tmp_path / "units.json")
-
-    with pytest.raises(ValueError, match="not both"):
-        cli.run_round(
-            inst,
-            store,
-            building=set(),
-            started={"x/1"},
-            only=frozenset(),
-            submit=True,
-            readmit=SimpleNamespace(started={}),  # type: ignore[arg-type]
-        )
 
 
 def test_a_unit_the_pass_started_is_not_reclaimed_until_the_pass_ends(
@@ -541,45 +456,6 @@ def test_the_cap_reached_by_runs_in_flight_starts_neither_a_planned_nor_a_resume
     assert run(inst, store, building={"slow/1"}, started={"slow/1"}) == []
 
 
-def test_a_unit_the_pass_built_and_a_comment_resumed_is_started_again_in_the_pass(
-    inst: Installation, builder: Builder, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    builder.store.upsert([unit_of("x/1"), unit_of("slow/1", repo="platform")])
-    monkeypatch.setattr(cli, "REFRESH_SECONDS", 0.05)
-    commented: list[int] = []
-    monkeypatch.setattr(
-        cli,
-        "has_thread",
-        lambda inst, unit_id: unit_id == "x/1" and builder.store.get("x/1").state == RUNNING,
-    )
-
-    def slow() -> str | None:
-        # Only once x's worker has returned and let go of x's branch lock.
-        wait_for(
-            lambda: (
-                builder.store.get("x/1").state == IN_REVIEW
-                and "x/1" in builder.finished
-                and not cli.branch_is_held(inst, "spec/x/1")
-            ),
-            what="x's worker to return and release its branch lock",
-            timeout=WAIT,
-        )
-        # A reviewer comments: the event resumes x's thread.
-        commented.append(1)
-        builder.store.set_state("x/1", RUNNING, branch="spec/x/1")
-        return wait_for(
-            lambda: builder.started.count("x/1") == 2,
-            what="x/1 to be started a second time",
-            timeout=WAIT,
-        )
-
-    builder.scripts["slow/1"] = slow
-
-    assert tick(inst) == 0
-
-    assert builder.started.count("x/1") == 2
-
-
 # --- 1.5 the guard ------------------------------------------------------------------------
 
 
@@ -666,39 +542,6 @@ def tick(inst: Installation, *, dry_run: bool = False, only: list[str] | None = 
     return cli.cmd_tick(args, inst)
 
 
-def test_a_guard_that_refuses_mid_pass_starts_nothing_and_lets_the_builds_in_flight_finish(
-    inst: Installation, tmp_path: Path, builder: Builder, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    builder.store.upsert([unit_of("slow/1", repo="platform")])
-    monkeypatch.setattr(cli, "REFRESH_SECONDS", 0.05)
-    answers: list[int] = []
-
-    def guard(reading) -> Decision:
-        answers.append(1)
-        if len(answers) == 1:
-            return Decision(may_start=True, reason="plenty")
-        return Decision(may_start=False, reason="session at 88%")
-
-    monkeypatch.setattr(cli, "may_start_unit", guard)
-
-    def slow() -> str | None:
-        # Something new turns up while slow/1 builds.
-        builder.store.upsert([unit_of("late/1")])
-        return wait_for(
-            lambda: is_paused(tmp_path / "paused.json") is not None,
-            what="the pass to pause",
-            timeout=WAIT,
-        )
-
-    builder.scripts["slow/1"] = slow
-
-    assert tick(inst) == 0
-
-    assert builder.started == ["slow/1"]
-    assert builder.store.get("slow/1").state == IN_REVIEW
-    assert builder.store.get("late/1").state == PLANNED
-
-
 # --- 1.6 editing a building change's tasks ---------------------------------------------
 
 
@@ -748,27 +591,6 @@ def rounds(monkeypatch: pytest.MonkeyPatch) -> list[dict]:
     return calls
 
 
-def test_the_tick_and_every_refresh_of_the_pass_run_the_same_round(
-    inst: Installation,
-    builder: Builder,
-    rounds: list[dict],
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    builder.store.upsert([unit_of("slow/1", repo="platform")])
-    monkeypatch.setattr(cli, "REFRESH_SECONDS", 0.05)
-    builder.scripts["slow/1"] = lambda: wait_for(
-        lambda: sum(1 for r in rounds if r["building"]) >= 2,
-        what="two rounds with a build",
-        timeout=WAIT,
-    )
-
-    assert tick(inst) == 0
-
-    assert builder.store.get("slow/1").state == IN_REVIEW
-    assert rounds[0]["building"] == set(), "the tick's own round came first"
-    assert sum(1 for r in rounds if r["building"] == {"slow/1"}) >= 2
-
-
 def test_a_dry_run_runs_a_round_and_builds_nothing(
     inst: Installation, builder: Builder, rounds: list[dict], capsys: pytest.CaptureFixture[str]
 ) -> None:
@@ -781,46 +603,3 @@ def test_a_dry_run_runs_a_round_and_builds_nothing(
     out = capsys.readouterr().out
     assert "ready: feature/1" in out
     assert "dry run" in out
-
-
-def test_only_narrows_every_round(inst: Installation, builder: Builder, rounds: list[dict]) -> None:
-    builder.store.upsert([unit_of("feature/1"), unit_of("other/1")])
-
-    assert tick(inst, only=["other/1"]) == 0
-
-    assert builder.started == ["other/1"]
-    assert rounds
-    assert all(r["only"] == frozenset({"other/1"}) for r in rounds)
-
-
-def test_a_unit_a_poll_sends_back_is_readmitted_by_the_round_and_rebuilt(
-    inst: Installation,
-    builder: Builder,
-    rounds: list[dict],
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    builder.store.upsert([unit_of("conflicted/1"), unit_of("slow/1", repo="platform")])
-    monkeypatch.setattr(cli, "REFRESH_SECONDS", 0.05)
-    sent: list[int] = []
-
-    def poll(inst, **kwargs) -> None:
-        if builder.store.get("conflicted/1").state == IN_REVIEW and not sent:
-            sent.append(1)
-            builder.store.set_state(
-                "conflicted/1",
-                PLANNED,
-                note="rework requested: merge conflict with its base",
-                cause=Cause.REWORK,
-            )
-
-    monkeypatch.setattr(cli, "poll_all", poll)
-    builder.scripts["slow/1"] = lambda: wait_for(
-        lambda: builder.finished.count("conflicted/1") == 2,
-        what="conflicted/1 to finish twice",
-        timeout=WAIT,
-    )
-
-    assert tick(inst) == 0
-
-    assert builder.started.count("conflicted/1") == 2
-    assert any(r["building"] for r in rounds), "the loop ran no round"

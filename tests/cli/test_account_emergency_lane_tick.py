@@ -130,4 +130,3 @@ def test_the_pool_holds_every_worker_and_lane_place_whatever_the_accounts_extra(
     # A start past the projects' lane is never made, so the pool (the workers and the projects'
     # own lane places of the live projects) still has a thread for each start and each build.
     assert len(started) + len(RUNS) <= capacity(limits_of(inst), len(REPOS))
-    assert cli._pool_size(inst, store.all()) == capacity(limits_of(inst), len(REPOS))

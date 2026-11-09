@@ -75,6 +75,5 @@ def test_doctor_reports_nothing_when_there_is_nothing_to_warn_about(tmp_path: Pa
     assert linger_check(tmp_path / "warns", Loginctl("no")) is not None, "the control"
 
     assert linger_check(tmp_path / "on", Loginctl("yes")) is None
-    assert linger_check(tmp_path / "none", Loginctl("no"), installed=False) is None
     assert linger_check(tmp_path / "unknown", Loginctl(None)) is None
     assert linger_check(tmp_path / "missing", Loginctl(missing=True)) is None

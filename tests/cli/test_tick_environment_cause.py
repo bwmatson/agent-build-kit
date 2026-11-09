@@ -6,7 +6,6 @@ environment is healthy (spec: pipeline-environment).
 from __future__ import annotations
 
 import argparse
-import threading
 from pathlib import Path
 
 import pytest
@@ -14,7 +13,7 @@ import pytest
 from agent_build_kit.cli import pipeline as cli
 from agent_build_kit.installation import Installation
 from agent_build_kit.pipeline.unit_store import Cause, UnitStore
-from agent_build_kit.pipeline.units import FAILED, in_progress
+from agent_build_kit.pipeline.units import FAILED, PLANNED, in_progress
 from tests.cli.test_tick_scheduling import (  # noqa: F401
     Builder,
     builder,
@@ -24,6 +23,7 @@ from tests.cli.test_tick_scheduling import (  # noqa: F401
     warm_unit_graphs,
 )
 from tests.conftest import make_installation
+from tests.dispatcher_support import install_spawner
 from tests.environment_fakes import FakeEnvironment
 
 pytestmark = pytest.mark.usefixtures("scripted_engine")
@@ -141,37 +141,6 @@ def test_units_still_waiting_are_not_resumed_while_the_environment_stays_broken(
     assert (stored_unit.state, stored_unit.cause) == (FAILED, Cause.ENVIRONMENT)
 
 
-def test_the_resumed_units_run_within_the_concurrency_limit(
-    tmp_path: Path,
-    builder: Builder,  # noqa: F811
-) -> None:
-    inst, _ = managed(tmp_path, max_concurrent=1)
-    waiting_for_environment(builder.store, "feature/1", "feature/2", "feature/3")
-    lock = threading.Lock()
-    active = [0]
-    peak = [0]
-    overlapped = threading.Event()
-
-    def build() -> None:
-        with lock:
-            active[0] += 1
-            peak[0] = max(peak[0], active[0])
-            if active[0] > 1:
-                overlapped.set()
-        # Held open until another build overlaps, which a limit of one never lets happen.
-        overlapped.wait(0.3)
-        with lock:
-            active[0] -= 1
-
-    for unit_id in ("feature/1", "feature/2", "feature/3"):
-        builder.scripts[unit_id] = build
-
-    assert tick(inst) == 0
-
-    assert sorted(builder.started) == ["feature/1", "feature/2", "feature/3"]
-    assert peak[0] == 1
-
-
 # --- 3.5 the check for work ----------------------------------------------------------
 
 
@@ -189,3 +158,25 @@ def test_only_a_unit_waiting_for_the_environment_makes_a_store_with_nothing_else
     builder.store.set_state("feature/1", FAILED, note=NOTE, cause=Cause.ENVIRONMENT)
 
     assert cli.has_work(inst, builder.store)
+
+
+@pytest.mark.parametrize("limit", [1, 2, 3])
+def test_the_resumed_units_run_within_the_concurrency_limit(
+    tmp_path: Path,
+    builder: Builder,  # noqa: F811
+    monkeypatch: pytest.MonkeyPatch,
+    limit: int,
+) -> None:
+    """The limit is applied where workers are admitted: one tick starts no more workers than it
+    allows, and the units it leaves stay planned with no claim on a place."""
+    inst, _ = managed(tmp_path, max_concurrent=limit)
+    spawner = install_spawner(monkeypatch)
+    ids = ["feature/1", "feature/2", "feature/3"]
+    waiting_for_environment(builder.store, *ids)
+
+    assert tick(inst) == 0
+
+    assert len(spawner.units) == limit
+    left = [unit for unit in builder.store.all() if unit.id not in spawner.units]
+    assert [unit.state for unit in left] == [PLANNED] * (3 - limit)
+    assert [unit.starting for unit in left] == [None] * (3 - limit)

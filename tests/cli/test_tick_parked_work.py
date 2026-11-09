@@ -18,10 +18,8 @@ from agent_build_kit.config import dump
 from agent_build_kit.graph.checkpointer import unit_graphs_path
 from agent_build_kit.installation import Installation
 from agent_build_kit.pipeline.stack_runner import RunOutcome, RunStatus
-from agent_build_kit.pipeline.units import MERGED
 from tests.parked_split_support import (
     Deliveries,
-    hold,
     installation,
     park,
     store_of,
@@ -77,25 +75,6 @@ def test_a_tick_whose_only_work_is_a_parked_unit_is_not_idle_and_releases_it(
     assert tick(inst) == 0
 
     assert thread.delivered == [("feature/1", "requeue")]
-
-
-def test_a_tick_with_nothing_waiting_is_idle_and_does_not_run_the_release_step(
-    inst: Installation, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    ran: list[str] = []
-    monkeypatch.setattr(cli, "release_split_held", lambda *args, **kwargs: ran.append("release"))
-    hold(inst, "acp")
-    store = store_of(inst)
-    park(store)
-    assert tick(inst) == 0
-    assert ran == ["release"], "a unit still waiting is work: the step runs and releases nothing"
-
-    store.set_state("feature/1", MERGED, pr=1)
-    ran.clear()
-
-    assert not cli.has_work(inst, store)
-    assert tick(inst) == 0
-    assert ran == [], "nothing waiting: idle, as before"
 
 
 def test_the_release_step_reads_the_state_file_and_the_configuration_and_evaluates_no_gate(

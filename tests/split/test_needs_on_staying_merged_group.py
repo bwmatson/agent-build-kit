@@ -1,14 +1,11 @@
 """A moved `Needs:` on a staying change whose group is merged history is a note, and the copied
 tasks file is left as it is."""
 
-from datetime import UTC, datetime
-
 import pytest
 
 from agent_build_kit.cli.pipeline import awaiting_planning, declared_needs, link_needs
-from agent_build_kit.pipeline import loaded_code
 from agent_build_kit.pipeline.cycles import needs_cycle
-from agent_build_kit.pipeline.loaded_code import LoadedCode, TickRecord
+from agent_build_kit.pipeline.loaded_code import LoadedCode
 from agent_build_kit.pipeline.unit_store import UnitStore
 from agent_build_kit.pipeline.units import waiting_on
 from agent_build_kit.pipeline.work_graph import check_tags
@@ -18,13 +15,6 @@ from tests.factories import new_unit
 from tests.split_sources import source_installation, write_change, write_units
 
 TICK = 5
-
-
-@pytest.fixture(autouse=True)
-def tick():
-    loaded_code.running_tick(TickRecord(number=TICK, started_at=datetime(2026, 1, 1, tzinfo=UTC)))
-    yield
-    loaded_code.running_tick(None)
 
 
 def installations(tmp_path, *, needs="m group 4"):
@@ -79,18 +69,6 @@ def test_a_needs_on_a_group_that_is_not_merged_history_is_an_error(tmp_path, tar
 
     (error,) = found.errors
     assert all(word in error for word in ("change g", "group 1", "m group 4"))
-    (warning,) = found.warnings
-    assert "group 2" in warning
-
-
-def test_a_needs_on_a_merged_group_that_is_not_loaded_says_to_run_a_tick(tmp_path):
-    source, destination = installations(tmp_path)
-    write_units(source, new_unit("g/1"), merged("m/3"), merged("m/4", merged_tick=TICK))
-
-    found = check(source, destination)
-
-    (error,) = found.errors
-    assert all(word in error for word in ("group 1", "m group 4", "tick"))
     (warning,) = found.warnings
     assert "group 2" in warning
 

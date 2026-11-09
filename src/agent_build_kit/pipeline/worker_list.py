@@ -64,12 +64,8 @@ def worker_status_lines(
     inst: Installation, unit_of_branch: Mapping[str, tuple[str, str]], run: Run | None = None
 ) -> list[str]:
     """One line per running worker (kind, unit, pid, start time in UTC, usage), or one saying
-    none run. `unit_of_branch` maps a unit's branch to its id and its repo's name; a holder is a
-    worker only when its unit's repo runs workers, since a build of any other repo is a thread
-    of the tick. A holder on a branch no unit names is shown under the branch, without usage,
-    when any repo runs workers."""
-    if not inst.has_worker_repo():
-        return ["workers: none (builds run in the tick)"]
+    none run. `unit_of_branch` maps a unit's branch to its id and its repo's name; a holder on a
+    branch no unit names is shown under the branch, without usage."""
     run = run or subprocess.run
     lines = []
     for holder in live_holders(inst.locks_dir):
@@ -77,8 +73,6 @@ def worker_status_lines(
         if not isinstance(branch, str):
             continue
         known = unit_of_branch.get(branch)
-        if known and inst.workers_mode(known[1]) != "processes":
-            continue
         unit = known[0] if known else None
         usage = _usage(inst, unit, run) if unit else ""
         lines.append(f"worker build {unit or branch}: pid {holder['pid']}{_since(holder)}{usage}")

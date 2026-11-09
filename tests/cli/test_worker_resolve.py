@@ -50,6 +50,7 @@ from tests.dispatcher_support import (
 )
 from tests.emergency_lane_support import build
 from tests.factories import git
+from tests.inline_workers import WORKERS
 from tests.lane_run_slots import as_owed_comment
 from tests.restack_lane_fakes import moved, repo_behind
 from tests.tick_pass import (
@@ -170,6 +171,20 @@ def test_a_resolve_worker_with_nothing_owed_builds_nothing_and_wakes(
     assert resolve(inst, "app") == 0
     assert builder.started == []
     assert (inst.state_dir / WAKE).exists()
+
+
+def test_a_tick_over_an_owed_run_runs_the_resolve_command_not_a_build_of_the_unit(
+    tmp_path: Path, builder: Builder
+) -> None:
+    inst = workspace(tmp_path)
+    project = owe_comment_reworks(builder.store, "c1/1")
+
+    # The in-process workers raise whatever a worker raised when the tick returns.
+    assert tick(inst) == 0
+
+    assert WORKERS.ran == [("resolve", project)]
+    assert builder.started == ["c1/1"], "the resolve worker carried the run through the build"
+    assert builder.store.get("c1/1").state == IN_REVIEW
 
 
 def test_the_dispatcher_admits_at_most_the_resolution_cap_and_overflows_into_build_workers(
