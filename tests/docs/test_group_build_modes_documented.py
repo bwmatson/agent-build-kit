@@ -47,6 +47,13 @@ def test_the_tags_entry_shows_the_mode_of_each_group() -> None:
         assert f"build mode {mode}" in entry
 
 
+def test_the_tags_entry_describes_a_reorganization_group() -> None:
+    entry = cli_entry("### `abk tags [CHANGE] [--all]`")
+
+    assert "reorganization" in entry
+    assert "No group is given build mode `refactor` yet" not in entry
+
+
 def test_the_replan_entry_says_the_planner_gives_a_mode_per_group() -> None:
     entry = cli_entry("### `abk replan [CHANGE|UNIT ...]")
 

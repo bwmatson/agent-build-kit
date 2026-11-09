@@ -59,6 +59,14 @@ def test_the_section_shows_a_bad_and_a_good_example(raw_texts: list[str]) -> Non
         assert re.search(r"\bgood\b", body, re.I)
 
 
+def test_the_skill_describes_how_to_write_a_reorganization_group(raw_texts: list[str]) -> None:
+    for text in raw_texts:
+        body = flat(text)
+        assert "reorganization" in body
+        assert "`refactor`" in body
+        assert "no group is given build mode `refactor` yet" not in body
+
+
 def test_the_authoring_prompt_keeps_the_exception() -> None:
     prompt = flat(propose.PROMPT)
 
