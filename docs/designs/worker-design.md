@@ -4,12 +4,10 @@
 > part an interface with an implementation per deployment. The mechanisms below (local locks, the wake file, transient systemd units) are what its local
 > implementations start from.
 
-Today one `abk tick` process owns every build: it starts them as threads, cannot exit while any of them runs, and holds the kit code, the
-configuration and the pool size it loaded when it started. A tick that is building a unit therefore lasts as long as the longest unit in it, which has been
-hours, and everything that needs a fresh process waits for it. This document describes the end state that removes that coupling: a short **dispatcher** that decides what
-runs, **detached worker processes** that each carry one unit's work, a **wake** path so a finished worker is noticed in seconds, and one **collector** that is the only
-thing that polls the outside world. It is a design, not a specification. Paths and function names are where the work happens today; names for new things are proposals.
-Each [migration step](#migration) can become its own OpenSpec change.
+This document describes what exists: a tick is a short **dispatcher** that decides what runs, **detached worker processes** each carry one unit's work
+(build, resolve or verify), a **wake** path lets a finished worker be noticed in seconds, and one **collector** is the only thing that polls the outside world.
+A tick no longer owns any build, so it exits at once and a long unit delays nothing but its own slot. Before the cutover one tick process ran every build as a
+thread and lasted as long as the longest unit in it; the [history](#history) is short. Paths and function names are where the work happens.
 
 ## Goals and non-goals
 
@@ -145,22 +143,11 @@ tick-number merge rule; the invariant that a tick cannot exit while a build runs
 
 ## Shared files
 
-Already safe across processes: `units.json` (flock plus atomic writes), pause markers, usage caches, `planned.json`, leases, `e2e.lock`, `prs-<repo>.json` (written under a lock), the admission lock, and the branch-lock identity with a start time (the last two fixed by migration step 1). The `Poller` snapshot and `land_units` are kept to the dispatcher, because they are not designed for several writers.
+Already safe across processes: `units.json` (flock plus atomic writes), pause markers, usage caches, `planned.json`, leases, `e2e.lock`, `prs-<repo>.json` (written under a lock), the admission lock, and the branch-lock identity with a start time (the last two fixed by the first step of the history). The `Poller` snapshot and `land_units` are kept to the dispatcher, because they are not designed for several writers.
 
-## Migration
+## History
 
-The route is straight to the end state; the `workers.mode` switch is the mechanism for getting there safely, not an interim improvement.
-
-1. **Foundations the end state needs (done).** Branch-lock identity with a start time; the admission lock and the `starting` marker; slot occupancy computed from locks, `starting` markers and usage pauses (a lease takes no place; one pure function the thread pool also uses, so both modes agree);
-   the `prs-<repo>.json` lock; and the snapshot read API with `request_refresh()`, with the existing in-thread readers moved onto it (the usage guard's per-step decisions, the PR-state reads in the graph nodes), so thread mode and worker mode read the
-   same cached source.
-2. **The worker entry point and the spawner (done).** `abk worker build <unit>` running `build_unit` (it already re-reads the unit under the branch lock, `cli/pipeline.py` ~5934-5950), the transient-unit spawner with the `Popen` fallback, the worker's
-   exit poke, and the wake path unit in `install-timers`.
-3. **The dispatcher mode of `abk tick` (done)**, behind `workers.mode: threads | processes` (default `threads` until proven): admission and spawning instead of `submit`, and no waiting.
-4. **Resolve and verify workers**, then the status, doctor and ledger changes.
-5. **Cut over** one repo, then the rest, then delete the thread pool and the pass-scoped rules.
-
-Tests: the controlled builder in `tests/tick_pass.py` generalised to a fake spawner; a two-dispatcher race test for admission; a killed-worker resume test; the merge-edge test rewritten around the worker's kit HEAD; and the drift test for the collector rule.
+Built in steps: the foundations (branch-lock identity, the admission lock, slot occupancy computed from locks), the worker entry point and spawner, the dispatcher mode of `abk tick`, resolve and verify workers, then the cutover that deleted the build thread pool and the pass-scoped rules and removed the `workers.mode` switch.
 
 ## Options considered
 

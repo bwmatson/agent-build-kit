@@ -395,7 +395,7 @@ Free slots then go to
 units with an open pull request, then to those resuming a build, then to new
 ones. The first two go in planned order; new ones go by effective priority, then handoff
 units before the others of equal priority, then by effective age (the earliest planned position among the unit and every unit waiting on it, in
-any repo), then by planned position. Ready units build in parallel threads, each
+any repo), then by planned position. Ready units build in parallel, each in its own worker process,
 under a branch lock (`locks/` in the local directory) that fails fast: two runs on one branch is
 a scheduling bug, not a queue.
 

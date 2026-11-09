@@ -860,10 +860,10 @@ branch.
 
 ## Concurrency
 
-The end state, with each build in its own worker process instead of a tick's thread pool, is in [worker-design.md](worker-design.md).
+Each build runs in its own worker process, started by the dispatcher that `abk tick` is; see [worker-design.md](worker-design.md).
 
-- One tick process runs the threads on asyncio, at most `max_concurrent_stacks`
-  executing at once in each project; the build pool holds every project's workers together. A thread waiting in an interrupt costs nothing.
+- Each worker process runs one unit's thread on asyncio, and the dispatcher admits at most
+  `max_concurrent_stacks` workers at once in each project. A thread waiting in an interrupt costs nothing.
 - The scheduler is unchanged in what it decides. `ready_units` picks what
   starts, and existing work goes first. What it does changes: it **starts** a
   thread for a new unit and **resumes** threads that have something to do (an
@@ -875,7 +875,7 @@ The end state, with each build in its own worker process instead of a tick's thr
   busy for days. A delivery takes the lock only for its own short write.
 - Nothing but a slot runs a node. A poll's event delivery, `abk requeue` and
   the scheduler's refresh run no agent, check or push: they position the
-  thread, and the pool runs it.
+  thread, and a worker runs it.
 - Repo turns and the e2e-test lock are taken inside the nodes that need them, as
   the wrapped callables do now.
 

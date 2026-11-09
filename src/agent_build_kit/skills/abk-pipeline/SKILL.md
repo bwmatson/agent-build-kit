@@ -104,6 +104,14 @@ next tick sync again.
   final files over the repository's, commits them, and the archived change reaches the default
   branch.
 
+## Workers
+
+A worker is a detached process that carries one unit's work: `abk worker build <unit>`, `abk worker resolve` for
+restacks and reworks, `abk worker verify` for live verification. `abk tick` is only a dispatcher: it admits ready
+units up to the limits, starts a worker for each and exits without waiting. In `abk status` the worker list shows each
+running worker's kind, unit, pid, start time, CPU and memory, and a link to the unit's log; no worker for a `running`
+unit means it was killed and the next tick resumes it.
+
 ## Test kinds
 
 There are three test kinds, narrowest to widest: `unit-test` (one module's behaviour),
