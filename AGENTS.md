@@ -141,6 +141,7 @@ src/agent_build_kit/
   skills/          the Claude Code skills abk installs into planning and code repos
   trackers/        the work-tracker seam: a `Tracker` protocol beside the `Forge` one
   forges/          the code hosts a repo can name in abk.yaml
+  orchestration/   the registry that finds an interface's implementation for the deployment
   runtimes/        the agent runtimes a workspace can name in abk.yaml
   sandboxes/       the sandbox backends a machine can confine an agent step with
   graph/           the unit graph: one LangGraph thread per unit (docs/designs/unit-graph.md)
