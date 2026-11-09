@@ -10,7 +10,8 @@
   (the default) or `azure`, and `abk config --show` prints it. The Azure settings under
   `deployment.azure` (`subscription`, `resource_group`, `storage_account`, `database_host`,
   `key_vault`, `identity_client_id`) belong in `abk.local.yaml`; one in the committed
-  `abk.yaml` is refused, naming the key.
+  `abk.yaml` is refused, naming the key. The Azure SDKs are the new optional extra
+  `agent-build-kit[azure]`; a local install needs nothing from it.
 
 - The red check and the push gate now give the test runner only the files the toolchain can
   run, so a data file changed under a test folder (a snapshot, say) no longer reaches the

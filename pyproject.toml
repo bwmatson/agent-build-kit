@@ -29,6 +29,9 @@ abk-policy-hook = "agent_build_kit.hooks.policy:main"
 acp = [
     "agent-client-protocol==0.12.1",
 ]
+azure = [
+    "azure-identity>=1.19",
+]
 modal = [
     "agent-build-kit[acp]",
     "modal>=1.5,<2",
