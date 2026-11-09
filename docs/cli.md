@@ -521,8 +521,9 @@ from 1, every group has tasks, `[contract]` paired with a last `[narrow]` (excep
 out with a reasoned `Acceptance: none — ...` line. Prints each problem with
 its line, then the groups when clean, each with its floor mode: the lowest build mode the planner
 may build it in (build mode `tests_and_code`, build mode `tests_only` or build mode `no_code`).
-The planner may raise a `no_code` group to `tests_and_code`. No group is given build mode
-`refactor` yet: neither the planner nor the floor chooses it. Also warns, once per group and
+The planner may raise a `no_code` group to `tests_and_code`, and may give a group that names source
+files build mode `refactor` when it is a reorganization (a move, rename or split that changes no
+behaviour and adds no test); the floor itself is never `refactor`. Also warns, once per group and
 without failing, when a group can give its unit unrelated open parents: an `[acceptance]` or
 `[narrow]` group after an `Independent:` group, an `Independent:` group followed by a later
 group of its repo, or a `Needs:` to another change's same-repo group beside a same-repo

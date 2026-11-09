@@ -97,6 +97,31 @@ def test_a_reply_may_raise_a_group_that_may_be_no_code_to_tests_and_code() -> No
     assert plan({"1": "tests_and_code"}, True).group_modes == {"feature/1": "tests_and_code"}
 
 
+def test_the_prompt_names_refactor_for_a_reorganization() -> None:
+    text = prompt()
+
+    assert "`refactor`" in text
+    assert "reorganization" in text
+
+
+def test_refactor_is_accepted_for_a_group_that_names_source_files() -> None:
+    try:
+        outcome: object = plan({"1": "refactor"}, False).group_modes
+    except PlannerError as refused:
+        outcome = f"refused: {refused}"
+
+    assert outcome == {"feature/1": "refactor"}
+
+
+def test_a_join_of_a_source_naming_group_may_be_refactor() -> None:
+    try:
+        outcome: object = join_plan({"2": "refactor"}).joins[0].group_modes
+    except PlannerError as refused:
+        outcome = f"refused: {refused}"
+
+    assert outcome == {"feature/2": "refactor"}
+
+
 def test_an_unknown_mode_is_refused() -> None:
     with pytest.raises(PlannerError, match="no_cod"):
         plan({"1": "no_cod"}, True)
