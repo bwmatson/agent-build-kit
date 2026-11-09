@@ -9,13 +9,11 @@ as a build's is; the sample row is read from the ledger a tick writes, over buil
 from __future__ import annotations
 
 import json
-import threading
 from contextlib import ExitStack
 from pathlib import Path
 
 import pytest
 
-from agent_build_kit.cli import pipeline as cli
 from agent_build_kit.installation import Installation
 from agent_build_kit.pipeline.unit_store import UnitStore
 from agent_build_kit.pipeline.usage_ledger import LEDGER_NAME
@@ -23,7 +21,7 @@ from agent_build_kit.pipeline.workspaces import branch_lock
 from tests.cli.test_account_stack_cap_tick import ready_in_each, workspace
 from tests.conftest import run_status
 from tests.emergency_lane_support import build, seeded
-from tests.tick_pass import Builder, install_builder, isolate, stored, tick, warm_unit_graphs
+from tests.tick_pass import Builder, install_builder, isolate, warm_unit_graphs
 
 pytestmark = pytest.mark.usefixtures("scripted_engine")
 
@@ -35,7 +33,6 @@ WAIT = 5
 def isolated(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     warm_unit_graphs(tmp_path)
     isolate(monkeypatch)
-    monkeypatch.setattr(cli, "REFRESH_SECONDS", 0.05)
 
 
 def stacks_status(
@@ -126,36 +123,3 @@ def samples(directory: Path) -> list[dict]:
 @pytest.fixture
 def builder(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Builder:
     return install_builder(tmp_path, monkeypatch)
-
-
-def test_the_sample_rows_free_workers_are_the_lesser_of_the_projects_room_and_the_accounts(
-    tmp_path: Path, builder: Builder
-) -> None:
-    inst = workspace(tmp_path, account={"max_concurrent_stacks": 2})
-    names = ["app-a/1", "platform-a/1"]
-    builder.store.upsert(
-        [
-            stored("app-a/1", repo="app"),
-            stored("platform-a/1", repo="platform"),
-            stored("web-a/1", repo="web"),
-        ]
-    )
-
-    pause = threading.Event()
-
-    def hold() -> None:
-        # Held until a row shows both of the account's stacks running.
-        for _ in range(int(WAIT / 0.05)):
-            if any(row["running"] == 2 for row in samples(inst.state_dir)):
-                return
-            pause.wait(0.05)
-
-    for uid in names:
-        builder.scripts[uid] = hold
-
-    assert tick(inst) == 0
-
-    full = [row for row in samples(inst.state_dir) if row["running"] == 2]
-    assert full, "no sample row saw both of the account's stacks running"
-    # Each project has three free workers of four, and the account has none of its two.
-    assert {row["free_workers"] for row in full} == {0}

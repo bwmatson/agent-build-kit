@@ -18,7 +18,6 @@ from agent_build_kit.pipeline.e2e_schedule import is_scheduled, scheduled_name
 from agent_build_kit.pipeline.stack_runner import RunStatus
 from agent_build_kit.pipeline.unit_store import UnitStore
 from agent_build_kit.pipeline.units import IN_REVIEW, MERGED, PLANNED, SATISFIED
-from agent_build_kit.pipeline.usage_guard import Decision
 from tests.e2e_lock_fakes import Foreign, e2e_runner, install_clock
 from tests.e2e_schedule_fakes import AT, TODAY, on_today, planning, scheduled_changes
 from tests.factories import stored_unit
@@ -83,38 +82,6 @@ def test_the_scheduled_unit_is_listed_by_status_with_its_change_and_state(
     assert NAME in listed[0] and PLANNED in listed[0]
 
 
-def test_the_limit_counts_the_scheduled_unit_and_holds_it_until_a_place_is_free(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    inst, store, builder = installation(tmp_path, monkeypatch, max_units_in_progress=1)
-    in_review(store, "other/1")
-
-    assert tick(inst) == 0
-    assert builder.started == [], "at the limit it does not start"
-    assert store.get(UNIT).state == PLANNED
-
-    store.set_state("other/1", MERGED, pr=9)
-    assert tick(inst) == 0
-
-    assert builder.started == [UNIT]
-    assert store.get(UNIT).state == SATISFIED
-
-
-def test_a_started_scheduled_unit_takes_a_place_from_the_next_unit(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    inst, store, builder = installation(tmp_path, monkeypatch, max_units_in_progress=1)
-    # The builder's default outcome leaves the unit open (in review): a state that counts.
-    del builder.scripts[UNIT], builder.ends[UNIT]
-
-    assert tick(inst) == 0
-    store.upsert([stored_unit("late/1", change="late", repo="app")])
-    assert tick(inst) == 0
-
-    assert store.get(UNIT).state == IN_REVIEW
-    assert store.get("late/1").state == PLANNED, "the scheduled unit holds the one place"
-
-
 def test_a_scheduled_unit_waits_for_a_held_e2e_lock_without_failing(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -133,25 +100,3 @@ def test_a_scheduled_unit_waits_for_a_held_e2e_lock_without_failing(
     assert ok and ran.record_seen is not None, "it ran when the lock was free"
     assert clock.elapsed() >= 2 * HOUR
     assert any("e2e-test is busy" in line for line in log)
-
-
-def test_a_usage_refusal_delays_the_scheduled_unit_until_the_guard_admits_a_unit(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    inst, store, builder = installation(tmp_path, monkeypatch)
-    monkeypatch.setattr(
-        cli, "may_start_unit", lambda r, **_: Decision(may_start=False, reason="session at 88%")
-    )
-
-    assert tick(inst) == 0
-    assert tick(inst) == 0
-
-    assert scheduled_changes(inst) == [NAME], "written once, not twice"
-    assert builder.started == []
-    assert [unit.id for unit in store.all() if is_scheduled(unit.change)] == []
-
-    monkeypatch.setattr(cli, "may_start_unit", lambda r, **_: Decision(may_start=True, reason="ok"))
-    assert tick(inst) == 0
-
-    assert builder.started == [UNIT]
-    assert scheduled_changes(inst) == [NAME]

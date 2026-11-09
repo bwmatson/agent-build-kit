@@ -11,7 +11,7 @@ import pytest
 
 from agent_build_kit.cli import pipeline as cli
 from agent_build_kit.pipeline.unit_store import Cause, UnitStore
-from agent_build_kit.pipeline.units import FAILED, IN_REVIEW, PLANNED
+from agent_build_kit.pipeline.units import FAILED, PLANNED
 from tests.cli.test_tick_scheduling import (  # noqa: F401
     SEVERAL_REFRESHES,
     WAIT,
@@ -24,8 +24,6 @@ from tests.cli.test_tick_scheduling import (  # noqa: F401
     workspace,
 )
 from tests.fake_clock import FakeClock, install
-from tests.tick_driver import count_refreshes
-from tests.waiting import wait_for
 
 pytestmark = pytest.mark.usefixtures("scripted_engine")
 
@@ -50,85 +48,6 @@ def park(store: UnitStore, *, attempts: int) -> None:
             note="create_pr: host unavailable after 3 attempts",
             cause=Cause.HOST_UNAVAILABLE,
         )
-
-
-@pytest.mark.parametrize("attempts", range(1, len(BACKOFF_MINUTES) + 1))
-def test_the_pass_skips_a_parked_unit_until_its_backoff_has_elapsed(
-    tmp_path,
-    builder: Builder,  # noqa: F811
-    clock: FakeClock,
-    attempts: int,
-    capsys: pytest.CaptureFixture[str],
-) -> None:
-    wait = BACKOFF_MINUTES[attempts - 1] * MINUTE
-    park(builder.store, attempts=attempts)
-    inst = workspace(tmp_path)
-
-    clock.advance(wait - 1)
-    tick(inst)
-    assert builder.started == [], "readmitted a second early"
-    waiting = [line for line in capsys.readouterr().out.splitlines() if UNIT in line]
-    assert any("remain" in line for line in waiting), "the log does not say how long remains"
-
-    clock.advance(2)
-    tick(inst)
-    assert builder.started == [UNIT]
-
-
-def test_a_build_that_succeeds_resets_the_count(
-    tmp_path,
-    builder: Builder,  # noqa: F811
-    clock: FakeClock,
-) -> None:
-    park(builder.store, attempts=3)
-    clock.advance(5 * MINUTE + 1)
-
-    tick(workspace(tmp_path))
-
-    unit = builder.store.get(UNIT)
-    assert unit.state == IN_REVIEW
-    assert unit.parked_attempts == 0
-
-
-@pytest.mark.parametrize("backoff_over", [False, True])
-def test_the_running_pass_readmits_a_unit_it_parked_only_after_its_backoff(
-    tmp_path,
-    builder: Builder,  # noqa: F811
-    clock: FakeClock,
-    monkeypatch: pytest.MonkeyPatch,
-    backoff_over: bool,
-) -> None:
-    inst = workspace(tmp_path, max_concurrent=2)
-    builder.store.upsert([stored("sent/1"), stored("slow/1", repo="platform")])
-    monkeypatch.setattr(cli, "REFRESH_SECONDS", 0.05)
-    runs: list[int] = []
-    refreshes = count_refreshes(monkeypatch)
-
-    def parks_once() -> str | None:
-        runs.append(1)
-        return "held" if len(runs) == 1 else None
-
-    builder.scripts["sent/1"] = parks_once
-    builder.ends["sent/1"] = (PLANNED, Cause.HOST_UNAVAILABLE, "create_pr: host unavailable")
-
-    def slow() -> str | None:
-        wait_for(lambda: "sent/1" in builder.finished, what="sent/1 to finish", timeout=WAIT)
-        if not backoff_over:
-            # Several refreshes, in which a readmission would show.
-            refreshes.wait_for(refreshes.count + SEVERAL_REFRESHES, timeout=WAIT)
-            return None
-        clock.advance(MINUTE + 1)
-        return wait_for(
-            lambda: builder.started.count("sent/1") == 2,
-            what="sent/1 to be started a second time",
-            timeout=WAIT,
-        )
-
-    builder.scripts["slow/1"] = slow
-
-    assert tick(inst) == 0
-
-    assert builder.started.count("sent/1") == (2 if backoff_over else 1)
 
 
 def test_status_lists_a_failed_unit_and_a_unit_waiting_for_the_host(

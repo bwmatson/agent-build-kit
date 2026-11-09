@@ -1712,9 +1712,12 @@ REBUILD_WINDOW = timedelta(hours=1)
 
 
 def cmd_tick(args: argparse.Namespace, inst: Installation) -> int:
-    """One pass of the loop. When any repo runs in `processes` mode it is the one dispatcher, for
-    as long as it runs: a second exits at once, since the first is already starting what is
-    ready."""
+    """One pass of the loop. It is the one dispatcher, for as long as it runs: a second exits at
+    once, since the first is already starting what is ready. A state directory where locks do not
+    exclude refuses first, before the lock is taken or anything is written."""
+    if (refusal := _state_locking_refusal(inst)) is not None:
+        print(refusal)
+        return 1
     with ExitStack() as held:
         if not args.dry_run:
             try:
@@ -1733,9 +1736,6 @@ def _tick_once(args: argparse.Namespace, inst: Installation) -> int:
     """
     if off := guard_off_line():
         log(off)
-    if (refusal := _state_locking_refusal(inst)) is not None:
-        print(refusal)
-        return 1
     forget_logged_failures()
     # Before the planning sync: it may pull the kit's own checkout, and the head recorded must
     # be the code this process imported, not what a pull brings after.
