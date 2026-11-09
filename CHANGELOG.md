@@ -6,6 +6,7 @@
   describe a tick as a dispatcher that starts worker processes, and say how to read the
   worker list in `abk status`, which is read from the branch locks. The worker design is now a description of what exists, with
   a short history in place of its migration plan.
+
 - The red check and the push gate now give the test runner only the files the toolchain can
   run, so a data file changed under a test folder (a snapshot, say) no longer reaches the
   runner and turns a correct red run into a usage error.
