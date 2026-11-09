@@ -3,10 +3,11 @@
 `abk init` detects such repos and writes their specs (research and proposal
 are language-agnostic); `abk tick` holds a unit that reaches a method that raises
 `ProfileUnsupported`, which this profile does not. Implemented, by method of
-`profiles.base.ToolchainProfile`: `npx oxlint` and `npx oxfmt --check` as the lint,
-`npx tsc --noEmit` as the project check, `npx vitest run` with a JUnit report for the
-tests, the clean and red commands, judging a red run, and `.test`/`.spec` files and
-`__tests__/` as test paths.
+`profiles.base.ToolchainProfile`: the whole-folder lint, format check and type check, which run
+the project's `lint`, `format:check` and `typecheck` scripts when its `package.json` defines
+them and `npx oxlint`, `npx oxfmt --check` and `npx tsc --noEmit` otherwise, `npx vitest run`
+with a JUnit report for the tests, the clean and red commands, judging a red run, and
+`.test`/`.spec` files and `__tests__/` as test paths.
 The stub check (`throw new Error("not implemented")` as the permitted body) and the files the
 commands create are implemented too.
 npm workspace members (the `workspaces` field, globs expanded) are tested one command each
@@ -86,9 +87,13 @@ _HERE = "./"
 def _script_or(script: str, generic: str) -> str:
     """A shell command running the project's own `script` when its `package.json` (in the
     folder the command runs in) defines it, and `generic` otherwise."""
-    # The `scripts` object is read with sed and grep, so the probe needs no runtime of its own.
-    block = "sed -n '/\"scripts\"/,/}/p' package.json 2>/dev/null"
-    probe = f"{block} | grep -q {shlex.quote(f'"{script}"[[:space:]]*:')}"
+    # The manifest is read by node, which is present wherever `npm run` is; a missing or
+    # unparsable manifest, or no node, leaves the generic tool.
+    read = (
+        'const s=(require("./package.json").scripts)||{};'
+        'process.exit(typeof s[process.argv[1]]==="string"?0:1)'
+    )
+    probe = f"node -e {shlex.quote(read)} {shlex.quote(script)} 2>/dev/null"
     return f"if {probe}; then npm run {script}; else {generic}; fi"
 
 
@@ -98,18 +103,7 @@ _LINT_ALL = (
 )
 # The type check follows the project's `typecheck` script the same way.
 _TYPE_CHECK_ALL = _script_or("typecheck", shlex.join(_TYPE_CHECK_ARGV))
-
-
-def _project_type_check(project: Path) -> list[str]:
-    """`npm run typecheck` when the `package.json` in `project` defines that script, else the
-    generic type check."""
-    try:
-        scripts = json.loads((project / "package.json").read_text()).get("scripts")
-    except (OSError, ValueError, AttributeError):
-        return list(_TYPE_CHECK_ARGV)
-    if isinstance(scripts, dict) and "typecheck" in scripts:
-        return ["npm", "run", "typecheck"]
-    return list(_TYPE_CHECK_ARGV)
+_TYPE_CHECK_COMMAND = ["sh", "-c", _TYPE_CHECK_ALL]
 
 
 # The red command lists the files it was given, one per line before the report, so the judge
@@ -324,7 +318,11 @@ class NodeNpmProfile:
             words = shlex.split(command or header.removeprefix("$ "))
         except ValueError:
             return "lint"
-        if words[:2] == ["npx", _TYPE_CHECK] or words[:3] == ["npm", "run", "typecheck"]:
+        if (
+            words[:2] == ["npx", _TYPE_CHECK]
+            or words[:3] == ["npm", "run", "typecheck"]
+            or words == _TYPE_CHECK_COMMAND
+        ):
             return "types"
         is_tests = words[:2] == ["sh", "-c"] and words[2:3] and words[2] in _TEST_SCRIPTS
         return "test" if is_tests else "lint"
@@ -334,7 +332,7 @@ class NodeNpmProfile:
 
     def project_checks(self, repo: RepoConfig) -> list[list[str]]:
         """The type check, over the whole project: `tsc` cannot be scoped to files."""
-        return [_project_type_check(repo.path)]
+        return [list(_TYPE_CHECK_COMMAND)]
 
     def e2e_commands(self, repo: Path, *, marker: str) -> list[list[str]]:
         """The files named for `marker`, in each member of a workspace or else the project."""

@@ -18,6 +18,7 @@ import pytest
 
 from agent_build_kit import profiles
 from tests.factories import git, init_repo
+from tests.node_runtime import require_node
 
 GENERIC_LINT = "npx oxlint ."
 GENERIC_FORMAT = "npx oxfmt --check ."
@@ -61,6 +62,7 @@ def profile():
 @pytest.fixture
 def calls(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     """The file the recording `npm` and `npx`, first on the path, append their calls to."""
+    require_node()
     bin_dir = tmp_path / "bin"
     bin_dir.mkdir()
     for name in ("npm", "npx"):
