@@ -1870,8 +1870,27 @@ class ReviewConfig(Frozen):
         return self
 
 
+class AzureDeploymentConfig(Frozen):
+    """The settings of an Azure deployment that name one subscription or machine."""
+
+    subscription: str | None = None
+    resource_group: str | None = None
+    storage_account: str | None = None
+    database_host: str | None = None
+    key_vault: str | None = None
+    identity_client_id: str | None = None
+
+
+class DeploymentConfig(Frozen):
+    """Which deployment this installation is (`deployment`)."""
+
+    kind: Literal["unset"] = "unset"
+    azure: AzureDeploymentConfig = AzureDeploymentConfig()
+
+
 class WorkspaceConfig(Frozen):
     version: int = 1
+    deployment: DeploymentConfig = DeploymentConfig()
     planning: PlanningConfig = PlanningConfig()
     openspec: OpenSpecConfig = OpenSpecConfig()
     git: GitConfig = GitConfig()

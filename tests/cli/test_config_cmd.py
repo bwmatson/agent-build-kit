@@ -31,6 +31,14 @@ def test_show_fills_in_the_defaults(tmp_path: Path, capsys) -> None:
     assert shown["git"]["branch_prefix"] == "spec/"
 
 
+def test_show_prints_the_deployment_kind(tmp_path: Path, capsys) -> None:
+    path = write_config(tmp_path)
+
+    main(["--config", str(path), "config", "--show"])
+
+    assert yaml.safe_load(capsys.readouterr().out)["deployment"]["kind"] == "local"
+
+
 def test_show_is_the_default(tmp_path: Path, capsys) -> None:
     path = write_config(tmp_path)
 
