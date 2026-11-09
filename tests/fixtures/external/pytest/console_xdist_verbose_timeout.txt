@@ -1,0 +1,50 @@
+# tool: pytest 9.1.1 with pytest-xdist 3.8.0 and pytest-timeout 2.4.0
+$ uv run pytest -n 2 -v -rfE --tb=short --timeout=1 (exit 1)
+============================= test session starts ==============================
+platform linux -- Python 3.14.7, pytest-9.1.1, pluggy-1.6.0 -- /env/bin/python
+cachedir: .pytest_cache
+rootdir: /work
+configfile: pyproject.toml
+plugins: xdist-3.8.0, timeout-2.4.0
+timeout: 1.0s
+timeout method: signal
+timeout func_only: False
+created: 2/2 workers
+2 workers [6 items]
+
+scheduling tests via LoadScheduling
+
+[gw0] [ 16%] ERROR test_one.py::test_early
+[gw1] [ 33%] PASSED test_one.py::test_other_worker_ok
+[gw0] [ 50%] FAILED test_one.py::test_slow
+[gw1] [ 66%] ERROR test_one.py::test_other_worker_error
+[gw0] [ 83%] ERROR test_one.py::test_after
+[gw0] [100%] PASSED test_one.py::test_last
+==================================== ERRORS ====================================
+____________________ ERROR at setup of test_early ____________________
+[gw0] linux -- Python 3.14.7 /env/bin/python
+test_one.py:6: in broken
+    raise RuntimeError('no database')
+E   RuntimeError: no database
+_________________ ERROR at setup of test_other_worker_error __________________
+[gw1] linux -- Python 3.14.7 /env/bin/python
+test_one.py:6: in broken
+    raise RuntimeError('no database')
+E   RuntimeError: no database
+____________________ ERROR at setup of test_after ____________________
+[gw0] linux -- Python 3.14.7 /env/bin/python
+test_one.py:6: in broken
+    raise RuntimeError('no database')
+E   RuntimeError: no database
+=================================== FAILURES ===================================
+__________________________________ test_slow ___________________________________
+[gw0] linux -- Python 3.14.7 /env/bin/python
+test_one.py:12: in test_slow
+    time.sleep(5)
+E   Failed: Timeout >1.0s
+=========================== short test summary info ============================
+FAILED test_one.py::test_slow - Failed: Timeout >1.0s
+ERROR test_one.py::test_early - RuntimeError: no database
+ERROR test_one.py::test_other_worker_error - RuntimeError: no database
+ERROR test_one.py::test_after - RuntimeError: no database
+1 failed, 2 passed, 3 errors in 1.08s

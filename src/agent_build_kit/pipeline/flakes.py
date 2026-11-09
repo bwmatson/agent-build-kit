@@ -13,7 +13,7 @@ import hashlib
 import re
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Protocol, runtime_checkable
+from typing import Literal, Protocol, runtime_checkable
 
 from agent_build_kit.config import active, active_root
 from agent_build_kit.installation import Installation
@@ -63,6 +63,10 @@ class Flake(Recorded, Evidenced):
     # The output of the test's run on `base`; empty when it was not run there (a failure by the
     # time limit alone cannot be told apart on the base).
     base_output: str = ""
+    # The class the classification reached for a test that passed alone: `flake`, `load` (a time
+    # limit hit in a run under high load: no fix change) or `isolation` (a shared resource, with
+    # no high load).
+    classification: Literal["flake", "load", "isolation"] = "flake"
 
 
 def waiting_note(tests: list[str], *, failing: bool = False) -> str:
@@ -109,6 +113,12 @@ def flake_record(inst: Installation) -> FailureRecord[Flake]:
     return FailureRecord(inst.state_dir / "flakes.jsonl", Flake)
 
 
+def _active_flake_record() -> FailureRecord[Flake] | None:
+    """The flake record of the loaded workspace, or None when none is loaded."""
+    root = active_root()
+    return None if root is None else flake_record(Installation(active(), root))
+
+
 def record_storm(
     unit: str,
     tests: list[str],
@@ -124,10 +134,9 @@ def record_storm(
     keeps `failures`, the failure sections of the first few, and the `evidence` bundle, the
     time the run started and the `conditions` it ran under. No
     row is written when no workspace is loaded."""
-    root = active_root()
-    if root is None:
+    if (record := _active_flake_record()) is None:
         return
-    flake_record(Installation(active(), root)).append(
+    record.append(
         Storm(
             unit=unit,
             at=datetime.now(UTC),
@@ -140,6 +149,16 @@ def record_storm(
             conditions=conditions or {},
         )
     )
+
+
+def record_load(unit: str, flakes: tuple[Flake, ...]) -> None:
+    """Record each of `flakes` as a `load` failure of `unit`: a time limit hit under high load that
+    passed alone. No fix change is written for it, so none is named. Nothing is written when no
+    workspace is loaded."""
+    if (record := _active_flake_record()) is None:
+        return
+    for flake in flakes:
+        record.append(flake.model_copy(update={"unit": unit, "classification": "load"}))
 
 
 def flake_change_name(test: str) -> str:
