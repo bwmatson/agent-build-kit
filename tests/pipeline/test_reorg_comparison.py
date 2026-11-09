@@ -79,6 +79,23 @@ def test_2():
     assert 2
 """
 
+ANNOTATED = "EXPECTED: int = 2\n\n\ndef test_a():\n    assert f() == EXPECTED\n"
+
+CLASS_SHARED = """\
+import pytest
+
+
+class TestA:
+    E = 2
+
+    @pytest.fixture
+    def v(self):
+        return 2
+
+    def test_x(self, v):
+        assert v == self.E
+"""
+
 CLASSED = """\
 class TestA:
     def test_x(self):
@@ -97,7 +114,7 @@ def changes(repo: Path, base: str = "HEAD~1", head: str = "HEAD") -> list[Findin
 
 def sources(before: str, after: str) -> list[Finding]:
     assert isinstance(PYTHON, ComparesTests)
-    return compare_sources(PYTHON, before, after)
+    return compare_sources(PYTHON, "tests/test_x.py", before, after)
 
 
 @pytest.fixture
@@ -173,8 +190,11 @@ def test_a_renamed_local_variable_passes() -> None:
     [
         (CONSTANT, CONSTANT.replace("EXPECTED = 2", "EXPECTED = 3"), "EXPECTED"),
         (FIXTURE, FIXTURE.replace("return 2", "return 3"), "value"),
+        (ANNOTATED, ANNOTATED.replace("= 2", "= 3"), "EXPECTED"),
+        (CLASS_SHARED, CLASS_SHARED.replace("E = 2", "E = 3"), "TestA.E"),
+        (CLASS_SHARED, CLASS_SHARED.replace("return 2", "return 3"), "TestA.v"),
     ],
-    ids=["constant", "fixture"],
+    ids=["constant", "fixture", "annotated constant", "class attribute", "class fixture"],
 )
 def test_a_changed_constant_or_fixture_is_reported_by_name(
     before: str, after: str, name: str
@@ -210,26 +230,35 @@ def test_an_added_skip_expected_failure_or_marker_is_reported(decorator: str) ->
 
 
 @pytest.mark.parametrize(
-    ("before", "after"),
+    ("before", "after", "reported"),
     [
-        (TWO_TESTS, "import pytest\npytestmark = pytest.mark.skip\n" + TWO_TESTS),
-        (CLASSED, "import pytest\n\n\n@pytest.mark.skip\n" + CLASSED),
+        (
+            TWO_TESTS,
+            "import pytest\npytestmark = pytest.mark.skip\n" + TWO_TESTS,
+            {"test_a", "test_b"},
+        ),
+        (
+            TWO_TESTS,
+            "import pytest\npytestmark: list = [pytest.mark.skip]\n" + TWO_TESTS,
+            {"test_a", "test_b"},
+        ),
+        (CLASSED, "import pytest\n\n\n@pytest.mark.skip\n" + CLASSED, {"TestA.test_x"}),
         (
             CLASSED,
             CLASSED.replace(
                 "    def test_x", "    pytestmark = pytest.mark.xfail\n\n    def test_x"
             ),
+            {"TestA.test_x"},
         ),
     ],
-    ids=["module", "class decorator", "class attribute"],
+    ids=["module", "annotated module", "class decorator", "class attribute"],
 )
 def test_a_skip_added_to_a_module_or_class_is_reported_for_each_test(
-    before: str, after: str
+    before: str, after: str, reported: set[str]
 ) -> None:
     found = sources(before, after)
 
-    assert found != [], "nothing reported"
-    assert {f.test for f in found} <= {"test_a", "test_b", "TestA.test_x"}, reasons(found)
+    assert {f.test for f in found} == reported, reasons(found)
 
 
 def test_a_raised_time_limit_is_reported() -> None:
@@ -244,6 +273,16 @@ def test_a_renamed_and_moved_test_file_passes(repo: Path) -> None:
     git(repo, "commit", "-qm", "move the file")
 
     assert changes(repo) == []
+
+
+def test_a_moved_and_edited_data_file_under_the_tests_folder_is_not_read_as_python(
+    repo: Path,
+) -> None:
+    commit_files(repo, "data", {"tests/data/sample.yaml": "a:\n  b: 1\n"})
+    git(repo, "mv", "tests/data/sample.yaml", "tests/data/moved.yaml")
+    commit_files(repo, "move and edit", {"tests/data/moved.yaml": "a:\n  b: 2\n"})
+
+    assert changes(repo, "HEAD~2") == []
 
 
 def test_a_test_file_with_an_unusual_path_is_compared(repo: Path) -> None:

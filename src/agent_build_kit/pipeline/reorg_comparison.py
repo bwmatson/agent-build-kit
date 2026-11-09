@@ -33,9 +33,9 @@ def _finding(path: str, change: ChangedTest) -> Finding:
     return Finding(standard=STANDARD, path=path, test=change.test, reason=change.reason)
 
 
-def compare_sources(toolchain: ComparesTests, before: str, after: str) -> list[Finding]:
-    """Findings for one test file: every difference between its two versions."""
-    return [_finding("", c) for c in toolchain.compare_test_sources(before, after)]
+def compare_sources(toolchain: ComparesTests, path: str, before: str, after: str) -> list[Finding]:
+    """Findings for the test file at `path`: every difference between its two versions."""
+    return [_finding(path, c) for c in toolchain.compare_test_sources(path, before, after)]
 
 
 def _show(repo: Path, rev: str, path: str) -> str | None:
@@ -71,7 +71,7 @@ def _characterization(
     parent = _show(repo, f"{first}^", path) or ""
     introduced = any(
         c.kind == "added" and c.test == change.test
-        for c in toolchain.compare_test_sources(parent, at_first)
+        for c in toolchain.compare_test_sources(path, parent, at_first)
     )
     if not introduced:
         return None
@@ -80,7 +80,7 @@ def _characterization(
         return []
     return [
         _finding(path, c)
-        for c in toolchain.compare_test_sources(at_first, at_head)
+        for c in toolchain.compare_test_sources(path, at_first, at_head)
         if c.test == change.test and c.kind == "changed"
     ]
 
@@ -110,7 +110,7 @@ def compare_changes(
         after = _show(repo, head, new_path) if code != "D" else ""
         if before is None or after is None:
             continue
-        for change in profile.compare_test_sources(before, after):
+        for change in profile.compare_test_sources(new_path, before, after):
             if change.kind == "changed":
                 findings.append(_finding(new_path, change))
             elif change.kind == "absent":

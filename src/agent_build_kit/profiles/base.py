@@ -308,9 +308,10 @@ class ComparesTests(Protocol):
     """The optional hook of a profile that can read two versions of a test file and say how they
     differ beyond a mechanical edit. A profile without it has no before-and-after comparison."""
 
-    def compare_test_sources(self, before: str, after: str) -> list[ChangedTest]:
-        """How `after` differs from `before`, each a test file's content (empty for none).
-        Renamed imports and names, and a moved or reordered test, are not differences."""
+    def compare_test_sources(self, path: str, before: str, after: str) -> list[ChangedTest]:
+        """How `after` differs from `before`, each the content (empty for none) of the file at
+        `path`. Nothing for a file the profile does not read, such as data kept beside the
+        tests. Renamed imports and names, and a moved or reordered test, are not differences."""
         ...
 
 

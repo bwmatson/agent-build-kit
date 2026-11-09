@@ -51,7 +51,11 @@ from agent_build_kit.profiles.base import (
     SandboxPaths,
     is_doc_path,
 )
-from agent_build_kit.profiles.python_test_comparison import compare_python_tests
+from agent_build_kit.profiles.python_test_comparison import (
+    compare_python_tests,
+    mark_name,
+    pytestmark_values,
+)
 from agent_build_kit.profiles.workspace_lock import workspace_lock
 
 # pytest's exit status when every test was deselected: "nothing to run here",
@@ -827,9 +831,10 @@ class PythonUvProfile:
             if (match := _MARKER_LINE.match(line))
         ]
 
-    def compare_test_sources(self, before: str, after: str) -> list[ChangedTest]:
-        """How a test file differs from its parent's version beyond a mechanical edit."""
-        return compare_python_tests(before, after)
+    def compare_test_sources(self, path: str, before: str, after: str) -> list[ChangedTest]:
+        """How a test file differs from its parent's version beyond a mechanical edit; nothing
+        for a file that is not Python source (data and documents kept beside the tests)."""
+        return compare_python_tests(before, after) if path.endswith(".py") else []
 
     def unselected_tests(self, path: str, content: str, tests: list[str]) -> list[str]:
         """The names among `tests` whose function, class or module carries no
@@ -841,26 +846,12 @@ class PythonUvProfile:
 
         def marks(node: ast.AST) -> bool:
             return any(
-                isinstance(each, ast.Attribute)
-                and each.attr == "integration"
-                and (
-                    (isinstance(each.value, ast.Attribute) and each.value.attr == "mark")
-                    or (isinstance(each.value, ast.Name) and each.value.id == "mark")
-                )
+                isinstance(each, ast.expr) and mark_name(each) == "integration"
                 for each in ast.walk(node)
             )
 
         def assigned(body: list[ast.stmt]) -> bool:
-            return any(
-                isinstance(stmt, ast.Assign | ast.AnnAssign)
-                and stmt.value is not None
-                and any(
-                    isinstance(t, ast.Name) and t.id == "pytestmark"
-                    for t in (stmt.targets if isinstance(stmt, ast.Assign) else [stmt.target])
-                )
-                and marks(stmt.value)
-                for stmt in body
-            )
+            return any(marks(mark) for stmt in body for mark in pytestmark_values(stmt) or [])
 
         if assigned(module.body):
             return []

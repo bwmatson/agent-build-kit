@@ -15,7 +15,7 @@ Everything else (a different function, a changed constant, an added skip) is a d
 
 import ast
 import copy
-from dataclasses import dataclass
+from typing import NamedTuple
 
 from agent_build_kit.profiles.base import ChangedTest
 
@@ -27,8 +27,7 @@ _SKIPS = frozenset({"skip", "skipif", "xfail"})
 type _Function = ast.FunctionDef | ast.AsyncFunctionDef
 
 
-@dataclass(frozen=True)
-class _Mark:
+class _Mark(NamedTuple):
     """A decorator or module mark: the marker's name (None for a decorator that is not a mark)
     and its normalised text."""
 
@@ -77,8 +76,10 @@ def _normalised(node: ast.AST, resolved: dict[str, str], renames: dict[str, str]
     return ast.dump(_Normalise(resolved, renames, _locals(copied)).visit(copied))
 
 
-def _marker_of(decorator: ast.expr) -> str | None:
-    target = decorator.func if isinstance(decorator, ast.Call) else decorator
+def mark_name(expression: ast.expr) -> str | None:
+    """The name of the pytest mark an expression is (`pytest.mark.X`, `mark.X`, or either
+    called), or None when it is not a mark."""
+    target = expression.func if isinstance(expression, ast.Call) else expression
     if isinstance(target, ast.Attribute):
         owner = target.value
         if (isinstance(owner, ast.Attribute) and owner.attr == "mark") or (
@@ -88,23 +89,25 @@ def _marker_of(decorator: ast.expr) -> str | None:
     return None
 
 
-def _time_limit(decorator: ast.expr) -> float | None:
-    if isinstance(decorator, ast.Call) and _marker_of(decorator) == "timeout" and decorator.args:
-        first = decorator.args[0]
-        if isinstance(first, ast.Constant) and isinstance(first.value, int | float):
-            return float(first.value)
-    return None
-
-
-def _mark_expressions(value: ast.expr) -> list[ast.expr]:
+def pytestmark_values(statement: ast.stmt) -> list[ast.expr] | None:
+    """The marks a `pytestmark` assignment (plain or annotated) gives, one mark or a list of
+    them; None when the statement is not one."""
+    if isinstance(statement, ast.Assign):
+        targets, value = statement.targets, statement.value
+    elif isinstance(statement, ast.AnnAssign) and statement.value is not None:
+        targets, value = [statement.target], statement.value
+    else:
+        return None
+    if not any(isinstance(t, ast.Name) and t.id == "pytestmark" for t in targets):
+        return None
     return list(value.elts) if isinstance(value, ast.List | ast.Tuple) else [value]
 
 
-def _is_pytestmark(node: ast.stmt) -> ast.Assign | None:
-    if isinstance(node, ast.Assign) and any(
-        isinstance(t, ast.Name) and t.id == "pytestmark" for t in node.targets
-    ):
-        return node
+def _time_limit(decorator: ast.expr) -> float | None:
+    if isinstance(decorator, ast.Call) and mark_name(decorator) == "timeout" and decorator.args:
+        first = decorator.args[0]
+        if isinstance(first, ast.Constant) and isinstance(first.value, int | float):
+            return float(first.value)
     return None
 
 
@@ -112,8 +115,7 @@ def _is_test_function(node: ast.stmt) -> bool:
     return isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef) and node.name.startswith("test")
 
 
-@dataclass(frozen=True)
-class _Test:
+class _Test(NamedTuple):
     node: _Function
     inherited: tuple[ast.expr, ...]  # module marks and a class's decorators and marks
 
@@ -131,8 +133,7 @@ def _resolution(tree: ast.Module) -> dict[str, str]:
 def _tests(tree: ast.Module) -> dict[str, _Test]:
     module_marks: list[ast.expr] = []
     for node in tree.body:
-        if marked := _is_pytestmark(node):
-            module_marks += _mark_expressions(marked.value)
+        module_marks += pytestmark_values(node) or []
     found: dict[str, _Test] = {}
     for node in tree.body:
         if _is_test_function(node):
@@ -141,8 +142,7 @@ def _tests(tree: ast.Module) -> dict[str, _Test]:
         elif isinstance(node, ast.ClassDef) and node.name.startswith("Test"):
             class_marks = list(node.decorator_list)
             for item in node.body:
-                if marked := _is_pytestmark(item):
-                    class_marks += _mark_expressions(marked.value)
+                class_marks += pytestmark_values(item) or []
             for item in node.body:
                 if _is_test_function(item):
                     assert isinstance(item, ast.FunctionDef | ast.AsyncFunctionDef)
@@ -153,20 +153,32 @@ def _tests(tree: ast.Module) -> dict[str, _Test]:
 def _definitions(
     tree: ast.Module, resolved: dict[str, str], renames: dict[str, str]
 ) -> dict[str, str]:
-    """Fingerprints of the module's constants, helpers and fixtures, by name."""
+    """Fingerprints of the constants, helpers and fixtures the tests share, by name: those of the
+    module, and those inside a test class under `Class.name`."""
     found: dict[str, str] = {}
-    for node in tree.body:
-        if isinstance(node, ast.Assign) and not _is_pytestmark(node):
-            text = _normalised(node.value, resolved, renames)
-            found.update({t.id: text for t in node.targets if isinstance(t, ast.Name)})
-        elif isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef | ast.ClassDef):
-            if not node.name.startswith(("test", "Test")):
-                found[node.name] = _normalised(node, resolved, renames)
+
+    def collect(body: list[ast.stmt], prefix: str, *, module: bool) -> None:
+        for node in body:
+            if pytestmark_values(node) is not None:
+                continue
+            if isinstance(node, ast.Assign | ast.AnnAssign):
+                if node.value is None:
+                    continue
+                text = _normalised(node.value, resolved, renames)
+                targets = node.targets if isinstance(node, ast.Assign) else [node.target]
+                found.update({f"{prefix}{t.id}": text for t in targets if isinstance(t, ast.Name)})
+            elif isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef | ast.ClassDef):
+                if not node.name.startswith(("test", "Test")):
+                    found[f"{prefix}{node.name}"] = _normalised(node, resolved, renames)
+                elif module and isinstance(node, ast.ClassDef) and node.name.startswith("Test"):
+                    collect(node.body, f"{node.name}.", module=False)
+
+    collect(tree.body, "", module=True)
     return found
 
 
 def _custom_markers(test: _Test) -> list[str]:
-    names = [_marker_of(d) for d in (*test.inherited, *test.node.decorator_list)]
+    names = [mark_name(d) for d in (*test.inherited, *test.node.decorator_list)]
     return [n for n in names if n is not None and n not in _BUILTIN_MARKERS]
 
 
@@ -190,8 +202,7 @@ def _renames(old: dict[str, _Test], new: dict[str, _Test]) -> dict[str, str]:
     return renames
 
 
-@dataclass(frozen=True)
-class _Shape:
+class _Shape(NamedTuple):
     marks: tuple[_Mark, ...]
     time_limit: float | None
     signature: str
@@ -211,7 +222,7 @@ def _shape(test: _Test, resolved: dict[str, str], renames: dict[str, str]) -> _S
         if seen is not None:
             limit = seen
             continue
-        name = _marker_of(decorator)
+        name = mark_name(decorator)
         marks.append(
             _Mark(
                 renames.get(name, name) if name else None, _normalised(decorator, resolved, renames)
