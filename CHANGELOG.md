@@ -6,6 +6,7 @@
   describe a tick as a dispatcher that starts worker processes, and say how to read the
   worker list in `abk status`, which is read from the branch locks. The worker design is now a description of what exists, with
   a short history in place of its migration plan.
+
 - A new `deployment` block names the installation's deployment: `deployment.kind` is `local`
   (the default) or `azure`, and `abk config --show` prints it. The Azure settings under
   `deployment.azure` (`subscription`, `resource_group`, `storage_account`, `database_host`,
