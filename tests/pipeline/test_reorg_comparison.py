@@ -129,7 +129,7 @@ def test_a_merged_pair_of_test_files_passes_when_no_case_body_changed(repo: Path
     git(repo, "rm", "-q", "tests/test_z.py")
     commit_files(repo, "merge", {"tests/test_x.py": TWO_TESTS + "\n\n" + other})
 
-    assert compare_changes(repo, "HEAD~2", "HEAD") == []
+    assert compare_changes(repo, "HEAD~1", "HEAD") == []
 
 
 def test_a_characterization_test_committed_first_is_the_one_allowed_addition(repo: Path) -> None:

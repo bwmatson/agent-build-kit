@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- A reorganization's test files can now be compared with their parent's version: a changed
+  assertion or expected value, a missing or new test, an added skip, expected failure or
+  marker, or a raised time limit is reported by standard id, while moves, renames, merged
+  files and renamed imports pass, and one characterization test committed first is allowed.
+
 - A plan of a change is now shown a merged unit of another change when that unit carries
   one of the change's groups by a join, and the group is marked as built by it, so the
   planner leaves it out instead of claiming it and being refused.
