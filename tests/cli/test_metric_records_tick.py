@@ -132,7 +132,8 @@ def test_a_tick_appends_its_duration_and_how_it_ended(ticks: Ticks) -> None:  # 
     assert ticks.tick() == 0
 
     (tick,) = records(ticks, "abk.tick.duration")
-    assert tick.attributes == {"outcome": "built"}
+    # A tick starts workers and does not build: the outcome says it dispatched them.
+    assert tick.attributes == {"outcome": "dispatched"}
     assert tick.value >= 0
     assert tick.kind == "metric"
 
