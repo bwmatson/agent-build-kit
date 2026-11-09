@@ -21,7 +21,7 @@ from agent_build_kit.pipeline.selection_base import (
     record_base_data,
 )
 from agent_build_kit.pipeline.shell import git, git_out
-from agent_build_kit.pipeline.unit_test_slots import unit_test_slot
+from agent_build_kit.pipeline.unit_test_slots import LEAST_URGENT, unit_test_slot
 from agent_build_kit.profiles.python_uv import PythonUvProfile
 from tests.selection_base_fakes import BaseRepo
 from tests.unit_test_slot_fakes import waiting_run, waiting_units
@@ -164,8 +164,9 @@ def test_nothing_is_run_and_no_slot_taken_when_the_base_is_already_recorded(setu
     assert run.ran == []
 
 
+@pytest.mark.parametrize("rank", [(2, 4), LEAST_URGENT], ids=["start-key", "least-urgent"])
 def test_a_unit_check_is_served_before_a_recording_that_began_waiting_first(
-    setup: Setup,
+    setup: Setup, rank: tuple[int, ...]
 ) -> None:
     order: list[str] = []
     run = Runner(order)
@@ -173,9 +174,7 @@ def test_a_unit_check_is_served_before_a_recording_that_began_waiting_first(
         with unit_test_slot(setup.locks, 1, holder="holder/1"):
             stack.enter_context(setup.in_thread(run))
             wait_for(lambda: RECORDING_HOLDER in waiting_units(setup.locks), what="the recording")
-            check = stack.enter_context(
-                waiting_run(setup.locks, "unit/1", rank=(2, 4), order=order)
-            )
+            check = stack.enter_context(waiting_run(setup.locks, "unit/1", rank=rank, order=order))
             check.until_waiting(setup.locks, "unit/1")
         wait_for(lambda: len(order) == 1, what="the first run to take the slot")
         assert order == ["unit/1"], "the recording ran ahead of the unit's check"

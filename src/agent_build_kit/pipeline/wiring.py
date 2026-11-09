@@ -1705,7 +1705,10 @@ def build_unit_test(
         """`tested`, with a row added to the ledger of unit-test runs when one is kept: the run
         passing, failing or finding a flake, and how long it waited for its slot."""
         if test_runs is None:
-            return retested(cwd, base, whole_repo, failed_output, moved_from)
+            try:
+                return retested(cwd, base, whole_repo, failed_output, moved_from)
+            finally:
+                forget_handover(cwd)
         sample = machine or failure_evidence.machine_sample
         started = clock()
         sample_start = sample()

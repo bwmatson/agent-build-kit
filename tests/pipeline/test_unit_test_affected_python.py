@@ -20,13 +20,18 @@ from agent_build_kit.installation import Installation
 from agent_build_kit.pipeline import spans
 from agent_build_kit.pipeline.command_limit import TIMED_OUT_EXIT
 from agent_build_kit.pipeline.scratch import ensure_scratch, selection_seed
-from agent_build_kit.pipeline.selection_base import hand_over, refresh_base_data
+from agent_build_kit.pipeline.selection_base import (
+    hand_over,
+    handed_over_at,
+    refresh_base_data,
+)
 from agent_build_kit.pipeline.shell import git, git_out
 from agent_build_kit.pipeline.usage_ledger import forget_told
 from agent_build_kit.pipeline.wiring import build_unit_test
 from agent_build_kit.profiles.python_uv import PythonUvProfile
 from tests.fake_clock import FakeClock, install
 from tests.moved_base_fakes import affected_lines
+from tests.selection_base_fakes import BaseRepo
 
 ID = "tests/test_a.py::test_one"
 FAILED_OUTPUT = f"FAILED {ID} - assert 1 == 2"
@@ -172,14 +177,7 @@ NOW = datetime(2026, 11, 8, 12, 0, tzinfo=UTC)
 
 def base_recording_handed_to(tmp_path: Path, worktree: Path, *, age_hours: float) -> None:
     """A base repository with a kept recording `age_hours` old at `NOW`, handed to `worktree`."""
-    base = tmp_path / "base"
-    base.mkdir()
-    git(base, "init", "-q", "-b", "main")
-    git(base, "config", "user.email", "a@example.com")
-    git(base, "config", "user.name", "a")
-    (base / "x.py").write_text("x = 1\n")
-    git(base, "add", "-A")
-    git(base, "commit", "-qm", "base")
+    base = BaseRepo(tmp_path / "base").repo
     store = tmp_path / "state" / "selection-base"
 
     def record(_commit: str, data: Path) -> None:
@@ -224,6 +222,23 @@ def test_a_first_round_on_the_bases_data_selects_and_does_not_start_with_a_full_
     assert passed
     first = next(c for c in runner.ran if "pytest" in c)
     assert "--testmon-forceselect" in first and "--testmon-noselect" not in first
+
+
+def test_a_handover_ends_with_the_first_round_when_no_ledger_is_kept(
+    tmp_path: Path, clock: FakeClock
+) -> None:
+    repo = repo_at(tmp_path / "unit")
+    base_recording_handed_to(tmp_path, repo, age_hours=5)
+    runner = Runner(clock)
+    unit_test = unit_test_for(repo, runner)
+
+    unit_test(cwd=repo, base="main")
+    assert handed_over_at(repo) is None
+    runner.ran.clear()
+    unit_test(cwd=repo, base="main")
+
+    first = next(c for c in runner.ran if "pytest" in c)
+    assert not Runner.is_selected(first)
 
 
 def test_a_first_round_with_no_recording_is_a_full_run_that_records(
