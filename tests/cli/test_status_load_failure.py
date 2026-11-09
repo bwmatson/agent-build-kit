@@ -55,6 +55,8 @@ def test_status_lists_the_load_failures_with_how_many_and_not_as_flaky(
     lines = capsys.readouterr().out.splitlines()
     slow = next(line for line in lines if SLOW in line)
     broken = next(line for line in lines if BROKEN in line)
+    # `log` stamps each line with the time, which is not part of what the line says.
+    slow, broken = (line.split("] ", 1)[-1] for line in (slow, broken))
     assert slow.strip().startswith("load:") and "2 times" in slow
     assert broken.strip().startswith("load:") and "1 time" in broken and "times" not in broken
     assert not any("flaky:" in line for line in lines), "a load failure is not a flake"
