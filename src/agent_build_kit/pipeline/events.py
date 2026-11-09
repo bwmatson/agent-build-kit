@@ -1494,14 +1494,16 @@ def _reproduce_note(repo: str) -> str:
     Said here, not by each forge: the command is the toolchain's, not the
     host's, and every host's rework needs it.
     """
-    from agent_build_kit.config import active
+    from agent_build_kit.config import active, active_checkout
 
     entry = active().repos.get(repo)
     if entry is None:
         return ""
     profile = profiles.get(entry.profile)
     if isinstance(profile, ReproduceCommands):
-        lint = "`, `".join(" ".join(c) for c in profile.reproduce_commands(entry.path))
+        lint = "`, `".join(
+            " ".join(c) for c in profile.reproduce_commands(active_checkout(entry.path))
+        )
     else:
         lint = " ".join(profile.lint_command_all_files())
     return (

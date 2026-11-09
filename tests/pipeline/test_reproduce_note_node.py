@@ -106,3 +106,25 @@ def test_the_commands_an_agent_may_run_are_the_ones_the_gate_runs_for_the_projec
         AgentPurpose.FORMAT: format_check,
         AgentPurpose.CHECK: types,
     }
+
+
+def test_a_repo_configured_by_a_relative_path_is_read_from_the_checkout_it_names(
+    tmp_path: Path,
+) -> None:
+    checkout = node_repo(tmp_path / "checkout", LINT).path
+    configured = RepoConfig(path=Path("app"), slug="example/app", profile="node-npm")
+    current = config_module.active()
+    config_module.activate(
+        current.model_copy(update={"repos": {"app": configured}}),
+        config_module.active_root(),
+        checkout=lambda _: checkout,
+    )
+
+    note = events.build_fetch_check_logs(for_repo=lookup(StandInForge()))(
+        "app", checks_pull("lint")
+    )
+    lines = agent_commands.effective(configured)
+
+    assert "npm run lint" in note
+    assert "npx oxlint" not in note
+    assert ["npm", "run", "lint"] in [item.command for item in lines]

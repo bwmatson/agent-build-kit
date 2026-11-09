@@ -9,7 +9,13 @@ from __future__ import annotations
 from pathlib import Path
 
 from agent_build_kit import forges, profiles
-from agent_build_kit.config import AGENT_PATH_WORD, AgentCommand, AgentScope, RepoConfig
+from agent_build_kit.config import (
+    AGENT_PATH_WORD,
+    AgentCommand,
+    AgentScope,
+    RepoConfig,
+    active_checkout,
+)
 from agent_build_kit.pipeline import wiring
 from agent_build_kit.profiles.base import AgentCommands, AgentCommandsIn
 from agent_build_kit.tool_patterns import allows
@@ -47,8 +53,8 @@ def effective(repo: RepoConfig) -> list[AgentCommand]:
     if repo.agent_commands is not None:
         return list(repo.agent_commands)
     chosen = [
-        (profiles.get(repo.profile), repo.path),
-        *((profiles.get(p.profile), repo.path / p.path) for p in repo.projects),
+        (profiles.get(repo.profile), active_checkout(repo.path)),
+        *((profiles.get(p.profile), active_checkout(repo.path) / p.path) for p in repo.projects),
     ]
     found: dict[tuple[str, tuple[str, ...], str], AgentCommand] = {}
     for profile, folder in chosen:
