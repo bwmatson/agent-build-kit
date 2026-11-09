@@ -96,12 +96,9 @@ def test_a_data_file_stays_a_test_file_of_the_tests_commit(repo: Path) -> None:
     commit(repo, "feat: code first", {"src/thing.py": "x = 1\n"})
     commit(repo, "test: snapshot after code", {SNAPSHOT: '{"tools": [2]}\n'})
 
-    profile = Recording(PYTHON)
-
-    problems = check_branch(repo, "main", profile=profile.toolchain)
+    problems = check_branch(repo, "main", profile=Recording(PYTHON).toolchain)
 
     assert problems, "the order check counts the data file as a test file"
-    assert profile.commands == [], "and the runner is given nothing"
 
 
 def test_a_tests_commit_with_only_a_data_file_builds_no_red_command(repo: Path) -> None:
@@ -130,5 +127,32 @@ def test_the_python_toolchain_runs_py_files_only(path: str, runnable: bool) -> N
     assert PYTHON.runs_path(path) is runnable
 
 
-def test_the_node_toolchain_runs_every_test_folder_file() -> None:
-    assert NODE.runs_path("src/__tests__/data.json")
+@pytest.mark.parametrize(
+    ("path", "runnable"),
+    [
+        ("src/a.test.ts", True),
+        ("src/__tests__/a.test.ts", True),
+        ("src/__tests__/a.ts", False),
+        ("src/__tests__/data.json", False),
+        ("src/__tests__/__snapshots__/a.test.ts.snap", False),
+    ],
+)
+def test_the_node_toolchain_runs_only_files_vitest_reports_a_suite_for(
+    path: str, runnable: bool
+) -> None:
+    assert NODE.runs_path(path) is runnable
+
+
+def test_a_node_tests_commit_gives_the_runner_its_test_file_and_not_the_data_file(
+    repo: Path,
+) -> None:
+    files = {
+        "src/a.test.ts": "test('x', () => { throw new Error('no') })\n",
+        "src/__tests__/data.json": "{}\n",
+    }
+    commit(repo, "test: node", files)
+    profile = Recording(NODE)
+
+    red_problems(repo, git(repo, "rev-parse", "HEAD"), profile=profile.toolchain)
+
+    assert profile.files == [["src/a.test.ts"]]
