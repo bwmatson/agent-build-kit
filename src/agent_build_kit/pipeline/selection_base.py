@@ -12,8 +12,9 @@ from datetime import datetime, timedelta
 from pathlib import Path
 
 from agent_build_kit.model import Frozen
+from agent_build_kit.pipeline.check_runner import worktree_at
 from agent_build_kit.pipeline.file_lock import Clock, atomic_move, atomic_write_text
-from agent_build_kit.pipeline.shell import Run, git, git_out
+from agent_build_kit.pipeline.shell import Run, git_out
 from agent_build_kit.pipeline.unit_test_slots import RECORDING_RANK, unit_test_slot
 from agent_build_kit.profiles.base import RecordsSelectionData, ToolchainProfile
 
@@ -94,7 +95,6 @@ def _recording_run(
     recorder: RecordsSelectionData,
     *,
     repo: Path,
-    store: Path,
     run: Run,
     root_extras: list[str],
     workers: str | int,
@@ -104,9 +104,7 @@ def _recording_run(
     checkout of the commit that is removed afterwards."""
 
     def record(commit: str, seed: Path) -> None:
-        checkout = store / f"{commit}.checkout"
-        git(repo, "worktree", "add", "--detach", str(checkout), commit)
-        try:
+        with worktree_at(repo, commit) as checkout:
             for command in profile.test_commands_all(
                 checkout, root_extras=root_extras, workers=workers, max_workers=max_workers
             ):
@@ -115,8 +113,6 @@ def _recording_run(
                     raise RuntimeError(
                         f"the recording run of {commit} failed (exit {result.returncode})"
                     )
-        finally:
-            git(repo, "worktree", "remove", "--force", str(checkout), check=False)
 
     return record
 
@@ -157,7 +153,6 @@ def record_base_data(
                 profile,
                 profile,
                 repo=repo,
-                store=store,
                 run=run,
                 root_extras=root_extras or [],
                 workers=workers,

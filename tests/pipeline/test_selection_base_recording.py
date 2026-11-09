@@ -19,7 +19,7 @@ from agent_build_kit.pipeline.selection_base import (
     kept_recordings,
     record_base_data,
 )
-from agent_build_kit.pipeline.shell import git_out
+from agent_build_kit.pipeline.shell import git, git_out
 from agent_build_kit.pipeline.unit_test_slots import unit_test_slot
 from agent_build_kit.profiles.python_uv import PythonUvProfile
 from tests.selection_base_fakes import BaseRepo
@@ -114,6 +114,26 @@ def test_the_checkout_the_recording_ran_in_is_removed(setup: Setup) -> None:
     assert len(git_out(setup.base.repo, "worktree", "list").splitlines()) == 1
 
 
+def test_a_run_that_crashed_or_left_a_checkout_of_the_tip_does_not_stop_the_next_recording(
+    setup: Setup,
+) -> None:
+    class Crash(Exception):
+        pass
+
+    def crashes(command: list[str], *, cwd: Path) -> subprocess.CompletedProcess:
+        raise Crash("the run was cut short")
+
+    leftover = setup.store.parent / "leftover"
+    git(setup.base.repo, "worktree", "add", "--detach", str(leftover), setup.base.tip())
+    with pytest.raises(Crash):
+        setup.record(crashes)  # type: ignore[arg-type]
+    assert len(git_out(setup.base.repo, "worktree", "list").splitlines()) == 2
+
+    made = setup.record(Runner())
+
+    assert made is not None and made.commit == setup.base.tip()
+
+
 def test_a_failed_recording_run_keeps_nothing_and_removes_its_checkout(setup: Setup) -> None:
     run = Runner(exit_code=1)
 
@@ -129,7 +149,10 @@ def test_nothing_is_run_and_no_slot_taken_when_the_base_is_already_recorded(setu
     setup.record(Runner())
     run = Runner()
 
-    assert setup.record(run) is None
+    with unit_test_slot(setup.locks, 1, holder="holder/1"):
+        # the only slot is held: a recording that queued for it would wait here forever
+        assert setup.record(run) is None
+        assert waiting_units(setup.locks) == []
 
     assert run.ran == []
 
