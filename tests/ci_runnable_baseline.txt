@@ -1,7 +1,6 @@
 # The integration-selector tests that need more than CI has today, one `path::test` per line under
 # tests/. It may only shrink: an entry leaves when its test is fixed or reclassified, and nothing is
 # added. Read by tests/ci_runnable.py; checked by tests/test_ci_runnable_guard.py.
-integration/test_external_file_archive.py::test_the_archived_change_holds_the_file
 integration/test_runtime_scratch_setup.py::test_a_missing_agent_command_fails_naming_the_setting_only_where_the_runtime_needs_it
 integration/test_runtime_scratch_setup.py::test_each_runtime_gets_its_entry_and_pins_the_runtime_and_its_agent
 integration/test_runtime_scratch_usage_guard.py::test_a_value_set_in_the_test_process_is_overridden_by_the_setup

@@ -2,8 +2,11 @@
 
 `check_tests` returns one message per problem: a test with the selector (on the test, its class
 or the module) that loads a settings model with a required field it gives no override for, reads
-an environment variable with no default, starts a real agent or calls a host other than
-loopback, when the baseline does not name it; and a baseline entry that no longer is one.
+an environment variable with no default, starts a real agent (decided by the drift test's
+`AgentStart`) or calls a host that can be reached and is not local, when the baseline does not
+name it; and a baseline entry that no longer is one. The test's own body is read, and so are the
+non-test functions of its module that it names as a fixture or calls, transitively; a cause in
+another module is not seen. The walk, the baseline format and the report are `wide_scans`'s.
 """
 
 from __future__ import annotations
@@ -16,21 +19,34 @@ from pathlib import Path
 from pydantic_settings import BaseSettings
 
 from agent_build_kit import settings as settings_module
-from tests.live_tag_drift import AGENT_SIGNALS
+from tests.live_tag_drift import AgentStart, is_mark
+from tests.wide_scans import check_modules, walk_tests
+from tests.wide_scans import load_baseline as load_baseline_entries
+
+__all__ = ["BASELINE_FILE", "check_tests", "load_baseline", "required_settings_fields"]
 
 TESTS_ROOT = Path(__file__).parent
 BASELINE_FILE = TESTS_ROOT / "ci_runnable_baseline.txt"
-LOOPBACK = frozenset({"localhost", "127.0.0.1", "::1", "[::1]", "0.0.0.0"})  # noqa: S104
+# Hosts of this machine, and the names RFC 2606 and RFC 6761 reserve, which cannot be reached.
+LOCAL_HOSTS = frozenset({"localhost", "127.0.0.1", "::1", "[::1]"})
+RESERVED_HOSTS = frozenset({"example", "example.com", "example.net", "example.org"})
+RESERVED_SUFFIXES = (
+    ".example",
+    ".test",
+    ".invalid",
+    ".localhost",
+    ".example.com",
+    ".example.net",
+    ".example.org",
+)
 URL_HOST = re.compile(r"^[a-z][a-z0-9+.-]*://(?:[^/@\s]*@)?(\[[^\]]+\]|[^/:\s]+)")
+
+type Function = ast.FunctionDef | ast.AsyncFunctionDef
 
 
 def load_baseline(path: Path = BASELINE_FILE) -> frozenset[str]:
-    """The violators of today, as `path::test` entries under the tests root."""
-    return frozenset(
-        line.strip()
-        for line in path.read_text().splitlines()
-        if line.strip() and not line.lstrip().startswith("#")
-    )
+    """The violators of today, read in `wide_scans`'s format from this guard's own file."""
+    return load_baseline_entries(path)
 
 
 def required_settings_fields() -> Mapping[str, frozenset[str]]:
@@ -44,8 +60,8 @@ def required_settings_fields() -> Mapping[str, frozenset[str]]:
     return found
 
 
-def _marked(node: ast.AST) -> bool:
-    return any(isinstance(n, ast.Attribute) and n.attr == "integration" for n in ast.walk(node))
+def _marks_integration(node: ast.AST) -> bool:
+    return any(is_mark(n, "integration") for n in ast.walk(node))
 
 
 def _callee(call: ast.Call) -> str:
@@ -69,6 +85,21 @@ def _constant(node: ast.AST | None) -> str:
     return node.value if isinstance(node, ast.Constant) and isinstance(node.value, str) else "?"
 
 
+def _unreachable(host: str) -> bool:
+    return host in RESERVED_HOSTS or host.endswith(RESERVED_SUFFIXES)
+
+
+def _docstrings(function: ast.AST) -> set[int]:
+    """The identities of the docstring nodes in `function`, which are text and not a call."""
+    found: set[int] = set()
+    for node in ast.walk(function):
+        if isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef | ast.ClassDef):
+            first = node.body[0] if node.body else None
+            if isinstance(first, ast.Expr) and isinstance(first.value, ast.Constant):
+                found.add(id(first.value))
+    return found
+
+
 def _call_causes(node: ast.Call, required_fields: Mapping[str, frozenset[str]]) -> list[str]:
     name = _callee(node)
     if _dotted(node.func) in {"os.environ.get", "os.getenv"}:
@@ -85,49 +116,73 @@ def _call_causes(node: ast.Call, required_fields: Mapping[str, frozenset[str]]) 
             f"loads {name} without overriding its required field {field}"
             for field in sorted(required_fields[name] - given)
         ]
-    if name in AGENT_SIGNALS.calls:
-        return [f"starts a real agent through {name}"]
     return []
 
 
-def _causes(function: ast.AST, required_fields: Mapping[str, frozenset[str]]) -> list[str]:
-    """What a test needs that CI does not give it."""
+def _causes(
+    function: Function, tree: ast.Module, required_fields: Mapping[str, frozenset[str]]
+) -> list[str]:
+    """What one function needs that CI does not give it."""
     causes: list[str] = []
+    if AgentStart.of_function(function, tree).starts:
+        causes.append("starts a real agent")
+    docstrings = _docstrings(function)
     for node in ast.walk(function):
         if isinstance(node, ast.Subscript) and _dotted(node.value) == "os.environ":
             causes.append(f"reads the environment variable {_constant(node.slice)} with no default")
         elif isinstance(node, ast.Call):
             causes += _call_causes(node, required_fields)
-        elif isinstance(node, ast.Constant) and isinstance(node.value, str):
+        elif (
+            isinstance(node, ast.Constant)
+            and isinstance(node.value, str)
+            and id(node) not in docstrings
+        ):
             match = URL_HOST.match(node.value)
-            if match and match.group(1).lower() not in LOOPBACK:
-                causes.append(f"calls the host {match.group(1)}, which is not loopback")
+            if match:
+                host = match.group(1).lower()
+                if host not in LOCAL_HOSTS and not _unreachable(host):
+                    causes.append(f"calls the host {host}, which is not local")
     return causes
 
 
-def _violators(text: str, required_fields: Mapping[str, frozenset[str]]) -> dict[str, list[str]]:
+def _reached(test: Function, tree: ast.Module) -> list[Function]:
+    """The test and the non-test functions of its module it takes as a fixture or calls,
+    through each other."""
+    helpers = {
+        node.name: node
+        for node in tree.body
+        if isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef)
+        and not node.name.startswith("test_")
+    }
+    reached: list[Function] = [test]
+    seen: set[str] = set()
+    for function in reached:
+        arguments = function.args
+        names = {a.arg for a in (*arguments.posonlyargs, *arguments.args, *arguments.kwonlyargs)}
+        names |= {
+            n.func.id
+            for n in ast.walk(function)
+            if isinstance(n, ast.Call) and isinstance(n.func, ast.Name)
+        }
+        for name in sorted(names & helpers.keys() - seen):
+            seen.add(name)
+            reached.append(helpers[name])
+    return reached
+
+
+def _violators(text: str, required_fields: Mapping[str, frozenset[str]]) -> dict[str, str]:
     tree = ast.parse(text)
-    module_marked = any(
-        isinstance(n, ast.Assign)
-        and any(isinstance(t, ast.Name) and t.id == "pytestmark" for t in n.targets)
-        and _marked(n.value)
-        for n in tree.body
-    )
-    found: dict[str, list[str]] = {}
-
-    def visit(body: list[ast.stmt], marked: bool) -> None:
-        for node in body:
-            if isinstance(node, ast.ClassDef):
-                visit(node.body, marked or any(_marked(d) for d in node.decorator_list))
-            elif isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef):
-                if node.name.startswith("test_") and (
-                    marked or any(_marked(d) for d in node.decorator_list)
-                ):
-                    causes = _causes(node, required_fields)
-                    if causes:
-                        found[node.name] = causes
-
-    visit(tree.body, module_marked)
+    found: dict[str, str] = {}
+    for test, marked in walk_tests(tree, _marks_integration):
+        if not marked:
+            continue
+        causes: list[str] = []
+        for function in _reached(test, tree):
+            for cause in _causes(function, tree, required_fields):
+                if cause not in causes:
+                    causes.append(cause)
+        if causes:
+            found[test.name] = "; ".join(causes)
     return found
 
 
@@ -138,29 +193,13 @@ def check_tests(
     required_fields: Mapping[str, frozenset[str]],
 ) -> list[str]:
     """One message per problem in the test modules under `root`."""
-    violators: dict[str, list[str]] = {}
-    problems: list[str] = []
-    for path in sorted(root.rglob("test_*.py")):
-        if any(
-            part.startswith(".") or part == "child_modules" for part in path.relative_to(root).parts
-        ):
-            continue
-        relative = path.relative_to(root).as_posix()
-        try:
-            found = _violators(path.read_text(), required_fields)
-        except SyntaxError as error:
-            problems.append(f"{relative}: cannot be parsed ({error.msg}, line {error.lineno})")
-            continue
-        for name, causes in found.items():
-            violators[f"{relative}::{name}"] = causes
-    problems += [
-        f"{entry}: carries the integration selector but cannot run in CI: {'; '.join(causes)}"
-        for entry, causes in sorted(violators.items())
-        if entry not in baseline
-    ]
-    problems += [
-        f"{entry}: stale baseline entry, it no longer needs more than CI has; remove it from "
-        f"{BASELINE_FILE.name}"
-        for entry in sorted(baseline - violators.keys())
-    ]
-    return problems
+    return check_modules(
+        root,
+        lambda text: _violators(text, required_fields),
+        baseline=baseline,
+        baseline_file=BASELINE_FILE,
+        new_message=lambda entry, causes: (
+            f"{entry}: carries the integration selector but cannot run in CI: {causes}"
+        ),
+        stale_reason="it no longer needs more than CI has",
+    )

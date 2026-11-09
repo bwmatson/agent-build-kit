@@ -28,7 +28,10 @@ def tree(root: Path, files: dict[str, str]) -> Path:
 
 def module(body: str, *, mark: str = "@pytest.mark.integration\n") -> str:
     """A test module whose one test runs `body`, with `mark` placed above the test."""
-    return f"import os\n\nimport pytest\n\n\n{mark}def test_x():\n    {body}\n"
+    return (
+        "import os\nimport shutil\n\nimport pytest\n\nfrom tests.scratch_tick import run_tick\n\n\n"
+        f"{mark}def test_x():\n    {body}\n"
+    )
 
 
 CAUSES = [
@@ -36,8 +39,9 @@ CAUSES = [
     ('os.environ["TOKEN"]', "TOKEN"),
     ('os.environ.get("TOKEN")', "TOKEN"),
     ('os.getenv("TOKEN")', "TOKEN"),
-    ("run_tick(scratch)", "run_tick"),
-    ('fetch("https://example.org/api")', "example.org"),
+    ("run_tick(scratch)", "starts a real agent"),
+    ('shutil.which("claude")', "starts a real agent"),
+    ('fetch("https://api.github.com/repos")', "api.github.com"),
 ]
 
 
@@ -60,6 +64,10 @@ CONFORMANT = [
     'os.getenv("TOKEN", "default")',
     'fetch("http://127.0.0.1:8000/api")',
     'fetch("http://localhost:8000/api")',
+    'Card(link="https://boards.example/items/42")',
+    'fetch("https://example.org/api")',
+    "drive = lambda: None; drive()",
+    '"""https://api.github.com/docs"""',
 ]
 
 
@@ -77,6 +85,23 @@ def test_a_test_without_the_integration_selector_is_not_checked(
     root = tree(tmp_path, {"test_it.py": module(body, mark="")})
 
     assert check_tests(root, baseline=NONE, required_fields=REQUIRED) == []
+
+
+def test_a_cause_in_a_fixture_or_helper_of_the_same_module_is_reported_for_the_test(
+    tmp_path: Path,
+) -> None:
+    source = (
+        "import os\n\nimport pytest\n\n\n"
+        '@pytest.fixture\ndef token():\n    return os.environ["TOKEN"]\n\n\n'
+        "@pytest.mark.integration\ndef test_x(token):\n    assert token\n"
+    )
+    root = tree(tmp_path, {"test_it.py": source})
+
+    problems = check_tests(root, baseline=NONE, required_fields=REQUIRED)
+
+    assert len(problems) == 1
+    assert "test_it.py::test_x" in problems[0]
+    assert "TOKEN" in problems[0]
 
 
 def test_a_module_level_integration_mark_makes_the_test_checked(tmp_path: Path) -> None:
