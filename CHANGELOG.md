@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- A plan of a change is now shown a merged unit of another change when that unit carries
+  one of the change's groups by a join, and the group is marked as built by it, so the
+  planner leaves it out instead of claiming it and being refused.
+
 - The agents that write tests, implement a group and rework a pull request are now given a
   short table of the test standards (kind, placement, naming, determinism, isolation) at the
   start of a session, and asked to cite a standard's ID in their summary where a choice
