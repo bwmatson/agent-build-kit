@@ -7,6 +7,7 @@
   start of a session, and asked to cite a standard's ID in their summary where a choice
   depends on it. A reused session is not told again. The reviewer is given a checklist of the
   judgements a program cannot make, and does not raise findings on standards a guard enforces.
+
 - In `workers.mode: processes` a project's resolution runs (restacks, moved-base runs and
   comment reworks) now run as `abk worker resolve <project>`, and the deploy and live tests of
   a merged change as `abk worker verify <change>`; the tick only starts them and archives a
