@@ -19,7 +19,7 @@ from pathlib import Path
 from pydantic_settings import BaseSettings
 
 from agent_build_kit import settings as settings_module
-from tests.live_tag_drift import AgentStart, is_mark
+from tests.live_tag_drift import AgentStart, callee, is_mark, module_functions_reached
 from tests.wide_scans import check_modules, walk_tests
 from tests.wide_scans import load_baseline as load_baseline_entries
 
@@ -64,13 +64,6 @@ def _marks_integration(node: ast.AST) -> bool:
     return any(is_mark(n, "integration") for n in ast.walk(node))
 
 
-def _callee(call: ast.Call) -> str:
-    func = call.func
-    if isinstance(func, ast.Name):
-        return func.id
-    return func.attr if isinstance(func, ast.Attribute) else ""
-
-
 def _dotted(node: ast.AST) -> str:
     parts: list[str] = []
     while isinstance(node, ast.Attribute):
@@ -101,7 +94,7 @@ def _docstrings(function: ast.AST) -> set[int]:
 
 
 def _call_causes(node: ast.Call, required_fields: Mapping[str, frozenset[str]]) -> list[str]:
-    name = _callee(node)
+    name = callee(node)[1]
     if _dotted(node.func) in {"os.environ.get", "os.getenv"}:
         defaulted = len(node.args) > 1 or any(k.arg == "default" for k in node.keywords)
         if defaulted:
@@ -120,7 +113,7 @@ def _call_causes(node: ast.Call, required_fields: Mapping[str, frozenset[str]]) 
 
 
 def _causes(
-    function: Function, tree: ast.Module, required_fields: Mapping[str, frozenset[str]]
+    function: ast.AST, tree: ast.Module, required_fields: Mapping[str, frozenset[str]]
 ) -> list[str]:
     """What one function needs that CI does not give it."""
     causes: list[str] = []
@@ -145,29 +138,18 @@ def _causes(
     return causes
 
 
-def _reached(test: Function, tree: ast.Module) -> list[Function]:
-    """The test and the non-test functions of its module it takes as a fixture or calls,
-    through each other."""
-    helpers = {
-        node.name: node
+def _reached(test: Function, tree: ast.Module) -> list[ast.AST]:
+    """The test, the same-module fixtures it names as parameters, and the module functions
+    each of them calls (the drift test's closure)."""
+    arguments = test.args
+    names = {a.arg for a in (*arguments.posonlyargs, *arguments.args, *arguments.kwonlyargs)}
+    seeds: list[ast.AST] = [test]
+    seeds += [
+        node
         for node in tree.body
-        if isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef)
-        and not node.name.startswith("test_")
-    }
-    reached: list[Function] = [test]
-    seen: set[str] = set()
-    for function in reached:
-        arguments = function.args
-        names = {a.arg for a in (*arguments.posonlyargs, *arguments.args, *arguments.kwonlyargs)}
-        names |= {
-            n.func.id
-            for n in ast.walk(function)
-            if isinstance(n, ast.Call) and isinstance(n.func, ast.Name)
-        }
-        for name in sorted(names & helpers.keys() - seen):
-            seen.add(name)
-            reached.append(helpers[name])
-    return reached
+        if isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef) and node.name in names
+    ]
+    return [reached for seed in seeds for reached in module_functions_reached(seed, tree)]
 
 
 def _violators(text: str, required_fields: Mapping[str, frozenset[str]]) -> dict[str, str]:
