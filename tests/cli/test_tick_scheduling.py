@@ -634,26 +634,21 @@ def test_a_rate_limit_pause_recorded_while_a_round_decides_is_not_cleared_by_it(
 def test_no_more_than_the_concurrency_cap_build_at_once(
     builder: Builder, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Evaluating again after each worker ends must not overshoot the cap: a unit just
-    handed out is not `running` in the store until its worker says so.
-
-    Measured where units are handed out rather than where they build. The cap applies to each
-    project, so one repo."""
+    """Each tick hands out no more than the cap: measured where units are handed out, over
+    ticks that run until nothing is left to start. The workers run to their ends inside a tick,
+    so nothing is in flight when the next evaluates. The cap applies to each project, so one
+    repo."""
     inst = workspace(tmp_path, max_concurrent=2)
     ids = [f"many/{n}" for n in range(1, 7)]
     builder.store.upsert([stored(uid, repo="app") for uid in ids])
 
-    handed_out = 0
     at_each_evaluation: list[int] = []
 
     def evaluate(graph, **kwargs):
-        nonlocal handed_out
         ready = ready_units(graph, **kwargs)
         if kwargs["max_concurrent"] > inst.max_concurrent_stacks:
             return ready  # the look at who is only waiting for a slot hands nothing out
-        in_flight = handed_out - len(builder.finished)
-        at_each_evaluation.append(in_flight + len(ready))
-        handed_out += len(ready)
+        at_each_evaluation.append(len(ready))
         return ready
 
     monkeypatch.setattr(cli, "ready_units", evaluate)

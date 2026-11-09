@@ -251,4 +251,6 @@ def test_a_tick_flushes_before_it_returns(ticks: Ticks, exported: Collector) -> 
     # export of metrics would have run.
     assert "tick" in {span.name for span in exported.spans()}
     assert exported.metric("abk.tick.duration")
+    # A real worker records and flushes this in its own process; the in-process worker shares
+    # the tick's providers, so it is on the tick's export here.
     assert exported.metric("abk.unit.duration")
