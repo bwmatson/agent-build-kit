@@ -373,6 +373,33 @@ def lane_record(state_dir: Path) -> list[dict[str, str]]:
     return held
 
 
+def write_worker_record(
+    state_dir: Path, key: ProjectKey, unit: StoredUnit, *, base: str, pid: int | None = None
+) -> Path:
+    """Say that the process `pid` (this one), a resolve worker, runs `unit`'s resolution run:
+    the record the lanes of a tick write (`record_path`), so the run is read as the lane's
+    (`lane_record`) while the process lives. Returns the record's path for
+    `clear_worker_record`."""
+    pid = os.getpid() if pid is None else pid
+    # One file for each worker of the project: workers never overwrite or remove each other's.
+    base_path = record_path(state_dir, key)
+    path = base_path.with_name(f"{base_path.stem}-{pid}{base_path.suffix}")
+    entry = {
+        "unit": unit.id,
+        "base": base,
+        "resolving": unit.resolving,
+        "status": "running",
+        "since": spans.clock.now().isoformat(),
+    }
+    atomic_write_text(path, json.dumps({"pid": pid, "host": host.this_host(), "units": [entry]}))
+    return path
+
+
+def clear_worker_record(path: Path) -> None:
+    """Remove a record `write_worker_record` wrote: the run it named has ended."""
+    path.unlink(missing_ok=True)
+
+
 def lane_held_by_record(state_dir: Path) -> set[str]:
     """The ids of the units the lanes of a live tick hold, running or waiting (`lane_record`)."""
     return {entry["unit"] for entry in lane_record(state_dir)}

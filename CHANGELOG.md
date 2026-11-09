@@ -8,6 +8,14 @@
   depends on it. A reused session is not told again. The reviewer is given a checklist of the
   judgements a program cannot make, and does not raise findings on standards a guard enforces.
 
+- In `workers.mode: processes` a project's resolution runs (restacks, moved-base runs and
+  comment reworks) now run as `abk worker resolve <project>`, and the deploy and live tests of
+  a merged change as `abk worker verify <change>`; the tick only starts them and archives a
+  change on a later round, once the worker has recorded its pass. A project starts at most
+  `max_concurrent_resolutions` resolve workers; a comment rework owed beyond that takes an
+  ordinary build worker, after the units resuming a build and before those not yet started.
+  A killed worker leaves a stale lock and the work is started again.
+
 - A failed test run is no longer judged as the code's fault when the machine was busy. A time
   limit hit under high host load that passes rerun alone is recorded as `load` and writes no
   fix change; a failure on a shared resource on an idle host that passes alone is recorded as

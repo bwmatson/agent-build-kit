@@ -40,7 +40,7 @@ from agent_build_kit.forges import Forge, RepoId
 from agent_build_kit.model import E2E_LOCK_FILE, Frozen, TestTier
 from agent_build_kit.pipeline import host, spans
 from agent_build_kit.pipeline.failure_record import Evidenced
-from agent_build_kit.pipeline.file_lock import process_alive, wait_for_flock
+from agent_build_kit.pipeline.file_lock import process_alive, try_file_lock, wait_for_flock
 from agent_build_kit.pipeline.workspaces import holder_alive
 
 # Shown on the PR beside the Actions checks.
@@ -387,16 +387,29 @@ def stack_lock(
 ):
     """`hold_lock` on `path`; when `path` is the lock file, a lock held under the old name is
     waited for and honoured until released."""
-    old = path.with_name(_OLD_LOCK_FILE)
     with ExitStack() as held:
-        if path.name == E2E_LOCK_FILE and old.exists():
+        for each in stack_lock_paths(path):
             held.enter_context(
-                hold_lock(old, timeout, setting, holder=holder, on_wait=on_wait, on_stale=on_stale)
+                hold_lock(each, timeout, setting, holder=holder, on_wait=on_wait, on_stale=on_stale)
             )
-        held.enter_context(
-            hold_lock(path, timeout, setting, holder=holder, on_wait=on_wait, on_stale=on_stale)
-        )
         yield
+
+
+def stack_lock_paths(path: Path) -> list[Path]:
+    """The files that make up the stack lock at `path`, in the order they are taken: the old
+    name first while it exists (when `path` is the lock file), then `path`."""
+    old = path.with_name(_OLD_LOCK_FILE)
+    return [old, path] if path.name == E2E_LOCK_FILE and old.exists() else [path]
+
+
+def stack_held(path: Path) -> bool:
+    """Whether another process holds the stack lock at `path` now: any file of
+    `stack_lock_paths`. A moment's reading: a free lock is taken and released at once."""
+    for each in stack_lock_paths(path):
+        with try_file_lock(each) as taken:
+            if not taken:
+                return True
+    return False
 
 
 @contextmanager

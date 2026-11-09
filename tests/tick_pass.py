@@ -61,6 +61,7 @@ def workspace(
     max_concurrent: int = 4,
     depth_cap: int = 3,
     in_progress: int = 50,
+    resolutions: int | None = None,
     **overrides,
 ) -> Installation:
     return make_installation(
@@ -70,6 +71,8 @@ def workspace(
         project_limits={
             "max_concurrent_stacks": max_concurrent,
             "max_units_in_progress": in_progress,
+            # The configured default unless a test names the resolution workers it wants.
+            **({} if resolutions is None else {"max_concurrent_resolutions": resolutions}),
         },
         **overrides,
     )
