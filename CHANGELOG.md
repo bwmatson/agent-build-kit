@@ -7,6 +7,7 @@
   start of a session, and asked to cite a standard's ID in their summary where a choice
   depends on it. A reused session is not told again. The reviewer is given a checklist of the
   judgements a program cannot make, and does not raise findings on standards a guard enforces.
+
 - A failed test run is no longer judged as the code's fault when the machine was busy. A time
   limit hit under high host load that passes rerun alone is recorded as `load` and writes no
   fix change; a failure on a shared resource on an idle host that passes alone is recorded as
