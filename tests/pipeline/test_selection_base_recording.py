@@ -7,7 +7,8 @@ from __future__ import annotations
 
 import subprocess
 import threading
-from contextlib import ExitStack
+from collections.abc import Iterator
+from contextlib import ExitStack, contextmanager
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -70,7 +71,10 @@ class Setup:
             now=lambda: NOW,
         )
 
-    def in_thread(self, run: Runner) -> threading.Thread:
+    @contextmanager
+    def in_thread(self, run: Runner) -> Iterator[threading.Thread]:
+        """A refresh on a thread of its own, joined when the block ends."""
+
         def go() -> None:
             try:
                 self.record(run)
@@ -79,7 +83,10 @@ class Setup:
 
         thread = threading.Thread(target=go, daemon=True)
         thread.start()
-        return thread
+        try:
+            yield thread
+        finally:
+            thread.join(timeout=20)
 
 
 @pytest.fixture
@@ -164,7 +171,7 @@ def test_a_unit_check_is_served_before_a_recording_that_began_waiting_first(
     run = Runner(order)
     with ExitStack() as stack:
         with unit_test_slot(setup.locks, 1, holder="holder/1"):
-            recording = setup.in_thread(run)
+            stack.enter_context(setup.in_thread(run))
             wait_for(lambda: RECORDING_HOLDER in waiting_units(setup.locks), what="the recording")
             check = stack.enter_context(
                 waiting_run(setup.locks, "unit/1", rank=(2, 4), order=order)
@@ -173,7 +180,6 @@ def test_a_unit_check_is_served_before_a_recording_that_began_waiting_first(
         wait_for(lambda: len(order) == 1, what="the first run to take the slot")
         assert order == ["unit/1"], "the recording ran ahead of the unit's check"
         check.release.set()
-        recording.join(timeout=20)
 
     assert order == ["unit/1", "recording"]
     assert setup.errors == []
@@ -183,13 +189,12 @@ def test_a_second_refresh_that_waited_behind_the_first_makes_no_new_recording(
     setup: Setup,
 ) -> None:
     first, second = Runner(), Runner()
-    with unit_test_slot(setup.locks, 1, holder="holder/1"):
-        threads = [setup.in_thread(first)]
-        wait_for(lambda: waiting_units(setup.locks) == [RECORDING_HOLDER], what="the first")
-        threads.append(setup.in_thread(second))
-        wait_for(lambda: len(waiting_units(setup.locks)) == 2, what="the second")
-    for thread in threads:
-        thread.join(timeout=20)
+    with ExitStack() as stack:
+        with unit_test_slot(setup.locks, 1, holder="holder/1"):
+            stack.enter_context(setup.in_thread(first))
+            wait_for(lambda: waiting_units(setup.locks) == [RECORDING_HOLDER], what="the first")
+            stack.enter_context(setup.in_thread(second))
+            wait_for(lambda: len(waiting_units(setup.locks)) == 2, what="the second")
 
     assert setup.errors == []
     assert len(first.ran) + len(second.ran) == 1
