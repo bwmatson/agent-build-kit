@@ -500,6 +500,9 @@ class PythonUvProfile:
     def collects_path(self, path: str) -> bool:
         return bool(_COLLECTED_FILE.match(path.split("/")[-1]))
 
+    def runs_path(self, path: str) -> bool:
+        raise NotImplementedError
+
     def stub_violations(self, path: str, content: str) -> list[str]:
         return _stub_violations(path, content)
 
