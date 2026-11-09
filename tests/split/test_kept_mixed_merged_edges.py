@@ -1,12 +1,9 @@
 """A dependency on a merged unit that stays for a kept mixed change or another project is
 dropped like one of another repo, with its reason; every other staying target still refuses."""
 
-from datetime import UTC, datetime
-
 import pytest
 
-from agent_build_kit.pipeline import loaded_code
-from agent_build_kit.pipeline.loaded_code import LoadedCode, TickRecord
+from agent_build_kit.pipeline.loaded_code import LoadedCode
 from agent_build_kit.pipeline.unit_store import UnitStore
 from agent_build_kit.pipeline.units import Member, base_of, waiting_on
 from agent_build_kit.split.copy import (
@@ -24,13 +21,6 @@ from tests.split_sources import snapshot_tree, source_installation, write_change
 
 TICK = 5
 UNTAGGED = "# Tasks\n\n## 1. No tag here\n\n- [ ] 1.1 Test: x\n"
-
-
-@pytest.fixture(autouse=True)
-def tick():
-    loaded_code.running_tick(TickRecord(number=TICK, started_at=datetime(2026, 1, 1, tzinfo=UTC)))
-    yield
-    loaded_code.running_tick(None)
 
 
 def installations(tmp_path, **projects):
@@ -91,14 +81,6 @@ def test_a_kept_unit_that_is_not_merged_is_the_dangling_error(tmp_path, state):
     (error,) = found.errors
     assert all(word in error for word in ("g/1", "depends_on", "m/4"))
     assert [(e.target, e.reason) for e in found.dropped] == [("m/3", EdgeReason.KEPT_CHANGE)]
-
-
-def test_a_kept_unit_merged_at_or_after_the_loaded_tick_says_to_run_a_tick(tmp_path):
-    found = refused_next_to_a_dropped_edge(tmp_path, kept("m/4", merged_tick=TICK))
-
-    (error,) = found.errors
-    assert all(word in error for word in ("g/1", "m/4", "tick"))
-    assert [e.target for e in found.dropped] == ["m/3"]
 
 
 def test_a_superseded_by_naming_a_kept_unit_is_the_dangling_error(tmp_path):

@@ -824,16 +824,10 @@ def _workers(
     which: Which,
     scheduled: tuple[timers.TimerReport, bool],
 ) -> list[Check]:
-    """What `workers.mode: processes` needs: the user manager's `systemd-run`, lingering so a
+    """What running units as workers needs: the user manager's `systemd-run`, lingering so a
     worker outlives the login session, and the wake path unit. `scheduled` is what `_timers`
     found (its report, and whether the timers are enabled); a problem it already warned about
     is not warned about again."""
-    if not inst.has_worker_repo():
-        return [
-            _info(
-                "workers", "no repo runs workers (workers.mode is threads): builds run in the tick"
-            )
-        ]
     state, enabled = scheduled
     checks: list[Check] = []
     if not which("systemd-run"):

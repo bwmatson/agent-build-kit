@@ -18,7 +18,6 @@ from __future__ import annotations
 
 import argparse
 import asyncio
-import contextvars
 import hashlib
 import json
 import os
@@ -37,7 +36,6 @@ from collections.abc import (
     Mapping,
     Sequence,
 )
-from concurrent.futures import FIRST_COMPLETED, Future, ThreadPoolExecutor, wait
 from contextlib import AbstractContextManager, ExitStack, contextmanager, nullcontext
 from datetime import UTC, datetime, timedelta
 from functools import partial
@@ -83,8 +81,6 @@ from agent_build_kit.pipeline.admission import (
     ADMISSION_LOCK,
     STARTING_TTL,
     admit,
-    current_occupancy,
-    limits_of,
 )
 from agent_build_kit.pipeline.admission_record import (
     ADMISSIONS_NAME,
@@ -185,8 +181,6 @@ from agent_build_kit.pipeline.manual_steps import (
 from agent_build_kit.pipeline.metric_records import emit_metric
 from agent_build_kit.pipeline.occupancy import (
     RESOLVE_CLAIM,
-    capacity,
-    free_workers,
     marker_live,
     resolve_claimed,
     usage_paused,
@@ -1067,8 +1061,6 @@ def cmd_status(args: argparse.Namespace, inst: Installation) -> int:
 
     for line in project_status_lines(inst, store_for(inst).all()):
         log(line)
-    for name in inst.repos:
-        log(f"workers: {name} runs in {inst.workers_mode(name)} mode")
     if getattr(args, "temp", False):
         if found := temp_size(inst):
             warning = " — warning: above global_limits.temp_warn_mb" if found.warn else ""
@@ -1724,7 +1716,7 @@ def cmd_tick(args: argparse.Namespace, inst: Installation) -> int:
     as long as it runs: a second exits at once, since the first is already starting what is
     ready."""
     with ExitStack() as held:
-        if inst.has_worker_repo() and not args.dry_run:
+        if not args.dry_run:
             try:
                 held.enter_context(file_lock(inst.locks_dir / DISPATCHER_LOCK, timeout=0))
             except LockTimeout:
@@ -1768,7 +1760,6 @@ def _tick_once(args: argparse.Namespace, inst: Installation) -> int:
 
     if record is not None:
         loaded_code.write_record(inst.state_dir, record)
-        loaded_code.running_tick(record)
 
     recording = telemetry.init()
     tick = _Tick()
@@ -1785,7 +1776,6 @@ def _tick_once(args: argparse.Namespace, inst: Installation) -> int:
         raise
     finally:
         tick.finish_sweep()
-        loaded_code.running_tick(None)
         elapsed = time.monotonic() - started
         emit_metric("duration", "abk.tick.duration", elapsed, log, outcome=tick.outcome)
         if recording:
@@ -1881,7 +1871,6 @@ def _tick_with(
     lane: Lane,
     only: frozenset[str],
 ) -> int:
-    readmission = _Readmission()
     if not args.dry_run:
         _step("starting resolve workers", _dispatch_resolutions, inst, store)
     ready = run_round(
@@ -1891,7 +1880,6 @@ def _tick_with(
         started=(),
         only=only,
         submit=True,
-        refused_needs=readmission.refused,
         lane=lane,
         dry_run=args.dry_run,
     )
@@ -1922,24 +1910,15 @@ def _tick_with(
         tick.outcome = "refused"
         return 1
 
-    if inst.has_worker_repo():
-        _dispatch(inst, [unit for unit in ready if _runs_as_worker(inst, unit)], store=store)
-        ready = [unit for unit in ready if not _runs_as_worker(inst, unit)]
-        if not any(inst.workers_mode(name) == "threads" for name in inst.repos):
-            tick.outcome = "dispatched"
-            return 0
-    return _schedule(inst, ready, store=store, only=only, readmission=readmission, lane=lane)
-
-
-def _runs_as_worker(inst: Installation, unit: Unit) -> bool:
-    """Whether the worker mode in effect for the unit's repo is `processes`."""
-    return inst.workers_mode(unit.repo) == "processes"
+    _dispatch(inst, ready, store=store)
+    tick.outcome = "dispatched"
+    return 0
 
 
 def _next_rebuild(stored: StoredUnit, now: datetime) -> tuple[int, datetime] | None:
     """The count and window start a sent-back unit has once a worker is started for it: None
     for a unit that is not sent back, or whose worker is already on its way."""
-    if stored.state != PLANNED or stored.cause not in READMITTED_CAUSES:
+    if stored.state != PLANNED or stored.cause not in SENT_BACK_CAUSES:
         return None
     if marker_live(stored, now):
         return None
@@ -1954,15 +1933,9 @@ def unclaimed_runs(inst: Installation, units: Sequence[StoredUnit]) -> list[str]
     no worker has been started for (a live `starting` marker): the runs the resolve workers
     take up to the project's `max_concurrent_resolutions`, and a comment rework beyond that
     may be run by an ordinary build worker. Read from the repositories' branches."""
-    if not inst.has_worker_repo():
-        return []
     now = spans.clock.now()
     owed = owed_units(inst, list(units))
-    return [
-        unit.id
-        for unit in units
-        if unit.id in owed and _runs_as_worker(inst, unit) and not marker_live(unit, now)
-    ]
+    return [unit.id for unit in units if unit.id in owed and not marker_live(unit, now)]
 
 
 def _dispatch_resolutions(inst: Installation, store: UnitStore) -> None:
@@ -2636,52 +2609,6 @@ def _may_build(
     return "yes"
 
 
-class _Readmission:
-    """What a pass has started, and how often it let a unit back in."""
-
-    def __init__(self) -> None:
-        # Each unit this pass started, with how long its history was then: what the unit
-        # records after that is later, whatever the clock says.
-        self.started: dict[str, int] = {}
-        self.rebuilt: dict[str, int] = {}
-        self.readmitted: set[str] = set()
-        self.skipped: set[tuple[str, str]] = set()
-        # The `Needs:` lines refused for a cycle that the pass has already logged.
-        self.refused: set[tuple[str, str]] = set()
-
-    def admit(
-        self,
-        units: list[StoredUnit],
-        in_flight: set[str],
-        holds: code_host.Holds | None = None,
-    ) -> None:
-        """A unit this pass built and that has since been put back — sent
-        back by a poll, or held by its own build because its base moved — is
-        due again now, not in the next pass, which cannot start until this one
-        ends."""
-        for unit_id in _sent_back(units, self.started, in_flight, self.skipped, holds):
-            if self.rebuilt.get(unit_id, 0) < REBUILDS_PER_PASS:
-                self.started.pop(unit_id)
-                self.readmitted.add(unit_id)
-
-    def may_resume(self, unit_id: str) -> bool:
-        """Whether a unit this pass built may be started again because an event
-        resumed its thread. Charged like a readmission, so a pass still ends."""
-        if self.rebuilt.get(unit_id, 0) >= REBUILDS_PER_PASS:
-            return False
-        self.readmitted.add(unit_id)
-        return True
-
-    def charge(self, ready: list[Unit]) -> None:
-        """The budget is spent when a unit is started again, not when it is
-        let back in: a held unit may wait several rounds on what it was held
-        for, and must not run out before it can run."""
-        for unit in ready:
-            if unit.id in self.readmitted:
-                self.readmitted.discard(unit.id)
-                self.rebuilt[unit.id] = self.rebuilt.get(unit.id, 0) + 1
-
-
 def apply_project_lines(inst: Installation, store: UnitStore) -> None:
     """Apply the `Project:` lines that are due to abk.yaml and commit each edit: the adds of every
     change that has been planned (a recorded plan that succeeded, for a change still in
@@ -2701,10 +2628,8 @@ def apply_project_lines(inst: Installation, store: UnitStore) -> None:
 
 
 def _verified_by_worker(inst: Installation, units: Sequence[StoredUnit], change: str) -> bool:
-    """Whether the change's verification is a worker's: every repo its units are in is in
-    `processes` mode, so a change that spans modes is verified in the tick as it was."""
-    repos = {unit.repo for unit in units if unit.carries(change)}
-    return bool(repos) and all(inst.workers_mode(repo) == "processes" for repo in repos)
+    """Whether the change's verification is a worker's: every change a unit carries is."""
+    return any(unit.carries(change) for unit in units)
 
 
 def _start_verify_workers(
@@ -2796,7 +2721,6 @@ def run_round(
     started: Collection[str] = (),
     only: frozenset[str],
     submit: bool,
-    readmit: _Readmission | None = None,
     quiet: bool = False,
     refused_needs: set[tuple[str, str]] | None = None,
     lane: Lane | None = None,
@@ -2810,18 +2734,12 @@ def run_round(
     call, and returns no units to start; the rest of the round runs, so merges
     and comments are recorded during a usage pause. Each later step that raises is logged and the
     rest still run. `building` and `started` name the units this pass holds, so
-    the reclaim and the readiness rules leave them alone; a `readmit` lets a
-    sent-back unit out of what it started and carries that set itself, so
-    pass one or the other; both raise `ValueError`.
+    the reclaim and the readiness rules leave them alone.
     `quiet` leaves out the guard's line saying why a build may start; `dry_run` writes no
     state: units, plan records, pause markers and logs stay as they are, but for the fetch and
     poll, the live verification and the archiving, and the planner's answers are kept as previews.
     """
     pass_started = spans.clock.now()
-    if readmit is not None:
-        if started:
-            raise ValueError("pass `started` or `readmit`, not both")
-        started = readmit.started
     spared = {*building, *started}
     # A dry run writes no stored state, so the steps below that write one are behind
     # `if not dry_run`. The exceptions are the fetch and poll (which act on the forge and
@@ -3025,8 +2943,6 @@ def run_round(
         inst, store, spared=in_flight | ({*lane.running, *lane.waiting} if lane else set())
     ):
         units = store.all()
-    if readmit:
-        readmit.admit(units, in_flight, code_host.holds_of(inst))
     idle = _idle_units(inst, units, in_flight)
     # A unit no run holds takes no worker while it waits; the runs in flight do, and so do the
     # moved-base runs running in the lane, never those waiting behind its cap.
@@ -3086,9 +3002,7 @@ def run_round(
         [
             unit
             for unit in resumable_units(inst, units, only=only, spared=in_flight, owed=owed)
-            if model_refusal(unit.repo) is None
-            and not waiting_out(unit)
-            and (readmit is None or unit.id not in started or readmit.may_resume(unit.id))
+            if model_refusal(unit.repo) is None and not waiting_out(unit)
         ],
         units,
     )
@@ -3172,8 +3086,6 @@ def run_round(
     for unit in evaluated:
         if unit.id in lane_starts and not dry_run:
             emergency_lane.enter(inst.state_dir, unit)
-    if readmit:
-        readmit.charge(ready)
     waits = _waits_in(
         inst,
         units,
@@ -3592,7 +3504,7 @@ def gate_sent_back(store: UnitStore) -> None:
     repos = config.active().repos
     for unit in units:
         # The cause is standing, so a replan between the send-back and here keeps it.
-        if unit.state == PLANNED and unit.cause in READMITTED_CAUSES:
+        if unit.state == PLANNED and unit.cause in SENT_BACK_CAUSES:
             _gate_on_merge_edges(store, unit, units, repos)
 
 
@@ -4501,10 +4413,8 @@ def _overflow_runs(
         cap = cap_of(slot)
         if cap is not None and in_slot.get(slot, 0) >= cap:
             continue
-        # A run owed in a repo of `processes` mode is queued by no lane: there is nothing to
+        # A run owed is queued by no lane: its resolve worker takes it, so there is nothing to
         # withdraw.
-        if not dry_run and not _runs_as_worker(inst, unit) and not lane.withdraw(unit):
-            continue
         in_slot[slot] = in_slot.get(slot, 0) + 1
         chosen.append(unit)
     return chosen
@@ -5100,290 +5010,11 @@ def _refuse_unconfigured(inst: Installation, ready: list[Unit]) -> bool:
     return bool(unconfigured)
 
 
-# How often a pass looks at GitHub while builds are running, matching the tick
-# timer's cadence. Waiting for a completion alone left a pass with one long
-# build — an e2e-test run, a slow review — blind for its whole length, and the
-# timer cannot start a second tick while this one is running.
-REFRESH_SECONDS = 300.0
-
-# How many times a pass may start a unit that it already built and that a poll
-# then sent back (a conflict, a failing check, a review comment). Bounded so a
-# pass still ends.
-REBUILDS_PER_PASS = 2
-
-
-# The causes a unit put back to planned is let back into the running pass for: sent
-# back for rework by a poll, or held by its own build because the branch it builds
-# on changed. Resuming restacks the unit onto its new base before anything else, so
-# that cause is gone by the time it runs again — unlike an unfinished upstream or a
-# full usage window, which a rerun would only meet again. `RESTACK_HANDED_BACK` is written by
-# no run now: it is read only for a unit an earlier version's lane gave back to a build worker.
-READMITTED_CAUSES = frozenset({Cause.REWORK, Cause.BASE_CHANGED, Cause.RESTACK_HANDED_BACK})
-
-
-def _sent_back(
-    units: list[StoredUnit],
-    started: dict[str, int],
-    building: set[str],
-    skipped: set[tuple[str, str]] | None = None,
-    holds: code_host.Holds | None = None,
-) -> set[str]:
-    """Units this pass already built that have since been put back to planned for
-    a cause in `READMITTED_CAUSES`, or parked for `host_unavailable` once its backoff
-    has elapsed (or, for a unit parked behind a code host's marker, once the marker has ended:
-    while it is in force the unit waits, whatever its own backoff). A unit put back for any
-    other cause, or for none (a record from before causes were kept), waits for the next pass,
-    and a unit that ended held is never let back in; each such skip is logged once, with its
-    cause, in `skipped`. "Since" is the unit's history having grown past its length when the
-    pass started it, never a comparison of timestamps: a clock that steps back or
-    stands still must not decide it."""
-    out: set[str] = set()
-    holds = holds or code_host.Holds()
-    for unit in units:
-        at = started.get(unit.id)
-        if (
-            at is None
-            or unit.id in building
-            or unit.state not in (PLANNED, HELD)
-            or not unit.history
-        ):
-            continue
-        if len(unit.history) <= at:
-            continue
-        # Keyed on when the cause was set, so a carried entry does not log the skip again.
-        since = str(unit.cause_since)
-        if unit.state == PLANNED and unit.cause in READMITTED_CAUSES:
-            out.add(unit.id)
-        elif (
-            unit.state == PLANNED
-            and unit.cause in PARKED_CAUSES
-            and holds.holding(unit) is None
-            and code_host.backoff_left(unit, spans.clock.now(), holds) is None
-        ):
-            out.add(unit.id)
-        elif (
-            skipped is not None
-            and unit.cause is not None
-            # Readmitted by a later round once its backoff is over.
-            and unit.cause not in PARKED_CAUSES
-            and (unit.id, since) not in skipped
-        ):
-            skipped.add((unit.id, since))
-            log(f"{unit.id}: not started again in this pass, stopped for {unit.cause.value}")
-    return out
-
-
-def _schedule(
-    inst: Installation,
-    ready: list[Unit],
-    *,
-    store: UnitStore,
-    only: frozenset[str],
-    readmission: _Readmission,
-    lane: Lane,
-) -> int:
-    """Keep the build slots full until nothing more is ready.
-
-    Every completion may release something — a parent's PR opening lets its
-    child stack on it, a dependency merging releases its dependent — so each
-    one is followed by a refresh from GitHub and a fresh evaluation, rather
-    than waiting for the whole batch and the next tick. The refresh asks
-    GitHub rather than hearing from it, since a tick has no endpoint for a
-    webhook to reach; a completion is when it asks. Only the model's own
-    refusal (a `rate_limit` pause, or a build returning False) ends
-    submission. A usage refusal pauses only that unit: later rounds ask the
-    guard again and resume it. The builds already running are still awaited,
-    since each checks the usage guard itself and killing one would leave its
-    work uncommitted.
-
-    The refresh runs while other builds are still going, so what it hears may
-    concern one of them. The event handlers leave a unit whose build holds its
-    lock untouched and the poller reports the event again later — see
-    `events` — which the refresh after that build's own completion does.
-
-    A repo found mid-pass with no commit identity stops submission for every
-    repo, not only that one, for the rest of the pass; the builds in flight
-    are still awaited and the pass exits 1, as it does when the check fails
-    at the start.
-    """
-    started = readmission.started
-    building: dict[Future[bool], Unit] = {}
-    # Units that could build but for the slots, from when they were first seen so.
-    queued: dict[str, spans.Mark] = {}
-    failed = False
-    refused = False
-    with ThreadPoolExecutor(
-        max_workers=_pool_size(inst, store.all()), thread_name_prefix="unit"
-    ) as pool:
-
-        def note_queued(units: list[StoredUnit], ready: list[Unit], in_flight: set[str]) -> None:
-            """Start the clock on each unit that could build but for the slots:
-            the ones the readiness rules return with the concurrency cap lifted
-            and that are neither in `ready` nor building."""
-            taken = in_flight | {unit.id for unit in ready}
-            evaluated = _evaluate(
-                inst,
-                units,
-                started=set(started),
-                building=in_flight,
-                only=only,
-                max_concurrent=len(units) + 1,
-            )
-            # A unit that stopped being ready restarts its clock when it is again.
-            for unit_id in set(queued) - {unit.id for unit in evaluated}:
-                del queued[unit_id]
-            unstamped = {unit.id for unit in units if unit.ready_at is None}
-            for unit in evaluated:
-                if unit.id in unstamped:
-                    store.mark_ready(unit.id)
-                if unit.id not in taken:
-                    queued.setdefault(unit.id, spans.Mark())
-
-        def sample() -> None:
-            """One ledger row and the slot gauges, for a wake once its slots are refilled:
-            what is in flight counts as running though its worker has not yet marked it so."""
-            units = store.all()
-            states = [unit.state for unit in units]
-            in_flight = {unit.id for unit in building.values()}
-            occupied = current_occupancy(
-                inst, units, spans.clock.now(), held=in_flight | set(lane.running)
-            )
-            # Totals over the projects with a unit not yet finished, for reporting only.
-            live = _unfinished_projects(units)
-            limits = limits_of(inst)
-            spare = free_workers(
-                occupied,
-                limits,
-                live,
-                lambda key: claude_account.for_repo(inst.config, key.repo).label,
-            )
-            spans.record_sample(
-                spans.Sample(
-                    at=spans.clock.now().isoformat(),
-                    running=sum(occupied.workers.values()),
-                    in_review=states.count(IN_REVIEW),
-                    blocked=sum(
-                        1 for unit in units if unit.state == PLANNED and waiting_on(unit, units)
-                    ),
-                    queued=len(queued),
-                    free_workers=spare,
-                    limit=_slots_capacity(inst, units, live),
-                    cap=inst.max_concurrent_stacks * len(live),
-                ),
-                log,
-            )
-            telemetry.level("abk.slots.free", spare)
-            telemetry.level("abk.slots.idle_with_ready", min(spare, len(queued)))
-            telemetry.level(
-                "abk.slots.emergency_used",
-                len(emergency_lane.users(inst.state_dir, _with_builds_running(units, in_flight))),
-            )
-            telemetry.level("abk.restacks.running", len(lane.running))
-            telemetry.level("abk.restacks.waiting", len(lane.waiting))
-
-        def submit(units: list[Unit]) -> None:
-            """Hand each unit admission lets start to a worker. Admission counts the places
-            from the durable facts and marks the unit under its lock, so another tick's count
-            sees it before its worker has taken the branch's lock; a unit it refuses is left for
-            a later round. A unit of a repo in `processes` mode is dispatched as a worker, as
-            the pass's first round does, and not built here."""
-            if owed := [unit for unit in units if _runs_as_worker(inst, unit)]:
-                _dispatch(inst, owed, store=store)
-            units = [unit for unit in units if not _runs_as_worker(inst, unit)]
-            chosen = {unit.id: unit for unit in units}
-            for marked in admit(
-                inst,
-                store,
-                units,
-                worker=f"tick-{os.getpid()}",
-                now=spans.clock.now(),
-                ttl=STARTING_TTL,
-            ):
-                unit = chosen[marked.id]
-                started[unit.id] = len(store.get(unit.id).history)
-                # The tick's span goes into the worker by its context: a
-                # pool's threads do not inherit it.
-                work = contextvars.copy_context()
-                run = partial(
-                    build_unit,
-                    inst,
-                    unit,
-                    store=store,
-                    queued=queued.pop(unit.id, None),
-                    # A comment rework the full lane passed over is the same resolution run.
-                    moved_base_run=store.get(unit.id).comment_rework_owed,
-                    lane=lane,
-                )
-                building[pool.submit(work.run, run)] = unit
-
-        note_queued(store.all(), ready, set())
-        submit(ready)
-        # Each round waits for a build to finish or for REFRESH_SECONDS,
-        # whichever is first, then refreshes and fills free slots. The pass
-        # ends once none is in flight.
-        # A restack in the lane is waited for as a build is, and ends a pass only when it has.
-        # Whether the lane had work when the round last looked, and still has: a restack that
-        # ends after a round left its unit out is followed by one more round, which starts it.
-        lane_busy = bool(lane.running or lane.waiting)
-        while building or lane_busy or lane.running or lane.waiting:
-            # A lane with nothing to do has nothing to wake the pass for.
-            lane_ends = lane.finished()
-            waited_on: list[Future[Any]] = [*building]
-            if not lane_ends.done():
-                waited_on.append(lane_ends)
-            done, _ = wait(waited_on, timeout=REFRESH_SECONDS, return_when=FIRST_COMPLETED)
-            for future in done:
-                if future not in building:
-                    continue
-                ended = building.pop(future)
-                # Its worker is done with the claim, whether or not it ever took the lock.
-                _clear_starting(store, ended.id)
-                # A build the model refused returns False too, and pauses its own account: that
-                # stops the pass only when it leaves no account to start on (below).
-                if not future.result() and not _refused_by_model(inst, ended):
-                    failed = True
-            lane.scan(store.all())
-            lane_busy = bool(lane.running or lane.waiting)
-            # A build still in flight — or another tick — may already have
-            # recorded the model's refusal; its report is not needed to stop
-            # here. A usage pause is not one: the round asks the guard again. One account's
-            # refusal does not stop the others, so it takes every account in use.
-            refused_labels = {
-                each.account
-                for each in pauses_in_force(inst.state_dir)
-                if each.kind == "rate_limit"
-            }
-            stopping = (
-                failed
-                or {each.label for each in claude_account.in_use(inst.config)} <= refused_labels
-            )
-            if stopping or refused:
-                sample()
-                continue
-
-            in_flight = {unit.id for unit in building.values()}
-            ready = run_round(
-                inst,
-                store,
-                building=in_flight,
-                only=only,
-                submit=True,
-                readmit=readmission,
-                quiet=True,
-                refused_needs=readmission.refused,
-                lane=lane,
-            )
-            units = store.all()
-            note_queued(units, ready, in_flight)
-            if ready:
-                _log_ready(inst, store, ready, only=only)
-                if _refuse_unconfigured(inst, ready):
-                    refused = True
-                    sample()
-                    continue
-                submit(ready)
-            sample()
-    return 1 if refused else 0
+# The causes that mean a unit was put back to planned to be run again: sent back for rework by
+# a poll, or held by its own build because the branch it builds on changed. `RESTACK_HANDED_BACK`
+# is written by no run now: it is read only for a unit an earlier version's lane gave back to a
+# build worker.
+SENT_BACK_CAUSES = frozenset({Cause.REWORK, Cause.BASE_CHANGED, Cause.RESTACK_HANDED_BACK})
 
 
 def _live_projects(inst: Installation, units: list[StoredUnit]) -> set[ProjectKey]:
@@ -5392,12 +5023,6 @@ def _live_projects(inst: Installation, units: list[StoredUnit]) -> set[ProjectKe
     for repo, paths in declared_projects(inst.repos).items():
         live |= {ProjectKey(repo=repo, project=path) for path in paths}
     return live | _unfinished_projects(units)
-
-
-def _pool_size(inst: Installation, units: list[StoredUnit]) -> int:
-    """Threads for every project's build workers together; each project's own count is the only
-    limit on what starts."""
-    return capacity(limits_of(inst), len(_live_projects(inst, units)))
 
 
 def _clear_starting(store: UnitStore, unit_id: str) -> None:
@@ -7243,13 +6868,9 @@ def build_restack_lane(inst: Installation, store: UnitStore) -> ResolutionLanes:
         make,
         # A unit admission has sent to a build worker (its marker has not lapsed) is that
         # worker's, not the lane's.
-        # A repo in `processes` mode has its resolution runs made by workers, not by this lane
+        # Every unit has its resolution runs made by workers, not by this lane
         # (`_dispatch_resolutions`).
-        owed=lambda units: (
-            owed_units(inst, units)
-            - {unit.id for unit in units if marker_live(unit, spans.clock.now())}
-            - {unit.id for unit in units if _runs_as_worker(inst, unit)}
-        ),
+        owed=lambda units: set(),
         # An account that sets `max_concurrent_resolutions` is held to it across its lanes.
         account_of=_slot_of(inst),
         account_cap=_slot_restack_limit(inst),

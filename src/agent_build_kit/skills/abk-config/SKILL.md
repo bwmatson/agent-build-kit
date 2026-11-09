@@ -148,10 +148,8 @@ session_reuse:                # per agent role: continue the role's latest sessi
   build: true                 # tests/implement/fix/rework/restack/adapt share one session
   review: false               # always false: a review starts fresh; a role left out is off
 
-workers:
-  mode: threads               # `threads` (a tick builds its units) or `processes` (a tick is a
-                              # dispatcher starting a worker per unit); a repo's own
-                              # `workers.mode` overrides it, to move repos over one at a time
+workers:                      # a tick is a dispatcher starting a worker per unit; the removed
+                              # `mode` key is refused
 
 retention:
   decision_log_mb: 50         # size of the decision log and of the admission records; the oldest
@@ -306,9 +304,6 @@ repos:                        # ordered; a task group's [repo] tag is a key here
     consumes: []              # repos this one depends on: deploy order,
                               # which dev stack it comes up on, planning order
     relationships: ""         # prose for the planner about the other repos
-    workers:
-      mode: threads           # `threads` or `processes` for this repo's units; unset, the
-                              # top-level `workers.mode` applies; `abk status` prints it
     tests:
       root_extras: []         # extra packages the repo-root tests need
       workers: auto           # pytest-xdist `-n` of the Python profile's test runs
@@ -412,7 +407,6 @@ notifications:                # tell a person when a unit waits on them
 
 ```yaml
 workers:
-  mode: threads        # threads (default) | processes: `abk tick` dispatches `abk worker build`
   memory_max: 4G       # optional systemd MemoryMax per worker; unset = no limit
   cpu_weight: 100      # optional systemd CPUWeight per worker (1-10000); unset = no limit
 ```

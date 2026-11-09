@@ -239,18 +239,6 @@ class Installation:
     def repos(self) -> dict[str, RepoConfig]:
         return self.config.repos
 
-    def workers_mode(self, repo: str | None) -> str:
-        """The worker mode in effect for the units of the repo named `repo` (None, or a name
-        that is no repo, takes the workspace's)."""
-        return config_module.workers_mode(self.repos.get(repo) if repo else None, self.config)
-
-    def has_worker_repo(self) -> bool:
-        """Whether any repo runs its units as workers; a workspace naming no repo, as its own
-        mode."""
-        if not self.repos:
-            return self.workers_mode(None) == "processes"
-        return any(self.workers_mode(name) == "processes" for name in self.repos)
-
     def checkout_of(self, configured: Path) -> Path:
         """A repo's configured path as a checkout: a relative path is under the root, and a path
         that is a worktree of the root's own repository is the root when the root is the pipeline

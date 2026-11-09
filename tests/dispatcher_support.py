@@ -47,13 +47,11 @@ def install_spawner(monkeypatch: pytest.MonkeyPatch) -> FakeSpawner:
 def lane_workspace(tmp_path: Path, *, stacks: int, resolutions: int) -> Installation:
     """A `processes` workspace with `stacks` build workers and `resolutions` resolution workers
     at once."""
-    return workspace(
-        tmp_path, max_concurrent=stacks, resolutions=resolutions, workers={"mode": "processes"}
-    )
+    return workspace(tmp_path, max_concurrent=stacks, resolutions=resolutions)
 
 
 def processes_workspace(tmp_path: Path, **kwargs: int) -> Installation:
-    return workspace(tmp_path, workers={"mode": "processes"}, **kwargs)
+    return workspace(tmp_path, **kwargs)
 
 
 def parse_worker_command(*argv: str) -> argparse.Namespace:

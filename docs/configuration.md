@@ -267,12 +267,8 @@ session_reuse:                  # per agent role, whether its nodes continue the
                                 # one. review can only be false: a review always
                                 # starts fresh. A role left out is off.
 
-workers:
-  mode: threads                 # `threads` (a tick builds its units) or `processes`
-                                # (a tick is a dispatcher that starts a worker per
-                                # unit); a repo's own `workers.mode` overrides it, so
-                                # repos can be moved over one at a time. `abk status`
-                                # prints each repo's mode.
+workers:                        # a tick is a dispatcher that starts a worker per
+                                # unit; the removed `mode` key is refused
 
 environment:                    # how the pipeline's own environment is kept
                                 # current; absent = none is managed and
@@ -582,9 +578,6 @@ repos:                          # ordered: deploy order is derived from
                                 # own comes up on top of, planning order
     relationships: ""           # prose for the planner about how this repo
                                 # relates to the others
-    workers:
-      mode: threads             # `threads` or `processes` for this repo's units;
-                                # unset, the top-level `workers.mode` applies
     tests:
       root_extras: []           # extra packages the repo-root tests/ (outside
                                 # every workspace member) need
@@ -1067,14 +1060,13 @@ so the doctor warns about `hard` and the advice is `soft` with a `timeo`.
 
 ```yaml
 workers:
-  mode: threads        # threads (default): the tick builds in its own threads; processes: the tick
-                       # is a dispatcher and each unit's build is an `abk worker build` process
   memory_max: 4G       # optional: a worker's systemd MemoryMax; unset sets no limit
   cpu_weight: 100      # optional: a worker's systemd CPUWeight (1-10000); unset sets no limit
 ```
 
-`workers.mode` picks who runs a build; `workers.memory_max` and `workers.cpu_weight` apply per
-worker in `processes` mode. In `processes` mode a worker's exit, `abk requeue`, `abk approve` and `abk attach release` touch
+The tick is a dispatcher and each unit's build is an `abk worker build` process;
+`workers.memory_max` and `workers.cpu_weight` apply per worker. `workers.mode` has been removed
+and a file that still names it, at the top level or under a repo, is refused. A worker's exit, `abk requeue`, `abk approve` and `abk attach release` touch
 `runs/wake`, and the path unit `abk install-timers` writes starts a tick when it changes.
 `abk doctor` checks lingering, `systemd-run` and that unit; `abk status` lists running workers.
 

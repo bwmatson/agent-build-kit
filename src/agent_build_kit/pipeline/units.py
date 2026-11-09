@@ -1000,9 +1000,8 @@ def merge_loaded(parent: Unit, graph: Sequence[Unit], loaded: LoadedCode) -> boo
     built on) is in the code the tick runs.
 
     A merge with no record (merged before it was kept, or recorded by hand with no source) counts
-    as loaded. In the kit's own
-    repository the merge commit must be in the recorded head; otherwise, or when the head or
-    the commit is unknown, the tick must be a later one than the tick that saw the merge."""
+    as loaded. In the kit's own repository the merge commit must be in the recorded head;
+    otherwise, or when the head or the commit is unknown, it counts as loaded."""
     index = _by_id(graph)
 
     def one(current: Unit, seen: frozenset[str]) -> bool:
@@ -1013,14 +1012,13 @@ def merge_loaded(parent: Unit, graph: Sequence[Unit], loaded: LoadedCode) -> boo
                 if dep in index and index[dep].repo == current.repo and dep not in seen
             )
         sha = getattr(current, "merge_sha", None)
-        tick = getattr(current, "merged_tick", None)
-        if sha is None and tick is None:
-            return True
         if sha is not None and current.repo == loaded.kit_repo:
             held = loaded.contains(sha)
             if held is not None:
                 return held
-        return tick is None or loaded.number > tick
+        # A worker is a fresh process that loads the code on disk when it starts, so a merge is
+        # in the code a unit's worker runs unless the kit's own head, read above, says it is not.
+        return True
 
     return one(parent, frozenset())
 

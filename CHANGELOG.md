@@ -12,7 +12,12 @@
   depends on it. A reused session is not told again. The reviewer is given a checklist of the
   judgements a program cannot make, and does not raise findings on standards a guard enforces.
 
-- In `workers.mode: processes` a project's resolution runs (restacks, moved-base runs and
+- `workers.mode` is removed, at the top level and under a repo: every unit now runs as a worker
+  process, and a configuration that still names the key is refused with a message saying so.
+  The tick no longer has a thread pool or a per-pass rebuild budget; delete the key from
+  `abk.yaml` and its overlay before updating.
+
+- A project's resolution runs (restacks, moved-base runs and
   comment reworks) now run as `abk worker resolve <project>`, and the deploy and live tests of
   a merged change as `abk worker verify <change>`; the tick only starts them and archives a
   change on a later round, once the worker has recorded its pass. A project starts at most
