@@ -46,10 +46,12 @@ from agent_build_kit.pipeline.temp_sweep import write_pid_file, write_run_file
 from agent_build_kit.profiles.base import (
     HOME,
     TEMP_ROOT_VARIABLE,
+    ChangedTest,
     PromptWords,
     SandboxPaths,
     is_doc_path,
 )
+from agent_build_kit.profiles.python_test_comparison import compare_python_tests
 from agent_build_kit.profiles.workspace_lock import workspace_lock
 
 # pytest's exit status when every test was deselected: "nothing to run here",
@@ -824,6 +826,10 @@ class PythonUvProfile:
             for line in result.stdout.splitlines()
             if (match := _MARKER_LINE.match(line))
         ]
+
+    def compare_test_sources(self, before: str, after: str) -> list[ChangedTest]:
+        """How a test file differs from its parent's version beyond a mechanical edit."""
+        return compare_python_tests(before, after)
 
     def unselected_tests(self, path: str, content: str, tests: list[str]) -> list[str]:
         """The names among `tests` whose function, class or module carries no
