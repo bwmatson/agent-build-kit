@@ -44,7 +44,6 @@ from agent_build_kit.settings import reload
 from tests.conftest import make_installation
 from tests.factories import git, init_repo
 from tests.runtimes.selectable import SelectableRuntime, select
-from tests.tick_driver import count_refreshes
 from tests.tick_pass import (
     Builder,
     install_builder,
@@ -54,10 +53,6 @@ from tests.tick_pass import (
     warm_unit_graphs,
     workspace,
 )
-from tests.waiting import wait_for
-
-# Refreshes a test waits through to show a unit is not readmitted.
-SEVERAL_REFRESHES = 5
 
 # How long a build waits for something the pass should make happen meanwhile.
 # Long enough never to trip when the pass does it; against a pass that fixes
@@ -462,47 +457,6 @@ def test_a_pause_with_nothing_stranded_leaves_the_store_as_it_was(
     unstamped = [unit.model_copy(update={"ready_at": None}) for unit in builder.store.all()]
     assert unstamped == before
     assert "session at 88%" in capsys.readouterr().out
-
-
-# --- a unit is let back in by its cause, never by the wording of its note --------------
-
-
-def _ends_and_waits(
-    builder: Builder, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, end, *, readmitted: bool
-) -> None:
-    """Build `sent/1`, which ends as `end` says, beside a slow unit that keeps the
-    pass going for several refreshes — or, when `readmitted`, until `sent/1` has
-    been started a second time."""
-    inst = workspace(tmp_path, max_concurrent=2)
-    builder.store.upsert([stored("sent/1"), stored("slow/1", repo="platform")])
-    monkeypatch.setattr(cli, "REFRESH_SECONDS", 0.05)
-    runs: list[int] = []
-
-    def ends_once() -> str | None:
-        # Held the first time only, so a readmitted unit goes on to review and
-        # the count of starts is exact rather than the pass's rebuild limit.
-        runs.append(1)
-        return "held" if len(runs) == 1 else None
-
-    builder.scripts["sent/1"] = ends_once
-    builder.ends["sent/1"] = end
-    refreshes = count_refreshes(monkeypatch)
-
-    def slow() -> str | None:
-        if not readmitted:
-            wait_for(lambda: "sent/1" in builder.finished, what="sent/1 to finish", timeout=WAIT)
-            # Several refreshes, in which a readmission would show.
-            refreshes.wait_for(refreshes.count + SEVERAL_REFRESHES, timeout=WAIT)
-            return None
-        return wait_for(
-            lambda: builder.started.count("sent/1") == 2,
-            what="sent/1 to be started a second time",
-            timeout=WAIT,
-        )
-
-    builder.scripts["slow/1"] = slow
-
-    assert tick(inst) == 0
 
 
 # --- the build's own checks name the cause they found ----------------------------------

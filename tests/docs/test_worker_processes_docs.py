@@ -17,7 +17,7 @@ def document(name: str) -> str:
 def test_the_architecture_document_describes_the_mode_and_the_wake_path() -> None:
     text = document("architecture.md")
 
-    assert "workers.mode" in text
+    assert "workers.mode" not in text
     assert re.search(r"processes.{0,200}dispatcher|dispatcher.{0,200}processes", text, re.I)
     assert "runs/wake" in text
     assert re.search(r"path unit", text, re.I)

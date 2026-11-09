@@ -9,7 +9,6 @@ from __future__ import annotations
 
 import argparse
 import asyncio
-import threading
 from pathlib import Path
 from typing import Any
 
@@ -25,10 +24,7 @@ from agent_build_kit.pipeline.resolution_lane import Lane
 from agent_build_kit.pipeline.usage_guard import Decision
 from tests.conftest import make_installation
 from tests.graph_driver import GRAPH_DRIVER_TIME_LIMIT, fresh
-from tests.inline_workers import install as install_inline_workers
-from tests.inline_workers import tick_and_wait
 from tests.runner_fakes import Recorder, make_runner
-from tests.waiting import wait_for
 
 TICK_DRIVER_TIME_LIMIT = GRAPH_DRIVER_TIME_LIMIT
 UNIT = "add-marker/1"
@@ -38,34 +34,6 @@ NEEDING_PARENT = (
     "# Tasks\n\n## 1. [app] [unit-test] Do the work\n\nNeeds: parent group 1 — a reason\n\n"
     "- [ ] 1.1 Test: it works\n- [ ] 1.2 Make it work\n"
 )
-
-
-class Refreshes:
-    """How many times a tick has refreshed (run `poll_all`), for a test to wait on."""
-
-    def __init__(self) -> None:
-        self._count = 0
-        self._lock = threading.Lock()
-
-    @property
-    def count(self) -> int:
-        with self._lock:
-            return self._count
-
-    def record(self) -> None:
-        with self._lock:
-            self._count += 1
-
-    def wait_for(self, runs: int, *, timeout: float = 10.0) -> None:
-        """Return once `runs` refreshes have run; raise TimeoutError after `timeout`."""
-        wait_for(lambda: self.count >= runs, what=f"{runs} refreshes", timeout=timeout)
-
-
-def count_refreshes(patch: pytest.MonkeyPatch) -> Refreshes:
-    """Replace the tick's `poll_all` with a no-op that counts its runs."""
-    refreshes = Refreshes()
-    patch.setattr(cli, "poll_all", lambda inst, **kwargs: refreshes.record())
-    return refreshes
 
 
 class Setup:
@@ -80,7 +48,7 @@ class Setup:
         self.store = recorder.store
 
     def tick(self) -> int:
-        return tick_and_wait(self.inst, argparse.Namespace(dry_run=False, only=None))
+        return cli.cmd_tick(argparse.Namespace(dry_run=False, only=None), self.inst)
 
     def dry_tick(self) -> int:
         return cli.cmd_tick(argparse.Namespace(dry_run=True, only=None), self.inst)
@@ -134,7 +102,6 @@ def make_setup(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Setup:
     def runner(u: Any, **kwargs: Any) -> Any:
         return make_runner(recorder.store, recorder, tmp_path, **options)
 
-    install_inline_workers(monkeypatch)
     monkeypatch.setattr(cli, "build_runner", runner)
     monkeypatch.setattr(cli, "fetch_all", lambda inst: None)
     monkeypatch.setattr(cli, "poll_all", lambda inst, **kwargs: None)

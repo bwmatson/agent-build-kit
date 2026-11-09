@@ -337,7 +337,9 @@ class StoredUnit(Unit):
     starting: Starting | None = None
     pr: int | None = None
     # The merge commit and the tick number that first saw the unit merged; None before it
-    # merged, and for a unit merged before they were kept.
+    # merged, and for a unit merged before they were kept. The tick number is history only: no
+    # rule reads it now that a merge is loaded by a worker starting afresh, and it stays so a
+    # stored record keeps its field (the schema forbids unknown ones).
     merge_sha: str | None = None
     merged_tick: int | None = None
     pulls: tuple[Pull, ...] = ()

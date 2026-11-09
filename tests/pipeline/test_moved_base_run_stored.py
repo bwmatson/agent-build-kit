@@ -15,7 +15,6 @@ from tests.tick_pass import isolate
 
 UNIT = "add-marker/1"
 WAIT = 30
-SEVERAL_REFRESHES = 5
 
 pytestmark = pytest.mark.usefixtures("scripted_engine")
 

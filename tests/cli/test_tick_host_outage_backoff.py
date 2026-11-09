@@ -13,14 +13,10 @@ from agent_build_kit.cli import pipeline as cli
 from agent_build_kit.pipeline.unit_store import Cause, UnitStore
 from agent_build_kit.pipeline.units import FAILED, PLANNED
 from tests.cli.test_tick_scheduling import (  # noqa: F401
-    SEVERAL_REFRESHES,
-    WAIT,
-    Builder,
     builder,
     isolated,
     stored,
     tick,
-    warm_unit_graphs,
     workspace,
 )
 from tests.fake_clock import FakeClock, install

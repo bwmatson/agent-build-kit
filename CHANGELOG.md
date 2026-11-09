@@ -12,10 +12,9 @@
   depends on it. A reused session is not told again. The reviewer is given a checklist of the
   judgements a program cannot make, and does not raise findings on standards a guard enforces.
 
-- `workers.mode` is removed, at the top level and under a repo: every unit now runs as a worker
-  process, and a configuration that still names the key is refused with a message saying so.
-  The tick no longer has a thread pool or a per-pass rebuild budget; delete the key from
-  `abk.yaml` and its overlay before updating.
+- The tick no longer builds in a thread pool or keeps a per-pass rebuild budget: every unit,
+  resolution run and live verification is a worker. A configuration that names `workers.mode`,
+  at the top level or under a repo, is refused with a message saying the key has been removed.
 
 - A project's resolution runs (restacks, moved-base runs and
   comment reworks) now run as `abk worker resolve <project>`, and the deploy and live tests of
@@ -320,15 +319,13 @@
   a worker as a transient systemd user unit (with the optional `workers.memory_max` and
   `workers.cpu_weight`), or as a detached process where the user manager is unavailable.
   `abk install-timers` also installs a path unit that watches `runs/wake` and starts a tick, and
-  `abk requeue`, `abk approve` and `abk attach release` touch that file. With
-  `workers.mode: processes` (default `threads`), `abk tick` is a dispatcher: it takes a dispatcher
-  lock (a second dispatcher exits at once), admits ready units up to the limits, starts a worker
-  for each and exits without waiting. A unit sent back more than six times in an hour is held for
-  a person. `repos.<name>.workers.mode` overrides the mode for one repo's units, so repos can be
-  moved over one at a time, and `abk status` shows each repo's mode and lists each running worker
-  (unit, pid, start time and, when systemd reports them, CPU and memory) or says none run.
-  `abk doctor` checks lingering, `systemd-run` and the wake path unit when `workers.mode` is
-  `processes` for the workspace or any repo.
+  `abk requeue`, `abk approve` and `abk attach release` touch that file. `abk tick` is always a
+  dispatcher: it takes a dispatcher lock (a second dispatcher exits at once), admits ready units
+  up to the limits, starts a worker for each and exits without waiting. There is no setting that
+  chooses a mode, at the top level or per repo. A unit sent back more than six times in an hour
+  is held for a person. `abk status` lists each running worker (unit, pid, start time and, when
+  systemd reports them, CPU and memory) or says none run. `abk doctor` always checks lingering,
+  `systemd-run` and the wake path unit.
 
 - The installation-leak gate now reads the repository's files once for all its scans instead of
   once per scan, and the secret-leak guard module no longer scans the test tree when it is

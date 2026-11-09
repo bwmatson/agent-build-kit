@@ -1,5 +1,5 @@
 """`abk doctor` checks the transient-unit path a worker needs: lingering, `systemd-run` and the
-wake path unit, in `processes` mode only (spec: unit-workers)."""
+wake path unit (spec: unit-workers)."""
 
 from __future__ import annotations
 

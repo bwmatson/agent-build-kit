@@ -28,8 +28,6 @@ from agent_build_kit.pipeline.units import HELD, IN_REVIEW, PLANNED, RUNNING, Un
 from agent_build_kit.pipeline.usage_guard import Decision
 from tests.conftest import make_installation
 from tests.factories import own_group
-from tests.inline_workers import install as install_inline_workers
-from tests.inline_workers import tick_and_wait
 
 MOVED_NOTE = "held before implement: its base moved from spec/a/1 to main while it built"
 
@@ -45,7 +43,6 @@ def isolate(monkeypatch: pytest.MonkeyPatch) -> None:
     """Everything around building stubbed: GitHub, the network, planning,
     live verification and the usage window. Tests about those replace the
     stub they need."""
-    install_inline_workers(monkeypatch)
     monkeypatch.setattr(cli, "poll_all", lambda inst, **kwargs: None)
     monkeypatch.setattr(cli, "fetch_all", lambda inst: None)
     monkeypatch.setattr(cli, "plan_all", lambda inst, **kwargs: None)
@@ -97,11 +94,11 @@ def stored(uid: str, **overrides) -> StoredUnit:
 
 
 def tick(inst: Installation, *, only: list[str] | None = None) -> int:
-    """`abk tick` once, then the workers it started run to their ends."""
+    """`abk tick` once; the workers it started have run to their ends when it returns."""
     args = argparse.Namespace(dry_run=False)
     if only is not None:
         args.only = only
-    return tick_and_wait(inst, args)
+    return cli.cmd_tick(args, inst)
 
 
 class Builder:

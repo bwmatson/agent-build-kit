@@ -375,24 +375,6 @@ def test_a_unit_that_raises_is_recorded_as_failed_and_the_tick_continues(
     assert store.get("add-marker/1").state == "failed"
 
 
-def test_a_pause_resumes_when_the_window_resets(
-    healthy, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
-    """Not the generic retry: the window's own reset is known, and waking
-    before it just burns a tick finding the window still full."""
-    # Keep the marker the build wrote, which a later round would clear on an allowing guard.
-    monkeypatch.setattr(cli, "clear_pause", lambda marker: None)
-    UnitStore(tmp_path / "units.json").upsert([stored()])
-    resets = datetime.now(UTC) + timedelta(hours=3)
-    monkeypatch.setattr(cli, "current_usage", lambda: reading(resets_at=resets))
-    monkeypatch.setattr(cli, "build_runner", lambda unit, **kwargs: Pausing())
-
-    cli.cmd_tick(argv_namespace(dry_run=False), inst)
-
-    paused = json.loads((tmp_path / "paused.json").read_text())
-    assert datetime.fromisoformat(paused["until"]) > resets
-
-
 def test_a_unit_that_pauses_records_the_pause_without_stopping_the_others(
     healthy, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:

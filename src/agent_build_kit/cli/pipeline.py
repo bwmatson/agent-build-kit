@@ -1929,7 +1929,7 @@ def _next_rebuild(stored: StoredUnit, now: datetime) -> tuple[int, datetime] | N
 
 
 def unclaimed_runs(inst: Installation, units: Sequence[StoredUnit]) -> list[str]:
-    """The ids of the units of a repo in `processes` mode that are owed a resolution run and that
+    """The ids of the units that are owed a resolution run and that
     no worker has been started for (a live `starting` marker): the runs the resolve workers
     take up to the project's `max_concurrent_resolutions`, and a comment rework beyond that
     may be run by an ordinary build worker. Read from the repositories' branches."""
@@ -1939,8 +1939,8 @@ def unclaimed_runs(inst: Installation, units: Sequence[StoredUnit]) -> list[str]
 
 
 def _dispatch_resolutions(inst: Installation, store: UnitStore) -> None:
-    """Start `abk worker resolve <project>` for the resolution runs owed in the repos of
-    `processes` mode, never waiting for one. A project has at most `max_concurrent_resolutions`
+    """Start `abk worker resolve <project>` for the resolution runs owed, never waiting for
+    one. A project has at most `max_concurrent_resolutions`
     runs at once, those a live worker's record names (`lane_record`) and those claimed for a
     worker just started; each claim is a `starting` marker for `resolve-<pid>`, which holds a
     place in the lane and no build worker. A run owed beyond that is left for the round, which
@@ -2628,7 +2628,8 @@ def apply_project_lines(inst: Installation, store: UnitStore) -> None:
 
 
 def _verified_by_worker(inst: Installation, units: Sequence[StoredUnit], change: str) -> bool:
-    """Whether the change's verification is a worker's: every change a unit carries is."""
+    """Whether `change` is verified by a worker: it is whenever a unit carries it, and every
+    change is verified that way now."""
     return any(unit.carries(change) for unit in units)
 
 
@@ -2660,8 +2661,8 @@ def _verify_and_archive(
 ) -> None:
     """Archive the changes whose units are all satisfied and verified live.
 
-    A change in `processes` mode is verified by a worker that records the result; the round
-    archives it once the record shows a pass over its current merged units."""
+    A change is verified by a worker that records the result; the round archives it once the
+    record shows a pass over its current merged units."""
 
     def never(change: str) -> bool:
         return False

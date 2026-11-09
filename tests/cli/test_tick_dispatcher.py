@@ -1,4 +1,4 @@
-"""`abk tick` with `workers.mode: processes` is a dispatcher (spec: unit-workers): it admits ready
+"""`abk tick` is a dispatcher (spec: unit-workers): it admits ready
 units up to the limits, marks them `starting`, starts one worker for each and exits without waiting
 for any; a second dispatcher exits at once; a unit with a usage pause that has not reached its time
 is given no worker and still holds its place."""

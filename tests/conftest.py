@@ -47,6 +47,7 @@ from tests.checkout_env import without_checkout_env
 from tests.forges.azure_rest_host import refusal
 from tests.forges.github_server import FakeGitHub
 from tests.forges.mock_host import MockHost, ok, recorded
+from tests.inline_workers import WORKERS, install
 from tests.sandboxes.stand_in import platform_stand_in
 from tests.usage_host import Host
 
@@ -483,22 +484,15 @@ def run_status(
 
 
 @pytest.fixture(autouse=True)
-def tick_workers_run_in_process(monkeypatch: pytest.MonkeyPatch) -> None:
+def tick_workers_run_in_process(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
     """A tick dispatches workers and returns; in a test the workers are threads of this process
     and `cmd_tick` returns once they have ended, so a test reads what the tick built. A test
-    of the dispatcher replaces the spawner with its own fake."""
-    from tests.inline_workers import WORKERS, install
-
+    of the dispatcher replaces the spawner with its own fake. No worker outlives its test, and
+    what one test left is not raised in the next."""
+    WORKERS.reset()
     install(monkeypatch)
-    dispatch = pipeline_cli.cmd_tick
-
-    def tick_and_wait(args: argparse.Namespace, inst: Installation) -> int:
-        try:
-            return dispatch(args, inst)
-        finally:
-            WORKERS.join()
-
-    monkeypatch.setattr(pipeline_cli, "cmd_tick", tick_and_wait)
+    yield
+    WORKERS.reset()
 
 
 @pytest.fixture(autouse=True)
