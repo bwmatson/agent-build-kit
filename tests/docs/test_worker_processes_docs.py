@@ -45,17 +45,6 @@ def test_the_configuration_document_says_where_the_wake_file_is_and_what_touches
     assert re.search(r"abk install-timers", text)
 
 
-def test_the_design_document_marks_steps_two_and_three_done() -> None:
-    text = (DOCS / "designs" / "worker-design.md").read_text(encoding="utf-8")
-
-    for step, title in ((2, "The worker entry point and the spawner"), (3, "The dispatcher mode")):
-        match = re.search(rf"^{step}\. \*\*{title}.*?\*\*", text, re.M)
-        assert match, f"step {step} not found"
-        assert "(done)" in match.group(0)
-    later = re.search(r"^4\. \*\*.*?\*\*", text, re.M)
-    assert later and "(done)" not in later.group(0)
-
-
 def test_the_changelog_says_what_status_and_doctor_show() -> None:
     bullets = [b for b in unreleased_bullets() if "abk worker build" in b]
 

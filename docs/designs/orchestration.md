@@ -1,7 +1,7 @@
 # One orchestrator, many workers: a local and a cloud deployment
 
-The kit runs on one machine today. A timer starts `abk tick`, which builds units in its own threads or, in `processes` mode, starts `abk worker build <unit>`
-processes on the same host ([worker-design.md](worker-design.md)). Every piece of coordination between them is a local file: `fcntl.flock` locks, pid-file
+The kit runs on one machine today. A timer starts `abk tick`, a dispatcher that starts an `abk worker build|resolve|verify`
+process for each piece of work on the same host and exits ([worker-design.md](worker-design.md)). Every piece of coordination between them is a local file: `fcntl.flock` locks, pid-file
 branch locks judged by the process start time and the host name, about twenty-five read-modify-write JSON stores and ten JSONL ledgers in `state_dir`, a SQLite
 checkpointer and the locks in the machine's `local_dir`, and a wake file watched by a systemd path unit. The documents say one pipeline host is supported, and the capacity of a run is the capacity of that host.
 

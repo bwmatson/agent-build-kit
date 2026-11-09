@@ -36,10 +36,8 @@ def test_the_architecture_document_names_the_snapshot_api() -> None:
     assert re.search(r"snapshot API.{0,600}\bage\b|\bage\b.{0,600}snapshot API", text, re.I)
 
 
-def test_the_worker_design_marks_migration_step_one_as_done() -> None:
+def test_the_worker_design_records_the_foundations_as_history() -> None:
     text = (DOCS / "designs" / "worker-design.md").read_text(encoding="utf-8")
-    migration = text[text.index("\n## Migration") :]
-    step = re.search(r"^1\. .*?(?=^2\. )", migration, re.M | re.S)
-    assert step, "migration step 1 not found"
-    heading = squashed(step.group(0)).split("Branch-lock", 1)[0]
-    assert re.search(r"\bdone\b", heading, re.I)
+    assert "\n## Migration" not in text
+    history = text[text.index("\n## History") :]
+    assert re.search(r"foundations.{0,200}branch-lock identity", squashed(history), re.I)

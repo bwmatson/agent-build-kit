@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- The architecture, unit-graph and worker design documents and the `abk-pipeline` skill now
+  describe a tick as a dispatcher that starts worker processes, and say how to read the
+  worker list in `abk status`, which is read from the branch locks. The worker design is now a description of what exists, with
+  a short history in place of its migration plan.
+
 - A plan of a change is now shown a merged unit of another change when that unit carries
   one of the change's groups by a join, and the group is marked as built by it, so the
   planner leaves it out instead of claiming it and being refused.
