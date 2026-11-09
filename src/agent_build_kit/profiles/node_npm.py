@@ -3,10 +3,11 @@
 `abk init` detects such repos and writes their specs (research and proposal
 are language-agnostic); `abk tick` holds a unit that reaches a method that raises
 `ProfileUnsupported`, which this profile does not. Implemented, by method of
-`profiles.base.ToolchainProfile`: `npx oxlint` and `npx oxfmt --check` as the lint,
-`npx tsc --noEmit` as the project check, `npx vitest run` with a JUnit report for the
-tests, the clean and red commands, judging a red run, and `.test`/`.spec` files and
-`__tests__/` as test paths.
+`profiles.base.ToolchainProfile`: the whole-folder lint, format check and type check, which run
+the project's `lint`, `format:check` and `typecheck` scripts when its `package.json` defines
+them and `npx oxlint`, `npx oxfmt --check` and `npx tsc --noEmit` otherwise, `npx vitest run`
+with a JUnit report for the tests, the clean and red commands, judging a red run, and
+`.test`/`.spec` files and `__tests__/` as test paths.
 The stub check (`throw new Error("not implemented")` as the permitted body) and the files the
 commands create are implemented too.
 npm workspace members (the `workspaces` field, globs expanded) are tested one command each
@@ -81,7 +82,30 @@ _FILTERED = wrap_report_command(f'cd "$1" && shift && {_RUN} "$@"', "--outputFil
 _TEST_SCRIPTS = (_TESTS, _MEMBER_TESTS, _FILTERED)
 # The directory of a project that is not a workspace, or the root of one.
 _HERE = "./"
-_LINT_ALL = "npx oxlint . && npx oxfmt --check ."
+
+
+def _script_or(script: str, generic: str) -> str:
+    """A shell command running the project's own `script` when its `package.json` (in the
+    folder the command runs in) defines it, and `generic` otherwise."""
+    # The manifest is read by node, which is present wherever `npm run` is; a missing or
+    # unparsable manifest, or no node, leaves the generic tool.
+    read = (
+        'const s=(require("./package.json").scripts)||{};'
+        'process.exit(typeof s[process.argv[1]]==="string"?0:1)'
+    )
+    probe = f"node -e {shlex.quote(read)} {shlex.quote(script)} 2>/dev/null"
+    return f"if {probe}; then npm run {script}; else {generic}; fi"
+
+
+# The whole-folder lint and format check: each follows the project's script when it has one.
+_LINT_ALL = (
+    f"{_script_or('lint', 'npx oxlint .')} && {_script_or('format:check', 'npx oxfmt --check .')}"
+)
+# The type check follows the project's `typecheck` script the same way.
+_TYPE_CHECK_ALL = _script_or("typecheck", shlex.join(_TYPE_CHECK_ARGV))
+_TYPE_CHECK_COMMAND = ["sh", "-c", _TYPE_CHECK_ALL]
+
+
 # The red command lists the files it was given, one per line before the report, so the judge
 # can tell their suites from any other the runner's substring filters selected.
 _RED_FILE = "abk red file: "
@@ -294,7 +318,11 @@ class NodeNpmProfile:
             words = shlex.split(command or header.removeprefix("$ "))
         except ValueError:
             return "lint"
-        if words[:2] == ["npx", _TYPE_CHECK]:
+        if (
+            words[:2] == ["npx", _TYPE_CHECK]
+            or words[:3] == ["npm", "run", "typecheck"]
+            or words == _TYPE_CHECK_COMMAND
+        ):
             return "types"
         is_tests = words[:2] == ["sh", "-c"] and words[2:3] and words[2] in _TEST_SCRIPTS
         return "test" if is_tests else "lint"
@@ -304,7 +332,7 @@ class NodeNpmProfile:
 
     def project_checks(self, repo: RepoConfig) -> list[list[str]]:
         """The type check, over the whole project: `tsc` cannot be scoped to files."""
-        return [list(_TYPE_CHECK_ARGV)]
+        return [list(_TYPE_CHECK_COMMAND)]
 
     def e2e_commands(self, repo: Path, *, marker: str) -> list[list[str]]:
         """The files named for `marker`, in each member of a workspace or else the project."""
@@ -348,7 +376,7 @@ class NodeNpmProfile:
         """Lint and the format check over the project; with `types`, the project's type check
         too. Without it none runs, since in a build that is not stubbed a test importing what
         does not exist yet is the expected state at the tests commit."""
-        return f"{_LINT_ALL} && {shlex.join(_TYPE_CHECK_ARGV)}" if types else _LINT_ALL
+        return f"{_LINT_ALL} && {_TYPE_CHECK_ALL}" if types else _LINT_ALL
 
     def red_command(self, files: list[str], ids: list[str] | None = None) -> str:
         """Vitest with `files` as its filters, its JUnit report printed after the marker so it
