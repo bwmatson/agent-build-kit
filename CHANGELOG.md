@@ -61,7 +61,8 @@
   `format:check` scripts when its `package.json` defines them, and the generic tools for the
   ones it does not, so files outside the folders a project's scripts cover no longer fail
   the gate. The type check likewise runs the project's `typecheck` script when it defines one,
-  and a failed `npm run typecheck` is reported as a type failure.
+  and a failed `npm run typecheck` is reported as a type failure. The note a rework gets about
+  the checks CI ran, and the commands a build agent is told it may run, name the same commands.
 
 - The three kinds of test are now stated once, in the `integration` and `e2e` marker
   descriptions and in `AGENTS.md`, with the same rule for each. The tests step now checks that

@@ -132,6 +132,7 @@ from agent_build_kit.pipeline.workspaces import (
     unit_tree,
 )
 from agent_build_kit.pipeline.workspaces import remove_worktree as drop_worktree
+from agent_build_kit.profiles.base import ReproduceCommands
 from agent_build_kit.runtimes.base import (
     AgentInterrupted,
     AgentRateLimited,
@@ -1493,12 +1494,18 @@ def _reproduce_note(repo: str) -> str:
     Said here, not by each forge: the command is the toolchain's, not the
     host's, and every host's rework needs it.
     """
-    from agent_build_kit.config import active
+    from agent_build_kit.config import active, active_checkout
 
     entry = active().repos.get(repo)
     if entry is None:
         return ""
-    lint = " ".join(profiles.get(entry.profile).lint_command_all_files())
+    profile = profiles.get(entry.profile)
+    if isinstance(profile, ReproduceCommands):
+        lint = "`, `".join(
+            " ".join(c) for c in profile.reproduce_commands(active_checkout(entry.path))
+        )
+    else:
+        lint = " ".join(profile.lint_command_all_files())
     return (
         "CI runs the repository's own checks over the whole repo. Before you change "
         f"anything, run them here to see what it saw: `{lint}`, then the tests. Fix what "

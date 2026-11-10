@@ -98,11 +98,31 @@ def _script_or(script: str, generic: str) -> str:
 
 
 # The whole-folder lint and format check: each follows the project's script when it has one.
-_LINT_ALL = (
-    f"{_script_or('lint', 'npx oxlint .')} && {_script_or('format:check', 'npx oxfmt --check .')}"
+# Each check is its script's name and the generic tool that runs when the project has no such
+# script, written once for the gate's shell command, the rework note and the agent's commands.
+_LINT = ("lint", ["npx", "oxlint", "."])
+_FORMAT = ("format:check", ["npx", "oxfmt", "--check", "."])
+_TYPE = ("typecheck", _TYPE_CHECK_ARGV)
+_AGENT_TEST = AgentCommand(
+    purpose=AgentPurpose.TEST,
+    command=["npx", "vitest", "run", "{path}"],
+    scope=AgentScope.FILE,
 )
+
+
+def _gate_shell(check: tuple[str, list[str]]) -> str:
+    return _script_or(check[0], shlex.join(check[1]))
+
+
+def _chosen(folder: Path, check: tuple[str, list[str]]) -> list[str]:
+    """The argv the gate runs for `check` in `folder`: the project's script, else the tool."""
+    script, generic = check
+    return ["npm", "run", script] if _defines(folder, script) else list(generic)
+
+
+_LINT_ALL = f"{_gate_shell(_LINT)} && {_gate_shell(_FORMAT)}"
 # The type check follows the project's `typecheck` script the same way.
-_TYPE_CHECK_ALL = _script_or("typecheck", shlex.join(_TYPE_CHECK_ARGV))
+_TYPE_CHECK_ALL = _gate_shell(_TYPE)
 _TYPE_CHECK_COMMAND = ["sh", "-c", _TYPE_CHECK_ALL]
 
 
@@ -195,20 +215,26 @@ def _failure(case: ElementTree.Element) -> tuple[str, ElementTree.Element | None
     return name, bad if bad is not None else case.find("error")
 
 
+def _defines(folder: Path, script: str) -> bool:
+    """Whether the `package.json` in `folder` defines `script` (the Python twin of the probe
+    `_script_or` runs in the shell)."""
+    try:
+        scripts = json.loads((folder / "package.json").read_text()).get("scripts")
+    except (OSError, ValueError, AttributeError):
+        return False
+    return isinstance(scripts, dict) and isinstance(scripts.get(script), str)
+
+
 class NodeNpmProfile:
     name: str = "node-npm"
     detect_markers: tuple[str, ...] = ("package-lock.json", "package.json")
     supports_stubs = True
     allowed_tools: str = "Bash(npm *) Bash(npx *)"
     agent_commands: tuple[AgentCommand, ...] = (
-        AgentCommand(
-            purpose=AgentPurpose.TEST,
-            command=["npx", "vitest", "run", "{path}"],
-            scope=AgentScope.FILE,
-        ),
-        AgentCommand(purpose=AgentPurpose.LINT, command=["npx", "oxlint", "."]),
-        AgentCommand(purpose=AgentPurpose.FORMAT, command=["npx", "oxfmt", "--check", "."]),
-        AgentCommand(purpose=AgentPurpose.CHECK, command=list(_TYPE_CHECK_ARGV)),
+        _AGENT_TEST,
+        AgentCommand(purpose=AgentPurpose.LINT, command=list(_LINT[1])),
+        AgentCommand(purpose=AgentPurpose.FORMAT, command=list(_FORMAT[1])),
+        AgentCommand(purpose=AgentPurpose.CHECK, command=list(_TYPE[1])),
     )
     prompt_words: PromptWords = PromptWords(
         verify="linting and type checks (oxlint, tsc --noEmit)",
@@ -237,6 +263,25 @@ class NodeNpmProfile:
 
     def lint_command_all_files(self) -> list[str]:
         return ["sh", "-c", _LINT_ALL]
+
+    def reproduce_commands(self, folder: Path) -> list[list[str]]:
+        """The whole-folder lint and format check the gate runs in `folder`."""
+        return [
+            _chosen(folder, _LINT),
+            _chosen(folder, _FORMAT),
+        ]
+
+    def agent_commands_in(self, folder: Path) -> tuple[AgentCommand, ...]:
+        """The commands a build agent may run in `folder`: the gate's own lint, format check
+        and type check, beside the profile's test command."""
+        lint, fmt = self.reproduce_commands(folder)
+        check = _chosen(folder, _TYPE)
+        return (
+            _AGENT_TEST,
+            AgentCommand(purpose=AgentPurpose.LINT, command=lint),
+            AgentCommand(purpose=AgentPurpose.FORMAT, command=fmt),
+            AgentCommand(purpose=AgentPurpose.CHECK, command=check),
+        )
 
     def test_commands(
         self,
