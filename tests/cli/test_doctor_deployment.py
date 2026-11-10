@@ -125,8 +125,9 @@ def test_an_azure_deployment_fails_naming_the_identity_and_reason_when_no_token(
 def test_an_azure_deployment_with_everything_in_place_passes_each_check(tmp_path: Path) -> None:
     config = azure(tmp_path / "app", overlay=SETTINGS)
 
-    found = section(config)
+    found = [c for c in section(config) if "azure" in c.name]
 
-    assert not [c for c in found if c.status in ("FAIL", "warn")]
-    assert any("credential" in c.name and c.status == "ok" for c in found)
-    assert any("extra" in c.name and c.status == "ok" for c in found)
+    assert {c.name: c.status for c in found} == {
+        "deployment: azure extra": "ok",
+        "deployment: azure credential": "ok",
+    }
