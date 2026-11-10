@@ -23,6 +23,7 @@
   with a local implementation that reads and writes the same files under the state directory
   as before, redacting text before it is stored. The deployment registry finds it for a
   `local` deployment.
+
 - The check that follows a review's rework now selects the affected tests first and runs the
   full suite once only when that selection is green, as a fix round's check does, instead of
   running the whole suite at once.
