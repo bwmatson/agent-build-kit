@@ -4,11 +4,9 @@ from __future__ import annotations
 
 from contextlib import nullcontext
 from pathlib import Path
-from typing import Any
 
 import pytest
 
-from agent_build_kit.pipeline.events import RestackOutcome
 from agent_build_kit.pipeline.resolution_lane import owed_a_restack
 from agent_build_kit.pipeline.unit_store import Cause, StoredUnit
 from agent_build_kit.pipeline.units import IN_REVIEW, PLANNED
@@ -17,8 +15,14 @@ from tests.conflict_event_fakes import PARENT, UNIT, ConflictRig
 from tests.factories import stored_unit
 
 
-def deferred(**kwargs: Any) -> RestackOutcome:
-    return RestackOutcome.DEFERRED
+def deferred_move(rig: ConflictRig) -> None:
+    """What a resolve worker leaves a unit as when its conflict move could not run now."""
+    rig.store.set_state(
+        UNIT,
+        IN_REVIEW,
+        note="conflict move deferred: could not run now",
+        cause=Cause.RESTACK_DEFERRED,
+    )
 
 
 def owed(rig: ConflictRig) -> bool:
@@ -32,26 +36,12 @@ def owed(rig: ConflictRig) -> bool:
     )
 
 
-def test_a_deferred_move_leaves_the_unit_in_review_with_the_deferred_cause_and_a_note(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    rig = ConflictRig(tmp_path, monkeypatch)
-    rig.restack = deferred
-
-    rig.conflict()
-
-    stored = rig.stored()
-    assert (stored.state, stored.cause) == (IN_REVIEW, Cause.RESTACK_DEFERRED)
-    assert stored.history[-1]["note"] == "conflict move deferred: could not run now"
-
-
 def test_a_unit_whose_conflict_move_was_deferred_is_owed_its_restack(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     rig = ConflictRig(tmp_path, monkeypatch)
-    rig.restack = deferred
 
-    rig.conflict()
+    deferred_move(rig)
 
     assert owed(rig)
 
@@ -60,8 +50,7 @@ def test_follow_predecessors_leaves_a_unit_whose_conflict_move_was_deferred_wher
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     rig = ConflictRig(tmp_path, monkeypatch)
-    rig.restack = deferred
-    rig.conflict()
+    deferred_move(rig)
     # A replan then stacks the unit on a predecessor that keeps the runtime fields it has.
     rig.store.upsert(
         [stored_unit(PARENT, change="parent"), stored_unit(UNIT, depends_on=(PARENT,))]

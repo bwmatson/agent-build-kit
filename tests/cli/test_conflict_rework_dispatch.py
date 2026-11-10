@@ -1,10 +1,10 @@
-"""A unit sent back for a conflict has its run started at the move, in the lane, and not in a build
-worker (spec: restack-conflicts, a conflict rework starts with the move).
+"""A unit sent back for a conflict is only recorded by the poll: no move is made and nothing is
+handed to a lane, so the run that starts at the move is a resolve worker's (spec:
+restack-conflicts, a conflict rework starts with the move).
 
 The scene is `test_restack_lane_prepare`'s: `add-marker/2` is in review on a branch behind
-`main`, approved, with a real repository under it, so the move that `prepare` makes is the
-pipeline's own. Its thread is dropped, so the event meets a unit with none. The poll is the
-real `poll_all` over the dispatch, handed a real lane.
+`main`, approved, with a real repository under it. Its thread is dropped, so the event meets a unit
+with none. The poll is the real `poll_all` over the dispatch.
 """
 
 from __future__ import annotations
@@ -15,13 +15,11 @@ from pathlib import Path
 
 import pytest
 
-from agent_build_kit.cli import pipeline as cli
 from agent_build_kit.graph.checkpointer import open_checkpointer, unit_graphs_path
 from agent_build_kit.pipeline.events import build_base_tip
 from agent_build_kit.pipeline.pr_poller import CONFLICT_REASON
 from agent_build_kit.pipeline.unit_store import HeldBy, ReworkKind
-from agent_build_kit.pipeline.units import FAILED, HELD, IN_REVIEW
-from tests.factories import git
+from agent_build_kit.pipeline.units import HELD, IN_REVIEW
 from tests.graph.test_restack_lane_prepare import BRANCH, Scene
 from tests.tick_driver import OTHER, Setup, make_setup
 
@@ -50,44 +48,28 @@ def without_thread(scene: Scene) -> None:
     scene.graph.recorder.logged.clear()
 
 
-def moved_in_the_lane(scene: Scene) -> bool:
-    return bool(scene.calls) and all(scene.calls)
+def left_for_a_worker(scene: Scene) -> None:
+    """The poll recorded the unit as sent back for the conflict and moved nothing."""
+    assert scene.calls == [], "nothing moved in the poll"
+    assert scene.graph.store.get(OTHER).sent_back_for_conflict
 
 
-def settled_by_the_move(scene: Scene) -> None:
-    """The move settled the conflict: its feedback is gone, and no port or rework agent ran for
-    it (the feedback alone would also be gone after a rework that answered it)."""
-    logged = scene.graph.recorder.logged
-    assert any("restacked onto main cleanly" in line for line in logged)
-    assert not any("rework from feedback" in line for line in logged), logged
-    assert not any("adapt onto" in line for line in logged), logged
-    assert scene.graph.store.get(OTHER).feedback == ""
-
-
-def test_a_unit_with_no_thread_sent_back_for_a_conflict_starts_at_the_move_in_the_lane(
+def test_a_unit_with_no_thread_sent_back_for_a_conflict_is_recorded_and_not_moved(
     graph: Setup, tmp_path: Path
 ) -> None:
     scene = Scene(graph, tmp_path)
     without_thread(scene)
 
-    with cli.build_restack_lane(graph.inst, graph.store) as lane:
-        scene.lane = lane
-        answers = graph.poll(
-            ("rework", {"reason": CONFLICT_REASON, "rework": ReworkKind.CONFLICT}),
-            pr=PR,
-            lane=lane,
-        )
-        lane.drain()
+    answers = graph.poll(
+        ("rework", {"reason": CONFLICT_REASON, "rework": ReworkKind.CONFLICT}), pr=PR
+    )
 
     assert answers == [True]
-    assert moved_in_the_lane(scene), "the run began with the move, in a lane worker"
-    assert git(scene.repo, "merge-base", "--is-ancestor", "main", BRANCH) == ""
-    stored = graph.store.get(OTHER)
-    settled_by_the_move(scene)
-    assert stored.state != FAILED
+    left_for_a_worker(scene)
+    assert graph.store.get(OTHER).conflict_attempts == 0, "the worker's run counts it"
 
 
-def test_a_second_attempt_at_a_tip_for_a_unit_with_no_thread_runs_in_the_lane(
+def test_a_second_attempt_at_a_tip_for_a_unit_with_no_thread_is_recorded_and_not_moved(
     graph: Setup, tmp_path: Path
 ) -> None:
     scene = Scene(graph, tmp_path)
@@ -97,17 +79,11 @@ def test_a_second_attempt_at_a_tip_for_a_unit_with_no_thread_runs_in_the_lane(
         OTHER, tip=tip, head="an-earlier-head", attempts=1, at=EARLIER + timedelta(minutes=1)
     )
 
-    with cli.build_restack_lane(graph.inst, graph.store) as lane:
-        scene.lane = lane
-        answers = graph.poll(
-            ("conflict", {"since": EARLIER, "read_at": datetime.now(UTC)}), pr=PR, lane=lane
-        )
-        lane.drain()
+    answers = graph.poll(("conflict", {"since": EARLIER, "read_at": datetime.now(UTC)}), pr=PR)
 
     assert answers == [True]
-    assert moved_in_the_lane(scene)
-    assert git(scene.repo, "merge-base", "--is-ancestor", "main", BRANCH) == ""
-    settled_by_the_move(scene)
+    left_for_a_worker(scene)
+    assert graph.store.get(OTHER).conflict_attempts == 1, "the worker's run counts the next"
 
 
 def test_an_event_for_a_unit_a_person_holds_is_left_for_the_next_poll_and_taken_then(
@@ -118,15 +94,11 @@ def test_an_event_for_a_unit_a_person_holds_is_left_for_the_next_poll_and_taken_
     graph.store.set_state(OTHER, HELD, note="a person has it", held_by=HeldBy.REVIEWER)
     event = ("rework", {"reason": CONFLICT_REASON, "rework": ReworkKind.CONFLICT})
 
-    with cli.build_restack_lane(graph.inst, graph.store) as lane:
-        scene.lane = lane
-        assert graph.poll(event, pr=PR, lane=lane) == [False]
-        lane.drain()
-        assert scene.calls == [], "nothing moved while it was held"
+    assert graph.poll(event, pr=PR) == [False]
+    assert not graph.store.get(OTHER).sent_back_for_conflict, "nothing recorded while held"
 
-        graph.store.set_state(OTHER, IN_REVIEW)
-        assert graph.poll(event, pr=PR, lane=lane) == [True]
-        lane.drain()
+    graph.store.set_state(OTHER, IN_REVIEW)
+    assert graph.poll(event, pr=PR) == [True]
 
-    assert moved_in_the_lane(scene)
+    left_for_a_worker(scene)
     assert graph.store.get(OTHER).state != HELD

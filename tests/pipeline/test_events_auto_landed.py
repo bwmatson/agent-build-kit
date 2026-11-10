@@ -57,9 +57,9 @@ def test_children_and_cleanup_are_as_a_person_s_merge_leaves_them(tmp_path: Path
     by_pipeline = land(deep_store(tmp_path, "pipeline.json"), 1, Cause.AUTO_LANDED)
 
     assert by_pipeline == by_person
-    assert by_pipeline["restacked"] == [("spec/c/2", "spec/c/1", "main")]
+    assert by_pipeline["restacked"] == []
     assert by_pipeline["retargeted"] == [("c/4", "spec/c/3")]
-    assert by_pipeline["removed"] == ["spec/c/1"]
+    assert by_pipeline["removed"] == [], "c/2 is owed its move off the branch"
     assert by_pipeline["deleted"] == [], "c/4, held for depth, still builds on its branch"
 
 

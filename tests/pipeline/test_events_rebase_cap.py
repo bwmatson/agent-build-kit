@@ -40,24 +40,27 @@ def merge(store: UnitStore, pr: int, *, cap: int, recorder: Recorder, deleted: l
     )
 
 
-def test_a_dependent_within_the_rebase_cap_is_restacked_as_before(tmp_path: Path) -> None:
+def test_a_dependent_within_the_rebase_cap_is_recorded_as_owed_its_move(tmp_path: Path) -> None:
     store = deep_store(tmp_path)
     recorder, deleted = Recorder(), []
 
     merge(store, 1, cap=3, recorder=recorder, deleted=deleted)
 
-    assert sorted(recorder.branches) == ["spec/c/2", "spec/c/4"]
+    assert recorder.restacked == []
+    assert store.get("c/2").cause is Cause.BASE_CHANGED
+    assert store.get("c/4").cause is Cause.BASE_CHANGED
     assert store.get("c/4").state == IN_REVIEW
-    assert deleted == ["spec/c/1"]
+    assert deleted == [], "kept until they have moved"
 
 
-def test_a_dependent_beyond_the_rebase_cap_is_held_not_restacked(tmp_path: Path) -> None:
+def test_a_dependent_beyond_the_rebase_cap_is_held_not_recorded(tmp_path: Path) -> None:
     store = deep_store(tmp_path)
     recorder, deleted = Recorder(), []
 
     merge(store, 1, cap=2, recorder=recorder, deleted=deleted)
 
-    assert recorder.branches == ["spec/c/2"], "c/2 is at depth 1, c/4 at depth 3"
+    assert recorder.restacked == []
+    assert store.get("c/2").cause is Cause.BASE_CHANGED, "c/2 is at depth 1, c/4 at depth 3"
     assert store.get("c/2").state == IN_REVIEW
     assert store.get("c/4").state == HELD
 
@@ -133,7 +136,7 @@ def test_a_unit_still_beyond_the_cap_stays_held(tmp_path: Path) -> None:
 
     assert "spec/c/4" not in recorder.branches
     assert store.get("c/4").state == HELD
-    assert deleted == ["spec/c/2"]
+    assert deleted == [], "kept: its child is owed its move off it"
 
 
 def test_a_merge_in_another_repo_does_not_reconsider_it(tmp_path: Path) -> None:

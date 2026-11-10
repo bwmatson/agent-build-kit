@@ -1,6 +1,7 @@
-"""A conflict event starts an attempt recorded against the pushed head and the base tip.
+"""A conflict event is recorded against the unit and starts no attempt.
 
-The same head at the same tip is never attempted twice; a new tip starts the count at zero.
+A resolve worker counts the attempt, against the pushed head and the base tip, when its run
+starts; the poll only clears the count of a conflict that began again.
 """
 
 from contextlib import contextmanager
@@ -20,97 +21,38 @@ def rig(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> ConflictRig:
     return ConflictRig(tmp_path, monkeypatch)
 
 
-def test_an_attempt_is_recorded_against_the_head_and_the_base_tip(rig: ConflictRig) -> None:
+def test_a_conflict_heard_again_records_no_attempt_and_makes_no_move(rig: ConflictRig) -> None:
+    rig.conflict()
+    rig.conflict()
     rig.conflict()
 
+    assert rig.restacked == []
     stored = rig.stored()
-    assert (stored.conflict_tip, stored.conflict_head, stored.conflict_attempts) == (
-        "tip1",
-        "h1",
-        1,
-    )
-    assert stored.conflict_at == rig.clock.now()
+    assert (stored.conflict_tip, stored.conflict_attempts) == ("", 0)
+    assert stored.sent_back_for_conflict
 
 
-def test_the_same_pushed_head_and_base_tip_is_not_attempted_twice(rig: ConflictRig) -> None:
-    rig.conflict()
-    rig.conflict()
-    rig.conflict()
-
-    assert len(rig.restacked) == 1
-    assert rig.stored().conflict_attempts == 1
-
-
-def test_a_new_pushed_head_at_the_same_tip_is_the_next_attempt(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    rig = ConflictRig(tmp_path, monkeypatch, pushes=True)
-    rig.conflict()
-
-    rig.conflict()
-
-    stored = rig.stored()
-    assert (stored.conflict_tip, stored.conflict_head, stored.conflict_attempts) == (
-        "tip1",
-        "moved-1",
-        2,
-    )
-
-
-def test_a_new_base_tip_starts_the_count_at_zero(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    rig = ConflictRig(tmp_path, monkeypatch, pushes=True)
-    rig.conflict()
-    rig.conflict()
-    assert rig.stored().conflict_attempts == 2
-    rig.back_in_review("h3")
-
-    rig.tip = "tip2"
-    rig.conflict()
-
-    stored = rig.stored()
-    assert (stored.conflict_tip, stored.conflict_attempts) == ("tip2", 1)
-    assert len(rig.restacked) == 2, "the first attempt at the new tip is the stack move again"
-
-
-def test_a_definite_true_read_after_an_attempt_starts_the_next_episode_at_zero(
-    rig: ConflictRig,
-) -> None:
-    rig.conflict()
-    assert rig.stored().conflict_attempts == 1
+def test_a_conflict_that_began_again_clears_the_count_of_the_last(rig: ConflictRig) -> None:
+    rig.attempted()
     rig.clock.advance(300)
     began_again = rig.clock.now()
 
     rig.conflict(since=began_again)
 
-    assert rig.stored().conflict_attempts == 1
-    assert len(rig.restacked) == 2
+    assert rig.stored().conflict_attempts == 0
+    assert rig.stored().sent_back_for_conflict
 
 
-def test_the_transition_and_first_sight_dispatches_record_their_attempt_the_same_way(
-    rig: ConflictRig,
-) -> None:
-    rig.rework(CONFLICT_REASON, ReworkKind.CONFLICT)
+def test_a_conflict_that_is_the_same_one_keeps_the_count_of_the_last(rig: ConflictRig) -> None:
+    rig.attempted(head="an-earlier-head")
 
-    stored = rig.stored()
-    assert (stored.conflict_tip, stored.conflict_head, stored.conflict_attempts) == (
-        "tip1",
-        "h1",
-        1,
-    )
-
-    rig.back_in_review("h1")
     rig.conflict()
 
-    assert rig.restacked == [], "that head at that tip has had its attempt"
-    assert rig.stored().conflict_attempts == 1
+    assert rig.stored().conflict_attempts == 1, "only the worker's run changes the count"
 
 
-def test_a_new_episode_whose_move_is_deferred_has_no_count_from_the_last(
-    rig: ConflictRig,
-) -> None:
-    rig.conflict()
+def test_a_new_episode_whose_branch_is_busy_has_no_count_from_the_last(rig: ConflictRig) -> None:
+    rig.attempted()
     rig.clock.advance(300)
     began_again = rig.clock.now()
 
@@ -125,7 +67,7 @@ def test_a_new_episode_whose_move_is_deferred_has_no_count_from_the_last(
     assert (rig.stored().conflict_tip, rig.stored().conflict_attempts) == ("", 0)
 
 
-def test_a_base_tip_that_cannot_be_read_still_requeues_the_conflict_rework(
+def test_a_base_tip_that_cannot_be_read_does_not_stop_the_conflict_rework_being_recorded(
     rig: ConflictRig,
 ) -> None:
     def unread(unit):
@@ -138,4 +80,3 @@ def test_a_base_tip_that_cannot_be_read_still_requeues_the_conflict_rework(
     stored = rig.stored()
     assert (stored.state, stored.cause) == (PLANNED, Cause.REWORK)
     assert stored.conflict_attempts == 0
-    assert any("base tip unread" in line for line in rig.logged)

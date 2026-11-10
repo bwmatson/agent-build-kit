@@ -403,7 +403,23 @@ def clear_worker_record(path: Path) -> None:
 def record_deferral(state_dir: Path, unit_id: str, resume_at: datetime) -> None:
     """Say that a refusal (a usage pause, a login) defers `unit_id`'s resolution run until
     `resume_at`: the dispatch starts no resolve worker for it before then."""
-    raise NotImplementedError
+    path = _deferral_path(state_dir, unit_id)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    atomic_write_text(path, json.dumps({"unit": unit_id, "until": resume_at.isoformat()}))
+
+
+def deferred_until(state_dir: Path, unit_id: str) -> datetime | None:
+    """When the recorded deferral of `unit_id`'s run ends, or None when none is recorded."""
+    try:
+        record = json.loads(_deferral_path(state_dir, unit_id).read_text())
+        return datetime.fromisoformat(record["until"])
+    except (OSError, ValueError, KeyError, TypeError):
+        return None
+
+
+def _deferral_path(state_dir: Path, unit_id: str) -> Path:
+    name = hashlib.sha256(unit_id.encode()).hexdigest()[:16]
+    return state_dir / "resolution-deferrals" / f"{name}.json"
 
 
 def lane_held_by_record(state_dir: Path) -> set[str]:

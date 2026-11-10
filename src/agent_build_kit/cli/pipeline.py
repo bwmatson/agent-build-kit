@@ -161,6 +161,8 @@ from agent_build_kit.pipeline.events import (
     build_retarget,
     conflict_phrase,
     late_check_running,
+    pr_based_on,
+    remove_merged_branches,
 )
 from agent_build_kit.pipeline.external_file import Hold as ExternalHold
 from agent_build_kit.pipeline.external_file import (
@@ -266,6 +268,7 @@ from agent_build_kit.pipeline.resolution_lane import (
     Rest,
     about_the_move,
     base_tip,
+    deferred_until,
     forget_run_attempt,
     hold_if_spent,
     in_a_comment_run,
@@ -1949,7 +1952,13 @@ def unclaimed_runs(inst: Installation, units: Sequence[StoredUnit]) -> list[str]
     may be run by an ordinary build worker. Read from the repositories' branches."""
     now = spans.clock.now()
     owed = owed_units(inst, list(units))
-    return [unit.id for unit in units if unit.id in owed and not marker_live(unit, now)]
+    return [
+        unit.id
+        for unit in units
+        if unit.id in owed
+        and not marker_live(unit, now)
+        and not ((until := deferred_until(inst.state_dir, unit.id)) and now < until)
+    ]
 
 
 def _dispatch_resolutions(inst: Installation, store: UnitStore) -> None:
@@ -7146,6 +7155,16 @@ def poll_all(inst: Installation, *, store: UnitStore, lane: Lane | None = None) 
             log=log,
         ).poll()
         _refresh_check_labels(inst, store, repo, labels)
+    moves = build_stack_moves(store, inst)
+    remove_merged_branches(
+        store,
+        repos=checkouts,
+        claim=moves["claim"],
+        remove_worktree=moves["remove_worktree"],
+        delete_branch=moves["delete_branch"],
+        on_new_base=lambda child: pr_based_on(child, base_of(child, store.all())),
+        log=log,
+    )
     _refresh_graph_page(inst, store)
 
 

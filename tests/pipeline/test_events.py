@@ -10,6 +10,7 @@ how a child PR starts showing its parent's diff as its own — or worse, how a
 force-push lands commits nobody reviewed on a base that already has them.
 """
 
+from contextlib import contextmanager
 from functools import partial
 from pathlib import Path
 
@@ -61,21 +62,18 @@ def test_a_merged_pr_marks_its_unit_merged(store: UnitStore) -> None:
     assert store.get("add-marker/1").state == SETTLING
 
 
-def test_merging_the_bottom_restacks_what_was_on_top(store: UnitStore) -> None:
+def test_merging_the_bottom_records_what_was_on_top_as_owed_a_move(store: UnitStore) -> None:
     """The child's branch still sits on its parent's, which main now contains.
-    Left alone, its PR shows both units' work as its own diff."""
+    Left alone, its PR shows both units' work as its own diff: a resolve worker moves it."""
     recorder = Recorder()
 
     events.on_merged(1, repo="app", store=store, restack=recorder)
 
-    assert len(recorder.restacked) == 1
-    moved = recorder.restacked[0]
-    assert moved["branch"] == "spec/add-marker/2"
-    assert moved["old_base"] == "spec/add-marker/1"
-    assert moved["new_base"] == "main", "its only open parent just merged"
+    assert recorder.restacked == [], "nothing is moved in the poll"
+    assert store.get("add-marker/2").cause is Cause.BASE_CHANGED
 
 
-def test_a_child_moves_onto_its_next_open_parent_not_main(tmp_path: Path) -> None:
+def test_a_child_is_recorded_as_moving_onto_its_next_open_parent_not_main(tmp_path: Path) -> None:
     """Three deep: merging the bottom leaves the top sitting on the middle,
     which is still open. Sending it to main would drop the middle's work from
     under it."""
@@ -95,12 +93,12 @@ def test_a_child_moves_onto_its_next_open_parent_not_main(tmp_path: Path) -> Non
 
     events.on_merged(1, repo="app", store=store, restack=recorder)
 
-    moved = {r["branch"]: r["new_base"] for r in recorder.restacked}
-    assert moved["spec/c/2"] == "main"
-    assert moved["spec/c/3"] == "spec/c/2", "still stacked on the open middle"
+    assert recorder.restacked == []
+    assert store.get("c/2").cause is Cause.BASE_CHANGED
+    assert store.get("c/3").cause is Cause.BASE_CHANGED, "its base moves to the open middle"
 
 
-def test_a_grandchild_through_a_satisfied_unit_is_restacked_like_a_direct_child(
+def test_a_grandchild_through_a_satisfied_unit_is_recorded_like_a_direct_child(
     tmp_path: Path,
 ) -> None:
     """Unit 2 added nothing of its own and was judged satisfied on unit 1's
@@ -124,12 +122,8 @@ def test_a_grandchild_through_a_satisfied_unit_is_restacked_like_a_direct_child(
 
     events.on_merged(1, repo="app", store=store, restack=recorder)
 
-    assert len(recorder.restacked) == 1
-    moved = recorder.restacked[0]
-    assert moved["branch"] == "spec/c/3"
-    assert moved["old_base"] == "spec/c/1"
-    assert moved["new_base"] == "main"
-    assert moved["parent"].id == "c/1"
+    assert recorder.restacked == []
+    assert store.get("c/3").cause is Cause.BASE_CHANGED
 
 
 def test_a_merge_we_have_no_unit_for_is_ignored(store: UnitStore) -> None:
@@ -142,23 +136,24 @@ def test_a_merge_we_have_no_unit_for_is_ignored(store: UnitStore) -> None:
     assert recorder.restacked == []
 
 
-def test_a_failing_restack_does_not_stop_the_others(tmp_path: Path) -> None:
-    """One conflicted child is left for a human; the rest of the stack still
-    gets moved, or a single conflict freezes everything above it."""
+def test_a_child_that_cannot_be_recorded_does_not_stop_the_others(tmp_path: Path) -> None:
+    """One child whose record fails is left for a human; the rest of the stack still
+    gets recorded, or a single failure freezes everything above it."""
     store = UnitStore(tmp_path / "units.json")
     store.upsert([unit("c/1"), unit("c/2", depends_on=("c/1",)), unit("c/3", depends_on=("c/1",))])
     for n in (1, 2, 3):
         store.set_state(f"c/{n}", IN_REVIEW, pr=n, branch=f"spec/c/{n}")
-    moved: list[str] = []
 
-    def restack(*, branch, **kwargs):
-        if branch == "spec/c/2":
+    @contextmanager
+    def claim(child):
+        if child.id == "c/2":
             raise RuntimeError("conflict")
-        moved.append(branch)
+        yield
 
-    events.on_merged(1, repo="app", store=store, restack=restack)
+    events.on_merged(1, repo="app", store=store, restack=Recorder(), claim=claim)
 
-    assert moved == ["spec/c/3"]
+    assert store.get("c/3").cause is Cause.BASE_CHANGED
+    assert store.get("c/2").cause is not Cause.BASE_CHANGED
     assert store.get("c/1").state == SETTLING, "the merge itself still stands"
 
 
@@ -687,16 +682,22 @@ def test_a_held_unit_is_not_requeued_by_a_comment(store: UnitStore) -> None:
     assert store.get("add-marker/1").feedback == ""
 
 
-def test_a_merged_unit_s_worktree_is_removed(store: UnitStore) -> None:
+@pytest.fixture
+def lone(store: UnitStore) -> UnitStore:
+    """The stack without its child: add-marker/1 is open with nothing built on it."""
+    store.set_state("add-marker/2", CLOSED)
+    return store
+
+
+def test_a_merged_unit_s_worktree_is_removed(lone: UnitStore) -> None:
     """Nothing else ever removes one. Left alone they accumulate a full
-    checkout per unit — app already carries nine from earlier runs — and
-    every one of them is a working tree git has to keep track of."""
+    checkout per unit and every one of them is a working tree git has to keep track of."""
     removed: list[str] = []
 
     events.on_merged(
         1,
         repo="app",
-        store=store,
+        store=lone,
         restack=Recorder(),
         remove_worktree=lambda repo, branch: removed.append(branch),
     )
@@ -718,26 +719,36 @@ def test_a_worktree_that_will_not_go_does_not_fail_the_merge(store: UnitStore) -
 
 
 def test_a_child_s_worktree_survives_the_parent_merge(tmp_path: Path) -> None:
-    """Only the merged unit is finished. A child still has an open PR and may
-    yet be restacked or reworked in its own tree."""
+    """Only the merged unit is finished. A child still has an open PR and is owed its
+    move off the merged branch, in its own tree, so the merged unit's tree stays until then."""
     store = UnitStore(tmp_path / "units.json")
     store.upsert([unit("c/1"), unit("c/2", depends_on=("c/1",))])
     for n in (1, 2):
         store.set_state(f"c/{n}", IN_REVIEW, pr=n, branch=f"spec/c/{n}")
     removed: list[str] = []
 
+    def remove_worktree(repo: str, branch: str) -> None:
+        removed.append(branch)
+
     events.on_merged(
-        1,
-        repo="app",
+        1, repo="app", store=store, restack=Recorder(), remove_worktree=remove_worktree
+    )
+    assert removed == []
+
+    store.set_state("c/1", MERGED)
+    store.set_state("c/2", IN_REVIEW, cause=Cause.RESTACK_HANDED_BACK)
+    events.remove_satisfied(
+        store.get("c/1"),
         store=store,
-        restack=Recorder(),
-        remove_worktree=lambda repo, branch: removed.append(branch),
+        remove_worktree=remove_worktree,
+        delete_branch=lambda repo, branch: None,
+        on_new_base=lambda child: True,
     )
 
-    assert removed == ["spec/c/1"]
+    assert removed == ["spec/c/1"], "the child's own tree is not removed"
 
 
-def test_a_merged_unit_s_branch_is_deleted(store: UnitStore) -> None:
+def test_a_merged_unit_s_branch_is_deleted(lone: UnitStore) -> None:
     """Otherwise one stale local branch accumulates per unit, forever. The
     remote side is already handled — GitHub deletes the head branch on merge."""
     deleted: list[str] = []
@@ -745,7 +756,7 @@ def test_a_merged_unit_s_branch_is_deleted(store: UnitStore) -> None:
     events.on_merged(
         1,
         repo="app",
-        store=store,
+        store=lone,
         restack=Recorder(),
         remove_worktree=lambda repo, branch: None,
         delete_branch=lambda repo, branch: deleted.append(branch),
@@ -754,7 +765,7 @@ def test_a_merged_unit_s_branch_is_deleted(store: UnitStore) -> None:
     assert deleted == ["spec/add-marker/1"]
 
 
-def test_the_branch_goes_only_after_its_worktree(store: UnitStore) -> None:
+def test_the_branch_goes_only_after_its_worktree(lone: UnitStore) -> None:
     """A branch checked out in a worktree cannot be deleted, so the order is
     not a preference."""
     order: list[str] = []
@@ -762,7 +773,7 @@ def test_the_branch_goes_only_after_its_worktree(store: UnitStore) -> None:
     events.on_merged(
         1,
         repo="app",
-        store=store,
+        store=lone,
         restack=Recorder(),
         remove_worktree=lambda repo, branch: order.append("worktree"),
         delete_branch=lambda repo, branch: order.append("branch"),
@@ -1309,7 +1320,9 @@ def test_a_merge_keeps_the_parent_branch_a_starting_build_has_taken_as_base(
     assert store.get("add-marker/2").state == PLANNED
 
 
-def test_a_merge_restacks_a_child_nothing_is_building(store: UnitStore, locks: Path) -> None:
+def test_a_merge_records_a_child_nothing_is_building_and_keeps_the_branch(
+    store: UnitStore, locks: Path
+) -> None:
     recorder = Recorder()
     deleted: list[tuple[str, str]] = []
 
@@ -1322,8 +1335,9 @@ def test_a_merge_restacks_a_child_nothing_is_building(store: UnitStore, locks: P
         claim=events.build_claim(locks),
     )
 
-    assert [moved["branch"] for moved in recorder.restacked] == ["spec/add-marker/2"]
-    assert deleted == [("app", "spec/add-marker/1")]
+    assert recorder.restacked == []
+    assert store.get("add-marker/2").cause is Cause.BASE_CHANGED
+    assert deleted == [], "kept until the child has moved"
     assert not list(locks.glob("*.lock")), "the handler's own hold is released"
 
 

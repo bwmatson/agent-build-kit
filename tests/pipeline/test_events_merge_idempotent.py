@@ -79,7 +79,7 @@ def test_a_second_merged_event_changes_nothing_whichever_came_first(
     effects.merged(store, cause=first)
     history = store.get("add-marker/1").history
     done = effects.counts()
-    assert done[0] == 1, "the first event restacked the child"
+    assert store.get("add-marker/2").cause is Cause.BASE_CHANGED, "the child is owed its move"
 
     handled = effects.merged(store, cause=second)
 

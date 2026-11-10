@@ -25,6 +25,7 @@ from agent_build_kit.pipeline.resolution_lane import (
     clear_worker_record,
     lane_held_by_record,
     owed_units,
+    record_deferral,
     write_worker_record,
 )
 from agent_build_kit.pipeline.units import base_of, project_key, project_tag
@@ -79,6 +80,8 @@ def cmd_worker_resolve(args: argparse.Namespace, inst: Installation) -> int:
     def refused(unit_id: str, resume_at: datetime | None) -> None:
         # The process ends after its units: the dispatcher asks the guard again next round.
         refusals.add(unit_id)
+        if resume_at is not None:
+            record_deferral(inst.state_dir, unit_id, resume_at)
 
     procedure = resolution_procedure(
         inst,

@@ -34,9 +34,11 @@ class Calls:
         self.refuse = False
 
     def restack(self, *, branch, old_base, new_base, child, parent) -> None:
+        self.restacked.append((child.id, old_base, new_base))
+
+    def retarget(self, child, base) -> None:
         if self.refuse:
             raise RuntimeError("conflict")
-        self.restacked.append((child.id, old_base, new_base))
 
     @contextmanager
     def claim(self, unit):
@@ -51,9 +53,21 @@ class Calls:
             claim=self.claim,
             remove_worktree=lambda repo, branch: self.removed.append(branch),
             delete_branch=lambda repo, branch: self.deleted.append(branch),
-            retarget=lambda child, base: None,
+            retarget=self.retarget,
             log=self.logged.append,
             **kwargs,
+        )
+
+    def pass_over(self, store: UnitStore) -> None:
+        """The check each pass makes of a merged unit's branch."""
+        events.remove_satisfied(
+            store.get(A),
+            store=store,
+            claim=self.claim,
+            remove_worktree=lambda repo, branch: self.removed.append(branch),
+            delete_branch=lambda repo, branch: self.deleted.append(branch),
+            on_new_base=lambda child: True,
+            log=self.logged.append,
         )
 
 
@@ -74,7 +88,7 @@ def store(tmp_path: Path) -> UnitStore:
     return store
 
 
-def test_a_merge_moves_the_direct_dependent_and_not_the_unit_built_on_it(
+def test_a_merge_records_the_direct_dependent_as_owed_a_move_and_not_the_unit_built_on_it(
     store: UnitStore,
 ) -> None:
     calls = Calls()
@@ -82,7 +96,8 @@ def test_a_merge_moves_the_direct_dependent_and_not_the_unit_built_on_it(
     failures = calls.release(store)
 
     assert failures == []
-    assert calls.restacked == [(B, OLD_BASE, "main")]
+    assert store.get(B).cause is Cause.BASE_CHANGED
+    assert store.get(C).cause is not Cause.BASE_CHANGED
 
 
 def test_a_grandchild_whose_middle_unit_is_in_rework_is_not_moved_off_the_leaving_unit(
@@ -99,8 +114,11 @@ def test_a_grandchild_whose_middle_unit_is_in_rework_is_not_moved_off_the_leavin
 
 def test_the_removal_of_the_branch_probes_the_direct_dependents_only(store: UnitStore) -> None:
     calls = Calls()
-
     calls.release(store)
+    store.set_state(B, IN_REVIEW, cause=Cause.RESTACK_HANDED_BACK)
+    calls.claimed.clear()
+
+    calls.pass_over(store)
 
     assert set(calls.claimed) == {B}
     assert calls.removed == [OLD_BASE]
@@ -122,9 +140,9 @@ def test_the_branch_is_kept_while_a_direct_dependent_is_not_moved(store: UnitSto
     calls = Calls()
     calls.refuse = True
 
-    failures = calls.release(store)
+    failures = calls.release(store, resume=told)
 
-    assert failures == [f"{B} not moved off {OLD_BASE} — RuntimeError: conflict"]
+    assert failures == [f"{B} not moved off {OLD_BASE} — conflict"]
     assert calls.deleted == []
     assert C not in calls.claimed
 

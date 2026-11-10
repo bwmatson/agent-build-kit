@@ -1,15 +1,16 @@
 """A conflict rework that changes nothing is not a resolution, whatever was recorded before.
 
-The run ends with the unit back in review at the head it had; the conflict the host still
-reports after it holds the unit with the reason, and nothing is dispatched a third time.
+The run (a resolve worker's, which counts the attempt: `ConflictRig.attempted`) ends with the unit
+back in review at the head it had; the conflict the host still reports after it holds the unit
+with the reason, and nothing is dispatched a third time.
 """
 
 from pathlib import Path
 
 import pytest
 
-from agent_build_kit.pipeline.pr_poller import CONFLICT_REASON, Poller
-from agent_build_kit.pipeline.unit_store import Cause, HeldBy, ReworkKind
+from agent_build_kit.pipeline.pr_poller import Poller
+from agent_build_kit.pipeline.unit_store import Cause, HeldBy
 from agent_build_kit.pipeline.units import HELD
 from tests.conflict_event_fakes import PR, UNIT, ConflictRig
 from tests.pr_poller_fakes import pull
@@ -23,7 +24,7 @@ def rig(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> ConflictRig:
 def test_a_rework_that_changed_nothing_and_a_conflict_still_reported_holds_the_unit(
     rig: ConflictRig,
 ) -> None:
-    rig.rework(CONFLICT_REASON, ReworkKind.CONFLICT)
+    rig.attempted()
     rig.back_in_review("h1")
 
     rig.conflict()
@@ -35,7 +36,7 @@ def test_a_rework_that_changed_nothing_and_a_conflict_still_reported_holds_the_u
 
 
 def test_no_third_dispatch_follows_a_rework_that_changed_nothing(rig: ConflictRig) -> None:
-    rig.rework(CONFLICT_REASON, ReworkKind.CONFLICT)
+    rig.attempted()
     rig.back_in_review("h1")
     rig.conflict()
 
@@ -76,6 +77,7 @@ def test_a_conflict_recorded_since_before_the_rework_is_not_the_proof_it_is_gone
     poll(True)
     poll(False)
     assert offered == ["rework"], "the transition sent the conflict rework"
+    rig.attempted()
     rig.back_in_review("h1")
     offered.clear()
 

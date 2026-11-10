@@ -1,7 +1,7 @@
-"""A conflicting unit's first attempt is the stack move; any other is the conflict rework.
+"""A conflicting unit is sent back for the conflict and the poll makes no move.
 
-The stack move is `build_restack`'s, over a fake git, unit-test and host, so its outcomes are the
-merge handler's own.
+The stack move, and the conflict rework after it, are a resolve worker's run; what the poll
+leaves is a unit in review sent back for the conflict, whatever its base.
 """
 
 from contextlib import contextmanager
@@ -9,123 +9,25 @@ from pathlib import Path
 
 import pytest
 
-from agent_build_kit.pipeline.restack import Moved, RestackConflict
-from agent_build_kit.pipeline.unit_store import Cause, ReworkKind
-from agent_build_kit.pipeline.units import IN_REVIEW, PLANNED, local_ref
+from agent_build_kit.pipeline.unit_store import ReworkKind
+from agent_build_kit.pipeline.units import IN_REVIEW
 from agent_build_kit.pipeline.workspaces import BranchBusy
-from tests.conflict_event_fakes import UNIT, ConflictRig, FakeLane, real_restack
+from tests.conflict_event_fakes import ConflictRig
 
 
-def test_the_first_attempt_of_a_trunk_based_unit_is_the_stack_move(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+@pytest.mark.parametrize("stacked", [False, True])
+def test_a_conflicting_unit_is_sent_back_for_the_conflict_and_not_moved(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, stacked: bool
 ) -> None:
-    rig = ConflictRig(tmp_path, monkeypatch)
-
-    rig.conflict()
-
-    (call,) = rig.restacked
-    assert call["branch"] == "spec/add-marker/1"
-    assert call["child"].id == UNIT
-    assert call["new_base"] == "main"
-    assert call["old_base"] == "fork1", "the fork point, not the trunk's new tip"
-    assert call["old_base"] != local_ref("main", repo="app")
-    assert call["parent"].id == "main", "the resolver is told it moves onto the trunk"
-    assert call["parent"].id != call["child"].id
-    assert rig.stored().state == IN_REVIEW
-
-
-def test_a_clean_move_of_an_approved_head_is_pushed_and_stays_in_review(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    rig = ConflictRig(tmp_path, monkeypatch)
-    pushed: list[str] = []
-    comments: list[str] = []
-    rig.restack = real_restack(
-        rig, tmp_path, move=lambda *a, **k: Moved(sha="n"), pushed=pushed, comments=comments
-    )
-
-    rig.conflict()
-
-    assert pushed == ["pushed"]
-    (body,) = comments
-    assert f"{UNIT} merged" not in body
-    assert "the trunk moved" in body
-    stored = rig.stored()
-    assert stored.state == IN_REVIEW
-    assert stored.pushed == "newsha"
-    assert stored.conflict_attempts == 1
-
-
-@pytest.mark.parametrize(
-    ("moved", "diff_changes"),
-    [(Moved(sha="n", resolved=("a.py",)), False), (Moved(sha="n"), True)],
-    ids=["resolved", "changed diff"],
-)
-def test_a_resolved_move_or_a_changed_diff_is_planned_for_review_unpushed(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, moved: Moved, diff_changes: bool
-) -> None:
-    rig = ConflictRig(tmp_path, monkeypatch)
-    pushed: list[str] = []
-    rig.restack = real_restack(
-        rig, tmp_path, move=lambda *a, **k: moved, pushed=pushed, diff_changes=diff_changes
-    )
-
-    rig.conflict()
-
-    stored = rig.stored()
-    assert (stored.state, stored.cause) == (PLANNED, Cause.RESTACK_DEFERRED)
-    assert pushed == []
-    assert stored.conflict_attempts == 1
-
-
-def test_a_move_that_cannot_be_settled_goes_to_the_conflict_rework_and_counts_once(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    rig = ConflictRig(tmp_path, monkeypatch)
-
-    def cannot(*args, **kwargs):
-        raise RestackConflict("a.py conflicts")
-
-    rig.restack = real_restack(rig, tmp_path, move=cannot, pushed=[])
-
-    rig.conflict()
-
-    stored = rig.stored()
-    assert (stored.state, stored.cause) == (PLANNED, Cause.REWORK)
-    assert stored.conflict_attempts == 1
-
-
-def test_a_second_attempt_at_the_same_tip_is_the_conflict_rework(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    rig = ConflictRig(tmp_path, monkeypatch)
-    moves: list[str] = []
-    pushed: list[str] = []
-    rig.restack = real_restack(
-        rig, tmp_path, move=lambda *a, **k: moves.append("move") or Moved(sha="n"), pushed=pushed
-    )
-    rig.conflict()
-    assert pushed == ["pushed"]
-
-    rig.conflict()
-
-    assert moves == ["move"], "the move is not made a second time"
-    stored = rig.stored()
-    assert (stored.state, stored.cause) == (PLANNED, Cause.REWORK)
-    assert stored.conflict_attempts == 2
-
-
-def test_a_stacked_unit_goes_to_the_conflict_rework(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    rig = ConflictRig(tmp_path, monkeypatch, stacked=True)
+    rig = ConflictRig(tmp_path, monkeypatch, stacked=stacked)
 
     rig.conflict()
 
     assert rig.restacked == []
     stored = rig.stored()
-    assert (stored.state, stored.cause) == (PLANNED, Cause.REWORK)
-    assert stored.conflict_attempts == 1
+    assert stored.state == IN_REVIEW
+    assert stored.sent_back_for_conflict
+    assert stored.conflict_attempts == 0
 
 
 def test_a_unit_whose_thread_takes_the_event_goes_to_the_conflict_rework(
@@ -144,10 +46,10 @@ def test_a_unit_whose_thread_takes_the_event_goes_to_the_conflict_rework(
 
     assert rig.restacked == []
     assert delivered == [("rework", ReworkKind.CONFLICT)]
-    assert rig.stored().conflict_attempts == 1
+    assert rig.stored().conflict_attempts == 0, "the thread's run counts it"
 
 
-def test_a_held_branch_lock_leaves_the_event_for_the_next_poll_and_records_no_attempt(
+def test_a_held_branch_lock_leaves_the_event_for_the_next_poll_and_records_nothing(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     rig = ConflictRig(tmp_path, monkeypatch)
@@ -162,34 +64,11 @@ def test_a_held_branch_lock_leaves_the_event_for_the_next_poll_and_records_no_at
     rig.claim = claim
 
     assert rig.conflict() is False
-    stored = rig.stored()
-    assert rig.restacked == []
-    assert (stored.conflict_tip, stored.conflict_attempts) == ("", 0)
+    assert not rig.stored().sent_back_for_conflict
 
     busy["on"] = False
     assert rig.conflict() is True
-    assert len(rig.restacked) == 1
-
-
-def test_a_move_that_fails_is_the_attempt_and_is_not_made_again(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    rig = ConflictRig(tmp_path, monkeypatch)
-    moves: list[str] = []
-    rig.restack = real_restack(
-        rig,
-        tmp_path,
-        move=lambda *a, **k: moves.append("move") or Moved(sha="n"),
-        pushed=[],
-        unit_test=lambda **kwargs: (False, "boom"),
-    )
-
-    assert rig.conflict() is True
-    assert rig.stored().conflict_attempts == 1
-    assert any("move failed" in line for line in rig.logged)
-
-    assert rig.conflict() is True
-    assert moves == ["move"], "the move is not made a second time"
+    assert rig.stored().sent_back_for_conflict
 
 
 def test_a_base_tip_that_cannot_be_read_ends_the_event_without_raising(
@@ -205,65 +84,3 @@ def test_a_base_tip_that_cannot_be_read_ends_the_event_without_raising(
     assert rig.conflict() is True
     assert rig.restacked == []
     assert rig.stored().conflict_attempts == 0
-
-
-def test_the_move_tells_unit_test_and_the_comment_which_base_it_left(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    rig = ConflictRig(tmp_path, monkeypatch)
-    moved_from: list[str] = []
-    comments: list[str] = []
-
-    def unit_test(**kwargs):
-        moved_from.append(kwargs["moved_from"])
-        return True, ""
-
-    rig.restack = real_restack(
-        rig,
-        tmp_path,
-        move=lambda *a, **k: Moved(sha="n"),
-        pushed=[],
-        unit_test=unit_test,
-        comments=comments,
-    )
-
-    rig.conflict()
-
-    assert moved_from == ["fork1"]
-    (body,) = comments
-    assert "fork1" in body
-
-
-@pytest.mark.parametrize("conflicts", [False, True])
-def test_with_a_lane_the_conflict_move_is_handed_over_and_ends_as_it_does_inline(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, conflicts: bool
-) -> None:
-    def move(*args: object, **kwargs: object) -> Moved:
-        if conflicts:
-            raise RestackConflict("a.py")
-        return Moved(sha="n")
-
-    inline = ConflictRig(tmp_path / "inline", monkeypatch)
-    inline.restack = real_restack(inline, tmp_path / "inline", move=move, pushed=[])
-    inline.conflict()
-
-    lane = FakeLane()
-    rig = ConflictRig(tmp_path / "lane", monkeypatch)
-    rig.lane = lane
-    pushed: list[str] = []
-    rig.restack = real_restack(rig, tmp_path / "lane", move=move, pushed=pushed)
-    rig.conflict()
-
-    assert pushed == [], "nothing moves in the poll"
-    assert rig.stored().conflict_attempts == 0
-    ((unit, work),) = lane.handed
-    assert unit.id == UNIT
-    assert work is not None
-    work()
-    stored, expected = rig.stored(), inline.stored()
-    assert (stored.state, stored.cause, stored.conflict_attempts) == (
-        expected.state,
-        expected.cause,
-        expected.conflict_attempts,
-    )
-    assert stored.conflict_attempts == 1

@@ -6,7 +6,6 @@ merged, and a child stacked on it. Nothing is polled, so only the pass can recor
 
 from __future__ import annotations
 
-import threading
 from pathlib import Path
 
 import pytest
@@ -14,6 +13,7 @@ import pytest
 from agent_build_kit.cli import pipeline as cli
 from agent_build_kit.forges import PullRequest
 from agent_build_kit.pipeline.pr_poller import PrState, snapshot, state_path
+from agent_build_kit.pipeline.unit_store import Cause
 from agent_build_kit.pipeline.units import IN_REVIEW, SETTLING
 from tests.factories import stored_unit
 from tests.tick_driver import OTHER, UNIT, Setup, make_setup
@@ -32,14 +32,14 @@ def graph(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Setup:
     return setup
 
 
-def test_a_tick_records_the_merge_the_cache_shows_and_hands_the_child_to_the_lane(
+def test_a_tick_records_the_merge_the_cache_shows_and_records_the_child_as_owed_its_move(
     graph: Setup, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    moved_on: list[bool] = []
+    moved: list[str] = []
 
     def restack(**kwargs):
-        def move(**moved):
-            moved_on.append(threading.current_thread() is threading.main_thread())
+        def move(**moving):
+            moved.append(moving["child"].id)
 
         return move
 
@@ -48,8 +48,8 @@ def test_a_tick_records_the_merge_the_cache_shows_and_hands_the_child_to_the_lan
     assert graph.tick() == 0
 
     assert graph.store.get(UNIT).state == SETTLING
-    assert moved_on, "the child was restacked"
-    assert not any(moved_on), "in the lane's worker, not inline in the tick"
+    assert graph.store.get(OTHER).cause is Cause.BASE_CHANGED, "owed to a resolve worker"
+    assert moved == [], "nothing is moved in the tick"
 
 
 def test_a_pass_that_raises_is_said_and_the_tick_goes_on(

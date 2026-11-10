@@ -42,14 +42,15 @@ def test_it_is_recorded_merged_with_the_cause_auto_landed_and_its_intent_removed
     assert not landed.intent()
 
 
-def test_its_children_are_restacked_as_for_a_person_s_merge(
+def test_its_children_are_recorded_as_owed_a_move_as_for_a_person_s_merge(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     landed = landing(tmp_path, monkeypatch)
 
     landed.land()
 
-    assert ("spec/c/2", "spec/c/1", "main") in landed.restacked, "\n".join(landed.logged)
+    assert landed.store.get("c/2").cause is Cause.BASE_CHANGED, "\n".join(landed.logged)
+    assert landed.restacked == [], "nothing is moved in the pass"
 
 
 def test_a_unit_that_may_not_land_is_not_merged(
