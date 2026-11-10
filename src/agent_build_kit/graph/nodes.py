@@ -240,6 +240,19 @@ WROTE_NOTHING_NOTE = (
     "Your last run of this step wrote no test and said nothing. Write the tests this group "
     "calls for; if a write is refused, say so. If the tests it needs already exist, say that."
 )
+UNCHANGED_TREE_NOTE = (
+    "Your last run of this step left the tree unchanged, whatever it said: the tree is unchanged "
+    "and nothing was written. "
+    "This group requires tests. Write them, check each write took effect by reading the file "
+    "back, and if a write is refused, say so."
+)
+WROTE_NO_TEST_REQUIRED = (
+    "the tests step wrote no test, twice: the tree is unchanged. The agent said: "
+)
+NO_TESTS_COMMIT = (
+    "the tests step left this group with no test: commit, so the implementation was not started"
+)
+ACCOUNT_QUOTE = 300  # characters of the agent's report a stop quotes
 RED_CHECK_NOTE = (
     "The red check ran your tests before any implementation exists and rejected them:\n"
     "{reason}\nRewrite them so each new test fails with an assertion, for the right reason."
@@ -1662,34 +1675,41 @@ class BuildPath:
                 prompt = f"{state.reproduction_guidance}\n\n{prompt}"
             before = r.tree_state(tree)
             account = self.agent(r.run, prompt, cwd=tree, state=state, model=models().implement)
-            if self.wrote_nothing(state, before, account):
+            required = step is not None and step.tests_required
+            if self.wrote_nothing(state, before, account, required=required):
                 self.say("the tests step wrote no test: asking once more")
                 account = self.agent(
                     r.run,
-                    f"{WROTE_NOTHING_NOTE}\n\n{prompt}",
+                    f"{UNCHANGED_TREE_NOTE if required else WROTE_NOTHING_NOTE}\n\n{prompt}",
                     cwd=tree,
                     state=state,
                     model=models().implement,
                 )
-                if self.wrote_nothing(state, before, account):
+                if self.wrote_nothing(state, before, account, required=required):
+                    if required:
+                        said = (
+                            cut_head(" ".join(account.split()), ACCOUNT_QUOTE, "char") or "nothing"
+                        )
+                        return self.stop(WROTE_NO_TEST_REQUIRED + said)
                     return self.stop(WROTE_NO_TEST)
             if stubbed:
                 # Committed by `stub_checks`, once the stubs and tests pass the static checks.
-                step = self.group_step(state)
-                kept = account if step is not None and step.test_only else ""
-                kept = account if state.unreproduced else kept
-                return {"head": r.head(tree), "stub_loop": True, "tests_account": kept}
+                # Kept for a test-only group's record, and for the first group's empty one.
+                return {"head": r.head(tree), "stub_loop": True, "tests_account": account}
             self.apply_fixers()
             r.commit(self.message(TESTS_PREFIX, True, state), cwd=tree, base=self.ref(state))
         kept_account = {"tests_account": account} if state.unreproduced and account else {}
         return {"head": r.head(tree), "stub_loop": False, **kept_account}
 
-    def wrote_nothing(self, state: UnitRun, before: str, account: str) -> bool:
+    def wrote_nothing(
+        self, state: UnitRun, before: str, account: str, *, required: bool = False
+    ) -> bool:
         """Whether a tests step that has to write tests ended with the tree as it found it and
         nothing said: a write may have been refused. An agent that explains itself has judged,
-        for example that the tests exist, which the empty marked `test:` then records."""
+        for example that the tests exist, which the empty marked `test:` then records; when
+        the group requires tests the tree alone is the evidence, whatever was said."""
         tree = self.tree()
-        if not before or account.strip():
+        if not before or (account.strip() and not required):
             return False  # no tree digest: a runner that cannot see a write cannot see none
         return self.runner.head(tree) == state.head and self.runner.tree_state(tree) == before
 
@@ -1720,7 +1740,14 @@ class BuildPath:
         made = r.commit(self.message(TESTS_PREFIX, True, state), cwd=tree, base=ref)
         step = self.group_step(state)
         if step is None or not step.test_only:
-            self.record_no_new_tests(state, ref, made)
+            recorded = self.record_no_new_tests(state, ref, made)
+            # A first group has no branch to judge yet: its empty `test:` is recorded by the
+            # implement step if it writes anything. Any other group needs its tests commit.
+            if r.branch_commits(tree, ref) and not (
+                made or recorded or self.branch_progress(ref).tests_made
+            ):
+                lacking = self.unpaired(state, ref)
+                return self.stop(f"{NO_TESTS_COMMIT}: {lacking}" if lacking else NO_TESTS_COMMIT)
             done: Update = {"head": r.head(tree), "stub_loop": False, "stub_rounds": 0}
             return {
                 **done,
@@ -1751,15 +1778,20 @@ class BuildPath:
         """A group of a branch with commits whose tests step committed nothing gets an empty
         marked `test:`, so its implementation completes a pair. Not made when the group has a
         `test:` or a lone `feat:` already, or the earlier groups lack a pair."""
-        r = self.runner
-        tree = self.tree()
-        if made or not r.branch_commits(tree, ref):
+        if made or not self.runner.branch_commits(self.tree(), ref):
             return False
+        return self.commit_no_new_tests(state, ref)
+
+    def commit_no_new_tests(self, state: UnitRun, ref: str) -> bool:
+        """The empty marked `test:` for the group being built, False when the group has a
+        `test:` or a lone `feat:` already, or the earlier groups lack a pair."""
         progress = self.branch_progress(ref)
         if progress.done != state.group or progress.tests_made or progress.lone_feat:
             return False
         self.say("the group adds no new tests: an empty tests commit is recorded")
-        r.commit_built(f"{self.message(TESTS_PREFIX, True, state)}\n\n{NO_NEW_TESTS}", cwd=tree)
+        self.runner.commit_built(
+            f"{self.message(TESTS_PREFIX, True, state)}\n\n{NO_NEW_TESTS}", cwd=self.tree()
+        )
         return True
 
     def red_first(self, state: UnitRun) -> GateResult:
@@ -2055,6 +2087,7 @@ class BuildPath:
                 prompt = f"{note}\n\n{prompt}"
             if state.reproduction_guidance:
                 prompt = f"{state.reproduction_guidance}\n\n{prompt}"
+            before_impl = r.tree_state(tree)
             account = self.agent(
                 r.run,
                 prompt,
@@ -2071,6 +2104,20 @@ class BuildPath:
             )
             statement = account
             self.apply_fixers()
+            if (
+                own is not None
+                and own.mode.writes_tests
+                and own.mode.writes_code
+                and state.tests_account.strip()
+                and not r.branch_commits(tree, ref)
+                and before_impl
+                and r.tree_state(tree) != before_impl
+            ):
+                # The first group's tests step explained that its tests exist: that judgment is
+                # the branch's first commit, so the implementation completes a pair. The digest
+                # staged the tree: unstaged, so that commit stays empty.
+                git(tree, "reset", "-q")
+                self.commit_no_new_tests(state, ref)
             made = r.commit(self.message(CODE_PREFIX, False, state), cwd=tree, base=ref)
             if (stopped := self.record_built(state, ref, made, account)) is not None:
                 return stopped

@@ -11,24 +11,41 @@ from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
-from agent_build_kit.graph.nodes import WROTE_NOTHING_NOTE
+from agent_build_kit.graph.nodes import NO_NEW_TESTS, NO_TESTS_COMMIT, WROTE_NOTHING_NOTE
 from agent_build_kit.pipeline.stack_runner import RunOutcome
 from agent_build_kit.pipeline.wiring import build_tree_state
-from tests.graph.branch_fakes import Groups, OnBranch, key, prepared, subjects, titled
+from tests.graph.branch_fakes import (
+    ACCOUNT,
+    Groups,
+    OnBranch,
+    key,
+    messages,
+    prepared,
+    subjects,
+    titled,
+)
 from tests.graph.test_build_path import build
 from tests.graph.test_per_group_build import group_named
+from tests.graph.test_per_group_lone_feat_message import marked_empty
 
 GROUPS = {"add-marker": titled(1)}
+LONE_GROUPS = {"add-marker": titled(3, 4)}
+LONE_SEEDED = ["test: G3", "feat: G3", "feat: G4"]
 CAUSE = "the tests step wrote no test"
+CLAIM = "Added four tests to tests/graph and they all fail as they should"
+UNCHANGED = "tree is unchanged"
 
 
 class Refused(OnBranch):
     """A recorder over the real tree digest whose first `refused` tests calls write nothing and
-    say nothing, as a refused write does."""
+    say `said` (nothing by default), as a refused write does."""
 
-    def __init__(self, store: Any, *, refused: int, group: str = "", **options: Any) -> None:
+    def __init__(
+        self, store: Any, *, refused: int, group: str = "", said: str = "", **options: Any
+    ) -> None:
         super().__init__(store, **options)
         self.refused = refused
+        self.said = said
         self.group = group  # as the prompt names it; every group when empty
         self.tests_calls = 0
 
@@ -43,7 +60,7 @@ class Refused(OnBranch):
         if self.tests_calls > self.refused:
             return answer
         (kwargs["cwd"] / f"work-{len(self.prompts)}.txt").unlink()
-        return ""
+        return self.said
 
 
 def refusing(
@@ -51,11 +68,12 @@ def refusing(
     refused: int,
     *,
     group: str = "",
+    said: str = "",
     groups: Mapping[str, Groups] = GROUPS,
     **options: Any,
 ) -> tuple[Refused, RunOutcome, Path]:
     recorder, repo = prepared(tmp_path, groups=groups, **options)
-    refusing_recorder = Refused(recorder.store, refused=refused, group=group)
+    refusing_recorder = Refused(recorder.store, refused=refused, group=group, said=said)
     outcome = build(tmp_path, refusing_recorder, **refusing_recorder.overrides(tmp_path))
     return refusing_recorder, outcome, repo
 
@@ -101,3 +119,62 @@ def test_a_no_code_group_runs_no_tests_node(tmp_path: Path) -> None:
 
     assert "claude:tests" not in recorder.events
     assert CAUSE not in outcome.detail
+
+
+def test_a_tests_required_group_whose_tree_is_unchanged_is_run_once_more_whatever_was_said(
+    tmp_path: Path,
+) -> None:
+    recorder, _, _ = refusing(tmp_path, refused=1, said=CLAIM, tests_required=(1,))
+
+    assert recorder.events.count("claude:tests") == 2
+    first, second = recorder.prompts[:2]
+    assert UNCHANGED in second
+    assert UNCHANGED not in first
+
+
+def test_a_tests_required_group_unchanged_twice_stops_before_the_stub_checks_quoting_the_agent(
+    tmp_path: Path,
+) -> None:
+    recorder, outcome, repo = refusing(tmp_path, refused=2, said=CLAIM, tests_required=(1,))
+
+    assert outcome.status == "failed", outcome.detail
+    assert CAUSE in outcome.detail
+    assert CLAIM in outcome.detail
+    assert recorder.events.count("claude:tests") == 2, "one more try, no more"
+    assert "stub-checks" not in recorder.events
+    assert "claude:impl" not in recorder.events
+    assert subjects(repo) == []
+
+
+def test_a_tests_required_group_that_writes_on_the_second_run_goes_on_to_the_checks(
+    tmp_path: Path,
+) -> None:
+    recorder, outcome, repo = refusing(tmp_path, refused=1, said=CLAIM, tests_required=(1,))
+
+    assert outcome.status == "open", outcome.detail
+    assert recorder.events.index("stub-checks") < recorder.events.index("claude:impl")
+    assert subjects(repo) == ["test: G1", "feat: G1"]
+
+
+def test_a_first_group_that_says_its_tests_exist_gets_an_empty_marked_test_before_its_feat(
+    tmp_path: Path,
+) -> None:
+    recorder, outcome, repo = refusing(tmp_path, refused=1, said=ACCOUNT)
+
+    assert outcome.status == "open", outcome.detail
+    assert recorder.events.count("claude:tests") == 1, "an explanation is a judgment: no retry"
+    assert subjects(repo) == ["test: G1", "feat: G1"]
+    assert NO_NEW_TESTS in messages(repo)[0]
+
+
+def test_implement_does_not_start_for_a_group_with_no_tests_commit(tmp_path: Path) -> None:
+    """A lone `feat:` keeps the empty marked `test:` from being recorded, so the route into
+    implement finds no `test:` commit for the group."""
+    recorder, repo = prepared(
+        tmp_path, groups=LONE_GROUPS, seeded=LONE_SEEDED, silent_groups=(4,), meanwhile=marked_empty
+    )
+    outcome = build(tmp_path, recorder, **recorder.overrides(tmp_path))
+
+    assert outcome.status == "failed", outcome.detail
+    assert NO_TESTS_COMMIT in outcome.detail
+    assert "claude:impl" not in recorder.events

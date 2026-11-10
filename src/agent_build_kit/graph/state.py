@@ -153,7 +153,9 @@ class UnitRun(Frozen):
     red_rounds: int = 0  # returns of the tests to the tests step by the red check, in this group
     red_returned: bool = False  # the red check sent the tests back: the tests step runs again
     red_result: str = ""  # a `GateResult` value: the red check's result; empty: it never ran
-    tests_account: str = ""  # what the tests agent last said, kept for a test-only group's record
+    # what the tests agent last said: a test-only group's record, and read by implement to
+    # record a first group's empty marked `test:`
+    tests_account: str = ""
     review_round: int = 0
     checks_ok: bool = False
     produced_nothing: bool = False
