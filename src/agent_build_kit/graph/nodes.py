@@ -2314,9 +2314,15 @@ class BuildPath:
 
     def answering(self, state: UnitRun) -> dict[str, str]:
         """The failed check a fix has just answered, for the run to select its tests by;
-        nothing for the first check, a unit that has not failed, or a rework."""
+        nothing for the first check or a unit that has not failed. A rework after review is
+        answered the same way: its words are what the selection starts from, and the full run
+        follows only when the selection is green."""
         stored = self.runner.store.get(self.unit.id)
         if state.fix_rounds and stored.feedback_source is FeedbackSource.UNIT_TEST:
+            return {"failed_output": stored.feedback}
+        if stored.feedback_source in (FeedbackSource.NONE, FeedbackSource.REVIEW) and (
+            stored.feedback.strip()
+        ):
             return {"failed_output": stored.feedback}
         return {}
 
