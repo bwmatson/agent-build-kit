@@ -21,7 +21,10 @@ runs and live verification are workers too (`abk worker resolve`, `abk worker ve
 the worker processes are the only thing that builds. A worker is
 a transient systemd user unit (`systemd-run --user --collect`), or a detached process where the
 user manager is not available; `workers.memory_max` and `workers.cpu_weight` set its
-`MemoryMax` and `CPUWeight`, and unset add no limit. A worker's exit, `abk requeue`,
+`MemoryMax` and `CPUWeight`, and unset add no limit. A transient unit starts with the manager's
+bare environment, so it is given `PATH` and, when the dispatcher has it, `VOLTA_HOME` (a
+toolchain manager's shims find its tools there); a detached process keeps the dispatcher's whole
+environment. A worker's exit, `abk requeue`,
 `abk approve` and `abk attach release` touch `runs/wake`; the path unit that `abk install-timers`
 writes watches that file and starts a tick, so the next unit is admitted in seconds and the
 timer is only the polling cadence. `abk status` lists each running worker, and `abk doctor`

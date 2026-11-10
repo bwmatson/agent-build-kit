@@ -587,7 +587,11 @@ def test_a_sweep_that_raises_does_not_fail_the_round(
     def broken(*args: object, **kwargs: object) -> None:
         raise RuntimeError("the store is on fire")
 
+    from agent_build_kit import openspec
+
     monkeypatch.setattr(cli, "sweep", broken)
+    # The round archives the change it is given; `openspec` itself runs through `npx`.
+    monkeypatch.setattr(openspec, "archive", lambda change, cwd, run=None: "")
     write_change(inst.changes_dir)
 
     run(inst, store)

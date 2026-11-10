@@ -8,6 +8,8 @@ import sys
 from pathlib import Path
 from typing import Any
 
+import pytest
+
 from agent_build_kit.pipeline.spawn import spawn, user_manager_available
 from tests.conftest import make_installation
 from tests.loginctl_fake import Loginctl
@@ -60,6 +62,34 @@ def test_the_transient_unit_keeps_the_callers_path_and_the_installation_director
     assert argv.index(f"--working-directory={inst.root}") < command
 
 
+def test_the_transient_unit_is_given_the_toolchain_variable_the_dispatcher_has(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("VOLTA_HOME", str(tmp_path / "volta"))
+    inst = make_installation(tmp_path / "planning")
+    run = Loginctl("yes")
+
+    spawn(inst, "build", UNIT, user_manager=True, run=run, popen=Popen)
+
+    [argv] = [call for call in run.calls if call[0] == "systemd-run"]
+    assert "--setenv=VOLTA_HOME" in argv
+    assert argv.index("--setenv=VOLTA_HOME") < argv.index(sys.executable)
+
+
+def test_a_dispatcher_without_the_toolchain_variable_passes_none(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.delenv("VOLTA_HOME", raising=False)
+    inst = make_installation(tmp_path / "planning")
+    run = Loginctl("yes")
+
+    spawn(inst, "build", UNIT, user_manager=True, run=run, popen=Popen)
+
+    [argv] = [call for call in run.calls if call[0] == "systemd-run"]
+    assert not [word for word in argv if "VOLTA_HOME" in word]
+    assert "--setenv=PATH" in argv
+
+
 def test_a_limit_that_is_not_set_adds_no_property(tmp_path: Path) -> None:
     argv = started_by_systemd(tmp_path)
 
@@ -92,6 +122,7 @@ def test_without_the_user_manager_the_worker_is_a_detached_process_logging_to_th
     assert not run.calls, "no systemd-run without the user manager"
     assert process.argv[-3:] == ["worker", "build", UNIT]
     assert process.kwargs["start_new_session"] is True
+    assert "env" not in process.kwargs, "a detached worker keeps the dispatcher's environment"
     assert process.kwargs["stdin"] == subprocess.DEVNULL
     assert process.kwargs["stderr"] == subprocess.STDOUT
     assert inst.state_dir in Path(process.kwargs["stdout"].name).parents

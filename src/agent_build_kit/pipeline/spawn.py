@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import re
 import subprocess
 import sys
@@ -18,6 +19,9 @@ Run = Callable[..., subprocess.CompletedProcess]
 
 # What `systemctl --user is-system-running` prints when the manager can start a unit.
 _USABLE = ("running", "degraded")
+# Variables a worker takes from its dispatcher beside `PATH`: where a toolchain manager keeps its
+# tools, which a worker's shims read.
+_TOOLCHAIN_VARIABLES = ("VOLTA_HOME",)
 
 
 class Worker(Frozen):
@@ -85,7 +89,9 @@ def spawn(
         # A transient unit starts with the manager's bare environment and directory. `--setenv`
         # with a name alone takes the value from systemd-run's own environment, which for a
         # dispatcher is the tick unit's PATH, so the worker finds the tools the detached
-        # fallback finds.
+        # fallback finds. The toolchain manager's variable goes the same way when the
+        # dispatcher has it: without it a worker's `node` shim looks for a toolchain in a home
+        # folder that has none, and goes to the network for one.
         argv = [
             "systemd-run",
             "--user",
@@ -93,6 +99,11 @@ def spawn(
             "--unit",
             name,
             "--setenv=PATH",
+            *(
+                f"--setenv={variable}"
+                for variable in _TOOLCHAIN_VARIABLES
+                if os.environ.get(variable)
+            ),
             f"--working-directory={inst.root}",
             *properties,
             *command,

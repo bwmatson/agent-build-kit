@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+- A build worker started through the service manager now has the toolchain manager's variable
+  (`VOLTA_HOME`) when the dispatcher has it, as it has `PATH`. Without it the worker's `node`
+  shim looked for a toolchain in the suite's empty home and went to the network for one, so the
+  node profile's tests took 35 to 160 seconds, hit their time limit and failed units that did not
+  touch them. The tests of the node profile also stand in for `node` (a program that answers the
+  profile's script probe from the folder's `package.json`), and a guard puts refusing `node`,
+  `npm` and `npx` ahead of the real ones for every other unit test: a test that starts one fails
+  naming the command, unless it is marked `real_node_tool` (or is `integration` or `e2e`).
+  `require_node` asks once, with a deadline, and skips when `node` does not start.
+
 - A tests step that writes nothing no longer slips through to the implementation. For a group
   marked `Tests: required` an unchanged tree is judged as nothing written, whatever the agent
   reported: the step is run once more and then the unit stops, quoting what the agent said. A

@@ -20,6 +20,9 @@ from agent_build_kit import profiles
 from tests.factories import git, init_repo
 from tests.node_runtime import require_node
 
+# These run the profile's script probe against a real `node`, which `require_node` finds or skips.
+pytestmark = pytest.mark.real_node_tool
+
 GENERIC_LINT = "npx oxlint ."
 GENERIC_FORMAT = "npx oxfmt --check ."
 GENERIC_TYPES = "npx tsc --noEmit"

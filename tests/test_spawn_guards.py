@@ -26,6 +26,7 @@ from tests.conftest import (
     no_real_gh,
     no_real_github,
     no_real_login_refresh,
+    no_real_node_tool,
     no_real_usage_reading,
 )
 """
@@ -34,6 +35,8 @@ INI = """\
 [pytest]
 markers =
     e2e: an e2e test
+    integration: an integration test
+    real_node_tool: the test means to run a real node tool
 """
 
 # `original_spawn` is bound at import, before the autouse guard replaces `spawn` on the module;
@@ -151,6 +154,42 @@ def test_code_host_is_the_stand_in():
 """
 )
 
+NODE_UNDECLARED = """\
+import subprocess
+
+import pytest
+
+
+@pytest.mark.parametrize("tool", ["node", "npm", "npx"])
+def test_unmarked(tool):
+    subprocess.run(["sh", "-c", f"{tool} --version"], check=False)
+"""
+
+NODE_DECLARED = """\
+import subprocess
+
+import pytest
+
+
+def run_node():
+    return subprocess.run(["node"], capture_output=True, text=True, check=False).stdout.strip()
+
+
+@pytest.mark.real_node_tool
+def test_declared():
+    assert run_node() == "ran"
+
+
+@pytest.mark.integration
+def test_integration():
+    assert run_node() == "ran"
+
+
+@pytest.mark.e2e
+def test_e2e():
+    assert run_node() == "ran"
+"""
+
 
 @pytest.fixture
 def child(
@@ -223,3 +262,34 @@ def test_the_other_guards_hold_for_a_marked_test(
     result = child(OTHER_GUARDS)
 
     result.assert_outcomes(passed=4)
+
+
+def test_a_test_that_starts_a_real_node_tool_is_refused_naming_the_command(
+    child: Callable[[str], pytest.RunResult],
+) -> None:
+    result = child(NODE_UNDECLARED)
+
+    result.assert_outcomes(passed=3, errors=3)
+    result.stdout.fnmatch_lines(
+        [
+            "*a test tried to run a real node tool: node --version*",
+            "*a test tried to run a real node tool: npm --version*",
+            "*a test tried to run a real node tool: npx --version*",
+        ]
+    )
+
+
+def test_a_test_that_declares_it_or_is_integration_or_e2e_reaches_the_real_tool(
+    child: Callable[[str], pytest.RunResult],
+    pytester: pytest.Pytester,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    bin_dir = pytester.mkdir("bin")
+    script = bin_dir / "node"
+    script.write_text("#!/bin/sh\necho ran\n")
+    script.chmod(script.stat().st_mode | stat.S_IEXEC)
+    monkeypatch.setenv("PATH", f"{bin_dir}{os.pathsep}{os.environ['PATH']}")
+
+    result = child(NODE_DECLARED)
+
+    result.assert_outcomes(passed=3)
