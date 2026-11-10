@@ -6,6 +6,7 @@ The base run is the one further run of the untouched failures, and it is the gat
 
 from __future__ import annotations
 
+import re
 import subprocess
 from pathlib import Path
 from typing import cast
@@ -19,6 +20,16 @@ from tests.e2e_base_fakes import E2E_COMMAND, Runs, branch, pytest_output, sessi
 LIVE = "tests/live/test_live.py"
 LIMITS = {"unit_test_repeat_runs": 3, "e2e_base_runs": 1}
 E2E_TEST = "import pytest\n\n\n@pytest.mark.e2e\ndef test_live():\n    assert True\n"
+
+
+def selects_e2e(command: list[str]) -> bool:
+    """Whether the command names the e2e marker, as an argument or in a `-m` expression."""
+    for index, argument in enumerate(command):
+        if argument == "e2e":
+            return True
+        if index and command[index - 1] == "-m" and "e2e" in re.findall(r"[A-Za-z_]\w*", argument):
+            return True
+    return False
 
 
 class Spy(PythonUvProfile):
@@ -65,7 +76,7 @@ def test_an_e2e_command_is_not_among_the_commands_unit_test_repeats(tmp_path: Pa
     assert passed
     assert commands
     assert E2E_COMMAND not in commands
-    assert all("e2e" not in " ".join(command) for command in commands)
+    assert not any(selects_e2e(command) for command in commands)
 
 
 def test_a_failing_e2e_test_named_in_unit_test_output_is_not_rerun_as_e2e(
@@ -88,5 +99,5 @@ def test_a_failing_e2e_test_named_in_unit_test_output_is_not_rerun_as_e2e(
 
     assert not passed
     assert E2E_COMMAND not in commands
-    assert all("e2e" not in " ".join(command) for command in spy.reruns)
-    assert all("e2e" not in " ".join(command) for command in commands)
+    assert not any(selects_e2e(command) for command in spy.reruns)
+    assert not any(selects_e2e(command) for command in commands)
