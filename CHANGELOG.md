@@ -6,7 +6,8 @@
   marked `Tests: required` an unchanged tree is judged as nothing written, whatever the agent
   reported: the step is run once more and then the unit stops, quoting what the agent said. A
   first group whose tests already exist now gets the empty marked `test:` too, and the
-  implement step does not start for a group with no `test:` commit.
+  implement step does not start for a later group with no `test:` commit; a first group whose
+  tests already exist gets its empty marked `test:` just before its implementation is committed.
 
 - The architecture, unit-graph and worker design documents and the `abk-pipeline` skill now
   describe a tick as a dispatcher that starts worker processes, and say how to read the

@@ -1687,7 +1687,9 @@ class BuildPath:
                 )
                 if self.wrote_nothing(state, before, account, required=required):
                     if required:
-                        said = account.strip()[:ACCOUNT_QUOTE] or "nothing"
+                        said = (
+                            cut_head(" ".join(account.split()), ACCOUNT_QUOTE, "char") or "nothing"
+                        )
                         return self.stop(WROTE_NO_TEST_REQUIRED + said)
                     return self.stop(WROTE_NO_TEST)
             if stubbed:

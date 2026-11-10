@@ -11,7 +11,7 @@ from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
-from agent_build_kit.graph.nodes import NO_NEW_TESTS, WROTE_NOTHING_NOTE
+from agent_build_kit.graph.nodes import NO_NEW_TESTS, NO_TESTS_COMMIT, WROTE_NOTHING_NOTE
 from agent_build_kit.pipeline.stack_runner import RunOutcome
 from agent_build_kit.pipeline.wiring import build_tree_state
 from tests.graph.branch_fakes import (
@@ -156,7 +156,7 @@ def test_a_tests_required_group_that_writes_on_the_second_run_goes_on_to_the_che
     assert subjects(repo) == ["test: G1", "feat: G1"]
 
 
-def test_a_first_group_without_required_tests_that_says_they_exist_is_recorded_as_empty_pair(
+def test_a_first_group_that_says_its_tests_exist_gets_an_empty_marked_test_before_its_feat(
     tmp_path: Path,
 ) -> None:
     recorder, outcome, repo = refusing(tmp_path, refused=1, said=ACCOUNT)
@@ -176,5 +176,5 @@ def test_implement_does_not_start_for_a_group_with_no_tests_commit(tmp_path: Pat
     outcome = build(tmp_path, recorder, **recorder.overrides(tmp_path))
 
     assert outcome.status == "failed", outcome.detail
-    assert "tests step" in outcome.detail
+    assert NO_TESTS_COMMIT in outcome.detail
     assert "claude:impl" not in recorder.events
