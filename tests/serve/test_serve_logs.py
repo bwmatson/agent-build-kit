@@ -19,6 +19,7 @@ import pytest
 
 from agent_build_kit.installation import Installation
 from agent_build_kit.pipeline.run_log import RunLog, run_log_dir
+from tests.artifact_fakes import MemoryArtifacts, given_the_artifacts
 from tests.factories import unit
 from tests.serving import seed_pipeline
 
@@ -164,3 +165,26 @@ def test_a_name_that_leaves_the_log_directory_is_not_found(
     answer = api.get("/api/units/feature/2/logs/..%2Fsecret.txt")
 
     assert answer.status_code == 404
+
+
+def test_the_listing_and_a_run_are_read_from_the_artifacts_not_from_a_directory(
+    inst: Installation, api: httpx.Client, memory_artifacts: MemoryArtifacts
+) -> None:
+    seed_pipeline(inst)
+    with given_the_artifacts():
+        run = RunLog(
+            memory_artifacts,  # pyrefly: ignore
+            unit("feature/2", change="feature"),
+            step="implement",
+            model="model-x",
+            base="main",
+            started=START,
+        )
+    run.emit("[18:44:10] working")
+
+    listed = api.get("/api/units/feature/2/logs").json()
+    body = read(api, run)
+
+    assert [listed_run["name"] for listed_run in listed["runs"]] == [run.name]
+    assert [line["text"] for line in body["lines"]] == ["working"]
+    assert body["live"] is True

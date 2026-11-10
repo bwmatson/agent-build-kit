@@ -21,6 +21,7 @@ from agent_build_kit.pipeline.transcript import (
     replay,
     transcript_dir,
 )
+from tests.artifact_fakes import MemoryArtifacts, given_the_artifacts
 from tests.factories import stored_unit, unit
 from tests.pipeline.test_archive import FakeRunner
 
@@ -311,3 +312,61 @@ def test_a_runtime_that_keeps_tool_calls_is_not_reported_as_missing_them(tmp_pat
 
     assert shown.recorded is False
     assert shown.tool_calls_available is True
+
+
+# --- over a stand-in Artifacts implementation: nothing is a file ---------------------------
+
+
+def open_artifact_transcript(
+    artifacts: MemoryArtifacts,
+    uid: str = "add-marker/1",
+    *,
+    at: datetime = START,
+    runs_kept: int = 3,
+) -> Transcript:
+    with given_the_artifacts():
+        return open_transcript(artifacts, uid, at=at, runs_kept=runs_kept)  # pyrefly: ignore
+
+
+def test_an_event_is_appended_to_the_transcripts_key_the_moment_it_arrives(
+    memory_artifacts: MemoryArtifacts,
+) -> None:
+    open_artifact_transcript(memory_artifacts).record(said("one"))
+
+    (key,) = memory_artifacts.list("transcripts/add-marker-01-")
+    assert [
+        json.loads(line)["text"] for line in memory_artifacts.get(key).decode().splitlines()
+    ] == ["one"]
+
+
+def test_a_transcript_is_read_back_from_its_key(memory_artifacts: MemoryArtifacts) -> None:
+    open_artifact_transcript(memory_artifacts).record(said("one"))
+    open_artifact_transcript(memory_artifacts, "add-marker/10").record(said("ten"))
+
+    with given_the_artifacts():
+        events = read_transcripts(memory_artifacts, "add-marker/1")  # pyrefly: ignore
+
+    assert [event.text for event in events] == ["one"]
+
+
+def test_the_runs_beyond_the_kept_are_removed_through_the_artifacts(
+    memory_artifacts: MemoryArtifacts,
+) -> None:
+    for n in range(3):
+        open_artifact_transcript(memory_artifacts, at=START + timedelta(hours=n), runs_kept=2)
+
+    assert len(memory_artifacts.list("transcripts/add-marker-01-")) == 2
+
+
+def test_removing_a_changes_transcripts_removes_their_keys_and_leaves_other_changes(
+    memory_artifacts: MemoryArtifacts,
+) -> None:
+    open_artifact_transcript(memory_artifacts, "add-marker/1").record(said("one"))
+    open_artifact_transcript(memory_artifacts, "add-marker/12").record(said("twelve"))
+    open_artifact_transcript(memory_artifacts, "add-marker-extra/1").record(said("other"))
+
+    with given_the_artifacts():
+        remove_change_transcripts(memory_artifacts, "add-marker")  # pyrefly: ignore
+
+    (key,) = memory_artifacts.list("")
+    assert key.startswith("transcripts/add-marker-extra-01-")
