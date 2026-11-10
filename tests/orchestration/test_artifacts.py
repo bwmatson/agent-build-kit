@@ -19,7 +19,6 @@ from agent_build_kit.orchestration.artifacts import (
     Artifacts,
     MissingArtifact,
 )
-from agent_build_kit.orchestration.local.artifacts import LocalArtifacts
 from agent_build_kit.pipeline import run_log, spec_snapshot, transcript
 from tests.conftest import make_installation
 from tests.redaction_fakes import NAME, SECRET, known
@@ -39,7 +38,6 @@ def local_installation(tmp_path: Path) -> Installation:
 
 @pytest.fixture
 def local_artifacts(local_installation: Installation) -> Iterator[Artifacts]:
-    orchestration.register(INTERFACE, "local", LocalArtifacts)
     with known():
         yield orchestration.get(INTERFACE, local_installation)
 
