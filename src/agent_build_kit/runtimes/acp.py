@@ -132,6 +132,7 @@ from agent_build_kit.runtimes.base import (
     check_prompt_size,
     child_environment,
     full_environment,
+    tell,
     validate_argv,
 )
 from agent_build_kit.runtimes.network import network_failure
@@ -1191,17 +1192,7 @@ class _Session:
     def _tell(self, line: str, *, whole: str | None = None) -> None:
         """`line` flattened to one line for the journal; the unit's log gets
         `whole` as it came, line breaks kept, when there is one."""
-        flat = f"  {' '.join(line.split())}"
-        for callback, text in (
-            (self._report, flat),
-            (self._transcript, f"  {whole}" if whole else flat),
-        ):
-            if callback is None:
-                continue
-            try:
-                callback(text)
-            except Exception:  # noqa: BLE001 — progress is for a reader, never the run's to lose
-                pass
+        tell(self._report, self._transcript, line, whole=whole)
 
 
 USAGE_KEYS = {

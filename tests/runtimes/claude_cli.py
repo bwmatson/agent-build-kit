@@ -302,14 +302,35 @@ def failed_build(cwd: Path, message: str) -> str:
 
 
 def refused_call_build(
-    cwd: Path, command: str, reason: str, *, listed: bool = True, with_list: bool = True
+    cwd: Path,
+    command: str,
+    reason: str,
+    *,
+    listed: bool = True,
+    with_list: bool = True,
+    tool: str = "Bash",
+    given: dict | None = None,
+    with_result: bool = True,
 ) -> str:
     """A run whose one Bash call the CLI's permission layer refused: the call's tool result
     is an error holding the reason, and the closing event lists the call alone. `listed`
-    False leaves the list empty, `with_list` False leaves the key out of the event."""
+    False leaves the list empty, `with_list` False leaves the key out of the event. `tool` and
+    `given` replace the call's tool and input, `with_result` False leaves its result out."""
     call = "toolu_01RefusedBashCall0001"
-    given = {"command": command, "description": "Append and test"}
-    denial = {"tool_name": "Bash", "tool_use_id": call, "tool_input": given}
+    given = given if given is not None else {"command": command, "description": "Append and test"}
+    denial = {"tool_name": tool, "tool_use_id": call, "tool_input": given}
+    result = {
+        "type": "user",
+        "message": {
+            "role": "user",
+            "content": [
+                {"tool_use_id": call, "type": "tool_result", "content": reason, "is_error": True}
+            ],
+        },
+        "parent_tool_use_id": None,
+        "session_id": SESSION,
+        "uuid": "e1b4c7a2-5d8f-4e3a-9c6b-0a2f8d1e7b53",
+    }
     return stream(
         _init(cwd),
         _assistant(
@@ -317,28 +338,12 @@ def refused_call_build(
                 {
                     "type": "tool_use",
                     "id": call,
-                    "name": "Bash",
+                    "name": tool,
                     "input": given,
                 }
             ]
         ),
-        {
-            "type": "user",
-            "message": {
-                "role": "user",
-                "content": [
-                    {
-                        "tool_use_id": call,
-                        "type": "tool_result",
-                        "content": reason,
-                        "is_error": True,
-                    }
-                ],
-            },
-            "parent_tool_use_id": None,
-            "session_id": SESSION,
-            "uuid": "e1b4c7a2-5d8f-4e3a-9c6b-0a2f8d1e7b53",
-        },
+        *([result] if with_result else []),
         _assistant([{"type": "text", "text": "Done."}]),
         _result("Done.", denials=[denial] if listed else [], with_denials=with_list),
     )

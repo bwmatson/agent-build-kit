@@ -337,7 +337,39 @@ def test_an_error_tool_result_with_no_denial_listed_is_not_a_refusal(
     assert result.refused_calls == ()
 
 
-def test_each_refused_call_is_said_once_in_the_unit_log(tmp_path: Path) -> None:
+def test_a_refused_call_naming_nothing_is_known_by_its_tool(tmp_path: Path) -> None:
+    stdout = refused_call_build(tmp_path, COMMAND, REASON, tool="mcp__svc__lookup", given={"id": 7})
+
+    result = ClaudeCodeRuntime(execute=FakeClaude(stdout=stdout)).run(_request(tmp_path))
+
+    assert result.refused_calls == (
+        RefusedCall(tool="mcp__svc__lookup", subject="mcp__svc__lookup", reason=REASON),
+    )
+
+
+def test_a_refused_call_with_no_tool_result_has_a_fixed_reason(tmp_path: Path) -> None:
+    stdout = refused_call_build(tmp_path, COMMAND, REASON, with_result=False)
+
+    result = ClaudeCodeRuntime(execute=FakeClaude(stdout=stdout)).run(_request(tmp_path))
+
+    assert result.refused_calls == (
+        RefusedCall(tool="Bash", subject=COMMAND, reason="no reason given"),
+    )
+
+
+def test_a_refused_multi_line_command_is_one_flat_line_in_the_journal(tmp_path: Path) -> None:
+    lines: list[str] = []
+    command = "cat > tests/test_app.py <<'EOF'\ndef test_marker(): ...\nEOF"
+    fake = FakeClaude(stdout=refused_call_build(tmp_path, command, REASON))
+
+    ClaudeCodeRuntime(execute=fake).run(_request(tmp_path, on_event=lines.append))
+
+    said = [line for line in lines if "refused" in line]
+    flat = "cat > tests/test_app.py <<'EOF' def test_marker(): ... EOF"
+    assert said == [f"  refused `{flat}` by the agent's permissions: {REASON}"]
+
+
+def test_each_refused_call_is_said_once_in_the_journal(tmp_path: Path) -> None:
     lines: list[str] = []
     fake = FakeClaude(stdout=refused_call_build(tmp_path, COMMAND, REASON))
 

@@ -216,6 +216,26 @@ def full_environment(environment: dict[str, str] | None, env: dict[str, str]) ->
     return {**(os.environ if environment is None else environment), **env}
 
 
+def tell(
+    report: Callable[[str], None] | None,
+    transcript: Callable[[str], None] | None,
+    line: str,
+    *,
+    whole: str | None = None,
+) -> None:
+    """`line` flattened to one indented line for the journal (`report`); the unit's log
+    (`transcript`) gets `whole` as it came, line breaks kept, when there is one. A callback
+    that raises is skipped: progress is for a reader, never the run's to lose."""
+    flat = f"  {' '.join(line.split())}"
+    for callback, text in ((report, flat), (transcript, f"  {whole}" if whole else flat)):
+        if callback is None:
+            continue
+        try:
+            callback(text)
+        except Exception:  # noqa: BLE001
+            pass
+
+
 class RefusedCall(Frozen):
     """A tool call the agent's permission layer refused: it did not run."""
 

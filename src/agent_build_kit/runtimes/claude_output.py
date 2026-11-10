@@ -67,6 +67,10 @@ def agent_failure(event: ResultEvent | None, text: str) -> AgentFailure:
     return AgentFailure(kind="other")
 
 
+# Said of a refused call whose tool result the stream does not carry.
+NO_REASON = "no reason given"
+
+
 def refused_calls(stdout: str, event: ResultEvent | None) -> tuple[RefusedCall, ...]:
     """The calls the CLI's permission layer refused: the result event lists each, and the
     error tool result of the same call says why (the list names the call, not the reason)."""
@@ -76,11 +80,13 @@ def refused_calls(stdout: str, event: ResultEvent | None) -> tuple[RefusedCall, 
     refused = []
     for denial in event.permission_denials:
         given = denial.get("tool_input")
+        tool = str(denial.get("tool_name", ""))
         refused.append(
             RefusedCall(
-                tool=str(denial.get("tool_name", "")),
-                subject=tool_target(given if isinstance(given, dict) else {}),
-                reason=reasons.get(str(denial.get("tool_use_id")), ""),
+                tool=tool,
+                # A call that names nothing the log can show is known by its tool.
+                subject=tool_target(given if isinstance(given, dict) else {}) or tool,
+                reason=reasons.get(str(denial.get("tool_use_id"))) or NO_REASON,
             )
         )
     return tuple(refused)

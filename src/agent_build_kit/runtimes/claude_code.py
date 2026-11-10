@@ -75,6 +75,7 @@ from agent_build_kit.runtimes.base import (
     check_prompt_size,
     child_environment,
     full_environment,
+    tell,
     validate_argv,
 )
 from agent_build_kit.runtimes.claude_output import AgentFailure, agent_failure, refused_calls
@@ -456,13 +457,7 @@ class ClaudeCodeRuntime:
         refused = refused_calls(result.stdout, ended)
         for call in refused:
             # The journal and the unit's log both: a tick routes them to different places.
-            for callback in (request.on_event, request.on_transcript):
-                if callback is None:
-                    continue
-                try:
-                    callback(f"  {call.said("the agent's permissions")}")
-                except Exception:  # noqa: BLE001 — progress is for a reader, never the run's to lose
-                    pass
+            tell(request.on_event, request.on_transcript, call.said("the agent's permissions"))
         # An error-subtype result has no `result` text, and `final_text` would
         # then hand back the whole transcript; that belongs in `raw` alone.
         text = "" if ended is not None and ended.result is None else final_text(result.stdout)
