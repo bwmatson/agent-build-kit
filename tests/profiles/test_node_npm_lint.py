@@ -8,9 +8,7 @@ unit-test puts above a failed command's output.
 
 from __future__ import annotations
 
-import os
 import shlex
-import stat
 import subprocess
 from pathlib import Path
 
@@ -19,8 +17,6 @@ import pytest
 from agent_build_kit import profiles
 from agent_build_kit.config import RepoConfig
 from tests.factories import git, init_repo
-
-TOOLS = ("npx", "oxlint", "oxfmt", "tsc")
 
 OXLINT_ERROR = """\
   x eslint(no-unused-vars): Variable 'unused' is declared but never used.
@@ -53,23 +49,6 @@ TSC_ERROR = (
 @pytest.fixture
 def profile():
     return profiles.get("node-npm")
-
-
-@pytest.fixture
-def tools(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
-    """Programs named as the tools are that append their own name and arguments, one per
-    line, to the returned file, ahead of everything else on the path."""
-    bin_dir = tmp_path / "bin"
-    bin_dir.mkdir()
-    log = tmp_path / "args.log"
-    for name in TOOLS:
-        program = bin_dir / name
-        program.write_text(
-            f'#!/bin/sh\nprintf "%s\\n" "$(basename "$0")" "$@" >> {shlex.quote(str(log))}\n'
-        )
-        program.chmod(program.stat().st_mode | stat.S_IEXEC)
-    monkeypatch.setenv("PATH", f"{bin_dir}{os.pathsep}{os.environ['PATH']}")
-    return log
 
 
 @pytest.fixture
@@ -125,9 +104,9 @@ def failure(command: list[str], printed: str, code: int = 1) -> str:
 
 
 def test_the_lint_command_for_a_diff_names_the_changed_source_file_and_no_other(
-    profile, project: Path, tools: Path
+    profile, project: Path, node_stand_ins: Path
 ) -> None:
-    args = run_command(profile.lint_command("main"), project, tools)
+    args = run_command(profile.lint_command("main"), project, node_stand_ins)
 
     assert "src/a.ts" in args
     assert "src/b.ts" not in args
@@ -135,9 +114,9 @@ def test_the_lint_command_for_a_diff_names_the_changed_source_file_and_no_other(
 
 
 def test_the_lint_command_in_a_subdirectory_names_its_own_changed_file_relative_to_it(
-    profile, nested_project: Path, tools: Path
+    profile, nested_project: Path, node_stand_ins: Path
 ) -> None:
-    args = run_command(profile.lint_command("main"), nested_project, tools)
+    args = run_command(profile.lint_command("main"), nested_project, node_stand_ins)
 
     assert "src/a.ts" in args
     assert "web/src/a.ts" not in args
@@ -145,9 +124,9 @@ def test_the_lint_command_in_a_subdirectory_names_its_own_changed_file_relative_
 
 
 def test_the_lint_command_checks_both_the_lint_and_the_format(
-    profile, project: Path, tools: Path
+    profile, project: Path, node_stand_ins: Path
 ) -> None:
-    args = run_command(profile.lint_command("main"), project, tools)
+    args = run_command(profile.lint_command("main"), project, node_stand_ins)
 
     assert "oxlint" in args
     assert "oxfmt" in args
@@ -155,7 +134,7 @@ def test_the_lint_command_checks_both_the_lint_and_the_format(
 
 
 def test_a_base_that_does_not_resolve_fails_the_lint_without_running_a_tool(
-    profile, project: Path, tools: Path
+    profile, project: Path, node_stand_ins: Path
 ) -> None:
     done = subprocess.run(
         profile.lint_command("no-such-ref"), cwd=project, capture_output=True, text=True
@@ -163,16 +142,24 @@ def test_a_base_that_does_not_resolve_fails_the_lint_without_running_a_tool(
 
     assert done.returncode != 0
     assert "no-such-ref" in done.stderr
-    assert not tools.exists()
+    assert not node_stand_ins.exists()
 
 
 def test_the_all_files_lint_command_covers_the_whole_project(
-    profile, project: Path, tools: Path
+    profile, project: Path, node_stand_ins: Path
 ) -> None:
-    args = run_command(profile.lint_command_all_files(), project, tools)
+    args = run_command(profile.lint_command_all_files(), project, node_stand_ins)
 
     assert covers(args, "src/a.ts")
     assert covers(args, "src/b.ts")
+
+
+def test_the_all_files_lint_probe_reaches_the_node_stand_in(
+    profile, project: Path, node_stand_ins: Path
+) -> None:
+    args = run_command(profile.lint_command_all_files(), project, node_stand_ins)
+
+    assert "node" in args
 
 
 def test_recorded_lint_output_with_an_error_fails_and_is_classified_as_lint(profile) -> None:

@@ -10,6 +10,8 @@ import stat
 import subprocess
 from pathlib import Path
 
+from tests.node_stand_in import install_node_stand_in
+
 VITEST = Path(__file__).resolve().parent / "fixtures" / "external" / "vitest"
 
 FAKE_NPX = """\
@@ -65,6 +67,7 @@ def make_project(root: Path) -> Project:
     npx = root / "bin" / "npx"
     npx.write_text(FAKE_NPX)
     npx.chmod(npx.stat().st_mode | stat.S_IEXEC)
+    install_node_stand_in(root / "bin")
     (root / "project").mkdir()
     (root / "scratch").mkdir()
     return Project(root)

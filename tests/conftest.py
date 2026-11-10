@@ -19,6 +19,8 @@ from __future__ import annotations
 import argparse
 import os
 import re
+import shlex
+import stat
 import subprocess
 import sys
 import uuid
@@ -312,6 +314,45 @@ def no_real_gh(monkeypatch: pytest.MonkeyPatch) -> None:
         return real(args, *rest, **kwargs)
 
     monkeypatch.setattr(subprocess, "run", run)
+
+
+# What a test that means to run a real node tool says on itself, and the kinds of test that need
+# one by their nature.
+NODE_TOOL_MARKS = ("real_node_tool", "integration", "e2e")
+NODE_TOOLS = ("node", "npm", "npx")
+
+
+@pytest.fixture(autouse=True)
+def no_real_node_tool(
+    request: pytest.FixtureRequest,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path_factory: pytest.TempPathFactory,
+) -> Iterator[None]:
+    """A real `node`, `npm` or `npx` may be a toolchain manager's shim, which looks for a
+    toolchain in the suite's empty home and goes to the network for one. Each is replaced, for a
+    test, by a program that refuses at once, keeps the command it was given and has the test fail
+    at its end, naming it: a test of the node profile uses the `node_stand_ins` fixture, and one
+    that means to run a real tool is marked `real_node_tool` (so is an `integration` or `e2e`
+    test, which may need one)."""
+    if any(request.node.get_closest_marker(mark) for mark in NODE_TOOL_MARKS):
+        yield
+        return
+    bin_dir = tmp_path_factory.mktemp("no-node")
+    log = bin_dir / "started.log"
+    for name in NODE_TOOLS:
+        program = bin_dir / name
+        program.write_text(
+            "#!/bin/sh\n"
+            f'echo "{name} $*" >> {shlex.quote(str(log))}\n'
+            f'echo "a test tried to run a real {name} command: {name} $*" >&2\n'
+            "exit 97\n"
+        )
+        program.chmod(program.stat().st_mode | stat.S_IEXEC)
+    monkeypatch.setenv("PATH", f"{bin_dir}{os.pathsep}{os.environ.get('PATH', '')}")
+    yield
+    if log.exists():
+        started = ", ".join(sorted(set(log.read_text().splitlines())))
+        raise AssertionError(f"a test tried to run a real node tool: {started}")
 
 
 @pytest.fixture(autouse=True)
