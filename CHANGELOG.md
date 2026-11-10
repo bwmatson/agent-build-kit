@@ -9,6 +9,11 @@
   implement step does not start for a later group with no `test:` commit; a first group whose
   tests already exist gets its empty marked `test:` just before its implementation is committed.
 
+- Unit logs, failure bundles, transcripts and spec snapshots now have an Artifacts interface
+  with a local implementation that reads and writes the same files under the state directory
+  as before, redacting text before it is stored. The deployment registry finds it for a
+  `local` deployment.
+
 - The architecture, unit-graph and worker design documents and the `abk-pipeline` skill now
   describe a tick as a dispatcher that starts worker processes, and say how to read the
   worker list in `abk status`, which is read from the branch locks. The worker design is now a description of what exists, with

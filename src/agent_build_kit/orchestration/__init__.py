@@ -17,7 +17,7 @@ from typing import Any
 from agent_build_kit.installation import Installation
 
 # Modules that register the built-in implementations, imported on the first lookup.
-BUILTIN_MODULES: tuple[str, ...] = ()
+BUILTIN_MODULES: tuple[str, ...] = ("agent_build_kit.orchestration.local",)
 
 _REGISTRY: dict[str, dict[str, Callable[[Installation], Any]]] = {}
 _LOADED = False
@@ -79,4 +79,8 @@ def _load_builtin() -> None:
         return
     _LOADED = True
     for module in BUILTIN_MODULES:
-        importlib.import_module(module)
+        loaded = importlib.import_module(module)
+        # A module registers on every load, not only its first import (after `reset`).
+        hook = getattr(loaded, "register_implementations", None)
+        if hook is not None:
+            hook()
