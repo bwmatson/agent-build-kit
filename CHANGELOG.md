@@ -8,6 +8,7 @@
   first group whose tests already exist now gets the empty marked `test:` too, and the
   implement step does not start for a later group with no `test:` commit; a first group whose
   tests already exist gets its empty marked `test:` just before its implementation is committed.
+
 - Unit logs, failure bundles, transcripts and spec snapshots now have an Artifacts interface
   with a local implementation that reads and writes the same files under the state directory
   as before, redacting text before it is stored. The deployment registry finds it for a
