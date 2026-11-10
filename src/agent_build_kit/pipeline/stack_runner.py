@@ -343,6 +343,7 @@ class GroupStep(Frozen):
     support: tuple[str, ...] = ()  # the paths its `Support:` lines declare
     tests: tuple[str, ...] = ()  # the test paths its tasks name, () when it names none
     tier: TestTier = TestTier.UNIT_TEST  # the kind of test its heading tags it with
+    tests_required: bool = False  # whether the group carries a `Tests: required` line
 
     @property
     def test_only(self) -> bool:
@@ -380,6 +381,7 @@ def group_steps_of(planning_repo: Path | str, unit: Unit) -> tuple[GroupStep, ..
                 support=found[number].support if number in found else (),
                 tests=tuple(named_test_paths(found[number])) if number in found else (),
                 tier=found[number].tier if number in found else TestTier.UNIT_TEST,
+                tests_required=found[number].tests_required if number in found else False,
             )
             for number in member.groups
         )

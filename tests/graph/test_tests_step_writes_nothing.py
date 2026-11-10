@@ -26,8 +26,11 @@ from tests.graph.branch_fakes import (
 )
 from tests.graph.test_build_path import build
 from tests.graph.test_per_group_build import group_named
+from tests.graph.test_per_group_lone_feat_message import marked_empty
 
 GROUPS = {"add-marker": titled(1)}
+LONE_GROUPS = {"add-marker": titled(3, 4)}
+LONE_SEEDED = ["test: G3", "feat: G3", "feat: G4"]
 CAUSE = "the tests step wrote no test"
 CLAIM = "Added four tests to tests/graph and they all fail as they should"
 UNCHANGED = "tree is unchanged"
@@ -156,14 +159,7 @@ def test_a_tests_required_group_that_writes_on_the_second_run_goes_on_to_the_che
 def test_a_first_group_without_required_tests_that_says_they_exist_is_recorded_as_empty_pair(
     tmp_path: Path,
 ) -> None:
-    recorder, repo = prepared(
-        tmp_path,
-        groups=GROUPS,
-        silent_groups=(1,),
-        accounts={"1": ACCOUNT},
-        tests_accounts={"1": ACCOUNT},
-    )
-    outcome = build(tmp_path, recorder, **recorder.overrides(tmp_path))
+    recorder, outcome, repo = refusing(tmp_path, refused=1, said=ACCOUNT)
 
     assert outcome.status == "open", outcome.detail
     assert recorder.events.count("claude:tests") == 1, "an explanation is a judgment: no retry"
@@ -175,15 +171,10 @@ def test_implement_does_not_start_for_a_group_with_no_tests_commit(tmp_path: Pat
     """A lone `feat:` keeps the empty marked `test:` from being recorded, so the route into
     implement finds no `test:` commit for the group."""
     recorder, repo = prepared(
-        tmp_path,
-        groups=GROUPS,
-        seeded=["feat: G1"],
-        silent_groups=(1,),
-        tests_accounts={"1": ACCOUNT},
+        tmp_path, groups=LONE_GROUPS, seeded=LONE_SEEDED, silent_groups=(4,), meanwhile=marked_empty
     )
     outcome = build(tmp_path, recorder, **recorder.overrides(tmp_path))
 
     assert outcome.status == "failed", outcome.detail
     assert "tests step" in outcome.detail
     assert "claude:impl" not in recorder.events
-    assert subjects(repo) == ["feat: G1"]

@@ -609,9 +609,15 @@ release could move. The steps:
    not run it. The unit's recorded red result is the check's own, or skipped when it never ran,
    and the pull request says the tests were seen to fail first only for a check that ran.
 
-   A group with no new tests, in a unit that has commits, gets an empty `test:` commit marked
-   `Already-built: yes` at the end of its tests step, and the implementation then completes the
-   pair: a real `feat:` commit, or an empty one marked the same way once the whole-repository unit
+   A group that says `Tests: required` is judged by the tree, not by the agent's word: a tests
+   step that leaves the tree unchanged is run once more with a note saying so, and a second
+   unchanged tree stops the unit, quoting the start of what the agent said. The implement step of
+   a `tests_and_code` group does not start without the group's `test:` commit; the unit stops
+   before it, naming the tests step.
+
+   A group with no new tests whose tests agent explained itself gets an empty `test:` commit
+   marked `Already-built: yes` at the end of its tests step, also as a branch's first commit, and
+   the implementation then completes the pair: a real `feat:` commit, or an empty one marked the same way once the whole-repository unit
    tests pass. A group with real tests that already pass and no implementation change is
    completed with an empty `feat:` commit once the whole-repository unit tests pass. The stop for
    a lone `feat:` commit names it: a `feat:` commit with no `test:` commit before it is reported
