@@ -7,6 +7,7 @@ mattered, so a configuration that cannot be satisfied never reaches a plan.
 from pathlib import Path
 
 import pytest
+import yaml
 from pydantic import ValidationError
 
 from agent_build_kit.config import (
@@ -400,3 +401,82 @@ def test_abk_yaml_whose_command_has_no_show_fails_to_load_naming_the_key(tmp_pat
         load(path)
 
     assert "notifications.command.show" in str(refused.value)
+
+
+AZURE_SETTINGS = {
+    "subscription": "sub-1",
+    "resource_group": "rg-1",
+    "storage_account": "store1",
+    "database_host": "db.example.test",
+    "key_vault": "vault-1",
+    "identity_client_id": "client-1",
+}
+
+
+def write_deployment(
+    root: Path, committed: dict | None = None, overlay: dict | None = None
+) -> Path:
+    document = {"repos": {"app": {"path": ".", "slug": "example/app"}}, **(committed or {})}
+    path = root / "abk.yaml"
+    path.write_text(yaml.safe_dump(document))
+    if overlay is not None:
+        (root / "abk.local.yaml").write_text(yaml.safe_dump(overlay))
+    return path
+
+
+def refusal(path: Path) -> str:
+    """The message `load` refuses the file with, or "" when it loads."""
+    try:
+        load(path)
+    except ConfigError as refused:
+        return str(refused)
+    return ""
+
+
+def test_no_deployment_block_gives_the_local_kind(tmp_path: Path) -> None:
+    assert load(write_deployment(tmp_path)).deployment.kind == "local"
+
+
+def test_deployment_kind_azure_loads(tmp_path: Path) -> None:
+    path = write_deployment(tmp_path, {"deployment": {"kind": "azure"}})
+
+    assert refusal(path) == ""
+    assert load(path).deployment.kind == "azure"
+
+
+def test_an_unknown_deployment_kind_is_refused_naming_the_key_and_both_values(
+    tmp_path: Path,
+) -> None:
+    path = write_deployment(tmp_path, {"deployment": {"kind": "aws"}})
+
+    shown = refusal(path)
+
+    assert "deployment.kind" in shown
+    assert "local" in shown and "azure" in shown
+
+
+@pytest.mark.parametrize("setting", sorted(AZURE_SETTINGS))
+def test_an_azure_machine_setting_in_the_committed_file_is_refused_naming_the_overlay(
+    tmp_path: Path, setting: str
+) -> None:
+    azure = {setting: AZURE_SETTINGS[setting]}
+    path = write_deployment(tmp_path, {"deployment": {"kind": "azure", "azure": azure}})
+
+    shown = refusal(path)
+
+    assert f"deployment.azure.{setting}" in shown
+    assert "abk.local.yaml" in shown
+
+
+def test_the_azure_settings_in_the_overlay_load_with_the_kind_from_the_committed_file(
+    tmp_path: Path,
+) -> None:
+    path = write_deployment(
+        tmp_path, {"deployment": {"kind": "azure"}}, {"deployment": {"azure": AZURE_SETTINGS}}
+    )
+
+    assert refusal(path) == ""
+    deployment = load(path).deployment
+
+    assert deployment.kind == "azure"
+    assert {name: getattr(deployment.azure, name) for name in AZURE_SETTINGS} == AZURE_SETTINGS

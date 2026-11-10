@@ -7,6 +7,13 @@
   worker list in `abk status`, which is read from the branch locks. The worker design is now a description of what exists, with
   a short history in place of its migration plan.
 
+- A new `deployment` block names the installation's deployment: `deployment.kind` is `local`
+  (the default) or `azure`, and `abk config --show` prints it. The Azure settings under
+  `deployment.azure` (`subscription`, `resource_group`, `storage_account`, `database_host`,
+  `key_vault`, `identity_client_id`) belong in `abk.local.yaml`; one in the committed
+  `abk.yaml` is refused, naming the key. The Azure SDKs are the new optional extra
+  `agent-build-kit[azure]`; a local install needs nothing from it.
+
 - The red check and the push gate now give the test runner only the files the toolchain can
   run, so a data file changed under a test folder (a snapshot, say) no longer reaches the
   runner and turns a correct red run into a usage error.

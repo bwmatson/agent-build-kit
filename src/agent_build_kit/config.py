@@ -772,6 +772,17 @@ def _committed_config_dirs(document: dict[str, Any]) -> list[str]:
     ]
 
 
+def _committed_azure_settings(document: dict[str, Any]) -> list[str]:
+    """The keys of `deployment.azure.<setting>` the document sets: machine settings."""
+    deployment = document.get("deployment")
+    azure = deployment.get("azure") if isinstance(deployment, dict) else None
+    if not isinstance(azure, dict):
+        return []
+    return [
+        f"deployment.azure.{name}" for name in azure if name in AzureDeploymentConfig.model_fields
+    ]
+
+
 class RuntimeConfig(Frozen):
     """What one agent runtime needs from this installation (`runtimes.<name>`)."""
 
@@ -1870,8 +1881,27 @@ class ReviewConfig(Frozen):
         return self
 
 
+class AzureDeploymentConfig(Frozen):
+    """The settings of an Azure deployment that name one subscription or machine."""
+
+    subscription: str | None = None
+    resource_group: str | None = None
+    storage_account: str | None = None
+    database_host: str | None = None
+    key_vault: str | None = None
+    identity_client_id: str | None = None
+
+
+class DeploymentConfig(Frozen):
+    """Which deployment this installation is (`deployment`)."""
+
+    kind: Literal["local", "azure"] = "local"
+    azure: AzureDeploymentConfig = AzureDeploymentConfig()
+
+
 class WorkspaceConfig(Frozen):
     version: int = 1
+    deployment: DeploymentConfig = DeploymentConfig()
     planning: PlanningConfig = PlanningConfig()
     openspec: OpenSpecConfig = OpenSpecConfig()
     git: GitConfig = GitConfig()
@@ -2389,6 +2419,11 @@ def load(path: Path) -> WorkspaceConfig:
         raise ConfigError(
             f"{path}: {key}: a machine path is never committed; "
             "set it in the machine-local overlay beside this file"
+        )
+    for key in _committed_azure_settings(raw):
+        raise ConfigError(
+            f"{path}: {key}: a machine setting is never committed; "
+            f"set it in {OVERLAY_FILENAME} beside this file"
         )
     merged = raw if local is None else merge_local(raw, local)
     try:

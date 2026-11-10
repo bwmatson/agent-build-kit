@@ -1388,6 +1388,21 @@ logged, retried on the next tick and shown by `abk status` and `abk doctor`. A r
 only logged: the edit stays in `abk.yaml` uncommitted and goes into the next commit of the file
 (the kit's next `Project:` commit or a person's).
 
+## Deployments and the registry
+
+An installation is one of two deployments, `local` (the default) or `azure`, named by
+`deployment.kind` in `abk.yaml`. Each moving part of the orchestrator becomes an interface with
+one implementation per deployment, found the way a repository's forge is: `orchestration/`
+keeps a registry in which an implementation registers a factory (it takes the installation) for
+an interface and a kind, `orchestration.get(interface, installation)` builds the one for the
+installation's kind, and the built-in registrations load on the first lookup. A kind with
+nothing registered is refused, naming the interface, the kind and the kinds registered; it never
+falls back to the local implementation, so a cloud deployment cannot run on local state by
+accident. The Azure SDKs are the optional `azure` extra (`pip install 'agent-build-kit[azure]'`):
+an Azure implementation imports its SDK through `orchestration.import_sdk`, only when it is used,
+and a missing extra is refused naming the extra and that command. A local install imports no
+Azure module.
+
 ## Work tracker
 
 A repo may name a work tracker in `abk.yaml` (`tracker:`), independent of its code host: the
