@@ -23,7 +23,7 @@ from collections.abc import Callable
 from datetime import UTC, datetime
 from functools import cache
 from pathlib import Path
-from typing import Literal
+from typing import Literal, Protocol
 from urllib.parse import urlparse
 
 import httpx
@@ -2345,6 +2345,12 @@ def sandbox_check(loaded: WorkspaceConfig, inst: Installation | None = None) -> 
     return _fail("sandbox", f"{backend.name}: {found.cause}", found.fix)
 
 
+class AzureCredential(Protocol):
+    """What the deployment section asks of a credential: a token for a scope."""
+
+    def get_token(self, *scopes: str) -> object: ...
+
+
 def run_doctor(
     config_path: Path | None,
     *,
@@ -2354,6 +2360,7 @@ def run_doctor(
     units: Path | None = None,
     transport: httpx.BaseTransport | None = None,
     mount_of: Callable[[Path], Mount] | None = None,
+    azure_credential: Callable[[str | None], AzureCredential] | None = None,
     fix: bool = False,
     temp: bool = False,
 ) -> list[Check]:
