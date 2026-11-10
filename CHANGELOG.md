@@ -7,6 +7,10 @@
   worker list in `abk status`, which is read from the branch locks. The worker design is now a description of what exists, with
   a short history in place of its migration plan.
 
+- The red check and the push gate now give the test runner only the files the toolchain can
+  run, so a data file changed under a test folder (a snapshot, say) no longer reaches the
+  runner and turns a correct red run into a usage error.
+
 - A plan of a change is now shown a merged unit of another change when that unit carries
   one of the change's groups by a join, and the group is marked as built by it, so the
   planner leaves it out instead of claiming it and being refused.

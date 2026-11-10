@@ -489,6 +489,9 @@ class NodeNpmProfile:
     def collects_path(self, path: str) -> bool:
         return self.is_test_path(path)
 
+    def runs_path(self, path: str) -> bool:
+        return bool(_TEST_FILE.search(path.split("/")[-1]))
+
     def detect_environment(self, root: Path, *, framework: bool) -> EnvironmentConfig | None:
         return node_environment.detect_environment(root)
 

@@ -80,13 +80,19 @@ def _red_command(
     touched: list[tuple[str, str]],
     repo: Path,
     prefix: str,
-) -> str:
+) -> str | None:
     """The red command for `owned` (the project's test files at a tests commit), narrowed to
     the tests the commit added or changed (`touched`, from the checkout's root).
+
+    Only the files the toolchain can run are given to the runner (a data file under a test
+    folder is part of the commit but is not one); with none, there is no command.
 
     A file with no selected test (a helper edit) stays whole beside the selected ids. With no
     test selected in any file the command is the whole-file run.
     """
+    owned = [file for file in owned if toolchain.runs_path(file)]
+    if not owned:
+        return None
     ids = ids_for(touched, repo, repo / prefix, toolchain)
     if not ids:
         return toolchain.red_command(owned)
@@ -145,6 +151,8 @@ def red_problems(
         toolchain = profiles.for_project(owner, profile)
         prefix = owner.prefix if owner else ""
         command = _red_command(toolchain, owned, touched, repo, prefix)
+        if command is None:
+            continue
         (red,) = run_at_commit(repo, sha, [command], subdir=prefix or ".")
         problems.extend(_judged_red(toolchain, red, sha, owner, stubbed))
     if cache is not None:
@@ -235,8 +243,11 @@ def check_branch(
                 return located(profile, ["sh", "-c", line], tree / folder, tree)[-1]
 
             commands: list[str | Callable[[Path], str]] = [clean_in]
-            if sha not in no_red:
-                commands.append(_red_command(toolchain, owned, touched, repo, prefix))
+            red_line = (
+                None if sha in no_red else _red_command(toolchain, owned, touched, repo, prefix)
+            )
+            if red_line is not None:
+                commands.append(red_line)
             clean, *red_run = run_at_commit(repo, sha, commands, subdir=prefix or ".")
             if not clean.ok:
                 commit_problems.append(
