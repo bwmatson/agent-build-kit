@@ -50,10 +50,12 @@ def write_tasks(
     e2e: Collection[int] = (),
     integration: Collection[int] = (),
     tests_only: Collection[int] = (),
+    tests_required: Collection[int] = (),
 ) -> None:
     """The change's tasks file in the planning repo, where titles and goals are read from.
     The groups in `e2e` are headed `[e2e-test]`, those in `integration` `[integration-test]`,
-    the others `[unit-test]`; those in `tests_only` hold nothing but `Test:` tasks."""
+    the others `[unit-test]`; those in `tests_only` hold nothing but `Test:` tasks; those in
+    `tests_required` carry a `Tests: required` line."""
     path = tmp_path / "meta" / "openspec" / "changes" / change / "tasks.md"
     path.parent.mkdir(parents=True, exist_ok=True)
 
@@ -68,6 +70,7 @@ def write_tasks(
             + (f"{goal}\n\n" if goal else "")
             + f"- [ ] {n}.1 Test: a\n"
             + ("" if n in tests_only else f"- [ ] {n}.2 Do a\n")
+            + ("\nTests: required — the group changes the build\n" if n in tests_required else "")
             + "\n"
             for n, (title, goal) in groups.items()
         )
@@ -185,6 +188,7 @@ def prepared(
     e2e: Collection[int] = (),
     integration: Collection[int] = (),
     tests_only: Collection[int] = (),
+    tests_required: Collection[int] = (),
     modes: Mapping[str, str] | None = None,
     **options: Any,
 ) -> tuple[OnBranch, Path]:
@@ -206,6 +210,7 @@ def prepared(
             e2e=e2e if own else (),
             integration=integration if own else (),
             tests_only=tests_only if own else (),
+            tests_required=tests_required if own else (),
         )
     repo = seeded_branch(tmp_path, seeded or [])
     if meanwhile:
