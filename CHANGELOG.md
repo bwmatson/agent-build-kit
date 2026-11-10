@@ -22,11 +22,6 @@
   one of the change's groups by a join, and the group is marked as built by it, so the
   planner leaves it out instead of claiming it and being refused.
 
-- The node profile's whole-folder lint, format check and type check now run the project's own
-  `lint`, `format:check` and `typecheck` scripts when its `package.json` defines them, and the
-  generic tools for those it does not. The note a rework gets about the checks CI ran, and the
-  commands a build agent is told it may run, name the same commands.
-
 - The agents that write tests, implement a group and rework a pull request are now given a
   short table of the test standards (kind, placement, naming, determinism, isolation) at the
   start of a session, and asked to cite a standard's ID in their summary where a choice
