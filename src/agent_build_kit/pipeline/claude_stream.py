@@ -209,15 +209,13 @@ def result_event(stdout: str) -> ResultEvent | None:
 
 def tool_results(stdout: str) -> dict[str, str]:
     """Each tool call's result text, by the call's id, over a whole stream."""
-    found: dict[str, str] = {}
-    for line in stdout.splitlines():
-        event = _parse(line)
-        if event is None:
-            continue
-        for block in _content(event):
-            if block.get("type") == "tool_result":
-                found[str(block.get("tool_use_id") or "")] = _result_text(block.get("content"))
-    return found
+    return {
+        made.call: made.text
+        for line in stdout.splitlines()
+        if (event := _parse(line)) is not None
+        for made in records(event)
+        if made.kind == "tool_result"
+    }
 
 
 def own_words(stdout: str) -> str:

@@ -30,9 +30,9 @@
   a short history in place of its migration plan.
 
 - A tool call that an agent's permissions refused is now seen by the kit: both runtimes
-  return it on the call's result with its tool, command and reason, and the unit's log
-  says each one in a `refused` line, so a refused command is no longer mistaken for work
-  that ran.
+  return the refusals they report on the call's result with its tool, command and reason,
+  and the unit's log says each one in a `refused` line, so a refused command is no longer
+  mistaken for work that ran.
 
 - A new `deployment` block names the installation's deployment: `deployment.kind` is `local`
   (the default) or `azure`, and `abk config --show` prints it. The Azure settings under

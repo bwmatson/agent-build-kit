@@ -44,7 +44,7 @@ from tests.runtimes.claude_cli import (
 )
 
 
-def _request(cwd: Path, *, on_event=None) -> AgentRequest:
+def _request(cwd: Path, *, on_event=None, on_transcript=None) -> AgentRequest:
     return AgentRequest(
         prompt="Implement group 1 of add-marker.",
         role="implement",
@@ -54,6 +54,7 @@ def _request(cwd: Path, *, on_event=None) -> AgentRequest:
         allowed_tools="Read Edit Write",
         policy=ToolPolicy(specs_dir=cwd / "specs"),
         on_event=on_event or (lambda line: None),
+        on_transcript=on_transcript,
     )
 
 
@@ -344,3 +345,27 @@ def test_each_refused_call_is_said_once_in_the_unit_log(tmp_path: Path) -> None:
 
     said = [line.strip() for line in lines if "refused" in line]
     assert said == [f"refused `{COMMAND}` by the agent's permissions: {REASON}"]
+
+
+def test_each_refused_call_reaches_the_transcript_where_a_tick_keeps_the_unit_log(
+    tmp_path: Path,
+) -> None:
+    transcript: list[str] = []
+    fake = FakeClaude(stdout=refused_call_build(tmp_path, COMMAND, REASON))
+
+    ClaudeCodeRuntime(execute=fake).run(_request(tmp_path, on_transcript=transcript.append))
+
+    said = [line.strip() for line in transcript if "refused" in line]
+    assert said == [f"refused `{COMMAND}` by the agent's permissions: {REASON}"]
+
+
+def test_a_log_callback_that_raises_does_not_lose_the_result(tmp_path: Path) -> None:
+    def broken(line: str) -> None:
+        if "refused" in line:
+            raise OSError("log closed")
+
+    fake = FakeClaude(stdout=refused_call_build(tmp_path, COMMAND, REASON))
+
+    result = ClaudeCodeRuntime(execute=fake).run(_request(tmp_path, on_transcript=broken))
+
+    assert result.refused_calls == (RefusedCall(tool="Bash", subject=COMMAND, reason=REASON),)

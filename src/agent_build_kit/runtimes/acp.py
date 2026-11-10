@@ -730,8 +730,9 @@ class _Session:
     def _refused(self, line: str, reason: str, layer: str, tool: str = "execute") -> None:
         """The one progress line an operator reads to learn what refused a
         call, and so which rules to tighten; `tool` is the call's ACP kind."""
-        self.refused_calls.append(RefusedCall(tool=tool, subject=line, reason=reason))
-        self._tell(f"refused `{line}` by {layer}: {reason}")
+        call = RefusedCall(tool=tool, subject=line, reason=reason)
+        self.refused_calls.append(call)
+        self._tell(call.said(layer))
 
     def _attribute_own_refusal(self, call_id: str, update: ToolCallProgress) -> None:
         """A failed call abk never ran or answered. When its output says the

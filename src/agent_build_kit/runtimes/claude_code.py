@@ -454,11 +454,15 @@ class ClaudeCodeRuntime:
         ended = result_event(result.stdout)
         reported_model = started_model(result.stdout)
         refused = refused_calls(result.stdout, ended)
-        if request.on_event is not None:
-            for call in refused:
-                request.on_event(
-                    f"  refused `{call.subject}` by the agent's permissions: {call.reason}"
-                )
+        for call in refused:
+            # The journal and the unit's log both: a tick routes them to different places.
+            for callback in (request.on_event, request.on_transcript):
+                if callback is None:
+                    continue
+                try:
+                    callback(f"  {call.said("the agent's permissions")}")
+                except Exception:  # noqa: BLE001 — progress is for a reader, never the run's to lose
+                    pass
         # An error-subtype result has no `result` text, and `final_text` would
         # then hand back the whole transcript; that belongs in `raw` alone.
         text = "" if ended is not None and ended.result is None else final_text(result.stdout)

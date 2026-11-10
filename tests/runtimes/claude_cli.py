@@ -308,7 +308,8 @@ def refused_call_build(
     is an error holding the reason, and the closing event lists the call alone. `listed`
     False leaves the list empty, `with_list` False leaves the key out of the event."""
     call = "toolu_01RefusedBashCall0001"
-    denial = {"tool_name": "Bash", "tool_use_id": call, "tool_input": {"command": command}}
+    given = {"command": command, "description": "Append and test"}
+    denial = {"tool_name": "Bash", "tool_use_id": call, "tool_input": given}
     return stream(
         _init(cwd),
         _assistant(
@@ -317,7 +318,7 @@ def refused_call_build(
                     "type": "tool_use",
                     "id": call,
                     "name": "Bash",
-                    "input": {"command": command, "description": "Append and test"},
+                    "input": given,
                 }
             ]
         ),

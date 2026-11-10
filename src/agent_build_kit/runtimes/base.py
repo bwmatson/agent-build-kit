@@ -223,6 +223,10 @@ class RefusedCall(Frozen):
     subject: str  # the command or path the call named
     reason: str
 
+    def said(self, layer: str) -> str:
+        """The one log line, in every runtime, that names a refused call and what refused it."""
+        return f"refused `{self.subject}` by {layer}: {self.reason}"
+
 
 class AgentResult(Frozen):
     """What a call answered — not a subprocess's returncode and stdout."""
