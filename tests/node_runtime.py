@@ -8,7 +8,7 @@ import subprocess
 import pytest
 
 # A `node` that has not answered by then is looking for a toolchain on the network.
-START_DEADLINE = 30
+START_DEADLINE = 10
 
 
 @functools.cache

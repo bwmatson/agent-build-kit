@@ -333,7 +333,8 @@ def no_real_node_tool(
     test, by a program that refuses at once, keeps the command it was given and has the test fail
     at its end, naming it: a test of the node profile uses the `node_stand_ins` fixture, and one
     that means to run a real tool is marked `real_node_tool` (so is an `integration` or `e2e`
-    test, which may need one)."""
+    test, which may need one). The refusal is by `PATH`: a test that replaces `PATH` whole, gives
+    a child its own environment or names a tool by its absolute path is not seen."""
     if any(request.node.get_closest_marker(mark) for mark in NODE_TOOL_MARKS):
         yield
         return

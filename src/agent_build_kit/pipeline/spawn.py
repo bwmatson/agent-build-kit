@@ -99,7 +99,11 @@ def spawn(
             "--unit",
             name,
             "--setenv=PATH",
-            *(f"--setenv={name}" for name in _TOOLCHAIN_VARIABLES if name in os.environ),
+            *(
+                f"--setenv={variable}"
+                for variable in _TOOLCHAIN_VARIABLES
+                if os.environ.get(variable)
+            ),
             f"--working-directory={inst.root}",
             *properties,
             *command,
