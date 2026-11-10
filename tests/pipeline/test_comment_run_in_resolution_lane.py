@@ -81,3 +81,18 @@ def test_a_conflict_rework_with_feedback_of_its_own_is_handed_to_the_lane_too(
     assert rig.rework(CONFLICT_REASON, ReworkKind.CONFLICT) is True
 
     assert [unit.id for unit, _ in lane.handed] == [UNIT], "no build worker takes it"
+
+
+@pytest.mark.parametrize("kind", sorted(LANE_REWORKS, key=lambda kind: kind.value))
+def test_a_rework_of_an_in_review_unit_is_recorded_for_the_dispatch_and_starts_nothing(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, kind: ReworkKind
+) -> None:
+    lane = FakeLane()
+    rig = ConflictRig(tmp_path, monkeypatch)
+    rig.lane = lane
+
+    assert rig.rework(CONFLICT_REASON if kind is ReworkKind.CONFLICT else COMMENT, kind) is True
+
+    assert lane.handed == [], "the poll hands nothing to a lane; a resolve worker is started later"
+    assert rig.restacked == []
+    assert rig.stored().conflict_attempts == 0

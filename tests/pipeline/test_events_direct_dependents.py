@@ -9,11 +9,12 @@ from __future__ import annotations
 
 from contextlib import contextmanager
 from pathlib import Path
+from typing import Any
 
 import pytest
 
 from agent_build_kit.pipeline import events
-from agent_build_kit.pipeline.unit_store import UnitStore
+from agent_build_kit.pipeline.unit_store import Cause, UnitStore
 from agent_build_kit.pipeline.units import HELD, IN_REVIEW, MERGED, PLANNED
 from tests.factories import stored_unit as unit
 
@@ -126,3 +127,58 @@ def test_the_branch_is_kept_while_a_direct_dependent_is_not_moved(store: UnitSto
     assert failures == [f"{B} not moved off {OLD_BASE} — RuntimeError: conflict"]
     assert calls.deleted == []
     assert C not in calls.claimed
+
+
+def never_told(*args: object, **kwargs: object) -> bool:
+    return False
+
+
+def told(*args: object, **kwargs: object) -> bool:
+    return True
+
+
+@pytest.mark.parametrize("resume", [never_told, told], ids=["not told", "told"])
+def test_a_merge_with_a_child_in_review_restacks_nothing_and_keeps_the_branch(
+    store: UnitStore, resume: Any
+) -> None:
+    calls = Calls()
+
+    calls.release(store, resume=resume)
+
+    assert calls.restacked == [], "nothing is moved or handed anywhere in the poll"
+    assert calls.deleted == [], "a child still owed its move keeps the branch it left"
+
+
+def test_a_child_in_review_that_is_not_told_is_recorded_as_owed_its_move(store: UnitStore) -> None:
+    Calls().release(store, resume=never_told)
+
+    child = store.get(B)
+    assert child.state == IN_REVIEW
+    assert child.cause is Cause.BASE_CHANGED
+
+
+def test_the_merged_units_branch_goes_on_the_first_pass_after_the_last_child_has_moved(
+    store: UnitStore,
+) -> None:
+    calls = Calls()
+    calls.release(store, resume=never_told)
+
+    def pass_over() -> None:
+        events.remove_satisfied(
+            store.get(A),
+            store=store,
+            claim=calls.claim,
+            remove_worktree=lambda repo, branch: calls.removed.append(branch),
+            delete_branch=lambda repo, branch: calls.deleted.append(branch),
+            on_new_base=lambda child: True,
+            log=calls.logged.append,
+        )
+
+    pass_over()
+    assert calls.deleted == [], "kept while B is owed its restack"
+
+    store.set_state(B, IN_REVIEW, cause=Cause.RESTACK_HANDED_BACK)
+    pass_over()
+
+    assert calls.removed == [OLD_BASE]
+    assert calls.deleted == [OLD_BASE]

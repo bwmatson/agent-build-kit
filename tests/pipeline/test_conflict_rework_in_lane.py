@@ -169,3 +169,31 @@ def test_a_rework_taken_but_not_handed_over_records_the_first_attempt_and_one_ha
     assert mine.stored().conflict_attempts == 0, "the lane's run counts the attempt"
     assert handed_ids(plain) == [UNIT]
     assert free.stored().conflict_attempts == 0
+
+
+@pytest.mark.parametrize("stacked", [False, True])
+def test_a_conflict_heard_on_an_in_review_unit_sends_it_back_and_starts_nothing(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, stacked: bool
+) -> None:
+    rig = ConflictRig(tmp_path, monkeypatch, stacked=stacked)
+
+    assert rig.conflict() is True
+
+    assert rig.restacked == [], "no move is made in the poll"
+    stored = rig.stored()
+    assert stored.state == IN_REVIEW
+    assert stored.sent_back_for_conflict, "recorded, for the dispatch to start a worker for"
+    assert stored.conflict_attempts == 0, "the worker's run counts the attempt, once"
+
+
+def test_a_conflict_rework_heard_by_the_poller_records_no_attempt_and_starts_nothing(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    rig = ConflictRig(tmp_path, monkeypatch)
+
+    assert rig.rework(CONFLICT_REASON, ReworkKind.CONFLICT) is True
+
+    assert rig.restacked == []
+    stored = rig.stored()
+    assert stored.sent_back_for_conflict
+    assert stored.conflict_attempts == 0

@@ -400,6 +400,12 @@ def clear_worker_record(path: Path) -> None:
     path.unlink(missing_ok=True)
 
 
+def record_deferral(state_dir: Path, unit_id: str, resume_at: datetime) -> None:
+    """Say that a refusal (a usage pause, a login) defers `unit_id`'s resolution run until
+    `resume_at`: the dispatch starts no resolve worker for it before then."""
+    raise NotImplementedError
+
+
 def lane_held_by_record(state_dir: Path) -> set[str]:
     """The ids of the units the lanes of a live tick hold, running or waiting (`lane_record`)."""
     return {entry["unit"] for entry in lane_record(state_dir)}

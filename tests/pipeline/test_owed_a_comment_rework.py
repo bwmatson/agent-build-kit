@@ -7,14 +7,16 @@ repositories' branches, so these run over a real one.
 
 from __future__ import annotations
 
+from datetime import timedelta
 from pathlib import Path
 from typing import Any
 
 import pytest
 
+from agent_build_kit.cli.pipeline import unclaimed_runs
 from agent_build_kit.installation import Installation
 from agent_build_kit.pipeline.lease import Leases, lease_dir
-from agent_build_kit.pipeline.resolution_lane import lane_runs_owed, owed_units
+from agent_build_kit.pipeline.resolution_lane import lane_runs_owed, owed_units, record_deferral
 from agent_build_kit.pipeline.unit_store import (
     LANE_REWORKS,
     Cause,
@@ -25,6 +27,7 @@ from agent_build_kit.pipeline.unit_store import (
 )
 from agent_build_kit.pipeline.units import HELD, IN_REVIEW, MERGED, PLANNED, RUNNING
 from agent_build_kit.pipeline.workspaces import branch_lock
+from tests import fake_clock
 from tests.factories import git
 from tests.restack_lane_fakes import caused, repo_behind
 
@@ -127,3 +130,17 @@ def test_a_unit_waiting_on_an_unmerged_unit_is_not_owed_a_run(inst: Installation
     assert owed_units(inst, [comment_rework(), parent]) == OWED
 
     assert owed_units(inst, [comment_rework(depends_on=("feature/1",)), parent]) == set()
+
+
+def test_a_run_whose_recorded_deferral_lies_in_the_future_is_not_dispatched_until_its_time(
+    inst: Installation, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    clock = fake_clock.install(monkeypatch)
+    units = [comment_rework()]
+    assert unclaimed_runs(inst, units) == [UNIT]
+
+    record_deferral(inst.state_dir, UNIT, clock.now() + timedelta(minutes=30))
+
+    assert unclaimed_runs(inst, units) == []
+    clock.advance(30 * 60)
+    assert unclaimed_runs(inst, units) == [UNIT]
