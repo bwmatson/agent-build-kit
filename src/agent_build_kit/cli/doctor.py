@@ -18,12 +18,14 @@ import shutil
 import socket
 import subprocess
 import tempfile
+import threading
+import time
 import tomllib
 from collections.abc import Callable
 from datetime import UTC, datetime
 from functools import cache
 from pathlib import Path
-from typing import Literal
+from typing import Literal, Protocol
 from urllib.parse import urlparse
 
 import httpx
@@ -35,6 +37,7 @@ from agent_build_kit import (
     config,
     forges,
     openspec,
+    orchestration,
     profiles,
     runtimes,
     sandboxes,
@@ -48,6 +51,7 @@ from agent_build_kit import settings as settings_module
 from agent_build_kit.config import (
     OVERLAY_FILENAME,
     REVIEWER_READING_LIMIT,
+    AzureDeploymentConfig,
     CommandProvider,
     ConfigError,
     EnvironmentConfig,
@@ -793,6 +797,99 @@ def _state_location(inst: Installation) -> list[Check]:
             "set planning.state_dir / ABK_STATE_DIR outside the repository, or drop the setting",
         )
     ]
+
+
+SECTION = "deployment"
+
+# The scope a token is asked for; any scope the identity may hold shows the credential works.
+_AZURE_SCOPE = "https://management.azure.com/.default"
+_TOKEN_SECONDS = 20.0
+# Not required: a host that signs in with `az login` holds no managed identity to name.
+_OPTIONAL_AZURE_SETTINGS = frozenset({"identity_client_id"})
+
+
+def _in_section(section: str, check: Check) -> Check:
+    return check.model_copy(update={"name": f"{section}: {check.name}"})
+
+
+def _default_azure_credential(client_id: str | None) -> AzureCredential:
+    identity = orchestration.import_sdk("azure", "azure.identity")
+    return identity.DefaultAzureCredential(managed_identity_client_id=client_id)
+
+
+def _token_within(credential: AzureCredential, seconds: float) -> None:
+    """Ask `credential` for a token, giving up after `seconds`.
+
+    The call runs on a daemon thread that is waited for with `join(seconds)`, so a call that
+    never returns cannot keep the process from exiting.
+    """
+    outcome: list[BaseException] = []
+
+    def ask() -> None:
+        try:
+            credential.get_token(_AZURE_SCOPE)
+        except BaseException as error:  # noqa: BLE001 - handed to the caller, which reports it
+            outcome.append(error)
+
+    thread = threading.Thread(target=ask, name="doctor-azure-token", daemon=True)
+    thread.start()
+    thread.join(seconds)
+    if thread.is_alive():
+        raise TimeoutError(f"no token came within {seconds:g} seconds")
+    if outcome:
+        raise outcome[0]
+
+
+def _azure_deployment(
+    inst: Installation,
+    make: Callable[[str | None], AzureCredential] | None,
+    token_seconds: float = _TOKEN_SECONDS,
+) -> list[Check]:
+    """For an `azure` deployment: the extra, the overlay settings and a token."""
+    deployment = inst.config.deployment
+    if deployment.kind != "azure":
+        return []
+    checks: list[Check] = []
+    try:
+        orchestration.import_sdk("azure", "azure.identity")
+        checks.append(_ok("azure extra", "the `azure` extra is installed"))
+        extra = True
+    except orchestration.Refused as error:
+        extra = False
+        checks.append(
+            _fail("azure extra", str(error), "install the `azure` extra of agent-build-kit")
+        )
+    for name in AzureDeploymentConfig.model_fields:
+        if name in _OPTIONAL_AZURE_SETTINGS or getattr(deployment.azure, name):
+            continue
+        checks.append(
+            _fail(
+                f"azure setting {name}",
+                f"deployment.azure.{name} is not set",
+                f"set deployment.azure.{name} in {OVERLAY_FILENAME}",
+            )
+        )
+    if not extra:
+        return checks
+    client_id = deployment.azure.identity_client_id
+    identity = f"client {client_id}" if client_id else "the default credential chain"
+    started = time.monotonic()
+    try:
+        credential = (make or _default_azure_credential)(client_id)
+        _token_within(credential, token_seconds)
+        took = time.monotonic() - started
+        checks.append(_ok("azure credential", f"{identity} yielded a token in {took:.1f}s"))
+    except Exception as error:  # noqa: BLE001 - any failure is the answer, with its reason
+        reason = str(error) or type(error).__name__
+        checks.append(
+            _fail(
+                "azure credential",
+                f"no token for {identity}: {reason}",
+                "sign in (`az login`), or set deployment.azure.identity_client_id "
+                f"in {OVERLAY_FILENAME} to a managed identity this host holds",
+            )
+        )
+    return checks
 
 
 def _linger_probe(run: Run) -> Callable[[], bool]:
@@ -2345,6 +2442,12 @@ def sandbox_check(loaded: WorkspaceConfig, inst: Installation | None = None) -> 
     return _fail("sandbox", f"{backend.name}: {found.cause}", found.fix)
 
 
+class AzureCredential(Protocol):
+    """What the deployment section asks of a credential: a token for a scope."""
+
+    def get_token(self, *scopes: str) -> object: ...
+
+
 def run_doctor(
     config_path: Path | None,
     *,
@@ -2354,6 +2457,8 @@ def run_doctor(
     units: Path | None = None,
     transport: httpx.BaseTransport | None = None,
     mount_of: Callable[[Path], Mount] | None = None,
+    azure_credential: Callable[[str | None], AzureCredential] | None = None,
+    azure_token_seconds: float = _TOKEN_SECONDS,
     fix: bool = False,
     temp: bool = False,
 ) -> list[Check]:
@@ -2413,12 +2518,15 @@ def run_doctor(
     checks += _pipeline_worktree(inst)
     checks += _machine_files(inst)
     checks += _state_ignores(inst)
-    checks += _state_locking(inst, mount_of)
+    deployment: list[Check] = _state_locking(inst, mount_of)
     if temp:
         checks += _pytest_temp(inst)
     checks += _legacy_state(inst)
     checks += _planning_view(inst)
-    checks += _state_location(inst)
+    deployment += _state_location(inst)
+    deployment += _local_dir(inst, mount_of)
+    deployment += _azure_deployment(inst, azure_credential, azure_token_seconds)
+    checks += [_in_section(SECTION, check) for check in deployment]
     checks += _change_locks(inst, fix)
     lingering_off = _linger_probe(run)
     timer_checks, timer_state, timers_enabled = _timers(inst, run, lingering_off, units, which)
@@ -2440,7 +2548,6 @@ def run_doctor(
     checks += _machine_keys(inst)
     checks += _unit_test_cap(inst)
     checks += _old_e2e_marker(inst)
-    checks += _local_dir(inst, mount_of)
     checks += _weak_secrets()
     checks += _environment(inst, run)
     checks.append(_rules_drift(inst))
