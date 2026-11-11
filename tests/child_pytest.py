@@ -38,11 +38,12 @@ def run_scenario(
     return ChildRun(code=int(result.ret), output=result.stdout.str() + result.stderr.str())
 
 
-def collect_items(pytester: pytest.Pytester, *paths: str | Path) -> list[pytest.Item]:
-    """Collect repository modules in-process for a test that reads the items. The conftest gives
-    every test using it the loaded limit; an inner collection that fails fails the test with the
-    collection's report text, never with an empty list."""
-    items, reprec = pytester.inline_genitems(*(str(p) for p in paths))
+def collect_items(pytester: pytest.Pytester, *args: str | Path) -> list[pytest.Item]:
+    """Collect repository modules in-process (paths, and any options, such as `-m`, that go with
+    them) for a test that reads the items. The conftest gives every test using it the loaded
+    limit; an inner collection that fails fails the test with the collection's report text,
+    never with an empty list."""
+    items, reprec = pytester.inline_genitems(*(str(a) for a in args))
     failed = [r for r in reprec.getreports("pytest_collectreport") if r.failed]
     if failed:
         pytest.fail("\n".join(f"{r.nodeid}\n{r.longreprtext}" for r in failed), pytrace=False)
