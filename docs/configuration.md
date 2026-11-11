@@ -1042,7 +1042,7 @@ copied to the local directory once.
 The locks that guard shared files sit beside them, so they must work on the share. The lock probe
 holds a lock in the state directory and asks a second process for it; it passes only when that
 process is refused and then takes the lock once it is released. `abk doctor` runs it and reports
-the mount (`state mount`) and the result (`state locking`). A tick runs it first only when the
+the mount (`deployment: state mount`) and the result (`deployment: state locking`). A tick runs it first only when the
 state directory is not on a local filesystem, caches a pass for 24 hours per mount source, type and
 options in the local directory, and on a failure prints the detail and exits 1 before it writes
 anything. No setting runs the pipeline on a share the probe refused: fix the mount.

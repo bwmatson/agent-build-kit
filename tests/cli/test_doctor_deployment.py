@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import sys
+import threading
 from pathlib import Path
 from types import ModuleType
 
@@ -52,12 +53,24 @@ def azure(root: Path, *, overlay: dict[str, str]) -> Path:
     return config
 
 
-def section(config: Path, credential: Credential | None = None) -> list[Check]:
+def section(
+    config: Path,
+    credential: Credential | None = None,
+    *,
+    asked: list[str | None] | None = None,
+    seconds: float = 20.0,
+) -> list[Check]:
+    def make(client_id: str | None) -> Credential:
+        if asked is not None:
+            asked.append(client_id)
+        return credential or Credential()
+
     checks = run_doctor(
         config,
         run=Answers(),
         which=which_all,
-        azure_credential=lambda client_id: credential or Credential(),
+        azure_credential=make,
+        azure_token_seconds=seconds,
     )
     return named(checks, SECTION)
 
@@ -93,7 +106,7 @@ def test_an_azure_deployment_fails_when_the_extra_is_missing(
 
 
 @pytest.mark.usefixtures("extra")
-@pytest.mark.parametrize("setting", sorted(SETTINGS))
+@pytest.mark.parametrize("setting", sorted(set(SETTINGS) - {"identity_client_id"}))
 def test_an_azure_deployment_fails_naming_a_missing_overlay_setting(
     tmp_path: Path, setting: str
 ) -> None:
@@ -111,14 +124,52 @@ def test_an_azure_deployment_fails_naming_the_identity_and_reason_when_no_token(
     tmp_path: Path,
 ) -> None:
     config = azure(tmp_path / "app", overlay=SETTINGS)
+    asked: list[str | None] = []
 
-    found = section(config, Credential(fail="no managed identity"))
+    found = section(config, Credential(fail="no managed identity"), asked=asked)
 
     failed = [c for c in found if c.status == "FAIL"]
     assert len(failed) == 1
     assert "client-1" in failed[0].detail
     assert "no managed identity" in failed[0].detail
     assert failed[0].fix
+    assert asked == ["client-1"]
+
+
+@pytest.mark.usefixtures("extra")
+def test_an_azure_deployment_without_an_identity_client_id_uses_the_default_chain(
+    tmp_path: Path,
+) -> None:
+    config = azure(
+        tmp_path / "app", overlay={k: v for k, v in SETTINGS.items() if k != "identity_client_id"}
+    )
+    asked: list[str | None] = []
+
+    found = section(config, asked=asked)
+
+    assert [c for c in found if c.status == "FAIL"] == []
+    assert asked == [None]
+
+
+@pytest.mark.usefixtures("extra")
+def test_an_azure_token_call_that_never_returns_fails_within_the_limit(tmp_path: Path) -> None:
+    config = azure(tmp_path / "app", overlay=SETTINGS)
+    release = threading.Event()
+
+    class Hanging(Credential):
+        def get_token(self, *scopes: str) -> Token:
+            release.wait()
+            return Token()
+
+    try:
+        found = section(config, Hanging(), seconds=0.05)
+    finally:
+        release.set()
+
+    failed = [c for c in found if c.status == "FAIL"]
+    assert [c.name for c in failed] == ["deployment: azure credential"]
+    assert "client-1" in failed[0].detail
+    assert "no token came within 0.05 seconds" in failed[0].detail
 
 
 @pytest.mark.usefixtures("extra")

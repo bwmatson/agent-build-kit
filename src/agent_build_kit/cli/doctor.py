@@ -18,10 +18,10 @@ import shutil
 import socket
 import subprocess
 import tempfile
+import threading
 import time
 import tomllib
 from collections.abc import Callable
-from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime
 from functools import cache
 from pathlib import Path
@@ -804,6 +804,8 @@ SECTION = "deployment"
 # The scope a token is asked for; any scope the identity may hold shows the credential works.
 _AZURE_SCOPE = "https://management.azure.com/.default"
 _TOKEN_SECONDS = 20.0
+# Not required: a host that signs in with `az login` holds no managed identity to name.
+_OPTIONAL_AZURE_SETTINGS = frozenset({"identity_client_id"})
 
 
 def _in_section(section: str, check: Check) -> Check:
@@ -815,8 +817,33 @@ def _default_azure_credential(client_id: str | None) -> AzureCredential:
     return identity.DefaultAzureCredential(managed_identity_client_id=client_id)
 
 
+def _token_within(credential: AzureCredential, seconds: float) -> None:
+    """Ask `credential` for a token, giving up after `seconds`.
+
+    The call runs on a daemon thread that is waited for with `join(seconds)`, so a call that
+    never returns cannot keep the process from exiting.
+    """
+    outcome: list[BaseException] = []
+
+    def ask() -> None:
+        try:
+            credential.get_token(_AZURE_SCOPE)
+        except BaseException as error:  # noqa: BLE001 - handed to the caller, which reports it
+            outcome.append(error)
+
+    thread = threading.Thread(target=ask, name="doctor-azure-token", daemon=True)
+    thread.start()
+    thread.join(seconds)
+    if thread.is_alive():
+        raise TimeoutError(f"no token came within {seconds:g} seconds")
+    if outcome:
+        raise outcome[0]
+
+
 def _azure_deployment(
-    inst: Installation, make: Callable[[str | None], AzureCredential] | None
+    inst: Installation,
+    make: Callable[[str | None], AzureCredential] | None,
+    token_seconds: float = _TOKEN_SECONDS,
 ) -> list[Check]:
     """For an `azure` deployment: the extra, the overlay settings and a token."""
     deployment = inst.config.deployment
@@ -833,7 +860,7 @@ def _azure_deployment(
             _fail("azure extra", str(error), "install the `azure` extra of agent-build-kit")
         )
     for name in AzureDeploymentConfig.model_fields:
-        if getattr(deployment.azure, name):
+        if name in _OPTIONAL_AZURE_SETTINGS or getattr(deployment.azure, name):
             continue
         checks.append(
             _fail(
@@ -847,10 +874,9 @@ def _azure_deployment(
     client_id = deployment.azure.identity_client_id
     identity = f"client {client_id}" if client_id else "the default credential chain"
     started = time.monotonic()
-    pool = ThreadPoolExecutor(max_workers=1)
     try:
         credential = (make or _default_azure_credential)(client_id)
-        pool.submit(credential.get_token, _AZURE_SCOPE).result(timeout=_TOKEN_SECONDS)
+        _token_within(credential, token_seconds)
         took = time.monotonic() - started
         checks.append(_ok("azure credential", f"{identity} yielded a token in {took:.1f}s"))
     except Exception as error:  # noqa: BLE001 - any failure is the answer, with its reason
@@ -863,8 +889,6 @@ def _azure_deployment(
                 f"in {OVERLAY_FILENAME} to a managed identity this host holds",
             )
         )
-    finally:
-        pool.shutdown(wait=False)
     return checks
 
 
@@ -2434,6 +2458,7 @@ def run_doctor(
     transport: httpx.BaseTransport | None = None,
     mount_of: Callable[[Path], Mount] | None = None,
     azure_credential: Callable[[str | None], AzureCredential] | None = None,
+    azure_token_seconds: float = _TOKEN_SECONDS,
     fix: bool = False,
     temp: bool = False,
 ) -> list[Check]:
@@ -2500,7 +2525,7 @@ def run_doctor(
     checks += _planning_view(inst)
     deployment += _state_location(inst)
     deployment += _local_dir(inst, mount_of)
-    deployment += _azure_deployment(inst, azure_credential)
+    deployment += _azure_deployment(inst, azure_credential, azure_token_seconds)
     checks += [_in_section(SECTION, check) for check in deployment]
     checks += _change_locks(inst, fix)
     lingering_off = _linger_probe(run)
