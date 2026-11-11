@@ -7,6 +7,8 @@ from typing import TYPE_CHECKING
 
 from langgraph.checkpoint.base import BaseCheckpointSaver
 
+from agent_build_kit.graph.checkpointer import open_unit_graphs
+
 if TYPE_CHECKING:
     from agent_build_kit.installation import Installation
 
@@ -16,4 +18,5 @@ class LocalCheckpoints:
         self.installation = installation
 
     def open(self) -> AbstractAsyncContextManager[BaseCheckpointSaver]:
-        raise NotImplementedError
+        """The SQLite saver over the unit graphs file, an older database carried over first."""
+        return open_unit_graphs(self.installation)

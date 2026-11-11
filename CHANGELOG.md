@@ -27,7 +27,10 @@
   an append-blob writer and a short-lived read link (needs `agent-build-kit[azure]`).
   `local` deployment. The run logs, e2e output, failure bundles, transcripts and spec
   snapshots are now written and read through it by key, so a deployment with no state
-  directory on a disk can hold them; the e2e report names the output by its key.
+  directory on a disk can hold them; the e2e report names the output by its key. Unit graph
+  checkpoints likewise have a Checkpoints interface whose `local` implementation is the same
+  SQLite saver over the same file, with the same type allowlist and one-time carry-over; the
+  commands that open a unit's thread now find it through the deployment registry.
 
 - The check that follows a review's rework now selects the affected tests first and runs the
   full suite once only when that selection is green, as a fix round's check does, instead of
