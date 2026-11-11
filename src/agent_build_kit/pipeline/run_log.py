@@ -15,7 +15,7 @@ from typing import overload
 
 from agent_build_kit.compat_names import moved_to_current_name, old_spelling
 from agent_build_kit.model import Frozen, TestTier
-from agent_build_kit.orchestration.artifacts import Artifacts
+from agent_build_kit.orchestration.artifacts import Artifacts, MissingArtifact
 from agent_build_kit.orchestration.local.directories import (
     E2E_OUTPUTS,
     FAILURE_BUNDLES,
@@ -251,6 +251,47 @@ def write_rerun_evidence(
         )
     except (OSError, ValueError):
         pass
+
+
+def _recorded_key(recorded: str) -> str:
+    """The key of a bundle a record names, whether it holds the key or the path of an earlier
+    record, whose last segment is the bundle's name."""
+    return f"{FAILURE_BUNDLES}/{_last(recorded)}"
+
+
+def _on_disk(recorded: str) -> bool:
+    return Path(recorded).is_absolute()
+
+
+def bundle_exists(artifacts: Artifacts, recorded: str) -> bool:
+    """Whether the bundle a record names (a key, or the absolute path an earlier record holds)
+    has files."""
+    if not recorded:
+        return False
+    if _on_disk(recorded):
+        return Path(recorded).is_dir()
+    return bool(artifacts.list(f"{_recorded_key(recorded)}/"))
+
+
+def read_bundle_file(artifacts: Artifacts, recorded: str, name: str) -> str | None:
+    """The text of file `name` in the bundle a record names, None when it cannot be read."""
+    try:
+        if _on_disk(recorded):
+            return (Path(recorded) / name).read_text(encoding="utf-8")
+        return artifacts.get(f"{_recorded_key(recorded)}/{name}").decode()
+    except (OSError, MissingArtifact):
+        return None
+
+
+def bundle_place(artifacts: Artifacts, recorded: str) -> str:
+    """Where a person or an agent can open the bundle a record names: its folder when the
+    artifacts are files, the key otherwise. A path an earlier record holds is returned as it is."""
+    if not recorded or _on_disk(recorded):
+        return recorded
+    root = getattr(artifacts, "root", None)
+    if isinstance(root, Path):
+        return str(root / _recorded_key(recorded))
+    return _recorded_key(recorded)
 
 
 def _last(place: Path | str) -> str:

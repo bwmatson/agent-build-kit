@@ -16,7 +16,9 @@ from collections.abc import Callable
 from datetime import datetime, timedelta
 from pathlib import Path
 
-from agent_build_kit.pipeline.run_log import run_ledger_path
+from agent_build_kit.orchestration.artifacts import Artifacts
+from agent_build_kit.orchestration.local.artifacts import DirectoryArtifacts
+from agent_build_kit.pipeline.run_log import bundle_exists, read_bundle_file, run_ledger_path
 from agent_build_kit.profiles.base import ToolchainProfile
 from agent_build_kit.scrub_terms import ROOT_HOME
 
@@ -170,6 +172,7 @@ def change_evidence(
     bundle: str,
     ran_at: datetime | None,
     conditions: dict[str, object],
+    artifacts: Artifacts | None = None,
 ) -> str:
     """The section a fix change's `design.md` carries about the first failure: its output, the
     conditions, the ledger rows of the run, and the bundle's path and `machine.json` when the
@@ -188,16 +191,14 @@ def change_evidence(
     if rows:
         parts += ["", "Rows of the run in the ledger of unit-test runs:", ""]
         parts += [f"- `{row}`" for row in rows]
-    if bundle and Path(bundle).is_dir():
+    store = artifacts or DirectoryArtifacts(state_dir)
+    if bundle and bundle_exists(store, bundle):
         try:
             named = Path(bundle).relative_to(state_dir).as_posix()
         except ValueError:
-            named = Path(bundle).name
+            named = Path(bundle).name if Path(bundle).is_absolute() else bundle
         parts += ["", f"Bundle of the failing run, under the state directory: `{named}`"]
-        try:
-            machine = (Path(bundle) / "machine.json").read_text().strip()
-        except OSError:
-            machine = ""
+        machine = (read_bundle_file(store, bundle, "machine.json") or "").strip()
         if machine:
             parts += ["", "What the machine was doing (`machine.json`):", ""]
             parts += [f"```json\n{tilde_home(machine)}\n```"]

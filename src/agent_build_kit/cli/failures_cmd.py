@@ -5,13 +5,16 @@ from __future__ import annotations
 import argparse
 import json
 from datetime import datetime
-from pathlib import Path
 
+from agent_build_kit import orchestration
 from agent_build_kit.installation import Installation
 from agent_build_kit.model import Frozen
+from agent_build_kit.orchestration.artifacts import INTERFACE as ARTIFACTS
+from agent_build_kit.orchestration.artifacts import Artifacts
 from agent_build_kit.pipeline.failure_record import Evidenced, load_text
 from agent_build_kit.pipeline.flakes import flake_record
 from agent_build_kit.pipeline.product_defect import product_defect_record
+from agent_build_kit.pipeline.run_log import bundle_exists, bundle_place, read_bundle_file
 from agent_build_kit.pipeline.untouched_failures import preexisting_record
 
 # The files of a bundle whose content `--show` prints, in order.
@@ -61,26 +64,27 @@ def _line(kind: str, test: str, group: list[Row]) -> str:
     return "  ".join(part for part in parts if part)
 
 
-def _show(group: list[Row]) -> None:
+def _show(group: list[Row], artifacts: Artifacts) -> None:
     """The context, machine and worktree lines of the newest bundle any of `group` names."""
     # A record's evidence is not always a bundle (a failure met in an e2e split names the split).
     named = sorted(
-        (row for row in group if row.entry.evidence and Path(row.entry.evidence).is_dir()),
+        (row for row in group if bundle_exists(artifacts, row.entry.evidence)),
         key=lambda row: row.at,
     )
     if not named:
         print("no bundle is named by these records")
         return
-    bundle = Path(named[-1].entry.evidence)
-    print(f"newest bundle: {bundle}")
+    recorded = named[-1].entry.evidence
+    place = bundle_place(artifacts, recorded)
+    print(f"newest bundle: {place}")
     for name in SHOWN:
         try:
-            facts = json.loads((bundle / f"{name}.json").read_text(encoding="utf-8"))
-        except (OSError, ValueError):
+            facts = json.loads(read_bundle_file(artifacts, recorded, f"{name}.json") or "")
+        except ValueError:
             print(f"{name}: not readable (the bundle may have been removed)")
             continue
         print(f"{name}: {json.dumps(facts)}")
-    print(f"output: {bundle / 'output.txt'}")
+    print(f"output: {place}/output.txt")
 
 
 def cmd_failures(args: argparse.Namespace, inst: Installation) -> int:
@@ -94,7 +98,7 @@ def cmd_failures(args: argparse.Namespace, inst: Installation) -> int:
     for (kind, test), group in groups.items():
         print(_line(kind, test, group))
     if args.show and found:
-        _show(found)
+        _show(found, orchestration.get(ARTIFACTS, inst))
     elif args.show:
         print(f"no failure of {args.test} is recorded")
     return 0

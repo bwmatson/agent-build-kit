@@ -13,11 +13,12 @@ from datetime import datetime, timedelta
 from enum import StrEnum
 from pathlib import Path
 
-from agent_build_kit import openspec, runtimes
+from agent_build_kit import openspec, orchestration, runtimes
 from agent_build_kit.config import CONFIG_FILENAME, active, models
 from agent_build_kit.init.propose import repair_once, validation_report
 from agent_build_kit.installation import Installation
 from agent_build_kit.model import Frozen, TestTier
+from agent_build_kit.orchestration.artifacts import INTERFACE as ARTIFACTS
 from agent_build_kit.pipeline import spans
 from agent_build_kit.pipeline.call_record import recorded
 from agent_build_kit.pipeline.check_runner import worktree_at
@@ -53,6 +54,7 @@ from agent_build_kit.pipeline.group_paths import (
     paths_beside_symbols,
     tasks_asking_for_tests,
 )
+from agent_build_kit.pipeline.run_log import bundle_place
 from agent_build_kit.pipeline.unit_store import StoredUnit
 from agent_build_kit.pipeline.units import local_ref
 from agent_build_kit.pipeline.untouched_failures import preexisting_record
@@ -295,6 +297,7 @@ def run_regression_agent(
         else ""
     )
     earlier = failure_history(inst, failure.test, evidence=True)
+    artifacts = orchestration.get(ARTIFACTS, inst)
     first_failure = change_evidence(
         inst.state_dir,
         unit=failure.unit or unit.id,
@@ -302,6 +305,7 @@ def run_regression_agent(
         bundle=failure.evidence,
         ran_at=failure.ran_at,
         conditions=failure.conditions,
+        artifacts=artifacts,
     )
     prompt = PROMPT.format(
         first_failure=first_failure,
@@ -316,7 +320,7 @@ def run_regression_agent(
         cwd=cwd,
         command=failure.command,
         unit=failure.unit or unit.id,
-        evidence=failure.evidence or "none recorded",
+        evidence=bundle_place(artifacts, failure.evidence) or "none recorded",
         output=failure.output.strip(),
         base_section=on_base,
         decisions=(
@@ -484,8 +488,10 @@ def failure_history(inst: Installation, test: str, *, evidence: bool = False) ->
     """One line for each recorded failure of `test`, in the flake record and in the pre-existing
     one, oldest first, with the evidence of its run when `evidence` is set."""
     rows = [*flake_record(inst).entries(), *preexisting_record(inst).entries()]
+    artifacts = orchestration.get(ARTIFACTS, inst)
     return [
-        f"- {e.at:%Y-%m-%d %H:%M} UTC, unit {e.unit}" + (f": {e.evidence}" if evidence else "")
+        f"- {e.at:%Y-%m-%d %H:%M} UTC, unit {e.unit}"
+        + (f": {bundle_place(artifacts, e.evidence)}" if evidence else "")
         for e in sorted((row for row in rows if row.test == test), key=lambda row: row.at)
     ]
 

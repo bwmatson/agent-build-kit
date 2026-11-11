@@ -8,6 +8,7 @@ before the evidence existed is a JSON line without its three fields.
 
 from __future__ import annotations
 
+import argparse
 import contextlib
 import json
 import shlex
@@ -18,12 +19,15 @@ from typing import cast
 
 import pytest
 
+from agent_build_kit.cli.failures_cmd import cmd_failures
 from agent_build_kit.installation import Installation
-from agent_build_kit.pipeline.flakes import Flake, FlakeFound, flake_record
+from agent_build_kit.pipeline.failure_evidence import change_evidence
+from agent_build_kit.pipeline.flakes import Flake, FlakeFound, flake_record, reproduction_evidence
 from agent_build_kit.pipeline.run_log import RUNS_KEPT
 from agent_build_kit.pipeline.untouched_failures import preexisting_record
 from agent_build_kit.pipeline.wiring import build_on_preexisting, build_unit_test
 from agent_build_kit.profiles.base import ToolchainProfile
+from tests.artifact_fakes import MemoryArtifacts
 from tests.conftest import make_installation
 from tests.e2e_gate_fakes import Planning
 from tests.e2e_wait_fakes import OLD, verdict_of
@@ -34,14 +38,14 @@ from tests.redaction_fakes import SECRET, known
 RERUN_FILES = {"output.txt", "context.json", "machine.json", "worktree.json"}
 
 
-def unit_test_of(scratch: Path, machine: BundleMachine, directory: Path):
+def unit_test_of(scratch: Path, machine: BundleMachine, directory: Path | MemoryArtifacts):
     loads = iter(range(1, 100))
     clock = iter(START + timedelta(seconds=10 * n) for n in range(100))
     return build_unit_test(
         profile=cast(ToolchainProfile, BundleProfile()),
         run=machine,
         changed=lambda *a: ["tests/test_one.py"],
-        failures_dir=directory,
+        failures_dir=directory,  # pyrefly: ignore
         now=lambda: next(clock),
         machine=lambda: {"load": [float(next(loads))] * 3},
     )
@@ -180,6 +184,38 @@ def test_the_bundle_is_pointed_at_so_it_is_kept(scratch: Path, tmp_path: Path) -
 
     assert Path(flake.evidence).is_dir(), "the record's bundle outlives the newest ones"
     assert len(list(directory.iterdir())) == RUNS_KEPT + 1, "and the newest are kept beside it"
+
+
+def test_a_bundle_kept_through_the_artifacts_is_found_by_every_reader_of_a_record(
+    scratch: Path, memory_artifacts: MemoryArtifacts, capsys: pytest.CaptureFixture[str]
+) -> None:
+    installation = make_installation(scratch)
+    unit_test = unit_test_of(scratch, BundleMachine(scratch, reruns=[0, 0]), memory_artifacts)
+    with pytest.raises(FlakeFound) as found:
+        unit_test(cwd=scratch, base="main")
+    (flake, *_) = found.value.flakes
+    flake_record(installation).append(flake)
+    assert memory_artifacts.list(f"{flake.evidence}/machine.json"), "the bundle is a key"
+
+    cmd_failures(argparse.Namespace(test=None, show=True), installation)
+    shown = capsys.readouterr().out
+    section = change_evidence(
+        installation.state_dir,
+        unit=flake.unit,
+        output=flake.output,
+        bundle=flake.evidence,
+        ran_at=flake.ran_at,
+        conditions=flake.conditions,
+        artifacts=memory_artifacts,
+    )
+
+    assert f"newest bundle: {flake.evidence}" in shown
+    assert "machine: {" in shown, "its machine.json was read"
+    assert f"bundle of the failing run: {flake.evidence}" in reproduction_evidence(
+        installation, flake.test
+    )
+    assert flake.evidence in section
+    assert "What the machine was doing (`machine.json`)" in section
 
 
 def test_a_second_run_of_the_same_round_that_storms_again_is_isolated_and_recorded_again(
