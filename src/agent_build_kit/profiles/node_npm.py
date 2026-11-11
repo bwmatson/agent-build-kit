@@ -608,6 +608,12 @@ class NodeNpmProfile:
                     found.add(relative.as_posix())
         return sorted(found)
 
+    def prepare_worktree(self, checkout: Path, worktree: Path, *, project: str = ".") -> None:
+        """Give `worktree`'s `project` folder a `node_modules` whose entries point at
+        `checkout`'s installed ones, except the workspace members, which point at the
+        worktree's own folders."""
+        raise NotImplementedError
+
     def member_of(self, repo: Path, path: str) -> str | None:
         return _deepest(self.members(repo), path)
 
