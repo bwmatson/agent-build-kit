@@ -7,6 +7,7 @@ import warnings
 
 import pytest
 
+from tests.child_pytest import collect_items
 from tests.live_tag_drift import (
     EVERY_LIVE_MODULE_TIME_LIMIT,
     INTEGRATION,
@@ -70,7 +71,7 @@ def test_a_test_that_starts_no_agent_passes_untagged(pytester: pytest.Pytester) 
 def test_the_init_conventions_module_which_starts_no_agent_passes_untagged(
     pytester: pytest.Pytester,
 ) -> None:
-    items, _ = pytester.inline_genitems(str(INIT_CONVENTIONS))
+    items = collect_items(pytester, INIT_CONVENTIONS)
 
     assert items
     assert drift(items) == []

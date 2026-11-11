@@ -13,6 +13,7 @@ import pytest
 from agent_build_kit.config import E2eSplit
 from agent_build_kit.pipeline.e2e_exclusive import check_splits
 from agent_build_kit.profiles.python_uv import PROFILE
+from tests.child_pytest import collect_items
 from tests.live_tag_drift import EVERY_LIVE_MODULE_TIME_LIMIT
 from tests.runtime_tag_collection import ROOT
 
@@ -37,7 +38,7 @@ def run_in_root(argv: list[str], **kwargs: Any) -> subprocess.CompletedProcess:
 def test_every_otel_item_of_the_telemetry_module_carries_the_marker_and_no_other_does(
     pytester: pytest.Pytester,
 ) -> None:
-    items, _ = pytester.inline_genitems(str(MODULE))
+    items = collect_items(pytester, MODULE)
 
     otel = [i for i in items if otel_item(i)]
     assert otel
@@ -50,7 +51,7 @@ def test_every_otel_item_of_the_telemetry_module_carries_the_marker_and_no_other
 def test_a_split_on_the_marker_selects_the_otel_items_and_no_other_live_test(
     pytester: pytest.Pytester,
 ) -> None:
-    items, _ = pytester.inline_genitems(str(MODULE))
+    items = collect_items(pytester, MODULE)
     module_tests = {item.nodeid.split("/")[-1] for item in items if otel_item(item)}
     other_tests = {item.nodeid.split("/")[-1] for item in items if not otel_item(item)}
 

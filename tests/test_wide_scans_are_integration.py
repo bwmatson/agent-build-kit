@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import pytest
 
+from tests.child_pytest import collect_items
 from tests.time_limit import LOADED_TEST_TIME_LIMIT
 from tests.tracked_files import ROOT
 from tests.wide_scans import TESTS_ROOT, check_tests, load_baseline
@@ -132,7 +133,7 @@ WIDE_SCANS = [
 def test_a_test_that_scans_the_whole_repository_is_an_integration_test(
     pytester: pytest.Pytester, module: str, name: str
 ) -> None:
-    items, _ = pytester.inline_genitems(str(ROOT / "tests" / module))
+    items = collect_items(pytester, ROOT / "tests" / module)
     named = [i for i in items if getattr(i, "originalname", i.name) == name]
 
     assert named, f"{module} has no test {name}"

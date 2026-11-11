@@ -14,6 +14,7 @@ import pytest
 from agent_build_kit.pipeline.e2e import TestTime
 from agent_build_kit.pipeline.e2e_times import SPLIT_PREFIX, with_split
 from tests import fake_clock, time_split
+from tests.child_pytest import collect_items
 
 PRELUDE = """\
 import json
@@ -202,7 +203,7 @@ def test_every_test_of_a_live_scratch_module_requests_the_scratch_ledger(
     pytester: pytest.Pytester, module: str
 ) -> None:
     path = Path(__file__).parent / "integration" / module
-    items, _ = pytester.inline_genitems(str(path))
+    items = collect_items(pytester, path)
 
     assert items
     functions = [i for i in items if isinstance(i, pytest.Function)]

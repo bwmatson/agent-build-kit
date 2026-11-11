@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import pytest
 
+from tests.child_pytest import collect_items
 from tests.time_limit import LOADED_TEST_TIME_LIMIT, limit_for
 from tests.tracked_files import ROOT
 
@@ -173,7 +174,7 @@ WIDE_SCANS = [
 def test_a_test_that_scans_the_whole_tree_runs_under_the_loaded_limit(
     pytester: pytest.Pytester, module: str, name: str
 ) -> None:
-    items, _ = pytester.inline_genitems(str(ROOT / module))
+    items = collect_items(pytester, ROOT / module)
     named = [item for item in items if item.originalname == name]  # type: ignore[attr-defined]
 
     assert named, f"{module} has no test named {name}"
