@@ -9,23 +9,26 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import Iterator
+from contextlib import AbstractAsyncContextManager
 from pathlib import Path
 from typing import Any
 
 import pytest
-from langgraph.checkpoint.base import empty_checkpoint
-from pydantic import BaseModel
+from langgraph.checkpoint.base import BaseCheckpointSaver, empty_checkpoint
 
 from agent_build_kit import orchestration
+from agent_build_kit.cli.pipeline import thread_of
 from agent_build_kit.graph.build import compile_graph
 from agent_build_kit.graph.checkpointer import open_checkpointer, unit_graphs_path
 from agent_build_kit.graph.run import run_thread
 from agent_build_kit.graph.state import UnitRun
 from agent_build_kit.installation import Installation
 from agent_build_kit.orchestration.checkpoints import INTERFACE, Checkpoints
+from agent_build_kit.orchestration.local.checkpoints import LocalCheckpoints
 from tests.conftest import make_installation
 from tests.graph.checkpoint_reads import a_config
-from tests.graph.test_checkpoint_allowlist import populated
+from tests.graph.test_checkpoint_allowlist import Unlisted, populated
+from tests.tracked_files import ROOT, guarded_files
 
 
 @pytest.fixture(autouse=True)
@@ -47,10 +50,6 @@ def local_installation(tmp_path: Path) -> Installation:
 @pytest.fixture(params=["local"])
 def checkpoints(request: pytest.FixtureRequest, local_installation: Installation) -> Checkpoints:
     return orchestration.get(INTERFACE, local_installation)
-
-
-class Unlisted(BaseModel):
-    secret: str
 
 
 def test_a_checkpoint_written_is_read_back(checkpoints: Checkpoints) -> None:
@@ -158,3 +157,47 @@ def test_a_thread_checkpointed_by_the_saver_before_the_interface_resumes(
     snapshot = asyncio.run(after())
 
     assert UnitRun.model_validate(snapshot.values) == state
+
+
+class RecordingCheckpoints:
+    """A Checkpoints implementation that opens the local saver and counts the openings."""
+
+    opened = 0
+
+    def __init__(self, installation: Installation) -> None:
+        self.local = LocalCheckpoints(installation)
+
+    def open(self) -> AbstractAsyncContextManager[BaseCheckpointSaver]:
+        RecordingCheckpoints.opened += 1
+        return self.local.open()
+
+
+def test_a_units_thread_is_opened_through_the_registered_implementation(
+    local_installation: Installation,
+) -> None:
+    orchestration.names(INTERFACE)  # load the built-ins, so the registration below is the last
+    orchestration.register(INTERFACE, "local", RecordingCheckpoints)
+    RecordingCheckpoints.opened = 0
+
+    thread_of(local_installation, "unit-1")
+
+    assert RecordingCheckpoints.opened == 1
+
+
+@pytest.mark.integration
+def test_only_the_local_implementation_names_the_sqlite_opener() -> None:
+    allowed = {
+        "src/agent_build_kit/graph/checkpointer.py",
+        "src/agent_build_kit/orchestration/local/checkpoints.py",
+    }
+    offenders = [
+        path.relative_to(ROOT).as_posix()
+        for path in guarded_files(under=["src/agent_build_kit"], suffixes={".py"})
+        if path.relative_to(ROOT).as_posix() not in allowed
+        and "open_unit_graphs" in path.read_text()
+    ]
+
+    assert offenders == [], (
+        "these modules open a unit's thread without the Checkpoints interface: "
+        + ", ".join(offenders)
+    )
