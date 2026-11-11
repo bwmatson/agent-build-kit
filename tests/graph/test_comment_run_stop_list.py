@@ -45,14 +45,21 @@ def scene(graph: Setup, tmp_path: Path) -> Scene:
 
 
 def comment_run(scene: Scene) -> int:
-    """A review comment reaches the unit's thread, as the poller delivers it, and the lane it is
-    handed to makes the run; the number of agent calls before the run."""
+    """A review comment reaches the unit's thread, as the poller delivers it, which only records
+    it; the run the scan finds owed is made in the lane; the number of agent calls before it."""
     before = len(scene.graph.recorder.events)
+    moves = len(scene.calls)
     event = ("rework", {"reason": COMMENT, "rework": ReworkKind.COMMENT})
     with cli.build_restack_lane(scene.graph.inst, scene.graph.store) as lane:
         scene.lane = lane
-        pr = scene.graph.store.get(OTHER).pr
-        assert scene.graph.poll(event, pr=pr or 0, lane=lane) == [True]
+        # The stand-in host numbers the pull request a run opens apart from the scene's: the
+        # comment is on the scene's, as in the first round.
+        stored = scene.graph.store.get(OTHER)
+        scene.graph.store.set_state(OTHER, stored.state, pr=8, branch=stored.branch)
+        assert scene.graph.poll(event, pr=8, lane=lane) == [True]
+        assert not lane.running and len(scene.calls) == moves, "the poll started nothing"
+        # What a resolve worker does for the unit once it is started for it.
+        lane.hand_over(scene.graph.store.get(OTHER), claimed=False)
         lane.drain()
     return before
 

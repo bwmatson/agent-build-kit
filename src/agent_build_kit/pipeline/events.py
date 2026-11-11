@@ -34,7 +34,6 @@ from __future__ import annotations
 
 import json
 import subprocess
-import threading
 import time
 from collections.abc import Callable, Mapping, Sequence
 from contextlib import AbstractContextManager, ExitStack, nullcontext
@@ -92,7 +91,6 @@ from agent_build_kit.pipeline.stack_runner import PREDECESSOR_NOTE, Comment
 from agent_build_kit.pipeline.ui_review import attach_hunks
 from agent_build_kit.pipeline.unit_store import (
     KEEP,
-    LANE_REWORKS,
     Cause,
     HeldBy,
     Pull,
@@ -123,7 +121,7 @@ from agent_build_kit.pipeline.units import (
     through_satisfied,
     trunk_of,
 )
-from agent_build_kit.pipeline.wiring import build_unit_test, moving_onto, own_work_starts_after
+from agent_build_kit.pipeline.wiring import build_unit_test, own_work_starts_after
 from agent_build_kit.pipeline.workspaces import (
     BranchBusy,
     branch_held,
@@ -345,7 +343,6 @@ def on_merged(
                 retarget=retarget or (lambda unit, base: None),
                 rebase_cap=rebase_cap,
                 resume=resume,
-                lane=lane,
                 merge_record=merge_record,
                 merge_commit=merge_commit,
                 log=log,
@@ -752,20 +749,19 @@ def release_children(
     rebase_cap: int | None = None,
     resume: Resume = _no_thread,
     settled: Callable[[StoredUnit, str], bool] = lambda child, base: False,
-    lane: Lane | None = None,
     log: Log = print,
 ) -> list[str]:
-    """Move what is stacked on a unit that has left the stack — merged or
-    satisfied, already recorded as such in the store — onto its new base, then,
-    when given the means, remove the unit's worktree and branch once nothing
-    builds on it.
+    """Record that what is stacked on a unit that has left the stack — merged or
+    satisfied, already recorded as such in the store — has its base moved, then,
+    when given the means and nothing is owed a move, remove the unit's worktree
+    and branch once nothing builds on it.
+
+    Nothing is moved or started here: a child in review is told (a thread) or recorded as
+    owed a moved-base run, which a resolve worker makes. The unit's branch is kept while a
+    child is owed its move; `remove_satisfied` removes it on a later pass.
 
     `settled` says a child is already where this would put it, so a second
     release of the same unit moves and tells nothing.
-
-    With a `lane`, a child is handed to it in place of the inline restack: the lane takes
-    the child's claim on a worker of its own, and the leaving unit's worktree and branch
-    are removed when the lane has finished the last child handed over.
 
     Returns what it could not move, one line each — the child, the branch it is
     still on and why — for the caller to record on the unit that left.
@@ -779,9 +775,7 @@ def release_children(
     held_for_depth: list[str] = []
     not_moved: list[str] = []
     failures: list[str] = []
-    handed: list[str] = []
-    moved: set[str] = set()
-    finishing = threading.Lock()
+    owed_a_move: list[str] = []
 
     def unmoved(child: StoredUnit, why: object) -> None:
         if child.id not in not_moved:
@@ -796,58 +790,6 @@ def release_children(
             unmoved(child, error)
             return False
         return True
-
-    def moved_off(child_id: str) -> None:
-        """What the lane runs, under the child's claim: the restack itself, onto the base the
-        child has when it starts, off the branch that left."""
-        fresh = store.get(child_id)
-        new_base = base_of(fresh, store.all())
-        restack(
-            branch=branch_name(fresh),
-            old_base=old_base,
-            new_base=new_base,
-            child=fresh,
-            parent=leaving,
-        )
-        log(f"{child_id}: restacked onto {new_base}")
-
-    def hand_over_child(child: StoredUnit, work: Callable[[], None] | None) -> None:
-        """Hand a child to the lane, and keep the branch it leaves until the lane has moved it."""
-        with finishing:
-            if child.id not in handed:
-                handed.append(child.id)
-            handed_over.add(child.id)
-        lane.hand_over(  # type: ignore[union-attr] — only called with a lane
-            child, work, done=partial(finished, child.id)
-        )
-
-    def remove_leaving() -> None:
-        if not (remove_worktree and delete_branch):
-            return
-        _remove_leaving(
-            leaving,
-            graph=store.all(),
-            claim=claim,
-            remove_worktree=remove_worktree,
-            delete_branch=delete_branch,
-            building_on_it=building_on_it,
-            held_for_depth=held_for_depth,
-            not_moved=[*not_moved, *(child for child in handed if child not in moved)],
-            log=log,
-        )
-
-    def finished(child_id: str, moved_ok: bool) -> None:
-        """The lane is done with a child; with the last one, the branch it left goes."""
-        with finishing:
-            if moved_ok:
-                moved.add(child_id)
-            handed_over.discard(child_id)
-            last = not handed_over and handing_done.is_set()
-        if last:
-            remove_leaving()
-
-    handed_over: set[str] = set()
-    handing_done = threading.Event()
 
     for child in _children_of(leaving, graph):
         new_base = base_of(child, graph)
@@ -881,16 +823,8 @@ def release_children(
                     # At once, as every other path here: a PR left on a branch merged
                     # away may be closed, and the thread only retargets when it runs.
                     retargeted(child, new_base)
-                    if lane is not None:
-                        # Told, so as good as moved for the branch it leaves; but the lane
-                        # holds its claim, so the leaving unit's removal waits for it.
-                        with finishing:
-                            moved.add(child.id)
-                        hand_over_child(child, None)
+                    owed_a_move.append(child.id)
                     continue
-            if lane is not None and (rebase_cap is None or depth <= rebase_cap):
-                hand_over_child(child, partial(moved_off, child.id))
-                continue
             with claim(child):
                 if rebase_cap is not None and depth > rebase_cap:
                     _hold_for_depth(
@@ -898,13 +832,19 @@ def release_children(
                     )
                     held_for_depth.append(child.id)
                     continue
-                restack(
-                    branch=branch_name(child),
-                    old_base=old_base,
-                    new_base=new_base,
-                    child=child,
-                    parent=leaving,
+                if child.state == RUNNING:
+                    raise BranchBusy("running")
+                # Recorded, and nothing started: the scan finds the unit owed a moved-base
+                # run, and the dispatch starts a resolve worker for it.
+                store.set_state(
+                    child.id,
+                    child.state,
+                    note=f"its base {old_base} merged: it moves onto {new_base}",
+                    cause=Cause.BASE_CHANGED,
                 )
+                owed_a_move.append(child.id)
+                log(f"{child.id}: its base is now {new_base}, a restack is owed")
+                continue
         except BranchBusy:
             # Its build is running in the tree a restack would rebase. The
             # merge stands regardless, so the build stops at its next step on
@@ -918,31 +858,88 @@ def release_children(
         except Exception as error:  # noqa: BLE001
             # Left where it is, still open, still based on the old branch. A
             # human resolves it; the rest of the stack is not held up for it.
-            log(f"{child.id}: restack onto {new_base} failed — {type(error).__name__}: {error}")
+            log(f"{child.id}: not recorded as moved — {type(error).__name__}: {error}")
             unmoved(child, f"{type(error).__name__}: {error}")
             continue
-
-        log(f"{child.id}: restacked onto {new_base}")
 
     if rebase_cap is not None:
         still_held = _reconsider_held(
             leaving,
             store=store,
-            restack=restack,
             claim=claim,
             rebase_cap=rebase_cap,
-            lane=lane,
-            hand=hand_over_child if lane is not None else None,
             log=log,
         )
         held_for_depth += [held for held in still_held if held not in held_for_depth]
 
-    with finishing:
-        handing_done.set()
-        waiting_for_lane = bool(handed_over)
-    if not waiting_for_lane:
-        remove_leaving()
+    if owed_a_move:
+        # The pass check (`remove_satisfied`) removes it once the last of them has moved.
+        log(f"{leaving.id}: branch {old_base} kept — {', '.join(owed_a_move)} owed their move")
+    elif remove_worktree and delete_branch:
+        _remove_leaving(
+            leaving,
+            graph=store.all(),
+            claim=claim,
+            remove_worktree=remove_worktree,
+            delete_branch=delete_branch,
+            building_on_it=building_on_it,
+            held_for_depth=held_for_depth,
+            not_moved=not_moved,
+            log=log,
+        )
     return failures
+
+
+def remove_merged_branches(
+    store: UnitStore,
+    *,
+    repos: dict[str, Path],
+    claim: Claim = _unclaimed,
+    remove_worktree: Callable[..., None],
+    delete_branch: Callable[..., None],
+    on_new_base: Callable[[StoredUnit], bool],
+    log: Log = print,
+) -> None:
+    """The check each pass makes for the merged units whose branch is still there: it goes
+    (`remove_satisfied`) on the first pass after the last unit stacked on it has moved."""
+    merged = [u for u in store.all() if u.state == MERGED and u.repo in repos]
+    local: dict[str, set[str]] = {}
+    for repo in {unit.repo for unit in merged}:
+        # One read for the repo, not one for each merged unit the store keeps.
+        listed = git(
+            repos[repo], "for-each-ref", "--format=%(refname:short)", "refs/heads/", check=False
+        )
+        local[repo] = set(listed.stdout.split()) if not listed.returncode else set()
+    for unit in merged:
+        if branch_name(unit) not in local[unit.repo]:
+            continue
+        remove_satisfied(
+            unit,
+            store=store,
+            claim=claim,
+            remove_worktree=remove_worktree,
+            delete_branch=delete_branch,
+            on_new_base=on_new_base,
+            log=log,
+        )
+
+
+OWED_STATES = (PLANNED, RUNNING, IN_REVIEW)
+OWED_CAUSES = (Cause.BASE_CHANGED, Cause.RESTACK_DEFERRED)
+# The causes of a unit owed a moved-base run: a restack is owed for the first two only.
+MOVED_BASE_CAUSES = (*OWED_CAUSES, Cause.RESTACK_CONFLICT)
+
+
+def in_a_lane_run(unit: StoredUnit) -> bool:
+    """Whether a resolve worker is making the unit's whole run, so it is that run's to resume."""
+    return unit.state == RUNNING and unit.moved_base_run
+
+
+def owed_its_move(unit: StoredUnit) -> bool:
+    """Whether `unit` is owed a move off the branch it was based on, or is making one: a
+    moved-base run is recorded for it (`base_changed`, or one a refusal or a conflict left) and
+    not yet made, or a resolve worker has it running."""
+    return (unit.state in OWED_STATES and unit.cause in MOVED_BASE_CAUSES) or in_a_lane_run(unit)
 
 
 def remove_satisfied(
@@ -968,6 +965,12 @@ def remove_satisfied(
     children = {child.id for child in _children_of(leaving, graph)}
     held_for_depth: list[str] = []
     not_moved: list[str] = []
+    owed = [d.id for d in _dependents_of(leaving, graph) if owed_its_move(d)]
+    if owed:
+        # Neither the tree nor the branch goes while a unit is owed a move off it, or
+        # making one: the worker that moves it needs the branch it leaves.
+        log(f"{leaving.id}: branch {old_base} kept — {', '.join(owed)} owed their move")
+        return
     for dependent in _dependents_of(leaving, graph):
         if dependent.state == HELD and dependent.held_base == old_base:
             held_for_depth.append(dependent.id)
@@ -1097,7 +1100,6 @@ def _record_merge(
     retarget: Callable[[StoredUnit, str], None],
     rebase_cap: int | None,
     resume: Resume,
-    lane: Lane | None,
     merge_record: MergeRecord | None,
     merge_commit: str | None,
     log: Log,
@@ -1124,7 +1126,6 @@ def _record_merge(
         retarget=retarget,
         rebase_cap=rebase_cap,
         resume=resume,
-        lane=lane,
         log=log,
     )
 
@@ -1159,15 +1160,12 @@ def _reconsider_held(
     merged: StoredUnit,
     *,
     store: UnitStore,
-    restack: Restack,
     claim: Claim,
     rebase_cap: int,
-    lane: Lane | None = None,
-    hand: Callable[[StoredUnit, Callable[[], None]], None] | None = None,
     log: Log,
 ) -> list[str]:
-    """Restack what an earlier merge held for depth and this one brought within
-    the cap, in the merged unit's repo. Returns those still held on the merged
+    """Free, owed a moved-base run, what an earlier merge held for depth and this one brought
+    within the cap, in the merged unit's repo. Returns those still held on the merged
     unit's own branch, which is the one its caller must keep.
 
     Depth only falls, so a merge anywhere below a held unit can free it without
@@ -1192,11 +1190,8 @@ def _reconsider_held(
             old_base,
             graph,
             store=store,
-            restack=restack,
             claim=claim,
             rebase_cap=rebase_cap,
-            lane=lane,
-            hand=hand,
             log=log,
         ) and old_base == branch_name(merged):
             still_held.append(unit.id)
@@ -1209,19 +1204,13 @@ def reconsider_depth_hold(
     graph: list[StoredUnit],
     *,
     store: UnitStore,
-    restack: Restack,
     claim: Claim,
     rebase_cap: int,
-    lane: Lane | None = None,
-    hand: Callable[[StoredUnit, Callable[[], None]], None] | None = None,
     log: Log,
 ) -> bool:
-    """Restack a unit held for depth if its depth is now within the cap, from the
-    branch it is still on, in the lane when there is one. True when it is still held,
-    on that branch.
-
-    `hand` takes the move in place of the lane's own hand-over, for a caller that keeps
-    the branch the unit leaves until the lane has moved it."""
+    """Free a unit held for depth if its depth is now within the cap: it goes back to review
+    owed a moved-base run off the branch it is still on, which a resolve worker makes. Nothing
+    is moved here. True when it is still held, on that branch."""
     depth = depth_of(unit, graph)
     new_base = base_of(unit, graph)
     parent = next((u for u in graph if branch_name(u) == old_base), None)
@@ -1230,34 +1219,16 @@ def reconsider_depth_hold(
     try:
         with claim(unit):
             store.set_state(
-                unit.id, IN_REVIEW, note=f"depth {depth} is within the cap", cause=Cause.RELEASED
+                unit.id,
+                IN_REVIEW,
+                note=f"depth {depth} is within the cap: it moves onto {new_base}",
+                cause=Cause.BASE_CHANGED,
             )
-
-            def move() -> None:
-                """The restack onto the base the unit has when it starts."""
-                fresh = store.get(unit.id)
-                restack(
-                    branch=branch_name(fresh),
-                    old_base=old_base,
-                    new_base=base_of(fresh, store.all()),
-                    child=fresh,
-                    parent=parent,
-                )
-
-            if lane is None:
-                move()
-        if lane is not None:
-            (hand or lane.hand_over)(unit, move)
     except BranchBusy:
         # The claim failed before anything was written: it is still held,
         # its record as it was, and the next merge tries again.
         return True
-    except Exception as error:  # noqa: BLE001
-        # Left in review on its old base, as a failed restack is for a
-        # child in the merge itself.
-        log(f"{unit.id}: restack onto {new_base} failed — {type(error).__name__}: {error}")
-        return False
-    log(f"{unit.id}: {'handed to the resolution lane' if lane else 'restacked'} onto {new_base}")
+    log(f"{unit.id}: depth {depth} is within the cap, a restack onto {new_base} is owed")
     return False
 
 
@@ -1689,20 +1660,14 @@ def on_release(
                 store.set_state(unit.id, IN_REVIEW, note="hold label removed", cause=Cause.RELEASED)
         if restored is not None:
             old_base = restored.held_base
-            if (
-                rebase_cap is None
-                or restack is None
-                or reconsider_depth_hold(
-                    restored,
-                    old_base,
-                    store.all(),
-                    store=store,
-                    restack=restack,
-                    claim=claim,
-                    rebase_cap=rebase_cap,
-                    lane=lane,
-                    log=log,
-                )
+            if rebase_cap is None or reconsider_depth_hold(
+                restored,
+                old_base,
+                store.all(),
+                store=store,
+                claim=claim,
+                rebase_cap=rebase_cap,
+                log=log,
             ):
                 log(f"release #{pr}: {unit.id} is held for depth again")
                 return True
@@ -1757,14 +1722,6 @@ def _requeue_with(
     )
 
 
-def _lane_for_rework(lane: Lane | None, rework: ReworkKind | None, unit: StoredUnit) -> Lane | None:
-    """The resolution lane that makes the run of a conflict, a comment or a change request sent
-    back for `unit`, which is in review; None for any other rework, which is a build."""
-    if lane is not None and rework in LANE_REWORKS and unit.state in (IN_REVIEW, PLANNED):
-        return lane
-    return None
-
-
 def on_rework(
     pr: int,
     *,
@@ -1785,9 +1742,8 @@ def on_rework(
     """Put a unit back in the queue with what review asked for.
 
     A rework of a kind in `LANE_REWORKS` (a conflict, a comment, a change request or a label) for
-    a unit in review is handed to the resolution `lane`, which makes the whole run instead of
-    waiting for a build worker. Any other rework is a build's. Without a `lane`, a conflict
-    rework is the first attempt at the base's tip, recorded here with `base_tip`.
+    a unit in review is only recorded: the scan finds it owed a run and the dispatch starts a
+    resolve worker. Any other rework is a build's. `lane` and `base_tip` are no longer read.
 
     False when the unit did not take it (it is held, or being built): the
     poller then keeps the event to report again. `waiting` remembers which
@@ -1804,7 +1760,6 @@ def on_rework(
         return True
 
     heard: set[tuple[str, str]] = waiting if waiting is not None else set()
-    handing_to: Lane | None = None
     try:
         if (
             taken := _not_for_now(store.get(unit.id), pr=pr, reason=reason, waiting=heard, log=log)
@@ -1824,7 +1779,6 @@ def on_rework(
         if resume(unit, "rework", reason, feedback, rework=rework):
             log(f"rework #{pr}: {unit.id} resumed — {reason}")
             taken = True
-            handing_to = _lane_for_rework(lane, rework, unit)
         else:
             with claim(unit):
                 # Re-read under the lock: a build that has just ended moved it.
@@ -1833,7 +1787,6 @@ def on_rework(
                     taken := _not_for_now(current, pr=pr, reason=reason, waiting=heard, log=log)
                 ) is not None:
                     return taken
-                handing_to = _lane_for_rework(lane, rework, current)
                 # Only now, with the unit taking it: a deferred rework asks for nothing.
                 taken = _requeue_with(
                     current,
@@ -1846,12 +1799,6 @@ def on_rework(
                 )
     except BranchBusy as error:
         return _deferred(f"rework #{pr}", unit, error, log)
-    if handing_to is not None:
-        # Outside the claim: the lane's run takes the branch itself.
-        handing_to.hand_over(unit, claimed=False)
-        log(f"rework #{pr}: {unit.id} handed to the resolution lane")
-    elif taken and rework is ReworkKind.CONFLICT and base_tip is not None:
-        _record_first_attempt(store, repo, pr, base_tip, log)
     return taken
 
 
@@ -1876,12 +1823,10 @@ def on_conflict(
     An attempt is recorded against the unit's pushed head and the base's tip: the same head at
     the same tip is never attempted twice, and a new tip starts the count at zero, as does a
     definite answer that the pull request merges (`since` later than the last attempt). The
-    first attempt of a unit built on the trunk is the stack move; any other, and any the stack
-    move cannot settle, is the conflict rework. Under a usage pause of the unit's account
-    (`paused(unit)`) the move is made with a resolver that refuses before any agent run, so a
-    clean move still goes through and one that needs the resolver waits, in review, uncounted.
-    With a `lane` the move is handed to it and runs there, under the lane's claim of the branch,
-    not in the poll. False when the unit's branch is busy, so the poller offers the event again.
+    attempt itself is not made here: the unit stays in review, sent back for the conflict, and
+    the resolve worker the dispatch starts makes the move and counts the attempt. `restack`,
+    `paused` and `lane` are no longer read. False when the unit's branch is busy, so the poller
+    offers the event again.
     """
     from agent_build_kit.config import active
 
@@ -1909,7 +1854,6 @@ def on_conflict(
     if unit.is_new_conflict(since):
         # A new conflict: the last one's count and tip are not this one's.
         store.clear_conflict_attempts(unit.id)
-    head = unit.pushed or ""
 
     def feedback() -> tuple[str, bool, tuple[str, ...]]:
         return _feedback(
@@ -1921,119 +1865,31 @@ def on_conflict(
             fetch_checks=None,
         )
 
-    def counted() -> None:
-        store.record_conflict_attempt(unit.id, tip=tip, head=head, attempts=done + 1, at=read_at)
-
-    def reworked(current: StoredUnit) -> None:
-        _requeue_with(
-            current,
-            pr=pr,
-            reason=CONFLICT_REASON,
-            rework=ReworkKind.CONFLICT,
-            store=store,
-            feedback=feedback,
-            log=log,
-        )
-        counted()
-
-    trunk = trunk_of(unit.repo)
-
-    def move(current: StoredUnit) -> None:
-        """The stack move and what it came to, under the unit's branch claim."""
-        try:
-            # The commit the branch sits on, so the move replays what is the unit's and
-            # unit-test and the comment can say what the move brought in.
-            outcome = restack(
-                branch=branch_name(current),
-                old_base=fork_point(current),
-                new_base=trunk,
-                child=current,
-                # Onto the trunk it lands on, not onto itself: the resolver is told both sides.
-                parent=moving_onto(current, trunk, store),
-                reason=CONFLICT_MOVE_REASON,
-                **({"resolve": _paused_resolver} if paused(current) else {}),
-            )
-        except BranchBusy:
-            raise
-        except Exception as error:  # noqa: BLE001
-            # The move failed (its checks, a flake, git): that is the attempt, so the same
-            # head at the same tip is not moved again every poll.
-            log(f"conflict #{pr}: {unit.id} move failed — {type(error).__name__}: {error}")
-            counted()
-            return
-        if outcome == RestackOutcome.CONFLICT:
-            reworked(store.get(unit.id))
-        elif outcome == RestackOutcome.DEFERRED:
-            # The move could not run now (a usage pause, a busy checkout): not an attempt,
-            # and still in review for the next poll to offer it again.
-            store.set_state(
-                unit.id,
-                IN_REVIEW,
-                note="conflict move deferred: could not run now",
-                cause=Cause.RESTACK_DEFERRED,
-            )
-            log(f"conflict #{pr}: {unit.id} left for a later poll — the move could not run now")
-        else:
-            counted()
-
-    handing_to: Lane | None = None
     try:
         if resume(unit, "rework", CONFLICT_REASON, feedback, rework=ReworkKind.CONFLICT):
+            # The thread takes the rework, and its run counts the attempt when it starts.
             log(f"conflict #{pr}: {unit.id} resumed — {CONFLICT_REASON}")
-            if (handing_to := _lane_for_rework(lane, ReworkKind.CONFLICT, unit)) is None:
-                counted()
+            return True
+        with claim(unit):
+            current = store.get(unit.id)
+            if current.state != IN_REVIEW or current.pushed != unit.pushed:
                 return True
-        if handing_to is None:
-            with claim(unit):
-                current = store.get(unit.id)
-                if current.state != IN_REVIEW or current.pushed != unit.pushed:
-                    return True
-                if done > 0 or base_of(current, store.all()) != trunk:
-                    if (handing_to := _lane_for_rework(lane, ReworkKind.CONFLICT, current)) is None:
-                        reworked(current)
-                        return True
-                    # The lane makes the run, which counts its own attempt when it starts: the
-                    # unit stays in review, sent back for the conflict.
-                    _requeue_with(
-                        current,
-                        pr=pr,
-                        reason=CONFLICT_REASON,
-                        rework=ReworkKind.CONFLICT,
-                        store=store,
-                        feedback=feedback,
-                        log=log,
-                        state=IN_REVIEW,
-                    )
-                elif lane is None:
-                    move(current)
-                    return True
+            # Recorded, and nothing started: the unit stays in review, sent back for the
+            # conflict, and the dispatch starts a resolve worker, which counts the attempt.
+            _requeue_with(
+                current,
+                pr=pr,
+                reason=CONFLICT_REASON,
+                rework=ReworkKind.CONFLICT,
+                store=store,
+                feedback=feedback,
+                log=log,
+                state=IN_REVIEW,
+            )
     except BranchBusy as error:
         return _deferred(f"conflict #{pr}", unit, error, log)
-    if handing_to is not None:
-        handing_to.hand_over(unit, claimed=False)
-        log(f"conflict #{pr}: {unit.id} handed to the resolution lane")
-        return True
-    # Outside the unit's claim: the lane takes the branch claim itself, and the move, which may
-    # run the resolver, runs there and not in the poll.
-
-    def work() -> None:
-        current = store.get(unit.id)
-        if current.state != IN_REVIEW or current.pushed != unit.pushed:
-            return
-        try:
-            move(current)
-        except BranchBusy as error:
-            _deferred(f"conflict #{pr}", unit, error, log)
-
-    assert lane is not None  # only a lane is left to hand the move to
-    lane.hand_over(unit, work)
-    log(f"conflict #{pr}: {unit.id} handed to the resolution lane")
+    log(f"conflict #{pr}: {unit.id} sent back for the conflict")
     return True
-
-
-def _paused_resolver(*args: object, **kwargs: object) -> object:
-    """The resolver of a move made under a usage pause: it refuses before any agent run."""
-    raise AgentRateLimited("a usage pause is in force")
 
 
 def _read_base_tip(base_tip: Callable[[StoredUnit], str], unit: StoredUnit, log: Log) -> str | None:
@@ -2765,25 +2621,6 @@ def _save_waiting(path: Path, store: UnitStore, waiting: set[tuple[str, str]]) -
         return
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(kept))
-
-
-def _record_first_attempt(
-    store: UnitStore, repo: str, pr: int, base_tip: Callable[[StoredUnit], str], log: Log
-) -> None:
-    """The conflict rework the poller sent for a conflict that began, or met on first sight,
-    is the first attempt at the base's tip."""
-    unit = _find(store, repo, pr)
-    if unit is None or unit.state == SATISFIED:
-        return
-    tip = _read_base_tip(base_tip, unit, log)
-    if tip is not None:
-        store.record_conflict_attempt(
-            unit.id,
-            tip=tip,
-            head=unit.pushed or "",
-            attempts=1,
-            at=spans.clock.now(),
-        )
 
 
 def build_dispatch(

@@ -11,7 +11,6 @@ import pytest
 
 from agent_build_kit.pipeline import events
 from agent_build_kit.pipeline.pause import PAUSE_MARKER, pause_in_force, pause_until
-from agent_build_kit.pipeline.restack import Moved
 from agent_build_kit.pipeline.unit_store import StoredUnit, UnitStore
 from agent_build_kit.pipeline.units import IN_REVIEW
 from tests import fake_clock
@@ -91,6 +90,13 @@ class ConflictRig:
     def stored(self) -> StoredUnit:
         return self.store.get(UNIT)
 
+    def attempted(self, *, attempts: int = 1, head: str = "h1") -> None:
+        """A resolve worker's run has counted `attempts` at the base's tip, started now, with
+        the unit pushed at `head` when it began: the record the poll no longer makes."""
+        self.store.record_conflict_attempt(
+            UNIT, tip=self.tip, head=head, attempts=attempts, at=self.clock.now()
+        )
+
     def dispatch(self) -> Callable[..., bool]:
         options: dict[str, Any] = {}
         if self.claim is not None:
@@ -138,33 +144,3 @@ class FakeLane:
         self, unit: StoredUnit, work: Callable[[], None] | None = None, **kwargs: object
     ) -> None:
         self.handed.append((unit, work))
-
-
-def real_restack(
-    rig: ConflictRig,
-    tmp_path: Path,
-    *,
-    move: Callable[..., Moved],
-    pushed: list[str],
-    diff_changes: bool = False,
-    unit_test: Callable[..., tuple[bool, str]] | None = None,
-    comments: list[str] | None = None,
-) -> events.Restack:
-    """The stack move as `build_restack` does it, over a unit approved at `approved`, with the
-    git, unit-test and the host stood in for: `pushed` collects what it pushes and `comments` the
-    bodies it posts."""
-    rig.store.record_approval(UNIT, "approved")
-    diffs = iter(range(100))
-    return events.build_restack(
-        repos={"app": tmp_path / "app"},
-        store=rig.store,
-        root=tmp_path,
-        move=move,
-        unit_test=unit_test or (lambda **kwargs: (True, "")),
-        push=lambda *args, **kwargs: pushed.append("pushed") or "newsha",
-        retarget=lambda *args, **kwargs: None,
-        comment=lambda pr, body, **kwargs: comments.append(body) if comments is not None else None,
-        diff_id=lambda repo, base, branch: f"diff-{next(diffs) if diff_changes else 0}",
-        head_of=lambda repo, branch: "approved",
-        remote_head_of=lambda repo, branch: None,
-    )

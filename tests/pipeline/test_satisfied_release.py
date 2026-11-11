@@ -17,8 +17,8 @@ from agent_build_kit import forges
 from agent_build_kit.forges.base import PullRequest
 from agent_build_kit.pipeline import events
 from agent_build_kit.pipeline.restack import move_branch_onto
-from agent_build_kit.pipeline.unit_store import UnitStore
-from agent_build_kit.pipeline.units import IN_REVIEW, MERGED, PLANNED, SATISFIED, UnitState, base_of
+from agent_build_kit.pipeline.unit_store import Cause, UnitStore
+from agent_build_kit.pipeline.units import IN_REVIEW, MERGED, SATISFIED, UnitState, base_of
 from agent_build_kit.pipeline.workspaces import branch_lock
 from tests.factories import git, init_repo
 from tests.factories import stored_unit as unit
@@ -210,24 +210,29 @@ def cut_from_open_predecessor(world: World) -> World:
 # --- 1.1 dependents leave a satisfied unit as they leave a merged one -----------
 
 
-def test_a_dependent_in_review_is_restacked_onto_the_trunk_and_retargeted(
+def test_a_dependent_in_review_is_recorded_as_owed_a_move_onto_the_trunk(
     after_merge: World,
 ) -> None:
+    before = after_merge.sha("spec/feature/3")
+
     after_merge.release()
 
-    assert after_merge.forge.retargeted() == [(3, "main")]
-    assert after_merge.own_commits("spec/feature/3", "origin/main") == ["add three.txt"]
+    assert after_merge.store.get("feature/3").cause is Cause.BASE_CHANGED
+    assert after_merge.sha("spec/feature/3") == before, "nothing is rebased in the release"
+    assert after_merge.forge.retargeted() == []
     assert after_merge.store.get("feature/2").state == SATISFIED
 
 
-def test_a_dependent_whose_predecessor_is_open_moves_onto_the_predecessor(
+def test_a_dependent_whose_predecessor_is_open_is_recorded_as_owed_a_move_onto_it(
     before_merge: World,
 ) -> None:
+    before = before_merge.sha("spec/feature/3")
+
     before_merge.release()
 
-    assert before_merge.forge.retargeted() == [(3, "spec/feature/1")], "not to the trunk"
-    assert before_merge.own_commits("spec/feature/3", "spec/feature/1") == ["add three.txt"]
-    assert "add more.txt" in before_merge.own_commits("spec/feature/3", "main")
+    assert before_merge.store.get("feature/3").cause is Cause.BASE_CHANGED
+    assert before_merge.sha("spec/feature/3") == before
+    assert "base_changed" in before_merge.store.get("feature/3").history[-1]["cause"]
 
 
 def test_a_dependent_whose_run_holds_its_branch_is_told_and_not_rebased(
@@ -261,40 +266,16 @@ def test_a_dependent_being_built_is_retargeted_and_its_branch_left(after_merge: 
     assert retargeted == [("feature/3", "main")]
 
 
-def test_a_conflicting_restack_takes_the_merge_paths_conflict_handling(
-    after_merge: World,
-) -> None:
-    """Handed to the adapt step, as on a merge: the dependent goes back to
-    planned with the reason, and the satisfied unit stays satisfied."""
-    git(after_merge.repo, "checkout", "-q", "main")
-    after_merge.commit("three.txt", "the trunk's own three")
-    git(after_merge.repo, "push", "-q", "origin", "main")
-    before = after_merge.sha("spec/feature/3")
-
-    after_merge.release(restack=after_merge.restack(conflicts_stop=True))
-
-    child = after_merge.store.get("feature/3")
-    assert child.state == PLANNED
-    assert "could not be merged" in child.history[-1]["note"]
-    assert after_merge.sha("spec/feature/3") == before
-    assert after_merge.store.get("feature/2").state == SATISFIED
-
-
-def test_a_dependent_in_another_repo_is_neither_restacked_nor_retargeted(
+def test_a_dependent_in_another_repo_is_neither_recorded_nor_retargeted(
     after_merge: World,
 ) -> None:
     after_merge.store.upsert([unit("feature/9", repo="platform", depends_on=("feature/2",))])
     after_merge.store.set_state("feature/9", IN_REVIEW, pr=9, branch="spec/feature/9")
-    restacked: list[str] = []
-    real = after_merge.restack()
 
-    def restack(**kwargs) -> None:
-        restacked.append(kwargs["child"].id)
-        real(**kwargs)
+    after_merge.release()
 
-    after_merge.release(restack=restack)
-
-    assert restacked == ["feature/3"]
+    assert after_merge.store.get("feature/3").cause is Cause.BASE_CHANGED
+    assert after_merge.store.get("feature/9").cause is not Cause.BASE_CHANGED
     assert 9 not in [pr for pr, _ in after_merge.forge.retargeted()]
 
 
@@ -309,20 +290,17 @@ def test_releasing_twice_moves_nothing_the_second_time(after_merge: World) -> No
     assert after_merge.forge.retargeted() == retargets, "no pull request retargeted"
 
 
-def test_a_dependent_already_holding_its_new_base_is_still_retargeted(
+def test_a_dependent_already_holding_its_new_base_is_still_recorded_until_its_pr_moves(
     cut_from_open_predecessor: World,
 ) -> None:
     """The normal case: nothing to rebase, but the pull request is still on the
-    branch that is about to close."""
+    branch that is about to close, so the move (and the retarget) is owed."""
     world = cut_from_open_predecessor
 
     world.release()
 
-    assert world.forge.retargeted() == [(3, "spec/feature/1")]
-
-    world.release()
-
-    assert world.forge.retargeted() == [(3, "spec/feature/1")], "not again"
+    assert world.store.get("feature/3").cause is Cause.BASE_CHANGED
+    assert world.forge.retargeted() == [], "the worker's move retargets it"
 
 
 def test_releasing_twice_tells_a_dependents_thread_once(
@@ -345,14 +323,20 @@ def test_releasing_twice_tells_a_dependents_thread_once(
 # --- 1.2 the order, the branch a dependent builds on, a failed retarget ---------
 
 
-def test_the_dependents_move_then_the_pull_request_closes_then_the_branch_goes(
+def test_the_branch_goes_on_the_pass_after_the_dependents_have_moved_and_the_pull_request_closed(
     after_merge: World,
 ) -> None:
     after_merge.release()
+    after_merge.remove()
+    assert after_merge.order == [], "kept while feature/3 is owed its move"
+
+    # The resolve worker's move: the branch rebased, the pull request retargeted.
+    after_merge.store.set_state("feature/3", IN_REVIEW, cause=Cause.RESTACK_HANDED_BACK)
+    after_merge.forge.bases[3] = ("spec/feature/3", "main")
     after_merge.order.append("close")
     after_merge.remove()
 
-    assert after_merge.order == ["retarget #3", "close", "worktree", "branch"]
+    assert after_merge.order == ["close", "worktree", "branch"]
 
 
 def test_a_branch_a_dependent_still_builds_on_is_kept(after_merge: World) -> None:
@@ -371,13 +355,13 @@ def test_a_retarget_that_fails_leaves_the_unit_satisfied_and_moves_the_others(
     after_merge.add("feature/4", IN_REVIEW, "feature/2", pr=4)
     after_merge.forge.refuses = 3
 
-    lines = after_merge.release()
+    # Threads that take the event retarget at once; the others are recorded for a worker.
+    lines = after_merge.release(resume=lambda *args, **kwargs: True)
     after_merge.remove()
 
     assert after_merge.store.get("feature/2").state == SATISFIED
     assert after_merge.forge.retargeted() == [(4, "main")]
     assert len(after_merge.unmoved) == 1
     assert "feature/3" in after_merge.unmoved[0] and "host refused" in after_merge.unmoved[0]
-    assert after_merge.own_commits("spec/feature/4", "origin/main") == ["add four.txt"]
     assert any("feature/3" in line and "host refused" in line for line in lines)
     assert "branch" not in after_merge.order, "feature/3 is still on it"

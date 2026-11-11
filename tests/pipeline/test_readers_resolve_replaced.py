@@ -114,7 +114,13 @@ def test_a_merge_of_the_successor_moves_the_unit_that_stored_the_replaced_depend
         retarget=lambda child, base: None,
     )
 
-    assert restacked == ["d/1"]
+    assert restacked == [], "nothing is moved in the release"
+    ((recorded, state), options) = (
+        store.set_state.call_args.args,
+        store.set_state.call_args.kwargs,
+    )
+    assert (recorded, state) == ("d/1", IN_REVIEW)
+    assert options["cause"] is Cause.BASE_CHANGED
 
 
 def test_a_satisfied_successors_branch_is_kept_for_a_dependent_held_on_it(tmp_path: Path) -> None:

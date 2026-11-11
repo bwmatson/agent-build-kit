@@ -17,7 +17,7 @@ import pytest
 from agent_build_kit.cli import pipeline as cli
 from agent_build_kit.pipeline.pause import PAUSE_MARKER, pause_until
 from agent_build_kit.pipeline.unit_store import Cause
-from agent_build_kit.pipeline.units import IN_REVIEW, PLANNED
+from agent_build_kit.pipeline.units import IN_REVIEW
 from tests.factories import git, stored_unit
 from tests.restack_lane_fakes import (
     asked_of_the_guard,
@@ -54,10 +54,10 @@ def admitted(host: Host) -> list[str]:
     return json.loads(host.cache.read_text()).get("estimate_units", [])
 
 
-def test_a_merge_seen_by_the_handler_hands_the_conflicting_child_to_a_gated_lane(
+def test_a_merge_seen_by_the_handler_records_the_conflicting_child_and_asks_no_agent(
     rig: Rig, host: Host, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """No pause marker stands: the guard's own refusal is what holds the resolver back."""
+    """The poll makes no move and calls no agent: the resolve worker asks the guard later."""
     monkeypatch.setattr(cli, "build_retarget", lambda: lambda unit, base: None)
     rig.store.upsert([stored_unit("c/2", change="c", depends_on=("c/1",), title=rig.child.title)])
     rig.store.set_state("c/1", IN_REVIEW, pr=1, branch=OLD_BASE)
@@ -66,14 +66,12 @@ def test_a_merge_seen_by_the_handler_hands_the_conflicting_child_to_a_gated_lane
     host.keep_reading(MINUTE // 2, payload(session=99.0, weekly=5.0))
     decisions = asked_of_the_guard(monkeypatch)
 
-    with cli.build_restack_lane(rig.installation, rig.store) as lane:
-        merged = cli.dispatch_for(rig.installation, rig.store, lane=lane)("merged", 1, repo="app")
-        lane.drain()
+    merged = cli.dispatch_for(rig.installation, rig.store)("merged", 1, repo="app")
 
     assert merged
-    assert [decision.may_start for decision in decisions] == [False]
-    assert rig.requests == [], "the agent was called without the guard's say"
+    assert decisions == [], "the poll does not ask the guard: it starts no run"
+    assert rig.requests == [], "the agent was called in the poll"
     assert git(rig.repo, "rev-parse", BRANCH) == head
     assert not rebase_in_progress(rig.repo)
     stored = rig.store.get("c/2")
-    assert (stored.state, stored.cause) == (PLANNED, Cause.RESTACK_DEFERRED)
+    assert (stored.state, stored.cause) == (IN_REVIEW, Cause.BASE_CHANGED)

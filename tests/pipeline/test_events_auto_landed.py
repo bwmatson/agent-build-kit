@@ -57,9 +57,9 @@ def test_children_and_cleanup_are_as_a_person_s_merge_leaves_them(tmp_path: Path
     by_pipeline = land(deep_store(tmp_path, "pipeline.json"), 1, Cause.AUTO_LANDED)
 
     assert by_pipeline == by_person
-    assert by_pipeline["restacked"] == [("spec/c/2", "spec/c/1", "main")]
+    assert by_pipeline["restacked"] == []
     assert by_pipeline["retargeted"] == [("c/4", "spec/c/3")]
-    assert by_pipeline["removed"] == ["spec/c/1"]
+    assert by_pipeline["removed"] == [], "c/2 is owed its move off the branch"
     assert by_pipeline["deleted"] == [], "c/4, held for depth, still builds on its branch"
 
 
@@ -90,6 +90,7 @@ def test_a_child_held_for_depth_is_released_when_a_landing_brings_it_within_the_
     released = land(by_pipeline, 2, Cause.AUTO_LANDED)
 
     assert by_pipeline.get("c/4").state == IN_REVIEW
+    assert by_pipeline.get("c/4").cause == Cause.BASE_CHANGED, "owed a move onto spec/c/3"
     assert by_pipeline.get("c/2").cause == Cause.AUTO_LANDED
-    assert ("spec/c/4", "spec/c/1", "spec/c/3") in released["restacked"]
+    assert released["restacked"] == [], "nothing is moved in the poll"
     assert released == released_by_person

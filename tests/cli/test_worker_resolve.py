@@ -28,7 +28,9 @@ from agent_build_kit.pipeline.file_lock import LockTimeout, file_lock
 from agent_build_kit.pipeline.lease import Leases
 from agent_build_kit.pipeline.resolution_lane import (
     clear_worker_record,
+    deferred_until,
     lane_held_by_record,
+    record_deferral,
     write_worker_record,
 )
 from agent_build_kit.pipeline.snapshots import WAKE
@@ -138,6 +140,19 @@ def test_a_resolve_worker_runs_a_run_as_a_moved_base_run_from_the_snapshot(
     assert resolve(inst, project) == 0
     assert given["moved_base_run"] is True
     assert given["from_snapshot"] is True
+
+
+def test_a_resolve_worker_taking_up_a_run_clears_the_deferral_recorded_for_it(
+    tmp_path: Path, builder: Builder
+) -> None:
+    inst = workspace(tmp_path)
+    project = owe_comment_reworks(builder.store, "c1/1")
+    record_deferral(inst.state_dir, "c1/1", datetime(2020, 1, 1, tzinfo=UTC))
+    assert deferred_until(inst.state_dir, "c1/1") is not None
+
+    assert resolve(inst, project) == 0
+
+    assert deferred_until(inst.state_dir, "c1/1") is None
 
 
 def test_a_resolve_worker_does_not_hold_the_repo_turn_through_a_whole_run(

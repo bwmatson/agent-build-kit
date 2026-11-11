@@ -62,6 +62,13 @@
   full suite once only when that selection is green, as a fix round's check does, instead of
   running the whole suite at once.
 
+- The poll no longer starts a resolution run. A conflict, a comment or a change request on a
+  pull request in review, and the merge of a unit with others stacked on it, are only recorded;
+  the dispatch then starts a resolve worker for the run that is owed, so a tick that ends
+  after the poll leaves the run for the next tick instead of losing it. A merged unit's
+  branch is kept until the units stacked on it have moved, and removed on the first pass
+  after, and a run that a usage pause or login refused waits for the time the worker recorded.
+
 - The architecture, unit-graph and worker design documents and the `abk-pipeline` skill now
   describe a tick as a dispatcher that starts worker processes, and say how to read the
   worker list in `abk status`, which is read from the branch locks. The worker design is now a description of what exists, with

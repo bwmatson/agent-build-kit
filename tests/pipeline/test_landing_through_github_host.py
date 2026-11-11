@@ -172,7 +172,7 @@ def test_the_poller_s_later_merged_event_changes_nothing(
     assert len(pipeline.host.calls("PUT", merge_path(1))) == 1
 
 
-def test_a_stacked_child_of_the_landed_unit_is_restacked_onto_the_new_base(
+def test_a_stacked_child_of_the_landed_unit_is_recorded_as_owed_its_move_to_the_new_base(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     pipeline = Pipeline(tmp_path, monkeypatch, checks=GREEN)
@@ -180,7 +180,8 @@ def test_a_stacked_child_of_the_landed_unit_is_restacked_onto_the_new_base(
 
     pipeline.land()
 
-    assert ("spec/c/2", "spec/c/1", "main") in pipeline.restacked, "\n".join(pipeline.logged)
+    assert pipeline.unit("c/2").cause == "base_changed", "\n".join(pipeline.logged)
+    assert pipeline.restacked == [], "nothing is moved in the pass"
 
 
 def test_verify_and_archive_treat_the_change_as_merged_once_its_units_landed(
