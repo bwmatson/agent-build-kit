@@ -259,7 +259,53 @@ _MARKER_LINE = re.compile(r"@pytest\.mark\.(?P<name>\w+)")
 _NO_TESTS_SELECTED = 5
 
 # The pytest options that take their value as the next word.
-_OPTIONS_WITH_VALUE = frozenset(["-n", "-m", "-k", "-p", "-c", "--maxprocesses"])
+_OPTIONS_WITH_VALUE = frozenset(["-n", "-m", "-k", "-p", "-c", "--maxprocesses", "--markexpr"])
+
+# The spellings of pytest's marker option besides `-m <expr>`.
+_MARKEXPR = "--markexpr"
+_SERIAL_HALVES = (" and not serial", " and serial")
+
+
+def by_id_selection(project: Path | None) -> str:
+    """The `-m` expression for a run of named tests: the repository's own default (the `-m` of
+    its pytest addopts) with the integration kind let through, so an integration test a unit adds
+    or changes runs where CI would run it, while every other kind the repository deselects
+    (e2e, a slow or credentialed kind) stays out. Empty when there is no default to lift."""
+    existing = _addopts_marker(project) if project is not None else ""
+    return f"integration or ({existing})" if existing else ""
+
+
+def _lifted_marker(expression: str) -> str:
+    """`expression` with the integration kind let through when it is unit-test's serial split
+    over the repository's default (`(<default>) and not serial`); any other `-m` the command
+    carries is its own and stays."""
+    for half in _SERIAL_HALVES:
+        if expression.endswith(half) and _is_serial_split(expression):
+            return f"(integration or {expression.removesuffix(half)}){half}"
+    return expression
+
+
+def _by_id_options(options: list[str], project: Path | None) -> list[str]:
+    """`options` of a pytest run with the integration kind let through its default deselection:
+    the serial split in its `-m` (in whichever spelling) is lifted, and a run with no `-m` of its
+    own gets the by-id selection."""
+    lifted: list[str] = []
+    found = False
+    words = iter(options)
+    for word in words:
+        if word in ("-m", _MARKEXPR):
+            found = True
+            lifted += [word, _lifted_marker(next(words, ""))]
+        elif word.startswith(f"{_MARKEXPR}="):
+            found = True
+            lifted.append(f"{_MARKEXPR}={_lifted_marker(word.partition('=')[2])}")
+        elif word.startswith("-m") and not word.startswith("--"):
+            found = True
+            lifted.append(f"-m{_lifted_marker(word[2:])}")
+        else:
+            lifted.append(word)
+    selection = by_id_selection(project)
+    return lifted if found or not selection else [*lifted, "-m", selection]
 
 
 def _pytest_program(command: list[str]) -> int | None:
@@ -545,7 +591,9 @@ class PythonUvProfile:
             return "uv run pre-commit run --all-files"
         return "SKIP=pyrefly-check uv run pre-commit run --all-files"
 
-    def red_command(self, files: list[str], ids: list[str] | None = None) -> str:
+    def red_command(
+        self, files: list[str], ids: list[str] | None = None, *, project: Path | None = None
+    ) -> str:
         # The report is printed after the console so it outlives the worktree
         # the command runs in; the exit status is pytest's own. It goes to a
         # fresh temp file, so a file already in the tree is never read as it.
@@ -553,7 +601,9 @@ class PythonUvProfile:
         # pytest does not collect (a class it skips, a fixture) is a usage error that runs
         # nothing, so that run is followed by the files whole, whose report and status stand.
         options = "-p no:cacheprovider --tb=line -q"
-        pytest = f"uv run pytest {shlex.join(ids or files)} {options}"
+        selection = by_id_selection(project) if ids else ""
+        by_id = f" -m {shlex.quote(selection)}" if selection else ""
+        pytest = f"uv run pytest {shlex.join(ids or files)} {options}{by_id}"
         whole = f"uv run pytest {' '.join(files)} {options}" if ids else None
         return wrap_report_command(
             pytest, "--junitxml", retry=whole, retry_on=self.usage_error_exit
@@ -888,7 +938,9 @@ class PythonUvProfile:
                 missing.append(name)
         return missing
 
-    def repeat_command(self, command: list[str], tests: list[str]) -> list[str] | None:
+    def repeat_command(
+        self, command: list[str], tests: list[str], *, project: Path | None = None
+    ) -> list[str] | None:
         """`command`, a test run, as one of exactly those node ids of `tests` that fall under
         the paths it was given to run (all of them when it was given none): its options
         (workers, markers) stay, the paths are replaced by the ids. None when none is in
@@ -917,7 +969,9 @@ class PythonUvProfile:
             if not paths
             or any(test.split("::", 1)[0] == p or test.startswith(f"{p}/") for p in paths)
         ]
-        return [*command[: program + 1], *options, *ids] if ids else None
+        if not ids:
+            return None
+        return [*command[: program + 1], *_by_id_options(options, project), *ids]
 
     def affected_test_commands(
         self,

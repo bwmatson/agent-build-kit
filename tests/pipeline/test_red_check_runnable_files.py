@@ -34,9 +34,11 @@ class Recording:
     def toolchain(self) -> ToolchainProfile:
         return cast(ToolchainProfile, self)
 
-    def red_command(self, files: list[str], ids: list[str] | None = None) -> str:
+    def red_command(
+        self, files: list[str], ids: list[str] | None = None, *, project: Path | None = None
+    ) -> str:
         self.files.append(files)
-        self.commands.append(self.real.red_command(files, ids))
+        self.commands.append(self.real.red_command(files, ids, project=project))
         return "exit 1"
 
     def clean_command(self, *, types: bool = False) -> str:

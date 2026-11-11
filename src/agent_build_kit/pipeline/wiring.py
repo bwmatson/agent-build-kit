@@ -2030,7 +2030,7 @@ def build_unit_test(
                 for command in toolchain.test_commands(
                     where, files, root_extras=root_extras or [], **worker_settings
                 ):
-                    again = toolchain.repeat_command(command, ids)
+                    again = toolchain.repeat_command(command, ids, project=where)
                     if again is not None:
                         own.append(again)
             owned.append((position, len(own)))
@@ -2282,7 +2282,7 @@ def build_unit_test(
             # Only test files: a `test_*` method in a source file is not collected.
             ids = ids_for(touched, cwd, where, toolchain)
             for command in commands if ids else []:
-                again = toolchain.repeat_command(command, ids)
+                again = toolchain.repeat_command(command, ids, project=where)
                 if again is None:
                     continue
                 for _ in range(runs):

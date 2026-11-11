@@ -1,0 +1,7 @@
+[tool.pytest.ini_options]
+markers = [
+    "integration: runs in CI",
+    "e2e: starts the real stack",
+    "serial: runs alone",
+]
+addopts = "-m 'not integration and not e2e'"
