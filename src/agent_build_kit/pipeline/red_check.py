@@ -117,7 +117,9 @@ def collection_errors(output: str, *, lines: int = 6) -> list[str]:
         if header:
             found.append(f"could not collect {header.group(1)}:")
             current = []
-        elif re.match(r"^(_{5,}|={5,}) ", line):
+        elif re.match(r"^(_{5,}|={5,}) ", line) or line.startswith(("!!!", REPORT_MARK)):
+            # The next section, or the end of the console: with the short summary hidden no
+            # closing header follows the last error.
             current = None
         elif current is not None and line.strip():
             marked = line.startswith("E ")

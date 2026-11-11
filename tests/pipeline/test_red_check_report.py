@@ -13,6 +13,7 @@ import pytest
 
 from agent_build_kit.pipeline.red_check import (
     REPORT_MARK,
+    collection_errors,
     exception_type,
     judge_red,
     red_check,
@@ -169,3 +170,25 @@ def test_a_fixture_that_raises_not_implemented_at_setup_is_red() -> None:
 
     assert result.verdict == "accepted"
     assert any("test_new" in named for named in result.tests)
+
+
+def test_a_collection_error_with_no_summary_header_after_it_stops_at_the_end_of_the_console() -> (
+    None
+):
+    console = "\n".join(
+        [
+            "_" * 10 + " ERROR collecting tests/test_a.py " + "_" * 10,
+            "E   ModuleNotFoundError: No module named missing_one",
+            "!!! Interrupted: 1 error during collection !!!",
+            "1 error in 0.10s",
+            REPORT_MARK,
+            "<testsuites>junit text</testsuites>",
+        ]
+    )
+
+    found = collection_errors(console)
+
+    assert found == [
+        "could not collect tests/test_a.py:",
+        "  E   ModuleNotFoundError: No module named missing_one",
+    ]

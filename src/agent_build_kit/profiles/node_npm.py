@@ -215,6 +215,12 @@ def _failure(case: ElementTree.Element) -> tuple[str, ElementTree.Element | None
     return name, bad if bad is not None else case.find("error")
 
 
+def _did_not_load(case: ElementTree.Element) -> bool:
+    """Whether `case` stands for a test file that failed to load: vitest reports such a file
+    as one failing case named after the file (its name is its class name)."""
+    return case.get("name") == case.get("classname")
+
+
 def _defines(folder: Path, script: str) -> bool:
     """Whether the `package.json` in `folder` defines `script` (the Python twin of the probe
     `_script_or` runs in the shell)."""
@@ -469,7 +475,7 @@ class NodeNpmProfile:
                     continue
                 failed_in.add(suite.get("name") or "")
                 message = (bad.get("message") or "").strip()
-                if case.get("name") == case.get("classname"):
+                if _did_not_load(case):
                     first = message.split("\n", 1)[0]
                     problems.append(
                         f"{name}: the test file could not be loaded, so no test failed for "
@@ -492,10 +498,10 @@ class NodeNpmProfile:
             return []
         found: list[str] = []
         for case in root.iter("testcase"):
-            name, bad = _failure(case)
-            if bad is None or case.get("name") != case.get("classname"):
+            _, bad = _failure(case)
+            if bad is None or not _did_not_load(case):
                 continue
-            found.append(f"could not load {name}:")
+            found.append(f"could not load {case.get('classname')}:")
             lines = [line for line in (bad.get("message") or "").splitlines() if line.strip()]
             found.extend(f"  {line.rstrip()}" for line in lines[:6])
         return found

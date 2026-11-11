@@ -82,8 +82,7 @@ def test_a_test_file_that_did_not_load_is_named_with_the_start_of_its_error(
 
     found = profile.collection_errors(done.stdout + done.stderr)
 
-    assert found[0].startswith("could not load")
-    assert file in found[0]
+    assert found[0] == f"could not load {file}:"
     assert len(found) > 1
 
 

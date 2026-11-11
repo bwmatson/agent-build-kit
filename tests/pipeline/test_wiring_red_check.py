@@ -17,7 +17,7 @@ from agent_build_kit.pipeline.check_runner import CheckCache
 from agent_build_kit.pipeline.wiring import build_red_check
 from agent_build_kit.profiles.base import ToolchainProfile
 from tests.factories import commit_files
-from tests.pipeline.test_red_check_by_id import SUBJECT, IdProfile, branch_with, source
+from tests.pipeline.test_red_check_by_id import NEW, SUBJECT, IdProfile, branch_with, source
 from tests.redaction_fakes import SECRET, known
 
 COLLECTION_ERROR = (
@@ -49,6 +49,19 @@ def test_a_new_test_that_passes_is_rejected_with_the_reason(repo: Path) -> None:
 
     assert not ok
     assert "passed" in reason
+
+
+def test_the_red_check_writes_its_run_to_the_log_it_is_given(repo: Path) -> None:
+    commit_files(repo, "test: the cases", {SUBJECT: source("new_failing_case")})
+    lines: list[str] = []
+    check = build_red_check(profile=cast(ToolchainProfile, IdProfile()), log=lines.append)
+
+    check(cwd=repo)
+
+    logged = "\n".join(lines)
+    assert "-m pytest" in logged
+    assert NEW in logged
+    assert "exit code 1" in logged
 
 
 def test_a_test_that_cannot_be_collected_is_rejected(repo: Path) -> None:
