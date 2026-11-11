@@ -7,6 +7,7 @@
   marker deselection for them, so an integration test is judged red at the tests commit and
   repeated like any other test, including under the parallel and serial split. Every other kind
   the repository deselects (end-to-end, slow, credentialed) stays out.
+
 - A rejected red check now keeps the reasons it was rejected for, and a commit with the same
   content is answered with them and a note that the check was not run again, instead of only
   "previously failed". Each red run is also logged with its command, its selection of tests,
