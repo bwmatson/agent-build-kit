@@ -149,3 +149,63 @@ def test_a_node_tests_commit_gives_the_runner_its_test_file_and_not_the_data_fil
     red_problems(repo, git(repo, "rev-parse", "HEAD"), profile=profile.toolchain)
 
     assert profile.files == [["src/a.test.ts"]]
+
+
+class Preparing(Recording):
+    """A recording profile that is asked to prepare the worktree the red command runs in.
+
+    Preparing leaves a marker file the red command reads, so the command's output shows
+    whether the worktree was prepared before it ran."""
+
+    def __init__(self, real: ToolchainProfile) -> None:
+        super().__init__(real)
+        self.prepared: list[tuple[Path, Path, str, bool]] = []
+        self.outputs: list[str] = []
+
+    def prepare_worktree(self, checkout: Path, worktree: Path, *, project: str = ".") -> None:
+        has_tests = (worktree / "tests" / "test_new.py").is_file()
+        self.prepared.append((checkout, worktree, project, has_tests))
+        (worktree / "prepared.marker").write_text("yes\n")
+
+    def red_command(
+        self, files: list[str], ids: list[str] | None = None, *, project: Path | None = None
+    ) -> str:
+        super().red_command(files, ids, project=project)
+        return "cat prepared.marker; exit 1"
+
+    def interpret_red(
+        self, output: str, exit_code: int, *, stubbed: bool = False
+    ) -> tuple[bool, list[str]]:
+        self.outputs.append(output)
+        return True, []
+
+
+def test_the_red_check_prepares_the_worktree_it_runs_in_once_before_the_test_command(
+    repo: Path,
+) -> None:
+    commit(repo, "test: adds one", {"tests/test_new.py": FAILING})
+    profile = Preparing(PYTHON)
+
+    red_problems(repo, git(repo, "rev-parse", "HEAD"), profile=profile.toolchain)
+
+    assert len(profile.prepared) == 1, "prepared exactly once"
+    checkout, worktree, project, has_tests = profile.prepared[0]
+    assert checkout == repo
+    assert worktree != repo
+    assert project == "."
+    assert has_tests, "prepared after the tests commit was checked out"
+    assert profile.outputs == ["yes\n"], "the marker existed when the command ran"
+
+
+def test_a_profile_that_prepares_nothing_leaves_the_red_result_unchanged(repo: Path) -> None:
+    commit(repo, "test: adds one", {"tests/test_new.py": FAILING})
+    sha = git(repo, "rev-parse", "HEAD")
+    plain = Recording(PYTHON)
+    preparing = Preparing(PYTHON)
+
+    without = red_problems(repo, sha, profile=plain.toolchain)
+    with_it = red_problems(repo, sha, profile=preparing.toolchain)
+
+    assert len(preparing.prepared) == 1, "the profile was asked to prepare"
+    assert without == with_it == []
+    assert plain.files == preparing.files
