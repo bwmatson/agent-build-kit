@@ -31,6 +31,7 @@ acp = [
 ]
 azure = [
     "azure-identity>=1.19",
+    "azure-storage-blob>=12.24",
 ]
 modal = [
     "agent-build-kit[acp]",
@@ -49,7 +50,7 @@ dev = [
     "pytest>=8.0.0",
     "pytest-xdist>=3.6.0",
     "ruff>=0.16",
-    "agent-build-kit[modal,telemetry]",
+    "agent-build-kit[azure,modal,telemetry]",
     "ag-ui-protocol>=1.0.0",
 ]
 
@@ -103,9 +104,10 @@ markers = [
     "time_limit(seconds): hold this test to its own time limit in place of --test-time-limit; for a test whose time is outside its control, such as a download",
     "dev_stack: needs the repo's dev stack up; left out of acceptance runs",
     "real_node_tool: the test means to run a real node, npm or npx; every other unit test gets stand-ins, because a real one may be a toolchain manager's shim that goes to the network",
+    "azurite: runs the Artifacts conformance suite against an Azurite blob service (CI job); excluded by default, skips with a reason when `ABK_TEST_AZURITE_CONNECTION_STRING` is absent, run with `pytest -m azurite`",
     "sandbox_probe: a test of doctor's `sandbox` check: doctor runs the real probes instead of the suite's stand-in",
 ]
-addopts = "--strict-markers -m 'not integration and not e2e'"
+addopts = "--strict-markers -m 'not integration and not e2e and not azurite'"
 # A passing test's temp folder is deleted and a failing run keeps its folders, up to the count.
 tmp_path_retention_policy = "failed"
 tmp_path_retention_count = 2

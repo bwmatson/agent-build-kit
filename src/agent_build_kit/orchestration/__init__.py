@@ -17,7 +17,10 @@ from typing import Any
 from agent_build_kit.installation import Installation
 
 # Modules that register the built-in implementations, imported on the first lookup.
-BUILTIN_MODULES: tuple[str, ...] = ("agent_build_kit.orchestration.local",)
+BUILTIN_MODULES: tuple[str, ...] = (
+    "agent_build_kit.orchestration.local",
+    "agent_build_kit.orchestration.azure",
+)
 
 _REGISTRY: dict[str, dict[str, Callable[[Installation], Any]]] = {}
 _LOADED = False

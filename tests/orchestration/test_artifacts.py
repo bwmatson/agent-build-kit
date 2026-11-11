@@ -92,6 +92,14 @@ def test_a_writer_appends_to_what_an_earlier_writer_left(artifacts: Artifacts) -
     assert artifacts.get("unit-logs/a.log") == b"one\ntwo\n"
 
 
+def test_a_key_reads_as_empty_once_a_writer_has_opened_it(artifacts: Artifacts) -> None:
+    writer = artifacts.writer("transcripts/live.jsonl")
+    try:
+        assert artifacts.get("transcripts/live.jsonl") == b""
+    finally:
+        writer.close()
+
+
 def test_a_text_value_holding_a_registered_secret_is_stored_redacted(artifacts: Artifacts) -> None:
     artifacts.put("unit-logs/a.log", f"token {SECRET} used")
 

@@ -22,7 +22,9 @@
 - Unit logs, failure bundles, transcripts and spec snapshots now have an Artifacts interface
   with a local implementation that reads and writes the same files under the state directory
   as before, redacting text before it is stored. The deployment registry finds it for a
-  `local` deployment.
+  `local` deployment, and for an `azure` deployment it finds an implementation that stores
+  each key as a blob in the deployment's storage account through its managed identity, with
+  an append-blob writer and a short-lived read link (needs `agent-build-kit[azure]`).
 
 - The architecture, unit-graph and worker design documents and the `abk-pipeline` skill now
   describe a tick as a dispatcher that starts worker processes, and say how to read the
