@@ -22,7 +22,9 @@
 - Unit logs, failure bundles, transcripts and spec snapshots now have an Artifacts interface
   with a local implementation that reads and writes the same files under the state directory
   as before, redacting text before it is stored. The deployment registry finds it for a
-  `local` deployment.
+  `local` deployment, and for an `azure` deployment it finds an implementation that stores
+  each key as a blob in the deployment's storage account through its managed identity, with
+  an append-blob writer and a short-lived read link (needs `agent-build-kit[azure]`).
 
 - The check that follows a review's rework now selects the affected tests first and runs the
   full suite once only when that selection is green, as a fix round's check does, instead of

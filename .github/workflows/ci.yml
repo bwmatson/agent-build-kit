@@ -87,3 +87,31 @@ jobs:
           print(f"{PACKAGE}@{settings.openspec_version}")')"
       - name: Run integration tests
         run: uv run --group dev pytest -m integration
+
+  azurite:
+    needs: scope
+    if: needs.scope.outputs.code == 'true'
+    # The Artifacts conformance suite against the Azure implementation over an Azurite blob
+    # service (the cases marked `azurite`, which the ordinary run leaves out). The service is
+    # started with docker so it can take --skipApiVersionCheck, as the SDK is newer than Azurite.
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - uses: actions/setup-python@v7.0.0
+        with:
+          python-version: "3.12"
+      - uses: astral-sh/setup-uv@v10.3.0
+        with:
+          enable-cache: true
+      - name: Start Azurite
+        run: >-
+          docker run -d --name azurite -p 10000:10000
+          mcr.microsoft.com/azure-storage/azurite:3.35.0
+          azurite-blob --blobHost 0.0.0.0 --skipApiVersionCheck
+      - name: Wait for the blob port
+        run: timeout 60 bash -c 'until (echo > /dev/tcp/127.0.0.1/10000) 2>/dev/null; do sleep 1; done'
+      - name: Run the azurite cases
+        env:
+          ABK_TEST_AZURITE_CONNECTION_STRING: >-
+            DefaultEndpointsProtocol=http;AccountName=devstoreaccount1;AccountKey=Eby8vdM02xNOcqFlqUwJPLlmEtlCDXJ1OUzFT50uSRZ6IFsuFq2UVErCz4I6tq/K1SZFPTOtr/KBHBeksoGMGw==;BlobEndpoint=http://127.0.0.1:10000/devstoreaccount1;
+        run: uv run --group dev pytest -m azurite tests/orchestration
