@@ -1418,6 +1418,20 @@ an Azure implementation imports its SDK through `orchestration.import_sdk`, only
 and a missing extra is refused naming the extra and that command. A local install imports no
 Azure module.
 
+Two interfaces are registered so far. **Artifacts** holds the unit logs, e2e output, failure
+bundles, transcripts and spec snapshots by key (`put`, `get`, `list`, `delete`, an appending
+`writer`): the `local` implementation maps a key to the same file under `state_dir` as before,
+and the `azure` one stores each key as a blob in `deployment.azure.storage_account` through the
+managed identity, with an append-blob writer and a short-lived read link. Text is redacted
+before every write. **Checkpoints** opens the unit graph's checkpoint saver, which deserialises
+only the types in `ALLOWED_MSGPACK_MODULES`: `local` is the SQLite saver over the unit graphs
+file, and `azure` is LangGraph's PostgreSQL saver on `deployment.azure.database_host`, its
+connection pool taking a freshly obtained Entra token as the password of each new connection
+(a token lasts about an hour). Each interface has one conformance suite in `tests/orchestration/`
+run against the local implementation and the Azure one; the cases that need Azurite or
+PostgreSQL carry the `azurite` marker, are left out of the ordinary run and skip with a reason
+when `ABK_TEST_AZURITE_CONNECTION_STRING` or `ABK_TEST_POSTGRES_CONNECTION_STRING` is absent.
+
 ## Work tracker
 
 A repo may name a work tracker in `abk.yaml` (`tracker:`), independent of its code host: the

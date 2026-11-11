@@ -32,6 +32,8 @@ acp = [
 azure = [
     "azure-identity>=1.19",
     "azure-storage-blob>=12.24",
+    "langgraph-checkpoint-postgres>=3,<4",
+    "psycopg[binary,pool]>=3.2",
 ]
 modal = [
     "agent-build-kit[acp]",
