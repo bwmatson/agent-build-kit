@@ -12,11 +12,12 @@ from __future__ import annotations
 import hashlib
 import re
 from datetime import UTC, datetime
-from pathlib import Path
 from typing import Literal, Protocol, runtime_checkable
 
+from agent_build_kit import orchestration
 from agent_build_kit.config import active, active_root
 from agent_build_kit.installation import Installation
+from agent_build_kit.orchestration.artifacts import INTERFACE as ARTIFACTS
 from agent_build_kit.pipeline.failure_record import (
     Evidenced,
     FailureRecord,
@@ -25,6 +26,7 @@ from agent_build_kit.pipeline.failure_record import (
     TestCount,
 )
 from agent_build_kit.pipeline.file_lock import change_lock
+from agent_build_kit.pipeline.run_log import bundle_exists, bundle_place
 from agent_build_kit.pipeline.unit_store import StoredUnit
 from agent_build_kit.pipeline.units import PRODUCT_DEFECT_PREFIX, Unit
 from agent_build_kit.pipeline.work_graph import FIX_PREFIX, GROUP_HEADING, group_needs
@@ -359,7 +361,8 @@ def reproduction_evidence(inst: Installation, test: str) -> str:
             lines.append(output[-EVIDENCE_CHARS:])
         if entry.conditions:
             lines.append(f"conditions: {entry.conditions}")
-        if entry.evidence and Path(entry.evidence).exists():
-            lines.append(f"bundle of the failing run: {entry.evidence}")
+        artifacts = orchestration.get(ARTIFACTS, inst)
+        if bundle_exists(artifacts, entry.evidence):
+            lines.append(f"bundle of the failing run: {bundle_place(artifacts, entry.evidence)}")
         return "\n".join(lines)
     return ""

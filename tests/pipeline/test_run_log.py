@@ -12,11 +12,14 @@ from agent_build_kit.pipeline.archive import archive_ready_changes
 from agent_build_kit.pipeline.run_log import (
     RUNS_KEPT,
     RunLog,
+    append_e2e_output,
     remove_change_logs,
     run_log_dir,
     run_log_name,
+    write_failure_bundle,
 )
 from agent_build_kit.pipeline.unit_store import UnitStore
+from tests.artifact_fakes import MemoryArtifacts, given_the_artifacts
 from tests.factories import stored_unit, unit
 from tests.pipeline.test_archive import FakeRunner
 
@@ -297,3 +300,107 @@ def test_a_directory_that_cannot_be_read_does_not_raise_whatever_the_error(
     directory = run_log_dir(tmp_path)
     (directory / "add-marker-01-20260923-224405-implement.log").mkdir(parents=True)
     remove_change_logs(directory, "add-marker")
+
+
+# --- over a stand-in Artifacts implementation: nothing is a file ---------------------------
+
+
+def start_artifact_run(
+    artifacts: MemoryArtifacts, uid: str = "add-marker/1", *, at: datetime = START
+) -> RunLog:
+    with given_the_artifacts():
+        return RunLog(
+            artifacts,  # pyrefly: ignore
+            unit(uid, change=uid.split("/")[0]),
+            step="implement",
+            model="model-x",
+            base="main",
+            started=at,
+        )
+
+
+def write_bundle(artifacts: MemoryArtifacts, at: datetime, *, pointed: tuple[str, ...] = ()) -> str:
+    with given_the_artifacts():
+        return write_failure_bundle(  # pyrefly: ignore
+            artifacts,  # pyrefly: ignore
+            "add-marker/1",
+            "add-marker",
+            at,
+            output="failed\n",
+            context={},
+            machine={},
+            worktree={},
+            pointed=pointed,  # pyrefly: ignore
+        )
+
+
+def test_a_run_log_is_written_under_its_key_in_the_artifacts(
+    memory_artifacts: MemoryArtifacts,
+) -> None:
+    log = start_artifact_run(memory_artifacts)
+    log.emit("step: write the tests")
+    log.close("open")
+
+    text = memory_artifacts.get(f"unit-logs/{log.name}").decode()
+
+    assert text.startswith("unit: add-marker/1\n")
+    assert "step: write the tests\n" in text
+    assert text.endswith("outcome: open\n")
+
+
+def test_the_runs_beyond_the_bound_are_removed_through_the_artifacts(
+    memory_artifacts: MemoryArtifacts,
+) -> None:
+    for hour in range(RUNS_KEPT + 2):
+        start_artifact_run(memory_artifacts, at=START + timedelta(hours=hour)).close("open")
+
+    assert len(memory_artifacts.list("unit-logs/add-marker-01-")) == RUNS_KEPT
+
+
+def test_removing_a_changes_logs_removes_its_keys_and_leaves_other_changes(
+    memory_artifacts: MemoryArtifacts,
+) -> None:
+    start_artifact_run(memory_artifacts, "other/1").close("open")
+    start_artifact_run(memory_artifacts, "add-marker/1").close("open")
+
+    with given_the_artifacts():
+        remove_change_logs(memory_artifacts, "add-marker")  # pyrefly: ignore
+
+    assert memory_artifacts.list("") == ["unit-logs/other-01-20260923-224405-implement.log"]
+
+
+def test_e2e_output_is_appended_under_the_unit_run_key(memory_artifacts: MemoryArtifacts) -> None:
+    owner = unit("add-marker/1", change="add-marker")
+    with given_the_artifacts():
+        key: str = append_e2e_output(memory_artifacts, owner, START, "one\n")  # pyrefly: ignore
+        append_e2e_output(memory_artifacts, owner, START, "two\n")  # pyrefly: ignore
+
+    assert key.startswith("e2e-output/add-marker-01-")
+    assert memory_artifacts.get(key) == b"one\ntwo\n"
+
+
+def test_a_failure_bundle_is_written_under_its_key(memory_artifacts: MemoryArtifacts) -> None:
+    key = write_bundle(memory_artifacts, START)
+
+    assert key == "test-failures/add-marker-01-20260923-224405"
+    assert memory_artifacts.get(f"{key}/output.txt") == b"failed\n"
+    assert memory_artifacts.list(f"{key}/") == [
+        f"{key}/context.json",
+        f"{key}/machine.json",
+        f"{key}/output.txt",
+        f"{key}/worktree.json",
+    ]
+
+
+def test_bundle_pruning_keeps_the_pointed_bundles_and_removes_the_oldest_others(
+    memory_artifacts: MemoryArtifacts,
+) -> None:
+    keys = [write_bundle(memory_artifacts, START + timedelta(hours=n)) for n in range(2)]
+    for n in range(2, 5):
+        write_bundle(memory_artifacts, START + timedelta(hours=n), pointed=(keys[0],))
+
+    kept = {key.rsplit("/", 1)[0] for key in memory_artifacts.list("test-failures/")}
+
+    assert keys[0] in kept, "a bundle a unit points at stays"
+    assert keys[1] not in kept, "the oldest unpointed bundle goes"
+    assert len(kept) == RUNS_KEPT + 1

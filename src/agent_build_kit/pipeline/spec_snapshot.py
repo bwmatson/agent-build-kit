@@ -10,17 +10,19 @@ from __future__ import annotations
 
 import difflib
 import hashlib
-import shutil
 from collections.abc import Sequence
 from pathlib import Path
 from typing import NamedTuple
 
 from agent_build_kit.budget import cut_head
+from agent_build_kit.orchestration.artifacts import Artifacts, MissingArtifact
+from agent_build_kit.orchestration.local.directories import SPEC_SNAPSHOTS as SNAPSHOTS
+from agent_build_kit.orchestration.local.directories import snapshot_dir as snapshot_dir
+from agent_build_kit.pipeline.artifact_scope import rooted
 from agent_build_kit.pipeline.task_progress import without_boxes
 from agent_build_kit.pipeline.units import Member
 from agent_build_kit.pipeline.work_graph import group_sections
 
-SNAPSHOTS = "spec-snapshots"
 DIFF_LIMIT = 6000
 SPEC_CHANGED = """\
 The change's spec was edited since your last turn. Changed: {names}.
@@ -72,37 +74,35 @@ def _digest(named: dict[str, _Spec]) -> str:
     return digest.hexdigest()
 
 
-def snapshot_dir(state_dir: Path, unit_id: str, role: str) -> Path:
-    return state_dir / SNAPSHOTS / unit_id / role
+def _role_prefix(unit_id: str, role: str) -> str:
+    return f"{SNAPSHOTS}/{unit_id}/{role}/"
 
 
-def forget(state_dir: Path, unit_id: str) -> None:
+def forget(target: Artifacts | Path, unit_id: str) -> None:
     """Remove every role's copies for a unit that is over."""
-    shutil.rmtree(state_dir / SNAPSHOTS / unit_id, ignore_errors=True)
+    rooted(target).delete(f"{SNAPSHOTS}/{unit_id}/")
 
 
 def save(
-    state_dir: Path,
+    target: Artifacts | Path,
     unit_id: str,
     role: str,
     members: Sequence[Member],
     change_dirs: Sequence[Path],
 ) -> str:
     """Copy the unit's spec files for `role`, replacing the last copies; return their hash."""
-    where = snapshot_dir(state_dir, unit_id, role)
-    shutil.rmtree(where, ignore_errors=True)
+    store = rooted(target)
+    where = _role_prefix(unit_id, role)
+    store.delete(where)
     named = _named(members, change_dirs)
     for key, spec in sorted(named.items()):
-        copy = where / key
-        copy.parent.mkdir(parents=True, exist_ok=True)
         # The whole file is kept; only the compared sections go into the hash and the diff.
-        copy.write_text(spec.path.read_text())
-    where.mkdir(parents=True, exist_ok=True)
+        store.put(where + key, spec.path.read_text())
     return _digest(named)
 
 
 def notice(
-    state_dir: Path,
+    target: Artifacts | Path,
     unit_id: str,
     role: str,
     recorded: str,
@@ -111,8 +111,9 @@ def notice(
 ) -> str:
     """What to say to a resumed session about the spec files that differ from its copies;
     empty when nothing differs, or when no copies were recorded for it or they are gone."""
-    where = snapshot_dir(state_dir, unit_id, role)
-    if not recorded or not where.is_dir():
+    store = rooted(target)
+    where = _role_prefix(unit_id, role)
+    if not recorded or not store.list(where):
         return ""
     named = _named(members, change_dirs)
     if _digest(named) == recorded:
@@ -121,8 +122,10 @@ def notice(
     places: list[Path] = []
     diffs: list[str] = []
     for key, spec in sorted(named.items()):
-        copy = where / key
-        before = _compared(key, copy.read_text(), spec.groups) if copy.is_file() else ""
+        try:
+            before = _compared(key, store.get(where + key).decode(), spec.groups)
+        except MissingArtifact:
+            before = ""
         if before == spec.text:
             continue
         changed.append(key)

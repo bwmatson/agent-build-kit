@@ -16,18 +16,19 @@ import threading
 import uuid
 from collections.abc import AsyncIterator, Callable, Iterator
 from datetime import UTC, datetime
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Any, cast
 
 from fastapi import FastAPI, HTTPException, Request, Response
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
-from agent_build_kit import runtimes
+from agent_build_kit import orchestration, runtimes
 from agent_build_kit.graph.checkpointer import carried_unit_graphs, open_unit_graphs
 from agent_build_kit.graph.state import AgentSession
 from agent_build_kit.graph.unit import clear_running_node
 from agent_build_kit.installation import Installation
+from agent_build_kit.orchestration.artifacts import INTERFACE as ARTIFACTS
 from agent_build_kit.pipeline import attach
 from agent_build_kit.pipeline.call_record import recorded
 from agent_build_kit.pipeline.environment import repo_artifacts
@@ -36,10 +37,9 @@ from agent_build_kit.pipeline.shell import git_out
 from agent_build_kit.pipeline.transcript import (
     Transcript,
     TranscriptEvent,
-    read_file_events,
+    read_key_events,
     read_transcripts,
-    transcript_dir,
-    unit_transcript_files,
+    unit_transcript_keys,
 )
 from agent_build_kit.pipeline.unit_store import Cause, StoredUnit
 from agent_build_kit.pipeline.units import RUNNING
@@ -166,7 +166,7 @@ class Chat:
         self._units = units
         self._recorded = recorded_session
         self.leases = Leases(lease_dir(installation.local_dir))
-        self.transcripts = transcript_dir(installation.state_dir)
+        self.transcripts = orchestration.get(ARTIFACTS, installation)
         self._lock = threading.Lock()
         self._busy: set[str] = set()  # sessions a turn of this server is running on
         self._turns: dict[str, int] = {}  # running turns, by the tab that started them
@@ -697,31 +697,31 @@ def register(
                 # removes the oldest files and the events of the rest must not shift.
                 read: dict[str, int] = {}
                 seen: list[TranscriptEvent] = []
-                for path in unit_transcript_files(chat.transcripts, unit.id):
-                    events, read[path.name] = read_file_events(path)
+                for key in unit_transcript_keys(chat.transcripts, unit.id):
+                    events, read[key] = read_key_events(chat.transcripts, key)
                     seen += events
                 yield _sse(messages_snapshot(seen))
                 runs: dict[str, AgUiEncoder] = {}
                 open_run: str | None = None
                 while not gone.is_set() and not chat.stopping:
                     await asyncio.sleep(POLL_SECONDS)
-                    for path in unit_transcript_files(chat.transcripts, unit.id):
-                        events, read[path.name] = read_file_events(path, read.get(path.name, 0))
+                    for key in unit_transcript_keys(chat.transcripts, unit.id):
+                        events, read[key] = read_key_events(chat.transcripts, key, read.get(key, 0))
                         live = [e for e in events if e.source == "build" or e.node == "commit"]
                         if not live:
                             continue
-                        if path.name not in runs:
+                        if key not in runs:
                             if open_run is not None:
                                 for made in runs[open_run].fail("the run ended without finishing"):
                                     yield _sse(made)
-                            runs[path.name] = AgUiEncoder(unit.id, path.stem)
-                            open_run = path.name
-                            for made in runs[path.name].start():
+                            runs[key] = AgUiEncoder(unit.id, PurePosixPath(key).stem)
+                            open_run = key
+                            for made in runs[key].start():
                                 yield _sse(made)
                         for event in live:
-                            for made in runs[path.name].encode(event):
+                            for made in runs[key].encode(event):
                                 yield _sse(made)
-                            if event.kind == "stop" and open_run == path.name:
+                            if event.kind == "stop" and open_run == key:
                                 open_run = None
             finally:
                 watcher.cancel()

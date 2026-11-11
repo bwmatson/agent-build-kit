@@ -13,6 +13,10 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal
 
 from agent_build_kit.model import Frozen
+from agent_build_kit.orchestration.artifacts import Artifacts, MissingArtifact
+from agent_build_kit.orchestration.local.directories import TRANSCRIPTS
+from agent_build_kit.orchestration.local.directories import transcript_dir as transcript_dir
+from agent_build_kit.pipeline.artifact_scope import append_redacted, scoped
 from agent_build_kit.redaction import redact_leaves
 
 if TYPE_CHECKING:
@@ -59,11 +63,6 @@ class Replay(Frozen):
     tool_calls_available: bool = True
 
 
-def transcript_dir(state_dir: Path) -> Path:
-    """The directory of its own, under the state directory."""
-    return state_dir / "transcripts"
-
-
 def _prefix(unit: Unit) -> str:
     return _id_prefix(unit.id)
 
@@ -74,12 +73,12 @@ def _id_prefix(unit_id: str) -> str:
     return unit_file_prefix(unit_id)
 
 
-def _unit_files(directory: Path, prefix: str) -> list[Path]:
-    """The files of the unit whose prefix this is: a stamp follows it directly,
+def _unit_keys(store: Artifacts, folder: str, prefix: str) -> list[str]:
+    """The keys of the unit whose prefix this is: a stamp follows it directly,
     so a unit whose number merely begins with another's is not matched."""
-    pattern = re.compile(re.escape(prefix) + r"\d{8}-\d{6}-")
+    pattern = re.compile(re.escape(folder + prefix) + r"\d{8}-\d{6}-")
     try:
-        return sorted(path for path in directory.iterdir() if pattern.match(path.name))
+        return sorted(key for key in store.list(folder + prefix) if pattern.match(key))
     except OSError:
         return []
 
@@ -93,7 +92,7 @@ class Transcript:
 
     def __init__(
         self,
-        directory: Path,
+        target: Artifacts | Path,
         unit: Unit,
         *,
         node: str,
@@ -111,21 +110,23 @@ class Transcript:
         self._limit = result_limit
         self._clock = clock
         name = f"{_prefix(unit)}{started:%Y%m%d-%H%M%S}-{node}-{round}.jsonl"
-        self._path = directory / name
+        self._store, folder = scoped(target, TRANSCRIPTS)
+        self._key = f"{folder}{name}"
+        self._path = target / name if isinstance(target, Path) else Path(self._key)
         try:
-            directory.mkdir(parents=True, exist_ok=True)
-            self._path.touch()
-            files = _unit_files(directory, _prefix(unit))
-            skip = len(_prefix(unit))
-            older = set(sorted({path.name[skip : skip + 15] for path in files})[:-runs_kept])
+            self._store.writer(self._key).close()  # the file exists from the call's start
+            files = _unit_keys(self._store, folder, _prefix(unit))
+            skip = len(folder) + len(_prefix(unit))
+            older = set(sorted({key[skip : skip + 15] for key in files})[:-runs_kept])
             for old in files:
-                if old.name[skip : skip + 15] in older:
-                    old.unlink(missing_ok=True)
+                if old[skip : skip + 15] in older:
+                    self._store.delete(old)
         except OSError:
             pass
 
     @property
     def path(self) -> Path:
+        """The file, or the key as a path when the transcript is not kept in a directory."""
         return self._path
 
     def record(self, event: TranscriptEvent) -> None:
@@ -148,15 +149,31 @@ class Transcript:
             fields["truncated"] = length
         line = event.model_copy(update=fields).model_dump_json()
         try:
-            with self._path.open("a") as file:
-                file.write(line + "\n")
+            append_redacted(self._store, self._key, line + "\n")  # its leaves are redacted
         except (OSError, ValueError):
             pass
 
 
+def unit_transcript_keys(target: Artifacts | Path, unit_id: str) -> list[str]:
+    """The keys of the unit's transcripts, oldest run first."""
+    store, folder = scoped(target, TRANSCRIPTS)
+    return _unit_keys(store, folder, _id_prefix(unit_id))
+
+
 def unit_transcript_files(directory: Path, unit_id: str) -> list[Path]:
-    """The unit's transcript files, oldest run first."""
-    return _unit_files(directory, _id_prefix(unit_id))
+    """The unit's transcript files in a directory, oldest run first."""
+    return [directory / key.rsplit("/", 1)[1] for key in unit_transcript_keys(directory, unit_id)]
+
+
+def read_key_events(
+    target: Artifacts, key: str, skip: int = 0
+) -> tuple[list[TranscriptEvent], int]:
+    """`read_file_events` for a transcript named by its key."""
+    try:
+        text = target.get(key).decode()
+    except (MissingArtifact, OSError):
+        return [], skip
+    return _events_after(text, skip)
 
 
 def read_file_events(path: Path, skip: int = 0) -> tuple[list[TranscriptEvent], int]:
@@ -167,6 +184,10 @@ def read_file_events(path: Path, skip: int = 0) -> tuple[list[TranscriptEvent], 
         text = path.read_text()
     except OSError:
         return [], skip
+    return _events_after(text, skip)
+
+
+def _events_after(text: str, skip: int) -> tuple[list[TranscriptEvent], int]:
     lines = text.split("\n")[:-1]
     events: list[TranscriptEvent] = []
     for line in lines[skip:]:
@@ -177,13 +198,14 @@ def read_file_events(path: Path, skip: int = 0) -> tuple[list[TranscriptEvent], 
     return events, max(skip, len(lines))
 
 
-def read_transcripts(directory: Path, unit_id: str) -> list[TranscriptEvent]:
+def read_transcripts(target: Artifacts | Path, unit_id: str) -> list[TranscriptEvent]:
     """Every recorded event of the unit, across runs and chat turns, in time order."""
+    store, _ = scoped(target, TRANSCRIPTS)
     events: list[TranscriptEvent] = []
-    for path in _unit_files(directory, _id_prefix(unit_id)):
+    for key in unit_transcript_keys(target, unit_id):
         try:
-            lines = path.read_text().splitlines()
-        except OSError:
+            lines = store.get(key).decode().splitlines()
+        except (MissingArtifact, OSError):
             continue
         for line in lines:
             try:
@@ -193,20 +215,21 @@ def read_transcripts(directory: Path, unit_id: str) -> list[TranscriptEvent]:
     return events
 
 
-def remove_change_transcripts(directory: Path, change: str) -> None:
-    """Drop every transcript of a change. A directory that cannot be read leaves
+def remove_change_transcripts(target: Artifacts | Path, change: str) -> None:
+    """Drop every transcript of a change. A store that cannot be read leaves
     the archive it follows standing."""
-    pattern = re.compile(re.escape(change) + r"-\d{2,}-\d{8}-\d{6}-")
+    store, folder = scoped(target, TRANSCRIPTS)
+    pattern = re.compile(re.escape(folder + change) + r"-\d{2,}-\d{8}-\d{6}-")
     try:
-        for path in directory.iterdir():
-            if pattern.match(path.name):
-                path.unlink(missing_ok=True)
+        for key in store.list(folder + change):
+            if pattern.match(key):
+                store.delete(key)
     except OSError:
         return
 
 
 def replay(
-    directory: Path,
+    directory: Artifacts | Path,
     unit_id: str,
     session: str,
     *,

@@ -13,7 +13,7 @@ from typing import Any, Literal
 from agent_build_kit import timers
 from agent_build_kit.installation import Installation
 from agent_build_kit.model import Frozen
-from agent_build_kit.pipeline.run_log import run_log_dir
+from agent_build_kit.orchestration.local.directories import RUN_LOGS
 
 Run = Callable[..., subprocess.CompletedProcess]
 
@@ -110,7 +110,9 @@ def spawn(
         ]
         (run or subprocess.run)(argv, check=True, capture_output=True, text=True)
         return Worker(id=name, how="systemd")
-    directory = run_log_dir(inst.state_dir)
+    # A process on this host writes its output to a file descriptor, so this log is a local file
+    # beside the unit logs whatever the deployment keeps them in.
+    directory = inst.state_dir / RUN_LOGS
     directory.mkdir(parents=True, exist_ok=True)
     with (directory / f"worker-{kind}-{safe}-{uuid.uuid4().hex[:6]}.log").open("ab") as log:
         process = (popen or subprocess.Popen)(

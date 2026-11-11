@@ -31,7 +31,7 @@ import httpx
 import pytest
 import yaml
 
-from agent_build_kit import claude_account, forges, sandboxes
+from agent_build_kit import claude_account, forges, orchestration, sandboxes
 from agent_build_kit import config as config_module
 from agent_build_kit import installation as installation_module
 from agent_build_kit.cli import doctor
@@ -42,9 +42,11 @@ from agent_build_kit.forges.azure_devops import AzureDevOpsForge
 from agent_build_kit.forges.github import GitHubForge
 from agent_build_kit.forges.transport import clear_credentials
 from agent_build_kit.installation import Installation, load_installation
+from agent_build_kit.orchestration.artifacts import INTERFACE as ARTIFACTS_INTERFACE
 from agent_build_kit.pipeline.unit_store import StoredUnit, UnitStore
 from agent_build_kit.runtimes import claude_code
 from tests import regression_agent_fakes
+from tests.artifact_fakes import MemoryArtifacts
 from tests.checkout_env import without_checkout_env
 from tests.forges.azure_rest_host import refusal
 from tests.forges.github_server import FakeGitHub
@@ -661,3 +663,15 @@ def pytest_collection_modifyitems(items: list[pytest.Item]) -> None:
         module = getattr(item, "module", None)
         if module is not None and any(v is d for v in vars(module).values() for d in drivers):
             item.add_marker(pytest.mark.time_limit(limit))
+
+
+@pytest.fixture
+def memory_artifacts() -> Iterator[MemoryArtifacts]:
+    """A stand-in Artifacts implementation registered for local deployments, so every module
+    that finds the installation's artifacts reads and writes it and no file."""
+    orchestration.reset()
+    orchestration.names(ARTIFACTS_INTERFACE)  # load the built-ins first, so ours replaces theirs
+    store = MemoryArtifacts()
+    orchestration.register(ARTIFACTS_INTERFACE, "local", lambda installation: store)
+    yield store
+    orchestration.reset()

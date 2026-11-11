@@ -30,6 +30,8 @@ from pathlib import Path
 
 from agent_build_kit import openspec
 from agent_build_kit.installation import changes_dir_under
+from agent_build_kit.orchestration.artifacts import Artifacts
+from agent_build_kit.orchestration.local.directories import E2E_OUTPUTS
 from agent_build_kit.pipeline.file_lock import change_lock
 from agent_build_kit.pipeline.run_log import remove_change_logs
 from agent_build_kit.pipeline.scratch import remove_leftovers
@@ -149,9 +151,9 @@ def archive_ready_changes(
     run: Runner | None = None,
     may_archive: Callable[[str], bool] = lambda change: True,
     specs_dir: str = "openspec",
-    run_logs: Path | None = None,
-    transcripts: Path | None = None,
-    e2e_outputs: Path | None = None,
+    run_logs: Artifacts | Path | None = None,
+    transcripts: Artifacts | Path | None = None,
+    e2e_outputs: Artifacts | Path | None = None,
     usage_ledger: Path | None = None,
     worktrees: Callable[[str], list[Path]] = lambda change: [],
     tracked: Tracked | None = None,
@@ -214,7 +216,7 @@ def archive_ready_changes(
         if run_logs is not None:
             remove_change_logs(run_logs, change)
         if e2e_outputs is not None:
-            remove_change_logs(e2e_outputs, change)
+            remove_change_logs(e2e_outputs, change, E2E_OUTPUTS)
         if transcripts is not None:
             remove_change_transcripts(transcripts, change)
         # What a killed run left in a unit's scratch folder.

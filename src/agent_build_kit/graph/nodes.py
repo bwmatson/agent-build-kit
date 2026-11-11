@@ -20,7 +20,7 @@ from langgraph.errors import GraphInterrupt
 from langgraph.graph import END
 from langgraph.types import interrupt
 
-from agent_build_kit import claude_account, forges, profiles, telemetry
+from agent_build_kit import claude_account, forges, orchestration, profiles, telemetry
 from agent_build_kit.budget import cut_head
 from agent_build_kit.config import (
     E2eBeforeMerge,
@@ -46,6 +46,8 @@ from agent_build_kit.graph.state import (
 )
 from agent_build_kit.installation import Installation, changes_dir_under
 from agent_build_kit.model import TestTier
+from agent_build_kit.orchestration.artifacts import INTERFACE as ARTIFACTS
+from agent_build_kit.orchestration.artifacts import Artifacts
 from agent_build_kit.pipeline import (
     audit_record,
     demotion_record,
@@ -961,14 +963,14 @@ class BuildPath:
         self._resuming_over_leftovers("resumed")
         return result
 
-    def _spec_places(self) -> tuple[Path, tuple[Member, ...], list[Path]] | None:
-        """The state directory, and the unit's members with their change directories; None
+    def _spec_places(self) -> tuple[Artifacts, tuple[Member, ...], list[Path]] | None:
+        """The artifacts, and the unit's members with their change directories; None
         when no workspace is loaded."""
         if (root := active_root()) is None:
             return None
         members = self.unit.members()
         dirs = [Path(self.runner.change_dir(m.change)) for m in members]
-        return Installation(active(), root).state_dir, members, dirs
+        return orchestration.get(ARTIFACTS, Installation(active(), root)), members, dirs
 
     def _save_spec(self) -> None:
         """Keep the spec files the agent call about to be prompted reads; its hash is recorded
@@ -976,10 +978,10 @@ class BuildPath:
         role = SESSION_ROLES.get(Node(self._node))
         if role is None or (places := self._spec_places()) is None:
             return
-        state_dir, members, dirs = places
+        artifacts, members, dirs = places
         try:
             self._spec_taken = spec_snapshot.save(
-                state_dir, self.unit.id, role.value, members, dirs
+                artifacts, self.unit.id, role.value, members, dirs
             )
         except (OSError, UnicodeDecodeError) as error:
             self.say(f"could not keep a copy of the spec — {error}")
@@ -993,10 +995,10 @@ class BuildPath:
         """What a resumed session is told about spec files edited since it last ran."""
         if (places := self._spec_places()) is None:
             return ""
-        state_dir, members, dirs = places
+        artifacts, members, dirs = places
         try:
             return spec_snapshot.notice(
-                state_dir, self.unit.id, role.value, session.spec, members, dirs
+                artifacts, self.unit.id, role.value, session.spec, members, dirs
             )
         except (OSError, UnicodeDecodeError) as error:
             self.say(f"could not compare the spec with its copy — {error}")

@@ -26,14 +26,18 @@ from langgraph.checkpoint.serde.jsonplus import JsonPlusSerializer
 from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
 from pydantic import Field, model_validator
 
+from agent_build_kit import orchestration
 from agent_build_kit.cli.pipeline import parked_units
 from agent_build_kit.graph.checkpointer import ALLOWED_MSGPACK_MODULES, carried_unit_graphs
 from agent_build_kit.graph.state import AgentSession, SessionRole, UnitRun
 from agent_build_kit.graph.unit import thread_position
 from agent_build_kit.installation import Installation
 from agent_build_kit.model import Frozen
+from agent_build_kit.orchestration.artifacts import INTERFACE as ARTIFACTS
+from agent_build_kit.orchestration.artifacts import Artifacts, MissingArtifact
+from agent_build_kit.orchestration.local.directories import RUN_LOGS
 from agent_build_kit.pipeline.environment import repo_artifacts
-from agent_build_kit.pipeline.run_log import CONTINUATION, run_log_dir
+from agent_build_kit.pipeline.run_log import CONTINUATION
 from agent_build_kit.pipeline.stack_runner import unit_follow_ups
 from agent_build_kit.pipeline.unit_store import StoredUnit
 from agent_build_kit.pipeline.units import base_of, shown_dependencies, unit_file_prefix
@@ -160,17 +164,18 @@ def _reviewer_findings(run: UnitRun | None) -> list[dict[str, Any]]:
     ]
 
 
-def _header(path: Path) -> tuple[dict[str, str], int]:
-    """A run file's header fields, and the offset its body starts at."""
+def _header(data: bytes) -> tuple[dict[str, str], int]:
+    """A run's header fields, and the offset its body starts at."""
     fields: dict[str, str] = {}
-    with path.open("rb") as file:
-        while True:
-            raw = file.readline()
-            line = raw.decode(errors="replace").strip()
-            if not raw or not line:
-                return fields, file.tell()
-            key, _, value = line.partition(": ")
-            fields[key] = value
+    offset = 0
+    for raw in data.splitlines(keepends=True):
+        offset += len(raw)
+        line = raw.decode(errors="replace").strip()
+        if not line:
+            break
+        key, _, value = line.partition(": ")
+        fields[key] = value
+    return fields, offset
 
 
 def _started(fields: dict[str, str]) -> datetime | None:
@@ -180,10 +185,10 @@ def _started(fields: dict[str, str]) -> datetime | None:
         return None
 
 
-def _outcome_of(path: Path) -> str | None:
+def _outcome_of(data: bytes) -> str | None:
     """The run's outcome, or None while it has no outcome line (it is live)."""
     found = [
-        line for line in path.read_text(errors="replace").splitlines() if line.startswith(_OUTCOME)
+        line for line in data.decode(errors="replace").splitlines() if line.startswith(_OUTCOME)
     ]
     return found[-1].removeprefix(_OUTCOME) if found else None
 
@@ -207,12 +212,14 @@ def _run_name(change: str, number: str) -> re.Pattern[str] | None:
     return re.compile(re.escape(prefix) + r"\d{8}-\d{6}-[\w.-]+\.log")
 
 
-def _run_files(installation: Installation, change: str, number: str) -> list[Path]:
-    directory = run_log_dir(installation.state_dir)
+def _run_keys(artifacts: Artifacts, change: str, number: str) -> list[str]:
     pattern = _run_name(change, number)
-    if not directory.is_dir() or pattern is None:
+    if pattern is None:
         return []
-    return sorted(p for p in directory.iterdir() if pattern.fullmatch(p.name))
+    folder = f"{RUN_LOGS}/"
+    return sorted(
+        key for key in artifacts.list(folder) if pattern.fullmatch(key.removeprefix(folder))
+    )
 
 
 def _recorded_session(installation: Installation, unit_id: str) -> AgentSession | None:
@@ -239,6 +246,10 @@ def create_app(
 ) -> FastAPI:
     app = FastAPI(title="abk serve", docs_url=None, redoc_url=None, openapi_url=None)
     units_path = installation.state_dir / "units.json"
+
+    def kept() -> Artifacts:
+        """The installation's artifacts, found when asked so a registration made later counts."""
+        return orchestration.get(ARTIFACTS, installation)
 
     def find(change: str, number: str) -> tuple[StoredUnit, list[StoredUnit]]:
         units = _read_units(units_path)
@@ -485,16 +496,18 @@ def create_app(
     def run_listing(change: str, number: str) -> dict[str, Any]:
         find(change, number)
         runs = []
-        for path in _run_files(installation, change, number):
+        artifacts = kept()
+        for key in _run_keys(artifacts, change, number):
             try:
-                fields, _ = _header(path)
-                live = _outcome_of(path) is None
-            except OSError:
+                data = artifacts.get(key)
+            except (MissingArtifact, OSError):
                 continue
+            fields, _ = _header(data)
+            live = _outcome_of(data) is None
             started = _started(fields)
             runs.append(
                 {
-                    "name": path.name,
+                    "name": key.removeprefix(f"{RUN_LOGS}/"),
                     "step": fields.get("step", ""),
                     "started": started.isoformat() if started else None,
                     "live": live,
@@ -508,16 +521,14 @@ def create_app(
         pattern = _run_name(change, number)
         if pattern is None or not pattern.fullmatch(name):
             raise HTTPException(status_code=404, detail=f"no run {name}")
-        path = run_log_dir(installation.state_dir) / name
         try:
-            fields, body_start = _header(path)
-            start = max(offset, body_start)
-            with path.open("rb") as file:
-                file.seek(start)
-                data = file.read()
-            outcome = _outcome_of(path)
-        except FileNotFoundError:
+            whole = kept().get(f"{RUN_LOGS}/{name}")
+        except MissingArtifact:
             return {"lines": [], "offset": offset, "live": False, "outcome": None, "missing": True}
+        fields, body_start = _header(whole)
+        start = max(offset, body_start)
+        data = whole[start:]
+        outcome = _outcome_of(whole)
         # Only whole lines: a partly written one is read on the next poll.
         data = data[: data.rfind(b"\n") + 1]
         started = _started(fields)
