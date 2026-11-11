@@ -54,6 +54,7 @@
 - The check that follows a review's rework now selects the affected tests first and runs the
   full suite once only when that selection is green, as a fix round's check does, instead of
   running the whole suite at once.
+
 - The poll no longer starts a resolution run. A conflict, a comment or a change request on a
   pull request in review, and the merge of a unit with others stacked on it, are only recorded;
   the dispatch then starts a resolve worker for the run that is owed, so a tick that ends
