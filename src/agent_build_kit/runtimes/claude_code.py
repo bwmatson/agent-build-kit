@@ -75,9 +75,10 @@ from agent_build_kit.runtimes.base import (
     check_prompt_size,
     child_environment,
     full_environment,
+    tell,
     validate_argv,
 )
-from agent_build_kit.runtimes.claude_output import AgentFailure, agent_failure
+from agent_build_kit.runtimes.claude_output import AgentFailure, agent_failure, refused_calls
 from agent_build_kit.runtimes.network import network_failure
 from agent_build_kit.runtimes.traced import traced
 from agent_build_kit.sandboxes import Coverage, SandboxPolicy
@@ -453,6 +454,10 @@ class ClaudeCodeRuntime:
             raise AgentInterrupted(f"claude was killed by signal {-result.returncode}")
         ended = result_event(result.stdout)
         reported_model = started_model(result.stdout)
+        refused = refused_calls(result.stdout, ended)
+        for call in refused:
+            # The journal and the unit's log both: a tick routes them to different places.
+            tell(request.on_event, request.on_transcript, call.said("the agent's permissions"))
         # An error-subtype result has no `result` text, and `final_text` would
         # then hand back the whole transcript; that belongs in `raw` alone.
         text = "" if ended is not None and ended.result is None else final_text(result.stdout)
@@ -482,6 +487,7 @@ class ClaudeCodeRuntime:
                 **_spent(ended),
                 context=_context(result.stdout, ended, request.model),
                 reported_model=reported_model,
+                refused_calls=refused,
             )
             if login_rejection(said):
                 # Raised, so `_run` never sees it: the spend of the call is told here.
@@ -517,6 +523,7 @@ class ClaudeCodeRuntime:
             turns=ended.num_turns if ended is not None else None,
             context=_context(result.stdout, ended, request.model),
             reported_model=reported_model,
+            refused_calls=refused,
             **_spent(ended),
         )
 

@@ -62,6 +62,8 @@ class ResultEvent(BaseModel):
     total_cost_usd: Annotated[float | None, Salvaged] = None
     duration_ms: Annotated[int | None, Salvaged] = None
     session_id: Annotated[str | None, Salvaged] = None
+    # The tool calls the CLI's permission layer refused; absent or malformed is none.
+    permission_denials: Annotated[list[dict] | None, Salvaged] = None
     # Per model, what the run spent; a newer claude adds each model's `contextWindow`.
     model_usage: Annotated[dict[str, dict] | None, Salvaged] = Field(
         default=None, alias="modelUsage"
@@ -205,6 +207,17 @@ def result_event(stdout: str) -> ResultEvent | None:
     return None
 
 
+def tool_results(stdout: str) -> dict[str, str]:
+    """Each tool call's result text, by the call's id, over a whole stream."""
+    return {
+        made.call: made.text
+        for line in stdout.splitlines()
+        if (event := _parse(line)) is not None
+        for made in records(event)
+        if made.kind == "tool_result"
+    }
+
+
 def own_words(stdout: str) -> str:
     """What the CLI itself said about how the run ended, and nothing the run
     did on the way: the `result` event's text and its `errors`, or, with no
@@ -311,11 +324,11 @@ def _block(block: dict, whole: bool = False) -> str:
     if block.get("type") == "text":
         return f"says: {keep(block.get('text', ''))}" if block.get("text", "").strip() else ""
     if block.get("type") == "tool_use":
-        return f"{block.get('name', '?')} {keep(_tool_target(block.get('input') or {}))}".rstrip()
+        return f"{block.get('name', '?')} {keep(tool_target(block.get('input') or {}))}".rstrip()
     return ""
 
 
-def _tool_target(tool_input: dict) -> str:
+def tool_target(tool_input: dict) -> str:
     """What a tool call acts on — the part that says what the model is doing."""
     for key in ("file_path", "path", "command", "pattern", "url", "description"):
         if value := tool_input.get(key):

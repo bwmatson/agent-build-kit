@@ -11,8 +11,9 @@ from datetime import datetime
 from typing import Literal
 
 from agent_build_kit.model import Frozen
-from agent_build_kit.pipeline.claude_stream import ResultEvent
+from agent_build_kit.pipeline.claude_stream import ResultEvent, tool_results, tool_target
 from agent_build_kit.pipeline.usage_guard import rate_limit_reset
+from agent_build_kit.runtimes.base import RefusedCall
 
 # The closing event's subtypes that say the run succeeded; any other is not one.
 SUCCESS_SUBTYPES = frozenset({"success"})
@@ -64,3 +65,28 @@ def agent_failure(event: ResultEvent | None, text: str) -> AgentFailure:
     if "no conversation found" in lowered or "prompt is too long" in lowered:
         return AgentFailure(kind="session_unavailable")
     return AgentFailure(kind="other")
+
+
+# Said of a refused call whose tool result the stream does not carry.
+NO_REASON = "no reason given"
+
+
+def refused_calls(stdout: str, event: ResultEvent | None) -> tuple[RefusedCall, ...]:
+    """The calls the CLI's permission layer refused: the result event lists each, and the
+    error tool result of the same call says why (the list names the call, not the reason)."""
+    if event is None or not event.permission_denials:
+        return ()
+    reasons = tool_results(stdout)
+    refused = []
+    for denial in event.permission_denials:
+        given = denial.get("tool_input")
+        tool = str(denial.get("tool_name", ""))
+        refused.append(
+            RefusedCall(
+                tool=tool,
+                # A call that names nothing the log can show is known by its tool.
+                subject=tool_target(given if isinstance(given, dict) else {}) or tool,
+                reason=reasons.get(str(denial.get("tool_use_id"))) or NO_REASON,
+            )
+        )
+    return tuple(refused)

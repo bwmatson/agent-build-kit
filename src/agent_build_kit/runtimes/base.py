@@ -216,6 +216,38 @@ def full_environment(environment: dict[str, str] | None, env: dict[str, str]) ->
     return {**(os.environ if environment is None else environment), **env}
 
 
+def tell(
+    report: Callable[[str], None] | None,
+    transcript: Callable[[str], None] | None,
+    line: str,
+    *,
+    whole: str | None = None,
+) -> None:
+    """`line` flattened to one indented line for the journal (`report`); the unit's log
+    (`transcript`) gets `whole` as it came, line breaks kept, when there is one. A callback
+    that raises is skipped: progress is for a reader, never the run's to lose."""
+    flat = f"  {' '.join(line.split())}"
+    for callback, text in ((report, flat), (transcript, f"  {whole}" if whole else flat)):
+        if callback is None:
+            continue
+        try:
+            callback(text)
+        except Exception:  # noqa: BLE001
+            pass
+
+
+class RefusedCall(Frozen):
+    """A tool call the agent's permission layer refused: it did not run."""
+
+    tool: str
+    subject: str  # the command or path the call named
+    reason: str
+
+    def said(self, layer: str) -> str:
+        """The one log line, in every runtime, that names a refused call and what refused it."""
+        return f"refused `{self.subject}` by {layer}: {self.reason}"
+
+
 class AgentResult(Frozen):
     """What a call answered — not a subprocess's returncode and stdout."""
 
@@ -233,6 +265,7 @@ class AgentResult(Frozen):
     usage_source: UsageSource = "none"
     context: Context | None = None  # the context window's use over the call, when it says
     reported_model: str | None = None  # the model the runtime says ran, when it says
+    refused_calls: tuple[RefusedCall, ...] = ()  # calls the agent's permissions refused
 
     @property
     def succeeded(self) -> bool:

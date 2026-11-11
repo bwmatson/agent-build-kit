@@ -124,6 +124,7 @@ from agent_build_kit.runtimes.base import (
     PromptTransport,
     Question,
     QuestionKind,
+    RefusedCall,
     Run,
     SessionUnavailable,
     ToolPolicy,
@@ -131,6 +132,7 @@ from agent_build_kit.runtimes.base import (
     check_prompt_size,
     child_environment,
     full_environment,
+    tell,
     validate_argv,
 )
 from agent_build_kit.runtimes.network import network_failure
@@ -579,6 +581,7 @@ class _Session:
         # tied to the execute calls open when it happens, not to a command
         # string, so an agent that describes a command one way and runs it
         # another is still attributed once.
+        self.refused_calls: list[RefusedCall] = []
         self._answered: set[str] = set()
         self._ended: set[str] = set()
 
@@ -725,10 +728,12 @@ class _Session:
                     TranscriptEvent(kind="reasoning" if kind == "reasoning" else "text", text=text)
                 )
 
-    def _refused(self, line: str, reason: str, layer: str) -> None:
+    def _refused(self, line: str, reason: str, layer: str, tool: str = "execute") -> None:
         """The one progress line an operator reads to learn what refused a
-        command, and so which rules to tighten."""
-        self._tell(f"refused `{line}` by {layer}: {reason}")
+        call, and so which rules to tighten; `tool` is the call's ACP kind."""
+        call = RefusedCall(tool=tool, subject=line, reason=reason)
+        self.refused_calls.append(call)
+        self._tell(call.said(layer))
 
     def _attribute_own_refusal(self, call_id: str, update: ToolCallProgress) -> None:
         """A failed call abk never ran or answered. When its output says the
@@ -791,9 +796,13 @@ class _Session:
         self._answered.add(tool_call.tool_call_id)
         if not verdict.allowed:
             self._refused(
-                _command_of(known.raw_input) or tool_call.title or tool_call.tool_call_id,
+                _command_of(known.raw_input)
+                or (known.paths[0] if known.paths else None)
+                or tool_call.title
+                or tool_call.tool_call_id,
                 verdict.reason,
                 "abk's command rules",
+                known.kind or "execute",
             )
         if verdict.allowed and self._permission is not None:
             # A person answers: only for a call the rules already allow.
@@ -1183,17 +1192,7 @@ class _Session:
     def _tell(self, line: str, *, whole: str | None = None) -> None:
         """`line` flattened to one line for the journal; the unit's log gets
         `whole` as it came, line breaks kept, when there is one."""
-        flat = f"  {' '.join(line.split())}"
-        for callback, text in (
-            (self._report, flat),
-            (self._transcript, f"  {whole}" if whole else flat),
-        ):
-            if callback is None:
-                continue
-            try:
-                callback(text)
-            except Exception:  # noqa: BLE001 — progress is for a reader, never the run's to lose
-                pass
+        tell(self._report, self._transcript, line, whole=whole)
 
 
 USAGE_KEYS = {
@@ -1521,6 +1520,7 @@ class AcpRuntime:
                     f"was cancelled rather than permitted: {session.refused_cancel}",
                     stop_reason=stop_reason,
                     raw="\n".join(raw_lines),
+                    refused_calls=tuple(session.refused_calls),
                     **spent,
                 )
             raise AgentInterrupted("the agent's turn was cancelled")
@@ -1532,6 +1532,7 @@ class AcpRuntime:
                 error=error,
                 stop_reason=stop_reason,
                 raw="\n".join(raw_lines),
+                refused_calls=tuple(session.refused_calls),
                 **spent,
             )
         return AgentResult(
@@ -1539,6 +1540,7 @@ class AcpRuntime:
             text=session.answer,
             stop_reason=stop_reason,
             raw="\n".join(raw_lines),
+            refused_calls=tuple(session.refused_calls),
             **spent,
         )
 

@@ -797,6 +797,19 @@ ordinary. A failure that carries an HTTP status, a usage limit, a model refusal 
 permission or tool failure are never an outage: they return `AgentResult(ok=False)` as
 before. The pipeline decides what a weak sign means (`pipeline/network_probe.py`).
 
+## Refused tool calls are returned
+
+`AgentResult.refused_calls` holds each tool call the agent's permissions refused, as a
+`RefusedCall` (tool, subject — the command or path — and reason). The claude runtime reads
+them from the closing event's `permission_denials` list and takes each reason from the
+error tool result of the same call; a stream with no list has none. The ACP runtime returns
+the refusals it attributes and logs, with the call's ACP kind (`execute`, `edit`, `read`)
+as the tool and the command or the path it named as the subject. Each is said once in the
+unit's log. The claude runtime writes "refused `<subject>` by the agent's permissions:
+<reason>"; the ACP runtime writes "refused `<subject>` by <layer>: <reason>", where the layer
+is abk's command rules, the agent's own policy or the agent's own configuration. A refused
+call did not run.
+
 ## A failing model service is a typed error
 
 A claude run whose closing event carries an `api_error_status` of 500 to 599 (an overloaded

@@ -28,6 +28,7 @@ from agent_build_kit.runtimes import (
     AgentInterrupted,
     AgentRateLimited,
     AgentRequest,
+    RefusedCall,
     ToolPolicy,
     claude_code,
 )
@@ -38,11 +39,12 @@ from tests.runtimes.claude_cli import (
     finished_build,
     record,
     refused,
+    refused_call_build,
     stream,
 )
 
 
-def _request(cwd: Path, *, on_event=None) -> AgentRequest:
+def _request(cwd: Path, *, on_event=None, on_transcript=None) -> AgentRequest:
     return AgentRequest(
         prompt="Implement group 1 of add-marker.",
         role="implement",
@@ -52,6 +54,7 @@ def _request(cwd: Path, *, on_event=None) -> AgentRequest:
         allowed_tools="Read Edit Write",
         policy=ToolPolicy(specs_dir=cwd / "specs"),
         on_event=on_event or (lambda line: None),
+        on_transcript=on_transcript,
     )
 
 
@@ -306,3 +309,95 @@ def test_spawn_runs_to_completion_when_nobody_is_listening(tmp_path: Path) -> No
 
     assert done.returncode == 0
     assert final_text(done.stdout) == "ok"
+
+
+COMMAND = "echo 'def test_marker(): ...' >> tests/test_app.py && pytest > $ABK_OUT/t.log"
+REASON = "A variable in this command can't be checked before it runs"
+
+
+def test_a_refused_bash_call_is_returned_with_its_command_and_reason(tmp_path: Path) -> None:
+    """The result event lists only the call; the error tool result supplies the reason."""
+    fake = FakeClaude(stdout=refused_call_build(tmp_path, COMMAND, REASON))
+
+    result = ClaudeCodeRuntime(execute=fake).run(_request(tmp_path))
+
+    assert result.ok is True
+    assert result.refused_calls == (RefusedCall(tool="Bash", subject=COMMAND, reason=REASON),)
+
+
+@pytest.mark.parametrize("with_list", [True, False], ids=["empty list", "no list"])
+def test_an_error_tool_result_with_no_denial_listed_is_not_a_refusal(
+    tmp_path: Path, with_list: bool
+) -> None:
+    bare = refused_call_build(tmp_path, COMMAND, REASON, listed=False, with_list=with_list)
+
+    result = ClaudeCodeRuntime(execute=FakeClaude(stdout=bare)).run(_request(tmp_path))
+
+    assert result.ok is True
+    assert result.refused_calls == ()
+
+
+def test_a_refused_call_naming_nothing_is_known_by_its_tool(tmp_path: Path) -> None:
+    stdout = refused_call_build(tmp_path, COMMAND, REASON, tool="mcp__svc__lookup", given={"id": 7})
+
+    result = ClaudeCodeRuntime(execute=FakeClaude(stdout=stdout)).run(_request(tmp_path))
+
+    assert result.refused_calls == (
+        RefusedCall(tool="mcp__svc__lookup", subject="mcp__svc__lookup", reason=REASON),
+    )
+
+
+def test_a_refused_call_with_no_tool_result_has_a_fixed_reason(tmp_path: Path) -> None:
+    stdout = refused_call_build(tmp_path, COMMAND, REASON, with_result=False)
+
+    result = ClaudeCodeRuntime(execute=FakeClaude(stdout=stdout)).run(_request(tmp_path))
+
+    assert result.refused_calls == (
+        RefusedCall(tool="Bash", subject=COMMAND, reason="no reason given"),
+    )
+
+
+def test_a_refused_multi_line_command_is_one_flat_line_in_the_journal(tmp_path: Path) -> None:
+    lines: list[str] = []
+    command = "cat > tests/test_app.py <<'EOF'\ndef test_marker(): ...\nEOF"
+    fake = FakeClaude(stdout=refused_call_build(tmp_path, command, REASON))
+
+    ClaudeCodeRuntime(execute=fake).run(_request(tmp_path, on_event=lines.append))
+
+    said = [line for line in lines if "refused" in line]
+    flat = "cat > tests/test_app.py <<'EOF' def test_marker(): ... EOF"
+    assert said == [f"  refused `{flat}` by the agent's permissions: {REASON}"]
+
+
+def test_each_refused_call_is_said_once_in_the_journal(tmp_path: Path) -> None:
+    lines: list[str] = []
+    fake = FakeClaude(stdout=refused_call_build(tmp_path, COMMAND, REASON))
+
+    ClaudeCodeRuntime(execute=fake).run(_request(tmp_path, on_event=lines.append))
+
+    said = [line.strip() for line in lines if "refused" in line]
+    assert said == [f"refused `{COMMAND}` by the agent's permissions: {REASON}"]
+
+
+def test_each_refused_call_reaches_the_transcript_where_a_tick_keeps_the_unit_log(
+    tmp_path: Path,
+) -> None:
+    transcript: list[str] = []
+    fake = FakeClaude(stdout=refused_call_build(tmp_path, COMMAND, REASON))
+
+    ClaudeCodeRuntime(execute=fake).run(_request(tmp_path, on_transcript=transcript.append))
+
+    said = [line.strip() for line in transcript if "refused" in line]
+    assert said == [f"refused `{COMMAND}` by the agent's permissions: {REASON}"]
+
+
+def test_a_log_callback_that_raises_does_not_lose_the_result(tmp_path: Path) -> None:
+    def broken(line: str) -> None:
+        if "refused" in line:
+            raise OSError("log closed")
+
+    fake = FakeClaude(stdout=refused_call_build(tmp_path, COMMAND, REASON))
+
+    result = ClaudeCodeRuntime(execute=fake).run(_request(tmp_path, on_transcript=broken))
+
+    assert result.refused_calls == (RefusedCall(tool="Bash", subject=COMMAND, reason=REASON),)
