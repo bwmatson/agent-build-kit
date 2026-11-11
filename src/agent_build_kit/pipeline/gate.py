@@ -181,7 +181,20 @@ def red_problems(
         command = _red_command(toolchain, owned, touched, repo, prefix)
         if command is None:
             continue
-        (red,) = run_at_commit(repo, sha, [command], subdir=prefix or ".")
+
+        def prepared(
+            tree: Path,
+            command: str = command,
+            toolchain: ToolchainProfile = toolchain,
+            prefix: str = prefix,
+        ) -> str:
+            # A profile with something to link into the worktree does so before the run.
+            prepare = getattr(toolchain, "prepare_worktree", None)
+            if prepare is not None:
+                prepare(repo, tree, project=prefix or ".")
+            return command
+
+        (red,) = run_at_commit(repo, sha, [prepared], subdir=prefix or ".")
         if log is not None:
             for line in _red_log(red, sha, owner, toolchain):
                 log(redact_text(line, where="red check log"))

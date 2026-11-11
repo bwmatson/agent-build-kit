@@ -4,7 +4,8 @@
 
 - The `node-npm` profile can now prepare a throwaway worktree's `node_modules`: each
   workspace package points at the worktree's own folder and every other package at the
-  installed one, so a test importing a workspace package can be loaded there.
+  installed one, so a test importing a workspace package can be loaded there. The red
+  check prepares the worktree it runs in this way before it runs the tests.
 
 - The unit gate now runs the integration tests a unit adds or changes. The red and repeat
   checks name those tests by id and lift the integration kind out of the repository's default
