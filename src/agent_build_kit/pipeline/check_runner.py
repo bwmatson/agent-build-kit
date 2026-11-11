@@ -16,9 +16,10 @@ from __future__ import annotations
 import json
 import subprocess
 import tempfile
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from contextlib import AbstractContextManager, contextmanager, nullcontext
 from pathlib import Path
+from typing import Any
 
 from agent_build_kit.model import Frozen
 from agent_build_kit.pipeline.shell import git, git_out
@@ -137,7 +138,7 @@ class CheckCache:
     def __init__(self, path: Path) -> None:
         self.path = path
 
-    def _load(self) -> dict[str, bool]:
+    def _load(self) -> dict[str, Any]:
         try:
             data = json.loads(self.path.read_text())
             return data if isinstance(data, dict) else {}
@@ -151,14 +152,27 @@ class CheckCache:
     def lookup(self, repo: Path, sha: str, *, mode: str = "") -> bool | None:
         """The cached result for this content under `mode`, the checks it was judged by."""
         key = self._key(repo, sha, mode)
-        return self._load().get(key) if key else None
+        held = self._load().get(key) if key else None
+        if isinstance(held, dict):
+            held = held.get("ok")
+        return held if isinstance(held, bool) else None
 
-    def record(self, repo: Path, sha: str, *, ok: bool, mode: str = "") -> None:
+    def reasons(self, repo: Path, sha: str, *, mode: str = "") -> list[str]:
+        """The reasons kept with a rejection of this content; none for a pass, a miss, or an
+        entry written before reasons were kept."""
+        key = self._key(repo, sha, mode)
+        held = self._load().get(key) if key else None
+        found = held.get("reasons") if isinstance(held, dict) else None
+        return [str(reason) for reason in found] if isinstance(found, list) else []
+
+    def record(
+        self, repo: Path, sha: str, *, ok: bool, mode: str = "", reasons: Sequence[str] = ()
+    ) -> None:
         key = self._key(repo, sha, mode)
         if not key:
             return
 
         data = self._load()
-        data[key] = ok
+        data[key] = {"ok": ok, "reasons": list(reasons)} if reasons and not ok else ok
         self.path.parent.mkdir(parents=True, exist_ok=True)
         self.path.write_text(json.dumps(data, indent=2))

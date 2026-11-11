@@ -103,6 +103,30 @@ def exception_type(message: str) -> str:
     return head.group(0).rpartition(".")[2]
 
 
+COLLECTING = re.compile(r"^_+ ERROR collecting (\S+) _+$")
+
+
+def collection_errors(output: str, *, lines: int = 6) -> list[str]:
+    """For each module the run could not collect, its name and the first `lines` non-empty
+    lines of its error, then the lines pytest marks as the error itself (`E ` lines, which
+    come after the traceback)."""
+    found: list[str] = []
+    current: list[str] | None = None
+    for line in output.splitlines():
+        header = COLLECTING.match(line.strip())
+        if header:
+            found.append(f"could not collect {header.group(1)}:")
+            current = []
+        elif re.match(r"^(_{5,}|={5,}) ", line):
+            current = None
+        elif current is not None and line.strip():
+            marked = line.startswith("E ")
+            if len(current) < lines or (marked and len(current) < lines + 4):
+                current.append(line)
+                found.append(f"  {line.rstrip()}")
+    return found
+
+
 def _counts(output: str) -> dict[str, int]:
     counts: dict[str, int] = {}
     for number, label in COUNT.findall(output):

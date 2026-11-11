@@ -39,10 +39,12 @@ from agent_build_kit.pipeline.commit_order import (
     classify_paths,
     commits_without_red_check,
 )
+from agent_build_kit.pipeline.red_check import collection_errors
 from agent_build_kit.pipeline.shell import git
 from agent_build_kit.pipeline.stack_runner import GroupStep
 from agent_build_kit.pipeline.wiring import ids_for, touched_tests
 from agent_build_kit.profiles.base import ToolchainProfile, located
+from agent_build_kit.redaction import redact_text
 
 
 def _files_of(repo: Path, sha: str) -> list[str]:
@@ -125,6 +127,17 @@ def _judged_red(
     return [] if ok else [f"{_where(sha, owner)}{problem}" for problem in found]
 
 
+def _red_log(red: CommandResult, sha: str, owner: ProjectConfig | None) -> list[str]:
+    """The unit-log lines of one red run: the command (which holds the selection), the exit
+    code and each module that could not be collected with the start of its error."""
+    where = _where(sha, owner)
+    return [
+        f"{where}red run: {red.command}",
+        f"{where}red run exit code {red.exit_code}",
+        *(f"{where}{line}" for line in collection_errors(red.stdout + red.stderr)),
+    ]
+
+
 def red_problems(
     repo: Path,
     sha: str,
@@ -143,7 +156,14 @@ def red_problems(
     if cache is not None:
         cached = cache.lookup(repo, sha, mode=label)
         if cached is not None:
-            return [] if cached else [f"{sha[:8]}: previously failed the red check"]
+            if cached:
+                return []
+            earlier = cache.reasons(repo, sha, mode=label)
+            if not earlier:
+                return [f"{sha[:8]}: previously failed the red check"]
+            return [redact_text(reason, where="red check reasons") for reason in earlier] + [
+                f"{sha[:8]}: this content was rejected before; the check was not run again"
+            ]
 
     def is_test(path: str) -> bool:
         return profiles.for_path(projects, path, profile).is_test_path(path)
@@ -157,9 +177,18 @@ def red_problems(
         if command is None:
             continue
         (red,) = run_at_commit(repo, sha, [command], subdir=prefix or ".")
+        if log is not None:
+            for line in _red_log(red, sha, owner):
+                log(redact_text(line, where="red check log"))
         problems.extend(_judged_red(toolchain, red, sha, owner, stubbed))
     if cache is not None:
-        cache.record(repo, sha, ok=not problems, mode=label)
+        cache.record(
+            repo,
+            sha,
+            ok=not problems,
+            mode=label,
+            reasons=[redact_text(problem, where="red check reasons") for problem in problems],
+        )
     return problems
 
 
