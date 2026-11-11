@@ -275,11 +275,12 @@ def test_a_module_that_cannot_be_collected_is_logged_with_the_start_of_its_error
 
 
 def test_the_log_of_a_red_run_passes_through_redaction(repo: Path) -> None:
-    leaking = f"def test_new():\n    assert False, '{SECRET}'\n"
+    leaking = f"raise RuntimeError('{SECRET}')\n\n\ndef test_new():\n    assert False\n"
     commit_files(repo, "test: the cases", {SUBJECT: leaking})
 
     with known():
         logged = red_log(repo, IdProfile())
 
-    assert logged
+    assert SUBJECT in logged
+    assert "RuntimeError" in logged
     assert SECRET not in logged

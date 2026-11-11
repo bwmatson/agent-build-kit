@@ -484,6 +484,22 @@ class NodeNpmProfile:
         ]
         return not problems, problems
 
+    def collection_errors(self, output: str) -> list[str]:
+        """Each test file that failed to load (the report holds one failing case named as its
+        file), with the first lines of its message."""
+        root = _report(output)
+        if root is None:
+            return []
+        found: list[str] = []
+        for case in root.iter("testcase"):
+            name, bad = _failure(case)
+            if bad is None or case.get("name") != case.get("classname"):
+                continue
+            found.append(f"could not load {name}:")
+            lines = [line for line in (bad.get("message") or "").splitlines() if line.strip()]
+            found.extend(f"  {line.rstrip()}" for line in lines[:6])
+        return found
+
     def parse_test_summary(self, output: str) -> tuple[int, int, int, float]:
         """(passed, failed, skipped, seconds) from the JUnit report after the marker."""
         root = _report(output)

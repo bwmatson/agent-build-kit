@@ -30,6 +30,9 @@ WORKTREE_PREFIX = "spec-check-"
 # starting point, to be revisited once real units have run.
 COMMAND_TIMEOUT_SECONDS = 900
 
+# The key suffix under which a cached rejection keeps its reasons.
+REASONS_SUFFIX = ":reasons"
+
 
 class CommandResult(Frozen):
     command: str
@@ -149,30 +152,42 @@ class CheckCache:
         key = patch_id(repo, sha)
         return f"{key}:{mode}" if key and mode else key
 
+    def lookup_entry(
+        self, repo: Path, sha: str, *, mode: str = ""
+    ) -> tuple[bool, list[str]] | None:
+        """The cached result for this content under `mode` and the reasons kept with a
+        rejection of it (none for a pass, or for an entry written before reasons were kept);
+        None on a miss. One patch-id and one read of the file."""
+        key = self._key(repo, sha, mode)
+        if not key:
+            return None
+        data = self._load()
+        held = data.get(key)
+        if not isinstance(held, bool):
+            return None
+        found = data.get(f"{key}{REASONS_SUFFIX}")
+        kept = [str(reason) for reason in found] if isinstance(found, list) else []
+        return held, kept
+
     def lookup(self, repo: Path, sha: str, *, mode: str = "") -> bool | None:
         """The cached result for this content under `mode`, the checks it was judged by."""
-        key = self._key(repo, sha, mode)
-        held = self._load().get(key) if key else None
-        if isinstance(held, dict):
-            held = held.get("ok")
-        return held if isinstance(held, bool) else None
-
-    def reasons(self, repo: Path, sha: str, *, mode: str = "") -> list[str]:
-        """The reasons kept with a rejection of this content; none for a pass, a miss, or an
-        entry written before reasons were kept."""
-        key = self._key(repo, sha, mode)
-        held = self._load().get(key) if key else None
-        found = held.get("reasons") if isinstance(held, dict) else None
-        return [str(reason) for reason in found] if isinstance(found, list) else []
+        entry = self.lookup_entry(repo, sha, mode=mode)
+        return None if entry is None else entry[0]
 
     def record(
         self, repo: Path, sha: str, *, ok: bool, mode: str = "", reasons: Sequence[str] = ()
     ) -> None:
+        """Remember the result. The reasons of a rejection are kept under a key of their own,
+        so a reader that knows only the boolean still sees `False` at the entry."""
         key = self._key(repo, sha, mode)
         if not key:
             return
 
         data = self._load()
-        data[key] = {"ok": ok, "reasons": list(reasons)} if reasons and not ok else ok
+        data[key] = ok
+        if reasons and not ok:
+            data[f"{key}{REASONS_SUFFIX}"] = list(reasons)
+        else:
+            data.pop(f"{key}{REASONS_SUFFIX}", None)
         self.path.parent.mkdir(parents=True, exist_ok=True)
         self.path.write_text(json.dumps(data, indent=2))

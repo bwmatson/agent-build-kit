@@ -11,7 +11,9 @@
   content is answered with them and a note that the check was not run again, instead of only
   "previously failed". Each red run is also logged with its command, its selection of tests,
   its exit code and, for a module that could not be collected, the module's name and the first
-  lines of its error. The reasons and the log pass through redaction.
+  lines of its error, as each toolchain's test runner reports it. The reasons and the log pass
+  through redaction. The reasons are kept beside the cached result, which stays a plain
+  true or false, so an older release reading the same cache still sees a rejection.
 
 - A build worker started through the service manager now has the toolchain manager's variable
   (`VOLTA_HOME`) when the dispatcher has it, as it has `PATH`. Without it the worker's `node`

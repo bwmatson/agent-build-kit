@@ -41,7 +41,12 @@ from agent_build_kit.pipeline.e2e import (
     clip_failure_line,
     parse_pytest_summary,
 )
-from agent_build_kit.pipeline.red_check import judge_red, split_report, wrap_report_command
+from agent_build_kit.pipeline.red_check import (
+    collection_errors,
+    judge_red,
+    split_report,
+    wrap_report_command,
+)
 from agent_build_kit.pipeline.temp_sweep import write_pid_file, write_run_file
 from agent_build_kit.profiles.base import (
     HOME,
@@ -615,6 +620,10 @@ class PythonUvProfile:
         report, console = split_report(output)
         result = judge_red(report, console, exit_code, stubbed=stubbed)
         return result.verdict == "accepted", list(result.problems)
+
+    def collection_errors(self, output: str) -> list[str]:
+        """Each module pytest could not collect, with the start of its error."""
+        return collection_errors(output)
 
     def parse_test_summary(self, output: str) -> tuple[int, int, int, float]:
         return parse_pytest_summary(output)

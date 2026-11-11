@@ -6,6 +6,7 @@ Over real git repositories and a real pytest, with the red-check-by-id tests' pr
 
 from __future__ import annotations
 
+import json
 from collections.abc import Callable
 from pathlib import Path
 from typing import cast
@@ -101,6 +102,20 @@ def test_a_repeat_of_a_rejected_commit_is_answered_with_the_earlier_reasons(
     assert "passed" in again
     assert first.splitlines()[0].split(": ", 1)[1] in again
     assert "not run again" in again
+
+
+def test_a_cached_rejection_still_reads_as_false_to_a_reader_of_the_plain_result(
+    repo: Path, tmp_path: Path
+) -> None:
+    commit_files(repo, "test: the cases", {SUBJECT: source("new_passing_case")})
+    cache = CheckCache(tmp_path / "cache.json")
+    checker(IdProfile(), cache)(cwd=repo)
+
+    stored = json.loads((tmp_path / "cache.json").read_text())
+
+    results = {key: value for key, value in stored.items() if not key.endswith(":reasons")}
+    assert list(results.values()) == [False]
+    assert any(key.endswith(":reasons") for key in stored)
 
 
 class LeakingProfile(IdProfile):
