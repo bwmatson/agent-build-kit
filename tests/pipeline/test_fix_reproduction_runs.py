@@ -26,6 +26,7 @@ from agent_build_kit.pipeline.flakes import (
     reproduction_evidence,
 )
 from agent_build_kit.pipeline.wiring import build_reproduce
+from agent_build_kit.profiles.base import ToolchainProfile
 from tests.conftest import make_installation
 
 TEST = "tests/test_widget.py::test_renders_the_label"
@@ -260,7 +261,9 @@ def test_a_profile_that_cannot_run_one_test_is_skipped(tmp_path: Path) -> None:
     tree = tmp_path / "tree"
     (tree / "tests").mkdir(parents=True)
     (tree / "tests" / "test_widget.py").write_text("")
-    reproduce = build_reproduce(profile=profiles.get("node-npm"), run=lambda *a, **k: done(0))
+    # Every registered profile now runs one test; a toolchain without the capability is bare.
+    bare: ToolchainProfile = object()  # type: ignore[assignment]
+    reproduce = build_reproduce(profile=bare, run=lambda *a, **k: done(0))
 
     assert reproduce(cwd=tree, test=TEST, runs=2).outcome is Outcome.SKIPPED
 
