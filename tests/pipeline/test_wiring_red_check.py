@@ -17,6 +17,7 @@ from agent_build_kit.pipeline.wiring import build_red_check
 from agent_build_kit.profiles.base import ToolchainProfile
 from tests.factories import commit_files
 from tests.pipeline.test_red_check_by_id import SUBJECT, IdProfile, branch_with, source
+from tests.redaction_fakes import SECRET, known
 
 COLLECTION_ERROR = (
     "import module_that_does_not_exist\n\n\ndef test_new():\n    raise AssertionError()\n"
@@ -83,3 +84,43 @@ def test_a_rejection_is_remembered_as_one(repo: Path, tmp_path: Path) -> None:
     assert len(profile.asked) == 1
     assert not ok
     assert reason
+
+
+def test_a_repeat_of_a_rejected_commit_is_answered_with_the_earlier_reasons(
+    repo: Path, tmp_path: Path
+) -> None:
+    commit_files(repo, "test: the cases", {SUBJECT: source("new_passing_case")})
+    profile = IdProfile()
+    check = checker(profile, CheckCache(tmp_path / "cache.json"))
+
+    _, first = check(cwd=repo)
+    ok, again = check(cwd=repo)
+
+    assert not ok
+    assert len(profile.asked) == 1
+    assert "passed" in again
+    assert first.splitlines()[0].split(": ", 1)[1] in again
+    assert "not run again" in again
+
+
+class LeakingProfile(IdProfile):
+    """A reading whose rejection quotes a secret."""
+
+    def interpret_red(
+        self, output: str, exit_code: int, *, stubbed: bool = False
+    ) -> tuple[bool, list[str]]:
+        return False, [f"the run printed {SECRET}"]
+
+
+def test_the_reasons_a_repeat_is_answered_with_pass_through_redaction(
+    repo: Path, tmp_path: Path
+) -> None:
+    commit_files(repo, "test: the cases", {SUBJECT: source("new_failing_case")})
+    check = checker(LeakingProfile(), CheckCache(tmp_path / "cache.json"))
+
+    with known():
+        check(cwd=repo)
+        _, again = check(cwd=repo)
+
+    assert "the run printed" in again
+    assert SECRET not in again

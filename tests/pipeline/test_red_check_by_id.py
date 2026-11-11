@@ -12,16 +12,18 @@ from __future__ import annotations
 import shlex
 import sys
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import pytest
 
 from agent_build_kit import profiles
 from agent_build_kit.config import ProjectConfig
-from agent_build_kit.pipeline.gate import check_branch
+from agent_build_kit.pipeline.gate import check_branch, red_problems
 from agent_build_kit.pipeline.red_check import passed_problem
+from agent_build_kit.profiles.base import ToolchainProfile
 from agent_build_kit.profiles.python_uv import PROFILE as PYTHON
 from tests.factories import commit_files, git, init_repo
+from tests.redaction_fakes import SECRET, known
 from tests.stub_gate_support import ModeProfile, judged
 
 SOURCES = Path(__file__).resolve().parent.parent / "child_modules" / "red_check_by_id"
@@ -234,3 +236,50 @@ def test_a_project_in_a_subdirectory_is_asked_for_ids_relative_to_it(
 
     assert problems == []
     assert profile.asked == [([SUBJECT], [NEW])]
+
+
+def red_log(repo: Path, profile: IdProfile) -> str:
+    """The unit log lines of the red run of the head commit."""
+    lines: list[str] = []
+    red_problems(
+        repo,
+        git(repo, "rev-parse", "HEAD"),
+        profile=cast(ToolchainProfile, profile),
+        log=lines.append,
+    )
+    return "\n".join(lines)
+
+
+def test_a_red_run_is_logged_with_its_command_selection_and_exit_code(repo: Path) -> None:
+    commit_files(repo, "test: the cases", {SUBJECT: source("new_failing_case")})
+
+    logged = red_log(repo, IdProfile())
+
+    assert "-m pytest" in logged
+    assert NEW in logged
+    assert "exit code 1" in logged
+
+
+COLLECTION_ERROR = "import module_that_does_not_exist\n\n\ndef test_new():\n    assert False\n"
+
+
+def test_a_module_that_cannot_be_collected_is_logged_with_the_start_of_its_error(
+    repo: Path,
+) -> None:
+    commit_files(repo, "test: the cases", {SUBJECT: COLLECTION_ERROR})
+
+    logged = red_log(repo, IdProfile())
+
+    assert SUBJECT in logged
+    assert "module_that_does_not_exist" in logged
+
+
+def test_the_log_of_a_red_run_passes_through_redaction(repo: Path) -> None:
+    leaking = f"def test_new():\n    assert False, '{SECRET}'\n"
+    commit_files(repo, "test: the cases", {SUBJECT: leaking})
+
+    with known():
+        logged = red_log(repo, IdProfile())
+
+    assert logged
+    assert SECRET not in logged

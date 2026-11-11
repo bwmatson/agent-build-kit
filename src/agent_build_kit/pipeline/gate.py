@@ -133,6 +133,7 @@ def red_problems(
     projects: list[ProjectConfig] | None = None,
     stubbed: bool = False,
     cache: CheckCache | None = None,
+    log: Callable[[str], None] | None = None,
 ) -> list[str]:
     """Every reason the tests commit `sha` was not seen to fail for the right reason, or an
     empty list: only its red run, judged as `check_branch` judges it. A commit `cache` holds is
