@@ -13,7 +13,12 @@ from typing import Protocol, runtime_checkable
 import pytest
 
 from agent_build_kit import profiles
-from agent_build_kit.profiles.base import RerunsFailedTests, SelectsByKind, ToolchainProfile
+from agent_build_kit.profiles.base import (
+    RepeatsTests,
+    RerunsFailedTests,
+    SelectsByKind,
+    ToolchainProfile,
+)
 from agent_build_kit.profiles.capabilities import (
     CAPABILITIES,
     GAP_BASELINE,
@@ -156,9 +161,14 @@ def test_a_new_capability_protocol_fails_until_every_profile_implements_it() -> 
 
 @pytest.mark.integration
 def test_the_baseline_refuses_a_new_entry() -> None:
-    entry = ("python-uv", "RepeatsTests")
-    problems = capability_problems(registry(), baseline=GAP_BASELINE | {entry})
-    assert any("python-uv" in p and "RepeatsTests" in p and "baseline" in p for p in problems)
+    # The profile lacks the capability and the entry lists it, so only the new-entry branch fires.
+    problems = capability_problems(
+        {"bare": Bare()},  # type: ignore[dict-item]
+        capabilities=(RepeatsTests,),
+        baseline=frozenset({("bare", "RepeatsTests")}),
+    )
+    assert any("is new" in p and "bare" in p and "RepeatsTests" in p for p in problems)
+    assert not any("provide" in p for p in problems)
 
 
 @pytest.mark.integration
@@ -166,4 +176,6 @@ def test_the_baseline_names_no_capability_a_profile_has_since_filled() -> None:
     problems = capability_problems(
         registry(), baseline=GAP_BASELINE | {("python-uv", "RerunsFailedTests")}
     )
-    assert problems
+    assert any(
+        "python-uv" in p and "RerunsFailedTests" in p and "now provides" in p for p in problems
+    )

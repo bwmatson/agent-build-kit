@@ -51,6 +51,7 @@ from agent_build_kit.pipeline.temp_sweep import write_pid_file, write_run_file
 from agent_build_kit.profiles.base import (
     HOME,
     TEMP_ROOT_VARIABLE,
+    TEST_KINDS,
     ChangedTest,
     PromptWords,
     SandboxPaths,
@@ -210,9 +211,14 @@ def _declares_xdist(path: Path) -> bool:
     return XDIST in _declared_dependencies(_pyproject(path))
 
 
+def _pytest_ini_options(repo: Path) -> dict:
+    """The `[tool.pytest.ini_options]` table of the repo's `pyproject.toml`."""
+    return _pyproject(repo).get("tool", {}).get("pytest", {}).get("ini_options", {})
+
+
 def _addopts_marker(repo: Path) -> str:
     """The `-m` expression the repo's own pytest addopts applies, if any."""
-    options = _pyproject(repo).get("tool", {}).get("pytest", {}).get("ini_options", {})
+    options = _pytest_ini_options(repo)
     addopts = options.get("addopts", "")
     argv = shlex.split(addopts) if isinstance(addopts, str) else list(addopts)
     for i, arg in enumerate(argv):
@@ -260,8 +266,6 @@ _VERBOSITY_FLAGS = frozenset(["-q", "-qq", "-v", "-vv"])
 _REPORT_FLAGS = frozenset([*SUMMARY_FLAGS, *DURATION_FLAGS, *UNIT_REPORT_FLAGS, *_VERBOSITY_FLAGS])
 # A line of `pytest --markers`: `@pytest.mark.<name>(<args>): <description>`.
 _MARKER_LINE = re.compile(r"@pytest\.mark\.(?P<name>\w+)")
-# The kinds of test a project can mark, narrowest first.
-_KINDS = ("integration", "e2e")
 # Pytest's exit status when the selection holds no test.
 _NO_TESTS_SELECTED = 5
 
@@ -723,15 +727,14 @@ class PythonUvProfile:
         return list(dict.fromkeys(found))
 
     def _registered_markers(self, repo: Path) -> list[str]:
-        options = _pyproject(repo).get("tool", {}).get("pytest", {}).get("ini_options", {})
-        markers = options.get("markers", [])
+        markers = _pytest_ini_options(repo).get("markers", [])
         names = [markers] if isinstance(markers, str) else list(markers)
         return [m.split(":", 1)[0].split("(", 1)[0].strip() for m in names if isinstance(m, str)]
 
     def declared_kinds(self, repo: Path) -> tuple[str, ...]:
         """The kinds the project registers as pytest markers."""
         registered = self._registered_markers(repo)
-        return tuple(kind for kind in _KINDS if kind in registered)
+        return tuple(kind for kind in TEST_KINDS if kind in registered)
 
     def default_run_leaves_out(self, repo: Path) -> tuple[str, ...]:
         """The kinds the `-m` of the project's pytest addopts excludes."""
@@ -739,7 +742,8 @@ class PythonUvProfile:
         return tuple(kind for kind in self.declared_kinds(repo) if kind in excluded)
 
     def by_id_overrides_default(self, repo: Path) -> bool:
-        """A named test runs: the by-id selection lifts the integration kind from the default."""
+        """The integration kind runs when named: the by-id selection lifts it from the default.
+        Any other kind the default `-m` leaves out (e2e) is still deselected by pytest."""
         return True
 
     def refused_kinds(self, repo: Path, kinds: list[str]) -> list[str]:
@@ -757,7 +761,7 @@ class PythonUvProfile:
         except SyntaxError:
             return []
         marked = {mark_name(node) for node in ast.walk(module) if isinstance(node, ast.expr)}
-        return [kind for kind in _KINDS if kind in marked]
+        return [kind for kind in TEST_KINDS if kind in marked]
 
     def per_test_limit_option(self, repo: Path) -> str | None:
         """The `time_limit` marker, when the project registers it."""

@@ -502,6 +502,10 @@ class RerunsFailedTests(Protocol):
         ...
 
 
+# The kinds of test a project can declare beyond the plain unit test, narrowest first.
+TEST_KINDS: tuple[str, ...] = ("integration", "e2e")
+
+
 @runtime_checkable
 class SelectsByKind(Protocol):
     """The six selector capabilities of the testing strategy, in the toolchain's own terms.

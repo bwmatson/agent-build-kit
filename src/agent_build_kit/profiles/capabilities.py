@@ -32,7 +32,7 @@ CAPABILITIES: tuple[type, ...] = (
     SelectsByKind,
 )
 
-# The six methods of `SelectsByKind`.
+# The methods of `SelectsByKind`; add a method of the protocol here too.
 SELECTOR_METHODS = (
     "declared_kinds",
     "default_run_leaves_out",
@@ -64,7 +64,8 @@ def capability_problems(
 ) -> list[str]:
     """What is wrong with `profiles`: a capability one lacks that the baseline does not list
     (naming both), a baseline entry the profile has since filled, and an entry `GAP_BASELINE`
-    does not hold."""
+    does not hold. The last guards a caller-supplied `baseline`; growth of `GAP_BASELINE`
+    itself is a diff a reviewer sees."""
     problems: list[str] = []
     for name, profile in profiles.items():
         for capability in capabilities:

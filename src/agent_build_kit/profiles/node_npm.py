@@ -41,7 +41,13 @@ from agent_build_kit.pipeline.red_check import (
     wrap_report_command,
 )
 from agent_build_kit.profiles import node_environment
-from agent_build_kit.profiles.base import HOME, PromptWords, SandboxPaths, is_doc_path
+from agent_build_kit.profiles.base import (
+    HOME,
+    TEST_KINDS,
+    PromptWords,
+    SandboxPaths,
+    is_doc_path,
+)
 
 _SOURCE = ("ts", "tsx", "js", "jsx", "mts")
 # The names of the source files that differ from the base ref `$1`, relative to the project.
@@ -82,8 +88,6 @@ _FILTERED = wrap_report_command(f'cd "$1" && shift && {_RUN} "$@"', "--outputFil
 _TEST_SCRIPTS = (_TESTS, _MEMBER_TESTS, _FILTERED)
 # The directory of a project that is not a workspace, or the root of one.
 _HERE = "./"
-# The kinds a file declares in its name, narrowest first.
-_KINDS = ("integration", "e2e")
 # The runner's config files, in the order they are looked for.
 _RUNNER_CONFIGS = tuple(
     f"{base}.config.{ext}" for base in ("vitest", "vite") for ext in ("ts", "mts", "js", "mjs")
@@ -368,26 +372,28 @@ class NodeNpmProfile:
 
     def declared_kinds(self, repo: Path) -> tuple[str, ...]:
         """The kinds a file declares by its name: `<name>.<kind>.test.<ext>`."""
-        return _KINDS
+        return TEST_KINDS
 
     def default_run_leaves_out(self, repo: Path) -> tuple[str, ...]:
-        """The kinds whose name convention the runner's `exclude` patterns list."""
+        """The kinds whose name convention the runner's `exclude` patterns list. It reads the
+        first `exclude: [...]` list of `vitest.config.*`/`vite.config.*` with each pattern
+        spelled out (`**/*.<kind>.test.ts`), not a brace set."""
         excluded = " ".join(_exclude_patterns(repo))
-        return tuple(kind for kind in _KINDS if f".{kind}." in excluded)
+        return tuple(kind for kind in TEST_KINDS if f".{kind}." in excluded)
 
     def by_id_overrides_default(self, repo: Path) -> bool:
         """A named file runs: the run by file filter takes it whatever its kind."""
         return True
 
     def refused_kinds(self, repo: Path, kinds: list[str]) -> list[str]:
-        return [kind for kind in kinds if kind not in _KINDS]
+        return [kind for kind in kinds if kind not in TEST_KINDS]
 
     def kinds_of(self, repo: Path, path: str, content: str = "") -> list[str]:
         """The kinds in the segments of the file's name between its stem and `.test`/`.spec`."""
         parts = Path(path).name.split(".")
         for i, part in enumerate(parts):
             if part in ("test", "spec") and i > 0:
-                return [kind for kind in _KINDS if kind in parts[1:i]]
+                return [kind for kind in TEST_KINDS if kind in parts[1:i]]
         return []
 
     def per_test_limit_option(self, repo: Path) -> str | None:
