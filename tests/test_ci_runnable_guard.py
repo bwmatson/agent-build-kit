@@ -104,6 +104,21 @@ def test_a_cause_in_a_fixture_or_helper_of_the_same_module_is_reported_for_the_t
     assert "TOKEN" in problems[0]
 
 
+def test_a_cause_two_fixtures_deep_is_reported_for_the_test(tmp_path: Path) -> None:
+    source = (
+        "import os\n\nimport pytest\n\n\n"
+        '@pytest.fixture\ndef b():\n    return os.environ["TOKEN"]\n\n\n'
+        "@pytest.fixture\ndef a(b):\n    return b\n\n\n"
+        "@pytest.mark.integration\ndef test_x(a):\n    assert a\n"
+    )
+    root = tree(tmp_path, {"test_it.py": source})
+
+    problems = check_tests(root, baseline=NONE, required_fields=REQUIRED)
+
+    assert len(problems) == 1
+    assert "TOKEN" in problems[0]
+
+
 def test_a_module_helper_named_like_an_agent_signal_is_not_an_agent_start(
     tmp_path: Path,
 ) -> None:

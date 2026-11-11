@@ -139,16 +139,20 @@ def _causes(
 
 
 def _reached(test: Function, tree: ast.Module) -> list[ast.AST]:
-    """The test, the same-module fixtures it names as parameters, and the module functions
-    each of them calls (the drift test's closure)."""
-    arguments = test.args
-    names = {a.arg for a in (*arguments.posonlyargs, *arguments.args, *arguments.kwonlyargs)}
-    seeds: list[ast.AST] = [test]
-    seeds += [
-        node
+    """The test, the same-module fixtures it names as parameters, and those they name in turn,
+    and the module functions each of them calls (the drift test's closure)."""
+    defined = {
+        node.name: node
         for node in tree.body
-        if isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef) and node.name in names
-    ]
+        if isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef)
+    }
+    seeds: list[Function] = [test]
+    for seed in seeds:
+        arguments = seed.args
+        for argument in (*arguments.posonlyargs, *arguments.args, *arguments.kwonlyargs):
+            fixture = defined.get(argument.arg)
+            if fixture is not None and fixture not in seeds:
+                seeds.append(fixture)
     return [reached for seed in seeds for reached in module_functions_reached(seed, tree)]
 
 
