@@ -608,6 +608,29 @@ class NodeNpmProfile:
                     found.add(relative.as_posix())
         return sorted(found)
 
+    def prepare_worktree(self, checkout: Path, worktree: Path, *, project: str = ".") -> None:
+        """Give `worktree`'s `project` folder a `node_modules` whose entries point at
+        `checkout`'s installed ones, except the workspace members, which point at the
+        worktree's own folders."""
+        installed = checkout / project / "node_modules"
+        if not installed.is_dir():
+            return
+        base = checkout / project
+        folders: dict[str, Path] = {}
+        for member in self.members(base):
+            name = node_environment.read_manifest(base / member).get("name")
+            if isinstance(name, str):
+                folders[name] = worktree / project / member
+        target = worktree / project / "node_modules"
+        target.mkdir(parents=True, exist_ok=True)
+        for entry in sorted(installed.iterdir()):
+            if entry.name.startswith("@") and entry.is_dir() and not entry.is_symlink():
+                (target / entry.name).mkdir(exist_ok=True)
+                for child in sorted(entry.iterdir()):
+                    _link_entry(f"{entry.name}/{child.name}", child, target, folders)
+            else:
+                _link_entry(entry.name, entry, target, folders)
+
     def member_of(self, repo: Path, path: str) -> str | None:
         return _deepest(self.members(repo), path)
 
@@ -627,6 +650,21 @@ class NodeNpmProfile:
             if other != member and name in declared:
                 found.append(other)
         return found
+
+
+def _link_entry(name: str, installed: Path, target: Path, folders: dict[str, Path]) -> None:
+    """Link `target/<name>` to the worktree's folder when `name` is a workspace member (none
+    when the worktree lacks it), and to the installed entry otherwise."""
+    if name in folders:
+        destination = folders[name]
+        if not destination.is_dir():
+            return
+    else:
+        destination = installed
+    link = target / name
+    if link.is_symlink():
+        link.unlink()
+    link.symlink_to(destination)
 
 
 def _deepest(members: list[str], path: str) -> str | None:
