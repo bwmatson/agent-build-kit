@@ -242,12 +242,16 @@ class ToolchainProfile(Protocol):
 
     def clean_command(self, *, types: bool = False) -> str: ...
 
-    def red_command(self, files: list[str], ids: list[str] | None = None) -> str:
+    def red_command(
+        self, files: list[str], ids: list[str] | None = None, *, project: Path | None = None
+    ) -> str:
         """The command that runs `files`, the test files of a tests commit, to see them fail.
         `ids`, when given, are the identifiers of the tests the commit added or changed (a file
         named alone stands for all its tests) and replace `files` for a runner that selects by
         identifier; a runner that cannot runs the files whole. An id the runner turns out not to
-        collect must not fail the run: the command falls back to the files whole."""
+        collect must not fail the run: the command falls back to the files whole. `project` is
+        the directory the command runs in; a runner whose default configuration deselects a kind
+        of test reads it to let that kind through for the named ids."""
         ...
 
     def interpret_red(
@@ -292,12 +296,15 @@ class RepeatsTests(Protocol):
     """The optional hook a profile adds to run chosen tests again under the load of a
     test run. A profile without it has no repeat check."""
 
-    def repeat_command(self, command: list[str], tests: list[str]) -> list[str] | None:
+    def repeat_command(
+        self, command: list[str], tests: list[str], *, project: Path | None = None
+    ) -> list[str] | None:
         """`command`, one of the profile's test runs, as a run of exactly those of `tests`
         that it runs, under the same workers and markers. Each is an identifier the runner
         selects by, given relative to the directory the command runs in. None when none of
         them is one this command runs (a test of another project belongs to that project's
-        command, in its environment)."""
+        command, in its environment). `project` is the directory the command runs in; a runner
+        whose default configuration deselects a kind of test reads it to let that kind through."""
         ...
 
 

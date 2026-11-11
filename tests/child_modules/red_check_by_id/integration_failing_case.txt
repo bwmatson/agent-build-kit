@@ -8,3 +8,8 @@ def test_old():
 @pytest.mark.integration
 def test_new():
     raise AssertionError()
+
+
+@pytest.mark.e2e
+def test_live():
+    assert True

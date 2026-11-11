@@ -7,7 +7,10 @@ import subprocess
 import sys
 from pathlib import Path
 
-from agent_build_kit.profiles.python_uv import BY_ID_MARKERS, PythonUvProfile
+import pytest
+
+from agent_build_kit.profiles.python_uv import PythonUvProfile
+from tests.deselecting_config import BY_ID_MARKERS, DEFAULT_MARKERS, PYPROJECT
 
 TREE = {
     "tests/test_a.py": (
@@ -19,17 +22,20 @@ TREE = {
 }
 
 
-DESELECTING = {
-    "pytest.ini": (
-        "[pytest]\nmarkers =\n    integration: runs in CI\n    slow: takes long\n"
-        "addopts = -m 'not integration and not slow'\n"
-    ),
-    "tests/test_kinds.py": (
-        "import pytest\n\n\n"
-        "@pytest.mark.integration\ndef test_integrated():\n    pass\n\n\n"
-        "@pytest.mark.slow\ndef test_slow():\n    pass\n"
-    ),
+KINDS = (
+    "import pytest\n\n\n"
+    "@pytest.mark.integration\ndef test_integrated():\n    pass\n\n\n"
+    "@pytest.mark.integration\n@pytest.mark.serial\ndef test_alone():\n    pass\n\n\n"
+    "@pytest.mark.e2e\ndef test_live():\n    pass\n"
+)
+# A repository whose default deselection holds out the integration and e2e kinds.
+DESELECTING = {"pyproject.toml": PYPROJECT, "tests/test_kinds.py": KINDS}
+# The same, declaring pytest-xdist, so that its test commands are the serial split.
+XDIST = {
+    "pyproject.toml": PYPROJECT + '\n[dependency-groups]\ndev = ["pytest-xdist"]\n',
+    "tests/test_kinds.py": KINDS,
 }
+KINDS_ID = "tests/test_kinds.py::"
 
 
 def collected(
@@ -38,10 +44,12 @@ def collected(
     for name, text in (tree or TREE).items():
         (tmp_path / name).parent.mkdir(parents=True, exist_ok=True)
         (tmp_path / name).write_text(text)
-    narrowed = PythonUvProfile().repeat_command(command, ids)
+    narrowed = PythonUvProfile().repeat_command(command, ids, project=tmp_path)
     assert narrowed is not None
     result = subprocess.run(
-        [*narrowed, "--collect-only", "-p", "no:cacheprovider"],
+        # Verbosity is set absolutely: `-q` lists the ids, which `-v` would turn into a tree.
+        [*(w for w in narrowed if w not in ("-v", "-q")), "-q", "--collect-only"]
+        + ["-p", "no:cacheprovider"],
         cwd=tmp_path,
         capture_output=True,
         text=True,
@@ -66,18 +74,80 @@ def test_an_integration_test_is_collected_by_id_under_the_default_deselection(
 ) -> None:
     command = [sys.executable, "-m", "pytest", "tests", "-q"]
 
-    found = collected(tmp_path, ["tests/test_kinds.py::test_integrated"], command, DESELECTING)
+    found = collected(tmp_path, [f"{KINDS_ID}test_integrated"], command, DESELECTING)
 
-    assert found == {"tests/test_kinds.py::test_integrated"}
+    assert found == {f"{KINDS_ID}test_integrated"}
 
 
-def test_a_slow_test_named_beside_an_integration_test_stays_deselected(tmp_path: Path) -> None:
+def test_an_e2e_test_named_beside_an_integration_test_stays_deselected(tmp_path: Path) -> None:
     command = [sys.executable, "-m", "pytest", "tests", "-q"]
-    ids = ["tests/test_kinds.py::test_integrated", "tests/test_kinds.py::test_slow"]
+    ids = [f"{KINDS_ID}test_integrated", f"{KINDS_ID}test_live"]
 
     found = collected(tmp_path, ids, command, DESELECTING)
 
-    assert found == {"tests/test_kinds.py::test_integrated"}
+    assert found == {f"{KINDS_ID}test_integrated"}
+
+
+@pytest.mark.parametrize(
+    ("pass_index", "test"), [(0, "test_integrated"), (1, "test_alone")], ids=["parallel", "serial"]
+)
+def test_an_integration_test_is_collected_by_each_pass_of_the_serial_split_over_the_default(
+    tmp_path: Path, pass_index: int, test: str
+) -> None:
+    for name, text in XDIST.items():
+        (tmp_path / name).parent.mkdir(parents=True, exist_ok=True)
+        (tmp_path / name).write_text(text)
+    commands = PythonUvProfile().test_commands(tmp_path, ["tests/test_kinds.py"], root_extras=[])
+    # The profile's own commands, run with this interpreter in place of `uv run`.
+    command = [sys.executable, "-m", *commands[pass_index][2:]]
+    assert len(commands) == 2, commands
+
+    found = collected(tmp_path, [f"{KINDS_ID}{test}"], command, XDIST)
+
+    assert found == {f"{KINDS_ID}{test}"}
+
+
+MARKED_OPTIONS = {
+    "separate": ["-m", f"({DEFAULT_MARKERS}) and not serial"],
+    "attached": [f"-m({DEFAULT_MARKERS}) and not serial"],
+    "long": ["--markexpr", f"({DEFAULT_MARKERS}) and not serial"],
+    "long with equals": [f"--markexpr=({DEFAULT_MARKERS}) and not serial"],
+}
+
+
+@pytest.mark.parametrize("given", MARKED_OPTIONS.values(), ids=MARKED_OPTIONS.keys())
+def test_the_serial_split_over_the_default_lets_the_integration_kind_through_in_any_spelling(
+    tmp_path: Path, given: list[str]
+) -> None:
+    (tmp_path / "pyproject.toml").write_text(PYPROJECT)
+    command = ["uv", "run", "pytest", "-n", "2", *given, "-v"]
+
+    narrowed = PythonUvProfile().repeat_command(command, ["t.py::a"], project=tmp_path)
+
+    assert narrowed is not None
+    lifted = " ".join(narrowed)
+    assert f"(integration or ({DEFAULT_MARKERS})) and not serial" in lifted
+    assert lifted.count("and not serial") == 1
+
+
+def test_a_marker_expression_the_command_carries_of_its_own_stays(tmp_path: Path) -> None:
+    (tmp_path / "pyproject.toml").write_text(PYPROJECT)
+    command = ["uv", "run", "pytest", "-m", "not docker", "-q"]
+
+    narrowed = PythonUvProfile().repeat_command(command, ["t.py::a"], project=tmp_path)
+
+    assert narrowed == [*command, "t.py::a"]
+
+
+def test_a_run_with_no_marker_expression_is_given_the_default_with_the_integration_kind_let_through(
+    tmp_path: Path,
+) -> None:
+    (tmp_path / "pyproject.toml").write_text(PYPROJECT)
+    command = ["uv", "run", "pytest", "-n", "2", "-q"]
+
+    narrowed = PythonUvProfile().repeat_command(command, ["t.py::a"], project=tmp_path)
+
+    assert narrowed == [*command, "-m", BY_ID_MARKERS, "t.py::a"]
 
 
 def test_a_method_is_collected_by_its_class_path_alone(tmp_path: Path) -> None:
@@ -111,7 +181,6 @@ def test_a_member_command_keeps_only_its_own_ids() -> None:
 
     assert PythonUvProfile().repeat_command(command, ids) == [
         *["uv", "run", "--package", "svc-a", "--isolated", "pytest", "-q"],
-        *["-m", BY_ID_MARKERS],
         "svc-a/tests/test_x.py::test_y",
     ]
 
@@ -120,11 +189,7 @@ def test_a_command_given_no_path_keeps_every_id() -> None:
     command = ["uv", "run", "pytest", "-n", "auto"]
     ids = ["a/test_x.py::test_y", "b/test_x.py::test_z"]
 
-    assert PythonUvProfile().repeat_command(command, ids) == [
-        *command,
-        *["-m", BY_ID_MARKERS],
-        *ids,
-    ]
+    assert PythonUvProfile().repeat_command(command, ids) == [*command, *ids]
 
 
 def test_a_command_run_from_a_directory_keeps_the_ids_under_it_relative_to_it() -> None:

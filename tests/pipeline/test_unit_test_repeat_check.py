@@ -17,8 +17,9 @@ import pytest
 from agent_build_kit.config import LimitsConfig
 from agent_build_kit.pipeline.wiring import build_unit_test
 from agent_build_kit.profiles.base import ToolchainProfile
-from agent_build_kit.profiles.python_uv import BY_ID_MARKERS, PythonUvProfile
+from agent_build_kit.profiles.python_uv import PythonUvProfile
 from tests.conftest import make_installation
+from tests.deselecting_config import BY_ID_MARKERS, PYPROJECT
 from tests.factories import git, init_repo
 
 RUN = ["uv", "run", "pytest", "-n", "auto", "-q"]
@@ -105,7 +106,7 @@ class NodeProfile(Profile):
     # Assigned, not defined: a scan for changed tests takes any `def test_*` for one.
     test_commands = _commands
 
-    def repeat_command(self, command: list[str], tests: list[str]) -> list[str]:
+    def repeat_command(self, command: list[str], tests: list[str], **_: object) -> list[str]:
         return [*command, "--", *tests]
 
 
@@ -301,8 +302,7 @@ def test_a_test_of_one_member_is_repeated_only_by_that_member_s_command(tmp_path
     assert (
         runs.repeat_runs
         == [
-            [*["uv", "run", "--package", "svc-a", "pytest", "-q"]]
-            + ["-m", BY_ID_MARKERS, "svc-a/tests/test_x.py::test_added"]
+            ["uv", "run", "--package", "svc-a", "pytest", "-q", "svc-a/tests/test_x.py::test_added"]
         ]
         * 3
     )
@@ -326,7 +326,7 @@ def runs_naming(runs: Runs, test: str) -> list[list[str]]:
 def test_an_added_integration_test_is_run_by_id_with_the_default_deselection_overridden(
     tmp_path: Path, source: str
 ) -> None:
-    repo, base = checkout(tmp_path, {"test_new.py": source})
+    repo, base = checkout(tmp_path, {"test_new.py": source, "pyproject.toml": PYPROJECT})
     runs = Runs()
 
     passed, _ = unit_test(runs, repo, base)
@@ -335,10 +335,7 @@ def test_an_added_integration_test_is_run_by_id_with_the_default_deselection_ove
     assert passed
     assert len(named) >= 3, "the by-id run and the repeats all name it"
     for command in named:
-        expressions = marker_expressions(command)
-        assert expressions, f"no -m override in {command}"
-        assert "integration" in expressions[-1]
-        assert "not integration" not in expressions[-1]
+        assert marker_expressions(command) == [BY_ID_MARKERS], command
 
 
 def test_a_changed_existing_integration_test_is_run_and_repeated_with_the_override(
@@ -348,6 +345,7 @@ def test_a_changed_existing_integration_test_is_run_and_repeated_with_the_overri
     after = before.replace("assert 2 == 2", "assert 3 == 3")
     repo = init_repo(tmp_path / "repo")
     (repo / "test_old.py").write_text(before)
+    (repo / "pyproject.toml").write_text(PYPROJECT)
     git(repo, "add", "-A")
     git(repo, "commit", "-qm", "base")
     base = git(repo, "rev-parse", "HEAD").strip()
@@ -362,7 +360,7 @@ def test_a_changed_existing_integration_test_is_run_and_repeated_with_the_overri
     assert passed
     assert len(named) >= 3
     for command in named:
-        assert marker_expressions(command), f"no -m override in {command}"
+        assert marker_expressions(command) == [BY_ID_MARKERS], command
 
 
 def test_a_test_method_in_a_source_file_is_not_repeated(tmp_path: Path) -> None:

@@ -321,7 +321,9 @@ class NodeNpmProfile:
         members = self.members(repo)
         return [_member_command(m) for m in members] if members else [list(_TEST_COMMAND)]
 
-    def repeat_command(self, command: list[str], tests: list[str]) -> list[str] | None:
+    def repeat_command(
+        self, command: list[str], tests: list[str], *, project: Path | None = None
+    ) -> list[str] | None:
         """`command`, one of this profile's test runs, as the filtered run of exactly the files
         of `tests` under the directory it runs in (the project's root when it names none),
         given to Vitest relative to that directory; an identifier's `::name` is ignored. A run
@@ -423,7 +425,9 @@ class NodeNpmProfile:
         does not exist yet is the expected state at the tests commit."""
         return f"{_LINT_ALL} && {_TYPE_CHECK_ALL}" if types else _LINT_ALL
 
-    def red_command(self, files: list[str], ids: list[str] | None = None) -> str:
+    def red_command(
+        self, files: list[str], ids: list[str] | None = None, *, project: Path | None = None
+    ) -> str:
         """Vitest with `files` as its filters, its JUnit report printed after the marker so it
         outlives the worktree; the exit status is Vitest's own. Vitest takes each file as a
         filter that matches by substring (an absolute path is turned back into the relative

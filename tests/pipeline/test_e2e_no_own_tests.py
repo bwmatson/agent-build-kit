@@ -121,7 +121,7 @@ def test_the_unit_goes_on_as_one_whose_e2e_passed(tmp_path: Path) -> None:
 class TakesNoId(PythonUvProfile):
     """A profile none of whose commands takes any identifier."""
 
-    def repeat_command(self, command: list[str], tests: list[str]) -> list[str] | None:
+    def repeat_command(self, command: list[str], tests: list[str], **_: object) -> list[str] | None:
         return None
 
 

@@ -12,6 +12,7 @@ from __future__ import annotations
 import shlex
 import sys
 from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -46,10 +47,10 @@ class IdProfile(ModeProfile):
     ) -> tuple[bool, list[str]]:
         return PYTHON.interpret_red(output, exit_code, stubbed=stubbed)
 
-    def red_command(self, files: list[str], ids: list[str] | None = None) -> str:
+    def red_command(self, files: list[str], ids: list[str] | None = None, **options: Any) -> str:
         self.asked.append((files, ids))
         # The Python profile's own command, run with this interpreter in place of `uv run`.
-        command = PYTHON.red_command(files, ids)
+        command = PYTHON.red_command(files, ids, project=options.get("project"))
         return command.replace("uv run pytest", f"{shlex.quote(sys.executable)} -m pytest")
 
 
@@ -200,16 +201,17 @@ def test_a_function_inside_a_new_test_is_not_selected(repo: Path) -> None:
 
 @pytest.fixture
 def deselecting_repo(tmp_path: Path) -> Path:
-    """A repository whose own pytest configuration deselects the integration and slow kinds."""
+    """A repository whose own pytest configuration deselects the integration and e2e kinds."""
     return branch_with(
         tmp_path,
-        {SUBJECT: source("old_case"), "pytest.ini": source("default_deselection_config")},
+        {SUBJECT: source("old_case"), "pyproject.toml": source("default_deselection_config")},
     )
 
 
-def test_a_new_integration_test_is_run_by_id_under_the_default_deselection_and_is_red(
+def test_a_new_integration_test_is_run_by_id_and_an_e2e_test_named_beside_it_is_not(
     deselecting_repo: Path,
 ) -> None:
+    # The e2e test passes if it runs, which the red check would reject as a test that is not red.
     commit_cases(deselecting_repo, {SUBJECT: source("integration_failing_case")})
 
     problems = judged(deselecting_repo, IdProfile())

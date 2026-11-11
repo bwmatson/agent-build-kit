@@ -97,7 +97,9 @@ def _red_command(
     if not ids:
         return toolchain.red_command(owned)
     chosen = {file: [i for i in ids if i.split("::")[0] == file] for file in owned}
-    return toolchain.red_command(owned, [i for file in owned for i in chosen[file] or [file]])
+    return toolchain.red_command(
+        owned, [i for file in owned for i in chosen[file] or [file]], project=repo / prefix
+    )
 
 
 def _where(sha: str, owner: ProjectConfig | None) -> str:

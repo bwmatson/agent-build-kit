@@ -1,5 +1,7 @@
-[pytest]
-markers =
-    integration: runs in CI
-    slow: takes long
-addopts = -m 'not integration and not slow'
+[tool.pytest.ini_options]
+markers = [
+    "integration: runs in CI",
+    "e2e: starts the real stack",
+    "serial: runs alone",
+]
+addopts = "-m 'not integration and not e2e'"
