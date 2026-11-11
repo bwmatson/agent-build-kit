@@ -132,10 +132,14 @@ def test_a_retry_after_a_refused_call_names_the_call_and_says_it_did_not_run(
     recorder, _, _ = refusing(tmp_path, refused=1, refused_calls=REFUSED, **options)
 
     first, second = recorder.prompts[:2]
-    assert COMMAND in second
-    assert REASON in second
-    assert DID_NOT_RUN in second
-    assert (UNCHANGED_TREE_NOTE if "tests_required" in options else WROTE_NOTHING_NOTE) in second
+    note = second.removesuffix(
+        first
+    )  # the first prompt itself also says a refused call did not run
+    assert note != second
+    assert f"{REFUSED[0].tool}: `{COMMAND}`" in note
+    assert REASON in note
+    assert DID_NOT_RUN in note
+    assert (UNCHANGED_TREE_NOTE if "tests_required" in options else WROTE_NOTHING_NOTE) in note
     assert COMMAND not in first
 
 

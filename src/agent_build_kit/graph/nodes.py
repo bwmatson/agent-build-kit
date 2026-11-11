@@ -243,7 +243,7 @@ WROTE_NOTHING_NOTE = (
     "Your last run of this step wrote no test and said nothing. Write the tests this group "
     "calls for; if a write is refused, say so. If the tests it needs already exist, say that."
 )
-REFUSED_CALLS_NOTE = (
+REFUSED_CALLS_RETRY_NOTE = (
     "These calls of your last run were refused and did not run, so what they would have done "
     "did not happen:\n{calls}"
 )
@@ -1720,8 +1720,8 @@ class BuildPath:
         note = UNCHANGED_TREE_NOTE if required else WROTE_NOTHING_NOTE
         if not refused:
             return note
-        calls = "\n".join(f"- `{call.subject}` ({call.reason})" for call in refused)
-        return f"{note}\n\n{REFUSED_CALLS_NOTE.format(calls=calls)}"
+        calls = "\n".join(f"- {call.tool}: `{call.subject}` ({call.reason})" for call in refused)
+        return f"{note}\n\n{REFUSED_CALLS_RETRY_NOTE.format(calls=calls)}"
 
     def wrote_nothing(
         self, state: UnitRun, before: str, account: str, *, required: bool = False
