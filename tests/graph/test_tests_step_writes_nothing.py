@@ -11,9 +11,12 @@ from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
+import pytest
+
 from agent_build_kit.graph.nodes import NO_NEW_TESTS, NO_TESTS_COMMIT, WROTE_NOTHING_NOTE
 from agent_build_kit.pipeline.stack_runner import RunOutcome
 from agent_build_kit.pipeline.wiring import build_tree_state
+from agent_build_kit.runtimes import AgentResult, RefusedCall
 from tests.graph.branch_fakes import (
     ACCOUNT,
     Groups,
@@ -34,6 +37,10 @@ LONE_SEEDED = ["test: G3", "feat: G3", "feat: G4"]
 CAUSE = "the tests step wrote no test"
 CLAIM = "Added four tests to tests/graph and they all fail as they should"
 UNCHANGED = "tree is unchanged"
+COMMAND = 'echo "$X" >> tests/test_a.py'
+REASON = "A variable in this command can't be checked before it runs"
+REFUSED = (RefusedCall(tool="Bash", subject=COMMAND, reason=REASON),)
+DID_NOT_RUN = "did not run"
 
 
 class Refused(OnBranch):
@@ -41,11 +48,19 @@ class Refused(OnBranch):
     say `said` (nothing by default), as a refused write does."""
 
     def __init__(
-        self, store: Any, *, refused: int, group: str = "", said: str = "", **options: Any
+        self,
+        store: Any,
+        *,
+        refused: int,
+        group: str = "",
+        said: str = "",
+        refused_calls: tuple[RefusedCall, ...] = (),
+        **options: Any,
     ) -> None:
         super().__init__(store, **options)
         self.refused = refused
         self.said = said
+        self.refused_calls = refused_calls  # what the permission layer refused in those runs
         self.group = group  # as the prompt names it; every group when empty
         self.tests_calls = 0
 
@@ -60,6 +75,9 @@ class Refused(OnBranch):
         if self.tests_calls > self.refused:
             return answer
         (kwargs["cwd"] / f"work-{len(self.prompts)}.txt").unlink()
+        if kwargs.get("on_result") and self.refused_calls:
+            result = AgentResult(ok=True, text=self.said, refused_calls=self.refused_calls)
+            kwargs["on_result"](result, role="implement", model="m", runtime="fake")
         return self.said
 
 
@@ -70,10 +88,13 @@ def refusing(
     group: str = "",
     said: str = "",
     groups: Mapping[str, Groups] = GROUPS,
+    refused_calls: tuple[RefusedCall, ...] = (),
     **options: Any,
 ) -> tuple[Refused, RunOutcome, Path]:
     recorder, repo = prepared(tmp_path, groups=groups, **options)
-    refusing_recorder = Refused(recorder.store, refused=refused, group=group, said=said)
+    refusing_recorder = Refused(
+        recorder.store, refused=refused, group=group, said=said, refused_calls=refused_calls
+    )
     outcome = build(tmp_path, refusing_recorder, **refusing_recorder.overrides(tmp_path))
     return refusing_recorder, outcome, repo
 
@@ -91,6 +112,26 @@ def test_a_tests_node_that_writes_nothing_runs_once_more_then_fails_before_imple
     first, second = recorder.prompts[:2]  # the build's first agent calls are its tests step's
     assert WROTE_NOTHING_NOTE in second
     assert WROTE_NOTHING_NOTE not in first
+
+
+@pytest.mark.parametrize(
+    "options",
+    [
+        pytest.param({}, id="tests-optional"),
+        pytest.param({"said": CLAIM, "tests_required": (1,)}, id="tests-required"),
+    ],
+)
+def test_a_retry_after_a_refused_call_names_the_call_and_says_it_did_not_run(
+    tmp_path: Path, options: dict[str, Any]
+) -> None:
+    recorder, _, _ = refusing(tmp_path, refused=1, refused_calls=REFUSED, **options)
+
+    first, second = recorder.prompts[:2]
+    assert COMMAND in second
+    assert REASON in second
+    assert DID_NOT_RUN in second
+    assert WROTE_NOTHING_NOTE in second  # the note is kept beside the refused calls
+    assert COMMAND not in first
 
 
 def test_a_later_group_whose_tests_node_writes_nothing_fails_without_an_empty_test_commit(
