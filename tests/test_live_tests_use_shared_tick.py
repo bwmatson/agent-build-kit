@@ -113,6 +113,7 @@ def test_each_live_test_that_runs_a_tick_ends_it_through_the_guarded_branch_chec
     assert bypassing == []
 
 
+@pytest.mark.time_limit(LOADED_TEST_TIME_LIMIT)
 def test_a_copy_of_the_graph_test_with_a_tick_that_builds_nothing_fails_with_hints_first(
     pytester: pytest.Pytester,
 ) -> None:

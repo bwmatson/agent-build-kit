@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import pytest
 
+from tests.time_limit import LOADED_TEST_TIME_LIMIT
 from tests.tracked_files import ROOT
 from tests.wide_scans import TESTS_ROOT, check_tests, load_baseline
 
@@ -158,11 +159,13 @@ def test_the_baseline_holds_none_of_the_named_scans() -> None:
 
 def default_run_collects(pytester: pytest.Pytester, module: str) -> set[str]:
     """The names of the tests of a module that the default run selects: a collection that
-    deselects by marker, which the items `inline_genitems` returns are not."""
+    deselects by marker, which the items `inline_genitems` returns are not. The child collection
+    loads the suite's conftest and the package, so its callers run under the loaded limit."""
     result = pytester.runpytest("--collect-only", "-q", *DEFAULT_RUN, str(ROOT / "tests" / module))
     return {line.split("::")[-1].split("[")[0] for line in result.outlines if "::" in line}
 
 
+@pytest.mark.time_limit(LOADED_TEST_TIME_LIMIT)
 @pytest.mark.parametrize("module", sorted({module for module, _ in WIDE_SCANS}))
 def test_the_default_run_collects_none_of_the_named_scans_of_a_module(
     pytester: pytest.Pytester, module: str
@@ -172,6 +175,7 @@ def test_the_default_run_collects_none_of_the_named_scans_of_a_module(
     assert collected.isdisjoint({name for owner, name in WIDE_SCANS if owner == module})
 
 
+@pytest.mark.time_limit(LOADED_TEST_TIME_LIMIT)
 @pytest.mark.parametrize("module", WITH_LOGIC_TESTS)
 def test_the_default_run_still_collects_the_logic_tests_of_a_check(
     pytester: pytest.Pytester, module: str
