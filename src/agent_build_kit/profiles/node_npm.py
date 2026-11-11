@@ -82,6 +82,22 @@ _FILTERED = wrap_report_command(f'cd "$1" && shift && {_RUN} "$@"', "--outputFil
 _TEST_SCRIPTS = (_TESTS, _MEMBER_TESTS, _FILTERED)
 # The directory of a project that is not a workspace, or the root of one.
 _HERE = "./"
+# The kinds a file declares in its name, narrowest first.
+_KINDS = ("integration", "e2e")
+# The runner's config files, in the order they are looked for.
+_RUNNER_CONFIGS = tuple(
+    f"{base}.config.{ext}" for base in ("vitest", "vite") for ext in ("ts", "mts", "js", "mjs")
+)
+_EXCLUDE = re.compile(r"\bexclude\s*:\s*\[(.*?)\]", re.DOTALL)
+
+
+def _exclude_patterns(repo: Path) -> list[str]:
+    """The quoted patterns of the `exclude` list in the runner's config; none without one."""
+    for name in _RUNNER_CONFIGS:
+        config = repo / name
+        if config.is_file() and (found := _EXCLUDE.search(config.read_text())):
+            return re.findall(r"""["'`]([^"'`]*)["'`]""", found.group(1))
+    return []
 
 
 def _script_or(script: str, generic: str) -> str:
@@ -351,22 +367,32 @@ class NodeNpmProfile:
         return ["sh", "-c", _FILTERED, "sh", directory, *files] if files else None
 
     def declared_kinds(self, repo: Path) -> tuple[str, ...]:
-        raise NotImplementedError
+        """The kinds a file declares by its name: `<name>.<kind>.test.<ext>`."""
+        return _KINDS
 
     def default_run_leaves_out(self, repo: Path) -> tuple[str, ...]:
-        raise NotImplementedError
+        """The kinds whose name convention the runner's `exclude` patterns list."""
+        excluded = " ".join(_exclude_patterns(repo))
+        return tuple(kind for kind in _KINDS if f".{kind}." in excluded)
 
     def by_id_overrides_default(self, repo: Path) -> bool:
-        raise NotImplementedError
+        """A named file runs: the run by file filter takes it whatever its kind."""
+        return True
 
     def refused_kinds(self, repo: Path, kinds: list[str]) -> list[str]:
-        raise NotImplementedError
+        return [kind for kind in kinds if kind not in _KINDS]
 
     def kinds_of(self, repo: Path, path: str, content: str = "") -> list[str]:
-        raise NotImplementedError
+        """The kinds in the segments of the file's name between its stem and `.test`/`.spec`."""
+        parts = Path(path).name.split(".")
+        for i, part in enumerate(parts):
+            if part in ("test", "spec") and i > 0:
+                return [kind for kind in _KINDS if kind in parts[1:i]]
+        return []
 
     def per_test_limit_option(self, repo: Path) -> str | None:
-        raise NotImplementedError
+        """Vitest's `testTimeout`."""
+        return "testTimeout"
 
     def test_file_pathspecs(self) -> list[str]:
         """The `.test` and `.spec` files and those under `__tests__/`; Vitest selects by file."""

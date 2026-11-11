@@ -260,6 +260,8 @@ _VERBOSITY_FLAGS = frozenset(["-q", "-qq", "-v", "-vv"])
 _REPORT_FLAGS = frozenset([*SUMMARY_FLAGS, *DURATION_FLAGS, *UNIT_REPORT_FLAGS, *_VERBOSITY_FLAGS])
 # A line of `pytest --markers`: `@pytest.mark.<name>(<args>): <description>`.
 _MARKER_LINE = re.compile(r"@pytest\.mark\.(?P<name>\w+)")
+# The kinds of test a project can mark, narrowest first.
+_KINDS = ("integration", "e2e")
 # Pytest's exit status when the selection holds no test.
 _NO_TESTS_SELECTED = 5
 
@@ -720,23 +722,46 @@ class PythonUvProfile:
         found = _FAILED_TEST.findall(output)
         return list(dict.fromkeys(found))
 
+    def _registered_markers(self, repo: Path) -> list[str]:
+        options = _pyproject(repo).get("tool", {}).get("pytest", {}).get("ini_options", {})
+        markers = options.get("markers", [])
+        names = [markers] if isinstance(markers, str) else list(markers)
+        return [m.split(":", 1)[0].split("(", 1)[0].strip() for m in names if isinstance(m, str)]
+
     def declared_kinds(self, repo: Path) -> tuple[str, ...]:
-        raise NotImplementedError
+        """The kinds the project registers as pytest markers."""
+        registered = self._registered_markers(repo)
+        return tuple(kind for kind in _KINDS if kind in registered)
 
     def default_run_leaves_out(self, repo: Path) -> tuple[str, ...]:
-        raise NotImplementedError
+        """The kinds the `-m` of the project's pytest addopts excludes."""
+        excluded = set(re.findall(r"\bnot\s+(\w+)", _addopts_marker(repo)))
+        return tuple(kind for kind in self.declared_kinds(repo) if kind in excluded)
 
     def by_id_overrides_default(self, repo: Path) -> bool:
-        raise NotImplementedError
+        """A named test runs: the by-id selection lifts the integration kind from the default."""
+        return True
 
     def refused_kinds(self, repo: Path, kinds: list[str]) -> list[str]:
-        raise NotImplementedError
+        declared = self.declared_kinds(repo)
+        return [kind for kind in kinds if kind not in declared]
 
     def kinds_of(self, repo: Path, path: str, content: str = "") -> list[str]:
-        raise NotImplementedError
+        """The kinds a Python test file marks, read from its source (the file's own when
+        `content` is empty)."""
+        if not path.endswith(".py"):
+            return []
+        source = content or (repo / path).read_text()
+        try:
+            module = ast.parse(source)
+        except SyntaxError:
+            return []
+        marked = {mark_name(node) for node in ast.walk(module) if isinstance(node, ast.expr)}
+        return [kind for kind in _KINDS if kind in marked]
 
     def per_test_limit_option(self, repo: Path) -> str | None:
-        raise NotImplementedError
+        """The `time_limit` marker, when the project registers it."""
+        return "time_limit" if "time_limit" in self._registered_markers(repo) else None
 
     def failed_workers(self, output: str) -> dict[str, str]:
         """The worker (`gw3`) that ran each failed test, read from the `[gw3] ...` line xdist
