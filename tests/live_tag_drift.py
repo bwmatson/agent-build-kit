@@ -260,20 +260,31 @@ def functions_reached(item: pytest.Item) -> list[tuple[ast.AST, ast.Module]]:
     for definitions in requested_fixtures(item).values():
         targets += [definition.func for definition in definitions]
     reached: list[tuple[ast.AST, ast.Module]] = []
-    seen: set[tuple[int, str]] = set()
-    pending = [found for target in targets if target and (found := function_tree(target))]
+    for target in targets:
+        found = function_tree(target) if target else None
+        if found is not None:
+            reached += [(function, found[1]) for function in module_functions_reached(*found)]
+    return reached
+
+
+def module_functions_reached(function: ast.AST, tree: ast.Module) -> list[ast.AST]:
+    """`function` and the top-level functions of its module `tree` that it calls by bare name,
+    followed transitively."""
+    defined = {
+        n.name: n for n in tree.body if isinstance(n, ast.FunctionDef | ast.AsyncFunctionDef)
+    }
+    reached: list[ast.AST] = []
+    seen: set[str] = set()
+    pending = [function]
     while pending:
-        function, tree = pending.pop()
-        reached.append((function, tree))
-        defined = {
-            n.name: n for n in tree.body if isinstance(n, ast.FunctionDef | ast.AsyncFunctionDef)
-        }
-        for node in ast.walk(function):
+        current = pending.pop()
+        reached.append(current)
+        for node in ast.walk(current):
             if isinstance(node, ast.Call) and isinstance(node.func, ast.Name):
                 called = defined.get(node.func.id)
-                if called is not None and (id(tree), called.name) not in seen:
-                    seen.add((id(tree), called.name))
-                    pending.append((called, tree))
+                if called is not None and called.name not in seen:
+                    seen.add(called.name)
+                    pending.append(called)
     return reached
 
 

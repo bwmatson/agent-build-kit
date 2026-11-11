@@ -24,6 +24,7 @@ does not know is not found; the baseline and the audit catch those, and the guar
 from __future__ import annotations
 
 import ast
+from collections.abc import Callable, Mapping
 from pathlib import Path
 
 TESTS_ROOT = Path(__file__).parent
@@ -127,13 +128,68 @@ def _integration(node: ast.AST) -> bool:
     return any(isinstance(n, ast.Attribute) and n.attr == "integration" for n in ast.walk(node))
 
 
-def _module_marked(tree: ast.Module) -> bool:
+def _module_marked(tree: ast.Module, marks: Callable[[ast.AST], bool] = _integration) -> bool:
     return any(
         isinstance(node, ast.Assign)
         and any(isinstance(t, ast.Name) and t.id == "pytestmark" for t in node.targets)
-        and _integration(node.value)
+        and marks(node.value)
         for node in tree.body
     )
+
+
+def walk_tests(
+    tree: ast.Module, marks: Callable[[ast.AST], bool] = _integration
+) -> list[tuple[ast.FunctionDef | ast.AsyncFunctionDef, bool]]:
+    """Every `test_` function of a module, with whether the selector `marks` finds sits on the
+    test, its class or the module (`pytestmark`)."""
+    found: list[tuple[ast.FunctionDef | ast.AsyncFunctionDef, bool]] = []
+
+    def visit(body: list[ast.stmt], marked: bool) -> None:
+        for node in body:
+            if isinstance(node, ast.ClassDef):
+                visit(node.body, marked or any(marks(d) for d in node.decorator_list))
+            elif isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef) and node.name.startswith(
+                "test_"
+            ):
+                found.append((node, marked or any(marks(d) for d in node.decorator_list)))
+
+    visit(tree.body, _module_marked(tree, marks))
+    return found
+
+
+def check_modules(
+    root: Path,
+    find: Callable[[str], Mapping[str, str]],
+    *,
+    baseline: frozenset[str],
+    baseline_file: Path,
+    new_message: Callable[[str, str], str],
+    stale_reason: str,
+) -> list[str]:
+    """The skeleton both guards share: `find` maps a module's text to its offending tests (name to
+    detail); one message per offender the baseline does not name, one per baseline entry that
+    offends no longer, and one per module that cannot be parsed."""
+    found: dict[str, str] = {}
+    problems: list[str] = []
+    for path in sorted(root.rglob("test_*.py")):
+        if any(
+            part.startswith(".") or part == "child_modules" for part in path.relative_to(root).parts
+        ):
+            continue
+        relative = path.relative_to(root).as_posix()
+        try:
+            offenders = find(path.read_text())
+        except SyntaxError as error:
+            problems.append(f"{relative}: cannot be parsed ({error.msg}, line {error.lineno})")
+            continue
+        for name, detail in offenders.items():
+            found[f"{relative}::{name}"] = detail
+    problems += [new_message(entry, found[entry]) for entry in sorted(found.keys() - baseline)]
+    problems += [
+        f"{entry}: stale baseline entry, {stale_reason}; remove it from {baseline_file.name}"
+        for entry in sorted(baseline - found.keys())
+    ]
+    return problems
 
 
 def _scan_helpers(tree: ast.Module) -> frozenset[str]:
@@ -153,59 +209,27 @@ def _scan_helpers(tree: ast.Module) -> frozenset[str]:
         found = more
 
 
-def _unmarked_scans(text: str) -> list[str]:
-    """The names of the tests in a module that scan the repository and carry no
-    `integration` selector."""
+def _unmarked_scans(text: str) -> dict[str, str]:
+    """The tests in a module that scan the repository and carry no `integration` selector."""
     if not any(word in text for word in SCAN_TEXT):
-        return []
+        return {}
     tree = ast.parse(text)
-    if _module_marked(tree):
-        return []
-    found: list[str] = []
     helpers = _scan_helpers(tree)
-
-    def visit(body: list[ast.stmt], marked: bool) -> None:
-        for node in body:
-            if isinstance(node, ast.ClassDef):
-                visit(node.body, marked or any(_integration(d) for d in node.decorator_list))
-            elif isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef):
-                if (
-                    node.name.startswith("test_")
-                    and not marked
-                    and not any(_integration(d) for d in node.decorator_list)
-                    and _is_scan(node, helpers)
-                ):
-                    found.append(node.name)
-
-    visit(tree.body, False)
-    return found
+    return {
+        node.name: "" for node, marked in walk_tests(tree) if not marked and _is_scan(node, helpers)
+    }
 
 
 def check_tests(root: Path = TESTS_ROOT, *, baseline: frozenset[str]) -> list[str]:
     """One message per problem in the test modules under `root`."""
-    scans: set[str] = set()
-    problems: list[str] = []
-    for path in sorted(root.rglob("test_*.py")):
-        if any(
-            part.startswith(".") or part == "child_modules" for part in path.relative_to(root).parts
-        ):
-            continue
-        relative = path.relative_to(root).as_posix()
-        try:
-            names = _unmarked_scans(path.read_text())
-        except SyntaxError as error:
-            problems.append(f"{relative}: cannot be parsed ({error.msg}, line {error.lineno})")
-            continue
-        for name in names:
-            scans.add(f"{relative}::{name}")
-    problems += [
-        f"{entry}: scans the repository and is not marked integration; mark the test "
-        "`@pytest.mark.integration` (a baseline entry is for a scan that exists today)"
-        for entry in sorted(scans - baseline)
-    ]
-    problems += [
-        f"{entry}: stale baseline entry, it is no longer an unmarked scan; remove it from "
-        f"{BASELINE_FILE.name}"
-        for entry in sorted(baseline - scans)
-    ]
-    return problems
+    return check_modules(
+        root,
+        _unmarked_scans,
+        baseline=baseline,
+        baseline_file=BASELINE_FILE,
+        new_message=lambda entry, _: (
+            f"{entry}: scans the repository and is not marked integration; mark the test "
+            "`@pytest.mark.integration` (a baseline entry is for a scan that exists today)"
+        ),
+        stale_reason="it is no longer an unmarked scan",
+    )
