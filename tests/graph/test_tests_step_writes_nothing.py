@@ -13,7 +13,12 @@ from typing import Any
 
 import pytest
 
-from agent_build_kit.graph.nodes import NO_NEW_TESTS, NO_TESTS_COMMIT, WROTE_NOTHING_NOTE
+from agent_build_kit.graph.nodes import (
+    NO_NEW_TESTS,
+    NO_TESTS_COMMIT,
+    UNCHANGED_TREE_NOTE,
+    WROTE_NOTHING_NOTE,
+)
 from agent_build_kit.pipeline.stack_runner import RunOutcome
 from agent_build_kit.pipeline.wiring import build_tree_state
 from agent_build_kit.runtimes import AgentResult, RefusedCall
@@ -130,7 +135,7 @@ def test_a_retry_after_a_refused_call_names_the_call_and_says_it_did_not_run(
     assert COMMAND in second
     assert REASON in second
     assert DID_NOT_RUN in second
-    assert WROTE_NOTHING_NOTE in second  # the note is kept beside the refused calls
+    assert (UNCHANGED_TREE_NOTE if "tests_required" in options else WROTE_NOTHING_NOTE) in second
     assert COMMAND not in first
 
 

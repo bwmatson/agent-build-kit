@@ -206,6 +206,7 @@ from agent_build_kit.runtimes.base import (
     AgentResult,
     LoginRejected,
     NetworkUnavailable,
+    RefusedCall,
     ServiceUnavailable,
     SessionUnavailable,
 )
@@ -241,6 +242,10 @@ WROTE_NO_TEST = (
 WROTE_NOTHING_NOTE = (
     "Your last run of this step wrote no test and said nothing. Write the tests this group "
     "calls for; if a write is refused, say so. If the tests it needs already exist, say that."
+)
+REFUSED_CALLS_NOTE = (
+    "These calls of your last run were refused and did not run, so what they would have done "
+    "did not happen:\n{calls}"
 )
 UNCHANGED_TREE_NOTE = (
     "Your last run of this step left the tree unchanged, whatever it said: the tree is unchanged "
@@ -366,6 +371,8 @@ class BuildPath:
         # The last session an agent call of the running node ended in:
         # (id, runtime, model, the session's cumulative cost after the call).
         self._ended: tuple[str, str, str, float | None] | None = None
+        # The calls the permission layer refused in the node's last agent call.
+        self._refused: tuple[RefusedCall, ...] = ()
         # The hash of the spec copies taken when the node's last agent call was prompted.
         self._spec_taken = ""
         # The cumulative cost of each session the running node's calls ended, so a follow-up
@@ -1019,6 +1026,7 @@ class BuildPath:
         def ended(
             result: AgentResult, runtime: str, model: str | None, cumulative: float | None
         ) -> None:
+            self._refused = result.refused_calls
             if result.session_id:
                 self._ended = (result.session_id, runtime, model or "", cumulative)
                 if cumulative is not None:
@@ -1676,13 +1684,15 @@ class BuildPath:
             if state.reproduction_guidance:
                 prompt = f"{state.reproduction_guidance}\n\n{prompt}"
             before = r.tree_state(tree)
+            self._refused = ()
             account = self.agent(r.run, prompt, cwd=tree, state=state, model=models().implement)
+            refused = self._refused
             required = step is not None and step.tests_required
             if self.wrote_nothing(state, before, account, required=required):
                 self.say("the tests step wrote no test: asking once more")
                 account = self.agent(
                     r.run,
-                    f"{UNCHANGED_TREE_NOTE if required else WROTE_NOTHING_NOTE}\n\n{prompt}",
+                    f"{self.retry_note(required, refused)}\n\n{prompt}",
                     cwd=tree,
                     state=state,
                     model=models().implement,
@@ -1702,6 +1712,16 @@ class BuildPath:
             r.commit(self.message(TESTS_PREFIX, True, state), cwd=tree, base=self.ref(state))
         kept_account = {"tests_account": account} if state.unreproduced and account else {}
         return {"head": r.head(tree), "stub_loop": False, **kept_account}
+
+    @staticmethod
+    def retry_note(required: bool, refused: tuple[RefusedCall, ...]) -> str:
+        """What the tests step is told when it wrote nothing: the note for its group, and the
+        calls that were refused, which did not run."""
+        note = UNCHANGED_TREE_NOTE if required else WROTE_NOTHING_NOTE
+        if not refused:
+            return note
+        calls = "\n".join(f"- `{call.subject}` ({call.reason})" for call in refused)
+        return f"{note}\n\n{REFUSED_CALLS_NOTE.format(calls=calls)}"
 
     def wrote_nothing(
         self, state: UnitRun, before: str, account: str, *, required: bool = False
