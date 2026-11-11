@@ -43,7 +43,15 @@ from pathlib import Path
 from types import MappingProxyType
 from typing import TYPE_CHECKING, Any, Literal, TypedDict
 
-from agent_build_kit import claude_account, config, forges, profiles, runtimes, telemetry
+from agent_build_kit import (
+    claude_account,
+    config,
+    forges,
+    orchestration,
+    profiles,
+    runtimes,
+    telemetry,
+)
 from agent_build_kit.budget import cut_head
 from agent_build_kit.cli.e2e_cmd import held_status_lines
 from agent_build_kit.cli.policy_cmd import coverage_line
@@ -57,6 +65,9 @@ from agent_build_kit.model import Frozen, TestTier, widest_kind
 from agent_build_kit.notify.build import build_notifier
 from agent_build_kit.notify.reconcile import reconcile as reconcile_notifications
 from agent_build_kit.notify.store import NotificationStore
+from agent_build_kit.orchestration.artifacts import INTERFACE as ARTIFACTS
+from agent_build_kit.orchestration.local.artifacts import DirectoryArtifacts
+from agent_build_kit.orchestration.local.directories import E2E_OUTPUTS, RUN_LOGS
 from agent_build_kit.pipeline import (
     audit_record,
     code_host,
@@ -279,12 +290,9 @@ from agent_build_kit.pipeline.review_outcome_sweep import sweep_outcomes
 from agent_build_kit.pipeline.review_rates import recorded_gates
 from agent_build_kit.pipeline.run_log import (
     RunLog,
-    e2e_output_dir,
-    failure_bundles_dir,
     remove_change_logs,
     remove_old_logs,
     run_ledger_path,
-    run_log_dir,
 )
 from agent_build_kit.pipeline.shell import git, has_origin
 from agent_build_kit.pipeline.slots import extra_of as _extra_of
@@ -302,7 +310,7 @@ from agent_build_kit.pipeline.stack_runner import (
     group_steps_of,
 )
 from agent_build_kit.pipeline.temp_sweep import sweep_temp_folders, temp_size
-from agent_build_kit.pipeline.transcript import remove_change_transcripts, transcript_dir
+from agent_build_kit.pipeline.transcript import remove_change_transcripts
 from agent_build_kit.pipeline.ui_review import (
     PrIndex,
     ui_listing,
@@ -1664,9 +1672,9 @@ def cmd_verify(args: argparse.Namespace, inst: Installation) -> int:
         planning_repo=inst.root,
         may_archive=lambda change: change == args.change,
         specs_dir=inst.config.planning.specs_dir,
-        run_logs=run_log_dir(inst.state_dir),
-        e2e_outputs=e2e_output_dir(inst.state_dir),
-        transcripts=transcript_dir(inst.state_dir),
+        run_logs=orchestration.get(ARTIFACTS, inst),
+        e2e_outputs=orchestration.get(ARTIFACTS, inst),
+        transcripts=orchestration.get(ARTIFACTS, inst),
         usage_ledger=inst.state_dir / LEDGER_NAME,
         worktrees=_worktrees_of(inst, units),
         tracked=inst,
@@ -2179,12 +2187,15 @@ def _bound_logs(inst: Installation) -> None:
     retention = inst.config.retention
     trim_decision_log(inst.state_dir / DECISIONS_NAME, limit_mb=retention.decision_log_mb)
     trim_decision_log(inst.state_dir / ADMISSIONS_NAME, limit_mb=retention.decision_log_mb)
-    remove_old_logs(
-        run_log_dir(inst.state_dir),
-        inst.state_dir / LEDGER_NAME,
-        days=retention.unit_log_days,
-        now=datetime.now(UTC),
-    )
+    artifacts = orchestration.get(ARTIFACTS, inst)
+    if isinstance(artifacts, DirectoryArtifacts):
+        # A log's age is its file's; another store expires logs by its own policy.
+        remove_old_logs(
+            artifacts.root / RUN_LOGS,
+            inst.state_dir / LEDGER_NAME,
+            days=retention.unit_log_days,
+            now=datetime.now(UTC),
+        )
 
 
 def _reconcile_notifications(inst: Installation, store: UnitStore) -> None:
@@ -2742,9 +2753,9 @@ def _verify_and_archive(
             planning_repo=inst.root,
             may_archive=may_archive,
             specs_dir=inst.config.planning.specs_dir,
-            run_logs=run_log_dir(inst.state_dir),
-            e2e_outputs=e2e_output_dir(inst.state_dir),
-            transcripts=transcript_dir(inst.state_dir),
+            run_logs=orchestration.get(ARTIFACTS, inst),
+            e2e_outputs=orchestration.get(ARTIFACTS, inst),
+            transcripts=orchestration.get(ARTIFACTS, inst),
             usage_ledger=inst.state_dir / LEDGER_NAME,
             worktrees=_worktrees_of(inst, units),
             tracked=inst,
@@ -6606,7 +6617,7 @@ def build_repo_unit_test(
         projects=repo.projects,
         repo=repo,
         log=log,
-        failures_dir=failure_bundles_dir(installation.state_dir),
+        failures_dir=orchestration.get(ARTIFACTS, installation),
         installation=installation,
         test_runs=run_ledger_path(installation.state_dir),
     )
@@ -7669,7 +7680,7 @@ def _starting_step(inst: Installation, unit: StoredUnit) -> tuple[str, str]:
 def _start_run_log(inst: Installation, unit: StoredUnit, *, store: UnitStore, base: str) -> RunLog:
     step, model = _starting_step(inst, unit)
     run_log = RunLog(
-        run_log_dir(inst.state_dir),
+        orchestration.get(ARTIFACTS, inst),
         unit,
         step=step,
         model=model,
@@ -8157,9 +8168,10 @@ def cmd_archive(args: argparse.Namespace, inst: Installation) -> int:
         spans.clock.now(),
         only_change=args.change,
     )
-    remove_change_logs(run_log_dir(inst.state_dir), args.change)
-    remove_change_logs(e2e_output_dir(inst.state_dir), args.change)
-    remove_change_transcripts(transcript_dir(inst.state_dir), args.change)
+    artifacts = orchestration.get(ARTIFACTS, inst)
+    remove_change_logs(artifacts, args.change)
+    remove_change_logs(artifacts, args.change, E2E_OUTPUTS)
+    remove_change_transcripts(artifacts, args.change)
     return 0
 
 

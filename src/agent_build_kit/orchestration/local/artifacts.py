@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import TextIO
+from typing import TYPE_CHECKING, TextIO
 
-from agent_build_kit.installation import Installation
 from agent_build_kit.orchestration.artifacts import ArtifactWriter, MissingArtifact
 from agent_build_kit.redaction import redact_text
+
+if TYPE_CHECKING:
+    from agent_build_kit.installation import Installation
 
 
 class _FileWriter:
@@ -26,9 +28,11 @@ class _FileWriter:
         self._handle.close()
 
 
-class LocalArtifacts:
-    def __init__(self, installation: Installation) -> None:
-        self.root = installation.state_dir
+class DirectoryArtifacts:
+    """Keys as files under a directory."""
+
+    def __init__(self, root: Path) -> None:
+        self.root = root
 
     def _path(self, key: str) -> Path:
         return self.root / key
@@ -41,6 +45,13 @@ class LocalArtifacts:
         else:
             path.write_bytes(value)
 
+    def append(self, key: str, data: bytes) -> None:
+        """Add bytes to the end of `key`, unchanged: for text its writer already redacted."""
+        path = self._path(key)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with path.open("ab") as handle:
+            handle.write(data)
+
     def get(self, key: str) -> bytes:
         try:
             return self._path(key).read_bytes()
@@ -48,14 +59,33 @@ class LocalArtifacts:
             raise MissingArtifact(key) from error
 
     def list(self, prefix: str) -> list[str]:
-        if not self.root.is_dir():
+        # Only the directory the prefix names is walked, not every artifact beside it.
+        folder = self.root / prefix.rpartition("/")[0]
+        if not folder.is_dir():
             return []
-        keys = (path.relative_to(self.root).as_posix() for path in self.root.rglob("*"))
+        keys = (path.relative_to(self.root).as_posix() for path in folder.rglob("*"))
         return sorted(key for key in keys if key.startswith(prefix) and self._path(key).is_file())
 
     def delete(self, prefix: str) -> None:
         for key in self.list(prefix):
-            self._path(key).unlink()
+            path = self._path(key)
+            path.unlink()
+            # A folder left empty goes too, so a removed bundle leaves nothing behind; the
+            # top folder of a kind of artifact stays.
+            for folder in path.parents:
+                if folder.parent == self.root:
+                    break
+                try:
+                    folder.rmdir()
+                except OSError:
+                    break
 
     def writer(self, key: str) -> ArtifactWriter:
         return _FileWriter(self._path(key), key)
+
+
+class LocalArtifacts(DirectoryArtifacts):
+    """The installation's artifacts: files under its state directory."""
+
+    def __init__(self, installation: Installation) -> None:
+        super().__init__(installation.state_dir)

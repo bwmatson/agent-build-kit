@@ -13,11 +13,10 @@ from pathlib import Path
 
 from agent_build_kit import redaction
 from agent_build_kit.installation import Installation
+from agent_build_kit.orchestration.local.directories import RUN_LOGS, TRANSCRIPTS
 from agent_build_kit.pipeline.file_lock import atomic_write_text
 from agent_build_kit.pipeline.original_copy import COPY_SUFFIX, copy_of
 from agent_build_kit.pipeline.pause import paused_or_refused
-from agent_build_kit.pipeline.run_log import run_log_dir
-from agent_build_kit.pipeline.transcript import transcript_dir
 from agent_build_kit.pipeline.unit_store import UnitStore
 from agent_build_kit.pipeline.usage_ledger import LEDGER_NAME, ledger_lock
 
@@ -27,7 +26,9 @@ HELP = "temporary: removed once every installation has run it"
 def _saved_files(inst: Installation) -> list[Path]:
     state = inst.state_dir
     found = [state / "units.json", state / LEDGER_NAME]
-    for directory in (run_log_dir(state), transcript_dir(state)):
+    # This temporary command rewrites files in place, with a copy beside each, so it works on
+    # the files a local deployment keeps these in.
+    for directory in (state / RUN_LOGS, state / TRANSCRIPTS):
         if directory.is_dir():
             found.extend(sorted(directory.iterdir()))
     return [p for p in found if p.is_file() and not p.name.endswith(COPY_SUFFIX)]

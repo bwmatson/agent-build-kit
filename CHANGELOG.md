@@ -25,6 +25,9 @@
   `local` deployment, and for an `azure` deployment it finds an implementation that stores
   each key as a blob in the deployment's storage account through its managed identity, with
   an append-blob writer and a short-lived read link (needs `agent-build-kit[azure]`).
+  `local` deployment. The run logs, e2e output, failure bundles, transcripts and spec
+  snapshots are now written and read through it by key, so a deployment with no state
+  directory on a disk can hold them; the e2e report names the output by its key.
 
 - The check that follows a review's rework now selects the affected tests first and runs the
   full suite once only when that selection is green, as a fix round's check does, instead of

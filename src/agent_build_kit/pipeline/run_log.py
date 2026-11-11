@@ -8,13 +8,24 @@ from __future__ import annotations
 
 import json
 import re
-import shutil
-from collections.abc import Callable, Collection
+from collections.abc import Callable, Collection, Mapping
 from datetime import datetime, timedelta
 from pathlib import Path
+from typing import overload
 
 from agent_build_kit.compat_names import moved_to_current_name, old_spelling
 from agent_build_kit.model import Frozen, TestTier
+from agent_build_kit.orchestration.artifacts import Artifacts
+from agent_build_kit.orchestration.local.directories import (
+    E2E_OUTPUTS,
+    FAILURE_BUNDLES,
+    RUN_LOGS,
+)
+from agent_build_kit.orchestration.local.directories import (
+    failure_bundles_dir as failure_bundles_dir,
+)
+from agent_build_kit.orchestration.local.directories import run_log_dir as run_log_dir
+from agent_build_kit.pipeline.artifact_scope import append_redacted, scoped
 from agent_build_kit.pipeline.file_lock import file_lock
 from agent_build_kit.pipeline.units import Unit, unit_file_prefix
 from agent_build_kit.redaction import redact_text
@@ -32,36 +43,47 @@ _STAMP = r"\d{8}-\d{6}-"
 _UNIT_LOG = re.compile(rf"(?P<change>.+)-(?P<number>\d{{2,}})(?P<suffix>(?:-s\d+)*)-{_STAMP}")
 
 
-_OUTPUT_DIR = "e2e-output"
+_OUTPUT_DIR = E2E_OUTPUTS
 
 # The name the directory had under the kind's old spelling.
 _OLD_OUTPUT_DIR = f"{old_spelling(TestTier.E2E_TEST)}-output"
 
 
-def run_log_dir(state_dir: Path) -> Path:
-    """The directory of its own, under the state directory."""
-    return state_dir / "unit-logs"
+def adopt_old_e2e_output(state_dir: Path) -> Path:
+    """Move the e2e-test output directory left under the old name to the current one, and
+    return the current one."""
+    return moved_to_current_name(state_dir, _OUTPUT_DIR, _OLD_OUTPUT_DIR)
 
 
 def e2e_output_dir(state_dir: Path) -> Path:
     """The directory of the full output of each e2e-test run, under the state directory. One
     left under the old name is moved to the current one first."""
-    return moved_to_current_name(state_dir, _OUTPUT_DIR, _OLD_OUTPUT_DIR)
+    return adopt_old_e2e_output(state_dir)
 
 
-def append_e2e_output(directory: Path, unit: Unit, started: datetime, text: str) -> Path:
-    """Append `text` to the unit's file for the e2e-test run begun at `started`, and
-    return it. The files of the unit beyond `RUNS_KEPT` are removed first. The file
-    is a diagnostic copy, so a write that fails is dropped."""
-    path = directory / run_log_name(unit, started, "e2e-test")
+@overload
+def append_e2e_output(target: Path, unit: Unit, started: datetime, text: str) -> Path: ...
+
+
+@overload
+def append_e2e_output(target: Artifacts, unit: Unit, started: datetime, text: str) -> str: ...
+
+
+def append_e2e_output(
+    target: Artifacts | Path, unit: Unit, started: datetime, text: str
+) -> Path | str:
+    """Append `text` to the unit's output for the e2e-test run begun at `started`, and return
+    where it is (the key; the file when given a directory). The unit's outputs beyond
+    `RUNS_KEPT` are removed first. The output is a diagnostic copy, so a write that fails is
+    dropped."""
+    store, folder = scoped(target, _OUTPUT_DIR)
+    key = f"{folder}{run_log_name(unit, started, 'e2e-test')}"
     try:
-        directory.mkdir(parents=True, exist_ok=True)
-        _prune(directory, unit, keep=RUNS_KEPT - (0 if path.exists() else 1))
-        with path.open("a") as file:
-            file.write(text)
+        _prune(store, folder, unit, keep=RUNS_KEPT - (0 if store.list(key) else 1))
+        append_redacted(store, key, text)  # the caller redacts the chunk as a whole
     except (OSError, ValueError):
         pass
-    return path
+    return target / key.rsplit("/", 1)[1] if isinstance(target, Path) else key
 
 
 # The most of a failing run's output a bundle keeps, in bytes.
@@ -137,29 +159,58 @@ def append_test_run(path: Path, run: TestRun, *, max_bytes: int = TEST_RUNS_MAX_
             handle.write(run.model_dump_json() + "\n")
 
 
-def failure_bundles_dir(state_dir: Path) -> Path:
-    """The directory of the bundles of failing unit-test runs, under the state directory."""
-    return state_dir / "test-failures"
-
-
+@overload
 def write_failure_bundle(
-    directory: Path,
+    target: Path,
     unit_id: str,
     change: str,
     started: datetime,
     *,
     output: str,
-    context: dict[str, object],
-    machine: dict[str, object],
-    worktree: dict[str, object],
-    pointed: Collection[Path] = (),
+    context: Mapping[str, object],
+    machine: Mapping[str, object],
+    worktree: Mapping[str, object],
+    pointed: Collection[Path | str] = (),
     cap: int = FAILURE_OUTPUT_CAP,
-) -> Path:
-    """Save a failing unit-test run as `<directory>/<unit prefix><stamp>/` and return it:
-    `output.txt` (redacted, cut at `cap` bytes with a note), `context.json`, `machine.json` and
-    `worktree.json` (redacted). The unit's bundles beyond `RUNS_KEPT` go, except those in
-    `pointed`. The bundle is a diagnostic copy, so a write that fails is dropped."""
-    path = directory / f"{unit_file_prefix(unit_id, change)}{started:%Y%m%d-%H%M%S}"
+) -> Path: ...
+
+
+@overload
+def write_failure_bundle(
+    target: Artifacts,
+    unit_id: str,
+    change: str,
+    started: datetime,
+    *,
+    output: str,
+    context: Mapping[str, object],
+    machine: Mapping[str, object],
+    worktree: Mapping[str, object],
+    pointed: Collection[Path | str] = (),
+    cap: int = FAILURE_OUTPUT_CAP,
+) -> str: ...
+
+
+def write_failure_bundle(
+    target: Artifacts | Path,
+    unit_id: str,
+    change: str,
+    started: datetime,
+    *,
+    output: str,
+    context: Mapping[str, object],
+    machine: Mapping[str, object],
+    worktree: Mapping[str, object],
+    pointed: Collection[Path | str] = (),
+    cap: int = FAILURE_OUTPUT_CAP,
+) -> Path | str:
+    """Save a failing unit-test run as the keys under `<unit prefix><stamp>/` and return the
+    bundle (its key; the folder when given a directory): `output.txt` (redacted, cut at `cap`
+    bytes with a note), `context.json`, `machine.json` and `worktree.json` (redacted). The
+    unit's bundles beyond `RUNS_KEPT` go, except those in `pointed`. The bundle is a diagnostic
+    copy, so a write that fails is dropped."""
+    store, folder = scoped(target, FAILURE_BUNDLES)
+    name = f"{unit_file_prefix(unit_id, change)}{started:%Y%m%d-%H%M%S}"
     text = redact_text(output, where="failure bundle")
     encoded = text.encode()
     if len(encoded) > cap:
@@ -168,28 +219,31 @@ def write_failure_bundle(
             + f"\n[output cut at {cap} bytes; {len(encoded) - cap} more were dropped]\n"
         )
     try:
-        _write_evidence(path, text, context, machine, worktree)
-        _prune_bundles(directory, unit_file_prefix(unit_id, change), pointed)
+        _write_evidence(store, f"{folder}{name}", text, context, machine, worktree)
+        _prune_bundles(store, folder, unit_file_prefix(unit_id, change), pointed)
     except (OSError, ValueError):
         pass
-    return path
+    return target / name if isinstance(target, Path) else f"{folder}{name}"
 
 
 def write_rerun_evidence(
-    bundle: Path,
+    target: Artifacts | Path,
+    bundle: Path | str,
     number: int,
     *,
     output: str,
-    context: dict[str, object],
-    machine: dict[str, object],
-    worktree: dict[str, object],
+    context: Mapping[str, object],
+    machine: Mapping[str, object],
+    worktree: Mapping[str, object],
 ) -> None:
-    """Save serial rerun `number` of a failing run in `<bundle>/reruns/<number>/`: its redacted
-    `output.txt`, `context.json`, `machine.json` and `worktree.json`. A diagnostic copy, so a
-    write that fails is dropped."""
+    """Save serial rerun `number` of a failing run under `<bundle>/reruns/<number>/`: its
+    redacted `output.txt`, `context.json`, `machine.json` and `worktree.json`. A diagnostic
+    copy, so a write that fails is dropped."""
+    store, folder = scoped(target, FAILURE_BUNDLES)
     try:
         _write_evidence(
-            bundle / "reruns" / str(number),
+            store,
+            f"{folder}{_last(bundle)}/reruns/{number}",
             redact_text(output, where="failure bundle"),
             context,
             machine,
@@ -199,30 +253,37 @@ def write_rerun_evidence(
         pass
 
 
+def _last(place: Path | str) -> str:
+    """The last segment of a bundle, whether it is named by a key or by a path."""
+    return str(place).rstrip("/").rsplit("/", 1)[-1]
+
+
 def _write_evidence(
-    folder: Path,
+    store: Artifacts,
+    folder: str,
     output: str,
-    context: dict[str, object],
-    machine: dict[str, object],
-    worktree: dict[str, object],
+    context: Mapping[str, object],
+    machine: Mapping[str, object],
+    worktree: Mapping[str, object],
 ) -> None:
     """Write the four files of a run's evidence into `folder`: `output.txt` as given (already
     redacted and cut) and the three fact files, redacted here."""
-    folder.mkdir(parents=True, exist_ok=True)
-    (folder / "output.txt").write_text(output)
+    store.put(f"{folder}/output.txt", output.encode())
     for name, facts in (("context", context), ("machine", machine), ("worktree", worktree)):
         body = redact_text(json.dumps(facts, indent=2, default=str), where="failure bundle")
-        (folder / f"{name}.json").write_text(body)
+        store.put(f"{folder}/{name}.json", body.encode())
 
 
-def _prune_bundles(directory: Path, prefix: str, pointed: Collection[Path]) -> None:
+def _prune_bundles(
+    store: Artifacts, folder: str, prefix: str, pointed: Collection[Path | str]
+) -> None:
     """Remove the unit's bundles beyond the newest `RUNS_KEPT`, except those pointed at."""
-    keep = {p.resolve() for p in pointed}
-    named = re.compile(re.escape(prefix) + r"\d{8}-\d{6}$")
-    bundles = sorted(path for path in directory.glob(f"{prefix}*") if named.match(path.name))
+    keep = {f"{folder}{_last(place)}" for place in pointed}
+    named = re.compile(re.escape(folder + prefix) + r"\d{8}-\d{6}(?=/)")
+    bundles = sorted({m[0] for key in store.list(folder + prefix) if (m := named.match(key))})
     for old in bundles[:-RUNS_KEPT]:
-        if old.resolve() not in keep:
-            shutil.rmtree(old, ignore_errors=True)
+        if old not in keep:
+            store.delete(f"{old}/")
 
 
 def _unit_prefix(unit: Unit) -> str:
@@ -244,7 +305,7 @@ class RunLog:
 
     def __init__(
         self,
-        directory: Path,
+        target: Artifacts | Path,
         unit: Unit,
         *,
         step: str,
@@ -254,16 +315,17 @@ class RunLog:
         report: Callable[[str], None] = lambda message: None,
     ) -> None:
         self._name = run_log_name(unit, started, step)
-        self._path = directory / self._name
+        self._store, folder = scoped(target, RUN_LOGS)
+        self._key = f"{folder}{self._name}"
         self._report = report
         self._working = True
         try:
-            directory.mkdir(parents=True, exist_ok=True)
-            self._path.write_text(
+            self._store.put(
+                self._key,
                 f"unit: {unit.id}\nchange: {unit.change}\nstep: {step}\nmodel: {model}\n"
-                f"base: {base}\nstarted: {started.isoformat()}\n\n"
+                f"base: {base}\nstarted: {started.isoformat()}\n\n",
             )
-            _prune(directory, unit)
+            _prune(self._store, folder, unit)
         except (OSError, ValueError) as error:
             self._failed(error)
 
@@ -285,8 +347,7 @@ class RunLog:
         if not self._working:
             return
         try:
-            with self._path.open("a") as file:
-                file.write(text)
+            append_redacted(self._store, self._key, text)  # `emit` redacted it as a whole
         except (OSError, ValueError) as error:
             self._failed(error)
 
@@ -299,25 +360,27 @@ class RunLog:
         self._append(f"\noutcome: {outcome}\n")
 
 
-def _unit_logs(directory: Path, prefix: str) -> list[Path]:
-    """The files of the unit whose prefix this is: a stamp follows it directly,
+def _unit_logs(store: Artifacts, folder: str, prefix: str) -> list[str]:
+    """The keys of the unit whose prefix this is: a stamp follows it directly,
     so a change whose name merely begins with another's is not matched."""
-    pattern = re.compile(re.escape(prefix) + _STAMP)
-    return sorted(path for path in directory.glob(f"{prefix}*") if pattern.match(path.name))
+    pattern = re.compile(re.escape(folder + prefix) + _STAMP)
+    return sorted(key for key in store.list(folder + prefix) if pattern.match(key))
 
 
-def _prune(directory: Path, unit: Unit, *, keep: int = RUNS_KEPT) -> None:
-    for path in _unit_logs(directory, _unit_prefix(unit))[: -keep or None]:
-        path.unlink(missing_ok=True)
+def _prune(store: Artifacts, folder: str, unit: Unit, *, keep: int = RUNS_KEPT) -> None:
+    for key in _unit_logs(store, folder, _unit_prefix(unit))[: -keep or None]:
+        store.delete(key)
 
 
-def remove_change_logs(directory: Path, change: str) -> None:
-    """Drop every unit log of a change. The logs are a diagnostic copy: a
-    directory that cannot be read leaves the archive it follows standing."""
+def remove_change_logs(target: Artifacts | Path, change: str, folder: str = RUN_LOGS) -> None:
+    """Drop every unit log of a change under `folder` (the unit logs unless said otherwise).
+    The logs are a diagnostic copy: a store that cannot be read leaves the archive it follows
+    standing."""
+    store, folder = scoped(target, folder)
     try:
-        for path in directory.iterdir():
-            if (match := _UNIT_LOG.match(path.name)) and match["change"] == change:
-                path.unlink(missing_ok=True)
+        for key in store.list(folder):
+            if (match := _UNIT_LOG.match(key.removeprefix(folder))) and match["change"] == change:
+                store.delete(key)
     except OSError:
         return
 

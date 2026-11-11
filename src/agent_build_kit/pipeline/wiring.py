@@ -35,7 +35,16 @@ from functools import partial
 from pathlib import Path
 from typing import Any, Protocol
 
-from agent_build_kit import claude_account, forges, infra, openspec, profiles, runtimes, sandboxes
+from agent_build_kit import (
+    claude_account,
+    forges,
+    infra,
+    openspec,
+    orchestration,
+    profiles,
+    runtimes,
+    sandboxes,
+)
 from agent_build_kit.budget import Section, cut_head, cut_tail, fit
 from agent_build_kit.config import (
     BASE_GROUP,
@@ -64,6 +73,8 @@ from agent_build_kit.config import (
 from agent_build_kit.forges import FileChange, Forge, RegistersStacks, RepoId, StackRefused
 from agent_build_kit.installation import Installation
 from agent_build_kit.model import Frozen, TestTier
+from agent_build_kit.orchestration.artifacts import INTERFACE as ARTIFACTS
+from agent_build_kit.orchestration.artifacts import Artifacts
 from agent_build_kit.path_patterns import matches_any
 from agent_build_kit.pipeline import code_host, failure_evidence, snapshots, spans
 from agent_build_kit.pipeline.changelog_convention import review_changelog_paragraph
@@ -173,10 +184,9 @@ from agent_build_kit.pipeline.review_paths import is_protected
 from agent_build_kit.pipeline.run_log import (
     FailedTest,
     TestRun,
+    adopt_old_e2e_output,
     append_e2e_output,
     append_test_run,
-    e2e_output_dir,
-    failure_bundles_dir,
     run_ledger_path,
     write_failure_bundle,
     write_rerun_evidence,
@@ -197,7 +207,7 @@ from agent_build_kit.pipeline.shell import (
     porcelain,
 )
 from agent_build_kit.pipeline.stack_runner import FixResult, Restacked, UnitRunner, Worktree
-from agent_build_kit.pipeline.transcript import Transcript, TranscriptEvent, transcript_dir
+from agent_build_kit.pipeline.transcript import Transcript, TranscriptEvent
 from agent_build_kit.pipeline.ui_review import ui_notes_of, ui_reply_writer, unit_patch_of
 from agent_build_kit.pipeline.unit_size import actual_lines, branch_diff, over_ceiling, unit_ceiling
 from agent_build_kit.pipeline.unit_store import (
@@ -462,7 +472,7 @@ def _node_and_round(place: str) -> tuple[str, str]:
 
 
 def _recorder(
-    record_for: tuple[Unit, Path, datetime] | None, place: str, role: Role
+    record_for: tuple[Unit, Artifacts | Path, datetime] | None, place: str, role: Role
 ) -> Transcript | None:
     """The file this call's events go to, named by the node and round that made it.
 
@@ -591,7 +601,7 @@ def build_run(
     log: Callable[[str], None] | None = None,
     journal: Callable[[str], None] | None = None,
     transcript: Callable[[str], None] | None = None,
-    record_for: tuple[Unit, Path, datetime] | None = None,
+    record_for: tuple[Unit, Artifacts | Path, datetime] | None = None,
     runtime: AgentRuntime | None = None,
     role: Role = "implement",
     planning_paths: tuple[str, ...] = (),
@@ -1061,7 +1071,7 @@ def build_run_review(
     log: Callable[[str], None] | None = None,
     journal: Callable[[str], None] | None = None,
     transcript: Callable[[str], None] | None = None,
-    record_for: tuple[Unit, Path, datetime] | None = None,
+    record_for: tuple[Unit, Artifacts | Path, datetime] | None = None,
     runtime: AgentRuntime | None = None,
     role: Role = "review",
     forge: Forge | None = None,
@@ -1562,7 +1572,7 @@ def build_unit_test(
     projects: list[ProjectConfig] | None = None,
     log: Callable[[str], None] | None = None,
     repo: RepoConfig | None = None,
-    failures_dir: Path | None = None,
+    failures_dir: Artifacts | Path | None = None,
     now: Callable[[], datetime] | None = None,
     machine: Callable[[], dict[str, object]] | None = None,
     installation: Installation | None = None,
@@ -2157,7 +2167,7 @@ def build_unit_test(
         where: Path,
         toolchain: ToolchainProfile,
         base: str,
-    ) -> Path | None:
+    ) -> Path | str | None:
         """Save the test run `before` began as a bundle, with its end sampled now, when it
         failed. Every place a test command is run calls this with what `begin_evidence` gave,
         so no failing run is missed; None (no bundles kept) or a run that passed saves nothing,
@@ -2412,7 +2422,8 @@ def build_unit_test(
         own: list[str] | None = None,
         base: str | None = None,
         ref: str | None = None,
-        evidence: tuple[Path, tuple[datetime, dict[str, object], dict[str, object]]] | None = None,
+        evidence: tuple[Path | str, tuple[datetime, dict[str, object], dict[str, object]]]
+        | None = None,
     ) -> bool:
         """Run the failed tests again, alone and serially, twice. Raises `FailedOnBase`, before
         any rerun, when an open change already fixes every one of the failed tests. Raises
@@ -2540,7 +2551,7 @@ def build_unit_test(
                     break
                 rerun = rerun_command(command, tests)
                 again = ran(rerun, where, toolchain)
-            if evidence is not None and began is not None:
+            if evidence is not None and began is not None and failures_dir is not None:
                 started, machine_before, tree_before = began
                 ended = clock()
                 last_sample.update((machine or failure_evidence.machine_sample)())
@@ -2548,6 +2559,7 @@ def build_unit_test(
                 rerun_exits.append(again.returncode)
                 rerun_seconds.append(seconds)
                 write_rerun_evidence(
+                    failures_dir,
                     evidence[0],
                     number,
                     output=f"{again.stdout}\n{again.stderr}".strip(),
@@ -3890,7 +3902,7 @@ class E2eSession:
         stack_versions_command: list[str] | None = None,
         env: Mapping[str, str] | None = None,
         projects: list[ProjectConfig] | None = None,
-        output_dir: Path | None = None,
+        output_dir: Artifacts | Path | None = None,
         now: Callable[[], datetime] = lambda: datetime.now(UTC),
         held: Collection[str] = (),
         only: str | None = None,
@@ -3935,7 +3947,7 @@ class E2eSession:
         self._now = now
         self.result: E2eResult | None = None
         self._started: datetime | None = None
-        self._output_file: Path | None = None
+        self._output_file: Path | str | None = None
         self._withheld = False
 
     @contextmanager
@@ -5251,7 +5263,9 @@ def build_runner(
     profile = profiles.get(repo.profile)
     root = installation.state_dir
     # One stamp for this thread's whole run: every call in it is one run to retention.
-    record_for = (unit, transcript_dir(root), datetime.now(UTC))
+    adopt_old_e2e_output(root)
+    artifacts = orchestration.get(ARTIFACTS, installation)
+    record_for = (unit, artifacts, datetime.now(UTC))
     declared = e2e_splits(repo, installation.config)
     # What the unit's e2e-test leaves out, and what a parked unit says it waits for.
     holds = repo_holds(installation.config, repo, root)
@@ -5270,7 +5284,7 @@ def build_runner(
         ),
         env=installation.verify_env(),
         projects=repo.projects,
-        output_dir=e2e_output_dir(root),
+        output_dir=artifacts,
         splits=declared,
         unavailable=unavailable_markers(repo, installation.config),
         dimensions=e2e_dimensions(repo, installation.config),
@@ -5399,7 +5413,7 @@ def build_runner(
             projects=repo.projects,
             log=log,
             repo=repo,
-            failures_dir=failure_bundles_dir(installation.state_dir),
+            failures_dir=artifacts,
             installation=installation,
             test_runs=run_ledger_path(installation.state_dir),
         ),

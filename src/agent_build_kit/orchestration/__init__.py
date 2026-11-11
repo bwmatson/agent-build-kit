@@ -12,9 +12,12 @@ from __future__ import annotations
 import importlib
 from collections.abc import Callable
 from types import ModuleType
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
-from agent_build_kit.installation import Installation
+if TYPE_CHECKING:
+    # Not at run time: the modules that write logs import this package, and the installation
+    # imports them back through the configuration.
+    from agent_build_kit.installation import Installation
 
 # Modules that register the built-in implementations, imported on the first lookup.
 BUILTIN_MODULES: tuple[str, ...] = (
