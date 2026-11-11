@@ -104,7 +104,7 @@ markers = [
     "time_limit(seconds): hold this test to its own time limit in place of --test-time-limit; for a test whose time is outside its control, such as a download",
     "dev_stack: needs the repo's dev stack up; left out of acceptance runs",
     "real_node_tool: the test means to run a real node, npm or npx; every other unit test gets stand-ins, because a real one may be a toolchain manager's shim that goes to the network",
-    "azurite: runs the Artifacts conformance suite against an Azurite blob service (CI job); excluded by default, skips with a reason when `ABK_TEST_AZURITE_CONNECTION_STRING` is absent, run with `pytest -m azurite`",
+    "azurite: runs the Artifacts conformance suite against an Azurite blob service and the Checkpoints one against PostgreSQL (CI job); excluded by default, skips with a reason when `ABK_TEST_AZURITE_CONNECTION_STRING` or `ABK_TEST_POSTGRES_CONNECTION_STRING` is absent, run with `pytest -m azurite`",
     "sandbox_probe: a test of doctor's `sandbox` check: doctor runs the real probes instead of the suite's stand-in",
 ]
 addopts = "--strict-markers -m 'not integration and not e2e and not azurite'"
