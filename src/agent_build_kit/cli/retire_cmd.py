@@ -51,10 +51,10 @@ def _unpushed(repo: Path, unit: StoredUnit, units: list[StoredUnit]) -> tuple[st
 
 def _delete_thread(inst: Installation, unit_id: str) -> None:
     # Late: the graph package imports the pipeline.
-    from agent_build_kit.graph.checkpointer import open_unit_graphs
+    from agent_build_kit.orchestration.checkpoints import open_checkpoints
 
     async def drop() -> None:
-        async with open_unit_graphs(inst) as saver:
+        async with open_checkpoints(inst) as saver:
             await saver.adelete_thread(unit_id)
 
     asyncio.run(drop())

@@ -24,11 +24,12 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
 from agent_build_kit import orchestration, runtimes
-from agent_build_kit.graph.checkpointer import carried_unit_graphs, open_unit_graphs
+from agent_build_kit.graph.checkpointer import carried_unit_graphs
 from agent_build_kit.graph.state import AgentSession
 from agent_build_kit.graph.unit import clear_running_node
 from agent_build_kit.installation import Installation
 from agent_build_kit.orchestration.artifacts import INTERFACE as ARTIFACTS
+from agent_build_kit.orchestration.checkpoints import open_checkpoints
 from agent_build_kit.pipeline import attach
 from agent_build_kit.pipeline.call_record import recorded
 from agent_build_kit.pipeline.environment import repo_artifacts
@@ -216,7 +217,7 @@ class Chat:
             return
 
         async def clear() -> None:
-            async with open_unit_graphs(self.installation) as saver:
+            async with open_checkpoints(self.installation) as saver:
                 await clear_running_node(saver, unit.id)
 
         asyncio.run(clear())
