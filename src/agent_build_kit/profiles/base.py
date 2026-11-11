@@ -487,6 +487,56 @@ class RecordsSelectionData(Protocol):
         ...
 
 
+@runtime_checkable
+class RerunsFailedTests(Protocol):
+    """The hooks a profile adds to run a failed test again on its own and to read which tests
+    a failed run named. A profile without them cannot tell a flake from a defect."""
+
+    def serial_rerun_command(self, command: list[str], tests: list[str]) -> list[str]:
+        """`command`, a failed test run, as one that runs only `tests`, serially."""
+        ...
+
+    def failed_tests(self, output: str) -> list[str]:
+        """The identifiers of the tests that failed or errored, read from a failed run's
+        output; empty when it was not a test run."""
+        ...
+
+
+# The kinds of test a project can declare beyond the plain unit test, narrowest first.
+TEST_KINDS: tuple[str, ...] = ("integration", "e2e")
+
+
+@runtime_checkable
+class SelectsByKind(Protocol):
+    """The six selector capabilities of the testing strategy, in the toolchain's own terms.
+    Each takes the project's root, since the runner's configuration lives there."""
+
+    def declared_kinds(self, repo: Path) -> tuple[str, ...]:
+        """The kinds a test can declare (`integration`, `e2e`)."""
+        ...
+
+    def default_run_leaves_out(self, repo: Path) -> tuple[str, ...]:
+        """The kinds the project's default run does not run."""
+        ...
+
+    def by_id_overrides_default(self, repo: Path) -> bool:
+        """Whether naming a test by id runs it although its kind is left out by default."""
+        ...
+
+    def refused_kinds(self, repo: Path, kinds: list[str]) -> list[str]:
+        """The members of `kinds` the profile refuses as unknown."""
+        ...
+
+    def kinds_of(self, repo: Path, path: str, content: str = "") -> list[str]:
+        """The kinds the test file `path` (holding `content`) declares."""
+        ...
+
+    def per_test_limit_option(self, repo: Path) -> str | None:
+        """The name of the runner's option that overrides the limit of one test; None when
+        the toolchain has none."""
+        ...
+
+
 # Paths that are documentation. Never deploy anything, whatever the profile.
 DOC_SUFFIXES = (".md", ".rst", ".txt")
 

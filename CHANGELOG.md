@@ -7,6 +7,13 @@
   installed one, so a test importing a workspace package can be loaded there. The red
   check prepares the worktree it runs in this way before it runs the tests.
 
+- Toolchain profiles now answer six questions about test kinds (the kinds a project declares,
+  which its default run leaves out, whether naming a test runs it anyway, which kinds are
+  unknown, the kinds a file declares, and the option that sets one test's time limit), for
+  Python and Node alike. A conformance check fails when a registered profile lacks a
+  capability the framework branches on; the gaps Node has today are listed in a baseline that
+  may only shrink.
+
 - The unit gate now runs the integration tests a unit adds or changes. The red and repeat
   checks name those tests by id and lift the integration kind out of the repository's default
   marker deselection for them, so an integration test is judged red at the tests commit and
