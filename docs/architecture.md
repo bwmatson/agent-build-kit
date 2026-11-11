@@ -813,6 +813,9 @@ release could move. The steps:
    size limit never shortens it and the saved feedback carries it.
    A run that starts with commits on its branch fetches its repo first (a
    failed fetch is logged, not fatal), then restacks.
+   A check that answers a review's rework is handed the reviewer's words as the failed
+   output, as a fix round's is, so it runs the selection first and the full suite once only
+   when the selection is green; a failing selection goes back to the builder with no full run.
    The restack happens at three points, each recorded in the ledger with its point:
    `prepare` (the restack a run starts with), `before_review` (after the checks pass and
    before the review, so the review sees the rebased diff) and `before_pr` (the base check

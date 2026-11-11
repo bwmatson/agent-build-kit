@@ -24,6 +24,10 @@
   as before, redacting text before it is stored. The deployment registry finds it for a
   `local` deployment.
 
+- The check that follows a review's rework now selects the affected tests first and runs the
+  full suite once only when that selection is green, as a fix round's check does, instead of
+  running the whole suite at once.
+
 - The architecture, unit-graph and worker design documents and the `abk-pipeline` skill now
   describe a tick as a dispatcher that starts worker processes, and say how to read the
   worker list in `abk status`, which is read from the branch locks. The worker design is now a description of what exists, with

@@ -241,6 +241,43 @@ def test_a_handover_ends_with_the_first_round_when_no_ledger_is_kept(
     assert not Runner.is_selected(first)
 
 
+REWORK_FEEDBACK = "Rename the helper; the reviewer asks for a clearer name."
+
+
+def test_a_rework_check_selects_first_and_runs_the_full_suite_once_when_it_is_green(
+    tmp_path: Path, clock: FakeClock
+) -> None:
+    repo = repo_at(tmp_path)
+    runner = Runner(clock)
+    unit_test = unit_test_for(repo, runner)
+    unit_test(cwd=repo, base="main")
+    selection_seed(repo).write_bytes(b"recorded")
+    runner.ran.clear()
+
+    passed, _ = unit_test(cwd=repo, base="main", failed_output=REWORK_FEEDBACK)
+
+    assert passed
+    assert len(runner.selected_runs()) == 1
+    assert len(runner.full_runs()) == 1
+    assert runner.ran.index(runner.selected_runs()[0]) < runner.ran.index(runner.full_runs()[0])
+
+
+def test_a_rework_check_whose_selection_fails_runs_no_full_suite(
+    tmp_path: Path, clock: FakeClock
+) -> None:
+    repo = repo_at(tmp_path)
+    runner = Runner(clock, selected=(1, 10, "1 failed in 9.00s"))
+    unit_test = unit_test_for(repo, runner)
+    unit_test(cwd=repo, base="main")
+    selection_seed(repo).write_bytes(b"recorded")
+    runner.ran.clear()
+
+    passed, _ = unit_test(cwd=repo, base="main", failed_output=REWORK_FEEDBACK)
+
+    assert not passed
+    assert runner.full_runs() == []
+
+
 def test_a_first_round_with_no_recording_is_a_full_run_that_records(
     tmp_path: Path, clock: FakeClock
 ) -> None:

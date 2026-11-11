@@ -110,7 +110,12 @@ class Recorder:
         return f"sha-{self.made}"
 
     def unit_test(
-        self, *, cwd: Path, base: str = "main", whole_repo: bool = False
+        self,
+        *,
+        cwd: Path,
+        base: str = "main",
+        whole_repo: bool = False,
+        failed_output: str = "",
     ) -> tuple[bool, str]:
         self.events.append("unit-test:whole_repo" if whole_repo else "unit-test")
         if self.unit_test_results:
