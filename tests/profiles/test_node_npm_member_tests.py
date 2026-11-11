@@ -8,7 +8,7 @@ from pathlib import Path
 import pytest
 
 from agent_build_kit import profiles
-from tests.node_workspace import workspace
+from tests.node_workspace import manifest, workspace
 
 
 @pytest.fixture
@@ -99,3 +99,49 @@ def test_a_change_to_a_setup_file_the_configuration_names_runs_the_whole_member(
     commands = affected(profile, repo, ["packages/a/test/setup.ts"], tmp_path)
 
     assert commands == profile.test_commands(repo, ["packages/a/src/x.ts"], root_extras=[])
+
+
+def test_a_failed_id_outside_the_import_graph_of_the_change_is_in_the_related_run(
+    profile, repo, tmp_path: Path
+) -> None:
+    (command,) = profile.affected_test_commands(
+        repo,
+        ["packages/a/src/x.ts"],
+        ["packages/a/src/other.test.ts::adds", "packages/a/src/x.test.ts"],
+        seed=tmp_path / "seed" / "affected",
+        root_extras=[],
+    )
+
+    assert command[4] == "packages/a"
+    assert command[5:] == ["src/x.ts", "src/other.test.ts", "src/x.test.ts"]
+
+
+def test_a_changed_data_file_in_a_member_runs_the_whole_member(
+    profile, repo, tmp_path: Path
+) -> None:
+    commands = affected(profile, repo, ["packages/a/src/data.json"], tmp_path)
+
+    assert commands == profile.test_commands(repo, ["packages/a/src/data.json"], root_extras=[])
+    assert all("related" not in command[2] for command in commands)
+
+
+def test_a_project_that_is_not_a_workspace_gets_one_related_run_in_its_own_directory(
+    profile, tmp_path: Path
+) -> None:
+    manifest(tmp_path, "solo")
+
+    (command,) = affected(profile, tmp_path, ["src/x.ts", "src/y.ts"], tmp_path)
+
+    assert command[4] == "./"
+    assert "related" in command[2]
+    assert command[5:] == ["src/x.ts", "src/y.ts"]
+
+
+def test_a_shared_change_in_a_project_that_is_not_a_workspace_is_one_whole_run(
+    profile, tmp_path: Path
+) -> None:
+    manifest(tmp_path, "solo")
+
+    commands = affected(profile, tmp_path, ["src/x.ts", "package.json"], tmp_path)
+
+    assert commands == profile.test_commands(tmp_path, ["package.json"], root_extras=[])

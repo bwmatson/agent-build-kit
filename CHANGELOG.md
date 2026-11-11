@@ -14,7 +14,8 @@
   capability the framework branches on; the gaps Node has today are listed in a baseline that
   may only shrink. Node now selects the tests a change affects (`vitest related`, or the whole
   member when a shared configuration, setup, lock or manifest file changed), reads which tests
-  failed from the report and reruns them serially, so a flaky Node test is told from a defect,
+  failed from the report (named from the project's root, also for a workspace member) and
+  reruns them serially, one file after another, so a flaky Node test is told from a defect,
   and a test of a kind-named file is run by its name.
 
 - The unit gate now runs the integration tests a unit adds or changes. The red and repeat

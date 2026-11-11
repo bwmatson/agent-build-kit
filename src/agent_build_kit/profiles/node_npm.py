@@ -82,16 +82,27 @@ _TESTS = wrap_report_command(_RUN, "--outputFile")
 _TEST_COMMAND = ["sh", "-c", _TESTS]
 # The same in the directory `$1`, for a workspace member; the report path is absolute, so the
 # change of directory does not hide it.
-_MEMBER_TESTS = wrap_report_command(f'cd "$1" && {_RUN}', "--outputFile")
+# Each script that runs in a directory `$1` first prints it on a line of its own, before the
+# report, since the report names a file relative to Vitest's root: `failed_tests` reads the
+# directory back to name a failed test from the checkout's root.
+_DIRECTORY_MARK = "--- abk directory:"
+_IN_DIRECTORY = f'echo "{_DIRECTORY_MARK} $1 ---"; cd "$1"'
+_MEMBER_TESTS = wrap_report_command(f"{_IN_DIRECTORY} && {_RUN}", "--outputFile")
 # E2e-test and acceptance: in `$1`, the rest are Vitest's filters, which match by substring of
 # a file's path.
-_FILTERED = wrap_report_command(f'cd "$1" && shift && {_RUN} "$@"', "--outputFile")
+_FILTERED = wrap_report_command(f'{_IN_DIRECTORY} && shift && {_RUN} "$@"', "--outputFile")
+# The same filtered run with the files run one after another, for a serial rerun.
+_SERIAL = wrap_report_command(
+    f'{_IN_DIRECTORY} && shift && {_RUN} --no-file-parallelism "$@"', "--outputFile"
+)
 # The tests that reach the files `$@` through the import graph, in `$1`.
 _RELATED = wrap_report_command(
-    f'cd "$1" && shift && npx {_TEST_RUNNER} related --run --passWithNoTests --reporter=junit "$@"',
+    f"{_IN_DIRECTORY} && shift && npx {_TEST_RUNNER} related --run --passWithNoTests "
+    '--reporter=junit "$@"',
     "--outputFile",
 )
-_TEST_SCRIPTS = (_TESTS, _MEMBER_TESTS, _FILTERED, _RELATED)
+_TEST_SCRIPTS = (_TESTS, _MEMBER_TESTS, _FILTERED, _SERIAL, _RELATED)
+_DIRECTORY_LINE = re.compile(rf"^{re.escape(_DIRECTORY_MARK)} (.*) ---$", re.MULTILINE)
 # Files every test of a project depends on: a change to one runs the whole project.
 _SHARED_NAMES = frozenset({"package.json", "package-lock.json", "npm-shrinkwrap.json"})
 _SETUP_FILES = re.compile(r"\bsetupFiles\s*:\s*(\[.*?\]|[\"'`][^\"'`]*[\"'`])", re.DOTALL)
@@ -104,27 +115,27 @@ _RUNNER_CONFIGS = tuple(
 _EXCLUDE = re.compile(r"\bexclude\s*:\s*\[(.*?)\]", re.DOTALL)
 
 
+def _config_strings(folder: Path, key: re.Pattern[str]) -> list[str]:
+    """The quoted strings of `key`'s value in the runner's config in `folder`. The first config
+    file that exists is the one the runner reads, so a file without the key ends the search."""
+    for name in _RUNNER_CONFIGS:
+        config = folder / name
+        if config.is_file():
+            found = key.search(config.read_text())
+            return re.findall(r"""["'`]([^"'`]*)["'`]""", found.group(1)) if found else []
+    return []
+
+
 def _exclude_patterns(repo: Path) -> list[str]:
     """The quoted patterns of the `exclude` list in the runner's config; none without one."""
-    for name in _RUNNER_CONFIGS:
-        config = repo / name
-        if config.is_file() and (found := _EXCLUDE.search(config.read_text())):
-            return re.findall(r"""["'`]([^"'`]*)["'`]""", found.group(1))
-    return []
+    return _config_strings(repo, _EXCLUDE)
 
 
 def _setup_files(folder: Path, prefix: str) -> set[str]:
     """The files the runner's config in `folder` names as `setupFiles`, as paths from the
     checkout root (`prefix` is `folder`'s own path there, empty for the root)."""
-    for name in _RUNNER_CONFIGS:
-        config = folder / name
-        if config.is_file():
-            found = _SETUP_FILES.search(config.read_text())
-            if found is None:
-                return set()
-            listed = re.findall(r"""["'`]([^"'`]*)["'`]""", found.group(1))
-            return {posixpath.normpath(posixpath.join(prefix, item)) for item in listed}
-    return set()
+    listed = _config_strings(folder, _SETUP_FILES)
+    return {posixpath.normpath(posixpath.join(prefix, item)) for item in listed}
 
 
 def _is_shared_file(path: str) -> bool:
@@ -417,6 +428,19 @@ class NodeNpmProfile:
                 continue
             relative = path.removeprefix(f"{folder}/") if folder else path
             related.setdefault(folder, []).append(relative)
+        # The tests the failed check named run again even when the import graph from the changed
+        # files does not reach them; `vitest related` accepts a test file.
+        for failed in failed_ids:
+            path = failed.split("::", 1)[0]
+            owner = _deepest(members, path)
+            if (owner is None and members) or not path.endswith(
+                tuple(f".{ext}" for ext in _SOURCE)
+            ):
+                continue
+            folder = owner or ""
+            relative = path.removeprefix(f"{folder}/") if folder else path
+            if relative not in related.setdefault(folder, []):
+                related[folder].append(relative)
         commands = self.test_commands(repo, shared, root_extras=root_extras) if shared else []
         covered = {c[4] for c in commands if len(c) > 4}
         for folder, files in related.items():
@@ -426,24 +450,30 @@ class NodeNpmProfile:
         return commands
 
     def serial_rerun_command(self, command: list[str], tests: list[str]) -> list[str]:
-        """`command`, a failed test run, as the filtered run of the files of `tests`, which
-        is how this profile runs files on their own (see `repeat_command`); `command` itself
-        when it is not one of this profile's runs or none of `tests` is under its directory."""
-        return self.repeat_command(command, tests) or command
+        """`command`, a failed test run, as the filtered run of the files of `tests` with
+        Vitest's files run one after another (`--no-file-parallelism`); `command` itself when it
+        is not one of this profile's runs or none of `tests` is under its directory."""
+        again = self.repeat_command(command, tests)
+        return ["sh", "-c", _SERIAL, *again[3:]] if again else command
 
     def failed_tests(self, output: str) -> list[str]:
         """The `file::test` identifier of each test that failed or errored in the JUnit report
-        after the marker; a file that failed to load is its file's path alone. Empty when the
-        output holds no report."""
+        after the marker, from the root of the project the command ran from (a workspace
+        member's directory is put before the report's own file names); a file that failed to
+        load is its file's path alone. Empty when the output holds no report."""
         root = _report(output)
         if root is None:
             return []
+        _, console = split_report(output)
+        printed = _DIRECTORY_LINE.search(console)
+        directory = printed.group(1).strip().rstrip("/") if printed else ""
+        prefix = "" if directory in ("", ".") else f"{directory}/"
         found: list[str] = []
         for case in root.iter("testcase"):
             _, bad = _failure(case)
             if bad is None:
                 continue
-            file, test = case.get("classname") or "", case.get("name") or ""
+            file, test = prefix + (case.get("classname") or ""), case.get("name") or ""
             found.append(file if _did_not_load(case) else f"{file}::{test}")
         return list(dict.fromkeys(found))
 
@@ -458,7 +488,7 @@ class NodeNpmProfile:
         if len(command) < 3 or command[:2] != ["sh", "-c"] or command[2] not in _TEST_SCRIPTS:
             return None
         directory = command[4] if len(command) > 4 else _HERE
-        filters = command[5:] if command[2] == _FILTERED else []
+        filters = command[5:] if command[2] in (_FILTERED, _SERIAL) else []
         prefix = "" if directory in (_HERE, ".", "") else f"{directory.rstrip('/')}/"
         files: list[str] = []
         for test in tests:
@@ -595,8 +625,11 @@ class NodeNpmProfile:
         run = f"npx {_TEST_RUNNER} run {shlex.join(files)} --reporter=junit"
         names = [i.split("::", 1)[1] for i in ids or [] if "::" in i]
         if names and all(self.kinds_of(Path(), file) for file in files):
-            # Vitest reads the name as a regular expression; only its operators are escaped.
-            pattern = "|".join(re.sub(r"([\\^$.|?*+()\[\]{}])", r"\\\1", n) for n in names)
+            # Vitest reads the name as a regular expression, matched against the suite names and
+            # the test's name joined by spaces, where the report joins them with " > ".
+            pattern = "|".join(
+                re.sub(r"([\\^$.|?*+()\[\]{}])", r"\\\1", n.replace(" > ", " ")) for n in names
+            )
             run += f" -t {shlex.quote(pattern)}"
         listed = "printf '%s\\n' " + shlex.join(_RED_FILE + file for file in files) + "; "
         return listed + wrap_report_command(run, "--outputFile")

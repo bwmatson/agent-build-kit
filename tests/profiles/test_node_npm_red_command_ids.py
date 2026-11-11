@@ -25,3 +25,13 @@ def test_a_file_named_by_the_convention_is_run_by_the_test_name_of_its_id() -> N
     assert "src/a.e2e.test.ts" in command
     assert "-t" in command
     assert "adds two numbers" in command
+
+
+def test_a_nested_test_is_selected_by_the_name_vitest_matches_not_the_reports() -> None:
+    profile: Any = profiles.get("node-npm")
+
+    command = profile.red_command(
+        ["src/a.e2e.test.ts"], ["src/a.e2e.test.ts::math > adds two numbers"]
+    )
+
+    assert "-t 'math adds two numbers'" in command
