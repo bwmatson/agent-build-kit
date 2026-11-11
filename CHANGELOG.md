@@ -6,6 +6,7 @@
   workspace package points at the worktree's own folder and every other package at the
   installed one, so a test importing a workspace package can be loaded there. The red
   check prepares the worktree it runs in this way before it runs the tests.
+
 - Toolchain profiles now answer six questions about test kinds (the kinds a project declares,
   which its default run leaves out, whether naming a test runs it anyway, which kinds are
   unknown, the kinds a file declares, and the option that sets one test's time limit), for
