@@ -43,6 +43,7 @@ from agent_build_kit.pipeline.shell import git
 from agent_build_kit.pipeline.stack_runner import GroupStep
 from agent_build_kit.pipeline.wiring import ids_for, touched_tests
 from agent_build_kit.profiles.base import ToolchainProfile, located
+from agent_build_kit.redaction import redact_text
 
 
 def _files_of(repo: Path, sha: str) -> list[str]:
@@ -125,6 +126,20 @@ def _judged_red(
     return [] if ok else [f"{_where(sha, owner)}{problem}" for problem in found]
 
 
+def _red_log(
+    red: CommandResult, sha: str, owner: ProjectConfig | None, toolchain: ToolchainProfile
+) -> list[str]:
+    """The unit-log lines of one red run: the command (which holds the selection), the exit
+    code and each test file the toolchain's runner could not load, with the start of its
+    error."""
+    where = _where(sha, owner)
+    return [
+        f"{where}red run: {red.command}",
+        f"{where}red run exit code {red.exit_code}",
+        *(f"{where}{line}" for line in toolchain.collection_errors(red.stdout + red.stderr)),
+    ]
+
+
 def red_problems(
     repo: Path,
     sha: str,
@@ -133,6 +148,7 @@ def red_problems(
     projects: list[ProjectConfig] | None = None,
     stubbed: bool = False,
     cache: CheckCache | None = None,
+    log: Callable[[str], None] | None = None,
 ) -> list[str]:
     """Every reason the tests commit `sha` was not seen to fail for the right reason, or an
     empty list: only its red run, judged as `check_branch` judges it. A commit `cache` holds is
@@ -140,9 +156,19 @@ def red_problems(
     projects = projects or []
     label = "red-stubbed" if stubbed else "red"
     if cache is not None:
-        cached = cache.lookup(repo, sha, mode=label)
+        cached = cache.lookup_entry(repo, sha, mode=label)
         if cached is not None:
-            return [] if cached else [f"{sha[:8]}: previously failed the red check"]
+            passed, earlier = cached
+            if passed:
+                return []
+            if not earlier:
+                return [f"{sha[:8]}: previously failed the red check"]
+            # The reasons keep the label of the commit first rejected, which a restack may have
+            # rewritten, so the note says so.
+            return [redact_text(reason, where="red check reasons") for reason in earlier] + [
+                f"{sha[:8]}: this content was rejected before, under the commit each reason "
+                "names; the check was not run again"
+            ]
 
     def is_test(path: str) -> bool:
         return profiles.for_path(projects, path, profile).is_test_path(path)
@@ -156,9 +182,18 @@ def red_problems(
         if command is None:
             continue
         (red,) = run_at_commit(repo, sha, [command], subdir=prefix or ".")
+        if log is not None:
+            for line in _red_log(red, sha, owner, toolchain):
+                log(redact_text(line, where="red check log"))
         problems.extend(_judged_red(toolchain, red, sha, owner, stubbed))
     if cache is not None:
-        cache.record(repo, sha, ok=not problems, mode=label)
+        cache.record(
+            repo,
+            sha,
+            ok=not problems,
+            mode=label,
+            reasons=[redact_text(problem, where="red check reasons") for problem in problems],
+        )
     return problems
 
 

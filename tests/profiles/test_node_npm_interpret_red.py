@@ -70,6 +70,30 @@ def test_a_file_that_did_not_load_a_passing_test_or_an_empty_run_is_rejected_wit
     assert any(reason in problem for problem in problems), problems
 
 
+@pytest.mark.parametrize(
+    ("recording", "file"),
+    [("missing_import", "c.test.ts"), ("syntax_error", "f.test.ts")],
+    ids=["an unresolved import", "a syntax error"],
+)
+def test_a_test_file_that_did_not_load_is_named_with_the_start_of_its_error(
+    profile, project: Project, recording: str, file: str
+) -> None:
+    done = project.run(profile.red_command([file]), recording=recording)
+
+    found = profile.collection_errors(done.stdout + done.stderr)
+
+    assert found[0] == f"could not load {file}:"
+    assert len(found) > 1
+
+
+def test_a_run_whose_files_all_loaded_reports_no_collection_error(
+    profile, project: Project
+) -> None:
+    done = project.run(profile.red_command(["a.test.ts"]), recording="assertion_only")
+
+    assert profile.collection_errors(done.stdout + done.stderr) == []
+
+
 def test_a_given_file_with_no_failing_test_is_named_when_another_given_file_is_red(
     profile, project: Project
 ) -> None:

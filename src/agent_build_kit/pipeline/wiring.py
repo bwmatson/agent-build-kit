@@ -1426,6 +1426,7 @@ def build_red_check(
     projects: list[ProjectConfig] | None = None,
     stubbed: bool = False,
     cache: CheckCache | None = None,
+    log: Callable[[str], None] | None = None,
 ) -> Callable[..., tuple[bool, str]]:
     """The runner's `run_red_check(*, cwd)`: the red check of the tests commit at the head of
     `cwd`, judged as the push gate judges it and not run again for a commit `cache` holds."""
@@ -1435,7 +1436,7 @@ def build_red_check(
     def check(*, cwd: Path) -> tuple[bool, str]:
         sha = _run(["git", "rev-parse", "HEAD"], cwd=cwd).stdout.strip()
         problems = red_problems(
-            cwd, sha, profile=profile, projects=projects, stubbed=stubbed, cache=cache
+            cwd, sha, profile=profile, projects=projects, stubbed=stubbed, cache=cache, log=log
         )
         return not problems, "\n".join(problems)
 
@@ -5393,6 +5394,7 @@ def build_runner(
             projects=repo.projects,
             stubbed=True,
             cache=CheckCache(root / "red-check-cache.json"),
+            log=log,
         ),
         run_selector_check=build_selector_check(profile=profile, projects=repo.projects),
         run_fixers=build_fixers(profile=profile, projects=repo.projects, repo_name=unit.repo),

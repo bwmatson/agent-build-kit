@@ -8,6 +8,14 @@
   repeated like any other test, including under the parallel and serial split. Every other kind
   the repository deselects (end-to-end, slow, credentialed) stays out.
 
+- A rejected red check now keeps the reasons it was rejected for, and a commit with the same
+  content is answered with them and a note that the check was not run again, instead of only
+  "previously failed". Each red run is also logged with its command, its selection of tests,
+  its exit code and, for a module that could not be collected, the module's name and the first
+  lines of its error, as each toolchain's test runner reports it. The reasons and the log pass
+  through redaction. The reasons are kept beside the cached result, which stays a plain
+  true or false, so an older release reading the same cache still sees a rejection.
+
 - A build worker started through the service manager now has the toolchain manager's variable
   (`VOLTA_HOME`) when the dispatcher has it, as it has `PATH`. Without it the worker's `node`
   shim looked for a toolchain in the suite's empty home and went to the network for one, so the
