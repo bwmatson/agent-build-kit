@@ -198,6 +198,25 @@ def test_a_function_inside_a_new_test_is_not_selected(repo: Path) -> None:
     assert profile.asked == [([SUBJECT], [NEW])]
 
 
+@pytest.fixture
+def deselecting_repo(tmp_path: Path) -> Path:
+    """A repository whose own pytest configuration deselects the integration and slow kinds."""
+    return branch_with(
+        tmp_path,
+        {SUBJECT: source("old_case"), "pytest.ini": source("default_deselection_config")},
+    )
+
+
+def test_a_new_integration_test_is_run_by_id_under_the_default_deselection_and_is_red(
+    deselecting_repo: Path,
+) -> None:
+    commit_cases(deselecting_repo, {SUBJECT: source("integration_failing_case")})
+
+    problems = judged(deselecting_repo, IdProfile())
+
+    assert problems == []
+
+
 def test_a_project_in_a_subdirectory_is_asked_for_ids_relative_to_it(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

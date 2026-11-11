@@ -19,8 +19,23 @@ TREE = {
 }
 
 
-def collected(tmp_path: Path, ids: list[str], command: list[str]) -> set[str]:
-    for name, text in TREE.items():
+DESELECTING = {
+    "pytest.ini": (
+        "[pytest]\nmarkers =\n    integration: runs in CI\n    slow: takes long\n"
+        "addopts = -m 'not integration and not slow'\n"
+    ),
+    "tests/test_kinds.py": (
+        "import pytest\n\n\n"
+        "@pytest.mark.integration\ndef test_integrated():\n    pass\n\n\n"
+        "@pytest.mark.slow\ndef test_slow():\n    pass\n"
+    ),
+}
+
+
+def collected(
+    tmp_path: Path, ids: list[str], command: list[str], tree: dict[str, str] | None = None
+) -> set[str]:
+    for name, text in (tree or TREE).items():
         (tmp_path / name).parent.mkdir(parents=True, exist_ok=True)
         (tmp_path / name).write_text(text)
     narrowed = PythonUvProfile().repeat_command(command, ids)
@@ -44,6 +59,25 @@ def test_only_the_named_test_is_collected_not_its_namesakes_or_a_module_of_that_
     found = collected(tmp_path, ["tests/test_a.py::test_added"], command)
 
     assert found == {"tests/test_a.py::test_added"}
+
+
+def test_an_integration_test_is_collected_by_id_under_the_default_deselection(
+    tmp_path: Path,
+) -> None:
+    command = [sys.executable, "-m", "pytest", "tests", "-q"]
+
+    found = collected(tmp_path, ["tests/test_kinds.py::test_integrated"], command, DESELECTING)
+
+    assert found == {"tests/test_kinds.py::test_integrated"}
+
+
+def test_a_slow_test_named_beside_an_integration_test_stays_deselected(tmp_path: Path) -> None:
+    command = [sys.executable, "-m", "pytest", "tests", "-q"]
+    ids = ["tests/test_kinds.py::test_integrated", "tests/test_kinds.py::test_slow"]
+
+    found = collected(tmp_path, ids, command, DESELECTING)
+
+    assert found == {"tests/test_kinds.py::test_integrated"}
 
 
 def test_a_method_is_collected_by_its_class_path_alone(tmp_path: Path) -> None:

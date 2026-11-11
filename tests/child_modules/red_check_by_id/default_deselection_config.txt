@@ -1,0 +1,5 @@
+[pytest]
+markers =
+    integration: runs in CI
+    slow: takes long
+addopts = -m 'not integration and not slow'

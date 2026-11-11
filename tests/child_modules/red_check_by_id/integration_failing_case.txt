@@ -1,0 +1,10 @@
+import pytest
+
+
+def test_old():
+    assert True
+
+
+@pytest.mark.integration
+def test_new():
+    raise AssertionError()

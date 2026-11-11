@@ -12,6 +12,8 @@ import subprocess
 from pathlib import Path
 from typing import cast
 
+import pytest
+
 from agent_build_kit.config import LimitsConfig
 from agent_build_kit.pipeline.wiring import build_unit_test
 from agent_build_kit.profiles.base import ToolchainProfile
@@ -303,6 +305,63 @@ def test_a_test_of_one_member_is_repeated_only_by_that_member_s_command(tmp_path
         ]
         * 3
     )
+
+
+MARKED = {
+    "decorated": "import pytest\n\n\n@pytest.mark.integration\n" + ADDED,
+    "module": "import pytest\n\npytestmark = pytest.mark.integration\n\n\n" + ADDED,
+}
+
+
+def marker_expressions(command: list[str]) -> list[str]:
+    return [command[i + 1] for i, word in enumerate(command[:-1]) if word == "-m"]
+
+
+def runs_naming(runs: Runs, test: str) -> list[list[str]]:
+    return [c for c in runs.commands if test in " ".join(c)]
+
+
+@pytest.mark.parametrize("source", MARKED.values(), ids=MARKED.keys())
+def test_an_added_integration_test_is_run_by_id_with_the_default_deselection_overridden(
+    tmp_path: Path, source: str
+) -> None:
+    repo, base = checkout(tmp_path, {"test_new.py": source})
+    runs = Runs()
+
+    passed, _ = unit_test(runs, repo, base)
+
+    named = runs_naming(runs, "test_new.py::test_added")
+    assert passed
+    assert len(named) >= 3, "the by-id run and the repeats all name it"
+    for command in named:
+        expressions = marker_expressions(command)
+        assert expressions, f"no -m override in {command}"
+        assert "integration" in expressions[-1]
+        assert "not integration" not in expressions[-1]
+
+
+def test_a_changed_existing_integration_test_is_run_and_repeated_with_the_override(
+    tmp_path: Path,
+) -> None:
+    before = MARKED["decorated"]
+    after = before.replace("assert 2 == 2", "assert 3 == 3")
+    repo = init_repo(tmp_path / "repo")
+    (repo / "test_old.py").write_text(before)
+    git(repo, "add", "-A")
+    git(repo, "commit", "-qm", "base")
+    base = git(repo, "rev-parse", "HEAD").strip()
+    (repo / "test_old.py").write_text(after)
+    git(repo, "add", "-A")
+    git(repo, "commit", "-qm", "unit")
+    runs = Runs()
+
+    passed, _ = unit_test(runs, repo, base)
+
+    named = runs_naming(runs, "test_old.py::test_added")
+    assert passed
+    assert len(named) >= 3
+    for command in named:
+        assert marker_expressions(command), f"no -m override in {command}"
 
 
 def test_a_test_method_in_a_source_file_is_not_repeated(tmp_path: Path) -> None:
