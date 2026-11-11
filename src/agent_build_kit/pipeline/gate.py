@@ -108,6 +108,26 @@ def _where(sha: str, owner: ProjectConfig | None) -> str:
     return f"{sha[:8]}: " + (f"{owner.path}: " if owner and owner.prefix else "")
 
 
+def _prepare(repo: Path, toolchain: ToolchainProfile, prefix: str, tree: Path) -> None:
+    """Let a toolchain with something to link into the throwaway `tree` of `repo` do so; one
+    that prepares nothing has no `prepare_worktree`."""
+    prepare = getattr(toolchain, "prepare_worktree", None)
+    if prepare is not None:
+        prepare(repo, tree, project=prefix or ".")
+
+
+def _prepared(
+    repo: Path, toolchain: ToolchainProfile, prefix: str, command: str
+) -> Callable[[Path], str]:
+    """`command` as a function of the worktree it runs in, which it prepares first."""
+
+    def in_tree(tree: Path) -> str:
+        _prepare(repo, toolchain, prefix, tree)
+        return command
+
+    return in_tree
+
+
 def _judged_red(
     toolchain: ToolchainProfile,
     red: CommandResult,
@@ -182,19 +202,9 @@ def red_problems(
         if command is None:
             continue
 
-        def prepared(
-            tree: Path,
-            command: str = command,
-            toolchain: ToolchainProfile = toolchain,
-            prefix: str = prefix,
-        ) -> str:
-            # A profile with something to link into the worktree does so before the run.
-            prepare = getattr(toolchain, "prepare_worktree", None)
-            if prepare is not None:
-                prepare(repo, tree, project=prefix or ".")
-            return command
-
-        (red,) = run_at_commit(repo, sha, [prepared], subdir=prefix or ".")
+        (red,) = run_at_commit(
+            repo, sha, [_prepared(repo, toolchain, prefix, command)], subdir=prefix or "."
+        )
         if log is not None:
             for line in _red_log(red, sha, owner, toolchain):
                 log(redact_text(line, where="red check log"))
@@ -289,7 +299,9 @@ def check_branch(
                 folder: str = prefix,
                 profile: ToolchainProfile = toolchain,
             ) -> str:
-                # Looked up in the tree at `sha`, which is where the command runs.
+                # Looked up in the tree at `sha`, which is where the command runs. The tree is
+                # prepared here, first, for the red command that follows in the same tree.
+                _prepare(repo, profile, folder, tree)
                 return located(profile, ["sh", "-c", line], tree / folder, tree)[-1]
 
             commands: list[str | Callable[[Path], str]] = [clean_in]
