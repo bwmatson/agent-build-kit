@@ -98,8 +98,8 @@ def _child_pids(pid: int) -> list[int]:
     return found
 
 
-def _scan_descendants_cpu() -> float:
-    """The same sum for a kernel without per-task children files: every process is read."""
+def _scan_descendants_cpu() -> dict[int, float]:
+    """The same reading for a kernel without per-task children files: every process is read."""
     children: dict[int, list[tuple[int, float]]] = {}
     for name in os.listdir("/proc"):
         if not name.isdigit():
@@ -109,35 +109,40 @@ def _scan_descendants_cpu() -> float:
         except OSError:
             continue
         children.setdefault(int(fields[1]), []).append((int(name), _spent(fields)))
-    total = 0.0
+    found: dict[int, float] = {}
     pending = [os.getpid()]
     while pending:
         for pid, spent in children.get(pending.pop(), []):
-            total += spent
+            found[pid] = spent
             pending.append(pid)
-    return total
+    return found
 
 
-def live_descendants_cpu() -> float:
-    """CPU seconds, from /proc, of the process's running descendants, including what each has
+def descendants_cpu() -> dict[int, float]:
+    """Process id to CPU seconds, from /proc, of each running descendant, including what it has
     already collected from its own finished children. Only descendants are read, so a test with
-    no children costs one small read. A host without /proc counts none."""
+    no children costs one small read. A host without /proc has none."""
     me = os.getpid()
     try:
         if not os.path.exists(f"/proc/{me}/task/{me}/children"):
             return _scan_descendants_cpu()
         pending = _child_pids(me)
-        total = 0.0
+        found: dict[int, float] = {}
         while pending:
             pid = pending.pop()
             try:
-                total += _spent(_stat_fields(pid))
+                found[pid] = _spent(_stat_fields(pid))
             except OSError:
                 continue
             pending.extend(_child_pids(pid))
-        return total
+        return found
     except OSError:
-        return 0.0
+        return {}
+
+
+def live_descendants_cpu() -> float:
+    """CPU seconds, from /proc, of the process's running descendants (see `descendants_cpu`)."""
+    return sum(descendants_cpu().values())
 
 
 def read_cpu() -> float:
@@ -145,6 +150,92 @@ def read_cpu() -> float:
     times = os.times()
     finished = times.children_user + times.children_system
     return time.process_time() + finished + live_descendants_cpu()
+
+
+class CpuSnapshot(Frozen):
+    """One reading of the CPU in use: the main thread's seconds, each other thread of the
+    process by task id, each running descendant by process id, and what the process has
+    collected from finished children."""
+
+    main: float
+    tasks: dict[int, float]
+    descendants: dict[int, float]
+    reaped: float
+
+
+def _task_cpu(tid: int | str) -> float:
+    """utime and stime of one thread of this process, in seconds."""
+    with open(f"/proc/self/task/{tid}/stat") as stat:
+        text = stat.read()
+    fields = text[text.rindex(")") + 2 :].split()
+    return (int(fields[11]) + int(fields[12])) / _TICKS
+
+
+def snapshot_cpu() -> CpuSnapshot:
+    """Read the CPU now. A host without /proc/self/task has only the whole process's reading,
+    as `main`."""
+    times = os.times()
+    reaped = times.children_user + times.children_system
+    if not os.path.isdir("/proc/self/task"):
+        return CpuSnapshot(main=read_cpu() - reaped, tasks={}, descendants={}, reaped=reaped)
+    tasks: dict[int, float] = {}
+    for name in os.listdir("/proc/self/task"):
+        try:
+            tasks[int(name)] = _task_cpu(name)
+        except OSError:
+            continue
+    main = tasks.pop(os.getpid(), time.process_time())
+    return CpuSnapshot(main=main, tasks=tasks, descendants=descendants_cpu(), reaped=reaped)
+
+
+def phase_cpu(start: CpuSnapshot, now: CpuSnapshot) -> float:
+    """The CPU a phase used: the main thread's growth, all of each thread and descendant not in
+    `start`, and the growth of what finished children gave. A thread or descendant in `start`
+    is left out, however much it used."""
+    new_tasks = sum(v for tid, v in now.tasks.items() if tid not in start.tasks)
+    new_descendants = sum(v for pid, v in now.descendants.items() if pid not in start.descendants)
+    return (now.main - start.main) + new_tasks + new_descendants + (now.reaped - start.reaped)
+
+
+# What each phase left alive: task id or process id to (its name, the test that left it).
+LEFT_BY: dict[int, tuple[str, str]] = {}
+
+
+def record_left(start: CpuSnapshot, now: CpuSnapshot, nodeid: str) -> None:
+    """Record, under `nodeid`, each thread and descendant alive in `now` and not in `start`;
+    forget every record whose id is gone, since an id may be reused."""
+    alive = set(now.tasks) | set(now.descendants)
+    for gone in set(LEFT_BY) - alive:
+        del LEFT_BY[gone]
+    names = {t.native_id: t.name for t in threading.enumerate()}
+    for tid in now.tasks:
+        if tid not in start.tasks:
+            LEFT_BY.setdefault(tid, (f"thread {names.get(tid, 'unnamed')}", nodeid))
+    for pid in now.descendants:
+        if pid not in start.descendants:
+            LEFT_BY.setdefault(pid, ("child process", nodeid))
+
+
+def inherited_lines(
+    start: CpuSnapshot, now: CpuSnapshot, left_by: dict[int, tuple[str, str]]
+) -> list[str]:
+    """One line for each thread or descendant alive at `start` that used CPU by `now`: its name,
+    the test that left it, and its seconds."""
+    lines: list[str] = []
+    for kind, before, after in (
+        ("task", start.tasks, now.tasks),
+        ("process", start.descendants, now.descendants),
+    ):
+        for ident, was in before.items():
+            grew = after.get(ident, was) - was
+            if grew <= 0:
+                continue
+            name, test = left_by.get(ident, (f"{kind} {ident}", "an earlier test"))
+            lines.append(
+                f"{name} ({kind} {ident}), left running by {test}, used {grew:.2f} s of CPU "
+                "in this phase"
+            )
+    return lines
 
 
 class TimedOut(BaseException):
@@ -239,12 +330,13 @@ def _under_limit(item: pytest.Item, phase: str):
 
     previous = signal.signal(signal.SIGUSR2, interrupt)
     done = threading.Event()
-    cpu_start = read_cpu() if budget.cpu > 0 else 0.0
+    start = snapshot_cpu() if budget.cpu > 0 else None
     wall_start = time.monotonic()
 
     def watch_cpu() -> None:
         while not done.wait(POLL_SECONDS):
-            used = read_cpu() - cpu_start
+            assert start is not None
+            used = phase_cpu(start, snapshot_cpu())
             if clock_fired(budget, used, time.monotonic() - wall_start) == "cpu":
                 stop("cpu")
                 return
@@ -265,9 +357,11 @@ def _under_limit(item: pytest.Item, phase: str):
             sentence = f"exceeded the {kind}time limit of {budget.wall:g} seconds"
         else:
             sentence = exceeded_text(fired[0] if fired else "wall", budget)
+        inherited = inherited_lines(start, snapshot_cpu(), LEFT_BY) if start is not None else []
+        blamed = "".join(f"\n{line}" for line in inherited)
         # Raised from None: the stacks are in the text, once, after the limit it names.
         raise pytest.fail.Exception(
-            f"{what} {sentence}\n\nThe stack of every thread:\n{stopped.stacks}",
+            f"{what} {sentence}{blamed}\n\nThe stack of every thread:\n{stopped.stacks}",
             pytrace=False,
         ) from None
     finally:
@@ -279,6 +373,8 @@ def _under_limit(item: pytest.Item, phase: str):
         if watcher is not None:
             watcher.join()
         signal.signal(signal.SIGUSR2, previous)
+        if start is not None:
+            record_left(start, snapshot_cpu(), item.nodeid)
 
 
 @pytest.hookimpl(wrapper=True)

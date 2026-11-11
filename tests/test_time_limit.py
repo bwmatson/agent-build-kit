@@ -23,7 +23,7 @@ import pytest
 
 from tests import time_limit
 from tests.child_pytest import run_scenario
-from tests.time_limit import Budget
+from tests.time_limit import Budget, CpuSnapshot
 
 CPU_SCENARIO = "cpu_time_limit"
 E2E_SCENARIO = "fast_and_e2e_time_limit"
@@ -366,3 +366,67 @@ def test_an_unmarked_test_beside_a_marked_one_still_fails_at_the_default(
     assert "FAILED blocks.py::test_unmarked_beside_them" in output, output
     assert "test exceeded the wall-clock backstop of 100 s" in output, output
     assert "2 failed" in output, output
+
+
+def snapshot(
+    main: float = 0.0,
+    tasks: dict[int, float] | None = None,
+    descendants: dict[int, float] | None = None,
+    reaped: float = 0.0,
+) -> CpuSnapshot:
+    return CpuSnapshot(main=main, tasks=tasks or {}, descendants=descendants or {}, reaped=reaped)
+
+
+def test_a_thread_alive_before_the_phase_adds_no_cpu_to_it() -> None:
+    start = snapshot(main=1, tasks={7: 100})
+
+    assert time_limit.phase_cpu(start, snapshot(main=1, tasks={7: 150})) == 0
+
+
+def test_a_descendant_alive_before_the_phase_adds_no_cpu_to_it() -> None:
+    start = snapshot(descendants={9: 10})
+
+    assert time_limit.phase_cpu(start, snapshot(descendants={9: 60})) == 0
+
+
+@pytest.mark.parametrize(
+    ("now", "seconds"),
+    [
+        (snapshot(main=5, tasks={7: 100}, descendants={9: 10}, reaped=1), 4),
+        (snapshot(main=1, tasks={7: 100, 8: 3}, descendants={9: 10}, reaped=1), 3),
+        (snapshot(main=1, tasks={7: 100}, descendants={9: 10, 10: 2}, reaped=1), 2),
+        (snapshot(main=1, tasks={7: 100}, descendants={9: 10}, reaped=6.5), 5.5),
+    ],
+    ids=["main thread", "new task", "new descendant", "reaped children"],
+)
+def test_a_phase_counts_the_main_thread_what_it_started_and_what_children_gave(
+    now: CpuSnapshot, seconds: float
+) -> None:
+    start = snapshot(main=1, tasks={7: 100}, descendants={9: 10}, reaped=1)
+
+    assert time_limit.phase_cpu(start, now) == pytest.approx(seconds)
+
+
+def test_an_inherited_thread_that_grew_is_named_with_the_test_that_left_it() -> None:
+    start = snapshot(tasks={7: 100})
+    now = snapshot(tasks={7: 150.5})
+
+    lines = time_limit.inherited_lines(start, now, {7: ("thread poller", "tests/a.py::test_x")})
+
+    assert len(lines) == 1
+    assert "poller" in lines[0]
+    assert "tests/a.py::test_x" in lines[0]
+    assert "50.50" in lines[0]
+
+
+def test_an_inherited_thread_nobody_recorded_is_named_as_left_by_an_earlier_test() -> None:
+    lines = time_limit.inherited_lines(snapshot(tasks={7: 1}), snapshot(tasks={7: 2}), {})
+
+    assert len(lines) == 1
+    assert "an earlier test" in lines[0]
+
+
+def test_an_inherited_thread_that_did_not_grow_has_no_line() -> None:
+    start = snapshot(tasks={7: 100}, descendants={9: 3})
+
+    assert time_limit.inherited_lines(start, start, {}) == []
