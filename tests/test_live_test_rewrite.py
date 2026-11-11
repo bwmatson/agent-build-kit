@@ -8,6 +8,7 @@ from collections import defaultdict
 
 import pytest
 
+from tests.child_pytest import collect_items
 from tests.live_tag_drift import DIMENSIONS, value_name_drift, values_carried
 from tests.runtime_tag_collection import ROOT
 
@@ -29,8 +30,7 @@ OLD_NAMES = {
 
 
 def items_of(pytester: pytest.Pytester, *files: str) -> list[pytest.Item]:
-    items, _ = pytester.inline_genitems(*(str(INTEGRATION / f) for f in files))
-    return items
+    return collect_items(pytester, *(INTEGRATION / f for f in files))
 
 
 def values_of(item: pytest.Item, dimension: str) -> set[str]:

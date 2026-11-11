@@ -10,6 +10,7 @@ from pathlib import Path
 
 import pytest
 
+from tests.child_pytest import collect_items
 from tests.runtime_tags import runtime_tags
 
 MODULE = Path(__file__).parent / "integration" / "test_planning_in_repo_live_stack.py"
@@ -19,8 +20,8 @@ UNTAGGED = "e2e and not runtime_acp and not runtime_claude_code"
 def test_the_file_is_selected_whole_by_the_expression_that_leaves_out_both_runtimes(
     pytester: pytest.Pytester,
 ) -> None:
-    everything, _ = pytester.inline_genitems(str(MODULE))
-    untagged, _ = pytester.inline_genitems("-m", UNTAGGED, str(MODULE))
+    everything = collect_items(pytester, MODULE)
+    untagged = collect_items(pytester, "-m", UNTAGGED, MODULE)
 
     assert everything
     assert [i.nodeid for i in untagged] == [i.nodeid for i in everything]

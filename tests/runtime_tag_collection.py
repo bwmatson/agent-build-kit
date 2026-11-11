@@ -12,6 +12,7 @@ from pathlib import Path
 
 import pytest
 
+from tests.child_pytest import collect_items
 from tests.runtime_tags import runtime_tags
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -37,7 +38,7 @@ def collect(pytester: pytest.Pytester, expression: str = "", **files: str) -> py
 def assert_runs_on_claude_code_alone(pytester: pytest.Pytester, module: Path) -> None:
     """Every item `module` collects is a `e2e` test of the `claude_code` parameter and
     carries the `runtime_claude_code` tag alone."""
-    items, _ = pytester.inline_genitems(str(module))
+    items = collect_items(pytester, module)
 
     assert items
     assert [
