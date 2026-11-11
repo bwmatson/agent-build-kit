@@ -98,20 +98,28 @@ def test_the_branch_of_a_dependent_held_for_depth_is_not_deleted(tmp_path: Path)
     assert deleted == []
 
 
-def test_a_later_merge_restacks_a_unit_whose_depth_has_fallen(tmp_path: Path) -> None:
+def freed(store: UnitStore, unit_id: str, *, onto: str) -> None:
+    """The unit is back in review, owed a moved-base run onto `onto`."""
+    stored = store.get(unit_id)
+    assert (stored.state, stored.cause) == (IN_REVIEW, Cause.BASE_CHANGED)
+    assert onto in stored.note
+
+
+def test_a_later_merge_frees_a_unit_whose_depth_has_fallen_owed_a_move(tmp_path: Path) -> None:
     store = deep_store(tmp_path)
     merge(store, 1, cap=2, recorder=Recorder(), deleted=[])
     assert store.get("c/4").state == HELD
-    recorder = Recorder()
+    recorder, deleted = Recorder(), []
 
     # c/2 merges: c/4 is not its dependent, so only reconsideration reaches it.
-    merge(store, 2, cap=2, recorder=recorder, deleted=[])
+    merge(store, 2, cap=2, recorder=recorder, deleted=deleted)
 
-    assert "spec/c/4" in recorder.branches
-    assert store.get("c/4").state == IN_REVIEW
+    assert recorder.restacked == [], "nothing is moved in the poll"
+    freed(store, "c/4", onto="spec/c/3")
+    assert deleted == [], "the merged branch waits for the units owed a move"
 
 
-def test_a_merge_of_an_unrelated_unit_reconsiders_a_held_one(tmp_path: Path) -> None:
+def test_a_merge_of_an_unrelated_unit_frees_a_held_one_owed_a_move(tmp_path: Path) -> None:
     store = deep_store(tmp_path)
     merge(store, 1, cap=2, recorder=Recorder(), deleted=[])
     store.set_state("c/2", MERGED)  # its depth fell with no event of its own
@@ -119,9 +127,8 @@ def test_a_merge_of_an_unrelated_unit_reconsiders_a_held_one(tmp_path: Path) -> 
 
     merge(store, 9, cap=2, recorder=recorder, deleted=[])
 
-    assert recorder.branches == ["spec/c/4"]
-    assert recorder.restacked[0]["new_base"] == "spec/c/3"
-    assert store.get("c/4").state == IN_REVIEW
+    assert recorder.restacked == []
+    freed(store, "c/4", onto="spec/c/3")
 
 
 def test_a_unit_still_beyond_the_cap_stays_held(tmp_path: Path) -> None:
@@ -297,7 +304,7 @@ def test_releasing_a_depth_hold_the_label_took_over_restores_the_depth_hold(
     assert events.held_for_depth(stored)
 
 
-def test_a_depth_hold_the_label_took_over_is_restacked_by_a_merge_after_its_release(
+def test_a_depth_hold_the_label_took_over_is_freed_by_a_merge_after_its_release(
     tmp_path: Path,
 ) -> None:
     store = deep_store(tmp_path)
@@ -308,15 +315,11 @@ def test_a_depth_hold_the_label_took_over_is_restacked_by_a_merge_after_its_rele
 
     merge(store, 2, cap=2, recorder=recorder, deleted=[])
 
-    moved = [
-        {key: call[key] for key in ("branch", "old_base", "new_base")}
-        for call in recorder.restacked
-    ]
-    assert {"branch": "spec/c/4", "old_base": "spec/c/1", "new_base": "spec/c/3"} in moved
-    assert store.get("c/4").state == IN_REVIEW
+    assert recorder.restacked == []
+    freed(store, "c/4", onto="spec/c/3")
 
 
-def test_a_release_after_a_merge_brought_the_unit_within_the_cap_restacks_it(
+def test_a_release_after_a_merge_brought_the_unit_within_the_cap_frees_it_owed_a_move(
     tmp_path: Path,
 ) -> None:
     store = deep_store(tmp_path)
@@ -329,34 +332,24 @@ def test_a_release_after_a_merge_brought_the_unit_within_the_cap_restacks_it(
 
     events.on_release(4, repo="app", store=store, restack=recorder, rebase_cap=2)
 
-    assert recorder.branches == ["spec/c/4"]
-    assert recorder.restacked[0]["old_base"] == "spec/c/1"
-    assert recorder.restacked[0]["new_base"] == "spec/c/3"
-    assert store.get("c/4").state == IN_REVIEW
+    assert recorder.restacked == []
+    freed(store, "c/4", onto="spec/c/3")
 
 
-def test_a_restack_that_raises_leaves_the_unit_in_review_and_the_others_reconsidered(
-    tmp_path: Path,
-) -> None:
+def test_a_merge_frees_every_held_unit_it_brought_within_the_cap(tmp_path: Path) -> None:
     store = deep_store(tmp_path)
     store.import_units([unit("c/5", depends_on=("c/1", "c/3"))])
     store.set_state("c/5", IN_REVIEW, pr=5, branch="spec/c/5")
     merge(store, 1, cap=2, recorder=Recorder(), deleted=[])
     assert store.get("c/4").state == store.get("c/5").state == HELD
     store.set_state("c/2", MERGED)
-    seen: list[str] = []
-    logged: list[str] = []
+    recorder = Recorder()
 
-    def restack(**kwargs) -> None:
-        seen.append(kwargs["branch"])
-        if kwargs["branch"] == "spec/c/4":
-            raise RuntimeError("checks fail")
+    merge(store, 9, cap=2, recorder=recorder, deleted=[])
 
-    events.on_merged(9, repo="app", store=store, restack=restack, rebase_cap=2, log=logged.append)
-
-    assert seen == ["spec/c/4", "spec/c/5"]
-    assert store.get("c/4").state == IN_REVIEW
-    assert any("c/4: restack onto" in line and "failed" in line for line in logged)
+    assert recorder.restacked == []
+    assert store.get("c/4").cause is Cause.BASE_CHANGED
+    assert store.get("c/5").cause is Cause.BASE_CHANGED
 
 
 def test_a_busy_held_unit_stays_held_with_its_record_unchanged(tmp_path: Path) -> None:
@@ -378,7 +371,8 @@ def test_a_busy_held_unit_stays_held_with_its_record_unchanged(tmp_path: Path) -
 
     # Found again by the next merge, once the build is done.
     events.on_merged(8, repo="app", store=store, restack=recorder, rebase_cap=2)
-    assert recorder.branches == ["spec/c/4"]
+    assert recorder.restacked == []
+    freed(store, "c/4", onto="spec/c/3")
 
 
 @pytest.mark.parametrize("cap", [3, 4])

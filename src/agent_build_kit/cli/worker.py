@@ -22,6 +22,7 @@ from agent_build_kit.pipeline.admission import ADMISSION_LOCK
 from agent_build_kit.pipeline.file_lock import LockTimeout, file_lock
 from agent_build_kit.pipeline.occupancy import marker_live, resolve_claimed
 from agent_build_kit.pipeline.resolution_lane import (
+    clear_deferral,
     clear_worker_record,
     lane_held_by_record,
     owed_units,
@@ -119,6 +120,9 @@ def cmd_worker_resolve(args: argparse.Namespace, inst: Installation) -> int:
                 record = write_worker_record(
                     inst.state_dir, project_key(unit), unit, base=base_of(unit, current)
                 )
+                # The run is taken up, so the time a refusal deferred it to is spent. A new
+                # refusal in this run records its own.
+                clear_deferral(inst.state_dir, unit.id)
                 # The record names the run from here, so the claim that started this worker is
                 # spent (left live it would count the worker twice until it lapses).
                 if resolve_claimed(unit, now):

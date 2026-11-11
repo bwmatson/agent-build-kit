@@ -26,7 +26,15 @@ from typing import Any
 from agent_build_kit.config import active
 from agent_build_kit.installation import Installation
 from agent_build_kit.pipeline import host, spans
-from agent_build_kit.pipeline.events import Claim, hold_for_conflict, read_base_tip
+from agent_build_kit.pipeline.events import (
+    MOVED_BASE_CAUSES,
+    OWED_CAUSES,
+    OWED_STATES,
+    Claim,
+    hold_for_conflict,
+    in_a_lane_run,
+    read_base_tip,
+)
 from agent_build_kit.pipeline.file_lock import atomic_write_text
 from agent_build_kit.pipeline.lease import Leases, lease_dir
 from agent_build_kit.pipeline.shell import git
@@ -62,16 +70,6 @@ Stamp = Callable[[StoredUnit], object]
 # and the graph page, which are not the process that runs the tick. The glob also reads the
 # single record a tick of the previous version left as `restacks.json`.
 RECORD_GLOB = "restacks*.json"
-
-OWED_STATES = (PLANNED, RUNNING, IN_REVIEW)
-OWED_CAUSES = (Cause.BASE_CHANGED, Cause.RESTACK_DEFERRED)
-# The causes of a unit owed a moved-base run: a restack is owed for the first two only.
-MOVED_BASE_CAUSES = (*OWED_CAUSES, Cause.RESTACK_CONFLICT)
-
-
-def in_a_lane_run(unit: StoredUnit) -> bool:
-    """Whether the lane is making the unit's whole run, so it is the lane's to resume."""
-    return unit.state == RUNNING and unit.moved_base_run
 
 
 def in_a_comment_run(unit: StoredUnit) -> bool:
@@ -406,6 +404,11 @@ def record_deferral(state_dir: Path, unit_id: str, resume_at: datetime) -> None:
     path = _deferral_path(state_dir, unit_id)
     path.parent.mkdir(parents=True, exist_ok=True)
     atomic_write_text(path, json.dumps({"unit": unit_id, "until": resume_at.isoformat()}))
+
+
+def clear_deferral(state_dir: Path, unit_id: str) -> None:
+    """Forget the recorded deferral of `unit_id`'s run: a worker has taken the run up."""
+    _deferral_path(state_dir, unit_id).unlink(missing_ok=True)
 
 
 def deferred_until(state_dir: Path, unit_id: str) -> datetime | None:

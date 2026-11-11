@@ -19,9 +19,10 @@ from agent_build_kit.graph.checkpointer import open_checkpointer, unit_graphs_pa
 from agent_build_kit.pipeline.events import build_base_tip
 from agent_build_kit.pipeline.pr_poller import CONFLICT_REASON
 from agent_build_kit.pipeline.unit_store import HeldBy, ReworkKind
-from agent_build_kit.pipeline.units import HELD, IN_REVIEW
+from agent_build_kit.pipeline.units import HELD, IN_REVIEW, MERGED
+from tests.factories import commit, git, init_repo
 from tests.graph.test_restack_lane_prepare import BRANCH, Scene
-from tests.tick_driver import OTHER, Setup, make_setup
+from tests.tick_driver import OTHER, UNIT, Setup, make_setup
 
 PR = 8
 EARLIER = datetime(2026, 1, 1, tzinfo=UTC)
@@ -46,6 +47,19 @@ def without_thread(scene: Scene) -> None:
     scene.graph.store.record_push(OTHER, scene.head)
     assert scene.graph.next(OTHER) == ()
     scene.graph.recorder.logged.clear()
+
+
+def test_a_poll_removes_the_local_branch_of_a_merged_unit_nothing_waits_on(
+    graph: Setup,
+) -> None:
+    repo = init_repo(graph.inst.checkouts["app"])
+    commit(repo, "a.txt")
+    git(repo, "branch", f"spec/{UNIT}")
+    graph.store.set_state(UNIT, MERGED, pr=PR, branch=f"spec/{UNIT}")
+
+    graph.poll()
+
+    assert f"spec/{UNIT}" not in git(repo, "branch", "--format=%(refname:short)").split()
 
 
 def left_for_a_worker(scene: Scene) -> None:

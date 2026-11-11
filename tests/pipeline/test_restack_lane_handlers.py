@@ -235,10 +235,10 @@ def test_a_depth_held_unit_freed_by_the_merge_keeps_the_merged_branch_until_a_ch
         cause=Cause.DEPTH,
     )
     deleted: list[tuple[str, str]] = []
-    present_at_move: list[bool] = []
+    moved: list[str] = []
 
     def restack(**kwargs: Any) -> None:
-        present_at_move.append(not deleted)
+        moved.append(kwargs["branch"])
 
     merge(
         store,
@@ -250,6 +250,8 @@ def test_a_depth_held_unit_freed_by_the_merge_keeps_the_merged_branch_until_a_ch
         delete_branch=lambda repo, branch: deleted.append((repo, branch)),
     )
 
+    assert moved == [], "nothing is moved in the poll"
     assert store.get("c/2").cause is Cause.BASE_CHANGED
-    assert all(present_at_move)
-    assert deleted == [], "c/2 is owed its move off the branch"
+    freed = store.get("c/4")
+    assert (freed.state, freed.cause) == (IN_REVIEW, Cause.BASE_CHANGED)
+    assert deleted == [], "c/2 and c/4 are owed their move off the branch"

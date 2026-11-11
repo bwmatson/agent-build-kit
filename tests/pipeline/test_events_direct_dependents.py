@@ -15,7 +15,8 @@ import pytest
 
 from agent_build_kit.pipeline import events
 from agent_build_kit.pipeline.unit_store import Cause, UnitStore
-from agent_build_kit.pipeline.units import HELD, IN_REVIEW, MERGED, PLANNED
+from agent_build_kit.pipeline.units import HELD, IN_REVIEW, MERGED, PLANNED, SETTLING
+from tests.factories import commit, git, init_repo
 from tests.factories import stored_unit as unit
 
 A, B, C = "feature/1", "feature/2", "feature/3"
@@ -200,3 +201,74 @@ def test_the_merged_units_branch_goes_on_the_first_pass_after_the_last_child_has
 
     assert calls.removed == [OLD_BASE]
     assert calls.deleted == [OLD_BASE]
+
+
+def pass_over_merged(store: UnitStore, calls: Calls, repos: dict[str, Path]) -> None:
+    """The check each poll makes of the merged units whose branch is still there."""
+    events.remove_merged_branches(
+        store,
+        repos=repos,
+        claim=calls.claim,
+        remove_worktree=lambda repo, branch: calls.removed.append(branch),
+        delete_branch=lambda repo, branch: calls.deleted.append(branch),
+        on_new_base=lambda child: True,
+        log=calls.logged.append,
+    )
+
+
+@pytest.fixture
+def checkout(tmp_path: Path) -> Path:
+    """A repository whose local branches are `main` and the merged unit's."""
+    repo = init_repo(tmp_path / "app")
+    commit(repo, "one.txt")
+    git(repo, "branch", OLD_BASE)
+    return repo
+
+
+def test_a_merged_units_branch_is_removed_once_the_child_it_waited_for_has_moved(
+    store: UnitStore, checkout: Path
+) -> None:
+    store.set_state(B, IN_REVIEW, cause=Cause.RESTACK_HANDED_BACK)
+    calls = Calls()
+
+    pass_over_merged(store, calls, {"app": checkout})
+
+    assert calls.deleted == [OLD_BASE]
+    assert calls.removed == [OLD_BASE]
+
+
+def test_a_merged_units_branch_is_kept_while_a_child_is_owed_its_move(
+    store: UnitStore, checkout: Path
+) -> None:
+    store.set_state(B, IN_REVIEW, cause=Cause.BASE_CHANGED)
+    calls = Calls()
+
+    pass_over_merged(store, calls, {"app": checkout})
+
+    assert calls.deleted == []
+    assert calls.removed == []
+
+
+def test_a_merged_unit_with_no_local_branch_is_left_alone(store: UnitStore, tmp_path: Path) -> None:
+    store.set_state(B, IN_REVIEW, cause=Cause.RESTACK_HANDED_BACK)
+    other = init_repo(tmp_path / "other")
+    commit(other, "one.txt")
+    calls = Calls()
+
+    pass_over_merged(store, calls, {"app": other})
+
+    assert calls.deleted == [] and calls.removed == []
+
+
+def test_a_unit_that_is_not_merged_or_is_in_another_repo_is_left_alone(
+    store: UnitStore, checkout: Path
+) -> None:
+    store.set_state(B, IN_REVIEW, cause=Cause.RESTACK_HANDED_BACK)
+    calls = Calls()
+
+    pass_over_merged(store, calls, {"platform": checkout})
+    assert calls.deleted == [], "its repository is not one polled"
+
+    store.set_state(A, SETTLING)
+    pass_over_merged(store, calls, {"app": checkout})
+    assert calls.deleted == [], "a settling unit is not merged"

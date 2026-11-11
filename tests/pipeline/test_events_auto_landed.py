@@ -90,6 +90,7 @@ def test_a_child_held_for_depth_is_released_when_a_landing_brings_it_within_the_
     released = land(by_pipeline, 2, Cause.AUTO_LANDED)
 
     assert by_pipeline.get("c/4").state == IN_REVIEW
+    assert by_pipeline.get("c/4").cause == Cause.BASE_CHANGED, "owed a move onto spec/c/3"
     assert by_pipeline.get("c/2").cause == Cause.AUTO_LANDED
-    assert ("spec/c/4", "spec/c/1", "spec/c/3") in released["restacked"]
+    assert released["restacked"] == [], "nothing is moved in the poll"
     assert released == released_by_person

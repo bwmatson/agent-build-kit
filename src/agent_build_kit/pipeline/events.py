@@ -866,7 +866,6 @@ def release_children(
         still_held = _reconsider_held(
             leaving,
             store=store,
-            restack=restack,
             claim=claim,
             rebase_cap=rebase_cap,
             log=log,
@@ -903,11 +902,16 @@ def remove_merged_branches(
 ) -> None:
     """The check each pass makes for the merged units whose branch is still there: it goes
     (`remove_satisfied`) on the first pass after the last unit stacked on it has moved."""
-    for unit in store.all():
-        if unit.state != MERGED or unit.repo not in repos:
-            continue
-        ref = f"refs/heads/{branch_name(unit)}"
-        if git(repos[unit.repo], "rev-parse", "--verify", "--quiet", ref, check=False).returncode:
+    merged = [u for u in store.all() if u.state == MERGED and u.repo in repos]
+    local: dict[str, set[str]] = {}
+    for repo in {unit.repo for unit in merged}:
+        # One read for the repo, not one for each merged unit the store keeps.
+        listed = git(
+            repos[repo], "for-each-ref", "--format=%(refname:short)", "refs/heads/", check=False
+        )
+        local[repo] = set(listed.stdout.split()) if not listed.returncode else set()
+    for unit in merged:
+        if branch_name(unit) not in local[unit.repo]:
             continue
         remove_satisfied(
             unit,
@@ -920,14 +924,22 @@ def remove_merged_branches(
         )
 
 
+OWED_STATES = (PLANNED, RUNNING, IN_REVIEW)
+OWED_CAUSES = (Cause.BASE_CHANGED, Cause.RESTACK_DEFERRED)
+# The causes of a unit owed a moved-base run: a restack is owed for the first two only.
+MOVED_BASE_CAUSES = (*OWED_CAUSES, Cause.RESTACK_CONFLICT)
+
+
+def in_a_lane_run(unit: StoredUnit) -> bool:
+    """Whether a resolve worker is making the unit's whole run, so it is that run's to resume."""
+    return unit.state == RUNNING and unit.moved_base_run
+
+
 def owed_its_move(unit: StoredUnit) -> bool:
     """Whether `unit` is owed a move off the branch it was based on, or is making one: a
     moved-base run is recorded for it (`base_changed`, or one a refusal or a conflict left) and
     not yet made, or a resolve worker has it running."""
-    return (
-        unit.state in (PLANNED, RUNNING, IN_REVIEW)
-        and unit.cause in (Cause.BASE_CHANGED, Cause.RESTACK_DEFERRED, Cause.RESTACK_CONFLICT)
-    ) or (unit.state == RUNNING and unit.moved_base_run)
+    return (unit.state in OWED_STATES and unit.cause in MOVED_BASE_CAUSES) or in_a_lane_run(unit)
 
 
 def remove_satisfied(
@@ -1148,13 +1160,12 @@ def _reconsider_held(
     merged: StoredUnit,
     *,
     store: UnitStore,
-    restack: Restack,
     claim: Claim,
     rebase_cap: int,
     log: Log,
 ) -> list[str]:
-    """Restack what an earlier merge held for depth and this one brought within
-    the cap, in the merged unit's repo. Returns those still held on the merged
+    """Free, owed a moved-base run, what an earlier merge held for depth and this one brought
+    within the cap, in the merged unit's repo. Returns those still held on the merged
     unit's own branch, which is the one its caller must keep.
 
     Depth only falls, so a merge anywhere below a held unit can free it without
@@ -1179,7 +1190,6 @@ def _reconsider_held(
             old_base,
             graph,
             store=store,
-            restack=restack,
             claim=claim,
             rebase_cap=rebase_cap,
             log=log,
@@ -1194,13 +1204,13 @@ def reconsider_depth_hold(
     graph: list[StoredUnit],
     *,
     store: UnitStore,
-    restack: Restack,
     claim: Claim,
     rebase_cap: int,
     log: Log,
 ) -> bool:
-    """Restack a unit held for depth if its depth is now within the cap, from the
-    branch it is still on. True when it is still held, on that branch."""
+    """Free a unit held for depth if its depth is now within the cap: it goes back to review
+    owed a moved-base run off the branch it is still on, which a resolve worker makes. Nothing
+    is moved here. True when it is still held, on that branch."""
     depth = depth_of(unit, graph)
     new_base = base_of(unit, graph)
     parent = next((u for u in graph if branch_name(u) == old_base), None)
@@ -1209,27 +1219,16 @@ def reconsider_depth_hold(
     try:
         with claim(unit):
             store.set_state(
-                unit.id, IN_REVIEW, note=f"depth {depth} is within the cap", cause=Cause.RELEASED
-            )
-
-            fresh = store.get(unit.id)
-            restack(
-                branch=branch_name(fresh),
-                old_base=old_base,
-                new_base=base_of(fresh, store.all()),
-                child=fresh,
-                parent=parent,
+                unit.id,
+                IN_REVIEW,
+                note=f"depth {depth} is within the cap: it moves onto {new_base}",
+                cause=Cause.BASE_CHANGED,
             )
     except BranchBusy:
         # The claim failed before anything was written: it is still held,
         # its record as it was, and the next merge tries again.
         return True
-    except Exception as error:  # noqa: BLE001
-        # Left in review on its old base, as a failed restack is for a
-        # child in the merge itself.
-        log(f"{unit.id}: restack onto {new_base} failed — {type(error).__name__}: {error}")
-        return False
-    log(f"{unit.id}: restacked onto {new_base}")
+    log(f"{unit.id}: depth {depth} is within the cap, a restack onto {new_base} is owed")
     return False
 
 
@@ -1661,19 +1660,14 @@ def on_release(
                 store.set_state(unit.id, IN_REVIEW, note="hold label removed", cause=Cause.RELEASED)
         if restored is not None:
             old_base = restored.held_base
-            if (
-                rebase_cap is None
-                or restack is None
-                or reconsider_depth_hold(
-                    restored,
-                    old_base,
-                    store.all(),
-                    store=store,
-                    restack=restack,
-                    claim=claim,
-                    rebase_cap=rebase_cap,
-                    log=log,
-                )
+            if rebase_cap is None or reconsider_depth_hold(
+                restored,
+                old_base,
+                store.all(),
+                store=store,
+                claim=claim,
+                rebase_cap=rebase_cap,
+                log=log,
             ):
                 log(f"release #{pr}: {unit.id} is held for depth again")
                 return True
