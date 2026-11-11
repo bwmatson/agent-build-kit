@@ -7,7 +7,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-from agent_build_kit.profiles.python_uv import PythonUvProfile
+from agent_build_kit.profiles.python_uv import BY_ID_MARKERS, PythonUvProfile
 
 TREE = {
     "tests/test_a.py": (
@@ -111,6 +111,7 @@ def test_a_member_command_keeps_only_its_own_ids() -> None:
 
     assert PythonUvProfile().repeat_command(command, ids) == [
         *["uv", "run", "--package", "svc-a", "--isolated", "pytest", "-q"],
+        *["-m", BY_ID_MARKERS],
         "svc-a/tests/test_x.py::test_y",
     ]
 
@@ -119,7 +120,11 @@ def test_a_command_given_no_path_keeps_every_id() -> None:
     command = ["uv", "run", "pytest", "-n", "auto"]
     ids = ["a/test_x.py::test_y", "b/test_x.py::test_z"]
 
-    assert PythonUvProfile().repeat_command(command, ids) == [*command, *ids]
+    assert PythonUvProfile().repeat_command(command, ids) == [
+        *command,
+        *["-m", BY_ID_MARKERS],
+        *ids,
+    ]
 
 
 def test_a_command_run_from_a_directory_keeps_the_ids_under_it_relative_to_it() -> None:

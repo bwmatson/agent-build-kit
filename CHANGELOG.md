@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- The unit gate now runs the integration tests a unit adds or changes. The red and repeat
+  checks name those tests by id and override the repository's default deselection of the
+  integration kind for them, so an integration test is judged red at the tests commit and
+  repeated like any other test. A slow test given no override of its own stays out.
+
 - A build worker started through the service manager now has the toolchain manager's variable
   (`VOLTA_HOME`) when the dispatcher has it, as it has `PATH`. Without it the worker's `node`
   shim looked for a toolchain in the suite's empty home and went to the network for one, so the

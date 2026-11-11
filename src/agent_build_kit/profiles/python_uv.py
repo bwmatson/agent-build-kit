@@ -261,6 +261,11 @@ _NO_TESTS_SELECTED = 5
 # The pytest options that take their value as the next word.
 _OPTIONS_WITH_VALUE = frozenset(["-n", "-m", "-k", "-p", "-c", "--maxprocesses"])
 
+# A run of named tests overrides the repository's default deselection of the integration kind
+# (an integration test runs in CI, so the gate runs the ones a unit adds or changes); a slow
+# test given no override of its own stays out.
+BY_ID_MARKERS = "integration or not slow"
+
 
 def _pytest_program(command: list[str]) -> int | None:
     """Where `pytest` is in `command`: the program, not the `--with pytest` that adds it to
@@ -553,7 +558,8 @@ class PythonUvProfile:
         # pytest does not collect (a class it skips, a fixture) is a usage error that runs
         # nothing, so that run is followed by the files whole, whose report and status stand.
         options = "-p no:cacheprovider --tb=line -q"
-        pytest = f"uv run pytest {shlex.join(ids or files)} {options}"
+        by_id = f" -m {shlex.quote(BY_ID_MARKERS)}" if ids else ""
+        pytest = f"uv run pytest {shlex.join(ids or files)} {options}{by_id}"
         whole = f"uv run pytest {' '.join(files)} {options}" if ids else None
         return wrap_report_command(
             pytest, "--junitxml", retry=whole, retry_on=self.usage_error_exit
@@ -917,7 +923,12 @@ class PythonUvProfile:
             if not paths
             or any(test.split("::", 1)[0] == p or test.startswith(f"{p}/") for p in paths)
         ]
-        return [*command[: program + 1], *options, *ids] if ids else None
+        if not ids:
+            return None
+        # A run with a marker expression of its own keeps it; otherwise the default
+        # deselection is overridden for the ids.
+        override = [] if "-m" in options else ["-m", BY_ID_MARKERS]
+        return [*command[: program + 1], *options, *override, *ids]
 
     def affected_test_commands(
         self,

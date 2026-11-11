@@ -17,7 +17,7 @@ import pytest
 from agent_build_kit.config import LimitsConfig
 from agent_build_kit.pipeline.wiring import build_unit_test
 from agent_build_kit.profiles.base import ToolchainProfile
-from agent_build_kit.profiles.python_uv import PythonUvProfile
+from agent_build_kit.profiles.python_uv import BY_ID_MARKERS, PythonUvProfile
 from tests.conftest import make_installation
 from tests.factories import git, init_repo
 
@@ -301,7 +301,8 @@ def test_a_test_of_one_member_is_repeated_only_by_that_member_s_command(tmp_path
     assert (
         runs.repeat_runs
         == [
-            ["uv", "run", "--package", "svc-a", "pytest", "-q", "svc-a/tests/test_x.py::test_added"]
+            [*["uv", "run", "--package", "svc-a", "pytest", "-q"]]
+            + ["-m", BY_ID_MARKERS, "svc-a/tests/test_x.py::test_added"]
         ]
         * 3
     )
