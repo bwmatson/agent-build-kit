@@ -611,7 +611,7 @@ is 1 when anything failed.
 | changelog (warn) | A repo's `changelog` path names a file its checkout does not have. Not checked when `changelog: null`. |
 | notifications | `notifications.provider` is `windows` and `powershell.exe` does not list the pinned BurntToast version (the fix is the install command), or is `command` and the `show` program is not on PATH. Nothing is checked while the provider is `off`. |
 | public content (warn) | The committed `abk.yaml` holds a repo path outside the checkout, a home-directory path in a value or a repo owned by another account than the origin (the key is named, never the value); or `abk.local.yaml`, `scrub.local` or a `*.pre-redact` copy is tracked or not ignored (the fix names the line to add). Offline. |
-| skills (warn) | An installed abk skill is older than the framework; run `abk install-skills`. |
+| skills (warn) | An installed abk skill is older than the framework or its text differs from what this release ships; run `abk install-skills`. |
 
 ## The `review` section
 

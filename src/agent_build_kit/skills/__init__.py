@@ -3,9 +3,10 @@
 Each `skills/<name>/SKILL.md` is written for the planning repo and the code
 repos of an installation, so an agent working in any of them knows how to
 read the pipeline, write a change, and change the config. Installing stamps
-the framework version into the `generatedBy` header, which is how `abk
-doctor` tells a stale copy from a current one — and how the installer tells
-its own file from one somebody wrote by hand, which it never overwrites.
+the framework version into the `generatedBy` header, which is how the
+installer tells its own file from one somebody wrote by hand, which it never
+overwrites. `abk doctor` compares the installed text of a file of ours with
+the text rendered today and reports any difference, a newer stamp included.
 """
 
 from __future__ import annotations
@@ -79,16 +80,10 @@ def install(target: Path) -> tuple[list[Path], list[Path]]:
     return written, refused
 
 
-def _version_key(version: str) -> tuple[int, ...]:
-    return tuple(int(part) for part in version.split(".") if part.isdigit())
-
-
 def stale(target: Path) -> list[InstalledSkill]:
-    """The framework's skills under `target` that are older than this
-    release, or carry no version at all."""
+    """The framework's skills under `target` whose text is not what this
+    release would install (an older or missing version stamp differs too)."""
     found = [inspect(target / name / "SKILL.md") for name in names()]
     return [
-        skill
-        for skill in found
-        if skill.ours and _version_key(skill.version) < _version_key(__version__)
+        skill for skill in found if skill.ours and skill.path.read_text() != rendered(skill.name)
     ]

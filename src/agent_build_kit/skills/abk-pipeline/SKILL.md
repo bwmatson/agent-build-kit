@@ -285,6 +285,36 @@ not the tests written again; the rounds already used are kept. Ordinary review f
 A test-only group (an `[e2e-test]` group) is committed there as a lone `test:` commit once its
 checks pass, with no implementation run; the build goes to the next group's tests, or to the checks when it was the last group.
 
+### A unit failed at the red check
+
+In a stubbed build the tests commit of a `tests_and_code` group is run before the implementation,
+and it must fail for the missing behaviour. A tests commit the check rejects comes off the branch
+and goes back to the tests step with the reason, one round of `max_check_rounds`; a unit that is
+out of rounds stops as `failed` at `red_check`. The reasons the check gives:
+
+- `N test(s) passed at the tests commit`: a test that passes before its implementation exists is
+  not testing that implementation.
+- `nothing failed at the tests commit`: no test failed, so nothing was shown to be missing.
+- `no tests ran at the tests commit` (with the exit code): the run collected nothing, or ended
+  without the test runner's summary.
+- A test that failed for its own reasons rather than for the missing behaviour: a syntax error, a
+  broken fixture or conftest, a module that could not be collected, a failure the check does not
+  recognise, or (in a stubbed build) a missing name, which means a stub was not written.
+- A rejection replayed from an earlier run: the verdict for this commit was already recorded, so
+  the check gives the same reason again without running.
+
+Where they are recorded: the reasons are the unit's feedback, kept under the source `red-check`
+(or `selector-check`), which `abk status` and `runs/units.json` show; the verdict for each tests
+commit is in `red-check-cache.json` in the state folder. A rejected test names the test and the
+reason, and is a fault of the tests. A check that could not run says `no tests ran` or that no
+report was written, and is a fault of the run or the toolchain, not of any test; fix the cause,
+not the tests.
+
+A plain requeue replays an earlier rejection: `abk requeue <unit>` runs the check at the same
+commit, finds it in the cache and rejects it again with the same reason. Change the tests (or the
+toolchain, for a check that could not run) so the commit's content differs and requeue, or
+requeue with `abk requeue <unit> --rework --note "what changed"`.
+
 ### Attached to a chat
 
 A `held` unit with the cause `attached` has uncommitted changes in its worktree

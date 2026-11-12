@@ -1143,7 +1143,7 @@ Is this installation in a state the pipeline can run in? Each check prints
 | verify.env `<VAR>` | the provider cannot resolve (names only; never values) | |
 | rules | | The `# abk-rules: vN` stamp in `openspec/config.yaml` against the framework's rules version: a note when it is unstamped, a warning when the framework has added rules since (they are listed) or the stamp is newer. Wording is never compared. |
 | abk.yaml `<name>` | | a service directory with no deploy rule, a rule prefix that no longer exists, a dev-stack script without `dev_stack`, a `live_written` path that is not a directory |
-| skills `<target>` | | an installed abk skill is older than the framework |
+| skills `<target>` | | an installed abk skill is older than the framework or its text differs from what this release ships |
 | `<repo> <tool> version` | | a tool in `pyproject.toml`'s dependency groups is also run from a hook repository with its own `rev` in `.pre-commit-config.yaml`, so two versions can disagree. Only checked for repos with both files |
 | `<repo> <tool> hook` | | a `repo: local`, `language: system` hook runs `uv run <tool>` for a tool absent from the dependency groups, so it fails. Only checked for repos with both files |
 | notifications | `notifications.provider` is `windows` and `powershell.exe` does not list the pinned BurntToast version (the fix is the install command `abk init` offers), or is `command` and the `show` program is not on PATH. Not listed while the provider is `off` | |
