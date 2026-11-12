@@ -163,14 +163,14 @@ def test_a_stub_fix_round_that_changes_nothing_stops_the_unit(
     routine.assert_ran(fix=True)
 
 
-def test_a_checks_fix_round_that_edits_and_commits_nothing_stops_the_unit(
+def test_a_checks_fix_round_that_edits_and_commits_nothing_stops_a_runner_that_cannot_recheck(
     tmp_path: Path, routine: Routine
 ) -> None:
     limited(max_check_rounds=None)
     recorder = Recorder(fresh_store(tmp_path).store, commits_from_impl=0, unit_test_ok=False)
     recorder.unit_test_output = FAILING
 
-    outcome = build(tmp_path, recorder)
+    outcome = build(tmp_path, recorder, recheck_unit_test=lambda **_: None)
 
     assert outcome.status == "failed"
     assert "checks failing and fix round 1 changed nothing, before review" in outcome.detail
@@ -330,7 +330,7 @@ def test_one_recheck_is_made_for_the_no_change_round_and_none_for_the_round_that
     limited(max_check_rounds=None)
     recorder = Recorder(fresh_store(tmp_path).store)
     recorder.unit_test_results = [(False, FAILING), (False, FAILING), (True, "")]
-    recorder.commits_by_round = [1, 0]
+    recorder.commits_by_round = [1, 1, 0]  # the build, then the two fix rounds
     passed = Recheck(passed=True, tests=(TEST_ID,), first_output=FAILING, bundles=BUNDLES[:2])
     recorder.recheck_results = [passed]
 

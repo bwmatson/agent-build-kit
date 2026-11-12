@@ -1585,8 +1585,8 @@ class Recheck(Frozen):
     bundles: tuple[str, ...] = ()
 
 
-def _no_recheck(*, cwd: Path, base: str, failed_output: str) -> Recheck:
-    raise NotImplementedError
+def _no_recheck(*, cwd: Path, base: str, failed_output: str) -> Recheck | None:
+    return None
 
 
 def _no_red_check(*, cwd: Path) -> tuple[bool, str]:
@@ -1775,8 +1775,8 @@ class UnitRunner(BaseModel):
     run_unit_test: Callable[..., tuple[bool, str]]
     # After a fix round that changed nothing: reruns the tests `failed_output` names once, by id
     # and one at a time, in the environment `run_unit_test` uses, given `cwd=`, `base=` and
-    # `failed_output=`.
-    recheck_unit_test: Callable[..., Recheck] = _no_recheck
+    # `failed_output=`; None when this runner cannot, and the round stops as it always did.
+    recheck_unit_test: Callable[..., Recheck | None] = _no_recheck
     # Told the unit and a recheck that passed: records the tests in the flake ledger as
     # unexplained, with the first run's evidence.
     on_unexplained: Callable[[Unit, Recheck], None] = lambda unit, recheck: None
