@@ -64,10 +64,14 @@ from agent_build_kit.serve.server import create_app
 from tests.factories import unit
 from tests.runtimes.acp_agent import EARLIER_TURN
 from tests.runtimes.claude_cli import FakeClaude, Invocation
+from tests.time_limit import LOADED_TEST_TIME_LIMIT
 from tests.unit_tree_support import registered_tree
 from tests.waiting import wait_for
 
 WAIT = 60
+# The budget for a request sent while a `BlockingClaude` holds a turn: longer than a loaded
+# machine takes and shorter than the hold.
+HELD_REQUEST = 2 * WAIT
 
 
 def unit_worktree(installation: Installation, unit_id: str) -> Path:
@@ -267,7 +271,11 @@ def prompt_of(argv: Invocation) -> str:
 
 
 class BlockingClaude(FakeClaude):
-    """A `claude` that does not answer until the test lets it: a long turn."""
+    """A `claude` that does not answer until the test lets it: a long turn.
+
+    The turn lasts until the test releases it. The bound only stops a failed test from leaving a
+    thread waiting, and it is longer than any request the test sends while the turn is held.
+    """
 
     def __init__(self, stdout: str) -> None:
         super().__init__(stdout=stdout)
@@ -276,7 +284,7 @@ class BlockingClaude(FakeClaude):
 
     def __call__(self, argv, **kwargs):
         self.started.set()
-        self.release.wait(WAIT)
+        self.release.wait(LOADED_TEST_TIME_LIMIT)
         return super().__call__(argv, **kwargs)
 
 

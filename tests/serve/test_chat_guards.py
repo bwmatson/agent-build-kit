@@ -24,6 +24,7 @@ from agent_build_kit.pipeline.workspaces import branch_lock
 from agent_build_kit.serve.chat import Chat
 from tests.agui_protocol import validate_stream
 from tests.chat_serving import (
+    HELD_REQUEST,
     WAIT,
     claude_session_file,
     claude_working_in,
@@ -66,6 +67,7 @@ def holder(inst: Installation, unit_id: str = "feature/2") -> str | None:
 # --- a closed page leaves no agent editing a worktree the tick has taken back ---------------
 
 
+@pytest.mark.time_limit(LOADED_TEST_TIME_LIMIT)
 def test_the_lease_stays_while_a_turn_the_closed_page_started_is_still_running(
     pipeline: Installation, api: httpx.Client, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -90,12 +92,17 @@ def test_the_lease_stays_while_a_turn_the_closed_page_started_is_still_running(
             assert next(replies)["type"] == "RUN_STARTED"
             assert fake.started.wait(WAIT)
 
-            page.close()
-            wait_for(closed.is_set, what="the server to handle the page closing", timeout=WAIT)
+            try:
+                page.close()
+                wait_for(
+                    closed.is_set,
+                    what="the server to handle the page closing",
+                    timeout=HELD_REQUEST,
+                )
 
-            assert holder(pipeline) == "tab:t1", "the agent is still editing the worktree"
-
-            fake.release.set()
+                assert holder(pipeline) == "tab:t1", "the agent is still editing the worktree"
+            finally:
+                fake.release.set()
             list(replies)
 
     assert until(lambda: holder(pipeline) is None), "released once the turn has ended"
@@ -104,6 +111,7 @@ def test_the_lease_stays_while_a_turn_the_closed_page_started_is_still_running(
 # --- one turn at a time on a session ------------------------------------------------------------
 
 
+@pytest.mark.time_limit(LOADED_TEST_TIME_LIMIT)
 def test_a_second_turn_on_a_session_is_refused_while_the_first_runs(
     pipeline: Installation, api: httpx.Client, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -117,16 +125,22 @@ def test_a_second_turn_on_a_session_is_refused_while_the_first_runs(
         next(replies)
         assert fake.started.wait(WAIT)
 
-        same_tab = api.post(f"{REVIEW}/chat", json={"tab": "t1", "prompt": "Second."})
-        other_tab = api.post(f"{REVIEW}/chat", json={"tab": "t2", "prompt": "Second."})
-
-        fake.release.set()
+        try:
+            same_tab = api.post(
+                f"{REVIEW}/chat", json={"tab": "t1", "prompt": "Second."}, timeout=HELD_REQUEST
+            )
+            other_tab = api.post(
+                f"{REVIEW}/chat", json={"tab": "t2", "prompt": "Second."}, timeout=HELD_REQUEST
+            )
+        finally:
+            fake.release.set()
         list(replies)
 
     assert same_tab.status_code == 409 and other_tab.status_code == 409
     assert len(fake.calls) == 1
 
 
+@pytest.mark.time_limit(LOADED_TEST_TIME_LIMIT)
 def test_two_tabs_cannot_both_continue_an_idle_claude_session(
     pipeline: Installation,
     tmp_path: Path,
@@ -147,9 +161,10 @@ def test_two_tabs_cannot_both_continue_an_idle_claude_session(
         next(replies)
         assert fake.started.wait(WAIT)
 
-        second = api.post(url, json={"tab": "t2", "prompt": "B."})
-
-        fake.release.set()
+        try:
+            second = api.post(url, json={"tab": "t2", "prompt": "B."}, timeout=HELD_REQUEST)
+        finally:
+            fake.release.set()
         list(replies)
 
     assert second.status_code == 409
