@@ -16,7 +16,10 @@
   member when a shared configuration, setup, lock or manifest file changed), reads which tests
   failed from the report (named from the project's root, also for a workspace member) and
   reruns them serially, one file after another, so a flaky Node test is told from a defect,
-  and a test of a kind-named file is run by its name.
+  and a test of a kind-named file is run by its name. A scenario suite runs the same six
+  behaviours (red by id, a passing new test rejected, repeat by id, serial rerun, failure
+  parsing, affected selection after a one-file change) on a tiny fixture project per
+  profile, so a profile cannot satisfy the capability check without doing them.
 
 - The unit gate now runs the integration tests a unit adds or changes. The red and repeat
   checks name those tests by id and lift the integration kind out of the repository's default
