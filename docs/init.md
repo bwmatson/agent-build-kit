@@ -304,9 +304,10 @@ time; the `Project:` line only saves the `Manual:` step.
 the planning repo and every checkout by default, of `--repo PATH`, or of the
 user-level directory with `--user`. Installing stamps the framework version
 into the `generatedBy: agent-build-kit <version>` header; that header is how
-`abk doctor` tells a stale copy from a current one, and how the installer
-tells its own file from one somebody wrote by hand under the same name, which
-it refuses to overwrite.
+the installer tells its own file from one somebody wrote by hand under the
+same name, which it refuses to overwrite. `abk doctor` calls an installed skill
+of ours stale when its text differs from what this release would install,
+whatever its version stamp says.
 
 | Skill | Triggers when an agent is... |
 |---|---|

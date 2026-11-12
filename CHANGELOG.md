@@ -5,6 +5,9 @@
 - A tick no longer builds its own resolution lane or waits for a run to end. The slot
   sample and the restack gauges count the runs that resolve workers have recorded, and
   the runs owed beyond a project's cap as waiting.
+- `abk doctor` now reports an installed skill whose text differs from the one this release
+  ships, not only one with an older version stamp, so a skill that changed without a version
+  bump is refreshed by `abk install-skills`. A hand-written skill is still left alone.
 
 - A fix round of the checks that changes nothing is now followed by one rerun of the failed
   tests, by id and one at a time, before the unit is failed. A pass goes on to review and is

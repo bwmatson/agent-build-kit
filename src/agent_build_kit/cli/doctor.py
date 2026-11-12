@@ -2072,7 +2072,7 @@ def _skills(inst: Installation) -> list[Check]:
             checks.append(
                 _warn(
                     f"skills {name}",
-                    f"older than {__version__}: {names}",
+                    f"older than {__version__} or differing from the shipped text: {names}",
                     "abk install-skills" + ("" if name == "planning" else f" --repo {root}"),
                 )
             )

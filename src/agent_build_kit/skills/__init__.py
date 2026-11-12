@@ -79,16 +79,10 @@ def install(target: Path) -> tuple[list[Path], list[Path]]:
     return written, refused
 
 
-def _version_key(version: str) -> tuple[int, ...]:
-    return tuple(int(part) for part in version.split(".") if part.isdigit())
-
-
 def stale(target: Path) -> list[InstalledSkill]:
-    """The framework's skills under `target` that are older than this
-    release, or carry no version at all."""
+    """The framework's skills under `target` whose text is not what this
+    release would install (an older or missing version stamp differs too)."""
     found = [inspect(target / name / "SKILL.md") for name in names()]
     return [
-        skill
-        for skill in found
-        if skill.ours and _version_key(skill.version) < _version_key(__version__)
+        skill for skill in found if skill.ours and skill.path.read_text() != rendered(skill.name)
     ]
