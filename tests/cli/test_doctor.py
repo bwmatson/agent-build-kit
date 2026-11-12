@@ -343,6 +343,29 @@ def test_stale_skills_warn(workspace: Path, tmp_path: Path) -> None:
     assert "skills planning" not in checks
 
 
+def test_a_skill_with_the_current_version_and_different_text_warns(
+    workspace: Path, tmp_path: Path
+) -> None:
+    app = tmp_path / "app"
+    root = app / ".claude" / "skills"
+    skills.install(root)
+    changed = root / "abk-pipeline" / "SKILL.md"
+    changed.write_text(changed.read_text() + "\nAn older paragraph.\n")
+    mine = root / "abk-config" / "SKILL.md"
+    mine.write_text("---\nname: abk-config\n---\nWritten by a person.\n")
+
+    checks = by_name(run_doctor(workspace / "abk.yaml", run=Answers(), which=which_all))
+
+    reported = {name: check for name, check in checks.items() if name.startswith("skills ")}
+    assert list(reported) == ["skills app"], "only the repo with a differing skill is reported"
+    check = reported["skills app"]
+    assert check.status == "warn"
+    assert "abk-pipeline" in check.detail
+    assert "abk-config" not in check.detail, "not ours: not reported"
+    assert f"abk install-skills --repo {app}" == check.fix
+    assert mine.read_text().endswith("Written by a person.\n")
+
+
 def test_the_command_prints_and_exits_one_on_a_failure(
     workspace: Path, monkeypatch, capsys
 ) -> None:

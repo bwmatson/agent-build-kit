@@ -89,3 +89,16 @@ def test_stale_detection(tmp_path: Path) -> None:
     assert [s.name for s in skills.stale(tmp_path)] == ["abk-pipeline"], "not ours: not stale"
     _written, refused = skills.install(tmp_path)
     assert [p.parent.name for p in refused] == ["abk-config"]
+
+
+def test_only_a_skill_of_ours_with_different_text_is_stale(tmp_path: Path) -> None:
+    skills.install(tmp_path)
+    changed = tmp_path / "abk-pipeline" / "SKILL.md"
+    changed.write_text(changed.read_text() + "\nAn older paragraph.\n")
+    mine = tmp_path / "abk-config" / "SKILL.md"
+    mine.write_text("---\nname: abk-config\n---\nWritten by a person.\n")
+
+    assert [s.name for s in skills.stale(tmp_path)] == ["abk-pipeline"]
+    _written, refused = skills.install(tmp_path)
+    assert [p.parent.name for p in refused] == ["abk-config"]
+    assert mine.read_text().endswith("Written by a person.\n")
