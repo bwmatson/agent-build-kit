@@ -94,6 +94,22 @@ class GithubIssues:
             made = self._issue(self._call("GET", self._path(str(made.number))))
         return self._to_item(made, parent)
 
+    @property
+    def created_labels(self) -> tuple[str, ...]:
+        """The status labels this tracker made because the repository lacked them."""
+        raise NotImplementedError
+
+    def update(
+        self, item_id: str, changes: Mapping[str, str], expected_revision: str | None = None
+    ) -> Item:
+        raise NotImplementedError
+
+    def set_tag(self, item_id: str, tag: str, present: bool) -> Item:
+        raise NotImplementedError
+
+    def claim(self, item_id: str) -> bool:
+        raise NotImplementedError
+
     def get(self, item_id: str) -> Item:
         return self._to_item(self._issue(self._call("GET", self._path(item_id))))
 
