@@ -12,9 +12,10 @@ import pytest
 
 from agent_build_kit.cli import pipeline as cli
 from agent_build_kit.pipeline.flakes import Flake, flake_record
-from agent_build_kit.pipeline.unit_store import UnitStore
-from tests.conftest import make_installation
-from tests.factories import stored_unit
+from agent_build_kit.pipeline.unit_store import Cause, UnitStore
+from agent_build_kit.pipeline.units import HELD
+from tests.conftest import make_installation, status_lines
+from tests.factories import RECHECK_BUNDLES, RECHECK_TEST, recheck_hold_note, stored_unit
 
 
 def found(test: str, unit: str, change: str) -> Flake:
@@ -50,3 +51,22 @@ def test_status_lists_a_flaky_test_with_its_count_and_fix_change(
     assert "fix-flaky-test-x" in flaky
     other = next(line for line in lines if "tests/test_b.py::test_y" in line)
     assert re.search(r"\b1\b", other) and "fix-flaky-test-y" in other
+
+
+def test_status_shows_only_a_unit_held_after_a_recheck_as_held_by_the_checks_with_bundles(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    def record(store: UnitStore) -> None:
+        store.upsert([stored_unit("one/1", change="one"), stored_unit("two/1", change="two")])
+        store.set_state("one/1", HELD, note=recheck_hold_note(), cause=Cause.NEEDS_HUMAN)
+        store.set_state(
+            "two/1", HELD, note="the reviewer asked for a person", cause=Cause.NEEDS_HUMAN
+        )
+
+    lines = status_lines(tmp_path, monkeypatch, capsys, record=record)
+
+    held = [line for line in lines if "held by the checks" in line]
+    assert len(held) == 1
+    assert "one/1" in held[0]
+    assert RECHECK_TEST in held[0]
+    assert all(bundle in held[0] for bundle in RECHECK_BUNDLES)

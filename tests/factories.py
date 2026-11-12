@@ -412,3 +412,15 @@ def coded_repo(path: Path, slug: str) -> Path:
     git(app, "add", "-A")
     git(app, "commit", "-q", "-m", "code")
     return app
+
+
+RECHECK_TEST = "tests/test_a.py::test_x"
+RECHECK_BUNDLES = ("bundles/first", "bundles/serial", "bundles/recheck")
+
+
+def recheck_hold_note(test: str = RECHECK_TEST, bundles: tuple[str, ...] = RECHECK_BUNDLES) -> str:
+    """The note a unit is held with when its failed tests failed the recheck too."""
+    return (
+        f"fix round 1 changed nothing and {test} failed three runs (the first, the serial "
+        f"rerun and the recheck); a person judges it. Bundles: {', '.join(bundles)}"
+    )
