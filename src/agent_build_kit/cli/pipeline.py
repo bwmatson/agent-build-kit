@@ -3070,7 +3070,6 @@ def run_round(
     overflow = _overflow_runs(
         inst,
         units,
-        lane,
         candidates=[
             stored_by_id[uid]
             for uid in (*(lane.waiting if lane else ()), *unclaimed_runs(inst, units))
@@ -4432,7 +4431,6 @@ def in_a_worker(inst: Installation, units: Iterable[StoredUnit]) -> set[str]:
 def _overflow_runs(
     inst: Installation,
     units: list[StoredUnit],
-    lane: Lane | None,
     *,
     candidates: list[StoredUnit],
     workers: Collection[str],
@@ -4447,8 +4445,6 @@ def _overflow_runs(
     `_within_workers` holds the others to), and an account that caps its builds is held to that
     cap across its projects, as a build is. A dry run names the same units and leaves the queue
     as it is."""
-    if lane is None:
-        return []
     slot_of = _slot_of(inst)
     cap_of = _slot_stack_limit(inst)
     used = dict(taken)
