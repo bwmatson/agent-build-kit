@@ -116,6 +116,22 @@ def test_a_failed_id_outside_the_import_graph_of_the_change_is_in_the_related_ru
     assert command[5:] == ["src/x.ts", "src/other.test.ts", "src/x.test.ts"]
 
 
+def test_a_failed_id_at_the_workspace_root_runs_again_from_the_root(
+    profile, repo, tmp_path: Path
+) -> None:
+    commands = profile.affected_test_commands(
+        repo,
+        ["packages/a/src/x.ts"],
+        ["tests/e2e.test.ts::adds"],
+        seed=tmp_path / "seed" / "affected",
+        root_extras=[],
+    )
+
+    (root,) = [c for c in commands if c[4] == "./"]
+    assert "tests/e2e.test.ts" in root[5:]
+    assert len(commands) == 2
+
+
 def test_a_changed_data_file_in_a_member_runs_the_whole_member(
     profile, repo, tmp_path: Path
 ) -> None:

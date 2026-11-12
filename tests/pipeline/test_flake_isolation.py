@@ -393,3 +393,6 @@ def test_a_failed_node_test_that_passes_both_serial_reruns_is_a_flake(tmp_path: 
 
     assert [flake.test for flake in found.value.flakes] == ["a.test.ts::adds"]
     assert len(runs.commands) == 4, "lint, the run, then two serial reruns"
+    serial = profile.serial_rerun_command(whole, ["a.test.ts::adds"])
+    assert "--no-file-parallelism" in " ".join(serial)
+    assert runs.commands[2] == runs.commands[3] == serial

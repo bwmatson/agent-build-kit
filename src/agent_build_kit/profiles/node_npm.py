@@ -51,6 +51,7 @@ from agent_build_kit.profiles.base import (
 )
 
 _SOURCE = ("ts", "tsx", "js", "jsx", "mts")
+_SOURCE_SUFFIXES = tuple(f".{ext}" for ext in _SOURCE)
 # The names of the source files that differ from the base ref `$1`, relative to the project.
 _DIFF = 'git diff --relative --diff-filter=d --name-only{z} "$1...HEAD" -- ' + " ".join(
     f"'*.{ext}'" for ext in _SOURCE
@@ -136,6 +137,16 @@ def _setup_files(folder: Path, prefix: str) -> set[str]:
     checkout root (`prefix` is `folder`'s own path there, empty for the root)."""
     listed = _config_strings(folder, _SETUP_FILES)
     return {posixpath.normpath(posixpath.join(prefix, item)) for item in listed}
+
+
+def _owned(members: list[str], path: str) -> tuple[str | None, str]:
+    """The folder of the member that owns `path` (empty for a project that is not a workspace;
+    None for a path outside every member of a workspace) and the path relative to it."""
+    owner = _deepest(members, path)
+    if owner is None and members:
+        return None, path
+    folder = owner or ""
+    return folder, path.removeprefix(f"{folder}/") if folder else path
 
 
 def _is_shared_file(path: str) -> bool:
@@ -414,32 +425,31 @@ class NodeNpmProfile:
         for path in changed_files:
             if is_doc_path(path):
                 continue
-            owner = _deepest(members, path)
-            if owner is None and members:
+            folder, relative = _owned(members, path)
+            if folder is None:
                 shared.append(path)
                 continue
-            folder = owner or ""
             if (
                 _is_shared_file(path)
-                or not path.endswith(tuple(f".{ext}" for ext in _SOURCE))
+                or not path.endswith(_SOURCE_SUFFIXES)
                 or path in _setup_files(repo / folder, folder)
             ):
                 shared.append(path)
                 continue
-            relative = path.removeprefix(f"{folder}/") if folder else path
             related.setdefault(folder, []).append(relative)
         # The tests the failed check named run again even when the import graph from the changed
-        # files does not reach them; `vitest related` accepts a test file.
+        # files does not reach them; `vitest related` accepts a test file. One outside every
+        # member of a workspace runs from the root, filtered to its file.
+        root_failed: list[str] = []
         for failed in failed_ids:
             path = failed.split("::", 1)[0]
-            owner = _deepest(members, path)
-            if (owner is None and members) or not path.endswith(
-                tuple(f".{ext}" for ext in _SOURCE)
-            ):
+            if not path.endswith(_SOURCE_SUFFIXES):
                 continue
-            folder = owner or ""
-            relative = path.removeprefix(f"{folder}/") if folder else path
-            if relative not in related.setdefault(folder, []):
+            folder, relative = _owned(members, path)
+            if folder is None:
+                if path not in root_failed:
+                    root_failed.append(path)
+            elif relative not in related.setdefault(folder, []):
                 related[folder].append(relative)
         commands = self.test_commands(repo, shared, root_extras=root_extras) if shared else []
         covered = {c[4] for c in commands if len(c) > 4}
@@ -447,6 +457,9 @@ class NodeNpmProfile:
             if folder in covered or (not folder and commands):
                 continue
             commands.append(["sh", "-c", _RELATED, "sh", folder or _HERE, *files])
+        left = [p for p in root_failed if not any(p in c[5:] for c in commands)]
+        if left:
+            commands.append(["sh", "-c", _FILTERED, "sh", _HERE, *left])
         return commands
 
     def serial_rerun_command(self, command: list[str], tests: list[str]) -> list[str]:
@@ -600,7 +613,7 @@ class NodeNpmProfile:
         """The formatter, then the fixable lint findings, over the source files; the type
         check cannot be fixed and is left to the check. The `;` lets the formatter's work
         stand when the linter exits non-zero for a finding it cannot fix."""
-        sources = [f for f in files if f.endswith(tuple(f".{ext}" for ext in _SOURCE))]
+        sources = [f for f in files if f.endswith(_SOURCE_SUFFIXES)]
         if not sources:
             return None
         return ["sh", "-c", 'npx oxfmt "$@"; npx oxlint --fix "$@"', "sh", *sources]
@@ -621,16 +634,23 @@ class NodeNpmProfile:
         argument selects one file exactly: the report names each test suite by its file, which
         is how a reader keeps only the files it was given. `ids` are ignored, so the files run
         whole, except when every file is named by a kind's convention (`<name>.<kind>.test.<ext>`)
-        and the ids carry test names: then Vitest is given those names with `-t`."""
+        and every file has an id that carries a test name: then Vitest is given those names with
+        `-t`, anchored so only the named tests match. A file passed bare runs whole, so the
+        filter, which applies to every file, is left off."""
         run = f"npx {_TEST_RUNNER} run {shlex.join(files)} --reporter=junit"
-        names = [i.split("::", 1)[1] for i in ids or [] if "::" in i]
-        if names and all(self.kinds_of(Path(), file) for file in files):
+        named = [i.split("::", 1) for i in ids or [] if "::" in i]
+        names = [name for _, name in named]
+        if (
+            names
+            and all(self.kinds_of(Path(), file) for file in files)
+            and all(any(path == file for path, _ in named) for file in files)
+        ):
             # Vitest reads the name as a regular expression, matched against the suite names and
             # the test's name joined by spaces, where the report joins them with " > ".
             pattern = "|".join(
                 re.sub(r"([\\^$.|?*+()\[\]{}])", r"\\\1", n.replace(" > ", " ")) for n in names
             )
-            run += f" -t {shlex.quote(pattern)}"
+            run += f" -t {shlex.quote(f'^(?:{pattern})$')}"
         listed = "printf '%s\\n' " + shlex.join(_RED_FILE + file for file in files) + "; "
         return listed + wrap_report_command(run, "--outputFile")
 
@@ -759,7 +779,7 @@ class NodeNpmProfile:
         """A violation for every function whose body is more than the sentinel throw, at any
         depth, and for a file that does not parse; none for a test file or a non-source file.
         A function without a body (a declaration, an overload) is accepted."""
-        if self.is_test_path(path) or not path.endswith(tuple(f".{ext}" for ext in _SOURCE)):
+        if self.is_test_path(path) or not path.endswith(_SOURCE_SUFFIXES):
             return []
         root = _parser(path).parse(content.encode()).root_node
         if root.has_error:
