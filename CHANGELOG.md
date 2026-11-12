@@ -240,7 +240,10 @@
   and the sync still updates its state and tags and fills in the items under it), or records the
   change's `Epic:` item without writing to it; `conflicts [--resolve ID]` lists conflicts and
   closes one once the board and the spec agree. A repo with no tracker section prints that none
-  is configured, and every form takes `--json`.
+  is configured, and every form takes `--json`. `docs/trackers.md` describes the configuration,
+  the hierarchy, who owns what and the two-way rules, and `docs/runbooks/turn-on-a-tracker.md`
+  lists the steps to turn a tracker on; a test checks that every command and key they name
+  exists.
 
 - Every agent call now names its role, and there is no `generic` role. Rework calls are recorded
   as `rework` instead of `implement`, conflict-resolver calls as `restack` and login refreshes

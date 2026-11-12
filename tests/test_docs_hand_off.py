@@ -3,50 +3,18 @@
 
 from __future__ import annotations
 
-import argparse
 import re
 from pathlib import Path
 
 import yaml
 
-from agent_build_kit.cli import build_parser
 from agent_build_kit.cli.external_cmd import ITEM_ALIASES, ITEM_KEYS
 from agent_build_kit.pipeline.external_file import Hold
+from tests.docs_commands import OPTION, command_texts, subcommand_parsers
 
 DOCS = Path(__file__).resolve().parent.parent / "docs"
 HAND_OFF = (DOCS / "hand-off.md").read_text() if (DOCS / "hand-off.md").is_file() else ""
 COMMAND = re.compile(r"abk external ([a-z][a-z-]*)")
-OPTION = re.compile(r"(?<![\w-])--[a-z][a-z-]*")
-
-
-def external_parsers() -> dict[str, argparse.ArgumentParser]:
-    """The parser of each `abk external` subcommand, by name."""
-    top = next(
-        action
-        for action in build_parser()._actions
-        if isinstance(action, argparse._SubParsersAction)
-    )
-    external = top.choices["external"]
-    found = next(
-        action for action in external._actions if isinstance(action, argparse._SubParsersAction)
-    )
-    return dict(found.choices)
-
-
-def command_texts(text: str) -> list[str]:
-    """Each command the document shows: the line naming `abk external`, with the lines a
-    trailing backslash continues."""
-    lines = text.splitlines()
-    found: list[str] = []
-    for i, line in enumerate(lines):
-        if "abk external" not in line:
-            continue
-        joined = line
-        while joined.rstrip().endswith("\\") and i + 1 < len(lines):
-            i += 1
-            joined += " " + lines[i]
-        found.append(joined)
-    return found
 
 
 def steps(text: str) -> list[str]:
@@ -67,10 +35,10 @@ def test_the_document_exists_and_names_the_four_commands() -> None:
 
 
 def test_every_command_and_option_the_document_names_exists() -> None:
-    parsers = external_parsers()
+    parsers = subcommand_parsers("external")
     assert set(parsers) == {"hand-off", "list", "done", "release"}
     assert HAND_OFF, "docs/hand-off.md is missing"
-    for text in command_texts(HAND_OFF):
+    for text in command_texts(HAND_OFF, "abk external"):
         match = COMMAND.search(text)
         assert match and match[1] in parsers, text
         known = {

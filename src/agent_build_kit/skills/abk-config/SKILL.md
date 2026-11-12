@@ -270,6 +270,8 @@ repos:                        # ordered; a task group's [repo] tag is a key here
     tracker:                  # the work tracker, independent of the forge. Off only when the
                               # section is absent or `kind: none`; a section without `kind`
                               # is an error, and so is any missing or invalid field
+                              # (docs/trackers.md describes every key and
+                              # docs/runbooks/turn-on-a-tracker.md the steps to turn it on)
       kind: azure_devops      # azure_devops or github or none
       # levels: [change, group]  # kit entities that become items: any ordered subset of
                               # change, group, task; optional `epic: true` (a person-made
