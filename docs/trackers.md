@@ -84,11 +84,19 @@ build it: the start check skips them until the item is cleared.
 
 ## Two-way rules
 
-The spec is the source for structure and text: titles, task lines and which items exist.
-The board is the source for state and assignment: a task marked done on the board ticks its
-box, and a reopened one unticks it. Where the board disagrees about text or structure, the
-spec takes precedence and the difference is recorded as a conflict, listed by
-`abk tracker conflicts`.
+State and assignment come from the board. A task marked done on the board ticks its box in
+`tasks.md`, and a reopened one unticks it. A person assigned to an item, or a blocked group
+item, holds the units that build it until it is cleared.
+
+A task's text is reconciled field by field against the last text both sides agreed on. A task
+whose text was edited only on the board is rewritten into `tasks.md`, and a replan may follow.
+A task whose text was edited only in the spec is pushed to the board. A task edited on both
+sides is a conflict, listed by `abk tracker conflicts`, and neither side is overwritten.
+
+A task item added on the board is appended to `tasks.md`: under the group item, or under the
+change item when there is no group level. Where there is no level for it to join, it is
+recorded as a conflict. The titles of change and group items belong to the spec: a retitle on
+the board is recorded as a conflict and the next push restores the title.
 
 Removals are never applied. An item removed on the board is recorded as a conflict and the
 spec stays as it is. A conflict is closed with `abk tracker conflicts --resolve <id>` once

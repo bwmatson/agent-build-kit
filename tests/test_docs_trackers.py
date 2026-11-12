@@ -3,27 +3,22 @@ the steps in order and state the rules (spec: tracker-rollout)."""
 
 from __future__ import annotations
 
-import argparse
 import re
 from pathlib import Path
 
 import pytest
 import yaml
 
-from agent_build_kit.cli import build_parser
-from agent_build_kit.trackers.config import AzureDevOpsTracker, GithubTracker, TrackerSection
+from agent_build_kit.trackers.config import TrackerConfigError, section_for
+from tests.docs_commands import OPTION, command_texts, subcommand_parsers
+from tests.trackers.tracker_section_support import configure
 
 ROOT = Path(__file__).resolve().parent.parent
 TRACKERS = ROOT / "docs" / "trackers.md"
 RUNBOOK = ROOT / "docs" / "runbooks" / "turn-on-a-tracker.md"
 DOCUMENTS = (TRACKERS, RUNBOOK)
 COMMAND = re.compile(r"abk tracker ([a-z][a-z-]*)")
-OPTION = re.compile(r"(?<![\w-])--[a-z][a-z-]*")
-# What a provider block holds beside its connection settings.
-BLOCK_COMMON = {"types", "states"}
-PROVIDERS = {"azure_devops": AzureDevOpsTracker, "github": GithubTracker}
-# The old flat keys the documents may still name, as old keys.
-OLD_KEYS = {"story_type", "labels", "state_map"}
+PROVIDERS = ("azure_devops", "github")
 
 
 def text_of(path: Path) -> str:
@@ -31,35 +26,9 @@ def text_of(path: Path) -> str:
     return path.read_text()
 
 
-def tracker_parsers() -> dict[str, argparse.ArgumentParser]:
-    """The parser of each `abk tracker` subcommand, by name."""
-    top = next(
-        action
-        for action in build_parser()._actions
-        if isinstance(action, argparse._SubParsersAction)
-    )
-    found = next(
-        action
-        for action in top.choices["tracker"]._actions
-        if isinstance(action, argparse._SubParsersAction)
-    )
-    return dict(found.choices)
-
-
-def command_texts(text: str) -> list[str]:
-    """Each command the document shows: the line naming `abk tracker`, with the lines a
-    trailing backslash continues."""
-    lines = text.splitlines()
-    found: list[str] = []
-    for i, line in enumerate(lines):
-        if "abk tracker" not in line:
-            continue
-        joined = line
-        while joined.rstrip().endswith("\\") and i + 1 < len(lines):
-            i += 1
-            joined += " " + lines[i]
-        found.append(joined)
-    return found
+def flat(path: Path) -> str:
+    """The document lower-cased with its whitespace collapsed, so a phrase can wrap lines."""
+    return " ".join(text_of(path).lower().split())
 
 
 def tracker_sections(text: str) -> list[dict]:
@@ -76,8 +45,8 @@ def tracker_sections(text: str) -> list[dict]:
 
 @pytest.mark.parametrize("path", DOCUMENTS, ids=lambda path: path.name)
 def test_every_tracker_command_and_option_a_document_names_exists(path: Path) -> None:
-    parsers = tracker_parsers()
-    texts = command_texts(text_of(path))
+    parsers = subcommand_parsers("tracker")
+    texts = command_texts(text_of(path), "abk tracker")
     assert texts, f"{path.name} shows no `abk tracker` command"
     for text in texts:
         match = COMMAND.search(text)
@@ -91,29 +60,28 @@ def test_every_tracker_command_and_option_a_document_names_exists(path: Path) ->
 
 def test_the_documents_name_every_tracker_command_and_the_link_epic_option() -> None:
     named = {match[1] for path in DOCUMENTS for match in COMMAND.finditer(text_of(path))}
-    assert named >= set(tracker_parsers())
+    assert named >= set(subcommand_parsers("tracker"))
     assert "abk tracker link" in text_of(TRACKERS)
     assert "--epic" in text_of(TRACKERS)
 
 
 @pytest.mark.parametrize("path", DOCUMENTS, ids=lambda path: path.name)
-def test_every_configuration_key_a_document_shows_exists_in_the_models(path: Path) -> None:
+def test_every_tracker_section_a_document_shows_loads_through_the_validator(path: Path) -> None:
     sections = tracker_sections(text_of(path))
     assert sections, f"{path.name} shows no tracker section"
-    top = set(TrackerSection.model_fields) | set(PROVIDERS) | OLD_KEYS
     for section in sections:
-        assert set(section) <= top, set(section) - top
-        for kind, model in PROVIDERS.items():
-            if kind not in section:
-                continue
-            allowed = (set(model.model_fields) - set(TrackerSection.model_fields)) | BLOCK_COMMON
-            assert set(section[kind]) <= allowed | OLD_KEYS, set(section[kind]) - allowed
+        configure(app=section)
+        try:
+            loaded = section_for("app")
+        except TrackerConfigError as error:
+            pytest.fail(f"{path.name} shows a section the loader refuses: {error}")
+        assert loaded is not None
 
 
 def test_the_trackers_document_shows_both_providers_and_the_new_keys() -> None:
     text = text_of(TRACKERS)
     kinds = {section.get("kind") for section in tracker_sections(text)}
-    assert kinds >= {"azure_devops", "github"}
+    assert kinds >= set(PROVIDERS)
     for word in ("levels", "epic", "pr_links", "azure_devops:", "github:"):
         assert word in text, word
 
@@ -142,19 +110,21 @@ def test_the_runbook_names_the_four_steps_in_order() -> None:
     assert positions == sorted(positions), positions
 
 
-@pytest.mark.parametrize(
-    "phrase",
-    (
-        "ownership",
-        "never applied",
-        "precedence",
-        "turning it off",
-    ),
-)
-def test_the_trackers_document_states_the_rules(phrase: str) -> None:
-    assert phrase in " ".join(text_of(TRACKERS).lower().split()), phrase
+@pytest.mark.parametrize("phrase", ("ownership", "turning it on and off"))
+def test_the_trackers_document_states_the_ownership_and_on_off_sections(phrase: str) -> None:
+    assert phrase in flat(TRACKERS), phrase
 
 
 def test_the_trackers_document_says_removals_are_never_applied() -> None:
-    text = " ".join(text_of(TRACKERS).lower().split())
-    assert re.search(r"removal\w* (is|are) never applied|never applies? (a )?removal", text)
+    assert re.search(r"removal\w* (is|are) never applied", flat(TRACKERS))
+
+
+def test_the_trackers_document_says_a_board_text_edit_reaches_tasks_md() -> None:
+    assert re.search(
+        r"(edited|changed) only on the board.{0,120}(rewritten|written) into `?tasks\.md",
+        flat(TRACKERS),
+    )
+
+
+def test_the_trackers_document_says_an_edit_on_both_sides_is_a_conflict() -> None:
+    assert re.search(r"edited on both sides.{0,80}conflict", flat(TRACKERS))
