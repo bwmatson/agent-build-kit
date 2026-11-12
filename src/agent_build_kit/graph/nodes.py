@@ -81,7 +81,6 @@ from agent_build_kit.pipeline.events import (
 )
 from agent_build_kit.pipeline.fix_reproduction import Outcome, unreproduced_guidance
 from agent_build_kit.pipeline.flakes import (
-    RECHECK_HOLD_RUNS,
     FailedOnBase,
     Flake,
     FlakeFound,
@@ -2289,9 +2288,9 @@ class BuildPath:
         bundles = ", ".join(found.bundles) or "none kept"
         note = (
             f"fix round {attempt} changed nothing and {tests} failed three runs "
-            f"{RECHECK_HOLD_RUNS}; a person judges it. Bundles: {bundles}"
+            f"(the first, the serial rerun and the recheck); a person judges it. Bundles: {bundles}"
         )
-        return self.hold(HELD, note, note, cause=Cause.NEEDS_HUMAN)
+        return self.hold(HELD, note, note, cause=Cause.NEEDS_HUMAN, held_by=HeldBy.CHECKS)
 
     def product_files(self, state: UnitRun) -> Update | None:
         """The stop for an `[e2e-test]` unit whose branch changes a file that is no test path,

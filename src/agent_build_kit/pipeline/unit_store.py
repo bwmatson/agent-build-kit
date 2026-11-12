@@ -84,8 +84,9 @@ _ENDS_BOUNCES = (
 
 class HeldBy(StrEnum):
     """Why a unit is held: `REVIEWER` (the hold label), `REVIEW` (the review
-    loop), `DEPTH` (the stack depth cap) or `TOOLCHAIN`; `NONE` when it is not
-    held, and in a record written before this was kept."""
+    loop), `DEPTH` (the stack depth cap), `TOOLCHAIN`, `SIZE`, `BOARD` or `CHECKS` (the failed
+    tests failed their recheck too); `NONE` when it is not held, and in a record written
+    before this was kept."""
 
     NONE = ""
     REVIEWER = "reviewer"
@@ -95,6 +96,8 @@ class HeldBy(StrEnum):
     SIZE = "size"
     # A person's assignment or block on the work tracker's board.
     BOARD = "board"
+    # The checks' failed tests failed a recheck after a fix round that changed nothing.
+    CHECKS = "checks"
 
 
 class Cause(StrEnum):

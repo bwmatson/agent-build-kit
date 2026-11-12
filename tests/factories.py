@@ -416,11 +416,6 @@ def coded_repo(path: Path, slug: str) -> Path:
 
 RECHECK_TEST = "tests/test_a.py::test_x"
 RECHECK_BUNDLES = ("bundles/first", "bundles/serial", "bundles/recheck")
-
-
-def recheck_hold_note(test: str = RECHECK_TEST, bundles: tuple[str, ...] = RECHECK_BUNDLES) -> str:
-    """The note a unit is held with when its failed tests failed the recheck too."""
-    return (
-        f"fix round 1 changed nothing and {test} failed three runs (the first, the serial "
-        f"rerun and the recheck); a person judges it. Bundles: {', '.join(bundles)}"
-    )
+# Any note that names the test and the bundles: the hold is recorded by `HeldBy.CHECKS`, and the
+# lines show the note as it is.
+RECHECK_NOTE = f"{RECHECK_TEST} failed again. Bundles: {', '.join(RECHECK_BUNDLES)}"

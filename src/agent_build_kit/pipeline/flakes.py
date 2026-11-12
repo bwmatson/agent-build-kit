@@ -27,7 +27,7 @@ from agent_build_kit.pipeline.failure_record import (
 )
 from agent_build_kit.pipeline.file_lock import change_lock
 from agent_build_kit.pipeline.run_log import bundle_exists, bundle_place
-from agent_build_kit.pipeline.unit_store import StoredUnit
+from agent_build_kit.pipeline.unit_store import HeldBy, StoredUnit
 from agent_build_kit.pipeline.units import HELD, PRODUCT_DEFECT_PREFIX, Unit
 from agent_build_kit.pipeline.work_graph import FIX_PREFIX, GROUP_HEADING, group_needs
 
@@ -40,14 +40,12 @@ FAILING_PREFIX = "fix-failing"
 FIX_PREFIXES = (FIX_PREFIX, FLAKY_PREFIX, FAILING_PREFIX, PRODUCT_DEFECT_PREFIX)
 # How many of a storm's tests its row names.
 STORM_TESTS = 10
-# The words in a hold note that say a recheck failed too; `abk status` and `abk explain` read a
-# unit held by the checks from them.
-RECHECK_HOLD_RUNS = "(the first, the serial rerun and the recheck)"
 
 
 def held_by_the_checks(unit: StoredUnit) -> bool:
-    """Whether `unit` is held because its failed tests failed a recheck too."""
-    return unit.state == HELD and RECHECK_HOLD_RUNS in unit.note
+    """Whether `unit` is held because its failed tests failed a recheck too, as recorded by
+    `HeldBy.CHECKS`."""
+    return unit.state == HELD and unit.held_by == HeldBy.CHECKS
 
 
 class Flake(Recorded, Evidenced):
