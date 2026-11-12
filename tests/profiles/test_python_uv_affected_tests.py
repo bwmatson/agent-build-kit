@@ -9,7 +9,9 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from agent_build_kit.profiles.python_uv import PROFILE
+import pytest
+
+from agent_build_kit.profiles.python_uv import PROFILE, reads_any_of
 
 ID_A = "svc-a/tests/test_x.py::test_y"
 PLAIN_ID = "tests/test_x.py::test_y"
@@ -153,3 +155,133 @@ def test_the_recording_form_still_runs_every_test() -> None:
     assert "--testmon-noselect" in recording
     assert "--testmon-forceselect" not in recording and "--testmon" not in recording
     assert recording[recording.index("-m") + 1] == "not slow"
+
+
+# The integration kind in the affected selection (spec: integration-tests-run-in-the-unit-gate).
+DEFAULT_RUN = "not integration and not e2e and not slow"
+INTEGRATION_ID = "tests/integration/test_flow.py::test_flows"
+
+
+def integration_repo(tmp_path: Path) -> Path:
+    """A repository whose own default run deselects the integration, e2e and slow kinds."""
+    repo = plain_repo(tmp_path)
+    (repo / "pyproject.toml").write_text(
+        f'[project]\nname = "x"\n[tool.pytest.ini_options]\naddopts = "-m \'{DEFAULT_RUN}\'"\n'
+    )
+    return repo
+
+
+def marker_of(command: list[str]) -> str:
+    assert "-m" in command, command
+    return command[command.index("-m") + 1]
+
+
+@pytest.mark.parametrize("select", [True, False], ids=["the selection", "the recording"])
+def test_the_selection_and_the_recording_let_the_integration_kind_through_the_default_run(
+    tmp_path: Path, select: bool
+) -> None:
+    repo = integration_repo(tmp_path)
+    command = ["uv", "run", "pytest", "tests"]
+
+    seeded_run = PROFILE.seeding_command(command, tmp_path / "seed", select=select, project=repo)
+
+    expression = marker_of(seeded_run)
+    assert expression.startswith("integration or ")
+    assert DEFAULT_RUN in expression
+
+
+def test_the_serial_half_of_a_split_run_is_lifted_in_the_seeded_command(tmp_path: Path) -> None:
+    repo = integration_repo(tmp_path)
+    command = ["uv", "run", "pytest", "-m", f"({DEFAULT_RUN}) and serial", "tests"]
+
+    seeded_run = PROFILE.seeding_command(command, tmp_path / "seed", select=True, project=repo)
+
+    assert marker_of(seeded_run) == f"(integration or {DEFAULT_RUN}) and serial"
+
+
+def test_a_selection_that_reaches_an_integration_test_runs_it_with_a_slow_test_still_out(
+    tmp_path: Path,
+) -> None:
+    repo = integration_repo(tmp_path)
+
+    commands = ask(repo, ["src/x.py"], [], seeded(tmp_path))
+
+    assert commands
+    for command in commands:
+        expression = marker_of(command)
+        assert "integration or" in expression
+        assert "not slow" in expression and "not e2e" in expression
+
+
+def test_a_failed_integration_id_without_seed_data_runs_by_id_past_the_default_run(
+    tmp_path: Path,
+) -> None:
+    repo = integration_repo(tmp_path)
+
+    commands = ask(repo, ["src/x.py"], [INTEGRATION_ID], tmp_path / "missing" / "affected")
+
+    assert commands and len(commands) == 1
+    assert INTEGRATION_ID in commands[0]
+    assert marker_of(commands[0]).startswith("integration or ")
+
+
+@pytest.mark.parametrize(
+    ("changed", "reads"),
+    [
+        ("src/a.py", True),
+        ("src/pkg/deep.py", True),
+        ("docs/a.md", False),
+        ("src/a.md", False),
+        ("pyproject.toml", True),
+    ],
+    ids=["under, suffix", "nested", "outside under", "other suffix", "a named root file"],
+)
+def test_a_scan_declaring_what_it_reads_is_selected_only_when_one_of_those_files_changes(
+    changed: str, reads: bool
+) -> None:
+    source = (
+        "from tests.tracked_files import guarded_files\n"
+        "\n"
+        "def test_scan():\n"
+        "    guarded_files(under=['src'], names=['pyproject.toml'], suffixes={'.py', '.toml'})\n"
+    )
+
+    assert reads_any_of(source, [changed]) is reads
+
+
+def test_a_scan_with_a_suffix_only_reads_those_files_across_the_whole_tree() -> None:
+    source = "def test_scan():\n    guarded_files(suffixes=('.md',))\n"
+
+    assert reads_any_of(source, ["docs/deep/a.md"])
+    assert not reads_any_of(source, ["src/a.py"])
+
+
+def test_a_scan_that_declares_nothing_is_affected_by_every_change() -> None:
+    assert reads_any_of("def test_scan():\n    guarded_files()\n", ["src/a.py"])
+
+
+def test_a_scan_whose_declaration_is_not_a_literal_is_affected_by_every_change() -> None:
+    source = "FOLDERS = ['src']\n\ndef test_scan():\n    guarded_files(under=FOLDERS)\n"
+
+    assert reads_any_of(source, ["docs/a.md"])
+
+
+def test_a_module_with_two_scans_is_selected_when_either_reads_the_changed_file() -> None:
+    source = (
+        "def test_a():\n    guarded_files(under=['src'])\n"
+        "def test_b():\n    guarded_files(under=['docs'])\n"
+    )
+
+    assert reads_any_of(source, ["docs/a.md"])
+    assert not reads_any_of(source, ["web/a.ts"])
+
+
+def test_a_module_that_never_calls_the_helper_reads_no_tree() -> None:
+    assert not reads_any_of("def test_x():\n    assert True\n", ["src/a.py"])
+
+
+def test_the_helper_is_named_by_the_caller() -> None:
+    source = "def test_x():\n    walk(under=['src'])\n"
+
+    assert reads_any_of(source, ["src/a.py"], helper="walk")
+    assert not reads_any_of(source, ["docs/a.md"], helper="walk")

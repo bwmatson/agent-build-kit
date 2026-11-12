@@ -286,6 +286,14 @@ def by_id_selection(project: Path | None) -> str:
     return f"integration or ({existing})" if existing else ""
 
 
+def reads_any_of(source: str, changed_files: list[str], *, helper: str = "guarded_files") -> bool:
+    """Whether a test module that walks the tree through `helper` reads any of `changed_files`,
+    from the `under`, `names` and `suffixes` arguments of the helper's calls, read from the
+    module's `source` by its syntax tree. A call with no argument, or one whose argument is not
+    a literal, reads the whole tree; a module that never calls the helper reads none."""
+    raise NotImplementedError
+
+
 def _lifted_marker(expression: str) -> str:
     """`expression` with the integration kind let through when it is unit-test's serial split
     over the repository's default (`(<default>) and not serial`); any other `-m` the command
@@ -1075,12 +1083,20 @@ class PythonUvProfile:
     def is_seeded(self, command: list[str]) -> bool:
         return TESTMON in command
 
-    def seeding_command(self, command: list[str], seed: Path, *, select: bool = False) -> list[str]:
+    def seeding_command(
+        self,
+        command: list[str],
+        seed: Path,
+        *,
+        select: bool = False,
+        project: Path | None = None,
+    ) -> list[str]:
         """`command`, a test run, as one run with the coverage plugin in its isolated
         environment, keeping its data at `seed`: it selects the tests the change affects
         when `select`, and otherwise runs them all and records what each executed. A selection
         is forced so that the repo's own `-m`, `-k` and test-id selectors apply with it instead
-        of switching it off."""
+        of switching it off. Given the `project`, the repository's default `-m` is overridden
+        to let the integration kind through, in the selection and in the recording."""
         program = _pytest_program(command)
         if program is None:
             return command

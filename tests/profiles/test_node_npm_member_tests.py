@@ -161,3 +161,16 @@ def test_a_shared_change_in_a_project_that_is_not_a_workspace_is_one_whole_run(
     commands = affected(profile, tmp_path, ["src/x.ts", "package.json"], tmp_path)
 
     assert commands == profile.test_commands(tmp_path, ["package.json"], root_extras=[])
+
+
+def test_an_affected_run_lets_the_integration_files_the_default_run_excludes_through(
+    profile, repo, tmp_path: Path
+) -> None:
+    (repo / "packages/a/vitest.config.ts").write_text(
+        'export default { test: { exclude: ["**/*.integration.test.ts"] } };\n'
+    )
+
+    (command,) = affected(profile, repo, ["packages/a/src/x.ts"], tmp_path)
+
+    assert "related" in command[2]
+    assert ".integration.test" in words(command)
