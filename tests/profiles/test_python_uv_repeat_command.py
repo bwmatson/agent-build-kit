@@ -7,10 +7,9 @@ import subprocess
 import sys
 from pathlib import Path
 
-import pytest
-
 from agent_build_kit.profiles.python_uv import PythonUvProfile
 from tests.deselecting_config import BY_ID_MARKERS, DEFAULT_MARKERS, PYPROJECT
+from tests.serial_marker import MARKER
 
 TREE = {
     "tests/test_a.py": (
@@ -25,12 +24,11 @@ TREE = {
 KINDS = (
     "import pytest\n\n\n"
     "@pytest.mark.integration\ndef test_integrated():\n    pass\n\n\n"
-    "@pytest.mark.integration\n@pytest.mark.serial\ndef test_alone():\n    pass\n\n\n"
     "@pytest.mark.e2e\ndef test_live():\n    pass\n"
 )
 # A repository whose default deselection holds out the integration and e2e kinds.
 DESELECTING = {"pyproject.toml": PYPROJECT, "tests/test_kinds.py": KINDS}
-# The same, declaring pytest-xdist, so that its test commands are the serial split.
+# The same, declaring pytest-xdist, so that its test command is the parallel pass.
 XDIST = {
     "pyproject.toml": PYPROJECT + '\n[dependency-groups]\ndev = ["pytest-xdist"]\n',
     "tests/test_kinds.py": KINDS,
@@ -62,7 +60,7 @@ def collected(
 def test_only_the_named_test_is_collected_not_its_namesakes_or_a_module_of_that_name(
     tmp_path: Path,
 ) -> None:
-    command = [sys.executable, "-m", "pytest", "tests", "-m", "not serial", "-q"]
+    command = [sys.executable, "-m", "pytest", "tests", "-m", "not docker", "-q"]
 
     found = collected(tmp_path, ["tests/test_a.py::test_added"], command)
 
@@ -88,51 +86,34 @@ def test_an_e2e_test_named_beside_an_integration_test_stays_deselected(tmp_path:
     assert found == {f"{KINDS_ID}test_integrated"}
 
 
-@pytest.mark.parametrize(
-    ("pass_index", "test"), [(0, "test_integrated"), (1, "test_alone")], ids=["parallel", "serial"]
-)
-def test_an_integration_test_is_collected_by_each_pass_of_the_serial_split_over_the_default(
-    tmp_path: Path, pass_index: int, test: str
+def test_an_integration_test_is_collected_by_the_one_pass_of_a_parallel_run(
+    tmp_path: Path,
 ) -> None:
     for name, text in XDIST.items():
         (tmp_path / name).parent.mkdir(parents=True, exist_ok=True)
         (tmp_path / name).write_text(text)
     commands = PythonUvProfile().test_commands(tmp_path, ["tests/test_kinds.py"], root_extras=[])
-    # The profile's own commands, run with this interpreter in place of `uv run`.
-    command = [sys.executable, "-m", *commands[pass_index][2:]]
-    assert len(commands) == 2, commands
+    assert len(commands) == 1, commands
+    # The profile's own command, run with this interpreter in place of `uv run`.
+    command = [sys.executable, "-m", *commands[0][2:]]
 
-    found = collected(tmp_path, [f"{KINDS_ID}{test}"], command, XDIST)
+    found = collected(tmp_path, [f"{KINDS_ID}test_integrated"], command, XDIST)
 
-    assert found == {f"{KINDS_ID}{test}"}
-
-
-MARKED_OPTIONS = {
-    "separate": ["-m", f"({DEFAULT_MARKERS}) and not serial"],
-    "attached": [f"-m({DEFAULT_MARKERS}) and not serial"],
-    "long": ["--markexpr", f"({DEFAULT_MARKERS}) and not serial"],
-    "long with equals": [f"--markexpr=({DEFAULT_MARKERS}) and not serial"],
-}
-
-
-@pytest.mark.parametrize("given", MARKED_OPTIONS.values(), ids=MARKED_OPTIONS.keys())
-def test_the_serial_split_over_the_default_lets_the_integration_kind_through_in_any_spelling(
-    tmp_path: Path, given: list[str]
-) -> None:
-    (tmp_path / "pyproject.toml").write_text(PYPROJECT)
-    command = ["uv", "run", "pytest", "-n", "2", *given, "-v"]
-
-    narrowed = PythonUvProfile().repeat_command(command, ["t.py::a"], project=tmp_path)
-
-    assert narrowed is not None
-    lifted = " ".join(narrowed)
-    assert f"(integration or ({DEFAULT_MARKERS})) and not serial" in lifted
-    assert lifted.count("and not serial") == 1
+    assert found == {f"{KINDS_ID}test_integrated"}
 
 
 def test_a_marker_expression_the_command_carries_of_its_own_stays(tmp_path: Path) -> None:
     (tmp_path / "pyproject.toml").write_text(PYPROJECT)
     command = ["uv", "run", "pytest", "-m", "not docker", "-q"]
+
+    narrowed = PythonUvProfile().repeat_command(command, ["t.py::a"], project=tmp_path)
+
+    assert narrowed == [*command, "t.py::a"]
+
+
+def test_a_marker_expression_over_the_default_is_not_lifted_as_a_split(tmp_path: Path) -> None:
+    (tmp_path / "pyproject.toml").write_text(PYPROJECT)
+    command = ["uv", "run", "pytest", "-m", f"({DEFAULT_MARKERS}) and not {MARKER}", "-q"]
 
     narrowed = PythonUvProfile().repeat_command(command, ["t.py::a"], project=tmp_path)
 
@@ -160,11 +141,11 @@ def test_a_method_is_collected_by_its_class_path_alone(tmp_path: Path) -> None:
 
 def test_the_options_of_the_run_stay_and_its_paths_go() -> None:
     command = ["uv", "run", "--package", "svc-a", "pytest", "svc-a"]
-    command += ["-n", "auto", "-m", "not serial", "-q"]
+    command += ["-n", "auto", "-m", "not docker", "-q"]
 
     assert PythonUvProfile().repeat_command(command, ["svc-a/tests/test_a.py::test_x"]) == [
         *["uv", "run", "--package", "svc-a", "pytest"],
-        *["-n", "auto", "-m", "not serial", "-q"],
+        *["-n", "auto", "-m", "not docker", "-q"],
         "svc-a/tests/test_a.py::test_x",
     ]
 
