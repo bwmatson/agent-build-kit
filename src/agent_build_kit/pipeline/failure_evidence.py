@@ -11,11 +11,14 @@ from __future__ import annotations
 import json
 import os
 import re
+import shutil
 import subprocess
+import sys
 from collections.abc import Callable
 from datetime import datetime, timedelta
 from pathlib import Path
 
+from agent_build_kit import profiles
 from agent_build_kit.orchestration.artifacts import Artifacts
 from agent_build_kit.orchestration.local.artifacts import DirectoryArtifacts
 from agent_build_kit.pipeline.run_log import bundle_exists, read_bundle_file, run_ledger_path
@@ -79,6 +82,22 @@ def load_facts(samples: list[dict[str, object]], per_cpu: float) -> dict[str, ob
     """`cpus` and `load_high` of `load_reading`, as the conditions of a record keep them."""
     cpus, high = load_reading(samples, per_cpu)
     return {"cpus": cpus, "load_high": high}
+
+
+def environment_record() -> dict[str, object]:
+    """How this process started and what it ran in: its argv, the names (never the values) of
+    its environment variables, `HOME`, `TMPDIR`, the first and last entries of `PATH`, and where
+    each program a run depends on was found (None for one not found)."""
+    path = [entry for entry in os.environ.get("PATH", "").split(os.pathsep) if entry]
+    return {
+        "argv": list(sys.argv),
+        "names": sorted(os.environ),
+        "home": os.environ.get("HOME"),
+        "tmpdir": os.environ.get("TMPDIR"),
+        "path_first": path[0] if path else None,
+        "path_last": path[-1] if path else None,
+        "tools": {tool: shutil.which(tool) for tool in ["git", *profiles.environment_tools()]},
+    }
 
 
 def _git(run: Run, where: Path, *args: str) -> str:

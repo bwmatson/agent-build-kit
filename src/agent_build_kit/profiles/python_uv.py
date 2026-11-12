@@ -477,6 +477,8 @@ _SELECTION_DEACTIVATED = re.compile(
 
 class PythonUvProfile:
     name: str = "python-uv"
+    # The programs a failing run's bundle records the place of.
+    environment_tools: tuple[str, ...] = ("uv",)
     detect_markers: tuple[str, ...] = ("uv.lock", "pyproject.toml")
     supports_stubs = True
     allowed_tools: str = (

@@ -6,6 +6,8 @@ waits in one function while a worker thread waits in another.
 
 from __future__ import annotations
 
+import re
+
 import pytest
 
 from tests.child_pytest import run_scenario
@@ -26,3 +28,17 @@ def test_a_test_stopped_at_its_limit_has_the_stack_of_every_thread_after_the_lim
     assert "parked_in_a_worker_thread" in result.output, "another thread"
     limit = result.output.index("test exceeded the wall-clock backstop of 5 s")
     assert limit < result.output.index("parked_in_a_worker_thread"), result.output
+
+
+def test_a_test_stopped_while_waiting_for_a_child_has_the_childs_command_and_running_time(
+    pytester: pytest.Pytester, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("ABK_CHILD_WAITS_ON_A_PROGRAM", "1")
+    result = run_scenario(
+        pytester, SCENARIO, "waits_on_a_child.py", "--test-time-limit=1", monkeypatch=monkeypatch
+    )
+
+    assert result.code == 1, result.output
+    assert "wall-clock backstop of 5 s" in result.output, result.output
+    assert "abk-waited-for-child" in result.output, "the child's command"
+    assert re.search(r"running (for )?\d+(\.\d+)? ?s", result.output), result.output

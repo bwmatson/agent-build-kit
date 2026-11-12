@@ -33,7 +33,7 @@ from contextlib import AbstractContextManager, contextmanager, nullcontext
 from datetime import UTC, datetime
 from functools import partial
 from pathlib import Path
-from typing import Any, Protocol
+from typing import Any, Literal, Protocol
 
 from agent_build_kit import (
     claude_account,
@@ -1645,6 +1645,8 @@ def build_unit_test(
     # Set when the current run's failures were classified as load and let the run go on: the
     # ledger row then keeps the failed tests though the run passed.
     run_loaded: list[bool] = []
+    # The serial reruns the current attempt made, one line each, named in the fix agent's feedback.
+    rerun_notes: list[str] = []
     # The kind of re-test the current run after a move is: `full` unless it was `lite` or `scoped`.
     retest: dict[str, str] = {"kind": "full"}
     # What a test is, as the profile of the project a path sits in says, and the repo's
@@ -1802,8 +1804,9 @@ def build_unit_test(
         ends."""
         with _test_slot(installation, log) as waited:
             for attempt in (1, 2):
+                rerun_notes.clear()
                 try:
-                    return recorded(
+                    passed, output = recorded(
                         cwd=cwd,
                         base=base,
                         whole_repo=whole_repo,
@@ -1811,6 +1814,11 @@ def build_unit_test(
                         moved_from=moved_from,
                         waited=waited,
                     )
+                    if not passed and rerun_notes:
+                        # On the command's own line, so the tail of the output stays whole.
+                        first, newline, rest = output.partition("\n")
+                        output = f"{first} [serial {'; '.join(rerun_notes)}]{newline}{rest}"
+                    return passed, output
                 except SuspendedRun as suspended_run:
                     _say(
                         log,
@@ -2215,6 +2223,7 @@ def build_unit_test(
             **temp,
             **failure_evidence.shas(run, where, base),
             **facts,
+            "environment": failure_evidence.environment_record(),
         }
         return write_failure_bundle(
             failures_dir,
@@ -2490,6 +2499,7 @@ def build_unit_test(
             )
             conditions["rerun_exits"] = list(rerun_exits)
             conditions["rerun_seconds"] = list(rerun_seconds)
+            conditions["reruns"] = list(rerun_notes)
             return {
                 "evidence": str(evidence[0]),
                 "ran_at": evidence[1][0],
@@ -2505,10 +2515,14 @@ def build_unit_test(
             )
             return high is True
 
+        def class_of(test: str, *, classify: bool) -> Literal["flake", "isolation"]:
+            """The class a flake of `test` is given: `isolation` for a test that shares a
+            resource and passed alone in a run that was not loaded, `flake` otherwise."""
+            return "isolation" if classify and not loaded() and test in shared else "flake"
+
         def flakes_of(
             names: list[str], base_output: str = "", *, classify: bool = False
         ) -> tuple[Flake, ...]:
-            isolated = classify and not loaded()
             return tuple(
                 Flake(
                     test=test,
@@ -2521,7 +2535,7 @@ def build_unit_test(
                     # selected run): the agent still reads that tree.
                     base=base or ref or "",
                     base_output=base_output,
-                    classification="isolation" if isolated and test in shared else "flake",
+                    classification=class_of(test, classify=classify),
                     **evidenced(),
                 )
                 for test in names
@@ -2555,10 +2569,19 @@ def build_unit_test(
                     break
                 rerun = rerun_command(command, tests)
                 again = ran(rerun, where, toolchain)
-            if evidence is not None and began is not None and failures_dir is not None:
+            kept = evidence is not None and began is not None and failures_dir is not None
+            if kept:
+                last_sample.update((machine or failure_evidence.machine_sample)())
+            # A rerun that fails again leaves the failure the unit's: it has no flake class.
+            if not toolchain.tolerates_exit(rerun, again.returncode):
+                rerun_class = "unit"
+            elif any(class_of(test, classify=True) == "isolation" for test in tests):
+                rerun_class = "isolation"
+            else:
+                rerun_class = "flake"
+            if kept and evidence is not None and began is not None and failures_dir is not None:
                 started, machine_before, tree_before = began
                 ended = clock()
-                last_sample.update((machine or failure_evidence.machine_sample)())
                 seconds = (ended - started).total_seconds()
                 rerun_exits.append(again.returncode)
                 rerun_seconds.append(seconds)
@@ -2580,6 +2603,16 @@ def build_unit_test(
                         tree_before, failure_evidence.worktree_state(run, where, toolchain)
                     ),
                 )
+                note_rerun(
+                    number,
+                    len(tests),
+                    again,
+                    toolchain,
+                    f", {seconds:g} s, load {_shown(failure_evidence.first_load(machine_before))}"
+                    f" to {_shown(failure_evidence.first_load(last_sample))}, class {rerun_class}",
+                )
+            else:
+                note_rerun(number, len(tests), again, toolchain, f", class {rerun_class}")
             if not tests:
                 return False
             if toolchain.tolerates_exit(rerun, again.returncode):
@@ -2628,6 +2661,23 @@ def build_unit_test(
             )
             return True
         raise FlakeFound(flakes_of(tests, classify=True), scoped=own is not None)
+
+    def note_rerun(
+        number: int,
+        ids: int,
+        again: subprocess.CompletedProcess,
+        toolchain: ToolchainProfile,
+        rest: str,
+    ) -> None:
+        """Log one serial rerun of `ids` test ids, with the counts its output gives, and keep
+        the line for the feedback a fix agent is given."""
+        passed, failed, skipped, _ = toolchain.parse_test_summary(f"{again.stdout}\n{again.stderr}")
+        line = (
+            f"rerun {number}: {ids} ids, {passed} passed, {failed} failed, {skipped} skipped, "
+            f"exit {again.returncode}{rest}"
+        )
+        rerun_notes.append(line)
+        _say(log, f"serial {line}")
 
     def wrote(tests: list[str], where: Path, base: str) -> bool:
         """Whether the unit wrote any of `tests`: its file, or the `conftest.py` beside it,
@@ -3040,6 +3090,10 @@ def _deactivated(
     ):
         return None
     return toolchain.selection_deactivated(f"{result.stdout}\n{result.stderr}")
+
+
+def _shown(load: float | None) -> str:
+    return "unknown" if load is None else f"{load:g}"
 
 
 def _counted(toolchain: ToolchainProfile, result: subprocess.CompletedProcess) -> int:

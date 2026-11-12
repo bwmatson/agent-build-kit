@@ -99,9 +99,9 @@ def _child_pids(pid: int) -> list[int]:
     return found
 
 
-def _scan_descendants_cpu() -> dict[int, float]:
-    """The same reading for a kernel without per-task children files: every process is read."""
-    children: dict[int, list[tuple[int, float]]] = {}
+def _scan_descendants() -> list[tuple[int, list[str]]]:
+    """The descendants for a kernel without per-task children files: every process is read."""
+    children: dict[int, list[tuple[int, list[str]]]] = {}
     for name in os.listdir("/proc"):
         if not name.isdigit():
             continue
@@ -109,36 +109,63 @@ def _scan_descendants_cpu() -> dict[int, float]:
             fields = _stat_fields(name)
         except OSError:
             continue
-        children.setdefault(int(fields[1]), []).append((int(name), _spent(fields)))
-    found: dict[int, float] = {}
+        children.setdefault(int(fields[1]), []).append((int(name), fields))
+    found: list[tuple[int, list[str]]] = []
     pending = [os.getpid()]
     while pending:
-        for pid, spent in children.get(pending.pop(), []):
-            found[pid] = spent
+        for pid, fields in children.get(pending.pop(), []):
+            found.append((pid, fields))
             pending.append(pid)
     return found
+
+
+def running_descendants() -> list[tuple[int, list[str]]]:
+    """Each running descendant of the process as (pid, the fields of its /proc stat), found by
+    the children files, or by reading every process on a kernel that has none. A host without
+    /proc has none."""
+    me = os.getpid()
+    try:
+        if not os.path.exists(f"/proc/{me}/task/{me}/children"):
+            return _scan_descendants()
+        found: list[tuple[int, list[str]]] = []
+        pending = _child_pids(me)
+        while pending:
+            pid = pending.pop()
+            try:
+                found.append((pid, _stat_fields(pid)))
+            except OSError:
+                continue
+            pending.extend(_child_pids(pid))
+        return found
+    except OSError:
+        return []
 
 
 def descendants_cpu() -> dict[int, float]:
     """Process id to CPU seconds, from /proc, of each running descendant, including what it has
     already collected from its own finished children. Only descendants are read, so a test with
     no children costs one small read. A host without /proc has none."""
-    me = os.getpid()
+    return {pid: _spent(fields) for pid, fields in running_descendants()}
+
+
+def running_children() -> str:
+    """One line per running descendant of the process: its command line and how long it has
+    run, from /proc. Empty when there is none or the host has no /proc."""
+    lines: list[str] = []
     try:
-        if not os.path.exists(f"/proc/{me}/task/{me}/children"):
-            return _scan_descendants_cpu()
-        pending = _child_pids(me)
-        found: dict[int, float] = {}
-        while pending:
-            pid = pending.pop()
+        with open("/proc/uptime") as uptime:
+            now = float(uptime.read().split()[0])
+        for pid, fields in running_descendants():
             try:
-                found[pid] = _spent(_stat_fields(pid))
-            except OSError:
+                started = int(fields[19]) / _TICKS
+                with open(f"/proc/{pid}/cmdline", "rb") as cmdline:
+                    command = cmdline.read().replace(b"\0", b" ").decode(errors="replace").strip()
+            except (OSError, IndexError, ValueError):
                 continue
-            pending.extend(_child_pids(pid))
-        return found
-    except OSError:
-        return {}
+            lines.append(f"{command} (pid {pid}), running for {max(0.0, now - started):.1f} s")
+    except (OSError, ValueError, IndexError):
+        return ""
+    return "\n".join(sorted(lines))
 
 
 def live_descendants_cpu() -> float:
@@ -240,11 +267,12 @@ def inherited_lines(
 
 class TimedOut(BaseException):
     """Raised in the main thread when the running test passes its limit; carries the stack
-    of every thread as it was then."""
+    of every thread as it was then and the children the test was waiting for."""
 
-    def __init__(self, stacks: str = "") -> None:
+    def __init__(self, stacks: str = "", children: str = "") -> None:
         super().__init__(stacks)
         self.stacks = stacks
+        self.children = children
 
 
 def thread_stacks() -> str:
@@ -316,7 +344,7 @@ def _under_limit(item: pytest.Item, phase: str):
 
     def interrupt(signum, frame) -> None:
         if running:
-            raise TimedOut(thread_stacks())
+            raise TimedOut(thread_stacks(), running_children())
 
     first = threading.Lock()
 
@@ -362,8 +390,13 @@ def _under_limit(item: pytest.Item, phase: str):
         inherited = inherited_lines(start, last[0] or start, LEFT_BY) if start is not None else []
         blamed = "".join(f"\n{line}" for line in inherited)
         # Raised from None: the stacks are in the text, once, after the limit it names.
+        waiting = (
+            f"\n\nThe test was waiting for a child process:\n{stopped.children}"
+            if stopped.children
+            else ""
+        )
         raise pytest.fail.Exception(
-            f"{what} {sentence}{blamed}\n\nThe stack of every thread:\n{stopped.stacks}",
+            f"{what} {sentence}{blamed}{waiting}\n\nThe stack of every thread:\n{stopped.stacks}",
             pytrace=False,
         ) from None
     finally:
