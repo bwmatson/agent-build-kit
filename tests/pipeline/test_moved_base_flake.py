@@ -12,12 +12,12 @@ from __future__ import annotations
 
 import subprocess
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import pytest
 
 from agent_build_kit.installation import Installation
-from agent_build_kit.pipeline import events
+from agent_build_kit.pipeline import events, spans
 from agent_build_kit.pipeline.flakes import (
     Flake,
     FlakeFound,
@@ -45,6 +45,7 @@ from tests.pipeline.test_flake_fix_change import (
 from tests.pipeline.test_moved_base_selection import OWN_TEST, Runner, Selecting, run_moved
 
 OTHER = "tests/test_other.py::test_x"
+OTHER_TWO = "tests/test_other.py::test_y"
 OWN = "tests/test_own.py::test_six"
 OLD_BASE = "old-base-sha"
 OWN_REPEAT = ["tests", OWN]
@@ -212,6 +213,69 @@ def test_the_serial_reruns_of_a_test_the_unit_added_are_given_the_class_unit_not
     (text,) = feedback
     assert "class unit" in text, text
     assert "flake" not in text.lower(), text
+
+
+class FailingTwice(Failing):
+    """Also fails `affected2` once with a failed-test line for `OTHER_TWO`, which passes alone."""
+
+    failed_two = False
+
+    def __call__(self, command: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
+        line = f"FAILED {OTHER_TWO} - assert 1 == 2\n1 failed in 0.10s\n"
+        if command == ["affected2"] and not self.failed_two:
+            self.failed_two = True
+            self.ran.append(command)
+            return subprocess.CompletedProcess(command, 1, line, "")
+        if command[0] == "affected2" and command[-1] == OTHER_TWO:
+            self.ran.append(command)
+            return subprocess.CompletedProcess(command, 0, "", "")
+        return super().__call__(command, **kwargs)
+
+
+def test_each_flake_of_two_failing_commands_carries_only_the_reruns_of_its_own_isolation(
+    tmp_path: Path,
+) -> None:
+    runner = FailingTwice(["affected"], OTHER, again=0)
+    token = spans.current_unit.set(("add-marker/1", "add-marker", "n1", 1))
+
+    try:
+        with pytest.raises(FlakeFound) as raised:
+            run_moved(
+                room(tmp_path, "run"),
+                Selecting([["affected"], ["affected2"]]),
+                runner,
+                failures_dir=room(tmp_path, "bundles"),
+                **FILES,
+            )
+    finally:
+        spans.current_unit.reset(token)
+
+    flakes = raised.value.flakes
+    assert {flake.test for flake in flakes} == {OTHER, OTHER_TWO}
+    for flake in flakes:
+        reruns = cast(list[str], flake.conditions["reruns"])
+        exits = cast(list[int], flake.conditions["rerun_exits"])
+        assert len(reruns) == len(exits) == 2, reruns
+
+
+def test_a_later_command_that_fails_again_gets_feedback_without_the_reruns_of_an_earlier_flake(
+    tmp_path: Path,
+) -> None:
+    runner = Breaking("affected2", ["affected"], OTHER, again=0)
+    feedback: list[str] = []
+
+    passed, _ = run_moved(
+        tmp_path,
+        Selecting([["affected"], ["affected2"]]),
+        runner,
+        feedback=feedback,
+        **FILES,
+    )
+
+    assert not passed
+    (text,) = feedback
+    assert "class flake" not in text, text
+    assert "class storm" not in text and "class load" not in text, text
 
 
 def test_the_added_tests_are_repeated_over_the_same_ids_on_a_scoped_run_as_on_a_full_one(

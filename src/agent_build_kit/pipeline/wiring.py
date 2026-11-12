@@ -2481,6 +2481,9 @@ def build_unit_test(
         rerun_exits: list[int] = []
         rerun_seconds: list[float] = []
         last_sample: dict[str, object] = {}
+        # This isolation's rerun lines: the ones not yet logged, and the ones given a class.
+        waiting: list[str] = []
+        settled: list[str] = []
 
         def evidenced() -> dict[str, Any]:
             """The bundle, when the first run started and the conditions the run and its reruns
@@ -2499,7 +2502,7 @@ def build_unit_test(
             )
             conditions["rerun_exits"] = list(rerun_exits)
             conditions["rerun_seconds"] = list(rerun_seconds)
-            conditions["reruns"] = list(rerun_notes)
+            conditions["reruns"] = list(settled)
             return {
                 "evidence": str(evidence[0]),
                 "ran_at": evidence[1][0],
@@ -2520,19 +2523,21 @@ def build_unit_test(
             resource and passed alone in a run that was not loaded, `flake` otherwise."""
             return "isolation" if classify and not loaded() and test in shared else "flake"
 
-        # The rerun lines not yet logged: each takes the class of the failure's outcome.
-        waiting: list[str] = []
-
         def settle(outcome: str) -> None:
-            """Give the lines of the reruns made so far the class the failure ends up with
+            """Give the lines of this isolation's reruns the class the failure ends up with
             (`flake`, `isolation`, `load`, `storm`, `base` for a failure already present on the
-            base, or `unit` for one that stays the unit's), then log and keep them. Called at
-            every exit after the reruns, before the record that carries them is written."""
+            base, `unit` for one that stays the unit's, or two joined by `and` for a mix), then
+            log and keep them. Called at every exit after the reruns, before the record that
+            carries them is written. Only a failure that stands (`unit`) hands its lines to the
+            feedback the fix agent gets: the lines of an isolation that went on are not the
+            results of the command that fails later."""
             for body in waiting:
                 line = f"{body}, class {outcome}"
-                rerun_notes.append(line)
+                settled.append(line)
                 _say(log, f"serial {line}")
             waiting.clear()
+            if outcome == "unit":
+                rerun_notes[:] = settled
 
         def flakes_of(
             names: list[str], base_output: str = "", *, classify: bool = False
@@ -2658,10 +2663,11 @@ def build_unit_test(
         else:
             if stormy:
                 others = "storm"
-            elif any(class_of(test, classify=True) == "isolation" for test in rest):
-                others = "isolation"
             else:
-                others = "flake"
+                # Each test has its own class in its record; the lines name every one.
+                others = " and ".join(
+                    sorted({class_of(test, classify=True) for test in rest}, reverse=True)
+                )
             # A load hit beside other failures: the lines serve both records.
             settle(f"load and {others}" if slow_and_loaded else others)
         if slow_and_loaded:

@@ -24,7 +24,7 @@ from agent_build_kit.orchestration.local.artifacts import DirectoryArtifacts
 from agent_build_kit.pipeline.run_log import bundle_exists, read_bundle_file, run_ledger_path
 from agent_build_kit.profiles.base import ToolchainProfile
 from agent_build_kit.scrub_terms import ROOT_HOME
-from agent_build_kit.settings import named_value
+from agent_build_kit.settings import named_value, variable_names
 
 # The most entries a listing in a bundle holds.
 LISTING_CAP = 5000
@@ -92,7 +92,7 @@ def environment_record() -> dict[str, object]:
     path = [entry for entry in named_value("PATH", None).split(os.pathsep) if entry]
     return {
         "argv": list(sys.argv),
-        "names": sorted(os.environ),
+        "names": variable_names(),
         "home": named_value("HOME", None) or None,
         "tmpdir": named_value("TMPDIR", None) or None,
         "path_first": path[0] if path else None,

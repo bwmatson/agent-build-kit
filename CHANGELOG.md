@@ -9,8 +9,8 @@
   its counts, seconds, the load at its start and end and the class it was given, and the
   feedback a fix agent receives names the same results. The failure bundle records how the
   process started, the names of its variables, `HOME`, `TMPDIR`, the ends of `PATH` and where
-  the build tools were found, with secrets redacted. A test that hits its time limit while
-  waiting for a child process now names the child's command and how long it ran.
+  the build tools were found, with secrets redacted. A test that hits its time limit now lists the
+  child processes running then, with their commands and how long each has run.
 
 - The `node-npm` profile can now prepare a throwaway worktree's `node_modules`: each
   workspace package points at the worktree's own folder and every other package at the

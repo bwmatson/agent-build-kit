@@ -391,7 +391,7 @@ def _under_limit(item: pytest.Item, phase: str):
         blamed = "".join(f"\n{line}" for line in inherited)
         # Raised from None: the stacks are in the text, once, after the limit it names.
         waiting = (
-            f"\n\nThe test was waiting for a child process:\n{stopped.children}"
+            f"\n\nChild processes running at the limit:\n{stopped.children}"
             if stopped.children
             else ""
         )
