@@ -81,6 +81,7 @@ from agent_build_kit.pipeline.events import (
 )
 from agent_build_kit.pipeline.fix_reproduction import Outcome, unreproduced_guidance
 from agent_build_kit.pipeline.flakes import (
+    RECHECK_HOLD_RUNS,
     FailedOnBase,
     Flake,
     FlakeFound,
@@ -2287,8 +2288,8 @@ class BuildPath:
             return {"fix_rounds": attempt, "checks_ok": True, "head": r.head(tree)}
         bundles = ", ".join(found.bundles) or "none kept"
         note = (
-            f"fix round {attempt} changed nothing and {tests} failed three runs (the first, "
-            f"the serial rerun and the recheck); a person judges it. Bundles: {bundles}"
+            f"fix round {attempt} changed nothing and {tests} failed three runs "
+            f"{RECHECK_HOLD_RUNS}; a person judges it. Bundles: {bundles}"
         )
         return self.hold(HELD, note, note, cause=Cause.NEEDS_HUMAN)
 

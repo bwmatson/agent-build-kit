@@ -16,6 +16,7 @@ from agent_build_kit.pipeline.admission_record import (
     read_admissions,
 )
 from agent_build_kit.pipeline.external_file import external_reason, held_units
+from agent_build_kit.pipeline.flakes import held_by_the_checks
 from agent_build_kit.pipeline.regression_agent import waited_fixes
 from agent_build_kit.pipeline.resolution_lane import lane_record, resolving_phrase
 from agent_build_kit.pipeline.unit_store import Cause
@@ -111,6 +112,9 @@ def cmd_explain(args: argparse.Namespace, inst: Installation) -> int:
     hold = held_units(inst.changes_dir, [unit]).get(unit.id) if unit is not None else None
     if hold is not None and hold.since <= at:
         print(f"{args.unit} is {external_reason(hold)}")
+        return 0
+    if unit is not None and held_by_the_checks(unit):
+        print(f"{args.unit} is held by the checks: {unit.note}")
         return 0
     if unit is not None and unit.unsplit_reason:
         print(f"{args.unit} is over its ceiling and not split: {unit.unsplit_reason}")

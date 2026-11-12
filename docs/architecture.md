@@ -1879,6 +1879,10 @@ approved.
   rerun nor handed to a fix agent, and no fix round is spent. The ledger row has outcome
   `disturbed` and `disturbed_seconds`, the gap. The checks run once more; a second disturbed
   run holds the unit for a person with a note naming the suspend.
+  **A fix round that changes nothing is rechecked.** The failed tests are rerun once, by id and
+  one at a time. A pass goes on to review and is recorded in the flake ledger as `unexplained`;
+  a failure holds the unit for a person, and `abk status` and `abk explain` show it as held by
+  the checks, naming the tests and the bundle of each of the three runs.
   **Evidence of the conditions.** A failing unit-test run saves a bundle under
   `runs/test-failures/<unit>-<stamp>/`: `output.txt` (the whole output, redacted, cut at a byte
   cap with a note), `context.json`, `machine.json` and `worktree.json`, and a `reruns/<n>/` folder
