@@ -5,6 +5,7 @@
 - A tick no longer builds its own resolution lane or waits for a run to end. The slot
   sample and the restack gauges count the runs that resolve workers have recorded, and
   the runs owed beyond a project's cap as waiting.
+
 - A fix round of the checks that changes nothing is now followed by one rerun of the failed
   tests, by id and one at a time, before the unit is failed. A pass goes on to review and is
   recorded in the flake ledger as unexplained; a failure holds the unit for a person, naming
