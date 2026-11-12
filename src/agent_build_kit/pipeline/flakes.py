@@ -27,8 +27,8 @@ from agent_build_kit.pipeline.failure_record import (
 )
 from agent_build_kit.pipeline.file_lock import change_lock
 from agent_build_kit.pipeline.run_log import bundle_exists, bundle_place
-from agent_build_kit.pipeline.unit_store import HeldBy, StoredUnit
-from agent_build_kit.pipeline.units import HELD, PRODUCT_DEFECT_PREFIX, Unit
+from agent_build_kit.pipeline.unit_store import StoredUnit
+from agent_build_kit.pipeline.units import PRODUCT_DEFECT_PREFIX, Unit
 from agent_build_kit.pipeline.work_graph import FIX_PREFIX, GROUP_HEADING, group_needs
 
 # The longest a change's name gets before it is cut and given a hash of the whole.
@@ -40,12 +40,6 @@ FAILING_PREFIX = "fix-failing"
 FIX_PREFIXES = (FIX_PREFIX, FLAKY_PREFIX, FAILING_PREFIX, PRODUCT_DEFECT_PREFIX)
 # How many of a storm's tests its row names.
 STORM_TESTS = 10
-
-
-def held_by_the_checks(unit: StoredUnit) -> bool:
-    """Whether `unit` is held because its failed tests failed a recheck too, as recorded by
-    `HeldBy.CHECKS`."""
-    return unit.state == HELD and unit.held_by == HeldBy.CHECKS
 
 
 class Flake(Recorded, Evidenced):

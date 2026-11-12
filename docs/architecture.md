@@ -679,7 +679,9 @@ release could move. The steps:
    handed to the builder with the check prompt, then unit-test runs again, up to
    `global_limits.max_check_rounds` times (3; `null` is no limit; 0 means no fix
    attempt, not no check), before the unit is `failed` with the output kept. A
-   fix that changes nothing ends it too, whatever the limit. Before each
+   fix that changes nothing is followed by one recheck of the failed tests: a
+   pass goes on to review, a failure holds the unit for a person (`HeldBy.CHECKS`),
+   whatever the limit. Before each
    `fix: <title> (checks, round N)` commit the pipeline runs the profile's
    fixers over the unit's own files with no model call; a round the fixers
    alone changed moves the head and is not the "changed nothing" stop. This

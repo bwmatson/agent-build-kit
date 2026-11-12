@@ -179,7 +179,7 @@ from agent_build_kit.pipeline.file_lock import (
     change_lock,
     file_lock,
 )
-from agent_build_kit.pipeline.flakes import flake_record, held_by_the_checks
+from agent_build_kit.pipeline.flakes import flake_record
 from agent_build_kit.pipeline.gate_holds import evaluate_gates, gate_status_lines
 from agent_build_kit.pipeline.git_output import PUSH_OPERATION
 from agent_build_kit.pipeline.idle import idle_units
@@ -1334,7 +1334,7 @@ def cmd_status(args: argparse.Namespace, inst: Installation) -> int:
                 log(f"  held: {unit.id} ({where}) #{unit.pr} — {unit.note}; a person is needed")
         if unit.unsplit_reason and unit.state not in (MERGED, CLOSED, *BUILDS_NOTHING):
             log(f"  {unit.id} ({where}) is over its ceiling and not split: {unit.unsplit_reason}")
-        if held_by_the_checks(unit):
+        if unit.held_by_the_checks:
             log(f"  held by the checks: {unit.id} ({where}) — {unit.note}")
         if unit.state == HELD and unit.cause is Cause.DIRTY_WORKTREE:
             log(f"  parked: {unit.id} ({where}) — {unit.note}")

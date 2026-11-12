@@ -17,7 +17,7 @@ from agent_build_kit.graph.nodes import BuildPath
 from agent_build_kit.graph.state import UnitRun
 from agent_build_kit.pipeline.flakes import Flake, FlakeFound
 from agent_build_kit.pipeline.stack_runner import UNIT_TEST_FAILED, Recheck, RunStatus
-from agent_build_kit.pipeline.unit_store import Cause, FeedbackSource
+from agent_build_kit.pipeline.unit_store import Cause, FeedbackSource, HeldBy
 from agent_build_kit.pipeline.units import HELD
 from tests.factories import unit
 from tests.graph.stub_loop_fakes import StubLoop, feedback_writes, stubbed_build
@@ -315,7 +315,12 @@ def test_a_no_change_fix_round_whose_recheck_fails_holds_the_unit_for_a_person(
 
     stored = recorder.store.get(unit().id)
     assert outcome.status == RunStatus.HELD
-    assert (stored.state, stored.cause) == (HELD, Cause.NEEDS_HUMAN)
+    assert (stored.state, stored.cause, stored.held_by) == (
+        HELD,
+        Cause.NEEDS_HUMAN,
+        HeldBy.CHECKS,
+    )
+    assert stored.held_by_the_checks
     assert TEST_ID in stored.note and "three" in stored.note
     assert all(bundle in stored.note for bundle in BUNDLES)
     assert len(recorder.rechecks) == 1

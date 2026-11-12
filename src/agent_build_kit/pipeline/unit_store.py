@@ -595,6 +595,12 @@ class StoredUnit(Unit):
         return self.state == HELD and self.held_by == HeldBy.REVIEWER
 
     @property
+    def held_by_the_checks(self) -> bool:
+        """Held because its failed tests failed a recheck too, as recorded by
+        `HeldBy.CHECKS`."""
+        return self.state == HELD and self.held_by == HeldBy.CHECKS
+
+    @property
     def cause(self) -> Cause | None:
         """Why the unit's state last changed, or `None` for a record from before
         causes were kept."""
