@@ -19,7 +19,7 @@ import subprocess
 import sys
 import tomllib
 from collections.abc import Callable
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 
 from agent_build_kit.config import (
     AgentCommand,
@@ -284,6 +284,137 @@ def by_id_selection(project: Path | None) -> str:
     (e2e, a slow or credentialed kind) stays out. Empty when there is no default to lift."""
     existing = _addopts_marker(project) if project is not None else ""
     return f"integration or ({existing})" if existing else ""
+
+
+_SKIPPED_FOLDERS = frozenset({"node_modules", "__pycache__", "venv"})
+
+
+def _is_integration_mark(node: ast.expr) -> bool:
+    """Whether `node`, a decorator or a `pytestmark` value, is `<...>.mark.integration`, called
+    or not, or a list or tuple holding one."""
+    if isinstance(node, (ast.List, ast.Tuple)):
+        return any(_is_integration_mark(e) for e in node.elts)
+    if isinstance(node, ast.Call):
+        node = node.func
+    return (
+        isinstance(node, ast.Attribute)
+        and node.attr == "integration"
+        and isinstance(node.value, ast.Attribute)
+        and node.value.attr == "mark"
+    )
+
+
+def _module_marked(tree: ast.Module) -> bool:
+    return any(
+        isinstance(node, ast.Assign)
+        and any(isinstance(t, ast.Name) and t.id == "pytestmark" for t in node.targets)
+        and _is_integration_mark(node.value)
+        for node in tree.body
+    )
+
+
+def _unread_in(
+    body: list[ast.stmt], prefix: str, marked: bool, changed_files: list[str], helper: str
+) -> list[str]:
+    found: list[str] = []
+    for node in body:
+        if isinstance(node, ast.ClassDef):
+            here = marked or any(_is_integration_mark(d) for d in node.decorator_list)
+            found += _unread_in(node.body, f"{prefix}{node.name}::", here, changed_files, helper)
+        elif isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name.startswith(
+            "test"
+        ):
+            calls = _helper_calls(node, helper)
+            if (marked or any(_is_integration_mark(d) for d in node.decorator_list)) and (
+                calls and not any(_call_reads_any_of(c, changed_files) for c in calls)
+            ):
+                found.append(f"{prefix}{node.name}")
+    return found
+
+
+def unread_scans(repo: Path, changed_files: list[str], helper: str) -> list[str]:
+    """The node ids (relative to `repo`) of the tests marked `integration` whose own body calls
+    `helper` and reads none of `changed_files`: a selection deselects them, since a change they
+    do not read cannot make them fail. Decided per test from the syntax tree: a test that does
+    not call `helper`, an unmarked one, and a file that names the helper or the mark only in a
+    string are never listed."""
+    found: list[str] = []
+    for folder, names, files in os.walk(repo):
+        names[:] = [n for n in names if not n.startswith(".") and n not in _SKIPPED_FOLDERS]
+        for name in files:
+            path = Path(folder, name)
+            if not _COLLECTED_FILE.match(name):
+                continue
+            try:
+                tree = ast.parse(path.read_text())
+            except (OSError, UnicodeDecodeError, SyntaxError, ValueError):
+                continue
+            relative = path.relative_to(repo).as_posix()
+            found += _unread_in(
+                tree.body, f"{relative}::", _module_marked(tree), changed_files, helper
+            )
+    return sorted(found)
+
+
+def _helper_calls(tree: ast.AST, helper: str) -> list[ast.Call]:
+    return [
+        node
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Call) and _called_name(node.func) == helper
+    ]
+
+
+def reads_any_of(source: str, changed_files: list[str], *, helper: str) -> bool:
+    """Whether code that walks the tree through `helper` reads any of `changed_files`, from the
+    `under`, `names` and `suffixes` arguments of the helper's calls, read from `source` by its
+    syntax tree. A call with no argument, or one whose argument is not a literal, reads the
+    whole tree; source that never calls the helper reads none."""
+    calls = _helper_calls(ast.parse(source), helper)
+    return any(_call_reads_any_of(call, changed_files) for call in calls)
+
+
+def _called_name(func: ast.expr) -> str:
+    if isinstance(func, ast.Name):
+        return func.id
+    return func.attr if isinstance(func, ast.Attribute) else ""
+
+
+def _literal_strings(node: ast.expr) -> list[str] | None:
+    """The strings of a list, tuple or set literal; None when it is anything else."""
+    if not isinstance(node, (ast.List, ast.Tuple, ast.Set)):
+        return None
+    if not all(isinstance(e, ast.Constant) and isinstance(e.value, str) for e in node.elts):
+        return None
+    return [str(e.value) for e in node.elts if isinstance(e, ast.Constant)]
+
+
+def _call_reads_any_of(call: ast.Call, changed_files: list[str]) -> bool:
+    """One call as the helper reads it: the folders of `under` (the whole tree when missing or
+    empty) filtered by `suffixes` when given, plus the root files of `names`. A positional
+    argument, a `**` expansion, or a `specs`/`dirs`/`root` keyword that is not a literal reads
+    more than can be told, so it reads everything."""
+    declared: dict[str, list[str]] = {}
+    for keyword in call.keywords:
+        if keyword.arg in ("under", "names", "suffixes"):
+            values = _literal_strings(keyword.value)
+            if values is None:
+                return True
+            declared[keyword.arg] = values
+        elif keyword.arg is None or (
+            keyword.arg in ("specs", "dirs", "root") and not isinstance(keyword.value, ast.Constant)
+        ):
+            return True
+    if call.args:
+        return True
+    under, names, suffixes = (declared.get(k, []) for k in ("under", "names", "suffixes"))
+    for path in changed_files:
+        if path in names:
+            return True
+        inside = not under or any(path.startswith(f"{u.rstrip('/')}/") for u in under)
+        suffixed = not suffixes or PurePosixPath(path).suffix in suffixes
+        if inside and suffixed:
+            return True
+    return False
 
 
 def _lifted_marker(expression: str) -> str:
@@ -1039,18 +1170,30 @@ class PythonUvProfile:
         root_extras: list[str],
         workers: str | int = "auto",
         max_workers: int = 8,
+        scan_helper: str | None = None,
     ) -> list[list[str]] | None:
         """The test commands of the change, selecting by the source each test executed when
         the seed data of an earlier full run is there; otherwise the failed tests alone,
-        and None when none is named, so that the full suite stands in."""
+        and None when none is named, so that the full suite stands in. Given the repo's
+        `scan_helper`, a selected run deselects each integration-marked test whose body walks
+        the tree through it and reads none of the changed files."""
         commands = self.test_commands(
             repo, changed_files, root_extras=root_extras, workers=workers, max_workers=max_workers
         )
         if seed.is_file():
             if not all(self._places(path) for path in changed_files):
                 return None
-            return [self.seeding_command(command, seed, select=True) for command in commands]
-        alone = [self.repeat_command(command, failed_ids) for command in commands]
+            left_out = [
+                f"--deselect={test_id}"
+                for test_id in (
+                    unread_scans(repo, changed_files, scan_helper) if scan_helper else []
+                )
+            ]
+            return [
+                [*self.seeding_command(command, seed, select=True, project=repo), *left_out]
+                for command in commands
+            ]
+        alone = [self.repeat_command(command, failed_ids, project=repo) for command in commands]
         return [command for command in alone if command is not None] or None
 
     def _places(self, path: str) -> bool:
@@ -1075,19 +1218,30 @@ class PythonUvProfile:
     def is_seeded(self, command: list[str]) -> bool:
         return TESTMON in command
 
-    def seeding_command(self, command: list[str], seed: Path, *, select: bool = False) -> list[str]:
+    def seeding_command(
+        self,
+        command: list[str],
+        seed: Path,
+        *,
+        select: bool = False,
+        project: Path | None = None,
+    ) -> list[str]:
         """`command`, a test run, as one run with the coverage plugin in its isolated
         environment, keeping its data at `seed`: it selects the tests the change affects
         when `select`, and otherwise runs them all and records what each executed. A selection
         is forced so that the repo's own `-m`, `-k` and test-id selectors apply with it instead
-        of switching it off."""
+        of switching it off. Given the `project`, the repository's default `-m` is overridden
+        to let the integration kind through, in the selection and in the recording."""
         program = _pytest_program(command)
         if program is None:
             return command
         flag = "--testmon-forceselect" if select else "--testmon-noselect"
         # testmon says it switched the selection off in pytest's report header, which `-q`
         # hides: a selection nets its `-q` words back to the default verbosity.
-        louder = ["-v"] * command[program + 1 :].count("-q") if select else []
+        rest = command[program + 1 :]
+        louder = ["-v"] * rest.count("-q") if select else []
+        if project is not None:
+            rest = _by_id_options(rest, project)
         return [
             "env",
             f"TESTMON_DATAFILE={seed}",
@@ -1097,7 +1251,7 @@ class PythonUvProfile:
             *command[program : program + 1],
             flag,
             _TESTMON_ENV,
-            *command[program + 1 :],
+            *rest,
             *louder,
         ]
 

@@ -76,6 +76,7 @@ repos:
         dependencies: [pyproject.toml]
         lock: [uv.lock]
     tests:
+      scan_helper: guarded_files     # the helper whose arguments declare what a scan test reads
       e2e_splits:                    # the live tests are split by the runtime they drive
         claude_code:
           marker: runtime_claude_code

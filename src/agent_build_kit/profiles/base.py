@@ -458,11 +458,14 @@ class SelectsAffectedTests(Protocol):
         root_extras: list[str],
         workers: str | int = "auto",
         max_workers: int = 8,
+        scan_helper: str | None = None,
     ) -> list[list[str]] | None:
         """The commands that run the tests the change affects: an empty list when none
         is affected, None when the profile cannot say. `failed_ids` are the tests the
         failed check named; `seed` is a path the profile may keep selection data in;
-        `root_extras` are what the repo's root tests need, as for `test_commands`."""
+        `root_extras` are what the repo's root tests need, as for `test_commands`.
+        `scan_helper` names the helper whose arguments declare what a whole-tree scan test
+        reads (`tests.scan_helper`), for a profile that can use it."""
         ...
 
 
@@ -471,9 +474,17 @@ class RecordsSelectionData(Protocol):
     """The optional hook a profile adds to keep, in a full run, the data its selection
     reads. A profile without it records nothing."""
 
-    def seeding_command(self, command: list[str], seed: Path, *, select: bool = False) -> list[str]:
+    def seeding_command(
+        self,
+        command: list[str],
+        seed: Path,
+        *,
+        select: bool = False,
+        project: Path | None = None,
+    ) -> list[str]:
         """`command`, a test run, as one that keeps its selection data at `seed`: running
-        all its tests, or only the affected ones when `select`."""
+        all its tests, or only the affected ones when `select`. Given the `project`, the
+        repository's default deselection of the integration kind is overridden."""
         ...
 
     def is_seeded(self, command: list[str]) -> bool:

@@ -1214,6 +1214,10 @@ class TestsConfig(TestKindSettings):
     # and the cap on it (`--maxprocesses`).
     workers: Literal["auto"] | StrictPositiveInt = "auto"
     max_workers: StrictPositiveInt = 8
+    # The name of the helper whose `under`/`names`/`suffixes` arguments declare what a test
+    # that walks the whole tree reads; an affected run deselects an integration-marked test
+    # calling it that reads none of the changed files. None: no test is deselected.
+    scan_helper: str | None = None
     # The command that applies this repo's fixers, to which the file names are appended; None
     # follows the profile and the empty list turns the fixer pass off.
     fix_command: list[str] | None = None

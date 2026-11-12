@@ -308,6 +308,9 @@ repos:                        # ordered; a task group's [repo] tag is a key here
       root_extras: []         # extra packages the repo-root tests need
       workers: auto           # pytest-xdist `-n` of the Python profile's test runs
       max_workers: 8          # its `--maxprocesses` cap
+      scan_helper: null       # helper whose `under`/`names`/`suffixes` arguments declare what a
+                              # whole-tree scan test reads; an affected run deselects an
+                              # integration-marked test calling it that reads no changed file
       fix_command: null       # repos.<name>.tests.fix_command: the argv that applies the repo's
                               # formatters and fixers (file names appended) before each commit;
                               # unset follows the profile, [] turns the pass off. Policy, so it
