@@ -46,6 +46,13 @@ class IssueDoc(_Doc):
     pull_request: dict[str, object] | None = None
 
 
+class EventDoc(_Doc):
+    """One entry of an issue's event list; `assignee` is set on an assignment."""
+
+    event: str
+    assignee: LoginDoc | None = None
+
+
 class IssueTypeDoc(_Doc):
     name: str
     is_enabled: bool = True
