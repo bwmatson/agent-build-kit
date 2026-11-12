@@ -127,6 +127,7 @@ class ScenarioProject:
     seed: Path
 
     def __init__(self, name: str, root: Path) -> None:
+        assert name in SCENARIOS and name in BROKEN, f"{name} has no scenario project"
         self.name = name
         self.profile = profiles.get(name)
         self.scenario = SCENARIOS[name]
