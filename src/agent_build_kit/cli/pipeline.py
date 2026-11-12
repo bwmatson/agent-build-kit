@@ -1969,7 +1969,7 @@ def _dispatch_resolutions(inst: Installation, store: UnitStore) -> None:
     if not owed:
         return
     now = spans.clock.now()
-    running = {entry["unit"] for entry in lane_record(inst.state_dir)}
+    running = lane_held_by_record(inst.state_dir)
     by_project: dict[ProjectKey, list[StoredUnit]] = {}
     for unit in units:
         if unit.id in owed:
@@ -2053,8 +2053,8 @@ def _record_sample(inst: Installation, store: UnitStore, *, only: frozenset[str]
         inst, units, started=set(), building=going, only=only, max_concurrent=len(units) + 1
     )
     queued = len(could_start)
-    running = {entry["unit"] for entry in lane_record(inst.state_dir)}
-    occupied = current_occupancy(inst, units, spans.clock.now(), held=running)
+    recorded = lane_held_by_record(inst.state_dir)
+    occupied = current_occupancy(inst, units, spans.clock.now(), held=recorded)
     # Totals over the projects with a unit not yet finished, for reporting only.
     live = _unfinished_projects(units)
     spare = free_workers(
@@ -2082,8 +2082,14 @@ def _record_sample(inst: Installation, store: UnitStore, *, only: frozenset[str]
         "abk.slots.emergency_used",
         len(emergency_lane.users(inst.state_dir, _with_builds_running(units, ()))),
     )
+    # A run is running when a worker's record names it or a worker just started holds its claim
+    # (the dispatcher's own rule); one sent to a build worker is a build, and the rest wait.
+    running = recorded | {unit.id for unit in units if resolve_claimed(unit, now)}
+    sent_to_a_build = {unit.id for unit in units if marker_live(unit, now)}
     telemetry.level("abk.restacks.running", len(running))
-    telemetry.level("abk.restacks.waiting", len(owed_units(inst, units) - running))
+    telemetry.level(
+        "abk.restacks.waiting", len(owed_units(inst, units) - running - sent_to_a_build)
+    )
 
 
 def _preview_changes(inst: Installation) -> None:

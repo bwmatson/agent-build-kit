@@ -15,12 +15,13 @@ from agent_build_kit.cli import pipeline as cli
 from agent_build_kit.installation import Installation
 from agent_build_kit.pipeline.file_lock import file_lock
 from agent_build_kit.pipeline.resolution_lane import lane_held_by_record, write_worker_record
-from agent_build_kit.pipeline.unit_store import Cause
+from agent_build_kit.pipeline.unit_store import Cause, Starting
 from agent_build_kit.pipeline.units import HELD, IN_REVIEW, RUNNING, project_key
 from agent_build_kit.pipeline.usage_guard import Decision
 from agent_build_kit.pipeline.usage_ledger import LEDGER_NAME
 from tests.dispatcher_support import FakeSpawner, install_spawner, processes_workspace
 from tests.emergency_lane_support import build
+from tests.lane_run_slots import as_owed_comment
 from tests.tick_pass import Builder, install_builder, isolate, stored, tick, warm_unit_graphs
 
 pytestmark = pytest.mark.usefixtures("scripted_engine")
@@ -120,18 +121,50 @@ def test_the_slot_sample_counts_a_run_in_a_resolve_worker_as_running(
     assert sample["running"] == 1
 
 
-def test_the_restack_gauges_count_a_run_in_a_resolve_worker_as_running(
-    tmp_path: Path, builder: Builder, spawner: FakeSpawner, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    inst = processes_workspace(tmp_path)
-    in_review_run_in_a_worker(inst, builder)
+def level_gauges(monkeypatch: pytest.MonkeyPatch) -> dict[str, int]:
+    """The telemetry levels a tick sets, by name."""
     gauges: dict[str, int] = {}
     monkeypatch.setattr(
         cli.telemetry, "level", lambda name, value, **attributes: gauges.update({name: value})
     )
+    return gauges
+
+
+def test_a_run_owed_beyond_the_cap_beside_a_run_in_a_resolve_worker_is_the_waiting_gauge(
+    tmp_path: Path, builder: Builder, spawner: FakeSpawner, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # The one build slot is held by a build, so the run owed beyond the cap cannot overflow.
+    inst = processes_workspace(tmp_path, max_concurrent=1, resolutions=1)
+    busy, _state = build("c1/3", RUNNING)
+    builder.store.upsert([busy])
+    builder.store.set_state("c1/3", RUNNING, branch="spec/c1/3")
+    builder.store.set_starting(
+        "c1/3", Starting(worker="build-1", until=datetime.now(UTC) + timedelta(hours=1))
+    )
+    in_review_run_in_a_worker(inst, builder)
+    owed, _state = build("c1/2", IN_REVIEW)
+    builder.store.upsert([owed])
+    as_owed_comment(builder.store, "c1/2")
+    gauges = level_gauges(monkeypatch)
 
     assert tick(inst) == 0
 
+    assert gauges["abk.restacks.running"] == 1
+    assert gauges["abk.restacks.waiting"] == 1
+
+
+def test_a_run_whose_resolve_worker_the_tick_just_started_is_running_and_not_waiting(
+    tmp_path: Path, builder: Builder, spawner: FakeSpawner, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    inst = processes_workspace(tmp_path, resolutions=1)
+    owed, _state = build("c1/1", IN_REVIEW)
+    builder.store.upsert([owed])
+    as_owed_comment(builder.store, "c1/1")
+    gauges = level_gauges(monkeypatch)
+
+    assert tick(inst) == 0
+
+    assert [kind for kind, _unit in spawner.calls] == ["resolve"], "a worker is claimed, no record"
     assert gauges["abk.restacks.running"] == 1
     assert gauges["abk.restacks.waiting"] == 0
 
