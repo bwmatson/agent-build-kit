@@ -1,7 +1,7 @@
 """The same six behaviours on a tiny fixture project per toolchain profile
 (spec: profile-capability-parity).
 
-Red by id, a passing new test rejected, a repeat by id, a serial rerun, failure parsing and
+Red by id, a passing new test rejected, a repeat by id, a rerun alone, failure parsing and
 affected selection after a one-file change are asserted once, in the shared cases below, and run
 over a Python project (real pytest through uv) and a node project (real Vitest through npx). The
 projects differ only in the data of `tests/profile_scenario_projects.py`; a profile that cannot

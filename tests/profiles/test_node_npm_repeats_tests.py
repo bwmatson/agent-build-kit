@@ -128,11 +128,11 @@ def test_a_serial_rerun_runs_the_files_one_after_another_and_a_repeat_does_not(
 ) -> None:
     run = member_run(profile, members, "packages/a")
 
-    serial = profile.serial_rerun_command(run, [A_ONE, A_TWO])
+    alone = profile.serial_rerun_command(run, [A_ONE, A_TWO])
     repeat = profile.repeat_command(run, [A_ONE, A_TWO])
 
     assert repeat is not None
-    assert "--no-file-parallelism" in serial[SCRIPT]
+    assert "--no-file-parallelism" in alone[SCRIPT]
     assert "--no-file-parallelism" not in repeat[SCRIPT]
 
 

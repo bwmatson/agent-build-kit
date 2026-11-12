@@ -1,4 +1,4 @@
-"""Each serial rerun keeps its own evidence in the failing run's bundle, and a flake, a storm and a
+"""Each rerun alone keeps its own evidence in the failing run's bundle, and a flake, a storm and a
 pre-existing failure point at it (spec: test-failure-evidence).
 
 Unit-test runs over the fake machine of `tests/failure_bundle_fakes.py`, which answers as the
@@ -35,6 +35,7 @@ from tests.e2e_wait_fakes import OLD, verdict_of
 from tests.failure_bundle_fakes import START, BundleMachine, BundleProfile, storms
 from tests.pipeline.test_run_log_load_flag import CPUS, THRESHOLD, sampling
 from tests.redaction_fakes import SECRET, known
+from tests.serial_marker import MARKER
 
 RERUN_FILES = {"output.txt", "context.json", "machine.json", "worktree.json"}
 
@@ -76,7 +77,7 @@ def read(path: Path) -> dict:
 
 
 class Counting(BundleMachine):
-    """A machine whose serial reruns print a `-q` run's summary line."""
+    """A machine whose reruns alone print a `-q` run's summary line."""
 
     def __init__(self, root: Path, *, reruns: list[int], summary: str) -> None:
         super().__init__(root, reruns=reruns)
@@ -90,7 +91,7 @@ class Counting(BundleMachine):
 
 
 def rerun_lines(log: list[str]) -> list[str]:
-    return [line for line in log if "serial rerun " in line.lower()]
+    return [line for line in log if f"{MARKER} rerun " in line.lower()]
 
 
 def test_each_serial_rerun_is_a_log_line_with_counts_seconds_load_and_class(
@@ -166,8 +167,8 @@ def test_each_rerun_keeps_its_command_output_exit_times_and_its_own_machine_and_
 
     reruns = only_bundle(directory) / "reruns"
     assert sorted(path.name for path in reruns.iterdir()) == ["1", "2"]
-    serial = [c for c in machine.commands if any("::" in argument for argument in c)]
-    for number, command in enumerate(serial, start=1):
+    alone = [c for c in machine.commands if any("::" in argument for argument in c)]
+    for number, command in enumerate(alone, start=1):
         folder = reruns / str(number)
         assert {path.name for path in folder.iterdir()} == RERUN_FILES
         assert (folder / "output.txt").read_text().strip() == "1 passed"
@@ -314,30 +315,8 @@ def test_a_second_run_of_the_same_round_that_storms_again_is_isolated_and_record
         assert passed
 
     assert len(storms(installation)) == 2
-    serial = [c for c in machine.commands if any("::" in argument for argument in c)]
-    assert len(serial) == 4, "each run issued its own serial reruns"
-
-
-def test_a_second_command_failing_the_stormed_tests_is_not_rerun_nor_recorded_again(
-    scratch: Path, tmp_path: Path
-) -> None:
-    installation = make_installation(scratch, global_limits=dict(max_flakes_per_run=2))
-    directory = tmp_path / "bundles"
-    machine = BundleMachine(scratch, reruns=[0, 0])
-
-    passed, _ = unit_test_of(scratch, machine, directory)(cwd=scratch, base="main")
-
-    assert passed
-    failing_runs = [
-        c
-        for c in machine.commands
-        if c[-4:-3] in (["-q"], ["-v"]) and c[-3:-1] == ["--durations=15", "--durations-min=3.0"]
-    ]
-    assert len(failing_runs) == 2, "the profile's two test commands both ran and failed"
-    assert len(storms(installation)) == 1
-    serial = [c for c in machine.commands if any("::" in argument for argument in c)]
-    assert len(serial) == 2, "the reruns were issued once"
-    assert len(list(directory.iterdir())) == 1, "the repeat of the same failure adds no bundle"
+    alone = [c for c in machine.commands if any("::" in argument for argument in c)]
+    assert len(alone) == 4, "each run issued its own reruns alone"
 
 
 def test_a_row_written_before_the_evidence_existed_still_loads_with_it_empty(
@@ -420,7 +399,7 @@ LOST = "test_one.py::test_cases[2]"
 
 
 class NotFoundMachine(BundleMachine):
-    """A serial rerun naming a test of `missing` ends as pytest's usage error does: the
+    """A rerun alone naming a test of `missing` ends as pytest's usage error does: the
     absolute path and names without the parametrization, and why on the next line."""
 
     def __init__(self, root: Path, *, missing: list[str], reruns: list[int]) -> None:

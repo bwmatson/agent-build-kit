@@ -2,7 +2,7 @@
 merged (spec: flaky-tests).
 
 Unit-test is faked at the point the runner binds it: it raises `FlakeFound` where the real one
-finds that every failed test passed both serial reruns.
+finds that every failed test passed both reruns alone.
 """
 
 from __future__ import annotations

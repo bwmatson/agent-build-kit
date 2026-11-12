@@ -164,7 +164,7 @@ class WithoutHooks:
 
 class Runs:
     """Answers each command as the process would: lint passes, the parallel run fails with
-    the recorded output, and each serial rerun exits as `reruns` says."""
+    the recorded output, and each rerun alone exits as `reruns` says."""
 
     def __init__(self, *, reruns: list[int], lint_exit: int = 0, run_exit: int = 1) -> None:
         self.reruns = list(reruns)
@@ -285,7 +285,7 @@ def test_a_summary_names_a_parametrized_id_with_spaces_whole_and_leaves_the_reas
 
 
 class NotFoundRuns(Runs):
-    """Answers a serial rerun naming a test of `missing` as pytest does: a usage error whose
+    """Answers a rerun alone naming a test of `missing` as pytest does: a usage error whose
     stderr names the absolute path and the names without the parametrization, then says why on
     the next line. Any other rerun fails again."""
 
@@ -398,7 +398,7 @@ def test_a_failed_node_test_that_passes_both_serial_reruns_is_a_flake(tmp_path: 
         )
 
     assert [flake.test for flake in found.value.flakes] == ["a.test.ts::adds"]
-    assert len(runs.commands) == 4, "lint, the run, then two serial reruns"
-    serial = profile.serial_rerun_command(whole, ["a.test.ts::adds"])
-    assert "--no-file-parallelism" in " ".join(serial)
-    assert runs.commands[2] == runs.commands[3] == serial
+    assert len(runs.commands) == 4, "lint, the run, then two reruns alone"
+    alone = profile.serial_rerun_command(whole, ["a.test.ts::adds"])
+    assert "--no-file-parallelism" in " ".join(alone)
+    assert runs.commands[2] == runs.commands[3] == alone

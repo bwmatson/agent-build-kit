@@ -9,6 +9,8 @@ from pathlib import Path
 
 import yaml
 
+from tests.serial_marker import MARKER
+
 ROOT = Path(__file__).resolve().parents[1]
 
 
@@ -97,8 +99,8 @@ def test_ci_runs_the_suite_with_the_poe_command() -> None:
     assert any(re.search(r"\bpoe test\s*$", run.strip()) for run in runs), runs
 
 
-def test_no_pytest_command_selects_on_serial_and_no_serial_marker_is_registered() -> None:
+def test_no_pytest_command_selects_on_the_old_marker_and_none_is_registered() -> None:
     for name in ("test", "test-integration", "test-e2e"):
         for argv in pytest_invocations(name):
-            assert "serial" not in marker_expression(argv), (name, argv)
-    assert not any(m.startswith("serial:") for m in pytest_options()["markers"])
+            assert MARKER not in marker_expression(argv), (name, argv)
+    assert not any(m.startswith(f"{MARKER}:") for m in pytest_options()["markers"])

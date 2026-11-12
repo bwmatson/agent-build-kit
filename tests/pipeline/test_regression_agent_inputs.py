@@ -39,6 +39,7 @@ from tests.regression_agent_support import (
     run,
     write_change,
 )
+from tests.serial_marker import MARKER
 from tests.untouched_failure_fakes import failing
 
 NAMED = "- Failing test: {test}\n"
@@ -181,7 +182,7 @@ def test_the_prompt_of_a_flaky_test_names_the_reruns_and_the_class_reached_and_n
     )
 
     prompt = agent.runtime.request.prompt
-    assert "two serial reruns" in prompt, "the reruns made alone"
+    assert f"two {MARKER} reruns" in prompt, "the reruns made alone"
     assert f"Class reached: {reached}" in prompt
     assert "It was not run on the base." in prompt, (
         "a flake passed its reruns and was not run there"

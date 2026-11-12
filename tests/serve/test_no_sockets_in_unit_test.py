@@ -72,7 +72,7 @@ def test_the_same_import_in_an_integration_module_is_not_reported(tmp_path: Path
             ),
             "test_listed.py": (
                 "import pytest\nimport socket\n\n"
-                "pytestmark = [pytest.mark.serial, pytest.mark.integration]\n"
+                "pytestmark = [pytest.mark.slow, pytest.mark.integration]\n"
             ),
         },
     )
@@ -80,10 +80,10 @@ def test_the_same_import_in_an_integration_module_is_not_reported(tmp_path: Path
     assert check_serve_tests(root) == []
 
 
-def test_a_serial_module_is_scanned_like_an_unmarked_one(tmp_path: Path) -> None:
+def test_a_marked_module_is_scanned_like_an_unmarked_one(tmp_path: Path) -> None:
     root = tree(
         tmp_path,
-        {"test_x.py": "import pytest\nimport uvicorn\n\npytestmark = pytest.mark.serial\n"},
+        {"test_x.py": "import pytest\nimport uvicorn\n\npytestmark = pytest.mark.slow\n"},
     )
 
     assert len(check_serve_tests(root)) == 1

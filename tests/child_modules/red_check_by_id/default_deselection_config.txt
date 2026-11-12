@@ -2,6 +2,6 @@
 markers = [
     "integration: runs in CI",
     "e2e: starts the real stack",
-    "serial: runs alone",
+    "slow: runs long",
 ]
 addopts = "-m 'not integration and not e2e'"

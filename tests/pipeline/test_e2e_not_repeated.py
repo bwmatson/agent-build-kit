@@ -1,4 +1,4 @@
-"""An e2e test is run by the e2e-test gate alone: unit-test's repeat and its serial rerun never
+"""An e2e test is run by the e2e-test gate alone: unit-test's repeat and its rerun alone never
 reach it, whatever `global_limits.unit_test_repeat_runs` says (spec: e2e-failures).
 
 The base run is the one further run of the untouched failures, and it is the gate's own.

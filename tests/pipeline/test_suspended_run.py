@@ -66,9 +66,6 @@ class SuspendedMachine(BundleMachine):
             return done
         if any("::" in argument for argument in command):
             return done
-        if "-m" in command and command[command.index("-m") + 1] == "serial":
-            # The serial half of a run, which follows its parallel half.
-            return subprocess.CompletedProcess(command, 0, "1 passed in 0.01s\n", "")
         attempt = self.attempts[self.test_runs]
         self.test_runs += 1
         self.wall.elapsed += attempt.wall
