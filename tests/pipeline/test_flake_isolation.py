@@ -16,8 +16,10 @@ from typing import cast
 import pytest
 
 from agent_build_kit.pipeline.flakes import FlakeFound
+from agent_build_kit.pipeline.red_check import REPORT_MARK
 from agent_build_kit.pipeline.wiring import build_unit_test
 from agent_build_kit.profiles.base import ToolchainProfile
+from agent_build_kit.profiles.node_npm import NodeNpmProfile
 from agent_build_kit.profiles.python_uv import PythonUvProfile
 
 RECORDED = Path(__file__).resolve().parents[1] / "fixtures" / "external" / "pytest"
@@ -347,3 +349,50 @@ def test_when_every_id_is_not_found_nothing_is_rerun_and_every_failure_stands(
     assert len(runs.serial_runs) == 1, "only the attempt that found none of them"
     assert set(runs.serial_runs[0]) >= set(SPACED)
     assert all(test in "\n".join(log) for test in SPACED)
+
+
+# --- the node profile ---------------------------------------------------------------
+
+
+class NodeRuns:
+    """Answers the node profile's commands: the whole run fails with a recorded report and each
+    filtered rerun exits as the next of `reruns` says."""
+
+    def __init__(self, whole: list[str], reruns: list[int]) -> None:
+        self.whole = whole
+        self.reruns = list(reruns)
+        self.commands: list[list[str]] = []
+
+    def __call__(self, command: list[str], **kwargs: object) -> subprocess.CompletedProcess:
+        self.commands.append(command)
+        if command == self.whole:
+            report = RECORDED.parent / "vitest" / "assertion_only.xml"
+            return subprocess.CompletedProcess(
+                command, 1, f"{REPORT_MARK}\n{report.read_text()}", ""
+            )
+        if command == ["true"]:
+            return subprocess.CompletedProcess(command, 0, "", "")
+        return subprocess.CompletedProcess(command, self.reruns.pop(0), "", "")
+
+
+class QuietNodeProfile(NodeNpmProfile):
+    def lint_command(self, base: str) -> list[str]:
+        return ["true"]
+
+
+def test_a_failed_node_test_that_passes_both_serial_reruns_is_a_flake(tmp_path: Path) -> None:
+    (tmp_path / "package.json").write_text('{"name": "app"}')
+    profile = QuietNodeProfile()
+    (whole,) = profile.test_commands_all(tmp_path, root_extras=[])
+    runs = NodeRuns(whole, reruns=[0, 0])
+
+    with pytest.raises(FlakeFound) as found:
+        build_unit_test(profile=profile, run=runs, changed=lambda *a: ["src/a.test.ts"])(
+            cwd=tmp_path, base="main"
+        )
+
+    assert [flake.test for flake in found.value.flakes] == ["a.test.ts::adds"]
+    assert len(runs.commands) == 4, "lint, the run, then two serial reruns"
+    serial = profile.serial_rerun_command(whole, ["a.test.ts::adds"])
+    assert "--no-file-parallelism" in " ".join(serial)
+    assert runs.commands[2] == runs.commands[3] == serial

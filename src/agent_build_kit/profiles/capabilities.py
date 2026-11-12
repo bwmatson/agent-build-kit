@@ -46,12 +46,10 @@ SELECTOR_METHODS = (
 GAP_BASELINE: frozenset[tuple[str, str]] = frozenset(
     ("node-npm", capability)
     for capability in (
-        "SelectsAffectedTests",
         "RecordsSelectionData",
         "ReportsRunFacts",
         "AppliesE2eSelection",
         "ListsRegisteredSelectors",
-        "RerunsFailedTests",
     )
 )
 

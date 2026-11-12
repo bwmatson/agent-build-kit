@@ -4,12 +4,14 @@ followed by `::` and a name, given as Vitest path filters in the run's directory
 
 from __future__ import annotations
 
+import shlex
 from pathlib import Path
 
 import pytest
 
 from agent_build_kit import profiles
 from agent_build_kit.pipeline.red_check import REPORT_MARK
+from tests.node_npx_fake import make_project
 from tests.node_workspace import manifest, touch, workspace
 
 MARKER = "e2e"
@@ -106,3 +108,71 @@ def test_a_project_that_is_not_a_workspace_repeats_against_its_own_root(
     assert again[DIRECTORY] in {".", "./"}
     assert again[FILTERS:] == ["src/one.test.ts"]
     assert REPORT_MARK in again[SCRIPT]
+
+
+def test_a_serial_rerun_of_failed_ids_runs_only_their_files_in_the_members_directory(
+    profile, members: Path
+) -> None:
+    run = member_run(profile, members, "packages/a")
+
+    again = profile.serial_rerun_command(run, [f"{A_ONE}::adds", A_TWO])
+
+    assert again[:2] == ["sh", "-c"]
+    assert again[DIRECTORY] == "packages/a"
+    assert sorted(again[FILTERS:]) == ["src/one.test.ts", "src/two.test.ts"]
+    assert REPORT_MARK in again[SCRIPT]
+
+
+def test_a_serial_rerun_runs_the_files_one_after_another_and_a_repeat_does_not(
+    profile, members: Path
+) -> None:
+    run = member_run(profile, members, "packages/a")
+
+    serial = profile.serial_rerun_command(run, [A_ONE, A_TWO])
+    repeat = profile.repeat_command(run, [A_ONE, A_TWO])
+
+    assert repeat is not None
+    assert "--no-file-parallelism" in serial[SCRIPT]
+    assert "--no-file-parallelism" not in repeat[SCRIPT]
+
+
+def test_the_ids_a_member_run_fails_with_are_the_ones_its_serial_rerun_reads(
+    profile, members: Path, tmp_path: Path
+) -> None:
+    (tmp_path / "stand-in").mkdir()
+    project = make_project(tmp_path / "stand-in")
+    (project.root / "project" / "packages" / "a").mkdir(parents=True)
+    run = member_run(profile, members, "packages/a")
+
+    done = project.run(shlex.join(run), recording="assertion_only")
+    failed = profile.failed_tests(done.stdout + done.stderr)
+    again = profile.serial_rerun_command(run, failed)
+
+    assert failed == ["packages/a/a.test.ts::adds"]
+    assert again[DIRECTORY] == "packages/a"
+    assert again[FILTERS:] == ["a.test.ts"]
+
+
+def test_a_project_that_is_not_a_workspace_names_its_failed_ids_from_its_root(
+    profile, tmp_path: Path
+) -> None:
+    (tmp_path / "stand-in").mkdir()
+    project = make_project(tmp_path / "stand-in")
+    manifest(tmp_path, "solo")
+    (run,) = profile.test_commands_all(tmp_path, root_extras=[])
+
+    done = project.run(shlex.join(run), recording="assertion_only")
+
+    assert profile.failed_tests(done.stdout + done.stderr) == ["a.test.ts::adds"]
+
+
+def test_the_failed_ids_are_read_from_the_report_of_a_red_run(profile, tmp_path: Path) -> None:
+    project = make_project(tmp_path)
+
+    done = project.run(profile.red_command(["a.test.ts"]), recording="assertion_only")
+
+    assert profile.failed_tests(done.stdout + done.stderr) == ["a.test.ts::adds"]
+
+
+def test_a_run_with_no_report_names_no_failed_ids(profile) -> None:
+    assert profile.failed_tests("$ npx oxlint . (exit 1)\nsrc/a.ts: unused variable\n") == []

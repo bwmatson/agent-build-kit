@@ -17,6 +17,7 @@ in their own directory, and an e2e test is a file named `<name>.<marker>.test.<e
 from __future__ import annotations
 
 import json
+import posixpath
 import re
 import shlex
 from pathlib import Path
@@ -50,6 +51,7 @@ from agent_build_kit.profiles.base import (
 )
 
 _SOURCE = ("ts", "tsx", "js", "jsx", "mts")
+_SOURCE_SUFFIXES = tuple(f".{ext}" for ext in _SOURCE)
 # The names of the source files that differ from the base ref `$1`, relative to the project.
 _DIFF = 'git diff --relative --diff-filter=d --name-only{z} "$1...HEAD" -- ' + " ".join(
     f"'*.{ext}'" for ext in _SOURCE
@@ -81,11 +83,30 @@ _TESTS = wrap_report_command(_RUN, "--outputFile")
 _TEST_COMMAND = ["sh", "-c", _TESTS]
 # The same in the directory `$1`, for a workspace member; the report path is absolute, so the
 # change of directory does not hide it.
-_MEMBER_TESTS = wrap_report_command(f'cd "$1" && {_RUN}', "--outputFile")
+# Each script that runs in a directory `$1` first prints it on a line of its own, before the
+# report, since the report names a file relative to Vitest's root: `failed_tests` reads the
+# directory back to name a failed test from the checkout's root.
+_DIRECTORY_MARK = "--- abk directory:"
+_IN_DIRECTORY = f'echo "{_DIRECTORY_MARK} $1 ---"; cd "$1"'
+_MEMBER_TESTS = wrap_report_command(f"{_IN_DIRECTORY} && {_RUN}", "--outputFile")
 # E2e-test and acceptance: in `$1`, the rest are Vitest's filters, which match by substring of
 # a file's path.
-_FILTERED = wrap_report_command(f'cd "$1" && shift && {_RUN} "$@"', "--outputFile")
-_TEST_SCRIPTS = (_TESTS, _MEMBER_TESTS, _FILTERED)
+_FILTERED = wrap_report_command(f'{_IN_DIRECTORY} && shift && {_RUN} "$@"', "--outputFile")
+# The same filtered run with the files run one after another, for a serial rerun.
+_SERIAL = wrap_report_command(
+    f'{_IN_DIRECTORY} && shift && {_RUN} --no-file-parallelism "$@"', "--outputFile"
+)
+# The tests that reach the files `$@` through the import graph, in `$1`.
+_RELATED = wrap_report_command(
+    f"{_IN_DIRECTORY} && shift && npx {_TEST_RUNNER} related --run --passWithNoTests "
+    '--reporter=junit "$@"',
+    "--outputFile",
+)
+_TEST_SCRIPTS = (_TESTS, _MEMBER_TESTS, _FILTERED, _SERIAL, _RELATED)
+_DIRECTORY_LINE = re.compile(rf"^{re.escape(_DIRECTORY_MARK)} (.*) ---$", re.MULTILINE)
+# Files every test of a project depends on: a change to one runs the whole project.
+_SHARED_NAMES = frozenset({"package.json", "package-lock.json", "npm-shrinkwrap.json"})
+_SETUP_FILES = re.compile(r"\bsetupFiles\s*:\s*(\[.*?\]|[\"'`][^\"'`]*[\"'`])", re.DOTALL)
 # The directory of a project that is not a workspace, or the root of one.
 _HERE = "./"
 # The runner's config files, in the order they are looked for.
@@ -95,13 +116,48 @@ _RUNNER_CONFIGS = tuple(
 _EXCLUDE = re.compile(r"\bexclude\s*:\s*\[(.*?)\]", re.DOTALL)
 
 
+def _config_strings(folder: Path, key: re.Pattern[str]) -> list[str]:
+    """The quoted strings of `key`'s value in the runner's config in `folder`. The first config
+    file that exists is the one the runner reads, so a file without the key ends the search."""
+    for name in _RUNNER_CONFIGS:
+        config = folder / name
+        if config.is_file():
+            found = key.search(config.read_text())
+            return re.findall(r"""["'`]([^"'`]*)["'`]""", found.group(1)) if found else []
+    return []
+
+
 def _exclude_patterns(repo: Path) -> list[str]:
     """The quoted patterns of the `exclude` list in the runner's config; none without one."""
-    for name in _RUNNER_CONFIGS:
-        config = repo / name
-        if config.is_file() and (found := _EXCLUDE.search(config.read_text())):
-            return re.findall(r"""["'`]([^"'`]*)["'`]""", found.group(1))
-    return []
+    return _config_strings(repo, _EXCLUDE)
+
+
+def _setup_files(folder: Path, prefix: str) -> set[str]:
+    """The files the runner's config in `folder` names as `setupFiles`, as paths from the
+    checkout root (`prefix` is `folder`'s own path there, empty for the root)."""
+    listed = _config_strings(folder, _SETUP_FILES)
+    return {posixpath.normpath(posixpath.join(prefix, item)) for item in listed}
+
+
+def _owned(members: list[str], path: str) -> tuple[str | None, str]:
+    """The folder of the member that owns `path` (empty for a project that is not a workspace;
+    None for a path outside every member of a workspace) and the path relative to it."""
+    owner = _deepest(members, path)
+    if owner is None and members:
+        return None, path
+    folder = owner or ""
+    return folder, path.removeprefix(f"{folder}/") if folder else path
+
+
+def _is_shared_file(path: str) -> bool:
+    """Whether every test of the project reads `path`: a manifest, a lock file, the
+    runner's or the compiler's configuration."""
+    name = path.rsplit("/", 1)[-1]
+    return (
+        name in _SHARED_NAMES
+        or name in _RUNNER_CONFIGS
+        or (name.startswith("tsconfig") and name.endswith(".json"))
+    )
 
 
 def _script_or(script: str, generic: str) -> str:
@@ -347,6 +403,93 @@ class NodeNpmProfile:
         members = self.members(repo)
         return [_member_command(m) for m in members] if members else [list(_TEST_COMMAND)]
 
+    def affected_test_commands(
+        self,
+        repo: Path,
+        changed_files: list[str],
+        failed_ids: list[str],
+        *,
+        seed: Path,
+        root_extras: list[str],
+        workers: str | int = "auto",
+        max_workers: int = 8,
+    ) -> list[list[str]] | None:
+        """The commands that run the tests a change affects: `vitest related` over the source
+        files changed in each member (or the project), none for documentation alone, and
+        every test of a member (or the project) when a shared file changed there: a manifest,
+        a lock file, the runner's or compiler's configuration, a setup file the
+        configuration names, or any file that is not source."""
+        members = self.members(repo)
+        shared: list[str] = []
+        related: dict[str, list[str]] = {}
+        for path in changed_files:
+            if is_doc_path(path):
+                continue
+            folder, relative = _owned(members, path)
+            if folder is None:
+                shared.append(path)
+                continue
+            if (
+                _is_shared_file(path)
+                or not path.endswith(_SOURCE_SUFFIXES)
+                or path in _setup_files(repo / folder, folder)
+            ):
+                shared.append(path)
+                continue
+            related.setdefault(folder, []).append(relative)
+        # The tests the failed check named run again even when the import graph from the changed
+        # files does not reach them; `vitest related` accepts a test file. One outside every
+        # member of a workspace runs from the root, filtered to its file.
+        root_failed: list[str] = []
+        for failed in failed_ids:
+            path = failed.split("::", 1)[0]
+            if not path.endswith(_SOURCE_SUFFIXES):
+                continue
+            folder, relative = _owned(members, path)
+            if folder is None:
+                if path not in root_failed:
+                    root_failed.append(path)
+            elif relative not in related.setdefault(folder, []):
+                related[folder].append(relative)
+        commands = self.test_commands(repo, shared, root_extras=root_extras) if shared else []
+        covered = {c[4] for c in commands if len(c) > 4}
+        for folder, files in related.items():
+            if folder in covered or (not folder and commands):
+                continue
+            commands.append(["sh", "-c", _RELATED, "sh", folder or _HERE, *files])
+        left = [p for p in root_failed if not any(p in c[5:] for c in commands)]
+        if left:
+            commands.append(["sh", "-c", _FILTERED, "sh", _HERE, *left])
+        return commands
+
+    def serial_rerun_command(self, command: list[str], tests: list[str]) -> list[str]:
+        """`command`, a failed test run, as the filtered run of the files of `tests` with
+        Vitest's files run one after another (`--no-file-parallelism`); `command` itself when it
+        is not one of this profile's runs or none of `tests` is under its directory."""
+        again = self.repeat_command(command, tests)
+        return ["sh", "-c", _SERIAL, *again[3:]] if again else command
+
+    def failed_tests(self, output: str) -> list[str]:
+        """The `file::test` identifier of each test that failed or errored in the JUnit report
+        after the marker, from the root of the project the command ran from (a workspace
+        member's directory is put before the report's own file names); a file that failed to
+        load is its file's path alone. Empty when the output holds no report."""
+        root = _report(output)
+        if root is None:
+            return []
+        _, console = split_report(output)
+        printed = _DIRECTORY_LINE.search(console)
+        directory = printed.group(1).strip().rstrip("/") if printed else ""
+        prefix = "" if directory in ("", ".") else f"{directory}/"
+        found: list[str] = []
+        for case in root.iter("testcase"):
+            _, bad = _failure(case)
+            if bad is None:
+                continue
+            file, test = prefix + (case.get("classname") or ""), case.get("name") or ""
+            found.append(file if _did_not_load(case) else f"{file}::{test}")
+        return list(dict.fromkeys(found))
+
     def repeat_command(
         self, command: list[str], tests: list[str], *, project: Path | None = None
     ) -> list[str] | None:
@@ -358,7 +501,7 @@ class NodeNpmProfile:
         if len(command) < 3 or command[:2] != ["sh", "-c"] or command[2] not in _TEST_SCRIPTS:
             return None
         directory = command[4] if len(command) > 4 else _HERE
-        filters = command[5:] if command[2] == _FILTERED else []
+        filters = command[5:] if command[2] in (_FILTERED, _SERIAL) else []
         prefix = "" if directory in (_HERE, ".", "") else f"{directory.rstrip('/')}/"
         files: list[str] = []
         for test in tests:
@@ -470,7 +613,7 @@ class NodeNpmProfile:
         """The formatter, then the fixable lint findings, over the source files; the type
         check cannot be fixed and is left to the check. The `;` lets the formatter's work
         stand when the linter exits non-zero for a finding it cannot fix."""
-        sources = [f for f in files if f.endswith(tuple(f".{ext}" for ext in _SOURCE))]
+        sources = [f for f in files if f.endswith(_SOURCE_SUFFIXES)]
         if not sources:
             return None
         return ["sh", "-c", 'npx oxfmt "$@"; npx oxlint --fix "$@"', "sh", *sources]
@@ -489,9 +632,25 @@ class NodeNpmProfile:
         filter that matches by substring (an absolute path is turned back into the relative
         one), so `src/index.test.ts` also selects `packages/ui/src/index.test.ts` and no
         argument selects one file exactly: the report names each test suite by its file, which
-        is how a reader keeps only the files it was given. `ids` are ignored: a test cannot be
-        selected by name here, so the files run whole."""
+        is how a reader keeps only the files it was given. `ids` are ignored, so the files run
+        whole, except when every file is named by a kind's convention (`<name>.<kind>.test.<ext>`)
+        and every file has an id that carries a test name: then Vitest is given those names with
+        `-t`, anchored so only the named tests match. A file passed bare runs whole, so the
+        filter, which applies to every file, is left off."""
         run = f"npx {_TEST_RUNNER} run {shlex.join(files)} --reporter=junit"
+        named = [i.split("::", 1) for i in ids or [] if "::" in i]
+        names = [name for _, name in named]
+        if (
+            names
+            and all(self.kinds_of(Path(), file) for file in files)
+            and all(any(path == file for path, _ in named) for file in files)
+        ):
+            # Vitest reads the name as a regular expression, matched against the suite names and
+            # the test's name joined by spaces, where the report joins them with " > ".
+            pattern = "|".join(
+                re.sub(r"([\\^$.|?*+()\[\]{}])", r"\\\1", n.replace(" > ", " ")) for n in names
+            )
+            run += f" -t {shlex.quote(f'^(?:{pattern})$')}"
         listed = "printf '%s\\n' " + shlex.join(_RED_FILE + file for file in files) + "; "
         return listed + wrap_report_command(run, "--outputFile")
 
@@ -620,7 +779,7 @@ class NodeNpmProfile:
         """A violation for every function whose body is more than the sentinel throw, at any
         depth, and for a file that does not parse; none for a test file or a non-source file.
         A function without a body (a declaration, an overload) is accepted."""
-        if self.is_test_path(path) or not path.endswith(tuple(f".{ext}" for ext in _SOURCE)):
+        if self.is_test_path(path) or not path.endswith(_SOURCE_SUFFIXES):
             return []
         root = _parser(path).parse(content.encode()).root_node
         if root.has_error:

@@ -16,6 +16,7 @@ from agent_build_kit import profiles
 from agent_build_kit.profiles.base import (
     RepeatsTests,
     RerunsFailedTests,
+    SelectsAffectedTests,
     SelectsByKind,
     ToolchainProfile,
 )
@@ -179,3 +180,11 @@ def test_the_baseline_names_no_capability_a_profile_has_since_filled() -> None:
     assert any(
         "python-uv" in p and "RerunsFailedTests" in p and "now provides" in p for p in problems
     )
+
+
+def test_node_provides_the_serial_rerun_and_affected_selection_so_the_baseline_drops_them() -> None:
+    node = profiles.get("node-npm")
+    assert isinstance(node, RerunsFailedTests)
+    assert isinstance(node, SelectsAffectedTests)
+    assert ("node-npm", "RerunsFailedTests") not in GAP_BASELINE
+    assert ("node-npm", "SelectsAffectedTests") not in GAP_BASELINE
