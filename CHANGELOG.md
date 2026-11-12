@@ -5,6 +5,7 @@
 - A tick no longer builds its own resolution lane or waits for a run to end. The slot
   sample and the restack gauges count the runs that resolve workers have recorded, and
   the runs owed beyond a project's cap as waiting.
+
 - The `abk-pipeline` skill now has a section on a unit that failed at the red check: each
   reason the check gives, where the reasons and the cached verdict are recorded, how to tell a
   rejected test from a check that could not run, and that a plain requeue replays an earlier
