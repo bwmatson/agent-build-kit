@@ -1882,7 +1882,11 @@ approved.
   **Evidence of the conditions.** A failing unit-test run saves a bundle under
   `runs/test-failures/<unit>-<stamp>/`: `output.txt` (the whole output, redacted, cut at a byte
   cap with a note), `context.json`, `machine.json` and `worktree.json`, and a `reruns/<n>/` folder
-  with the same four files for each serial rerun. The last three bundles per unit are kept, and
+  with the same four files for each serial rerun (each rerun is also a unit-log line with its
+  counts, seconds, load at start and end and class, and the fix agent's feedback names the same
+  results). `context.json` has an `environment` record: how the process started (`argv`), the
+  names, never the values, of its variables, `HOME`, `TMPDIR`, the first and last entries of
+  `PATH`, and where each program the profiles name was found. The last three bundles per unit are kept, and
   one a flake, storm or pre-existing record points at (`evidence`) is kept too. Those records
   also carry `ran_at` and `conditions` (load before and after, the reruns' exit codes and
   seconds, `cpus` and `load_high`). `load_high` is true when the one-minute load at the run's

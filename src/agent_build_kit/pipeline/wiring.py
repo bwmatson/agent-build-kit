@@ -33,7 +33,7 @@ from contextlib import AbstractContextManager, contextmanager, nullcontext
 from datetime import UTC, datetime
 from functools import partial
 from pathlib import Path
-from typing import Any, Protocol
+from typing import Any, Literal, Protocol
 
 from agent_build_kit import (
     claude_account,
@@ -1645,6 +1645,8 @@ def build_unit_test(
     # Set when the current run's failures were classified as load and let the run go on: the
     # ledger row then keeps the failed tests though the run passed.
     run_loaded: list[bool] = []
+    # The serial reruns the current attempt made, one line each, named in the fix agent's feedback.
+    rerun_notes: list[str] = []
     # The kind of re-test the current run after a move is: `full` unless it was `lite` or `scoped`.
     retest: dict[str, str] = {"kind": "full"}
     # What a test is, as the profile of the project a path sits in says, and the repo's
@@ -1802,8 +1804,9 @@ def build_unit_test(
         ends."""
         with _test_slot(installation, log) as waited:
             for attempt in (1, 2):
+                rerun_notes.clear()
                 try:
-                    return recorded(
+                    passed, output = recorded(
                         cwd=cwd,
                         base=base,
                         whole_repo=whole_repo,
@@ -1811,6 +1814,11 @@ def build_unit_test(
                         moved_from=moved_from,
                         waited=waited,
                     )
+                    if not passed and rerun_notes:
+                        # On the command's own line, so the tail of the output stays whole.
+                        first, newline, rest = output.partition("\n")
+                        output = f"{first} [serial {'; '.join(rerun_notes)}]{newline}{rest}"
+                    return passed, output
                 except SuspendedRun as suspended_run:
                     _say(
                         log,
@@ -2215,6 +2223,7 @@ def build_unit_test(
             **temp,
             **failure_evidence.shas(run, where, base),
             **facts,
+            "environment": failure_evidence.environment_record(),
         }
         return write_failure_bundle(
             failures_dir,
@@ -2472,6 +2481,9 @@ def build_unit_test(
         rerun_exits: list[int] = []
         rerun_seconds: list[float] = []
         last_sample: dict[str, object] = {}
+        # This isolation's rerun lines: the ones not yet logged, and the ones given a class.
+        waiting: list[str] = []
+        settled: list[str] = []
 
         def evidenced() -> dict[str, Any]:
             """The bundle, when the first run started and the conditions the run and its reruns
@@ -2490,6 +2502,7 @@ def build_unit_test(
             )
             conditions["rerun_exits"] = list(rerun_exits)
             conditions["rerun_seconds"] = list(rerun_seconds)
+            conditions["reruns"] = list(settled)
             return {
                 "evidence": str(evidence[0]),
                 "ran_at": evidence[1][0],
@@ -2505,10 +2518,30 @@ def build_unit_test(
             )
             return high is True
 
+        def class_of(test: str, *, classify: bool) -> Literal["flake", "isolation"]:
+            """The class a flake of `test` is given: `isolation` for a test that shares a
+            resource and passed alone in a run that was not loaded, `flake` otherwise."""
+            return "isolation" if classify and not loaded() and test in shared else "flake"
+
+        def settle(outcome: str) -> None:
+            """Give the lines of this isolation's reruns the class the failure ends up with
+            (`flake`, `isolation`, `load`, `storm`, `base` for a failure already present on the
+            base, `unit` for one that stays the unit's, or two joined by `and` for a mix), then
+            log and keep them. Called at every exit after the reruns, before the record that
+            carries them is written. Only a failure that stands (`unit`) hands its lines to the
+            feedback the fix agent gets: the lines of an isolation that went on are not the
+            results of the command that fails later."""
+            for body in waiting:
+                line = f"{body}, class {outcome}"
+                settled.append(line)
+                _say(log, f"serial {line}")
+            waiting.clear()
+            if outcome == "unit":
+                rerun_notes[:] = settled
+
         def flakes_of(
             names: list[str], base_output: str = "", *, classify: bool = False
         ) -> tuple[Flake, ...]:
-            isolated = classify and not loaded()
             return tuple(
                 Flake(
                     test=test,
@@ -2521,7 +2554,7 @@ def build_unit_test(
                     # selected run): the agent still reads that tree.
                     base=base or ref or "",
                     base_output=base_output,
-                    classification="isolation" if isolated and test in shared else "flake",
+                    classification=class_of(test, classify=classify),
                     **evidenced(),
                 )
                 for test in names
@@ -2556,9 +2589,9 @@ def build_unit_test(
                 rerun = rerun_command(command, tests)
                 again = ran(rerun, where, toolchain)
             if evidence is not None and began is not None and failures_dir is not None:
+                last_sample.update((machine or failure_evidence.machine_sample)())
                 started, machine_before, tree_before = began
                 ended = clock()
-                last_sample.update((machine or failure_evidence.machine_sample)())
                 seconds = (ended - started).total_seconds()
                 rerun_exits.append(again.returncode)
                 rerun_seconds.append(seconds)
@@ -2580,7 +2613,21 @@ def build_unit_test(
                         tree_before, failure_evidence.worktree_state(run, where, toolchain)
                     ),
                 )
+                waiting.append(
+                    rerun_line(
+                        number,
+                        len(tests),
+                        again,
+                        toolchain,
+                        f", {seconds:g} s, "
+                        f"load {_shown(failure_evidence.first_load(machine_before))}"
+                        f" to {_shown(failure_evidence.first_load(last_sample))}",
+                    )
+                )
+            else:
+                waiting.append(rerun_line(number, len(tests), again, toolchain, ""))
             if not tests:
+                settle("unit")
                 return False
             if toolchain.tolerates_exit(rerun, again.returncode):
                 continue
@@ -2590,18 +2637,40 @@ def build_unit_test(
             if not failed_again or not set(failed_again) <= set(limit):
                 if base is not None and not wrote(tests, where, base):
                     if (on_base := fails_on_base(rerun, tests, where, toolchain, base)) is not None:
+                        settle("base")
                         raise FailedOnBase(flakes_of(tests, on_base))
+                settle("unit")
                 return False
             timed_out = failed_again
             timeouts += 1
         if timeouts:
             # By its time limit alone, every time: the base cannot tell it apart.
             if timeouts == FLAKE_RERUNS and base is not None and not wrote(timed_out, where, base):
+                settle("base")
                 raise FailedOnBase(flakes_of(timed_out))
+            settle("unit")
             return False
         if own is not None and any(test in own for test in tests):
+            settle("unit")
             return False
-        if (slow := [test for test in tests if test in hits]) and loaded():
+        slow = [test for test in tests if test in hits]
+        slow_and_loaded = bool(slow) and loaded()
+        rest = [test for test in tests if not (slow_and_loaded and test in slow)]
+        stormy = len(rest) > active().global_limits.max_flakes_per_run
+        # What the failure is given, once its outcome is known: the reruns' lines carry it.
+        if slow_and_loaded and not rest:
+            settle("load")
+        else:
+            if stormy:
+                others = "storm"
+            else:
+                # Each test has its own class in its record; the lines name every one.
+                others = " and ".join(
+                    sorted({class_of(test, classify=True) for test in rest}, reverse=True)
+                )
+            # A load hit beside other failures: the lines serve both records.
+            settle(f"load and {others}" if slow_and_loaded else others)
+        if slow_and_loaded:
             # A time limit hit in a busy run that passed alone twice is the machine's, not the
             # test's: recorded as load, with no fix change.
             record_load(spans.current_unit.get()[0], flakes_of(slow))
@@ -2609,10 +2678,10 @@ def build_unit_test(
             # Another command of this round that fails these same tests does not rerun them.
             stormed.setdefault(spans.current_unit.get(), set()).update(slow)
             _say(log, f"{len(slow)} time limit hits under high load passed alone: recorded as load")
-            tests = [test for test in tests if test not in slow]
+            tests = rest
             if not tests:
                 return True
-        if len(tests) > active().global_limits.max_flakes_per_run:
+        if stormy:
             failures = [
                 cut_tail(sections.get(test, ""), STORM_FAILURE_CHARS)
                 for test in tests[:STORM_FAILURES]
@@ -2628,6 +2697,21 @@ def build_unit_test(
             )
             return True
         raise FlakeFound(flakes_of(tests, classify=True), scoped=own is not None)
+
+    def rerun_line(
+        number: int,
+        ids: int,
+        again: subprocess.CompletedProcess,
+        toolchain: ToolchainProfile,
+        rest: str,
+    ) -> str:
+        """One serial rerun of `ids` test ids as a line, with the counts its output gives; it is
+        logged, with the class of the outcome, when the isolation settles."""
+        passed, failed, skipped, _ = toolchain.parse_test_summary(f"{again.stdout}\n{again.stderr}")
+        return (
+            f"rerun {number}: {ids} ids, {passed} passed, {failed} failed, {skipped} skipped, "
+            f"exit {again.returncode}{rest}"
+        )
 
     def wrote(tests: list[str], where: Path, base: str) -> bool:
         """Whether the unit wrote any of `tests`: its file, or the `conftest.py` beside it,
@@ -3040,6 +3124,10 @@ def _deactivated(
     ):
         return None
     return toolchain.selection_deactivated(f"{result.stdout}\n{result.stderr}")
+
+
+def _shown(load: float | None) -> str:
+    return "unknown" if load is None else f"{load:g}"
 
 
 def _counted(toolchain: ToolchainProfile, result: subprocess.CompletedProcess) -> int:

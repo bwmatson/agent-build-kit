@@ -13,6 +13,7 @@ import contextlib
 import json
 import shlex
 import subprocess
+from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import cast
@@ -38,7 +39,12 @@ from tests.redaction_fakes import SECRET, known
 RERUN_FILES = {"output.txt", "context.json", "machine.json", "worktree.json"}
 
 
-def unit_test_of(scratch: Path, machine: BundleMachine, directory: Path | MemoryArtifacts):
+def unit_test_of(
+    scratch: Path,
+    machine: BundleMachine,
+    directory: Path | MemoryArtifacts,
+    log: Callable[[str], None] | None = None,
+):
     loads = iter(range(1, 100))
     clock = iter(START + timedelta(seconds=10 * n) for n in range(100))
     return build_unit_test(
@@ -48,6 +54,7 @@ def unit_test_of(scratch: Path, machine: BundleMachine, directory: Path | Memory
         failures_dir=directory,  # pyrefly: ignore
         now=lambda: next(clock),
         machine=lambda: {"load": [float(next(loads))] * 3},
+        log=log,
     )
 
 
@@ -66,6 +73,83 @@ def only_bundle(directory: Path) -> Path:
 
 def read(path: Path) -> dict:
     return json.loads(path.read_text())
+
+
+class Counting(BundleMachine):
+    """A machine whose serial reruns print a `-q` run's summary line."""
+
+    def __init__(self, root: Path, *, reruns: list[int], summary: str) -> None:
+        super().__init__(root, reruns=reruns)
+        self.summary = summary
+
+    def __call__(self, command: list[str], **kwargs: object) -> subprocess.CompletedProcess:
+        done = super().__call__(command, **kwargs)
+        if any("::" in argument for argument in command):
+            done.stdout = self.summary
+        return done
+
+
+def rerun_lines(log: list[str]) -> list[str]:
+    return [line for line in log if "serial rerun " in line.lower()]
+
+
+def test_each_serial_rerun_is_a_log_line_with_counts_seconds_load_and_class(
+    scratch: Path, tmp_path: Path
+) -> None:
+    directory = tmp_path / "bundles"
+    log: list[str] = []
+    machine = Counting(scratch, reruns=[0, 0], summary="5 passed in 0.1s\n")
+
+    with pytest.raises(FlakeFound):
+        unit_test_of(scratch, machine, directory, log.append)(cwd=scratch, base="main")
+
+    lines = rerun_lines(log)
+    assert len(lines) == 2, log
+    for number, line in enumerate(lines, start=1):
+        folder = only_bundle(directory) / "reruns" / str(number)
+        taken = read(folder / "context.json")["seconds"]
+        sampled = read(folder / "machine.json")
+        ids = max(len([a for a in command if "::" in a]) for command in machine.commands)
+        assert f"{ids} ids" in line, "the number of ids run"
+        assert "5 passed" in line, line
+        assert "0 failed" in line, line
+        assert "0 skipped" in line, line
+        assert f"{taken:g}" in line, "the seconds"
+        assert f"{sampled['start']['load'][0]:g}" in line, "the load at the start"
+        assert f"{sampled['end']['load'][0]:g}" in line, "the load at the end"
+        assert "flake" in line, "the class the failure was given"
+
+
+def test_a_rerun_that_fails_again_is_a_line_with_the_failed_count_and_the_seconds(
+    scratch: Path, tmp_path: Path
+) -> None:
+    directory = tmp_path / "bundles"
+    log: list[str] = []
+    machine = Counting(scratch, reruns=[1, 1], summary="2 failed, 3 passed in 0.1s\n")
+
+    passed, _ = unit_test_of(scratch, machine, directory, log.append)(cwd=scratch, base="main")
+
+    assert not passed
+    (line, *_) = rerun_lines(log)
+    taken = read(only_bundle(directory) / "reruns" / "1" / "context.json")["seconds"]
+    assert "2 failed" in line, line
+    assert f"{taken:g}" in line, line
+    assert "flake" not in line, "the failure stays the unit's, so it has no flake class"
+    assert "class unit" in line, line
+
+
+def test_the_feedback_for_a_rerun_that_fails_again_names_the_rerun_and_its_results(
+    scratch: Path, tmp_path: Path
+) -> None:
+    machine = Counting(scratch, reruns=[1, 1], summary="2 failed, 3 passed in 0.1s\n")
+
+    passed, feedback = unit_test_of(scratch, machine, tmp_path / "bundles")(
+        cwd=scratch, base="main"
+    )
+
+    assert not passed
+    assert "rerun" in feedback.lower(), feedback
+    assert "2 failed" in feedback, feedback
 
 
 # --- the reruns in the bundle ---------------------------------------------------------
@@ -517,6 +601,54 @@ def test_a_time_limit_hit_under_high_load_that_passes_alone_is_load_and_writes_n
     assert (entry.test, entry.classification) == (SLOW, "load")
     assert entry.change == ""
     assert entry.conditions["load_high"] is True
+
+
+def test_the_reruns_of_a_failure_recorded_as_load_carry_the_class_load_and_not_flake(
+    scratch: Path, tmp_path: Path
+) -> None:
+    run = Classified(scratch, tmp_path, [hit()], reruns=[0, 0], load=HIGH_LOAD)
+
+    run.run()
+
+    (entry,) = run.recorded()
+    lines = cast(list[str], entry.conditions["reruns"])
+    assert len(lines) == 2, lines
+    for line in lines:
+        assert line.endswith("class load"), line
+        assert "flake" not in line, line
+
+
+def test_a_load_hit_beside_another_failure_gives_the_load_record_lines_naming_load(
+    scratch: Path, tmp_path: Path
+) -> None:
+    other = ("FAILED", "tests/test_other.py::test_x", "gw1", "boom")
+    run = Classified(scratch, tmp_path, [hit(), other], reruns=[0, 0], load=HIGH_LOAD)
+
+    with pytest.raises(FlakeFound):
+        run.run()
+
+    (entry,) = [e for e in run.recorded() if e.classification == "load"]
+    lines = cast(list[str], entry.conditions["reruns"])
+    assert len(lines) == 2, lines
+    for line in lines:
+        assert "class load and flake" in line, line
+
+
+def test_the_reruns_of_a_storm_carry_the_class_storm_and_not_flake(
+    scratch: Path, tmp_path: Path
+) -> None:
+    entries = [("FAILED", f"tests/test_many.py::test_case_{n}", "gw0", "boom") for n in range(3)]
+    run = Classified(scratch, tmp_path, entries, reruns=[0, 0], load=IDLE_LOAD)
+
+    passed, _ = run.run()
+
+    assert passed
+    (row,) = storms(run.installation)
+    lines = row["conditions"]["reruns"]
+    assert len(lines) == 2, lines
+    for line in lines:
+        assert line.endswith("class storm"), line
+        assert "flake" not in line, line
 
 
 def test_a_failure_on_a_shared_resource_on_an_idle_host_that_passes_alone_is_isolation(

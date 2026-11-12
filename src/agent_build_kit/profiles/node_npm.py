@@ -334,6 +334,8 @@ def _defines(folder: Path, script: str) -> bool:
 
 class NodeNpmProfile:
     name: str = "node-npm"
+    # The programs a failing run's bundle records the place of.
+    environment_tools: tuple[str, ...] = ("node", "npm", "npx")
     detect_markers: tuple[str, ...] = ("package-lock.json", "package.json")
     supports_stubs = True
     allowed_tools: str = "Bash(npm *) Bash(npx *)"

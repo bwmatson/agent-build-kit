@@ -12,6 +12,7 @@ from __future__ import annotations
 import json
 import os
 import shlex
+import sys
 from collections.abc import Collection
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -326,3 +327,86 @@ def test_a_passing_run_saves_no_bundle(scratch: Path, tmp_path: Path) -> None:
 
     assert passing == (True, "")
     _only(directory)
+
+
+# --- the environment of the process --------------------------------------------------
+
+TOOLS = ["git", "uv", "node", "npm", "npx"]
+
+
+def _environment(
+    scratch: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, *, home: str, tmpdir: str
+) -> dict:
+    """The environment record of a failing run's bundle, run as a process whose `PATH` has three
+    folders: the first holds `git`, `uv`, `node` and `npm` (no `npx`), the others none."""
+    first, middle, last = (tmp_path / name for name in ("first", "middle", "last"))
+    for folder in (first, middle, last):
+        folder.mkdir()
+    for tool in TOOLS[:4]:
+        (first / tool).write_text("#!/bin/sh\n")
+        (first / tool).chmod(0o755)
+    monkeypatch.setenv("PATH", os.pathsep.join(str(folder) for folder in (first, middle, last)))
+    monkeypatch.setenv("HOME", home)
+    monkeypatch.setenv("TMPDIR", tmpdir)
+    monkeypatch.setenv("ABK_PRESENT_VARIABLE", "kept-out-of-the-record")
+    monkeypatch.delenv("ABK_ABSENT_VARIABLE", raising=False)
+    monkeypatch.setattr(sys, "argv", ["abk", "tick", "--unit", "add-marker/1"])
+    directory = tmp_path / "bundles"
+    _run(scratch, BundleMachine(scratch, reruns=[1, 1]), directory)
+    context = json.loads((_only(directory) / "context.json").read_text())
+    assert "environment" in context, f"the bundle's context records {sorted(context)}"
+    return context["environment"]
+
+
+def test_the_bundle_records_how_the_process_started_and_the_variables_it_had_by_name(
+    scratch: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    environment = _environment(scratch, tmp_path, monkeypatch, home="/h", tmpdir="/t")
+
+    assert environment["argv"] == ["abk", "tick", "--unit", "add-marker/1"]
+    assert "ABK_PRESENT_VARIABLE" in environment["names"]
+    assert "kept-out-of-the-record" not in json.dumps(environment), "names only, but for a few"
+
+
+def test_a_variable_the_process_did_not_have_is_absent_from_the_names(
+    scratch: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    environment = _environment(scratch, tmp_path, monkeypatch, home="/h", tmpdir="/t")
+
+    assert "ABK_ABSENT_VARIABLE" not in environment["names"]
+
+
+def test_the_bundle_records_home_tmpdir_and_the_first_and_last_entries_of_path(
+    scratch: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    environment = _environment(scratch, tmp_path, monkeypatch, home="/the/home", tmpdir="/the/tmp")
+
+    assert environment["home"] == "/the/home"
+    assert environment["tmpdir"] == "/the/tmp"
+    assert environment["path_first"] == str(tmp_path / "first")
+    assert environment["path_last"] == str(tmp_path / "last")
+
+
+def test_the_bundle_records_where_each_tool_was_found_and_none_for_one_not_found(
+    scratch: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    environment = _environment(scratch, tmp_path, monkeypatch, home="/h", tmpdir="/t")
+
+    found = environment["tools"]
+    assert set(found) == set(TOOLS)
+    for tool in TOOLS[:4]:
+        assert found[tool] == str(tmp_path / "first" / tool)
+    assert found["npx"] is None
+
+
+def test_a_recorded_value_that_holds_a_secret_is_redacted(
+    scratch: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    with known():
+        _environment(scratch, tmp_path, monkeypatch, home="/h", tmpdir=f"/tmp/{SECRET}")
+
+    for file in _only(tmp_path / "bundles").rglob("*"):
+        if file.is_file():
+            assert SECRET not in file.read_text(), file.name
+    context = json.loads((_only(tmp_path / "bundles") / "context.json").read_text())
+    assert f"[redacted:{NAME}]" in context["environment"]["tmpdir"]

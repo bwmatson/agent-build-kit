@@ -220,6 +220,11 @@ def named_value(name: str, env_file: Path | None) -> str:
     return (dotenv_values(env_file).get(name) or "") if env_file else ""
 
 
+def variable_names() -> list[str]:
+    """The names, never the values, of the variables the process environment holds."""
+    return sorted(os.environ)
+
+
 def reload(env_file: Path | None) -> Settings:
     """Re-read the settings with `env_file` (the planning root's .env) and
     update the shared object in place."""

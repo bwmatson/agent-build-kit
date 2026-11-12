@@ -66,6 +66,17 @@ def names() -> list[str]:
     return sorted(_REGISTRY)
 
 
+def environment_tools() -> list[str]:
+    """The programs the registered profiles say a run depends on, once each."""
+    _load_builtin()
+    found: list[str] = []
+    for name in sorted(_REGISTRY):
+        for tool in getattr(_REGISTRY[name], "environment_tools", ()):
+            if tool not in found:
+                found.append(tool)
+    return found
+
+
 def detect_environment(
     root: Path, *, framework: bool, first: str | None = None
 ) -> EnvironmentConfig | None:
