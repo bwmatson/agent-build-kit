@@ -21,6 +21,7 @@ import tomllib
 from collections.abc import Callable
 from pathlib import Path, PurePosixPath
 
+from agent_build_kit import path_patterns
 from agent_build_kit.config import (
     AgentCommand,
     AgentPurpose,
@@ -32,7 +33,7 @@ from agent_build_kit.config import (
     worker_options,
 )
 from agent_build_kit.installation import Installation
-from agent_build_kit.path_discovery import find_up
+from agent_build_kit.path_discovery import checkout_root, find_up
 from agent_build_kit.pipeline.commit_order import stub_violations as _stub_violations
 from agent_build_kit.pipeline.e2e import (
     E2eSelection,
@@ -177,6 +178,19 @@ def _pyproject(path: Path) -> dict:
 def _members_of(folder: Path) -> list[str]:
     members = _pyproject(folder).get("tool", {}).get("uv", {}).get("workspace", {}).get("members")
     return [str(member) for member in members] if isinstance(members, list) else []
+
+
+def _is_workspace_member(project: Path) -> bool:
+    """Whether a folder above `project` (not above its checkout) lists it under
+    `tool.uv.workspace.members`. The root's own project and an unlisted folder are not."""
+    project = project.resolve()
+    stop = checkout_root(project)
+    for folder in project.parents:
+        if path_patterns.matches_any(_members_of(folder), project.relative_to(folder).as_posix()):
+            return True
+        if folder == stop:
+            break
+    return False
 
 
 def _lock_of(project: Path) -> Path | None:
@@ -704,8 +718,11 @@ class PythonUvProfile:
         options = "-p no:cacheprovider --tb=line -q"
         selection = by_id_selection(project) if ids else ""
         by_id = f" -m {shlex.quote(selection)}" if selection else ""
-        pytest = f"uv run pytest {shlex.join(ids or files)} {options}{by_id}"
-        whole = f"uv run pytest {' '.join(files)} {options}" if ids else None
+        # A workspace member runs in the workspace environment, on the lock as it is.
+        member = project is not None and _is_workspace_member(project)
+        uv = "uv run --all-packages --frozen" if member else "uv run"
+        pytest = f"{uv} pytest {shlex.join(ids or files)} {options}{by_id}"
+        whole = f"{uv} pytest {' '.join(files)} {options}" if ids else None
         return wrap_report_command(
             pytest, "--junitxml", retry=whole, retry_on=self.usage_error_exit
         )
