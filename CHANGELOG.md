@@ -13,6 +13,10 @@
   that does not close the issue, reaches a GitHub Enterprise Server host through the `host`
   setting (set `GH_TOKEN` for it, as the `gh` login lookup asks github.com), and has a doctor
   probe that tells an unauthorized token from a missing repository.
+- The Python profile's unit-test run is now one pass. The second pass of tests marked as
+  serial, the marker selection on the parallel pass and the rerun's handling of that split
+  are gone; a test that cannot run beside others is isolated, not marked, and a guard fails
+  a test or configuration file that names the marker.
 
 - A unit over its size ceiling that cannot be split no longer goes back to the size hold
   when its branch is busy at the moment it is sent on. It stays waived with its reason and

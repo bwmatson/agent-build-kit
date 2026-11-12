@@ -5,13 +5,37 @@ and configuration files and names each one that holds the word, except the guard
 the changelog.
 """
 
+import re
 from pathlib import Path
+
+from tests.tracked_files import guarded_files, lines_of, tracked
 
 # The word the guard keeps out. A test that needs it as data (a command still carrying the old
 # selection) takes it from here, so the word stays in this file.
 MARKER = "serial"
 
+_WORD = re.compile(rf"\b{MARKER}\b")
+# The guard's own files; the changelog is not read, as it is not a test or configuration file.
+_OWN = frozenset({"tests/serial_marker.py", "tests/test_no_serial_marker_guard.py"})
+# The suffixes of a configuration file at the root of a repository (a runner's or a package's).
+_CONFIG_SUFFIXES = frozenset(
+    {".toml", ".ini", ".cfg", ".json", ".yaml", ".yml", ".js", ".mjs", ".cjs", ".ts", ".mts"}
+)
+
 
 def serial_marker_problems(root: Path) -> list[str]:
     """One line per tracked test or configuration file below `root` that names `serial`."""
-    raise NotImplementedError
+    # A root file is tracked when it is among the tracked paths of the repository.
+    tracked_root = {path for path in tracked(root) if len(path.parts) == 1}
+    configuration = [root / path for path in tracked_root if path.suffix in _CONFIG_SUFFIXES]
+    files = {*guarded_files(root, under=["tests"]), *configuration}
+    problems: list[str] = []
+    for path in sorted(files):
+        relative = path.relative_to(root).as_posix()
+        if relative in _OWN:
+            continue
+        for number, line in enumerate(lines_of(path), start=1):
+            if _WORD.search(line):
+                problems.append(f"{relative}:{number}: names the `{MARKER}` marker")
+                break
+    return problems

@@ -204,6 +204,10 @@ docs/              architecture, configuration, cli, toolchain-profiles, agent-r
 - **Tests reach a public surface.** A test imports no private name. Behaviour
   worth pinning is either given a name and a documented contract, or
   exercised through its caller.
+- **No test is marked as unable to run beside others.** The unit-test run is one pass, with no
+  marker selection. A test that cannot run beside others is isolated (per-test ids, ports and
+  paths, from the shared fixtures), not marked; `tests/test_no_serial_marker_guard.py` fails a
+  test or configuration file that names the marker.
 - **Tests first.** A behaviour change lands with its failing test in the
   same change; the fixture repos are the tests' only installation.
 - **Installation facts come from `Installation`/`config.active()`**, never
