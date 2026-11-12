@@ -38,6 +38,72 @@ def test_without_ids_the_command_is_the_whole_file_run_and_with_them_it_is_not()
     assert profile.red_command(FILES, IDS) != whole
 
 
+@pytest.fixture
+def workspace(tmp_path: Path) -> Path:
+    """A uv workspace root listing `pkg/core` and the nested `apps/functions` as members, with
+    `pkg/other` a folder it does not list."""
+    root = tmp_path / "ws"
+    for folder in ("pkg/core", "apps/functions", "pkg/other"):
+        (root / folder).mkdir(parents=True)
+    (root / "pyproject.toml").write_text(
+        '[project]\nname = "root"\nversion = "0"\n'
+        '[tool.uv.workspace]\nmembers = ["pkg/core", "apps/functions"]\n'
+    )
+    return root
+
+
+@pytest.fixture
+def plain(tmp_path: Path) -> Path:
+    """A project folder in a repository that declares no workspace."""
+    root = tmp_path / "plain"
+    (root / "pkg/core").mkdir(parents=True)
+    (root / "pyproject.toml").write_text('[project]\nname = "root"\nversion = "0"\n')
+    return root
+
+
+@pytest.mark.parametrize("member", ["pkg/core", "apps/functions"])
+def test_a_workspace_members_red_command_runs_in_the_workspace_environment_on_the_lock_as_is(
+    workspace: Path, plain: Path, member: str
+) -> None:
+    profile: Any = PythonUvProfile()
+
+    command = profile.red_command(FILES, project=workspace / member)
+
+    words = shlex.split(command)
+    assert "--all-packages" in words
+    assert "--frozen" in words
+    assert command != profile.red_command(FILES, project=plain / "pkg/core")
+
+
+@pytest.mark.parametrize("ids", [None, IDS])
+def test_a_project_that_is_not_a_member_keeps_the_command_built_today(
+    workspace: Path, plain: Path, ids: list[str] | None
+) -> None:
+    profile: Any = PythonUvProfile()
+    today = profile.red_command(FILES, ids, project=plain / "pkg/core")
+
+    assert profile.red_command(FILES, ids, project=workspace) == today, "the root's own project"
+    assert profile.red_command(FILES, ids, project=workspace / "pkg/other") == today
+    assert profile.red_command(FILES, ids, project=plain) == today
+    assert "--all-packages" not in shlex.split(today)
+    assert profile.red_command(FILES, ids, project=workspace / "pkg/core") != today, "a member"
+
+
+def test_a_members_red_command_still_selects_by_id_retries_the_file_whole_and_prints_the_report(
+    workspace: Path,
+) -> None:
+    profile: Any = PythonUvProfile()
+
+    command = profile.red_command(FILES, IDS, project=workspace / "pkg/core")
+
+    first, _, after = command.partition('if [ "$status" -eq 4 ]; then ')
+    assert "tests/test_a.py::test_new" in first
+    assert "tests/test_b.py" not in first
+    assert "tests/test_a.py tests/test_b.py" in after, "the retry runs the files whole"
+    assert "--all-packages" in after, "and in the workspace environment too"
+    assert "--junitxml" in command
+
+
 SPACED = "tests/a/test_x.py::test_y[no conversation found with session id sess-1]"
 
 

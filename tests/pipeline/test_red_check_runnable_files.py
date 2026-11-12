@@ -11,6 +11,8 @@ from typing import Any, cast
 
 import pytest
 
+from agent_build_kit import profiles
+from agent_build_kit.config import ProjectConfig
 from agent_build_kit.pipeline.gate import check_branch, red_problems
 from agent_build_kit.profiles.base import ToolchainProfile
 from agent_build_kit.profiles.node_npm import PROFILE as NODE
@@ -248,3 +250,54 @@ def test_the_push_gate_prepares_the_worktree_once_before_its_clean_and_red_comma
     assert project == "."
     assert has_tests, "prepared after the tests commit was checked out"
     assert profile.outputs == ["yes\n"], "the marker existed when the red command ran"
+
+
+class MemberAware(Recording):
+    """A profile whose run of a project exits 2 with `Failed to spawn: pytest` unless the real
+    red command it is given for that project differs from the project-less one (a member's
+    command), in which case the run fails for the missing behaviour."""
+
+    name = "member-aware"
+
+    def red_command(
+        self, files: list[str], ids: list[str] | None = None, *, project: Path | None = None
+    ) -> str:
+        super().red_command(files, ids, project=project)
+        super().red_command(files, ids)
+        built, plain = self.commands[-2:]
+        if built != plain:
+            return "echo 'FAILED tests/test_new.py::test_new - assert False'; exit 1"
+        return "echo 'error: Failed to spawn: pytest' >&2; exit 2"
+
+    def interpret_red(
+        self, output: str, exit_code: int, *, stubbed: bool = False
+    ) -> tuple[bool, list[str]]:
+        if exit_code == 1 and "Failed to spawn" not in output:
+            return True, []
+        return False, ["no tests ran, so nothing was shown to fail"]
+
+
+def test_the_red_check_over_a_workspace_members_new_test_is_judged_on_the_members_command(
+    repo: Path,
+) -> None:
+    commit(
+        repo,
+        "workspace",
+        {
+            "pyproject.toml": '[project]\nname = "r"\nversion = "0"\n'
+            '[tool.uv.workspace]\nmembers = ["pkg/core"]\n',
+            "pkg/core/pyproject.toml": '[project]\nname = "core"\nversion = "0"\n',
+        },
+    )
+    commit(repo, "test: adds one", {"pkg/core/tests/test_new.py": FAILING})
+    profile = MemberAware(PYTHON)
+
+    with profiles.registered(profile.toolchain):
+        problems = red_problems(
+            repo,
+            git(repo, "rev-parse", "HEAD"),
+            profile=profile.toolchain,
+            projects=[ProjectConfig(path="pkg/core", profile="member-aware")],
+        )
+
+    assert problems == []
