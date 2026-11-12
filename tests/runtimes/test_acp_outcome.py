@@ -416,11 +416,6 @@ def _kill_if_left(pid: int) -> None:
         os.kill(pid, signal.SIGKILL)
 
 
-# A run ends in well under a second; the deadline only turns a run that never returns into a
-# failure, and is long enough that a loaded machine does not reach it.
-RUN_DEADLINE = 60
-
-
 def _run_bounded(request: AgentRequest) -> tuple[AgentResult | None, float]:
     """Run on a thread, so a run that never returns fails the test instead of
     hanging it: the result, or None if it did not return, and how long it took."""
@@ -428,7 +423,7 @@ def _run_bounded(request: AgentRequest) -> tuple[AgentResult | None, float]:
     run = threading.Thread(target=lambda: results.append(AcpRuntime().run(request)), daemon=True)
     started = time.monotonic()
     run.start()
-    run.join(timeout=RUN_DEADLINE)
+    run.join(timeout=10)
     elapsed = time.monotonic() - started
     return (None if run.is_alive() else results[0]), elapsed
 

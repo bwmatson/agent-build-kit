@@ -74,7 +74,8 @@ _TICKS = os.sysconf("SC_CLK_TCK")
 
 def _stat_fields(pid: int | str) -> list[str]:
     """The fields of /proc/<pid>/stat after the command name, which sits in parentheses and may
-    hold spaces. Raises OSError for a process that has gone."""
+    hold spaces; `pid` may be a path such as `self/task/<tid>`. Raises OSError for a process
+    that has gone."""
     with open(f"/proc/{pid}/stat") as stat:
         text = stat.read()
     return text[text.rindex(")") + 2 :].split()
@@ -153,11 +154,11 @@ def read_cpu() -> float:
 
 
 class CpuSnapshot(Frozen):
-    """One reading of the CPU in use: the main thread's seconds, each other thread of the
-    process by task id, each running descendant by process id, and what the process has
-    collected from finished children."""
+    """One reading of the CPU in use: the whole process's seconds (every thread, exited ones
+    included), each thread other than the main one by task id, each running descendant by
+    process id, and what the process has collected from finished children."""
 
-    main: float
+    process: float
     tasks: dict[int, float]
     descendants: dict[int, float]
     reaped: float
@@ -165,36 +166,35 @@ class CpuSnapshot(Frozen):
 
 def _task_cpu(tid: int | str) -> float:
     """utime and stime of one thread of this process, in seconds."""
-    with open(f"/proc/self/task/{tid}/stat") as stat:
-        text = stat.read()
-    fields = text[text.rindex(")") + 2 :].split()
+    fields = _stat_fields(f"self/task/{tid}")
     return (int(fields[11]) + int(fields[12])) / _TICKS
 
 
 def snapshot_cpu() -> CpuSnapshot:
-    """Read the CPU now. A host without /proc/self/task has only the whole process's reading,
-    as `main`."""
+    """Read the CPU now. A host without /proc/self/task has only the whole process's reading."""
     times = os.times()
     reaped = times.children_user + times.children_system
+    process = time.process_time()
     if not os.path.isdir("/proc/self/task"):
-        return CpuSnapshot(main=read_cpu() - reaped, tasks={}, descendants={}, reaped=reaped)
+        return CpuSnapshot(process=process, tasks={}, descendants={}, reaped=reaped)
     tasks: dict[int, float] = {}
     for name in os.listdir("/proc/self/task"):
         try:
             tasks[int(name)] = _task_cpu(name)
         except OSError:
             continue
-    main = tasks.pop(os.getpid(), time.process_time())
-    return CpuSnapshot(main=main, tasks=tasks, descendants=descendants_cpu(), reaped=reaped)
+    tasks.pop(os.getpid(), None)
+    return CpuSnapshot(process=process, tasks=tasks, descendants=descendants_cpu(), reaped=reaped)
 
 
 def phase_cpu(start: CpuSnapshot, now: CpuSnapshot) -> float:
-    """The CPU a phase used: the main thread's growth, all of each thread and descendant not in
-    `start`, and the growth of what finished children gave. A thread or descendant in `start`
-    is left out, however much it used."""
-    new_tasks = sum(v for tid, v in now.tasks.items() if tid not in start.tasks)
+    """The CPU a phase used: the process's growth (threads that started and ended in the phase
+    included) less the growth of each thread in `start` that is still alive, plus all of each
+    descendant not in `start`, plus the growth of what finished children gave. An inherited
+    thread that exits during the phase is still billed for its last moments."""
+    inherited = sum(v - start.tasks[tid] for tid, v in now.tasks.items() if tid in start.tasks)
     new_descendants = sum(v for pid, v in now.descendants.items() if pid not in start.descendants)
-    return (now.main - start.main) + new_tasks + new_descendants + (now.reaped - start.reaped)
+    return (now.process - start.process) - inherited + new_descendants + (now.reaped - start.reaped)
 
 
 # What each phase left alive: task id or process id to (its name, the test that left it).
@@ -331,12 +331,14 @@ def _under_limit(item: pytest.Item, phase: str):
     previous = signal.signal(signal.SIGUSR2, interrupt)
     done = threading.Event()
     start = snapshot_cpu() if budget.cpu > 0 else None
+    last = [start]  # the watcher's latest reading, for the failure text
     wall_start = time.monotonic()
 
     def watch_cpu() -> None:
         while not done.wait(POLL_SECONDS):
             assert start is not None
-            used = phase_cpu(start, snapshot_cpu())
+            last[0] = snapshot_cpu()
+            used = phase_cpu(start, last[0])
             if clock_fired(budget, used, time.monotonic() - wall_start) == "cpu":
                 stop("cpu")
                 return
@@ -357,7 +359,7 @@ def _under_limit(item: pytest.Item, phase: str):
             sentence = f"exceeded the {kind}time limit of {budget.wall:g} seconds"
         else:
             sentence = exceeded_text(fired[0] if fired else "wall", budget)
-        inherited = inherited_lines(start, snapshot_cpu(), LEFT_BY) if start is not None else []
+        inherited = inherited_lines(start, last[0] or start, LEFT_BY) if start is not None else []
         blamed = "".join(f"\n{line}" for line in inherited)
         # Raised from None: the stacks are in the text, once, after the limit it names.
         raise pytest.fail.Exception(

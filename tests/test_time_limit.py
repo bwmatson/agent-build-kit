@@ -369,18 +369,20 @@ def test_an_unmarked_test_beside_a_marked_one_still_fails_at_the_default(
 
 
 def snapshot(
-    main: float = 0.0,
+    process: float = 0.0,
     tasks: dict[int, float] | None = None,
     descendants: dict[int, float] | None = None,
     reaped: float = 0.0,
 ) -> CpuSnapshot:
-    return CpuSnapshot(main=main, tasks=tasks or {}, descendants=descendants or {}, reaped=reaped)
+    return CpuSnapshot(
+        process=process, tasks=tasks or {}, descendants=descendants or {}, reaped=reaped
+    )
 
 
 def test_a_thread_alive_before_the_phase_adds_no_cpu_to_it() -> None:
-    start = snapshot(main=1, tasks={7: 100})
+    start = snapshot(process=101, tasks={7: 100})
 
-    assert time_limit.phase_cpu(start, snapshot(main=1, tasks={7: 150})) == 0
+    assert time_limit.phase_cpu(start, snapshot(process=151, tasks={7: 150})) == 0
 
 
 def test_a_descendant_alive_before_the_phase_adds_no_cpu_to_it() -> None:
@@ -392,17 +394,24 @@ def test_a_descendant_alive_before_the_phase_adds_no_cpu_to_it() -> None:
 @pytest.mark.parametrize(
     ("now", "seconds"),
     [
-        (snapshot(main=5, tasks={7: 100}, descendants={9: 10}, reaped=1), 4),
-        (snapshot(main=1, tasks={7: 100, 8: 3}, descendants={9: 10}, reaped=1), 3),
-        (snapshot(main=1, tasks={7: 100}, descendants={9: 10, 10: 2}, reaped=1), 2),
-        (snapshot(main=1, tasks={7: 100}, descendants={9: 10}, reaped=6.5), 5.5),
+        (snapshot(process=105, tasks={7: 100}, descendants={9: 10}, reaped=1), 4),
+        (snapshot(process=104, tasks={7: 100, 8: 3}, descendants={9: 10}, reaped=1), 3),
+        (snapshot(process=104, tasks={7: 100}, descendants={9: 10}, reaped=1), 3),
+        (snapshot(process=101, tasks={7: 100}, descendants={9: 10, 10: 2}, reaped=1), 2),
+        (snapshot(process=101, tasks={7: 100}, descendants={9: 10}, reaped=6.5), 5.5),
     ],
-    ids=["main thread", "new task", "new descendant", "reaped children"],
+    ids=[
+        "main thread",
+        "new task",
+        "thread that started and ended in the phase",
+        "new descendant",
+        "reaped children",
+    ],
 )
-def test_a_phase_counts_the_main_thread_what_it_started_and_what_children_gave(
+def test_a_phase_counts_the_process_what_children_started_and_what_children_gave(
     now: CpuSnapshot, seconds: float
 ) -> None:
-    start = snapshot(main=1, tasks={7: 100}, descendants={9: 10}, reaped=1)
+    start = snapshot(process=101, tasks={7: 100}, descendants={9: 10}, reaped=1)
 
     assert time_limit.phase_cpu(start, now) == pytest.approx(seconds)
 
