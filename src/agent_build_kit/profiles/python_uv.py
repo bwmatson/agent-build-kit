@@ -21,7 +21,6 @@ import tomllib
 from collections.abc import Callable
 from pathlib import Path, PurePosixPath
 
-from agent_build_kit import path_patterns
 from agent_build_kit.config import (
     AgentCommand,
     AgentPurpose,
@@ -33,7 +32,7 @@ from agent_build_kit.config import (
     worker_options,
 )
 from agent_build_kit.installation import Installation
-from agent_build_kit.path_discovery import checkout_root, find_up
+from agent_build_kit.path_discovery import find_up
 from agent_build_kit.pipeline.commit_order import stub_violations as _stub_violations
 from agent_build_kit.pipeline.e2e import (
     E2eSelection,
@@ -180,22 +179,16 @@ def _members_of(folder: Path) -> list[str]:
     return [str(member) for member in members] if isinstance(members, list) else []
 
 
-def _is_workspace_member(project: Path) -> bool:
-    """Whether a folder above `project` (not above its checkout) lists it under
-    `tool.uv.workspace.members`. The root's own project and an unlisted folder are not."""
-    project = project.resolve()
-    stop = checkout_root(project)
-    for folder in project.parents:
-        if path_patterns.matches_any(_members_of(folder), project.relative_to(folder).as_posix()):
-            return True
-        if folder == stop:
-            break
-    return False
-
-
 def _lock_of(project: Path) -> Path | None:
     """The project's own `uv.lock`, else its workspace root's."""
     return workspace_lock(project, (LOCK,), _members_of)
+
+
+def _is_workspace_member(project: Path) -> bool:
+    """Whether the lock the project uses is a workspace root's above it: the root's own project,
+    a folder the root does not list and a workspace with no lock are not members."""
+    lock = _lock_of(project)
+    return lock is not None and lock.parent != project.resolve()
 
 
 def _path_sources(root: Path) -> list[Path]:

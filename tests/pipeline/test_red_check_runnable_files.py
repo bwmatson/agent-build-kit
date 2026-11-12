@@ -277,8 +277,22 @@ class MemberAware(Recording):
         return False, ["no tests ran, so nothing was shown to fail"]
 
 
+MEMBER_TEST = "pkg/core/tests/test_new.py"
+
+
+@pytest.mark.parametrize(
+    ("already", "changed"),
+    [
+        pytest.param({}, FAILING, id="a-new-test-is-selected-by-id"),
+        pytest.param(
+            {MEMBER_TEST: FAILING},
+            "X = 1\n" + FAILING,
+            id="a-module-level-edit-runs-the-file-whole",
+        ),
+    ],
+)
 def test_the_red_check_over_a_workspace_members_new_test_is_judged_on_the_members_command(
-    repo: Path,
+    repo: Path, already: dict[str, str], changed: str
 ) -> None:
     commit(
         repo,
@@ -286,10 +300,12 @@ def test_the_red_check_over_a_workspace_members_new_test_is_judged_on_the_member
         {
             "pyproject.toml": '[project]\nname = "r"\nversion = "0"\n'
             '[tool.uv.workspace]\nmembers = ["pkg/core"]\n',
+            "uv.lock": "version = 1\n",
             "pkg/core/pyproject.toml": '[project]\nname = "core"\nversion = "0"\n',
+            **already,
         },
     )
-    commit(repo, "test: adds one", {"pkg/core/tests/test_new.py": FAILING})
+    commit(repo, "test: changes one", {MEMBER_TEST: changed})
     profile = MemberAware(PYTHON)
 
     with profiles.registered(profile.toolchain):
