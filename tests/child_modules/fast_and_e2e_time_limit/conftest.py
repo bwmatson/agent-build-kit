@@ -3,9 +3,7 @@ from collections.abc import Callable
 
 import pytest
 
-from tests.cpu_spin import busy_cpu, make_backstop_unreachable
-
-make_backstop_unreachable()
+from tests.cpu_spin import busy_cpu
 
 
 def busy_wait(seconds: float) -> None:
