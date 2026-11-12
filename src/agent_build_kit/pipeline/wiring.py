@@ -2655,14 +2655,15 @@ def build_unit_test(
         # What the failure is given, once its outcome is known: the reruns' lines carry it.
         if slow_and_loaded and not rest:
             settle("load")
-        elif stormy:
-            settle("storm")
         else:
-            settle(
-                "isolation"
-                if any(class_of(test, classify=True) == "isolation" for test in rest)
-                else "flake"
-            )
+            if stormy:
+                others = "storm"
+            elif any(class_of(test, classify=True) == "isolation" for test in rest):
+                others = "isolation"
+            else:
+                others = "flake"
+            # A load hit beside other failures: the lines serve both records.
+            settle(f"load and {others}" if slow_and_loaded else others)
         if slow_and_loaded:
             # A time limit hit in a busy run that passed alone twice is the machine's, not the
             # test's: recorded as load, with no fix change.

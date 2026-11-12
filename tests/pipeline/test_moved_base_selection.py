@@ -118,6 +118,7 @@ def run_moved(
     after_full: bool = False,
     records_data: bool = False,
     workspace: Installation | None = None,
+    feedback: list[str] | None = None,
 ) -> tuple[bool, list[str]]:
     """Unit-test on a unit moved onto a base that gained `incoming`; with `after_full`, a full
     run on the same runner comes first, as the unit's earlier check. Returns the verdict and
@@ -139,7 +140,9 @@ def run_moved(
         assert unit_test(cwd=repo, base="main")[0]
     logged.clear()
     runner.ran.clear()
-    passed, _ = unit_test(cwd=repo, base="main", moved_from=old_base)
+    passed, output = unit_test(cwd=repo, base="main", moved_from=old_base)
+    if feedback is not None:
+        feedback.append(output)
     return passed, logged
 
 

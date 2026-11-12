@@ -194,6 +194,26 @@ def test_a_scoped_test_the_unit_added_that_passes_alone_is_a_real_failure(tmp_pa
     assert not [line for line in logged if "flak" in line.lower() and "moved base" in line]
 
 
+def test_the_serial_reruns_of_a_test_the_unit_added_are_given_the_class_unit_not_flake(
+    tmp_path: Path,
+) -> None:
+    runner = Failing(OWN_REPEAT, OWN, again=0)
+    feedback: list[str] = []
+
+    passed, logged = run_moved(
+        tmp_path, Selecting([["affected"]]), runner, feedback=feedback, **FILES
+    )
+
+    assert not passed
+    reruns = [line for line in logged if "serial rerun " in line]
+    assert len(reruns) == 2, logged
+    for line in reruns:
+        assert line.endswith("class unit"), line
+    (text,) = feedback
+    assert "class unit" in text, text
+    assert "flake" not in text.lower(), text
+
+
 def test_the_added_tests_are_repeated_over_the_same_ids_on_a_scoped_run_as_on_a_full_one(
     tmp_path: Path,
 ) -> None:

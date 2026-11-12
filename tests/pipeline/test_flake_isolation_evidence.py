@@ -618,6 +618,22 @@ def test_the_reruns_of_a_failure_recorded_as_load_carry_the_class_load_and_not_f
         assert "flake" not in line, line
 
 
+def test_a_load_hit_beside_another_failure_gives_the_load_record_lines_naming_load(
+    scratch: Path, tmp_path: Path
+) -> None:
+    other = ("FAILED", "tests/test_other.py::test_x", "gw1", "boom")
+    run = Classified(scratch, tmp_path, [hit(), other], reruns=[0, 0], load=HIGH_LOAD)
+
+    with pytest.raises(FlakeFound):
+        run.run()
+
+    (entry,) = [e for e in run.recorded() if e.classification == "load"]
+    lines = cast(list[str], entry.conditions["reruns"])
+    assert len(lines) == 2, lines
+    for line in lines:
+        assert "class load and flake" in line, line
+
+
 def test_the_reruns_of_a_storm_carry_the_class_storm_and_not_flake(
     scratch: Path, tmp_path: Path
 ) -> None:
