@@ -1573,6 +1573,22 @@ def _no_stub_checks(*, cwd: Path) -> tuple[bool, str]:
     raise RuntimeError("this runner was not given a way to run the stub checks")
 
 
+class Recheck(Frozen):
+    """What the recheck of a unit's failed tests found: whether they all passed, the tests, the
+    first run's output, and the bundle of each run that failed them (the first run and the
+    serial reruns before the recheck, then the recheck itself)."""
+
+    passed: bool
+    tests: tuple[str, ...]
+    first_output: str = ""
+    output: str = ""
+    bundles: tuple[str, ...] = ()
+
+
+def _no_recheck(*, cwd: Path, base: str, failed_output: str) -> Recheck:
+    raise NotImplementedError
+
+
 def _no_red_check(*, cwd: Path) -> tuple[bool, str]:
     return True, ""
 
@@ -1757,6 +1773,13 @@ class UnitRunner(BaseModel):
     # `Restacked.conflict` with the branch left where it was, and no agent runs.
     restack_onto: Callable[..., Restacked | None]
     run_unit_test: Callable[..., tuple[bool, str]]
+    # After a fix round that changed nothing: reruns the tests `failed_output` names once, by id
+    # and one at a time, in the environment `run_unit_test` uses, given `cwd=`, `base=` and
+    # `failed_output=`.
+    recheck_unit_test: Callable[..., Recheck] = _no_recheck
+    # Told the unit and a recheck that passed: records the tests in the flake ledger as
+    # unexplained, with the first run's evidence.
+    on_unexplained: Callable[[Unit, Recheck], None] = lambda unit, recheck: None
     # The static checks of a stubbed build's test step, given `cwd=`: whether lint, format and
     # types pass over the tree with its new files, and the output. See `wiring.build_stub_checks`.
     run_stub_checks: Callable[..., tuple[bool, str]] = _no_stub_checks

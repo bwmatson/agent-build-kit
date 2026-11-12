@@ -15,8 +15,9 @@ from typing import Any
 from agent_build_kit.config import active
 from agent_build_kit.pipeline.commit_order import TESTS_PREFIX
 from agent_build_kit.pipeline.group_mode import GroupMode
-from agent_build_kit.pipeline.stack_runner import UnitRunner
+from agent_build_kit.pipeline.stack_runner import Recheck, UnitRunner
 from agent_build_kit.pipeline.unit_store import UnitStore
+from agent_build_kit.pipeline.units import Unit
 
 
 class Killed(BaseException):
@@ -51,6 +52,8 @@ class Recorder:
         self.logged: list[str] = []
         self.verdicts: list[str] = []
         self.commits_from_impl = commits_from_impl
+        # Commits the implementation rounds make, one entry per round, before `commits_from_impl`.
+        self.commits_by_round: list[int] = []
         self.unit_test_ok = unit_test_ok
         self.kill_after = kill_after
         self.push_raises = push_raises
@@ -64,6 +67,12 @@ class Recorder:
         # The failed output each unit-test run was given to select tests by ("" when none).
         self.unit_test_failed_outputs: list[str] = []
         self.unit_test_moved_from: list[str | None] = []
+        # What the recheck after a no-change fix round finds; once spent, a pass of the tests the
+        # failed output names. `rechecks` holds the failed output each recheck was given, and
+        # `unexplained` the rechecks that passed and were recorded in the ledger.
+        self.recheck_results: list[Recheck] = []
+        self.rechecks: list[str] = []
+        self.unexplained: list[Recheck] = []
         self.made = 0
         # What the fake build committed; None when a test set nothing.
         self.changed: tuple[str, ...] | None = None
@@ -126,7 +135,12 @@ class Recorder:
         self.messages.append(message)
         subject = message.split("\n", 1)[0]
         self.subjects.append(subject)
-        count = 1 if subject.startswith(TESTS_PREFIX) else self.commits_from_impl
+        if subject.startswith(TESTS_PREFIX):
+            count = 1
+        elif self.commits_by_round:
+            count = self.commits_by_round.pop(0)
+        else:
+            count = self.commits_from_impl
         self.made += count
         self._after(f"commit:{message.split(':')[0]}")
         return count
@@ -166,6 +180,17 @@ class Recorder:
         if self.unit_test_results:
             return self.unit_test_results.pop(0)
         return self.unit_test_ok, self.unit_test_output
+
+    def recheck(self, *, cwd: Path, base: str = "main", failed_output: str = "") -> Recheck:
+        self.events.append("recheck")
+        self.rechecks.append(failed_output)
+        if self.recheck_results:
+            return self.recheck_results.pop(0)
+        return Recheck(passed=True, tests=(), first_output=failed_output)
+
+    def record_unexplained(self, unit: Unit, recheck: Recheck) -> None:
+        self.events.append("unexplained")
+        self.unexplained.append(recheck)
 
     def e2e(self, *, cwd: Path, base: str | None = None) -> tuple[bool, str]:
         self.events.append("e2e-test")
@@ -237,6 +262,8 @@ def make_runner(
         upstream_incomplete=lambda u: None,
         restack_onto=lambda **kw: None,
         run_unit_test=recorder.unit_test,
+        recheck_unit_test=recorder.recheck,
+        on_unexplained=recorder.record_unexplained,
         run_e2e=recorder.e2e,
         push=recorder.push,
         open_pr=recorder.open_pr,
