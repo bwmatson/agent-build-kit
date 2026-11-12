@@ -603,6 +603,38 @@ def test_a_time_limit_hit_under_high_load_that_passes_alone_is_load_and_writes_n
     assert entry.conditions["load_high"] is True
 
 
+def test_the_reruns_of_a_failure_recorded_as_load_carry_the_class_load_and_not_flake(
+    scratch: Path, tmp_path: Path
+) -> None:
+    run = Classified(scratch, tmp_path, [hit()], reruns=[0, 0], load=HIGH_LOAD)
+
+    run.run()
+
+    (entry,) = run.recorded()
+    lines = cast(list[str], entry.conditions["reruns"])
+    assert len(lines) == 2, lines
+    for line in lines:
+        assert line.endswith("class load"), line
+        assert "flake" not in line, line
+
+
+def test_the_reruns_of_a_storm_carry_the_class_storm_and_not_flake(
+    scratch: Path, tmp_path: Path
+) -> None:
+    entries = [("FAILED", f"tests/test_many.py::test_case_{n}", "gw0", "boom") for n in range(3)]
+    run = Classified(scratch, tmp_path, entries, reruns=[0, 0], load=IDLE_LOAD)
+
+    passed, _ = run.run()
+
+    assert passed
+    (row,) = storms(run.installation)
+    lines = row["conditions"]["reruns"]
+    assert len(lines) == 2, lines
+    for line in lines:
+        assert line.endswith("class storm"), line
+        assert "flake" not in line, line
+
+
 def test_a_failure_on_a_shared_resource_on_an_idle_host_that_passes_alone_is_isolation(
     scratch: Path, tmp_path: Path
 ) -> None:
