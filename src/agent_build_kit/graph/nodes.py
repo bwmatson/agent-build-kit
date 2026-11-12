@@ -2264,7 +2264,33 @@ class BuildPath:
             unchanged_message=lambda n: (
                 f"checks failing and fix round {n} changed nothing, before review"
             ),
+            on_unchanged=lambda n: self.recheck(state, n),
         )
+
+    def recheck(self, state: UnitRun, attempt: int) -> Update | None:
+        """After a checks fix round that changed nothing: run the failed tests once more, by id.
+        A pass goes on to review with the tests recorded as unexplained; a failure holds the unit
+        for a person, naming the tests and the bundle of each run. None when the runner cannot
+        recheck, and the round stops the unit."""
+        r, unit = self.runner, self.unit
+        tree = self.tree()
+        found = r.recheck_unit_test(
+            cwd=tree, base=self.ref(state), failed_output=r.store.get(unit.id).feedback
+        )
+        if found is None:
+            return None
+        tests = ", ".join(found.tests) or "the failed tests"
+        r.store.set_feedback(unit.id, "")
+        if found.passed:
+            r.on_unexplained(unit, found)
+            self.say(f"fix round {attempt} changed nothing; went on after a recheck of {tests}")
+            return {"fix_rounds": attempt, "checks_ok": True, "head": r.head(tree)}
+        bundles = ", ".join(found.bundles) or "none kept"
+        note = (
+            f"fix round {attempt} changed nothing and {tests} failed three runs (the first, "
+            f"the serial rerun and the recheck); a person judges it. Bundles: {bundles}"
+        )
+        return self.hold(HELD, note, note, cause=Cause.NEEDS_HUMAN)
 
     def product_files(self, state: UnitRun) -> Update | None:
         """The stop for an `[e2e-test]` unit whose branch changes a file that is no test path,
@@ -3670,7 +3696,8 @@ def after_restack_review(state: UnitRun) -> Node:
 
 
 def after_fix_checks(state: UnitRun) -> Node:
-    return halted(state) or Node.CHECKS
+    # A recheck that passed has judged the checks: on to review, with no second run.
+    return halted(state) or (Node.RESTACK_REVIEW if state.checks_ok else Node.CHECKS)
 
 
 def after_review(state: UnitRun) -> Node:
@@ -3824,7 +3851,10 @@ ROUTES: Mapping[Node, tuple[Callable[[UnitRun], Target], tuple[Target, ...]]] = 
         after_restack_review,
         (Node.HELD, Node.FAILED, Node.PREPARE, Node.UNIT_TEST, Node.REVIEW),
     ),
-    Node.FIX_CHECKS: (after_fix_checks, (Node.HELD, Node.FAILED, Node.CHECKS)),
+    Node.FIX_CHECKS: (
+        after_fix_checks,
+        (Node.HELD, Node.FAILED, Node.CHECKS, Node.RESTACK_REVIEW),
+    ),
     Node.REVIEW: (
         after_review,
         (Node.HELD, Node.FAILED, Node.PUSH, Node.E2E, Node.VERIFY_BASE, Node.REWORK),

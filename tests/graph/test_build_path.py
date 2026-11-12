@@ -295,12 +295,14 @@ def test_a_budget_of_zero_still_checks_but_makes_no_fix_attempt(tmp_path: Path) 
     assert "review" not in recorder.events
 
 
-def test_a_fix_that_leaves_the_branch_as_it_was_stops_the_run(tmp_path: Path) -> None:
+def test_a_fix_that_leaves_the_branch_as_it_was_stops_a_runner_that_cannot_recheck(
+    tmp_path: Path,
+) -> None:
     limited(max_check_rounds=None)
     recorder = fresh(tmp_path, commits_from_impl=0, unit_test_ok=False)
     recorder.unit_test_output = FAILING
 
-    outcome = build(tmp_path, recorder)
+    outcome = build(tmp_path, recorder, recheck_unit_test=lambda **_: None)
 
     assert outcome.status == "failed"
     assert "changed nothing" in outcome.detail

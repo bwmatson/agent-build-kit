@@ -68,7 +68,7 @@ class Flake(Recorded, Evidenced):
     # The class the classification reached for a test that passed alone: `flake`, `load` (a time
     # limit hit in a run under high load: no fix change) or `isolation` (a shared resource, with
     # no high load).
-    classification: Literal["flake", "load", "isolation"] = "flake"
+    classification: Literal["flake", "load", "isolation", "unexplained"] = "flake"
 
 
 def waiting_note(tests: list[str], *, failing: bool = False) -> str:

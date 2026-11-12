@@ -55,7 +55,7 @@ def test_a_round_whose_agent_edits_nothing_and_whose_fixers_change_a_file_is_not
     assert any("fixers changed 1 file(s)" in line for line in recorder.logged)
 
 
-def test_a_round_whose_agent_and_fixers_change_nothing_still_stops_the_unit(
+def test_a_round_whose_agent_and_fixers_change_nothing_still_stops_a_runner_that_cannot_recheck(
     tmp_path: Path,
 ) -> None:
     limited(max_check_rounds=None)
@@ -63,7 +63,9 @@ def test_a_round_whose_agent_and_fixers_change_nothing_still_stops_the_unit(
     recorder = Formatting(fresh_store(tmp_path).store, commits_from_impl=0, unit_test_ok=False)
     recorder.unit_test_output = FAILING
 
-    outcome = build(tmp_path, recorder, **recorder.overrides(tmp_path))
+    outcome = build(
+        tmp_path, recorder, **recorder.overrides(tmp_path), recheck_unit_test=lambda **_: None
+    )
 
     assert outcome.status == "failed"
     assert "checks failing and fix round 1 changed nothing, before review" in outcome.detail

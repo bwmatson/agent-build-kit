@@ -16,8 +16,9 @@ from agent_build_kit.graph import check_loop
 from agent_build_kit.graph.nodes import BuildPath
 from agent_build_kit.graph.state import UnitRun
 from agent_build_kit.pipeline.flakes import Flake, FlakeFound
-from agent_build_kit.pipeline.stack_runner import UNIT_TEST_FAILED
-from agent_build_kit.pipeline.unit_store import FeedbackSource
+from agent_build_kit.pipeline.stack_runner import UNIT_TEST_FAILED, Recheck, RunStatus
+from agent_build_kit.pipeline.unit_store import Cause, FeedbackSource
+from agent_build_kit.pipeline.units import HELD
 from tests.factories import unit
 from tests.graph.stub_loop_fakes import StubLoop, feedback_writes, stubbed_build
 from tests.graph.test_build_path import build, limited
@@ -162,14 +163,14 @@ def test_a_stub_fix_round_that_changes_nothing_stops_the_unit(
     routine.assert_ran(fix=True)
 
 
-def test_a_checks_fix_round_that_edits_and_commits_nothing_stops_the_unit(
+def test_a_checks_fix_round_that_edits_and_commits_nothing_stops_a_runner_that_cannot_recheck(
     tmp_path: Path, routine: Routine
 ) -> None:
     limited(max_check_rounds=None)
     recorder = Recorder(fresh_store(tmp_path).store, commits_from_impl=0, unit_test_ok=False)
     recorder.unit_test_output = FAILING
 
-    outcome = build(tmp_path, recorder)
+    outcome = build(tmp_path, recorder, recheck_unit_test=lambda **_: None)
 
     assert outcome.status == "failed"
     assert "checks failing and fix round 1 changed nothing, before review" in outcome.detail
@@ -270,3 +271,73 @@ def test_the_stop_digest_is_the_head_and_the_tree_state(tmp_path: Path, routine:
     assert stopped.status == "failed"
     assert "static checks failing and fix round 1 changed nothing" in stopped.detail
     assert routine.fixes >= 2
+
+
+TEST_ID = "tests/test_y.py::test_other"
+BUNDLES = ("bundles/first", "bundles/rerun", "bundles/recheck")
+
+
+def no_change_recorder(tmp_path: Path, *rechecks: Recheck) -> Recorder:
+    """A recorder whose unit-test run fails once and whose fix round commits nothing."""
+    limited(max_check_rounds=None)
+    recorder = Recorder(fresh_store(tmp_path).store, commits_from_impl=0)
+    recorder.unit_test_results = [(False, FAILING), (True, "")]
+    recorder.recheck_results = list(rechecks)
+    return recorder
+
+
+def test_a_no_change_fix_round_that_then_passes_goes_on_to_review_after_one_recheck(
+    tmp_path: Path, routine: Routine
+) -> None:
+    passed = Recheck(passed=True, tests=(TEST_ID,), first_output=FAILING, bundles=BUNDLES[:2])
+    recorder = no_change_recorder(tmp_path, passed)
+
+    outcome = build(tmp_path, recorder)
+
+    assert outcome.status == "open"
+    assert recorder.rechecks == [f"{UNIT_TEST_FAILED}\n{FAILING}"]
+    steps = [e for e in recorder.events if e in ("unit-test", "recheck", "review")]
+    assert steps == ["unit-test", "recheck", "review"], "no second run of the checks"
+    assert recorder.unexplained == [passed], "the ledger holds the first run's evidence"
+    assert any("after a recheck" in line for line in recorder.logged), recorder.logged
+    routine.assert_ran(fix=True)
+
+
+def test_a_no_change_fix_round_whose_recheck_fails_holds_the_unit_for_a_person(
+    tmp_path: Path, routine: Routine
+) -> None:
+    failed = Recheck(
+        passed=False, tests=(TEST_ID,), first_output=FAILING, output=FAILING, bundles=BUNDLES
+    )
+    recorder = no_change_recorder(tmp_path, failed)
+
+    outcome = build(tmp_path, recorder)
+
+    stored = recorder.store.get(unit().id)
+    assert outcome.status == RunStatus.HELD
+    assert (stored.state, stored.cause) == (HELD, Cause.NEEDS_HUMAN)
+    assert TEST_ID in stored.note and "three" in stored.note
+    assert all(bundle in stored.note for bundle in BUNDLES)
+    assert len(recorder.rechecks) == 1
+    assert recorder.unexplained == []
+    assert "review" not in recorder.events and "push" not in recorder.events
+    routine.assert_ran(fix=True)
+
+
+def test_one_recheck_is_made_for_the_no_change_round_and_none_for_the_round_that_committed(
+    tmp_path: Path, routine: Routine
+) -> None:
+    limited(max_check_rounds=None)
+    recorder = Recorder(fresh_store(tmp_path).store)
+    recorder.unit_test_results = [(False, FAILING), (False, FAILING), (True, "")]
+    recorder.commits_by_round = [1, 1, 0]  # the build, then the two fix rounds
+    passed = Recheck(passed=True, tests=(TEST_ID,), first_output=FAILING, bundles=BUNDLES[:2])
+    recorder.recheck_results = [passed]
+
+    outcome = build(tmp_path, recorder)
+
+    assert outcome.status == "open"
+    steps = [e for e in recorder.events if e in ("unit-test", "recheck", "review")]
+    assert steps == ["unit-test", "unit-test", "recheck", "review"]
+    assert len(recorder.rechecks) == 1
+    routine.assert_ran(fix=True)

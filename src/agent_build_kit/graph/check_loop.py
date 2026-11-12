@@ -8,7 +8,7 @@ is a callable, and what differs between the loops is the `CheckLoop` a node pass
 from __future__ import annotations
 
 from collections.abc import Callable
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from agent_build_kit.config import active, models
 from agent_build_kit.graph.state import UnitRun
@@ -37,7 +37,8 @@ class CheckLoop(Frozen):
     `prompt` and `follow_up` take the redacted feedback and the person's guidance; `clears` says
     whether a pass erases the saved feedback; `already_done` says a fix round is already on the
     branch; `on_failure` is told of each failed check with its round; `annotate` adds to the
-    failed output before it is saved as feedback."""
+    failed output before it is saved as feedback; `on_unchanged` is given the round that changed
+    nothing and answers with an update in place of the stop, or None to stop."""
 
     check: Callable[[], tuple[bool, str]]
     source: FeedbackSource
@@ -51,6 +52,7 @@ class CheckLoop(Frozen):
     already_done: Callable[[], bool] | None = None
     on_failure: Callable[[str, int], None] | None = None
     annotate: Callable[[str], str] | None = None
+    on_unchanged: Callable[[int], dict[str, Any] | None] | None = None
     spent_message: Callable[[int], str]
     unchanged_message: Callable[[int], str]
 
@@ -117,5 +119,7 @@ def fix_round(nodes: BuildPath, state: UnitRun, loop: CheckLoop) -> Update:
         nodes.apply_fixers()
         r.commit(loop.commit.format(title=unit.title, n=attempt), cwd=tree, base=nodes.ref(state))
     if (r.head(tree), r.tree_state(tree)) == before:
+        if loop.on_unchanged is not None and (answer := loop.on_unchanged(attempt)) is not None:
+            return answer
         return nodes.stop(loop.unchanged_message(attempt))
     return {loop.rounds: attempt}
