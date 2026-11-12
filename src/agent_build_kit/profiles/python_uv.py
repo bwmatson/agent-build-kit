@@ -287,15 +287,58 @@ def by_id_selection(project: Path | None) -> str:
 
 
 _SKIPPED_FOLDERS = frozenset({"node_modules", "__pycache__", "venv"})
-_INTEGRATION_MARK = re.compile(r"\bmark\.integration\b")
 
 
-def unread_scans(repo: Path, changed_files: list[str], helper: str) -> list[Path]:
-    """The test modules of `repo` marked `integration` that walk the tree through `helper` and
-    read none of `changed_files`: a selection leaves them out, since a change they do not read
-    cannot make them fail. A module that does not call `helper`, or is not marked, is not
-    listed."""
-    found: list[Path] = []
+def _is_integration_mark(node: ast.expr) -> bool:
+    """Whether `node`, a decorator or a `pytestmark` value, is `<...>.mark.integration`, called
+    or not, or a list or tuple holding one."""
+    if isinstance(node, (ast.List, ast.Tuple)):
+        return any(_is_integration_mark(e) for e in node.elts)
+    if isinstance(node, ast.Call):
+        node = node.func
+    return (
+        isinstance(node, ast.Attribute)
+        and node.attr == "integration"
+        and isinstance(node.value, ast.Attribute)
+        and node.value.attr == "mark"
+    )
+
+
+def _module_marked(tree: ast.Module) -> bool:
+    return any(
+        isinstance(node, ast.Assign)
+        and any(isinstance(t, ast.Name) and t.id == "pytestmark" for t in node.targets)
+        and _is_integration_mark(node.value)
+        for node in tree.body
+    )
+
+
+def _unread_in(
+    body: list[ast.stmt], prefix: str, marked: bool, changed_files: list[str], helper: str
+) -> list[str]:
+    found: list[str] = []
+    for node in body:
+        if isinstance(node, ast.ClassDef):
+            here = marked or any(_is_integration_mark(d) for d in node.decorator_list)
+            found += _unread_in(node.body, f"{prefix}{node.name}::", here, changed_files, helper)
+        elif isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name.startswith(
+            "test"
+        ):
+            calls = _helper_calls(node, helper)
+            if (marked or any(_is_integration_mark(d) for d in node.decorator_list)) and (
+                calls and not any(_call_reads_any_of(c, changed_files) for c in calls)
+            ):
+                found.append(f"{prefix}{node.name}")
+    return found
+
+
+def unread_scans(repo: Path, changed_files: list[str], helper: str) -> list[str]:
+    """The node ids (relative to `repo`) of the tests marked `integration` whose own body calls
+    `helper` and reads none of `changed_files`: a selection deselects them, since a change they
+    do not read cannot make them fail. Decided per test from the syntax tree: a test that does
+    not call `helper`, an unmarked one, and a file that names the helper or the mark only in a
+    string are never listed."""
+    found: list[str] = []
     for folder, names, files in os.walk(repo):
         names[:] = [n for n in names if not n.startswith(".") and n not in _SKIPPED_FOLDERS]
         for name in files:
@@ -303,29 +346,30 @@ def unread_scans(repo: Path, changed_files: list[str], helper: str) -> list[Path
             if not _COLLECTED_FILE.match(name):
                 continue
             try:
-                source = path.read_text()
-            except (OSError, UnicodeDecodeError):
+                tree = ast.parse(path.read_text())
+            except (OSError, UnicodeDecodeError, SyntaxError, ValueError):
                 continue
-            if _INTEGRATION_MARK.search(source) and helper in source:
-                try:
-                    reads = reads_any_of(source, changed_files, helper=helper)
-                except SyntaxError:
-                    continue
-                if not reads:
-                    found.append(path)
+            relative = path.relative_to(repo).as_posix()
+            found += _unread_in(
+                tree.body, f"{relative}::", _module_marked(tree), changed_files, helper
+            )
     return sorted(found)
 
 
-def reads_any_of(source: str, changed_files: list[str], *, helper: str) -> bool:
-    """Whether a test module that walks the tree through `helper` reads any of `changed_files`,
-    from the `under`, `names` and `suffixes` arguments of the helper's calls, read from the
-    module's `source` by its syntax tree. A call with no argument, or one whose argument is not
-    a literal, reads the whole tree; a module that never calls the helper reads none."""
-    calls = [
+def _helper_calls(tree: ast.AST, helper: str) -> list[ast.Call]:
+    return [
         node
-        for node in ast.walk(ast.parse(source))
+        for node in ast.walk(tree)
         if isinstance(node, ast.Call) and _called_name(node.func) == helper
     ]
+
+
+def reads_any_of(source: str, changed_files: list[str], *, helper: str) -> bool:
+    """Whether code that walks the tree through `helper` reads any of `changed_files`, from the
+    `under`, `names` and `suffixes` arguments of the helper's calls, read from `source` by its
+    syntax tree. A call with no argument, or one whose argument is not a literal, reads the
+    whole tree; source that never calls the helper reads none."""
+    calls = _helper_calls(ast.parse(source), helper)
     return any(_call_reads_any_of(call, changed_files) for call in calls)
 
 
@@ -1131,8 +1175,8 @@ class PythonUvProfile:
         """The test commands of the change, selecting by the source each test executed when
         the seed data of an earlier full run is there; otherwise the failed tests alone,
         and None when none is named, so that the full suite stands in. Given the repo's
-        `scan_helper`, a selected run leaves out each integration-marked module that walks the
-        tree through it and reads none of the changed files."""
+        `scan_helper`, a selected run deselects each integration-marked test whose body walks
+        the tree through it and reads none of the changed files."""
         commands = self.test_commands(
             repo, changed_files, root_extras=root_extras, workers=workers, max_workers=max_workers
         )
@@ -1140,8 +1184,10 @@ class PythonUvProfile:
             if not all(self._places(path) for path in changed_files):
                 return None
             left_out = [
-                f"--ignore={path}"
-                for path in (unread_scans(repo, changed_files, scan_helper) if scan_helper else [])
+                f"--deselect={test_id}"
+                for test_id in (
+                    unread_scans(repo, changed_files, scan_helper) if scan_helper else []
+                )
             ]
             return [
                 [*self.seeding_command(command, seed, select=True, project=repo), *left_out]

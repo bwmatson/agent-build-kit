@@ -304,7 +304,11 @@ def scan_module(repo: Path, name: str, under: str, *, marked: bool = True) -> st
         "from tests.tracked_files import guarded_files\n\n"
         f"{mark}def test_scan():\n    guarded_files(under=['{under}'])\n"
     )
-    return f"--ignore={path}"
+    return f"--deselect=tests/{name}::test_scan"
+
+
+def no_file_ignored(chosen: list[str]) -> bool:
+    return not any(word.startswith("--ignore") for word in chosen)
 
 
 def select(repo: Path, tmp_path: Path, helper: str | None) -> list[str]:
@@ -326,6 +330,7 @@ def test_an_integration_scan_that_reads_none_of_the_changed_files_is_left_out(
 
     assert docs_scan in chosen
     assert src_scan not in chosen
+    assert no_file_ignored(chosen)
 
 
 def test_no_scan_is_left_out_without_a_configured_helper(tmp_path: Path) -> None:
@@ -340,3 +345,46 @@ def test_a_scan_not_marked_integration_is_never_left_out(tmp_path: Path) -> None
     plain_scan = scan_module(repo, "test_plain_scan.py", "docs", marked=False)
 
     assert plain_scan not in select(repo, tmp_path, HELPER)
+
+
+def test_a_file_mixing_a_plain_test_and_a_marked_scan_deselects_only_the_scan(
+    tmp_path: Path,
+) -> None:
+    repo = integration_repo(tmp_path)
+    (repo / "tests" / "test_mixed.py").write_text(
+        "import pytest\n"
+        "from tests.tracked_files import guarded_files\n\n"
+        "def test_plain():\n    assert True\n\n"
+        "@pytest.mark.integration\n"
+        "def test_scan():\n    guarded_files(under=['docs'])\n\n"
+        "@pytest.mark.integration\n"
+        "def test_marked_without_a_scan():\n    assert True\n\n"
+        "@pytest.mark.integration\n"
+        "class TestScans:\n"
+        "    def test_docs(self):\n        guarded_files(under=['docs'])\n"
+    )
+
+    chosen = select(repo, tmp_path, HELPER)
+
+    deselected = [w for w in chosen if w.startswith("--deselect")]
+    assert deselected == [
+        "--deselect=tests/test_mixed.py::TestScans::test_docs",
+        "--deselect=tests/test_mixed.py::test_scan",
+    ]
+    assert no_file_ignored(chosen)
+
+
+def test_a_file_naming_the_helper_and_the_mark_only_in_strings_is_neither_ignored_nor_deselected(
+    tmp_path: Path,
+) -> None:
+    repo = integration_repo(tmp_path)
+    (repo / "tests" / "test_strings.py").write_text(
+        "def test_text():\n"
+        "    source = 'pytestmark = pytest.mark.integration\\nguarded_files(under=[\"docs\"])'\n"
+        "    assert source\n"
+    )
+
+    chosen = select(repo, tmp_path, HELPER)
+
+    assert no_file_ignored(chosen)
+    assert not any(w.startswith("--deselect") for w in chosen)
