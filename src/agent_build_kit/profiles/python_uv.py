@@ -291,7 +291,49 @@ def reads_any_of(source: str, changed_files: list[str], *, helper: str = "guarde
     from the `under`, `names` and `suffixes` arguments of the helper's calls, read from the
     module's `source` by its syntax tree. A call with no argument, or one whose argument is not
     a literal, reads the whole tree; a module that never calls the helper reads none."""
-    raise NotImplementedError
+    calls = [
+        node
+        for node in ast.walk(ast.parse(source))
+        if isinstance(node, ast.Call) and _called_name(node.func) == helper
+    ]
+    return any(_call_reads_any_of(call, changed_files) for call in calls)
+
+
+def _called_name(func: ast.expr) -> str:
+    if isinstance(func, ast.Name):
+        return func.id
+    return func.attr if isinstance(func, ast.Attribute) else ""
+
+
+def _literal_strings(node: ast.expr) -> list[str] | None:
+    """The strings of a list, tuple or set literal; None when it is anything else."""
+    if not isinstance(node, (ast.List, ast.Tuple, ast.Set)):
+        return None
+    if not all(isinstance(e, ast.Constant) and isinstance(e.value, str) for e in node.elts):
+        return None
+    return [str(e.value) for e in node.elts if isinstance(e, ast.Constant)]
+
+
+def _call_reads_any_of(call: ast.Call, changed_files: list[str]) -> bool:
+    declared: dict[str, list[str]] = {}
+    for keyword in call.keywords:
+        if keyword.arg not in ("under", "names", "suffixes"):
+            continue
+        values = _literal_strings(keyword.value)
+        if values is None:
+            return True
+        declared[keyword.arg] = values
+    if call.args or not declared:
+        return True
+    under, names, suffixes = (declared.get(k) for k in ("under", "names", "suffixes"))
+    for path in changed_files:
+        if names and path in names:
+            return True
+        inside = under is None or any(path.startswith(f"{u.rstrip('/')}/") for u in under)
+        suffixed = suffixes is None or any(path.endswith(s) for s in suffixes)
+        if (under is not None or suffixes is not None) and inside and suffixed:
+            return True
+    return False
 
 
 def _lifted_marker(expression: str) -> str:
@@ -1057,8 +1099,11 @@ class PythonUvProfile:
         if seed.is_file():
             if not all(self._places(path) for path in changed_files):
                 return None
-            return [self.seeding_command(command, seed, select=True) for command in commands]
-        alone = [self.repeat_command(command, failed_ids) for command in commands]
+            return [
+                self.seeding_command(command, seed, select=True, project=repo)
+                for command in commands
+            ]
+        alone = [self.repeat_command(command, failed_ids, project=repo) for command in commands]
         return [command for command in alone if command is not None] or None
 
     def _places(self, path: str) -> bool:
@@ -1103,7 +1148,10 @@ class PythonUvProfile:
         flag = "--testmon-forceselect" if select else "--testmon-noselect"
         # testmon says it switched the selection off in pytest's report header, which `-q`
         # hides: a selection nets its `-q` words back to the default verbosity.
-        louder = ["-v"] * command[program + 1 :].count("-q") if select else []
+        rest = command[program + 1 :]
+        louder = ["-v"] * rest.count("-q") if select else []
+        if project is not None:
+            rest = _by_id_options(rest, project)
         return [
             "env",
             f"TESTMON_DATAFILE={seed}",
@@ -1113,7 +1161,7 @@ class PythonUvProfile:
             *command[program : program + 1],
             flag,
             _TESTMON_ENV,
-            *command[program + 1 :],
+            *rest,
             *louder,
         ]
 

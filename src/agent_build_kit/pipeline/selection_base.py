@@ -163,7 +163,7 @@ def _recording_run(
             for command in profile.test_commands_all(
                 checkout, root_extras=root_extras, workers=workers, max_workers=max_workers
             ):
-                result = run(profile.seeding_command(command, seed), cwd=checkout)
+                result = run(profile.seeding_command(command, seed, project=checkout), cwd=checkout)
                 if result.returncode and not profile.tolerates_exit(command, result.returncode):
                     raise RuntimeError(
                         f"the recording run of {commit} failed (exit {result.returncode})"

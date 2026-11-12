@@ -196,7 +196,7 @@ def test_the_serial_half_of_a_split_run_is_lifted_in_the_seeded_command(tmp_path
 
     seeded_run = PROFILE.seeding_command(command, tmp_path / "seed", select=True, project=repo)
 
-    assert marker_of(seeded_run) == f"(integration or {DEFAULT_RUN}) and serial"
+    assert marker_of(seeded_run) == f"(integration or ({DEFAULT_RUN})) and serial"
 
 
 def test_a_selection_that_reaches_an_integration_test_runs_it_with_a_slow_test_still_out(

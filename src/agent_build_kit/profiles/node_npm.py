@@ -456,7 +456,12 @@ class NodeNpmProfile:
         for folder, files in related.items():
             if folder in covered or (not folder and commands):
                 continue
-            commands.append(["sh", "-c", _RELATED, "sh", folder or _HERE, *files])
+            let_through = [
+                f"--exclude=!{pattern}"
+                for pattern in _exclude_patterns(repo / folder)
+                if "integration" in pattern.lower()
+            ]
+            commands.append(["sh", "-c", _RELATED, "sh", folder or _HERE, *files, *let_through])
         left = [p for p in root_failed if not any(p in c[5:] for c in commands)]
         if left:
             commands.append(["sh", "-c", _FILTERED, "sh", _HERE, *left])

@@ -2109,7 +2109,7 @@ def build_unit_test(
                 is_test = index >= len(commands) - tests
                 # A full run keeps the data a later selection reads, without selecting.
                 command = (
-                    toolchain.seeding_command(planned, selection_seed(where))
+                    toolchain.seeding_command(planned, selection_seed(where), project=where)
                     if is_test
                     and affected is not None
                     and not whole_repo

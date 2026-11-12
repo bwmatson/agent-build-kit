@@ -22,7 +22,11 @@
   checks name those tests by id and lift the integration kind out of the repository's default
   marker deselection for them, so an integration test is judged red at the tests commit and
   repeated like any other test, including under the parallel and serial split. Every other kind
-  the repository deselects (end-to-end, slow, credentialed) stays out.
+  the repository deselects (end-to-end, slow, credentialed) stays out. The affected-tests
+  selection and the full recording run that feeds it let the integration kind through the same
+  way, a node project's affected run includes the integration files its default run excludes,
+  and a test module that walks the tree can declare what it reads so it is selected only when
+  one of those files changes.
 
 - A rejected red check now keeps the reasons it was rejected for, and a commit with the same
   content is answered with them and a note that the check was not run again, instead of only
