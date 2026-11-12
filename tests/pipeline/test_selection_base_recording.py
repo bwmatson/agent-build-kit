@@ -112,6 +112,23 @@ def test_the_recording_is_the_profiles_full_run_of_a_checkout_of_the_bases_tip(
     assert [r.commit for r in kept_recordings(setup.store)] == [tip]
 
 
+def test_the_recording_run_lets_the_integration_kind_through_the_repos_default_run(
+    setup: Setup,
+) -> None:
+    (setup.base.repo / "pyproject.toml").write_text(
+        '[project]\nname = "x"\n[tool.pytest.ini_options]\n'
+        "addopts = \"-m 'not integration and not slow'\"\n"
+    )
+    setup.base.move()
+    run = Runner()
+
+    setup.record(run)
+
+    (command, _where, _head) = run.ran[0]
+    assert "--testmon-noselect" in command
+    assert command[command.index("-m") + 1].startswith("integration or (")
+
+
 def test_the_checkout_the_recording_ran_in_is_removed(setup: Setup) -> None:
     run = Runner()
 

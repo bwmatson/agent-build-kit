@@ -125,6 +125,23 @@ def test_the_first_full_run_records_the_seed_data_in_the_units_worktree(
     assert not any("testmon" in word for word in plain)
 
 
+def test_the_first_full_run_lets_the_integration_kind_through_the_repos_default_run(
+    tmp_path: Path, clock: FakeClock
+) -> None:
+    repo = repo_at(tmp_path)
+    (repo / "pyproject.toml").write_text(
+        '[project]\nname = "x"\n[tool.pytest.ini_options]\n'
+        "addopts = \"-m 'not integration and not slow'\"\n"
+    )
+    runner = Runner(clock)
+
+    unit_test_for(repo, runner)(cwd=repo, base="main")
+
+    (recording,) = runner.full_runs()
+    assert "--testmon-noselect" in recording
+    assert recording[recording.index("-m") + 1].startswith("integration or (")
+
+
 def test_a_rebuilt_worktree_with_no_seed_data_falls_back_to_the_failed_test_without_failing(
     tmp_path: Path, clock: FakeClock
 ) -> None:

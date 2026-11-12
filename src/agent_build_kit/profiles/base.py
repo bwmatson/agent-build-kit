@@ -458,11 +458,14 @@ class SelectsAffectedTests(Protocol):
         root_extras: list[str],
         workers: str | int = "auto",
         max_workers: int = 8,
+        scan_helper: str | None = None,
     ) -> list[list[str]] | None:
         """The commands that run the tests the change affects: an empty list when none
         is affected, None when the profile cannot say. `failed_ids` are the tests the
         failed check named; `seed` is a path the profile may keep selection data in;
-        `root_extras` are what the repo's root tests need, as for `test_commands`."""
+        `root_extras` are what the repo's root tests need, as for `test_commands`.
+        `scan_helper` names the helper whose arguments declare what a whole-tree scan test
+        reads (`tests.scan_helper`), for a profile that can use it."""
         ...
 
 

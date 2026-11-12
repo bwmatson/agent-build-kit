@@ -19,7 +19,7 @@ import subprocess
 import sys
 import tomllib
 from collections.abc import Callable
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 
 from agent_build_kit.config import (
     AgentCommand,
@@ -286,7 +286,37 @@ def by_id_selection(project: Path | None) -> str:
     return f"integration or ({existing})" if existing else ""
 
 
-def reads_any_of(source: str, changed_files: list[str], *, helper: str = "guarded_files") -> bool:
+_SKIPPED_FOLDERS = frozenset({"node_modules", "__pycache__", "venv"})
+_INTEGRATION_MARK = re.compile(r"\bmark\.integration\b")
+
+
+def unread_scans(repo: Path, changed_files: list[str], helper: str) -> list[Path]:
+    """The test modules of `repo` marked `integration` that walk the tree through `helper` and
+    read none of `changed_files`: a selection leaves them out, since a change they do not read
+    cannot make them fail. A module that does not call `helper`, or is not marked, is not
+    listed."""
+    found: list[Path] = []
+    for folder, names, files in os.walk(repo):
+        names[:] = [n for n in names if not n.startswith(".") and n not in _SKIPPED_FOLDERS]
+        for name in files:
+            path = Path(folder, name)
+            if not _COLLECTED_FILE.match(name):
+                continue
+            try:
+                source = path.read_text()
+            except (OSError, UnicodeDecodeError):
+                continue
+            if _INTEGRATION_MARK.search(source) and helper in source:
+                try:
+                    reads = reads_any_of(source, changed_files, helper=helper)
+                except SyntaxError:
+                    continue
+                if not reads:
+                    found.append(path)
+    return sorted(found)
+
+
+def reads_any_of(source: str, changed_files: list[str], *, helper: str) -> bool:
     """Whether a test module that walks the tree through `helper` reads any of `changed_files`,
     from the `under`, `names` and `suffixes` arguments of the helper's calls, read from the
     module's `source` by its syntax tree. A call with no argument, or one whose argument is not
@@ -315,23 +345,30 @@ def _literal_strings(node: ast.expr) -> list[str] | None:
 
 
 def _call_reads_any_of(call: ast.Call, changed_files: list[str]) -> bool:
+    """One call as the helper reads it: the folders of `under` (the whole tree when missing or
+    empty) filtered by `suffixes` when given, plus the root files of `names`. A positional
+    argument, a `**` expansion, or a `specs`/`dirs`/`root` keyword that is not a literal reads
+    more than can be told, so it reads everything."""
     declared: dict[str, list[str]] = {}
     for keyword in call.keywords:
-        if keyword.arg not in ("under", "names", "suffixes"):
-            continue
-        values = _literal_strings(keyword.value)
-        if values is None:
+        if keyword.arg in ("under", "names", "suffixes"):
+            values = _literal_strings(keyword.value)
+            if values is None:
+                return True
+            declared[keyword.arg] = values
+        elif keyword.arg is None or (
+            keyword.arg in ("specs", "dirs", "root") and not isinstance(keyword.value, ast.Constant)
+        ):
             return True
-        declared[keyword.arg] = values
-    if call.args or not declared:
+    if call.args:
         return True
-    under, names, suffixes = (declared.get(k) for k in ("under", "names", "suffixes"))
+    under, names, suffixes = (declared.get(k, []) for k in ("under", "names", "suffixes"))
     for path in changed_files:
-        if names and path in names:
+        if path in names:
             return True
-        inside = under is None or any(path.startswith(f"{u.rstrip('/')}/") for u in under)
-        suffixed = suffixes is None or any(path.endswith(s) for s in suffixes)
-        if (under is not None or suffixes is not None) and inside and suffixed:
+        inside = not under or any(path.startswith(f"{u.rstrip('/')}/") for u in under)
+        suffixed = not suffixes or PurePosixPath(path).suffix in suffixes
+        if inside and suffixed:
             return True
     return False
 
@@ -1089,18 +1126,25 @@ class PythonUvProfile:
         root_extras: list[str],
         workers: str | int = "auto",
         max_workers: int = 8,
+        scan_helper: str | None = None,
     ) -> list[list[str]] | None:
         """The test commands of the change, selecting by the source each test executed when
         the seed data of an earlier full run is there; otherwise the failed tests alone,
-        and None when none is named, so that the full suite stands in."""
+        and None when none is named, so that the full suite stands in. Given the repo's
+        `scan_helper`, a selected run leaves out each integration-marked module that walks the
+        tree through it and reads none of the changed files."""
         commands = self.test_commands(
             repo, changed_files, root_extras=root_extras, workers=workers, max_workers=max_workers
         )
         if seed.is_file():
             if not all(self._places(path) for path in changed_files):
                 return None
+            left_out = [
+                f"--ignore={path}"
+                for path in (unread_scans(repo, changed_files, scan_helper) if scan_helper else [])
+            ]
             return [
-                self.seeding_command(command, seed, select=True, project=repo)
+                [*self.seeding_command(command, seed, select=True, project=repo), *left_out]
                 for command in commands
             ]
         alone = [self.repeat_command(command, failed_ids, project=repo) for command in commands]

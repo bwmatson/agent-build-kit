@@ -173,4 +173,6 @@ def test_an_affected_run_lets_the_integration_files_the_default_run_excludes_thr
     (command,) = affected(profile, repo, ["packages/a/src/x.ts"], tmp_path)
 
     assert "related" in command[2]
-    assert ".integration.test" in words(command)
+    assert "--config" in command[2], "the run goes through a config that drops the exclusion"
+    assert command[5:] == ["vitest.config.ts", "src/x.ts"]
+    assert "--exclude" not in words(command)

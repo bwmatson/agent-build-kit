@@ -102,7 +102,27 @@ _RELATED = wrap_report_command(
     '--reporter=junit "$@"',
     "--outputFile",
 )
-_TEST_SCRIPTS = (_TESTS, _MEMBER_TESTS, _FILTERED, _SERIAL, _RELATED)
+# The same through a config that wraps the project's own and drops the `exclude` patterns naming
+# the integration kind: the runner adds a command-line exclude to the config's list and never
+# removes one from it, so only a config can let the excluded files run. `$1` is the directory,
+# `$2` the project's config file in it, the rest the files. The wrapper sits in a temporary
+# folder, so the tree is not touched; the root stays the directory the command runs in.
+_LIFTED_CONFIG = (
+    "import base from '$PWD/$2'; "
+    "export default async (env) => { "
+    "const c = typeof base === 'function' ? await base(env) : await base; "
+    "const t = { ...c.test }; "
+    "t.exclude = (t.exclude || []).filter((p) => !/integration/i.test(p)); "
+    "return { ...c, test: t }; };"
+)
+_RELATED_LIFTED = wrap_report_command(
+    f'{_IN_DIRECTORY} && cfg="$(mktemp -d)/abk.vitest.config.mjs" && '
+    f'printf \'%s\\n\' "{_LIFTED_CONFIG}" > "$cfg" && shift 2 && '
+    f"npx {_TEST_RUNNER} related --run --passWithNoTests --reporter=junit "
+    '--config "$cfg" "$@"',
+    "--outputFile",
+)
+_TEST_SCRIPTS = (_TESTS, _MEMBER_TESTS, _FILTERED, _SERIAL, _RELATED, _RELATED_LIFTED)
 _DIRECTORY_LINE = re.compile(rf"^{re.escape(_DIRECTORY_MARK)} (.*) ---$", re.MULTILINE)
 # Files every test of a project depends on: a change to one runs the whole project.
 _SHARED_NAMES = frozenset({"package.json", "package-lock.json", "npm-shrinkwrap.json"})
@@ -125,6 +145,11 @@ def _config_strings(folder: Path, key: re.Pattern[str]) -> list[str]:
             found = key.search(config.read_text())
             return re.findall(r"""["'`]([^"'`]*)["'`]""", found.group(1)) if found else []
     return []
+
+
+def _runner_config(folder: Path) -> str | None:
+    """The name of the runner's config file in `folder`, the first one that exists."""
+    return next((name for name in _RUNNER_CONFIGS if (folder / name).is_file()), None)
 
 
 def _exclude_patterns(repo: Path) -> list[str]:
@@ -413,6 +438,7 @@ class NodeNpmProfile:
         root_extras: list[str],
         workers: str | int = "auto",
         max_workers: int = 8,
+        scan_helper: str | None = None,
     ) -> list[list[str]] | None:
         """The commands that run the tests a change affects: `vitest related` over the source
         files changed in each member (or the project), none for documentation alone, and
@@ -456,12 +482,15 @@ class NodeNpmProfile:
         for folder, files in related.items():
             if folder in covered or (not folder and commands):
                 continue
-            let_through = [
-                f"--exclude=!{pattern}"
-                for pattern in _exclude_patterns(repo / folder)
-                if "integration" in pattern.lower()
-            ]
-            commands.append(["sh", "-c", _RELATED, "sh", folder or _HERE, *files, *let_through])
+            config = _runner_config(repo / folder)
+            lifts = any(
+                "integration" in pattern.lower() for pattern in _exclude_patterns(repo / folder)
+            )
+            commands.append(
+                ["sh", "-c", _RELATED_LIFTED, "sh", folder or _HERE, config, *files]
+                if lifts and config
+                else ["sh", "-c", _RELATED, "sh", folder or _HERE, *files]
+            )
         left = [p for p in root_failed if not any(p in c[5:] for c in commands)]
         if left:
             commands.append(["sh", "-c", _FILTERED, "sh", _HERE, *left])

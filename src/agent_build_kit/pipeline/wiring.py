@@ -1625,6 +1625,7 @@ def build_unit_test(
         if repo is not None
         else {}
     )
+    scan_helper = repo.tests.scan_helper if repo is not None else None
     # Per unit: the test time and count of its last full run.
     last_full: dict[str, tuple[float, int]] = {}
     # The tests of a round recorded as a storm, so a later command that fails them is not rerun.
@@ -2012,6 +2013,7 @@ def build_unit_test(
                 [],
                 seed=selection_seed(where),
                 root_extras=root_extras or [],
+                scan_helper=scan_helper,
                 **worker_settings,
             )
             if selected is None:
@@ -2326,6 +2328,7 @@ def build_unit_test(
                         named,
                         seed=selection_seed(where),
                         root_extras=root_extras or [],
+                        scan_helper=scan_helper,
                         **worker_settings,
                     )
                     if isinstance(toolchain, SelectsAffectedTests)

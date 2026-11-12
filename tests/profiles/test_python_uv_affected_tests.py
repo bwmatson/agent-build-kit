@@ -13,6 +13,7 @@ import pytest
 
 from agent_build_kit.profiles.python_uv import PROFILE, reads_any_of
 
+HELPER = "guarded_files"
 ID_A = "svc-a/tests/test_x.py::test_y"
 PLAIN_ID = "tests/test_x.py::test_y"
 ROOT_ID = "tests/test_root.py::test_z"
@@ -199,9 +200,7 @@ def test_the_serial_half_of_a_split_run_is_lifted_in_the_seeded_command(tmp_path
     assert marker_of(seeded_run) == f"(integration or ({DEFAULT_RUN})) and serial"
 
 
-def test_a_selection_that_reaches_an_integration_test_runs_it_with_a_slow_test_still_out(
-    tmp_path: Path,
-) -> None:
+def test_a_seeded_selection_keeps_the_other_default_deselections_out(tmp_path: Path) -> None:
     repo = integration_repo(tmp_path)
 
     commands = ask(repo, ["src/x.py"], [], seeded(tmp_path))
@@ -246,24 +245,34 @@ def test_a_scan_declaring_what_it_reads_is_selected_only_when_one_of_those_files
         "    guarded_files(under=['src'], names=['pyproject.toml'], suffixes={'.py', '.toml'})\n"
     )
 
-    assert reads_any_of(source, [changed]) is reads
+    assert reads_any_of(source, [changed], helper=HELPER) is reads
+
+
+@pytest.mark.parametrize(
+    "call",
+    [
+        "guarded_files(names=['pyproject.toml'])",
+        "guarded_files(under=[], suffixes={'.py'})",
+        "guarded_files(under=[], names=['pyproject.toml'], suffixes={'.py'})",
+        "guarded_files()",
+        "guarded_files(['src'])",
+        "guarded_files(under=['docs'], root=where)",
+        "guarded_files(under=['docs'], dirs=planning)",
+        "guarded_files(**options)",
+        "guarded_files(under=FOLDERS)",
+    ],
+)
+def test_a_scan_the_helper_widens_to_the_whole_tree_is_read_by_a_change_anywhere(
+    call: str,
+) -> None:
+    assert reads_any_of(f"def test_scan():\n    {call}\n", ["src/a.py"], helper=HELPER)
 
 
 def test_a_scan_with_a_suffix_only_reads_those_files_across_the_whole_tree() -> None:
     source = "def test_scan():\n    guarded_files(suffixes=('.md',))\n"
 
-    assert reads_any_of(source, ["docs/deep/a.md"])
-    assert not reads_any_of(source, ["src/a.py"])
-
-
-def test_a_scan_that_declares_nothing_is_affected_by_every_change() -> None:
-    assert reads_any_of("def test_scan():\n    guarded_files()\n", ["src/a.py"])
-
-
-def test_a_scan_whose_declaration_is_not_a_literal_is_affected_by_every_change() -> None:
-    source = "FOLDERS = ['src']\n\ndef test_scan():\n    guarded_files(under=FOLDERS)\n"
-
-    assert reads_any_of(source, ["docs/a.md"])
+    assert reads_any_of(source, ["docs/deep/a.md"], helper=HELPER)
+    assert not reads_any_of(source, ["src/a.py"], helper=HELPER)
 
 
 def test_a_module_with_two_scans_is_selected_when_either_reads_the_changed_file() -> None:
@@ -272,12 +281,12 @@ def test_a_module_with_two_scans_is_selected_when_either_reads_the_changed_file(
         "def test_b():\n    guarded_files(under=['docs'])\n"
     )
 
-    assert reads_any_of(source, ["docs/a.md"])
-    assert not reads_any_of(source, ["web/a.ts"])
+    assert reads_any_of(source, ["docs/a.md"], helper=HELPER)
+    assert not reads_any_of(source, ["web/a.ts"], helper=HELPER)
 
 
 def test_a_module_that_never_calls_the_helper_reads_no_tree() -> None:
-    assert not reads_any_of("def test_x():\n    assert True\n", ["src/a.py"])
+    assert not reads_any_of("def test_x():\n    assert True\n", ["src/a.py"], helper=HELPER)
 
 
 def test_the_helper_is_named_by_the_caller() -> None:
@@ -285,3 +294,49 @@ def test_the_helper_is_named_by_the_caller() -> None:
 
     assert reads_any_of(source, ["src/a.py"], helper="walk")
     assert not reads_any_of(source, ["docs/a.md"], helper="walk")
+
+
+def scan_module(repo: Path, name: str, under: str, *, marked: bool = True) -> str:
+    path = repo / "tests" / name
+    mark = "pytestmark = pytest.mark.integration\n\n" if marked else ""
+    path.write_text(
+        "import pytest\n"
+        "from tests.tracked_files import guarded_files\n\n"
+        f"{mark}def test_scan():\n    guarded_files(under=['{under}'])\n"
+    )
+    return f"--ignore={path}"
+
+
+def select(repo: Path, tmp_path: Path, helper: str | None) -> list[str]:
+    return words(
+        PROFILE.affected_test_commands(
+            repo, ["src/x.py"], [], seed=seeded(tmp_path), root_extras=[], scan_helper=helper
+        )
+    )
+
+
+def test_an_integration_scan_that_reads_none_of_the_changed_files_is_left_out(
+    tmp_path: Path,
+) -> None:
+    repo = integration_repo(tmp_path)
+    docs_scan = scan_module(repo, "test_docs_scan.py", "docs")
+    src_scan = scan_module(repo, "test_src_scan.py", "src")
+
+    chosen = select(repo, tmp_path, HELPER)
+
+    assert docs_scan in chosen
+    assert src_scan not in chosen
+
+
+def test_no_scan_is_left_out_without_a_configured_helper(tmp_path: Path) -> None:
+    repo = integration_repo(tmp_path)
+    docs_scan = scan_module(repo, "test_docs_scan.py", "docs")
+
+    assert docs_scan not in select(repo, tmp_path, None)
+
+
+def test_a_scan_not_marked_integration_is_never_left_out(tmp_path: Path) -> None:
+    repo = integration_repo(tmp_path)
+    plain_scan = scan_module(repo, "test_plain_scan.py", "docs", marked=False)
+
+    assert plain_scan not in select(repo, tmp_path, HELPER)

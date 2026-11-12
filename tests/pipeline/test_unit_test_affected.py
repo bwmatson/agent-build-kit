@@ -491,4 +491,4 @@ def test_the_repos_worker_settings_reach_the_profile_for_the_selection_and_the_f
     fix_round(tmp_path, Commands(), profile=profile, tests=WORKERS)
 
     # The selection, then the full run that confirms it.
-    assert profile.worker_kwargs == [WORKERS, WORKERS]
+    assert profile.worker_kwargs == [{**WORKERS, "scan_helper": None}, WORKERS]

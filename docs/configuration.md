@@ -587,6 +587,11 @@ repos:                          # ordered: deploy order is derived from
                                 # `auto` or a positive integer
       max_workers: 8            # its `--maxprocesses` cap (a positive integer); xdist
                                 # starts no more than this, whatever `workers` says
+      scan_helper: null         # the name of the helper whose `under`/`names`/`suffixes`
+                                # arguments declare what a whole-tree scan test reads; an
+                                # affected run of the Python profile leaves out an
+                                # integration-marked module calling it that reads none of
+                                # the changed files (null: none is left out)
       e2e_marker: e2e   # the pytest marker on tests needing the real
                                 # stack (e2e-test, and post-merge verify); for a
                                 # node project a file-name segment instead:
