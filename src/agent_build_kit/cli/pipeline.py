@@ -1872,9 +1872,7 @@ def _tick(args: argparse.Namespace, inst: Installation, tick: _Tick) -> int:
     only = frozenset(getattr(args, "only", None) or ())
     if only:
         log(f"--only: building nothing but {', '.join(sorted(only))}")
-    # One lane for the tick, apart from the build workers: leaving the block waits for it.
-    with build_restack_lane(inst, store) as lane:
-        return _tick_with(args, inst, tick, store, lane, only)
+    return _tick_with(args, inst, tick, store, only)
 
 
 def _tick_with(
@@ -1882,7 +1880,6 @@ def _tick_with(
     inst: Installation,
     tick: _Tick,
     store: UnitStore,
-    lane: Lane,
     only: frozenset[str],
 ) -> int:
     if not args.dry_run:
@@ -1894,12 +1891,11 @@ def _tick_with(
         started=(),
         only=only,
         submit=True,
-        lane=lane,
         dry_run=args.dry_run,
     )
     if not ready:
         if not args.dry_run:
-            _step("recording the slots", _record_sample, inst, store, lane, only=only)
+            _step("recording the slots", _record_sample, inst, store, only=only)
         held = pauses_in_force(inst.state_dir)
         # As `_may_build` holds a round: when the model has refused every account a unit could
         # start on. One account's refusal beside idle accounts is an idle tick.
@@ -1927,7 +1923,7 @@ def _tick_with(
         return 1
 
     _dispatch(inst, ready, store=store)
-    _step("recording the slots", _record_sample, inst, store, lane, only=only)
+    _step("recording the slots", _record_sample, inst, store, only=only)
     tick.outcome = "dispatched"
     return 0
 
@@ -1973,7 +1969,7 @@ def _dispatch_resolutions(inst: Installation, store: UnitStore) -> None:
     if not owed:
         return
     now = spans.clock.now()
-    running = {entry["unit"] for entry in lane_record(inst.state_dir)}
+    running = lane_held_by_record(inst.state_dir)
     by_project: dict[ProjectKey, list[StoredUnit]] = {}
     for unit in units:
         if unit.id in owed:
@@ -2046,9 +2042,7 @@ def _dispatch(inst: Installation, ready: list[Unit], *, store: UnitStore) -> Non
         log(f"{unit.id}: worker {worker.id} started")
 
 
-def _record_sample(
-    inst: Installation, store: UnitStore, lane: Lane, *, only: frozenset[str]
-) -> None:
+def _record_sample(inst: Installation, store: UnitStore, *, only: frozenset[str]) -> None:
     """One `sample` row of the ledger and the slot gauges, as a tick leaves the slots: what runs
     is what the durable facts show (live locks, markers and records), and what is queued is the
     units that could start but for the slots, which admission did not start."""
@@ -2059,7 +2053,8 @@ def _record_sample(
         inst, units, started=set(), building=going, only=only, max_concurrent=len(units) + 1
     )
     queued = len(could_start)
-    occupied = current_occupancy(inst, units, spans.clock.now(), held=set(lane.running))
+    recorded = lane_held_by_record(inst.state_dir)
+    occupied = current_occupancy(inst, units, spans.clock.now(), held=recorded)
     # Totals over the projects with a unit not yet finished, for reporting only.
     live = _unfinished_projects(units)
     spare = free_workers(
@@ -2087,8 +2082,14 @@ def _record_sample(
         "abk.slots.emergency_used",
         len(emergency_lane.users(inst.state_dir, _with_builds_running(units, ()))),
     )
-    telemetry.level("abk.restacks.running", len(lane.running))
-    telemetry.level("abk.restacks.waiting", len(lane.waiting))
+    # A run is running when a worker's record names it or a worker just started holds its claim
+    # (the dispatcher's own rule); one sent to a build worker is a build, and the rest wait.
+    running = recorded | {unit.id for unit in units if resolve_claimed(unit, now)}
+    sent_to_a_build = {unit.id for unit in units if marker_live(unit, now)}
+    telemetry.level("abk.restacks.running", len(running))
+    telemetry.level(
+        "abk.restacks.waiting", len(owed_units(inst, units) - running - sent_to_a_build)
+    )
 
 
 def _preview_changes(inst: Installation) -> None:
@@ -3075,7 +3076,6 @@ def run_round(
     overflow = _overflow_runs(
         inst,
         units,
-        lane,
         candidates=[
             stored_by_id[uid]
             for uid in (*(lane.waiting if lane else ()), *unclaimed_runs(inst, units))
@@ -4437,7 +4437,6 @@ def in_a_worker(inst: Installation, units: Iterable[StoredUnit]) -> set[str]:
 def _overflow_runs(
     inst: Installation,
     units: list[StoredUnit],
-    lane: Lane | None,
     *,
     candidates: list[StoredUnit],
     workers: Collection[str],
@@ -4452,8 +4451,6 @@ def _overflow_runs(
     `_within_workers` holds the others to), and an account that caps its builds is held to that
     cap across its projects, as a build is. A dry run names the same units and leaves the queue
     as it is."""
-    if lane is None:
-        return []
     slot_of = _slot_of(inst)
     cap_of = _slot_stack_limit(inst)
     used = dict(taken)

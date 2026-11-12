@@ -1,15 +1,11 @@
-"""The pass and the lanes of its projects: a restack running in the lane of one project
-keeps the pass going and does not hold back a restack of another, and the cap of a lane is
-`project_limits.max_concurrent_resolutions`.
+"""The lanes of the projects: the cap of a lane is `project_limits.max_concurrent_resolutions`.
 
-A tick is driven as `test_restack_lane_tick` drives it: the poll is a fake that receives the
-lanes and hands them restacks that wait on events, so what runs beside what is read from the
-order things happened in, never from the clock.
+The restacks wait on events, so what runs beside what is read from the order things
+happened in, never from the clock.
 """
 
 from __future__ import annotations
 
-import argparse
 import threading
 from collections.abc import Callable
 from pathlib import Path
@@ -63,7 +59,6 @@ class Scene:
         self.log: list[str] = []
         self.started: list[str] = []
         self.release = threading.Event()
-        self.handed = ["second/1", "third/1"]
         self.begun: dict[str, threading.Event] = {}
         self.on_build: Callable[[StoredUnit], RunOutcome | None] = lambda unit: None
         for name, step in {
@@ -74,14 +69,9 @@ class Scene:
             "archive_ready_changes": lambda *a, **k: [],
             "current_usage": lambda: None,
             "may_start_unit": lambda r: Decision(may_start=True, reason="plenty"),
-            "poll_all": self.poll,
             "build_runner": lambda unit, **kwargs: self,
         }.items():
             monkeypatch.setattr(cli, name, step)
-
-    def poll(self, inst: Installation, *, store: UnitStore, lane: Lane) -> None:
-        handed, self.handed = self.handed, []
-        self.hand_over(lane, handed)
 
     def hand_over(
         self, lane: Lane, unit_ids: list[str], *, running: list[str] | None = None
@@ -118,21 +108,10 @@ class Scene:
         self.release.set()
         return RunOutcome(status=RunStatus.OPEN, detail=unit.id, pr=len(self.started))
 
-    def tick(self) -> int:
-        return cli.cmd_tick(argparse.Namespace(dry_run=False), self.inst)
-
 
 @pytest.fixture
 def scene(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Scene:
     return Scene(tmp_path, monkeypatch)
-
-
-def test_a_pass_with_restacks_running_in_two_projects_lanes_does_not_end_while_either_has_work(
-    scene: Scene,
-) -> None:
-    assert scene.tick() == 0
-
-    assert sorted(scene.log[-2:]) == ["second/1 done", "third/1 done"]
 
 
 def test_each_project_of_a_repo_runs_max_concurrent_resolutions_from_project_limits(

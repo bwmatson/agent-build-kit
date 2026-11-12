@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- A tick no longer builds its own resolution lane or waits for a run to end. The slot
+  sample and the restack gauges count the runs that resolve workers have recorded, and
+  the runs owed beyond a project's cap as waiting.
+
 - The `node-npm` profile can now prepare a throwaway worktree's `node_modules`: each
   workspace package points at the worktree's own folder and every other package at the
   installed one, so a test importing a workspace package can be loaded there. The red
