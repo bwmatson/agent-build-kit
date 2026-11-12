@@ -9,6 +9,7 @@ from pathlib import Path
 import pytest
 
 from agent_build_kit import skills
+from agent_build_kit.pipeline.unit_store import FeedbackSource
 from tests.prompt_text import flat
 
 HEADING = "A unit failed at the red check"
@@ -46,6 +47,13 @@ def test_the_section_names_each_reason_the_check_gives(
         body = section(text)
         for term in terms:
             assert term in body, term
+
+
+def test_the_section_names_the_feedback_sources_as_stored(raw_texts: list[str]) -> None:
+    for text in raw_texts:
+        body = section(text)
+        assert f"`{FeedbackSource.RED_CHECK.value}`" in body
+        assert f"`{FeedbackSource.SELECTOR_CHECK.value}`" in body
 
 
 def test_the_section_says_where_the_reasons_are_recorded(raw_texts: list[str]) -> None:

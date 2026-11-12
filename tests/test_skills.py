@@ -91,6 +91,16 @@ def test_stale_detection(tmp_path: Path) -> None:
     assert [p.parent.name for p in refused] == ["abk-config"]
 
 
+def test_a_skill_stamped_by_a_newer_release_is_reported_as_differing(tmp_path: Path) -> None:
+    skills.install(tmp_path)
+    newer = tmp_path / "abk-pipeline" / "SKILL.md"
+    newer.write_text(
+        newer.read_text().replace(f"agent-build-kit {__version__}", "agent-build-kit 99.0.0")
+    )
+
+    assert [s.name for s in skills.stale(tmp_path)] == ["abk-pipeline"]
+
+
 def test_only_a_skill_of_ours_with_different_text_is_stale(tmp_path: Path) -> None:
     skills.install(tmp_path)
     changed = tmp_path / "abk-pipeline" / "SKILL.md"

@@ -296,15 +296,15 @@ out of rounds stops as `failed` at `red_check`. The reasons the check gives:
   not testing that implementation.
 - `nothing failed at the tests commit`: no test failed, so nothing was shown to be missing.
 - `no tests ran at the tests commit` (with the exit code): the run collected nothing, or ended
-  without a pytest summary.
+  without the test runner's summary.
 - A test that failed for its own reasons rather than for the missing behaviour: a syntax error, a
   broken fixture or conftest, a module that could not be collected, a failure the check does not
   recognise, or (in a stubbed build) a missing name, which means a stub was not written.
 - A rejection replayed from an earlier run: the verdict for this commit was already recorded, so
   the check gives the same reason again without running.
 
-Where they are recorded: the reasons are the unit's feedback, kept under the source `red_check`
-(or `selector_check`), which `abk status` and `runs/units.json` show; the verdict for each tests
+Where they are recorded: the reasons are the unit's feedback, kept under the source `red-check`
+(or `selector-check`), which `abk status` and `runs/units.json` show; the verdict for each tests
 commit is in `red-check-cache.json` in the state folder. A rejected test names the test and the
 reason, and is a fault of the tests. A check that could not run says `no tests ran` or that no
 report was written, and is a fault of the run or the toolchain, not of any test; fix the cause,
@@ -312,8 +312,8 @@ not the tests.
 
 A plain requeue replays an earlier rejection: `abk requeue <unit>` runs the check at the same
 commit, finds it in the cache and rejects it again with the same reason. Change the tests (or the
-toolchain, for a check that could not run) so the commit differs, or use `abk requeue <unit>
---rework --note "what changed"`, then requeue.
+toolchain, for a check that could not run) so the commit's content differs and requeue, or
+requeue with `abk requeue <unit> --rework --note "what changed"`.
 
 ### Attached to a chat
 

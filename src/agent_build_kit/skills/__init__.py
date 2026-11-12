@@ -3,9 +3,10 @@
 Each `skills/<name>/SKILL.md` is written for the planning repo and the code
 repos of an installation, so an agent working in any of them knows how to
 read the pipeline, write a change, and change the config. Installing stamps
-the framework version into the `generatedBy` header, which is how `abk
-doctor` tells a stale copy from a current one — and how the installer tells
-its own file from one somebody wrote by hand, which it never overwrites.
+the framework version into the `generatedBy` header, which is how the
+installer tells its own file from one somebody wrote by hand, which it never
+overwrites. `abk doctor` compares the installed text of a file of ours with
+the text rendered today and reports any difference, a newer stamp included.
 """
 
 from __future__ import annotations
