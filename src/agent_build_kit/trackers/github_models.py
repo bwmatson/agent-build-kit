@@ -52,6 +52,8 @@ class EventDoc(_Doc):
 
     event: str
     assignee: LoginDoc | None = None
+    actor: LoginDoc | None = None
+    created_at: str = ""
 
 
 class IssueTypeDoc(_Doc):

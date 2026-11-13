@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- The GitHub issues tracker now lists the issues changed since a cursor (pull requests left
+  out, unchanged pages not transferred again), links a pull request with a `Part of #<n>` line
+  that does not close the issue, reaches a GitHub Enterprise Server host through the `host`
+  setting, and has a doctor probe that tells an unauthorized token from a missing repository.
+
 - A tick no longer builds its own resolution lane or waits for a run to end. The slot
   sample and the restack gauges count the runs that resolve workers have recorded, and
   the runs owed beyond a project's cap as waiting.

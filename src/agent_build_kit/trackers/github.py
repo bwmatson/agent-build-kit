@@ -8,14 +8,17 @@ number, so a create reads the id from the answer.
 
 from __future__ import annotations
 
+import json
 import logging
 from collections.abc import Mapping, Sequence
 from typing import Any
+from urllib.parse import urlencode
 
 import httpx
 from pydantic import BaseModel
 
 from agent_build_kit.forges.transport import (
+    AuthError,
     Credentials,
     NotFound,
     Transport,
@@ -25,6 +28,7 @@ from agent_build_kit.forges.transport import (
 )
 from agent_build_kit.settings import settings
 from agent_build_kit.trackers.base import (
+    PULL_REQUEST_RELATION,
     STATUS_TAGS,
     Capabilities,
     Change,
@@ -58,6 +62,32 @@ _PAGE = 100
 STATUS_PREFIX = "status:"
 ACTIVE = "active"
 _log = logging.getLogger(__name__)
+# The host whose API is the public one; any other is an Enterprise Server's.
+PUBLIC_HOST = "github.com"
+# What an issue event changed, in the words a `Change` uses; a body edit is read as `edited`.
+_EVENT_FIELDS = {
+    "edited": ("title", "body"),
+    "renamed": ("title",),
+    "assigned": ("assignee",),
+    "unassigned": ("assignee",),
+    "labeled": ("tags",),
+    "unlabeled": ("tags",),
+    "closed": ("state",),
+    "reopened": ("state",),
+}
+
+
+def _scope_line(scopes: str | None) -> ProbeLine:
+    """A classic token needs `repo` (or `public_repo` for a public repository); a fine-grained
+    one lists no scopes and is limited to the repositories it was made for."""
+    if scopes is None:
+        return ProbeLine(
+            ok=True, text="scope: a fine-grained token, which needs Issues read and write"
+        )
+    listed = {word.strip() for word in scopes.split(",")}
+    if listed & {"repo", "public_repo"}:
+        return ProbeLine(ok=True, text=f"scope: {scopes}")
+    return ProbeLine(ok=False, text=f"scope: the token has {scopes or 'none'}, not repo")
 
 
 class SubIssueLimitExceeded(ValueError):
@@ -82,6 +112,8 @@ class GithubIssues:
         self._levels: dict[ItemKind, str] = kind_types(section.level_types)
         self._identity: Identity | None = None
         self._created_labels: list[str] = []
+        # Each listing page's ETag and the issues it answered with, by its query.
+        self._pages_held: dict[str, tuple[str, list[IssueDoc]]] = {}
 
     def capabilities(self) -> Capabilities:
         return Capabilities(
@@ -202,22 +234,86 @@ class GithubIssues:
         return False
 
     def changed_since(self, cursor: Cursor | None) -> tuple[Sequence[Change], Cursor]:
-        raise NotImplementedError
+        """The issues changed since `cursor`, oldest change first, pull requests left out.
+
+        Timestamps are to the second, and the host's `since` includes its own instant, so the
+        cursor is the latest `updated_at` seen and the numbers handled at that instant. The
+        listing is read with the page's last ETag, so an unchanged page transfers no issues."""
+        state: dict[str, Any] = json.loads(cursor.value) if cursor else {"at": "", "numbers": []}
+        at: str = state["at"]
+        handled: list[int] = list(state["numbers"])
+        params = {"state": "all", "sort": "updated", "direction": "asc"}
+        if at:
+            params["since"] = at
+        docs = [doc for doc in self._changed_docs(params) if doc.pull_request is None]
+        fresh = sorted(
+            (doc for doc in docs if not (doc.updated_at == at and doc.number in handled)),
+            key=lambda doc: (doc.updated_at, doc.number),
+        )
+        if not fresh:
+            return (), Cursor(value=json.dumps({"at": at, "numbers": handled}))
+        latest = fresh[-1].updated_at
+        seen = {doc.number for doc in fresh if doc.updated_at == latest}
+        if latest == at:
+            seen |= set(handled)
+        changes = [
+            self._change_of(doc)
+            for doc in fresh
+            if self._markers_of(doc) or self._kind_of(doc) is not None
+        ]
+        return tuple(changes), Cursor(value=json.dumps({"at": latest, "numbers": sorted(seen)}))
 
     def link(self, item_id: str, relation: str, target_id: str) -> Relation:
-        raise NotImplementedError
+        """Say on the issue what it is related to, in a note: a pull request is also linked by
+        the description's `Part of` line, and the host has no other relation to make."""
+        if relation == PULL_REQUEST_RELATION:
+            self.comment(item_id, f"Pull request: {target_id}")
+        else:
+            self.comment(item_id, f"{relation}: #{target_id}")
+        return Relation(kind=relation, source_id=item_id, target_id=target_id)
 
     def comment(self, item_id: str, text: str) -> None:
-        raise NotImplementedError
+        self._call("POST", self._path(item_id, "comments"), json={"body": text})
 
     def set_assignee(self, item_id: str, who: str, expected_revision: str | None = None) -> Item:
-        raise NotImplementedError
+        """Make `who` the only assignee, or nobody for an empty name."""
+        path = self._path(item_id, "assignees")
+        current = self.get(item_id).assignees
+        extra = [name for name in current if name != who]
+        if extra:
+            self._call("DELETE", path, json={"assignees": extra})
+        if who and who not in current:
+            self._call("POST", path, json={"assignees": [who]})
+        return self.get(item_id)
 
     def add_marker(self, item_id: str, marker: str, expected_revision: str | None = None) -> Item:
-        raise NotImplementedError
+        """Append the marker comment to the body as it stands; a person's text stays."""
+        doc = self._issue(self._call("GET", self._path(item_id)))
+        if marker in self._markers_of(doc):
+            return self._to_item(doc)
+        body = "\n".join(filter(None, [doc.body, self._comment(marker)]))
+        return self._to_item(
+            self._issue(self._call("PATCH", self._path(item_id), json={"body": body}))
+        )
 
     def probe(self) -> list[ProbeLine]:
-        raise NotImplementedError
+        """What `abk doctor` says: the sync account and token scope, then the owner's kind, the
+        levels' types, and sub-issues. An owner or repository the token cannot reach ends it."""
+        owner = self._section.owner
+        lines: list[ProbeLine] = []
+        try:
+            scopes, login = self._account()
+            lines.append(ProbeLine(ok=True, text=f"sync-account: {login}"))
+            lines.append(_scope_line(scopes))
+            lines.append(self._owner_line())
+            lines += self._types_lines()
+            lines.append(self._sub_issues_line())
+        except AuthError as error:
+            lines.append(ProbeLine(ok=False, text=f"token not authorized for {owner}: {error}"))
+        except NotFound:
+            target = f"{owner}/{self._section.repo}"
+            lines.append(ProbeLine(ok=False, text=f"target not found: {target}"))
+        return lines
 
     def get(self, item_id: str) -> Item:
         return self._to_item(self._issue(self._call("GET", self._path(item_id))))
@@ -237,10 +333,89 @@ class GithubIssues:
     def _client(self) -> Transport:
         if self._transport is None:
             credentials: Credentials = credential_for("github", self._section.owner)
-            self._transport = Transport(
-                settings.github_api_url.rstrip("/"), credentials, transport=self._http
-            )
+            self._transport = Transport(self._api_base(), credentials, transport=self._http)
         return self._transport
+
+    def _api_base(self) -> str:
+        """The public API, or an Enterprise Server host's, which serves it below `/api/v3`."""
+        host = self._section.host
+        if host is None or host == PUBLIC_HOST:
+            return settings.github_api_url.rstrip("/")
+        return f"https://{host}/api/v3"
+
+    def _account(self) -> tuple[str | None, str]:
+        """The token's scopes as the host lists them (none for a fine-grained token) and the
+        login of the account it belongs to."""
+        reply = self._call("GET", "/user")
+        login = validated(LoginDoc, reply.data, "user", reply.text).login
+        return reply.headers.get("x-oauth-scopes"), login
+
+    def _owner_line(self) -> ProbeLine:
+        reply = self._call("GET", f"/users/{self._section.owner}")
+        kind = validated(OwnerDoc, reply.data, "users", reply.text).type
+        return ProbeLine(ok=True, text=f"owner kind: {kind.lower()}")
+
+    def _types_lines(self) -> list[ProbeLine]:
+        names = ", ".join(self._levels.values())
+        if self._has_types():
+            return [ProbeLine(ok=True, text=f"issue types: every level has one enabled ({names})")]
+        return [ProbeLine(ok=True, text=f"labels: the levels are labels ({names})")]
+
+    def _sub_issues_line(self) -> ProbeLine:
+        """Whether the repository serves sub-issues, asked of any issue it holds; a missing
+        repository is raised here as `NotFound`, as it is the first call about it."""
+        reply = self._call("GET", self._path(), params={"state": "all", "per_page": "5"})
+        if not isinstance(reply.data, list):
+            raise TransportError(f"GET issues: not a list: {reply.text[:200]}")
+        docs = [validated(IssueDoc, entry, "issues", reply.text) for entry in reply.data]
+        held = next((doc for doc in docs if doc.pull_request is None), None)
+        if held is None:
+            return ProbeLine(ok=True, text="sub-issues: not checked, the repository has no issue")
+        try:
+            self._call("GET", self._path(str(held.number), "sub_issues"))
+        except NotFound:
+            return ProbeLine(ok=False, text="sub-issues: not available for this repository")
+        return ProbeLine(ok=True, text="sub-issues: available")
+
+    def _changed_docs(self, params: dict[str, str]) -> list[IssueDoc]:
+        """Every page of the issues listing, each asked with the ETag it was last answered
+        with: a page answered not-modified is the one held from before."""
+        docs: list[IssueDoc] = []
+        page = 1
+        while True:
+            asked = {**params, "per_page": str(_PAGE), "page": str(page)}
+            key = urlencode(sorted(asked.items()))
+            held = self._pages_held.get(key)
+            sent = {"If-None-Match": held[0]} if held else None
+            reply = self._call("GET", self._path(), params=asked, headers=sent)
+            if reply.status == 304 and held:
+                listed = held[1]
+            else:
+                if not isinstance(reply.data, list):
+                    raise TransportError(f"GET issues: not a list: {reply.text[:200]}")
+                listed = [validated(IssueDoc, entry, "issues", reply.text) for entry in reply.data]
+                if etag := reply.headers.get("etag"):
+                    self._pages_held[key] = (etag, listed)
+            docs += listed
+            if len(listed) < _PAGE:
+                return docs
+            page += 1
+
+    def _change_of(self, doc: IssueDoc) -> Change:
+        """What changed at the issue's last update and who did it, read from the events
+        recorded at that instant."""
+        events = self._list_of(EventDoc, self._path(str(doc.number), "events"))
+        latest = [event for event in events if event.created_at == doc.updated_at]
+        fields = dict.fromkeys(f for e in latest for f in _EVENT_FIELDS.get(e.event, ()))
+        actors = [event.actor.login for event in latest if event.actor]
+        return Change(
+            item_id=str(doc.number),
+            revision=doc.updated_at,
+            fields=tuple(fields),
+            who=actors[-1] if actors else "",
+            when=doc.updated_at,
+            foreign=not self._markers_of(doc),
+        )
 
     def _call(self, method: str, path: str, **options: Any) -> Any:
         return self._client().request(method, path, **options)

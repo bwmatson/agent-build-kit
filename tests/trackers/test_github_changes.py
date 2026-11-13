@@ -12,6 +12,7 @@ from tests.trackers.github_support import tracker_on
 pytestmark = pytest.mark.usefixtures("github_env")
 
 INSTANT = "2026-10-20T09:14:02Z"
+LATER = "2026-10-20T09:15:00Z"
 
 
 def at(second: int) -> str:
@@ -99,7 +100,7 @@ def test_a_page_that_changed_is_read_again_after_a_not_modified_answer() -> None
     _, cursor = tracker.changed_since(None)
     tracker.changed_since(cursor)
     tracker.changed_since(cursor)
-    later = host.seed("Later", type="Story", updated_at=at(30))
+    later = host.seed("Later", type="Story", updated_at=LATER)
 
     changes, _ = tracker.changed_since(cursor)
 
