@@ -20,6 +20,9 @@ BODIES = (
     "issue_types",
     "organization",
     "user",
+    "authenticated_user",
+    "issue_event_assigned",
+    "label",
 )
 
 
