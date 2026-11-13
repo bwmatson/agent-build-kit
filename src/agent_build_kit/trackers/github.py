@@ -27,9 +27,13 @@ from agent_build_kit.settings import settings
 from agent_build_kit.trackers.base import (
     STATUS_TAGS,
     Capabilities,
+    Change,
+    Cursor,
     Identity,
     Item,
     ItemKind,
+    ProbeLine,
+    Relation,
     UnknownWorkItemType,
     kind_types,
     marker_comment,
@@ -196,6 +200,24 @@ class GithubIssues:
             return True
         self._call("DELETE", path, json={"assignees": [me]})
         return False
+
+    def changed_since(self, cursor: Cursor | None) -> tuple[Sequence[Change], Cursor]:
+        raise NotImplementedError
+
+    def link(self, item_id: str, relation: str, target_id: str) -> Relation:
+        raise NotImplementedError
+
+    def comment(self, item_id: str, text: str) -> None:
+        raise NotImplementedError
+
+    def set_assignee(self, item_id: str, who: str, expected_revision: str | None = None) -> Item:
+        raise NotImplementedError
+
+    def add_marker(self, item_id: str, marker: str, expected_revision: str | None = None) -> Item:
+        raise NotImplementedError
+
+    def probe(self) -> list[ProbeLine]:
+        raise NotImplementedError
 
     def get(self, item_id: str) -> Item:
         return self._to_item(self._issue(self._call("GET", self._path(item_id))))
