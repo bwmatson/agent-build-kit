@@ -3783,6 +3783,9 @@ def split_held_units(inst: Installation, store: UnitStore, *, may_plan: bool = T
     held = [u for u in units if _awaiting_split(u)]
     for unit in sorted(held, key=lambda u: (effective_priority(u, units), u.id)):
         _split_one(inst, store, unit, may_plan=may_plan)
+    for unit in store.all():
+        if _awaiting_resume(unit):
+            _resume_unsplit(inst, unit)
 
 
 TOO_BIG_AND = "too big for its tier, and "
@@ -3800,7 +3803,7 @@ def _proceed_unsplit(
     """Send a unit over its ceiling that will not be split on, with its size waived as a
     person's requeue waives it; with `review.unsplittable` at `hold` a person decides first,
     and the hold's note is `hold_prefix` and the reason. A requeue that did not take effect
-    (the branch is busy) leaves the unit held for its size, to be sent on by the next pass."""
+    (the branch is busy) leaves the unit waived, and the next pass resumes it."""
     if config.active().review.unsplittable == "hold":
         _hold_for_a_person(store, unit, f"{hold_prefix}{reason}")
         return
@@ -3810,21 +3813,30 @@ def _proceed_unsplit(
     store.set_state(unit.id, HELD, note=said, cause=Cause.RELEASED)
     log(f"{unit.id}: {said}")
     if requeue(inst, unit.id, "resume", say=lambda text, error=False: log(text), because=said):
-        left = store.get(unit.id)
-        if not (left.state == HELD and left.cause is Cause.RELEASED):
-            # The delivery ran and raised: `requeue` recorded the failure, which a person sees,
-            # and the waiver stays so that their requeue is not held for size again.
-            return
-        store.set_size_waived(unit.id, False)
-        store.set_unsplit_reason(unit.id, "")
-        store.set_state(
-            unit.id,
-            HELD,
-            note=f"{said}; will be sent on next pass",
-            held_by=HeldBy.SIZE,
-            cause=Cause.TOO_BIG_FOR_TIER,
-        )
+        # Deferred (the branch is busy) or raised: the unit keeps its waiver. A raised delivery
+        # was recorded as a failure by `requeue`; a deferred one is resumed by the next pass.
         log(f"{unit.id}: could not be resumed now; it will be sent on next pass")
+
+
+def _awaiting_resume(unit: StoredUnit) -> bool:
+    """Whether a unit sent on without a split is still held: its resume was deferred."""
+    return (
+        unit.state == HELD
+        and unit.cause is Cause.RELEASED
+        and unit.size_waived
+        and bool(unit.unsplit_reason)
+    )
+
+
+def _resume_unsplit(inst: Installation, unit: StoredUnit) -> None:
+    """Ask again for the resume of a unit sent on unsplit; one deferred again changes nothing."""
+    requeue(
+        inst,
+        unit.id,
+        "resume",
+        say=lambda text, error=False: log(text),
+        because=f"over its tier's ceiling and not split: {unit.unsplit_reason}",
+    )
 
 
 def _cannot_split(unit: StoredUnit, units: Sequence[StoredUnit]) -> str:
