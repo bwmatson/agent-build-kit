@@ -27,6 +27,7 @@ from agent_build_kit.settings import settings
 from agent_build_kit.trackers.base import (
     STATUS_TAGS,
     Capabilities,
+    Identity,
     Item,
     ItemKind,
     UnknownWorkItemType,
@@ -49,10 +50,9 @@ from agent_build_kit.trackers.github_models import (
 # The most sub-issues one parent holds.
 SUB_ISSUE_LIMIT = 100
 _PAGE = 100
-# A status is a label behind this prefix; `active` is the one with no kit tag of its own.
+# A status label is `status:<word>` unless the configuration's `states` names it.
 STATUS_PREFIX = "status:"
-ACTIVE_LABEL = f"{STATUS_PREFIX}active"
-_TAG_LABELS = {f"{STATUS_PREFIX}{tag}" for tag in STATUS_TAGS}
+ACTIVE = "active"
 _log = logging.getLogger(__name__)
 
 
@@ -76,7 +76,7 @@ class GithubIssues:
         self._transport: Transport | None = None
         self._typed: bool | None = None
         self._levels: dict[ItemKind, str] = kind_types(section.level_types)
-        self._login: str | None = None
+        self._identity: Identity | None = None
         self._created_labels: list[str] = []
 
     def capabilities(self) -> Capabilities:
@@ -135,12 +135,12 @@ class GithubIssues:
                 patch["body"] = "\n".join(([value] if value else []) + kept)
             elif field == "state":
                 patch.update(self._state_patch(value))
-                labels.discard(ACTIVE_LABEL)
-                if value == "active":
-                    labels.add(ACTIVE_LABEL)
+                labels.discard(self._label(ACTIVE))
+                if value == ACTIVE:
+                    labels.add(self._label(ACTIVE))
             elif field == "tags":
-                labels -= _TAG_LABELS
-                labels |= {f"{STATUS_PREFIX}{tag}" for tag in split_tags(value)}
+                labels -= {self._label(tag) for tag in STATUS_TAGS}
+                labels |= {self._label(tag) for tag in split_tags(value)}
             else:
                 raise ValueError(f"cannot update {field!r} of an issue")
         if labels != before:
@@ -151,7 +151,7 @@ class GithubIssues:
     def set_tag(self, item_id: str, tag: str, present: bool) -> Item:
         if tag not in STATUS_TAGS:
             raise ValueError(f"{tag!r} is not a status tag ({', '.join(STATUS_TAGS)})")
-        label = f"{STATUS_PREFIX}{tag}"
+        label = self._label(tag)
         doc = self._issue(self._call("GET", self._path(item_id)))
         labels = {entry.name for entry in doc.labels} - {label}
         if present:
@@ -160,11 +160,20 @@ class GithubIssues:
         patch = {"labels": sorted(labels)}
         return self._to_item(self._issue(self._call("PATCH", self._path(item_id), json=patch)))
 
+    def identity(self) -> Identity:
+        """The account the token belongs to: the one a claim assigns."""
+        if self._identity is None:
+            reply = self._call("GET", "/user")
+            login = validated(LoginDoc, reply.data, "user", reply.text).login
+            self._identity = Identity(name=login)
+        return self._identity
+
     def claim(self, item_id: str) -> bool:
-        """Hold the item by assigning the sync account, then reading the assignments back: the
-        earliest assignee wins, and the kit withdraws when it was not first. An issue with
-        anyone else on it is not the kit's."""
-        me = self._me()
+        """Hold the item by assigning the sync account, then reading the assignments back. Held
+        when the sync account is the only assignee, or was assigned before every other person
+        assigned now; the kit withdraws when it was not first. An issue that already has anyone
+        else on it is not the kit's."""
+        me = self.identity().name
         assigned = self.get(item_id).assignees
         others = [who for who in assigned if who != me]
         if others:
@@ -173,9 +182,17 @@ class GithubIssues:
         path = self._path(item_id, "assignees")
         if me not in assigned:
             self._call("POST", path, json={"assignees": [me]})
+        now = self.get(item_id).assignees
+        if all(who == me for who in now):
+            return True
+        # Each current assignee's latest assignment; the list is oldest first.
         events = self._list_of(EventDoc, self._path(item_id, "events"))
-        first = next((e.assignee.login for e in events if e.event == "assigned" and e.assignee), me)
-        if first == me:
+        latest = {
+            e.assignee.login: place
+            for place, e in enumerate(events)
+            if e.event == "assigned" and e.assignee
+        }
+        if all(latest.get(me, 0) < latest.get(who, 0) for who in now if who != me):
             return True
         self._call("DELETE", path, json={"assignees": [me]})
         return False
@@ -227,11 +244,16 @@ class GithubIssues:
                 return found
             page += 1
 
-    def _me(self) -> str:
-        if self._login is None:
-            reply = self._call("GET", "/user")
-            self._login = validated(LoginDoc, reply.data, "user", reply.text).login
-        return self._login
+    def _label(self, word: str) -> str:
+        """The label that stands for a kit status (`active`, or a status tag)."""
+        return self._section.state_map.get(word, f"{STATUS_PREFIX}{word}")
+
+    def _kit_state(self, doc: IssueDoc) -> str:
+        """The kit's state of an issue: the inverse of `_state_patch`."""
+        if doc.state == "closed":
+            return "removed" if doc.state_reason == "not_planned" else "done"
+        active = self._label(ACTIVE) in {label.name for label in doc.labels}
+        return ACTIVE if active else "new"
 
     @staticmethod
     def _state_patch(state: str) -> dict[str, str]:
@@ -295,8 +317,7 @@ class GithubIssues:
                 "PATCH",
                 self._path(str(child.number)),
                 json={
-                    "state": "closed",
-                    "state_reason": "not_planned",
+                    **self._state_patch("removed"),
                     "body": without_markers(self._section.marker_prefix, child.body or "").rstrip(
                         "\n"
                     ),
@@ -348,8 +369,9 @@ class GithubIssues:
             url=doc.html_url,
             markers=self._markers_of(doc),
             tags=tuple(
-                label.name.removeprefix(STATUS_PREFIX)
-                for label in doc.labels
-                if label.name in _TAG_LABELS
+                tag
+                for tag in STATUS_TAGS
+                if self._label(tag) in {label.name for label in doc.labels}
             ),
+            kit_state=self._kit_state(doc),
         )

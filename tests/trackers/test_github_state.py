@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import pytest
 
+from agent_build_kit.trackers.base import board_snapshot
 from tests.trackers.github_issue_host import IssueHost
 from tests.trackers.github_support import tracker_on
 
@@ -40,6 +41,33 @@ def test_a_group_item_set_active_in_review_blocked_and_done_leaves_the_expected_
     assert host.issues[int(group)]["state"] == "closed"
     assert host.issues[int(group)]["state_reason"] == "completed"
     assert done.state == "closed"
+
+
+def test_the_kits_states_are_read_back_from_the_issue() -> None:
+    host = IssueHost()
+    group, task = group_on(host), host.seed("Task", type="Task")
+    tracker = tracker_on(host)
+
+    assert tracker.get(group).kit_state == "new"
+    assert tracker.update(group, {"state": "active"}).kit_state == "active"
+    assert tracker.update(group, {"state": "done"}).kit_state == "done"
+    assert tracker.update(task, {"state": "removed"}).kit_state == "removed"
+    assert board_snapshot(tracker.get(task))["state"] == "removed"
+
+
+def test_a_section_that_renames_a_status_label_creates_sets_and_reads_that_label() -> None:
+    host = IssueHost()
+    group = group_on(host)
+    held = host.seed("Group", type="Story", labels=("on-hold",))
+    tracker = tracker_on(host, state_map={"active": "doing", "blocked": "on-hold"})
+
+    tracker.update(group, {"state": "active"})
+
+    assert host.label_creates == ["doing"]
+    assert host.labels_of(group) == {"doing"}
+    assert tracker.created_labels == ("doing",)
+    assert tracker.get(group).kit_state == "active"
+    assert tracker.get(held).tags == ("blocked",)
 
 
 def test_a_tag_is_taken_off_and_a_persons_label_stays() -> None:

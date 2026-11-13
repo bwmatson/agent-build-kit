@@ -60,10 +60,38 @@ def test_a_group_item_the_sync_account_already_holds_alone_is_held() -> None:
     assert host.assignees_of(group) == [SYNC_ACCOUNT]
 
 
-def test_the_capabilities_report_no_revision_check_and_a_stale_revision_does_not_refuse() -> None:
+def test_an_earlier_assignee_who_was_since_unassigned_does_not_win() -> None:
+    host = IssueHost()
+    group = host.seed("Group", type="Story", assignees=(OTHER,))
+    host.unassign(group, OTHER)
+
+    assert tracker_on(host).claim(group) is True
+
+    assert host.assignees_of(group) == [SYNC_ACCOUNT]
+
+
+def test_a_claim_held_alone_after_an_earlier_assignee_left_is_not_released() -> None:
+    host = IssueHost()
+    group = host.seed("Group", type="Story", assignees=(OTHER, SYNC_ACCOUNT))
+    host.unassign(group, OTHER)
+
+    assert tracker_on(host).claim(group) is True
+
+    assert host.assignees_of(group) == [SYNC_ACCOUNT]
+
+
+def test_the_identity_is_the_account_the_token_belongs_to() -> None:
+    assert tracker_on(IssueHost()).identity().name == SYNC_ACCOUNT
+
+
+def test_the_capabilities_report_no_revision_check() -> None:
+    assert tracker_on(IssueHost()).capabilities().revision_check is False
+
+
+def test_an_update_with_a_stale_revision_is_not_refused() -> None:
     host = IssueHost()
     group = host.seed("Group", type="Story")
-    tracker = tracker_on(host)
 
-    assert tracker.capabilities().revision_check is False
-    assert tracker.update(group, {"state": "active"}, "stale-revision").state == "open"
+    done = tracker_on(host).update(group, {"state": "active"}, "stale-revision")
+
+    assert done.state == "open"

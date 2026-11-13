@@ -127,6 +127,10 @@ class IssueHost(httpx.MockTransport):
         """`login` is assigned to the issue just before the next assignment sent for it."""
         self._racers.setdefault(int(number), []).append(login)
 
+    def unassign(self, number: str, login: str) -> None:
+        """`login` is taken off the issue, as a person does; the assignment stays in its events."""
+        self._unassign(int(number), login)
+
     def assignees_of(self, number: str) -> list[str]:
         """The logins assigned to an issue, in the order they were assigned."""
         return [who["login"] for who in self.issues[int(number)]["assignees"]]

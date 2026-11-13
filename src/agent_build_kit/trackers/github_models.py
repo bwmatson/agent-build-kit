@@ -35,6 +35,7 @@ class IssueDoc(_Doc):
     title: str
     body: str | None = None
     state: str
+    state_reason: str | None = None
     html_url: str
     updated_at: str = ""
     labels: tuple[NamedDoc, ...] = ()
