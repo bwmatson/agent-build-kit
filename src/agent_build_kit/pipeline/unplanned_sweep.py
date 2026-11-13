@@ -70,7 +70,7 @@ def eligibility(
     cannot be read; it matters only when `tracker_configured`.
     `change_groups` maps a live change to the group numbers its tasks have now, or to None when
     they cannot be read."""
-    _ = change_groups
+    known = change_groups or {}
     tombstones = {unit.id: unit for unit in units if unit.state == UnitState.UNPLANNED}
     ended = (UnitState.UNPLANNED, UnitState.RETIRED, CLOSED)
     live = [unit for unit in units if unit.state not in ended]
@@ -89,10 +89,21 @@ def eligibility(
         """The first of conditions 1, 3 and 4 that fails, which do not depend on the others."""
         if unit.has_work:
             return "it holds work (a branch, pull request, push or approval)"
-        if (unit.change in active_changes or unit.change in archived_changes) and not set(
-            unit.groups
-        ) <= carried[unit.change]:
-            return f"its groups {list(unit.groups)} are carried by no live unit of {unit.change}"
+        gone = False
+        if unit.change in active_changes and unit.change in known:
+            now = known[unit.change]
+            if now is None:
+                return f"the groups of {unit.change} could not be read, so none is known to be gone"
+            gone = bool(unit.groups) and not set(unit.groups) & set(now)
+        if (
+            not gone
+            and (unit.change in active_changes or unit.change in archived_changes)
+            and not set(unit.groups) <= carried[unit.change]
+        ):
+            reason = f"its groups {list(unit.groups)} are carried by no live unit of {unit.change}"
+            if unit.change in known:
+                reason += ", and a group it carried still exists in the change"
+            return reason
         demoted = _demoted_at(unit)
         if demoted is None:
             return "the time it was demoted cannot be read, so no pass is known to have seen it"
