@@ -209,6 +209,7 @@ def sweep(
     tracker_configured: bool = False,
     tracker_reconciled: datetime | None = None,
     dry_run: bool = False,
+    change_groups: Mapping[str, Collection[int] | None] | None = None,
 ) -> list[str]:
     """Remove the units `eligibility` clears from `store`, repointing the references to them,
     and return their ids; `only_change` leaves the units of other changes alone. `dry_run`
@@ -221,6 +222,7 @@ def sweep(
         pass_started=pass_started,
         tracker_configured=tracker_configured,
         tracker_reconciled=tracker_reconciled,
+        change_groups=change_groups,
     )
     changes = {unit.id: unit.change for unit in units}
     cleared = {

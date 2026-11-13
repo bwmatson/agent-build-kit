@@ -234,7 +234,9 @@ other unit names it in `depends_on`, `needs`, `merge_needs`, `waited_on` or `sup
 the reference can be repointed to a successor still in the store; its groups are carried by a live
 unit, or its change is gone (an archived change keeps a unit whose groups no live unit carries,
 because the tracker reads such a group as removed and would read it as new once the unit was
-gone); a pass has run since it was demoted and, where a tracker is configured, the tracker's last
+gone), or none of its groups is a group its change has now (read from the change's tasks as the
+planner reads them; a unit with even one group the change still has keeps the rule above, and a
+change whose tasks cannot be read keeps every unit, the reason saying so); a pass has run since it was demoted and, where a tracker is configured, the tracker's last
 reconcile that ran to its end is later than the demotion; and its change keeps another unit (a
 change that is gone or archived is exempt). It prints each unit it removes, with the references it repointed, and for each other
 `unplanned` unit the first condition it fails. With `--dry-run` it prints `would remove UNIT` and

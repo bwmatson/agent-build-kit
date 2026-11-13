@@ -10,7 +10,7 @@ from __future__ import annotations
 import argparse
 import sys
 
-from agent_build_kit.cli.pipeline import store_for
+from agent_build_kit.cli.pipeline import live_change_groups, store_for
 from agent_build_kit.installation import Installation
 from agent_build_kit.pipeline import spans
 from agent_build_kit.pipeline.unit_store import UnitStore
@@ -48,6 +48,7 @@ def cmd_units_prune(args: argparse.Namespace, inst: Installation) -> int:
         pass_started=spans.clock.now(),
         tracker_configured=configured,
         tracker_reconciled=reconciled,
+        change_groups=live_change_groups(inst, live),
     )
     cleared = {uid: found.successors for uid, found in verdicts.items() if found.eligible}
     removed = set() if args.dry_run else set(store.remove_swept(cleared))

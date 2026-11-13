@@ -192,7 +192,9 @@ report, the check for changes a demoted joined unit carried, the drop preview, t
 removes it once it holds no work, nothing names it (a reference is repointed to its successors
 first), its groups are carried by a live unit or its change is gone (an archived change keeps a
 unit whose groups no live unit carries, because the tracker reads such a group as removed), the
-tracker has reconciled since, and its change keeps another unit. The tracker records when a pass that ran to its end finished, in the
+tracker has reconciled since, and its change keeps another unit. A unit none of whose groups its
+change has now needs no group carried (the tracker builds its board from the groups in the
+change's tasks, so nothing reads it), and a change whose tasks cannot be read keeps its units. The tracker records when a pass that ran to its end finished, in the
 repo's machine-local file, and the sweep reads it. A swept unit's id may be reused by a later plan:
 a plan that asks for the same groups again creates a new unit, which may take that id. `abk units prune --unplanned` runs the sweep on
 demand.

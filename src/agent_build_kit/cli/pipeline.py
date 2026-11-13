@@ -804,6 +804,26 @@ def _sweep_labels(inst: Installation, store: UnitStore) -> None:
     )
 
 
+def live_change_groups(inst: Installation, changes: Collection[str]) -> dict[str, set[int] | None]:
+    """The group numbers each of `changes` has now, read from its tasks as the planner reads them;
+    None for a change whose tasks are missing or give no group, logged once."""
+    found: dict[str, set[int] | None] = {}
+    for change in sorted(changes):
+        path = inst.changes_dir / change / "tasks.md"
+        try:
+            groups = _validated(inst, path)[0]
+        except (OSError, UnicodeDecodeError, ValueError):
+            groups = []
+        # Errors beside readable groups do not hide a group; no group at all is a file the
+        # planner cannot use, and must never make every group look absent.
+        if not groups:
+            log(f"the groups of {change} cannot be read, so its tombstones are kept")
+            found[change] = None
+        else:
+            found[change] = {group.number for group in groups}
+    return found
+
+
 def _sweep_unplanned_units(
     inst: Installation, store: UnitStore, pass_started: datetime, *, only_change: str | None = None
 ) -> None:
@@ -821,6 +841,7 @@ def _sweep_unplanned_units(
         only_change=only_change,
         tracker_configured=configured,
         tracker_reconciled=reconciled,
+        change_groups=live_change_groups(inst, live),
     )
     if removed:
         log(f"swept the units the plan dropped: {', '.join(removed)}")

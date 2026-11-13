@@ -13,6 +13,10 @@
   that does not close the issue, reaches a GitHub Enterprise Server host through the `host`
   setting (set `GH_TOKEN` for it, as the `gh` login lookup asks github.com), and has a doctor
   probe that tells an unauthorized token from a missing repository.
+- The sweep of dropped units now removes a unit whose groups its change no longer has,
+  which it used to keep for ever. A unit with even one group the change still has is kept,
+  and so is every unit of a change whose tasks cannot be read. `abk units prune --unplanned
+  --dry-run` says which of these applies to each unit it keeps.
 
 - The Python profile's unit-test run is now one pass. The second pass of tests marked as
   serial, the marker selection on the parallel pass and the rerun's handling of that split
