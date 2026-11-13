@@ -21,7 +21,7 @@ that fails being the reason it is kept:
 
 from __future__ import annotations
 
-from collections.abc import Collection, Sequence
+from collections.abc import Collection, Mapping, Sequence
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -57,6 +57,7 @@ def eligibility(
     archived_changes: Collection[str] = (),
     tracker_configured: bool = False,
     tracker_reconciled: datetime | None = None,
+    change_groups: Mapping[str, Collection[int] | None] | None = None,
 ) -> dict[str, Verdict]:
     """A verdict for each `unplanned` unit of `units`; a unit in any other state is not one.
 
@@ -66,7 +67,10 @@ def eligibility(
     `pass_started` is
     when the current tick pass began: a unit demoted before it has been seen by a pass.
     `tracker_reconciled` is when the tracker's last successful reconcile ended, None when it
-    cannot be read; it matters only when `tracker_configured`."""
+    cannot be read; it matters only when `tracker_configured`.
+    `change_groups` maps a live change to the group numbers its tasks have now, or to None when
+    they cannot be read."""
+    _ = change_groups
     tombstones = {unit.id: unit for unit in units if unit.state == UnitState.UNPLANNED}
     ended = (UnitState.UNPLANNED, UnitState.RETIRED, CLOSED)
     live = [unit for unit in units if unit.state not in ended]
