@@ -804,11 +804,15 @@ def _sweep_labels(inst: Installation, store: UnitStore) -> None:
     )
 
 
-def live_change_groups(inst: Installation, changes: Collection[str]) -> dict[str, set[int] | None]:
-    """The group numbers each of `changes` has now, read from its tasks as the planner reads them;
-    None for a change whose tasks are missing or give no group, logged once."""
+def live_change_groups(
+    inst: Installation, live: Collection[str], units: Iterable[StoredUnit]
+) -> dict[str, set[int] | None]:
+    """The group numbers each live change with an `unplanned` unit has now, read from its tasks as
+    the planner reads them; a change with none is not read. None for a change whose tasks are
+    missing or give no group, with one log line per such change each time it is called."""
     found: dict[str, set[int] | None] = {}
-    for change in sorted(changes):
+    wanted = {unit.change for unit in units if unit.state == UnitState.UNPLANNED}
+    for change in sorted(wanted & set(live)):
         path = inst.changes_dir / change / "tasks.md"
         try:
             groups = _validated(inst, path)[0]
@@ -841,7 +845,7 @@ def _sweep_unplanned_units(
         only_change=only_change,
         tracker_configured=configured,
         tracker_reconciled=reconciled,
-        change_groups=live_change_groups(inst, live),
+        change_groups=live_change_groups(inst, live, store.all()),
     )
     if removed:
         log(f"swept the units the plan dropped: {', '.join(removed)}")

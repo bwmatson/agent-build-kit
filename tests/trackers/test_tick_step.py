@@ -610,6 +610,17 @@ def test_a_change_with_unreadable_tasks_keeps_its_tombstones_and_the_pass_goes_o
     assert "other/6" not in found, "the pass went on to the change it could read"
 
 
+def test_a_draft_change_with_no_tasks_and_no_units_is_not_reported_unreadable(
+    inst: Installation, store: UnitStore, capsys: pytest.CaptureFixture[str]
+) -> None:
+    write_change(inst.changes_dir, "draft")
+    (inst.changes_dir / "draft" / "tasks.md").unlink()
+
+    run(inst, store)
+
+    assert "cannot be read" not in capsys.readouterr().out
+
+
 def test_a_round_does_not_sweep_while_the_tracker_has_not_reconciled_since(
     inst: Installation, store: UnitStore, monkeypatch: pytest.MonkeyPatch
 ) -> None:

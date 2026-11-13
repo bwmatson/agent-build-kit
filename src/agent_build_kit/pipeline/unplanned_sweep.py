@@ -11,7 +11,9 @@ that fails being the reason it is kept:
    unless the reference can be repointed to its successors (a reference from another unit that is
    itself swept goes with it);
 3. its groups are carried by a live unit of its change, or its change is gone (an archived change
-   still needs them carried: the tracker's view of its groups depends on it);
+   still needs them carried: the tracker's view of its groups depends on it), or, for a live
+   change, none of its groups is a group the change's tasks have now (nothing reads such a unit);
+   a live change whose tasks cannot be read keeps every unit;
 4. a tick pass has run since it was demoted and, where a tracker is configured, the tracker's last
    successful reconcile is later than the demotion;
 5. its change keeps another unit (a change with no unit is never archive-ready), unless it is gone

@@ -198,6 +198,18 @@ def test_a_run_removes_a_unit_whose_groups_the_change_no_longer_has(
     assert "x/6" not in ids(store)
 
 
+def test_a_draft_change_with_no_tasks_and_no_tombstone_is_not_reported_unreadable(
+    inst: Installation, capsys: pytest.CaptureFixture[str]
+) -> None:
+    tombstones(inst)
+    write_change(inst.changes_dir, "draft")
+    (inst.changes_dir / "draft" / "tasks.md").unlink()
+
+    prune(inst, dry_run=True)
+
+    assert "cannot be read" not in capsys.readouterr().out
+
+
 def test_a_unit_the_store_kept_after_it_was_cleared_says_why(
     inst: Installation, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
 ) -> None:
