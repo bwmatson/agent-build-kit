@@ -7,7 +7,7 @@ import pytest
 
 from agent_build_kit.cli import pipeline as cli
 from agent_build_kit.pipeline.unit_store import Cause, HeldBy
-from agent_build_kit.pipeline.units import CLOSED, HELD
+from agent_build_kit.pipeline.units import CLOSED, FAILED, HELD, PLANNED
 from agent_build_kit.pipeline.usage_guard import Decision
 from tests.split_step_support import HELD_ID, PIECES, correct, reply, scene
 from tests.tick_pass import isolate, tick
@@ -28,6 +28,28 @@ def test_a_unit_held_for_its_size_is_the_only_work_and_the_tick_splits_it(
 
     old = run.store.get(HELD_ID)
     assert (old.state, old.cause, old.superseded_by) == (CLOSED, Cause.SUPERSEDED, PIECES)
+
+
+def test_an_unsplit_unit_whose_resume_was_deferred_is_the_only_work_and_the_tick_resumes_it(
+    tmp_path, monkeypatch
+) -> None:
+    run = scene(tmp_path, monkeypatch, dependent=False, groups=(1,), drivers=())
+    run.record("feature")
+    run.runtime.answer = reply(*correct())
+    isolate(monkeypatch)
+    real = cli.requeue
+    monkeypatch.setattr(cli, "requeue", lambda *_, **__: 1)
+    cli.split_held_units(run.inst, run.store)
+    monkeypatch.setattr(cli, "requeue", real)
+
+    assert run.store.get(HELD_ID).state == HELD
+    assert cli.has_work(run.inst, run.store)
+    tick(run.inst)
+
+    unit = run.store.get(HELD_ID)
+    # The fixture has no checkout, so the unit the tick resumed fails when it starts to build.
+    assert unit.state in (PLANNED, FAILED)
+    assert unit.size_waived
 
 
 def test_a_unit_that_cannot_be_split_is_held_for_a_person_while_the_guard_refuses(
