@@ -35,6 +35,7 @@ class IssueDoc(_Doc):
     title: str
     body: str | None = None
     state: str
+    state_reason: str | None = None
     html_url: str
     updated_at: str = ""
     labels: tuple[NamedDoc, ...] = ()
@@ -44,6 +45,13 @@ class IssueDoc(_Doc):
     sub_issues_summary: SubIssuesSummaryDoc | None = None
     # Present only on a pull request, which the issues list also returns.
     pull_request: dict[str, object] | None = None
+
+
+class EventDoc(_Doc):
+    """One entry of an issue's event list; `assignee` is set on an assignment."""
+
+    event: str
+    assignee: LoginDoc | None = None
 
 
 class IssueTypeDoc(_Doc):

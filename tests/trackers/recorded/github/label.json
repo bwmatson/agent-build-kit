@@ -1,0 +1,16 @@
+{
+  "fixture": {
+    "source": "reference",
+    "page": "https://docs.github.com/en/rest/issues/labels?apiVersion=2022-11-28#create-a-label",
+    "date": "2026-11-12"
+  },
+  "body": {
+    "id": 208045946,
+    "node_id": "MDU6TGFiZWwyMDgwNDU5NDY=",
+    "url": "https://api.github.com/repos/example/app/labels/status:active",
+    "name": "status:active",
+    "color": "f29513",
+    "default": false,
+    "description": null
+  }
+}
