@@ -12,6 +12,10 @@
   deselected (pytest exit 5), never ran again, and a flake in it failed the unit; the rerun now
   takes the same by-id selection as the repeat check, and a marker expression of an e2e run is
   still kept.
+- The JavaScript red check now accepts a test that fails with a plain `Error` thrown by the
+  code under test, as it does an assertion failure. A `TypeError`, `ReferenceError` or
+  `SyntaxError` is still refused, and the reason names the type, since it means a name is
+  missing or the test is broken.
 
 - The GitHub issues tracker now lists the issues changed since a cursor (pull requests left
   out, unchanged pages not transferred again), links a pull request with a `Part of #<n>` line

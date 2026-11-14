@@ -51,14 +51,12 @@ def test_a_test_failing_by_assertion_or_by_not_implemented_is_red(
         ("syntax_error", "f.test.ts", "could not be loaded"),
         ("passing", "d.test.ts", "passed"),
         ("empty", "a.test.ts", "nothing failed"),
-        ("other_not_implemented", "i.test.ts", "not one we recognise"),
     ],
     ids=[
         "an unresolved import",
         "a syntax error",
         "a passing test",
         "an empty run",
-        "an error that only mentions not implemented",
     ],
 )
 def test_a_file_that_did_not_load_a_passing_test_or_an_empty_run_is_rejected_with_a_reason(
