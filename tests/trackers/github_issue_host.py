@@ -286,7 +286,7 @@ class IssueHost(httpx.MockTransport):
                     "grant your Personal Access token access to this organization.",
                     "documentation_url": "https://docs.github.com/articles/saml-single-sign-on",
                 },
-                headers={"x-github-sso": "required; url=https://github.com/orgs/example/sso"},
+                headers={"x-github-sso": "required; url=https://example.com/sso"},
             )
         if not self._repo_exists and path.startswith("/repos/example/app"):
             return _json(404, {"message": "Not Found"})
