@@ -22,6 +22,7 @@ BODIES = (
     "user",
     "authenticated_user",
     "issue_event_assigned",
+    "issue_last_edit",
     "label",
 )
 

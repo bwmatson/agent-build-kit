@@ -1,0 +1,17 @@
+{
+  "fixture": {
+    "source": "reference",
+    "page": "https://docs.github.com/en/graphql/reference/objects#issue",
+    "date": "2026-11-13"
+  },
+  "body": {
+    "data": {
+      "repository": {
+        "issue": {
+          "lastEditedAt": "2026-10-20T09:30:00Z",
+          "editor": {"login": "sync-account"}
+        }
+      }
+    }
+  }
+}

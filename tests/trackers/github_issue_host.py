@@ -11,7 +11,7 @@ import hashlib
 import json
 import re
 import threading
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from copy import deepcopy
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -119,7 +119,14 @@ class IssueHost(httpx.MockTransport):
         self.events: dict[int, list[dict[str, Any]]] = {}
         self._racers: dict[int, list[str]] = {}
         self._tick = 0
-        self._lock = threading.Lock()
+        # Who last edited each issue's body and when, which the host answers over GraphQL.
+        self._edits: dict[int, tuple[str, str]] = {}
+        self._last_edit = load("issue_last_edit", RECORDED_GITHUB).body
+        # How many issue listings were asked for, and what runs as each one starts (given
+        # its count), so a test can change an issue between two pages.
+        self.lists = 0
+        self.before_list: Callable[[int], None] | None = None
+        self._lock = threading.RLock()
         super().__init__(self._handle)
 
     # --- what a test asks ---------------------------------------------------------
@@ -217,17 +224,23 @@ class IssueHost(httpx.MockTransport):
         self.issues[number]["updated_at"] = stamp
         return stamp
 
-    def _record(self, number: int, kind: str, login: str) -> None:
-        stamp = self._touch(number)
-        self.events.setdefault(number, []).append(
-            {
-                **self._event,
-                "id": self._event["id"] + self._tick,
-                "event": kind,
-                "created_at": stamp,
-                "assignee": self._person(login),
-            }
-        )
+    def _record(self, number: int, kind: str, login: str | None = None, *, stamp: str = "") -> None:
+        """An event on the issue by whoever made the call, at `stamp` or at a new second; the
+        person assigned, for an assignment."""
+        stamp = stamp or self._touch(number)
+        event = {
+            **self._event,
+            "id": self._event["id"] + self._tick,
+            "event": kind,
+            "created_at": stamp,
+            "actor": self._person(self._login),
+        }
+        if login is None:
+            event.pop("assignee", None)
+            event.pop("assigner", None)
+        else:
+            event["assignee"] = self._person(login)
+        self.events.setdefault(number, []).append(event)
 
     def _assign(self, number: int, login: str) -> None:
         doc = self.issues[number]
@@ -251,19 +264,26 @@ class IssueHost(httpx.MockTransport):
             changes["labels"] = [
                 {"id": 5000 + i, "name": name} for i, name in enumerate(changes["labels"])
             ]
+        renamed = "title" in changes and changes["title"] != self.issues[number]["title"]
         self.issues[number].update(changes)
         stamp = self._touch(number)
-        # The editor is not on the issue; the host keeps who made each edit beside the events.
-        self.events.setdefault(number, []).append(
-            {
-                **self._event,
-                "id": self._event["id"] + self._tick,
-                "event": "edited",
-                "created_at": stamp,
-                "actor": self._person(self._login),
-            }
-        )
+        # As the host does: a new title is a `renamed` event, and who last edited the body is
+        # not an event but what the GraphQL `editor` field answers.
+        if renamed:
+            self._record(number, "renamed", stamp=stamp)
+        if "body" in changes:
+            self._edits[number] = (stamp, self._login)
         return _json(200, self.issues[number])
+
+    def _graphql(self, body: dict[str, Any]) -> httpx.Response:
+        """The last edit of an issue, answered in the shape of the recorded reply."""
+        stamp, login = self._edits.get(body["variables"]["number"], (None, None))
+        answer = deepcopy(self._last_edit)
+        answer["data"]["repository"]["issue"] = {
+            "lastEditedAt": stamp,
+            "editor": self._person(login) if login else None,
+        }
+        return _json(200, answer)
 
     def _nest(self, parent: int, child: int) -> None:
         self._children.setdefault(parent, []).append(child)
@@ -291,6 +311,8 @@ class IssueHost(httpx.MockTransport):
         if not self._repo_exists and path.startswith("/repos/example/app"):
             return _json(404, {"message": "Not Found"})
         body = json.loads(request.content) if request.content else {}
+        if path in ("/graphql", "/api/graphql") and method == "POST":
+            return self._graphql(body)
         if path == "/users/example" and method == "GET":
             return _json(200, self._owner)
         if path == "/user" and method == "GET":
@@ -369,6 +391,9 @@ class IssueHost(httpx.MockTransport):
     def _list(self, request: httpx.Request) -> httpx.Response:
         """Open issues unless `state` says otherwise, pull requests among them, as the host does.
         With `since`, those updated at or after it; with `sort=updated`, in that order."""
+        self.lists += 1
+        if self.before_list is not None:
+            self.before_list(self.lists)
         params = request.url.params
         state = params.get("state", "open")
         shown = [

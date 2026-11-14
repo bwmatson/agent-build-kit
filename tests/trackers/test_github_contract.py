@@ -32,6 +32,6 @@ def shape(request: pytest.FixtureRequest) -> contract.Shape:
     return contract.shape_of(tracker, competitor, levels)
 
 
-def test_the_tracker_passes_every_scenario(shape: contract.Shape) -> None:
-    for scenario in contract.SCENARIOS.values():
-        scenario(shape)
+@pytest.mark.parametrize("scenario", list(contract.SCENARIOS))
+def test_the_tracker_passes_every_scenario(scenario: str, shape: contract.Shape) -> None:
+    contract.SCENARIOS[scenario](shape)

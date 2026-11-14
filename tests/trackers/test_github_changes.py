@@ -79,14 +79,14 @@ def test_an_issue_updated_again_after_the_cursor_is_returned_again() -> None:
 
 def test_an_unchanged_page_answered_not_modified_transfers_no_issue_bodies() -> None:
     host = IssueHost()
-    tracker = tracker_on(host)
     host.seed("First", type="Story", updated_at=INSTANT)
     host.seed("Second", type="Story", updated_at=at(30))
-    _, cursor = tracker.changed_since(None)
-    tracker.changed_since(cursor)
+    # Each call is a new tracker, as each poll is: only the cursor carries over.
+    _, cursor = tracker_on(host).changed_since(None)
+    _, cursor = tracker_on(host).changed_since(cursor)
     sent = host.bodies_sent
 
-    changes, _ = tracker.changed_since(cursor)
+    changes, _ = tracker_on(host).changed_since(cursor)
 
     assert host.not_modified == 1
     assert host.bodies_sent == sent
@@ -95,16 +95,42 @@ def test_an_unchanged_page_answered_not_modified_transfers_no_issue_bodies() -> 
 
 def test_a_page_that_changed_is_read_again_after_a_not_modified_answer() -> None:
     host = IssueHost()
-    tracker = tracker_on(host)
     host.seed("First", type="Story", updated_at=INSTANT)
-    _, cursor = tracker.changed_since(None)
-    tracker.changed_since(cursor)
-    tracker.changed_since(cursor)
+    _, cursor = tracker_on(host).changed_since(None)
+    _, cursor = tracker_on(host).changed_since(cursor)
+    tracker_on(host).changed_since(cursor)
     later = host.seed("Later", type="Story", updated_at=LATER)
 
-    changes, _ = tracker.changed_since(cursor)
+    changes, _ = tracker_on(host).changed_since(cursor)
 
     assert [change.item_id for change in changes] == [later]
+
+
+def test_an_issue_edited_between_two_pages_is_returned_once() -> None:
+    host = IssueHost()
+    tracker = tracker_on(host)
+    ids = [host.seed(f"Item {n}", type="Story", updated_at=at(n)) for n in range(1, 151)]
+
+    def edit_the_first(count: int) -> None:
+        if count == 2:
+            tracker.update(ids[0], {"title": "Renamed"})
+
+    host.before_list = edit_the_first
+
+    changes, _ = tracker.changed_since(None)
+
+    assert sorted(change.item_id for change in changes) == sorted(ids)
+    assert len(changes) == len(ids)
+
+
+def test_the_first_call_with_no_cursor_reads_no_events() -> None:
+    host = IssueHost()
+    host.seed("Group", type="Story", updated_at=INSTANT)
+
+    tracker_on(host).changed_since(None)
+
+    paths = [request.url.path for request in host.seen]
+    assert [path for path in paths if "/events" in path or "graphql" in path] == []
 
 
 def test_an_issue_a_person_made_is_returned_flagged_foreign() -> None:

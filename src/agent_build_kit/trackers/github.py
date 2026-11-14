@@ -12,7 +12,6 @@ import json
 import logging
 from collections.abc import Mapping, Sequence
 from typing import Any
-from urllib.parse import urlencode
 
 import httpx
 from pydantic import BaseModel
@@ -50,6 +49,8 @@ from agent_build_kit.trackers.github_models import (
     EventDoc,
     IssueDoc,
     IssueTypeDoc,
+    LastEditAnswerDoc,
+    LastEditDoc,
     LoginDoc,
     NamedDoc,
     OwnerDoc,
@@ -64,9 +65,8 @@ ACTIVE = "active"
 _log = logging.getLogger(__name__)
 # The host whose API is the public one; any other is an Enterprise Server's.
 PUBLIC_HOST = "github.com"
-# What an issue event changed, in the words a `Change` uses; a body edit is read as `edited`.
+# What an issue event changed, in the words a `Change` uses. A body edit is no event.
 _EVENT_FIELDS = {
-    "edited": ("title", "body"),
     "renamed": ("title",),
     "assigned": ("assignee",),
     "unassigned": ("assignee",),
@@ -110,10 +110,10 @@ class GithubIssues:
         self._transport: Transport | None = None
         self._typed: bool | None = None
         self._levels: dict[ItemKind, str] = kind_types(section.level_types)
-        self._identity: Identity | None = None
+        # What `/user` and the owner's own document said, each read once.
+        self._user: tuple[str | None, str] | None = None
+        self._owner_kind_read: str | None = None
         self._created_labels: list[str] = []
-        # Each listing page's ETag and the issues it answered with, by its query.
-        self._pages_held: dict[str, tuple[str, list[IssueDoc]]] = {}
 
     def capabilities(self) -> Capabilities:
         return Capabilities(
@@ -198,11 +198,7 @@ class GithubIssues:
 
     def identity(self) -> Identity:
         """The account the token belongs to: the one a claim assigns."""
-        if self._identity is None:
-            reply = self._call("GET", "/user")
-            login = validated(LoginDoc, reply.data, "user", reply.text).login
-            self._identity = Identity(name=login)
-        return self._identity
+        return Identity(name=self._account()[1])
 
     def claim(self, item_id: str) -> bool:
         """Hold the item by assigning the sync account, then reading the assignments back. Held
@@ -237,31 +233,57 @@ class GithubIssues:
         """The issues changed since `cursor`, oldest change first, pull requests left out.
 
         Timestamps are to the second, and the host's `since` includes its own instant, so the
-        cursor is the latest `updated_at` seen and the numbers handled at that instant. The
-        listing is read with the page's last ETag, so an unchanged page transfers no issues."""
-        state: dict[str, Any] = json.loads(cursor.value) if cursor else {"at": "", "numbers": []}
-        at: str = state["at"]
-        handled: list[int] = list(state["numbers"])
-        params = {"state": "all", "sort": "updated", "direction": "asc"}
-        if at:
-            params["since"] = at
-        docs = [doc for doc in self._changed_docs(params) if doc.pull_request is None]
+        cursor is the latest `updated_at` seen and the numbers handled at that instant. When a
+        listing found nothing new, the cursor also holds that listing's ETag: the next call
+        sends it, and a not-modified answer ends the call with nothing transferred, whichever
+        instance of the tracker makes it. The first call, with no cursor, only records where
+        the listing stands, so it reads no events.
+
+        The listing is paged by `since`, not by page number: an issue edited while the pages are
+        read moves to the end of the listing, and a page number would then skip the issue that
+        took its place. An issue seen twice is kept at its later update. More issues than one
+        page holds in a single second cannot be told apart, and the rest of them are not read."""
+        state: dict[str, Any] = json.loads(cursor.value) if cursor else {}
+        at: str = state.get("at", "")
+        handled: set[int] = set(state.get("numbers", []))
+        etag: str | None = state.get("etag")
+        sent = {"If-None-Match": etag} if cursor and etag else None
+        docs, reply = self._page(IssueDoc, self._path(), self._listing(at), sent)
+        if cursor and reply.status == 304:
+            return (), cursor
+        listing_etag = reply.headers.get("etag")
+        one_page = len(docs) < _PAGE
+        seen: dict[int, IssueDoc] = {doc.number: doc for doc in docs}
+        while len(docs) == _PAGE:
+            docs, _ = self._page(IssueDoc, self._path(), self._listing(docs[-1].updated_at))
+            if all(
+                doc.number in seen and seen[doc.number].updated_at == doc.updated_at for doc in docs
+            ):
+                break
+            seen.update((doc.number, doc) for doc in docs)
         fresh = sorted(
-            (doc for doc in docs if not (doc.updated_at == at and doc.number in handled)),
+            (
+                doc
+                for doc in seen.values()
+                if doc.pull_request is None and not (doc.updated_at == at and doc.number in handled)
+            ),
             key=lambda doc: (doc.updated_at, doc.number),
         )
         if not fresh:
-            return (), Cursor(value=json.dumps({"at": at, "numbers": handled}))
+            kept = {"at": at, "numbers": sorted(handled)}
+            if one_page and listing_etag:
+                kept["etag"] = listing_etag
+            return (), Cursor(value=json.dumps(kept))
         latest = fresh[-1].updated_at
-        seen = {doc.number for doc in fresh if doc.updated_at == latest}
+        numbers = {doc.number for doc in fresh if doc.updated_at == latest}
         if latest == at:
-            seen |= set(handled)
+            numbers |= handled
         changes = [
-            self._change_of(doc)
+            self._change_of(doc, read_who=cursor is not None)
             for doc in fresh
             if self._markers_of(doc) or self._kind_of(doc) is not None
         ]
-        return tuple(changes), Cursor(value=json.dumps({"at": latest, "numbers": sorted(seen)}))
+        return tuple(changes), Cursor(value=json.dumps({"at": latest, "numbers": sorted(numbers)}))
 
     def link(self, item_id: str, relation: str, target_id: str) -> Relation:
         """Say on the issue what it is related to, in a note: a pull request is also linked by
@@ -343,17 +365,32 @@ class GithubIssues:
             return settings.github_api_url.rstrip("/")
         return f"https://{host}/api/v3"
 
+    def _graphql_url(self) -> str:
+        """Where GraphQL is served: beside the REST API on the public host, and at `/api/graphql`
+        (not below `/api/v3`) on an Enterprise Server."""
+        host = self._section.host
+        if host is None or host == PUBLIC_HOST:
+            return f"{settings.github_api_url.rstrip('/')}/graphql"
+        return f"https://{host}/api/graphql"
+
     def _account(self) -> tuple[str | None, str]:
         """The token's scopes as the host lists them (none for a fine-grained token) and the
-        login of the account it belongs to."""
-        reply = self._call("GET", "/user")
-        login = validated(LoginDoc, reply.data, "user", reply.text).login
-        return reply.headers.get("x-oauth-scopes"), login
+        login of the account it belongs to, read once."""
+        if self._user is None:
+            reply = self._call("GET", "/user")
+            login = validated(LoginDoc, reply.data, "user", reply.text).login
+            self._user = (reply.headers.get("x-oauth-scopes"), login)
+        return self._user
+
+    def _owner_kind(self) -> str:
+        """`Organization` or `User`, read once."""
+        if self._owner_kind_read is None:
+            reply = self._call("GET", f"/users/{self._section.owner}")
+            self._owner_kind_read = validated(OwnerDoc, reply.data, "users", reply.text).type
+        return self._owner_kind_read
 
     def _owner_line(self) -> ProbeLine:
-        reply = self._call("GET", f"/users/{self._section.owner}")
-        kind = validated(OwnerDoc, reply.data, "users", reply.text).type
-        return ProbeLine(ok=True, text=f"owner kind: {kind.lower()}")
+        return ProbeLine(ok=True, text=f"owner kind: {self._owner_kind().lower()}")
 
     def _types_lines(self) -> list[ProbeLine]:
         names = ", ".join(self._levels.values())
@@ -364,10 +401,7 @@ class GithubIssues:
     def _sub_issues_line(self) -> ProbeLine:
         """Whether the repository serves sub-issues, asked of any issue it holds; a missing
         repository is raised here as `NotFound`, as it is the first call about it."""
-        reply = self._call("GET", self._path(), params={"state": "all", "per_page": "5"})
-        if not isinstance(reply.data, list):
-            raise TransportError(f"GET issues: not a list: {reply.text[:200]}")
-        docs = [validated(IssueDoc, entry, "issues", reply.text) for entry in reply.data]
+        docs, _ = self._page(IssueDoc, self._path(), {"state": "all", "per_page": "5"})
         held = next((doc for doc in docs if doc.pull_request is None), None)
         if held is None:
             return ProbeLine(ok=True, text="sub-issues: not checked, the repository has no issue")
@@ -377,45 +411,48 @@ class GithubIssues:
             return ProbeLine(ok=False, text="sub-issues: not available for this repository")
         return ProbeLine(ok=True, text="sub-issues: available")
 
-    def _changed_docs(self, params: dict[str, str]) -> list[IssueDoc]:
-        """Every page of the issues listing, each asked with the ETag it was last answered
-        with: a page answered not-modified is the one held from before."""
-        docs: list[IssueDoc] = []
-        page = 1
-        while True:
-            asked = {**params, "per_page": str(_PAGE), "page": str(page)}
-            key = urlencode(sorted(asked.items()))
-            held = self._pages_held.get(key)
-            sent = {"If-None-Match": held[0]} if held else None
-            reply = self._call("GET", self._path(), params=asked, headers=sent)
-            if reply.status == 304 and held:
-                listed = held[1]
-            else:
-                if not isinstance(reply.data, list):
-                    raise TransportError(f"GET issues: not a list: {reply.text[:200]}")
-                listed = [validated(IssueDoc, entry, "issues", reply.text) for entry in reply.data]
-                if etag := reply.headers.get("etag"):
-                    self._pages_held[key] = (etag, listed)
-            docs += listed
-            if len(listed) < _PAGE:
-                return docs
-            page += 1
+    def _listing(self, since: str) -> dict[str, str]:
+        """One page of every issue updated at or after `since`, oldest update first."""
+        params = {"state": "all", "sort": "updated", "direction": "asc", "per_page": str(_PAGE)}
+        return {**params, "since": since} if since else params
 
-    def _change_of(self, doc: IssueDoc) -> Change:
-        """What changed at the issue's last update and who did it, read from the events
-        recorded at that instant."""
-        events = self._list_of(EventDoc, self._path(str(doc.number), "events"))
-        latest = [event for event in events if event.created_at == doc.updated_at]
-        fields = dict.fromkeys(f for e in latest for f in _EVENT_FIELDS.get(e.event, ()))
-        actors = [event.actor.login for event in latest if event.actor]
+    def _change_of(self, doc: IssueDoc, *, read_who: bool) -> Change:
+        """What changed at the issue's last update and who did it: the events recorded at that
+        instant (a new title, an assignment, a label, a state) and, for a body, the editor the
+        GraphQL API names, as the events list has nothing for a body. Without `read_who` the
+        change is the listing alone: it names neither."""
+        fields: dict[str, None] = {}
+        who = ""
+        if read_who:
+            events = self._list_of(EventDoc, self._path(str(doc.number), "events"))
+            latest = [event for event in events if event.created_at == doc.updated_at]
+            fields = dict.fromkeys(f for e in latest for f in _EVENT_FIELDS.get(e.event, ()))
+            actors = [event.actor.login for event in latest if event.actor]
+            who = actors[-1] if actors else ""
+            edit = self._last_edit(doc.number)
+            if edit.lastEditedAt == doc.updated_at and edit.editor:
+                fields["body"] = None
+                who = edit.editor.login
         return Change(
             item_id=str(doc.number),
             revision=doc.updated_at,
             fields=tuple(fields),
-            who=actors[-1] if actors else "",
+            who=who,
             when=doc.updated_at,
             foreign=not self._markers_of(doc),
         )
+
+    def _last_edit(self, number: int) -> LastEditDoc:
+        query = (
+            "query($owner: String!, $repo: String!, $number: Int!) { repository(owner: $owner, "
+            "name: $repo) { issue(number: $number) { lastEditedAt editor { login } } } }"
+        )
+        variables = {"owner": self._section.owner, "repo": self._section.repo, "number": number}
+        reply = self._call(
+            "POST", self._graphql_url(), json={"query": query, "variables": variables}
+        )
+        answer = validated(LastEditAnswerDoc, reply.data, "graphql", reply.text)
+        return answer.data.repository.issue or LastEditDoc()
 
     def _call(self, method: str, path: str, **options: Any) -> Any:
         return self._client().request(method, path, **options)
@@ -431,15 +468,28 @@ class GithubIssues:
         found: list[Doc] = []
         page = 1
         while True:
-            reply = self._call(
-                "GET", path, params={**params, "per_page": str(_PAGE), "page": str(page)}
+            listed, _ = self._page(
+                model, path, {**params, "per_page": str(_PAGE), "page": str(page)}
             )
-            if not isinstance(reply.data, list):
-                raise TransportError(f"GET {path}: not a list: {reply.text[:200]}")
-            found += [validated(model, entry, path, reply.text) for entry in reply.data]
-            if len(reply.data) < _PAGE:
+            found += listed
+            if len(listed) < _PAGE:
                 return found
             page += 1
+
+    def _page[Doc: BaseModel](
+        self,
+        model: type[Doc],
+        path: str,
+        params: dict[str, str],
+        headers: dict[str, str] | None = None,
+    ) -> tuple[list[Doc], Any]:
+        """One page of a list and the reply it came in; a not-modified answer has no documents."""
+        reply = self._call("GET", path, params=params, headers=headers)
+        if reply.status == 304:
+            return [], reply
+        if not isinstance(reply.data, list):
+            raise TransportError(f"GET {path}: not a list: {reply.text[:200]}")
+        return [validated(model, entry, path, reply.text) for entry in reply.data], reply
 
     def _label(self, word: str) -> str:
         """The label that stands for a kit status (`active`, or a status tag)."""
@@ -481,20 +531,15 @@ class GithubIssues:
         (or having it disabled) falls back to labels, named as the configuration names the
         levels, so items can still be made."""
         if self._typed is None:
-            reply = self._call("GET", f"/users/{self._section.owner}")
-            kind = validated(OwnerDoc, reply.data, "users", reply.text).type
-            self._typed = kind == "Organization" and self._levels_are_enabled_types()
+            self._typed = self._owner_kind() == "Organization" and self._levels_are_enabled_types()
         return self._typed
 
     def _levels_are_enabled_types(self) -> bool:
         path = f"/orgs/{self._section.owner}/issue-types"
         try:
-            reply = self._call("GET", path)
+            listed, _ = self._page(IssueTypeDoc, path, {})
         except NotFound:
             return False
-        if not isinstance(reply.data, list):
-            raise TransportError(f"GET {path}: not a list: {reply.text[:200]}")
-        listed = (validated(IssueTypeDoc, entry, path, reply.text) for entry in reply.data)
         enabled = {entry.name for entry in listed if entry.is_enabled}
         return bool(self._levels) and set(self._levels.values()) <= enabled
 

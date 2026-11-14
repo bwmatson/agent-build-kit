@@ -59,3 +59,24 @@ class EventDoc(_Doc):
 class IssueTypeDoc(_Doc):
     name: str
     is_enabled: bool = True
+
+
+class LastEditDoc(_Doc):
+    """When an issue's title or body was last edited, and by whom."""
+
+    lastEditedAt: str | None = None  # noqa: N815 - the host's own name
+    editor: LoginDoc | None = None
+
+
+class _EditedRepositoryDoc(_Doc):
+    issue: LastEditDoc | None = None
+
+
+class _EditedDataDoc(_Doc):
+    repository: _EditedRepositoryDoc
+
+
+class LastEditAnswerDoc(_Doc):
+    """The answer to the last-edit GraphQL query."""
+
+    data: _EditedDataDoc

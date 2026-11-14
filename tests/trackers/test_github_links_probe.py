@@ -44,16 +44,11 @@ def record_issues(changes_dir: Path, groups: dict[int, str]) -> None:
     )
 
 
-def test_a_pull_request_is_linked_by_part_of_lines_and_a_comment_never_a_closing_keyword(
-    tmp_path: Path,
-) -> None:
-    record_issues(tmp_path, {1: "11", 2: "12", 3: "13"})
-    unit = stored_unit(f"{CHANGE}/1", change=CHANGE, groups=(1, 2), repo="app")
+def test_a_pull_request_is_linked_by_a_comment_on_the_issue() -> None:
     host = IssueHost()
     group = host.seed("Group", type="Story")
 
     relation = tracker_on(host).link(group, PULL_REQUEST_RELATION, PR_URL)
-    lines = link_lines(unit, tmp_path)
 
     assert [PR_URL in note for note in host.comments[int(group)]] == [True]
     assert (relation.kind, relation.source_id, relation.target_id) == (
@@ -61,6 +56,14 @@ def test_a_pull_request_is_linked_by_part_of_lines_and_a_comment_never_a_closing
         group,
         PR_URL,
     )
+
+
+def test_the_description_has_part_of_lines_with_no_closing_keyword(tmp_path: Path) -> None:
+    record_issues(tmp_path, {1: "11", 2: "12", 3: "13"})
+    unit = stored_unit(f"{CHANGE}/1", change=CHANGE, groups=(1, 2), repo="app")
+
+    lines = link_lines(unit, tmp_path)
+
     assert lines.splitlines() == ["Part of #11", "Part of #12"]
     assert not CLOSING_KEYWORDS.search(lines)
 
