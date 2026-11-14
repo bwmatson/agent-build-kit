@@ -205,3 +205,93 @@ def test_a_command_run_from_a_directory_selects_nothing_for_ids_outside_it() -> 
     command += ["pytest", "-m", "e2e", "-q"]
 
     assert PythonUvProfile().repeat_command(command, ["svc-b/tests/live/test_y.py::u"]) is None
+
+
+def collected_by_rerun(tmp_path: Path, tests: list[str], run: list[str]) -> set[str]:
+    """The ids the serial rerun of `run` collects with real pytest, on the deselecting tree."""
+    for name, text in DESELECTING.items():
+        (tmp_path / name).parent.mkdir(parents=True, exist_ok=True)
+        (tmp_path / name).write_text(text)
+    rerun = PythonUvProfile().serial_rerun_command(run, tests, project=tmp_path)
+    result = subprocess.run(
+        [*(w for w in rerun if w not in ("-v", "-q")), "-q", "--collect-only"]
+        + ["-p", "no:cacheprovider"],
+        cwd=tmp_path,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
+    return {line for line in result.stdout.splitlines() if "::" in line}
+
+
+RERUN_RUNS = {
+    "serial split": [sys.executable, "-m", "pytest", "tests", "-m", "not serial", "-q"],
+    "no marker": [sys.executable, "-m", "pytest", "tests", "-q"],
+}
+
+
+@pytest.mark.parametrize("run", RERUN_RUNS.values(), ids=RERUN_RUNS.keys())
+def test_the_rerun_of_a_failed_integration_test_collects_it_under_the_default_deselection(
+    tmp_path: Path, run: list[str]
+) -> None:
+    found = collected_by_rerun(tmp_path, [f"{KINDS_ID}test_integrated"], run)
+
+    assert found == {f"{KINDS_ID}test_integrated"}
+
+
+def test_the_rerun_of_a_failed_integration_test_marked_serial_collects_it(tmp_path: Path) -> None:
+    run = [sys.executable, "-m", "pytest", "tests", "-m", "serial", "-q"]
+
+    found = collected_by_rerun(tmp_path, [f"{KINDS_ID}test_alone"], run)
+
+    assert found == {f"{KINDS_ID}test_alone"}
+
+
+def test_the_rerun_of_a_failed_test_that_is_not_integration_still_collects_it(
+    tmp_path: Path,
+) -> None:
+    (tmp_path / "tests").mkdir()
+    (tmp_path / "pyproject.toml").write_text(PYPROJECT)
+    (tmp_path / "tests" / "test_plain.py").write_text("def test_plain():\n    pass\n")
+    run = [sys.executable, "-m", "pytest", "tests", "-m", "not serial", "-q"]
+
+    rerun = PythonUvProfile().serial_rerun_command(
+        run, ["tests/test_plain.py::test_plain"], project=tmp_path
+    )
+
+    assert rerun[-2:] == ["tests/test_plain.py::test_plain", "-q"]
+    assert f"integration or ({DEFAULT_MARKERS})" in rerun
+
+
+def test_the_rerun_keeps_the_e2e_marker_expression_the_failed_run_carried(
+    tmp_path: Path,
+) -> None:
+    (tmp_path / "pyproject.toml").write_text(PYPROJECT)
+    run = ["uv", "run", "pytest", "tests", "-m", "e2e and not docker", "-q"]
+
+    rerun = PythonUvProfile().serial_rerun_command(run, ["tests/t.py::a"], project=tmp_path)
+
+    assert rerun == ["uv", "run", "pytest", "-m", "e2e and not docker", "tests/t.py::a", "-q"]
+
+
+def test_the_rerun_of_a_workspace_member_keeps_its_package_and_lets_integration_through(
+    tmp_path: Path,
+) -> None:
+    (tmp_path / "pyproject.toml").write_text(PYPROJECT)
+    run = ["uv", "run", "--package", "svc-a", "--isolated", "pytest", "-m", "not serial", "-q"]
+
+    rerun = PythonUvProfile().serial_rerun_command(run, ["tests/t.py::a"], project=tmp_path)
+
+    assert rerun == [
+        "uv",
+        "run",
+        "--package",
+        "svc-a",
+        "--isolated",
+        "pytest",
+        "-m",
+        BY_ID_MARKERS,
+        "tests/t.py::a",
+        "-q",
+    ]

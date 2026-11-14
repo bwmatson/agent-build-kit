@@ -223,7 +223,9 @@ def test_a_semantic_conflict_with_no_textual_overlap_fails_the_selected_run(
             )
             return [[sys.executable, "-m", "pytest", "-q", "-p", "no:cacheprovider", *tests]]
 
-        def serial_rerun_command(self, command: list[str], tests: list[str]) -> list[str]:
+        def serial_rerun_command(
+            self, command: list[str], tests: list[str], *, project: Path | None = None
+        ) -> list[str]:
             return [sys.executable, "-m", "pytest", "-q", "-p", "no:cacheprovider", *tests]
 
         def failed_tests(self, output: str) -> list[str]:

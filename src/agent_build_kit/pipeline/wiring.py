@@ -2569,7 +2569,7 @@ def build_unit_test(
             # Another command of this round failed these same tests, which passed alone and were
             # recorded as a storm: they are not run again, nor recorded twice.
             return True
-        rerun = rerun_command(command, tests)
+        rerun = rerun_command(command, tests, project=where)
         timed_out: list[str] = []
         left_out: list[str] = []
         timeouts = 0
@@ -2586,7 +2586,7 @@ def build_unit_test(
                 _say(log, f"{len(missing)} failed tests not found, not rerun: {', '.join(missing)}")
                 if not tests:
                     break
-                rerun = rerun_command(command, tests)
+                rerun = rerun_command(command, tests, project=where)
                 again = ran(rerun, where, toolchain)
             if evidence is not None and began is not None and failures_dir is not None:
                 last_sample.update((machine or failure_evidence.machine_sample)())
@@ -4579,7 +4579,7 @@ class E2eSession:
                         continue
                     project = str(at.relative_to(cwd)) if at != cwd else ""
                     prefix = f"{project}/" if project else ""
-                    command = rerun(list(ran), [t.removeprefix(prefix) for t in tests])
+                    command = rerun(list(ran), [t.removeprefix(prefix) for t in tests], project=at)
                     completed = self._run(command, cwd=tree / at.relative_to(cwd), **self._test_env)
                     text = f"{completed.stdout or ''}{completed.stderr or ''}"
                     commands.append(" ".join(command))
@@ -5614,7 +5614,7 @@ def build_reproduce(
         if found is None:
             return Reproduction(outcome=Outcome.SKIPPED, note="no test command runs the test")
         command, _ = found
-        alone = rerun(command, [test])
+        alone = rerun(command, [test], project=where)
         loaded = toolchain.repeat_command(command, [file]) or alone
 
         def attempt(argv: list[str], *, whole_file: bool) -> Attempt:
