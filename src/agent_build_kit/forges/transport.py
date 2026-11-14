@@ -283,12 +283,16 @@ class Transport:
         params: dict[str, str] | None = None,
         expect: Literal["json", "text"] = "json",
         content_type: str | None = None,
+        headers: dict[str, str] | None = None,
     ) -> Response:
-        """One call, made once: a failure of any kind is raised as it happens."""
+        """One call, made once: a failure of any kind is raised as it happens. `headers` are
+        sent besides the credential's; a 304 answer comes back as a response with no data."""
         method = method.upper()
-        headers = {"Content-Type": content_type} if content_type else None
+        sent = {**(headers or {}), **({"Content-Type": content_type} if content_type else {})}
         try:
-            reply = self._client.request(method, path, json=json, params=params, headers=headers)
+            reply = self._client.request(
+                method, path, json=json, params=params, headers=sent or None
+            )
         except httpx.TransportError as error:
             raise HostError(f"{method} {path}: {error!r}") from error
         if _is_rate_limit(reply):

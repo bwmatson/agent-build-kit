@@ -7,11 +7,13 @@ reference-written bodies under `recorded/github`. A route it does not know fails
 
 from __future__ import annotations
 
+import hashlib
 import json
 import re
 import threading
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from copy import deepcopy
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any, Literal
 
@@ -28,8 +30,13 @@ ID_OFFSET = 1000
 SUB_ISSUE_LIMIT = 100
 # The account the tracker's token belongs to, as the recorded authenticated user names it.
 SYNC_ACCOUNT = "sync-account"
+# Where an Enterprise Server host serves its API, below the host's own address.
+ENTERPRISE_PREFIX = "/api/v3"
+# The time before the first write the host records; each later one is a second after the last.
+EPOCH = datetime(2026, 10, 20, 10, 0, 0, tzinfo=UTC)
 _ROUTE = re.compile(
-    r"^/repos/example/app/issues(?:/(?P<number>\d+))?(?P<rest>/sub_issues|/assignees|/events)?$"
+    r"^/repos/example/app/issues(?:/(?P<number>\d+))?"
+    r"(?P<rest>/sub_issues|/assignees|/events|/comments)?$"
 )
 
 
@@ -50,13 +57,33 @@ class IssueHost(httpx.MockTransport):
         disabled_types: Sequence[str] = (),
         missing_types: Sequence[str] = (),
         lose_create_answer: bool = False,
+        unauthorized: bool = False,
+        repo_exists: bool = True,
+        sub_issues_enabled: bool = True,
+        token_scopes: str = "repo",
     ) -> None:
         """With `lose_create_answer`, the first create is made and answered with a 500.
         `types_enabled` only counts for an organization; of its types, `disabled_types` are
         listed with `is_enabled` false and `missing_types` are not listed. A parent holds at
         most `SUB_ISSUE_LIMIT` sub-issues, as the host does. The repository's labels are kept:
         an issue is updated only with labels that exist, one is made by `POST .../labels`, and
-        an assignment is an event with a time, as the host records it."""
+        an assignment is an event with a time, as the host records it. With `unauthorized`
+        every call is refused with 403 and the SAML single sign-on message; without
+        `repo_exists` every call about the repository is a 404; without `sub_issues_enabled`
+        the sub-issue routes are 404. Every write sets the issue's `updated_at` to the host's
+        next second, and a list is answered with an ETag and 304 to a matching
+        `If-None-Match`. `token_scopes` is what `/user` says the token may do."""
+        # Every request the host was sent, the issues transferred in list answers, how many
+        # list answers were 304, and the notes added to each issue.
+        self.seen: list[httpx.Request] = []
+        self.bodies_sent = 0
+        self.not_modified = 0
+        self.comments: dict[int, list[str]] = {}
+        self._unauthorized = unauthorized
+        self._repo_exists = repo_exists
+        self._sub_issues_enabled = sub_issues_enabled
+        self._scopes = token_scopes
+        self._login = SYNC_ACCOUNT
         self.issues = {}
         self.creates = []
         self._children: dict[int, list[int]] = {}
@@ -92,7 +119,14 @@ class IssueHost(httpx.MockTransport):
         self.events: dict[int, list[dict[str, Any]]] = {}
         self._racers: dict[int, list[str]] = {}
         self._tick = 0
-        self._lock = threading.Lock()
+        # Who last edited each issue's body and when, which the host answers over GraphQL.
+        self._edits: dict[int, tuple[str, str]] = {}
+        self._last_edit = load("issue_last_edit", RECORDED_GITHUB).body
+        # How many issue listings were asked for, and what runs as each one starts (given
+        # its count), so a test can change an issue between two pages.
+        self.lists = 0
+        self.before_list: Callable[[int], None] | None = None
+        self._lock = threading.RLock()
         super().__init__(self._handle)
 
     # --- what a test asks ---------------------------------------------------------
@@ -107,14 +141,21 @@ class IssueHost(httpx.MockTransport):
         body: str = "",
         state: Literal["open", "closed"] = "open",
         assignees: Sequence[str] = (),
+        updated_at: str | None = None,
+        author: str | None = None,
     ) -> str:
-        """An issue that already exists, as a person made it; its number."""
+        """An issue that already exists, as a person made it; its number. `updated_at` and the
+        login of the `author` are the host's own unless given."""
         number = self._store(self._seeded, title, body, labels, type)
         self.issues[number]["state"] = state
+        if author is not None:
+            self.issues[number]["user"] = self._person(author)
         for login in assignees:
             self._assign(number, login)
         if parent is not None:
             self._nest(int(parent), number)
+        if updated_at is not None:
+            self.issues[number]["updated_at"] = updated_at
         return str(number)
 
     def seed_pull_request(self, title: str, body: str = "") -> str:
@@ -122,6 +163,10 @@ class IssueHost(httpx.MockTransport):
         number = self._store(self._seeded, title, body, (), None)
         self.issues[number]["pull_request"] = {"url": f"{API}/{number}".replace("issues", "pulls")}
         return str(number)
+
+    def as_identity(self, login: str) -> httpx.MockTransport:
+        """The same host, reached with the token of another account."""
+        return httpx.MockTransport(lambda request: self._handle(request, login))
 
     def race(self, number: str, login: str) -> None:
         """`login` is assigned to the issue just before the next assignment sent for it."""
@@ -172,17 +217,30 @@ class IssueHost(httpx.MockTransport):
     def _person(self, login: str) -> dict[str, Any]:
         return {**self._authenticated, "login": login}
 
-    def _record(self, number: int, kind: str, login: str) -> None:
+    def _touch(self, number: int) -> str:
+        """Set the issue's `updated_at` to the next second, as any write to it does."""
         self._tick += 1
-        self.events.setdefault(number, []).append(
-            {
-                **self._event,
-                "id": self._event["id"] + self._tick,
-                "event": kind,
-                "created_at": f"2026-10-20T10:00:{self._tick:02d}Z",
-                "assignee": self._person(login),
-            }
-        )
+        stamp = (EPOCH + timedelta(seconds=self._tick)).strftime("%Y-%m-%dT%H:%M:%SZ")
+        self.issues[number]["updated_at"] = stamp
+        return stamp
+
+    def _record(self, number: int, kind: str, login: str | None = None, *, stamp: str = "") -> None:
+        """An event on the issue by whoever made the call, at `stamp` or at a new second; the
+        person assigned, for an assignment."""
+        stamp = stamp or self._touch(number)
+        event = {
+            **self._event,
+            "id": self._event["id"] + self._tick,
+            "event": kind,
+            "created_at": stamp,
+            "actor": self._person(self._login),
+        }
+        if login is None:
+            event.pop("assignee", None)
+            event.pop("assigner", None)
+        else:
+            event["assignee"] = self._person(login)
+        self.events.setdefault(number, []).append(event)
 
     def _assign(self, number: int, login: str) -> None:
         doc = self.issues[number]
@@ -206,25 +264,61 @@ class IssueHost(httpx.MockTransport):
             changes["labels"] = [
                 {"id": 5000 + i, "name": name} for i, name in enumerate(changes["labels"])
             ]
+        renamed = "title" in changes and changes["title"] != self.issues[number]["title"]
         self.issues[number].update(changes)
+        stamp = self._touch(number)
+        # As the host does: a new title is a `renamed` event, and who last edited the body is
+        # not an event but what the GraphQL `editor` field answers.
+        if renamed:
+            self._record(number, "renamed", stamp=stamp)
+        if "body" in changes:
+            self._edits[number] = (stamp, self._login)
         return _json(200, self.issues[number])
+
+    def _graphql(self, body: dict[str, Any]) -> httpx.Response:
+        """The last edit of an issue, answered in the shape of the recorded reply."""
+        stamp, login = self._edits.get(body["variables"]["number"], (None, None))
+        answer = deepcopy(self._last_edit)
+        answer["data"]["repository"]["issue"] = {
+            "lastEditedAt": stamp,
+            "editor": self._person(login) if login else None,
+        }
+        return _json(200, answer)
 
     def _nest(self, parent: int, child: int) -> None:
         self._children.setdefault(parent, []).append(child)
         self.issues[child]["parent_issue_url"] = f"{self._parent_base}/{parent}"
         self.issues[parent]["sub_issues_summary"]["total"] = len(self._children[parent])
 
-    def _handle(self, request: httpx.Request) -> httpx.Response:
+    def _handle(self, request: httpx.Request, login: str | None = None) -> httpx.Response:
         with self._lock:
+            self.seen.append(request)
+            self._login = login or SYNC_ACCOUNT
             return self._route(request)
 
     def _route(self, request: httpx.Request) -> httpx.Response:
-        path, method = request.url.path, request.method
+        path, method = request.url.path.removeprefix(ENTERPRISE_PREFIX), request.method
+        if self._unauthorized:
+            return httpx.Response(
+                403,
+                json={
+                    "message": "Resource protected by organization SAML enforcement. You must "
+                    "grant your Personal Access token access to this organization.",
+                    "documentation_url": "https://docs.github.com/articles/saml-single-sign-on",
+                },
+                headers={"x-github-sso": "required; url=https://example.com/sso"},
+            )
+        if not self._repo_exists and path.startswith("/repos/example/app"):
+            return _json(404, {"message": "Not Found"})
         body = json.loads(request.content) if request.content else {}
+        if path in ("/graphql", "/api/graphql") and method == "POST":
+            return self._graphql(body)
         if path == "/users/example" and method == "GET":
             return _json(200, self._owner)
         if path == "/user" and method == "GET":
-            return _json(200, self._authenticated)
+            return httpx.Response(
+                200, json=self._person(self._login), headers={"x-oauth-scopes": self._scopes}
+            )
         if path == "/repos/example/app/labels" and method == "GET":
             return _json(200, [{**self._label, "name": name} for name in sorted(self.repo_labels)])
         if path == "/repos/example/app/labels" and method == "POST":
@@ -246,7 +340,7 @@ class IssueHost(httpx.MockTransport):
         if number is None and method == "POST":
             return self._create(body)
         if number is None and method == "GET":
-            return self._list(request.url.params)
+            return self._list(request)
         if number is not None and route["rest"] is None and method == "GET":
             return _json(200, self.issues[number])
         if number is not None and route["rest"] is None and method == "PATCH":
@@ -263,6 +357,12 @@ class IssueHost(httpx.MockTransport):
             for login in body["assignees"]:
                 self._unassign(number, login)
             return _json(200, self.issues[number])
+        if route["rest"] == "/sub_issues" and not self._sub_issues_enabled:
+            return _json(404, {"message": "Not Found"})
+        if number is not None and route["rest"] == "/comments" and method == "POST":
+            self.comments.setdefault(number, []).append(body["body"])
+            self._touch(number)
+            return _json(201, {"id": 7000 + self._tick, "body": body["body"]})
         if number is not None and route["rest"] == "/sub_issues" and method == "GET":
             shown = [self.issues[n] for n in self._children.get(number, [])]
             return _json(200, self._page(shown, request.url.params))
@@ -288,15 +388,34 @@ class IssueHost(httpx.MockTransport):
         size, page = int(params.get("per_page", 30)), int(params.get("page", 1))
         return shown[(page - 1) * size : page * size]
 
-    def _list(self, params: httpx.QueryParams) -> httpx.Response:
-        """Open issues unless `state` says otherwise, pull requests among them, as the host does."""
+    def _list(self, request: httpx.Request) -> httpx.Response:
+        """Open issues unless `state` says otherwise, pull requests among them, as the host does.
+        With `since`, those updated at or after it; with `sort=updated`, in that order."""
+        self.lists += 1
+        if self.before_list is not None:
+            self.before_list(self.lists)
+        params = request.url.params
         state = params.get("state", "open")
         shown = [
             self.issues[n]
             for n in sorted(self.issues)
             if state == "all" or self.issues[n]["state"] == state
         ]
-        return _json(200, self._page(shown, params))
+        if since := params.get("since"):
+            shown = [doc for doc in shown if doc["updated_at"] >= since]
+        if params.get("sort") == "updated":
+            shown.sort(
+                key=lambda doc: (doc["updated_at"], doc["number"]),
+                reverse=params.get("direction", "desc") == "desc",
+            )
+        page = self._page(shown, params)
+        digest = hashlib.sha256(json.dumps([page, str(params)], sort_keys=True).encode())
+        etag = f'W/"{digest.hexdigest()[:16]}"'
+        if request.headers.get("if-none-match") == etag:
+            self.not_modified += 1
+            return httpx.Response(304, headers={"etag": etag})
+        self.bodies_sent += len(page)
+        return httpx.Response(200, json=page, headers={"etag": etag})
 
     def _add_sub_issue(self, parent: int, body: dict[str, Any]) -> httpx.Response:
         child = body["sub_issue_id"] - ID_OFFSET
