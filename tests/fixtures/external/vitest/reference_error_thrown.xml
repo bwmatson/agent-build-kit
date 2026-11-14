@@ -1,0 +1,13 @@
+<!-- tool: vitest 5.0.4 linux-x64 node-v22.23.2
+     command: vitest run --reporter=junit --passWithNoTests --outputFile=<path> -->
+<?xml version="1.0" encoding="UTF-8" ?>
+<testsuites name="vitest tests" tests="1" failures="1" errors="0" time="0">
+    <testsuite name="l.test.ts" timestamp="0" hostname="0" tests="1" failures="1" errors="0" skipped="0" time="0">
+        <testcase classname="l.test.ts" name="uses" time="0">
+            <failure message="load is not defined" type="ReferenceError">
+ReferenceError: load is not defined
+ ❯ l.test.ts:3:9
+            </failure>
+        </testcase>
+    </testsuite>
+</testsuites>
