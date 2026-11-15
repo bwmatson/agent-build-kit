@@ -82,7 +82,6 @@
   lines of its error, as each toolchain's test runner reports it. The reasons and the log pass
   through redaction. The reasons are kept beside the cached result, which stays a plain
   true or false, so an older release reading the same cache still sees a rejection.
-  the repository deselects (end-to-end, slow, credentialed) stays out.
 
 - A tests step that wrote nothing is now retried with the calls the agent's permissions refused
   named in the note, and told they did not run. The tests and implement prompts also say that a
