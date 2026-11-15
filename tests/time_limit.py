@@ -2,7 +2,8 @@
 
 The limit, on each of a test's setup, call and teardown, is a CPU budget (the CPU time of
 the process and its children) of `--test-time-limit` seconds (default
-`DEFAULT_TEST_TIME_LIMIT`), with a wall-clock backstop of `BACKSTOP_FACTOR` times it. A
+`DEFAULT_TEST_TIME_LIMIT`), with a wall-clock backstop of `time_limit_backstop_factor` times it
+(an ini setting, defaulting to `BACKSTOP_FACTOR`). A
 test with the `e2e` (e2e-test) marker has `--e2e-test-time-limit` seconds of wall
 time (default `DEFAULT_E2E_TEST_TIME_LIMIT`) and no CPU budget; a test marked
 `time_limit(<seconds>)` gets that budget in place of the first; zero turns a limit off. A
@@ -45,11 +46,13 @@ class Budget(Frozen):
 
 def budget_for(item: pytest.Item) -> Budget:
     """The budgets of a test's setup, call or teardown: its limit as CPU seconds with a wall
-    backstop of `BACKSTOP_FACTOR` times it; an e2e test has only its wall limit."""
+    backstop of the `time_limit_backstop_factor` ini setting times it (default `BACKSTOP_FACTOR`);
+    an e2e test has only its wall limit."""
     limit = max(limit_for(item), 0)
     if item.get_closest_marker("e2e") is not None:
         return Budget(cpu=0, wall=limit)
-    return Budget(cpu=limit, wall=limit * BACKSTOP_FACTOR)
+    factor = float(item.config.getini("time_limit_backstop_factor"))
+    return Budget(cpu=limit, wall=limit * factor)
 
 
 def clock_fired(budget: Budget, cpu_used: float, wall_elapsed: float) -> str | None:
@@ -295,6 +298,11 @@ NEW_FLAG = "--e2e-test-time-limit"
 
 
 def pytest_addoption(parser: pytest.Parser) -> None:
+    parser.addini(
+        "time_limit_backstop_factor",
+        default=str(BACKSTOP_FACTOR),
+        help="the wall-clock backstop is this many times the CPU budget",
+    )
     parser.addoption("--test-time-limit", type=float, default=DEFAULT_TEST_TIME_LIMIT)
     parser.addoption(NEW_FLAG, type=float, default=None)
     parser.addoption(OLD_FLAG, type=float, default=None)

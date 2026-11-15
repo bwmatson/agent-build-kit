@@ -7,8 +7,8 @@ The limit is a CPU budget with a wall-clock backstop of five times it (spec: tes
 `budget_for` gives a test's budgets from the item alone, `clock_fired` is the step the timer
 thread takes at each poll and `exceeded_text` is the failure sentence, so those cases pass the
 readings in and wait on no clock. The CPU-bound child scenarios in
-`tests/child_modules/cpu_time_limit/` make the backstop unreachable (`tests/cpu_spin.py`), and one
-of them proves the CPU of a child the test waits on counts.
+`tests/child_modules/cpu_time_limit/` set `time_limit_backstop_factor` in their `pytest.ini`,
+and one of them proves the CPU of a child the test waits on counts.
 
 A test marked `time_limit(<seconds>)` is held to that many seconds (spec:
 ci-gives-npm-a-longer-timeout), and a `e2e` test to `--e2e-test-time-limit` (spec:
