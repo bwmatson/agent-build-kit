@@ -271,11 +271,26 @@ class Flow:
         self.folder.mkdir(parents=True)
         (self.folder / "tasks.md").write_text(TASKS)
         (self.folder / "proposal.md").write_text(f"# {change}\n\nA live check of the mirror.\n")
+        # The repo is `.`, so the installation is in-repo and keeps its state under a planning
+        # home that would default to the developer's data home: both are made per test, beside the
+        # planning repo, and no setting that names a live installation's is inherited.
+        self.home = root.parent / "home"
+        self.worktrees = root.parent / "worktrees"
         self.env = {
             **os.environ,
             **board.env,
+            "ABK_PLANNING_HOME": str(self.home),
+            "ABK_WORKTREE_ROOT": str(self.worktrees),
         }
-        self.env.pop(config.CONFIG_ENV, None)
+        for name in (config.CONFIG_ENV, "ABK_STATE_DIR", "ABK_LOCAL_DIR"):
+            self.env.pop(name, None)
+
+    def use_home(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Make this process resolve the installation's folders as the commands do."""
+        monkeypatch.setattr(settings, "planning_home", self.home)
+        monkeypatch.setattr(settings, "worktree_root", self.worktrees)
+        monkeypatch.setattr(settings, "state_dir", None)
+        monkeypatch.setattr(settings, "local_dir", None)
 
     def abk(self, *args: str) -> subprocess.CompletedProcess[str]:
         return subprocess.run(
@@ -336,7 +351,8 @@ def test_a_configured_repo_passes_doctor_and_a_sync_creates_the_board(flow: Flow
     doctor = flow.abk("doctor")
     tracker_lines = [line for line in doctor.stdout.splitlines() if "tracker app" in line]
     assert tracker_lines, f"doctor said nothing of the tracker:\n{doctor.stdout}\n{doctor.stderr}"
-    assert not any("FAIL" in line for line in tracker_lines), "\n".join(tracker_lines)
+    # Doctor words a refused credential or an unsupported kind as `warn`, so only `ok` passes.
+    assert all(line.startswith("ok ") for line in tracker_lines), "\n".join(tracker_lines)
 
     dry = flow.abk("tracker", "sync", "--dry-run")
     assert dry.returncode == 0, f"{dry.stdout}\n{dry.stderr}"
@@ -360,6 +376,7 @@ def test_a_group_item_assigned_to_a_second_account_is_skipped_by_the_start_check
     group = mirrored.recorded().groups[group_key(mirrored.change, 1)]
     display_name = board.assign_second(group.id)
 
+    mirrored.use_home(monkeypatch)
     installation = Installation(WorkspaceConfig.model_validate(mirrored.config), mirrored.root)
     installation.activate()
     board.use_credential(monkeypatch)
