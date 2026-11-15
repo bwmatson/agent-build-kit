@@ -35,7 +35,6 @@ from tests.e2e_wait_fakes import OLD, verdict_of
 from tests.failure_bundle_fakes import START, BundleMachine, BundleProfile, storms
 from tests.pipeline.test_run_log_load_flag import CPUS, THRESHOLD, sampling
 from tests.redaction_fakes import SECRET, known
-from tests.serial_marker import MARKER
 
 RERUN_FILES = {"output.txt", "context.json", "machine.json", "worktree.json"}
 
@@ -45,11 +44,12 @@ def unit_test_of(
     machine: BundleMachine,
     directory: Path | MemoryArtifacts,
     log: Callable[[str], None] | None = None,
+    profile: BundleProfile | None = None,
 ):
     loads = iter(range(1, 100))
     clock = iter(START + timedelta(seconds=10 * n) for n in range(100))
     return build_unit_test(
-        profile=cast(ToolchainProfile, BundleProfile()),
+        profile=cast(ToolchainProfile, profile or BundleProfile()),
         run=machine,
         changed=lambda *a: ["tests/test_one.py"],
         failures_dir=directory,  # pyrefly: ignore
@@ -91,7 +91,7 @@ class Counting(BundleMachine):
 
 
 def rerun_lines(log: list[str]) -> list[str]:
-    return [line for line in log if f"{MARKER} rerun " in line.lower()]
+    return [line for line in log if "serial rerun " in line.lower()]
 
 
 def test_each_serial_rerun_is_a_log_line_with_counts_seconds_load_and_class(
@@ -301,6 +301,53 @@ def test_a_bundle_kept_through_the_artifacts_is_found_by_every_reader_of_a_recor
     )
     assert flake.evidence in section
     assert "What the machine was doing (`machine.json`)" in section
+
+
+def _with_a_second_pytest_command(
+    self: BundleProfile,
+    repo: Path,
+    changed: list[str],
+    *,
+    root_extras: list[str],
+    **workers: object,
+) -> list[list[str]]:
+    (first,) = BundleProfile.test_commands(
+        self,
+        repo,
+        changed,
+        root_extras=root_extras,
+        **workers,  # pyrefly: ignore
+    )
+    at = first.index("pytest") + 1
+    return [first, [*first[:at], "--tb=short", *first[at:]]]
+
+
+class TwoCommands(BundleProfile):
+    """`BundleProfile` with a second, distinct pytest command, as a workspace has."""
+
+    # Assigned, not defined: a scan for changed tests takes any `def test_*` for one.
+    test_commands = _with_a_second_pytest_command
+
+
+def test_a_second_command_failing_the_stormed_tests_is_not_rerun_nor_recorded_again(
+    scratch: Path, tmp_path: Path
+) -> None:
+    installation = make_installation(scratch, global_limits=dict(max_flakes_per_run=2))
+    directory = tmp_path / "bundles"
+    machine = BundleMachine(scratch, reruns=[0, 0])
+
+    unit_test = unit_test_of(scratch, machine, directory, profile=TwoCommands())
+    passed, _ = unit_test(cwd=scratch, base="main")
+
+    assert passed
+    failing_runs = [
+        c for c in machine.commands if "--durations=15" in c and "::" not in " ".join(c)
+    ]
+    assert len(failing_runs) == 2, "both test commands ran and failed"
+    assert len(storms(installation)) == 1
+    alone = [c for c in machine.commands if any("::" in argument for argument in c)]
+    assert len(alone) == 2, "the reruns were issued once"
+    assert len(list(directory.iterdir())) == 1, "the repeat of the same failure adds no bundle"
 
 
 def test_a_second_run_of_the_same_round_that_storms_again_is_isolated_and_recorded_again(

@@ -66,6 +66,13 @@ def test_a_longer_word_is_not_the_marker(tmp_path: Path) -> None:
     assert serial_marker_problems(root) == []
 
 
+def test_the_pipelines_wording_for_a_rerun_alone_is_not_the_marker(tmp_path: Path) -> None:
+    text = f'assert "two {NAME} reruns" in prompt\nassert "{NAME} rerun " in line\n'
+    root = tree(tmp_path, {"tests/test_a.py": text})
+
+    assert serial_marker_problems(root) == []
+
+
 def test_the_guards_own_files_and_the_changelog_may_name_it(tmp_path: Path) -> None:
     root = tree(
         tmp_path,

@@ -98,6 +98,20 @@ BROKEN_CALC = CALC.replace("a + b", "a - b")
 AFFECTED = {"test_add", "test_both"}
 
 
+def without_workers(command: list[str]) -> list[str]:
+    """`command` without xdist's options: `-n <workers>`, `-n<workers>` and `--maxprocesses`."""
+    kept: list[str] = []
+    words = iter(command)
+    for word in words:
+        if word == "-n":
+            next(words, None)
+        elif not word.startswith("--maxprocesses") and not (
+            word.startswith("-n") and len(word) > 2
+        ):
+            kept.append(word)
+    return kept
+
+
 class Tiny:
     """A project in a folder, its pytest commands as the profile builds them, and its data."""
 
@@ -112,13 +126,7 @@ class Tiny:
         # The one parallel pass: what a full run is.
         (self.parallel,) = PROFILE.test_commands_all(root, root_extras=[])
         # The same without workers, so that every test of a module runs in one process.
-        self.single = [
-            word
-            for i, word in enumerate(self.parallel)
-            if word != "-n"
-            and not word.startswith("--maxprocesses")
-            and self.parallel[i - 1] != "-n"
-        ]
+        self.single = without_workers(self.parallel)
 
     def run(
         self, command: list[str], *, cwd: Path | None = None

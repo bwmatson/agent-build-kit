@@ -43,7 +43,6 @@ from tests.pipeline.test_flake_fix_change import (
     waits_on,
 )
 from tests.pipeline.test_moved_base_selection import OWN_TEST, Runner, Selecting, run_moved
-from tests.serial_marker import MARKER
 
 OTHER = "tests/test_other.py::test_x"
 OTHER_TWO = "tests/test_other.py::test_y"
@@ -207,7 +206,7 @@ def test_the_serial_reruns_of_a_test_the_unit_added_are_given_the_class_unit_not
     )
 
     assert not passed
-    reruns = [line for line in logged if f"{MARKER} rerun " in line]
+    reruns = [line for line in logged if "serial rerun " in line]
     assert len(reruns) == 2, logged
     for line in reruns:
         assert line.endswith("class unit"), line

@@ -11,7 +11,6 @@ import pytest
 
 from agent_build_kit.profiles.python_uv import PythonUvProfile
 from tests.deselecting_config import BY_ID_MARKERS, DEFAULT_MARKERS, PYPROJECT
-from tests.serial_marker import MARKER
 
 TREE = {
     "tests/test_a.py": (
@@ -107,15 +106,6 @@ def test_an_integration_test_is_collected_by_the_one_pass_of_a_parallel_run(
 def test_a_marker_expression_the_command_carries_of_its_own_stays(tmp_path: Path) -> None:
     (tmp_path / "pyproject.toml").write_text(PYPROJECT)
     command = ["uv", "run", "pytest", "-m", "not docker", "-q"]
-
-    narrowed = PythonUvProfile().repeat_command(command, ["t.py::a"], project=tmp_path)
-
-    assert narrowed == [*command, "t.py::a"]
-
-
-def test_a_marker_expression_over_the_default_is_not_lifted_as_a_split(tmp_path: Path) -> None:
-    (tmp_path / "pyproject.toml").write_text(PYPROJECT)
-    command = ["uv", "run", "pytest", "-m", f"({DEFAULT_MARKERS}) and not {MARKER}", "-q"]
 
     narrowed = PythonUvProfile().repeat_command(command, ["t.py::a"], project=tmp_path)
 

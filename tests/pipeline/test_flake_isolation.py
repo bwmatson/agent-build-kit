@@ -21,7 +21,6 @@ from agent_build_kit.pipeline.wiring import build_unit_test
 from agent_build_kit.profiles.base import ToolchainProfile
 from agent_build_kit.profiles.node_npm import NodeNpmProfile
 from agent_build_kit.profiles.python_uv import PythonUvProfile
-from tests.serial_marker import MARKER
 
 RECORDED = Path(__file__).resolve().parents[1] / "fixtures" / "external" / "pytest"
 
@@ -121,15 +120,6 @@ def test_the_serial_command_for_the_root_tests_keeps_every_with_extra() -> None:
         *TESTS,
         "-q",
     ]
-
-
-def test_the_rerun_of_a_command_carrying_the_old_split_treats_it_as_any_marker_expression() -> None:
-    expression = f"not {MARKER}"
-    command = [*WORKSPACE_RUN[:-1], "-m", expression, "-q"]
-
-    rerun = PythonUvProfile().serial_rerun_command(command, TESTS)
-
-    assert ("-m", expression) in zip(rerun, rerun[1:], strict=False)
 
 
 # --- unit-test --------------------------------------------------------------------

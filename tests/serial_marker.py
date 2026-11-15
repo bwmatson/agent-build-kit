@@ -14,7 +14,8 @@ from tests.tracked_files import guarded_files, lines_of, tracked
 # selection) takes it from here, so the word stays in this file.
 MARKER = "serial"
 
-_WORD = re.compile(rf"\b{MARKER}\b")
+# The word on its own; "serial rerun(s)" is the pipeline's wording for a rerun alone, not a marker.
+_WORD = re.compile(rf"\b{MARKER}\b(?! reruns?\b)")
 # The guard's own files; the changelog is not read, as it is not a test or configuration file.
 _OWN = frozenset({"tests/serial_marker.py", "tests/test_no_serial_marker_guard.py"})
 # The suffixes of a configuration file at the root of a repository (a runner's or a package's).
