@@ -449,7 +449,8 @@ over `abk.yaml` key by key), and a secret or a single per-machine value goes in 
 
 - **Deployment**: `deployment.kind` (`local` default, or `azure`) goes in `abk.yaml`; the
   `deployment.azure` settings (`subscription`, `resource_group`, `storage_account`,
-  `database_host`, `key_vault`, `identity_client_id`) go only in `abk.local.yaml`, and the
+  `database_host`, `database_user` (the identity's database role), `database_name` (default
+  `postgres`), `key_vault`, `identity_client_id`) go only in `abk.local.yaml`, and the
   committed file is refused if it sets one.
 - **`abk.yaml`**: repo names, slugs, forges, default branches, profiles, projects, deploy rules,
   test kinds and markers, split and dimension declarations, models, review settings, team policy.

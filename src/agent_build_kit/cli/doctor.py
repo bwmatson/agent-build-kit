@@ -804,8 +804,9 @@ SECTION = "deployment"
 # The scope a token is asked for; any scope the identity may hold shows the credential works.
 _AZURE_SCOPE = "https://management.azure.com/.default"
 _TOKEN_SECONDS = 20.0
-# Not required: a host that signs in with `az login` holds no managed identity to name.
-_OPTIONAL_AZURE_SETTINGS = frozenset({"identity_client_id"})
+# Not required: a host that signs in with `az login` holds no managed identity to name, and
+# the database name has a default.
+_OPTIONAL_AZURE_SETTINGS = frozenset({"identity_client_id", "database_name"})
 
 
 def _in_section(section: str, check: Check) -> Check:

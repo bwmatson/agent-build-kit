@@ -94,7 +94,18 @@ jobs:
     # The Artifacts conformance suite against the Azure implementation over an Azurite blob
     # service (the cases marked `azurite`, which the ordinary run leaves out). The service is
     # started with docker so it can take --skipApiVersionCheck, as the SDK is newer than Azurite.
+    # The Checkpoints conformance suite runs in the same job against a PostgreSQL service.
     runs-on: ubuntu-24.04
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres" --health-interval 5s
+          --health-timeout 5s --health-retries 10
     steps:
       - uses: actions/checkout@v7.0.1
       - uses: actions/setup-python@v7.0.0
@@ -114,4 +125,5 @@ jobs:
         env:
           ABK_TEST_AZURITE_CONNECTION_STRING: >-
             DefaultEndpointsProtocol=http;AccountName=devstoreaccount1;AccountKey=Eby8vdM02xNOcqFlqUwJPLlmEtlCDXJ1OUzFT50uSRZ6IFsuFq2UVErCz4I6tq/K1SZFPTOtr/KBHBeksoGMGw==;BlobEndpoint=http://127.0.0.1:10000/devstoreaccount1;
+          ABK_TEST_POSTGRES_CONNECTION_STRING: postgresql://postgres:postgres@127.0.0.1:5432/postgres
         run: uv run --group dev pytest -m azurite tests/orchestration

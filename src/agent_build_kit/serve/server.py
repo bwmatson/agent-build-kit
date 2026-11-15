@@ -22,13 +22,12 @@ import aiosqlite
 import uvicorn
 from fastapi import FastAPI, HTTPException, Response
 from fastapi.responses import FileResponse, PlainTextResponse
-from langgraph.checkpoint.serde.jsonplus import JsonPlusSerializer
 from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
 from pydantic import Field, model_validator
 
 from agent_build_kit import orchestration
 from agent_build_kit.cli.pipeline import parked_units
-from agent_build_kit.graph.checkpointer import ALLOWED_MSGPACK_MODULES, carried_unit_graphs
+from agent_build_kit.graph.checkpointer import allowlisted_serde, carried_unit_graphs
 from agent_build_kit.graph.state import AgentSession, SessionRole, UnitRun
 from agent_build_kit.graph.unit import thread_position
 from agent_build_kit.installation import Installation
@@ -121,8 +120,7 @@ async def _read_only_checkpointer(path: Path) -> AsyncIterator[AsyncSqliteSaver]
     wal = path.with_name(f"{path.name}-wal")
     mode = "mode=ro" if wal.exists() and wal.stat().st_size else "mode=ro&immutable=1"
     async with aiosqlite.connect(f"file:{path}?{mode}", uri=True) as conn:
-        serde = JsonPlusSerializer(allowed_msgpack_modules=list(ALLOWED_MSGPACK_MODULES))
-        yield AsyncSqliteSaver(conn, serde=serde)
+        yield AsyncSqliteSaver(conn, serde=allowlisted_serde())
 
 
 def _unit_run(installation: Installation, unit_id: str) -> UnitRun | None:

@@ -1892,6 +1892,8 @@ class AzureDeploymentConfig(Frozen):
     resource_group: str | None = None
     storage_account: str | None = None
     database_host: str | None = None
+    database_user: str | None = None
+    database_name: str = "postgres"
     key_vault: str | None = None
     identity_client_id: str | None = None
 
