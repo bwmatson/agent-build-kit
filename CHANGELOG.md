@@ -13,6 +13,7 @@
   that does not close the issue, reaches a GitHub Enterprise Server host through the `host`
   setting (set `GH_TOKEN` for it, as the `gh` login lookup asks github.com), and has a doctor
   probe that tells an unauthorized token from a missing repository.
+
 - A unit over its size ceiling that cannot be split no longer goes back to the size hold
   when its branch is busy at the moment it is sent on. It stays waived with its reason and
   is resumed on a later pass once the branch is free.
