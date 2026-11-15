@@ -405,8 +405,11 @@ global_limits:
                                 # reviewer is asked. Counted per round of
                                 # review: it starts again before each one.
                                 # null = no limit (a fix that changes nothing
-                                # still ends the run); 0 = no fix attempt (the
-                                # checks still run: they are the gate)
+                                # is followed by one recheck of the failed
+                                # tests: a pass goes on to review, a failure
+                                # holds the unit for a person); 0 = no fix
+                                # attempt (the checks still run: they are the
+                                # gate)
   max_adapt_rounds: 2           # adapt-step accounting asks, first included,
                                 # before a unit fails
   max_plan_attempts: 3          # planner attempts per version of a tasks.md

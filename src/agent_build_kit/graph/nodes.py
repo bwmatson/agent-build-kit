@@ -2287,10 +2287,10 @@ class BuildPath:
             return {"fix_rounds": attempt, "checks_ok": True, "head": r.head(tree)}
         bundles = ", ".join(found.bundles) or "none kept"
         note = (
-            f"fix round {attempt} changed nothing and {tests} failed three runs (the first, "
-            f"the serial rerun and the recheck); a person judges it. Bundles: {bundles}"
+            f"fix round {attempt} changed nothing and {tests} failed three runs "
+            f"(the first, the serial rerun and the recheck); a person judges it. Bundles: {bundles}"
         )
-        return self.hold(HELD, note, note, cause=Cause.NEEDS_HUMAN)
+        return self.hold(HELD, note, note, cause=Cause.NEEDS_HUMAN, held_by=HeldBy.CHECKS)
 
     def product_files(self, state: UnitRun) -> Update | None:
         """The stop for an `[e2e-test]` unit whose branch changes a file that is no test path,

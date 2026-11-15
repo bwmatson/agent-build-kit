@@ -412,3 +412,10 @@ def coded_repo(path: Path, slug: str) -> Path:
     git(app, "add", "-A")
     git(app, "commit", "-q", "-m", "code")
     return app
+
+
+RECHECK_TEST = "tests/test_a.py::test_x"
+RECHECK_BUNDLES = ("bundles/first", "bundles/serial", "bundles/recheck")
+# Any note that names the test and the bundles: the hold is recorded by `HeldBy.CHECKS`, and the
+# lines show the note as it is.
+RECHECK_NOTE = f"{RECHECK_TEST} failed again. Bundles: {', '.join(RECHECK_BUNDLES)}"

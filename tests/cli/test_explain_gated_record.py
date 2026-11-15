@@ -10,8 +10,8 @@ import pytest
 
 from agent_build_kit.cli.explain_cmd import cmd_explain
 from agent_build_kit.pipeline.admission_record import ADMISSIONS_NAME, read_admissions
-from agent_build_kit.pipeline.unit_store import Cause
-from agent_build_kit.pipeline.units import PLANNED
+from agent_build_kit.pipeline.unit_store import Cause, HeldBy
+from agent_build_kit.pipeline.units import HELD, PLANNED
 from tests.cli.test_admission_asks_own_account import (  # noqa: F401 — fixtures
     Accounts,
     accounts,
@@ -19,6 +19,7 @@ from tests.cli.test_admission_asks_own_account import (  # noqa: F401 — fixtur
     round_of,
     unit,
 )
+from tests.factories import RECHECK_BUNDLES, RECHECK_NOTE, RECHECK_TEST
 from tests.pipeline.test_admission_record import installation
 
 
@@ -36,3 +37,24 @@ def test_a_gated_unit_shows_its_wait_and_the_record_that_admitted_it(
 
     assert "waiting for dep group 1 to merge" in out
     assert "admitted" in out
+
+
+def test_only_a_unit_held_after_a_recheck_is_explained_as_held_by_the_checks_with_bundles(
+    tmp_path: Path, accounts: Accounts, capsys: pytest.CaptureFixture[str]
+) -> None:
+    inst, store = installation(tmp_path, [unit("one/1", "app"), unit("two/1", "app")], limit=3)
+    store.set_state(
+        "one/1", HELD, note=RECHECK_NOTE, cause=Cause.NEEDS_HUMAN, held_by=HeldBy.CHECKS
+    )
+    store.set_state("two/1", HELD, note="the reviewer asked for a person", cause=Cause.NEEDS_HUMAN)
+
+    capsys.readouterr()
+    assert cmd_explain(argparse.Namespace(unit="one/1", at=None), inst) == 0
+    rechecked = capsys.readouterr().out
+    assert cmd_explain(argparse.Namespace(unit="two/1", at=None), inst) == 0
+    other = capsys.readouterr().out
+
+    assert "held by the checks" in rechecked
+    assert RECHECK_TEST in rechecked
+    assert all(bundle in rechecked for bundle in RECHECK_BUNDLES)
+    assert "held by the checks" not in other

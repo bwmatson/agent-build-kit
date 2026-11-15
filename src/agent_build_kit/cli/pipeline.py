@@ -1334,6 +1334,8 @@ def cmd_status(args: argparse.Namespace, inst: Installation) -> int:
                 log(f"  held: {unit.id} ({where}) #{unit.pr} — {unit.note}; a person is needed")
         if unit.unsplit_reason and unit.state not in (MERGED, CLOSED, *BUILDS_NOTHING):
             log(f"  {unit.id} ({where}) is over its ceiling and not split: {unit.unsplit_reason}")
+        if unit.held_by_the_checks:
+            log(f"  held by the checks: {unit.id} ({where}) — {unit.note}")
         if unit.state == HELD and unit.cause is Cause.DIRTY_WORKTREE:
             log(f"  parked: {unit.id} ({where}) — {unit.note}")
         if unit.state == RUNNING and unit.cause is Cause.LOGIN:

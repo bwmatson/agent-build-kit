@@ -112,6 +112,9 @@ def cmd_explain(args: argparse.Namespace, inst: Installation) -> int:
     if hold is not None and hold.since <= at:
         print(f"{args.unit} is {external_reason(hold)}")
         return 0
+    if unit is not None and unit.held_by_the_checks:
+        print(f"{args.unit} is held by the checks: {unit.note}")
+        return 0
     if unit is not None and unit.unsplit_reason:
         print(f"{args.unit} is over its ceiling and not split: {unit.unsplit_reason}")
     if unit is not None and (phrase := late_fix_phrase(unit)):

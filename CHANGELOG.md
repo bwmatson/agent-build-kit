@@ -18,6 +18,12 @@
   sample and the restack gauges count the runs that resolve workers have recorded, and
   the runs owed beyond a project's cap as waiting.
 
+- A fix round of the checks that changes nothing is now followed by one rerun of the failed
+  tests, by id and one at a time, before the unit is failed. A pass goes on to review and is
+  recorded in the flake ledger as unexplained; a failure holds the unit for a person, naming
+  the tests and the bundle of each run. `abk status` and `abk explain` show that hold as
+  held by the checks, with the tests and bundles.
+
 - The `abk-pipeline` skill now has a section on a unit that failed at the red check: each
   reason the check gives, where the reasons and the cached verdict are recorded, how to tell a
   rejected test from a check that could not run, and that a plain requeue replays an earlier
