@@ -20,18 +20,16 @@ def _repo(tmp_path: Path, manifest: str) -> Path:
 
 
 @pytest.mark.parametrize(
-    ("manifest", "passes"),
-    [('[project]\nname = "app"\nversion = "0"\n', 1), (XDIST, 2)],
-    ids=["serial only", "parallel then serial"],
+    "manifest",
+    ['[project]\nname = "app"\nversion = "0"\n', XDIST],
+    ids=["plain", "parallel"],
 )
-def test_every_pass_of_the_repos_tests_carries_the_durations_flags(
-    tmp_path: Path, manifest: str, passes: int
-) -> None:
+def test_the_repos_tests_command_carries_the_durations_flags(tmp_path: Path, manifest: str) -> None:
     repo = _repo(tmp_path, manifest)
 
     commands = PythonUvProfile().test_commands(repo, ["tests/test_x.py"], root_extras=[])
 
-    assert len(commands) == passes
+    assert len(commands) == 1
     for command in commands:
         assert all(flag in command for flag in FLAGS), command
 

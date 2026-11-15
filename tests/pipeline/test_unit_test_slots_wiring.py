@@ -179,7 +179,7 @@ def test_the_reruns_inside_one_unit_test_share_its_permit_and_the_slot_is_free_a
 ) -> None:
     limited(1)
     ledger = tmp_path / "test-runs.jsonl"
-    machine = BundleMachine(scratch, reruns=[0, 0])  # the failed tests pass both serial reruns
+    machine = BundleMachine(scratch, reruns=[0, 0])  # the failed tests pass both reruns alone
 
     result: list[object] = []
 

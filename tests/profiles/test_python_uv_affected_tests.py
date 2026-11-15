@@ -191,15 +191,6 @@ def test_the_selection_and_the_recording_let_the_integration_kind_through_the_de
     assert DEFAULT_RUN in expression
 
 
-def test_the_serial_half_of_a_split_run_is_lifted_in_the_seeded_command(tmp_path: Path) -> None:
-    repo = integration_repo(tmp_path)
-    command = ["uv", "run", "pytest", "-m", f"({DEFAULT_RUN}) and serial", "tests"]
-
-    seeded_run = PROFILE.seeding_command(command, tmp_path / "seed", select=True, project=repo)
-
-    assert marker_of(seeded_run) == f"(integration or ({DEFAULT_RUN})) and serial"
-
-
 def test_a_seeded_selection_keeps_the_other_default_deselections_out(tmp_path: Path) -> None:
     repo = integration_repo(tmp_path)
 

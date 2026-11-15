@@ -229,28 +229,6 @@ def _addopts_marker(repo: Path) -> str:
     return ""
 
 
-def _marker_selection(repo: Path, selection: str) -> str:
-    # A later -m replaces the one in addopts, so keep the repo's exclusions.
-    existing = _addopts_marker(repo)
-    return f"({existing}) and {selection}" if existing else selection
-
-
-def _is_serial_split(expression: str, *, serial: bool | None = None) -> bool:
-    """Whether a `-m` expression is unit-test's serial/parallel split: the serial half
-    (`serial`), the parallel half (`not serial`), or either when `serial` is None."""
-    halves = {
-        True: (expression == "serial" or expression.endswith(" and serial")),
-        False: (expression == "not serial" or expression.endswith(" and not serial")),
-    }
-    return any(halves.values()) if serial is None else halves[serial]
-
-
-def _is_serial_pass(command: list[str]) -> bool:
-    if "-m" not in command[:-1]:
-        return False
-    return _is_serial_split(command[command.index("-m") + 1], serial=True)
-
-
 def package_name(member: Path) -> str:
     """What a workspace member calls itself, falling back to its directory.
 
@@ -274,7 +252,6 @@ _OPTIONS_WITH_VALUE = frozenset(["-n", "-m", "-k", "-p", "-c", "--maxprocesses",
 
 # The spellings of pytest's marker option besides `-m <expr>`.
 _MARKEXPR = "--markexpr"
-_SERIAL_HALVES = (" and not serial", " and serial")
 
 
 def by_id_selection(project: Path | None) -> str:
@@ -417,37 +394,17 @@ def _call_reads_any_of(call: ast.Call, changed_files: list[str]) -> bool:
     return False
 
 
-def _lifted_marker(expression: str) -> str:
-    """`expression` with the integration kind let through when it is unit-test's serial split
-    over the repository's default (`(<default>) and not serial`); any other `-m` the command
-    carries is its own and stays."""
-    for half in _SERIAL_HALVES:
-        if expression.endswith(half) and _is_serial_split(expression):
-            return f"(integration or {expression.removesuffix(half)}){half}"
-    return expression
-
-
 def _by_id_options(options: list[str], project: Path | None) -> list[str]:
     """`options` of a pytest run with the integration kind let through its default deselection:
-    the serial split in its `-m` (in whichever spelling) is lifted, and a run with no `-m` of its
-    own gets the by-id selection."""
-    lifted: list[str] = []
-    found = False
-    words = iter(options)
-    for word in words:
-        if word in ("-m", _MARKEXPR):
-            found = True
-            lifted += [word, _lifted_marker(next(words, ""))]
-        elif word.startswith(f"{_MARKEXPR}="):
-            found = True
-            lifted.append(f"{_MARKEXPR}={_lifted_marker(word.partition('=')[2])}")
-        elif word.startswith("-m") and not word.startswith("--"):
-            found = True
-            lifted.append(f"-m{_lifted_marker(word[2:])}")
-        else:
-            lifted.append(word)
+    a `-m` of its own stays as it is, and a run with no `-m` gets the by-id selection."""
+    found = any(
+        word in ("-m", _MARKEXPR)
+        or word.startswith(f"{_MARKEXPR}=")
+        or (word.startswith("-m") and not word.startswith("--"))
+        for word in options
+    )
     selection = by_id_selection(project)
-    return lifted if found or not selection else [*lifted, "-m", selection]
+    return options if found or not selection else [*options, "-m", selection]
 
 
 def _pytest_program(command: list[str]) -> int | None:
@@ -806,38 +763,24 @@ class PythonUvProfile:
         head = ["uv", "run", "--no-project", "--isolated", *withs]
         # The environment holds only what root_extras names, so workers need it there.
         workers = any(_normalize(extra.split("[")[0]) == XDIST for extra in root_extras)
-        return self._passes(head, ["tests"], parallel=workers, repo=repo, xdist=xdist)
+        return self._passes(head, ["tests"], parallel=workers, xdist=xdist)
 
     def _passes(
-        self, head: list[str], target: list[str], *, parallel: bool, repo: Path, xdist: list[str]
+        self, head: list[str], target: list[str], *, parallel: bool, xdist: list[str]
     ) -> list[list[str]]:
-        """One pytest command, or — where xdist is declared — what `poe test`
-        runs: a parallel pass, then the tests marked `serial` on their own."""
+        """One pytest command: parallel workers where xdist is declared, else a plain run."""
         command = [*head, "pytest", *target]
         if not parallel:
             return [[*command, "-q", *UNIT_REPORT_FLAGS]]
-        return [
-            [
-                *command,
-                *xdist,
-                "-m",
-                _marker_selection(repo, "not serial"),
-                # `-v`, not `-q`: xdist then prints a progress line as each worker finishes a
-                # test, the only record of the order a worker ran them in (see
-                # `consequence_errors`). A testmon selection keeps it, as it only raises a
-                # `-q` back to the default.
-                "-v",
-                *UNIT_REPORT_FLAGS,
-            ],
-            [*command, "-m", _marker_selection(repo, "serial"), "-q", *UNIT_REPORT_FLAGS],
-        ]
+        # `-v`, not `-q`: xdist then prints a progress line as each worker finishes a
+        # test, the only record of the order a worker ran them in (see
+        # `consequence_errors`). A testmon selection keeps it, as it only raises a
+        # `-q` back to the default.
+        return [[*command, *xdist, "-v", *UNIT_REPORT_FLAGS]]
 
     def tolerates_exit(self, command: list[str], returncode: int) -> bool:
-        """Whether a unit-test command's exit status is a pass. The serial pass
-        collects nothing in a repo with no `serial` tests, which is not a failure."""
-        if returncode == 0:
-            return True
-        return returncode == NO_TESTS_COLLECTED and _is_serial_pass(command)
+        """Whether a unit-test command's exit status is a pass: only zero is."""
+        return returncode == 0
 
     def failure_kind(self, output: str) -> str:
         """Which check failed, from the command in the failure's `$` header: a
@@ -999,13 +942,12 @@ class PythonUvProfile:
         program = _pytest_program(command)
         if program is None:
             return [*command, *tests]
-        # What follows is the run's selection and workers: dropped, an e2e-test marker expression
-        # kept (unit-test's serial/parallel split is what the serial rerun replaces).
+        # What follows is the run's selection and workers: dropped, a marker expression kept.
         words = command[program + 1 :]
         marker: list[str] = []
         if "-m" in words[:-1]:
             expression = words[words.index("-m") + 1]
-            marker = [] if _is_serial_split(expression) else ["-m", expression]
+            marker = ["-m", expression]
         return [*command[: program + 1], *(marker or _by_id_options([], project)), *tests, "-q"]
 
     selector_kinds: tuple[str, ...] = ("marker",)
@@ -1273,9 +1215,7 @@ class PythonUvProfile:
         # rests on lint alone, since there is nothing here to run.
         if not (repo / "tests").is_dir():
             return []
-        return self._passes(
-            ["uv", "run"], [], parallel=_declares_xdist(repo), repo=repo, xdist=xdist
-        )
+        return self._passes(["uv", "run"], [], parallel=_declares_xdist(repo), xdist=xdist)
 
     def _member_commands(self, repo: Path, members: list[str], xdist: list[str]) -> list[list[str]]:
         # `--package` names the package; the trailing path names the directory.
@@ -1287,7 +1227,6 @@ class PythonUvProfile:
                 ["uv", "run", "--package", package_name(repo / member), "--isolated"],
                 [member],
                 parallel=_declares_xdist(repo / member),
-                repo=repo / member,
                 xdist=xdist,
             )
         ]

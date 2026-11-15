@@ -133,8 +133,8 @@ def test_a_profile_refuses_an_unknown_kind_and_accepts_the_declared_ones(
     name: str, tmp_path: Path
 ) -> None:
     root = project(tmp_path, PROJECTS[name])
-    refused = selecting(name).refused_kinds(root, ["integration", "e2e", "serial", "bogus"])
-    assert refused == ["serial", "bogus"]
+    refused = selecting(name).refused_kinds(root, ["integration", "e2e", "unlisted", "bogus"])
+    assert refused == ["unlisted", "bogus"]
 
 
 @pytest.mark.integration

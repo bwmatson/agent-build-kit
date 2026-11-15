@@ -17,7 +17,7 @@ PYTHON_PROJECT = {
         "[tool.uv]\npackage = false\n\n"
         "[tool.pytest.ini_options]\n"
         'pythonpath = ["."]\n'
-        'markers = ["serial: runs alone"]\n'
+        'markers = ["slow: runs long"]\n'
     ),
     "calc.py": "def add(a, b):\n    return a + b\n",
     "other.py": "def double(x):\n    return x * 2\n",

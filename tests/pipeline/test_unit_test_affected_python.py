@@ -553,28 +553,3 @@ def test_a_seeded_selection_that_picks_nothing_is_a_pass_the_full_suite_confirms
     assert [Runner.is_selected(c) for c in tests] == [True, False]
     assert not any("testmon" in w for w in tests[1]) or "--testmon-noselect" in tests[1]
     assert not any("selection tooling" in line for line in log), log
-
-
-def test_a_seeded_serial_pass_that_collects_nothing_is_run_once_and_says_nothing(
-    tmp_path: Path, clock: FakeClock
-) -> None:
-    repo = repo_at(tmp_path)
-    (repo / "pyproject.toml").write_text('[project]\nname = "x"\ndependencies = ["pytest-xdist"]\n')
-    nothing = PythonUvProfile().no_tests_collected_exit
-
-    class EmptySerialPass(Runner):
-        def __call__(self, command: list[str], *, cwd: Path) -> subprocess.CompletedProcess:
-            if "pytest" in command and "serial" in command:
-                self.ran.append(command)
-                return subprocess.CompletedProcess(command, nothing, "no tests ran in 0.01s", "")
-            return super().__call__(command, cwd=cwd)
-
-    runner = EmptySerialPass(clock)
-    log: list[str] = []
-
-    passed, output = unit_test_for(repo, runner, log=log)(cwd=repo, base="main")
-
-    assert passed, output
-    serial = [c for c in runner.ran if "pytest" in c and "serial" in c]
-    assert len(serial) == 1 and any("testmon" in w for w in serial[0])
-    assert not any("selection tooling" in line for line in log), log

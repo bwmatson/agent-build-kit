@@ -55,7 +55,7 @@ package = false
 [tool.pytest.ini_options]
 addopts = "-m 'not slow'"
 pythonpath = ["."]
-markers = ["slow: excluded by addopts", "serial: runs alone"]
+markers = ["slow: excluded by addopts"]
 """
 
 CALC = """\
@@ -65,16 +65,12 @@ def add(a, b):
 
 def mul(a, b):
     return a * b
-
-
-def only_serial(x):
-    return x + 0
 """
 
 TESTS = """\
 import pytest
 
-from calc import add, mul, only_serial
+from calc import add, mul
 
 
 def test_add():
@@ -96,16 +92,24 @@ def test_unrelated():
 @pytest.mark.slow
 def test_slow_add():
     assert add(2, 2) == 4
-
-
-@pytest.mark.serial
-def test_serial_add():
-    assert add(3, 3) == 6
-    assert only_serial(3) == 3
 """
 
 BROKEN_CALC = CALC.replace("a + b", "a - b")
 AFFECTED = {"test_add", "test_both"}
+
+
+def without_workers(command: list[str]) -> list[str]:
+    """`command` without xdist's options: `-n <workers>`, `-n<workers>` and `--maxprocesses`."""
+    kept: list[str] = []
+    words = iter(command)
+    for word in words:
+        if word == "-n":
+            next(words, None)
+        elif not word.startswith("--maxprocesses") and not (
+            word.startswith("-n") and len(word) > 2
+        ):
+            kept.append(word)
+    return kept
 
 
 class Tiny:
@@ -119,8 +123,10 @@ class Tiny:
         (root / "pyproject.toml").write_text(PYPROJECT)
         (root / "calc.py").write_text(CALC)
         (root / "tests" / "test_calc.py").write_text(TESTS)
-        # The parallel pass, then the serial pass: what a full run is.
-        self.parallel, self.serial = PROFILE.test_commands_all(root, root_extras=[])
+        # The one parallel pass: what a full run is.
+        (self.parallel,) = PROFILE.test_commands_all(root, root_extras=[])
+        # The same without workers, so that every test of a module runs in one process.
+        self.single = without_workers(self.parallel)
 
     def run(
         self, command: list[str], *, cwd: Path | None = None
@@ -136,10 +142,9 @@ class Tiny:
         )
 
     def record(self, seed: Path | None = None) -> None:
-        for command in (self.parallel, self.serial):
-            done = self.run(PROFILE.seeding_command(command, seed or self.seed))
-            assert done.returncode in (0, NO_TESTS_COLLECTED), done.stdout + done.stderr
-            assert DYNAMIC_CONTEXTS not in done.stdout + done.stderr
+        done = self.run(PROFILE.seeding_command(self.parallel, seed or self.seed))
+        assert done.returncode in (0, NO_TESTS_COLLECTED), done.stdout + done.stderr
+        assert DYNAMIC_CONTEXTS not in done.stdout + done.stderr
 
     def select(
         self,
@@ -187,15 +192,13 @@ def test_nothing_changed_selects_nothing(tiny: Tiny) -> None:
     # Measured: testmon deselects every test and pytest exits 0 ("6 deselected"); xdist's
     # "no tests ran" exits 0 too. Exit 5 is what a run that collects nothing at all gives,
     # and the pipeline counts both as a pass.
-    serial = tiny.select(tiny.serial)
-    parallel = tiny.select()
+    done = tiny.select()
 
-    for done in (serial, parallel):
-        assert done.returncode in (0, NO_TESTS_COLLECTED), done.stdout + done.stderr
-        assert "passed" not in done.stdout and "failed" not in done.stdout
-        assert "deselected" in done.stdout or "no tests ran" in done.stdout
-        assert "deactivated" not in done.stdout
-        assert DYNAMIC_CONTEXTS not in done.stdout + done.stderr
+    assert done.returncode in (0, NO_TESTS_COLLECTED), done.stdout + done.stderr
+    assert "passed" not in done.stdout and "failed" not in done.stdout
+    assert "deselected" in done.stdout or "no tests ran" in done.stdout
+    assert "deactivated" not in done.stdout
+    assert DYNAMIC_CONTEXTS not in done.stdout + done.stderr
 
 
 def test_a_changed_function_selects_the_tests_that_reach_it_and_fails_as_a_full_run_does(
@@ -220,7 +223,6 @@ def test_a_slow_test_stays_out_even_when_it_reaches_the_changed_function(tiny: T
 
     assert {"test_add", "test_both"} <= ran(selected.stdout)
     assert "test_slow_add" not in selected.stdout
-    assert "test_serial_add" not in selected.stdout
 
 
 def test_a_deactivated_selection_says_so_in_the_output_the_pipeline_reads(tiny: Tiny) -> None:
@@ -238,36 +240,6 @@ def test_a_deactivated_selection_says_so_in_the_output_the_pipeline_reads(tiny: 
     assert PROFILE.selection_deactivated(output) == "-m was used", output
 
 
-def empty(output: str) -> bool:
-    return ("deselected" in output or "no tests ran" in output) and "passed" not in output
-
-
-def test_a_full_run_in_two_passes_leaves_data_for_both(tiny: Tiny) -> None:
-    # With no data a pass selects every test, so each pass is shown to hold data by a change
-    # that only the other pass's tests reach: it must select nothing.
-    rewrite(tiny.root / "calc.py", CALC.replace("a * b", "a * b + 1"))
-
-    serial = tiny.select([*tiny.serial, "-v"])
-    parallel = tiny.select([*tiny.parallel, "-v"])
-
-    assert empty(serial.stdout), serial.stdout
-    assert {"test_mul", "test_both"} <= ran(parallel.stdout)
-    assert "deactivated" not in parallel.stdout + serial.stdout
-
-
-def test_a_change_only_the_serial_pass_reaches_selects_nothing_in_the_parallel_pass(
-    tiny: Tiny,
-) -> None:
-    rewrite(tiny.root / "calc.py", CALC.replace("x + 0", "x + 1"))
-
-    # The serial pass goes first: a run that executes tests updates the data it shares.
-    serial = tiny.select([*tiny.serial, "-v"])
-    parallel = tiny.select([*tiny.parallel, "-v"])
-
-    assert empty(parallel.stdout), parallel.stdout
-    assert failed(serial.stdout) == {"test_serial_add"}
-
-
 CORE = "COVERAGE_CORE=ctrace"
 TESTMON_ENV = "--testmon-env=ctrace"
 
@@ -276,13 +248,9 @@ def scale(x):
     return x * 2
 """
 
-# Marked serial so the profile's serial pass, one process without xdist, runs all of them.
+# Run without workers (`Tiny.single`), so one process runs all of them.
 CROWD_TESTS = """\
-import pytest
-
 from calc import scale
-
-pytestmark = pytest.mark.serial
 
 
 def test_one():
@@ -317,7 +285,7 @@ class Crowd:
         project.root.joinpath("tests", "test_calc.py").write_text(CROWD_TESTS)
 
     def record(self, *, strip: tuple[str, ...] = ()) -> None:
-        command = PROFILE.seeding_command(self.project.serial, self.project.seed)
+        command = PROFILE.seeding_command(self.project.single, self.project.seed)
         done = self.project.run([word for word in command if word not in strip])
         assert done.returncode == 0, done.stdout + done.stderr
 
@@ -343,7 +311,7 @@ def crowd(tmp_path: Path) -> Crowd:
 
 @pytest.mark.parametrize("select", [False, True])
 def test_the_recording_and_the_selection_pin_the_coverage_core(crowd: Crowd, select: bool) -> None:
-    command = PROFILE.seeding_command(crowd.project.serial, crowd.project.seed, select=select)
+    command = PROFILE.seeding_command(crowd.project.single, crowd.project.seed, select=select)
 
     assert CORE in command
     assert TESTMON_ENV in command
@@ -361,8 +329,8 @@ def test_a_selection_after_a_behavioural_change_runs_every_test_a_full_run_fails
     crowd.record()
     rewrite(crowd.project.root / "calc.py", BROKEN_CROWD_CALC)
 
-    everything = crowd.project.run([*crowd.project.serial, "-v"])
-    selected = crowd.project.select([*crowd.project.serial, "-v"])
+    everything = crowd.project.run([*crowd.project.single, "-v"])
+    selected = crowd.project.select([*crowd.project.single, "-v"])
 
     assert len(failed(everything.stdout)) >= 3, everything.stdout
     assert failed(everything.stdout) <= failed(selected.stdout), selected.stdout
@@ -374,7 +342,7 @@ def test_data_recorded_in_another_environment_is_not_read_and_the_tests_run_in_f
     crowd.record(strip=(CORE, TESTMON_ENV))
     assert crowd.environments() == {"default"}
 
-    selected = crowd.project.select([*crowd.project.serial, "-v"])
+    selected = crowd.project.select([*crowd.project.single, "-v"])
 
     assert ran(selected.stdout) == CROWD, selected.stdout
     assert "ctrace" in crowd.environments()
@@ -391,10 +359,9 @@ def unit_worktree_on_base_data(tmp_path: Path, *, strip: tuple[str, ...] = ()) -
     git(project.root, "commit", "-qm", "base")
 
     def record(_commit: str, data: Path) -> None:
-        for command in (project.parallel, project.serial):
-            seeding = [w for w in PROFILE.seeding_command(command, data) if w not in strip]
-            done = project.run(seeding)
-            assert done.returncode in (0, NO_TESTS_COLLECTED), done.stdout + done.stderr
+        seeding = [w for w in PROFILE.seeding_command(project.parallel, data) if w not in strip]
+        done = project.run(seeding)
+        assert done.returncode in (0, NO_TESTS_COLLECTED), done.stdout + done.stderr
 
     store = tmp_path / "state" / "selection-base"
     now = datetime(2026, 11, 8, 9, 0, tzinfo=UTC)

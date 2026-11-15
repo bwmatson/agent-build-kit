@@ -196,7 +196,7 @@ def test_the_runs_alone_and_under_load_are_made_the_configured_times(tmp_path: P
     alone = [c for c in commands if TEST in c]
     loaded = [c for c in commands if "tests/test_widget.py" in c and TEST not in c]
     assert (len(alone), len(loaded)) == (2, 2)
-    assert all("-n" not in c for c in alone), "alone is serial"
+    assert all("-n" not in c for c in alone), "alone is without workers"
     assert all("-n" in c for c in loaded), "under load is the file's tests on the workers"
 
 
