@@ -1425,7 +1425,8 @@ and the `azure` one stores each key as a blob in `deployment.azure.storage_accou
 managed identity, with an append-blob writer and a short-lived read link. Text is redacted
 before every write. **Checkpoints** opens the unit graph's checkpoint saver, which deserialises
 only the types in `ALLOWED_MSGPACK_MODULES`: `local` is the SQLite saver over the unit graphs
-file, and `azure` is LangGraph's PostgreSQL saver on `deployment.azure.database_host`, its
+file, and `azure` is LangGraph's PostgreSQL saver on `deployment.azure.database_host` (database `database_name`, default `postgres`, role
+`database_user`, the managed identity's), its
 connection pool taking a freshly obtained Entra token as the password of each new connection
 (a token lasts about an hour). Each interface has one conformance suite in `tests/orchestration/`
 run against the local implementation and the Azure one; the cases that need Azurite or

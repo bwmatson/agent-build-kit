@@ -408,6 +408,8 @@ AZURE_SETTINGS = {
     "resource_group": "rg-1",
     "storage_account": "store1",
     "database_host": "db.example.test",
+    "database_user": "abk-identity",
+    "database_name": "units",
     "key_vault": "vault-1",
     "identity_client_id": "client-1",
 }

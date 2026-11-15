@@ -3,15 +3,15 @@ as the password of every new connection."""
 
 from __future__ import annotations
 
+import asyncio
 from collections.abc import AsyncIterator, Callable
 from contextlib import AbstractAsyncContextManager, asynccontextmanager
 from typing import TYPE_CHECKING, Any
 
 from langgraph.checkpoint.base import BaseCheckpointSaver
-from langgraph.checkpoint.serde.jsonplus import JsonPlusSerializer
 
 from agent_build_kit import orchestration
-from agent_build_kit.graph.checkpointer import ALLOWED_MSGPACK_MODULES
+from agent_build_kit.graph.checkpointer import allowlisted_serde
 
 if TYPE_CHECKING:
     from agent_build_kit.installation import Installation
@@ -20,13 +20,17 @@ if TYPE_CHECKING:
 TOKEN_SCOPE = "https://ossrdbms-aad.database.windows.net/.default"
 
 
-def token_connection_kwargs(host: str, credential: Any) -> Callable[[], dict[str, Any]]:
-    """A callable returning the keyword arguments of a new connection to `host`, its password a
-    token obtained from `credential` on that call."""
+def token_connection_kwargs(
+    host: str, credential: Any, *, user: str, dbname: str = "postgres"
+) -> Callable[[], dict[str, Any]]:
+    """A callable returning the keyword arguments of a new connection to database `dbname` on
+    `host` as the role `user`, its password a token obtained from `credential` on that call."""
 
     def kwargs() -> dict[str, Any]:
         return dict(
             host=host,
+            user=user,
+            dbname=dbname,
             password=credential.get_token(TOKEN_SCOPE).token,
             sslmode="require",
         )
@@ -37,7 +41,7 @@ def token_connection_kwargs(host: str, credential: Any) -> Callable[[], dict[str
 class AzureCheckpoints:
     def __init__(self, connection_kwargs: Callable[[], dict[str, Any]]) -> None:
         """`connection_kwargs()` is called once for each new connection the pool opens."""
-        self._connection_kwargs = connection_kwargs
+        self.connection_kwargs = connection_kwargs
 
     def open(self) -> AbstractAsyncContextManager[BaseCheckpointSaver]:
         return self._open()
@@ -49,19 +53,19 @@ class AzureCheckpoints:
         conninfo = orchestration.import_sdk("azure", "psycopg.conninfo")
         rows = orchestration.import_sdk("azure", "psycopg.rows")
 
-        def new_connection_kwargs() -> dict[str, Any]:
-            # Called by the pool for each connection it opens, so each takes a new password.
-            given = dict(self._connection_kwargs())
+        async def new_connection_kwargs() -> dict[str, Any]:
+            # Called by the pool for each connection it opens, so each takes a new password. The
+            # token fetch may block on the identity endpoint, so it runs off the event loop.
+            given = dict(await asyncio.to_thread(self.connection_kwargs))
             merged = conninfo.conninfo_to_dict(given.pop("conninfo", ""))
             merged.update(given)
             merged.update(autocommit=True, prepare_threshold=0, row_factory=rows.dict_row)
             return merged
 
         async with pool_module.AsyncConnectionPool(
-            "", kwargs=new_connection_kwargs, open=False
+            "", kwargs=new_connection_kwargs, min_size=1, open=False
         ) as pool:
-            serde = JsonPlusSerializer(allowed_msgpack_modules=list(ALLOWED_MSGPACK_MODULES))
-            saver = postgres.AsyncPostgresSaver(pool, serde=serde)
+            saver = postgres.AsyncPostgresSaver(pool, serde=allowlisted_serde())
             await saver.setup()
             yield saver
 
@@ -83,5 +87,17 @@ def build_checkpoints(
         raise orchestration.Refused(
             "deployment.azure.database_host is not set: Azure checkpoints need a database host"
         )
+    if not settings.database_user:
+        raise orchestration.Refused(
+            "deployment.azure.database_user is not set: Azure checkpoints need the database "
+            "role of the managed identity"
+        )
     credential = (make_credential or _default_credential)(settings.identity_client_id)
-    return AzureCheckpoints(token_connection_kwargs(settings.database_host, credential))
+    return AzureCheckpoints(
+        token_connection_kwargs(
+            settings.database_host,
+            credential,
+            user=settings.database_user,
+            dbname=settings.database_name,
+        )
+    )

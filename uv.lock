@@ -49,6 +49,7 @@ azure = [
     { name = "azure-storage-blob" },
     { name = "langgraph-checkpoint-postgres" },
     { name = "psycopg", extra = ["binary", "pool"] },
+    { name = "psycopg-pool" },
 ]
 modal = [
     { name = "agent-client-protocol" },
@@ -89,6 +90,7 @@ requires-dist = [
     { name = "opentelemetry-exporter-otlp-proto-http", marker = "extra == 'telemetry'", specifier = ">=1.35" },
     { name = "opentelemetry-sdk", marker = "extra == 'telemetry'", specifier = ">=1.35" },
     { name = "psycopg", extras = ["binary", "pool"], marker = "extra == 'azure'", specifier = ">=3.2" },
+    { name = "psycopg-pool", marker = "extra == 'azure'", specifier = ">=3.3" },
     { name = "pydantic", specifier = ">=2.0" },
     { name = "pydantic-settings", specifier = ">=2.0" },
     { name = "pyyaml", specifier = ">=6.0" },

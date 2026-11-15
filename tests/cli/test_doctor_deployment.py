@@ -22,6 +22,7 @@ SETTINGS = {
     "resource_group": "rg-1",
     "storage_account": "store1",
     "database_host": "db.example.test",
+    "database_user": "abk-identity",
     "key_vault": "vault1",
     "identity_client_id": "client-1",
 }
@@ -106,7 +107,7 @@ def test_an_azure_deployment_fails_when_the_extra_is_missing(
 
 
 @pytest.mark.usefixtures("extra")
-@pytest.mark.parametrize("setting", sorted(set(SETTINGS) - {"identity_client_id"}))
+@pytest.mark.parametrize("setting", sorted(set(SETTINGS) - {"identity_client_id", "database_name"}))
 def test_an_azure_deployment_fails_naming_a_missing_overlay_setting(
     tmp_path: Path, setting: str
 ) -> None:

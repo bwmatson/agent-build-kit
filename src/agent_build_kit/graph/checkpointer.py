@@ -36,6 +36,11 @@ ALLOWED_MSGPACK_MODULES: tuple[tuple[str, str], ...] = (
 )
 
 
+def allowlisted_serde() -> JsonPlusSerializer:
+    """The serializer every checkpoint saver uses: it deserialises only the allowlisted types."""
+    return JsonPlusSerializer(allowed_msgpack_modules=list(ALLOWED_MSGPACK_MODULES))
+
+
 def unit_graphs_path(local_dir: Path) -> Path:
     """`<local_dir>/unit-graphs.sqlite`."""
     return local_dir / "unit-graphs.sqlite"
@@ -52,8 +57,7 @@ async def open_checkpointer(
     path.parent.mkdir(parents=True, exist_ok=True)
     async with aiosqlite.connect(path) as conn:
         await conn.execute("PRAGMA journal_mode=WAL")
-        serde = JsonPlusSerializer(allowed_msgpack_modules=list(ALLOWED_MSGPACK_MODULES))
-        yield AsyncSqliteSaver(conn, serde=serde)
+        yield AsyncSqliteSaver(conn, serde=allowlisted_serde())
 
 
 def open_unit_graphs(inst: Installation) -> AbstractAsyncContextManager[AsyncSqliteSaver]:
