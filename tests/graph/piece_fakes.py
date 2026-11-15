@@ -1,6 +1,10 @@
 """A piece of a split unit prepared over a real git repository: the superseded unit's branch is
 kept under its ref and holds the commits a test lists, and the piece's branch starts at the
-trunk."""
+trunk.
+
+`piece_built` runs the unit's thread once over the recorder's runner. Every test whose module
+takes it is held to `LOADED_TEST_TIME_LIMIT` (`tests/time_limit.py`) by the collection hook in
+`tests/conftest.py`."""
 
 from __future__ import annotations
 
