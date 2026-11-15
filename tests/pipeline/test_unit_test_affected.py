@@ -70,7 +70,9 @@ class Profile(PythonUvProfile):
         self.asked.append((changed_files, failed_ids))
         return self.selected
 
-    def serial_rerun_command(self, command: list[str], tests: list[str]) -> list[str]:
+    def serial_rerun_command(
+        self, command: list[str], tests: list[str], *, project: Path | None = None
+    ) -> list[str]:
         return ["rerun", *tests]
 
     def failed_tests(self, output: str) -> list[str]:

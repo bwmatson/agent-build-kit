@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- The rerun of a failed test now collects a test of the `integration` kind that a repository's
+  default settings deselect. Before, the rerun carried no marker expression, so such a test was
+  deselected (pytest exit 5), never ran again, and a flake in it failed the unit; the rerun now
+  takes the same by-id selection as the repeat check, and a marker expression of an e2e run is
+  still kept.
+
 - The GitHub issues tracker now lists the issues changed since a cursor (pull requests left
   out, unchanged pages not transferred again), links a pull request with a `Part of #<n>` line
   that does not close the issue, reaches a GitHub Enterprise Server host through the `host`

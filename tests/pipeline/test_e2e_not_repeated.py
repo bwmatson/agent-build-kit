@@ -38,9 +38,11 @@ class Spy(PythonUvProfile):
     def __init__(self) -> None:
         self.reruns: list[list[str]] = []
 
-    def serial_rerun_command(self, command: list[str], tests: list[str]) -> list[str]:
+    def serial_rerun_command(
+        self, command: list[str], tests: list[str], *, project: Path | None = None
+    ) -> list[str]:
         self.reruns.append(command)
-        return super().serial_rerun_command(command, tests)
+        return super().serial_rerun_command(command, tests, project=project)
 
 
 def test_a_failing_e2e_command_runs_once_on_the_units_tree(tmp_path: Path) -> None:

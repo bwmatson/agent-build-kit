@@ -990,8 +990,12 @@ class PythonUvProfile:
                     break
         return sections
 
-    def serial_rerun_command(self, command: list[str], tests: list[str]) -> list[str]:
-        """`command`, a failed test run, as one that runs only `tests`, serially."""
+    def serial_rerun_command(
+        self, command: list[str], tests: list[str], *, project: Path | None = None
+    ) -> list[str]:
+        """`command`, a failed test run, as one that runs only `tests`, serially. A run with no
+        marker expression of its own gets the by-id selection of `project`, so a test of the
+        integration kind that its default settings deselect is still collected."""
         program = _pytest_program(command)
         if program is None:
             return [*command, *tests]
@@ -1002,7 +1006,7 @@ class PythonUvProfile:
         if "-m" in words[:-1]:
             expression = words[words.index("-m") + 1]
             marker = [] if _is_serial_split(expression) else ["-m", expression]
-        return [*command[: program + 1], *marker, *tests, "-q"]
+        return [*command[: program + 1], *(marker or _by_id_options([], project)), *tests, "-q"]
 
     selector_kinds: tuple[str, ...] = ("marker",)
 

@@ -503,8 +503,12 @@ class RerunsFailedTests(Protocol):
     """The hooks a profile adds to run a failed test again on its own and to read which tests
     a failed run named. A profile without them cannot tell a flake from a defect."""
 
-    def serial_rerun_command(self, command: list[str], tests: list[str]) -> list[str]:
-        """`command`, a failed test run, as one that runs only `tests`, serially."""
+    def serial_rerun_command(
+        self, command: list[str], tests: list[str], *, project: Path | None = None
+    ) -> list[str]:
+        """`command`, a failed test run, as one that runs only `tests`, serially. `project` is
+        the directory the command runs in; a runner whose default configuration deselects a
+        kind of test reads it to let that kind through."""
         ...
 
     def failed_tests(self, output: str) -> list[str]:

@@ -498,7 +498,9 @@ class NodeNpmProfile:
             commands.append(["sh", "-c", _FILTERED, "sh", _HERE, *left])
         return commands
 
-    def serial_rerun_command(self, command: list[str], tests: list[str]) -> list[str]:
+    def serial_rerun_command(
+        self, command: list[str], tests: list[str], *, project: Path | None = None
+    ) -> list[str]:
         """`command`, a failed test run, as the filtered run of the files of `tests` with
         Vitest's files run one after another (`--no-file-parallelism`); `command` itself when it
         is not one of this profile's runs or none of `tests` is under its directory."""
