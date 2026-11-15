@@ -121,6 +121,17 @@ def test_each_new_connection_takes_a_freshly_obtained_token_as_its_password() ->
     assert {kwargs["host"] for kwargs in found} == {"db.example.test"}
 
 
+def test_a_connection_opened_after_an_earlier_token_expired_uses_a_new_token() -> None:
+    credential = FakeCredential()
+    connection_kwargs = token_connection_kwargs("db.example.test", credential, user="abk-identity")
+    first = connection_kwargs()
+
+    credential.now += 3601  # the first token has expired
+    later = connection_kwargs()
+
+    assert (first["password"], later["password"]) == ("token-1", "token-2")
+
+
 def test_the_connection_arguments_carry_the_deployments_database_role_and_name(
     tmp_path: Path,
 ) -> None:

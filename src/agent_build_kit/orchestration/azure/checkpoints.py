@@ -63,7 +63,7 @@ class AzureCheckpoints:
             return merged
 
         async with pool_module.AsyncConnectionPool(
-            "", kwargs=new_connection_kwargs, min_size=1, open=False
+            "", kwargs=new_connection_kwargs, min_size=1, max_size=4, open=False
         ) as pool:
             saver = postgres.AsyncPostgresSaver(pool, serde=allowlisted_serde())
             await saver.setup()
