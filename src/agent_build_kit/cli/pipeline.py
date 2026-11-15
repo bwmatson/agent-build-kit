@@ -3783,6 +3783,9 @@ def split_held_units(inst: Installation, store: UnitStore, *, may_plan: bool = T
     held = [u for u in units if _awaiting_split(u)]
     for unit in sorted(held, key=lambda u: (effective_priority(u, units), u.id)):
         _split_one(inst, store, unit, may_plan=may_plan)
+    for unit in store.all():
+        if _awaiting_resume(unit):
+            _resume_unsplit(inst, store, unit)
 
 
 TOO_BIG_AND = "too big for its tier, and "
@@ -3794,36 +3797,51 @@ def _hold_for_a_person(store: UnitStore, unit: StoredUnit, note: str) -> None:
     log(f"{unit.id}: {note}; held for a person")
 
 
+def _unsplit_note(reason: str) -> str:
+    """The history note of a unit sent on over its ceiling without a split."""
+    return f"over its tier's ceiling and not split: {reason}"
+
+
 def _proceed_unsplit(
-    inst: Installation, store: UnitStore, unit: StoredUnit, reason: str, *, hold_prefix: str = ""
+    store: UnitStore, unit: StoredUnit, reason: str, *, hold_prefix: str = ""
 ) -> None:
     """Send a unit over its ceiling that will not be split on, with its size waived as a
     person's requeue waives it; with `review.unsplittable` at `hold` a person decides first,
-    and the hold's note is `hold_prefix` and the reason. A requeue that did not take effect
-    (the branch is busy) leaves the unit held for its size, to be sent on by the next pass."""
+    and the hold's note is `hold_prefix` and the reason. This records the waiver and leaves
+    the unit held and released; `_resume_unsplit` sends it on, and asks again each pass while
+    its branch is busy."""
     if config.active().review.unsplittable == "hold":
         _hold_for_a_person(store, unit, f"{hold_prefix}{reason}")
         return
-    said = f"over its tier's ceiling and not split: {reason}"
+    said = _unsplit_note(reason)
     store.set_size_waived(unit.id)
     store.set_unsplit_reason(unit.id, reason)
     store.set_state(unit.id, HELD, note=said, cause=Cause.RELEASED)
     log(f"{unit.id}: {said}")
-    if requeue(inst, unit.id, "resume", say=lambda text, error=False: log(text), because=said):
-        left = store.get(unit.id)
-        if not (left.state == HELD and left.cause is Cause.RELEASED):
-            # The delivery ran and raised: `requeue` recorded the failure, which a person sees,
-            # and the waiver stays so that their requeue is not held for size again.
-            return
-        store.set_size_waived(unit.id, False)
-        store.set_unsplit_reason(unit.id, "")
-        store.set_state(
-            unit.id,
-            HELD,
-            note=f"{said}; will be sent on next pass",
-            held_by=HeldBy.SIZE,
-            cause=Cause.TOO_BIG_FOR_TIER,
-        )
+
+
+def _awaiting_resume(unit: StoredUnit) -> bool:
+    """Whether a unit sent on without a split is still held, its resume not yet made."""
+    return (
+        unit.state == HELD
+        and unit.cause is Cause.RELEASED
+        and unit.size_waived
+        and bool(unit.unsplit_reason)
+    )
+
+
+def _resume_unsplit(inst: Installation, store: UnitStore, unit: StoredUnit) -> None:
+    """Resume a unit sent on unsplit. A resume deferred because its branch is busy changes
+    nothing and is asked for again by the next pass; one that raised was recorded as a failure
+    by `requeue`, with the waiver kept."""
+    code = requeue(
+        inst,
+        unit.id,
+        "resume",
+        say=lambda text, error=False: log(text),
+        because=_unsplit_note(unit.unsplit_reason),
+    )
+    if code and _awaiting_resume(store.get(unit.id)):
         log(f"{unit.id}: could not be resumed now; it will be sent on next pass")
 
 
@@ -3885,11 +3903,11 @@ def _split_one(
             if rounds == 0
             else f"split {unit.split_rounds_used} of {rounds} rounds used"
         )
-        _proceed_unsplit(inst, store, unit, used, hold_prefix=TOO_BIG_AND)
+        _proceed_unsplit(store, unit, used, hold_prefix=TOO_BIG_AND)
         return
     units = store.all()
     if why := _cannot_split(unit, units):
-        _proceed_unsplit(inst, store, unit, why, hold_prefix=TOO_BIG_AND)
+        _proceed_unsplit(store, unit, why, hold_prefix=TOO_BIG_AND)
         return
     if not may_plan:
         return
@@ -3933,7 +3951,7 @@ def _plan_and_supersede(
         store.set_split_rounds_used(unit.id, unit.split_rounds_used + 1)
         store.supersede(unit.id, plan.units)
     except GroupTooLarge as error:
-        _proceed_unsplit(inst, store, unit, str(error))
+        _proceed_unsplit(store, unit, str(error))
         return
     except Exception as error:  # noqa: BLE001
         if _plan_wait(inst, error, {}) is not None:
@@ -6372,6 +6390,7 @@ def has_work(inst: Installation, store: UnitStore) -> bool:
     if any(
         unit.state in NEEDS_TICKS
         or _awaiting_split(unit)
+        or _awaiting_resume(unit)
         or unit.close_pending
         or (unit.state == FAILED and unit.cause is Cause.ENVIRONMENT)
         for unit in units
