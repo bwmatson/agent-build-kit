@@ -22,6 +22,7 @@ import sys
 import tempfile
 import threading
 import time
+from collections.abc import Collection
 
 import pytest
 
@@ -192,6 +193,7 @@ class CpuSnapshot(Frozen):
     tasks: dict[int, float]
     descendants: dict[int, float]
     reaped: float
+    children: frozenset[int] = frozenset()
 
 
 def _task_cpu(tid: int | str) -> float:
@@ -214,17 +216,34 @@ def snapshot_cpu() -> CpuSnapshot:
         except OSError:
             continue
     tasks.pop(os.getpid(), None)
-    return CpuSnapshot(process=process, tasks=tasks, descendants=descendants_cpu(), reaped=reaped)
+    running = running_descendants()
+    me = str(os.getpid())
+    return CpuSnapshot(
+        process=process,
+        tasks=tasks,
+        descendants={pid: _spent(fields) for pid, fields in running},
+        reaped=reaped,
+        children=frozenset(pid for pid, fields in running if fields[1] == me),
+    )
 
 
-def phase_cpu(start: CpuSnapshot, now: CpuSnapshot) -> float:
+def phase_cpu(start: CpuSnapshot, now: CpuSnapshot, own: Collection[int] = ()) -> float:
     """The CPU a phase used: the process's growth (threads that started and ended in the phase
-    included) less the growth of each thread in `start` that is still alive, plus all of each
-    descendant not in `start`, plus the growth of what finished children gave. An inherited
-    thread that exits during the phase is still billed for its last moments."""
+    included) less the growth of each thread in `start` that is still alive and the whole of each
+    new thread in `own` (the plugin's own), plus all of each descendant not in `start`, plus the
+    growth of what finished children gave, less what a direct child of `start` had already used
+    when it was reaped in the phase. An inherited thread that exits during the phase is still
+    billed for its last moments."""
     inherited = sum(v - start.tasks[tid] for tid, v in now.tasks.items() if tid in start.tasks)
+    watching = sum(v for tid, v in now.tasks.items() if tid in own and tid not in start.tasks)
     new_descendants = sum(v for pid, v in now.descendants.items() if pid not in start.descendants)
-    return (now.process - start.process) - inherited + new_descendants + (now.reaped - start.reaped)
+    before_phase = sum(
+        start.descendants[pid]
+        for pid in start.children
+        if pid in start.descendants and pid not in now.descendants
+    )
+    reaped = max(0.0, now.reaped - start.reaped - before_phase)
+    return (now.process - start.process) - inherited - watching + new_descendants + reaped
 
 
 # What each phase left alive: task id or process id to (its name, the test that left it).
@@ -339,6 +358,19 @@ def limit_for(item: pytest.Item) -> float:
     return float(value)
 
 
+def _trip_in_chain(error: BaseException) -> TimedOut | None:
+    """The `TimedOut` on an exception's `__cause__`/`__context__` chain, if the code under
+    test replaced it while unwinding (as `asyncio.run`'s teardown does)."""
+    seen: set[int] = set()
+    pending: BaseException | None = error
+    while pending is not None and id(pending) not in seen:
+        if isinstance(pending, TimedOut):
+            return pending
+        seen.add(id(pending))
+        pending = pending.__cause__ or pending.__context__
+    return None
+
+
 def _under_limit(item: pytest.Item, phase: str):
     """Run the rest of a hook, setup, call or teardown, under its budgets."""
     budget = budget_for(item)
@@ -370,16 +402,20 @@ def _under_limit(item: pytest.Item, phase: str):
     last = [start]  # the watcher's latest reading, for the failure text
     wall_start = time.monotonic()
 
+    timer = threading.Timer(budget.wall, stop, ("wall",)) if budget.wall > 0 else None
+    watching: list[int] = []  # the plugin's own threads, which no phase is billed for
+
     def watch_cpu() -> None:
+        watching.append(threading.get_native_id())
         while not done.wait(POLL_SECONDS):
             assert start is not None
             last[0] = snapshot_cpu()
-            used = phase_cpu(start, last[0])
+            own = [*watching, *([timer.native_id] if timer and timer.native_id else [])]
+            used = phase_cpu(start, last[0], own)
             if clock_fired(budget, used, time.monotonic() - wall_start) == "cpu":
                 stop("cpu")
                 return
 
-    timer = threading.Timer(budget.wall, stop, ("wall",)) if budget.wall > 0 else None
     watcher = threading.Thread(target=watch_cpu, daemon=True) if budget.cpu > 0 else None
     try:
         if timer is not None:
@@ -388,8 +424,16 @@ def _under_limit(item: pytest.Item, phase: str):
         if watcher is not None:
             watcher.start()
         return (yield)
-    except TimedOut as stopped:
+    except BaseException as caught:
         running = False
+        stopped = caught if isinstance(caught, TimedOut) else _trip_in_chain(caught)
+        if stopped is None or not fired:
+            raise
+        replaced = (
+            ""
+            if stopped is caught
+            else f"\n\nThe trip was replaced by {type(caught).__name__}: {caught}"
+        )
         what = "test" if phase == "call" else f"test {phase}"
         if kind:
             sentence = f"exceeded the {kind}time limit of {budget.wall:g} seconds"
@@ -404,7 +448,8 @@ def _under_limit(item: pytest.Item, phase: str):
             else ""
         )
         raise pytest.fail.Exception(
-            f"{what} {sentence}{blamed}{waiting}\n\nThe stack of every thread:\n{stopped.stacks}",
+            f"{what} {sentence}{blamed}{waiting}{replaced}"
+            f"\n\nThe stack of every thread:\n{stopped.stacks}",
             pytrace=False,
         ) from None
     finally:
