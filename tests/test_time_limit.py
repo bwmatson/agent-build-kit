@@ -373,9 +373,14 @@ def snapshot(
     tasks: dict[int, float] | None = None,
     descendants: dict[int, float] | None = None,
     reaped: float = 0.0,
+    children: frozenset[int] = frozenset(),
 ) -> CpuSnapshot:
     return CpuSnapshot(
-        process=process, tasks=tasks or {}, descendants=descendants or {}, reaped=reaped
+        process=process,
+        tasks=tasks or {},
+        descendants=descendants or {},
+        reaped=reaped,
+        children=children,
     )
 
 
@@ -414,6 +419,22 @@ def test_a_phase_counts_the_process_what_children_started_and_what_children_gave
     start = snapshot(process=101, tasks={7: 100}, descendants={9: 10}, reaped=1)
 
     assert time_limit.phase_cpu(start, now) == pytest.approx(seconds)
+
+
+def test_a_new_thread_of_the_plugins_own_adds_no_cpu_to_the_phase() -> None:
+    start = snapshot(process=101, tasks={7: 100})
+    now = snapshot(process=103, tasks={7: 100, 8: 2})
+
+    assert time_limit.phase_cpu(start, now, own=[8]) == 0
+    assert time_limit.phase_cpu(start, now) == pytest.approx(2)
+
+
+def test_a_child_reaped_in_the_phase_is_billed_only_for_what_it_used_in_the_phase() -> None:
+    start = snapshot(descendants={9: 10}, reaped=1, children=frozenset({9}))
+    now = snapshot(reaped=13)
+
+    assert time_limit.phase_cpu(start, now) == pytest.approx(2)
+    assert time_limit.phase_cpu(snapshot(descendants={9: 10}, reaped=1), now) == pytest.approx(12)
 
 
 def test_an_inherited_thread_that_grew_is_named_with_the_test_that_left_it() -> None:

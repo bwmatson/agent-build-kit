@@ -42,3 +42,20 @@ def test_a_test_stopped_while_waiting_for_a_child_has_the_childs_command_and_run
     assert "wall-clock backstop of 5 s" in result.output, result.output
     assert "abk-waited-for-child" in result.output, "the child's command"
     assert re.search(r"running (for )?\d+(\.\d+)? ?s", result.output), result.output
+
+
+def test_a_trip_replaced_by_the_code_under_test_is_still_reported_as_the_trip(
+    pytester: pytest.Pytester, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    result = run_scenario(
+        pytester,
+        SCENARIO,
+        "trips_inside_asyncio_run.py",
+        "--test-time-limit=1",
+        monkeypatch=monkeypatch,
+    )
+
+    assert result.code == 1, result.output
+    assert "exceeded the CPU time budget of" in result.output, result.output
+    assert "The stack of every thread" in result.output, result.output
+    assert "RuntimeError: replaced while unwinding" in result.output, result.output
