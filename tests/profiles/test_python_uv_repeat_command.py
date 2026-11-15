@@ -7,6 +7,8 @@ import subprocess
 import sys
 from pathlib import Path
 
+import pytest
+
 from agent_build_kit.profiles.python_uv import PythonUvProfile
 from tests.deselecting_config import BY_ID_MARKERS, DEFAULT_MARKERS, PYPROJECT
 from tests.serial_marker import MARKER
@@ -189,7 +191,7 @@ def test_a_command_run_from_a_directory_selects_nothing_for_ids_outside_it() -> 
 
 
 def collected_by_rerun(tmp_path: Path, tests: list[str], run: list[str]) -> set[str]:
-    """The ids the serial rerun of `run` collects with real pytest, on the deselecting tree."""
+    """The ids the rerun alone of `run` collects with real pytest, on the deselecting tree."""
     for name, text in DESELECTING.items():
         (tmp_path / name).parent.mkdir(parents=True, exist_ok=True)
         (tmp_path / name).write_text(text)
@@ -207,7 +209,7 @@ def collected_by_rerun(tmp_path: Path, tests: list[str], run: list[str]) -> set[
 
 
 RERUN_RUNS = {
-    "serial split": [sys.executable, "-m", "pytest", "tests", "-m", "not serial", "-q"],
+    "an expression of its own": [sys.executable, "-m", "pytest", "tests", "-m", "not docker", "-q"],
     "no marker": [sys.executable, "-m", "pytest", "tests", "-q"],
 }
 
@@ -221,21 +223,13 @@ def test_the_rerun_of_a_failed_integration_test_collects_it_under_the_default_de
     assert found == {f"{KINDS_ID}test_integrated"}
 
 
-def test_the_rerun_of_a_failed_integration_test_marked_serial_collects_it(tmp_path: Path) -> None:
-    run = [sys.executable, "-m", "pytest", "tests", "-m", "serial", "-q"]
-
-    found = collected_by_rerun(tmp_path, [f"{KINDS_ID}test_alone"], run)
-
-    assert found == {f"{KINDS_ID}test_alone"}
-
-
 def test_the_rerun_of_a_failed_test_that_is_not_integration_still_collects_it(
     tmp_path: Path,
 ) -> None:
     (tmp_path / "tests").mkdir()
     (tmp_path / "pyproject.toml").write_text(PYPROJECT)
     (tmp_path / "tests" / "test_plain.py").write_text("def test_plain():\n    pass\n")
-    run = [sys.executable, "-m", "pytest", "tests", "-m", "not serial", "-q"]
+    run = [sys.executable, "-m", "pytest", "tests", "-q"]
 
     rerun = PythonUvProfile().serial_rerun_command(
         run, ["tests/test_plain.py::test_plain"], project=tmp_path
@@ -260,7 +254,7 @@ def test_the_rerun_of_a_workspace_member_keeps_its_package_and_lets_integration_
     tmp_path: Path,
 ) -> None:
     (tmp_path / "pyproject.toml").write_text(PYPROJECT)
-    run = ["uv", "run", "--package", "svc-a", "--isolated", "pytest", "-m", "not serial", "-q"]
+    run = ["uv", "run", "--package", "svc-a", "--isolated", "pytest", "-q"]
 
     rerun = PythonUvProfile().serial_rerun_command(run, ["tests/t.py::a"], project=tmp_path)
 
