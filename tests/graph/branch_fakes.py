@@ -1,6 +1,10 @@
 """The stand-ins a per-group build is driven over a real git branch with: the unit's commits are
 made and read with git in the runner's worktree, so a build can start from the commits an earlier
-run left, and what a commit says can be read back from the branch."""
+run left, and what a commit says can be read back from the branch.
+
+`built` and `built_after_a_pair` run the unit's thread once over the recorder's runner. Every
+test whose module takes them is held to `LOADED_TEST_TIME_LIMIT` (`tests/time_limit.py`) by the
+collection hook in `tests/conftest.py`."""
 
 from __future__ import annotations
 
