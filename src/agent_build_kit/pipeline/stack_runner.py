@@ -193,6 +193,13 @@ commits that exist stay as they are, and your changes go on top of them in the
 working tree.
 """
 
+# Said in the prompts that write code or tests: a refused call is not a result.
+REFUSED_CALL_NOTE = """
+A call the permission layer refuses did not run: its effect did not happen, so do not report it
+as done. Read the file back to see what is really there. Write files with the edit tool, not
+with a shell redirection or a heredoc.
+"""
+
 LEFTOVERS_NOTE = """\
 The worktree holds uncommitted work from an interrupted run of this same step:
 {paths}. Review it with `git status` and `git diff` first, keep what is right,
@@ -456,6 +463,7 @@ the unit has passed review, unit-test and been pushed.
     + "{changelog}"
     + PIPELINE_PUSHES_NOTE
     + PIPELINE_COMMITS_NOTE
+    + REFUSED_CALL_NOTE
     + OUTPUT_NOTE
     + TESTS_REUSE_NOTE
     + STANDARDS_NOTE
@@ -985,6 +993,7 @@ the unit has passed review, unit-test and been pushed.
     + "{changelog}"
     + PIPELINE_PUSHES_NOTE
     + PIPELINE_COMMITS_NOTE
+    + REFUSED_CALL_NOTE
     + OUTPUT_NOTE
     + REUSE_NOTE
     + STANDARDS_NOTE

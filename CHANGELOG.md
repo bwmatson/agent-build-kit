@@ -83,6 +83,11 @@
   through redaction. The reasons are kept beside the cached result, which stays a plain
   true or false, so an older release reading the same cache still sees a rejection.
 
+- A tests step that wrote nothing is now retried with the calls the agent's permissions refused
+  named in the note, and told they did not run. The tests and implement prompts also say that a
+  refused call did not run, that its effect is not to be reported, and to write files with the
+  edit tool rather than a shell redirection.
+
 - A build worker started through the service manager now has the toolchain manager's variable
   (`VOLTA_HOME`) when the dispatcher has it, as it has `PATH`. Without it the worker's `node`
   shim looked for a toolchain in the suite's empty home and went to the network for one, so the
