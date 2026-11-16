@@ -184,6 +184,13 @@ def _lock_of(project: Path) -> Path | None:
     return workspace_lock(project, (LOCK,), _members_of)
 
 
+def _is_workspace_member(project: Path) -> bool:
+    """Whether the lock the project uses is a workspace root's above it: the root's own project,
+    a folder the root does not list and a workspace with no lock are not members."""
+    lock = _lock_of(project)
+    return lock is not None and lock.parent != project.resolve()
+
+
 def _path_sources(root: Path) -> list[Path]:
     """The checkouts the manifest names as path sources, that exist."""
     sources = _pyproject(root).get("tool", {}).get("uv", {}).get("sources", {})
@@ -704,8 +711,11 @@ class PythonUvProfile:
         options = "-p no:cacheprovider --tb=line -q"
         selection = by_id_selection(project) if ids else ""
         by_id = f" -m {shlex.quote(selection)}" if selection else ""
-        pytest = f"uv run pytest {shlex.join(ids or files)} {options}{by_id}"
-        whole = f"uv run pytest {' '.join(files)} {options}" if ids else None
+        # A workspace member runs in the workspace environment, on the lock as it is.
+        member = project is not None and _is_workspace_member(project)
+        uv = "uv run --all-packages --frozen" if member else "uv run"
+        pytest = f"{uv} pytest {shlex.join(ids or files)} {options}{by_id}"
+        whole = f"{uv} pytest {' '.join(files)} {options}" if ids else None
         return wrap_report_command(
             pytest, "--junitxml", retry=whole, retry_on=self.usage_error_exit
         )

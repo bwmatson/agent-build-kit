@@ -96,7 +96,7 @@ def _red_command(
         return None
     ids = ids_for(touched, repo, repo / prefix, toolchain)
     if not ids:
-        return toolchain.red_command(owned)
+        return toolchain.red_command(owned, project=repo / prefix)
     chosen = {file: [i for i in ids if i.split("::")[0] == file] for file in owned}
     return toolchain.red_command(
         owned, [i for file in owned for i in chosen[file] or [file]], project=repo / prefix
