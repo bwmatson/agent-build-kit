@@ -6,8 +6,9 @@ branch locks judged by the process start time and the host name, about twenty-fi
 checkpointer and the locks in the machine's `local_dir`, and a wake file watched by a systemd path unit. The documents say one pipeline host is supported, and the capacity of a run is the capacity of that host.
 
 This document describes one model for the pipeline with two deployments of it. The model is an **orchestrator** that decides what runs and **workers** that each
-carry one piece of work, over a shared **store** and **queue**. A **local** deployment runs all of it on one machine; a **cloud** deployment runs the orchestrator
-and the workers as cloud jobs over managed services. Each moving part is an interface with an implementation per deployment, the way a repository chooses its
+carry one piece of work, over a shared **store** and **queue**. There is always exactly one orchestrator. A **local** deployment runs it on a machine the
+installation owns, with workers on that machine or on other devices; a **cloud** deployment runs the orchestrator and the workers as cloud jobs over managed services. In both,
+workers share nothing with the orchestrator: they reach it through the store, the queue and the artifacts, so a worker's placement is a choice, not a dependency. Each moving part is an interface with an implementation per deployment, the way a repository chooses its
 forge today (`forges/base.py`, with a GitHub, an Azure DevOps and a local forge). The first cloud is Azure. It is a design, not a specification: paths and
 function names are where the work happens today, and names for new things are proposals. Each [roadmap](#roadmap) item can become its own OpenSpec change.
 
@@ -15,11 +16,12 @@ function names are where the work happens today, and names for new things are pr
 
 **Goals**
 
-- One model and one code path for scheduling, admission, building and landing, whichever deployment runs it.
+- One model and one code path for scheduling, admission, building and landing, whichever deployment runs it, and as much of the same architecture as the two can share, even where that means a larger change to today's code.
+- Exactly one orchestrator for an installation, in either deployment. Workers run on the orchestrator's device, on other devices or serverless in the cloud, with the same code and the same interfaces.
 - Capacity that is not one machine's: many workers at once, sized per job, with nothing shared on a local disk.
 - Correctness that does not depend on a process being alive on a particular host: leases with fencing tokens instead of pid files, compare-and-swap writes instead of
   whole-file locks.
-- A local deployment that keeps working at every step, on one laptop, with no cloud account.
+- A local deployment that keeps working at every step, on one laptop, with no cloud account (its PostgreSQL is a server the installation names, or one `abk db up` starts).
 - A cloud deployment on Azure, with the interfaces written so another cloud is another set of implementations.
 - Work that needs something only one machine has (a live stack, a deploy key, a subscription login) still runs, on a machine that has it.
 
@@ -27,6 +29,7 @@ function names are where the work happens today, and names for new things are pr
 
 - Rewriting the unit graph, the build steps, the review loop or the policy code. They call interfaces; they do not change.
 - Several installations sharing one cloud deployment. One deployment serves one installation.
+- More than one orchestrator for an installation. Capacity grows by adding workers, never rounds.
 - A long-running daemon. The orchestrator is a short round, started by a schedule or an event, as [worker-design.md](worker-design.md) decided.
 - Moving the live stack of e2e tests into the cloud. E2E and deploy-and-test verification keep running where the stack is.
 
@@ -65,6 +68,21 @@ The rules that hold whatever the deployment:
 - People act through intents: `requeue` and `approve` as today, and new unit `hold`, `release` and `prioritize` commands (today `hold` and `release` act on an e2e
   split, not a unit), write a record and an event, and the next round acts on them. Running ticks by hand to push a unit through is not needed.
 
+## Three packages
+
+The code is one repository and one uv workspace with three packages, so the orchestrator and the worker can be built, tested and shipped apart:
+
+| Package | Holds | Ships in |
+|---|---|---|
+| core | What both sides need: configuration and installation, the model, redaction, telemetry, the interfaces below with their implementations, the unit store façade and shared types | every image and the CLI |
+| orchestrator | The round: planning sync, collection, landing, gates, restack, admission, status and `serve`, and the commands a person runs | the orchestrator's image, and the machine that runs `abk tick` |
+| worker | A unit's graph and the build steps, the agent runtimes, the sandboxes, the toolchain profiles, the policy hooks and `abk worker` | the worker image |
+
+The import rules are checked by a source-scan test per package: the core imports neither of the others, the worker imports only the core, and the orchestrator imports
+only the core and never the worker (and the worker never the orchestrator). A worker image therefore carries the worker and the core, and no round code. Which module
+belongs to which package is a table written and confirmed in the change that does the split; the shape above is the intent, and the contested modules (the forges, the
+trackers, the profiles, the hooks, the `abk` entry point) are decided there. The split happens before the store, coordination and queue interfaces land, so each of those is written once, in the core.
+
 ## Two deployments
 
 `deployment.kind` in `abk.yaml` names the deployment: `local` (the default) or `azure`. Its settings that belong to one machine or one subscription (endpoints,
@@ -74,13 +92,13 @@ keeps choosing its forge as it does now; the deployment does not change which fo
 | | Local | Azure |
 |---|---|---|
 | Orchestrator | `abk tick` from the timer and the wake path | Two Container Apps jobs from one image (a job has one trigger type): a scheduled job every one to two minutes, and a manual job that the CLI or a finishing worker starts through the Azure Resource Manager API. The dispatcher lease keeps their rounds from overlapping. |
-| Workers | Processes (`pipeline/spawn.py`: a transient systemd unit, else `Popen`) or a local container | A manual Container Apps job: the orchestrator starts one execution per work item |
-| Store, coordination, queue, checkpoints | SQLite under `state_dir`, on a local disk (SQLite's locking does not work on a network drive; sharing state between hosts means the PostgreSQL store), one schema | Azure Database for PostgreSQL, the same schema |
-| Artifacts | Files under `state_dir` | Azure Blob Storage |
+| Workers | Started through the Launcher on the orchestrator's device (`pipeline/spawn.py`: a transient systemd unit, else `Popen`, or a local container) or on another device (the same image on a remote container host); each reaches the store, queue and artifacts over the network | A manual Container Apps job: the orchestrator starts one execution per work item |
+| Store, coordination, queue, checkpoints | PostgreSQL reached by a URL (`ABK_DATABASE_URL` or `abk.local.yaml`), on this device, on another device on the network or a managed server; `abk db up` starts a local container. A SQLite file with the same schema is a test stand-in | Azure Database for PostgreSQL, the same schema and the same code |
+| Artifacts | Files under `state_dir` on the orchestrator's device. A worker on another device cannot write there, which is an [open question](#open-questions) | Azure Blob Storage |
 | Secrets | The environment, `.env`, secret files, `gh` and `az` logins, SSH keys | Azure Key Vault through a managed identity |
 | Model accounts | Subscription logins and API-key accounts, keys from the environment | API-key accounts only, keys from Key Vault |
-| Workspaces | Worktrees on `repos.<name>.path` | Partial clones on the job's disk |
-| Events | The wake file and its path unit | Starting the manual orchestrator job |
+| Workspaces | Clones on the worker's own disk | Partial clones on the job's disk |
+| Events | The wake file and its path unit on the orchestrator's device, and an event record in the store for a worker elsewhere (to verify) | Starting the manual orchestrator job |
 | Images | The kit checkout | Azure Container Registry |
 | Telemetry | The existing OTLP export, journald and run logs | The same export to Azure Monitor (through the environment's OpenTelemetry agent or native ingestion; which signals each carries is to verify) |
 | Sandbox | Landlock, as [sandbox-design.md](sandbox-design.md) describes | The container and its network as the boundary (see [Workers](#workers)) |
@@ -103,7 +121,12 @@ Azurite in containers in CI. Telemetry, at the end of this section, is configura
   `put_if(kind, key, body, version, fence)`, `scan(kind)`.
 - Ledgers, one stream per JSONL file of today (`usage-ledger`, `test-runs`, `flakes`, `decisions`, `admissions`, `product-defects`, and the rest): `append(stream,
   record)` and `read(stream, since)`.
-- Local: SQLite on a local disk. Azure: PostgreSQL. One schema serves both; a unit is a row with a version column, a record kind is a table, a ledger is an append-only table.
+- One implementation over SQLAlchemy Core (async), with PostgreSQL in both deployments, reached by a URL. A unit is a row with a version column, a record kind is a
+  table, a ledger is an append-only table, and one schema with migrations serves both. A SQLite file with the same schema is a test stand-in and runs the same conformance
+  suite; it is not the supported shape, because a worker on another device cannot open a file on the orchestrator's disk. SQLAlchemy removes the dialect differences in the schema and queries; it
+  does not remove the differences that matter to coordination (`FOR UPDATE SKIP LOCKED` has no SQLite equivalent, so claims and leases are written as conditional updates both
+  honour) or the need for a server a remote worker can reach.
+- State is reachable from other devices: the orchestrator and every worker connect to the one store server, wherever it runs. This replaces the idea of putting the state directory on a network drive, which kept SQLite and the locks on local disk because neither is safe on a share.
 - Today's files move into the store once, with `abk state import`.
 
 ### Coordination
@@ -111,25 +134,26 @@ Azurite in containers in CI. Telemetry, at the end of this section, is configura
 - `acquire(name, holder, ttl) -> Lease{token}`, `renew(lease)`, `release(lease)`, `holder(name)`, and `semaphore(name, capacity)` with `acquire(holder, ttl, rank)`.
 - Tokens only increase, and the store checks them on fenced writes.
 - Two scopes. **Installation** scope is shared by every host: the dispatcher, each unit's branch, chat sessions, the e2e stack, the environment, per-account build
-  places. **Host** scope is one machine's: the unit-test slots (they share that machine's CPUs) and the git directory a local worktree shares.
-- Local: lease rows in the SQLite store, and the host-scoped semaphores on the machine. Azure: lease rows in PostgreSQL (a conditional update on `expires_at` and the
-  token sequence). No separate lock service is needed.
+  places. **Host** scope is one machine's: the unit-test slots (they share that machine's CPUs).
+- Both deployments: lease rows in the store (a conditional update on `expires_at` and the token sequence), and the host-scoped semaphores on the worker's machine. No
+  separate lock service is needed.
 - It replaces `workspaces.branch_lock`, `lease.Leases`, the slots of `pipeline/unit_test_slots.py`, `e2e.lock`, `environment.lock`, `dispatcher.lock` and the
-  `.admission` lock, and with them the rule that a lock written by another host always counts as alive. The repository's `repo_turn` stays, as the local
-  `Workspaces.git_lock`.
+  `.admission` lock, and with them the rule that a lock written by another host always counts as alive. The repository's `repo_turn` goes with the shared
+  git directory it serves (see Workspaces).
 
 ### Queue
 
 - `enqueue(item, dedupe_key)`, `claim(capabilities, visibility) -> claim`, `heartbeat(claim)`, `complete(claim, outcome)`, `abandon(claim)`.
 - A work item carries its kind (`build`, `resolve`, `verify`), the unit, the attempt, the capabilities it needs, `kit_ref`, `config_ref`, `planning_sha` and the
   admission's fencing token. The visibility timeout is what the `starting` marker (`STARTING_TTL`) is today.
-- Local and Azure: a queue table in the store, claimed with `FOR UPDATE SKIP LOCKED` on PostgreSQL and a conditional update on SQLite. A managed queue is a later
+- Both deployments: a queue table in the store, claimed with a conditional update (and `FOR UPDATE SKIP LOCKED` where the dialect has it). A managed queue is a later
   option, not a need.
 
 ### Launcher
 
 - `launch(item) -> handle`, `status(handle) -> running | exited(code) | unknown`, `cancel(handle)`, `capabilities()`.
-- Local: `pipeline/spawn.py`, as today. Azure: one execution of the manual worker job per item, started by the orchestrator; `status` comes from the job's execution and its exit code maps to a unit's
+- A container-based interface, so a worker's placement is a choice. Local: `pipeline/spawn.py` as today, or a container, on the orchestrator's device, and the same image on
+  a remote container host for other devices. A Kubernetes Jobs implementation can be added without changing the interface. Azure: one execution of the manual worker job per item, started by the orchestrator; `status` comes from the job's execution and its exit code maps to a unit's
   state as a process's does today, for `reconcile_running` and `reclaim_stranded`.
 
 ### Artifacts
@@ -141,7 +165,7 @@ Azurite in containers in CI. Telemetry, at the end of this section, is configura
 ### Checkpoints
 
 - `open() -> BaseCheckpointSaver`, with the serialisation allowlist the checkpointer uses today.
-- Local: the SQLite saver `graph/checkpointer.open_unit_graphs` opens today. Azure: LangGraph's PostgreSQL saver on the same server. An Entra token used as the
+- Both deployments: LangGraph's PostgreSQL saver on the store's server (the SQLite saver `graph/checkpointer.open_unit_graphs` opens today stays as the test stand-in). An Entra token used as the
   database password expires, so each new connection of the store's pool and of the saver's pool fetches a fresh one (to verify for the saver's pool). The branch lease keeps one writer per
   unit's thread.
 
@@ -167,14 +191,16 @@ Azurite in containers in CI. Telemetry, at the end of this section, is configura
 ### Workspaces
 
 - `prepare(repo, base, branch) -> workspace`, `fetch(refs)`, `push(branch, force_with_lease)`, `dispose()`, `git_lock()`.
-- Local: `git worktree add` on `repos.<name>.path`, as today, with the repository's `repo_turn` as `git_lock` (worktrees share one git directory).
-- Azure: a partial clone into the job's disk with a git directory of its own, so no refs, `rr-cache` or lock files are shared, from an optional mirror. `git_lock` does
-  nothing there; correctness between hosts comes from `--force-with-lease` and the branch lease's token.
+- Both deployments: a partial clone into the worker's own disk with a git directory of its own, so no refs, `rr-cache` or lock files are shared with the orchestrator or
+  another worker, from an optional mirror. `git_lock` does nothing; correctness between hosts comes from `--force-with-lease` and the branch lease's token.
+- This retires today's local implementation, `git worktree add` on `repos.<name>.path` with the repository's `repo_turn` as `git_lock`: a worker on another device cannot
+  share that git directory, and the shared directory is what the stale `rr-cache` lock and the worktree branch locks came from.
 
 ### Events
 
 - `notify(kind, key)`, `subscribe()`.
-- Local: the wake file and its path unit, and the timer (`pipeline/wake.py`). Azure: starting an execution of the manual orchestrator job through the Azure
+- Local: the wake file and its path unit, and the timer (`pipeline/wake.py`), for what happens on the orchestrator's device; a worker on another device writes an event
+  record in the store, which the next round reads (to verify). Azure: starting an execution of the manual orchestrator job through the Azure
   Resource Manager API; the scheduled job is the fallback. Forge webhooks can feed it later.
 
 ### Telemetry (not a Protocol)
@@ -244,7 +270,7 @@ by the orchestrator. A worker that needs a fix change (a flake, a failure on the
 | Run logs, failure bundles, transcripts, spec snapshots | Artifacts |
 | `unit-graphs.sqlite` | Checkpoints |
 | `runs/wake` and the path unit | Events |
-| Worktrees sharing one git directory per repository | Workspaces (worktrees locally, clones in the cloud) |
+| Worktrees sharing one git directory per repository | Workspaces (a clone per worker, in both deployments) |
 
 `abk state import` moves an installation's files into the store once. After that the files are not written.
 
@@ -255,13 +281,22 @@ the same change that adds the interface.
 
 **Wave 0** — `worker-restack-verify-cutover` (in flight): resolve and verify become worker kinds and the tick's thread pool is deleted.
 
+**Wave 1a: the split** (before the store, so each interface is written once, in the core)
+
+- `kit-has-a-core-package`: the uv workspace and the core package, with the import-rule test.
+- `kit-has-a-worker-package`: the worker's modules, `abk worker`, and the rule that the worker imports only the core.
+- `kit-has-an-orchestrator-package`: the orchestrator's modules, and the rule that the orchestrator and the worker never import each other.
+
 **Wave 1: the store, in both deployments**
 
 - `deployment-selects-implementations`: `deployment.kind`, the registry of implementations, and `abk doctor` checks for each deployment.
-- `units-and-records-live-in-the-store`: the schema for units, record kinds and ledgers with SQLite and PostgreSQL implementations; `UnitStore` as the façade with
-  `update(fn)`; the writers moved one area at a time; `abk state import`.
-- `coordination-has-leases-and-fencing`: leases and semaphores in the store, fenced writes, and a heartbeat that finds a stale token after a suspend and runs the step
-  again.
+- Three changes in place of `units-and-records-live-in-the-store`, each leaving a local install working:
+  - `store-has-a-schema-and-units`: SQLAlchemy Core, the schema and migrations, PostgreSQL and the SQLite stand-in, the units table, `UnitStore` as the façade with
+    `update(fn)`, the database URL and its `abk doctor` checks, `abk db up`, and the checkpoint saver on PostgreSQL.
+  - `records-live-in-the-store`: the record kinds, one area per group.
+  - `ledgers-live-in-the-store-and-state-imports`: the ledger streams, `abk state import`, and the files stop being written.
+- `coordination-has-leases-and-fencing`: leases and semaphores in the store for every lock (the dispatcher and admission, a unit's branch, the e2e stack, the environment,
+  and the unit-test slots as host-scoped semaphores), fenced writes, and a heartbeat that finds a stale token after a suspend and runs the step again.
 - `artifacts-and-checkpoints-have-implementations`: files and Blob Storage; the SQLite and PostgreSQL savers.
 
 **Wave 2: workers from a queue, in both deployments**
@@ -269,7 +304,7 @@ the same change that adds the interface.
 - `workers-claim-work-items`: the work item, the queue table, and the launcher with its process and Container Apps job implementations.
 - `worker-image`: the image's contract, publishing to the registry on a kit merge, the separate user, the network egress limit with the proxy's allowlist, the
   `container` coverage value, and the telemetry resource attributes.
-- `workspaces-have-a-clone-implementation`: worktrees locally and clones in the cloud.
+- `workspaces-have-a-clone-implementation`: clones for every worker, which retires the local worktree implementation.
 - `secrets-have-implementations`: the environment and files locally; Key Vault with a managed identity, and tokens that expire and are refreshed during a run,
   in the cloud.
 - `model-accounts-have-kinds`: subscription and API-key accounts, the Anthropic API and Microsoft Foundry endpoints, budget readings from the ledger, a per-unit cap,
@@ -295,13 +330,18 @@ the same change that adds the interface.
 - `budgets-alerts-and-spend-report`, `forge-webhooks-as-events`, `hosted-serve-with-entra-auth`.
 
 The kit's own open changes `state-can-live-on-a-network-drive` and `task-progress-is-tracked-in-the-state-home-and-archived-to-the-repo` are taken up by this roadmap:
-sharing state between hosts is the PostgreSQL store's job rather than a network drive's (the SQLite file stays on a local disk), and the second becomes the tracking records of wave 3.
+state reachable from other devices is the PostgreSQL store's job rather than a network drive's, and `store-has-a-schema-and-units` carries that as a requirement and archives the first when it merges; the
+second becomes the tracking records of wave 3.
 
 ## Decisions
 
 - One model, two deployments, chosen by `deployment.kind`; interfaces with an implementation per deployment, as forges have.
 - Azure is the first cloud.
-- PostgreSQL-compatible SQL for the store, coordination, queue and checkpoints, with SQLite for the same schema locally.
+- PostgreSQL for the store, coordination, queue and checkpoints in both deployments, through SQLAlchemy Core, reached by a URL a local install supplies (`abk db up` is a convenience); a SQLite file is a test stand-in only.
+- Exactly one orchestrator per installation. Workers share nothing with it and may run on its device, on other devices or serverless.
+- The kit is three packages in one repository (core, orchestrator, worker), split before the store and coordination interfaces are written.
+- The Launcher is a container-based interface of our own, with local, remote-host and Azure implementations; Kubernetes Jobs can be added later.
+- Every worker works in its own clone; the shared-worktree implementation is retired.
 - API-key accounts in the cloud; subscription logins stay a local account kind.
 - A soft spend limit: admission stops at the budget, and a per-unit cap is checked between agent steps.
 - The container and its network are the cloud sandbox; Landlock where the runtime allows it.
@@ -316,3 +356,7 @@ sharing state between hosts is the PostgreSQL store's job rather than a network 
 - Do deploy keys ever leave the machine that runs verify?
 - Should the resolutions git's `rerere` learns be kept per repository as an artifact, now that a cloud workspace starts empty?
 - What are the default budget windows and caps, and who is told when one is reached?
+- Where do a remote worker's logs and bundles go in a local deployment? Files under the orchestrator's `state_dir` cannot be written from another device. The candidates are the
+  store itself, an object store the installation runs (Azurite or an S3-compatible server) or a share.
+- How does a worker on another device reach and authenticate to the store, and how is such a device registered: TLS and per-worker credentials on the database, or a front service?
+- Which remote container hosts does the Launcher support first (a container engine's remote API over SSH, or a cluster)?
