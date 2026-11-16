@@ -228,7 +228,7 @@ NODES_TO_EVENTS = {
     [
         ("graph/nodes.py", "pipeline/events.py", "worker", "orchestrator"),
         ("pipeline/events.py", "graph/nodes.py", "orchestrator", "worker"),
-        ("forges/base.py", "graph/nodes.py", "core", "worker"),
+        ("forges/base.py", "pipeline/verify.py", "core", "worker"),
         ("forges/base.py", "pipeline/events.py", "core", "orchestrator"),
     ],
 )
@@ -246,6 +246,7 @@ def test_an_import_across_the_boundary_fails_naming_both_modules_and_packages(
             "graph/nodes.py": "",
             "pipeline/__init__.py": "",
             "pipeline/events.py": "",
+            "pipeline/verify.py": "",
             "forges/__init__.py": "",
             "forges/base.py": "",
         },
@@ -284,13 +285,13 @@ def test_a_module_a_core_module_imports_is_lifted_into_the_core_with_what_it_imp
         {
             "__init__.py": "",
             "forges/__init__.py": "",
-            "forges/base.py": "from pkg.trackers.zz_lifted import Tracker\n",
-            "trackers/__init__.py": "",
-            "trackers/zz_lifted.py": "from pkg.trackers.zz_leaf import Level\n",
-            "trackers/zz_leaf.py": "class Level: ...\n",
-            "trackers/zz_unlifted.py": "",
+            "forges/base.py": "from pkg.serve.zz_lifted import Tracker\n",
+            "serve/__init__.py": "",
+            "serve/zz_lifted.py": "from pkg.serve.zz_leaf import Level\n",
+            "serve/zz_leaf.py": "class Level: ...\n",
+            "serve/zz_unlifted.py": "",
             "graph/__init__.py": "",
-            "graph/nodes.py": "from pkg.trackers.zz_unlifted import Other\n",
+            "graph/nodes.py": "from pkg.serve.zz_unlifted import Other\n",
         },
     )
 
@@ -298,7 +299,7 @@ def test_a_module_a_core_module_imports_is_lifted_into_the_core_with_what_it_imp
 
     assert len(problems) == 1
     assert "graph.nodes" in problems[0]
-    assert "trackers.zz_unlifted" in problems[0]
+    assert "serve.zz_unlifted" in problems[0]
 
 
 @pytest.mark.parametrize(
