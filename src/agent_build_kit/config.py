@@ -1534,6 +1534,21 @@ class GeneratedConfig(Frozen):
     command: tuple[str, ...]
     cwd: str = "."
 
+    @field_validator("paths", "command")
+    @classmethod
+    def _not_empty(cls, value: tuple[str, ...]) -> tuple[str, ...]:
+        if not value:
+            raise ValueError("must name at least one item")
+        return value
+
+    @field_validator("cwd")
+    @classmethod
+    def _inside_the_repository(cls, value: str) -> str:
+        path = PurePosixPath(value)
+        if path.is_absolute() or ".." in path.parts:
+            raise ValueError(f"cwd {value!r} must be relative and stay inside the repository")
+        return value
+
 
 class RepoConfig(Frozen):
     path: Path
@@ -1972,6 +1987,12 @@ class WorkspaceConfig(Frozen):
         environments = [self.environment] + [repo.environment for repo in self.repos.values()]
         return (
             *self.global_limits.generated_files,
+            *(
+                path
+                for repo in self.repos.values()
+                for entry in repo.generated
+                for path in entry.paths
+            ),
             *(PurePosixPath(path).name for env in environments if env for path in env.inputs.lock),
         )
 

@@ -178,7 +178,9 @@ def doctor(
 def test_doctor_lists_each_entry(tmp_path: Path) -> None:
     other = {"paths": ["out/**"], "command": ["make", "all"]}
 
-    found = doctor(tmp_path, [ENTRY, other], tracked=("web/dist/a.js", "out/b.txt"))
+    found = doctor(
+        tmp_path, [ENTRY, other], tracked=("web/dist/a.js", "src/template.html", "out/b.txt")
+    )
 
     text = " ".join(f"{check.detail}" for check in found)
     assert "npm run build" in text
