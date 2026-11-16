@@ -96,7 +96,7 @@ keeps choosing its forge as it does now; the deployment does not change which fo
 
 | | Local | Azure |
 |---|---|---|
-| Orchestrator | One primary `abk orchestrator` service that runs rounds in a loop, serves the worker API and hands over to a new version (`abk tick` stays as one round by hand) | One Container App, one replica, with ingress for the worker API; a new revision runs beside the old and takes over while the old drains. |
+| Orchestrator | One primary `abk orchestrator` service that runs rounds in a loop, serves the worker API and hands over to a new version (`abk tick` stays as one round by hand), behind a Caddy proxy | One Container App, one replica, with ingress for the worker API; a new revision runs beside the old and takes over while the old drains. |
 | Workers | Started through the Launcher on the orchestrator's device (`pipeline/spawn.py`: a transient systemd unit, else `Popen`, or a local container) or on another device (the same image on a remote container host, first through a Docker context); each reaches the store, queue, artifacts and checkpoints through the orchestrator's worker API | A manual Container Apps job: the orchestrator starts one execution per work item |
 | Store, coordination, queue, checkpoints | PostgreSQL reached by a URL (`ABK_DATABASE_URL` or `abk.local.yaml`), on this device, on another device on the network or a managed server; `abk db up` starts a local container. Only the orchestrator connects to it; workers use the worker API. A SQLite file with the same schema is a test stand-in | Azure Database for PostgreSQL, the same schema and the same code, reached only by the orchestrator |
 | Artifacts | Files under `state_dir` on the orchestrator's device; a worker on another device writes through the worker API | Azure Blob Storage |
@@ -154,7 +154,7 @@ Azurite in containers in CI. Telemetry, at the end of this section, is configura
   admission's fencing token. The visibility timeout is what the `starting` marker (`STARTING_TTL`) is today.
 - Both deployments: a queue table in the store, claimed with a conditional update (and `FOR UPDATE SKIP LOCKED` where the dialect has it). A managed queue is a later
   option, not a need.
-- A worker the Launcher starts is handed its item and token. A runner that is not launched (`abk runner`) claims through the worker API.
+- A worker the Launcher starts is handed its item and token. A runner that is not launched (`abk runner`) claims through the worker API with a token from its registration (see Secrets).
 
 ### Launcher
 
@@ -162,13 +162,14 @@ Azurite in containers in CI. Telemetry, at the end of this section, is configura
 - A container-based interface, so a worker's placement is a choice. Local: `pipeline/spawn.py` as today, or a container, on the orchestrator's device, and the same image on
   a remote container host for other devices, the first being a Docker context (a container engine's remote API over SSH or TLS). A Kubernetes Jobs implementation can be added without changing the interface. Azure: one execution of the manual worker job per item, started by the orchestrator; `status` comes from the job's execution and its exit code maps to a unit's
   state as a process's does today, for `reconcile_running` and `reclaim_stranded`.
-- `launch` mints the item's token and passes it, the worker API's address and the telemetry endpoint to the worker's environment.
+- `launch` mints the item's token and passes it, the worker API's address and the telemetry endpoint to the worker's environment. The address is the proxy's (see [The orchestrator](#the-orchestrator)); a worker on another device trusts the proxy through its internal certificate authority, so `launch` also passes the authority's root certificate.
 
 ### Artifacts
 
 - `put(key, data)`, `get(key)`, `list(prefix)` and a streaming `writer(key)` for a transcript while it runs. A unit's log lines are not an artifact: they are OTLP logs (see Telemetry). Redaction runs before a write, as it does for stored output
   today.
 - Local: files under `state_dir`, where they are today; a worker elsewhere writes through the worker API, which writes there. Azure: Blob Storage, read through short-lived links by the CLI and the web UI.
+- The `rr-cache` of each repository is an artifact kind: after a restack a worker uploads the entries it learned and downloads the merged cache on start, so a cloud workspace does not start empty. The orchestrator merges by conflict hash and keeps the most recently recorded resolution for a hash, and a person removes a bad one with a command.
 
 ### Checkpoints
 
@@ -176,7 +177,7 @@ Azurite in containers in CI. Telemetry, at the end of this section, is configura
 - Both deployments: LangGraph's PostgreSQL saver on the store's server (the SQLite saver `graph/checkpointer.open_unit_graphs` opens today stays as the test stand-in). An Entra token used as the
   database password expires, so each new connection of the store's pool and of the saver's pool fetches a fresh one (to verify for the saver's pool). The branch lease keeps one writer per
   unit's thread.
-- A worker uses a saver that calls the worker API, behind the item's token, and the orchestrator's side opens the PostgreSQL saver. Writing that saver is part of the worker API change (to verify against how LangGraph uses a thread).
+- A worker uses a saver that calls the worker API, behind the item's token, and the orchestrator's side opens the PostgreSQL saver. Writing that saver is part of the worker API change, whose first task is a spike that proves it against how LangGraph uses a thread. The change stops there if it cannot, and the alternative is then local checkpoints written back to the API at each wait.
 
 ### Secrets
 
@@ -186,6 +187,7 @@ Azurite in containers in CI. Telemetry, at the end of this section, is configura
   mints the token), an Entra token for Azure DevOps (the identity is added to the organization as a licensed user), and a push over HTTPS with the token instead
   of an SSH key. These tokens last about an hour and a build can last longer, so a git credential helper fetches a fresh one during a run.
 - The worker token: the orchestrator mints one per item, signed, naming the item, unit and group, and expiring within minutes. The heartbeat refreshes it, and it is refused once the item completes or the lease is lost. Its signing key is a secret only the orchestrator holds.
+- Runner registration: a person registers a runner on the orchestrator, which prints a one-time registration secret and the proxy's root certificate. The runner stores both and exchanges the secret for short-lived tokens, so it needs no launch. Runners can be listed and revoked, and the store records which runner claimed each item.
 
 ### Model accounts
 
@@ -197,12 +199,14 @@ Azurite in containers in CI. Telemetry, at the end of this section, is configura
   `pipeline/gateway_usage.py`) and publishes it as the reading the usage guard already reads (`runtimes/providers.ProviderReading` already models a budget in money).
   Admission stops starting units at the budget, and a per-unit cap is checked between agent steps. A rate-limit answer becomes a shared backoff snapshot.
 - Local: subscription and API-key accounts, keys from the environment. Azure: API-key accounts only, keys from Key Vault, readings from the ledger.
+- Endpoints: the Anthropic API is the first. Claude models on Microsoft Foundry are the second, with a project API key from Key Vault. Microsoft's documentation (read 2026-11-16) says that Claude Code runs against Foundry with `CLAUDE_CODE_USE_FOUNDRY`, `ANTHROPIC_FOUNDRY_RESOURCE` and a deployment name for each model role (Sonnet, Haiku, Opus), and authenticates with a project API key or with Entra through the Azure CLI; that `claude-sonnet-5-5` and `claude-opus-5-5` are generally available hosted on Azure; that client-executed tools and prompt caching are supported, web fetch needs an Anthropic-hosted deployment and the Files API is Anthropic-hosted only; and that Claude models deploy only in East US 2 and Sweden Central. Not verified: Entra through a managed identity (the documentation shows Azure CLI credentials only), and whether the kit's agent steps behave the same against Foundry. The first task of `model-accounts-have-kinds` is a live run of an agent step against a Foundry deployment.
 
 ### Workspaces
 
 - `prepare(repo, base, branch) -> workspace`, `fetch(refs)`, `push(branch, force_with_lease)`, `dispose()`, `git_lock()`.
 - Both deployments: a partial clone into the worker's own disk with a git directory of its own, so no refs, `rr-cache` or lock files are shared with the orchestrator or
   another worker, from an optional mirror. `git_lock` does nothing; correctness between hosts comes from `--force-with-lease` and the branch lease's token.
+- A worker starts with the repository's merged `rr-cache` from the artifacts and keeps its own in the clone's git directory (see Artifacts).
 - This retires today's local implementation, `git worktree add` on `repos.<name>.path` with the repository's `repo_turn` as `git_lock`: a worker on another device cannot
   share that git directory, and the shared directory is what the stale `rr-cache` lock and the worktree branch locks came from.
 
@@ -234,11 +238,14 @@ Verify runs as a worker kind (step 4 of [worker-design.md](worker-design.md), "R
 The primary runs rounds in a loop: after each it waits for its interval or an event, and it holds the dispatcher lease for each round. `abk tick` stays as a command that runs one round by hand
 (for a test and for a person without the service), under the same lease. The primary also serves the worker API, which holds no scheduling logic.
 
-**Staying current.** The primary knows its own `kit_ref` and senses a newer version from where its deployment publishes one: locally the kit's merged commit, in Azure a new image tag, which creates a new
-Container App revision. The new version starts beside it (locally a second instance of the service, in Azure the new revision's replica) and waits for the primary lease. The running primary then stops
+**Staying current.** The primary knows its own `kit_ref` and senses a newer version in one of two ways. Locally a fetch-interval setting, off by default, makes it fetch the kit's main branch and compare it with its own `kit_ref` (a value such as `10m` turns it on); with it off, a person runs
+`abk orchestrator switch`, which starts the new version beside the old one. In Azure a new image tag creates a new Container App revision. The new version starts beside it (locally a second instance of the service, in Azure the new revision's replica) and waits for the primary lease. The running primary then stops
 admitting, finishes its round, releases the primary lease once the new one is serving the worker API, and exits when nothing it started is left to supervise. Running workers are not stopped: their
-leases are rows in the store and the new primary's API answers their heartbeats at the same address. A new version that has not taken over by a deadline is abandoned, the old primary keeps running and
+leases are rows in the store and the new primary's API answers their heartbeats at the same address. A new version that has not taken the primary lease within the takeover deadline (default 10 minutes, its own setting) is abandoned, the old primary keeps running and
 a record says so. The merge-edge rule keeps its meaning: a dependent of a kit merge waits for the code that runs, now the primary's as well as the workers'.
+
+**The API's address.** Locally a reverse proxy, a Caddy container that an `abk` helper starts, owns the worker API's address and forwards to whichever version is primary, so a switch changes the upstream and not the address. Its certificate comes from Caddy's internal
+certificate authority, and the launcher passes the root to a worker on another device (and a registered runner receives it at registration). In Azure the Container App's ingress does this by revision.
 
 `abk status`, `abk explain` and `abk serve` read through the interfaces, so they show the same thing for either deployment. The CLI talks to the deployment its
 `abk.local.yaml` names. A hosted `abk serve` behind Entra sign-in is a later step.
@@ -321,14 +328,15 @@ the same change that adds the interface.
 
 **Wave 2: workers from a queue, in both deployments**
 
-- `orchestrator-serves-a-worker-api`: the `abk orchestrator` service with the worker API's store, queue, artifact and checkpoint routes, the HTTP implementation of each interface in the core,
-  short-lived tokens scoped to an item, and the rule that worker modules never import the database layer.
+- `orchestrator-serves-a-worker-api`: first a spike of the checkpoint saver over the API; then the `abk orchestrator` service with the worker API's store, queue, artifact and checkpoint routes, the HTTP implementation of each interface in the core,
+  short-lived tokens scoped to an item, the Caddy proxy helper, runner registration (register, list, revoke), and the rule that worker modules never import the database layer.
 - `logs-and-traces-use-otlp`: OTLP export in the worker and the orchestrator, the Collector container and its helper, the local run-log sink, and the Azure Monitor sink.
 - `launcher-runs-workers-over-a-docker-context`: the remote container host implementation of the Launcher.
 - `workers-claim-work-items`: the work item, the queue table, and the launcher with its process and Container Apps job implementations.
 - `worker-image`: the image's contract, publishing to the registry on a kit merge, the separate user, the network egress limit with the proxy's allowlist, the
   `container` coverage value, and the telemetry resource attributes.
 - `workspaces-have-a-clone-implementation`: clones for every worker, which retires the local worktree implementation.
+- `rerere-cache-is-kept-as-an-artifact`: the per-repository `rr-cache` artifact, its merge by conflict hash, upload after a restack, download on start, and the command that removes a resolution.
 - `secrets-have-implementations`: the environment and files locally; Key Vault with a managed identity, and tokens that expire and are refreshed during a run,
   in the cloud.
 - `model-accounts-have-kinds`: subscription and API-key accounts, the Anthropic API and Microsoft Foundry endpoints, budget readings from the ledger, a per-unit cap,
@@ -337,7 +345,7 @@ the same change that adds the interface.
 **Wave 3: the orchestrator, in both deployments**
 
 - `the-round-runs-over-the-interfaces`: events, admission under the dispatcher lease, capability matching; the round in a loop in the primary, locally and in the Container App.
-- `orchestrator-switches-to-a-new-version`: the primary lease, sensing a newer version, starting it beside the running one, the handover and drain, and the deadline and record for a version that fails to take over.
+- `orchestrator-switches-to-a-new-version`: the primary lease, sensing a newer version, starting it beside the running one, the handover and drain, the fetch-interval setting (off by default), `abk orchestrator switch`, and the takeover deadline (default 10 minutes) with its record.
 - `the-orchestrator-owns-the-planning-repo`: tracking records, fix-change requests, the spec snapshot and the planning commit for workers.
 - `cli-writes-intents`: requeue, approve, and new unit hold, release and prioritize, against either deployment.
 
@@ -374,16 +382,15 @@ second becomes the tracking records of wave 3.
 - Workers reach the store, queue, artifacts and checkpoints only through the orchestrator's worker API, with short-lived tokens scoped to one work item; they hold no database credential.
 - Logs and traces are OpenTelemetry (OTLP): a Collector locally, Azure Monitor in Azure.
 - The first remote container host is a Docker context (a container engine's remote API over SSH or TLS).
+- One installation per cloud deployment; the schema has no installation column.
+- The worker API is fronted locally by a Caddy container with its own certificate authority, and in Azure by the Container App's ingress.
+- A new version is sensed by a fetch-interval setting (off by default) or started by `abk orchestrator switch`; a takeover that has not completed in the deadline (default 10 minutes) is abandoned.
+- A runner is registered once with a revocable secret and gets short-lived tokens.
+- The `rr-cache` of each repository is an artifact, merged by conflict hash with the newest resolution kept.
+- Deploy keys stay on the machine that runs verify; verify and e2e run on a runner that holds them.
+- The Anthropic API is the first model endpoint; Foundry with a project API key is the second.
 
 ## Open questions
 
-- One installation per cloud deployment is assumed. Is any form of sharing ever needed?
-- Does Claude Code on Microsoft Foundry cover everything the agent steps use, or is the Anthropic API the first endpoint?
-- Is a GitHub App available for the repositories, and an Entra service principal for Azure DevOps, so every forge token expires?
-- Do deploy keys ever leave the machine that runs verify?
-- Should the resolutions git's `rerere` learns be kept per repository as an artifact, now that a cloud workspace starts empty?
-- What are the default budget windows and caps, and who is told when one is reached?
-- How do two versions share the worker API's address during a switch: the new instance takes the listener over, a socket is handed over, or a reverse proxy fronts both? Azure's ingress does it by revision.
-- How is a newer version sensed locally (a fetch of the kit's main branch each round, or a signal when the merge lands), and what is the deadline after which a version that has not taken over is abandoned?
-- How is a runner on another device registered and given its token, since it claims without being launched?
-- Is a checkpoint saver over HTTP enough for LangGraph's use of a thread, or does a worker need local checkpoints written back at each wait?
+- Is a GitHub App available for the repositories, and an Entra service principal for Azure DevOps, so every forge token expires? To be decided before wave 4.
+- What are the default budget windows and caps, and who is told when one is reached? To be decided before wave 5; the model-accounts change only needs a budget to be configurable per account and window.
