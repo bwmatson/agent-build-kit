@@ -73,7 +73,8 @@ def _left_in_place(repo: Path, sha: str, files: list[str], prefix: str) -> list[
     if not files:
         return []
     paths = [prefix + file for file in files]
-    held = set(git(repo, "ls-tree", "-r", "--name-only", sha, "--", *paths).stdout.split("\n"))
+    listing = git(repo, "ls-tree", "-r", "--name-only", "-z", sha, "--", *paths).stdout
+    held = set(listing.split("\0"))
     return [file for file, path in zip(files, paths, strict=True) if path in held]
 
 
@@ -92,17 +93,20 @@ def _red_command(
     touched: list[tuple[str, str]],
     repo: Path,
     prefix: str,
+    sha: str,
 ) -> str | None:
-    """The red command for `owned` (the project's test files at a tests commit), narrowed to
-    the tests the commit added or changed (`touched`, from the checkout's root).
+    """The red command for `owned` (the project's test files at the tests commit `sha`),
+    narrowed to the tests the commit added or changed (`touched`, from the checkout's root).
 
-    Only the files the toolchain can run are given to the runner (a data file under a test
-    folder is part of the commit but is not one); with none, there is no command.
+    Only the files the toolchain can run and the commit leaves in place are given to the
+    runner (a data file under a test folder is part of the commit but is not runnable; a
+    deleted file or the old path of a rename is part of it but is gone); with none, there is
+    no command.
 
     A file with no selected test (a helper edit) stays whole beside the selected ids. With no
     test selected in any file the command is the whole-file run.
     """
-    owned = [file for file in owned if toolchain.runs_path(file)]
+    owned = _left_in_place(repo, sha, [f for f in owned if toolchain.runs_path(f)], prefix)
     if not owned:
         return None
     ids = ids_for(touched, repo, repo / prefix, toolchain)
@@ -209,8 +213,7 @@ def red_problems(
     for owner, owned in by_project(projects, _test_files_in(repo, sha, is_test)):
         toolchain = profiles.for_project(owner, profile)
         prefix = owner.prefix if owner else ""
-        left = _left_in_place(repo, sha, owned, prefix)
-        command = _red_command(toolchain, left, touched, repo, prefix)
+        command = _red_command(toolchain, owned, touched, repo, prefix, sha)
         if command is None:
             continue
 
@@ -320,9 +323,7 @@ def check_branch(
             red_line = (
                 None
                 if sha in no_red
-                else _red_command(
-                    toolchain, _left_in_place(repo, sha, owned, prefix), touched, repo, prefix
-                )
+                else _red_command(toolchain, owned, touched, repo, prefix, sha)
             )
             if red_line is not None:
                 commands.append(red_line)
