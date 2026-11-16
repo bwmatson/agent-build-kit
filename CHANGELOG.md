@@ -27,6 +27,7 @@
 - A unit over its size ceiling that cannot be split no longer goes back to the size hold
   when its branch is busy at the moment it is sent on. It stays waived with its reason and
   is resumed on a later pass once the branch is free.
+
 - The red check runs a uv workspace member's new tests in the workspace environment on the
   lock as it is, so a member whose dependencies are installed only there is no longer
   rejected for pytest failing to start.
