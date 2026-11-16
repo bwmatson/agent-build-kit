@@ -184,6 +184,7 @@ def test_the_default_run_still_collects_the_logic_tests_of_a_check(
     assert default_run_collects(pytester, module)
 
 
+@pytest.mark.time_limit(LOADED_TEST_TIME_LIMIT)
 @pytest.mark.integration
 def test_no_test_of_the_repository_scans_it_without_the_integration_selector() -> None:
     assert check_tests(TESTS_ROOT, baseline=load_baseline()) == []

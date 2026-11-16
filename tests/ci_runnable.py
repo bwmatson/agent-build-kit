@@ -6,7 +6,8 @@ an environment variable with no default, starts a real agent (decided by the dri
 `AgentStart`) or calls a host that can be reached and is not local, when the baseline does not
 name it; and a baseline entry that no longer is one. The test's own body is read, and so are the
 non-test functions of its module that it names as a fixture or calls, transitively; a cause in
-another module is not seen. The walk, the baseline format and the report are `wide_scans`'s.
+another module is not seen. A module whose text does not contain `integration` is not parsed.
+The walk, the baseline format and the report are `wide_scans`'s.
 """
 
 from __future__ import annotations
@@ -157,6 +158,11 @@ def _reached(test: Function, tree: ast.Module) -> list[ast.AST]:
 
 
 def _violators(text: str, required_fields: Mapping[str, frozenset[str]]) -> dict[str, str]:
+    # A module that does not name the selector has no test the guard checks, and skipping it
+    # keeps the walk of the whole tree inside the time limit, as `SCAN_TEXT` does for the
+    # wide-scans guard.
+    if "integration" not in text:
+        return {}
     tree = ast.parse(text)
     found: dict[str, str] = {}
     for test, marked in walk_tests(tree, _marks_integration):
