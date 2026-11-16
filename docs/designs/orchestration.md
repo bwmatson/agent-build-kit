@@ -329,7 +329,7 @@ the same change that adds the interface.
 
 **Wave 2: workers from a queue, in both deployments**
 
-- `orchestrator-serves-a-worker-api`: first a spike of the checkpoint saver over the API; then the `abk orchestrator` service with the worker API's store, queue, artifact and checkpoint routes, the HTTP implementation of each interface in the core,
+- `orchestrator-serves-a-worker-api`: first a spike of the checkpoint saver over the API; then the `abk orchestrator` service with the worker API's store, artifact and checkpoint routes (the queue routes come with `workers-claim-work-items`), the HTTP implementation of each interface in the core,
   short-lived tokens scoped to an item, the Caddy proxy helper, runner registration (register, list, revoke), and the rule that worker modules never import the database layer.
 - `logs-and-traces-use-otlp`: OTLP export in the worker and the orchestrator, the Collector container and its helper, the local run-log sink, and the Azure Monitor sink.
 - `launcher-runs-workers-over-a-docker-context`: the remote container host implementation of the Launcher.
@@ -361,6 +361,23 @@ the same change that adds the interface.
 **Wave 5: operations**
 
 - `budgets-alerts-and-spend-report`, `forge-webhooks-as-events`, `hosted-serve-with-entra-auth`.
+
+**Changes not yet written, what each needs first and what it must include.** These are held until the change they need has a unit, so a spec never gets ahead of the code it builds on. Each also ships both deployments' implementations and its conformance suite.
+
+| Change | Needs first | Must include |
+|---|---|---|
+| `workers-claim-work-items` | `orchestrator-serves-a-worker-api`, `coordination-has-leases-and-fencing`, and the async conversion through `the-round-runs-on-an-event-loop` | The Queue Protocol (`enqueue`, `claim` with a visibility timeout, `complete`, `fail`), which replaces the `starting` markers; a queue table; the work item (kind build, resolve or verify, unit, group, capabilities); the API's queue routes, completing the API change; the Launcher Protocol (`launch`, `status`, `cancel`, `capabilities`) with the process implementation and a manual Container Apps job (one execution per item); the item's token minted at launch |
+| `worker-image` | `workers-claim-work-items` | The image contract, publishing to the registry on a kit merge, a separate user, egress through the proxy with an allowlist, `sandbox_coverage: container`, the telemetry resource attributes |
+| `launcher-runs-workers-over-a-docker-context` | `workers-claim-work-items` (the Launcher interface) and `worker-image` | A Docker-context implementation (a remote engine over SSH or TLS): launch passes the token, the API address, the telemetry endpoint and the proxy's root certificate; status from the container's exit code; cancel; `abk doctor` checks for the context |
+| `workspaces-have-a-clone-implementation` | `coordination-has-leases-and-fencing` and `kit-has-a-worker-package` | A clone with its own git directory for every worker in both deployments; retires the worktree implementation, the shared git directory, the worktree branch locks and `repo_turn`; the `dirty_worktree` hold keeps its meaning for a clone |
+| `rerere-cache-is-kept-as-an-artifact` | `workspaces-have-a-clone-implementation` and the artifact routes of the API change | A per-repository `rr-cache` artifact; upload of new entries after a restack and download of the merged cache on start; the orchestrator's merge by conflict hash keeping the newest resolution; a command that removes a bad resolution |
+| `secrets-have-implementations` | `orchestrator-serves-a-worker-api` | The environment and files locally; Key Vault with a managed identity in the cloud; tokens that expire and are refreshed during a run; forge tokens for the GitHub App and Entra service principal once decided (open question, before wave 4) |
+| `model-accounts-have-kinds` | `secrets-have-implementations` | Subscription and API-key accounts; the Anthropic API first, then Foundry with a project API key from Key Vault; budget readings from the ledger; a per-unit cap checked between agent steps; a shared backoff; its first task is a live run of the kit's agent step against Foundry, and Entra with a managed identity stays unverified until then |
+| `the-round-runs-over-the-interfaces` | `workers-claim-work-items` and the async conversion | Events, admission under the dispatcher lease, capability matching; the round in a loop in the primary, locally and in the Container App |
+| `orchestrator-switches-to-a-new-version` | `the-round-runs-over-the-interfaces` and the Caddy proxy of the API change | The primary lease; sensing a newer version by the fetch-interval setting (off by default); `abk orchestrator switch`; starting the new version beside the old, the handover and drain; the takeover deadline (default 10 minutes) with its record of an abandoned takeover |
+| `the-orchestrator-owns-the-planning-repo` | `the-round-runs-over-the-interfaces` | Tracking records (taking up `task-progress-is-tracked-in-the-state-home-and-archived-to-the-repo`), fix-change requests, the spec snapshot and the planning commit for workers |
+| `cli-writes-intents` | `the-round-runs-over-the-interfaces` | requeue, approve, and new unit hold, release and prioritize, against either deployment |
+| Wave 4 and 5 changes | Waves 1 to 3 | As their roadmap lines say; the GitHub App and Entra decision comes before wave 4 and the budget decision before wave 5 |
 
 The kit's own open changes `state-can-live-on-a-network-drive` and `task-progress-is-tracked-in-the-state-home-and-archived-to-the-repo` are taken up by this roadmap:
 state reachable from other devices is the PostgreSQL store's job rather than a network drive's, and `store-has-a-schema-and-units` carries that as a requirement and archives the first when it merges; the
