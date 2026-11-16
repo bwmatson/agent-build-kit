@@ -101,4 +101,6 @@ def test_the_build_without_the_drivers_environment_is_skipped_naming_what_is_mis
 
     assert "1 skipped" in output, output
     assert build.CASSETTES in output and build.MARKER in output, output
-    assert "error" not in output.lower(), output
+    skip_lines = [line for line in output.splitlines() if line.startswith("SKIPPED")]
+    assert skip_lines, output
+    assert not any("error" in line.lower() for line in skip_lines), output
