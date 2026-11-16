@@ -3,7 +3,7 @@ the first one that fails named, over stores built in memory. Nothing here remove
 
 from __future__ import annotations
 
-from collections.abc import Collection
+from collections.abc import Collection, Mapping
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
@@ -37,6 +37,7 @@ def verdicts(
     active: Collection[str] = (CHANGE,),
     archived: Collection[str] = (),
     tracker: datetime | None | str = "none",
+    groups: Mapping[str, Collection[int] | None] | None = None,
 ) -> dict[str, Verdict]:
     """The sweep's verdicts; `tracker` is "none" for no tracker configured, else the time of its
     last successful reconcile (None: it cannot be read)."""
@@ -48,6 +49,7 @@ def verdicts(
         pass_started=PASS_STARTED,
         tracker_configured=configured,
         tracker_reconciled=tracker if isinstance(tracker, datetime) else None,
+        change_groups=groups,
     )
 
 
@@ -241,3 +243,86 @@ def test_a_successor_that_is_not_in_the_store_leaves_a_reference_unrepointable()
 
     assert not found["c/3"].eligible
     assert "referenced" in found["c/3"].reason
+
+
+def test_a_tombstone_whose_groups_the_change_no_longer_has_is_eligible() -> None:
+    found = verdicts(live(groups=(1,)), tomb("c/3", groups=(3, 4)), groups={CHANGE: {1}})
+
+    assert found["c/3"].eligible
+
+
+def test_a_tombstone_with_one_group_the_change_still_has_is_kept_and_says_so() -> None:
+    found = verdicts(live(groups=(1,)), tomb("c/3", groups=(3, 4)), groups={CHANGE: {1, 4}})
+
+    assert not found["c/3"].eligible
+    assert "still exists" in found["c/3"].reason
+
+
+def test_an_archived_change_keeps_a_tombstone_even_when_its_groups_are_listed_as_absent() -> None:
+    other = stored_unit("d/1", change="d", groups=(1,), state=PLANNED)
+    found = verdicts(
+        live(groups=(1,)),
+        tomb("c/3", groups=(3,)),
+        other,
+        tomb("d/3", groups=(3,), change="d"),
+        active=("d",),
+        archived=(CHANGE,),
+        groups={CHANGE: {1}, "d": {1}},
+    )
+
+    assert found["d/3"].eligible
+    assert not found["c/3"].eligible
+    assert "carried" in found["c/3"].reason
+
+
+def test_a_change_whose_groups_cannot_be_read_keeps_every_tombstone_of_it() -> None:
+    found = verdicts(
+        live(groups=(1,)), tomb("c/3", groups=(3,)), tomb("c/4", groups=(4,)), groups={CHANGE: None}
+    )
+
+    assert not found["c/3"].eligible and not found["c/4"].eligible
+    assert "could not be read" in found["c/3"].reason
+    assert "could not be read" in found["c/4"].reason
+
+
+@pytest.mark.parametrize(
+    ("fields", "word"),
+    [
+        ({"branch": "spec/c/3"}, "work"),
+        ({"at": PASS_STARTED + timedelta(seconds=1)}, "pass"),
+    ],
+    ids=["holds-work", "demoted-in-this-pass"],
+)
+def test_a_tombstone_of_absent_groups_is_still_kept_for_its_other_condition(
+    fields: dict[str, Any], word: str
+) -> None:
+    found = verdicts(
+        live(groups=(1,)),
+        tomb("c/3", groups=(3,), **fields),
+        tomb("c/9", groups=(9,)),
+        groups={CHANGE: {1}},
+    )
+
+    assert found["c/9"].eligible
+    assert not found["c/3"].eligible
+    assert word in found["c/3"].reason
+
+
+def test_a_referenced_tombstone_of_absent_groups_with_nothing_to_repoint_to_is_kept() -> None:
+    found = verdicts(
+        live(groups=(1,), depends_on=("c/3",)),
+        tomb("c/3", groups=(3,)),
+        tomb("c/9", groups=(9,)),
+        groups={CHANGE: {1}},
+    )
+
+    assert found["c/9"].eligible
+    assert not found["c/3"].eligible
+    assert "referenced" in found["c/3"].reason
+
+
+def test_the_last_unit_of_a_change_is_kept_though_its_groups_are_absent() -> None:
+    found = verdicts(tomb("c/3", groups=(3,)), groups={CHANGE: {1}})
+
+    assert not found["c/3"].eligible
+    assert "last" in found["c/3"].reason

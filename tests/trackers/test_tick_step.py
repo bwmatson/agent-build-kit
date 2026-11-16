@@ -561,6 +561,66 @@ def test_a_round_after_the_demotion_sweeps_the_unit(inst: Installation, store: U
     assert "other/3" not in {unit.id for unit in store.all()}
 
 
+def dropped_groups(store: UnitStore, change: str) -> None:
+    """`change` has groups 1 and 2. Its unit `/6` carried group 6, which the change no longer has,
+    and `/7` carried groups 2 and 6; the replan dropped both and `/1` stays."""
+    carried = [
+        stored_unit(f"{change}/1", change=change, repo="app", groups=(1,)),
+        stored_unit(f"{change}/6", change=change, repo="app", groups=(6,)),
+        stored_unit(f"{change}/7", change=change, repo="app", groups=(2, 6)),
+    ]
+    store.upsert(carried)
+    store.upsert(carried[:1], change=change)
+    assert store.get(f"{change}/6").state == UnitState.UNPLANNED
+
+
+def test_a_round_sweeps_a_unit_whose_groups_its_change_no_longer_has_and_keeps_the_rest(
+    inst: Installation, store: UnitStore
+) -> None:
+    write_change(inst.changes_dir, "other")
+    dropped_groups(store, "other")
+
+    run(inst, store)
+
+    found = {unit.id for unit in store.all()}
+    assert "other/6" not in found
+    assert {"other/1", "other/7"} <= found, "group 2 of other/7 still exists"
+
+
+@pytest.mark.parametrize(
+    "tasks",
+    [None, "# Lanes\n\n## 1. [nowhere] [unit-test] Work\n\n- [ ] 1.1 Test: x. Verify: red.\n"],
+)
+def test_a_change_with_unreadable_tasks_keeps_its_tombstones_and_the_pass_goes_on(
+    inst: Installation, store: UnitStore, tasks: str | None
+) -> None:
+    write_change(inst.changes_dir, "other")
+    write_change(inst.changes_dir, "bad")
+    if tasks is None:
+        (inst.changes_dir / "bad" / "tasks.md").unlink()
+    else:
+        (inst.changes_dir / "bad" / "tasks.md").write_text(tasks)
+    dropped_groups(store, "other")
+    dropped_groups(store, "bad")
+
+    run(inst, store)
+
+    found = {unit.id for unit in store.all()}
+    assert "bad/6" in found
+    assert "other/6" not in found, "the pass went on to the change it could read"
+
+
+def test_a_draft_change_with_no_tasks_and_no_units_is_not_reported_unreadable(
+    inst: Installation, store: UnitStore, capsys: pytest.CaptureFixture[str]
+) -> None:
+    write_change(inst.changes_dir, "draft")
+    (inst.changes_dir / "draft" / "tasks.md").unlink()
+
+    run(inst, store)
+
+    assert "cannot be read" not in capsys.readouterr().out
+
+
 def test_a_round_does_not_sweep_while_the_tracker_has_not_reconciled_since(
     inst: Installation, store: UnitStore, monkeypatch: pytest.MonkeyPatch
 ) -> None:

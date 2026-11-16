@@ -11,7 +11,9 @@ that fails being the reason it is kept:
    unless the reference can be repointed to its successors (a reference from another unit that is
    itself swept goes with it);
 3. its groups are carried by a live unit of its change, or its change is gone (an archived change
-   still needs them carried: the tracker's view of its groups depends on it);
+   still needs them carried: the tracker's view of its groups depends on it), or, for a live
+   change, none of its groups is a group the change's tasks have now (nothing reads such a unit);
+   a live change whose tasks cannot be read keeps every unit;
 4. a tick pass has run since it was demoted and, where a tracker is configured, the tracker's last
    successful reconcile is later than the demotion;
 5. its change keeps another unit (a change with no unit is never archive-ready), unless it is gone
@@ -21,7 +23,7 @@ that fails being the reason it is kept:
 
 from __future__ import annotations
 
-from collections.abc import Collection, Sequence
+from collections.abc import Collection, Mapping, Sequence
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -57,6 +59,7 @@ def eligibility(
     archived_changes: Collection[str] = (),
     tracker_configured: bool = False,
     tracker_reconciled: datetime | None = None,
+    change_groups: Mapping[str, Collection[int] | None] | None = None,
 ) -> dict[str, Verdict]:
     """A verdict for each `unplanned` unit of `units`; a unit in any other state is not one.
 
@@ -66,7 +69,10 @@ def eligibility(
     `pass_started` is
     when the current tick pass began: a unit demoted before it has been seen by a pass.
     `tracker_reconciled` is when the tracker's last successful reconcile ended, None when it
-    cannot be read; it matters only when `tracker_configured`."""
+    cannot be read; it matters only when `tracker_configured`.
+    `change_groups` maps a live change to the group numbers its tasks have now, or to None when
+    they cannot be read."""
+    known = change_groups or {}
     tombstones = {unit.id: unit for unit in units if unit.state == UnitState.UNPLANNED}
     ended = (UnitState.UNPLANNED, UnitState.RETIRED, CLOSED)
     live = [unit for unit in units if unit.state not in ended]
@@ -85,10 +91,21 @@ def eligibility(
         """The first of conditions 1, 3 and 4 that fails, which do not depend on the others."""
         if unit.has_work:
             return "it holds work (a branch, pull request, push or approval)"
-        if (unit.change in active_changes or unit.change in archived_changes) and not set(
-            unit.groups
-        ) <= carried[unit.change]:
-            return f"its groups {list(unit.groups)} are carried by no live unit of {unit.change}"
+        gone = False
+        if unit.change in active_changes and unit.change in known:
+            now = known[unit.change]
+            if now is None:
+                return f"the groups of {unit.change} could not be read, so none is known to be gone"
+            gone = bool(unit.groups) and not set(unit.groups) & set(now)
+        if (
+            not gone
+            and (unit.change in active_changes or unit.change in archived_changes)
+            and not set(unit.groups) <= carried[unit.change]
+        ):
+            reason = f"its groups {list(unit.groups)} are carried by no live unit of {unit.change}"
+            if unit.change in known:
+                reason += ", and a group it carried still exists in the change"
+            return reason
         demoted = _demoted_at(unit)
         if demoted is None:
             return "the time it was demoted cannot be read, so no pass is known to have seen it"
@@ -194,6 +211,7 @@ def sweep(
     tracker_configured: bool = False,
     tracker_reconciled: datetime | None = None,
     dry_run: bool = False,
+    change_groups: Mapping[str, Collection[int] | None] | None = None,
 ) -> list[str]:
     """Remove the units `eligibility` clears from `store`, repointing the references to them,
     and return their ids; `only_change` leaves the units of other changes alone. `dry_run`
@@ -206,6 +224,7 @@ def sweep(
         pass_started=pass_started,
         tracker_configured=tracker_configured,
         tracker_reconciled=tracker_reconciled,
+        change_groups=change_groups,
     )
     changes = {unit.id: unit.change for unit in units}
     cleared = {

@@ -142,6 +142,74 @@ def test_an_archived_change_keeps_a_tombstone_no_live_unit_carries(
     assert "kept x/6: its groups [6] are carried by no live unit of x" in out
 
 
+UNREADABLE_TASKS = (
+    None,
+    "# Lanes\n\n## 1. [nowhere] [unit-test] Work\n\n- [ ] 1.1 Test: x. Verify: red.\n",
+)
+
+
+def groups_gone(inst: Installation, tasks: str | None = None) -> UnitStore:
+    """Change x has groups 1 and 2. x/6 carried group 6 and x/7 carried groups 2 and 6; the plan
+    dropped both and x/1 stays. Change bad has the same shape, with `tasks` for its tasks (None
+    leaves the file out), so its groups cannot be read."""
+    store = cli.store_for(inst)
+    write_change(inst.changes_dir, "bad")
+    tasks_file = inst.changes_dir / "bad" / "tasks.md"
+    if tasks is None:
+        tasks_file.unlink()
+    else:
+        tasks_file.write_text(tasks)
+    for change in ("x", "bad"):
+        carried = [
+            stored_unit(f"{change}/1", change=change, groups=(1,)),
+            stored_unit(f"{change}/6", change=change, groups=(6,)),
+            stored_unit(f"{change}/7", change=change, groups=(2, 6)),
+        ]
+        store.upsert(carried)
+        store.upsert(carried[:1], change=change)
+    return store
+
+
+@pytest.mark.parametrize("tasks", UNREADABLE_TASKS)
+def test_a_dry_run_names_the_groups_that_are_gone_or_still_there_or_unreadable(
+    inst: Installation, capsys: pytest.CaptureFixture[str], tasks: str | None
+) -> None:
+    store = groups_gone(inst, tasks)
+    before = store.path.read_text()
+
+    assert prune(inst, dry_run=True) == 0
+
+    out = capsys.readouterr().out
+    assert "would remove x/6" in out
+    assert "kept x/7" in out and "a group it carried still exists" in out
+    assert "kept bad/6" in out and "could not be read" in out
+    assert store.path.read_text() == before
+
+
+def test_a_run_removes_a_unit_whose_groups_the_change_no_longer_has(
+    inst: Installation, capsys: pytest.CaptureFixture[str]
+) -> None:
+    store = groups_gone(inst)
+
+    assert prune(inst, dry_run=False) == 0
+
+    assert "removed x/6" in capsys.readouterr().out
+    assert ids(store) >= {"x/1", "x/7", "bad/6", "bad/7"}
+    assert "x/6" not in ids(store)
+
+
+def test_a_draft_change_with_no_tasks_and_no_tombstone_is_not_reported_unreadable(
+    inst: Installation, capsys: pytest.CaptureFixture[str]
+) -> None:
+    tombstones(inst)
+    write_change(inst.changes_dir, "draft")
+    (inst.changes_dir / "draft" / "tasks.md").unlink()
+
+    prune(inst, dry_run=True)
+
+    assert "cannot be read" not in capsys.readouterr().out
+
+
 def test_a_unit_the_store_kept_after_it_was_cleared_says_why(
     inst: Installation, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
 ) -> None:
