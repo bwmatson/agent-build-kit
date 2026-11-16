@@ -2646,6 +2646,7 @@ def build_dispatch(
     base_passes: Callable[[StoredUnit, str], bool | None] | None = None,
     base_checks: Callable[[StoredUnit, str, str], CommitChecks] | None = None,
     late_turn: Claim = _unclaimed,
+    repos: dict[str, Path] | None = None,
     log: Log = print,
 ) -> Callable[..., bool]:
     """The callable `pr_poller` hands each event to.
