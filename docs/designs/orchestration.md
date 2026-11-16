@@ -407,7 +407,7 @@ second becomes the tracking records of wave 3.
 - The `rr-cache` of each repository is an artifact, merged by conflict hash with the newest resolution kept.
 - Deploy keys stay on the machine that runs verify; verify and e2e run on a runner that holds them.
 - The Anthropic API is the first model endpoint; Foundry with a project API key is the second.
-- The kit is async end to end (decided 2026-11-16): one event loop per process, owned by its entry point; the store, the worker API and the callers are `async def`. The synchronous callers cross one transitional bridge (`run_store`) until the four async-conversion changes remove it.
+- The kit is async end to end: one event loop per process, owned by its entry point; the store, the worker API and the callers are `async def`. The synchronous callers cross one transitional bridge (`run_store`) until the four async-conversion changes remove it.
 - The three packages share one `agent_build_kit` import namespace; migrations are Alembic's; the runtimes, sandboxes, profiles and hooks are in the core.
 - The queue routes of the worker API are added by `workers-claim-work-items`, which owns the queue interface.
 
