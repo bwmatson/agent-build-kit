@@ -21,6 +21,7 @@ from pydantic_settings import BaseSettings
 
 from agent_build_kit import settings as settings_module
 from agent_build_kit.settings import Settings
+from tests.time_limit import LOADED_TEST_TIME_LIMIT
 
 TESTS = Path(__file__).parent
 SAMPLE = "sample-env-value-0001"
@@ -55,6 +56,7 @@ def _prints_its_environment(model: str) -> bool:
     return SAMPLE in repr(cast(Any, cls).model_construct(**{field: {"KEY": SAMPLE}}))
 
 
+@pytest.mark.time_limit(LOADED_TEST_TIME_LIMIT)
 @pytest.mark.integration
 def test_no_test_support_model_prints_its_environment() -> None:
     """The models are found when the test runs, not when the module is imported."""

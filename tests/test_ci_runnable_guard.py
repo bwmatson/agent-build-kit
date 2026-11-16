@@ -13,6 +13,7 @@ from pathlib import Path
 import pytest
 
 from tests.ci_runnable import check_tests, load_baseline, required_settings_fields
+from tests.time_limit import LOADED_TEST_TIME_LIMIT
 
 NONE: frozenset[str] = frozenset()
 REQUIRED = {"Settings": frozenset({"api_token"})}
@@ -168,6 +169,7 @@ def test_a_baseline_entry_that_is_no_longer_a_violator_is_reported_as_stale(
     assert "stale" in problems[0]
 
 
+@pytest.mark.time_limit(LOADED_TEST_TIME_LIMIT)
 @pytest.mark.integration
 def test_no_integration_test_of_the_kit_needs_more_than_ci_has() -> None:
     problems = check_tests(baseline=load_baseline(), required_fields=required_settings_fields())

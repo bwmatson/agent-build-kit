@@ -13,6 +13,7 @@ import pytest
 
 from tests.live_tag_drift import INTEGRATION, find_live_modules
 from tests.runtime_tag_collection import ROOT
+from tests.time_limit import LOADED_TEST_TIME_LIMIT
 
 # One module per way a test is marked `e2e`.
 MARKS = {
@@ -87,6 +88,7 @@ def test_a_file_listed_and_gone_before_it_is_read_is_skipped(tmp_path: Path) -> 
     assert find_live_modules(tmp_path / "tests") == [live]
 
 
+@pytest.mark.time_limit(LOADED_TEST_TIME_LIMIT)
 @pytest.mark.integration
 def test_every_module_the_old_glob_and_text_match_found_is_still_found() -> None:
     old = [
