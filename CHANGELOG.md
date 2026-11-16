@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- The red check and the push gate no longer give the test runner a test file the tests commit
+  deletes or renames away. Before, the runner was named a path that no longer existed and
+  answered with a usage error, so the check read an empty report as "nothing failed" and
+  rejected the unit; a commit that only deletes test files now builds no red command.
+
 - The rerun of a failed test now collects a test of the `integration` kind that a repository's
   default settings deselect. Before, the rerun carried no marker expression, so such a test was
   deselected (pytest exit 5), never ran again, and a flake in it failed the unit; the rerun now

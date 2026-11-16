@@ -66,6 +66,15 @@ def _test_files_in(repo: Path, sha: str, is_test: Callable[[str], bool]) -> list
     return [path for path, kind in classify_paths(files, is_test).items() if kind == "test"]
 
 
+def _left_in_place(repo: Path, sha: str, files: list[str]) -> list[str]:
+    """The `files` the commit `sha` holds: a file it deletes, or the old path of a rename, is
+    still part of the commit but is not one the runner can be given."""
+    if not files:
+        return []
+    held = set(git(repo, "ls-tree", "-r", "--name-only", sha, "--", *files).stdout.split("\n"))
+    return [file for file in files if file in held]
+
+
 def _touched_in(repo: Path, sha: str) -> list[tuple[str, str]]:
     """The tests the commit adds or changes against its parent; none when they cannot be
     listed (a root commit has no parent), so its files run whole."""
@@ -198,7 +207,7 @@ def red_problems(
     for owner, owned in by_project(projects, _test_files_in(repo, sha, is_test)):
         toolchain = profiles.for_project(owner, profile)
         prefix = owner.prefix if owner else ""
-        command = _red_command(toolchain, owned, touched, repo, prefix)
+        command = _red_command(toolchain, _left_in_place(repo, sha, owned), touched, repo, prefix)
         if command is None:
             continue
 
@@ -306,7 +315,11 @@ def check_branch(
 
             commands: list[str | Callable[[Path], str]] = [clean_in]
             red_line = (
-                None if sha in no_red else _red_command(toolchain, owned, touched, repo, prefix)
+                None
+                if sha in no_red
+                else _red_command(
+                    toolchain, _left_in_place(repo, sha, owned), touched, repo, prefix
+                )
             )
             if red_line is not None:
                 commands.append(red_line)
