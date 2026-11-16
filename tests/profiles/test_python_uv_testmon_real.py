@@ -4,6 +4,8 @@ The profile records what each test executes with one command and selects with an
 claim "a selection selects" is only as good as what the real tools do with those commands, so
 a small project is built, recorded and changed here. The tool is fetched with `--with`, so the
 tests need the network and carry the `integration` marker (run them with `-m integration`).
+Those that start a real `uv run` install into the empty home every test gets, so they carry the
+loaded time limit.
 
 Found, on Python 3.14.7 with coverage 7.17.0 and pytest-testmon 2.2.0: the commands as the
 profile builds them print no "Dynamic contexts aren't supported" warning. That is not enough:
@@ -29,6 +31,7 @@ from agent_build_kit.pipeline.scratch import selection_seed
 from agent_build_kit.pipeline.selection_base import hand_over, refresh_base_data
 from agent_build_kit.pipeline.shell import git
 from agent_build_kit.profiles.python_uv import PROFILE
+from tests.time_limit import LOADED_TEST_TIME_LIMIT
 
 pytestmark = pytest.mark.integration
 
@@ -123,8 +126,9 @@ class Tiny:
         (root / "pyproject.toml").write_text(PYPROJECT)
         (root / "calc.py").write_text(CALC)
         (root / "tests" / "test_calc.py").write_text(TESTS)
-        # The one parallel pass: what a full run is.
-        (self.parallel,) = PROFILE.test_commands_all(root, root_extras=[])
+        # The one parallel pass: what a full run is. The worker count is fixed so that a pass starts
+        # the same number of interpreters on any host.
+        (self.parallel,) = PROFILE.test_commands_all(root, root_extras=[], workers=2, max_workers=2)
         # The same without workers, so that every test of a module runs in one process.
         self.single = without_workers(self.parallel)
 
@@ -188,6 +192,7 @@ def tiny(tmp_path: Path) -> Tiny:
     return project
 
 
+@pytest.mark.time_limit(LOADED_TEST_TIME_LIMIT)
 def test_nothing_changed_selects_nothing(tiny: Tiny) -> None:
     # Measured: testmon deselects every test and pytest exits 0 ("6 deselected"); xdist's
     # "no tests ran" exits 0 too. Exit 5 is what a run that collects nothing at all gives,
@@ -201,6 +206,7 @@ def test_nothing_changed_selects_nothing(tiny: Tiny) -> None:
     assert DYNAMIC_CONTEXTS not in done.stdout + done.stderr
 
 
+@pytest.mark.time_limit(LOADED_TEST_TIME_LIMIT)
 def test_a_changed_function_selects_the_tests_that_reach_it_and_fails_as_a_full_run_does(
     tiny: Tiny,
 ) -> None:
@@ -216,6 +222,7 @@ def test_a_changed_function_selects_the_tests_that_reach_it_and_fails_as_a_full_
     assert failed(everything.stdout) == failed(selected.stdout)
 
 
+@pytest.mark.time_limit(LOADED_TEST_TIME_LIMIT)
 def test_a_slow_test_stays_out_even_when_it_reaches_the_changed_function(tiny: Tiny) -> None:
     tiny.break_add()
 
@@ -225,6 +232,7 @@ def test_a_slow_test_stays_out_even_when_it_reaches_the_changed_function(tiny: T
     assert "test_slow_add" not in selected.stdout
 
 
+@pytest.mark.time_limit(LOADED_TEST_TIME_LIMIT)
 def test_a_deactivated_selection_says_so_in_the_output_the_pipeline_reads(tiny: Tiny) -> None:
     # The profile's own commands carry `-q`, which hides pytest's report header; the bare
     # `--testmon` is what `-m` switches off, so the profile's reading of the output is proved
@@ -317,12 +325,14 @@ def test_the_recording_and_the_selection_pin_the_coverage_core(crowd: Crowd, sel
     assert TESTMON_ENV in command
 
 
+@pytest.mark.time_limit(LOADED_TEST_TIME_LIMIT)
 def test_every_test_that_calls_a_function_is_linked_to_its_module(crowd: Crowd) -> None:
     crowd.record()
 
     assert crowd.links() == CROWD
 
 
+@pytest.mark.time_limit(LOADED_TEST_TIME_LIMIT)
 def test_a_selection_after_a_behavioural_change_runs_every_test_a_full_run_fails(
     crowd: Crowd,
 ) -> None:
@@ -336,6 +346,7 @@ def test_a_selection_after_a_behavioural_change_runs_every_test_a_full_run_fails
     assert failed(everything.stdout) <= failed(selected.stdout), selected.stdout
 
 
+@pytest.mark.time_limit(LOADED_TEST_TIME_LIMIT)
 def test_data_recorded_in_another_environment_is_not_read_and_the_tests_run_in_full(
     crowd: Crowd,
 ) -> None:
@@ -381,6 +392,7 @@ def unit_worktree_on_base_data(tmp_path: Path, *, strip: tuple[str, ...] = ()) -
     return project, unit
 
 
+@pytest.mark.time_limit(LOADED_TEST_TIME_LIMIT)
 def test_data_recorded_on_a_base_worktree_selects_correctly_in_a_unit_worktree_at_another_path(
     tmp_path: Path,
 ) -> None:
@@ -397,6 +409,7 @@ def test_data_recorded_on_a_base_worktree_selects_correctly_in_a_unit_worktree_a
     assert failed(everything.stdout) == failed(selected.stdout)
 
 
+@pytest.mark.time_limit(LOADED_TEST_TIME_LIMIT)
 def test_base_data_recorded_in_another_environment_makes_the_units_first_round_a_full_run(
     tmp_path: Path,
 ) -> None:

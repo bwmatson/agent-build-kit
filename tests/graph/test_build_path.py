@@ -36,6 +36,9 @@ def build(
     unit_id: str = "",
     **overrides: Any,
 ) -> RunOutcome:
+    """Run the unit's thread once over the recorder's runner. Every test whose module takes
+    `build` is held to `LOADED_TEST_TIME_LIMIT` (`tests/time_limit.py`) by the collection hook in
+    `tests/conftest.py`."""
     runner = make_runner(recorder.store, recorder, tmp_path, **overrides)
 
     async def go() -> RunOutcome:

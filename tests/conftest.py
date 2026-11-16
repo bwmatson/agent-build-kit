@@ -636,7 +636,9 @@ def pytest_collection_modifyitems(items: list[pytest.Item]) -> None:
     the worker's process through `run_children`, which builds git scratches and runs stand-in
     ticks, and whose cost depends on the machine and on the run's tracing. So is a test that
     collects repository modules in-process through `collect_items`: the collection loads the same
-    conftest and plugins under the run's tracing."""
+    conftest and plugins under the run's tracing. So is a test that builds a unit through the
+    graph's `build`, `built`, `built_after_a_pair` or `piece_built`, which runs the unit's thread
+    over a real git worktree, and whose time depends on the machine's load."""
     # Nothing is imported here: a module that used a driver has already imported it, and a run
     # that uses none must not fail on an import error in the driver's modules.
     # `tests.time_limit` is already loaded as a plugin.
@@ -645,6 +647,9 @@ def pytest_collection_modifyitems(items: list[pytest.Item]) -> None:
         ("tests.tick_driver", ("Setup", "make_setup")),
         ("tests.lane_run_usage_support", ("make_lane",)),
         ("tests.graph_driver", ("tick", "run_on_graph")),
+        ("tests.graph.test_build_path", ("build",)),
+        ("tests.graph.branch_fakes", ("built", "built_after_a_pair")),
+        ("tests.graph.piece_fakes", ("piece_built",)),
         ("tests.e2e_gate_fakes", ("Planning",)),
         ("tests.scheduled_e2e_fakes", ("ScheduledRun",)),
         ("tests.split_changed_support", ("deliver_to_graph", "Reworks")),
