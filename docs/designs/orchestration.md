@@ -79,14 +79,13 @@ The code is one repository and one uv workspace with three packages, so the orch
 
 | Package | Holds | Ships in |
 |---|---|---|
-| core | What both sides need: configuration and installation, the model, redaction, telemetry, the interfaces below with their implementations, the unit store façade and shared types | every image and the CLI |
-| orchestrator | The round: planning sync, collection, landing, gates, restack, admission, status and `serve`, and the commands a person runs | the orchestrator's image, and the machine that runs `abk tick` |
-| worker | A unit's graph and the build steps, the agent runtimes, the sandboxes, the toolchain profiles, the policy hooks and `abk worker` | the worker image |
+| core | What both sides import: configuration and installation, the model, redaction, telemetry, the interfaces below with their implementations, the unit store façade and shared types, the forges, the agent runtimes, the sandboxes, the toolchain profiles, the policy hooks and most of `pipeline/` (about 237 modules, 71,000 lines in the 2026-11-16 map) | every image and the CLI |
+| orchestrator | The round: planning sync, collection, landing, gates, admission, the trackers' sync, status and `serve`, and the commands a person runs, including the `abk` entry point (about 95 modules, 34,000 lines) | the orchestrator's image, and the machine that runs `abk tick` |
+| worker | A unit's graph, the resolution lane, verify and `abk worker` (10 modules, 6,300 lines); it grows when code only workers use moves out of the core | the worker image |
 
 The import rules are checked by a source-scan test per package: the core imports neither of the others, the worker imports only the core, and the orchestrator imports
 only the core and never the worker (and the worker never the orchestrator). A worker image therefore carries the worker and the core, and no round code. The worker API's server is in the orchestrator package and its client, the HTTP implementation of each interface, is in the core; a source-scan test keeps worker modules off the database layer. Which module
-belongs to which package is a table written and confirmed in the change that does the split; the shape above is the intent, and the contested modules (the forges, the
-trackers, the profiles, the hooks, the `abk` entry point) are decided there. The split happens before the store, coordination and queue interfaces land, so each of those is written once, in the core.
+belongs to which package is the table in the design of `worker-stops-importing-the-orchestrator`, derived from an import map (module-level imports form a DAG; the only cycle comes from imports inside functions): seeds name each side, and anything a core module imports becomes core. All three install into one `agent_build_kit` namespace (PEP 420), so no import path changes. The map showed that today the worker reaches 231 of 342 modules through the dispatcher's module, so the split is preceded by a change that cuts the 13 imports between the worker's and the orchestrator's modules. The split happens before the store, coordination and queue interfaces land, so each of those is written once, in the core.
 
 ## Two deployments
 
@@ -310,6 +309,7 @@ the same change that adds the interface.
 
 **Wave 1a: the split** (before the store, so each interface is written once, in the core)
 
+- `worker-stops-importing-the-orchestrator`: cuts the 13 imports between the worker's and the orchestrator's modules, with a boundary test whose baseline may only shrink.
 - `kit-has-a-core-package`: the uv workspace and the core package, with the import-rule test.
 - `kit-has-a-worker-package`: the worker's modules, `abk worker`, and the rule that the worker imports only the core.
 - `kit-has-an-orchestrator-package`: the orchestrator's modules, and the rule that the orchestrator and the worker never import each other.
@@ -318,17 +318,18 @@ the same change that adds the interface.
 
 - `deployment-selects-implementations`: `deployment.kind`, the registry of implementations, and `abk doctor` checks for each deployment.
 - Three changes in place of `units-and-records-live-in-the-store`, each leaving a local install working:
-  - `store-has-a-schema-and-units`: SQLAlchemy Core, the schema and migrations, PostgreSQL and the SQLite stand-in, the units table, `UnitStore` as the façade with
+  - `store-has-a-schema-and-units`: async SQLAlchemy Core, the schema and Alembic migrations, PostgreSQL and the SQLite stand-in, the units table, `UnitStore` as the façade with
     `update(fn)`, the database URL and its `abk doctor` checks, `abk db up`, and the checkpoint saver on PostgreSQL.
   - `records-live-in-the-store`: the record kinds, one area per group.
   - `ledgers-live-in-the-store-and-state-imports`: the ledger streams, `abk state import`, and the files stop being written.
 - `coordination-has-leases-and-fencing`: leases and semaphores in the store for every lock (the dispatcher and admission, a unit's branch, the e2e stack, the environment,
   and the unit-test slots as host-scoped semaphores), fenced writes, and a heartbeat that finds a stale token after a suspend and runs the step again.
 - `artifacts-and-checkpoints-have-implementations`: files and Blob Storage; the SQLite and PostgreSQL savers.
+- The async conversion, in order, beside the store changes: `blocking-io-has-async-forms` (async subprocess and HTTP runners), `the-worker-runs-on-an-event-loop`, `the-round-runs-on-an-event-loop` and `commands-and-serve-run-on-an-event-loop`, which deletes the transitional `run_store` bridge and holds the async rules kit-wide.
 
 **Wave 2: workers from a queue, in both deployments**
 
-- `orchestrator-serves-a-worker-api`: first a spike of the checkpoint saver over the API; then the `abk orchestrator` service with the worker API's store, queue, artifact and checkpoint routes, the HTTP implementation of each interface in the core,
+- `orchestrator-serves-a-worker-api`: first a spike of the checkpoint saver over the API; then the `abk orchestrator` service with the worker API's store, artifact and checkpoint routes (the queue routes come with `workers-claim-work-items`), the HTTP implementation of each interface in the core,
   short-lived tokens scoped to an item, the Caddy proxy helper, runner registration (register, list, revoke), and the rule that worker modules never import the database layer.
 - `logs-and-traces-use-otlp`: OTLP export in the worker and the orchestrator, the Collector container and its helper, the local run-log sink, and the Azure Monitor sink.
 - `launcher-runs-workers-over-a-docker-context`: the remote container host implementation of the Launcher.
@@ -361,6 +362,23 @@ the same change that adds the interface.
 
 - `budgets-alerts-and-spend-report`, `forge-webhooks-as-events`, `hosted-serve-with-entra-auth`.
 
+**Changes not yet written, what each needs first and what it must include.** These are held until the change they need has a unit, so a spec never gets ahead of the code it builds on. Each also ships both deployments' implementations and its conformance suite.
+
+| Change | Needs first | Must include |
+|---|---|---|
+| `workers-claim-work-items` | `orchestrator-serves-a-worker-api`, `coordination-has-leases-and-fencing`, and the async conversion through `the-round-runs-on-an-event-loop` | The Queue Protocol (`enqueue`, `claim` with a visibility timeout, `complete`, `fail`), which replaces the `starting` markers; a queue table; the work item (kind build, resolve or verify, unit, group, capabilities); the API's queue routes, completing the API change; the Launcher Protocol (`launch`, `status`, `cancel`, `capabilities`) with the process implementation and a manual Container Apps job (one execution per item); the item's token minted at launch |
+| `worker-image` | `workers-claim-work-items` | The image contract, publishing to the registry on a kit merge, a separate user, egress through the proxy with an allowlist, `sandbox_coverage: container`, the telemetry resource attributes |
+| `launcher-runs-workers-over-a-docker-context` | `workers-claim-work-items` (the Launcher interface) and `worker-image` | A Docker-context implementation (a remote engine over SSH or TLS): launch passes the token, the API address, the telemetry endpoint and the proxy's root certificate; status from the container's exit code; cancel; `abk doctor` checks for the context |
+| `workspaces-have-a-clone-implementation` | `coordination-has-leases-and-fencing` and `kit-has-a-worker-package` | A clone with its own git directory for every worker in both deployments; retires the worktree implementation, the shared git directory, the worktree branch locks and `repo_turn`; the `dirty_worktree` hold keeps its meaning for a clone |
+| `rerere-cache-is-kept-as-an-artifact` | `workspaces-have-a-clone-implementation` and the artifact routes of the API change | A per-repository `rr-cache` artifact; upload of new entries after a restack and download of the merged cache on start; the orchestrator's merge by conflict hash keeping the newest resolution; a command that removes a bad resolution |
+| `secrets-have-implementations` | `orchestrator-serves-a-worker-api` | The environment and files locally; Key Vault with a managed identity in the cloud; tokens that expire and are refreshed during a run; forge tokens for the GitHub App and Entra service principal once decided (open question, before wave 4) |
+| `model-accounts-have-kinds` | `secrets-have-implementations` | Subscription and API-key accounts; the Anthropic API first, then Foundry with a project API key from Key Vault; budget readings from the ledger; a per-unit cap checked between agent steps; a shared backoff; its first task is a live run of the kit's agent step against Foundry, and Entra with a managed identity stays unverified until then |
+| `the-round-runs-over-the-interfaces` | `workers-claim-work-items` and the async conversion | Events, admission under the dispatcher lease, capability matching; the round in a loop in the primary, locally and in the Container App |
+| `orchestrator-switches-to-a-new-version` | `the-round-runs-over-the-interfaces` and the Caddy proxy of the API change | The primary lease; sensing a newer version by the fetch-interval setting (off by default); `abk orchestrator switch`; starting the new version beside the old, the handover and drain; the takeover deadline (default 10 minutes) with its record of an abandoned takeover |
+| `the-orchestrator-owns-the-planning-repo` | `the-round-runs-over-the-interfaces` | Tracking records (taking up `task-progress-is-tracked-in-the-state-home-and-archived-to-the-repo`), fix-change requests, the spec snapshot and the planning commit for workers |
+| `cli-writes-intents` | `the-round-runs-over-the-interfaces` | requeue, approve, and new unit hold, release and prioritize, against either deployment |
+| Wave 4 and 5 changes | Waves 1 to 3 | As their roadmap lines say; the GitHub App and Entra decision comes before wave 4 and the budget decision before wave 5 |
+
 The kit's own open changes `state-can-live-on-a-network-drive` and `task-progress-is-tracked-in-the-state-home-and-archived-to-the-repo` are taken up by this roadmap:
 state reachable from other devices is the PostgreSQL store's job rather than a network drive's, and `store-has-a-schema-and-units` carries that as a requirement and archives the first when it merges; the
 second becomes the tracking records of wave 3.
@@ -389,6 +407,9 @@ second becomes the tracking records of wave 3.
 - The `rr-cache` of each repository is an artifact, merged by conflict hash with the newest resolution kept.
 - Deploy keys stay on the machine that runs verify; verify and e2e run on a runner that holds them.
 - The Anthropic API is the first model endpoint; Foundry with a project API key is the second.
+- The kit is async end to end: one event loop per process, owned by its entry point; the store, the worker API and the callers are `async def`. The synchronous callers cross one transitional bridge (`run_store`) until the four async-conversion changes remove it.
+- The three packages share one `agent_build_kit` import namespace; migrations are Alembic's; the runtimes, sandboxes, profiles and hooks are in the core.
+- The queue routes of the worker API are added by `workers-claim-work-items`, which owns the queue interface.
 
 ## Open questions
 
