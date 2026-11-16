@@ -3,7 +3,9 @@
 
 Read off the requests that reach the stand-in host (their URLs). The forge reads the
 setting from the settings object; the doctor loads the installation, which re-reads
-the settings from the environment, so its tests set the environment variable.
+the settings from the environment, so its tests set the environment variable. The `token`
+fixture undoes that environment and reloads the settings afterwards, so a doctor test
+leaves nothing for a forge test.
 """
 
 from __future__ import annotations
@@ -19,7 +21,7 @@ from agent_build_kit.config import RepoConfig, WorkspaceConfig, dump
 from agent_build_kit.forges.base import RepoId
 from agent_build_kit.forges.github import GitHubForge
 from agent_build_kit.forges.transport import clear_credentials
-from agent_build_kit.settings import settings
+from agent_build_kit.settings import reload, settings
 from tests.cli.test_doctor import Answers, which_all
 from tests.factories import init_repo
 from tests.forges.conftest import GH_TOKEN
@@ -37,6 +39,8 @@ def token(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
     clear_credentials()
     yield
     clear_credentials()
+    monkeypatch.undo()
+    reload(None)
 
 
 def created() -> httpx.Response:

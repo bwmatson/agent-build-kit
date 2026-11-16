@@ -34,6 +34,7 @@ import yaml
 from agent_build_kit import claude_account, forges, orchestration, sandboxes
 from agent_build_kit import config as config_module
 from agent_build_kit import installation as installation_module
+from agent_build_kit import settings as settings_module
 from agent_build_kit.cli import doctor
 from agent_build_kit.cli import pipeline as pipeline_cli
 from agent_build_kit.config import RepoConfig, WorkspaceConfig
@@ -81,6 +82,22 @@ def new_session_id() -> Callable[[], str]:
 def build_session(new_session_id: Callable[[], str]) -> str:
     """The id of the session a unit's build recorded."""
     return new_session_id()
+
+
+@pytest.fixture(autouse=True)
+def settings_restored() -> Iterator[None]:
+    """Every test ends with the settings it started with.
+
+    `settings.reload` writes the process-wide object in place, field by field, and loading an
+    installation or running the doctor calls it. `monkeypatch.setenv` restores the environment
+    but not the fields a reload wrote from it, so a later test on the same worker would read
+    the earlier one's value."""
+    before = settings_module.settings.model_dump()
+    env_file = settings_module.loaded_env_file
+    yield
+    for name, value in before.items():
+        setattr(settings_module.settings, name, value)
+    settings_module.loaded_env_file = env_file
 
 
 @pytest.fixture(autouse=True)
