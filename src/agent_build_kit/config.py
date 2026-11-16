@@ -1526,6 +1526,15 @@ class RepoWorkersConfig(Frozen):
     _no_mode = model_validator(mode="before")(_refuse_removed_mode)
 
 
+class GeneratedConfig(Frozen):
+    """Output a repository builds from its sources: the paths it covers, the command that
+    rebuilds it and the directory (relative to the repository) the command runs in."""
+
+    paths: tuple[str, ...]
+    command: tuple[str, ...]
+    cwd: str = "."
+
+
 class RepoConfig(Frozen):
     path: Path
     # GitHub owner/name. The owner decides which `gh` account's token is used.
@@ -1556,6 +1565,8 @@ class RepoConfig(Frozen):
     # Repos this one depends on. Drives deploy order (consumed first), which
     # dev stack a unit's own comes up on top of, and the planner's ordering.
     consumes: list[str] = []
+    # Output built from sources, settled from the base on a restack and rebuilt after it.
+    generated: list[GeneratedConfig] = []
     # Prose the planner is given about how this repo relates to the others.
     relationships: str = ""
     tests: TestsConfig = TestsConfig()
