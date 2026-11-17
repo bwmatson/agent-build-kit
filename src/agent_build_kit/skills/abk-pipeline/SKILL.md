@@ -347,6 +347,13 @@ default branch`. It holds no claim on the unit while it waits or
 runs, so `abk settle --accept` works then, and a result that comes back after an accept changes
 nothing.
 
+A merge is recorded only when it is on the default branch. A pull request merged into the branch
+of a unit that already merged leaves its unit held `landed_off_default` (its dependents keep
+waiting) until its commit reaches the default branch, as a carry or a person's merge puts it there.
+A review unit whose pull request cannot be retargeted onto the base its stack gives it is held
+`base_not_moved` after three failed rounds; `abk status` and `abk explain` name the pull request,
+the branches and what a person can do.
+
 ### Paused for a rejected login
 
 When an account's Claude login is rejected (the CLI says `Failed to authenticate`, HTTP 401, `OAuth

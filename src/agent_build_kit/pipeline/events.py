@@ -121,6 +121,7 @@ from agent_build_kit.pipeline.units import (
     depth_of,
     is_superseded,
     local_ref,
+    reachable,
     through_satisfied,
     trunk_of,
 )
@@ -1303,6 +1304,65 @@ def retry_host_retargets(
         resume=resume,
         log=log,
     )
+
+
+def warn_base_merged(
+    store: UnitStore,
+    *,
+    base_on_host: Callable[[StoredUnit], str | None],
+    forge_of: Callable[[StoredUnit], tuple[Forge, RepoId]],
+    posts_root: Path,
+    log: Log = print,
+) -> list[str]:
+    """Each round: post once, on the pull request of an in-review unit whose base branch has
+    merged and whose host base (`base_on_host`) is not yet the base its graph gives it, the
+    warning that it is being moved and is not to be merged until it shows the base its stack
+    gives it.
+    The comment carries a marker line and its ids are recorded in the own-posts record under
+    `posts_root`, so a later round does not post it again. Returns the ids it posted for."""
+    graph = store.all()
+    by_id = {other.id: other for other in graph}
+    posted_for: list[str] = []
+    for unit in graph:
+        if unit.state != IN_REVIEW or not unit.pr:
+            continue
+        wanted = base_of(unit, graph)
+        ancestors = reachable(
+            unit.depends_on,
+            lambda uid: by_id[uid].depends_on if uid in by_id else (),
+        )
+        merged_branches = {
+            by_id[uid].branch
+            for uid in ancestors
+            if uid in by_id
+            and by_id[uid].repo == unit.repo
+            and by_id[uid].state in (MERGED, SATISFIED)
+            and by_id[uid].branch
+        }
+        if not merged_branches - {wanted}:
+            continue  # None of its own ancestors could be its stale base: do not ask the host.
+        on_host = base_on_host(unit)
+        if on_host is None or on_host == wanted or on_host not in merged_branches:
+            continue
+        body = (
+            f"The base branch `{on_host}` of this pull request has merged. It is being moved "
+            f"onto `{wanted}`. Do not merge it until it shows `{wanted}` as its base.\n{MARKER}"
+        )
+        try:
+            forge, repo_id = forge_of(unit)
+            found = forge.comment_exists(repo_id, unit.pr, MARKER, body)
+            ids = [found] if found else forge.post_comment(repo_id, unit.pr, body=body)
+        except TRANSIENT as error:
+            log(f"{unit.id}: warning on #{unit.pr} not posted — {error}")
+            continue
+        if not ids:
+            log(f"{unit.id}: warning on #{unit.pr} not posted; tried again next round")
+            continue
+        record_posts(posts_root, forges.key(repo_id), unit.pr, ids)
+        if not found:
+            log(f"{unit.id}: warned on #{unit.pr} that its base {on_host} has merged")
+            posted_for.append(unit.id)
+    return posted_for
 
 
 def _unit_on_branch(store: UnitStore, repo: str, branch: str, not_id: str) -> StoredUnit | None:

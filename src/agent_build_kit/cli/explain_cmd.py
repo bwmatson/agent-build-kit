@@ -18,7 +18,7 @@ from agent_build_kit.pipeline.admission_record import (
 from agent_build_kit.pipeline.external_file import external_reason, held_units
 from agent_build_kit.pipeline.regression_agent import waited_fixes
 from agent_build_kit.pipeline.resolution_lane import lane_record, resolving_phrase
-from agent_build_kit.pipeline.unit_store import Cause
+from agent_build_kit.pipeline.unit_store import Cause, landing_hold_text
 from agent_build_kit.pipeline.units import PLANNED, RUNNING, history_stamp
 from agent_build_kit.run_support import store_for
 
@@ -169,6 +169,9 @@ def cmd_explain(args: argparse.Namespace, inst: Installation) -> int:
         )
         if record is None:
             return 0
+    if unit is not None and (landing := landing_hold_text(unit)):
+        print(f"{args.unit} is {landing}")
+        return 0
     if record is None:
         print(f"no record covers {args.unit} at {at.isoformat()}")
         return 0

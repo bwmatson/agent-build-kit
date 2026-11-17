@@ -970,6 +970,12 @@ unit put back for any other cause waits for the next pass, and the tick log says
 still on as `held_base`, and who holds it as `held_by`. A record with no cause is one from before causes or one an event ended,
 and one with a cause this release does not know reads the same way: the pass never readmits it, and `abk status` lists it.
 
+A merge is recorded only when it is on the default branch. A pull request merged into the branch
+of a unit that had already merged leaves its unit held `landed_off_default`, and its dependents
+keep waiting, until its commit reaches the default branch. A pull request that is not on the base
+its stack gives it is retargeted each round and the host's base read back; after three failed
+rounds the unit is held `base_not_moved`.
+
 **The code host outage.** A git push the code host refuses (an authentication refusal, an HTTP 401, 403
 or 5xx, a connection it closed), or cannot reach while the control group is up, parks its unit with the cause
 `host_unavailable`, and a fetch it refuses or cannot reach is noted without parking its unit. The call that
