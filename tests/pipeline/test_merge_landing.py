@@ -255,3 +255,17 @@ def test_a_unit_merged_into_an_open_units_branch_stays_settling_when_its_checks_
     assert unit.state == SETTLING
     assert "lands when" in unit.note
     assert CHILD in open_parent.waiting()
+
+
+def test_a_unit_settling_behind_a_parent_squash_merged_into_the_default_is_not_left_settling(
+    open_parent: World,
+) -> None:
+    sha = open_parent.repos.land_on_parent()
+    open_parent.merged_into(f"spec/{PARENT}", sha)
+    open_parent.repos.land_on_main()  # the parent, squashed: its work as one new commit
+    open_parent.store.set_state(PARENT, MERGED)
+
+    open_parent.settled()
+
+    unit = open_parent.store.get(CHILD)
+    assert (unit.state, unit.merge_sha) == (MERGED, sha)
