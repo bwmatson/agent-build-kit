@@ -1159,6 +1159,19 @@ def _landing(
     return where
 
 
+def recheck_landings(
+    store: UnitStore,
+    *,
+    repos: dict[str, Path],
+    merge_record: MergeRecord | None = None,
+    log: Log = print,
+) -> list[str]:
+    """Each round, before admission: a unit settling behind a parent, or held
+    `landed_off_default`, becomes merged when its merge commit has become an ancestor of the
+    default branch. Returns the ids it recorded as merged."""
+    raise NotImplementedError
+
+
 def _unit_on_branch(store: UnitStore, repo: str, branch: str, not_id: str) -> StoredUnit | None:
     """The unit, other than `not_id`, whose branch is `branch` in `repo`."""
     return next(
