@@ -92,6 +92,7 @@ from agent_build_kit.pipeline.flakes import (
     waiting_note,
 )
 from agent_build_kit.pipeline.gateway_usage import attribution
+from agent_build_kit.pipeline.generated import GeneratedFilesFailed, hold_note
 from agent_build_kit.pipeline.group_mode import GroupMode
 from agent_build_kit.pipeline.manual_steps import unmet_steps
 from agent_build_kit.pipeline.metric_records import emit_metric
@@ -1300,6 +1301,13 @@ class BuildPath:
                     **FRESH,
                     **remembered,
                     **self.hold(PLANNED, note, note, cause=Cause.RESTACK_DEFERRED),
+                }
+            except GeneratedFilesFailed as error:
+                note = hold_note(base, error)
+                return {
+                    **FRESH,
+                    **remembered,
+                    **self.hold(HELD, note, note, cause=Cause.GENERATED_FILES),
                 }
             except Exception as error:  # noqa: BLE001
                 why = f"restack onto {base} conflicted: {error}"
@@ -3139,6 +3147,9 @@ class BuildPath:
             )
         except (AgentRateLimited, AgentInterrupted, NetworkUnavailable, ServiceUnavailable):
             raise
+        except GeneratedFilesFailed as error:
+            note = hold_note(base, error)
+            return self.hold(HELD, note, note, cause=Cause.GENERATED_FILES)
         except Exception as error:  # noqa: BLE001
             return self.rebase(
                 state,

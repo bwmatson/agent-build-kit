@@ -66,6 +66,7 @@ from agent_build_kit.pipeline.flakes import (
     is_fix_change,
     waiting_note,
 )
+from agent_build_kit.pipeline.generated import GeneratedFilesFailed, hold_note
 from agent_build_kit.pipeline.landing_check import Landing, merged_on_branch, merged_on_default
 from agent_build_kit.pipeline.landing_intent import clear_intent, has_intent
 from agent_build_kit.pipeline.pr_poller import (  # noqa: F401 — FAILING_CHECKS_REASON re-exported
@@ -2749,6 +2750,15 @@ def build_restack(
                 cause=Cause.RESTACK_CONFLICT,
             )
             return RestackOutcome.CONFLICT
+        except GeneratedFilesFailed as error:
+            # The branch is back where it was; a person fixes the command and requeues.
+            store.set_state(
+                child.id,
+                HELD,
+                note=hold_note(new_base, error),
+                cause=Cause.GENERATED_FILES,
+            )
+            return RestackOutcome.DEFERRED
         except AGENT_UNAVAILABLE as error:
             # The resolver could not run, which says nothing about the branch.
             # Not raised on: the merge is handled once, and the parent's branch
