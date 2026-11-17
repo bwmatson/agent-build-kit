@@ -19,11 +19,11 @@ from agent_build_kit.graph.nodes import (
     UNCHANGED_TREE_NOTE,
     WROTE_NOTHING_NOTE,
 )
+from agent_build_kit.pipeline.shell import porcelain
 from agent_build_kit.pipeline.stack_runner import RunOutcome
 from agent_build_kit.pipeline.wiring import build_tree_state
 from agent_build_kit.pipeline.workspaces import DirtyWorktree
 from agent_build_kit.runtimes import AgentResult, RefusedCall
-from tests.factories import git
 from tests.graph.branch_fakes import (
     ACCOUNT,
     Groups,
@@ -239,6 +239,8 @@ TEST_FILE = "tests/test_marker.py"
 CODE_FILE = "src/marker.py"
 TEST_TEXT = "def test_a() -> None: ...\n"
 CODE_TEXT = "def mark() -> None: ...\n"
+DOC_FILE = "docs/marker.md"
+DOC_TEXT = "# Marker\n"
 
 
 class KilledInTests(OnBranch):
@@ -280,9 +282,9 @@ def resumed_over(
     )
 
     def worktree(unit: Any, branch: str, allow_dirty: bool = False) -> Path:
-        status = git(repo, "status", "--porcelain", "-uall").splitlines()
+        status = porcelain(repo)
         if status and not allow_dirty:
-            raise DirtyWorktree("uncommitted changes", paths=tuple(line[3:] for line in status))
+            raise DirtyWorktree("uncommitted changes", paths=tuple(name for _, name in status))
         return repo
 
     options: dict[str, Any] = {**recorder.overrides(tmp_path), "worktree": worktree}
@@ -300,6 +302,7 @@ def resumed_over(
         pytest.param(
             {TEST_FILE: TEST_TEXT, CODE_FILE: CODE_TEXT}, id="a-test-file-and-a-source-file"
         ),
+        pytest.param({DOC_FILE: DOC_TEXT}, id="a-document-file"),
     ],
 )
 def test_a_tests_step_that_keeps_its_own_leftover_test_file_is_not_judged_as_writing_nothing(
@@ -321,3 +324,14 @@ def test_a_leftover_test_file_kept_unchanged_is_committed_as_the_tests_commit(
     assert subjects(repo) == ["test: G1", "feat: G1"]
     assert TEST_FILE in files_in(repo, "HEAD~1")
     assert recorder.events.index("stub-checks") < recorder.events.index("claude:impl")
+
+
+def test_a_tests_step_over_only_a_leftover_source_file_is_asked_once_more_then_stops(
+    tmp_path: Path,
+) -> None:
+    recorder, outcome, _ = resumed_over(tmp_path, {CODE_FILE: CODE_TEXT}, said=CLAIM)
+
+    assert outcome.status == "failed", outcome.detail
+    assert CAUSE in outcome.detail
+    assert recorder.events.count("claude:tests") == 3, "the killed run, the resumed one, one retry"
+    assert "stub-checks" not in recorder.events
