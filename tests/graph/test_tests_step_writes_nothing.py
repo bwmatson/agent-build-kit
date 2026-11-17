@@ -21,11 +21,14 @@ from agent_build_kit.graph.nodes import (
 )
 from agent_build_kit.pipeline.stack_runner import RunOutcome
 from agent_build_kit.pipeline.wiring import build_tree_state
+from agent_build_kit.pipeline.workspaces import DirtyWorktree
 from agent_build_kit.runtimes import AgentResult, RefusedCall
+from tests.factories import git
 from tests.graph.branch_fakes import (
     ACCOUNT,
     Groups,
     OnBranch,
+    files_in,
     key,
     messages,
     prepared,
@@ -35,6 +38,8 @@ from tests.graph.branch_fakes import (
 from tests.graph.test_build_path import build
 from tests.graph.test_per_group_build import group_named
 from tests.graph.test_per_group_lone_feat_message import marked_empty
+from tests.graph.test_red_check_in_build import RedAnswers
+from tests.runner_fakes import Killed
 
 GROUPS = {"add-marker": titled(1)}
 LONE_GROUPS = {"add-marker": titled(3, 4)}
@@ -228,3 +233,91 @@ def test_implement_does_not_start_for_a_group_with_no_tests_commit(tmp_path: Pat
     assert outcome.status == "failed", outcome.detail
     assert NO_TESTS_COMMIT in outcome.detail
     assert "claude:impl" not in recorder.events
+
+
+TEST_FILE = "tests/test_marker.py"
+CODE_FILE = "src/marker.py"
+TEST_TEXT = "def test_a() -> None: ...\n"
+CODE_TEXT = "def mark() -> None: ...\n"
+
+
+class KilledInTests(OnBranch):
+    """A recorder whose first tests call leaves `leftovers` (path to text) uncommitted in the tree
+    and dies; every tests call after it writes nothing, as an agent that keeps what it finds."""
+
+    def __init__(self, store: Any, *, leftovers: Mapping[str, str], **options: Any) -> None:
+        super().__init__(store, no_tests_for="1", **options)
+        self.leftovers = leftovers
+        self.killed = False
+
+    def tree_state(self, cwd: Path) -> str:
+        return build_tree_state()(cwd)
+
+    def claude(self, prompt: str, **kwargs: Any) -> str:
+        answer = super().claude(prompt, **kwargs)
+        if self.events[-1] == "claude:tests" and not self.killed:
+            self.killed = True
+            for name, text in self.leftovers.items():
+                (kwargs["cwd"] / name).parent.mkdir(parents=True, exist_ok=True)
+                (kwargs["cwd"] / name).write_text(text)
+            raise Killed("claude:tests")
+        return answer
+
+
+def resumed_over(
+    tmp_path: Path,
+    leftovers: Mapping[str, str],
+    *,
+    said: str = "",
+    red_answers: list[tuple[bool, str]] | None = None,
+) -> tuple[KilledInTests, RunOutcome, Path]:
+    """A `Tests: required` group whose tests step died leaving `leftovers` in the tree, then
+    resumed over them by an agent that writes nothing more and says `said`. The worktree refuses
+    a dirty tree unless allowed, as the real one."""
+    base, repo = prepared(tmp_path, tests_required=(1,))
+    recorder = KilledInTests(
+        base.store, leftovers=leftovers, tests_accounts={"1": said} if said else None
+    )
+
+    def worktree(unit: Any, branch: str, allow_dirty: bool = False) -> Path:
+        status = git(repo, "status", "--porcelain", "-uall").splitlines()
+        if status and not allow_dirty:
+            raise DirtyWorktree("uncommitted changes", paths=tuple(line[3:] for line in status))
+        return repo
+
+    options: dict[str, Any] = {**recorder.overrides(tmp_path), "worktree": worktree}
+    if red_answers is not None:
+        options["run_red_check"] = RedAnswers(recorder, red_answers)
+    with pytest.raises(Killed):
+        build(tmp_path, recorder, **options)
+    return recorder, build(tmp_path, recorder, **options), repo
+
+
+@pytest.mark.parametrize(
+    "leftovers",
+    [
+        pytest.param({TEST_FILE: TEST_TEXT}, id="a-test-file"),
+        pytest.param(
+            {TEST_FILE: TEST_TEXT, CODE_FILE: CODE_TEXT}, id="a-test-file-and-a-source-file"
+        ),
+    ],
+)
+def test_a_tests_step_that_keeps_its_own_leftover_test_file_is_not_judged_as_writing_nothing(
+    tmp_path: Path, leftovers: dict[str, str]
+) -> None:
+    recorder, outcome, _ = resumed_over(tmp_path, leftovers, said=CLAIM)
+
+    assert CAUSE not in outcome.detail, outcome.detail
+    assert recorder.events.count("claude:tests") == 2, "the killed run and the resumed one: no more"
+    assert "stub-checks" in recorder.events
+
+
+def test_a_leftover_test_file_kept_unchanged_is_committed_as_the_tests_commit(
+    tmp_path: Path,
+) -> None:
+    recorder, outcome, repo = resumed_over(tmp_path, {TEST_FILE: TEST_TEXT})
+
+    assert outcome.status == "open", outcome.detail
+    assert subjects(repo) == ["test: G1", "feat: G1"]
+    assert TEST_FILE in files_in(repo, "HEAD~1")
+    assert recorder.events.index("stub-checks") < recorder.events.index("claude:impl")

@@ -23,6 +23,7 @@ from agent_build_kit.runtimes.base import AgentInterrupted, AgentRateLimited
 from tests.factories import unit
 from tests.graph.test_build_path import build
 from tests.graph.test_remaining_paths import Adapting, decisions
+from tests.graph.test_tests_step_writes_nothing import TEST_FILE, TEST_TEXT, resumed_over
 from tests.graph_driver import fresh, position, tick
 from tests.leftovers_driver import LEFTOVER, Habitat, Hands, step_of
 from tests.runner_fakes import Killed, Recorder, rejecting
@@ -373,6 +374,19 @@ def test_a_tests_nodes_leftovers_are_committed_as_tests(tmp_path: Path) -> None:
     assert LEFTOVER in habitat.files_in("test:")
     assert LEFTOVER not in habitat.files_in("feat:")
     assert "implement.txt" in habitat.files_in("feat:")
+
+
+def test_a_unit_resumed_over_its_leftover_test_file_keeps_it_in_the_tests_commit_and_goes_to_red(
+    tmp_path: Path,
+) -> None:
+    recorder, outcome, repo = resumed_over(
+        tmp_path, {TEST_FILE: TEST_TEXT}, red_answers=[(True, "")]
+    )
+
+    assert outcome.status == RunStatus.OPEN, outcome.detail
+    assert TEST_FILE in git_out(repo, "show", "--name-only", "--format=", "HEAD~1").split()
+    assert recorder.events.index("stub-checks") < recorder.events.index("red-check")
+    assert recorder.events.count("red-check") == 1
 
 
 def test_a_head_that_changed_since_the_approval_is_reviewed_again(tmp_path: Path) -> None:
