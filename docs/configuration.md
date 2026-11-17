@@ -676,6 +676,24 @@ repos:                          # ordered: deploy order is derived from
                                 # one here to give agents one.
                                 # Each must match the build allow-list (the tool
                                 # list the build starts with) or the load fails
+    generated:                  # `generated`: files built from others, regenerated
+                                # after a restack and not merged
+      - paths: ["web/dist/**"]  # `paths`: patterns; a slash-free pattern matches
+                                # by file name anywhere in the repository (`*.js`
+                                # covers every tracked .js). They also count as
+                                # generated for the size rule and the doctor
+        command: ["npm", "run", "build"]
+                                # `command`: argv run in `cwd` (default `.`, a
+                                # path inside the repository) after a restack
+        cwd: web
+                                # A restack settles a conflict in these paths
+                                # by taking the base's version (removing the file
+                                # where the base has none), never asking the
+                                # resolver. Then, if the unit touched a path,
+                                # the command runs once and its changes are
+                                # committed. A failing command holds the unit
+                                # with cause `generated_files`, its output in
+                                # the note
     changelog: CHANGELOG.md     # where the repo keeps its changelog. Set, the
                                 # build, rework, resolver and review prompts
                                 # carry its convention and unit-test runs

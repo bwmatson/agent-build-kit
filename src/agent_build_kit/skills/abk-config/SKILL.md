@@ -365,6 +365,11 @@ repos:                        # ordered; a task group's [repo] tag is a key here
                               # scope: whole|file|node-id|affected}; `{path}` in the command exactly
                               # when the scope is file or node-id. null follows the profiles, a list
                               # replaces them. Each must match the build allow-list: refused at load
+    generated: []             # [{paths: [...], command: [argv], cwd: "."}]: files built from others.
+                              # A restack takes the base's version of a conflicted path (no
+                              # resolver), then runs `command` in `cwd` once if the unit touched a
+                              # path and commits the result; a failure holds the unit, cause
+                              # `generated_files`. A slash-free pattern matches by file name anywhere
     changelog: CHANGELOG.md   # the repo's changelog; null = no convention, no check.
                               # Convention: AGENTS.md `## Changelog`, else CLAUDE.md,
                               # else the packaged text. Doctor warns if the file is absent
