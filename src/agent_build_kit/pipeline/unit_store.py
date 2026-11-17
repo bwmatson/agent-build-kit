@@ -141,6 +141,7 @@ class Cause(StrEnum):
     TOO_BIG_FOR_TIER = "too_big_for_tier"
     SUPERSEDED = "superseded"
     LANDED_OFF_DEFAULT = "landed_off_default"
+    GENERATED_FILES = "generated_files"
     BASE_NOT_MOVED = "base_not_moved"
 
 
