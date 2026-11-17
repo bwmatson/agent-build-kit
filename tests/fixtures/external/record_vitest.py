@@ -66,6 +66,31 @@ CASES = {
         + "test('reads', () => {\n"
         + "  throw new Error('the _read() method is not implemented');\n});\n",
     ),
+    "plain_error": (
+        "j.test.ts",
+        HEADER
+        + "test('loads', () => {\n"
+        + "  throw new Error('Dataset \"usage\" is not a report dataset');\n});\n",
+    ),
+    "type_error_thrown": (
+        "k.test.ts",
+        HEADER + "test('calls', () => {\n  const load: any = undefined;\n  load();\n});\n",
+    ),
+    "reference_error_thrown": (
+        "l.test.ts",
+        HEADER + "test('uses', () => {\n  // @ts-ignore\n  load();\n});\n",
+    ),
+    "syntax_error_thrown": (
+        "m.test.ts",
+        HEADER + "test('parses', () => {\n  JSON.parse('{');\n});\n",
+    ),
+    "error_and_passing": (
+        "n.test.ts",
+        HEADER
+        + "test('loads', () => {\n"
+        + "  throw new Error('Dataset \"usage\" is not a report dataset');\n});\n"
+        + "test('holds', () => {\n  expect(1).toBe(1);\n});\n",
+    ),
     "syntax_error": (
         "f.test.ts",
         HEADER + "test('parses', () => {\n  expect(1 +).toBe(1);\n});\n",

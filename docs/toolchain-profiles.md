@@ -202,8 +202,8 @@ And what it knows:
 - `runs_path`: the file's own name has `.test` or `.spec` before the extension; Vitest reports
   no suite for a helper or data file under `__tests__`, so those are not given to the runner.
 - `interpret_red` judges only the suites named after the given files, which the red
-  command printed before the report: a failure of type `AssertionError` or an error whose
-  message is `not implemented` is red; a file that failed to load (its testcase is named as
+  command printed before the report: a failure of type `AssertionError` or a plain `Error` is red,
+  while a `TypeError`, `ReferenceError` or `SyntaxError` is rejected as a missing name or a broken test; a file that failed to load (its testcase is named as
   the file), any passing test, a given file with no failing test and any other failure are
   each rejected with a reason.
 - `stub_violations` (parsed with tree-sitter): every function, method or arrow body, at any

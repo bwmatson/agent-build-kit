@@ -51,14 +51,12 @@ def test_a_test_failing_by_assertion_or_by_not_implemented_is_red(
         ("syntax_error", "f.test.ts", "could not be loaded"),
         ("passing", "d.test.ts", "passed"),
         ("empty", "a.test.ts", "nothing failed"),
-        ("other_not_implemented", "i.test.ts", "not one we recognise"),
     ],
     ids=[
         "an unresolved import",
         "a syntax error",
         "a passing test",
         "an empty run",
-        "an error that only mentions not implemented",
     ],
 )
 def test_a_file_that_did_not_load_a_passing_test_or_an_empty_run_is_rejected_with_a_reason(
@@ -68,6 +66,51 @@ def test_a_file_that_did_not_load_a_passing_test_or_an_empty_run_is_rejected_wit
 
     assert not ok
     assert any(reason in problem for problem in problems), problems
+
+
+def test_a_test_failing_with_a_plain_error_is_red(profile, project: Project) -> None:
+    ok, problems = judge(profile, project, "plain_error", ["j.test.ts"])
+
+    assert ok, problems
+    assert problems == []
+
+
+def test_a_test_failing_with_a_plain_error_is_red_in_the_stubbed_reading_too(
+    profile, project: Project
+) -> None:
+    done = project.run(profile.red_command(["j.test.ts"]), recording="plain_error")
+
+    ok, problems = profile.interpret_red(done.stdout + done.stderr, done.returncode, stubbed=True)
+
+    assert ok, problems
+
+
+@pytest.mark.parametrize(
+    ("recording", "file", "error_type"),
+    [
+        ("type_error_thrown", "k.test.ts", "TypeError"),
+        ("reference_error_thrown", "l.test.ts", "ReferenceError"),
+        ("syntax_error_thrown", "m.test.ts", "SyntaxError"),
+    ],
+    ids=["a type error", "a reference error", "a syntax error in the test body"],
+)
+def test_a_test_failing_with_a_missing_name_or_a_broken_test_is_rejected_naming_the_type(
+    profile, project: Project, recording: str, file: str, error_type: str
+) -> None:
+    ok, problems = judge(profile, project, recording, [file])
+
+    assert not ok
+    assert any(error_type in problem for problem in problems), problems
+
+
+def test_a_plain_error_failure_beside_a_passing_test_is_rejected_for_the_passing_test(
+    profile, project: Project
+) -> None:
+    ok, problems = judge(profile, project, "error_and_passing", ["n.test.ts"])
+
+    assert not ok
+    assert any("passed" in problem for problem in problems), problems
+    assert not any("recognise" in problem for problem in problems), problems
 
 
 @pytest.mark.parametrize(

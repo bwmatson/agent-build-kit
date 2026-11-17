@@ -231,6 +231,10 @@ _TYPE_CHECK_COMMAND = ["sh", "-c", _TYPE_CHECK_ALL]
 # can tell their suites from any other the runner's substring filters selected.
 _RED_FILE = "abk red file: "
 _NOT_IMPLEMENTED = "not implemented"
+# Failure types that are red: an assertion, or an error thrown by the code under test.
+_RED_ERRORS = ("AssertionError", "Error")
+# Failure types that say a name is missing or the test is broken, never missing behaviour.
+_BROKEN_TEST_ERRORS = ("TypeError", "ReferenceError", "SyntaxError")
 # What the profile's own commands create in a project: type-check build info and the Vite and
 # Vitest caches.
 _CREATED = ["**/*.tsbuildinfo", "node_modules/.vite", "node_modules/.vitest", ".vite"]
@@ -697,9 +701,10 @@ class NodeNpmProfile:
     ) -> tuple[bool, list[str]]:
         """Red for the right reason, judged on the suites of the files the red command was
         given (it lists them before the report): every test that ran failed by an assertion
-        or by an error saying `not implemented`. A file that failed to load (an unresolved
-        import, a syntax error), a passing test and a run with no suite of those files are
-        rejected, each with its reason. This is also the stubbed reading (`stubbed`): a file
+        or by a plain `Error` (a `TypeError`, `ReferenceError` or `SyntaxError` is a broken
+        test). A file that failed to load (an unresolved import, a syntax error), a passing
+        test and a run with no suite of those files are rejected, each with its reason.
+        This is also the stubbed reading (`stubbed`): a file
         that failed to load is rejected either way."""
         _, console = split_report(output)
         given = {
@@ -728,7 +733,13 @@ class NodeNpmProfile:
                         f"{name}: the test file could not be loaded, so no test failed for "
                         f"the missing behaviour ({first})"
                     )
-                elif bad.get("type") != "AssertionError" and message != _NOT_IMPLEMENTED:
+                elif bad.get("type") in _BROKEN_TEST_ERRORS:
+                    first = message.split("\n", 1)[0]
+                    problems.append(
+                        f"{name}: failed with a {bad.get('type')}: a missing name or a broken "
+                        f"test, not missing behaviour ({first})"
+                    )
+                elif bad.get("type") not in _RED_ERRORS:
                     problems.append(f"{name}: {UNRECOGNISED_FAILURE}")
         if passed:
             problems.append(passed_problem(passed))
