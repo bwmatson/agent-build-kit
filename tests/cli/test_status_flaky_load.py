@@ -32,7 +32,7 @@ def flaky_line(
     inst: Installation, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> str:
     UnitStore(inst.state_dir / "units.json").upsert([stored_unit("one/1", change="one")])
-    monkeypatch.setattr(cli, "current_usage", lambda: None)
+    monkeypatch.setattr("agent_build_kit.run_support.current_usage", lambda: None)
     assert cli.cmd_status(argparse.Namespace(), inst) == 0
     return next(line for line in capsys.readouterr().out.splitlines() if "flaky:" in line)
 
@@ -56,7 +56,7 @@ def test_a_flake_with_no_load_recorded_has_the_line_it_had_beside_one_that_has_i
     other = met(2, {}).model_copy(update={"test": "tests/test_b.py::test_y"})
     flake_record(installation).append(other)
     UnitStore(installation.state_dir / "units.json").upsert([stored_unit("one/1", change="one")])
-    monkeypatch.setattr(cli, "current_usage", lambda: None)
+    monkeypatch.setattr("agent_build_kit.run_support.current_usage", lambda: None)
 
     assert cli.cmd_status(argparse.Namespace(), installation) == 0
 

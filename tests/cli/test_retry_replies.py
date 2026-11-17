@@ -8,6 +8,7 @@ from pathlib import Path
 
 import pytest
 
+from agent_build_kit import run_support
 from agent_build_kit.cli import pipeline as cli
 from agent_build_kit.forges import RepoId
 from agent_build_kit.graph.checkpointer import open_checkpointer, unit_graphs_path
@@ -53,7 +54,7 @@ def inst(tmp_path: Path) -> Installation:
 
 
 def owed(inst: Installation) -> tuple[str, ...]:
-    state = cli.thread_of(inst, ID).state
+    state = run_support.thread_of(inst, ID).state
     assert state is not None
     return state.pending_replies
 

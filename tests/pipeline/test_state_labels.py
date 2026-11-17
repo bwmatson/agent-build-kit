@@ -112,7 +112,7 @@ def test_a_label_call_that_fails_is_logged_once_and_raises_nothing(
 
 
 def wired(tmp_path: Path, forge: StandInForge, logged: list[str]) -> UnitStore:
-    """A store whose state changes reach the forge, as `cli.store_for` builds it."""
+    """A store whose state changes reach the forge, as `run_support.store_for` builds it."""
     labels = StateLabels(lookup(forge), log=logged.append)
     return UnitStore(
         tmp_path / "units.json",

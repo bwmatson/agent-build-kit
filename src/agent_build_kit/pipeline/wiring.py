@@ -3588,8 +3588,8 @@ def build_release_dependents(
     satisfied is still standing in that tree. See `build_remove_satisfied`.
     """
     # Late: the cli package and `events` import this module.
-    from agent_build_kit.cli.pipeline import build_stack_moves
     from agent_build_kit.pipeline import events
+    from agent_build_kit.run_support import build_stack_moves
 
     # A resolver here is an agent call like the lane's: asked of the guard first.
     moves = build_stack_moves(store, installation, gated=True)
@@ -3616,8 +3616,8 @@ def build_remove_satisfied(
     """Remove a satisfied unit's worktree and branch, for the run to call once
     it has left the tree. See `events.remove_satisfied`."""
     # Late: the cli package and `events` import this module.
-    from agent_build_kit.cli.pipeline import build_stack_moves
     from agent_build_kit.pipeline import events
+    from agent_build_kit.run_support import build_stack_moves
 
     moves = build_stack_moves(store, installation)
 

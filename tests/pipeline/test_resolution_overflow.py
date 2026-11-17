@@ -89,7 +89,7 @@ def test_an_overflow_run_counts_toward_the_accounts_stack_cap(
 ) -> None:
     isolate(monkeypatch)
     # The lane's run has its thread, so nothing reclaims it for want of a lock.
-    monkeypatch.setattr(cli, "has_thread", lambda inst, unit_id: True)
+    monkeypatch.setattr("agent_build_kit.run_support.has_thread", lambda inst, unit_id: True)
     inst = workspace(
         tmp_path,
         account={"max_concurrent_stacks": 1},

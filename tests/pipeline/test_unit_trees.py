@@ -16,6 +16,7 @@ from typing import Any
 
 import pytest
 
+from agent_build_kit import run_support
 from agent_build_kit.cli import pipeline as cli
 from agent_build_kit.cli.retire_cmd import retire
 from agent_build_kit.installation import Installation
@@ -146,15 +147,17 @@ def test_a_restack_checks_run_as_the_repo_whose_worktree_they_run_in(
     world: World, monkeypatch: pytest.MonkeyPatch, repo: str
 ) -> None:
     hooks: dict[str, Any] = {}
-    monkeypatch.setattr(cli, "build_restack", lambda **kwargs: hooks.update(kwargs))
+    monkeypatch.setattr(
+        "agent_build_kit.pipeline.events.build_restack", lambda **kwargs: hooks.update(kwargs)
+    )
     built: list[str] = []
 
     def unit_test(**kwargs: Any):
         built.append(kwargs["repo"].slug)
         return lambda *, cwd, base, moved_from=None: (True, "")
 
-    monkeypatch.setattr(cli, "build_unit_test", unit_test)
-    cli.build_stack_moves(world.store, world.inst)
+    monkeypatch.setattr("agent_build_kit.run_support.build_unit_test", unit_test)
+    run_support.build_stack_moves(world.store, world.inst)
     # Where a temporary tree for the repo goes: under the folder its name gives.
     tree = world.inst.worktree_root / repo / "restack-spec_x_1"
     tree.parent.mkdir(parents=True, exist_ok=True)

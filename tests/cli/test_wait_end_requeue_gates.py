@@ -8,7 +8,6 @@ from typing import Any
 
 import pytest
 
-from agent_build_kit.cli import pipeline as cli
 from agent_build_kit.pipeline.unit_store import Cause
 from agent_build_kit.pipeline.units import IN_REVIEW, PLANNED
 from tests.factories import new_unit
@@ -48,7 +47,7 @@ def test_a_unit_whose_wait_ended_stays_gated_while_a_dependency_it_did_not_recor
     assert pipe.store.get(CHILD).waited_on == (PARENT,)
 
     add_unrecorded_merge_need(pipe)
-    monkeypatch.setattr(cli, "resume_thread", pipe.host.resume_thread)
+    monkeypatch.setattr("agent_build_kit.run_support.resume_thread", pipe.host.resume_thread)
     pipe.merge()
     pipe.pass_()
 

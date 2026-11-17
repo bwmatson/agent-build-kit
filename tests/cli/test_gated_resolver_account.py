@@ -12,7 +12,7 @@ from typing import Any
 
 import pytest
 
-from agent_build_kit.cli import pipeline as cli
+from agent_build_kit import run_support
 from agent_build_kit.installation import Installation
 from agent_build_kit.runtimes import AgentRateLimited
 from tests.conftest import make_installation
@@ -49,12 +49,15 @@ def resolver_of(
 ) -> Any:
     """The conflict resolver `abk tick`'s move gives a unit moved in `repo`'s checkout."""
     given: list[Any] = []
-    monkeypatch.setattr(cli, "resolved_move", lambda path, *args, **kwargs: given.append(kwargs))
+    monkeypatch.setattr(
+        "agent_build_kit.run_support.resolved_move",
+        lambda path, *args, **kwargs: given.append(kwargs),
+    )
 
     def hears(unit: str, resets_at: datetime | None) -> None:
         refused.append(unit)
 
-    cli.build_turned_move(inst, gated=True, refused=hears)(
+    run_support.build_turned_move(inst, gated=True, refused=hears)(
         inst.checkouts[repo], moving_unit="feature/1"
     )
     return given[0]["resolve"]

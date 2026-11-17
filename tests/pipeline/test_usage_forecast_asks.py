@@ -57,7 +57,7 @@ def offline(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(cli, "poll_all", lambda inst, **kwargs: None)
     monkeypatch.setattr(cli, "fetch_all", lambda inst: None)
     monkeypatch.setattr(cli, "has_identity", lambda inst, repo: True)
-    monkeypatch.setattr(cli, "has_thread", lambda inst, unit_id: False)
+    monkeypatch.setattr("agent_build_kit.run_support.has_thread", lambda inst, unit_id: False)
 
 
 def round_of(inst: Installation, store: UnitStore) -> list[str]:

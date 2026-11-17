@@ -33,7 +33,7 @@ def test_a_tick_on_another_branch_restores_the_default_branch_before_reading_sta
         read_on.append(git(tmp_path, "symbolic-ref", "--short", "HEAD"))
         return UnitStore(tmp_path / "units.json")
 
-    monkeypatch.setattr(cli, "store_for", store_for)
+    monkeypatch.setattr("agent_build_kit.run_support.store_for", store_for)
 
     assert cli.cmd_tick(argparse.Namespace(dry_run=False), inst) == 0
 

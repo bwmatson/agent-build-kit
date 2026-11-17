@@ -71,8 +71,11 @@ def stub_round(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(cli, "plan_all", lambda inst, **kwargs: None)
     monkeypatch.setattr(cli, "has_identity", lambda inst, repo: True)
     monkeypatch.setattr(cli, "archive_ready_changes", lambda *a, **k: [])
-    monkeypatch.setattr(cli, "current_usage", lambda: None)
-    monkeypatch.setattr(cli, "may_start_unit", lambda r: Decision(may_start=True, reason="ok"))
+    monkeypatch.setattr("agent_build_kit.run_support.current_usage", lambda: None)
+    monkeypatch.setattr(
+        "agent_build_kit.run_support.may_start_unit",
+        lambda r: Decision(may_start=True, reason="ok"),
+    )
 
 
 def store_of(inst: Installation) -> UnitStore:
@@ -122,8 +125,8 @@ class Deliveries:
     def __init__(self, monkeypatch: pytest.MonkeyPatch, *, busy: tuple[str, ...] = ()) -> None:
         self.delivered: list[tuple[str, str]] = []
         self.busy = busy
-        monkeypatch.setattr(cli, "has_thread", lambda inst, unit_id: True)
-        monkeypatch.setattr(cli, "resume_thread", self.resume)
+        monkeypatch.setattr("agent_build_kit.run_support.has_thread", lambda inst, unit_id: True)
+        monkeypatch.setattr("agent_build_kit.run_support.resume_thread", self.resume)
 
     def resume(self, inst: Installation, unit: Any, kind: str, **kwargs: Any) -> None:
         if unit.id in self.busy:

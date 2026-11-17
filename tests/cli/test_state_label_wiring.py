@@ -10,7 +10,7 @@ from pathlib import Path
 
 import pytest
 
-from agent_build_kit import forges
+from agent_build_kit import forges, run_support
 from agent_build_kit.cli import pipeline as cli
 from agent_build_kit.forges import PullRequest
 from agent_build_kit.installation import Installation
@@ -61,7 +61,7 @@ def forge(inst: Installation, monkeypatch: pytest.MonkeyPatch) -> StandInForge:
 def test_the_store_the_cli_builds_labels_a_pull_request_as_its_unit_changes(
     inst: Installation, forge: StandInForge
 ) -> None:
-    store = cli.store_for(inst)
+    store = run_support.store_for(inst)
     store.upsert([unit(UNIT)])
 
     store.set_state(UNIT, IN_REVIEW, pr=PR, branch=f"spec/{UNIT}")
@@ -75,7 +75,7 @@ def test_the_store_the_cli_builds_puts_the_review_label_of_the_recorded_verdict_
     activate_with(review={"enabled": True})
     inst.state_dir.mkdir(parents=True, exist_ok=True)
     write_verdicts(inst.state_dir / VERDICTS, {UNIT: ReviewTier.LIGHT})
-    store = cli.store_for(inst)
+    store = run_support.store_for(inst)
     store.upsert([unit(UNIT)])
 
     store.set_state(UNIT, IN_REVIEW, pr=PR, branch=f"spec/{UNIT}")
@@ -89,7 +89,7 @@ def test_the_store_the_cli_builds_puts_the_review_label_of_the_recorded_verdict_
 def test_the_store_the_cli_builds_makes_a_pull_request_a_draft_while_its_unit_runs(
     inst: Installation, forge: StandInForge
 ) -> None:
-    store = cli.store_for(inst)
+    store = run_support.store_for(inst)
     store.upsert([unit(UNIT)])
     store.set_state(UNIT, IN_REVIEW, pr=PR, branch=f"spec/{UNIT}")
 
@@ -105,7 +105,7 @@ def test_the_store_the_cli_builds_makes_a_pull_request_a_draft_while_its_unit_ru
 def test_the_poll_the_cli_runs_takes_a_rework_label_off_once_it_has_acted(
     inst: Installation, forge: StandInForge
 ) -> None:
-    store = cli.store_for(inst)
+    store = run_support.store_for(inst)
     store.upsert([unit(UNIT)])
     store.set_state(UNIT, IN_REVIEW, pr=PR, branch=f"spec/{UNIT}")
     cli.poll_all(inst, store=store)  # the first poll records, and dispatches nothing
@@ -121,7 +121,7 @@ def test_the_poll_the_cli_runs_takes_a_rework_label_off_once_it_has_acted(
 def test_the_poll_the_cli_runs_stamps_the_unit_whose_pull_request_a_person_answered(
     inst: Installation, forge: StandInForge
 ) -> None:
-    store = cli.store_for(inst)
+    store = run_support.store_for(inst)
     store.upsert([unit(UNIT)])
     store.set_state(UNIT, IN_REVIEW, pr=PR, branch=f"spec/{UNIT}")
     cli.poll_all(inst, store=store)

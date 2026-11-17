@@ -43,7 +43,7 @@ def installation(
     builder = Builder(store)
     builder.scripts[UNIT] = lambda: RunStatus.SATISFIED
     builder.ends[UNIT] = (SATISFIED, None, "scheduled e2e-test passed")
-    monkeypatch.setattr(cli, "build_runner", builder)
+    monkeypatch.setattr("agent_build_kit.run_support.build_runner", builder)
     return inst, store, builder
 
 
@@ -60,7 +60,7 @@ def isolated(monkeypatch: pytest.MonkeyPatch) -> None:
     on_today(monkeypatch)
     isolate(monkeypatch)
     monkeypatch.setattr(cli, "plan_all", plan_scheduled)
-    monkeypatch.setattr(cli, "has_thread", lambda inst, unit_id: False)
+    monkeypatch.setattr("agent_build_kit.run_support.has_thread", lambda inst, unit_id: False)
 
 
 def in_review(store: UnitStore, uid: str) -> None:
@@ -140,7 +140,8 @@ def test_a_usage_refusal_delays_the_scheduled_unit_until_the_guard_admits_a_unit
 ) -> None:
     inst, store, builder = installation(tmp_path, monkeypatch)
     monkeypatch.setattr(
-        cli, "may_start_unit", lambda r, **_: Decision(may_start=False, reason="session at 88%")
+        "agent_build_kit.run_support.may_start_unit",
+        lambda r, **_: Decision(may_start=False, reason="session at 88%"),
     )
 
     assert tick(inst) == 0
@@ -150,7 +151,10 @@ def test_a_usage_refusal_delays_the_scheduled_unit_until_the_guard_admits_a_unit
     assert builder.started == []
     assert [unit.id for unit in store.all() if is_scheduled(unit.change)] == []
 
-    monkeypatch.setattr(cli, "may_start_unit", lambda r, **_: Decision(may_start=True, reason="ok"))
+    monkeypatch.setattr(
+        "agent_build_kit.run_support.may_start_unit",
+        lambda r, **_: Decision(may_start=True, reason="ok"),
+    )
     assert tick(inst) == 0
 
     assert builder.started == [UNIT]

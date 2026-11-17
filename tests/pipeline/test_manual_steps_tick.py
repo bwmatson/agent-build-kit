@@ -437,7 +437,7 @@ def test_a_readmitted_unit_goes_on_at_the_agent_step_it_was_parked_before(
         delivered.append(kwargs["reason"])
         return to_graph(*args, **kwargs)
 
-    monkeypatch.setattr(cli, "resume_thread", deliver)
+    monkeypatch.setattr("agent_build_kit.run_support.resume_thread", deliver)
 
     cli.evaluate_manual_waits(inst, recorder.store)
     assert delivered == [], "the step is not done yet"

@@ -20,6 +20,7 @@ from pathlib import Path
 
 import pytest
 
+from agent_build_kit import worker_run
 from agent_build_kit.pipeline.unit_store import UnitStore
 from agent_build_kit.pipeline.units import Unit
 from agent_build_kit.pipeline.usage_guard import RateLimited, rate_limit_reset
@@ -155,7 +156,6 @@ def test_being_refused_pauses_the_tick_rather_than_failing_the_unit(
 ) -> None:
     """The unit is fine — the account is out of room. Marking it failed would
     drop real work from the plan for a reason that has nothing to do with it."""
-    from agent_build_kit.cli import pipeline as cli
     from agent_build_kit.pipeline import pause
     from tests.conftest import make_installation
 
@@ -169,9 +169,9 @@ def test_being_refused_pauses_the_tick_rather_than_failing_the_unit(
         def run(self, unit, *, base, graph):
             raise RateLimited("usage limit reached", resets_at=when)
 
-    monkeypatch.setattr(cli, "build_runner", lambda unit, **kw: Refusing())
+    monkeypatch.setattr("agent_build_kit.run_support.build_runner", lambda unit, **kw: Refusing())
 
-    keep_going = cli.build_unit(inst, store.get("c/1"), store=store)
+    keep_going = worker_run.build_unit(inst, store.get("c/1"), store=store)
 
     assert keep_going is False, "no retry loop: the rest of the round is abandoned"
     assert store.get("c/1").state != "failed"

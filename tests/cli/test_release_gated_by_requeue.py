@@ -35,10 +35,9 @@ def test_only_a_planned_unit_with_a_saved_requeue_whose_waits_have_cleared_is_re
 ) -> None:
     store = UnitStore(tmp_path / "units.json")
     delivered: list[str] = []
-    monkeypatch.setattr(cli, "has_thread", lambda inst, unit_id: True)
+    monkeypatch.setattr("agent_build_kit.run_support.has_thread", lambda inst, unit_id: True)
     monkeypatch.setattr(
-        cli,
-        "resume_thread",
+        "agent_build_kit.run_support.resume_thread",
         lambda inst, unit, kind, **kwargs: delivered.append(unit.id) or object(),
     )
     store.upsert(

@@ -23,7 +23,7 @@ def test_a_run_waiting_for_a_usage_pause_is_listed_with_the_pause_as_its_reason(
     store.upsert(units(3)[2:])
     store.set_state("feature/3", PLANNED, branch="spec/feature/3", cause=Cause.RESTACK_DEFERRED)
     pause_until(None, reason="session at 99%", marker=inst.state_dir / PAUSE_MARKER)
-    monkeypatch.setattr(cli, "current_usage", lambda: None)
+    monkeypatch.setattr("agent_build_kit.run_support.current_usage", lambda: None)
 
     assert cli.cmd_status(argparse.Namespace(), inst) == 0
 

@@ -36,7 +36,7 @@ def test_the_status_names_the_rejected_login_and_the_units_paused_for_it(
         tmp_path, [unit("a/1", "platform"), unit("b/1", "platform"), unit("c/1", "app")]
     )
     host.keep_in(inst.state_dir)
-    monkeypatch.setattr(cli, "current_usage", lambda: None)
+    monkeypatch.setattr("agent_build_kit.run_support.current_usage", lambda: None)
     account = claude_account.resolve(inst, PERSONAL)
     assert account.config_dir is not None
     write_credentials(account.config_dir, "old-token", ms_from_now(HOUR_MS))
@@ -59,6 +59,6 @@ def test_nothing_is_said_of_units_paused_when_no_login_is_rejected(
 ) -> None:
     inst, store = workspace(tmp_path, [unit("a/1", "app")])
     host.keep_in(inst.state_dir)
-    monkeypatch.setattr(cli, "current_usage", lambda: None)
+    monkeypatch.setattr("agent_build_kit.run_support.current_usage", lambda: None)
 
     assert not any("paused for the login" in line for line in status_lines(inst, capsys))

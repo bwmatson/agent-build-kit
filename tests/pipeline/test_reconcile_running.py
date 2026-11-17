@@ -16,7 +16,6 @@ from pathlib import Path
 import pytest
 
 from agent_build_kit.cli import main
-from agent_build_kit.cli import pipeline as cli
 from agent_build_kit.cli.pipeline import reconcile_running, resumable_units
 from agent_build_kit.config import dump
 from agent_build_kit.installation import Installation
@@ -92,7 +91,7 @@ def test_a_running_unit_with_a_thread_is_left_to_resume(
 ) -> None:
     branch = stored(store, "add-marker/1")
     lock_held_by(inst, branch, dead_pid())
-    monkeypatch.setattr(cli, "has_thread", lambda inst, unit_id: True)
+    monkeypatch.setattr("agent_build_kit.run_support.has_thread", lambda inst, unit_id: True)
 
     reconcile_running(inst, store)
 

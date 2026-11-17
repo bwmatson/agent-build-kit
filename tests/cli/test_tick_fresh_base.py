@@ -11,7 +11,6 @@ from pathlib import Path
 
 import pytest
 
-from agent_build_kit.cli import pipeline as cli
 from agent_build_kit.forges.base import PullRequest
 from agent_build_kit.pipeline.pr_poller import PrState, snapshot, state_path
 from agent_build_kit.pipeline.stack_runner import UnitRunner
@@ -41,16 +40,20 @@ def test_a_parent_merged_on_the_forge_but_not_in_the_store_is_recorded_during_th
     moved_onto: list[str] = []
     made = [0]
     monkeypatch.setattr(
-        cli, "build_restack", lambda **kw: lambda **a: pytest.fail("restacked a tree in use")
+        "agent_build_kit.pipeline.events.build_restack",
+        lambda **kw: lambda **a: pytest.fail("restacked a tree in use"),
     )
     monkeypatch.setattr(
-        cli, "build_retarget", lambda: lambda unit, base: retargeted.append((unit.id, base))
+        "agent_build_kit.pipeline.events.build_retarget",
+        lambda: lambda unit, base: retargeted.append((unit.id, base)),
     )
     monkeypatch.setattr(
-        cli, "build_remove_worktree", lambda *a, **k: lambda repo, branch: removed.append(branch)
+        "agent_build_kit.pipeline.events.build_remove_worktree",
+        lambda *a, **k: lambda repo, branch: removed.append(branch),
     )
     monkeypatch.setattr(
-        cli, "build_delete_branch", lambda *a, **k: lambda repo, branch: deleted.append(branch)
+        "agent_build_kit.pipeline.events.build_delete_branch",
+        lambda *a, **k: lambda repo, branch: deleted.append(branch),
     )
 
     def runner(unit, *, store: UnitStore, installation, record_merge, log, **kwargs) -> UnitRunner:
@@ -88,7 +91,7 @@ def test_a_parent_merged_on_the_forge_but_not_in_the_store_is_recorded_during_th
             fresh_base=build_fresh_base(store, record_merge=record_merge),
         )
 
-    monkeypatch.setattr(cli, "build_runner", runner)
+    monkeypatch.setattr("agent_build_kit.run_support.build_runner", runner)
 
     assert tick(inst) == 0
 

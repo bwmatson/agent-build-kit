@@ -29,6 +29,7 @@ from agent_build_kit.pipeline.wait_log import Wait, recorded_waits
 from tests.conftest import make_installation
 from tests.factories import own_group
 from tests.pipeline.test_cli_pipeline import stored
+from tests.worker_run_patches import patch_target
 
 PERSONAL = "personal"
 
@@ -61,7 +62,7 @@ class Accounts:
 def accounts(monkeypatch: pytest.MonkeyPatch) -> Accounts:
     answers = Accounts()
     # One source for admission and for the gate of an agent step (`build_usage_gate`).
-    monkeypatch.setattr(cli, "decide_start", answers)
+    monkeypatch.setattr("agent_build_kit.run_support.decide_start", answers)
     monkeypatch.setattr(wiring, "decide_start", answers)
     return answers
 
@@ -69,7 +70,7 @@ def accounts(monkeypatch: pytest.MonkeyPatch) -> Accounts:
 @pytest.fixture(autouse=True)
 def isolated(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     for name in ("poll_all", "fetch_all", "plan_all"):
-        monkeypatch.setattr(cli, name, lambda inst, **kwargs: None)
+        monkeypatch.setattr(patch_target(name), name, lambda inst, **kwargs: None)
     monkeypatch.setattr(cli, "has_identity", lambda inst, repo: True)
     monkeypatch.setattr(cli, "archive_ready_changes", lambda *a, **k: [])
     monkeypatch.setattr(cli, "verify_ready", lambda inst, units, **kwargs: lambda change: True)

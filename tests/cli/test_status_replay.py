@@ -36,7 +36,7 @@ def status(
         planning=dict(state_dir=".", worktree_root=str(tmp_path.parent / "trees")),
     )
     UnitStore(tmp_path / "units.json").upsert([stored_unit("one/1", change="one")])
-    monkeypatch.setattr(cli, "current_usage", lambda: None)
+    monkeypatch.setattr("agent_build_kit.run_support.current_usage", lambda: None)
 
     assert cli.cmd_status(argparse.Namespace(), workspace) == 0
 

@@ -13,7 +13,7 @@ import pytest
 import yaml
 
 from agent_build_kit.cli import main
-from agent_build_kit.cli.pipeline import StackBusy, verify_one
+from agent_build_kit.cli.pipeline import verify_one
 from agent_build_kit.config import (
     ConfigError,
     LimitsConfig,
@@ -23,6 +23,7 @@ from agent_build_kit.config import (
     load,
 )
 from agent_build_kit.pipeline import e2e
+from agent_build_kit.worker_run import StackBusy
 from tests.conftest import make_installation
 from tests.e2e_lock_fakes import SleepingTime, held, install_clock
 

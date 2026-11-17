@@ -10,7 +10,6 @@ from pathlib import Path
 
 import pytest
 
-from agent_build_kit.cli import pipeline as cli
 from agent_build_kit.pipeline import wiring
 from agent_build_kit.pipeline.unit_store import Cause
 from agent_build_kit.pipeline.units import RUNNING
@@ -67,7 +66,7 @@ def refuse_the_paused(monkeypatch: pytest.MonkeyPatch) -> None:
             return Decision(may_start=False, reason="session usage at 93%", resume_at=UNTIL)
         return Decision(may_start=True, reason="plenty")
 
-    monkeypatch.setattr(cli, "decide_start", decide)
+    monkeypatch.setattr("agent_build_kit.run_support.decide_start", decide)
     monkeypatch.setattr(wiring, "decide_start", decide)
 
 

@@ -23,6 +23,7 @@ from tests.dispatcher_support import FakeSpawner, install_spawner, processes_wor
 from tests.emergency_lane_support import build
 from tests.lane_run_slots import as_owed_comment
 from tests.tick_pass import Builder, install_builder, isolate, stored, tick, warm_unit_graphs
+from tests.worker_run_patches import patch_target
 
 pytestmark = pytest.mark.usefixtures("scripted_engine")
 
@@ -99,7 +100,7 @@ def test_a_tick_builds_no_resolution_lane_and_ends_without_waiting_for_a_run(
     tmp_path: Path, builder: Builder, spawner: FakeSpawner, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     for name in ("build_restack_lane", "ResolutionLane", "ResolutionLanes"):
-        monkeypatch.setattr(cli, name, never_built, raising=False)
+        monkeypatch.setattr(patch_target(name), name, never_built, raising=False)
     inst = processes_workspace(tmp_path)
     in_review_run_in_a_worker(inst, builder)
 
@@ -183,7 +184,7 @@ def test_an_idle_tick_starts_nothing_and_makes_no_host_call(
         raise AssertionError("an idle dispatcher calls the host")
 
     for name in ("poll_all", "fetch_all", "current_usage"):
-        monkeypatch.setattr(cli, name, host)
+        monkeypatch.setattr(patch_target(name), name, host)
 
     assert tick(inst) == 0
     assert spawner.units == ["a/1"]
@@ -212,7 +213,8 @@ def test_a_unit_whose_usage_pause_has_not_reached_its_time_holds_its_place_and_g
     builder.store.set_state("a/1", RUNNING, branch="spec/a/1")
     builder.store.set_usage_pause("a/1", datetime.now(UTC) + timedelta(hours=1))
     monkeypatch.setattr(
-        cli, "may_start_unit", lambda reading, **_: Decision(may_start=False, reason="paused")
+        "agent_build_kit.run_support.may_start_unit",
+        lambda reading, **_: Decision(may_start=False, reason="paused"),
     )
 
     assert tick(inst) == 0
@@ -221,7 +223,8 @@ def test_a_unit_whose_usage_pause_has_not_reached_its_time_holds_its_place_and_g
 
     builder.store.set_usage_pause("a/1", datetime.now(UTC) - timedelta(minutes=1))
     monkeypatch.setattr(
-        cli, "may_start_unit", lambda reading, **_: Decision(may_start=True, reason="plenty")
+        "agent_build_kit.run_support.may_start_unit",
+        lambda reading, **_: Decision(may_start=True, reason="plenty"),
     )
 
     assert tick(inst) == 0

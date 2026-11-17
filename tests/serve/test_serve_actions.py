@@ -31,10 +31,10 @@ def pipeline(
     """The API over the seeded pipeline. `seed_pipeline` seeds no unit thread, so the thread-store
     probe is answered as it would be (no thread), without the graph import and the SQLite open
     whose time grows with the machine's load and outlasts a request's budget."""
-    from agent_build_kit.cli import pipeline as cli_pipeline
+    from agent_build_kit import run_support
 
-    monkeypatch.setattr(cli_pipeline, "has_thread", lambda inst, unit_id: False)
-    monkeypatch.setattr(cli_pipeline, "resume_thread", lambda inst, unit, kind, **kwargs: None)
+    monkeypatch.setattr("agent_build_kit.run_support.has_thread", lambda inst, unit_id: False)
+    monkeypatch.setattr(run_support, "resume_thread", lambda inst, unit, kind, **kwargs: None)
     seed_pipeline(inst)
     return api
 
@@ -138,7 +138,7 @@ def test_an_invalid_mode_is_refused_before_anything_is_logged(
 def test_a_hold_is_delivered_to_the_units_thread_as_the_poller_would(
     pipeline: httpx.Client, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    from agent_build_kit.cli import pipeline as cli_pipeline
+    from agent_build_kit import run_support
 
     delivered: list[tuple[str, str]] = []
 
@@ -146,7 +146,7 @@ def test_a_hold_is_delivered_to_the_units_thread_as_the_poller_would(
         delivered.append((unit.id, kind))
         return object()
 
-    monkeypatch.setattr(cli_pipeline, "resume_thread", resume)
+    monkeypatch.setattr(run_support, "resume_thread", resume)
 
     answer = act(pipeline, "feature/2", "hold")
 

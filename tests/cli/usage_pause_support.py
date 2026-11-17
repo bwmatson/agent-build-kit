@@ -21,13 +21,14 @@ from agent_build_kit.pipeline.units import RUNNING
 from tests.cli.test_admission_asks_own_account import PERSONAL, Accounts
 from tests.conftest import make_installation
 from tests.tick_pass import stored
+from tests.worker_run_patches import patch_target
 
 
 def isolate_round(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Accounts:
     """Everything around a round stubbed but the usage decision, which is returned: it allows
     every account until a test fills one (`full`)."""
     for name in ("poll_all", "fetch_all", "plan_all"):
-        monkeypatch.setattr(cli, name, lambda inst, **kwargs: None)
+        monkeypatch.setattr(patch_target(name), name, lambda inst, **kwargs: None)
     monkeypatch.setattr(cli, "has_identity", lambda inst, repo: True)
     monkeypatch.setattr(cli, "archive_ready_changes", lambda *a, **k: [])
     monkeypatch.setattr(cli, "verify_ready", lambda inst, units, **kwargs: lambda change: True)
@@ -36,7 +37,7 @@ def isolate_round(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Accounts:
         conn.execute("PRAGMA journal_mode=WAL")
     accounts = Accounts()
     # One source for admission and for the gate of an agent step (`build_usage_gate`).
-    monkeypatch.setattr(cli, "decide_start", accounts)
+    monkeypatch.setattr("agent_build_kit.run_support.decide_start", accounts)
     monkeypatch.setattr(wiring, "decide_start", accounts)
     return accounts
 
@@ -72,7 +73,9 @@ def unit(uid: str, repo: str = "app", **overrides) -> StoredUnit:
 
 def with_threads(monkeypatch: pytest.MonkeyPatch, *unit_ids: str) -> None:
     """Only these units have a thread a run left."""
-    monkeypatch.setattr(cli, "has_thread", lambda _inst, unit_id: unit_id in unit_ids)
+    monkeypatch.setattr(
+        "agent_build_kit.run_support.has_thread", lambda _inst, unit_id: unit_id in unit_ids
+    )
 
 
 def pause_for_usage(store: UnitStore, unit_id: str, until: datetime) -> None:

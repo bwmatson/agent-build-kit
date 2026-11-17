@@ -10,9 +10,8 @@ from pathlib import Path
 
 import pytest
 
-from agent_build_kit import trackers
+from agent_build_kit import run_support, trackers
 from agent_build_kit.cli import build_parser
-from agent_build_kit.cli import pipeline as cli
 from agent_build_kit.cli.units_cmd import cmd_units_prune
 from agent_build_kit.installation import Installation
 from agent_build_kit.pipeline.unit_store import StoredUnit, UnitStore
@@ -39,7 +38,7 @@ def inst(tmp_path: Path) -> Installation:
 def tombstones(inst: Installation, *extra: StoredUnit) -> UnitStore:
     """x/3 carried group 3 and was demoted when x/4 took it (nothing else names it), and x/5 is a
     tombstone with work that nothing replaced."""
-    store = cli.store_for(inst)
+    store = run_support.store_for(inst)
     store.upsert([stored_unit("x/3", change="x", groups=(3,)), *extra])
     store.upsert([stored_unit("x/4", change="x", groups=(3,))], change="x")
     store.import_units(
@@ -152,7 +151,7 @@ def groups_gone(inst: Installation, tasks: str | None = None) -> UnitStore:
     """Change x has groups 1 and 2. x/6 carried group 6 and x/7 carried groups 2 and 6; the plan
     dropped both and x/1 stays. Change bad has the same shape, with `tasks` for its tasks (None
     leaves the file out), so its groups cannot be read."""
-    store = cli.store_for(inst)
+    store = run_support.store_for(inst)
     write_change(inst.changes_dir, "bad")
     tasks_file = inst.changes_dir / "bad" / "tasks.md"
     if tasks is None:
@@ -223,7 +222,7 @@ def test_a_unit_the_store_kept_after_it_was_cleared_says_why(
 
 
 def test_nothing_unplanned_says_so(inst: Installation, capsys: pytest.CaptureFixture[str]) -> None:
-    cli.store_for(inst).upsert([stored_unit("x/1", change="x", groups=(1,))])
+    run_support.store_for(inst).upsert([stored_unit("x/1", change="x", groups=(1,))])
 
     assert prune(inst, dry_run=True) == 0
 

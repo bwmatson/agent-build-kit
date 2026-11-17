@@ -12,7 +12,7 @@ from typing import Any
 
 import pytest
 
-from agent_build_kit.cli import pipeline as cli
+from agent_build_kit import worker_run
 from agent_build_kit.forges.base import RepoId
 from agent_build_kit.forges.github import GitHubForge
 from agent_build_kit.forges.resilient import ResilientForge, RetryPolicy
@@ -43,9 +43,9 @@ def build_once(
     clear_credentials()
     recorder = Recorder(store)
     runner = make_runner(store, recorder, tmp_path, **overrides)
-    monkeypatch.setattr(cli, "build_runner", lambda u, **kw: runner)
+    monkeypatch.setattr("agent_build_kit.run_support.build_runner", lambda u, **kw: runner)
 
-    assert cli.build_unit(inst, store.get(UNIT), store=store) is True
+    assert worker_run.build_unit(inst, store.get(UNIT), store=store) is True
     return recorder
 
 

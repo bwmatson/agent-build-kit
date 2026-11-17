@@ -84,7 +84,9 @@ def write_marker(tmp_path: Path, *, until: datetime) -> None:
 def tick(monkeypatch: pytest.MonkeyPatch) -> list[str]:
     """One tick that builds what it starts with a runner that only records it."""
     built: list[str] = []
-    monkeypatch.setattr(cli, "build_runner", lambda unit, **kwargs: FakeRunner(built))
+    monkeypatch.setattr(
+        "agent_build_kit.run_support.build_runner", lambda unit, **kwargs: FakeRunner(built)
+    )
     assert cli.cmd_tick(argv_namespace(dry_run=False), base.inst) == 0
     return built
 
@@ -190,10 +192,11 @@ def test_a_usage_or_rate_limit_pause_never_asks_the_probe(
     kind: str,
 ) -> None:
     UnitStore(tmp_path / "units.json").upsert([stored()])
-    monkeypatch.setattr(cli, "current_usage", lambda: base.reading(session_pct=88))
     monkeypatch.setattr(
-        cli,
-        "may_start_unit",
+        "agent_build_kit.run_support.current_usage", lambda: base.reading(session_pct=88)
+    )
+    monkeypatch.setattr(
+        "agent_build_kit.run_support.may_start_unit",
         lambda r: Decision(may_start=False, reason="session usage at 88%", resume_at=r.resets_at),
     )
     write_marker(tmp_path, until=datetime.now(UTC) + timedelta(hours=1))
@@ -221,7 +224,7 @@ def test_status_shows_the_pause_as_waiting_for_the_network_with_its_reason(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     UnitStore(tmp_path / "units.json").upsert([stored()])
-    monkeypatch.setattr(cli, "current_usage", lambda: None)
+    monkeypatch.setattr("agent_build_kit.run_support.current_usage", lambda: None)
     write_marker(tmp_path, until=datetime.now(UTC) + timedelta(hours=1))
 
     assert cli.cmd_status(argparse.Namespace(), base.inst) == 0

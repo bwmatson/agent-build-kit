@@ -9,6 +9,7 @@ from pathlib import Path
 
 import pytest
 
+from agent_build_kit import run_support
 from agent_build_kit.cli import pipeline as cli
 from agent_build_kit.pipeline.unit_store import UnitStore
 from agent_build_kit.pipeline.units import IN_REVIEW
@@ -99,7 +100,7 @@ def listed_in_status(
 ) -> list[str]:
     inst = make_installation(tmp_path)
     configure(enabled=enabled)
-    store = cli.store_for(inst)
+    store = run_support.store_for(inst)
     store.upsert([stored_unit("a/1", estimated_lines=600, review_tier=tier, repo=repo)])
     store.set_actual_lines("a/1", lines)
     capsys.readouterr()

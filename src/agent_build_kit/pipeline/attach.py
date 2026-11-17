@@ -70,7 +70,7 @@ def discard(inst: Installation, unit: StoredUnit) -> None:
 
 
 def state_of(inst: Installation, unit: StoredUnit) -> str:
-    from agent_build_kit.cli.pipeline import store_for
+    from agent_build_kit.run_support import store_for
 
     return str(store_for(inst).get(unit.id).state)
 
@@ -78,7 +78,7 @@ def state_of(inst: Installation, unit: StoredUnit) -> str:
 def deliver(inst: Installation, unit: StoredUnit, commit: str) -> bool:
     """Hand the unit's thread the adopted event for `commit`. False when the branch is busy
     or the delivery failed; a unit with no thread has nothing to be handed."""
-    from agent_build_kit.cli.pipeline import resume_thread, store_for
+    from agent_build_kit.run_support import resume_thread, store_for
 
     store = store_for(inst)
     try:
@@ -212,8 +212,8 @@ def commit_planning(
     lease; no unit is sent anything or changed. Raises `CommitRejected` when the gate still
     rejects the commit after the agent's fixes, and `NothingToCommit` when the checkout holds
     no change."""
-    from agent_build_kit.cli.pipeline import store_for
     from agent_build_kit.pipeline.wiring import build_commit
+    from agent_build_kit.run_support import store_for
 
     before = git_out(inst.root, "rev-parse", "HEAD")
     if not build_commit(fix=fix, gate=planning_gate(inst, unit.change), only=planning_only(inst))(

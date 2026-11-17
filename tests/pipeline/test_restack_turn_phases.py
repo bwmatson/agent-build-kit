@@ -15,7 +15,6 @@ from typing import Any
 
 import pytest
 
-from agent_build_kit.cli import pipeline as cli
 from agent_build_kit.pipeline import restack
 from agent_build_kit.pipeline.file_lock import file_lock
 from agent_build_kit.pipeline.restack import (
@@ -337,8 +336,8 @@ def test_a_remote_that_moved_is_refused_by_the_lease_and_the_move_is_not_retried
         moves.append("move")
         return real_move(*args, **kwargs)
 
-    monkeypatch.setattr(cli, "build_unit_test", unit_test)
-    monkeypatch.setattr(cli, "push_with_lease", refused)
+    monkeypatch.setattr("agent_build_kit.run_support.build_unit_test", unit_test)
+    monkeypatch.setattr("agent_build_kit.run_support.push_with_lease", refused)
     monkeypatch.setattr(restack, "move_branch_onto", counting_move)
 
     with pytest.raises(StaleRemote):

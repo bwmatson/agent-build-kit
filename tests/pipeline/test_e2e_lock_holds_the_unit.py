@@ -13,13 +13,13 @@ from pathlib import Path
 
 import pytest
 
-from agent_build_kit.cli import pipeline as cli
-from agent_build_kit.cli.pipeline import StackBusy, verify_one
+from agent_build_kit.cli.pipeline import verify_one
 from agent_build_kit.installation import Installation
 from agent_build_kit.pipeline import wiring
 from agent_build_kit.pipeline.e2e import stack_lock
 from agent_build_kit.pipeline.unit_store import UnitStore
 from agent_build_kit.pipeline.verify import Verification
+from agent_build_kit.worker_run import StackBusy
 from tests.e2e_lock_fakes import (
     STEP,
     Foreign,
@@ -225,7 +225,7 @@ def test_a_caller_with_its_own_wait_holds_under_its_name_and_still_gets_busy(
         seen.append(lock.read_text())
         return Verification(change=change, passed=True)
 
-    monkeypatch.setattr(cli, "verify_change", verified)
+    monkeypatch.setattr("agent_build_kit.worker_run.verify_change", verified)
     verify_one(workspace, "add-marker", [], wait=30)
 
     assert json.loads(seen[0])["unit"] == "verify add-marker"

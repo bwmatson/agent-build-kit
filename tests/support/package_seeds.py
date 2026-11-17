@@ -37,7 +37,9 @@ def seeds() -> Seeds:
                 "trackers.pr_attach",
             }
         ),
-        worker=frozenset({"cli.worker", "graph", "pipeline.resolution_lane", "pipeline.verify"}),
+        worker=frozenset(
+            {"cli.worker", "graph", "pipeline.resolution_lane", "pipeline.verify", "worker_run"}
+        ),
         orchestrator=frozenset(
             {
                 "__main__",
@@ -102,8 +104,6 @@ def baseline() -> frozenset[tuple[str, str]]:
             ("cli.pipeline", "graph.state"),
             ("cli.pipeline", "pipeline.resolution_lane"),
             ("cli.pipeline", "pipeline.verify"),
-            ("cli.worker", "cli.pipeline"),
-            ("cli.worker", "pipeline.admission"),
             ("graph.nodes", "pipeline.events"),
             ("pipeline.admission", "pipeline.resolution_lane"),
             ("pipeline.resolution_lane", "pipeline.events"),

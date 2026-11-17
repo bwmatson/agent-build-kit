@@ -6,7 +6,7 @@ import argparse
 import sys
 from datetime import UTC, datetime
 
-from agent_build_kit.cli.pipeline import late_fix_phrase, local_time, store_for
+from agent_build_kit.cli.pipeline import late_fix_phrase, local_time
 from agent_build_kit.installation import Installation
 from agent_build_kit.pipeline import spans
 from agent_build_kit.pipeline.admission_record import (
@@ -20,6 +20,7 @@ from agent_build_kit.pipeline.regression_agent import waited_fixes
 from agent_build_kit.pipeline.resolution_lane import lane_record, resolving_phrase
 from agent_build_kit.pipeline.unit_store import Cause
 from agent_build_kit.pipeline.units import PLANNED, RUNNING, history_stamp
+from agent_build_kit.run_support import store_for
 
 
 def _usage_line(record: AdmissionRecord) -> str:

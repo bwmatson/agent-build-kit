@@ -24,6 +24,7 @@ ALLOWED = {
     "pipeline/verdict_record.py",
     "graph/nodes.py",
     "cli/pipeline.py",
+    "run_support.py",
     "pipeline/labels.py",
     "pipeline/review_order.py",
     "serve/server.py",

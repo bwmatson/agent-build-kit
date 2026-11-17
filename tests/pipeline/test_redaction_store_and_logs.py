@@ -361,8 +361,7 @@ def test_verification_detail_holds_the_replacement(
     from agent_build_kit.pipeline.verify import Verification
 
     monkeypatch.setattr(
-        pipeline_cli,
-        "verify_change",
+        "agent_build_kit.worker_run.verify_change",
         lambda *a, **k: Verification(change="add-marker", passed=False, detail=f"down: {SECRET}"),
     )
     root = config.active_root()

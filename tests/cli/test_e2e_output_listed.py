@@ -54,7 +54,7 @@ def test_status_shows_the_file_of_a_unit_whose_last_result_was_a_e2e_failure(
         "feature/1", f"e2e-test failed:\n{_snapshot(shown)}", source=FeedbackSource.E2E
     )
     store.set_feedback("alone/1", "unit-test failed:\nlint", source=FeedbackSource.UNIT_TEST)
-    monkeypatch.setattr(pipeline_cli, "current_usage", lambda: None)
+    monkeypatch.setattr("agent_build_kit.run_support.current_usage", lambda: None)
 
     assert pipeline_cli.cmd_status(argparse.Namespace(), workspace) == 0
 
@@ -76,7 +76,7 @@ def _status_of(
     store = UnitStore(tmp_path / "units.json")
     store.upsert([new_unit("feature/1", state=FAILED)])
     store.set_feedback("feature/1", feedback, source=source)
-    monkeypatch.setattr(pipeline_cli, "current_usage", lambda: None)
+    monkeypatch.setattr("agent_build_kit.run_support.current_usage", lambda: None)
     assert pipeline_cli.cmd_status(argparse.Namespace(), workspace) == 0
     return capsys.readouterr().out.splitlines()
 

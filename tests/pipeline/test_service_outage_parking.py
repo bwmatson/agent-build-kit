@@ -90,6 +90,7 @@ def test_the_status_that_parks_the_unit_is_not_counted_as_a_failed_run(
         real_record(instrument, name, value, log, **labels)
 
     monkeypatch.setattr(cli, "emit_metric", record)
+    monkeypatch.setattr("agent_build_kit.worker_run.emit_metric", record)
     store = fresh_store(tmp_path)
     recorder = Recorder(store)
     recorder.unit_test_results = [

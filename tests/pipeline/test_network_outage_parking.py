@@ -14,6 +14,7 @@ from typing import Any
 
 import pytest
 
+from agent_build_kit import worker_run
 from agent_build_kit.cli import pipeline as cli
 from agent_build_kit.forges.transport import HostUnavailable
 from agent_build_kit.graph.checkpointer import open_checkpointer, unit_graphs_path
@@ -87,9 +88,9 @@ def build_once(
     inst = make_installation(tmp_path, planning={"state_dir": "."}, **(config or {}))
     recorder = recorder or Recorder(store)
     runner = make_runner(store, recorder, tmp_path, **overrides)
-    monkeypatch.setattr(cli, "build_runner", lambda u, **kw: runner)
+    monkeypatch.setattr("agent_build_kit.run_support.build_runner", lambda u, **kw: runner)
 
-    assert cli.build_unit(inst, store.get(UNIT), store=store) is True
+    assert worker_run.build_unit(inst, store.get(UNIT), store=store) is True
     return recorder
 
 
@@ -162,6 +163,7 @@ def test_a_parked_unit_keeps_its_branch_thread_feedback_and_round_counts(
         real_record(instrument, name, value, log, **labels)
 
     monkeypatch.setattr(cli, "emit_metric", record)
+    monkeypatch.setattr("agent_build_kit.worker_run.emit_metric", record)
     store = fresh_store(tmp_path)
     recorder = Recorder(store)
     recorder.unit_test_results = [

@@ -37,7 +37,7 @@ class Scene:
         self.store = UnitStore(root / "units.json")
         self.store.upsert([stored_unit(f"change-{n}/1", change=f"change-{n}") for n in range(1, 6)])
         self.moves = Restacks()
-        monkeypatch.setattr(cli, "current_usage", lambda: None)
+        monkeypatch.setattr("agent_build_kit.run_support.current_usage", lambda: None)
 
     def lane(self) -> Lane:
         return cli.build_restack_lane(self.inst, self.store)

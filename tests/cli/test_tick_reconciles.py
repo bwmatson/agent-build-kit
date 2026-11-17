@@ -43,7 +43,7 @@ def test_a_tick_records_the_merge_the_cache_shows_and_records_the_child_as_owed_
 
         return move
 
-    monkeypatch.setattr(cli, "build_restack", restack)
+    monkeypatch.setattr("agent_build_kit.pipeline.events.build_restack", restack)
 
     assert graph.tick() == 0
 

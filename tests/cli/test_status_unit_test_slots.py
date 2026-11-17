@@ -30,7 +30,7 @@ def workspace_with(
         global_limits={"max_concurrent_unit_tests": limit},
     )
     UnitStore(tmp_path / "units.json").upsert([stored_unit("one/1", change="one")])
-    monkeypatch.setattr(cli, "current_usage", lambda: None)
+    monkeypatch.setattr("agent_build_kit.run_support.current_usage", lambda: None)
     install(monkeypatch)
     return installation
 

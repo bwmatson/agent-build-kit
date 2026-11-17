@@ -18,6 +18,7 @@ from pathlib import Path
 
 import pytest
 
+from agent_build_kit import run_support
 from agent_build_kit.cli import pipeline as cli
 from agent_build_kit.graph.checkpointer import unit_graphs_path
 from agent_build_kit.installation import Installation
@@ -83,9 +84,12 @@ def isolated(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(cli, "poll_all", lambda inst, **kwargs: None)
     monkeypatch.setattr(cli, "fetch_all", lambda inst: None)
     monkeypatch.setattr(cli, "has_identity", lambda inst, repo: True)
-    monkeypatch.setattr(cli, "has_thread", lambda inst, unit_id: False)
-    monkeypatch.setattr(cli, "current_usage", lambda: None)
-    monkeypatch.setattr(cli, "may_start_unit", lambda r: Decision(may_start=True, reason="plenty"))
+    monkeypatch.setattr("agent_build_kit.run_support.has_thread", lambda inst, unit_id: False)
+    monkeypatch.setattr("agent_build_kit.run_support.current_usage", lambda: None)
+    monkeypatch.setattr(
+        "agent_build_kit.run_support.may_start_unit",
+        lambda r: Decision(may_start=True, reason="plenty"),
+    )
 
 
 def unit_of(uid: str, **overrides) -> StoredUnit:
@@ -139,7 +143,7 @@ def run(
 def test_a_change_added_between_refreshes_is_planned_stored_paged_and_started(
     inst: Installation, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    store = cli.store_for(inst)
+    store = run_support.store_for(inst)
     store.upsert([unit_of("slow/1", repo="platform")])
     store.set_state("slow/1", RUNNING, branch="spec/slow/1")
     planning(monkeypatch)
@@ -261,7 +265,7 @@ def verified(monkeypatch: pytest.MonkeyPatch) -> list[str]:
         merged = sorted(u.id for u in units if u.carries(change) and u.state == MERGED and u.pr)
         return Verification(change=change, passed=True, units=merged)
 
-    monkeypatch.setattr(cli, "verify_change", verify)
+    monkeypatch.setattr("agent_build_kit.worker_run.verify_change", verify)
     return asked
 
 
@@ -381,7 +385,9 @@ def test_a_unit_the_pass_started_is_not_reclaimed_until_the_pass_ends(
 def resumed(monkeypatch: pytest.MonkeyPatch, store: UnitStore, *ids: str) -> None:
     """Units an event put back to running with their thread, and no run on them."""
     running(store, *ids)
-    monkeypatch.setattr(cli, "has_thread", lambda inst, unit_id: unit_id in ids)
+    monkeypatch.setattr(
+        "agent_build_kit.run_support.has_thread", lambda inst, unit_id: unit_id in ids
+    )
 
 
 def capped(tmp_path: Path, slots: int) -> Installation:
@@ -461,7 +467,8 @@ def test_the_cap_reached_by_runs_in_flight_starts_neither_a_planned_nor_a_resume
 
 def refusing(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(
-        cli, "may_start_unit", lambda r: Decision(may_start=False, reason="session at 88%")
+        "agent_build_kit.run_support.may_start_unit",
+        lambda r: Decision(may_start=False, reason="session at 88%"),
     )
 
 
@@ -493,7 +500,10 @@ def test_the_round_after_the_guard_allows_starts_work_again(
     refusing(monkeypatch)
     assert run(inst, store) == []
 
-    monkeypatch.setattr(cli, "may_start_unit", lambda r: Decision(may_start=True, reason="room"))
+    monkeypatch.setattr(
+        "agent_build_kit.run_support.may_start_unit",
+        lambda r: Decision(may_start=True, reason="room"),
+    )
 
     assert run(inst, store) == ["feature/1"]
     assert is_paused(tmp_path / "paused.json") is None
@@ -531,7 +541,7 @@ class Builder:
 @pytest.fixture
 def builder(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Builder:
     fake = Builder(UnitStore(tmp_path / "units.json"))
-    monkeypatch.setattr(cli, "build_runner", fake)
+    monkeypatch.setattr("agent_build_kit.run_support.build_runner", fake)
     return fake
 
 

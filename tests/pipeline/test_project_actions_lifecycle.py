@@ -130,7 +130,7 @@ def test_abk_status_shows_a_waiting_removal(
     planning.tasks(("Project: remove old",))
     inst = planning.inst
     UnitStore(inst.state_dir / "units.json").upsert([carrier(), other_in_old()])
-    monkeypatch.setattr(cli, "current_usage", lambda: None)
+    monkeypatch.setattr("agent_build_kit.run_support.current_usage", lambda: None)
 
     assert cli.cmd_status(argparse.Namespace(), inst) == 0
 

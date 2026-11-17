@@ -19,7 +19,7 @@ pytestmark = pytest.mark.usefixtures("scripted_engine")
 
 
 def status(inst, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]) -> list[str]:
-    monkeypatch.setattr(cli, "current_usage", lambda: None)
+    monkeypatch.setattr("agent_build_kit.run_support.current_usage", lambda: None)
     capsys.readouterr()
     assert cli.cmd_status(argparse.Namespace(), inst) == 0
     return capsys.readouterr().out.splitlines()

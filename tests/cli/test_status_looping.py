@@ -10,7 +10,7 @@ from pathlib import Path
 
 import pytest
 
-from agent_build_kit.cli import pipeline as cli
+from agent_build_kit import run_support
 from agent_build_kit.pipeline.unit_store import Cause
 from agent_build_kit.pipeline.units import HELD, IN_REVIEW, PLANNED
 from tests import fake_clock
@@ -34,7 +34,7 @@ def test_status_lists_a_planned_unit_at_the_limit_under_looping(
     clock: fake_clock.FakeClock,
 ) -> None:
     inst = make_installation(tmp_path)
-    store = cli.store_for(inst)
+    store = run_support.store_for(inst)
     store.upsert([unit("a/1"), unit("a/2"), unit("a/3")], change="a")
     bounce_times(store, "a/1", Cause.BASE_CHANGED, clock, 3, note=NOTE)
     bounce_times(store, "a/2", Cause.BASE_CHANGED, clock, 2, note=NOTE)
@@ -59,7 +59,7 @@ def test_status_lists_nothing_once_the_count_is_zeroed(
     clock: fake_clock.FakeClock,
 ) -> None:
     inst = make_installation(tmp_path)
-    store = cli.store_for(inst)
+    store = run_support.store_for(inst)
     store.upsert([unit("a/1")], change="a")
     bounce_times(store, "a/1", Cause.BASE_CHANGED, clock, 3, note=NOTE)
     assert any("looping:" in line for line in run_status(inst, monkeypatch, capsys))
@@ -76,7 +76,7 @@ def test_the_ready_queue_marks_a_looping_unit_and_still_admits_it(
     clock: fake_clock.FakeClock,
 ) -> None:
     inst = make_installation(tmp_path)
-    store = cli.store_for(inst)
+    store = run_support.store_for(inst)
     store.upsert([unit("a/1"), unit("b/1", change="b")])
     bounce_times(store, "a/1", Cause.BASE_CHANGED, clock, 3, note=NOTE)
 
@@ -91,7 +91,7 @@ def test_the_ready_queue_marks_a_looping_unit_and_still_admits_it(
 def test_the_tick_logs_a_looping_unit_once(
     tmp_path: Path, capsys: pytest.CaptureFixture[str], clock: fake_clock.FakeClock
 ) -> None:
-    store = cli.store_for(make_installation(tmp_path))
+    store = run_support.store_for(make_installation(tmp_path))
     store.upsert([unit("a/1")], change="a")
     capsys.readouterr()
 

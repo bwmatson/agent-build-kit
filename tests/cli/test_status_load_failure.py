@@ -48,7 +48,7 @@ def test_status_lists_the_load_failures_with_how_many_and_not_as_flaky(
             update={"failing": False, "classification": "load"}
         )
     )
-    monkeypatch.setattr(cli, "current_usage", lambda: None)
+    monkeypatch.setattr("agent_build_kit.run_support.current_usage", lambda: None)
 
     assert cli.cmd_status(argparse.Namespace(), installation) == 0
 
@@ -71,7 +71,7 @@ def test_a_loaded_flake_of_a_test_does_not_mark_its_later_unloaded_failure_as_lo
         failing(SLOW, {"cpus": 4, "load_high": True}).model_copy(update={"failing": False})
     )
     record.append(failing(SLOW, {"cpus": 4, "load_high": False}))
-    monkeypatch.setattr(cli, "current_usage", lambda: None)
+    monkeypatch.setattr("agent_build_kit.run_support.current_usage", lambda: None)
 
     assert cli.cmd_status(argparse.Namespace(), installation) == 0
 
@@ -87,7 +87,7 @@ def test_a_failing_line_says_when_the_failure_was_recorded_as_load(
     record.append(failing(SLOW, {"cpus": 4, "load_high": True}))
     record.append(failing(BROKEN, {"cpus": 4, "load_high": False}))
     record.append(failing(UNSAID, {}))
-    monkeypatch.setattr(cli, "current_usage", lambda: None)
+    monkeypatch.setattr("agent_build_kit.run_support.current_usage", lambda: None)
 
     assert cli.cmd_status(argparse.Namespace(), installation) == 0
 

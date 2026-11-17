@@ -42,8 +42,8 @@ def test_status_lists_a_unit_with_unposted_replies_and_a_pending_close(
     store.set_state("one/1", IN_REVIEW, pr=5, branch="spec/one/1")
     store.set_state("two/1", SATISFIED, pr=6)
     store.set_close_pending("two/1", ClosePending(pr=6, reason="Elsewhere."))
-    monkeypatch.setattr(cli, "current_usage", lambda: None)
-    monkeypatch.setattr(cli, "thread_of", position_of)
+    monkeypatch.setattr("agent_build_kit.run_support.current_usage", lambda: None)
+    monkeypatch.setattr("agent_build_kit.run_support.thread_of", position_of)
 
     assert cli.cmd_status(argparse.Namespace(), workspace) == 0
 

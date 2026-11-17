@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from agent_build_kit import run_support
 from agent_build_kit.cli import pipeline as cli
 from agent_build_kit.pipeline.unit_store import REQUEUE_BY, Cause
 from agent_build_kit.pipeline.units import FAILED
@@ -13,7 +14,7 @@ from tests.factories import unit
 
 def requeued_entry(tmp_path: Path, **kw) -> dict:
     inst = make_installation(tmp_path)
-    store = cli.store_for(inst)
+    store = run_support.store_for(inst)
     store.upsert([unit("a/1")], change="a")
     store.set_state("a/1", FAILED, cause=Cause.FAILED, branch="spec/a/1")
 

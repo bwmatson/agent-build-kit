@@ -27,7 +27,7 @@ WAIT = "waiting for dep group 1 to merge"
 
 @pytest.fixture
 def inst(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Installation:
-    monkeypatch.setattr(cli, "has_thread", lambda _inst, _uid: True)
+    monkeypatch.setattr("agent_build_kit.run_support.has_thread", lambda _inst, _uid: True)
     return make_installation(tmp_path, planning={"state_dir": "."})
 
 

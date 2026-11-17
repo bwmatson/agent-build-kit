@@ -257,7 +257,7 @@ def status_line(
     flake_record(workspace).append(
         flaked(TEST, "one/1").model_copy(update={"failing": True, "change": "fix-test-x", **row})
     )
-    monkeypatch.setattr(cli, "current_usage", lambda: None)
+    monkeypatch.setattr("agent_build_kit.run_support.current_usage", lambda: None)
 
     assert cli.cmd_status(argparse.Namespace(), workspace) == 0
 

@@ -20,6 +20,7 @@ from pathlib import Path
 
 import pytest
 
+from agent_build_kit import worker_run
 from agent_build_kit.pipeline.unit_store import UnitStore
 from agent_build_kit.pipeline.units import Unit
 from agent_build_kit.pipeline.wiring import (
@@ -216,7 +217,6 @@ def test_a_unit_whose_commit_was_rejected_carries_the_gates_output_on_its_record
 ) -> None:
     """The reason belongs where a unit's state is read, not only in the tick
     log a person would have to go and find."""
-    from agent_build_kit.cli import pipeline as cli
 
     inst = make_installation(tmp_path, planning={"state_dir": "."})
     store = UnitStore(tmp_path / "units.json")
@@ -237,9 +237,11 @@ def test_a_unit_whose_commit_was_rejected_carries_the_gates_output_on_its_record
         def run(self, unit, *, base, graph):
             raise CommitRejected(f"ruff...Failed\n- hook id: ruff\n\n{LINT_OUTPUT}")
 
-    monkeypatch.setattr(cli, "build_runner", lambda unit, **kwargs: Rejected())
+    monkeypatch.setattr(
+        "agent_build_kit.run_support.build_runner", lambda unit, **kwargs: Rejected()
+    )
 
-    cli.build_unit(inst, store.get("add-marker/1"), store=store)
+    worker_run.build_unit(inst, store.get("add-marker/1"), store=store)
 
     unit = store.get("add-marker/1")
     assert unit.state == "failed"

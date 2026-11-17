@@ -141,7 +141,7 @@ def test_status_lists_the_waiting_change_by_cause(
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    monkeypatch.setattr(cli, "current_usage", lambda: None)
+    monkeypatch.setattr("agent_build_kit.run_support.current_usage", lambda: None)
     waiting(run, "service")
     capsys.readouterr()
 

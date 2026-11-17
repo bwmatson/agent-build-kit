@@ -15,7 +15,6 @@ from collections.abc import Callable
 from typing import Any
 
 from agent_build_kit import trackers
-from agent_build_kit.cli.pipeline import store_for
 from agent_build_kit.installation import Installation
 from agent_build_kit.pipeline.task_progress import TASKS_FILE, progress_root
 from agent_build_kit.pipeline.tracker_file import (
@@ -28,6 +27,7 @@ from agent_build_kit.pipeline.tracker_file import (
     write_tracker,
 )
 from agent_build_kit.pipeline.work_graph import epic_reference, read_tasks, validate_tasks
+from agent_build_kit.run_support import store_for
 from agent_build_kit.trackers.apply import (
     CLOSED_FIELD,
     REMOVED,

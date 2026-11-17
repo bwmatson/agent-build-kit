@@ -19,9 +19,9 @@ from agent_build_kit.pipeline.workspaces import BranchBusy
 def cmd_settle(args: argparse.Namespace, inst: Installation) -> int:
     """Accept a settling unit as merged, with the person's reason in its note."""
     # Late: the pipeline module imports the commands.
-    from agent_build_kit.cli import pipeline as pipe
+    from agent_build_kit import run_support
 
-    store = pipe.store_for(inst)
+    store = run_support.store_for(inst)
     try:
         unit = store.get(args.unit)
     except KeyError:
@@ -46,7 +46,7 @@ def cmd_settle(args: argparse.Namespace, inst: Installation) -> int:
             settle_merged(
                 store,
                 current,
-                lambda each: pipe.merge_record_of(inst, each),
+                lambda each: run_support.merge_record_of(inst, each),
                 note=f"accepted as merged by a person{why}",
             )
     except BranchBusy:

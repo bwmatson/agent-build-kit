@@ -11,7 +11,6 @@ from pathlib import Path
 
 import pytest
 
-from agent_build_kit.cli import pipeline as pipeline_cli
 from agent_build_kit.pipeline import usage_guard
 from agent_build_kit.pipeline.e2e_holds import SOURCE_GATE, write_hold
 from agent_build_kit.pipeline.usage_guard import GATE_USAGE_NAME
@@ -32,7 +31,7 @@ from tests.gate_hold_support import Probe
 
 @pytest.fixture(autouse=True)
 def no_claude_usage(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(pipeline_cli, "current_usage", lambda: None)
+    monkeypatch.setattr("agent_build_kit.run_support.current_usage", lambda: None)
 
 
 @pytest.fixture

@@ -14,7 +14,6 @@ from typing import Any
 
 import pytest
 
-from agent_build_kit.cli import pipeline as cli
 from agent_build_kit.pipeline import restack
 from agent_build_kit.pipeline.unit_store import Cause
 from agent_build_kit.pipeline.units import PLANNED
@@ -186,10 +185,9 @@ def test_the_checks_of_a_branch_with_no_worktree_run_on_a_checkout_at_the_moved_
 
         return run
 
-    monkeypatch.setattr(cli, "build_unit_test", unit_test)
+    monkeypatch.setattr("agent_build_kit.run_support.build_unit_test", unit_test)
     monkeypatch.setattr(
-        cli,
-        "push_with_lease",
+        "agent_build_kit.run_support.push_with_lease",
         lambda repo, branch, *, last_pushed: pushed.append(branch) or sh(repo, "rev-parse", branch),
     )
 

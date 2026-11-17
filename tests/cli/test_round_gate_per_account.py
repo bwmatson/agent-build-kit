@@ -23,6 +23,7 @@ from tests.conftest import make_installation
 from tests.factories import own_group
 from tests.pipeline.test_cli_pipeline import argv_namespace, stored
 from tests.usage_host import Host, editor_block
+from tests.worker_run_patches import patch_target
 
 MINUTE = timedelta(minutes=1)
 HOURS = timedelta(hours=2)
@@ -31,7 +32,7 @@ HOURS = timedelta(hours=2)
 @pytest.fixture(autouse=True)
 def isolated(monkeypatch: pytest.MonkeyPatch) -> None:
     for name in ("poll_all", "fetch_all", "plan_all"):
-        monkeypatch.setattr(cli, name, lambda inst, **kwargs: None)
+        monkeypatch.setattr(patch_target(name), name, lambda inst, **kwargs: None)
     monkeypatch.setattr(cli, "has_identity", lambda inst, repo: True)
     monkeypatch.setattr(cli, "archive_ready_changes", lambda *a, **k: [])
 

@@ -100,7 +100,7 @@ def test_status_says_which_of_the_two_the_unit_waits_for(
     line: str,
 ) -> None:
     inst = workspace(tmp_path)
-    monkeypatch.setattr(cli, "current_usage", lambda: None)
+    monkeypatch.setattr("agent_build_kit.run_support.current_usage", lambda: None)
     store = UnitStore(tmp_path / "units.json")
     park(store, cause, attempts=1)
 

@@ -358,11 +358,11 @@ def main(argv: list[str] | None = None) -> int:
     import argparse
     from pathlib import Path
 
-    from agent_build_kit.cli.pipeline import gated_units, parked_units, project_source_notes
     from agent_build_kit.installation import load_installation
     from agent_build_kit.pipeline.pr_poller import recorded_checks
     from agent_build_kit.pipeline.unit_store import UnitStore
     from agent_build_kit.pipeline.work_graph import declared_projects
+    from agent_build_kit.run_support import gated_units, parked_units, project_source_notes
 
     installation = load_installation()
     parser = argparse.ArgumentParser(description="Render the unit dependency graph.")

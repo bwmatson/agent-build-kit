@@ -107,7 +107,7 @@ def test_a_verify_worker_holds_both_locks_through_the_deploy_and_tests_and_recor
         seen.append((held(inst.e2e_lock), held(inst.environment_lock)))
         return Verification(change=change, passed=True, units=[f"{CHANGE}/1"])
 
-    monkeypatch.setattr(cli, "verify_change", deploy_and_test)
+    monkeypatch.setattr("agent_build_kit.worker_run.verify_change", deploy_and_test)
 
     code = verify(inst)
 
@@ -126,8 +126,7 @@ def test_a_failed_verification_is_recorded_for_the_dispatcher(
     inst = processes_workspace(tmp_path)
     merged_change(builder)
     monkeypatch.setattr(
-        cli,
-        "verify_change",
+        "agent_build_kit.worker_run.verify_change",
         lambda change, units, **kwargs: Verification(
             change=change, passed=False, detail="the live test failed", units=[f"{CHANGE}/1"]
         ),
@@ -154,7 +153,7 @@ def test_the_dispatcher_starts_a_verify_worker_without_deploying_or_waiting(
     def deploys(*args: object, **kwargs: object) -> Verification:
         raise AssertionError("the dispatcher ran the long part of a verification")
 
-    monkeypatch.setattr(cli, "verify_change", deploys)
+    monkeypatch.setattr("agent_build_kit.worker_run.verify_change", deploys)
 
     assert tick(inst) == 0
 
@@ -173,7 +172,7 @@ def test_a_tick_over_a_merged_change_runs_the_verify_command_and_no_build(
         verified.append(change)
         return Verification(change=change, passed=True, units=[f"{CHANGE}/1"])
 
-    monkeypatch.setattr(cli, "verify_change", deploy_and_test)
+    monkeypatch.setattr("agent_build_kit.worker_run.verify_change", deploy_and_test)
 
     # The in-process workers raise whatever a worker raised when the tick returns.
     assert tick(inst) == 0
@@ -228,7 +227,7 @@ def test_a_verify_worker_finding_a_current_result_once_it_holds_the_locks_does_n
     def deploys(*args: object, **kwargs: object) -> Verification:
         raise AssertionError("a second worker deployed a change already verified")
 
-    monkeypatch.setattr(cli, "verify_change", deploys)
+    monkeypatch.setattr("agent_build_kit.worker_run.verify_change", deploys)
 
     assert verify(inst) == 0
 

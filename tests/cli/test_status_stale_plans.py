@@ -24,7 +24,7 @@ def status_lines(run: Replan, capsys: pytest.CaptureFixture[str]) -> list[str]:
 def test_status_prints_a_line_for_each_stale_plan_naming_the_change_and_the_reason(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    monkeypatch.setattr(cli, "current_usage", lambda: None)
+    monkeypatch.setattr("agent_build_kit.run_support.current_usage", lambda: None)
     run = Replan(tmp_path, monkeypatch, alpha=tasks_md(1), beta=tasks_md(1), gamma=tasks_md(1))
     enable_review(run, ceilings={"full": 750})
     code, _ = run.run(capsys, "alpha", reply=answer(planned("alpha/1", (1,))))
@@ -46,7 +46,7 @@ def test_status_prints_a_line_for_each_stale_plan_naming_the_change_and_the_reas
 def test_status_prints_the_line_of_a_stale_plan_that_waits_for_an_outage(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    monkeypatch.setattr(cli, "current_usage", lambda: None)
+    monkeypatch.setattr("agent_build_kit.run_support.current_usage", lambda: None)
     run = Replan(tmp_path, monkeypatch, alpha=tasks_md(1))
     enable_review(run, ceilings={"full": 750})
     code, _ = run.run(capsys, "alpha", reply=answer(planned("alpha/1", (1,))))
@@ -71,7 +71,7 @@ def test_status_prints_the_line_of_a_stale_plan_that_waits_for_an_outage(
 def test_a_waiting_first_plan_with_no_units_stored_is_not_called_stale(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    monkeypatch.setattr(cli, "current_usage", lambda: None)
+    monkeypatch.setattr("agent_build_kit.run_support.current_usage", lambda: None)
     run = Replan(tmp_path, monkeypatch, alpha=tasks_md(1))
     enable_review(run, ceilings={"full": 750})
     run.record("alpha", ok=False, attempts=1, waiting="network", sizing="")
@@ -83,7 +83,7 @@ def test_a_waiting_first_plan_with_no_units_stored_is_not_called_stale(
 def test_a_waiting_plan_with_a_unit_stored_is_called_stale(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    monkeypatch.setattr(cli, "current_usage", lambda: None)
+    monkeypatch.setattr("agent_build_kit.run_support.current_usage", lambda: None)
     run = Replan(tmp_path, monkeypatch, alpha=tasks_md(1))
     enable_review(run, ceilings={"full": 750})
     code, _ = run.run(capsys, "alpha", reply=answer(planned("alpha/1", (1,))))

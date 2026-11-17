@@ -31,7 +31,13 @@ import httpx
 import pytest
 import yaml
 
-from agent_build_kit import claude_account, forges, orchestration, sandboxes
+from agent_build_kit import (
+    claude_account,
+    forges,
+    orchestration,
+    sandboxes,
+    worker_run,
+)
 from agent_build_kit import config as config_module
 from agent_build_kit import installation as installation_module
 from agent_build_kit import settings as settings_module
@@ -538,7 +544,7 @@ def run_status(
     temp: bool = False,
 ) -> list[str]:
     """The lines `abk status` prints over `inst`, with no usage reading."""
-    monkeypatch.setattr(pipeline_cli, "current_usage", lambda: None)
+    monkeypatch.setattr("agent_build_kit.run_support.current_usage", lambda: None)
     capsys.readouterr()
     assert pipeline_cli.cmd_status(argparse.Namespace(temp=temp), inst) == 0
     return capsys.readouterr().out.splitlines()
@@ -589,17 +595,16 @@ def scripted_engine(monkeypatch: pytest.MonkeyPatch) -> None:
     `build_runner` returns when it has one, in place of the unit's thread, so a
     tick test can script what a build does and check what the tick makes of
     it. A real `UnitRunner` runs its thread."""
-    from agent_build_kit.cli import pipeline as cli
     from agent_build_kit.pipeline.stack_runner import UnitRunner
 
-    on_thread = cli.run_unit_thread
+    on_thread = worker_run.run_unit_thread
 
     def run(inst, runner, unit, *, base, graph, run_log):
         if not isinstance(runner, UnitRunner):
             return runner.run(unit, base=base, graph=graph)
         return on_thread(inst, runner, unit, base=base, graph=graph, run_log=run_log)
 
-    monkeypatch.setattr(cli, "run_unit_thread", run)
+    monkeypatch.setattr("agent_build_kit.worker_run.run_unit_thread", run)
 
 
 @pytest.fixture

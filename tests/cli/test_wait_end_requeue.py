@@ -366,7 +366,8 @@ def test_a_usage_pause_still_takes_the_delivery_and_starts_no_build(
     monkeypatch.setattr(cli, "fetch_all", lambda inst: None)
     monkeypatch.setattr(cli, "poll_all", lambda inst, **kwargs: None)
     monkeypatch.setattr(
-        cli, "may_start_unit", lambda reading: Decision(may_start=False, reason="session at 99%")
+        "agent_build_kit.run_support.may_start_unit",
+        lambda reading: Decision(may_start=False, reason="session at 99%"),
     )
     started: set[str] = set()
 

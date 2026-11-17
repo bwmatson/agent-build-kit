@@ -9,6 +9,7 @@ from pathlib import Path
 
 import pytest
 
+from agent_build_kit import run_support
 from agent_build_kit.cli import pipeline as cli
 from agent_build_kit.pipeline import events
 from agent_build_kit.pipeline.unit_store import Cause
@@ -42,7 +43,7 @@ def test_status_lists_the_units_in_flight_that_carry_no_cause(
     tmp_path: Path, capsys: pytest.CaptureFixture[str], machine_runtime: None
 ) -> None:
     """The ones a store from before causes holds, to requeue or hold again once by hand."""
-    store = cli.store_for(make_installation(tmp_path))
+    store = run_support.store_for(make_installation(tmp_path))
     store.upsert([unit("a/1"), unit("a/2"), unit("a/3"), unit("a/4")])
     store.set_state("a/1", HELD, note="held by a reviewer")
     store.set_state("a/2", PLANNED, note="rework requested: x", branch="spec/a/2")
@@ -60,7 +61,7 @@ def test_status_lists_the_units_in_flight_that_carry_no_cause(
 def test_status_does_not_list_a_unit_held_by_the_label_as_lacking_a_cause(
     tmp_path: Path, capsys: pytest.CaptureFixture[str], machine_runtime: None
 ) -> None:
-    store = cli.store_for(make_installation(tmp_path))
+    store = run_support.store_for(make_installation(tmp_path))
     store.upsert([unit("a/1")])
     store.set_state("a/1", IN_REVIEW, pr=1, branch="spec/a/1")
     events.on_hold(1, repo="app", store=store, log=lambda m: None)

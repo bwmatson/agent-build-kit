@@ -41,6 +41,10 @@ if TYPE_CHECKING:
         def local_dir(self) -> Path: ...
 
 
+# The admission lock's file in the locks folder. It is not a `*.lock` file: those are branch locks,
+# which are removed when released, and this one stays, as the claim lock does.
+ADMISSION_LOCK = ".admission"
+
 POLL_SECONDS = 0.05
 _FIRST_POLL_SECONDS = 0.001
 _RENAME_RETRIES = 5
