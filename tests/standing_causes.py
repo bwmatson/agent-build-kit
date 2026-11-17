@@ -18,6 +18,7 @@ STANDING = [
     Cause.MANUAL_STEP,
     Cause.TOO_BIG_FOR_TIER,
     Cause.LANDED_OFF_DEFAULT,
+    Cause.BASE_NOT_MOVED,
     Cause.GATED,
     Cause.UPSTREAM_WENT_BACK,
     Cause.BASE_CHANGED,

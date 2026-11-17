@@ -603,6 +603,17 @@ class AzureDevOpsForge:
             except TransportError as error:
                 log.warning("could not update the body of pull request %s: %s", pr, error)
 
+    def retarget_pr(self, repo: RepoId, pr: int, base: str) -> bool:
+        """Retarget, then read the target back: a refusal or a silent no-op is False."""
+        try:
+            self.update_pr(repo, pr, base=base)
+            found = self._pull_doc(repo, pr)
+        except TRANSIENT:
+            raise
+        except TransportError:
+            return False
+        return found.target_ref_name == f"refs/heads/{base}"
+
     # --- stacks ---------------------------------------------------------------------
 
     def stack_of(self, repo: RepoId, pr: int) -> Stack | None:

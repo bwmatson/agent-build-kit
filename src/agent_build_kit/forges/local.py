@@ -268,6 +268,10 @@ class LocalForge:
 
         self._change(repo, update)
 
+    def retarget_pr(self, repo: RepoId, pr: int, base: str) -> bool:
+        self.update_pr(repo, pr, base=base)
+        return any(p.number == pr and p.base == base for p in self.list_prs(repo))
+
     def list_prs(self, repo: RepoId, *, head_prefix: str = "") -> list[PullRequest]:
         from agent_build_kit.pipeline.ui_review import with_ui_review
         from agent_build_kit.pipeline.unit_store import UnitStore

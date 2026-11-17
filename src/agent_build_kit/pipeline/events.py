@@ -55,6 +55,7 @@ from agent_build_kit.forges.base import (
     failing_names,
     listed_pull,
 )
+from agent_build_kit.forges.transport import TRANSIENT
 from agent_build_kit.model import Frozen
 from agent_build_kit.pipeline import spans
 from agent_build_kit.pipeline.check_runner import worktree_at
@@ -94,6 +95,7 @@ from agent_build_kit.pipeline.unit_store import (
     KEEP,
     Cause,
     HeldBy,
+    Keep,
     Pull,
     RequeueReason,
     ReworkKind,
@@ -194,6 +196,8 @@ def _no_thread(
 # What a hold for depth says, so a later merge can find what it held and which
 # branch it still sits on.
 DEPTH_HOLD = "restack onto {new_base} skipped: depth {depth} is beyond the rebase cap {cap}"
+# Failed retarget rounds in a row before the unit is held `base_not_moved`.
+BASE_MOVE_ATTEMPTS = 3
 DEPTH_HOLD_BASE = " (still on {old_base})"
 # What the label handler writes as a hold's note when the reviewer's hold has
 # no reason of its own. Prose for people: nothing reads it.
@@ -317,6 +321,7 @@ def on_merged(
         log(f"merged #{pr}: no unit recorded for it in {repo}, ignoring")
         return True
     note = ""
+    behind = ""
     where = landing() if landing is not None and merged.state != MERGED else None
     if where is not None and not where.on_default:
         if where.base == where.default_branch:
@@ -326,6 +331,7 @@ def on_merged(
         if parent is None or parent.state == MERGED:
             return _hold_landed_off_default(store, merged, pr, where, claim, resume, log)
         note = f"merged into {where.base}, which lands when {parent.id} does"
+        behind = where.base
     if merged.state in (MERGED, SETTLING):
         # The landing and the poller both report a merge, in either order: the
         # second finds it recorded and moves, cleans and records nothing again.
@@ -361,6 +367,7 @@ def on_merged(
                 merge_record=merge_record,
                 merge_commit=merge_commit,
                 note=note,
+                behind=behind,
                 log=log,
             )
         if landing_path is not None:
@@ -454,6 +461,7 @@ def settle_merged(
     *,
     note: str = "",
     merge_commit: str | None = None,
+    cause: Cause | Keep = KEEP,
 ) -> None:
     """Record a settling unit as merged, with the merge commit and the tick that saw it settle:
     the one way a unit leaves `settling` for `merged`, whether its checks completed, its
@@ -463,7 +471,7 @@ def settle_merged(
         unit = unit.model_copy(update={"merge_sha": merge_commit})
     sha, tick = merge_record(unit) if merge_record is not None else (None, None)
     store.set_merge_record(unit.id, unit.merge_sha or sha, tick)
-    store.set_state(unit.id, MERGED, note=note, cause=KEEP)
+    store.set_state(unit.id, MERGED, note=note, cause=cause)
 
 
 def build_base_passes(
@@ -1159,6 +1167,144 @@ def _landing(
     return where
 
 
+def recheck_landings(
+    store: UnitStore,
+    *,
+    repos: dict[str, Path],
+    merge_record: MergeRecord | None = None,
+    claim: Claim = _unclaimed,
+    resume: Resume = _no_thread,
+    log: Log = print,
+) -> list[str]:
+    """Each round, before admission: a unit settling behind another unit's branch (its merge
+    went into that branch, not the default branch: `settling_behind`), or held
+    `landed_off_default`, becomes merged when its merge commit has become an ancestor of the
+    default branch. A unit that merged into the default branch is left to `on_settled`. The
+    unit is re-read under its claim, and a held unit's thread is sent `merged`, which ends the
+    hold it was handed. Returns the ids it recorded as merged."""
+    recorded: list[str] = []
+    for unit in store.all():
+        if not _awaiting_landing(unit) or not unit.merge_sha or unit.repo not in repos:
+            continue
+        if not merged_on_default(repos[unit.repo], unit.merge_sha, trunk_of(unit.repo)):
+            continue
+        try:
+            with claim(unit):
+                current = store.get(unit.id)
+                if not _awaiting_landing(current) or current.merge_sha != unit.merge_sha:
+                    continue
+                if current.state == HELD:
+                    resume(current, "merged", "", "")
+                    settle_merged(store, current, merge_record, cause=Cause.MERGED)
+                else:
+                    settle_merged(store, current, merge_record)
+                store.set_settling_behind(current.id, "")
+        except BranchBusy as error:
+            _deferred("recheck", unit, error, log)
+            continue
+        log(f"{unit.id}: its commit is on the default branch, recorded merged")
+        recorded.append(unit.id)
+    return recorded
+
+
+def _awaiting_landing(unit: StoredUnit) -> bool:
+    """A unit whose work is in another branch, not yet on the default branch."""
+    held_off = unit.state == HELD and unit.cause == Cause.LANDED_OFF_DEFAULT
+    return held_off or (unit.state == SETTLING and bool(unit.settling_behind))
+
+
+def retry_retargets(
+    store: UnitStore,
+    *,
+    base_on_host: Callable[[StoredUnit], str | None],
+    retarget: Callable[[StoredUnit, str], bool],
+    mid_move: Callable[[StoredUnit], bool] = lambda unit: False,
+    claim: Claim = _unclaimed,
+    resume: Resume = _no_thread,
+    log: Log = print,
+) -> list[str]:
+    """Each round, before the poller's events and admission: retarget an in-review unit whose
+    pull request base (`base_on_host`) is not the `base_of` its graph gives it, unless its
+    thread is `mid_move`; a unit whose host base is unknown (None) is left. A failed round
+    counts on the unit (a host that was down or rate-limited is not a failed round, since
+    nothing refused the retarget); the third holds it `base_not_moved`, through its thread and
+    under its claim; a success resets the count, as does the unit leaving review, so a release
+    of the hold gives it three rounds again. Returns the ids it held."""
+    graph = store.all()
+    held: list[str] = []
+    for unit in graph:
+        if unit.state != IN_REVIEW:
+            if unit.base_move_failures:
+                store.set_base_move_failures(unit.id, 0)
+            continue
+        if not unit.pr or mid_move(unit):
+            continue
+        wanted = base_of(unit, graph)
+        on_host = base_on_host(unit)
+        if on_host is None:
+            continue  # The host did not say: nothing is known to need moving.
+        if on_host == wanted:
+            if unit.base_move_failures:
+                store.set_base_move_failures(unit.id, 0)
+            continue
+        try:
+            took = retarget(unit, wanted)
+        except TRANSIENT as error:
+            log(f"{unit.id}: retarget of #{unit.pr} to {wanted} not tried — {error}")
+            continue
+        except Exception as error:  # noqa: BLE001
+            log(f"{unit.id}: retarget of #{unit.pr} to {wanted} failed — {error}")
+            took = False
+        if took:
+            store.set_base_move_failures(unit.id, 0)
+            continue
+        failures = unit.base_move_failures + 1
+        store.set_base_move_failures(unit.id, failures)
+        if failures < BASE_MOVE_ATTEMPTS:
+            continue
+        note = (
+            f"pull request #{unit.pr} could not be moved onto {wanted} "
+            f"after {failures} rounds; retarget it by hand"
+        )
+        try:
+            with claim(unit):
+                if store.get(unit.id).state != IN_REVIEW:
+                    continue
+                # The hold goes to the unit's thread as a person's would.
+                resume(unit, "hold", "", "")
+                store.set_state(unit.id, HELD, note=note, cause=Cause.BASE_NOT_MOVED)
+        except BranchBusy as error:
+            _deferred("retarget", unit, error, log)
+            continue
+        log(f"{unit.id}: held — {note}")
+        held.append(unit.id)
+    return held
+
+
+def retry_host_retargets(
+    store: UnitStore,
+    *,
+    claim: Claim = _unclaimed,
+    resume: Resume = _no_thread,
+    log: Log = print,
+) -> list[str]:
+    """`retry_retargets` against each unit's own forge."""
+
+    def retarget(unit: StoredUnit, base: str) -> bool:
+        forge, repo_id = forges.for_repo(unit.repo)
+        return bool(unit.pr) and forge.retarget_pr(repo_id, unit.pr, base)
+
+    return retry_retargets(
+        store,
+        base_on_host=pr_base_on_host,
+        retarget=retarget,
+        mid_move=owed_its_move,
+        claim=claim,
+        resume=resume,
+        log=log,
+    )
+
+
 def _unit_on_branch(store: UnitStore, repo: str, branch: str, not_id: str) -> StoredUnit | None:
     """The unit, other than `not_id`, whose branch is `branch` in `repo`."""
     return next(
@@ -1234,6 +1380,7 @@ def _record_merge(
     merge_commit: str | None,
     log: Log,
     note: str = "",
+    behind: str = "",
 ) -> None:
     # The commit in hand is the merge's own answer or the listing's; the record asks the
     # forge only when there is none.
@@ -1245,6 +1392,8 @@ def _record_merge(
     if merged.pr is not None:
         store.set_pulls(merged.id, _with_merge(merged, sha))
     store.set_state(merged.id, SETTLING, note=note, cause=cause)
+    # Always written: a merge into the default branch clears the marker an earlier merge left.
+    store.set_settling_behind(merged.id, behind)
     log(f"merged #{merged.pr}: {merged.id} settling, waiting for its checks")
 
     release_children(
@@ -2691,18 +2840,26 @@ def build_retarget() -> Callable[[StoredUnit, str], None]:
     return retarget
 
 
+def pr_base_on_host(unit: StoredUnit) -> str | None:
+    """The base the host reports for the unit's pull request; None when it has no pull request,
+    the host does not list it, or the host cannot say."""
+    if not unit.pr:
+        return None
+    try:
+        forge, repo_id = forges.for_repo(unit.repo)
+        pull = listed_pull(forge, repo_id, branch_name(unit), unit.pr)
+    except Exception:  # noqa: BLE001
+        return None
+    return pull.base if pull is not None else None
+
+
 def pr_based_on(unit: StoredUnit, base: str) -> bool:
     """Whether the unit's pull request already points at `base`, as the host
     reports it. True when it has none, nothing then needing to move; False when
     the host cannot say, so the caller moves it."""
     if not unit.pr:
         return True
-    try:
-        forge, repo_id = forges.for_repo(unit.repo)
-        pull = listed_pull(forge, repo_id, branch_name(unit), unit.pr)
-    except Exception:  # noqa: BLE001
-        return False
-    return pull is not None and pull.base == base
+    return pr_base_on_host(unit) == base
 
 
 def build_settled(repos: dict[str, Path]) -> Callable[[StoredUnit, str], bool]:

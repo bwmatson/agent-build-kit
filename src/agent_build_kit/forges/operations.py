@@ -62,6 +62,7 @@ OPERATIONS: Mapping[str, OperationSpec] = {
     # Answers `unknown` itself rather than raising, so it is asked once.
     "commit_checks": _READ,
     "update_pr": _ADVISORY,
+    "retarget_pr": _WRITE,
     "post_status": _ADVISORY,
     "close_pr": _WRITE,
     "rerun_checks": _WRITE,

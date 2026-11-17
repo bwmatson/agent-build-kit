@@ -16,7 +16,12 @@
   as merged, since its work never reached the default branch. The unit is now held with cause
   `landed_off_default`, its note names the pull request, the branch and the default branch, and
   its dependents keep waiting. A merge into the branch of a still-open unit stays settling, with
-  a note that it lands when that unit does.
+  a note that it lands when that unit does. Each round, before admission, a unit waiting that
+  way, or held `landed_off_default`, is recorded merged once its commit is on the default
+  branch, as a carry or a person's merge puts it there. A review unit whose pull request is
+  not on the base its stack gives it is now retargeted each round, the host's base is read
+  back to confirm, and after three failed rounds the unit is held `base_not_moved` with the
+  pull request and the expected base named.
 
 - The rerun of a failed test now collects a test of the `integration` kind that a repository's
   default settings deselect. Before, the rerun carried no marker expression, so such a test was

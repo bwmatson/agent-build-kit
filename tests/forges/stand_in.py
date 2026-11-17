@@ -195,6 +195,10 @@ class StandInForge:
     def update_pr(self, repo: RepoId, pr: int, *, base: str = "", body: str = "") -> None:
         self.updated.append({"pr": pr, "base": base, "body": body})
 
+    def retarget_pr(self, repo: RepoId, pr: int, base: str) -> bool:
+        self.update_pr(repo, pr, base=base)
+        return True
+
     # --- stacks -------------------------------------------------------------
 
     def stack_of(self, repo: RepoId, pr: int) -> Stack | None:

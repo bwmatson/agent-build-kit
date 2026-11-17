@@ -194,6 +194,21 @@ def test_a_merge_into_an_open_units_branch_leaves_the_unit_settling_with_a_note(
     assert unit.cause != Cause.LANDED_OFF_DEFAULT
     assert "lands when" in unit.note
     assert PARENT in unit.note
+    assert unit.settling_behind == f"spec/{PARENT}"
+
+
+def test_a_later_merge_into_the_default_branch_clears_the_settling_behind_marker(
+    open_parent: World,
+) -> None:
+    open_parent.store.set_settling_behind(CHILD, f"spec/{PARENT}")  # from an earlier merge
+
+    open_parent.merged_into("main", open_parent.repos.land_on_main())
+
+    recorded = events.recheck_landings(
+        open_parent.store, repos={"app": open_parent.repos.clone}, log=lambda _line: None
+    )
+    unit = open_parent.store.get(CHILD)
+    assert (unit.state, unit.settling_behind, recorded) == (SETTLING, "", [])
 
 
 def test_a_unit_whose_listing_has_no_commit_stays_settling_until_a_report_carries_one(
