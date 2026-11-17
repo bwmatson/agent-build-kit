@@ -32,10 +32,21 @@ class UnitTest:
 
 
 def restacking(
-    installation: Installation, moved: Moved, *, name: str = "feature", diff_changes: bool = False
+    installation: Installation,
+    moved: Moved | Exception,
+    *,
+    name: str = "feature",
+    diff_changes: bool = False,
 ):
     """The handler over unit `name`, approved at `approved`, and a way to run it; returns the
-    store, the unit-test it was given, the pushes and the run."""
+    store, the unit-test it was given, the pushes and the run. A `moved` that is an exception
+    is raised by the move."""
+
+    def move(*args: Any, **kwargs: Any) -> Moved:
+        if isinstance(moved, Exception):
+            raise moved
+        return moved
+
     child = change_with_unit(installation, name, f"{name}/1").model_copy(
         update={"pr": 2, "branch": f"spec/{name}/1", "approved": "approved"}
     )
@@ -47,7 +58,7 @@ def restacking(
         repos={"app": installation.checkouts["app"]},
         store=store,
         root=installation.root,
-        move=lambda *a, **k: moved,
+        move=move,
         unit_test=unit_test,
         push=lambda *a, **k: pushed.append("pushed") or "newsha",
         retarget=lambda *a, **k: None,

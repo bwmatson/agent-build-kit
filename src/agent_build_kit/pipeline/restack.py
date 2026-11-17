@@ -46,7 +46,7 @@ from agent_build_kit.pipeline.changelog_convention import (
     changelog_path,
     resolver_changelog_rule,
 )
-from agent_build_kit.pipeline.generated import regenerate
+from agent_build_kit.pipeline.generated import GeneratedFilesFailed, discard_output, regenerate
 from agent_build_kit.pipeline.git_output import (
     PUSH_OPERATION,
     GitLockFailed,
@@ -528,10 +528,20 @@ def _land_detached(repo: Path, branch: str, *, started: str) -> Moved:
     return Moved(sha=head)
 
 
-def _regenerate(repo: Path, config: RepoConfig | None, *, onto: str) -> None:
-    """Rebuild the repo's generated files once the rebase has finished. Inside the turn."""
-    if config is not None and config.generated:
+def _regenerate(repo: Path, config: RepoConfig | None, *, onto: str, started: str) -> None:
+    """Rebuild the repo's generated files once the rebase has finished. Inside the turn.
+
+    A failed rebuild puts the head back at `started` (the branch's, or a detached tree's, head
+    before the move) and removes what the command wrote under its entries' paths, so the move
+    is replayed, and the rebuild tried again, the next time it is asked for."""
+    if config is None or not config.generated:
+        return
+    try:
         regenerate(repo, config.generated, onto=onto)
+    except GeneratedFilesFailed:
+        git(repo, "reset", "-q", "--hard", started)
+        discard_output(repo, config.generated)
+        raise
 
 
 def _separate_changelog(repo: Path, config: RepoConfig | None) -> None:
@@ -665,7 +675,9 @@ def move_branch_onto(
     with the rebase aborted. With `detached`, `repo` is a worktree on no branch:
     the rebase runs on its detached head and the branch is moved at the end by
     compare-and-swap, unless another worktree has it checked out
-    (`BranchCheckedOut`).
+    (`BranchCheckedOut`). The regenerate commands of the repository's `generated` entries run
+    inside the turn, once the rebase has finished, so a long build holds the turn; one that
+    fails puts the branch back where the move started and raises `GeneratedFilesFailed`.
 
     `repo_config` (else the `context`'s) names the repo whose `changelog` setting decides
     which file is separated once the branch is replayed; with neither, the default name.
@@ -692,7 +704,7 @@ def move_branch_onto(
         )
         if result.returncode == 0:
             _separate_changelog(repo, repo_config)
-            _regenerate(repo, repo_config, onto=new_base)
+            _regenerate(repo, repo_config, onto=new_base, started=started)
             if detached:
                 return _land_detached(repo, branch, started=started)
             return Moved(sha=git(repo, "rev-parse", branch).stdout.strip())
@@ -703,7 +715,7 @@ def move_branch_onto(
         done, result = _settle_generated(repo, result, patterns, settled)
         if done:
             _separate_changelog(repo, repo_config)
-            _regenerate(repo, repo_config, onto=new_base)
+            _regenerate(repo, repo_config, onto=new_base, started=started)
             if detached:
                 return _land_detached(repo, branch, started=started)
             return Moved(sha=git(repo, "rev-parse", branch).stdout.strip())
@@ -837,7 +849,7 @@ def move_branch_onto(
                     tried="\n".join(failures),
                 )
         _separate_changelog(repo, repo_config)
-        _regenerate(repo, repo_config, onto=new_base)
+        _regenerate(repo, repo_config, onto=new_base, started=started)
         if detached:
             landed = _land_detached(repo, branch, started=started)
             return Moved(sha=landed.sha, resolved=resolved)
