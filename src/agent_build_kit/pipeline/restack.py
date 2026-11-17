@@ -36,7 +36,7 @@ from pathlib import Path
 from agent_build_kit import claude_account, runtimes
 from agent_build_kit.budget import cut_head
 from agent_build_kit.changelog_form import separate_bullets
-from agent_build_kit.config import GeneratedConfig, RepoConfig, active, models
+from agent_build_kit.config import RepoConfig, active, models
 from agent_build_kit.forges.transport import HostUnavailable
 from agent_build_kit.model import Frozen
 from agent_build_kit.pipeline import shell
@@ -376,11 +376,8 @@ def conflicted_files(repo: Path) -> list[str]:
     return [line for line in out.splitlines() if line]
 
 
-def partition_generated(
-    files: list[str], entries: Sequence[GeneratedConfig]
-) -> tuple[list[str], list[str]]:
-    """Split conflicted `files` into those a `generated` entry covers and the rest."""
-    patterns = [pattern for entry in entries for pattern in entry.paths]
+def partition_generated(files: list[str], patterns: Sequence[str]) -> tuple[list[str], list[str]]:
+    """Split conflicted `files` into those a `generated` pattern covers and the rest."""
     generated = [name for name in files if is_generated(name, patterns)]
     return generated, [name for name in files if name not in generated]
 
@@ -391,6 +388,43 @@ def _read(repo: Path, name: str) -> str:
         return (repo / name).read_text(errors="replace")
     except FileNotFoundError:
         return ""
+
+
+def _settle_generated(
+    repo: Path,
+    stop: subprocess.CompletedProcess[str],
+    patterns: Sequence[str],
+    settled: list[str],
+) -> tuple[bool, subprocess.CompletedProcess[str]]:
+    """At a stopped rebase, settle each stop whose conflicts are all generated from the base
+    and step the rebase on. Returns whether the rebase finished, and the output of the stop
+    it is now at (`stop` itself when nothing was settled). A stop that also conflicts on
+    other files is left for the caller, with the generated ones already settled."""
+    while True:
+        generated, others = partition_generated(conflicted_files(repo), patterns)
+        if not generated:
+            return False, stop
+        _take_from_base(repo, generated)
+        settled.extend(generated)
+        if others:
+            return False, stop
+        staged = git(repo, "diff", "--cached", "--quiet", check=False).returncode != 0
+        stop = git(
+            repo,
+            "-c",
+            "core.editor=true",
+            "rebase",
+            "--continue" if staged else "--skip",
+            check=False,
+        )
+        if stop.returncode == 0:
+            return True, stop
+        _raise_if_lock(repo, stop, "rebase", "--continue")
+        if not conflicted_files(repo):
+            raise _abort(
+                repo,
+                f"the rebase stopped with no conflict to settle:\n{stop.stdout}\n{stop.stderr}",
+            )
 
 
 def _take_from_base(repo: Path, names: list[str]) -> None:
@@ -657,30 +691,13 @@ def move_branch_onto(
 
         _raise_if_lock(repo, result, "rebase", "--onto", new_base, old_base)
         settled: list[str] = []
-        entries = repo_config.generated if repo_config else []
-        while True:
-            generated, others = partition_generated(conflicted_files(repo), entries)
-            if not generated:
-                break
-            _take_from_base(repo, generated)
-            settled.extend(generated)
-            if others:
-                break
-            staged = git(repo, "diff", "--cached", "--quiet", check=False).returncode != 0
-            step = git(
-                repo,
-                "-c",
-                "core.editor=true",
-                "rebase",
-                "--continue" if staged else "--skip",
-                check=False,
-            )
-            if step.returncode == 0:
-                _separate_changelog(repo, repo_config)
-                if detached:
-                    return _land_detached(repo, branch, started=started)
-                return Moved(sha=git(repo, "rev-parse", branch).stdout.strip())
-            _raise_if_lock(repo, step, "rebase", "--continue")
+        patterns = repo_config.generated_paths() if repo_config else ()
+        done, result = _settle_generated(repo, result, patterns, settled)
+        if done:
+            _separate_changelog(repo, repo_config)
+            if detached:
+                return _land_detached(repo, branch, started=started)
+            return Moved(sha=git(repo, "rev-parse", branch).stdout.strip())
         if resolve is None or context is None:
             raise _abort(
                 repo,
@@ -802,12 +819,14 @@ def move_branch_onto(
         finished = git(repo, "-c", "core.editor=true", "rebase", "--continue", check=False)
         if finished.returncode != 0:
             _raise_if_lock(repo, finished, "rebase", "--continue")
-            raise _abort(
-                repo,
-                f"the rebase did not complete after resolution:\n"
-                f"{finished.stdout}\n{finished.stderr}",
-                tried="\n".join(failures),
-            )
+            done, finished = _settle_generated(repo, finished, patterns, settled)
+            if not done:
+                raise _abort(
+                    repo,
+                    f"the rebase did not complete after resolution:\n"
+                    f"{finished.stdout}\n{finished.stderr}",
+                    tried="\n".join(failures),
+                )
         _separate_changelog(repo, repo_config)
         if detached:
             landed = _land_detached(repo, branch, started=started)

@@ -44,9 +44,16 @@ class Resolver:
             (cwd / name).write_text(content)
 
 
-def stacked(tmp_path: Path, *, unit: dict[str, str | None], base: dict[str, str | None]) -> Path:
+def stacked(
+    tmp_path: Path,
+    *,
+    unit: dict[str, str | None],
+    base: dict[str, str | None],
+    then: tuple[dict[str, str | None], ...] = (),
+) -> Path:
     """A repository whose `main` and `spec/c/2` each changed the assets as given
-    (None deletes the file), both starting from the same commit `spec/c/1`."""
+    (None deletes the file), both starting from the same commit `spec/c/1`; `then` are
+    further commits of the unit after its first."""
     repo = init_repo(tmp_path / "repo")
     commit_files(
         repo,
@@ -63,6 +70,8 @@ def stacked(tmp_path: Path, *, unit: dict[str, str | None], base: dict[str, str 
     git(repo, "checkout", "-q", "-b", "spec/c/1")
     git(repo, "checkout", "-q", "-b", "spec/c/2")
     change(repo, "the unit rebuilt the bundle", unit)
+    for number, files in enumerate(then, start=2):
+        change(repo, f"the unit's commit {number}", files)
     git(repo, "checkout", "-q", "main")
     change(repo, "the base rebuilt the bundle", base)
     return repo
@@ -98,7 +107,7 @@ def rebuilt_on_both_sides() -> tuple[dict[str, str | None], dict[str, str | None
     return unit, base
 
 
-def moved(repo: Path, resolver: Resolver, config: RepoConfig) -> RestackConflict | None:
+def moved(repo: Path, resolver: Resolver | None, config: RepoConfig) -> RestackConflict | None:
     """Move `spec/c/2` onto `main`; the conflict that was left for a human, if any."""
     try:
         move_branch_onto(
@@ -183,19 +192,79 @@ def test_a_conflicted_path_absent_from_the_working_tree_does_not_raise(tmp_path:
     assert raised is None
 
 
+def test_a_source_conflict_at_a_later_commit_is_the_one_the_resolver_and_the_abort_see(
+    tmp_path: Path,
+) -> None:
+    """The first commit conflicts only under the assets and is settled; the second, on source."""
+    unit: dict[str, str | None] = {"assets/both-modified.js": "unit\n", "assets/app-2.js": "u\n"}
+    base: dict[str, str | None] = {"assets/both-modified.js": "base\n", "src/app.py": "v = 2\n"}
+    then: tuple[dict[str, str | None], ...] = ({"src/app.py": "v = 1\n"},)
+    config = RepoConfig(path=tmp_path, generated=[GENERATED])
+
+    repo = stacked(tmp_path / "bare", unit=unit, base=base, then=then)
+    left = moved(repo, None, config)
+    assert left is not None
+    assert "src/app.py" in str(left)
+
+    repo = stacked(tmp_path / "asked", unit=unit, base=base, then=then)
+    resolver = Resolver({"src/app.py": "value = 3\n"})
+    assert moved(repo, resolver, config) is None
+    (prompt,) = resolver.prompts
+    assert "- src/app.py" in prompt
+    assert show(repo, "src/app.py") == "value = 3"
+
+
+def test_a_later_commit_conflicting_only_on_generated_files_is_settled_after_the_resolver(
+    tmp_path: Path,
+) -> None:
+    """A feature commit and a fix-round commit both rebuild the bundle."""
+    unit: dict[str, str | None] = {"src/app.py": "v = 1\n", "assets/both-modified.js": "unit\n"}
+    base: dict[str, str | None] = {"src/app.py": "v = 2\n", "assets/both-modified.js": "base\n"}
+    then: tuple[dict[str, str | None], ...] = ({"assets/both-modified.js": "unit again\n"},)
+    repo = stacked(tmp_path, unit=unit, base=base, then=then)
+    resolver = Resolver({"src/app.py": "value = 3\n"})
+
+    left = moved(repo, resolver, RepoConfig(path=repo, generated=[GENERATED]))
+
+    assert left is None
+    assert len(resolver.prompts) == 1
+    assert show(repo, "assets/both-modified.js") == "base"
+    assert show(repo, "src/app.py") == "value = 3"
+
+
+def test_commits_that_only_changed_generated_files_become_empty_and_are_skipped(
+    tmp_path: Path,
+) -> None:
+    repo = stacked(
+        tmp_path,
+        unit={"assets/both-modified.js": "unit\n"},
+        base={"assets/both-modified.js": "base\n"},
+        then=({"assets/both-modified.js": "unit again\n"},),
+    )
+    resolver = Resolver()
+
+    left = moved(repo, resolver, RepoConfig(path=repo, generated=[GENERATED]))
+
+    assert left is None
+    assert resolver.prompts == []
+    assert show(repo, "assets/both-modified.js") == "base"
+    assert git(repo, "rev-parse", "spec/c/2") == git(repo, "rev-parse", "main")
+    assert not (repo / ".git" / "rebase-merge").exists()
+
+
 @pytest.mark.parametrize(
-    ("files", "entries", "generated", "others"),
+    ("files", "patterns", "generated", "others"),
     [
-        (["assets/a.js", "src/app.py"], [GENERATED], ["assets/a.js"], ["src/app.py"]),
-        (["src/app.py"], [GENERATED], [], ["src/app.py"]),
-        (["assets/a.js"], [GENERATED], ["assets/a.js"], []),
-        (["assets/a.js", "src/app.py"], [], [], ["assets/a.js", "src/app.py"]),
+        (["assets/a.js", "src/app.py"], GENERATED.paths, ["assets/a.js"], ["src/app.py"]),
+        (["src/app.py"], GENERATED.paths, [], ["src/app.py"]),
+        (["assets/a.js"], GENERATED.paths, ["assets/a.js"], []),
+        (["assets/a.js", "src/app.py"], (), [], ["assets/a.js", "src/app.py"]),
     ],
 )
 def test_conflicted_files_split_by_the_generated_entries(
     files: list[str],
-    entries: list[GeneratedConfig],
+    patterns: tuple[str, ...],
     generated: list[str],
     others: list[str],
 ) -> None:
-    assert partition_generated(files, entries) == (generated, others)
+    assert partition_generated(files, patterns) == (generated, others)

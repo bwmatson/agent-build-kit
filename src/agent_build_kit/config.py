@@ -1605,6 +1605,10 @@ class RepoConfig(Frozen):
     sandbox: RepoSandboxConfig = RepoSandboxConfig()
     workers: RepoWorkersConfig = RepoWorkersConfig()
 
+    def generated_paths(self) -> tuple[str, ...]:
+        """Every path pattern the repo's `generated` entries cover."""
+        return tuple(path for entry in self.generated for path in entry.paths)
+
 
 # --- verify env providers -----------------------------------------------------
 
@@ -1993,12 +1997,7 @@ class WorkspaceConfig(Frozen):
         environments = [self.environment] + [repo.environment for repo in self.repos.values()]
         return (
             *self.global_limits.generated_files,
-            *(
-                path
-                for repo in self.repos.values()
-                for entry in repo.generated
-                for path in entry.paths
-            ),
+            *(path for repo in self.repos.values() for path in repo.generated_paths()),
             *(PurePosixPath(path).name for env in environments if env for path in env.inputs.lock),
         )
 
