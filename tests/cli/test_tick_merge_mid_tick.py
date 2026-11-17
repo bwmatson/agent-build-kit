@@ -51,7 +51,7 @@ class Mid:
             return SimpleNamespace(run=lambda unit, *, base, graph: self.run(unit))
 
         patch.setattr(GitHubForge, "merge_commit", merge_commit)
-        patch.setattr("agent_build_kit.worker_run.build_runner", build)
+        patch.setattr("agent_build_kit.run_support.build_runner", build)
         # Every poll finds the parent's pull request merged with its checks complete; one
         # that finds it recorded does nothing.
         patch.setattr(

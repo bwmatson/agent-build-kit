@@ -11,7 +11,7 @@ from agent_build_kit.pipeline import attach, wake
 from agent_build_kit.pipeline.unit_store import Cause, UnitStore
 from agent_build_kit.pipeline.units import HELD, RUNNING
 from agent_build_kit.pipeline.wiring import CommitRejected
-from agent_build_kit.worker_run import branch_is_held
+from agent_build_kit.run_support import branch_is_held
 
 
 def cmd_attach_release(args: argparse.Namespace, inst: Installation) -> int:

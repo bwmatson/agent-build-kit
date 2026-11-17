@@ -213,7 +213,7 @@ def test_a_unit_whose_usage_pause_has_not_reached_its_time_holds_its_place_and_g
     builder.store.set_state("a/1", RUNNING, branch="spec/a/1")
     builder.store.set_usage_pause("a/1", datetime.now(UTC) + timedelta(hours=1))
     monkeypatch.setattr(
-        "agent_build_kit.worker_run.may_start_unit",
+        "agent_build_kit.run_support.may_start_unit",
         lambda reading, **_: Decision(may_start=False, reason="paused"),
     )
 
@@ -223,7 +223,7 @@ def test_a_unit_whose_usage_pause_has_not_reached_its_time_holds_its_place_and_g
 
     builder.store.set_usage_pause("a/1", datetime.now(UTC) - timedelta(minutes=1))
     monkeypatch.setattr(
-        "agent_build_kit.worker_run.may_start_unit",
+        "agent_build_kit.run_support.may_start_unit",
         lambda reading, **_: Decision(may_start=True, reason="plenty"),
     )
 

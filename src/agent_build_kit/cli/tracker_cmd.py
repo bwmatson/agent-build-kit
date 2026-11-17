@@ -27,6 +27,7 @@ from agent_build_kit.pipeline.tracker_file import (
     write_tracker,
 )
 from agent_build_kit.pipeline.work_graph import epic_reference, read_tasks, validate_tasks
+from agent_build_kit.run_support import store_for
 from agent_build_kit.trackers.apply import (
     CLOSED_FIELD,
     REMOVED,
@@ -63,7 +64,6 @@ from agent_build_kit.trackers.reconciler import (
 )
 from agent_build_kit.trackers.tick_step import changes_of, has_group_for, sync_repo
 from agent_build_kit.trackers.wanted_board import wanted_board
-from agent_build_kit.worker_run import store_for
 
 NONE_CONFIGURED = "no tracker configured for {repo}"
 

@@ -91,7 +91,7 @@ def test_a_parent_merged_on_the_forge_but_not_in_the_store_is_recorded_during_th
             fresh_base=build_fresh_base(store, record_merge=record_merge),
         )
 
-    monkeypatch.setattr("agent_build_kit.worker_run.build_runner", runner)
+    monkeypatch.setattr("agent_build_kit.run_support.build_runner", runner)
 
     assert tick(inst) == 0
 

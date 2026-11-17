@@ -876,7 +876,7 @@ def test_a_unit_taken_by_a_join_since_the_tick_listed_it_is_skipped_not_failed(
     listed = run.store.get("b/1")
     assert run.store.join(Join(onto="a/1", unit="b/1"), group_kinds=()) is not None
     monkeypatch.setattr(
-        "agent_build_kit.worker_run.build_runner",
+        "agent_build_kit.run_support.build_runner",
         lambda unit, **kw: pytest.fail("built a unit that was joined away"),
     )
 
@@ -900,7 +900,7 @@ def test_a_build_runs_the_members_a_join_gave_the_unit_after_the_tick_listed_it(
             built.append(unit)
             return RunOutcome(status="open", detail="opened")
 
-    monkeypatch.setattr("agent_build_kit.worker_run.build_runner", lambda unit, **kw: Recording())
+    monkeypatch.setattr("agent_build_kit.run_support.build_runner", lambda unit, **kw: Recording())
 
     worker_run.build_unit(run.inst, listed, store=run.store)
 

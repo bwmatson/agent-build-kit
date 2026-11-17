@@ -13,7 +13,7 @@ from typing import Any
 
 import pytest
 
-from agent_build_kit import worker_run
+from agent_build_kit import run_support
 from agent_build_kit.cli import pipeline as cli
 from agent_build_kit.installation import Installation
 from agent_build_kit.pipeline.stack_runner import RunOutcome, UnitOutcome
@@ -48,7 +48,7 @@ class Host:
         self.store.set_state(
             unit.id, RUNNING, note=f"requeue: {kwargs['reason']}", cause=Cause.REQUEUED
         )
-        return worker_run.Resumed(outcome=RunOutcome(status=UnitOutcome.WAITING, detail="queued"))
+        return run_support.Resumed(outcome=RunOutcome(status=UnitOutcome.WAITING, detail="queued"))
 
 
 @dataclass
@@ -103,8 +103,8 @@ def pipeline(
     inst = make_installation(tmp_path / "planning", **overrides)
     store = UnitStore(inst.state_dir / "units.json")
     host = Host(store, threads=threads)
-    monkeypatch.setattr("agent_build_kit.worker_run.has_thread", lambda _inst, _uid: host.threads)
-    monkeypatch.setattr("agent_build_kit.worker_run.resume_thread", host.resume_thread)
+    monkeypatch.setattr("agent_build_kit.run_support.has_thread", lambda _inst, _uid: host.threads)
+    monkeypatch.setattr("agent_build_kit.run_support.resume_thread", host.resume_thread)
     return Pipeline(inst, store, host)
 
 

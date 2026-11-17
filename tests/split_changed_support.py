@@ -15,7 +15,7 @@ from agent_build_kit.installation import Installation
 from agent_build_kit.pipeline.stack_runner import RunOutcome, UnitOutcome
 from agent_build_kit.pipeline.unit_store import Cause, UnitStore, guidance_excerpt
 from agent_build_kit.pipeline.units import PLANNED, RUNNING
-from agent_build_kit.worker_run import Resumed
+from agent_build_kit.run_support import Resumed
 from tests.graph_driver import tick
 from tests.parked_split_support import Deliveries
 from tests.runner_fakes import Recorder

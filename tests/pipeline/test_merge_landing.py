@@ -10,7 +10,7 @@ from pathlib import Path
 
 import pytest
 
-from agent_build_kit import worker_run
+from agent_build_kit import run_support
 from agent_build_kit.forges.base import PullRequest
 from agent_build_kit.pipeline import events
 from agent_build_kit.pipeline.landing_check import merged_on_default
@@ -76,7 +76,7 @@ class World:
         self.store.set_state(CHILD, IN_REVIEW, pr=PR, branch=f"spec/{CHILD}")
         self.log: list[str] = []
         if production:
-            self.dispatch = worker_run.dispatch_for(inst, self.store)
+            self.dispatch = run_support.dispatch_for(inst, self.store)
         else:
             self.dispatch = events.build_dispatch(
                 self.store,

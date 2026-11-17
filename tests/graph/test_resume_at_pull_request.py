@@ -132,7 +132,7 @@ def test_a_stop_in_the_graph_fails_the_unit_with_its_reason_and_step(
     assert "checks still failing" in stored.note
     assert stored.step == "checks"
     inst = make_installation(tmp_path, planning={"state_dir": "."})
-    monkeypatch.setattr("agent_build_kit.worker_run.current_usage", lambda: None)
+    monkeypatch.setattr("agent_build_kit.run_support.current_usage", lambda: None)
     assert cli.cmd_status(argparse.Namespace(), inst) == 0
     line = next(x for x in capsys.readouterr().out.splitlines() if "failed:" in x)
     assert UNIT in line and "at checks" in line and "checks still failing" in line

@@ -20,7 +20,7 @@ from agent_build_kit.pipeline.regression_agent import waited_fixes
 from agent_build_kit.pipeline.resolution_lane import lane_record, resolving_phrase
 from agent_build_kit.pipeline.unit_store import Cause
 from agent_build_kit.pipeline.units import PLANNED, RUNNING, history_stamp
-from agent_build_kit.worker_run import store_for
+from agent_build_kit.run_support import store_for
 
 
 def _usage_line(record: AdmissionRecord) -> str:

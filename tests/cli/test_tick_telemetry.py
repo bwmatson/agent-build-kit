@@ -99,16 +99,16 @@ def ticks(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, exported: Collector) 
     def runner(u: Any, **kwargs: Any) -> Any:
         return make_runner(recorder.store, recorder, tmp_path, **options)
 
-    monkeypatch.setattr("agent_build_kit.worker_run.build_runner", runner)
+    monkeypatch.setattr("agent_build_kit.run_support.build_runner", runner)
     monkeypatch.setattr(cli, "fetch_all", lambda inst: None)
     monkeypatch.setattr(cli, "poll_all", lambda inst, **kwargs: None)
     monkeypatch.setattr(cli, "plan_all", lambda inst, **kwargs: None)
     monkeypatch.setattr(cli, "has_identity", lambda inst, repo: True)
     monkeypatch.setattr(cli, "verify_ready", lambda inst, units, **kwargs: lambda change: True)
     monkeypatch.setattr(cli, "archive_ready_changes", lambda *a, **k: [])
-    monkeypatch.setattr("agent_build_kit.worker_run.current_usage", lambda: None)
+    monkeypatch.setattr("agent_build_kit.run_support.current_usage", lambda: None)
     monkeypatch.setattr(
-        "agent_build_kit.worker_run.may_start_unit",
+        "agent_build_kit.run_support.may_start_unit",
         lambda r: Decision(may_start=True, reason="plenty"),
     )
     monkeypatch.setattr(
@@ -153,7 +153,7 @@ def allow_once_then_refuse(monkeypatch: pytest.MonkeyPatch) -> None:
     meets agrees with the rounds after it, as a real one does."""
     answers = iter([Decision(may_start=True, reason="plenty")])
     monkeypatch.setattr(
-        "agent_build_kit.worker_run.may_start_unit",
+        "agent_build_kit.run_support.may_start_unit",
         lambda r: next(answers, Decision(may_start=False, reason="session usage at 88%")),
     )
 

@@ -37,7 +37,7 @@ def isolate_round(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Accounts:
         conn.execute("PRAGMA journal_mode=WAL")
     accounts = Accounts()
     # One source for admission and for the gate of an agent step (`build_usage_gate`).
-    monkeypatch.setattr("agent_build_kit.worker_run.decide_start", accounts)
+    monkeypatch.setattr("agent_build_kit.run_support.decide_start", accounts)
     monkeypatch.setattr(wiring, "decide_start", accounts)
     return accounts
 
@@ -74,7 +74,7 @@ def unit(uid: str, repo: str = "app", **overrides) -> StoredUnit:
 def with_threads(monkeypatch: pytest.MonkeyPatch, *unit_ids: str) -> None:
     """Only these units have a thread a run left."""
     monkeypatch.setattr(
-        "agent_build_kit.worker_run.has_thread", lambda _inst, unit_id: unit_id in unit_ids
+        "agent_build_kit.run_support.has_thread", lambda _inst, unit_id: unit_id in unit_ids
     )
 
 

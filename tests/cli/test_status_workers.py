@@ -17,7 +17,7 @@ from agent_build_kit.pipeline.spawn import spawn
 from agent_build_kit.pipeline.unit_store import Pull
 from agent_build_kit.pipeline.units import UnitState
 from agent_build_kit.pipeline.workspaces import branch_lock
-from agent_build_kit.worker_run import store_for
+from agent_build_kit.run_support import store_for
 from tests.conftest import make_installation, run_status
 from tests.tick_pass import stored
 

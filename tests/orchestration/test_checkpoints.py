@@ -24,7 +24,7 @@ from agent_build_kit.graph.state import UnitRun
 from agent_build_kit.installation import Installation
 from agent_build_kit.orchestration.checkpoints import INTERFACE, Checkpoints
 from agent_build_kit.orchestration.local.checkpoints import LocalCheckpoints
-from agent_build_kit.worker_run import thread_of
+from agent_build_kit.run_support import thread_of
 from tests.conftest import make_installation
 from tests.graph.checkpoint_reads import a_config
 from tests.graph.test_checkpoint_allowlist import Unlisted, populated

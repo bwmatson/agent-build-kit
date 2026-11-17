@@ -237,7 +237,7 @@ def test_an_overflow_run_ranks_after_a_unit_resuming_a_build_and_before_a_never_
     inst = lane_workspace(tmp_path, stacks=2, resolutions=1)
     # The paused unit has its graph thread parked, which is what makes it resumable.
     monkeypatch.setattr(
-        "agent_build_kit.worker_run.has_thread", lambda inst, unit_id: unit_id == "resume/1"
+        "agent_build_kit.run_support.has_thread", lambda inst, unit_id: unit_id == "resume/1"
     )
     builder.store.upsert([stored("new/1"), stored("resume/1")])
     builder.store.set_state("resume/1", RUNNING, branch="spec/resume/1")

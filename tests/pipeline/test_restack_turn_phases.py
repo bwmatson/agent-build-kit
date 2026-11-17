@@ -336,8 +336,8 @@ def test_a_remote_that_moved_is_refused_by_the_lease_and_the_move_is_not_retried
         moves.append("move")
         return real_move(*args, **kwargs)
 
-    monkeypatch.setattr("agent_build_kit.worker_run.build_unit_test", unit_test)
-    monkeypatch.setattr("agent_build_kit.worker_run.push_with_lease", refused)
+    monkeypatch.setattr("agent_build_kit.run_support.build_unit_test", unit_test)
+    monkeypatch.setattr("agent_build_kit.run_support.push_with_lease", refused)
     monkeypatch.setattr(restack, "move_branch_onto", counting_move)
 
     with pytest.raises(StaleRemote):

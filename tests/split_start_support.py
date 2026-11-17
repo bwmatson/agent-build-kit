@@ -22,7 +22,7 @@ def gate_round(monkeypatch: pytest.MonkeyPatch) -> None:
     """What a round reaches that is not under test."""
     stub_round(monkeypatch)
     monkeypatch.setattr(cli, "verify_ready", lambda inst, units, **kwargs: lambda change: True)
-    monkeypatch.setattr("agent_build_kit.worker_run.has_thread", lambda inst, unit_id: True)
+    monkeypatch.setattr("agent_build_kit.run_support.has_thread", lambda inst, unit_id: True)
     # The board push reads the tracker too; a round under test counts only the start gate's calls.
     monkeypatch.setattr(cli, "sync_trackers", lambda *args, **kwargs: None)
 

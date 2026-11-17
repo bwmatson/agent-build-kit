@@ -46,7 +46,7 @@ def records(ticks: Ticks, metric: str) -> list[MetricRecord]:  # noqa: F811 — 
 def pause_for_usage(monkeypatch: pytest.MonkeyPatch) -> None:
     resume = datetime.now(UTC) + timedelta(hours=1)
     monkeypatch.setattr(
-        "agent_build_kit.worker_run.may_start_unit",
+        "agent_build_kit.run_support.may_start_unit",
         lambda r: Decision(may_start=False, reason="session usage at 90%", resume_at=resume),
     )
 

@@ -48,9 +48,9 @@ from agent_build_kit import (
     config,
     forges,
     orchestration,
+    run_support,
     runtimes,
     telemetry,
-    worker_run,
 )
 from agent_build_kit.budget import cut_head
 from agent_build_kit.cli.e2e_cmd import held_status_lines
@@ -467,6 +467,25 @@ from agent_build_kit.pipeline.workspaces import (
 from agent_build_kit.redaction import redact_text
 from agent_build_kit.replay.review import directories as replay_directories
 from agent_build_kit.replay.review import waiting as replay_waiting
+from agent_build_kit.run_support import (
+    account_decision,
+    decision_key,
+    demote_failed_verify,
+    log,
+    merged_ids,
+    outage_cause,
+    parked_units,
+    pause_report,
+    paused_for,
+    paused_marker,
+    project_source_notes,
+    repo_turn,
+    restacking_bases,
+    start_decision,
+    task_catalog,
+    validated,
+    validation_scope,
+)
 from agent_build_kit.runtimes import NetworkUnavailable, ServiceUnavailable
 from agent_build_kit.runtimes.claude_code import login_command, login_rejection, login_works
 from agent_build_kit.runtimes.guards import guard_lines
@@ -477,28 +496,6 @@ from agent_build_kit.trackers.report import conflict_lines, standing
 from agent_build_kit.trackers.start_decision import RoundReads, StartDecision, start_gate
 from agent_build_kit.trackers.tick_step import sync_trackers, tracker_pass
 from agent_build_kit.tracks.runner import RUN_ID
-from agent_build_kit.worker_run import (
-    _account_decision,
-    _decision_key,
-    _demote_failed_verify,
-    _merged_ids,
-    _outage_cause,
-    _pause_report,
-    _paused_for,
-    _paused_marker,
-    _start_decision,
-    _task_catalog,
-    _validated,
-    _validation_scope,
-    _verify_locked,
-    log,
-    parked_units,
-    project_source_notes,
-    repo_turn,
-    resolution_procedure,
-    restacking_bases,
-    verify_and_record,
-)
 
 
 def project_source_lines(inst: Installation, units: Sequence[StoredUnit]) -> list[str]:
@@ -513,7 +510,7 @@ def project_source_lines(inst: Installation, units: Sequence[StoredUnit]) -> lis
 
 def _refused_by_model(inst: Installation, unit: StoredUnit | Unit) -> bool:
     """Whether the model's refusal is in force for the unit's own account."""
-    held = _paused_for(inst, unit)
+    held = paused_for(inst, unit)
     return held is not None and held.kind == "rate_limit"
 
 
@@ -579,13 +576,13 @@ def retry_replies(inst: Installation, store: UnitStore, *, reply: Callable[..., 
     for unit in store.all():
         if unit.state != IN_REVIEW or unit.pr is None or not unit.branch:
             continue
-        owed = worker_run.thread_of(inst, unit.id).state
+        owed = run_support.thread_of(inst, unit.id).state
         if owed is None or not owed.pending_replies:
             continue
         try:
             with branch_lock(unit.branch, root=inst.locks_dir):
                 # Read again under the lock: a build may have posted them since.
-                owed = worker_run.thread_of(inst, unit.id).state
+                owed = run_support.thread_of(inst, unit.id).state
                 if owed is None or not owed.pending_replies:
                     continue
                 left = tuple(
@@ -655,7 +652,7 @@ def live_change_groups(
     for change in sorted(wanted & set(live)):
         path = inst.changes_dir / change / "tasks.md"
         try:
-            groups = _validated(inst, path)[0]
+            groups = validated(inst, path)[0]
         except (OSError, UnicodeDecodeError, ValueError):
             groups = []
         # Errors beside readable groups do not hide a group; no group at all is a file the
@@ -757,7 +754,7 @@ def _restack_lines(inst: Installation, units: list[StoredUnit]) -> list[str]:
         lines.append(f"  {entry['unit']}{where} {phrase}")
     for unit_id in owed:
         unit = by_id[unit_id]
-        pause = _paused_for(inst, unit)
+        pause = paused_for(inst, unit)
         if pause is None or unit.cause is not Cause.RESTACK_DEFERRED:
             # Not deferred by a pause: a clean move proceeds during one.
             phrase = resolving_phrase(unit.resolving, base_of(unit, units))
@@ -788,7 +785,7 @@ def _occupancy_now(
         unit.id
         for unit in units
         if unit.state == RUNNING
-        and not worker_run.branch_is_held(inst, unit.branch or branch_name(unit))
+        and not run_support.branch_is_held(inst, unit.branch or branch_name(unit))
     }
     occupied = slot_occupancy(
         units, in_a_worker(inst, units), restacking, lane_waiting=waiting, idle=unheld
@@ -858,7 +855,7 @@ def _account_usage_lines(
             )
         if estimate := held_estimate_line():
             lines.append(estimate + whose)
-            running = {u.id for u in worker_run.store_for(inst).all() if u.state == RUNNING}
+            running = {u.id for u in run_support.store_for(inst).all() if u.state == RUNNING}
             if ahead := held_forecast_line(running):
                 lines.append(ahead + whose)
         found = read_allowances(allowances_path(inst.state_dir, account))
@@ -875,7 +872,7 @@ def _paused_for_login(inst: Installation, account: claude_account.Account) -> li
     key = claude_account.account_key(account)
     return [
         unit
-        for unit in worker_run.store_for(inst).all()
+        for unit in run_support.store_for(inst).all()
         if unit.cause is Cause.LOGIN
         and unit.state in (RUNNING, PLANNED)
         and unit.repo in inst.config.repos
@@ -900,7 +897,7 @@ def cmd_status(args: argparse.Namespace, inst: Installation) -> int:
     if off := guard_off_line():
         log(off)
     for paused in pauses_in_force(inst.state_dir):
-        log(_pause_report(inst, paused))
+        log(pause_report(inst, paused))
     for outage in code_host.long_outages(inst, spans.clock.now()):
         log(code_host.outage_text(outage, spans.clock.now()))
     for line in config_warning_lines(inst.state_dir):
@@ -923,7 +920,7 @@ def cmd_status(args: argparse.Namespace, inst: Installation) -> int:
         elif calls := read_calls(calls_path(inst.state_dir, claude_account.Account.default())):
             log(rate_line(derive_rate(calls, now=datetime.now(UTC))))
 
-    for line in project_status_lines(inst, worker_run.store_for(inst).all()):
+    for line in project_status_lines(inst, run_support.store_for(inst).all()):
         log(line)
     if getattr(args, "temp", False):
         if found := temp_size(inst):
@@ -938,7 +935,7 @@ def cmd_status(args: argparse.Namespace, inst: Installation) -> int:
     for line in held_status_lines(inst):
         log(line)
     for line in hold_status_lines(
-        inst.changes_dir, worker_run.store_for(inst).all(), spans.clock.now()
+        inst.changes_dir, run_support.store_for(inst).all(), spans.clock.now()
     ):
         log(line)
     for line in gate_status_lines(
@@ -960,7 +957,7 @@ def cmd_status(args: argparse.Namespace, inst: Installation) -> int:
     for line in conflict_lines(inst.changes_dir):
         log(line)
 
-    for line in project_source_lines(inst, worker_run.store_for(inst).all()):
+    for line in project_source_lines(inst, run_support.store_for(inst).all()):
         print(line)
 
     gates = recorded_gates(
@@ -982,7 +979,7 @@ def cmd_status(args: argparse.Namespace, inst: Installation) -> int:
 
     log(_snapshot_line(inst))
 
-    units = worker_run.store_for(inst).all()
+    units = run_support.store_for(inst).all()
     unit_of_branch = {branch_name(unit): (unit.id, unit.repo) for unit in units}
     if not units:
         log("no units planned")
@@ -1237,7 +1234,7 @@ def cmd_status(args: argparse.Namespace, inst: Installation) -> int:
             )
         if unit.state == IN_REVIEW:
             try:
-                owed = worker_run.thread_of(inst, unit.id).state
+                owed = run_support.thread_of(inst, unit.id).state
             except Exception:  # noqa: BLE001 - status reads, and must not fail on the thread store
                 owed = None
             if owed and owed.pending_replies:
@@ -1250,9 +1247,9 @@ def cmd_status(args: argparse.Namespace, inst: Installation) -> int:
             mark = " — cannot be merged" if unit.pr in conflicted[unit.repo] else ""
             since = _conflicting(inst, unit, conflicting).get(unit.pr or 0)
             if since is not None:
-                if worker_run.branch_is_held(inst, unit.branch or branch_name(unit)):
+                if run_support.branch_is_held(inst, unit.branch or branch_name(unit)):
                     waits = "its branch is being built"
-                elif _paused_for(inst, unit):
+                elif paused_for(inst, unit):
                     waits = "waiting for the usage pause to end"
                 elif not unit.is_new_conflict(since) and unit.attempts_spent(
                     config.active().global_limits.max_review_rounds
@@ -1316,7 +1313,10 @@ def verify_one(
     lock, since both touch the one live stack e2e-test also uses. Waits
     `global_limits.e2e_lock_wait_seconds` for the lock, or `wait` seconds when given,
     then raises `StackBusy`."""
-    return _verify_locked(inst, change, units, wait=wait, reuse_recorded=False)
+    # Late: the verification runs are the worker's, which this command module does not load.
+    from agent_build_kit.worker_run import verify_locked
+
+    return verify_locked(inst, change, units, wait=wait, reuse_recorded=False)
 
 
 def _unarchived(inst: Installation, units: list) -> set[str]:
@@ -1337,7 +1337,7 @@ def _unverified(inst: Installation, units: list, record: VerifyRecord) -> list[s
     return sorted(
         change
         for change in _unarchived(inst, units)
-        if (last := record.get(change)) is None or last.units != _merged_ids(change, units)
+        if (last := record.get(change)) is None or last.units != merged_ids(change, units)
     )
 
 
@@ -1355,6 +1355,9 @@ def verify_ready(
     A failure is kept, not retried: the same units fail the same way until a
     fix merges (a new unit, so verified again) or a person runs `verify`.
     """
+    # Late: the verification runs are the worker's, which this command module does not load.
+    from agent_build_kit.worker_run import verify_and_record
+
     verify = verify or (lambda change, units: verify_one(inst, change, units))
     record = VerifyRecord(inst.state_dir / "verified.json")
     skipped: set[str] = set()
@@ -1418,7 +1421,7 @@ def _archive_publisher(inst: Installation) -> Callable[[str], None]:
 def cmd_verify(args: argparse.Namespace, inst: Installation) -> int:
     """Verify one change by hand — after fixing what made it fail — and
     archive it if it passes: the tick sees no work once everything merged."""
-    units = worker_run.store_for(inst).all()
+    units = run_support.store_for(inst).all()
     try:
         outcome = verify_one(inst, args.change, units)
     except SplitHeld as held:
@@ -1426,7 +1429,7 @@ def cmd_verify(args: argparse.Namespace, inst: Installation) -> int:
         return 1
     VerifyRecord(inst.state_dir / "verified.json").put(outcome)
     if not outcome.passed:
-        _demote_failed_verify(inst, args.change, units)
+        demote_failed_verify(inst, args.change, units)
         print(f"{args.change}: verification failed\n{outcome.detail}")
         return 1
     print(f"{args.change}: verified — {', '.join(outcome.deployed) or 'nothing to deploy'}")
@@ -1528,8 +1531,10 @@ def _tick_once(args: argparse.Namespace, inst: Installation) -> int:
     # A dry run says what the recorded failures' fix changes are even when nothing is pending.
     if args.dry_run:
         _preview_changes(inst)
-        _preview_split_releases(inst, worker_run.store_for(inst), getattr(args, "only", None) or ())
-    if not has_work(inst, worker_run.store_for(inst)):
+        _preview_split_releases(
+            inst, run_support.store_for(inst), getattr(args, "only", None) or ()
+        )
+    if not has_work(inst, run_support.store_for(inst)):
         return 0
 
     if record is not None:
@@ -1596,7 +1601,7 @@ UNIT_GAUGE_STATES = (PLANNED, RUNNING, IN_REVIEW, HELD, FAILED)
 def _record_unit_states(inst: Installation) -> None:
     """How many units stand in each state that wants attention, as the tick ends."""
     try:
-        states = [unit.state for unit in worker_run.store_for(inst).all()]
+        states = [unit.state for unit in run_support.store_for(inst).all()]
     except Exception:  # noqa: BLE001 — telemetry never affects a tick.
         return
     for state in UNIT_GAUGE_STATES:
@@ -1605,7 +1610,7 @@ def _record_unit_states(inst: Installation) -> None:
 
 def _tick(args: argparse.Namespace, inst: Installation, tick: _Tick) -> int:
     """What a tick does once there is work: a round, then the builds."""
-    store = worker_run.store_for(inst)
+    store = run_support.store_for(inst)
     log(f"configuration {config_fingerprint(inst)}")
 
     if args.dry_run:
@@ -1860,7 +1865,7 @@ def _preview_changes(inst: Installation) -> None:
     for test in dict.fromkeys(entry.test for entry in product_defect_record(inst).entries()):
         log(preview_defect(inst, test).line)
     write_due(
-        inst, worker_run.store_for(inst), today=spans.clock.now().date(), say=log, dry_run=True
+        inst, run_support.store_for(inst), today=spans.clock.now().date(), say=log, dry_run=True
     )
 
 
@@ -1938,7 +1943,7 @@ def evaluate_manual_waits(
             continue
         names = ", ".join(step.slug for step in unit.manual_steps)
         try:
-            delivered = worker_run.resume_thread(
+            delivered = run_support.resume_thread(
                 inst,
                 unit,
                 "requeue",
@@ -2059,7 +2064,7 @@ def _needs_planning(inst: Installation, store: UnitStore) -> bool:
         digest = plan_digest(tasks, record.get("hash"))
         if _plan_rests(record, digest, inst.max_plan_attempts, now):
             continue
-        groups, errors = _validated(inst, tasks)
+        groups, errors = validated(inst, tasks)
         # A change whose groups are all taken is recorded with no model call.
         taken = _taken_groups(store, tasks.parent.name)
         if not errors and not (groups and taken >= {g.number for g in groups}):
@@ -2151,7 +2156,7 @@ def _held_by_the_model(
     """A round held by the model's own pauses, one for each account it cannot start on: say so,
     and read stranded units as planned."""
     for paused in pauses:
-        log(_pause_report(inst, paused))
+        log(pause_report(inst, paused))
     # A pause builds nothing, so a unit no run holds should read `planned`
     # for as long as it lasts. Not otherwise: a round that goes on resumes it.
     if not dry_run:
@@ -2201,7 +2206,7 @@ def record_login_pauses(inst: Installation) -> list[str]:
     agent step meets the gate, which holds it until the login is renewed. A unit that is no
     longer `failed` no longer matches. With no rejected login on the account nothing is done:
     whoever requeues the unit decides."""
-    store = worker_run.store_for(inst)
+    store = run_support.store_for(inst)
     revived: list[str] = []
     for unit in store.all():
         if unit.state != FAILED or unit.repo not in inst.config.repos:
@@ -2302,12 +2307,12 @@ def _may_build(
     if runtime.supports_usage_tracking:
         if left_out and not startable and not planning:
             return "idle"
-        decision = _start_decision(open_accounts, decided, _round_ask(startable, planning=planning))
+        decision = start_decision(open_accounts, decided, _round_ask(startable, planning=planning))
         if not decision.may_start:
             # Every open account refused: each is paused on its own marker, for its own reason.
             for each in open_accounts:
-                refusal = _account_decision(each, decided)
-                marker = _paused_marker(inst, each)
+                refusal = account_decision(each, decided)
+                marker = paused_marker(inst, each)
                 before = is_paused(marker)
                 if dry_run:
                     log(f"usage refused, a real tick would pause: {refusal.reason}")
@@ -2318,7 +2323,7 @@ def _may_build(
                     marker=marker,
                     account=_label_of(each),
                 )
-                log(_pause_report(inst, state, verb="paused" if before else "pausing"))
+                log(pause_report(inst, state, verb="paused" if before else "pausing"))
                 if not before:
                     # A new pause; the rounds that find it still in force are not more of them.
                     emit_metric("count", "abk.usage.pauses", 1, log, kind="usage")
@@ -2331,14 +2336,14 @@ def _may_build(
 
     # Each account's pause ends when its own reading allows a start, not when another's does.
     for each in open_accounts:
-        marker = _paused_marker(inst, each)
+        marker = paused_marker(inst, each)
         before = is_paused(marker)
         if dry_run:
             continue
         if (
             before is not None
             and runtime.supports_usage_tracking
-            and not _account_decision(each, decided).may_start
+            and not account_decision(each, decided).may_start
         ):
             continue
         # A refusal recorded while this round was deciding is kept, and holds its account.
@@ -2421,7 +2426,7 @@ def _verify_and_archive(
 
         def recorded_pass(change: str) -> bool:
             last = record.get(change)
-            return last is not None and last.passed and last.units == _merged_ids(change, units)
+            return last is not None and last.passed and last.units == merged_ids(change, units)
 
         def chosen(change: str) -> bool:
             return recorded_pass(change) if change in by_worker else local(change)
@@ -2528,7 +2533,7 @@ def run_round(
     # The guard is not asked of a refused account; its admission record says why it holds.
     for label, refusal in model_refused.items():
         decided[claude_account.account_key(claude_account.resolve(inst, label))] = Decision(
-            may_start=False, reason=_pause_report(inst, refusal), resume_at=refusal.until
+            may_start=False, reason=pause_report(inst, refusal), resume_at=refusal.until
         )
     if may == "rate_limit":
         if not dry_run:
@@ -2569,7 +2574,7 @@ def run_round(
             land_units,
             inst,
             store,
-            dispatch=worker_run.dispatch_for(inst, store, lane=lane),
+            dispatch=run_support.dispatch_for(inst, store, lane=lane),
             say=log,
         )
     if not dry_run:
@@ -2732,7 +2737,7 @@ def run_round(
         account = claude_account.for_repo(inst.config, unit.repo)
         # Only asking: a dry run keeps no allowance for a unit it does not build.
         with not_recording() if dry_run else nullcontext():
-            return not _account_decision(account, decided, unit=stored_unit).may_start
+            return not account_decision(account, decided, unit=stored_unit).may_start
 
     stored_by_id = {unit.id: unit for unit in units}
     waiting_to_resume = start_order(
@@ -2792,7 +2797,7 @@ def run_round(
     for unit in evaluated:
         # The model's refusal holds its account's units, one already started among them.
         if (pause := model_refusal(unit.repo)) is not None:
-            refused[unit.id] = _pause_report(inst, pause)
+            refused[unit.id] = pause_report(inst, pause)
         # A rejected login admits no unit that has never started on the account; one already
         # started meets the gate instead.
         elif not stored_by_id[unit.id].branch and (
@@ -2806,7 +2811,7 @@ def run_round(
             # A dry run only learns what the guard would say: it keeps no allowance for a unit
             # it does not build.
             with not_recording() if dry_run else nullcontext():
-                decision = _account_decision(
+                decision = account_decision(
                     claude_account.for_repo(inst.config, unit.repo),
                     decided,
                     unit=stored_by_id[unit.id],
@@ -2951,7 +2956,7 @@ def _usage_facts(inst: Installation, unit: StoredUnit, decided: dict[str | None,
     decision = (
         decided.get(unit.id)
         or decided.get(
-            _decision_key(account, ReviewTier.parse(unit.review_tier), unit.estimated_lines)
+            decision_key(account, ReviewTier.parse(unit.review_tier), unit.estimated_lines)
         )
         or decided.get(claude_account.account_key(account))
     )
@@ -3146,7 +3151,7 @@ def _idle_units(
     return idle_units(
         units,
         in_flight,
-        lambda branch: worker_run.branch_is_held(inst, branch),
+        lambda branch: run_support.branch_is_held(inst, branch),
         now=spans.clock.now(),
     )
 
@@ -3169,8 +3174,8 @@ def reclaim_stranded(
             unit.state == RUNNING
             and unit.id not in in_flight
             and not marker_live(unit, now)
-            and not worker_run.branch_is_held(inst, unit.branch or branch_name(unit))
-            and not worker_run.has_thread(inst, unit.id)
+            and not run_support.branch_is_held(inst, unit.branch or branch_name(unit))
+            and not run_support.has_thread(inst, unit.id)
         ):
             store.set_state(
                 unit.id,
@@ -3197,7 +3202,7 @@ def reconcile_running(
             unit.state != RUNNING
             or unit.id in in_flight
             or marker_live(unit, spans.clock.now())
-            or worker_run.has_thread(inst, unit.id)
+            or run_support.has_thread(inst, unit.id)
         ):
             continue
         gone = lock_holder_gone(unit.branch or branch_name(unit), root=inst.locks_dir)
@@ -3265,8 +3270,8 @@ def gate_resumable(
             or unit.id in spared
             or unit.id in owed
             or leases.holder(unit.id) is not None
-            or worker_run.branch_is_held(inst, unit.branch or branch_name(unit))
-            or not worker_run.has_thread(inst, unit.id)
+            or run_support.branch_is_held(inst, unit.branch or branch_name(unit))
+            or not run_support.has_thread(inst, unit.id)
         ):
             continue
         if waits := _gate_on_merge_edges(store, unit, units, repos):
@@ -3336,7 +3341,7 @@ def release_gated(inst: Installation, store: UnitStore, *, in_flight: Collection
             RequeueReason.RESTART: "restart",
         }.get(why, "resume")
         try:
-            delivered = worker_run.resume_thread(
+            delivered = run_support.resume_thread(
                 inst, unit, "requeue", store=store, reason=mode, requeue=why
             )
         except BranchBusy:
@@ -3591,7 +3596,7 @@ def _split_one(
     stored = unit.split_request
     assert stored is not None
     tasks = inst.changes_dir / unit.change / "tasks.md"
-    task_groups, errors = _validated(inst, tasks)
+    task_groups, errors = validated(inst, tasks)
     if errors:
         log(f"not splitting {unit.id}: the tags of {unit.change} are broken")
         return
@@ -3668,7 +3673,7 @@ def release_split_held(
     is never asked. The delivery ends the park, so a unit is released once per hold."""
     for unit in _releasable_split_units(inst, store.all(), in_flight):
         try:
-            delivered = worker_run.resume_thread(
+            delivered = run_support.resume_thread(
                 inst,
                 unit,
                 "requeue",
@@ -3728,7 +3733,7 @@ def split_changes(
             tasks = inst.changes_dir / member.change / "tasks.md"
             if not tasks.is_file():
                 break
-            read, errors = _validated(inst, tasks)
+            read, errors = validated(inst, tasks)
             by_number = {g.number: g for g in read}
             if errors or any(number not in by_number for number in member.groups):
                 break
@@ -3768,7 +3773,7 @@ def release_split_changed(
             f"{unit.split}. The tasks are read again from the file."
         )
         try:
-            delivered = worker_run.resume_thread(
+            delivered = run_support.resume_thread(
                 inst,
                 unit,
                 "requeue",
@@ -3906,8 +3911,8 @@ def resumable_units(
         and (not only or unit.id in only)
         and unit.id not in spared
         and leases.holder(unit.id) is None
-        and not worker_run.branch_is_held(inst, unit.branch or branch_name(unit))
-        and worker_run.has_thread(inst, unit.id)
+        and not run_support.branch_is_held(inst, unit.branch or branch_name(unit))
+        and run_support.has_thread(inst, unit.id)
     ]
 
 
@@ -4121,7 +4126,8 @@ def in_a_worker(inst: Installation, units: Iterable[StoredUnit]) -> set[str]:
         unit.id
         for unit in units
         if unit.in_a_worker(
-            locked=worker_run.branch_is_held(inst, unit.branch or branch_name(unit)), lane_held=held
+            locked=run_support.branch_is_held(inst, unit.branch or branch_name(unit)),
+            lane_held=held,
         )
     }
 
@@ -4806,7 +4812,7 @@ def _refresh(
         reconcile(
             store=store,
             state_dir=inst.state_dir,
-            dispatch=worker_run.dispatch_for(inst, store, lane=lane),
+            dispatch=run_support.dispatch_for(inst, store, lane=lane),
             log=log,
         )
     except Exception as error:  # noqa: BLE001
@@ -4901,7 +4907,7 @@ def park_dependents(inst: Installation, store: UnitStore) -> None:
     event to its thread."""
 
     def deliver(unit: StoredUnit, note: str) -> bool:
-        resumed = worker_run.resume_thread(
+        resumed = run_support.resume_thread(
             inst, unit, EventKind.UPSTREAM_CHANGED.value, store=store, reason=note
         )
         return resumed is not None and not resumed.raised
@@ -5251,7 +5257,7 @@ def _without_planner(
     # tags it copied at plan time can disagree with the file.
     if task_groups and _taken_groups(store, change) >= {g.number for g in task_groups}:
         if problems := _tag_problems(
-            store, change, task_groups, _task_catalog(inst), declared_projects(inst.repos)
+            store, change, task_groups, task_catalog(inst), declared_projects(inst.repos)
         ):
             return "tag_problems", problems
         return "all_taken", ALL_TAKEN
@@ -5433,7 +5439,7 @@ def _plan_wait(inst: Installation, error: Exception, previous: Mapping) -> tuple
         statuses += 1
         kind = "service"
     elif isinstance(error, NetworkUnavailable):
-        cause = _outage_cause(inst, error)
+        cause = outage_cause(inst, error)
         if cause is None:
             return None
         kind = "network" if cause is Cause.NETWORK_UNAVAILABLE else "service"
@@ -5515,7 +5521,7 @@ def plan_all(
         # The tags are how a unit finds its repo and its tier. Planning
         # against a broken one spends a model call to produce a graph that
         # cannot be built, so this refuses before paying for it.
-        task_groups, errors = _validated(inst, tasks)
+        task_groups, errors = validated(inst, tasks)
         # A group a started unit carries must still be in tasks.md: renumbered or
         # deleted, the unit's branch and the groups no longer agree, so no plan is made.
         decided = _without_planner(inst, store, change, task_groups, errors)
@@ -5540,7 +5546,7 @@ def plan_all(
             else:
                 # A planned unit of another change that carries a group has its priority
                 # from the edited line, as the planning path gives it.
-                _set_priorities(store, _carrying_unstarted(store, change), _task_catalog(inst))
+                _set_priorities(store, _carrying_unstarted(store, change), task_catalog(inst))
                 record_plans(
                     inst,
                     {
@@ -5578,7 +5584,7 @@ def plan_all(
         ratios = calibrations(units)
         answers: list[str] = []
         try:
-            catalog = _task_catalog(inst)
+            catalog = task_catalog(inst)
             # The groups go in so the plan is checked against the tags, which
             # were validated on the change's own PR: a model handing one
             # repo's group to another repo's unit is a real failure mode.
@@ -5855,7 +5861,7 @@ def _promote(inst: Installation, store: UnitStore) -> None:
     # A gated unit is left out of the round and lends nothing; the promotion is worked out
     # again every round, so it comes back in the first round that finds the hold gone.
     gated = split_gates(inst.config, inst.state_dir, store.all())
-    for unit_id, priority, source in promote_ancestors(store, _task_catalog(inst), gated):
+    for unit_id, priority, source in promote_ancestors(store, task_catalog(inst), gated):
         log(f"promoted {unit_id} to priority {priority}, from {source}")
 
 
@@ -5949,7 +5955,7 @@ def _write_join(
 def _resolved_in(tasks: Path, inst: Installation | None) -> dict[int, str]:
     """The projects the groups of a tasks file resolve to, under `inst`'s repos and projects,
     or under the active workspace when none is given."""
-    groups = validate_tasks(tasks)[0] if inst is None else _validated(inst, tasks)[0]
+    groups = validate_tasks(tasks)[0] if inst is None else validated(inst, tasks)[0]
     return resolved_projects(groups)
 
 
@@ -6090,7 +6096,7 @@ def resolution_record(groups: Sequence[TaskGroup]) -> dict[str, dict[str, str]]:
 
 def tasks_resolution_record(tasks: Path, inst: Installation) -> dict[str, dict[str, str]]:
     """`resolution_record` of a tasks file's groups, resolved under `inst`'s repos and projects."""
-    return resolution_record(_validated(inst, tasks)[0])
+    return resolution_record(validated(inst, tasks)[0])
 
 
 def marked_for_moved_projects(inst: Installation, records: dict[str, dict]) -> dict[str, dict]:
@@ -6154,7 +6160,7 @@ def stale_plan_lines(inst: Installation) -> list[str]:
     change and why, and saying how to plan it again."""
     records = marked_for_moved_projects(inst, planned_hashes(inst))
     current = sizing_digest()
-    standing = {unit.change for unit in worker_run.store_for(inst).all()}
+    standing = {unit.change for unit in run_support.store_for(inst).all()}
     return [
         f"{change}: plan is stale, {plan_stale_reason(record, current)} "
         f"— `abk replan {change}` plans it again"
@@ -6243,8 +6249,11 @@ def build_restack_lane(inst: Installation, store: UnitStore) -> ResolutionLanes:
         refusals.add(unit_id)
         lanes.defer_until(unit_id, resume_at)
 
-    moves = worker_run.build_stack_moves(store, inst, gated=True, refused=refused)
-    move = worker_run.build_turned_move(inst, gated=True, refused=refused)
+    # Late: the resolution procedure is the worker's, which this command module does not load.
+    from agent_build_kit.worker_run import resolution_procedure
+
+    moves = run_support.build_stack_moves(store, inst, gated=True, refused=refused)
+    move = run_support.build_turned_move(inst, gated=True, refused=refused)
     move_unit = resolution_procedure(
         inst,
         store,
@@ -6310,7 +6319,7 @@ def deliver_hold_event(
     if unit.pr is None:
         say(f"{unit.id} has no pull request")
         return False
-    return worker_run.dispatch_for(inst, store, say)(event, unit.pr, repo=unit.repo)
+    return run_support.dispatch_for(inst, store, say)(event, unit.pr, repo=unit.repo)
 
 
 def hold_label_on(inst: Installation, unit: StoredUnit) -> bool:
@@ -6341,14 +6350,14 @@ def poll_all(inst: Installation, *, store: UnitStore, lane: Lane | None = None) 
     """
     checkouts = inst.checkouts
 
-    dispatch = worker_run.dispatch_for(inst, store, lane=lane)
+    dispatch = run_support.dispatch_for(inst, store, lane=lane)
     # Before the events and before admission: a unit that landed later is recognised first.
     claim = build_claim(inst.locks_dir)
-    resume = worker_run.thread_resumer(inst, store)
+    resume = run_support.thread_resumer(inst, store)
     recheck_landings(
         store,
         repos=checkouts,
-        merge_record=lambda unit: worker_run.merge_record_of(inst, unit),
+        merge_record=lambda unit: run_support.merge_record_of(inst, unit),
         claim=claim,
         resume=resume,
         log=log,
@@ -6380,7 +6389,7 @@ def poll_all(inst: Installation, *, store: UnitStore, lane: Lane | None = None) 
             log=log,
         ).poll()
         _refresh_check_labels(inst, store, repo, labels)
-    moves = worker_run.build_stack_moves(store, inst)
+    moves = run_support.build_stack_moves(store, inst)
     remove_merged_branches(
         store,
         repos=checkouts,
@@ -6465,7 +6474,7 @@ def _needs_cycle_problems(inst: Installation) -> dict[str, str]:
 
 def _tag_warnings(inst: Installation, path: Path) -> list[str]:
     """What `abk tags` and `abk check` warn of in a tasks file, none of it a problem."""
-    groups = _validated(inst, path)[0]
+    groups = validated(inst, path)[0]
     sources = {g.source for g in groups if g.source == ProjectSource.RESOLVED or g.project != "."}
     mixed = (
         [
@@ -6552,7 +6561,7 @@ def _fix_change_tags(
             return refuse(f"{path} is not valid text")
         except OSError as exc:
             return refuse(f"could not read {path}: {exc}")
-        before, errors = _validated(inst, path)
+        before, errors = validated(inst, path)
         if change.lower() in cycles:
             print(cycles[change.lower()])
             return refuse(f"a Needs: cycle, run `abk tags {change}`")
@@ -6583,7 +6592,7 @@ def _fix_change_tags(
         if not count:
             print(f"{change}: unchanged")
             return True
-        after, after_errors = validate_tasks_text(fixed, change, **_validation_scope(inst))
+        after, after_errors = validate_tasks_text(fixed, change, **validation_scope(inst))
         if projects:
             same = (_masked(before), []) == (_masked(after), after_errors)
         else:
@@ -6715,7 +6724,7 @@ def cmd_archive(args: argparse.Namespace, inst: Installation) -> int:
         "sweeping unplanned units",
         _sweep_unplanned_units,
         inst,
-        worker_run.store_for(inst),
+        run_support.store_for(inst),
         spans.clock.now(),
         only_change=args.change,
     )
@@ -6781,7 +6790,7 @@ def cmd_replan(args: argparse.Namespace, inst: Installation) -> int:
     next tick would have produced. Started work is left as it is (the store
     keeps it), and only what differs from before is printed.
     """
-    store = worker_run.store_for(inst)
+    store = run_support.store_for(inst)
     on_disk = (
         sorted(
             path.name
@@ -6863,7 +6872,7 @@ def cmd_replan(args: argparse.Namespace, inst: Installation) -> int:
             )
         elif not tasks.is_file():
             print(f"abk replan: {change} has no tasks.md")
-        elif not args.forget and _validated(inst, tasks)[1]:
+        elif not args.forget and validated(inst, tasks)[1]:
             print(f"abk replan: {change} has task-group problems — run `abk tags`")
         else:
             to_plan.append(change)
@@ -6933,7 +6942,7 @@ def cmd_replan(args: argparse.Namespace, inst: Installation) -> int:
 
 def _urgency(inst: Installation, change: str) -> int:
     """The most urgent priority among a change's task groups; normal when none is readable."""
-    groups, _ = _validated(inst, inst.changes_dir / change / "tasks.md")
+    groups, _ = validated(inst, inst.changes_dir / change / "tasks.md")
     return min((group.priority for group in groups), default=Priority.NORMAL)
 
 
@@ -7184,7 +7193,7 @@ def _print_replan_report(inst: Installation, store: UnitStore, changes: list[str
         for unit in (*started, *unstarted):
             groups = ", ".join(str(n) for n in unit.groups)
             print(f"  {unit.id}: group {groups} ({unit.state.value})")
-        task_groups, errors = _validated(inst, inst.changes_dir / change / "tasks.md")
+        task_groups, errors = validated(inst, inst.changes_dir / change / "tasks.md")
         decided = _without_planner(inst, store, change, task_groups, errors)
         if decided is None:
             calls += 1
@@ -7327,7 +7336,7 @@ def approve_unit(inst: Installation, unit_id: str, *, say: Callable[..., None]) 
     result is the command's exit code.
     """
 
-    known = {unit.id: unit for unit in worker_run.store_for(inst).all()}
+    known = {unit.id: unit for unit in run_support.store_for(inst).all()}
     unit = known.get(unit_id)
     if unit is None:
         say(f"abk approve: no unit {unit_id!r} (known: {', '.join(sorted(known)) or 'none'})")
@@ -7406,7 +7415,7 @@ def requeue(
     `restart` run the agent, so a plain requeue with one is refused. `because` is the
     history entry of a requeue the pipeline makes itself, in place of the default.
     """
-    store = worker_run.store_for(inst)
+    store = run_support.store_for(inst)
     known = {unit.id: unit for unit in store.all()}
     if unit_id not in known:
         say(
@@ -7473,7 +7482,7 @@ def requeue(
         if automatic
         else "the person's note"
     )
-    if waits and worker_run.has_thread(inst, unit_id):
+    if waits and run_support.has_thread(inst, unit_id):
         # A dependency is unmet: the thread is left where it stopped, and the pass
         # delivers the event in this mode once nothing the unit waits on is left (a
         # same-repo parent in review, a cross-repo parent merged).
@@ -7494,7 +7503,7 @@ def requeue(
         say(f"{unit_id} requeued ({mode}), {wait}")
         return _requeued(store, unit_id, clears_park)
     try:
-        delivered = worker_run.resume_thread(
+        delivered = run_support.resume_thread(
             inst,
             known[unit_id],
             "requeue",

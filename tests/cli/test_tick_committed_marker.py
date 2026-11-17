@@ -9,7 +9,7 @@ from pathlib import Path
 
 import pytest
 
-from agent_build_kit import worker_run
+from agent_build_kit import run_support
 from agent_build_kit.cli import pipeline as cli
 from agent_build_kit.installation import Installation
 from agent_build_kit.pipeline import usage_guard, wiring
@@ -48,20 +48,20 @@ def isolated(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(cli, "has_identity", lambda inst, repo: True)
     monkeypatch.setattr(cli, "verify_ready", lambda inst, units, **kwargs: lambda change: True)
     monkeypatch.setattr(cli, "archive_ready_changes", lambda *a, **k: [])
-    monkeypatch.setattr("agent_build_kit.worker_run.current_usage", lambda: None)
+    monkeypatch.setattr("agent_build_kit.run_support.current_usage", lambda: None)
     monkeypatch.setattr(
-        "agent_build_kit.worker_run.may_start_unit",
+        "agent_build_kit.run_support.may_start_unit",
         lambda r, **_: Decision(may_start=True, reason="plenty"),
     )
     # The delivery's real runner asks the guard through `wiring`, not through `cli`.
     monkeypatch.setattr(wiring, "decide_start", lambda: Decision(may_start=True, reason="plenty"))
-    real = worker_run.build_runner
+    real = run_support.build_runner
 
     def runner(unit, **kwargs):
         # A delivery builds the real runner (it passes `record_merge`); a build is scripted.
         return real(unit, **kwargs) if "record_merge" in kwargs else Builder()
 
-    monkeypatch.setattr("agent_build_kit.worker_run.build_runner", runner)
+    monkeypatch.setattr("agent_build_kit.run_support.build_runner", runner)
 
 
 @pytest.fixture

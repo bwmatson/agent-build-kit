@@ -44,7 +44,7 @@ def test_each_requeue_mode_is_delivered_as_its_reason(
         delivered.append({"kind": kind, **kwargs})
         return None
 
-    monkeypatch.setattr("agent_build_kit.worker_run.resume_thread", resume_thread)
+    monkeypatch.setattr("agent_build_kit.run_support.resume_thread", resume_thread)
 
     assert main(["requeue", "add-marker/1", *flags]) == 0
 

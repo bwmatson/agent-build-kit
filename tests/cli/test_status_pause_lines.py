@@ -28,7 +28,7 @@ pytestmark = pytest.mark.usefixtures("scripted_engine")
 
 @pytest.fixture(autouse=True)
 def no_claude_usage(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr("agent_build_kit.worker_run.current_usage", lambda *a, **k: None)
+    monkeypatch.setattr("agent_build_kit.run_support.current_usage", lambda *a, **k: None)
 
 
 def pause_lines(inst, capsys: pytest.CaptureFixture[str]) -> list[str]:

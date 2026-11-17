@@ -12,7 +12,7 @@ from pathlib import Path
 
 import pytest
 
-from agent_build_kit import runtimes, worker_run
+from agent_build_kit import run_support, runtimes
 from agent_build_kit.cli import build_parser
 from agent_build_kit.cli import pipeline as cli
 from agent_build_kit.pipeline.units import RUNNING
@@ -85,7 +85,7 @@ def step(state: Path, unit_id: str, node: str, round: int) -> None:
 
 
 def run_units(inst, *ids: str) -> None:
-    store = worker_run.store_for(inst)
+    store = run_support.store_for(inst)
     store.upsert([unit(each) for each in ids])
     for each in ids:
         store.set_state(each, RUNNING, branch=f"spec/{each}")

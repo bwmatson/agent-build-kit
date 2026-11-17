@@ -17,7 +17,7 @@ from typing import Any
 
 import pytest
 
-from agent_build_kit import runtimes, worker_run
+from agent_build_kit import run_support, runtimes
 from agent_build_kit.pipeline import usage_guard, wiring
 from agent_build_kit.pipeline.events import build_restack
 from agent_build_kit.pipeline.units import IN_REVIEW
@@ -69,7 +69,7 @@ class Scene:
                 return Decision(may_start=True, reason="plenty")
             return real(**kwargs)
 
-        for module in (usage_guard, wiring, worker_run):
+        for module in (usage_guard, wiring, run_support):
             monkeypatch.setattr(module, "decide_start", spy)
         self.tree = graph.inst.state_dir / "tree"
 

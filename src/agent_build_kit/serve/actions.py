@@ -27,7 +27,7 @@ from agent_build_kit.installation import Installation
 from agent_build_kit.pipeline.pr_poller import HOLD_LABEL
 from agent_build_kit.pipeline.unit_store import REQUEUE_BY, StoredUnit
 from agent_build_kit.pipeline.units import HELD, IN_REVIEW
-from agent_build_kit.worker_run import store_for
+from agent_build_kit.run_support import store_for
 
 ACTIONS = ("requeue", "hold", "release", "approve")
 ACTOR = "the web UI"

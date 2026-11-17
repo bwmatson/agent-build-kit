@@ -85,7 +85,7 @@ def test_a_unit_parked_for_the_host_resumes_at_its_step_after_a_replan(
     def build_once(**overrides: Any) -> Recorder:
         recorder = Recorder(store)
         runner = make_runner(store, recorder, tmp_path, **overrides)
-        monkeypatch.setattr("agent_build_kit.worker_run.build_runner", lambda u, **kw: runner)
+        monkeypatch.setattr("agent_build_kit.run_support.build_runner", lambda u, **kw: runner)
         assert worker_run.build_unit(inst, store.get(UNIT), store=store) is True
         return recorder
 

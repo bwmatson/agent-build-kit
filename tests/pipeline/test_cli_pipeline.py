@@ -97,9 +97,11 @@ def test_a_low_window_pauses_before_planning(
     is no room to work."""
     UnitStore(tmp_path / "units.json").upsert([stored()])  # work, so it gets that far
     planned: list[str] = []
-    monkeypatch.setattr("agent_build_kit.worker_run.current_usage", lambda: reading(session_pct=88))
     monkeypatch.setattr(
-        "agent_build_kit.worker_run.may_start_unit",
+        "agent_build_kit.run_support.current_usage", lambda: reading(session_pct=88)
+    )
+    monkeypatch.setattr(
+        "agent_build_kit.run_support.may_start_unit",
         lambda r: Decision(may_start=False, reason="session usage at 88%", resume_at=r.resets_at),
     )
     monkeypatch.setattr(cli, "plan_all", lambda inst, **kwargs: planned.append("plan"))
@@ -117,9 +119,11 @@ def test_a_pause_lasts_until_the_ramp_offers_room_not_until_the_reset(
     slept through."""
     UnitStore(tmp_path / "units.json").upsert([stored()])
     ramp = datetime.now(UTC) + timedelta(minutes=40)
-    monkeypatch.setattr("agent_build_kit.worker_run.current_usage", lambda: reading(session_pct=76))
     monkeypatch.setattr(
-        "agent_build_kit.worker_run.may_start_unit",
+        "agent_build_kit.run_support.current_usage", lambda: reading(session_pct=76)
+    )
+    monkeypatch.setattr(
+        "agent_build_kit.run_support.may_start_unit",
         lambda r: Decision(may_start=False, reason="session", resume_at=ramp),
     )
 
@@ -141,10 +145,10 @@ def test_a_paused_tick_asks_the_guard_again_and_stays_paused_when_it_refuses(
     )
     asked: list[str] = []
     monkeypatch.setattr(
-        "agent_build_kit.worker_run.current_usage", lambda: asked.append("usage") or reading()
+        "agent_build_kit.run_support.current_usage", lambda: asked.append("usage") or reading()
     )
     monkeypatch.setattr(
-        "agent_build_kit.worker_run.may_start_unit",
+        "agent_build_kit.run_support.may_start_unit",
         lambda r: Decision(may_start=False, reason="weekly at 92%", resume_at=r.resets_at),
     )
     planned: list[str] = []
@@ -169,9 +173,11 @@ def test_a_paused_tick_resumes_as_soon_as_the_guard_allows(
         marker=tmp_path / "paused.json",
     )
     # Room for the unit's own forecast too, which the start check now adds as the gate does.
-    monkeypatch.setattr("agent_build_kit.worker_run.current_usage", lambda: reading(session_pct=50))
     monkeypatch.setattr(
-        "agent_build_kit.worker_run.may_start_unit",
+        "agent_build_kit.run_support.current_usage", lambda: reading(session_pct=50)
+    )
+    monkeypatch.setattr(
+        "agent_build_kit.run_support.may_start_unit",
         lambda r: Decision(may_start=True, reason="room"),
     )
     archived: list[str] = []
@@ -197,7 +203,7 @@ def test_a_rate_limit_pause_is_kept_without_reading_usage(
     )
     asked: list[str] = []
     monkeypatch.setattr(
-        "agent_build_kit.worker_run.current_usage", lambda: asked.append("usage") or reading()
+        "agent_build_kit.run_support.current_usage", lambda: asked.append("usage") or reading()
     )
 
     assert cli.cmd_tick(argv_namespace(dry_run=True), inst) == 0
@@ -207,9 +213,9 @@ def test_a_rate_limit_pause_is_kept_without_reading_usage(
 
 
 def test_a_healthy_tick_reports_what_it_would_build(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr("agent_build_kit.worker_run.current_usage", lambda: reading())
+    monkeypatch.setattr("agent_build_kit.run_support.current_usage", lambda: reading())
     monkeypatch.setattr(
-        "agent_build_kit.worker_run.may_start_unit",
+        "agent_build_kit.run_support.may_start_unit",
         lambda r: Decision(may_start=True, reason="plenty"),
     )
     monkeypatch.setattr(cli, "archive_ready_changes", lambda *a, **k: [])
@@ -220,7 +226,7 @@ def test_a_healthy_tick_reports_what_it_would_build(monkeypatch: pytest.MonkeyPa
 def test_status_never_changes_anything(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     """It is the command to run when something looks wrong, so it must be safe
     to run then."""
-    monkeypatch.setattr("agent_build_kit.worker_run.current_usage", lambda: reading())
+    monkeypatch.setattr("agent_build_kit.run_support.current_usage", lambda: reading())
 
     assert cli.cmd_status(argv_namespace(), inst) == 0
     assert list(tmp_path.iterdir()) == []
@@ -232,7 +238,7 @@ def test_status_marks_a_pull_request_that_cannot_be_merged(
     """The review queue is what a person works from, and an entry they cannot
     merge is not actionable. Printed like the others, a conflicted pull request
     can sit there all day before anyone opens it."""
-    monkeypatch.setattr("agent_build_kit.worker_run.current_usage", lambda: reading())
+    monkeypatch.setattr("agent_build_kit.run_support.current_usage", lambda: reading())
     store = UnitStore(tmp_path / "units.json")
     store.upsert([stored("add-marker/1"), stored("add-marker/2")])
     store.set_state("add-marker/1", IN_REVIEW, pr=4)
@@ -301,9 +307,9 @@ def stored(uid: str = "add-marker/1", **overrides) -> StoredUnit:
 @pytest.fixture
 def healthy(monkeypatch: pytest.MonkeyPatch):
     """A tick with room in the window and nothing to archive."""
-    monkeypatch.setattr("agent_build_kit.worker_run.current_usage", lambda: reading())
+    monkeypatch.setattr("agent_build_kit.run_support.current_usage", lambda: reading())
     monkeypatch.setattr(
-        "agent_build_kit.worker_run.may_start_unit",
+        "agent_build_kit.run_support.may_start_unit",
         lambda r: Decision(may_start=True, reason="plenty"),
     )
     monkeypatch.setattr(cli, "archive_ready_changes", lambda *a, **k: [])
@@ -314,7 +320,7 @@ def window_spent_after_the_first_round(monkeypatch: pytest.MonkeyPatch) -> None:
     it meet the same guard, as a real one answers."""
     answers = iter([Decision(may_start=True, reason="plenty")])
     monkeypatch.setattr(
-        "agent_build_kit.worker_run.may_start_unit",
+        "agent_build_kit.run_support.may_start_unit",
         lambda r: next(answers, Decision(may_start=False, reason="session usage at 71%")),
     )
 
@@ -327,7 +333,7 @@ def test_a_ready_unit_is_actually_built(
     UnitStore(tmp_path / "units.json").upsert([stored()])
     built: list[str] = []
     monkeypatch.setattr(
-        "agent_build_kit.worker_run.build_runner", lambda unit, **kwargs: FakeRunner(built)
+        "agent_build_kit.run_support.build_runner", lambda unit, **kwargs: FakeRunner(built)
     )
 
     assert cli.cmd_tick(argv_namespace(dry_run=False), inst) == 0
@@ -340,7 +346,7 @@ def test_a_dry_run_still_builds_nothing(
     UnitStore(tmp_path / "units.json").upsert([stored()])
     built: list[str] = []
     monkeypatch.setattr(
-        "agent_build_kit.worker_run.build_runner", lambda unit, **kwargs: FakeRunner(built)
+        "agent_build_kit.run_support.build_runner", lambda unit, **kwargs: FakeRunner(built)
     )
 
     assert cli.cmd_tick(argv_namespace(dry_run=True), inst) == 0
@@ -361,7 +367,7 @@ def test_a_unit_whose_branch_is_held_is_skipped_not_failed(
             raise BranchBusy("held by pid 1234")
         return FakeRunner(built)
 
-    monkeypatch.setattr("agent_build_kit.worker_run.build_runner", runner)
+    monkeypatch.setattr("agent_build_kit.run_support.build_runner", runner)
 
     assert cli.cmd_tick(argv_namespace(dry_run=False), inst) == 0
     assert built == ["add-marker/2"], "the second unit still gets built"
@@ -382,7 +388,7 @@ def test_a_unit_that_raises_is_recorded_as_failed_and_the_tick_continues(
             return Exploding()
         return FakeRunner(built)
 
-    monkeypatch.setattr("agent_build_kit.worker_run.build_runner", runner)
+    monkeypatch.setattr("agent_build_kit.run_support.build_runner", runner)
 
     assert cli.cmd_tick(argv_namespace(dry_run=False), inst) == 0
     assert built == ["add-marker/2"]
@@ -405,7 +411,7 @@ def test_a_unit_that_pauses_records_the_pause_without_stopping_the_others(
             return Pausing()
         return FakeRunner(built)
 
-    monkeypatch.setattr("agent_build_kit.worker_run.build_runner", runner)
+    monkeypatch.setattr("agent_build_kit.run_support.build_runner", runner)
 
     assert cli.cmd_tick(argv_namespace(dry_run=False), inst) == 0
     assert built == ["add-marker/2"]
@@ -442,7 +448,7 @@ def test_an_unrelated_not_implemented_error_fails_the_unit_and_is_not_held_as_to
     store = UnitStore(tmp_path / "units.json")
     store.upsert([stored()])
     monkeypatch.setattr(
-        "agent_build_kit.worker_run.build_runner", lambda unit, **kwargs: Abstract()
+        "agent_build_kit.run_support.build_runner", lambda unit, **kwargs: Abstract()
     )
 
     assert cli.cmd_tick(argv_namespace(dry_run=False), inst) == 0
@@ -458,7 +464,7 @@ def test_a_toolchain_the_framework_cannot_build_holds_the_unit_and_records_why(
     store = UnitStore(tmp_path / "units.json")
     store.upsert([stored()])
     monkeypatch.setattr(
-        "agent_build_kit.worker_run.build_runner", lambda unit, **kwargs: UnsupportedProfile()
+        "agent_build_kit.run_support.build_runner", lambda unit, **kwargs: UnsupportedProfile()
     )
 
     assert cli.cmd_tick(argv_namespace(dry_run=False), inst) == 0
@@ -490,7 +496,7 @@ def test_a_usage_pause_takes_its_reason_and_time_from_its_fields(
             )
 
     monkeypatch.setattr(
-        "agent_build_kit.worker_run.build_runner", lambda unit, **kwargs: PausingWithFields()
+        "agent_build_kit.run_support.build_runner", lambda unit, **kwargs: PausingWithFields()
     )
 
     cli.cmd_tick(argv_namespace(dry_run=False), inst)
@@ -521,7 +527,7 @@ def test_a_usage_pause_from_a_unit_run_is_announced_in_local_time(
                 )
 
         monkeypatch.setattr(
-            "agent_build_kit.worker_run.build_runner", lambda unit, **kwargs: PausingWithFields()
+            "agent_build_kit.run_support.build_runner", lambda unit, **kwargs: PausingWithFields()
         )
 
         cli.cmd_tick(argv_namespace(dry_run=False), inst)
@@ -566,7 +572,7 @@ def test_a_poller_failure_does_not_stop_the_tick(
 
     monkeypatch.setattr(cli, "poll_all", explode)
     monkeypatch.setattr(
-        "agent_build_kit.worker_run.build_runner", lambda unit, **kwargs: FakeRunner(built)
+        "agent_build_kit.run_support.build_runner", lambda unit, **kwargs: FakeRunner(built)
     )
 
     assert cli.cmd_tick(argv_namespace(dry_run=False), inst) == 0
@@ -583,7 +589,7 @@ def test_nothing_is_built_in_a_repo_with_no_configured_identity(
     UnitStore(tmp_path / "units.json").upsert([stored()])
     built: list[str] = []
     monkeypatch.setattr(
-        "agent_build_kit.worker_run.build_runner", lambda unit, **kwargs: FakeRunner(built)
+        "agent_build_kit.run_support.build_runner", lambda unit, **kwargs: FakeRunner(built)
     )
 
     assert cli.cmd_tick(argv_namespace(dry_run=False), inst) == 1
@@ -610,7 +616,7 @@ def test_the_check_runs_before_anything_is_spent(
     first, and doing that again every five minutes."""
     monkeypatch.setattr(cli, "has_identity", lambda inst, repo: False)
     monkeypatch.setattr(
-        "agent_build_kit.worker_run.build_runner",
+        "agent_build_kit.run_support.build_runner",
         lambda unit, **kwargs: pytest.fail("built anyway"),
     )
     UnitStore(tmp_path / "units.json").upsert([stored()])
@@ -1045,7 +1051,7 @@ def test_a_unit_a_live_process_holds_is_left_alone(
     store = UnitStore(tmp_path / "units.json")
     store.upsert([stored()])
     store.set_state("add-marker/1", UnitState.RUNNING, branch="spec/add-marker/1")
-    monkeypatch.setattr("agent_build_kit.worker_run.branch_is_held", lambda inst, branch: True)
+    monkeypatch.setattr("agent_build_kit.run_support.branch_is_held", lambda inst, branch: True)
 
     cli.cmd_tick(argv_namespace(dry_run=True), inst)
 
@@ -1065,7 +1071,7 @@ def test_a_unit_another_tick_built_meanwhile_is_not_built_again(
     monkeypatch.setattr(cli, "ready_units", lambda graph, **kwargs: stale)
     built: list[str] = []
     monkeypatch.setattr(
-        "agent_build_kit.worker_run.build_runner", lambda unit, **kwargs: FakeRunner(built)
+        "agent_build_kit.run_support.build_runner", lambda unit, **kwargs: FakeRunner(built)
     )
 
     assert cli.cmd_tick(argv_namespace(dry_run=False), inst) == 0
@@ -1081,7 +1087,7 @@ def test_only_narrows_what_is_built_and_nothing_else(
     store.upsert([stored(), stored("add-marker/2")])
     built: list[str] = []
     monkeypatch.setattr(
-        "agent_build_kit.worker_run.build_runner", lambda unit, **kwargs: FakeRunner(built)
+        "agent_build_kit.run_support.build_runner", lambda unit, **kwargs: FakeRunner(built)
     )
     args = argv_namespace(dry_run=False)
     args.only = ["add-marker/2"]
@@ -1106,7 +1112,7 @@ def test_a_killed_claude_run_is_an_interruption_not_a_failure(
             store.set_state(unit.id, UnitState.RUNNING)
             raise Interrupted("claude was killed by signal 9")
 
-    monkeypatch.setattr("agent_build_kit.worker_run.build_runner", lambda unit, **kwargs: Killed())
+    monkeypatch.setattr("agent_build_kit.run_support.build_runner", lambda unit, **kwargs: Killed())
 
     assert cli.cmd_tick(argv_namespace(dry_run=False), inst) == 0
     assert store.get("add-marker/1").state == "running", "left for the next tick to resume"
@@ -1406,7 +1412,7 @@ class Speaking:
 
 def speaking(monkeypatch: pytest.MonkeyPatch, outcomes: dict[str, RunOutcome | Exception]) -> None:
     monkeypatch.setattr(
-        "agent_build_kit.worker_run.build_runner",
+        "agent_build_kit.run_support.build_runner",
         lambda unit, **kwargs: Speaking(kwargs["log"], outcomes[unit.id]),
     )
 
@@ -1810,7 +1816,7 @@ def test_status_says_when_the_queue_is_full(
     store.upsert([stored(f"c{n}/1", change=f"c{n}") for n in (1, 2, 3)])
     for n in (1, 2, 3):
         store.set_state(f"c{n}/1", IN_REVIEW, pr=10 + n)
-    monkeypatch.setattr("agent_build_kit.worker_run.current_usage", lambda: reading())
+    monkeypatch.setattr("agent_build_kit.run_support.current_usage", lambda: reading())
 
     assert cli.cmd_status(argv_namespace(), workspace_inst) == 0
 
@@ -1831,7 +1837,7 @@ def test_status_names_a_failed_unit_holding_a_place(
     store.upsert([stored("one/1", change="one"), stored("two/1", change="two")])
     store.set_state("one/1", IN_REVIEW, pr=11)
     store.set_state("two/1", UnitState.FAILED)
-    monkeypatch.setattr("agent_build_kit.worker_run.current_usage", lambda: reading())
+    monkeypatch.setattr("agent_build_kit.run_support.current_usage", lambda: reading())
 
     assert cli.cmd_status(argv_namespace(), workspace_inst) == 0
 
@@ -1852,7 +1858,7 @@ def test_status_names_reworks_and_resumes_by_why_they_count(
     store.upsert([stored("one/1", change="one"), stored("two/1", change="two")])
     store.set_state("one/1", PLANNED, pr=11)
     store.set_state("two/1", PLANNED, branch="spec/two/1")
-    monkeypatch.setattr("agent_build_kit.worker_run.current_usage", lambda: reading())
+    monkeypatch.setattr("agent_build_kit.run_support.current_usage", lambda: reading())
 
     assert cli.cmd_status(argv_namespace(), workspace_inst) == 0
 
@@ -1872,7 +1878,7 @@ def test_status_is_silent_about_the_queue_below_the_limit(
     store = UnitStore(tmp_path / "units.json")
     store.upsert([stored("one/1", change="one")])
     store.set_state("one/1", IN_REVIEW, pr=11)
-    monkeypatch.setattr("agent_build_kit.worker_run.current_usage", lambda: reading())
+    monkeypatch.setattr("agent_build_kit.run_support.current_usage", lambda: reading())
 
     assert cli.cmd_status(argv_namespace(), workspace_inst) == 0
 

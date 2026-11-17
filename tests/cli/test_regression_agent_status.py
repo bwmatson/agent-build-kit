@@ -84,7 +84,7 @@ def test_status_names_the_change_and_the_judgement_of_a_failing_test(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     workspace, _ = waiting(tmp_path)
-    monkeypatch.setattr("agent_build_kit.worker_run.current_usage", lambda: None)
+    monkeypatch.setattr("agent_build_kit.run_support.current_usage", lambda: None)
 
     assert cli.cmd_status(argparse.Namespace(), workspace) == 0
 

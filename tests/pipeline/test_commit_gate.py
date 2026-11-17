@@ -238,7 +238,7 @@ def test_a_unit_whose_commit_was_rejected_carries_the_gates_output_on_its_record
             raise CommitRejected(f"ruff...Failed\n- hook id: ruff\n\n{LINT_OUTPUT}")
 
     monkeypatch.setattr(
-        "agent_build_kit.worker_run.build_runner", lambda unit, **kwargs: Rejected()
+        "agent_build_kit.run_support.build_runner", lambda unit, **kwargs: Rejected()
     )
 
     worker_run.build_unit(inst, store.get("add-marker/1"), store=store)

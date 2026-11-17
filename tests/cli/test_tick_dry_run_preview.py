@@ -29,10 +29,11 @@ def inst(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Installation:
     monkeypatch.setattr(cli, "fetch_all", lambda inst: None)
     monkeypatch.setattr(cli, "plan_all", lambda inst, **kwargs: None)
     monkeypatch.setattr(cli, "has_identity", lambda inst, repo: True)
-    monkeypatch.setattr("agent_build_kit.worker_run.has_thread", lambda inst, unit_id: False)
-    monkeypatch.setattr("agent_build_kit.worker_run.current_usage", lambda: None)
+    monkeypatch.setattr("agent_build_kit.run_support.has_thread", lambda inst, unit_id: False)
+    monkeypatch.setattr("agent_build_kit.run_support.current_usage", lambda: None)
     monkeypatch.setattr(
-        "agent_build_kit.worker_run.may_start_unit", lambda r: Decision(may_start=True, reason="ok")
+        "agent_build_kit.run_support.may_start_unit",
+        lambda r: Decision(may_start=True, reason="ok"),
     )
     return make_installation(
         tmp_path, planning={"state_dir": ".", "worktree_root": str(tmp_path.parent / "trees")}

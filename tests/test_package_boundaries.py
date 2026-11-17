@@ -404,6 +404,8 @@ def test_a_baseline_entry_that_no_longer_exists_fails_until_it_is_removed(tmp_pa
         ("graph.nodes", WORKER),
         ("pipeline.resolution_lane", WORKER),
         ("pipeline.verify", WORKER),
+        ("worker_run", WORKER),
+        ("run_support", CORE),
         ("cli.pipeline", ORCHESTRATOR),
         ("pipeline.events", ORCHESTRATOR),
         ("pipeline.admission", ORCHESTRATOR),

@@ -62,7 +62,7 @@ class Accounts:
 def accounts(monkeypatch: pytest.MonkeyPatch) -> Accounts:
     answers = Accounts()
     # One source for admission and for the gate of an agent step (`build_usage_gate`).
-    monkeypatch.setattr("agent_build_kit.worker_run.decide_start", answers)
+    monkeypatch.setattr("agent_build_kit.run_support.decide_start", answers)
     monkeypatch.setattr(wiring, "decide_start", answers)
     return answers
 

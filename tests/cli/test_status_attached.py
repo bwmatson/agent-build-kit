@@ -32,7 +32,7 @@ def status_lines(
     live.mark_changes("one/1", "tab:a", 3)
     leave_lease(lease_dir(tmp_path), "one/2", files=1)
     leave_lease(lease_dir(tmp_path), "one/3")  # holds nothing
-    monkeypatch.setattr("agent_build_kit.worker_run.current_usage", lambda: None)
+    monkeypatch.setattr("agent_build_kit.run_support.current_usage", lambda: None)
 
     assert cli.cmd_status(argparse.Namespace(), workspace) == 0
 

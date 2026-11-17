@@ -31,7 +31,7 @@ class Reads:
 def watch(patch: pytest.MonkeyPatch, tree: Path) -> Reads:
     """Replace the tick's reads of the store and of the work with a recorder that finds none."""
     reads = Reads(tree)
-    patch.setattr("agent_build_kit.worker_run.store_for", reads.record)
+    patch.setattr("agent_build_kit.run_support.store_for", reads.record)
     patch.setattr(cli, "has_work", lambda *args, **kwargs: reads.record() or False)
     return reads
 

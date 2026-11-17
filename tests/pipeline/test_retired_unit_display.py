@@ -63,7 +63,7 @@ def test_status_counts_a_retired_unit_as_retired_and_holding_no_place(
     store = UnitStore(tmp_path / "units.json")
     store.upsert([stored_unit("feat/1"), stored_unit("feat/2")])
     store.set_state("feat/1", RETIRED, branch="spec/feat/1")
-    monkeypatch.setattr("agent_build_kit.worker_run.current_usage", lambda: None)
+    monkeypatch.setattr("agent_build_kit.run_support.current_usage", lambda: None)
 
     assert cli.cmd_status(argparse.Namespace(), workspace) == 0
 

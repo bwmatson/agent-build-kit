@@ -43,7 +43,7 @@ def build_once(
     clear_credentials()
     recorder = Recorder(store)
     runner = make_runner(store, recorder, tmp_path, **overrides)
-    monkeypatch.setattr("agent_build_kit.worker_run.build_runner", lambda u, **kw: runner)
+    monkeypatch.setattr("agent_build_kit.run_support.build_runner", lambda u, **kw: runner)
 
     assert worker_run.build_unit(inst, store.get(UNIT), store=store) is True
     return recorder

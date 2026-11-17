@@ -33,7 +33,7 @@ def find_unit(store: UnitStore, unit_id: str) -> StoredUnit | None:
 def accept(inst: Installation, store: UnitStore, unit_id: str) -> int:
     """Record the merge of a unit's pull request, once the forge itself confirms it."""
     # Late: the pipeline module imports the commands.
-    from agent_build_kit import worker_run
+    from agent_build_kit import run_support
 
     unit = find_unit(store, unit_id)
     if unit is None:
@@ -58,7 +58,7 @@ def accept(inst: Installation, store: UnitStore, unit_id: str) -> int:
         )
         return 1
     # The commit just confirmed is the one recorded: the merge record does not ask again.
-    if not worker_run.dispatch_for(inst, store)(
+    if not run_support.dispatch_for(inst, store)(
         "merged", unit.pr, repo=unit.repo, merge_commit=merged
     ):
         print(f"abk reconcile: a tick is handling {unit.id}; try again shortly", file=sys.stderr)
@@ -86,7 +86,7 @@ def accept(inst: Installation, store: UnitStore, unit_id: str) -> int:
 
 def cmd_reconcile(args: argparse.Namespace, inst: Installation) -> int:
     # Late: the pipeline module imports the commands.
-    from agent_build_kit import worker_run
+    from agent_build_kit import run_support
 
     if args.accept and (args.dry_run or args.unit):
         print(
@@ -94,7 +94,7 @@ def cmd_reconcile(args: argparse.Namespace, inst: Installation) -> int:
             file=sys.stderr,
         )
         return 2
-    store = worker_run.store_for(inst)
+    store = run_support.store_for(inst)
     if args.accept:
         return accept(inst, store, args.accept)
     if args.unit and find_unit(store, args.unit) is None:
@@ -102,7 +102,7 @@ def cmd_reconcile(args: argparse.Namespace, inst: Installation) -> int:
     reconcile(
         store=store,
         state_dir=inst.state_dir,
-        dispatch=worker_run.dispatch_for(inst, store),
+        dispatch=run_support.dispatch_for(inst, store),
         only=args.unit,
         dry_run=args.dry_run,
     )

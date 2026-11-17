@@ -31,7 +31,7 @@ from tests.gate_hold_support import Probe
 
 @pytest.fixture(autouse=True)
 def no_claude_usage(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr("agent_build_kit.worker_run.current_usage", lambda: None)
+    monkeypatch.setattr("agent_build_kit.run_support.current_usage", lambda: None)
 
 
 @pytest.fixture

@@ -11,7 +11,7 @@ from typing import Any
 
 import pytest
 
-from agent_build_kit import worker_run
+from agent_build_kit import run_support
 from agent_build_kit.cli import worker as worker_cli
 from agent_build_kit.installation import Installation
 from agent_build_kit.pipeline.units import IN_REVIEW
@@ -42,7 +42,7 @@ def run_worker(inst: Installation, monkeypatch: pytest.MonkeyPatch, unit_id: str
 def test_the_worker_runs_an_owed_comment_rework_as_a_moved_base_run(
     inst: Installation, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    store = worker_run.store_for(inst)
+    store = run_support.store_for(inst)
     unit, _ = build("c2/1", IN_REVIEW)
     store.upsert([unit])
     as_owed_comment(store, "c2/1")
@@ -53,7 +53,7 @@ def test_the_worker_runs_an_owed_comment_rework_as_a_moved_base_run(
 def test_the_worker_runs_any_other_unit_as_a_build(
     inst: Installation, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    store = worker_run.store_for(inst)
+    store = run_support.store_for(inst)
     unit, _ = build("b1/1", IN_REVIEW)
     store.upsert([unit])
 

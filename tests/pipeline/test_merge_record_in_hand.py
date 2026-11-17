@@ -11,7 +11,7 @@ from pathlib import Path
 
 import pytest
 
-from agent_build_kit import worker_run
+from agent_build_kit import run_support
 from agent_build_kit.forges.base import PullRequest
 from agent_build_kit.installation import Installation
 from agent_build_kit.pipeline import events
@@ -44,7 +44,7 @@ class World:
             remove_worktree=lambda repo, branch: None,
             delete_branch=lambda repo, branch: None,
             retarget=lambda unit, base: None,
-            merge_record=lambda unit: worker_run.merge_record_of(self.inst, unit),
+            merge_record=lambda unit: run_support.merge_record_of(self.inst, unit),
             log=lambda message: None,
         )
 
@@ -96,7 +96,7 @@ def test_the_merge_record_of_a_unit_with_a_stored_commit_does_not_ask_the_forge(
 ) -> None:
     world.store.set_merge_record(UNIT, LISTED, None)
 
-    sha, _ = worker_run.merge_record_of(world.inst, world.store.get(UNIT))
+    sha, _ = run_support.merge_record_of(world.inst, world.store.get(UNIT))
 
     assert sha == LISTED
     assert world.forge.merge_commit_reads == []

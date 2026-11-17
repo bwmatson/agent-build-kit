@@ -70,7 +70,7 @@ def test_status_lists_a_test_once_with_its_count_and_fix_change(
     record = preexisting_record(workspace)
     record.append(failing(unit="one/1", change="fix-failing-test-one"))
     record.append(failing(unit="two/1", change="fix-failing-test-one"))
-    monkeypatch.setattr("agent_build_kit.worker_run.current_usage", lambda: None)
+    monkeypatch.setattr("agent_build_kit.run_support.current_usage", lambda: None)
 
     assert cli.cmd_status(argparse.Namespace(), workspace) == 0
 

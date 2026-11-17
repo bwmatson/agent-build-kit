@@ -39,9 +39,9 @@ def isolated(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(cli, "has_identity", lambda inst, repo: True)
     monkeypatch.setattr(cli, "verify_ready", lambda inst, units, **kwargs: lambda change: True)
     monkeypatch.setattr(cli, "archive_ready_changes", lambda *a, **k: [])
-    monkeypatch.setattr("agent_build_kit.worker_run.current_usage", lambda: None)
+    monkeypatch.setattr("agent_build_kit.run_support.current_usage", lambda: None)
     monkeypatch.setattr(
-        "agent_build_kit.worker_run.may_start_unit",
+        "agent_build_kit.run_support.may_start_unit",
         lambda r: Decision(may_start=True, reason="plenty"),
     )
 
@@ -70,7 +70,7 @@ class Builder:
 @pytest.fixture
 def builder(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Builder:
     fake = Builder(UnitStore(tmp_path / "units.json"))
-    monkeypatch.setattr("agent_build_kit.worker_run.build_runner", fake)
+    monkeypatch.setattr("agent_build_kit.run_support.build_runner", fake)
     return fake
 
 

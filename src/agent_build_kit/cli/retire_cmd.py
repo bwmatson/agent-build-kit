@@ -73,9 +73,9 @@ def retire(
     """Retire `unit_id`; every message goes to `say(text, error=...)`. The result is the
     command's exit code: 0 done, 1 refused or partly done, 2 for an unknown unit."""
     # Late: the pipeline module imports this one.
-    from agent_build_kit import worker_run
+    from agent_build_kit import run_support
 
-    store = worker_run.store_for(inst)
+    store = run_support.store_for(inst)
     units = store.all()
     known = {u.id: u for u in units}
     if unit_id not in known:
@@ -185,7 +185,7 @@ def _retire(
 ) -> int:
     """Everything after the checks: describe it, and unless `dry_run` do it."""
     # Late: the pipeline module imports this one.
-    from agent_build_kit import worker_run
+    from agent_build_kit import run_support
     from agent_build_kit.cli import pipeline as pipe
 
     would = "would " if dry_run else ""
@@ -224,7 +224,7 @@ def _retire(
     store.retire(unit.id, reason, idle=idle)
     failed = False
     try:
-        if worker_run.has_thread(inst, unit.id):
+        if run_support.has_thread(inst, unit.id):
             _delete_thread(inst, unit.id)
     except Exception as error:  # noqa: BLE001 - the unit is retired either way
         say(f"{unit.id}: its thread was not deleted — {error}")

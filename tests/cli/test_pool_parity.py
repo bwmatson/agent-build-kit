@@ -160,7 +160,7 @@ def test_a_paused_lane_unit_with_a_thread_is_resumed_by_the_round_and_admitted(
 ) -> None:
     inst = lane_workspace(tmp_path, workers=1, places=5, extra=1)
     monkeypatch.setattr(
-        "agent_build_kit.worker_run.has_thread", lambda inst, unit_id: unit_id == "lane/1"
+        "agent_build_kit.run_support.has_thread", lambda inst, unit_id: unit_id == "lane/1"
     )
     store = seeded(inst, tmp_path, [build("lane/1", priority=0)], lane=["lane/1"])
     store.set_usage_pause("lane/1", NOW - timedelta(minutes=1))

@@ -66,7 +66,7 @@ def refuse_the_paused(monkeypatch: pytest.MonkeyPatch) -> None:
             return Decision(may_start=False, reason="session usage at 93%", resume_at=UNTIL)
         return Decision(may_start=True, reason="plenty")
 
-    monkeypatch.setattr("agent_build_kit.worker_run.decide_start", decide)
+    monkeypatch.setattr("agent_build_kit.run_support.decide_start", decide)
     monkeypatch.setattr(wiring, "decide_start", decide)
 
 

@@ -111,7 +111,7 @@ def test_a_thread_is_delivered_the_note_with_the_requeue(
     def resume_thread(inst: Any, subject: Any, kind: str, **kwargs: Any) -> None:
         delivered.append(kwargs)
 
-    monkeypatch.setattr("agent_build_kit.worker_run.resume_thread", resume_thread)
+    monkeypatch.setattr("agent_build_kit.run_support.resume_thread", resume_thread)
 
     assert main(["requeue", UNIT, "--rework", "--note", "reword the title"]) == 0
 
@@ -125,7 +125,7 @@ def test_a_gated_requeue_keeps_the_note_while_it_waits(
     store.upsert([stored_unit("dep/1", change="dep", repo="platform")])
     store.set_state("dep/1", UnitState.IN_REVIEW, pr=3)
     store.set_dependencies(UNIT, ("dep/1",))
-    monkeypatch.setattr("agent_build_kit.worker_run.has_thread", lambda inst, unit_id: True)
+    monkeypatch.setattr("agent_build_kit.run_support.has_thread", lambda inst, unit_id: True)
 
     assert main(["requeue", UNIT, "--rework", "--note", "reword the title"]) == 0
 

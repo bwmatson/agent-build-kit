@@ -49,7 +49,7 @@ def test_a_tick_with_two_units_calibrates_once_and_keeps_the_result(
     monkeypatch.setattr(usage_allowances, "calibrated_allowances", counting)
     built: list[str] = []
     monkeypatch.setattr(
-        "agent_build_kit.worker_run.build_runner", lambda unit, **kwargs: FakeRunner(built)
+        "agent_build_kit.run_support.build_runner", lambda unit, **kwargs: FakeRunner(built)
     )
 
     assert cli.cmd_tick(argv_namespace(dry_run=False), base.inst) == 0

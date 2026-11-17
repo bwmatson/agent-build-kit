@@ -15,7 +15,7 @@ from agent_build_kit.forges import PullRequest
 from agent_build_kit.pipeline import events
 from agent_build_kit.pipeline.unit_store import UnitStore
 from agent_build_kit.pipeline.units import SETTLING
-from agent_build_kit.worker_run import build_repo_unit_test
+from agent_build_kit.run_support import build_repo_unit_test
 from tests.conftest import make_installation
 from tests.factories import commit, init_repo, stored_unit
 

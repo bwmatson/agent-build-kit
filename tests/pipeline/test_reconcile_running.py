@@ -91,7 +91,7 @@ def test_a_running_unit_with_a_thread_is_left_to_resume(
 ) -> None:
     branch = stored(store, "add-marker/1")
     lock_held_by(inst, branch, dead_pid())
-    monkeypatch.setattr("agent_build_kit.worker_run.has_thread", lambda inst, unit_id: True)
+    monkeypatch.setattr("agent_build_kit.run_support.has_thread", lambda inst, unit_id: True)
 
     reconcile_running(inst, store)
 

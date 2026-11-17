@@ -20,7 +20,7 @@ from agent_build_kit.pipeline.manual_steps import MANUAL_FOLDER, unmet_steps
 from agent_build_kit.pipeline.shell import git
 from agent_build_kit.pipeline.unit_store import StoredUnit, unit_id_of_branch
 from agent_build_kit.pipeline.units import BUILDS_NOTHING, FINISHED_STATES, ManualStep
-from agent_build_kit.worker_run import store_for
+from agent_build_kit.run_support import store_for
 
 
 def _unit_id(worktree: Path, prefix: str, units: list[StoredUnit]) -> str:

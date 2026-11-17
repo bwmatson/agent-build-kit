@@ -19,7 +19,7 @@ pytestmark = pytest.mark.usefixtures("scripted_engine")
 def quiet(monkeypatch: pytest.MonkeyPatch) -> None:
     isolate(monkeypatch)
     monkeypatch.setattr(
-        "agent_build_kit.worker_run.has_thread", lambda inst, unit_id: unit_id == "paused/1"
+        "agent_build_kit.run_support.has_thread", lambda inst, unit_id: unit_id == "paused/1"
     )
 
 

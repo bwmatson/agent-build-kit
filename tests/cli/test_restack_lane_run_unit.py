@@ -141,7 +141,7 @@ def test_a_refusal_the_move_met_does_not_drop_the_run_the_unit_is_later_owed(
 
         return move
 
-    monkeypatch.setattr("agent_build_kit.worker_run.build_turned_move", refusing)
+    monkeypatch.setattr("agent_build_kit.run_support.build_turned_move", refusing)
     scene.store.set_state(MOVED, RUNNING, branch=f"spec/{MOVED}", cause=Cause.BASE_CHANGED)
     with cli.build_restack_lane(scene.inst, scene.store) as lanes:
         lanes.hand_over(scene.store.get(MOVED))

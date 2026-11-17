@@ -177,7 +177,7 @@ def test_status_counts_units_by_the_derived_name(
     run_through_the_store(store, "a/1", cause=Cause.BASE_CHANGED)
     run_through_the_store(store, "b/1", cause=Cause.REWORK, source=FeedbackSource.CI)
     run_through_the_store(store, "c/1")
-    monkeypatch.setattr("agent_build_kit.worker_run.current_usage", lambda: None)
+    monkeypatch.setattr("agent_build_kit.run_support.current_usage", lambda: None)
 
     assert cli.cmd_status(argparse.Namespace(), workspace) == 0
 

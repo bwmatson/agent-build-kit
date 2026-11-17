@@ -309,7 +309,7 @@ def test_a_parked_unit_whose_prerequisite_is_open_is_gated_and_its_history_names
     store.upsert([stored_unit("dep/1", change="dep", repo="platform")])
     store.set_state("dep/1", IN_REVIEW, pr=3)
     store.set_dependencies(UNIT, ("dep/1",))
-    monkeypatch.setattr("agent_build_kit.worker_run.has_thread", lambda inst, unit_id: True)
+    monkeypatch.setattr("agent_build_kit.run_support.has_thread", lambda inst, unit_id: True)
 
     code, said = ask(inst, "rework", note=NOTE)
 

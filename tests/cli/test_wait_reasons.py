@@ -105,9 +105,9 @@ def isolated(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(cli, "plan_all", lambda inst, **kwargs: None)
     monkeypatch.setattr(cli, "verify_ready", lambda inst, units, **kwargs: lambda change: True)
     monkeypatch.setattr(cli, "archive_ready_changes", lambda *a, **k: [])
-    monkeypatch.setattr("agent_build_kit.worker_run.current_usage", lambda: None)
+    monkeypatch.setattr("agent_build_kit.run_support.current_usage", lambda: None)
     monkeypatch.setattr(
-        "agent_build_kit.worker_run.may_start_unit",
+        "agent_build_kit.run_support.may_start_unit",
         lambda r: Decision(may_start=True, reason="plenty"),
     )
 
@@ -269,7 +269,7 @@ def test_a_round_the_usage_guard_refuses_records_usage_pause_for_a_startable_uni
     store = UnitStore(tmp_path / "units.json")
     startable(store, inst)
     monkeypatch.setattr(
-        "agent_build_kit.worker_run.may_start_unit",
+        "agent_build_kit.run_support.may_start_unit",
         lambda r: Decision(may_start=False, reason="session usage at 90%"),
     )
 
@@ -317,7 +317,7 @@ def test_a_round_that_starts_nothing_dates_when_a_unit_became_ready(
     store.set_state("first/1", FAILED, note="stopped")
     store.upsert([new_unit("third/1")])
     monkeypatch.setattr(
-        "agent_build_kit.worker_run.may_start_unit",
+        "agent_build_kit.run_support.may_start_unit",
         lambda r: Decision(may_start=False, reason="session usage at 90%"),
     )
 
@@ -374,7 +374,7 @@ def test_a_decision_log_that_cannot_be_trimmed_still_dates_readiness(
 
     monkeypatch.setattr(Path, "write_bytes", full_disk)
     monkeypatch.setattr(
-        "agent_build_kit.worker_run.may_start_unit",
+        "agent_build_kit.run_support.may_start_unit",
         lambda r: Decision(may_start=False, reason="session usage at 90%"),
     )
     cli.run_round(inst, store, building=(), only=frozenset(), submit=True)

@@ -145,8 +145,8 @@ def test_an_event_handler_writes_to_a_repo_only_in_its_turn(
         with turn():
             records_the_turn()
 
-    monkeypatch.setattr("agent_build_kit.worker_run.resolved_move", moves_with_a_turn)
-    monkeypatch.setattr("agent_build_kit.worker_run.push_with_lease", records_the_turn)
+    monkeypatch.setattr("agent_build_kit.run_support.resolved_move", moves_with_a_turn)
+    monkeypatch.setattr("agent_build_kit.run_support.push_with_lease", records_the_turn)
     monkeypatch.setattr(
         "agent_build_kit.pipeline.events.build_delete_branch", lambda repos: records_the_turn
     )
@@ -355,9 +355,9 @@ def on_demand(monkeypatch: pytest.MonkeyPatch):
 
 def refusing_usage(monkeypatch: pytest.MonkeyPatch, asked: list[str]) -> None:
     """A reading and a guard that would refuse, noting that they were asked."""
-    monkeypatch.setattr("agent_build_kit.worker_run.current_usage", lambda: asked.append("usage"))
+    monkeypatch.setattr("agent_build_kit.run_support.current_usage", lambda: asked.append("usage"))
     monkeypatch.setattr(
-        "agent_build_kit.worker_run.may_start_unit",
+        "agent_build_kit.run_support.may_start_unit",
         lambda r, **_: Decision(may_start=False, reason="session at 88%"),
     )
 
@@ -388,7 +388,7 @@ def test_status_reads_no_usage_window_for_a_runtime_without_one(
     on_demand,
 ) -> None:
     monkeypatch.setattr(
-        "agent_build_kit.worker_run.current_usage", lambda: pytest.fail("read the usage window")
+        "agent_build_kit.run_support.current_usage", lambda: pytest.fail("read the usage window")
     )
 
     assert cli.cmd_status(argparse.Namespace(), workspace(tmp_path)) == 0
@@ -405,7 +405,7 @@ def test_a_rate_limit_without_a_reset_pauses_the_default_length_without_a_usage_
     store = UnitStore(tmp_path / "units.json")
     store.upsert([stored("feature/1")])
     monkeypatch.setattr(
-        "agent_build_kit.worker_run.current_usage",
+        "agent_build_kit.run_support.current_usage",
         lambda: pytest.fail("read a usage window the runtime lacks"),
     )
 
@@ -413,7 +413,7 @@ def test_a_rate_limit_without_a_reset_pauses_the_default_length_without_a_usage_
         def run(self, unit, *, base, graph):
             raise RateLimited("out of room", resets_at=None)
 
-    monkeypatch.setattr("agent_build_kit.worker_run.build_runner", lambda unit, **kw: Refusing())
+    monkeypatch.setattr("agent_build_kit.run_support.build_runner", lambda unit, **kw: Refusing())
 
     assert worker_run.build_unit(inst, store.get("feature/1"), store=store) is False
 
@@ -459,7 +459,7 @@ def test_a_unit_with_a_thread_to_resume_stays_running_through_a_pause(
     """Planned again, it would drop out of `resumable_units`, which only
     picks up the running."""
     refusing_usage(monkeypatch, [])
-    monkeypatch.setattr("agent_build_kit.worker_run.has_thread", lambda inst, unit_id: True)
+    monkeypatch.setattr("agent_build_kit.run_support.has_thread", lambda inst, unit_id: True)
     builder.store.upsert([stored("feature/1")])
     builder.store.set_state("feature/1", RUNNING, branch="spec/feature/1")
 
@@ -614,7 +614,7 @@ def guard_log(monkeypatch: pytest.MonkeyPatch, events: list[str], *, allows) -> 
             return Decision(may_start=True, reason="plenty")
         return Decision(may_start=False, reason="session at 99%")
 
-    monkeypatch.setattr("agent_build_kit.worker_run.may_start_unit", decide)
+    monkeypatch.setattr("agent_build_kit.run_support.may_start_unit", decide)
 
 
 def pauses_for_usage(builder: Builder, monkeypatch: pytest.MonkeyPatch, uid: str) -> None:
@@ -622,7 +622,7 @@ def pauses_for_usage(builder: Builder, monkeypatch: pytest.MonkeyPatch, uid: str
     with a thread to resume, which the next run that is let through picks up."""
     builder.ends[uid] = (RUNNING, None, "paused before implement")
     monkeypatch.setattr(
-        "agent_build_kit.worker_run.has_thread", lambda inst, unit_id: unit_id == uid
+        "agent_build_kit.run_support.has_thread", lambda inst, unit_id: unit_id == uid
     )
 
 
@@ -648,7 +648,7 @@ def test_a_rate_limit_pause_recorded_while_a_round_decides_is_not_cleared_by_it(
             )
         return Decision(may_start=True, reason="plenty")
 
-    monkeypatch.setattr("agent_build_kit.worker_run.may_start_unit", refused_while_deciding)
+    monkeypatch.setattr("agent_build_kit.run_support.may_start_unit", refused_while_deciding)
 
     assert tick(inst) == 0
 

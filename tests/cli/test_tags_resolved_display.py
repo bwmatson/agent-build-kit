@@ -68,7 +68,7 @@ def test_tags_says_explicit_root_for_the_opt_out_and_nothing_for_an_unresolved_r
 def test_status_reports_a_plan_stale_once_a_declared_project_moves_a_group(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    monkeypatch.setattr("agent_build_kit.worker_run.current_usage", lambda: None)
+    monkeypatch.setattr("agent_build_kit.run_support.current_usage", lambda: None)
     run = run_with(tmp_path, monkeypatch, ("[app] [unit-test] Add it", "web/src/a.ts"))
     run.store.import_units([new_unit("feature/1", groups=(1,))])
     run.record("feature")
@@ -83,7 +83,7 @@ def test_status_reports_a_plan_stale_once_a_declared_project_moves_a_group(
 def test_status_marks_a_unit_planned_from_a_resolved_group_and_not_one_written_for_the_project(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    monkeypatch.setattr("agent_build_kit.worker_run.current_usage", lambda: None)
+    monkeypatch.setattr("agent_build_kit.run_support.current_usage", lambda: None)
     run = run_with(
         tmp_path,
         monkeypatch,

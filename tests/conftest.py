@@ -31,7 +31,13 @@ import httpx
 import pytest
 import yaml
 
-from agent_build_kit import claude_account, forges, orchestration, sandboxes, worker_run
+from agent_build_kit import (
+    claude_account,
+    forges,
+    orchestration,
+    sandboxes,
+    worker_run,
+)
 from agent_build_kit import config as config_module
 from agent_build_kit import installation as installation_module
 from agent_build_kit import settings as settings_module
@@ -538,7 +544,7 @@ def run_status(
     temp: bool = False,
 ) -> list[str]:
     """The lines `abk status` prints over `inst`, with no usage reading."""
-    monkeypatch.setattr("agent_build_kit.worker_run.current_usage", lambda: None)
+    monkeypatch.setattr("agent_build_kit.run_support.current_usage", lambda: None)
     capsys.readouterr()
     assert pipeline_cli.cmd_status(argparse.Namespace(temp=temp), inst) == 0
     return capsys.readouterr().out.splitlines()

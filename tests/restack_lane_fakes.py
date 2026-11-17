@@ -12,7 +12,7 @@ from typing import Any
 
 import pytest
 
-from agent_build_kit import worker_run
+from agent_build_kit import run_support
 from agent_build_kit.cli import pipeline as cli
 from agent_build_kit.installation import Installation
 from agent_build_kit.pipeline import usage_guard, wiring
@@ -143,7 +143,7 @@ def repo_behind(
     (repo / "b.txt").write_text("b\n")
     git(repo, "add", "-A")
     git(repo, "commit", "-qm", "b")
-    monkeypatch.setattr("agent_build_kit.worker_run.has_thread", lambda inst, unit_id: True)
+    monkeypatch.setattr("agent_build_kit.run_support.has_thread", lambda inst, unit_id: True)
     return inst
 
 
@@ -189,7 +189,7 @@ def asked_of_the_guard(monkeypatch: pytest.MonkeyPatch) -> list[usage_guard.Deci
         decisions.append(real(**kwargs))
         return decisions[-1]
 
-    for module in (usage_guard, wiring, worker_run):
+    for module in (usage_guard, wiring, run_support):
         monkeypatch.setattr(module, "decide_start", spy)
     return decisions
 

@@ -8,7 +8,7 @@ from pathlib import Path
 
 import pytest
 
-from agent_build_kit import worker_run
+from agent_build_kit import run_support
 from agent_build_kit.cli import pipeline as cli
 from agent_build_kit.pipeline.diagram import render_mermaid
 from agent_build_kit.pipeline.units import IN_REVIEW
@@ -40,7 +40,7 @@ def test_status_lists_the_units_over_the_ceiling(
 ) -> None:
     inst = make_installation(tmp_path)
     activate_with(global_limits={"min_unit_lines": 400})
-    store = worker_run.store_for(inst)
+    store = run_support.store_for(inst)
     store.upsert([unit(f"a/{n}", estimated_lines=600) for n in (1, 2, 3)])
     for n, lines in ((1, 1400), (2, 700)):
         store.set_state(f"a/{n}", IN_REVIEW, pr=n, branch=f"spec/a/{n}")
@@ -69,7 +69,7 @@ def test_the_unit_records_its_size_and_the_log_says_it_is_over(
 ) -> None:
     inst = make_installation(tmp_path)
     activate_with(global_limits={"min_unit_lines": 400})
-    store = worker_run.store_for(inst)
+    store = run_support.store_for(inst)
     store.upsert([unit("a/1", estimated_lines=600)])
     store.set_state("a/1", IN_REVIEW, pr=1, branch="spec/a/1")
     open_pr = build_open_pr(for_repo=lambda repo: (SizedForge(1400), REPO), store=store)

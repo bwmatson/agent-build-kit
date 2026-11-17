@@ -194,7 +194,7 @@ def test_a_usage_pause_prints_its_pause_line_and_no_unit_lines(
     inst = limit_workspace(tmp_path, 9)
     baseline_prints_unit_lines(builder, inst, capsys)
     monkeypatch.setattr(
-        "agent_build_kit.worker_run.may_start_unit",
+        "agent_build_kit.run_support.may_start_unit",
         lambda r, **_: Decision(may_start=False, reason="session at 88%"),
     )
     builder.store.upsert([stored("feature/1")])

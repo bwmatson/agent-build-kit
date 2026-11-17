@@ -112,7 +112,7 @@ def test_status_shows_a_storm_as_one_line_and_not_in_the_per_test_list(
     }
     with record.path.open("a", encoding="utf-8") as handle:
         handle.write(json.dumps(storm) + "\n")
-    monkeypatch.setattr("agent_build_kit.worker_run.current_usage", lambda: None)
+    monkeypatch.setattr("agent_build_kit.run_support.current_usage", lambda: None)
 
     assert cli.cmd_status(argparse.Namespace(), workspace) == 0
 

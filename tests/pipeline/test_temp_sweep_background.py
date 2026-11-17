@@ -89,7 +89,7 @@ def test_a_ready_units_build_starts_before_the_sweep_has_finished(
     swept: list[Path] = []
     messages = sweeping_with(monkeypatch, slow_remove(release, swept))
     runner = Builds(release, swept)
-    monkeypatch.setattr("agent_build_kit.worker_run.build_runner", lambda unit, **kwargs: runner)
+    monkeypatch.setattr("agent_build_kit.run_support.build_runner", lambda unit, **kwargs: runner)
 
     assert cli.cmd_tick(argv_namespace(dry_run=False), base.inst) == 0
 
@@ -112,7 +112,7 @@ def test_the_tick_waits_for_the_sweep_before_it_returns(
     swept: list[Path] = []
     sweeping_with(monkeypatch, slow_remove(release, swept))
     runner = Builds(release, swept)
-    monkeypatch.setattr("agent_build_kit.worker_run.build_runner", lambda unit, **kwargs: runner)
+    monkeypatch.setattr("agent_build_kit.run_support.build_runner", lambda unit, **kwargs: runner)
 
     assert cli.cmd_tick(argv_namespace(dry_run=False), base.inst) == 0
 
@@ -142,7 +142,7 @@ def test_the_tick_returns_when_the_sweep_outlasts_its_wait(
 
     sweeping_with(monkeypatch, stuck)
     monkeypatch.setattr(
-        "agent_build_kit.worker_run.build_runner",
+        "agent_build_kit.run_support.build_runner",
         lambda unit, **kwargs: Builds(threading.Event(), []),
     )
 
@@ -179,7 +179,7 @@ def test_a_folder_left_half_removed_is_finished_by_the_next_ticks_sweep(
 
     messages = sweeping_with(monkeypatch, half_remove)
     runner = Builds(release, ended)
-    monkeypatch.setattr("agent_build_kit.worker_run.build_runner", lambda unit, **kwargs: runner)
+    monkeypatch.setattr("agent_build_kit.run_support.build_runner", lambda unit, **kwargs: runner)
     assert cli.cmd_tick(argv_namespace(dry_run=False), base.inst) == 0
     assert runner.sweep_done_at_start == [False]
     assert folder.is_dir()
@@ -215,7 +215,7 @@ def test_a_sweep_that_raises_is_logged_and_the_tick_completes_its_builds(
         raise RuntimeError("sweep exploded")
 
     monkeypatch.setattr(cli, "sweep_temp_folders", explode)
-    monkeypatch.setattr("agent_build_kit.worker_run.build_runner", lambda unit, **kwargs: Runner())
+    monkeypatch.setattr("agent_build_kit.run_support.build_runner", lambda unit, **kwargs: Runner())
 
     assert cli.cmd_tick(argv_namespace(dry_run=False), base.inst) == 0
 

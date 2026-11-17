@@ -60,7 +60,7 @@ def test_a_unit_that_cannot_be_split_is_held_for_a_person_while_the_guard_refuse
     run.runtime.supports_usage_tracking = True
     isolate(monkeypatch)
     monkeypatch.setattr(
-        "agent_build_kit.worker_run.may_start_unit",
+        "agent_build_kit.run_support.may_start_unit",
         lambda r, **_: Decision(may_start=False, reason="session at 88%"),
     )
 

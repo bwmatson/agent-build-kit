@@ -71,7 +71,7 @@ def refuse_next_build(monkeypatch: pytest.MonkeyPatch) -> None:
         def run(self, unit, *, base, graph):
             raise RateLimited("usage limit reached", resets_at=when)
 
-    monkeypatch.setattr("agent_build_kit.worker_run.build_runner", lambda unit, **kw: Refusing())
+    monkeypatch.setattr("agent_build_kit.run_support.build_runner", lambda unit, **kw: Refusing())
 
 
 def test_a_refusal_during_a_units_build_pauses_the_account_of_that_unit_and_no_other(

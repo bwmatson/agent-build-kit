@@ -40,7 +40,7 @@ def test_status_lists_a_flaky_test_with_its_count_and_fix_change(
     record.append(found("tests/test_a.py::test_x", "one/1", "fix-flaky-test-x"))
     record.append(found("tests/test_a.py::test_x", "two/1", "fix-flaky-test-x"))
     record.append(found("tests/test_b.py::test_y", "one/1", "fix-flaky-test-y"))
-    monkeypatch.setattr("agent_build_kit.worker_run.current_usage", lambda: None)
+    monkeypatch.setattr("agent_build_kit.run_support.current_usage", lambda: None)
 
     assert cli.cmd_status(argparse.Namespace(), workspace) == 0
 

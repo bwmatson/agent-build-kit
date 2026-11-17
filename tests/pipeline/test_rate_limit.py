@@ -169,7 +169,7 @@ def test_being_refused_pauses_the_tick_rather_than_failing_the_unit(
         def run(self, unit, *, base, graph):
             raise RateLimited("usage limit reached", resets_at=when)
 
-    monkeypatch.setattr("agent_build_kit.worker_run.build_runner", lambda unit, **kw: Refusing())
+    monkeypatch.setattr("agent_build_kit.run_support.build_runner", lambda unit, **kw: Refusing())
 
     keep_going = worker_run.build_unit(inst, store.get("c/1"), store=store)
 

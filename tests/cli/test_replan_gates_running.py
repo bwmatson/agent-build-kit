@@ -18,7 +18,7 @@ pytestmark = pytest.mark.usefixtures("scripted_engine")
 def test_a_replan_that_adds_an_unmet_dependency_gates_the_running_unit_and_says_so(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    monkeypatch.setattr("agent_build_kit.worker_run.has_thread", lambda _inst, _uid: True)
+    monkeypatch.setattr("agent_build_kit.run_support.has_thread", lambda _inst, _uid: True)
     run = Replan(tmp_path, monkeypatch, feature=needs_md("dep group 1 merged"), dep=tasks_md(1))
     run.store.upsert(
         [

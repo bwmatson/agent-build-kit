@@ -105,7 +105,7 @@ def test_status_and_report_print_for_a_copied_unit_whose_run_log_the_destination
 
     copied = UnitStore(destination.state_dir / "units.json").get("moves/1")
     assert copied.run_log == "moves-1.log"
-    monkeypatch.setattr("agent_build_kit.worker_run.current_usage", lambda: None)
+    monkeypatch.setattr("agent_build_kit.run_support.current_usage", lambda: None)
     assert pipeline_cli.cmd_status(argparse.Namespace(), destination) == 0
     assert "units: 1 merged" in capsys.readouterr().out
     arguments = argparse.Namespace(

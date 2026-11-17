@@ -66,7 +66,7 @@ def installed(base: Path, *, marker: bool = True) -> Live:
 @pytest.fixture(autouse=True)
 def no_ambient_config(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(settings, "config", None)
-    monkeypatch.setattr("agent_build_kit.worker_run.current_usage", lambda: None)
+    monkeypatch.setattr("agent_build_kit.run_support.current_usage", lambda: None)
 
 
 @pytest.fixture

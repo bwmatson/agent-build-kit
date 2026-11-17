@@ -101,7 +101,7 @@ def test_a_run_paused_with_no_time_decides_its_resume_from_the_snapshot(
     def endpoint(*args: object, **kwargs: object) -> None:
         raise AssertionError("a worker read the usage endpoint")
 
-    monkeypatch.setattr("agent_build_kit.worker_run.current_usage", endpoint)
+    monkeypatch.setattr("agent_build_kit.run_support.current_usage", endpoint)
     monkeypatch.setattr(usage_guard, "read_live_usage", endpoint)
 
     code = worker(inst)
