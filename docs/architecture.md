@@ -948,11 +948,6 @@ A standing cause names a situation that lasts until a state change passes anothe
 `restack_deferred`, `restack_handed_back`, `dirty_worktree`, `attached`, `host_unavailable`,
 `network_unavailable`, `service_unavailable`, `environment`, `split_held`, `manual_step`,
 `too_big_for_tier`, `landed_off_default` (a pull request merged into a branch that is not the default branch) and `base_not_moved` (a pull request whose retarget failed three rounds in a row).
-A merge is recorded only when it is on the default branch. A pull request merged into the branch
-of a unit that had already merged leaves its unit held `landed_off_default`, and its dependents
-keep waiting, until its commit reaches the default branch. A pull request that is not on the base
-its stack gives it is retargeted each round and the host's base read back; after three failed
-rounds the unit is held `base_not_moved`.
 An event cause names a transition that has happened and is over: `requeued`, `released`,
 `adopted`, `merged`, `auto_landed`, `closed`, `retired`, `superseded` and `failed`. Recording an event cause ends a standing
 one explicitly. A state change the store makes on its own account (a replan's demotion and
@@ -974,6 +969,12 @@ which waits on its host's marker (below) and not on its own backoff; a
 unit put back for any other cause waits for the next pass, and the tick log says which cause. A unit held for depth keeps the branch it is
 still on as `held_base`, and who holds it as `held_by`. A record with no cause is one from before causes or one an event ended,
 and one with a cause this release does not know reads the same way: the pass never readmits it, and `abk status` lists it.
+
+A merge is recorded only when it is on the default branch. A pull request merged into the branch
+of a unit that had already merged leaves its unit held `landed_off_default`, and its dependents
+keep waiting, until its commit reaches the default branch. A pull request that is not on the base
+its stack gives it is retargeted each round and the host's base read back; after three failed
+rounds the unit is held `base_not_moved`.
 
 **The code host outage.** A git push the code host refuses (an authentication refusal, an HTTP 401, 403
 or 5xx, a connection it closed), or cannot reach while the control group is up, parks its unit with the cause
