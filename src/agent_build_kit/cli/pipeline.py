@@ -161,10 +161,12 @@ from agent_build_kit.pipeline.events import (
     build_retarget,
     conflict_phrase,
     late_check_running,
+    pr_base_on_host,
     pr_based_on,
     recheck_landings,
     remove_merged_branches,
     retry_host_retargets,
+    warn_base_merged,
 )
 from agent_build_kit.pipeline.external_file import Hold as ExternalHold
 from agent_build_kit.pipeline.external_file import (
@@ -351,6 +353,7 @@ from agent_build_kit.pipeline.unit_store import (
     awaits_release,
     feedback_source_of,
     guidance_excerpt,
+    landing_hold_text,
     waiting_for,
 )
 from agent_build_kit.pipeline.unit_test_slots import slot_status_lines, waiting_since
@@ -1365,6 +1368,8 @@ def cmd_status(args: argparse.Namespace, inst: Installation) -> int:
             log(f"  held by the checks: {unit.id} ({where}) — {unit.note}")
         if unit.state == HELD and unit.cause is Cause.DIRTY_WORKTREE:
             log(f"  parked: {unit.id} ({where}) — {unit.note}")
+        if landing := landing_hold_text(unit):
+            log(f"  held: {unit.id} ({where}) {landing}")
         if unit.state == RUNNING and unit.cause is Cause.LOGIN:
             log(
                 f"  paused for the login: {unit.id} ({where}) until it is renewed; "
@@ -1402,7 +1407,14 @@ def cmd_status(args: argparse.Namespace, inst: Installation) -> int:
             if waits:
                 merging = merge_parents(unit, waits, units, config.active().repos)
                 wait = dependency_wait(waits, merging=merging)
-                log(f"  {unit.id} ({where}) {wait}")
+                off = [
+                    "a parent landed off the default branch"
+                    for parent in units
+                    if parent.id in {each.id for each in waits}
+                    and parent.state == HELD
+                    and parent.cause is Cause.LANDED_OFF_DEFAULT
+                ]
+                log(f"  {unit.id} ({where}) {wait}{''.join(f' — {each}' for each in off)}")
         if is_superseded(unit):
             log(f"  superseded: {unit.id} ({where}) by {', '.join(unit.superseded_by)}")
         if unit.close_pending:
@@ -7193,6 +7205,14 @@ def poll_all(inst: Installation, *, store: UnitStore, lane: Lane | None = None) 
         merge_record=lambda unit: merge_record_of(inst, unit),
         claim=claim,
         resume=resume,
+        log=log,
+    )
+    # The warning goes up before the retarget is tried, so a person sees it while the base is stale.
+    warn_base_merged(
+        store,
+        base_on_host=pr_base_on_host,
+        forge_of=lambda unit: inst.forge_of(unit.repo),
+        posts_root=inst.state_dir,
         log=log,
     )
     retry_host_retargets(store, claim=claim, resume=resume, log=log)

@@ -1318,7 +1318,41 @@ def warn_base_merged(
     warning that it is being moved and is not to be merged until it shows the default branch.
     The comment carries a marker line and its ids are recorded in the own-posts record under
     `posts_root`, so a later round does not post it again. Returns the ids it posted for."""
-    raise NotImplementedError
+    graph = store.all()
+    posted_for: list[str] = []
+    for unit in graph:
+        if unit.state != IN_REVIEW or not unit.pr:
+            continue
+        on_host = base_on_host(unit)
+        wanted = base_of(unit, graph)
+        if on_host is None or on_host == wanted:
+            continue
+        if not any(
+            other.state in (MERGED, SATISFIED)
+            and other.repo == unit.repo
+            and other.branch == on_host
+            for other in graph
+        ):
+            continue
+        body = (
+            f"The base branch `{on_host}` of this pull request has merged. It is being moved "
+            f"onto `{wanted}`. Do not merge it until it shows `{wanted}` as its base.\n{MARKER}"
+        )
+        try:
+            forge, repo_id = forge_of(unit)
+            found = forge.comment_exists(repo_id, unit.pr, MARKER, body)
+            ids = [found] if found else forge.post_comment(repo_id, unit.pr, body=body)
+        except TRANSIENT as error:
+            log(f"{unit.id}: warning on #{unit.pr} not posted — {error}")
+            continue
+        if not ids:
+            log(f"{unit.id}: warning on #{unit.pr} not posted; tried again next round")
+            continue
+        record_posts(posts_root, forges.key(repo_id), unit.pr, ids)
+        if not found:
+            log(f"{unit.id}: warned on #{unit.pr} that its base {on_host} has merged")
+            posted_for.append(unit.id)
+    return posted_for
 
 
 def _unit_on_branch(store: UnitStore, repo: str, branch: str, not_id: str) -> StoredUnit | None:

@@ -1953,6 +1953,23 @@ def waiting_for(unit: StoredUnit) -> str:
     return _WAITING_FOR.get(unit.cause, "") if unit.cause else ""
 
 
+def landing_hold_text(unit: StoredUnit) -> str:
+    """What a unit held `landed_off_default` or `base_not_moved` says, with its pull request,
+    its note (the branches) and what a person can do; "" for any other unit."""
+    pull = f"#{unit.pr}" if unit.pr else "its pull request"
+    if unit.state == HELD and unit.cause is Cause.LANDED_OFF_DEFAULT:
+        return (
+            f"landed off the default branch: {pull} — {unit.note}; carry its work onto "
+            "the default branch, then release the hold"
+        )
+    if unit.state == HELD and unit.cause is Cause.BASE_NOT_MOVED:
+        return (
+            f"base not moved: {pull} — {unit.note}; retarget the pull request onto its "
+            "base by hand, then release the hold"
+        )
+    return ""
+
+
 # How long a parked unit waits, by consecutive parking.
 PARK_BACKOFF = (
     timedelta(minutes=1),

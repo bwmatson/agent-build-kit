@@ -21,7 +21,11 @@
   branch, as a carry or a person's merge puts it there. A review unit whose pull request is
   not on the base its stack gives it is now retargeted each round, the host's base is read
   back to confirm, and after three failed rounds the unit is held `base_not_moved` with the
-  pull request and the expected base named.
+  pull request and the expected base named. While that retarget is pending, one comment on the
+  pull request says its base has merged and that it is not to be merged until it shows the
+  default branch. `abk status` and `abk explain` show a unit held `landed_off_default` or
+  `base_not_moved` with its pull request, the branches and what a person can do, and a
+  dependent says it waits on a unit that landed off the default branch.
 
 - The rerun of a failed test now collects a test of the `integration` kind that a repository's
   default settings deselect. Before, the rerun carried no marker expression, so such a test was
