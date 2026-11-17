@@ -164,6 +164,7 @@ from agent_build_kit.pipeline.events import (
     pr_based_on,
     recheck_landings,
     remove_merged_branches,
+    retry_host_retargets,
 )
 from agent_build_kit.pipeline.external_file import Hold as ExternalHold
 from agent_build_kit.pipeline.external_file import (
@@ -7181,6 +7182,7 @@ def poll_all(inst: Installation, *, store: UnitStore, lane: Lane | None = None) 
         merge_record=lambda unit: merge_record_of(inst, unit),
         log=log,
     )
+    retry_host_retargets(store, log=log)
 
     labels = StateLabels(inst.forge_of, log=log)
     index = PrIndex(store)

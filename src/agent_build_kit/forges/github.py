@@ -431,7 +431,17 @@ class GitHubForge:
             log.warning("could not update pull request %s of %s: %s", pr, key(repo), error)
 
     def retarget_pr(self, repo: RepoId, pr: int, base: str) -> bool:
-        raise NotImplementedError
+        """Retarget, then read the base back: a refusal or a silent no-op is False."""
+        self.update_pr(repo, pr, base=base)
+        try:
+            with self._on(repo) as gh:
+                reply = gh.rest.pulls.get(repo.account, repo.name, pr)
+            current = _parse(reply, PullDoc, f"GET pulls/{pr}")
+        except TRANSIENT:
+            raise
+        except TransportError:
+            return False
+        return current.base is not None and current.base.ref == base
 
     # --- stacks ---------------------------------------------------------------------
 

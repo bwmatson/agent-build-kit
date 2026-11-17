@@ -1634,6 +1634,9 @@ class UnitStore:
     ) -> None:
         self._update(unit_id, merge_sha=merge_sha, merged_tick=merged_tick)
 
+    def set_base_move_failures(self, unit_id: str, failures: int) -> None:
+        self._update(unit_id, base_move_failures=failures)
+
     def set_pulls(self, unit_id: str, pulls: Sequence[Pull]) -> None:
         self._update(unit_id, pulls=tuple(pulls))
 

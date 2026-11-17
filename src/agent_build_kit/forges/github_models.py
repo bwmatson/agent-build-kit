@@ -28,9 +28,14 @@ class NumberDoc(_Rest):
     number: int
 
 
+class RefDoc(_Rest):
+    ref: str
+
+
 class PullDoc(_Rest):
     node_id: str
     draft: bool = False
+    base: RefDoc | None = None
 
 
 class MergeDoc(_Rest):

@@ -194,6 +194,8 @@ def _no_thread(
 # What a hold for depth says, so a later merge can find what it held and which
 # branch it still sits on.
 DEPTH_HOLD = "restack onto {new_base} skipped: depth {depth} is beyond the rebase cap {cap}"
+# Failed retarget rounds in a row before the unit is held `base_not_moved`.
+BASE_MOVE_ATTEMPTS = 3
 DEPTH_HOLD_BASE = " (still on {old_base})"
 # What the label handler writes as a hold's note when the reviewer's hold has
 # no reason of its own. Prose for people: nothing reads it.
@@ -1205,7 +1207,63 @@ def retry_retargets(
     request base (`base_on_host`) is not the `base_of` its graph gives it, unless its thread is
     `mid_move`. A failed round counts on the unit; the third holds it `base_not_moved`; a
     success resets the count. Returns the ids it held."""
-    raise NotImplementedError
+    graph = store.all()
+    held: list[str] = []
+    for unit in graph:
+        if unit.state != IN_REVIEW or not unit.pr or mid_move(unit):
+            continue
+        wanted = base_of(unit, graph)
+        if base_on_host(unit) == wanted:
+            if unit.base_move_failures:
+                store.set_base_move_failures(unit.id, 0)
+            continue
+        try:
+            took = retarget(unit, wanted)
+        except Exception as error:  # noqa: BLE001
+            log(f"{unit.id}: retarget of #{unit.pr} to {wanted} failed — {error}")
+            took = False
+        if took:
+            store.set_base_move_failures(unit.id, 0)
+            continue
+        failures = unit.base_move_failures + 1
+        if failures < BASE_MOVE_ATTEMPTS:
+            store.set_base_move_failures(unit.id, failures)
+            continue
+        store.set_base_move_failures(unit.id, failures)
+        note = (
+            f"pull request #{unit.pr} could not be moved onto {wanted} "
+            f"after {failures} rounds; retarget it by hand"
+        )
+        store.set_state(unit.id, HELD, note=note, cause=Cause.BASE_NOT_MOVED)
+        log(f"{unit.id}: held — {note}")
+        held.append(unit.id)
+    return held
+
+
+def retry_host_retargets(store: UnitStore, *, log: Log = print) -> list[str]:
+    """`retry_retargets` against each unit's own forge."""
+
+    def base_on_host(unit: StoredUnit) -> str | None:
+        if not unit.pr:
+            return None
+        try:
+            forge, repo_id = forges.for_repo(unit.repo)
+            pull = listed_pull(forge, repo_id, branch_name(unit), unit.pr)
+        except Exception:  # noqa: BLE001
+            return None
+        return pull.base if pull is not None else None
+
+    def retarget(unit: StoredUnit, base: str) -> bool:
+        forge, repo_id = forges.for_repo(unit.repo)
+        return bool(unit.pr) and forge.retarget_pr(repo_id, unit.pr, base)
+
+    return retry_retargets(
+        store,
+        base_on_host=base_on_host,
+        retarget=retarget,
+        mid_move=owed_its_move,
+        log=log,
+    )
 
 
 def _unit_on_branch(store: UnitStore, repo: str, branch: str, not_id: str) -> StoredUnit | None:
