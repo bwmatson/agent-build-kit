@@ -1205,15 +1205,19 @@ def retry_retargets(
 ) -> list[str]:
     """Each round, after collection and before admission: retarget an in-review unit whose pull
     request base (`base_on_host`) is not the `base_of` its graph gives it, unless its thread is
-    `mid_move`. A failed round counts on the unit; the third holds it `base_not_moved`; a
-    success resets the count. Returns the ids it held."""
+    `mid_move`; a unit whose host base is unknown (None) is left. A failed round counts on the
+    unit; the third holds it `base_not_moved`; a success resets the count. Returns the ids it
+    held."""
     graph = store.all()
     held: list[str] = []
     for unit in graph:
         if unit.state != IN_REVIEW or not unit.pr or mid_move(unit):
             continue
         wanted = base_of(unit, graph)
-        if base_on_host(unit) == wanted:
+        on_host = base_on_host(unit)
+        if on_host is None:
+            continue  # The host did not say: nothing is known to need moving.
+        if on_host == wanted:
             if unit.base_move_failures:
                 store.set_base_move_failures(unit.id, 0)
             continue

@@ -70,6 +70,7 @@ def test_the_causes_are_the_fixed_set_the_design_names() -> None:
         "too_big_for_tier",
         "superseded",
         "landed_off_default",
+        "base_not_moved",
     }
 
 

@@ -117,6 +117,7 @@ def drive(host: GitHubHost) -> dict[str, list[Seen]]:
             REPO, head="spec/x/1", base="main", title="t", body="b"
         ),
         "update_pr": lambda: forge.update_pr(REPO, 7, base="main", body="b"),
+        "retarget_pr": lambda: forge.retarget_pr(REPO, 7, "main"),
         "stack_of": lambda: forge.stack_of(REPO, 7),
         "create_stack": lambda: forge.create_stack(REPO, [7, 8]),
         "add_to_stack": lambda: forge.add_to_stack(REPO, 1, [8]),
