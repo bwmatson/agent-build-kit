@@ -946,7 +946,7 @@ A standing cause names a situation that lasts until a state change passes anothe
 `base_changed`, `upstream_went_back`, `usage`, `login`, `depth`, `toolchain`, `review_escalated_class`,
 `review_escalated_disagreement`, `late_failure`, `needs_human`, `reviewer_hold`, `gated`, `restack_conflict`,
 `restack_deferred`, `restack_handed_back`, `dirty_worktree`, `attached`, `host_unavailable`,
-`network_unavailable`, `service_unavailable`, `environment`, `split_held`, `manual_step` and
+`network_unavailable`, `service_unavailable`, `environment`, `split_held`, `manual_step`,
 `too_big_for_tier` and `landed_off_default` (a pull request merged into a branch that is not the default branch).
 An event cause names a transition that has happened and is over: `requeued`, `released`,
 `adopted`, `merged`, `auto_landed`, `closed`, `retired`, `superseded` and `failed`. Recording an event cause ends a standing

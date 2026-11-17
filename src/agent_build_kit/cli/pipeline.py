@@ -7079,6 +7079,7 @@ def dispatch_for(
     that repo's turn. Also how a merge the poll has not reported yet is recorded."""
     return build_dispatch(
         store,
+        repos=inst.checkouts,
         # A lane moves what the handlers hand it, and asks the guard before its resolver.
         **build_stack_moves(
             store,

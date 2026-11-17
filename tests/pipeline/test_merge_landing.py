@@ -10,6 +10,7 @@ from pathlib import Path
 
 import pytest
 
+from agent_build_kit.cli import pipeline as cli
 from agent_build_kit.forges.base import PullRequest
 from agent_build_kit.pipeline import events
 from agent_build_kit.pipeline.landing_check import merged_on_default
@@ -28,11 +29,11 @@ PR = 2
 class Repos:
     """An origin and a clone with `main`, and a parent branch pushed beside it."""
 
-    def __init__(self, root: Path) -> None:
+    def __init__(self, root: Path, clone: Path | None = None) -> None:
         self.origin = root / "origin.git"
         self.origin.mkdir(parents=True)
         git(self.origin, "init", "-q", "--bare", "-b", "main")
-        self.clone = init_repo(root / "clone")
+        self.clone = init_repo(clone or root / "clone")
         git(self.clone, "remote", "add", "origin", str(self.origin))
         commit(self.clone, "base")
         git(self.clone, "push", "-q", "origin", "main")
@@ -58,9 +59,11 @@ class Repos:
 
 
 class World:
-    def __init__(self, tmp_path: Path, *, parent_state) -> None:
-        make_installation(tmp_path / "inst")
-        self.repos = Repos(tmp_path / "git")
+    def __init__(
+        self, tmp_path: Path, *, parent_state, resume=None, production: bool = False
+    ) -> None:
+        inst = make_installation(tmp_path / "inst")
+        self.repos = Repos(tmp_path / "git", clone=inst.checkouts["app"])
         self.store = UnitStore(tmp_path / "units.json")
         self.store.upsert(
             [
@@ -72,13 +75,17 @@ class World:
         self.store.set_state(PARENT, parent_state, pr=1, branch=f"spec/{PARENT}")
         self.store.set_state(CHILD, IN_REVIEW, pr=PR, branch=f"spec/{CHILD}")
         self.log: list[str] = []
-        self.dispatch = events.build_dispatch(
-            self.store,
-            restack=lambda **k: None,
-            merge_record=lambda unit: (unit.merge_sha, None),
-            repos={"app": self.repos.clone},
-            log=self.log.append,
-        )
+        if production:
+            self.dispatch = cli.dispatch_for(inst, self.store)
+        else:
+            self.dispatch = events.build_dispatch(
+                self.store,
+                restack=lambda **k: None,
+                merge_record=lambda unit: (unit.merge_sha, None),
+                repos={"app": self.repos.clone},
+                **({"resume": resume} if resume else {}),
+                log=self.log.append,
+            )
 
     def merged_into(self, base: str, sha: str | None):
         pull = PullRequest(
@@ -184,7 +191,7 @@ def test_a_merge_into_an_open_units_branch_leaves_the_unit_settling_with_a_note(
     assert PARENT in unit.note
 
 
-def test_a_unit_with_no_merge_commit_stays_settling_until_it_is_known_off_default(
+def test_a_unit_whose_listing_has_no_commit_stays_settling_until_a_report_carries_one(
     merged_parent: World,
 ) -> None:
     merged_parent.merged_into(f"spec/{PARENT}", None)
@@ -202,3 +209,44 @@ def test_the_dependents_of_a_held_unit_keep_waiting_for_it(merged_parent: World)
 
     assert merged_parent.store.get(CHILD).state == HELD
     assert merged_parent.waiting() == [CHILD]
+
+
+def test_the_production_dispatch_holds_a_merge_into_a_merged_units_branch(
+    tmp_path: Path,
+) -> None:
+    world = World(tmp_path, parent_state=MERGED, production=True)
+
+    world.merged_into(f"spec/{PARENT}", world.repos.land_on_parent())
+
+    unit = world.store.get(CHILD)
+    assert (unit.state, unit.cause) == (HELD, Cause.LANDED_OFF_DEFAULT)
+
+
+def test_a_merge_into_a_merged_units_branch_reaches_the_unit_thread_as_a_hold(
+    tmp_path: Path,
+) -> None:
+    delivered: list[str] = []
+
+    def resume(unit, kind, *rest) -> bool:
+        delivered.append(kind)
+        return True
+
+    world = World(tmp_path, parent_state=MERGED, resume=resume)
+
+    world.merged_into(f"spec/{PARENT}", world.repos.land_on_parent())
+
+    assert delivered == ["hold"]
+    assert world.store.get(CHILD).cause == Cause.LANDED_OFF_DEFAULT
+
+
+def test_a_unit_merged_into_an_open_units_branch_stays_settling_when_its_checks_complete(
+    open_parent: World,
+) -> None:
+    open_parent.merged_into(f"spec/{PARENT}", open_parent.repos.land_on_parent())
+
+    open_parent.dispatch("settled", PR, repo="app")
+
+    unit = open_parent.store.get(CHILD)
+    assert unit.state == SETTLING
+    assert "lands when" in unit.note
+    assert CHILD in open_parent.waiting()

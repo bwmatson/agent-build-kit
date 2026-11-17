@@ -293,7 +293,7 @@ def on_merged(
     landing_path: Path | None = None,
     merge_record: MergeRecord | None = None,
     merge_commit: str | None = None,
-    landing: Landing | None = None,
+    landing: Callable[[], Landing | None] | None = None,
     log: Log = print,
 ) -> bool:
     """Record the merge, move what was stacked on it, then clean up after it.
@@ -302,8 +302,9 @@ def on_merged(
     unit already recorded merged changes nothing and returns True. `merge_commit` is the
     commit the merge produced when the caller holds it (the merge's own answer, the listing's
     snapshot), so the merge record does not ask the forge for it. `landing` says where the
-    merge went: one whose commit is not on the default branch is held (its base was a merged
-    unit's branch) or left settling with a note (its base was an open unit's branch).
+    merge went, asked only once a unit that is not yet merged is found: one whose commit is not
+    on the default branch is held (its base was a merged unit's branch) or left settling with a
+    note (its base was an open unit's branch).
 
     False when the merged unit is itself being built — a rework someone
     merged over — so the poller reports the merge again once it has finished.
@@ -316,21 +317,22 @@ def on_merged(
         log(f"merged #{pr}: no unit recorded for it in {repo}, ignoring")
         return True
     note = ""
-    if landing is not None and not landing.on_default and merged.state != MERGED:
-        if landing.base == landing.default_branch:
-            log(f"merged #{pr}: {merged.id} not yet on {landing.default_branch}, will check again")
+    where = landing() if landing is not None and merged.state != MERGED else None
+    if where is not None and not where.on_default:
+        if where.base == where.default_branch:
+            log(f"merged #{pr}: {merged.id} not yet on {where.default_branch}, will check again")
             return False
         parent = next(
             (
                 unit
                 for unit in store.all()
-                if unit.repo == merged.repo and unit.branch == landing.base and unit.id != merged.id
+                if unit.repo == merged.repo and unit.branch == where.base and unit.id != merged.id
             ),
             None,
         )
         if parent is None or parent.state == MERGED:
-            return _hold_landed_off_default(store, merged, pr, landing, claim, resume, log)
-        note = f"merged into {landing.base}, which lands when {parent.id} does"
+            return _hold_landed_off_default(store, merged, pr, where, claim, resume, log)
+        note = f"merged into {where.base}, which lands when {parent.id} does"
     if merged.state in (MERGED, SETTLING):
         # The landing and the poller both report a merge, in either order: the
         # second finds it recorded and moves, cleans and records nothing again.
@@ -386,15 +388,16 @@ def _hold_landed_off_default(
 ) -> bool:
     """Hold a unit whose pull request merged into a branch that is not the default branch: its
     work is not on the default branch, so it is not recorded merged."""
+    note = (
+        f"#{pr} was merged into {landing.base}, not {landing.default_branch}: "
+        f"its commit is not on {landing.default_branch}"
+    )
     try:
-        resume(merged, "merged", "", "")
+        # The hold goes to the unit's thread as a person's would: a merged event ends it.
+        taken = resume(merged, "hold", "", "")
         with claim(merged):
-            note = (
-                f"#{pr} was merged into {landing.base}, not {landing.default_branch}: "
-                f"its commit is not on {landing.default_branch}"
-            )
             store.set_state(merged.id, HELD, note=note, cause=Cause.LANDED_OFF_DEFAULT)
-            log(f"merged #{pr}: {merged.id} held — {note}")
+            log(f"merged #{pr}: {merged.id} held{' by its thread' if taken else ''} — {note}")
     except BranchBusy as error:
         return _deferred(f"merged #{pr}", merged, error, log)
     return True
@@ -408,11 +411,14 @@ def on_settled(
     claim: Claim = _unclaimed,
     merge_record: MergeRecord | None = None,
     merge_commit: str | None = None,
+    on_default: Callable[[StoredUnit], bool] | None = None,
     log: Log = print,
 ) -> bool:
     """Every check of a settling unit's merged pull request has completed clean: the unit
     becomes merged, with the tick that saw it settle. A unit not settling changes nothing.
-    `merge_commit` is the commit the listing's snapshot carries, if any."""
+    `merge_commit` is the commit the listing's snapshot carries, if any. `on_default` says
+    whether the unit's recorded commit is on the default branch: a unit whose commit is not
+    stays settling, with its note, until it is."""
     unit = _find(store, repo, pr)
     if unit is None or unit.state != SETTLING:
         return True
@@ -420,6 +426,9 @@ def on_settled(
         with claim(unit):
             current = store.get(unit.id)
             if current.state != SETTLING:
+                return True
+            if on_default is not None and not on_default(current):
+                log(f"settled #{pr}: {current.id} stays settling, its commit is not on the default")
                 return True
             settle_merged(store, current, merge_record, merge_commit=merge_commit)
             log(f"settled #{pr}: {current.id} merged, every check complete")
@@ -1117,21 +1126,41 @@ def _commit_in_hand(event: dict[str, Any]) -> str | None:
     return named or (pull.merge_commit if isinstance(pull, PullRequest) else None)
 
 
-def _landing(repos: dict[str, Path] | None, repo: str, event: dict[str, Any]) -> Landing | None:
-    """Where the event's merge went, when its commit and the repository's checkout are known."""
-    from agent_build_kit.config import active
-
+def _landing(
+    repos: dict[str, Path] | None, repo: str, event: dict[str, Any]
+) -> Callable[[], Landing | None] | None:
+    """Where the event's merge went, asked for when needed (it fetches), and only when its
+    commit and the repository's checkout are known. The protection depends on the event
+    carrying the commit."""
     pull = event.get("pull")
     sha = _commit_in_hand(event)
     if repos is None or repo not in repos or sha is None or not isinstance(pull, PullRequest):
         return None
-    entry = active().repos.get(repo)
-    default = entry.default_branch if entry is not None else "main"
-    return Landing(
-        base=pull.base,
-        default_branch=default,
-        on_default=merged_on_default(repos[repo], sha, default),
-    )
+    checkout, base = repos[repo], pull.base
+
+    def where() -> Landing:
+        default = trunk_of(repo)
+        return Landing(
+            base=base,
+            default_branch=default,
+            on_default=merged_on_default(checkout, sha, default),
+        )
+
+    return where
+
+
+def _unit_on_default(repos: dict[str, Path] | None) -> Callable[[StoredUnit], bool] | None:
+    """Whether a unit's recorded merge commit is on its repo's default branch; a unit with no
+    recorded commit or no checkout is taken as being there, as nothing can say otherwise."""
+    if repos is None:
+        return None
+
+    def on_default(unit: StoredUnit) -> bool:
+        if not unit.merge_sha or unit.repo not in repos:
+            return True
+        return merged_on_default(repos[unit.repo], unit.merge_sha, trunk_of(unit.repo))
+
+    return on_default
 
 
 def _with_merge(unit: StoredUnit, sha: str | None) -> tuple[Pull, ...]:
@@ -2765,6 +2794,7 @@ def build_dispatch(
                 claim=claim,
                 merge_record=merge_record,
                 merge_commit=_commit_in_hand(kwargs),
+                on_default=_unit_on_default(repos),
                 log=log,
             )
         if event == "late_check":
