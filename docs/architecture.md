@@ -947,7 +947,7 @@ A standing cause names a situation that lasts until a state change passes anothe
 `review_escalated_disagreement`, `late_failure`, `needs_human`, `reviewer_hold`, `gated`, `restack_conflict`,
 `restack_deferred`, `restack_handed_back`, `dirty_worktree`, `attached`, `host_unavailable`,
 `network_unavailable`, `service_unavailable`, `environment`, `split_held`, `manual_step`,
-`too_big_for_tier`, `landed_off_default` (a pull request merged into a branch that is not the default branch) and `base_not_moved` (a pull request whose retarget failed three rounds in a row).
+`too_big_for_tier`, `landed_off_default` (a pull request merged into a branch that is not the default branch) `base_not_moved` (a pull request whose retarget failed three rounds in a row) and `generated_files` (a repository's `generated` command failed after a restack).
 An event cause names a transition that has happened and is over: `requeued`, `released`,
 `adopted`, `merged`, `auto_landed`, `closed`, `retired`, `superseded` and `failed`. Recording an event cause ends a standing
 one explicitly. A state change the store makes on its own account (a replan's demotion and
