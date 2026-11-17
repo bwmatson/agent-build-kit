@@ -1524,11 +1524,24 @@ class UnitStore:
 
     def set_rewrite_request(self, unit_id: str, request: StoredRewriteRequest) -> None:
         """Store a request to rewrite the unit's commits; its history says who asked."""
-        raise NotImplementedError
+        self._update(unit_id, rewrite_request=request)
+        self.record_event(
+            unit_id,
+            "rewrite_requested",
+            f"a rewrite of the unit's commits was requested by {request.source.value}",
+        )
 
     def clear_rewrite_request(self, unit_id: str) -> None:
         """End a request when the step that read it ends; its history says it was used."""
-        raise NotImplementedError
+        held = self.get(unit_id).rewrite_request
+        if held is None:
+            return
+        self._update(unit_id, rewrite_request=None)
+        self.record_event(
+            unit_id,
+            "rewrite_used",
+            f"the rewrite request from {held.source.value} was used",
+        )
 
     def set_split_request(self, unit_id: str, request: StoredSplitRequest | None) -> None:
         """What a unit held for its size is to be split by, or none once it has been."""

@@ -6,6 +6,10 @@
   tree is no longer judged as having written nothing when it keeps that file: the file is
   committed as the tests commit and the unit goes on to its checks. A leftover source file
   alone still counts as nothing written.
+- `abk requeue UNIT --rework --rewrite --note TEXT` stores a request, from a person, to rewrite
+  the unit's own commits as the note asks. A unit's history records that the request was made,
+  by whom, and that it was used. `--rewrite` is refused with `--restart`, without `--rework` or
+  without a note, and a `--rework` with no `--rewrite` clears a request the unit holds.
 
 - A restack now settles conflicts in files a repository's `generated` setting covers by taking
   the base's version (or removing the file where the base has none), without asking the

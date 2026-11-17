@@ -297,7 +297,9 @@ from agent_build_kit.pipeline.unit_store import (
     GroupOwned,
     HeldBy,
     RequeueReason,
+    RewriteSource,
     Starting,
+    StoredRewriteRequest,
     StoredSplitRequest,
     StoredUnit,
     UnitStore,
@@ -6796,7 +6798,25 @@ def cmd_requeue(args: argparse.Namespace, inst: Installation) -> int:
     note = getattr(args, "note", None) or ""
     if path := getattr(args, "note_file", None):
         note = Path(path).read_text()
+    rewrite = bool(getattr(args, "rewrite", False))
+    if rewrite and (mode != "rework" or not note):
+        say(
+            "abk requeue: --rewrite needs --rework (not --restart or a plain requeue) "
+            "and a note saying how to rewrite the commits",
+            error=True,
+        )
+        return 1
+    store = run_support.store_for(inst)
+    stored = args.unit in {unit.id for unit in store.all()}
+    if stored and rewrite:
+        store.set_rewrite_request(
+            args.unit, StoredRewriteRequest(text=note, source=RewriteSource.PERSON)
+        )
+    elif stored and mode == "rework":
+        store.clear_rewrite_request(args.unit)
     code = requeue(inst, args.unit, mode, say=say, note=note, by=REQUEUE_BY)
+    if code != 0 and stored and rewrite:
+        store.clear_rewrite_request(args.unit)
     if code == 0:
         wake.touch(inst.state_dir)
     return code
