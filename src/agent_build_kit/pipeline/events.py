@@ -1305,6 +1305,22 @@ def retry_host_retargets(
     )
 
 
+def warn_base_merged(
+    store: UnitStore,
+    *,
+    base_on_host: Callable[[StoredUnit], str | None],
+    forge_of: Callable[[StoredUnit], tuple[Forge, RepoId]],
+    posts_root: Path,
+    log: Log = print,
+) -> list[str]:
+    """Each round: post once, on the pull request of an in-review unit whose base branch has
+    merged and whose host base (`base_on_host`) is not yet the base its graph gives it, the
+    warning that it is being moved and is not to be merged until it shows the default branch.
+    The comment carries a marker line and its ids are recorded in the own-posts record under
+    `posts_root`, so a later round does not post it again. Returns the ids it posted for."""
+    raise NotImplementedError
+
+
 def _unit_on_branch(store: UnitStore, repo: str, branch: str, not_id: str) -> StoredUnit | None:
     """The unit, other than `not_id`, whose branch is `branch` in `repo`."""
     return next(
