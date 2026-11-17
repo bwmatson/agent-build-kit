@@ -116,6 +116,7 @@ from agent_build_kit.pipeline.planning_view import (
 from agent_build_kit.pipeline.project_actions import failed_lines
 from agent_build_kit.pipeline.shell import git, git_out, is_ignored, is_tracked, tracked_toplevel
 from agent_build_kit.pipeline.temp_sweep import temp_size
+from agent_build_kit.pipeline.unit_size import is_generated
 from agent_build_kit.pipeline.usage_guard import gate_result
 from agent_build_kit.pipeline.wake import WAKE
 from agent_build_kit.pipeline.workspaces import worktree_entries, worktree_key
@@ -1659,7 +1660,7 @@ def _generated(inst: Installation, which: Which) -> list[Check]:
             unmatched = (
                 []
                 if tracked is None
-                else [p for p in entry.paths if not any(matches(p, f) for f in tracked)]
+                else [p for p in entry.paths if not any(is_generated(f, [p]) for f in tracked)]
             )
             if unmatched:
                 checks.append(

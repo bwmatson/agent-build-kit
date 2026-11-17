@@ -1541,6 +1541,12 @@ class GeneratedConfig(Frozen):
             raise ValueError("must name at least one item")
         return value
 
+    @field_validator("paths")
+    @classmethod
+    def _relative_patterns(cls, value: tuple[str, ...]) -> tuple[str, ...]:
+        path_patterns.validate(list(value))
+        return value
+
     @field_validator("cwd")
     @classmethod
     def _inside_the_repository(cls, value: str) -> str:

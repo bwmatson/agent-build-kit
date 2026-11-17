@@ -71,15 +71,24 @@ def test_the_cwd_defaults_to_the_repository_root_for_an_entry_that_is_accepted(
         {**ENTRY, "cwd": "/abs/place"},
         {**ENTRY, "cwd": "../x"},
         {**ENTRY, "cwd": "web/../../x"},
+        {**ENTRY, "paths": ["/abs/out/**"]},
+        {**ENTRY, "paths": ["../other/**"]},
     ],
-    ids=["empty-paths", "empty-command", "absolute-cwd", "leaves-repository", "nested-escape"],
+    ids=[
+        "empty-paths",
+        "empty-command",
+        "absolute-cwd",
+        "leaves-repository",
+        "nested-escape",
+        "absolute-path",
+        "path-leaves-repository",
+    ],
 )
 def test_a_bad_entry_is_refused_naming_it(tmp_path: Path, bad: dict[str, Any]) -> None:
     message = refusal(write(tmp_path, [ENTRY, bad]))
 
     assert message != "", "the bad entry loaded without a refusal"
-    assert "generated" in message
-    assert "1" in message
+    assert "generated.1" in message
 
 
 def test_the_entry_paths_count_as_generated_beside_the_limits_and_lock_files() -> None:
@@ -185,6 +194,15 @@ def test_doctor_lists_each_entry(tmp_path: Path) -> None:
     text = " ".join(f"{check.detail}" for check in found)
     assert "npm run build" in text
     assert "make all" in text
+    assert all(check.status != "warn" for check in found)
+
+
+def test_doctor_judges_a_pattern_as_the_size_rule_does(tmp_path: Path) -> None:
+    star = {"paths": ["web/dist/*"], "command": ["make"]}
+
+    found = doctor(tmp_path, [star], tracked=("web/dist/assets/app.js",))
+
+    assert found
     assert all(check.status != "warn" for check in found)
 
 
