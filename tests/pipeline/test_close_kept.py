@@ -5,25 +5,15 @@ from pathlib import Path
 import pytest
 
 from agent_build_kit.cli import pipeline as cli
-from agent_build_kit.forges import RepoId
 from agent_build_kit.forges.base import COMMENT_MARKER
 from agent_build_kit.pipeline.unit_store import ClosePending, UnitStore
 from agent_build_kit.pipeline.units import IN_REVIEW, PLANNED, SATISFIED, Unit, UnitState
 from agent_build_kit.pipeline.wiring import build_close_pr
 from tests.factories import stored_unit, unit
-from tests.forges.stand_in import StandInForge, lookup
+from tests.forges.stand_in import FindingForge, lookup
 
 REASON = "Task group(s) 1 are implemented elsewhere."
 ID = "add-marker/1"
-
-
-class Remembering(StandInForge):
-    """A host that finds a comment it holds by its marker and body, as the real reads do."""
-
-    def comment_exists(
-        self, repo: RepoId, pr: int, marker: str, body: str, *, reply_to: str | None = None
-    ) -> str | None:
-        return "comment-1" if any(marker in c and body == c for c in self.comments) else None
 
 
 def pending_store(tmp_path: Path, *, pending: ClosePending | None) -> UnitStore:
@@ -36,7 +26,7 @@ def pending_store(tmp_path: Path, *, pending: ClosePending | None) -> UnitStore:
 
 
 def test_the_reason_is_posted_once_when_the_close_fails_and_is_repeated() -> None:
-    host = Remembering(close_error="502 Bad Gateway")
+    host = FindingForge(close_error="502 Bad Gateway")
     close = build_close_pr(for_repo=lookup(host))
     with pytest.raises(RuntimeError):
         close(unit(), 4, REASON)

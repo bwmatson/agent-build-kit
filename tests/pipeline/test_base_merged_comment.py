@@ -15,7 +15,7 @@ from agent_build_kit.pipeline import events
 from agent_build_kit.pipeline.pr_replies import MARKER, own_posts
 from agent_build_kit.pipeline.unit_store import StoredUnit, UnitStore
 from agent_build_kit.pipeline.units import IN_REVIEW
-from tests.forges.stand_in import StandInForge
+from tests.forges.stand_in import FindingForge
 from tests.pipeline.test_retarget_retry import (
     CHILD,
     PARENT,
@@ -26,26 +26,19 @@ from tests.pipeline.test_retarget_retry import (
 )
 
 
-class RememberingForge(StandInForge):
-    """A host that can say whether a comment carrying a marker is already on a pull request."""
-
-    def comment_exists(
-        self, repo: RepoId, pr: int, marker: str, body: str, *, reply_to: str | None = None
-    ) -> str | None:
-        return "comment-1" if any(marker in each for each in self.comments) else None
-
-
 class Round:
     """One store, one forge and the host's idea of each pull request's base."""
 
     def __init__(self, tmp_path: Path) -> None:
         self.store: UnitStore = child_behind_a_merged_parent(tmp_path)
-        self.forge = RememberingForge()
+        self.forge = FindingForge()
         self.root = tmp_path / "posts"
         self.root.mkdir()
         self.bases: dict[str, str] = {CHILD: STALE_BASE}
+        self.asked: list[str] = []
 
     def base_on_host(self, unit: StoredUnit) -> str | None:
+        self.asked.append(unit.id)
         return self.bases.get(unit.id)
 
     def forge_of(self, unit: StoredUnit) -> tuple[Forge, RepoId]:
@@ -125,6 +118,15 @@ def test_a_child_whose_base_branch_has_not_merged_gets_no_comment(tmp_path: Path
 
     assert warned == []
     assert warn.forge.comments == []
+
+
+def test_the_host_is_not_asked_about_a_unit_with_no_merged_base(tmp_path: Path) -> None:
+    warn = Round(tmp_path)
+    warn.store.set_state(PARENT, IN_REVIEW, pr=1, branch=STALE_BASE)
+
+    warn.run()
+
+    assert warn.asked == []
 
 
 def test_a_child_whose_host_base_is_unknown_gets_no_comment(tmp_path: Path) -> None:

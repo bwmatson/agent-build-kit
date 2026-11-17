@@ -342,6 +342,15 @@ class NoLabelsForge(StandInForge):
         raise NotImplementedError
 
 
+class FindingForge(StandInForge):
+    """A host that finds a comment it holds by its marker and exact body, as the real reads do."""
+
+    def comment_exists(
+        self, repo: RepoId, pr: int, marker: str, body: str, *, reply_to: str | None = None
+    ) -> str | None:
+        return "comment-1" if any(marker in c and body == c for c in self.comments) else None
+
+
 def lookup(forge: StandInForge):
     """A `for_repo` the `wiring.build_*` factories accept: every repo name
     resolves to this one stand-in."""

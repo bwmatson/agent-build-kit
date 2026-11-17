@@ -1315,7 +1315,8 @@ def warn_base_merged(
 ) -> list[str]:
     """Each round: post once, on the pull request of an in-review unit whose base branch has
     merged and whose host base (`base_on_host`) is not yet the base its graph gives it, the
-    warning that it is being moved and is not to be merged until it shows the default branch.
+    warning that it is being moved and is not to be merged until it shows the base its stack
+    gives it.
     The comment carries a marker line and its ids are recorded in the own-posts record under
     `posts_root`, so a later round does not post it again. Returns the ids it posted for."""
     graph = store.all()
@@ -1323,16 +1324,16 @@ def warn_base_merged(
     for unit in graph:
         if unit.state != IN_REVIEW or not unit.pr:
             continue
-        on_host = base_on_host(unit)
         wanted = base_of(unit, graph)
-        if on_host is None or on_host == wanted:
-            continue
-        if not any(
-            other.state in (MERGED, SATISFIED)
-            and other.repo == unit.repo
-            and other.branch == on_host
+        merged_branches = {
+            other.branch
             for other in graph
-        ):
+            if other.state in (MERGED, SATISFIED) and other.repo == unit.repo
+        }
+        if not merged_branches - {wanted}:
+            continue  # No merged branch could be its stale base: the host need not be asked.
+        on_host = base_on_host(unit)
+        if on_host is None or on_host == wanted or on_host not in merged_branches:
             continue
         body = (
             f"The base branch `{on_host}` of this pull request has merged. It is being moved "

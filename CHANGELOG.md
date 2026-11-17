@@ -23,7 +23,7 @@
   back to confirm, and after three failed rounds the unit is held `base_not_moved` with the
   pull request and the expected base named. While that retarget is pending, one comment on the
   pull request says its base has merged and that it is not to be merged until it shows the
-  default branch. `abk status` and `abk explain` show a unit held `landed_off_default` or
+  base its stack gives it. `abk status` and `abk explain` show a unit held `landed_off_default` or
   `base_not_moved` with its pull request, the branches and what a person can do, and a
   dependent says it waits on a unit that landed off the default branch.
 
