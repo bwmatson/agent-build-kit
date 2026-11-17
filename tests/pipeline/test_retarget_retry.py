@@ -8,6 +8,9 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+
+from agent_build_kit.forges.transport import HostError, RateLimited
 from agent_build_kit.pipeline import events
 from agent_build_kit.pipeline.unit_store import Cause, StoredUnit, UnitStore
 from agent_build_kit.pipeline.units import HELD, IN_REVIEW, MERGED
@@ -28,12 +31,20 @@ class Host:
         self.bases = {CHILD: STALE_BASE}
         self.takes = takes
         self.asked: list[tuple[str, str]] = []
+        self.raises: Exception | None = None
+        self.resumed: list[tuple[str, str]] = []
+
+    def resume(self, unit: StoredUnit, kind: str, reason: str, feedback: str) -> bool:
+        self.resumed.append((unit.id, kind))
+        return True
 
     def base_on_host(self, unit: StoredUnit) -> str | None:
         return self.bases.get(unit.id)
 
     def retarget(self, unit: StoredUnit, base: str) -> bool:
         self.asked.append((unit.id, base))
+        if self.raises is not None:
+            raise self.raises
         took = self.takes.pop(0) if self.takes else True
         if took:
             self.bases[unit.id] = base
@@ -59,6 +70,7 @@ def run_round(store: UnitStore, host: Host, *, mid_move: bool = False) -> list[s
         base_on_host=host.base_on_host,
         retarget=host.retarget,
         mid_move=lambda unit: mid_move,
+        resume=host.resume,
         log=lambda _line: None,
     )
 
@@ -137,3 +149,46 @@ def test_a_unit_already_on_its_base_is_not_retargeted(tmp_path: Path) -> None:
     run_round(store, host)
 
     assert host.asked == []
+
+
+def test_the_third_failed_round_sends_hold_to_the_unit_s_thread(tmp_path: Path) -> None:
+    store = child_behind_a_merged_parent(tmp_path)
+    host = Host(takes=[False, False, False])
+
+    for _ in range(3):
+        run_round(store, host)
+
+    assert host.resumed == [(CHILD, "hold")]
+
+
+@pytest.mark.parametrize(
+    "error",
+    [RateLimited("slow down", retry_after=None), HostError("down")],
+    ids=["rate-limited", "host-down"],
+)
+def test_a_host_that_is_down_or_rate_limited_is_not_a_failed_round(
+    tmp_path: Path, error: Exception
+) -> None:
+    store = child_behind_a_merged_parent(tmp_path)
+    host = Host(takes=[])
+    host.raises = error
+
+    held = [run_round(store, host) for _ in range(3)]
+
+    unit = store.get(CHILD)
+    assert held == [[], [], []]
+    assert (unit.state, unit.base_move_failures) == (IN_REVIEW, 0)
+
+
+def test_a_released_hold_gives_the_unit_three_rounds_again(tmp_path: Path) -> None:
+    store = child_behind_a_merged_parent(tmp_path)
+    host = Host(takes=[False] * 4)
+    for _ in range(3):
+        run_round(store, host)
+    run_round(store, host)  # a round while it is held
+    store.set_state(CHILD, IN_REVIEW, pr=PULL)
+
+    run_round(store, host)
+
+    unit = store.get(CHILD)
+    assert (unit.state, unit.base_move_failures) == (IN_REVIEW, 1)

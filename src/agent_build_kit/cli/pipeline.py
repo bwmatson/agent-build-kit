@@ -7054,9 +7054,17 @@ def build_stack_moves(
         "retarget": build_retarget(),
         "rebase_cap": installation.stack_depth_rebase_cap,
         "lane": lane,
-        "resume": lambda unit, kind, reason, feedback, from_person=False, rework=None: (
+        "resume": thread_resumer(installation, store),
+    }
+
+
+def thread_resumer(inst: Installation, store: UnitStore) -> Callable[..., bool]:
+    """Delivers an event to a unit's thread, as the event handlers do: True when it did."""
+
+    def resume(unit, kind, reason, feedback, from_person=False, rework=None) -> bool:
+        return (
             resume_thread(
-                installation,
+                inst,
                 unit,
                 kind,
                 store=store,
@@ -7066,8 +7074,9 @@ def build_stack_moves(
                 rework=rework,
             )
             is not None
-        ),
-    }
+        )
+
+    return resume
 
 
 def dispatch_for(
@@ -7176,13 +7185,17 @@ def poll_all(inst: Installation, *, store: UnitStore, lane: Lane | None = None) 
 
     dispatch = dispatch_for(inst, store, lane=lane)
     # Before the events and before admission: a unit that landed later is recognised first.
+    claim = build_claim(inst.locks_dir)
+    resume = thread_resumer(inst, store)
     recheck_landings(
         store,
         repos=checkouts,
         merge_record=lambda unit: merge_record_of(inst, unit),
+        claim=claim,
+        resume=resume,
         log=log,
     )
-    retry_host_retargets(store, log=log)
+    retry_host_retargets(store, claim=claim, resume=resume, log=log)
 
     labels = StateLabels(inst.forge_of, log=log)
     index = PrIndex(store)
