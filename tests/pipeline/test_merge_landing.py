@@ -91,7 +91,12 @@ class World:
         pull = PullRequest(
             number=PR, head=f"spec/{CHILD}", base=base, state="merged", merge_commit=sha
         )
+        self.last_pull = pull
         return self.dispatch("merged", PR, repo="app", pull=pull)
+
+    def settled(self):
+        """The poller's `settled` event for the pull request last reported merged."""
+        return self.dispatch("settled", PR, repo="app", pull=self.last_pull)
 
     def waiting(self) -> list[str]:
         loaded = LoadedCode(
@@ -146,7 +151,7 @@ def test_a_merge_whose_commit_is_not_on_the_default_branch_is_not_recorded_merge
     sha = merged_parent.repos.land_on_parent()
 
     merged_parent.merged_into("main", sha)
-    merged_parent.dispatch("settled", PR, repo="app")
+    merged_parent.settled()
 
     unit = merged_parent.store.get(CHILD)
     assert unit.state != MERGED
@@ -171,7 +176,7 @@ def test_a_held_landed_off_default_unit_is_not_settled_into_merged(merged_parent
     sha = merged_parent.repos.land_on_parent()
     merged_parent.merged_into(f"spec/{PARENT}", sha)
 
-    merged_parent.dispatch("settled", PR, repo="app")
+    merged_parent.settled()
 
     unit = merged_parent.store.get(CHILD)
     assert (unit.state, unit.merge_sha) == (HELD, None)
@@ -244,7 +249,7 @@ def test_a_unit_merged_into_an_open_units_branch_stays_settling_when_its_checks_
 ) -> None:
     open_parent.merged_into(f"spec/{PARENT}", open_parent.repos.land_on_parent())
 
-    open_parent.dispatch("settled", PR, repo="app")
+    open_parent.settled()
 
     unit = open_parent.store.get(CHILD)
     assert unit.state == SETTLING

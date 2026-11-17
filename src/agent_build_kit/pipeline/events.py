@@ -1149,14 +1149,19 @@ def _landing(
     return where
 
 
-def _unit_on_default(repos: dict[str, Path] | None) -> Callable[[StoredUnit], bool] | None:
-    """Whether a unit's recorded merge commit is on its repo's default branch; a unit with no
-    recorded commit or no checkout is taken as being there, as nothing can say otherwise."""
-    if repos is None:
+def _unit_on_default(
+    repos: dict[str, Path] | None, event: dict[str, Any]
+) -> Callable[[StoredUnit], bool] | None:
+    """Whether a unit's recorded merge commit is on its repo's default branch, asked of a pull
+    request that merged into another branch. A merge into the default branch, a unit with no
+    recorded commit and one with no checkout are taken as being there: the merge handler
+    checks the first, and nothing can say otherwise for the others."""
+    pull = event.get("pull")
+    if repos is None or not isinstance(pull, PullRequest):
         return None
 
     def on_default(unit: StoredUnit) -> bool:
-        if not unit.merge_sha or unit.repo not in repos:
+        if not unit.merge_sha or unit.repo not in repos or pull.base == trunk_of(unit.repo):
             return True
         return merged_on_default(repos[unit.repo], unit.merge_sha, trunk_of(unit.repo))
 
@@ -2794,7 +2799,7 @@ def build_dispatch(
                 claim=claim,
                 merge_record=merge_record,
                 merge_commit=_commit_in_hand(kwargs),
-                on_default=_unit_on_default(repos),
+                on_default=_unit_on_default(repos, kwargs),
                 log=log,
             )
         if event == "late_check":
