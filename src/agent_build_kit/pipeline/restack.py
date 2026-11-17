@@ -57,6 +57,7 @@ from agent_build_kit.pipeline.git_output import (
 from agent_build_kit.pipeline.own_tests import defined_tests_in_range, tests_in
 from agent_build_kit.pipeline.planning_repo import current_branch
 from agent_build_kit.pipeline.scratch import output_convention, run_folder
+from agent_build_kit.pipeline.unit_size import is_generated
 from agent_build_kit.pipeline.vocabulary import OverheadNode
 from agent_build_kit.pipeline.workspaces import (
     detached_trees,
@@ -284,6 +285,10 @@ clears this cached entry so the next sibling sees the conflict fresh rather
 than the same bad resolution.
 """
 
+HANDLED_NOTE = """
+Generated files already settled from the base, which you leave alone: {files}
+"""
+
 
 class StaleRemote(RuntimeError):
     """The remote branch moved since we last pushed — somebody else's commit."""
@@ -375,7 +380,28 @@ def partition_generated(
     files: list[str], entries: Sequence[GeneratedConfig]
 ) -> tuple[list[str], list[str]]:
     """Split conflicted `files` into those a `generated` entry covers and the rest."""
-    raise NotImplementedError
+    patterns = [pattern for entry in entries for pattern in entry.paths]
+    generated = [name for name in files if is_generated(name, patterns)]
+    return generated, [name for name in files if name not in generated]
+
+
+def _read(repo: Path, name: str) -> str:
+    """A file's text, empty when it is not in the working tree (a path both sides moved)."""
+    try:
+        return (repo / name).read_text(errors="replace")
+    except FileNotFoundError:
+        return ""
+
+
+def _take_from_base(repo: Path, names: list[str]) -> None:
+    """Settle conflicted generated paths with the base's version, or without the path where
+    the base has none. While a rebase replays onto the base, HEAD is the base's side."""
+    for name in names:
+        if git(repo, "cat-file", "-e", f"HEAD:{name}", check=False).returncode == 0:
+            git(repo, "checkout", "HEAD", "--", name)
+        else:
+            git(repo, "rm", "-q", "-f", "--cached", "--ignore-unmatch", "--", name)
+            (repo / name).unlink(missing_ok=True)
 
 
 def _replayed_files(output: str, files: list[str]) -> list[str]:
@@ -537,7 +563,7 @@ def _failed_check(repo: Path, conflict: Conflict, *, moving_unit: str) -> tuple[
     marked = [
         name
         for name in conflict.files
-        if any(marker in (repo / name).read_text(errors="replace") for marker in CONFLICT_MARKERS)
+        if any(marker in _read(repo, name) for marker in CONFLICT_MARKERS)
     ]
     if marked:
         return (
@@ -545,7 +571,7 @@ def _failed_check(repo: Path, conflict: Conflict, *, moving_unit: str) -> tuple[
             marked,
         )
     for needle in conflict.must_keep:
-        if not any(needle in (repo / name).read_text(errors="replace") for name in conflict.files):
+        if not any(needle in _read(repo, name) for name in conflict.files):
             return (
                 f"the resolution dropped {needle!r}, which is {moving_unit}'s own "
                 "change — resolving a conflict by deleting one side empties the unit.",
@@ -630,6 +656,31 @@ def move_branch_onto(
             return Moved(sha=git(repo, "rev-parse", branch).stdout.strip())
 
         _raise_if_lock(repo, result, "rebase", "--onto", new_base, old_base)
+        settled: list[str] = []
+        entries = repo_config.generated if repo_config else []
+        while True:
+            generated, others = partition_generated(conflicted_files(repo), entries)
+            if not generated:
+                break
+            _take_from_base(repo, generated)
+            settled.extend(generated)
+            if others:
+                break
+            staged = git(repo, "diff", "--cached", "--quiet", check=False).returncode != 0
+            step = git(
+                repo,
+                "-c",
+                "core.editor=true",
+                "rebase",
+                "--continue" if staged else "--skip",
+                check=False,
+            )
+            if step.returncode == 0:
+                _separate_changelog(repo, repo_config)
+                if detached:
+                    return _land_detached(repo, branch, started=started)
+                return Moved(sha=git(repo, "rev-parse", branch).stdout.strip())
+            _raise_if_lock(repo, step, "rebase", "--continue")
         if resolve is None or context is None:
             raise _abort(
                 repo,
@@ -643,7 +694,7 @@ def move_branch_onto(
         conflict = Conflict(
             files=tuple(files),
             replayed=tuple(replayed),
-            replayed_content={name: (repo / name).read_text(errors="replace") for name in replayed},
+            replayed_content={name: _read(repo, name) for name in replayed},
             must_keep=tuple(
                 derive_must_keep(repo, branch, old_base=old_base, files=files)
                 if must_keep is None
@@ -664,6 +715,8 @@ def move_branch_onto(
             changelog_rule=resolver_changelog_rule(repo, files, context.repo),
             changelog=changelog_note(repo, context.repo),
         )
+        if settled:
+            prompt += HANDLED_NOTE.format(files=", ".join(sorted(set(settled))))
 
     asking: dict[str, str] = {}
     failures: list[str] = []
@@ -737,7 +790,7 @@ def move_branch_onto(
 
         resolved = (*conflict.files, *_extra_files(repo, conflict.files))
         for name in conflict.replayed:
-            if (repo / name).read_text(errors="replace") != conflict.replayed_content[name]:
+            if _read(repo, name) != conflict.replayed_content[name]:
                 # Once rerere has auto-applied a cached resolution, it stops
                 # tracking that path for recording — `git add` and `--continue`
                 # alone would leave the stale entry in place. Forgetting it here

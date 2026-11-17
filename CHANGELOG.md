@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- A restack now settles conflicts in files a repository's `generated` setting covers by taking
+  the base's version (or removing the file where the base has none), without asking the
+  resolver; only source conflicts reach it, and its prompt names the generated paths as
+  handled. Reading a conflict no longer fails on a path missing from the working tree.
+
 - The red check and the push gate no longer give the test runner a test file the tests commit
   deletes or renames away. Before, the runner was named a path that no longer existed and
   answered with a usage error, so the check read an empty report as "nothing failed" and
