@@ -28,7 +28,7 @@ import logging
 import re
 import subprocess
 import time
-from collections.abc import Callable, Iterator
+from collections.abc import Callable, Iterator, Sequence
 from contextlib import AbstractContextManager, contextmanager, nullcontext
 from contextvars import ContextVar
 from pathlib import Path
@@ -57,6 +57,7 @@ from agent_build_kit.pipeline.git_output import (
 from agent_build_kit.pipeline.own_tests import defined_tests_in_range, tests_in
 from agent_build_kit.pipeline.planning_repo import current_branch
 from agent_build_kit.pipeline.scratch import output_convention, run_folder
+from agent_build_kit.pipeline.unit_size import is_generated
 from agent_build_kit.pipeline.vocabulary import OverheadNode
 from agent_build_kit.pipeline.workspaces import (
     detached_trees,
@@ -284,6 +285,10 @@ clears this cached entry so the next sibling sees the conflict fresh rather
 than the same bad resolution.
 """
 
+HANDLED_NOTE = """
+Generated files already settled from the base, which you leave alone: {files}
+"""
+
 
 class StaleRemote(RuntimeError):
     """The remote branch moved since we last pushed — somebody else's commit."""
@@ -369,6 +374,68 @@ def conflicted_files(repo: Path) -> list[str]:
     """The paths git lists as unmerged in `repo`, empty when none or when the listing fails."""
     out = git(repo, "diff", "--name-only", "--diff-filter=U", check=False).stdout
     return [line for line in out.splitlines() if line]
+
+
+def partition_generated(files: list[str], patterns: Sequence[str]) -> tuple[list[str], list[str]]:
+    """Split conflicted `files` into those a `generated` pattern covers and the rest."""
+    generated = [name for name in files if is_generated(name, patterns)]
+    return generated, [name for name in files if name not in generated]
+
+
+def _read(repo: Path, name: str) -> str:
+    """A file's text, empty when it is not in the working tree (a path both sides moved)."""
+    try:
+        return (repo / name).read_text(errors="replace")
+    except FileNotFoundError:
+        return ""
+
+
+def _settle_generated(
+    repo: Path,
+    stop: subprocess.CompletedProcess[str],
+    patterns: Sequence[str],
+    settled: list[str],
+) -> tuple[bool, subprocess.CompletedProcess[str]]:
+    """At a stopped rebase, settle each stop whose conflicts are all generated from the base
+    and step the rebase on. Returns whether the rebase finished, and the output of the stop
+    it is now at (`stop` itself when nothing was settled). A stop that also conflicts on
+    other files is left for the caller, with the generated ones already settled."""
+    while True:
+        generated, others = partition_generated(conflicted_files(repo), patterns)
+        if not generated:
+            return False, stop
+        _take_from_base(repo, generated)
+        settled.extend(generated)
+        if others:
+            return False, stop
+        staged = git(repo, "diff", "--cached", "--quiet", check=False).returncode != 0
+        stop = git(
+            repo,
+            "-c",
+            "core.editor=true",
+            "rebase",
+            "--continue" if staged else "--skip",
+            check=False,
+        )
+        if stop.returncode == 0:
+            return True, stop
+        _raise_if_lock(repo, stop, "rebase", "--continue")
+        if not conflicted_files(repo):
+            raise _abort(
+                repo,
+                f"the rebase stopped with no conflict to settle:\n{stop.stdout}\n{stop.stderr}",
+            )
+
+
+def _take_from_base(repo: Path, names: list[str]) -> None:
+    """Settle conflicted generated paths with the base's version, or without the path where
+    the base has none. While a rebase replays onto the base, HEAD is the base's side."""
+    for name in names:
+        if git(repo, "cat-file", "-e", f"HEAD:{name}", check=False).returncode == 0:
+            git(repo, "checkout", "HEAD", "--", name)
+        else:
+            git(repo, "rm", "-q", "-f", "--cached", "--ignore-unmatch", "--", name)
+            (repo / name).unlink(missing_ok=True)
 
 
 def _replayed_files(output: str, files: list[str]) -> list[str]:
@@ -530,7 +597,7 @@ def _failed_check(repo: Path, conflict: Conflict, *, moving_unit: str) -> tuple[
     marked = [
         name
         for name in conflict.files
-        if any(marker in (repo / name).read_text(errors="replace") for marker in CONFLICT_MARKERS)
+        if any(marker in _read(repo, name) for marker in CONFLICT_MARKERS)
     ]
     if marked:
         return (
@@ -538,7 +605,7 @@ def _failed_check(repo: Path, conflict: Conflict, *, moving_unit: str) -> tuple[
             marked,
         )
     for needle in conflict.must_keep:
-        if not any(needle in (repo / name).read_text(errors="replace") for name in conflict.files):
+        if not any(needle in _read(repo, name) for name in conflict.files):
             return (
                 f"the resolution dropped {needle!r}, which is {moving_unit}'s own "
                 "change — resolving a conflict by deleting one side empties the unit.",
@@ -623,6 +690,14 @@ def move_branch_onto(
             return Moved(sha=git(repo, "rev-parse", branch).stdout.strip())
 
         _raise_if_lock(repo, result, "rebase", "--onto", new_base, old_base)
+        settled: list[str] = []
+        patterns = repo_config.generated_paths() if repo_config else ()
+        done, result = _settle_generated(repo, result, patterns, settled)
+        if done:
+            _separate_changelog(repo, repo_config)
+            if detached:
+                return _land_detached(repo, branch, started=started)
+            return Moved(sha=git(repo, "rev-parse", branch).stdout.strip())
         if resolve is None or context is None:
             raise _abort(
                 repo,
@@ -636,7 +711,7 @@ def move_branch_onto(
         conflict = Conflict(
             files=tuple(files),
             replayed=tuple(replayed),
-            replayed_content={name: (repo / name).read_text(errors="replace") for name in replayed},
+            replayed_content={name: _read(repo, name) for name in replayed},
             must_keep=tuple(
                 derive_must_keep(repo, branch, old_base=old_base, files=files)
                 if must_keep is None
@@ -657,6 +732,8 @@ def move_branch_onto(
             changelog_rule=resolver_changelog_rule(repo, files, context.repo),
             changelog=changelog_note(repo, context.repo),
         )
+        if settled:
+            prompt += HANDLED_NOTE.format(files=", ".join(sorted(set(settled))))
 
     asking: dict[str, str] = {}
     failures: list[str] = []
@@ -730,7 +807,7 @@ def move_branch_onto(
 
         resolved = (*conflict.files, *_extra_files(repo, conflict.files))
         for name in conflict.replayed:
-            if (repo / name).read_text(errors="replace") != conflict.replayed_content[name]:
+            if _read(repo, name) != conflict.replayed_content[name]:
                 # Once rerere has auto-applied a cached resolution, it stops
                 # tracking that path for recording — `git add` and `--continue`
                 # alone would leave the stale entry in place. Forgetting it here
@@ -742,12 +819,14 @@ def move_branch_onto(
         finished = git(repo, "-c", "core.editor=true", "rebase", "--continue", check=False)
         if finished.returncode != 0:
             _raise_if_lock(repo, finished, "rebase", "--continue")
-            raise _abort(
-                repo,
-                f"the rebase did not complete after resolution:\n"
-                f"{finished.stdout}\n{finished.stderr}",
-                tried="\n".join(failures),
-            )
+            done, finished = _settle_generated(repo, finished, patterns, settled)
+            if not done:
+                raise _abort(
+                    repo,
+                    f"the rebase did not complete after resolution:\n"
+                    f"{finished.stdout}\n{finished.stderr}",
+                    tried="\n".join(failures),
+                )
         _separate_changelog(repo, repo_config)
         if detached:
             landed = _land_detached(repo, branch, started=started)
