@@ -28,7 +28,7 @@ import logging
 import re
 import subprocess
 import time
-from collections.abc import Callable, Iterator
+from collections.abc import Callable, Iterator, Sequence
 from contextlib import AbstractContextManager, contextmanager, nullcontext
 from contextvars import ContextVar
 from pathlib import Path
@@ -36,7 +36,7 @@ from pathlib import Path
 from agent_build_kit import claude_account, runtimes
 from agent_build_kit.budget import cut_head
 from agent_build_kit.changelog_form import separate_bullets
-from agent_build_kit.config import RepoConfig, active, models
+from agent_build_kit.config import GeneratedConfig, RepoConfig, active, models
 from agent_build_kit.forges.transport import HostUnavailable
 from agent_build_kit.model import Frozen
 from agent_build_kit.pipeline import shell
@@ -369,6 +369,13 @@ def conflicted_files(repo: Path) -> list[str]:
     """The paths git lists as unmerged in `repo`, empty when none or when the listing fails."""
     out = git(repo, "diff", "--name-only", "--diff-filter=U", check=False).stdout
     return [line for line in out.splitlines() if line]
+
+
+def partition_generated(
+    files: list[str], entries: Sequence[GeneratedConfig]
+) -> tuple[list[str], list[str]]:
+    """Split conflicted `files` into those a `generated` entry covers and the rest."""
+    raise NotImplementedError
 
 
 def _replayed_files(output: str, files: list[str]) -> list[str]:
