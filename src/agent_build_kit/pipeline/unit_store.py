@@ -316,6 +316,20 @@ class StoredSplitRequest(Frozen):
     drivers: tuple[int, ...] = ()
 
 
+class RewriteSource(StrEnum):
+    """Who asked for a unit's history to be rewritten."""
+
+    REVIEW = "review"
+    PERSON = "person"
+
+
+class StoredRewriteRequest(Frozen):
+    """The history shape wanted for a unit's own commits, and who asked for it."""
+
+    text: str
+    source: RewriteSource
+
+
 class Pull(Frozen):
     """One pull request of a unit: the original, or a late fix after a merge."""
 
@@ -394,6 +408,9 @@ class StoredUnit(Unit):
     # What a person asked for with `abk requeue --note`, shown ahead of `feedback`
     # in the next prompt and cleared where the rework commit is made.
     guidance: str = ""
+    # A request to rewrite the unit's own commits, read when a review-feedback or rework step
+    # starts and cleared when it ends; None for a unit that holds none.
+    rewrite_request: StoredRewriteRequest | None = None
     # The commit the review loop last approved. Nothing else may be pushed:
     # see the gate before the `push` node. Here, not in the run, because the
     # push gate and `build_restack` read and write it with no run in progress.
@@ -1504,6 +1521,14 @@ class UnitStore:
     def set_guidance(self, unit_id: str, guidance: str) -> None:
         """A person's note for the next prompt, or `""` once a run has acted on it."""
         self._update(unit_id, guidance=guidance)
+
+    def set_rewrite_request(self, unit_id: str, request: StoredRewriteRequest) -> None:
+        """Store a request to rewrite the unit's commits; its history says who asked."""
+        raise NotImplementedError
+
+    def clear_rewrite_request(self, unit_id: str) -> None:
+        """End a request when the step that read it ends; its history says it was used."""
+        raise NotImplementedError
 
     def set_split_request(self, unit_id: str, request: StoredSplitRequest | None) -> None:
         """What a unit held for its size is to be split by, or none once it has been."""

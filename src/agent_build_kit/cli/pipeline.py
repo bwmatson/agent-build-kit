@@ -7796,6 +7796,12 @@ def register(sub: argparse._SubParsersAction) -> None:
         "(a failed check), instead of resuming into the same failure; accepts a unit "
         "parked on a held e2e-test split, with or without a note",
     )
+    requeue.add_argument(
+        "--rewrite",
+        action="store_true",
+        help="with --rework and --note, let the agent rewrite the unit's own commits as the "
+        "note asks, for one step",
+    )
     given = requeue.add_mutually_exclusive_group()
     given.add_argument(
         "--note",
