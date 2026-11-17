@@ -1392,8 +1392,8 @@ def _record_merge(
     if merged.pr is not None:
         store.set_pulls(merged.id, _with_merge(merged, sha))
     store.set_state(merged.id, SETTLING, note=note, cause=cause)
-    if behind:
-        store.set_settling_behind(merged.id, behind)
+    # Always written: a merge into the default branch clears the marker an earlier merge left.
+    store.set_settling_behind(merged.id, behind)
     log(f"merged #{merged.pr}: {merged.id} settling, waiting for its checks")
 
     release_children(
