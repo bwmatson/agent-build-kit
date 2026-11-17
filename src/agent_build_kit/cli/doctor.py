@@ -116,6 +116,7 @@ from agent_build_kit.pipeline.planning_view import (
 from agent_build_kit.pipeline.project_actions import failed_lines
 from agent_build_kit.pipeline.shell import git, git_out, is_ignored, is_tracked, tracked_toplevel
 from agent_build_kit.pipeline.temp_sweep import temp_size
+from agent_build_kit.pipeline.unit_size import is_generated
 from agent_build_kit.pipeline.usage_guard import gate_result
 from agent_build_kit.pipeline.wake import WAKE
 from agent_build_kit.pipeline.workspaces import worktree_entries, worktree_key
@@ -1643,6 +1644,44 @@ def _environment(inst: Installation, run: Run) -> list[Check]:
     return checks
 
 
+def _generated(inst: Installation, which: Which) -> list[Check]:
+    """Each `generated` entry, with a warning for a pattern that matches no tracked file and for
+    a command that is not found."""
+    checks = []
+    for name, repo in inst.repos.items():
+        root = inst.checkouts[name]
+        tracked: list[str] | None = None
+        if repo.generated and root.is_dir() and checkout_root(root) == root.resolve():
+            tracked = [n for n in git_out(root, "ls-files", "-z").split("\0") if n]
+        for index, entry in enumerate(repo.generated):
+            label = f"generated {name}[{index}]"
+            command = " ".join(entry.command)
+            checks.append(_ok(label, f"`{command}` in {entry.cwd} covers {', '.join(entry.paths)}"))
+            unmatched = (
+                []
+                if tracked is None
+                else [p for p in entry.paths if not any(is_generated(f, [p]) for f in tracked)]
+            )
+            if unmatched:
+                checks.append(
+                    _warn(
+                        label,
+                        f"{name}: matches no tracked file: {', '.join(unmatched)}",
+                        f"fix repos.{name}.generated[{index}].paths in abk.yaml",
+                    )
+                )
+            program = entry.command[0]
+            if which(program) is None and not (root / entry.cwd / program).exists():
+                checks.append(
+                    _warn(
+                        label,
+                        f"{name}: command `{program}` not found in {entry.cwd}",
+                        f"install it, or fix repos.{name}.generated[{index}].command",
+                    )
+                )
+    return checks
+
+
 def _rules_drift(inst: Installation) -> Check:
     """Whether this installation's authoring rules predate the framework's.
 
@@ -2553,6 +2592,7 @@ def run_doctor(
     checks += _environment(inst, run)
     checks.append(_rules_drift(inst))
     checks += _gaps(inst, run)
+    checks += _generated(inst, which)
     checks += _python_tools(inst)
     checks += _skills(inst)
     checks += _telemetry()

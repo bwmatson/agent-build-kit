@@ -1526,6 +1526,36 @@ class RepoWorkersConfig(Frozen):
     _no_mode = model_validator(mode="before")(_refuse_removed_mode)
 
 
+class GeneratedConfig(Frozen):
+    """Output a repository builds from its sources: the paths it covers, the command that
+    rebuilds it and the directory (relative to the repository) the command runs in."""
+
+    paths: tuple[str, ...]
+    command: tuple[str, ...]
+    cwd: str = "."
+
+    @field_validator("paths", "command")
+    @classmethod
+    def _not_empty(cls, value: tuple[str, ...]) -> tuple[str, ...]:
+        if not value:
+            raise ValueError("must name at least one item")
+        return value
+
+    @field_validator("paths")
+    @classmethod
+    def _relative_patterns(cls, value: tuple[str, ...]) -> tuple[str, ...]:
+        path_patterns.validate(list(value))
+        return value
+
+    @field_validator("cwd")
+    @classmethod
+    def _inside_the_repository(cls, value: str) -> str:
+        path = PurePosixPath(value)
+        if path.is_absolute() or ".." in path.parts:
+            raise ValueError(f"cwd {value!r} must be relative and stay inside the repository")
+        return value
+
+
 class RepoConfig(Frozen):
     path: Path
     # GitHub owner/name. The owner decides which `gh` account's token is used.
@@ -1556,6 +1586,8 @@ class RepoConfig(Frozen):
     # Repos this one depends on. Drives deploy order (consumed first), which
     # dev stack a unit's own comes up on top of, and the planner's ordering.
     consumes: list[str] = []
+    # Output built from sources, settled from the base on a restack and rebuilt after it.
+    generated: list[GeneratedConfig] = []
     # Prose the planner is given about how this repo relates to the others.
     relationships: str = ""
     tests: TestsConfig = TestsConfig()
@@ -1961,6 +1993,12 @@ class WorkspaceConfig(Frozen):
         environments = [self.environment] + [repo.environment for repo in self.repos.values()]
         return (
             *self.global_limits.generated_files,
+            *(
+                path
+                for repo in self.repos.values()
+                for entry in repo.generated
+                for path in entry.paths
+            ),
             *(PurePosixPath(path).name for env in environments if env for path in env.inputs.lock),
         )
 
