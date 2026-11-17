@@ -108,6 +108,104 @@ def test_a_tests_commit_with_only_a_data_file_builds_no_red_command(repo: Path) 
     assert red_problems(repo, git(repo, "rev-parse", "HEAD~1"), profile=profile.toolchain) == []
 
 
+def test_a_deleted_test_file_is_not_named_in_the_narrowed_run_or_the_run_of_the_files_whole(
+    repo: Path,
+) -> None:
+    git(repo, "rm", "-q", "tests/test_old.py")
+    commit(repo, "test: moves one", {"tests/test_new.py": FAILING})
+    profile = Recording(PYTHON)
+
+    red_problems(repo, git(repo, "rev-parse", "HEAD"), profile=profile.toolchain)
+
+    (command,) = profile.commands
+    assert "test_old" not in command, "neither run names the deleted file"
+    words = shlex.split(command)
+    assert "tests/test_new.py::test_new" in words, "the narrowed run"
+    assert "tests/test_new.py" in words, "the run of the files whole"
+    assert profile.files == [["tests/test_new.py"]]
+
+
+def test_the_push_gate_does_not_give_the_runner_a_deleted_test_file(repo: Path) -> None:
+    git(repo, "rm", "-q", "tests/test_old.py")
+    commit(repo, "test: moves one", {"tests/test_new.py": FAILING})
+    commit(repo, "feat: implements it", {"src/new.py": "x = 1\n"})
+    profile = Recording(PYTHON)
+
+    problems = check_branch(repo, "main", profile=profile.toolchain)
+
+    assert problems == []
+    assert profile.files == [["tests/test_new.py"]]
+
+
+NODE_FAILING = "test('x', () => { throw new Error('no') })\n"
+WEB = [ProjectConfig(path="web", profile="node-npm")]
+
+
+@pytest.fixture
+def web_repo(repo: Path) -> Path:
+    """`repo` with a node project's test file, `web/src/old.test.ts`, already on main."""
+    git(repo, "checkout", "-q", "main")
+    commit(repo, "web", {"web/src/old.test.ts": NODE_FAILING})
+    git(repo, "checkout", "-q", "spec/change/1-unit")
+    git(repo, "rebase", "-q", "main")
+    return repo
+
+
+def test_a_deleted_test_file_of_a_project_below_the_root_is_left_out_of_the_red_run(
+    web_repo: Path,
+) -> None:
+    git(web_repo, "rm", "-q", "web/src/old.test.ts")
+    commit(web_repo, "test: moves one", {"web/src/new.test.ts": NODE_FAILING})
+    profile = Recording(NODE)
+
+    with profiles.registered(profile.toolchain):
+        red_problems(web_repo, git(web_repo, "rev-parse", "HEAD"), profile=PYTHON, projects=WEB)
+
+    assert profile.files == [["src/new.test.ts"]]
+
+
+def test_the_push_gate_leaves_a_deleted_test_file_of_a_project_below_the_root_out(
+    web_repo: Path,
+) -> None:
+    git(web_repo, "rm", "-q", "web/src/old.test.ts")
+    commit(web_repo, "test: moves one", {"web/src/new.test.ts": NODE_FAILING})
+    commit(web_repo, "feat: implements it", {"web/src/widget.ts": "export const x = 1\n"})
+    profile = Recording(NODE)
+
+    with profiles.registered(profile.toolchain):
+        problems = check_branch(web_repo, "main", profile=PYTHON, projects=WEB)
+
+    assert problems == []
+    assert profile.files == [["src/new.test.ts"]]
+
+
+def test_a_renamed_test_file_runs_under_its_new_path_only(repo: Path) -> None:
+    git(repo, "mv", "tests/test_old.py", "tests/test_renamed.py")
+    commit(repo, "test: renames one", {"tests/test_renamed.py": FAILING})
+    profile = Recording(PYTHON)
+
+    red_problems(repo, git(repo, "rev-parse", "HEAD"), profile=profile.toolchain)
+
+    assert profile.files == [["tests/test_renamed.py"]]
+    assert "test_old" not in profile.commands[0]
+
+
+def test_a_tests_commit_that_only_deletes_a_test_file_is_a_tests_commit_with_no_red_command(
+    repo: Path,
+) -> None:
+    git(repo, "rm", "-q", "tests/test_old.py")
+    commit(repo, "test: removes one", {})
+    commit(repo, "feat: code", {"src/thing.py": "x = 1\n"})
+    profile = Recording(PYTHON)
+
+    problems = check_branch(repo, "main", profile=profile.toolchain)
+
+    assert problems == [], "the deletion counts as the tests commit that precedes the code"
+    assert profile.commands == []
+    assert red_problems(repo, git(repo, "rev-parse", "HEAD~1"), profile=profile.toolchain) == []
+    assert profile.commands == []
+
+
 @pytest.mark.parametrize(
     ("path", "runnable"),
     [
