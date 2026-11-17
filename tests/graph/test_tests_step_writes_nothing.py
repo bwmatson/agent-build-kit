@@ -274,7 +274,7 @@ def resumed_over(
     """A `Tests: required` group whose tests step died leaving `leftovers` in the tree, then
     resumed over them by an agent that writes nothing more and says `said`. The worktree refuses
     a dirty tree unless allowed, as the real one."""
-    base, repo = prepared(tmp_path, tests_required=(1,))
+    base, repo = prepared(tmp_path, groups=GROUPS, tests_required=(1,))
     recorder = KilledInTests(
         base.store, leftovers=leftovers, tests_accounts={"1": said} if said else None
     )

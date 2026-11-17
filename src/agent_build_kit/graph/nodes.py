@@ -66,6 +66,7 @@ from agent_build_kit.pipeline.commit_order import (
     TESTS_PREFIX,
     GroupProgress,
     cherry_pick,
+    classify_paths,
     group_progress,
     recorded_built,
     superseded_pairs,
@@ -1733,7 +1734,12 @@ class BuildPath:
         tree = self.tree()
         if not before or (account.strip() and not required):
             return False  # no tree digest: a runner that cannot see a write cannot see none
-        return self.runner.head(tree) == state.head and self.runner.tree_state(tree) == before
+        if self.runner.head(tree) != state.head or self.runner.tree_state(tree) != before:
+            return False
+        # A test or document file the step resumed over is its own work, kept; a source file is not.
+        repo = self.runner.repo_config
+        labels = classify_paths(list(self._leftovers), lambda path: is_test_path(path, repo))
+        return not any(label in ("test", "docs") for label in labels.values())
 
     def apply_fixers(self) -> None:
         """Run the profile's fixers over the unit's own files, with no agent, and log what they
