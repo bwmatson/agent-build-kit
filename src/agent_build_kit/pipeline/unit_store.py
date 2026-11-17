@@ -140,6 +140,7 @@ class Cause(StrEnum):
     MANUAL_STEP = MANUAL_STEP_CAUSE
     TOO_BIG_FOR_TIER = "too_big_for_tier"
     SUPERSEDED = "superseded"
+    LANDED_OFF_DEFAULT = "landed_off_default"
 
 
 class Keep:
