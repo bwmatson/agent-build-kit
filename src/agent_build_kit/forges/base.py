@@ -440,6 +440,10 @@ class Forge(RegistersStacks, Protocol):
 
     def update_pr(self, repo: RepoId, pr: int, *, base: str = "", body: str = "") -> None: ...
 
+    def retarget_pr(self, repo: RepoId, pr: int, base: str) -> bool:
+        """Point a pull request at `base`; True only when the host reports that base afterwards."""
+        ...
+
     def list_prs(self, repo: RepoId, *, head_prefix: str = "") -> list[PullRequest]: ...
 
     def pr_files(self, repo: RepoId, pr: int) -> list[str]:

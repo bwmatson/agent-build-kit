@@ -1193,6 +1193,21 @@ def recheck_landings(
     return recorded
 
 
+def retry_retargets(
+    store: UnitStore,
+    *,
+    base_on_host: Callable[[StoredUnit], str | None],
+    retarget: Callable[[StoredUnit, str], bool],
+    mid_move: Callable[[StoredUnit], bool] = lambda unit: False,
+    log: Log = print,
+) -> list[str]:
+    """Each round, after collection and before admission: retarget an in-review unit whose pull
+    request base (`base_on_host`) is not the `base_of` its graph gives it, unless its thread is
+    `mid_move`. A failed round counts on the unit; the third holds it `base_not_moved`; a
+    success resets the count. Returns the ids it held."""
+    raise NotImplementedError
+
+
 def _unit_on_branch(store: UnitStore, repo: str, branch: str, not_id: str) -> StoredUnit | None:
     """The unit, other than `not_id`, whose branch is `branch` in `repo`."""
     return next(

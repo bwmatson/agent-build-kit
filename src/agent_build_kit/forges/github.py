@@ -430,6 +430,9 @@ class GitHubForge:
         except TransportError as error:
             log.warning("could not update pull request %s of %s: %s", pr, key(repo), error)
 
+    def retarget_pr(self, repo: RepoId, pr: int, base: str) -> bool:
+        raise NotImplementedError
+
     # --- stacks ---------------------------------------------------------------------
 
     def stack_of(self, repo: RepoId, pr: int) -> Stack | None:

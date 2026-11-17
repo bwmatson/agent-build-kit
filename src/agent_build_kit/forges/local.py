@@ -268,6 +268,9 @@ class LocalForge:
 
         self._change(repo, update)
 
+    def retarget_pr(self, repo: RepoId, pr: int, base: str) -> bool:
+        raise NotImplementedError
+
     def list_prs(self, repo: RepoId, *, head_prefix: str = "") -> list[PullRequest]:
         from agent_build_kit.pipeline.ui_review import with_ui_review
         from agent_build_kit.pipeline.unit_store import UnitStore

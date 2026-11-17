@@ -141,6 +141,7 @@ class Cause(StrEnum):
     TOO_BIG_FOR_TIER = "too_big_for_tier"
     SUPERSEDED = "superseded"
     LANDED_OFF_DEFAULT = "landed_off_default"
+    BASE_NOT_MOVED = "base_not_moved"
 
 
 class Keep:
@@ -347,6 +348,8 @@ class StoredUnit(Unit):
     merge_sha: str | None = None
     merged_tick: int | None = None
     pulls: tuple[Pull, ...] = ()
+    # Rounds in a row the retarget of the unit's pull request failed; reset on success.
+    base_move_failures: int = 0
     # The pull request's changed lines as the reviewer sees them, generated
     # files left out; None until it has a pull request.
     actual_lines: int | None = None
