@@ -46,6 +46,7 @@ from agent_build_kit.pipeline.changelog_convention import (
     changelog_path,
     resolver_changelog_rule,
 )
+from agent_build_kit.pipeline.generated import regenerate
 from agent_build_kit.pipeline.git_output import (
     PUSH_OPERATION,
     GitLockFailed,
@@ -527,6 +528,12 @@ def _land_detached(repo: Path, branch: str, *, started: str) -> Moved:
     return Moved(sha=head)
 
 
+def _regenerate(repo: Path, config: RepoConfig | None, *, onto: str) -> None:
+    """Rebuild the repo's generated files once the rebase has finished. Inside the turn."""
+    if config is not None and config.generated:
+        regenerate(repo, config.generated, onto=onto)
+
+
 def _separate_changelog(repo: Path, config: RepoConfig | None) -> None:
     """Put back the blank line a union merge took from between two changelog bullets, in a
     commit of its own on the replayed branch. Inside the turn, with the rebase finished."""
@@ -685,6 +692,7 @@ def move_branch_onto(
         )
         if result.returncode == 0:
             _separate_changelog(repo, repo_config)
+            _regenerate(repo, repo_config, onto=new_base)
             if detached:
                 return _land_detached(repo, branch, started=started)
             return Moved(sha=git(repo, "rev-parse", branch).stdout.strip())
@@ -695,6 +703,7 @@ def move_branch_onto(
         done, result = _settle_generated(repo, result, patterns, settled)
         if done:
             _separate_changelog(repo, repo_config)
+            _regenerate(repo, repo_config, onto=new_base)
             if detached:
                 return _land_detached(repo, branch, started=started)
             return Moved(sha=git(repo, "rev-parse", branch).stdout.strip())
@@ -828,6 +837,7 @@ def move_branch_onto(
                     tried="\n".join(failures),
                 )
         _separate_changelog(repo, repo_config)
+        _regenerate(repo, repo_config, onto=new_base)
         if detached:
             landed = _land_detached(repo, branch, started=started)
             return Moved(sha=landed.sha, resolved=resolved)

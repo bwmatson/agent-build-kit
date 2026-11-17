@@ -129,6 +129,7 @@ from agent_build_kit.pipeline.flakes import (
     record_storm,
 )
 from agent_build_kit.pipeline.gateway_usage import Spend, attribution, configured_source
+from agent_build_kit.pipeline.generated import GeneratedFilesFailed
 from agent_build_kit.pipeline.git_output import (
     FetchFailed,
     TransportFailure,
@@ -226,6 +227,7 @@ from agent_build_kit.pipeline.unit_test_slots import (
 )
 from agent_build_kit.pipeline.units import (
     BUILDS_NOTHING,
+    HELD,
     IN_REVIEW,
     MERGED,
     PLANNED,
@@ -4843,6 +4845,15 @@ def build_restack_onto(
                     **asking,
                 )
             )
+        except GeneratedFilesFailed as error:
+            store.set_state(
+                unit.id,
+                HELD,
+                note=f"rebuilding the generated files after restacking onto {base} "
+                f"failed:\n{cut_head(error.output, 1000, 'char')}",
+                cause=Cause.GENERATED_FILES,
+            )
+            raise
         except RestackConflict as error:
             # Not a failure: what the resolver's steps could not settle goes to the adapt
             # step, which ports the work by hand. It needs
