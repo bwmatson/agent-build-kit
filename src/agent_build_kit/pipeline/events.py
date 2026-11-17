@@ -121,6 +121,7 @@ from agent_build_kit.pipeline.units import (
     depth_of,
     is_superseded,
     local_ref,
+    reachable,
     through_satisfied,
     trunk_of,
 )
@@ -1320,18 +1321,26 @@ def warn_base_merged(
     The comment carries a marker line and its ids are recorded in the own-posts record under
     `posts_root`, so a later round does not post it again. Returns the ids it posted for."""
     graph = store.all()
+    by_id = {other.id: other for other in graph}
     posted_for: list[str] = []
     for unit in graph:
         if unit.state != IN_REVIEW or not unit.pr:
             continue
         wanted = base_of(unit, graph)
+        ancestors = reachable(
+            unit.depends_on,
+            lambda uid: by_id[uid].depends_on if uid in by_id else (),
+        )
         merged_branches = {
-            other.branch
-            for other in graph
-            if other.state in (MERGED, SATISFIED) and other.repo == unit.repo
+            by_id[uid].branch
+            for uid in ancestors
+            if uid in by_id
+            and by_id[uid].repo == unit.repo
+            and by_id[uid].state in (MERGED, SATISFIED)
+            and by_id[uid].branch
         }
         if not merged_branches - {wanted}:
-            continue  # No merged branch could be its stale base: the host need not be asked.
+            continue  # None of its own ancestors could be its stale base: do not ask the host.
         on_host = base_on_host(unit)
         if on_host is None or on_host == wanted or on_host not in merged_branches:
             continue

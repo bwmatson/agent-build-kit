@@ -15,6 +15,7 @@ from agent_build_kit.pipeline import events
 from agent_build_kit.pipeline.pr_replies import MARKER, own_posts
 from agent_build_kit.pipeline.unit_store import StoredUnit, UnitStore
 from agent_build_kit.pipeline.units import IN_REVIEW
+from tests.factories import stored_unit
 from tests.forges.stand_in import FindingForge
 from tests.pipeline.test_retarget_retry import (
     CHILD,
@@ -127,6 +128,19 @@ def test_the_host_is_not_asked_about_a_unit_with_no_merged_base(tmp_path: Path) 
     warn.run()
 
     assert warn.asked == []
+
+
+def test_the_host_is_not_asked_about_a_unit_that_does_not_depend_on_the_merged_unit(
+    tmp_path: Path,
+) -> None:
+    warn = Round(tmp_path)
+    other = "feature/9"
+    warn.store.upsert([stored_unit(other, change="feature")])
+    warn.store.set_state(other, IN_REVIEW, pr=9, branch=f"spec/{other}")
+
+    warn.run()
+
+    assert warn.asked == [CHILD]
 
 
 def test_a_child_whose_host_base_is_unknown_gets_no_comment(tmp_path: Path) -> None:
