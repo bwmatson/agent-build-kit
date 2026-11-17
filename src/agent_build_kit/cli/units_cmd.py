@@ -10,7 +10,7 @@ from __future__ import annotations
 import argparse
 import sys
 
-from agent_build_kit.cli.pipeline import live_change_groups, store_for
+from agent_build_kit.cli.pipeline import live_change_groups
 from agent_build_kit.installation import Installation
 from agent_build_kit.pipeline import spans
 from agent_build_kit.pipeline.unit_store import UnitStore
@@ -18,6 +18,7 @@ from agent_build_kit.pipeline.units import UnitState
 from agent_build_kit.pipeline.unplanned_sweep import Verdict, eligibility, live_changes
 from agent_build_kit.trackers.folders import archived_entries
 from agent_build_kit.trackers.tick_step import tracker_pass
+from agent_build_kit.worker_run import store_for
 
 
 def _repointing(verdict: Verdict) -> str:

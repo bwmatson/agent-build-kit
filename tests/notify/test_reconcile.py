@@ -308,7 +308,7 @@ def host(monkeypatch: pytest.MonkeyPatch) -> list[list[str]]:
     monkeypatch.setattr(subprocess, "run", run)
     monkeypatch.setattr(cli, "poll_all", lambda inst, **kwargs: None)
     monkeypatch.setattr(cli, "fetch_all", lambda inst: None)
-    monkeypatch.setattr(cli, "has_thread", lambda inst, unit_id: False)
+    monkeypatch.setattr("agent_build_kit.worker_run.has_thread", lambda inst, unit_id: False)
     return calls
 
 

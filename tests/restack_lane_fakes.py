@@ -12,6 +12,7 @@ from typing import Any
 
 import pytest
 
+from agent_build_kit import worker_run
 from agent_build_kit.cli import pipeline as cli
 from agent_build_kit.installation import Installation
 from agent_build_kit.pipeline import usage_guard, wiring
@@ -142,7 +143,7 @@ def repo_behind(
     (repo / "b.txt").write_text("b\n")
     git(repo, "add", "-A")
     git(repo, "commit", "-qm", "b")
-    monkeypatch.setattr(cli, "has_thread", lambda inst, unit_id: True)
+    monkeypatch.setattr("agent_build_kit.worker_run.has_thread", lambda inst, unit_id: True)
     return inst
 
 
@@ -170,7 +171,7 @@ def tracked_rig(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, host: Host) -> 
     with a usage window and the usage endpoint's cache in the installation's state directory."""
     rig = Rig(tmp_path, monkeypatch)
     # These tests read the move; the unit's run that follows it in the lane is read elsewhere.
-    monkeypatch.setattr(cli, "build_unit", lambda *args, **kwargs: True)
+    monkeypatch.setattr("agent_build_kit.worker_run.build_unit", lambda *args, **kwargs: True)
     rig.runtime = Tracking
     rig.prepared()  # the agent the lane's resolver reaches
     host.keep_in(rig.installation.state_dir)
@@ -188,7 +189,7 @@ def asked_of_the_guard(monkeypatch: pytest.MonkeyPatch) -> list[usage_guard.Deci
         decisions.append(real(**kwargs))
         return decisions[-1]
 
-    for module in (usage_guard, wiring, cli):
+    for module in (usage_guard, wiring, worker_run):
         monkeypatch.setattr(module, "decide_start", spy)
     return decisions
 

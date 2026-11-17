@@ -33,7 +33,7 @@ def find_unit(store: UnitStore, unit_id: str) -> StoredUnit | None:
 def accept(inst: Installation, store: UnitStore, unit_id: str) -> int:
     """Record the merge of a unit's pull request, once the forge itself confirms it."""
     # Late: the pipeline module imports the commands.
-    from agent_build_kit.cli import pipeline as pipe
+    from agent_build_kit import worker_run
 
     unit = find_unit(store, unit_id)
     if unit is None:
@@ -58,7 +58,9 @@ def accept(inst: Installation, store: UnitStore, unit_id: str) -> int:
         )
         return 1
     # The commit just confirmed is the one recorded: the merge record does not ask again.
-    if not pipe.dispatch_for(inst, store)("merged", unit.pr, repo=unit.repo, merge_commit=merged):
+    if not worker_run.dispatch_for(inst, store)(
+        "merged", unit.pr, repo=unit.repo, merge_commit=merged
+    ):
         print(f"abk reconcile: a tick is handling {unit.id}; try again shortly", file=sys.stderr)
         return 1
     try:
@@ -84,7 +86,7 @@ def accept(inst: Installation, store: UnitStore, unit_id: str) -> int:
 
 def cmd_reconcile(args: argparse.Namespace, inst: Installation) -> int:
     # Late: the pipeline module imports the commands.
-    from agent_build_kit.cli import pipeline as pipe
+    from agent_build_kit import worker_run
 
     if args.accept and (args.dry_run or args.unit):
         print(
@@ -92,7 +94,7 @@ def cmd_reconcile(args: argparse.Namespace, inst: Installation) -> int:
             file=sys.stderr,
         )
         return 2
-    store = pipe.store_for(inst)
+    store = worker_run.store_for(inst)
     if args.accept:
         return accept(inst, store, args.accept)
     if args.unit and find_unit(store, args.unit) is None:
@@ -100,7 +102,7 @@ def cmd_reconcile(args: argparse.Namespace, inst: Installation) -> int:
     reconcile(
         store=store,
         state_dir=inst.state_dir,
-        dispatch=pipe.dispatch_for(inst, store),
+        dispatch=worker_run.dispatch_for(inst, store),
         only=args.unit,
         dry_run=args.dry_run,
     )

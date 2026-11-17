@@ -34,8 +34,11 @@ def isolated(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(cli, "has_identity", lambda inst, repo: True)
     monkeypatch.setattr(cli, "verify_ready", lambda inst, units, **kwargs: lambda change: True)
     monkeypatch.setattr(cli, "archive_ready_changes", lambda *a, **k: [])
-    monkeypatch.setattr(cli, "current_usage", lambda: None)
-    monkeypatch.setattr(cli, "may_start_unit", lambda r: Decision(may_start=True, reason="plenty"))
+    monkeypatch.setattr("agent_build_kit.worker_run.current_usage", lambda: None)
+    monkeypatch.setattr(
+        "agent_build_kit.worker_run.may_start_unit",
+        lambda r: Decision(may_start=True, reason="plenty"),
+    )
 
 
 def stored(uid: str, repo: str) -> StoredUnit:

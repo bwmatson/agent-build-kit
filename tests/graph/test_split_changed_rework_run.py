@@ -42,8 +42,10 @@ def test_the_released_unit_reworks_from_the_note_and_the_e2e_step_does_not_come_
         prompts.append(prompt)
         return recorder.claude(prompt, **kwargs)
 
-    monkeypatch.setattr(cli, "has_thread", lambda inst, unit_id: True)
-    monkeypatch.setattr(cli, "resume_thread", deliver_to_graph(tmp_path, recorder, TIER))
+    monkeypatch.setattr("agent_build_kit.worker_run.has_thread", lambda inst, unit_id: True)
+    monkeypatch.setattr(
+        "agent_build_kit.worker_run.resume_thread", deliver_to_graph(tmp_path, recorder, TIER)
+    )
     recorder.events.clear()
 
     cli.release_split_changed(inst, store)

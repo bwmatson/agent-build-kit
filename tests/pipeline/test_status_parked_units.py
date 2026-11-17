@@ -27,7 +27,7 @@ def test_status_lists_a_unit_parked_for_its_worktree_with_the_reason(
     store.upsert([stored_unit("one/1", change="one"), stored_unit("two/1", change="two")])
     store.set_state("one/1", HELD, note=REASON, cause=Cause.DIRTY_WORKTREE)
     store.set_state("two/1", HELD, note="needs a human", cause=Cause.NEEDS_HUMAN)
-    monkeypatch.setattr(cli, "current_usage", lambda: None)
+    monkeypatch.setattr("agent_build_kit.worker_run.current_usage", lambda: None)
 
     assert cli.cmd_status(argparse.Namespace(), workspace) == 0
 

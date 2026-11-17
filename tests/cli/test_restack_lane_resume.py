@@ -38,7 +38,7 @@ class Scene:
         self.store.set_state(UNIT, RUNNING, branch=BRANCH, cause=Cause.RESTACK_CONFLICT)
         self.ran: list[str] = []
         self.threads: list[str] = []
-        monkeypatch.setattr(cli, "build_runner", lambda unit, **kwargs: self)
+        monkeypatch.setattr("agent_build_kit.worker_run.build_runner", lambda unit, **kwargs: self)
 
     def flag(self, flagged: bool = True) -> None:
         self.store.set_moved_base_run(UNIT, flagged)

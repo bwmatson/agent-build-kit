@@ -119,7 +119,7 @@ def test_a_dry_run_asks_about_a_paused_unit_without_recording_an_allowance(
             resume_at=clock.now() + timedelta(hours=3),
         )
 
-    monkeypatch.setattr(cli, "decide_start", decide)
+    monkeypatch.setattr("agent_build_kit.worker_run.decide_start", decide)
     monkeypatch.setattr(cli, "not_recording", quiet)
     inst, store = workspace(tmp_path, [unit(PAUSED, estimated_lines=SIZE), unit(FRESH)])
     pause_for_usage(store, PAUSED, clock.now() + timedelta(hours=3))

@@ -14,12 +14,13 @@ import sys
 from pathlib import Path
 
 from agent_build_kit.cli.install_config import Refused, worktree_root
-from agent_build_kit.cli.pipeline import evaluate_manual_waits, store_for
+from agent_build_kit.cli.pipeline import evaluate_manual_waits
 from agent_build_kit.installation import Installation
 from agent_build_kit.pipeline.manual_steps import MANUAL_FOLDER, unmet_steps
 from agent_build_kit.pipeline.shell import git
 from agent_build_kit.pipeline.unit_store import StoredUnit, unit_id_of_branch
 from agent_build_kit.pipeline.units import BUILDS_NOTHING, FINISHED_STATES, ManualStep
+from agent_build_kit.worker_run import store_for
 
 
 def _unit_id(worktree: Path, prefix: str, units: list[StoredUnit]) -> str:

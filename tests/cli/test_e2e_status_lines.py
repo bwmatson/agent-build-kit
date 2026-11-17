@@ -8,7 +8,6 @@ from pathlib import Path
 
 import pytest
 
-from agent_build_kit.cli import pipeline as pipeline_cli
 from agent_build_kit.cli.doctor import Check, run_doctor
 from agent_build_kit.pipeline.e2e_holds import HELD_FILE
 from agent_build_kit.pipeline.unit_store import UnitStore
@@ -82,7 +81,7 @@ def test_status_shows_the_splits_the_schedule_will_run(
 def test_abk_status_prints_one_line_per_held_split_and_none_when_nothing_is_held(
     tmp_path: Path, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.setattr(pipeline_cli, "current_usage", lambda: None)
+    monkeypatch.setattr("agent_build_kit.worker_run.current_usage", lambda: None)
     config = planning(tmp_path)
     UnitStore(config.parent / "units.json").upsert([stored_unit("one/1", change="one")])
     assert abk(config, capsys, "e2e-test", "hold", "acp", "--reason", "out of budget")[0] == 0
@@ -102,7 +101,7 @@ def test_abk_status_prints_one_line_per_held_split_and_none_when_nothing_is_held
 def test_a_hold_in_one_repos_own_declaration_shows_in_both_status_commands(
     tmp_path: Path, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.setattr(pipeline_cli, "current_usage", lambda: None)
+    monkeypatch.setattr("agent_build_kit.worker_run.current_usage", lambda: None)
     config = planning(tmp_path, platform_tests=own_splits("          hold: true\n"))
     UnitStore(config.parent / "units.json").upsert([stored_unit("one/1", change="one")])
 

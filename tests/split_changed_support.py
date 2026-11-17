@@ -10,12 +10,12 @@ from typing import Any
 
 import pytest
 
-from agent_build_kit.cli.pipeline import Resumed
 from agent_build_kit.graph.state import EventKind, ResumeEvent
 from agent_build_kit.installation import Installation
 from agent_build_kit.pipeline.stack_runner import RunOutcome, UnitOutcome
 from agent_build_kit.pipeline.unit_store import Cause, UnitStore, guidance_excerpt
 from agent_build_kit.pipeline.units import PLANNED, RUNNING
+from agent_build_kit.worker_run import Resumed
 from tests.graph_driver import tick
 from tests.parked_split_support import Deliveries
 from tests.runner_fakes import Recorder

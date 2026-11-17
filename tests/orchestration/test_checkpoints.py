@@ -17,7 +17,6 @@ import pytest
 from langgraph.checkpoint.base import BaseCheckpointSaver, empty_checkpoint
 
 from agent_build_kit import orchestration
-from agent_build_kit.cli.pipeline import thread_of
 from agent_build_kit.graph.build import compile_graph
 from agent_build_kit.graph.checkpointer import open_checkpointer, unit_graphs_path
 from agent_build_kit.graph.run import run_thread
@@ -25,6 +24,7 @@ from agent_build_kit.graph.state import UnitRun
 from agent_build_kit.installation import Installation
 from agent_build_kit.orchestration.checkpoints import INTERFACE, Checkpoints
 from agent_build_kit.orchestration.local.checkpoints import LocalCheckpoints
+from agent_build_kit.worker_run import thread_of
 from tests.conftest import make_installation
 from tests.graph.checkpoint_reads import a_config
 from tests.graph.test_checkpoint_allowlist import Unlisted, populated

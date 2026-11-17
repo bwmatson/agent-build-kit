@@ -50,7 +50,7 @@ def status(
         store.set_state(
             "add-marker/1", HELD, note=held, held_by=HeldBy.REVIEW, cause=Cause.NEEDS_HUMAN, pr=4
         )
-    monkeypatch.setattr(cli, "current_usage", lambda: None)
+    monkeypatch.setattr("agent_build_kit.worker_run.current_usage", lambda: None)
     with branch_lock("spec/add-marker/1", root=tmp_path / "locks") if busy else nullcontext():
         assert cli.cmd_status(argparse.Namespace(), inst) == 0
     return next(line for line in capsys.readouterr().out.splitlines() if "add-marker/1" in line)

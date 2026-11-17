@@ -5,6 +5,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from agent_build_kit import worker_run
 from agent_build_kit.cli import pipeline as cli
 from agent_build_kit.config import CeilingsConfig
 from agent_build_kit.installation import Installation
@@ -20,7 +21,7 @@ UNIT_ID = "a/1"
 
 def held_unit(tmp_path: Path, cause: Cause, held_by: HeldBy) -> tuple[Installation, UnitStore]:
     inst = make_installation(tmp_path)
-    store = cli.store_for(inst)
+    store = worker_run.store_for(inst)
     store.upsert([unit(UNIT_ID)], change="a")
     store.set_state(UNIT_ID, HELD, cause=cause, held_by=held_by, branch="spec/a/1")
     return inst, store

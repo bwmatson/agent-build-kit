@@ -348,7 +348,7 @@ def test_the_status_command_prints_the_line_from_the_record(
     (inst.state_dir / CALLS_NAME).write_text(
         "".join(json.dumps(each) + "\n" for each in hour_of_calls(datetime.now(UTC)))
     )
-    monkeypatch.setattr(cli, "current_usage", lambda *a, **k: None)
+    monkeypatch.setattr("agent_build_kit.worker_run.current_usage", lambda *a, **k: None)
 
     assert cli.cmd_status(argparse.Namespace(), inst) == 0
 
@@ -678,7 +678,7 @@ def status_lines(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, *calls: dict) 
     inst = make_installation(tmp_path, planning={"state_dir": "."})
     inst.state_dir.mkdir(parents=True, exist_ok=True)
     (inst.state_dir / CALLS_NAME).write_text("".join(json.dumps(each) + "\n" for each in calls))
-    monkeypatch.setattr(cli, "current_usage", lambda *a, **k: None)
+    monkeypatch.setattr("agent_build_kit.worker_run.current_usage", lambda *a, **k: None)
     messages: list[str] = []
     monkeypatch.setattr(cli, "log", messages.append)
     assert cli.cmd_status(argparse.Namespace(), inst) == 0

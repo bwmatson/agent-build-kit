@@ -30,7 +30,9 @@ def test_a_tick_that_cannot_restore_the_default_branch_stops_before_reading_stat
     git(tmp_path, "commit", "-q", "-am", "diverge")
     (tmp_path / "file").write_text("local change the checkout would overwrite")
     read: list[object] = []
-    monkeypatch.setattr(cli, "store_for", lambda installation: read.append(installation))
+    monkeypatch.setattr(
+        "agent_build_kit.worker_run.store_for", lambda installation: read.append(installation)
+    )
 
     assert cli.cmd_tick(argparse.Namespace(dry_run=False), inst) != 0
 

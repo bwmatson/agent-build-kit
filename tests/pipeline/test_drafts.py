@@ -40,7 +40,7 @@ def draft_calls(forge: StandInForge) -> list[tuple[str, int]]:
 
 
 def wired(tmp_path: Path, forge: StandInForge, logged: list[str]) -> UnitStore:
-    """A store whose state changes reach the forge, as `cli.store_for` builds it."""
+    """A store whose state changes reach the forge, as `worker_run.store_for` builds it."""
     drafts = StateDrafts(lookup(forge), log=logged.append)
     return UnitStore(
         tmp_path / "units.json",

@@ -7,19 +7,9 @@ from datetime import datetime
 from typing import Any
 
 from agent_build_kit import telemetry
-from agent_build_kit.cli.pipeline import (
-    build_stack_moves,
-    build_turned_move,
-    build_unit,
-    resolution_procedure,
-    store_for,
-    verify_and_record,
-    verify_once,
-)
 from agent_build_kit.installation import Installation
 from agent_build_kit.pipeline import spans, wake
-from agent_build_kit.pipeline.admission import ADMISSION_LOCK
-from agent_build_kit.pipeline.file_lock import LockTimeout, file_lock
+from agent_build_kit.pipeline.file_lock import ADMISSION_LOCK, LockTimeout, file_lock
 from agent_build_kit.pipeline.occupancy import marker_live, resolve_claimed
 from agent_build_kit.pipeline.resolution_lane import (
     clear_deferral,
@@ -31,6 +21,15 @@ from agent_build_kit.pipeline.resolution_lane import (
 )
 from agent_build_kit.pipeline.units import base_of, project_key, project_tag
 from agent_build_kit.pipeline.workspaces import BranchBusy
+from agent_build_kit.worker_run import (
+    build_stack_moves,
+    build_turned_move,
+    build_unit,
+    resolution_procedure,
+    store_for,
+    verify_and_record,
+    verify_once,
+)
 
 
 def cmd_worker_build(args: argparse.Namespace, inst: Installation) -> int:

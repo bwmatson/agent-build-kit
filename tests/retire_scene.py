@@ -9,9 +9,8 @@ from pathlib import Path
 
 import pytest
 
-from agent_build_kit import forges
+from agent_build_kit import forges, worker_run
 from agent_build_kit.cli import main
-from agent_build_kit.cli import pipeline as cli
 from agent_build_kit.graph.checkpointer import open_checkpointer, unit_graphs_path
 from agent_build_kit.graph.state import Node, UnitRun
 from agent_build_kit.graph.unit import seed_thread
@@ -131,7 +130,7 @@ class Scene(Replan):
         asyncio.run(seed())
 
     def has_thread(self, uid: str) -> bool:
-        return cli.has_thread(self.inst, uid)
+        return worker_run.has_thread(self.inst, uid)
 
     def lease(self, uid: str, holder: str = "tab:t1") -> bool:
         """A lease on the unit held by this process, which is alive."""

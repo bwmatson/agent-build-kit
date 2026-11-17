@@ -14,7 +14,7 @@ from typing import Any
 
 import pytest
 
-from agent_build_kit.cli import pipeline as cli
+from agent_build_kit import worker_run
 from agent_build_kit.config import RepoConfig
 from agent_build_kit.installation import Installation
 from agent_build_kit.pipeline.restack import ConflictContext, Moved
@@ -59,9 +59,11 @@ def restack_wiring(
         return build_unit_test(run=run, changed=lambda *a: ["tests/test_x.py"], **kwargs)
 
     given: dict[str, Any] = {}
-    monkeypatch.setattr(cli, "build_unit_test", faked)
-    monkeypatch.setattr(cli, "build_restack", lambda **kwargs: given.update(kwargs) or {})
-    cli.build_stack_moves(UnitStore(tmp_path / "units.json"), installation)
+    monkeypatch.setattr("agent_build_kit.worker_run.build_unit_test", faked)
+    monkeypatch.setattr(
+        "agent_build_kit.pipeline.events.build_restack", lambda **kwargs: given.update(kwargs) or {}
+    )
+    worker_run.build_stack_moves(UnitStore(tmp_path / "units.json"), installation)
     return given, ran
 
 
@@ -157,7 +159,9 @@ def test_the_restacks_unit_test_logs_what_a_move_after_a_release_was_checked_by(
         at=installation.checkouts["app"],
     )
     logged: list[str] = []
-    monkeypatch.setattr(cli, "log", lambda message, **kwargs: logged.append(message))
+    monkeypatch.setattr(
+        "agent_build_kit.worker_run.log", lambda message, **kwargs: logged.append(message)
+    )
     given, _ = restack_wiring(tmp_path, monkeypatch, installation)
 
     passed, _ = given["unit_test"](cwd=repo, base="main", moved_from=old_base)

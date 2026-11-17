@@ -19,7 +19,6 @@ from typing import Any
 
 import pytest
 
-from agent_build_kit.cli import pipeline as cli
 from agent_build_kit.cli import worker as worker_cli
 from agent_build_kit.cli.worker import cmd_worker_resolve
 from agent_build_kit.installation import Installation
@@ -237,7 +236,9 @@ def test_an_overflow_run_ranks_after_a_unit_resuming_a_build_and_before_a_never_
 ) -> None:
     inst = lane_workspace(tmp_path, stacks=2, resolutions=1)
     # The paused unit has its graph thread parked, which is what makes it resumable.
-    monkeypatch.setattr(cli, "has_thread", lambda inst, unit_id: unit_id == "resume/1")
+    monkeypatch.setattr(
+        "agent_build_kit.worker_run.has_thread", lambda inst, unit_id: unit_id == "resume/1"
+    )
     builder.store.upsert([stored("new/1"), stored("resume/1")])
     builder.store.set_state("resume/1", RUNNING, branch="spec/resume/1")
     builder.store.set_usage_pause("resume/1", datetime.now(UTC) - timedelta(minutes=1))

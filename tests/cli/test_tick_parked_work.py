@@ -68,7 +68,7 @@ def test_a_tick_whose_only_work_is_a_parked_unit_is_not_idle_and_releases_it(
     inst: Installation, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     thread = Deliveries(monkeypatch)
-    monkeypatch.setattr(cli, "build_runner", Builder())
+    monkeypatch.setattr("agent_build_kit.worker_run.build_runner", Builder())
     park(store_of(inst))
     assert cli.has_work(inst, store_of(inst))
 

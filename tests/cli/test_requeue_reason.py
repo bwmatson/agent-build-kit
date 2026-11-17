@@ -8,7 +8,6 @@ from typing import Any
 import pytest
 
 from agent_build_kit.cli import main
-from agent_build_kit.cli import pipeline as cli
 from agent_build_kit.config import dump
 from agent_build_kit.pipeline.unit_store import RequeueReason, UnitStore
 from agent_build_kit.pipeline.units import UnitState
@@ -45,7 +44,7 @@ def test_each_requeue_mode_is_delivered_as_its_reason(
         delivered.append({"kind": kind, **kwargs})
         return None
 
-    monkeypatch.setattr(cli, "resume_thread", resume_thread)
+    monkeypatch.setattr("agent_build_kit.worker_run.resume_thread", resume_thread)
 
     assert main(["requeue", "add-marker/1", *flags]) == 0
 

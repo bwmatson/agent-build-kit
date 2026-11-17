@@ -53,7 +53,7 @@ def test_status_lists_a_failed_unit_and_a_unit_waiting_for_the_host(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     inst = workspace(tmp_path)
-    monkeypatch.setattr(cli, "current_usage", lambda: None)
+    monkeypatch.setattr("agent_build_kit.worker_run.current_usage", lambda: None)
     store = UnitStore(tmp_path / "units.json")
     store.upsert([stored("broke/1"), stored("waits/1")])
     store.record_step("broke/1", "push")

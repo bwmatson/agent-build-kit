@@ -12,7 +12,6 @@ import pytest
 
 from agent_build_kit import telemetry
 from agent_build_kit.cli import build_parser
-from agent_build_kit.cli import pipeline as cli
 from agent_build_kit.cli import worker as worker_cli
 from agent_build_kit.cli.worker import cmd_worker_build
 from agent_build_kit.installation import Installation
@@ -102,7 +101,7 @@ def test_a_run_paused_with_no_time_decides_its_resume_from_the_snapshot(
     def endpoint(*args: object, **kwargs: object) -> None:
         raise AssertionError("a worker read the usage endpoint")
 
-    monkeypatch.setattr(cli, "current_usage", endpoint)
+    monkeypatch.setattr("agent_build_kit.worker_run.current_usage", endpoint)
     monkeypatch.setattr(usage_guard, "read_live_usage", endpoint)
 
     code = worker(inst)
@@ -136,8 +135,8 @@ def test_a_worker_leaves_a_merged_pull_requests_event_for_the_dispatcher(
         delivered.append("built")
         raise AssertionError("a worker built a dispatch and could move a stack")
 
-    monkeypatch.setattr(cli, "run_unit_thread", ends_on_a_merged_pull_request)
-    monkeypatch.setattr(cli, "build_dispatch", dispatch)
+    monkeypatch.setattr("agent_build_kit.worker_run.run_unit_thread", ends_on_a_merged_pull_request)
+    monkeypatch.setattr("agent_build_kit.pipeline.events.build_dispatch", dispatch)
 
     code = worker(inst)
 

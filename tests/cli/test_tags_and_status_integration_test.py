@@ -32,7 +32,7 @@ def test_status_shows_the_kind_and_lists_the_unit_with_no_e2e_unit(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     run = Replan(tmp_path, monkeypatch, feature=tagged_md("integration-test"))
-    monkeypatch.setattr(cli, "current_usage", lambda: None)
+    monkeypatch.setattr("agent_build_kit.worker_run.current_usage", lambda: None)
     UnitStore(run.inst.state_dir / "units.json").upsert(
         [stored_unit("feature/1", change="feature", tier="integration-test")]
     )
@@ -55,7 +55,7 @@ def test_status_shows_the_kind_line_only_for_a_unit_that_is_not_finished(
     shown: bool,
 ) -> None:
     run = Replan(tmp_path, monkeypatch, feature=tagged_md("integration-test"))
-    monkeypatch.setattr(cli, "current_usage", lambda: None)
+    monkeypatch.setattr("agent_build_kit.worker_run.current_usage", lambda: None)
     store = UnitStore(run.inst.state_dir / "units.json")
     store.upsert([stored_unit("feature/1", change="feature", tier="integration-test")])
     if state != PLANNED:

@@ -24,7 +24,8 @@ def test_a_tick_does_not_split_while_the_usage_guard_refuses_planning(
     isolate(monkeypatch)
     run.runtime.supports_usage_tracking = True
     monkeypatch.setattr(
-        cli, "may_start_unit", lambda r, **_: Decision(may_start=False, reason="session at 88%")
+        "agent_build_kit.worker_run.may_start_unit",
+        lambda r, **_: Decision(may_start=False, reason="session at 88%"),
     )
 
     tick(run.inst)
@@ -34,7 +35,8 @@ def test_a_tick_does_not_split_while_the_usage_guard_refuses_planning(
     assert run.calls == 0, "a split is a planning call, behind the guard"
 
     monkeypatch.setattr(
-        cli, "may_start_unit", lambda r, **_: Decision(may_start=True, reason="plenty")
+        "agent_build_kit.worker_run.may_start_unit",
+        lambda r, **_: Decision(may_start=True, reason="plenty"),
     )
     tick(run.inst)
 

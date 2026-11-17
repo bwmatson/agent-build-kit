@@ -45,7 +45,7 @@ def calls(monkeypatch: pytest.MonkeyPatch) -> Calls:
         seen.plans += 1
 
     monkeypatch.setattr(cli, "plan_all", plan)
-    monkeypatch.setattr(cli, "has_thread", lambda inst, unit_id: False)
+    monkeypatch.setattr("agent_build_kit.worker_run.has_thread", lambda inst, unit_id: False)
     return seen
 
 
@@ -146,7 +146,8 @@ def test_a_usage_refusal_still_writes_the_change_but_does_not_plan_it_or_write_a
 ) -> None:
     inst, _ = installation(tmp_path)
     monkeypatch.setattr(
-        cli, "may_start_unit", lambda r, **_: Decision(may_start=False, reason="session at 88%")
+        "agent_build_kit.worker_run.may_start_unit",
+        lambda r, **_: Decision(may_start=False, reason="session at 88%"),
     )
 
     assert tick(inst) == 0

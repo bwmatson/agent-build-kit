@@ -22,6 +22,7 @@ from agent_build_kit.pipeline.usage_guard import Decision
 from tests.conftest import make_installation
 from tests.factories import new_unit
 from tests.time_limit import LOADED_TEST_TIME_LIMIT
+from tests.worker_run_patches import patch_target
 
 # The tests of this module run whole passes, whose time depends on the machine's load.
 pytestmark = [
@@ -60,7 +61,7 @@ class Scene:
             "poll_all": lambda inst, **kwargs: None,
             "build_runner": lambda unit, **kwargs: self,
         }.items():
-            monkeypatch.setattr(cli, name, step)
+            monkeypatch.setattr(patch_target(name), name, step)
 
     def run(self, unit: StoredUnit, *, base: str, graph: list[StoredUnit]) -> RunOutcome:
         self.started.append(unit.id)

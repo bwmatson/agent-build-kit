@@ -99,17 +99,14 @@ def baseline() -> frozenset[tuple[str, str]]:
     return frozenset(
         {
             ("cli.explain_cmd", "pipeline.resolution_lane"),
-            ("cli.pipeline", "graph.state"),
             ("cli.pipeline", "pipeline.resolution_lane"),
             ("cli.pipeline", "pipeline.verify"),
-            ("cli.worker", "cli.pipeline"),
-            ("cli.worker", "pipeline.admission"),
+            ("worker_run", "pipeline.resolution_lane"),
+            ("worker_run", "pipeline.verify"),
             ("graph.nodes", "pipeline.events"),
             ("pipeline.admission", "pipeline.resolution_lane"),
             ("pipeline.resolution_lane", "pipeline.events"),
-            ("serve.chat", "graph.state"),
             ("serve.chat", "graph.unit"),
-            ("serve.server", "graph.state"),
             ("serve.server", "graph.unit"),
         }
     )

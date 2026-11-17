@@ -15,7 +15,6 @@ from collections.abc import Callable
 from typing import Any
 
 from agent_build_kit import trackers
-from agent_build_kit.cli.pipeline import store_for
 from agent_build_kit.installation import Installation
 from agent_build_kit.pipeline.task_progress import TASKS_FILE, progress_root
 from agent_build_kit.pipeline.tracker_file import (
@@ -64,6 +63,7 @@ from agent_build_kit.trackers.reconciler import (
 )
 from agent_build_kit.trackers.tick_step import changes_of, has_group_for, sync_repo
 from agent_build_kit.trackers.wanted_board import wanted_board
+from agent_build_kit.worker_run import store_for
 
 NONE_CONFIGURED = "no tracker configured for {repo}"
 

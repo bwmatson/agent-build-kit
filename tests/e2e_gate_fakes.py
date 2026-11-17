@@ -169,7 +169,7 @@ class Planning:
     ) -> list[str]:
         """`abk status` over the store, after the `Needs:` lines are linked."""
         cli.link_needs(self.installation, store=self.store)
-        monkeypatch.setattr(cli, "current_usage", lambda: None)
+        monkeypatch.setattr("agent_build_kit.worker_run.current_usage", lambda: None)
         assert cli.cmd_status(argparse.Namespace(), self.installation) == 0
         return capsys.readouterr().out.splitlines()
 

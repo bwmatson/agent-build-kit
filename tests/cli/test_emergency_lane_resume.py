@@ -7,7 +7,6 @@ from pathlib import Path
 
 import pytest
 
-from agent_build_kit.cli import pipeline as cli
 from agent_build_kit.pipeline import emergency_lane
 from agent_build_kit.pipeline.units import PLANNED
 from tests.emergency_lane_support import build, lane_workspace, seeded, started_by_round
@@ -19,7 +18,9 @@ pytestmark = pytest.mark.usefixtures("scripted_engine")
 @pytest.fixture(autouse=True)
 def quiet(monkeypatch: pytest.MonkeyPatch) -> None:
     isolate(monkeypatch)
-    monkeypatch.setattr(cli, "has_thread", lambda inst, unit_id: unit_id == "paused/1")
+    monkeypatch.setattr(
+        "agent_build_kit.worker_run.has_thread", lambda inst, unit_id: unit_id == "paused/1"
+    )
 
 
 def normal(count: int) -> list[str]:

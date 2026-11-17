@@ -12,6 +12,7 @@ from typing import Any
 
 import pytest
 
+from agent_build_kit import worker_run
 from agent_build_kit.cli import pipeline as cli
 from agent_build_kit.graph.state import Node
 from agent_build_kit.pipeline.unit_store import Cause, RequeueReason
@@ -64,12 +65,14 @@ def test_a_tick_on_which_the_guard_allows_resumes_a_paused_thread(
     # The round admits the build, which the guard stops; later rounds meet it too.
     answers = iter([Decision(may_start=True, reason="plenty")])
     monkeypatch.setattr(
-        cli,
-        "may_start_unit",
+        "agent_build_kit.worker_run.may_start_unit",
         lambda r: next(answers, Decision(may_start=False, reason="session usage at 88%")),
     )
     graph.tick()
-    monkeypatch.setattr(cli, "may_start_unit", lambda r: Decision(may_start=True, reason="plenty"))
+    monkeypatch.setattr(
+        "agent_build_kit.worker_run.may_start_unit",
+        lambda r: Decision(may_start=True, reason="plenty"),
+    )
     assert graph.next() == (Node.TESTS,)
     assert graph.store.get(UNIT).state == RUNNING
     assert (graph.inst.state_dir / "paused.json").exists()
@@ -245,9 +248,13 @@ def test_a_comment_on_a_held_unit_waits_and_is_delivered_once_the_tick_has_run_i
 def test_a_merged_parent_tells_its_childs_thread_its_base_moved(graph: Setup) -> None:
     restacked: list[dict[str, Any]] = []
     retargeted: list[tuple[str, str]] = []
-    graph.patch.setattr(cli, "build_restack", lambda **kw: lambda **a: restacked.append(a))
     graph.patch.setattr(
-        cli, "build_retarget", lambda: lambda u, base: retargeted.append((u.id, base))
+        "agent_build_kit.pipeline.events.build_restack",
+        lambda **kw: lambda **a: restacked.append(a),
+    )
+    graph.patch.setattr(
+        "agent_build_kit.pipeline.events.build_retarget",
+        lambda: lambda u, base: retargeted.append((u.id, base)),
     )
     graph.tick()
     graph.store.upsert([stored_unit(OTHER, depends_on=(UNIT,))])
@@ -370,13 +377,13 @@ def _gated_after_a_raise(graph: Setup, flags: dict[str, bool]) -> list[dict[str,
     )
     graph.store.set_feedback(UNIT, "the commit step blew up")
     delivered: list[dict[str, Any]] = []
-    real = cli.resume_thread
+    real = worker_run.resume_thread
 
     def spy(inst: Any, subject: Any, kind: str, **kwargs: Any) -> Any:
         delivered.append({"kind": kind, **kwargs})
         return real(inst, subject, kind, **kwargs)
 
-    graph.patch.setattr(cli, "resume_thread", spy)
+    graph.patch.setattr("agent_build_kit.worker_run.resume_thread", spy)
     args = argparse.Namespace(unit=UNIT, **{"rework": False, "restart": False, **flags})
     assert cli.cmd_requeue(args, graph.inst) == 0
     return delivered
@@ -432,7 +439,7 @@ def test_a_gated_requeue_that_cannot_be_delivered_yet_is_kept_and_the_unit_not_s
     def busy(*args: Any, **kwargs: Any) -> Any:
         raise BranchBusy("another run holds the branch")
 
-    graph.patch.setattr(cli, "resume_thread", busy)
+    graph.patch.setattr("agent_build_kit.worker_run.resume_thread", busy)
     ran = list(graph.recorder.events)
 
     assert graph.tick() == 0
@@ -472,7 +479,7 @@ def test_a_run_holds_the_branch_lock_between_its_nodes(graph: Setup) -> None:
     held: list[bool] = []
 
     def may_start() -> tuple[bool, str]:
-        held.append(cli.branch_is_held(graph.inst, branch_name(unit())))
+        held.append(worker_run.branch_is_held(graph.inst, branch_name(unit())))
         return True, "plenty"
 
     graph.options["may_start"] = may_start

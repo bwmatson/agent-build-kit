@@ -10,6 +10,7 @@ import re
 
 import pytest
 
+from agent_build_kit import worker_run
 from agent_build_kit.cli import build_parser
 from agent_build_kit.cli import pipeline as cli
 from agent_build_kit.pipeline.unit_store import UnitStore
@@ -38,13 +39,13 @@ class Readings:
 
     def __init__(self, monkeypatch: pytest.MonkeyPatch) -> None:
         self.taken = 0
-        original = cli.current_usage
+        original = worker_run.current_usage
 
         def counted():  # noqa: ANN202
             self.taken += 1
             return original()
 
-        monkeypatch.setattr(cli, "current_usage", counted)
+        monkeypatch.setattr("agent_build_kit.worker_run.current_usage", counted)
 
 
 def lines(out: str) -> list[str]:
@@ -54,7 +55,9 @@ def lines(out: str) -> list[str]:
 
 def tick(monkeypatch: pytest.MonkeyPatch) -> None:
     built: list[str] = []
-    monkeypatch.setattr(cli, "build_runner", lambda unit, **kwargs: FakeRunner(built))
+    monkeypatch.setattr(
+        "agent_build_kit.worker_run.build_runner", lambda unit, **kwargs: FakeRunner(built)
+    )
     assert cli.cmd_tick(argv_namespace(dry_run=False), base.inst) == 0
 
 

@@ -121,7 +121,8 @@ def test_a_dry_round_under_a_usage_refusal_makes_no_planner_call(
     run.write("other", tasks_md(1))
     run.runtime.supports_usage_tracking = True
     monkeypatch.setattr(
-        cli, "may_start_unit", lambda r, **_: Decision(may_start=False, reason="window used up")
+        "agent_build_kit.worker_run.may_start_unit",
+        lambda r, **_: Decision(may_start=False, reason="window used up"),
     )
     before = state_bytes(run)
 

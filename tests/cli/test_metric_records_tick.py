@@ -13,7 +13,6 @@ from typing import Any
 
 import pytest
 
-from agent_build_kit.cli import pipeline as cli
 from agent_build_kit.pipeline.metric_records import MetricRecord, read_metrics
 from agent_build_kit.pipeline.usage_guard import Decision, RateLimited
 from agent_build_kit.pipeline.usage_ledger import LEDGER_NAME
@@ -47,8 +46,7 @@ def records(ticks: Ticks, metric: str) -> list[MetricRecord]:  # noqa: F811 — 
 def pause_for_usage(monkeypatch: pytest.MonkeyPatch) -> None:
     resume = datetime.now(UTC) + timedelta(hours=1)
     monkeypatch.setattr(
-        cli,
-        "may_start_unit",
+        "agent_build_kit.worker_run.may_start_unit",
         lambda r: Decision(may_start=False, reason="session usage at 90%", resume_at=resume),
     )
 

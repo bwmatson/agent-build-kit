@@ -29,7 +29,7 @@ def workspace(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Installation:
         tmp_path, planning=dict(state_dir=".", worktree_root=str(tmp_path.parent / "trees"))
     )
     UnitStore(tmp_path / "units.json").upsert([stored_unit("one/1", change="one")])
-    monkeypatch.setattr(cli, "current_usage", lambda: None)
+    monkeypatch.setattr("agent_build_kit.worker_run.current_usage", lambda: None)
     install(monkeypatch)
     return installation
 

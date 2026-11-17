@@ -12,7 +12,7 @@ from typing import Any
 
 import pytest
 
-from agent_build_kit import forges, telemetry, trackers
+from agent_build_kit import forges, telemetry, trackers, worker_run
 from agent_build_kit.cli import pipeline as cli
 from agent_build_kit.forges import RepoId
 from agent_build_kit.forges.transport import HostUnavailable, RateLimited
@@ -57,9 +57,12 @@ def isolated(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
     monkeypatch.setattr(cli, "poll_all", lambda inst, **kwargs: None)
     monkeypatch.setattr(cli, "fetch_all", lambda inst: None)
     monkeypatch.setattr(cli, "has_identity", lambda inst, repo: True)
-    monkeypatch.setattr(cli, "has_thread", lambda inst, unit_id: False)
-    monkeypatch.setattr(cli, "current_usage", lambda: None)
-    monkeypatch.setattr(cli, "may_start_unit", lambda r: Decision(may_start=True, reason="plenty"))
+    monkeypatch.setattr("agent_build_kit.worker_run.has_thread", lambda inst, unit_id: False)
+    monkeypatch.setattr("agent_build_kit.worker_run.current_usage", lambda: None)
+    monkeypatch.setattr(
+        "agent_build_kit.worker_run.may_start_unit",
+        lambda r: Decision(may_start=True, reason="plenty"),
+    )
     yield
     trackers.unregister("azure_devops")
 
@@ -70,7 +73,7 @@ def store(inst: Installation, monkeypatch: pytest.MonkeyPatch) -> UnitStore:
     monkeypatch.setattr(inst, "forge_of", lambda name: (forge, forge.repo_id()))
     for checkout in inst.checkouts.values():
         init_repo(checkout)
-    made = cli.store_for(inst)
+    made = worker_run.store_for(inst)
     upsert_merged(made, [stored_unit(UNIT, change=CHANGE, repo="app")])
     return made
 

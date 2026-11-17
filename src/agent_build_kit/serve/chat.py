@@ -205,7 +205,7 @@ class Chat:
 
     def step_active(self, unit: StoredUnit) -> bool:
         """Whether a process is working on the unit's branch right now."""
-        from agent_build_kit.cli.pipeline import branch_is_held
+        from agent_build_kit.worker_run import branch_is_held
 
         return bool(unit.branch) and branch_is_held(self.installation, unit.branch)
 

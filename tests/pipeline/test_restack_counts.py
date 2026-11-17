@@ -28,6 +28,7 @@ from agent_build_kit.pipeline.wait_log import DECISIONS_NAME
 from tests.conftest import status_lines
 from tests.factories import new_unit, stored_unit
 from tests.restack_lane_fakes import WAIT, Restacks, caused, lane_over, moved, repo_behind
+from tests.worker_run_patches import patch_target
 
 OWED = "feature/3"
 
@@ -140,7 +141,7 @@ def isolate_round(monkeypatch: pytest.MonkeyPatch) -> None:
         "current_usage": lambda: None,
         "may_start_unit": lambda r: Decision(may_start=True, reason="plenty"),
     }.items():
-        monkeypatch.setattr(cli, name, step)
+        monkeypatch.setattr(patch_target(name), name, step)
 
 
 def parked(cause: Cause) -> StoredUnit:

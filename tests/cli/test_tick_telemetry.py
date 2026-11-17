@@ -99,20 +99,28 @@ def ticks(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, exported: Collector) 
     def runner(u: Any, **kwargs: Any) -> Any:
         return make_runner(recorder.store, recorder, tmp_path, **options)
 
-    monkeypatch.setattr(cli, "build_runner", runner)
+    monkeypatch.setattr("agent_build_kit.worker_run.build_runner", runner)
     monkeypatch.setattr(cli, "fetch_all", lambda inst: None)
     monkeypatch.setattr(cli, "poll_all", lambda inst, **kwargs: None)
     monkeypatch.setattr(cli, "plan_all", lambda inst, **kwargs: None)
     monkeypatch.setattr(cli, "has_identity", lambda inst, repo: True)
     monkeypatch.setattr(cli, "verify_ready", lambda inst, units, **kwargs: lambda change: True)
     monkeypatch.setattr(cli, "archive_ready_changes", lambda *a, **k: [])
-    monkeypatch.setattr(cli, "current_usage", lambda: None)
-    monkeypatch.setattr(cli, "may_start_unit", lambda r: Decision(may_start=True, reason="plenty"))
+    monkeypatch.setattr("agent_build_kit.worker_run.current_usage", lambda: None)
     monkeypatch.setattr(
-        cli, "build_fetch_review", lambda **_: lambda repo, pr: Review(lines=["rename the marker"])
+        "agent_build_kit.worker_run.may_start_unit",
+        lambda r: Decision(may_start=True, reason="plenty"),
     )
-    monkeypatch.setattr(cli, "build_restack", lambda **kw: lambda **a: None)
-    monkeypatch.setattr(cli, "build_retarget", lambda: lambda unit, base: None)
+    monkeypatch.setattr(
+        "agent_build_kit.pipeline.events.build_fetch_review",
+        lambda **_: lambda repo, pr: Review(lines=["rename the marker"]),
+    )
+    monkeypatch.setattr(
+        "agent_build_kit.pipeline.events.build_restack", lambda **kw: lambda **a: None
+    )
+    monkeypatch.setattr(
+        "agent_build_kit.pipeline.events.build_retarget", lambda: lambda unit, base: None
+    )
     return Ticks(inst, recorder, options)
 
 
@@ -145,8 +153,7 @@ def allow_once_then_refuse(monkeypatch: pytest.MonkeyPatch) -> None:
     meets agrees with the rounds after it, as a real one does."""
     answers = iter([Decision(may_start=True, reason="plenty")])
     monkeypatch.setattr(
-        cli,
-        "may_start_unit",
+        "agent_build_kit.worker_run.may_start_unit",
         lambda r: next(answers, Decision(may_start=False, reason="session usage at 88%")),
     )
 

@@ -15,6 +15,7 @@ from typing import Any
 import httpx
 import pytest
 
+from agent_build_kit import worker_run
 from agent_build_kit.cli import pipeline as cli
 from agent_build_kit.forges.base import RepoId
 from agent_build_kit.forges.github import GitHubForge
@@ -100,7 +101,7 @@ class Pipeline:
             retarget=lambda unit, base: None,
             rebase_cap=2,
             landing_path=self.inst.state_dir / LANDING,
-            merge_record=lambda unit: cli.merge_record_of(self.inst, unit),
+            merge_record=lambda unit: worker_run.merge_record_of(self.inst, unit),
             log=lambda message: None,
         )
         self.poller = Poller(

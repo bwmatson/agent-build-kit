@@ -26,6 +26,7 @@ from agent_build_kit.runtimes import AgentRateLimited
 from tests.conftest import make_installation
 from tests.factories import git, init_repo, new_unit
 from tests.time_limit import LOADED_TEST_TIME_LIMIT
+from tests.worker_run_patches import patch_target
 
 # The tests of this module run whole passes, whose time depends on the machine's load.
 pytestmark = [
@@ -77,7 +78,7 @@ class Scene:
             "build_restack": lambda **kwargs: self.move,
             "owed_units": lambda inst, units: {MOVED, CLEAN},
         }.items():
-            monkeypatch.setattr(cli, name, step)
+            monkeypatch.setattr(patch_target(name), name, step)
 
     def move(self, **kwargs: Any) -> None:
         """The stack move: a conflict or a deferral leaves the unit planned for its run."""
@@ -140,7 +141,7 @@ def test_a_refusal_the_move_met_does_not_drop_the_run_the_unit_is_later_owed(
 
         return move
 
-    monkeypatch.setattr(cli, "build_turned_move", refusing)
+    monkeypatch.setattr("agent_build_kit.worker_run.build_turned_move", refusing)
     scene.store.set_state(MOVED, RUNNING, branch=f"spec/{MOVED}", cause=Cause.BASE_CHANGED)
     with cli.build_restack_lane(scene.inst, scene.store) as lanes:
         lanes.hand_over(scene.store.get(MOVED))

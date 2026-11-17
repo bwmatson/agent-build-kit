@@ -21,6 +21,7 @@ from pathlib import Path
 
 import pytest
 
+from agent_build_kit import worker_run
 from agent_build_kit.cli import pipeline as cli
 from agent_build_kit.installation import Installation
 from agent_build_kit.pipeline import pause
@@ -144,13 +145,22 @@ def test_an_event_handler_writes_to_a_repo_only_in_its_turn(
         with turn():
             records_the_turn()
 
-    monkeypatch.setattr(cli, "resolved_move", moves_with_a_turn)
-    monkeypatch.setattr(cli, "push_with_lease", records_the_turn)
-    monkeypatch.setattr(cli, "build_delete_branch", lambda repos: records_the_turn)
-    monkeypatch.setattr(cli, "build_remove_worktree", lambda repos, root: records_the_turn)
+    monkeypatch.setattr("agent_build_kit.worker_run.resolved_move", moves_with_a_turn)
+    monkeypatch.setattr("agent_build_kit.worker_run.push_with_lease", records_the_turn)
+    monkeypatch.setattr(
+        "agent_build_kit.pipeline.events.build_delete_branch", lambda repos: records_the_turn
+    )
+    monkeypatch.setattr(
+        "agent_build_kit.pipeline.events.build_remove_worktree",
+        lambda repos, root: records_the_turn,
+    )
     wired: dict = {}
-    monkeypatch.setattr(cli, "build_restack", lambda **kw: wired.update(kw))
-    monkeypatch.setattr(cli, "build_dispatch", lambda store, **kw: wired.update(kw))
+    monkeypatch.setattr(
+        "agent_build_kit.pipeline.events.build_restack", lambda **kw: wired.update(kw)
+    )
+    monkeypatch.setattr(
+        "agent_build_kit.pipeline.events.build_dispatch", lambda store, **kw: wired.update(kw)
+    )
     monkeypatch.setattr(cli, "Poller", lambda **kw: argparse.Namespace(poll=lambda: None))
 
     REAL_POLL_ALL(inst, store=UnitStore(tmp_path / "units.json"))
@@ -185,10 +195,20 @@ def test_a_poll_hands_each_event_to_the_unit_in_the_repo_it_polled(
                 self.dispatch("merged", 5, pull={})
 
     monkeypatch.setattr(cli, "Poller", OneMerge)
-    monkeypatch.setattr(cli, "build_restack", lambda **kw: lambda **a: None)
-    monkeypatch.setattr(cli, "build_retarget", lambda: lambda unit, base: None)
-    monkeypatch.setattr(cli, "build_remove_worktree", lambda *a, **k: lambda repo, branch: None)
-    monkeypatch.setattr(cli, "build_delete_branch", lambda *a, **k: lambda repo, branch: None)
+    monkeypatch.setattr(
+        "agent_build_kit.pipeline.events.build_restack", lambda **kw: lambda **a: None
+    )
+    monkeypatch.setattr(
+        "agent_build_kit.pipeline.events.build_retarget", lambda: lambda unit, base: None
+    )
+    monkeypatch.setattr(
+        "agent_build_kit.pipeline.events.build_remove_worktree",
+        lambda *a, **k: lambda repo, branch: None,
+    )
+    monkeypatch.setattr(
+        "agent_build_kit.pipeline.events.build_delete_branch",
+        lambda *a, **k: lambda repo, branch: None,
+    )
 
     REAL_POLL_ALL(inst, store=store)
 
@@ -213,8 +233,10 @@ def test_the_rebase_cap_reaches_the_merge_handler(
         limits=limits,
     )
     wired: dict = {}
-    monkeypatch.setattr(cli, "build_restack", lambda **kw: None)
-    monkeypatch.setattr(cli, "build_dispatch", lambda store, **kw: wired.update(kw))
+    monkeypatch.setattr("agent_build_kit.pipeline.events.build_restack", lambda **kw: None)
+    monkeypatch.setattr(
+        "agent_build_kit.pipeline.events.build_dispatch", lambda store, **kw: wired.update(kw)
+    )
     monkeypatch.setattr(cli, "Poller", lambda **kw: argparse.Namespace(poll=lambda: None))
 
     REAL_POLL_ALL(inst, store=UnitStore(tmp_path / "units.json"))
@@ -333,9 +355,10 @@ def on_demand(monkeypatch: pytest.MonkeyPatch):
 
 def refusing_usage(monkeypatch: pytest.MonkeyPatch, asked: list[str]) -> None:
     """A reading and a guard that would refuse, noting that they were asked."""
-    monkeypatch.setattr(cli, "current_usage", lambda: asked.append("usage"))
+    monkeypatch.setattr("agent_build_kit.worker_run.current_usage", lambda: asked.append("usage"))
     monkeypatch.setattr(
-        cli, "may_start_unit", lambda r, **_: Decision(may_start=False, reason="session at 88%")
+        "agent_build_kit.worker_run.may_start_unit",
+        lambda r, **_: Decision(may_start=False, reason="session at 88%"),
     )
 
 
@@ -364,7 +387,9 @@ def test_status_reads_no_usage_window_for_a_runtime_without_one(
     capsys: pytest.CaptureFixture[str],
     on_demand,
 ) -> None:
-    monkeypatch.setattr(cli, "current_usage", lambda: pytest.fail("read the usage window"))
+    monkeypatch.setattr(
+        "agent_build_kit.worker_run.current_usage", lambda: pytest.fail("read the usage window")
+    )
 
     assert cli.cmd_status(argparse.Namespace(), workspace(tmp_path)) == 0
 
@@ -380,16 +405,17 @@ def test_a_rate_limit_without_a_reset_pauses_the_default_length_without_a_usage_
     store = UnitStore(tmp_path / "units.json")
     store.upsert([stored("feature/1")])
     monkeypatch.setattr(
-        cli, "current_usage", lambda: pytest.fail("read a usage window the runtime lacks")
+        "agent_build_kit.worker_run.current_usage",
+        lambda: pytest.fail("read a usage window the runtime lacks"),
     )
 
     class Refusing:
         def run(self, unit, *, base, graph):
             raise RateLimited("out of room", resets_at=None)
 
-    monkeypatch.setattr(cli, "build_runner", lambda unit, **kw: Refusing())
+    monkeypatch.setattr("agent_build_kit.worker_run.build_runner", lambda unit, **kw: Refusing())
 
-    assert cli.build_unit(inst, store.get("feature/1"), store=store) is False
+    assert worker_run.build_unit(inst, store.get("feature/1"), store=store) is False
 
     state = pause.is_paused(tmp_path / "paused.json")
     assert state is not None
@@ -433,7 +459,7 @@ def test_a_unit_with_a_thread_to_resume_stays_running_through_a_pause(
     """Planned again, it would drop out of `resumable_units`, which only
     picks up the running."""
     refusing_usage(monkeypatch, [])
-    monkeypatch.setattr(cli, "has_thread", lambda inst, unit_id: True)
+    monkeypatch.setattr("agent_build_kit.worker_run.has_thread", lambda inst, unit_id: True)
     builder.store.upsert([stored("feature/1")])
     builder.store.set_state("feature/1", RUNNING, branch="spec/feature/1")
 
@@ -588,14 +614,16 @@ def guard_log(monkeypatch: pytest.MonkeyPatch, events: list[str], *, allows) -> 
             return Decision(may_start=True, reason="plenty")
         return Decision(may_start=False, reason="session at 99%")
 
-    monkeypatch.setattr(cli, "may_start_unit", decide)
+    monkeypatch.setattr("agent_build_kit.worker_run.may_start_unit", decide)
 
 
 def pauses_for_usage(builder: Builder, monkeypatch: pytest.MonkeyPatch, uid: str) -> None:
     """`uid` ends its first build as a real usage pause leaves a unit: `running`
     with a thread to resume, which the next run that is let through picks up."""
     builder.ends[uid] = (RUNNING, None, "paused before implement")
-    monkeypatch.setattr(cli, "has_thread", lambda inst, unit_id: unit_id == uid)
+    monkeypatch.setattr(
+        "agent_build_kit.worker_run.has_thread", lambda inst, unit_id: unit_id == uid
+    )
 
 
 def test_a_rate_limit_pause_recorded_while_a_round_decides_is_not_cleared_by_it(
@@ -620,7 +648,7 @@ def test_a_rate_limit_pause_recorded_while_a_round_decides_is_not_cleared_by_it(
             )
         return Decision(may_start=True, reason="plenty")
 
-    monkeypatch.setattr(cli, "may_start_unit", refused_while_deciding)
+    monkeypatch.setattr("agent_build_kit.worker_run.may_start_unit", refused_while_deciding)
 
     assert tick(inst) == 0
 

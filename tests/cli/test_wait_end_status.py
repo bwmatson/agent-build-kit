@@ -19,7 +19,7 @@ COUNT = "failed units resumed when their wait ended"
 
 
 def status(pipe: Pipeline, monkeypatch: pytest.MonkeyPatch, capsys) -> list[str]:
-    monkeypatch.setattr(cli, "current_usage", lambda: None)
+    monkeypatch.setattr("agent_build_kit.worker_run.current_usage", lambda: None)
     capsys.readouterr()
     assert cli.cmd_status(argparse.Namespace(), pipe.inst) == 0
     return capsys.readouterr().out.splitlines()

@@ -8,6 +8,7 @@ from pathlib import Path
 
 import pytest
 
+from agent_build_kit import worker_run
 from agent_build_kit.cli import pipeline as cli
 from agent_build_kit.forges import PullRequest
 from agent_build_kit.forges.base import Check, CheckStatus
@@ -57,7 +58,7 @@ def test_status_lists_a_checking_unit_apart_from_one_awaiting_review(
         {"7": {"checks": {"CI": "pending"}}, "8": {"checks": {"CI": "passed"}}},
         "app",
     )
-    monkeypatch.setattr(cli, "current_usage", lambda: None)
+    monkeypatch.setattr("agent_build_kit.worker_run.current_usage", lambda: None)
 
     assert cli.cmd_status(argparse.Namespace(), inst) == 0
 
@@ -104,7 +105,7 @@ def test_the_poll_moves_the_label_between_in_review_and_checking_without_a_state
 
 def reviewing(inst, clock: FakeClock) -> UnitStore:
     """A unit in review on PR 7, pushed an hour ago, in a store with the pipeline's hooks."""
-    store = cli.store_for(inst)
+    store = worker_run.store_for(inst)
     store.upsert([stored_unit("add-marker/1")])
     store.set_state("add-marker/1", IN_REVIEW, pr=PR)
     store.record_push("add-marker/1", "abc")
@@ -161,7 +162,7 @@ def test_a_unit_moving_into_review_is_labelled_for_the_checks_already_recorded(
     forge = StandInForge()
     monkeypatch.setattr(inst, "forge_of", lambda repo: (forge, forge.repo_id()))
     PrState.save(state_path(inst.state_dir, "app"), {"7": {"checks": {"CI": "pending"}}}, "app")
-    store = cli.store_for(inst)
+    store = worker_run.store_for(inst)
     store.upsert([stored_unit("add-marker/1")])
     store.set_state("add-marker/1", RUNNING, pr=PR)
     store.record_push("add-marker/1", "abc")

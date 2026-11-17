@@ -21,6 +21,7 @@ from agent_build_kit.pipeline.unit_store import Cause, StoredUnit, UnitStore
 from agent_build_kit.pipeline.units import IN_REVIEW, PLANNED, RUNNING
 from tests.factories import git, new_unit
 from tests.restack_lane_fakes import repo_behind
+from tests.worker_run_patches import patch_target
 
 UNIT = "feature/3"
 BRANCH = "spec/feature/3"
@@ -50,7 +51,7 @@ class Attempts:
             "build_runner": self.runner_for,
             "build_restack": lambda **kwargs: self.move,
         }.items():
-            monkeypatch.setattr(cli, name, step)
+            monkeypatch.setattr(patch_target(name), name, step)
 
     def runner_for(self, unit: StoredUnit, **kwargs: Any) -> Attempts:
         """`build_runner`: the run keeps the callback an agent's output reaches the run log by."""

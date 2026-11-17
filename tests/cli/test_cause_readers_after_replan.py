@@ -11,6 +11,7 @@ from typing import Any
 
 import pytest
 
+from agent_build_kit import worker_run
 from agent_build_kit.cli import pipeline as cli
 from agent_build_kit.forges.transport import HostUnavailable
 from agent_build_kit.pipeline.unit_store import Cause, UnitStore
@@ -84,8 +85,8 @@ def test_a_unit_parked_for_the_host_resumes_at_its_step_after_a_replan(
     def build_once(**overrides: Any) -> Recorder:
         recorder = Recorder(store)
         runner = make_runner(store, recorder, tmp_path, **overrides)
-        monkeypatch.setattr(cli, "build_runner", lambda u, **kw: runner)
-        assert cli.build_unit(inst, store.get(UNIT), store=store) is True
+        monkeypatch.setattr("agent_build_kit.worker_run.build_runner", lambda u, **kw: runner)
+        assert worker_run.build_unit(inst, store.get(UNIT), store=store) is True
         return recorder
 
     build_once(open_pr=refused)

@@ -8,7 +8,7 @@ from datetime import datetime, timedelta
 from agent_build_kit import claude_account
 from agent_build_kit.installation import Installation
 from agent_build_kit.pipeline.emergency_lane import lane_units
-from agent_build_kit.pipeline.file_lock import file_lock
+from agent_build_kit.pipeline.file_lock import ADMISSION_LOCK, file_lock
 from agent_build_kit.pipeline.lease import Leases
 from agent_build_kit.pipeline.occupancy import (
     Limits,
@@ -25,10 +25,6 @@ from agent_build_kit.pipeline.slots import account_labels, extra_of, slot_stack_
 from agent_build_kit.pipeline.unit_store import Starting, StoredUnit, UnitStore
 from agent_build_kit.pipeline.units import Unit, branch_name, in_progress, project_key
 from agent_build_kit.pipeline.workspaces import branch_held
-
-# The admission lock's file in the locks folder. It is not a `*.lock` file: those are branch locks,
-# which are removed when released, and this one stays, as the claim lock does.
-ADMISSION_LOCK = ".admission"
 
 # How long a unit admitted to a worker holds its place before the worker takes the branch's lock.
 STARTING_TTL = timedelta(minutes=10)

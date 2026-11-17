@@ -30,10 +30,9 @@ def inst(tmp_path: Path) -> Installation:
 @pytest.fixture
 def store(inst: Installation, monkeypatch: pytest.MonkeyPatch) -> UnitStore:
     store = UnitStore(inst.state_dir / "units.json")
-    monkeypatch.setattr(cli, "has_thread", lambda inst, unit_id: True)
+    monkeypatch.setattr("agent_build_kit.worker_run.has_thread", lambda inst, unit_id: True)
     monkeypatch.setattr(
-        cli,
-        "resume_thread",
+        "agent_build_kit.worker_run.resume_thread",
         lambda inst, unit, kind, **kwargs: object() if unit.id == TAKES else None,
     )
     for uid in (DECLINES, TAKES):

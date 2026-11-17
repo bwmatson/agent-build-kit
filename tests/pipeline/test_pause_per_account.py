@@ -15,6 +15,7 @@ from pathlib import Path
 
 import pytest
 
+from agent_build_kit import worker_run
 from agent_build_kit.cli import pipeline as cli
 from agent_build_kit.cli.scrub_store_cmd import cmd_scrub_store
 from agent_build_kit.pipeline import network_probe
@@ -70,7 +71,7 @@ def refuse_next_build(monkeypatch: pytest.MonkeyPatch) -> None:
         def run(self, unit, *, base, graph):
             raise RateLimited("usage limit reached", resets_at=when)
 
-    monkeypatch.setattr(cli, "build_runner", lambda unit, **kw: Refusing())
+    monkeypatch.setattr("agent_build_kit.worker_run.build_runner", lambda unit, **kw: Refusing())
 
 
 def test_a_refusal_during_a_units_build_pauses_the_account_of_that_unit_and_no_other(
@@ -79,14 +80,14 @@ def test_a_refusal_during_a_units_build_pauses_the_account_of_that_unit_and_no_o
     inst, store = workspace(tmp_path, [unit("one/1", "app"), unit("two/1", "platform")])
     refuse_next_build(monkeypatch)
 
-    assert cli.build_unit(inst, store.get("two/1"), store=store) is False
+    assert worker_run.build_unit(inst, store.get("two/1"), store=store) is False
 
     held = is_paused(inst.state_dir / PERSONAL_MARKER)
     assert held is not None and held.kind == "rate_limit"
     assert json.loads((inst.state_dir / PERSONAL_MARKER).read_text())["account"] == PERSONAL
     assert is_paused(inst.state_dir / DEFAULT_MARKER) is None
 
-    assert cli.build_unit(inst, store.get("one/1"), store=store) is False
+    assert worker_run.build_unit(inst, store.get("one/1"), store=store) is False
 
     assert is_paused(inst.state_dir / DEFAULT_MARKER) is not None
     assert json.loads((inst.state_dir / PERSONAL_MARKER).read_text())["account"] == PERSONAL
@@ -231,7 +232,7 @@ def test_a_refusal_of_the_default_account_during_a_network_pause_does_not_end_th
     )
     refuse_next_build(monkeypatch)
 
-    assert cli.build_unit(inst, store.get("one/1"), store=store) is False
+    assert worker_run.build_unit(inst, store.get("one/1"), store=store) is False
 
     assert round_of(inst, store) == []
     assert network_pause(inst.state_dir) is not None

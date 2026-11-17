@@ -41,8 +41,10 @@ def test_a_requeued_parked_unit_runs_the_agent_from_prepare_and_the_e2e_step_doe
         guidance_seen.append(store.get(UNIT).guidance)
         return recorder.claude(prompt, **kwargs)
 
-    monkeypatch.setattr(cli, "has_thread", lambda inst, unit_id: True)
-    monkeypatch.setattr(cli, "resume_thread", deliver_to_graph(tmp_path, recorder, TIER))
+    monkeypatch.setattr("agent_build_kit.worker_run.has_thread", lambda inst, unit_id: True)
+    monkeypatch.setattr(
+        "agent_build_kit.worker_run.resume_thread", deliver_to_graph(tmp_path, recorder, TIER)
+    )
     recorder.events.clear()
 
     said: list[str] = []

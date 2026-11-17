@@ -8,7 +8,7 @@ from typing import Any
 
 import pytest
 
-from agent_build_kit import config
+from agent_build_kit import config, worker_run
 from agent_build_kit.cli import pipeline as cli
 from agent_build_kit.config import AutoLandConfig, ReviewConfig
 from agent_build_kit.forges.base import Check, CheckStatus, PullRequest
@@ -105,7 +105,7 @@ class Landing:
             rebase_cap=2,
             landing_path=self.inst.state_dir / LANDING,
             # The merge record the pipeline's own dispatch keeps: the commit and the tick.
-            merge_record=lambda unit: cli.merge_record_of(self.inst, unit),
+            merge_record=lambda unit: worker_run.merge_record_of(self.inst, unit),
             log=lambda message: None,
         )
 

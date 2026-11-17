@@ -161,7 +161,7 @@ def test_the_node_says_no_test_ran_and_abk_status_does_too(
     inst = make_installation(
         tmp_path, planning=dict(state_dir=".", worktree_root=str(tmp_path.parent / "trees"))
     )
-    monkeypatch.setattr(pipeline_cli, "current_usage", lambda: None)
+    monkeypatch.setattr("agent_build_kit.worker_run.current_usage", lambda: None)
     assert pipeline_cli.cmd_status(argparse.Namespace(), inst) == 0
 
     shown = capsys.readouterr().out

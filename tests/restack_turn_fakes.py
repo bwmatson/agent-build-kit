@@ -19,8 +19,7 @@ from typing import Any, NamedTuple
 
 import pytest
 
-from agent_build_kit import runtimes
-from agent_build_kit.cli import pipeline as cli
+from agent_build_kit import runtimes, worker_run
 from agent_build_kit.installation import Installation
 from agent_build_kit.pipeline import restack, shell, workspaces
 from agent_build_kit.pipeline.file_lock import try_file_lock
@@ -218,7 +217,7 @@ class Rig:
 
         runtime = self.runtime(act=act)
         self.monkeypatch.setattr(runtimes, "active", lambda: runtime)
-        self.moves = cli.build_stack_moves(self.store, self.installation)
+        self.moves = worker_run.build_stack_moves(self.store, self.installation)
         move = partial(
             self.moves["restack"],
             branch=self.branch,

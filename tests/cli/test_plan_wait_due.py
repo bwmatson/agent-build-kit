@@ -116,7 +116,7 @@ def test_a_round_whose_only_candidate_waits_asks_the_guard_for_nothing(
     monkeypatch.setattr(cli, "poll_all", lambda inst, **kwargs: None)
     monkeypatch.setattr(cli, "fetch_all", lambda inst: None)
     monkeypatch.setattr(cli, "has_identity", lambda inst, repo: True)
-    monkeypatch.setattr(cli, "has_thread", lambda inst, unit_id: False)
+    monkeypatch.setattr("agent_build_kit.worker_run.has_thread", lambda inst, unit_id: False)
     run.runtime.supports_usage_tracking = True
     host.keep_in(run.inst.state_dir)
     host.answers = [payload(session=10.0)]
