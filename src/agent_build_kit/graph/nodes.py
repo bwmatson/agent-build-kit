@@ -66,6 +66,7 @@ from agent_build_kit.pipeline.commit_order import (
     TESTS_PREFIX,
     GroupProgress,
     cherry_pick,
+    classify_paths,
     group_progress,
     recorded_built,
     superseded_pairs,
@@ -1091,7 +1092,7 @@ class BuildPath:
         repo = self.runner.repo_config
         kinds = kinds_of(
             moved.brought_in if moved is not None else (),
-            lambda path: is_test_path(path, repo),
+            self._is_test,
             repo.changelog if repo is not None else None,
         )
         spans.record_restack(
@@ -1194,13 +1195,16 @@ class BuildPath:
     def outside_note(self, state: UnitRun, tree: Path) -> str:
         """The prompt part listing commits made to the branch outside the build session."""
         held = state.sessions.get(SessionRole.BUILD)
-        repo = self.runner.repo_config
         return outside_commits_note(
             tree,
             self.ref(state),
             held.session_id if held else "",
-            is_test=lambda path: is_test_path(path, repo),
+            is_test=self._is_test,
         )
+
+    def _is_test(self, path: str) -> bool:
+        """Whether `path` is a test file in the unit's repository."""
+        return is_test_path(path, self.runner.repo_config)
 
     @staticmethod
     def told(text: str, note: str) -> str:
@@ -1737,11 +1741,17 @@ class BuildPath:
         """Whether a tests step that has to write tests ended with the tree as it found it and
         nothing said: a write may have been refused. An agent that explains itself has judged,
         for example that the tests exist, which the empty marked `test:` then records; when
-        the group requires tests the tree alone is the evidence, whatever was said."""
+        the group requires tests the tree alone is the evidence, whatever was said. A test or
+        document file the step resumed over counts as written, for a required group too: it is
+        committed, and the later checks judge it."""
         tree = self.tree()
         if not before or (account.strip() and not required):
             return False  # no tree digest: a runner that cannot see a write cannot see none
-        return self.runner.head(tree) == state.head and self.runner.tree_state(tree) == before
+        if self.runner.head(tree) != state.head or self.runner.tree_state(tree) != before:
+            return False
+        # A test or document file the step resumed over is its own work, kept; a source file is not.
+        labels = classify_paths(list(self._leftovers), self._is_test)
+        return not any(label in ("test", "docs") for label in labels.values())
 
     def apply_fixers(self) -> None:
         """Run the profile's fixers over the unit's own files, with no agent, and log what they

@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- A tests step resumed over a test or document file that an earlier, killed run left in the
+  tree is no longer judged as having written nothing when it keeps that file: the file is
+  committed as the tests commit and the unit goes on to its checks. A leftover source file
+  alone still counts as nothing written.
+
 - A restack now settles conflicts in files a repository's `generated` setting covers by taking
   the base's version (or removing the file where the base has none), without asking the
   resolver; only source conflicts reach it, and its prompt names the generated paths as
