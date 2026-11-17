@@ -162,6 +162,7 @@ from agent_build_kit.pipeline.events import (
     conflict_phrase,
     late_check_running,
     pr_based_on,
+    recheck_landings,
     remove_merged_branches,
 )
 from agent_build_kit.pipeline.external_file import Hold as ExternalHold
@@ -7173,6 +7174,13 @@ def poll_all(inst: Installation, *, store: UnitStore, lane: Lane | None = None) 
     checkouts = inst.checkouts
 
     dispatch = dispatch_for(inst, store, lane=lane)
+    # Before the events and before admission: a unit that landed later is recognised first.
+    recheck_landings(
+        store,
+        repos=checkouts,
+        merge_record=lambda unit: merge_record_of(inst, unit),
+        log=log,
+    )
 
     labels = StateLabels(inst.forge_of, log=log)
     index = PrIndex(store)

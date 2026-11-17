@@ -1169,7 +1169,28 @@ def recheck_landings(
     """Each round, before admission: a unit settling behind a parent, or held
     `landed_off_default`, becomes merged when its merge commit has become an ancestor of the
     default branch. Returns the ids it recorded as merged."""
-    raise NotImplementedError
+    units = {unit.id: unit for unit in store.all()}
+    recorded: list[str] = []
+    for unit in units.values():
+        held_off = unit.state == HELD and unit.cause == Cause.LANDED_OFF_DEFAULT
+        behind_parent = (
+            unit.state == SETTLING
+            and bool(unit.depends_on)
+            and all(dep in units and units[dep].state == MERGED for dep in unit.depends_on)
+        )
+        if not (held_off or behind_parent) or not unit.merge_sha or unit.repo not in repos:
+            continue
+        if not merged_on_default(repos[unit.repo], unit.merge_sha, trunk_of(unit.repo)):
+            continue
+        if held_off:
+            sha, tick = merge_record(unit) if merge_record is not None else (None, None)
+            store.set_merge_record(unit.id, unit.merge_sha or sha, tick)
+            store.set_state(unit.id, MERGED, note="", cause=Cause.MERGED)
+        else:
+            settle_merged(store, unit, merge_record)
+        log(f"{unit.id}: its commit is on the default branch, recorded merged")
+        recorded.append(unit.id)
+    return recorded
 
 
 def _unit_on_branch(store: UnitStore, repo: str, branch: str, not_id: str) -> StoredUnit | None:
