@@ -221,6 +221,7 @@ def decide(
     protected_branches: tuple[str, ...] = (),
     no_push: bool = False,
     no_commit: bool = False,
+    rewrite: bool = False,
     refusals_only: bool = False,
     confined: bool = False,
 ) -> dict | None:
@@ -368,6 +369,7 @@ def hook_settings(
     protected_branches: tuple[str, ...] = (),
     no_push: bool = False,
     no_commit: bool = False,
+    rewrite: bool = False,
     refusals_only: bool = False,
     confined: bool = False,
 ) -> dict:

@@ -114,6 +114,7 @@ class ToolPolicy(Frozen):
     branch_prefix: str = "spec/"
     no_commit: bool = False  # refuse any command that makes or moves a commit: the pipeline or
     # the person commits, not the turn
+    rewrite: bool = False  # a step holding a rewrite request: the rewrite commands are allowed
     planning_paths: tuple[str, ...] = ()  # unwritable in the worktree: the pipeline's own
     # Files no command may write, wherever they are: the planning repo's abk.yaml, which holds
     # the review policy a person owns.

@@ -380,7 +380,7 @@ def _moves_commits(args: list[str]) -> bool:
     return False
 
 
-def check_no_commit(command: str) -> Verdict:
+def check_no_commit(command: str, *, rewrite: bool = False) -> Verdict:
     """Refuse a command in which any segment makes a commit or moves the branch: a `git commit`
     in any form, and the other commands that do (`cherry-pick`, `revert`, `merge`, `rebase`, `am`,
     `pull`, `commit-tree`, `update-ref`, and a `reset` that moves HEAD). The forms that leave

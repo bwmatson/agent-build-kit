@@ -874,3 +874,55 @@ def test_a_free_sessions_turn_may_write_anywhere_and_still_cannot_commit_or_push
     for refused in (committed, pushed):
         assert "error" in refused or refused.get("exitCode") != 0, refused
     assert git(worktree, "rev-parse", "HEAD") == before
+
+
+def test_a_step_with_a_rewrite_request_may_amend_through_the_broker(
+    tmp_path: Path, worktree: Path, specs: Path
+) -> None:
+    record = tmp_path / "agent.jsonl"
+    before = git(worktree, "rev-parse", "HEAD")
+
+    _run_with(
+        record,
+        worktree,
+        specs,
+        ToolPolicy(specs_dir=specs, no_commit=True, rewrite=True),
+        act=[{"terminal": "git", "args": ["commit", "--amend", "-m", "reworded"]}],
+    )
+
+    [ran] = _did(record, "terminal")
+    assert "error" not in ran and ran.get("exitCode") in (0, None), ran
+    assert git(worktree, "rev-parse", "HEAD") != before, "the amend moved the branch head"
+
+
+@pytest.mark.parametrize(
+    ("command", "args"),
+    [
+        pytest.param("git", ["commit", "--no-verify", "-m", "x"], id="no-verify"),
+        pytest.param("git", ["merge", "main"], id="merge"),
+        pytest.param("git", ["reset", "--hard", "HEAD~1"], id="reset-hard"),
+        pytest.param("git", ["update-ref", "HEAD", "HEAD"], id="update-ref"),
+    ],
+)
+def test_a_step_with_a_rewrite_request_is_still_refused_the_rest_through_the_broker(
+    tmp_path: Path, worktree: Path, specs: Path, command: str, args: list[str]
+) -> None:
+    record = tmp_path / "agent.jsonl"
+    before = git(worktree, "rev-parse", "HEAD")
+    # The same step opens the amend, so the refusal is the narrowed list and not a blanket.
+    assert check_no_commit("git commit --amend --no-edit", rewrite=True).allowed
+    refusal = check_no_commit(" ".join([command, *args]), rewrite=True)
+    assert not refusal.allowed
+
+    _run_with(
+        record,
+        worktree,
+        specs,
+        ToolPolicy(specs_dir=specs, no_commit=True, rewrite=True),
+        act=[{"terminal": command, "args": args}],
+    )
+
+    [ran] = _did(record, "terminal")
+    assert "error" in ran or ran.get("exitCode") != 0, ran
+    assert refusal.reason in json.dumps(ran, ensure_ascii=False), ran
+    assert git(worktree, "rev-parse", "HEAD") == before

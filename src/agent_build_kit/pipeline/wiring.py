@@ -606,6 +606,7 @@ def build_run(
     role: Role = "implement",
     planning_paths: tuple[str, ...] = (),
     account: claude_account.Account | None = None,
+    rewrite: bool = False,
 ) -> Callable[..., str]:
     """A scoped agent run inside a unit's worktree, policed by the hook and
     the deny list the runtime applies for a `ToolPolicy`.

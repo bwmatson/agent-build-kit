@@ -8,7 +8,8 @@ from pathlib import Path
 
 import pytest
 
-from agent_build_kit.pipeline.wiring import build_run_review
+from agent_build_kit.config import models
+from agent_build_kit.pipeline.wiring import build_run, build_run_review
 from agent_build_kit.runtimes import AgentRequest
 from agent_build_kit.runtimes.claude_code import build_argv
 from tests.pipeline.test_wiring_sandbox import Recording, Unconfining, install, step
@@ -80,3 +81,39 @@ def test_a_read_only_role_is_granted_no_edit_tool_whether_or_not_it_is_confined(
     assert on.allowed_tools == off.allowed_tools
     for tool in ("Edit", "Write", "MultiEdit", "NotebookEdit"):
         assert tool not in on.allowed_tools.split()
+
+
+def test_a_step_with_a_rewrite_request_carries_a_policy_that_allows_the_rewrite(
+    tmp_path: Path,
+) -> None:
+    root, main = install(tmp_path, enabled=False)
+    runtime = Recording()
+
+    build_run(runtime=runtime, planning_repo=root, rewrite=True)(
+        "Go.", cwd=main, model=models().implement
+    )
+
+    (request,) = runtime.requests
+    assert request.policy is not None
+    assert request.policy.no_commit is True
+    assert request.policy.rewrite is True
+    assert " --rewrite" in hook_command(request)
+
+
+def test_a_step_with_no_rewrite_request_carries_a_policy_that_refuses_the_rewrite(
+    tmp_path: Path,
+) -> None:
+    root, main = install(tmp_path, enabled=False)
+    asked_runtime = Recording()
+    build_run(runtime=asked_runtime, planning_repo=root, rewrite=True)(
+        "Go.", cwd=main, model=models().implement
+    )
+    (asked,) = asked_runtime.requests
+
+    plain = step(root, main)
+
+    assert asked.policy is not None and asked.policy.rewrite is True
+    assert plain.policy is not None
+    assert plain.policy.rewrite is False
+    assert " --rewrite" in hook_command(asked)
+    assert "--rewrite" not in hook_command(plain)

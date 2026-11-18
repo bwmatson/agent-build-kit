@@ -102,3 +102,63 @@ def test_the_free_hook_is_registered_without_the_units_scope() -> None:
     assert "--refusals-only" in command
     assert "--no-commit" in command and "--no-push" in command
     assert "--specs" not in command
+
+
+REWRITES = [
+    "git commit --amend --no-edit",
+    "git rebase HEAD~3",
+    "git cherry-pick abc123",
+    "git reset --soft HEAD~2",
+]
+STILL_REFUSED = [
+    "git commit --no-verify -m x",
+    "git merge main",
+    "git pull",
+    "git reset --hard HEAD~1",
+    "git update-ref refs/heads/x abc",
+    "git commit-tree HEAD^{tree}",
+    "git filter-branch",
+]
+
+
+@pytest.mark.parametrize("command", REWRITES)
+def test_the_hook_allows_the_rewrite_commands_for_a_step_with_a_rewrite_request(
+    repo: Path, command: str
+) -> None:
+    assert decide(payload(command, repo), no_commit=True, rewrite=True) is None
+
+
+@pytest.mark.parametrize("command", STILL_REFUSED)
+def test_the_hook_keeps_refusing_the_rest_for_a_step_with_a_rewrite_request(
+    repo: Path, command: str
+) -> None:
+    # The same hook opens the amend, so the refusal is the narrowed list and not a blanket.
+    assert (
+        decide(payload("git commit --amend --no-edit", repo), no_commit=True, rewrite=True) is None
+    )
+
+    answer = decide(payload(command, repo), no_commit=True, rewrite=True)
+
+    assert answer is not None
+    assert answer["hookSpecificOutput"]["permissionDecision"] == "deny"
+
+
+@pytest.mark.parametrize("command", REWRITES)
+def test_the_hook_refuses_the_rewrite_commands_when_the_step_holds_no_request(
+    repo: Path, command: str
+) -> None:
+    # The request is what opens the command: allowed with it, refused without.
+    assert decide(payload(command, repo), no_commit=True, rewrite=True) is None
+
+    answer = decide(payload(command, repo), no_commit=True)
+
+    assert answer is not None
+    assert answer["hookSpecificOutput"]["permissionDecision"] == "deny"
+
+
+def test_the_hook_is_registered_with_the_rewrite_option_only_for_a_step_with_a_request() -> None:
+    plain = command_of(hook_settings(Path("/repo"), no_push=True, no_commit=True))
+    asked = command_of(hook_settings(Path("/repo"), no_push=True, no_commit=True, rewrite=True))
+
+    assert "--rewrite" not in plain
+    assert " --rewrite" in asked
