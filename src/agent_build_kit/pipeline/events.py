@@ -46,6 +46,7 @@ from typing import TYPE_CHECKING, Any
 from agent_build_kit import config as config_module
 from agent_build_kit import forges, profiles
 from agent_build_kit.budget import cut_head
+from agent_build_kit.config import RepoConfig
 from agent_build_kit.forges import Forge, PullRequest, RepoId, ReviewNote
 from agent_build_kit.forges.base import (
     UNKNOWN_CHECKS,
@@ -60,6 +61,7 @@ from agent_build_kit.forges.transport import TRANSIENT
 from agent_build_kit.model import Frozen
 from agent_build_kit.pipeline import holds as _holds
 from agent_build_kit.pipeline import spans
+from agent_build_kit.pipeline.carry import CARRY_REFUSED, carry, is_carrying
 from agent_build_kit.pipeline.check_runner import worktree_at
 from agent_build_kit.pipeline.flakes import (
     FailedOnBase,
@@ -101,8 +103,10 @@ from agent_build_kit.pipeline.restack import (
     BranchCheckedOut,
     BranchMoved,
     Moved,
+    Resolver,
     RestackConflict,
     TemporaryTree,
+    Turn,
     adopt_host_head,
     base_ref,
     blast_radius_note,
@@ -1230,6 +1234,74 @@ def _awaiting_landing(unit: StoredUnit) -> bool:
     """A unit whose work is in another branch, not yet on the default branch."""
     held_off = unit.state == HELD and unit.cause == Cause.LANDED_OFF_DEFAULT
     return held_off or (unit.state == SETTLING and bool(unit.settling_behind))
+
+
+def carry_held(
+    store: UnitStore,
+    *,
+    repos: dict[str, Path],
+    forge_of: Callable[[str], tuple[Forge, RepoId]],
+    default_of: Callable[[str], str],
+    worktrees: Path,
+    claim: Claim,
+    resolver_for: Callable[[StoredUnit], Resolver | None] = lambda unit: None,
+    repo_config_of: Callable[[str], RepoConfig | None] = lambda repo: None,
+    turn_of: Callable[[str], Turn] = lambda repo: nullcontext,
+    merge_record: MergeRecord | None = None,
+    resume: Resume = _no_thread,
+    log: Log = print,
+) -> list[str]:
+    """The round's carry: first the landing re-check, which records merged each held unit
+    whose commit or whose changes are already on the default branch (so a unit that needs no
+    carry never gets one), then, for each unit still held `landed_off_default` with no carry,
+    `carry` under the unit's branch lease. A unit being built, or whose carry cannot be
+    resolved, is left held (the second is noted once and not tried again until its state
+    changes). Returns the ids it carried."""
+    recheck_landings(
+        store, repos=repos, merge_record=merge_record, claim=claim, resume=resume, log=log
+    )
+    carried: list[str] = []
+    for unit in store.all():
+        if not _owed_a_carry(unit) or unit.repo not in repos or _carry_refused(unit):
+            continue
+        forge, repo_id = forge_of(unit.repo)
+        try:
+            with claim(unit):
+                if not _owed_a_carry(store.get(unit.id)):
+                    continue
+                carry(
+                    store,
+                    unit.id,
+                    forge=forge,
+                    repo_id=repo_id,
+                    repo=repos[unit.repo],
+                    default_branch=default_of(unit.repo),
+                    worktrees=worktrees,
+                    resolve=resolver_for(unit),
+                    repo_config=repo_config_of(unit.repo),
+                    turn=turn_of(unit.repo),
+                )
+        except BranchBusy as error:
+            _deferred("carry", unit, error, log)
+            continue
+        except RestackConflict as error:
+            store.record_event(
+                unit.id, CARRY_REFUSED, str(error), cause=Cause.LANDED_OFF_DEFAULT.value
+            )
+            log(f"{unit.id}: carry abandoned, left held — {error}")
+            continue
+        log(f"{unit.id}: carried onto {default_of(unit.repo)}")
+        carried.append(unit.id)
+    return carried
+
+
+def _owed_a_carry(unit: StoredUnit) -> bool:
+    return unit.state == HELD and unit.cause is Cause.LANDED_OFF_DEFAULT and not is_carrying(unit)
+
+
+def _carry_refused(unit: StoredUnit) -> bool:
+    """The last thing recorded for the unit is a carry that was abandoned."""
+    return bool(unit.history) and unit.history[-1].get("event") == CARRY_REFUSED
 
 
 def retry_retargets(

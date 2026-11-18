@@ -3,13 +3,12 @@
 from __future__ import annotations
 
 import subprocess
-from collections.abc import Callable
 from contextlib import nullcontext
 from pathlib import Path
 
 from agent_build_kit.config import RepoConfig
 from agent_build_kit.forges import Forge, RepoId
-from agent_build_kit.pipeline import events, shell
+from agent_build_kit.pipeline import shell
 from agent_build_kit.pipeline.restack import (
     ConflictContext,
     Resolver,
@@ -23,8 +22,8 @@ from agent_build_kit.pipeline.restack import (
     take_generated_from_base,
 )
 from agent_build_kit.pipeline.unit_store import Cause, Pull, StoredUnit, UnitStore
-from agent_build_kit.pipeline.units import HELD, IN_REVIEW, MERGED
-from agent_build_kit.pipeline.workspaces import BranchBusy, worktree_key
+from agent_build_kit.pipeline.units import IN_REVIEW, MERGED
+from agent_build_kit.pipeline.workspaces import worktree_key
 
 CARRY_ROLE = "carry"
 CARRY_REFUSED = "carry_refused"
@@ -207,72 +206,3 @@ def _pick(
                 f"{finished.stdout}\n{finished.stderr}"
             )
     return True
-
-
-def carry_held(
-    store: UnitStore,
-    *,
-    repos: dict[str, Path],
-    forge_of: Callable[[str], tuple[Forge, RepoId]],
-    default_of: Callable[[str], str],
-    worktrees: Path,
-    claim: events.Claim,
-    resolver_for: Callable[[StoredUnit], Resolver | None] = lambda unit: None,
-    repo_config_of: Callable[[str], RepoConfig | None] = lambda repo: None,
-    turn_of: Callable[[str], Turn] = lambda repo: nullcontext,
-    merge_record: events.MergeRecord | None = None,
-    resume: events.Resume | None = None,
-    log: events.Log = print,
-) -> list[str]:
-    """The round's carry: first the landing re-check, which records merged each held unit
-    whose commit or whose changes are already on the default branch (so a unit that needs no
-    carry never gets one), then, for each unit still held `landed_off_default` with no carry,
-    `carry` under the unit's branch lease. A unit being built, or whose carry cannot be
-    resolved, is left held (the second is noted once and not tried again until its state
-    changes). Returns the ids it carried."""
-    waiting = resume or (lambda unit, kind, reason, feedback: False)
-    events.recheck_landings(
-        store, repos=repos, merge_record=merge_record, claim=claim, resume=waiting, log=log
-    )
-    carried: list[str] = []
-    for unit in store.all():
-        if not _owed(unit) or unit.repo not in repos or _refused(unit):
-            continue
-        forge, repo_id = forge_of(unit.repo)
-        try:
-            with claim(unit):
-                if not _owed(store.get(unit.id)):
-                    continue
-                carry(
-                    store,
-                    unit.id,
-                    forge=forge,
-                    repo_id=repo_id,
-                    repo=repos[unit.repo],
-                    default_branch=default_of(unit.repo),
-                    worktrees=worktrees,
-                    resolve=resolver_for(unit),
-                    repo_config=repo_config_of(unit.repo),
-                    turn=turn_of(unit.repo),
-                )
-        except BranchBusy as error:
-            log(f"carry: {unit.id} is being built ({error}) — left for a later round")
-            continue
-        except RestackConflict as error:
-            store.record_event(
-                unit.id, CARRY_REFUSED, str(error), cause=Cause.LANDED_OFF_DEFAULT.value
-            )
-            log(f"{unit.id}: carry abandoned, left held — {error}")
-            continue
-        log(f"{unit.id}: carried onto {default_of(unit.repo)}")
-        carried.append(unit.id)
-    return carried
-
-
-def _owed(unit: StoredUnit) -> bool:
-    return unit.state == HELD and unit.cause is Cause.LANDED_OFF_DEFAULT and not is_carrying(unit)
-
-
-def _refused(unit: StoredUnit) -> bool:
-    """The last thing recorded for the unit is a carry that was abandoned."""
-    return bool(unit.history) and unit.history[-1].get("event") == CARRY_REFUSED

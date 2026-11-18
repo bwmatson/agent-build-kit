@@ -12,7 +12,8 @@ from pathlib import Path
 import pytest
 
 from agent_build_kit.pipeline import events
-from agent_build_kit.pipeline.carry import carry, carry_held
+from agent_build_kit.pipeline.carry import carry
+from agent_build_kit.pipeline.events import carry_held
 from agent_build_kit.pipeline.restack import RestackConflict
 from agent_build_kit.pipeline.unit_store import Cause, Pull
 from agent_build_kit.pipeline.units import HELD, IN_REVIEW, MERGED, SETTLING

@@ -109,7 +109,6 @@ from agent_build_kit.pipeline.archive import (
     is_ready_to_archive,
 )
 from agent_build_kit.pipeline.audit_record import audit_status_lines
-from agent_build_kit.pipeline.carry import carry_held
 from agent_build_kit.pipeline.config_guard import warning_lines as config_warning_lines
 from agent_build_kit.pipeline.cycles import (
     FINISHED,
@@ -139,6 +138,7 @@ from agent_build_kit.pipeline.e2e_schedule import any_due, write_due
 from agent_build_kit.pipeline.e2e_scope import product_path_warnings, task_wording_warnings
 from agent_build_kit.pipeline.events import (
     build_claim,
+    carry_held,
     conflict_phrase,
     late_check_running,
     pr_base_on_host,
