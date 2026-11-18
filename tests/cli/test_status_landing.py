@@ -201,3 +201,34 @@ def test_explain_says_why_a_unit_is_held_for_these_causes(
     assert f"#{OFF_PR}" in out
     for word in words:
         assert word in out, out
+
+
+def test_status_says_the_pipeline_carries_a_unit_held_off_the_default_branch(
+    held_installation: Installation,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    hold(held_installation, Cause.LANDED_OFF_DEFAULT, f"#{OFF_PR} was merged into {OFF_BRANCH}")
+
+    lines = run_status(held_installation, monkeypatch, capsys)
+
+    shown = [line for line in lines if f"{PARENT} " in line and "landed off" in line]
+    assert any("the pipeline carries" in line for line in shown), "\n".join(lines)
+
+
+def test_status_says_a_unit_in_review_on_a_carry_is_a_carry_of_earlier_work(
+    held_installation: Installation,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    store = UnitStore(held_installation.state_dir / "units.json")
+    store.upsert([new_unit(PARENT)])
+    note = "carrying onto main"
+    store.set_state(PARENT, IN_REVIEW, pr=OFF_PR, branch=OFF_BRANCH, note=note, cause=Cause.CARRIED)
+
+    lines = run_status(held_installation, monkeypatch, capsys)
+
+    shown = [line for line in lines if f"{PARENT} " in line and note in line]
+    assert any(f"#{OFF_PR}" in line and "carry of earlier work" in line for line in shown), (
+        "\n".join(lines)
+    )
