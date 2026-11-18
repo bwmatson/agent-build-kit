@@ -64,6 +64,7 @@ class Recorder:
         resume_session: str = "",
         on_session: Callable[[str], None] | None = None,
         on_result: Callable[..., None] | None = None,
+        rewrite: bool = False,
     ) -> str:
         self.prompts.append(prompt)
         if "checks (lint" in prompt:
