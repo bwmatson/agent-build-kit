@@ -7,6 +7,11 @@
   its parent is squash-merged. It is merged with the default branch's head as its commit and no
   longer stays stranded.
 
+- A merged unit's branch is deleted on the host when other units are stacked on it, and its
+  last head is kept locally under `refs/abk/bases/` so their restacks still know where they
+  were based. A branch the host already rebased onto the default branch is left alone. Set
+  `delete_merged_branches: false` on a repo to keep the old behaviour.
+
 - A tests step resumed over a test or document file that an earlier, killed run left in the
   tree is no longer judged as having written nothing when it keeps that file: the file is
   committed as the tests commit and the unit goes on to its checks. A leftover source file

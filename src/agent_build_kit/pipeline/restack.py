@@ -964,6 +964,41 @@ def remote_endpoint(url: str) -> tuple[str, int]:
 REMOTE_READ_TIMEOUT_SECONDS = 60
 
 
+BASES_NAMESPACE = "refs/abk/bases/"
+
+
+def keep_base(repo: Path, branch: str) -> bool:
+    """Keep the branch's last head under `refs/abk/bases/<branch>`, for the restacks of what
+    was stacked on it once the branch is gone. False when there is no head to keep."""
+    if not repo.is_dir():
+        return False
+    head = shell.git(repo, "rev-parse", "--verify", "-q", f"refs/heads/{branch}", check=False)
+    if head.returncode or not head.stdout.strip():
+        head = shell.git(
+            repo, "rev-parse", "--verify", "-q", f"refs/remotes/origin/{branch}", check=False
+        )
+    if head.returncode or not head.stdout.strip():
+        return False
+    shell.git(repo, "update-ref", f"{BASES_NAMESPACE}{branch}", head.stdout.strip())
+    return True
+
+
+def drop_base(repo: Path, branch: str) -> None:
+    """Remove the ref `keep_base` made; nothing happens when there is none."""
+    if repo.is_dir():
+        shell.git(repo, "update-ref", "-d", f"{BASES_NAMESPACE}{branch}", check=False)
+
+
+def base_ref(repo: Path, branch: str) -> str:
+    """What to name a base branch in a restack: the branch while it is there, else the head
+    `keep_base` kept, else the name as given."""
+    for ref in (f"refs/heads/{branch}", f"{BASES_NAMESPACE}{branch}"):
+        found = shell.git(repo, "rev-parse", "--verify", "-q", ref, check=False)
+        if not found.returncode and found.stdout.strip():
+            return branch if ref.startswith("refs/heads/") else ref
+    return branch
+
+
 def remote_head(repo: Path, branch: str) -> str | None:
     """The branch's head where it is pushed, "" when the remote answers that it
     has no such branch, None when it could not be asked (failed or timed out).
