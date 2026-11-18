@@ -155,3 +155,39 @@ def test_a_node_projects_tests_commit_with_only_the_sentinel_body_passes_the_stu
     problems = check_branch(repo, "main", profile=made["python-uv"], projects=PROJECTS)
 
     assert problems == []
+
+
+NODE_HELPER = "web/src/support.test.tsx"
+
+
+def _tests_commit(repo: Path, files: dict[str, str]) -> None:
+    """A tests commit of `files`, and the commit that implements it."""
+    commit(repo, "test: covers it", files)
+    commit(repo, "feat: implements it", {"src/thing.py": "x = 1\n"})
+
+
+def test_a_project_with_only_a_helper_is_not_run_beside_a_project_with_a_failing_test(
+    repo: Path, toolchains
+) -> None:
+    made = toolchains()
+    _tests_commit(repo, {PYTHON_TEST: "def test_x(): ...\n", NODE_HELPER: "export const h = 1\n"})
+
+    problems = check_branch(repo, "main", profile=made["python-uv"], projects=PROJECTS)
+
+    assert problems == []
+    assert made["python-uv"].red_files == [[PYTHON_TEST]]
+    assert made["node-npm"].red_files == [], "no command is built for the helper's project"
+
+
+def test_a_project_with_a_test_that_fails_nothing_is_rejected_beside_a_helper(
+    repo: Path, toolchains
+) -> None:
+    made = toolchains(python_ok=False)
+    _tests_commit(repo, {PYTHON_TEST: "def test_x(): ...\n", NODE_HELPER: "export const h = 1\n"})
+
+    problems = check_branch(repo, "main", profile=made["python-uv"], projects=PROJECTS)
+
+    assert len(problems) == 1
+    assert "red rejected" in problems[0]
+    assert made["python-uv"].red_files == [[PYTHON_TEST]]
+    assert made["node-npm"].red_files == []
