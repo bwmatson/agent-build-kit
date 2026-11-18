@@ -798,6 +798,7 @@ def release_children(
     rebase_cap: int | None = None,
     resume: Resume = _no_thread,
     settled: Callable[[StoredUnit, str], bool] = lambda child, base: False,
+    repos: dict[str, Path] | None = None,
     log: Log = print,
 ) -> list[str]:
     """Record that what is stacked on a unit that has left the stack — merged or
@@ -988,6 +989,7 @@ def remove_satisfied(
     remove_worktree: Callable[..., None],
     delete_branch: Callable[..., None],
     on_new_base: Callable[[StoredUnit], bool],
+    repos: dict[str, Path] | None = None,
     log: Log = print,
 ) -> None:
     """Remove a satisfied unit's worktree and branch, once the run that found it

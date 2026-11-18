@@ -1562,6 +1562,9 @@ class RepoConfig(Frozen):
     # Empty for a repo on a host that names itself some other way.
     slug: str = ""
     default_branch: str = "main"
+    # Delete a merged unit's remote branch at the merge when units are stacked on it, keeping
+    # its head under `refs/abk/bases/` for their restacks.
+    delete_merged_branches: bool = True
     # The label of the Claude account this repo's units run on; see `runtimes.claude_code.accounts`.
     account: str | None = None
     # The code host this repo lives on (forges/). Inferred by `abk init` from
