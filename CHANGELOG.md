@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- A unit settling behind a parent's branch, or held as landed off the default branch, is now
+  recorded merged when every change it made is already on the default branch, as happens when
+  its parent is squash-merged. It is merged with the default branch's head as its commit and no
+  longer stays stranded.
+
 - A tests step resumed over a test or document file that an earlier, killed run left in the
   tree is no longer judged as having written nothing when it keeps that file: the file is
   committed as the tests commit and the unit goes on to its checks. A leftover source file
