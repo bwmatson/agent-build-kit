@@ -41,7 +41,7 @@ from agent_build_kit.orchestration.local.directories import RUN_LOGS
 from agent_build_kit.pipeline.environment import repo_artifacts
 from agent_build_kit.pipeline.run_log import CONTINUATION
 from agent_build_kit.pipeline.stack_runner import unit_follow_ups
-from agent_build_kit.pipeline.unit_graph_entry import register_unit_graph, registered_unit_graph
+from agent_build_kit.pipeline.unit_graph_entry import register_unit_graph
 from agent_build_kit.pipeline.unit_state import AgentSession, SessionRole, UnitRun
 from agent_build_kit.pipeline.unit_store import StoredUnit
 from agent_build_kit.pipeline.units import base_of, shown_dependencies, unit_file_prefix
@@ -137,7 +137,7 @@ def _unit_run(installation: Installation, unit_id: str) -> UnitRun | None:
 
     async def read() -> UnitRun | None:
         async with _read_only_checkpointer(path) as saver:
-            position = await registered_unit_graph().position(saver, unit_id)
+            position = await SERVED_UNIT_GRAPH.position(saver, unit_id)
         return position.state
 
     try:
@@ -234,7 +234,7 @@ def _recorded_session(installation: Installation, unit_id: str) -> AgentSession 
 
     async def read() -> AgentSession | None:
         async with _read_only_checkpointer(path) as saver:
-            position = await registered_unit_graph().position(saver, unit_id)
+            position = await SERVED_UNIT_GRAPH.position(saver, unit_id)
         return position.state.sessions.get(SessionRole.BUILD) if position.state else None
 
     try:
