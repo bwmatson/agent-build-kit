@@ -9,8 +9,11 @@ from pathlib import Path
 
 import pytest
 
+from agent_build_kit.graph.nodes import BuildPath
+from agent_build_kit.graph.state import UnitRun
+from agent_build_kit.pipeline.commit_order import GroupProgress
 from agent_build_kit.pipeline.units import FAILED
-from tests.factories import git
+from tests.factories import git, unit
 from tests.graph.branch_fakes import (
     ACCOUNT,
     UNIT,
@@ -22,7 +25,7 @@ from tests.graph.branch_fakes import (
 )
 from tests.graph.test_build_path import build
 from tests.graph.test_per_group_build import group_named
-from tests.runner_fakes import Killed
+from tests.runner_fakes import Killed, make_runner
 
 PAIR_3 = ["test: G3", "feat: G3"]
 
@@ -50,6 +53,8 @@ def test_a_unit_killed_after_the_empty_tests_commit_records_only_the_feat_commit
         silent_groups=(4,),
         accounts={"4": ACCOUNT},
     )
+    # The killed run made it through `commit_built`, which recorded its sha on the unit.
+    recorder.store.record_built_commit(UNIT, git(repo, "rev-parse", "HEAD").strip())
 
     outcome = build(tmp_path, recorder, **recorder.overrides(tmp_path))
 
@@ -60,6 +65,29 @@ def test_a_unit_killed_after_the_empty_tests_commit_records_only_the_feat_commit
     assert "commit_built:test" not in recorder.events, "the empty tests commit is not made again"
     assert subjects(repo) == [*PAIR_3, "test: G4", "feat: G4"], "one pair for group 4"
     assert ACCOUNT in messages(repo)[-1]
+
+
+@pytest.mark.parametrize(
+    ("made_by_the_pipeline", "half_recorded"), [(True, True), (False, False)], ids=["made", "agent"]
+)
+def test_an_empty_marked_tip_is_half_recorded_only_when_the_pipeline_made_it(
+    tmp_path: Path, made_by_the_pipeline: bool, half_recorded: bool
+) -> None:
+    recorder, repo = prepared(
+        tmp_path,
+        seeded=PAIR_3,
+        groups={"add-marker": titled(3, 4)},
+        meanwhile=leave_the_empty_test_commit,
+    )
+    if made_by_the_pipeline:
+        recorder.store.record_built_commit(UNIT, git(repo, "rev-parse", "HEAD").strip())
+    runner = make_runner(recorder.store, recorder, tmp_path, **recorder.overrides(tmp_path))
+    path = BuildPath(runner, unit(), base="main", graph=[], run_log=None, tracer=None)
+    state = UnitRun(unit_id=UNIT, change="add-marker", group=2)
+
+    found = path.half_recorded(state, GroupProgress(done=2, tests_made=True))
+
+    assert found is half_recorded
 
 
 def test_a_run_killed_between_the_empty_commits_ends_with_one_pair_for_group_4(

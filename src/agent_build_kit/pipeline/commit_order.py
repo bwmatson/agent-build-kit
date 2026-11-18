@@ -144,11 +144,11 @@ def recorded_built(repo: Path, sha: str, recorded: Collection[str] | None = None
     """Whether the commit is marked `Already-built: yes` and holds no file. A file keeps the
     marker from excusing real work. When `recorded` is given, the commit must also be one the
     pipeline recorded as built, so a marker the agent wrote excuses nothing."""
+    if recorded is not None and sha not in recorded:
+        return False
     marked = git_out(
         repo, "log", "-1", f"--format=%(trailers:key={ALREADY_BUILT_TRAILER},valueonly)", sha
     )
-    if recorded is not None and sha not in recorded:
-        return False
     return marked.strip() == "yes" and not _files_in(repo, sha)
 
 

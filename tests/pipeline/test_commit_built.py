@@ -10,8 +10,9 @@ from pathlib import Path
 
 import pytest
 
+from agent_build_kit.pipeline.unit_store import UnitStore
 from agent_build_kit.pipeline.wiring import CommitRejected, build_commit_built
-from tests.factories import git, init_repo
+from tests.factories import git, init_repo, unit
 
 MESSAGE = (
     "feat: Register the marker\n\nThe implementation of this task group.\n\nThe four tests pass."
@@ -46,6 +47,15 @@ def test_the_commit_holds_no_file_and_carries_the_message(repo: Path) -> None:
     body = git(repo, "log", "-1", "--format=%b")
     assert "The implementation of this task group." in body
     assert "The four tests pass." in body
+
+
+def test_the_commit_it_makes_is_recorded_on_the_unit(repo: Path, tmp_path: Path) -> None:
+    store = UnitStore(tmp_path / "units.json")
+    store.upsert([unit("feature/1")])
+
+    build_commit_built(unit_id="feature/1", store=store)(MESSAGE, cwd=repo)
+
+    assert store.get("feature/1").built_commits == (git(repo, "rev-parse", "HEAD").strip(),)
 
 
 def test_the_unit_and_the_mark_are_the_last_paragraph(repo: Path) -> None:

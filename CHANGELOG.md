@@ -2,11 +2,6 @@
 
 ## Unreleased
 
-- A rewrite of a unit's own commits is re-verified like any other change. An `Already-built`
-  marker excuses a commit only when the pipeline recorded it as built, so a marker the agent
-  wrote does not. When a step with a rewrite request moves the branch, the unit's history and
-  the pull request description say the history was rewritten and who asked.
-
 - A tests step resumed over a test or document file that an earlier, killed run left in the
   tree is no longer judged as having written nothing when it keeps that file: the file is
   committed as the tests commit and the unit goes on to its checks. A leftover source file
@@ -15,7 +10,10 @@
 - `abk requeue UNIT --rework --rewrite --note TEXT` stores a request, from a person, to rewrite
   the unit's own commits as the note asks. A unit's history records that the request was made,
   by whom, and that it was used. `--rewrite` is refused with `--restart`, without `--rework` or
-  without a note, and a `--rework` with no `--rewrite` clears a request the unit holds.
+  without a note, and a `--rework` with no `--rewrite` clears a request the unit holds. The
+  pipeline now records the sha of each empty commit it makes to mark a group built, and an
+  `Already-built` marker on any other commit no longer lets a resumed run treat that group as
+  recorded.
 
 - A restack now settles conflicts in files a repository's `generated` setting covers by taking
   the base's version (or removing the file where the base has none), without asking the

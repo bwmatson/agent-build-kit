@@ -121,7 +121,7 @@ def rewrite_entry(who: str) -> dict:
         "at": "2026-01-01T00:00:00Z",
         "event": "history_rewritten",
         "note": f"the unit's commits were rewritten at the request of {who}",
-        "source": who,
+        "source": who,  # as `record_event` writes it
     }
 
 

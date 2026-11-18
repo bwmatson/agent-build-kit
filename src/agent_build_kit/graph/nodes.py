@@ -1984,7 +1984,11 @@ class BuildPath:
         return (
             progress.done == state.group
             and progress.tests_made
-            and recorded_built(tree, self.runner.head(tree))
+            and recorded_built(
+                tree,
+                self.runner.head(tree),
+                recorded=self.runner.store.get(self.unit.id).built_commits,
+            )
         )
 
     def with_account(self, message: str, account: str) -> str:

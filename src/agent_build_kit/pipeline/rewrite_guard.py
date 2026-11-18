@@ -181,6 +181,7 @@ def run_guarded_step(
                         "history_rewritten",
                         f"the unit's commits were rewritten at the request of "
                         f"{request.source.value}",
+                        source=request.source.value,
                     )
                 return GuardedStep(ok=verdict.ok, returned=returned, verdict=verdict)
             returned += 1
