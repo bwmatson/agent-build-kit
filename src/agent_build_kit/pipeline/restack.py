@@ -970,6 +970,8 @@ BASES_NAMESPACE = "refs/abk/bases/"
 def keep_base(repo: Path, branch: str) -> bool:
     """Keep the branch's last head under `refs/abk/bases/<branch>`, for the restacks of what
     was stacked on it once the branch is gone. False when there is no head to keep."""
+    if not repo.is_dir():
+        return False
     head = shell.git(repo, "rev-parse", "--verify", "-q", f"refs/heads/{branch}", check=False)
     if head.returncode or not head.stdout.strip():
         head = shell.git(
@@ -983,7 +985,8 @@ def keep_base(repo: Path, branch: str) -> bool:
 
 def drop_base(repo: Path, branch: str) -> None:
     """Remove the ref `keep_base` made; nothing happens when there is none."""
-    shell.git(repo, "update-ref", "-d", f"{BASES_NAMESPACE}{branch}", check=False)
+    if repo.is_dir():
+        shell.git(repo, "update-ref", "-d", f"{BASES_NAMESPACE}{branch}", check=False)
 
 
 def base_ref(repo: Path, branch: str) -> str:
