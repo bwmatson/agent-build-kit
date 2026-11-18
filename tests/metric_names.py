@@ -4,7 +4,9 @@
 from __future__ import annotations
 
 import re
-from importlib import resources
+from pathlib import Path
+
+import agent_build_kit
 
 EMIT_CALL = re.compile(
     r"(?:telemetry\.(?:duration|observe|count|level)\(\s*"
@@ -15,7 +17,7 @@ EMIT_CALL = re.compile(
 
 def emitted_names() -> set[str]:
     names: set[str] = set()
-    stack = [resources.files("agent_build_kit")]
+    stack = [Path(root) for root in agent_build_kit.__path__]
     while stack:
         for entry in stack.pop().iterdir():
             if entry.is_dir():

@@ -21,6 +21,7 @@ from typing import Any, Protocol
 import httpx
 from pydantic import ValidationError
 
+import agent_build_kit
 from agent_build_kit.model import Frozen
 from agent_build_kit.pipeline.metric_records import MetricRecord
 from agent_build_kit.pipeline.spans import Span
@@ -152,7 +153,8 @@ def catalogue(root: Path | None = None) -> list[Instrument]:
 @cache
 def _package_catalogue() -> tuple[Instrument, ...]:
     # The code cannot change while the server runs.
-    return tuple(_read_catalogue(Path(__file__).resolve().parent.parent))
+    # The package's source may sit in several trees (the worker package installs beside it).
+    return tuple(_read_catalogue(*(Path(p).resolve() for p in agent_build_kit.__path__)))
 
 
 def _literal(node: ast.expr) -> str | None:
@@ -180,9 +182,9 @@ def _instrument_call(node: ast.Call) -> tuple[str, str] | None:
     return None
 
 
-def _read_catalogue(root: Path) -> list[Instrument]:
+def _read_catalogue(*roots: Path) -> list[Instrument]:
     found: dict[str, Instrument] = {}
-    for path in sorted(root.rglob("*.py")):
+    for path in sorted(p for root in roots for p in root.rglob("*.py")):
         try:
             source = path.read_text()
             if INSTRUMENT_PREFIX not in source:

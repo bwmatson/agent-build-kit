@@ -3,7 +3,8 @@ wide-scans-are-integration).
 
 A scan is found by parsing a test module (strings and comments never count): a `test_` function that
   - calls a whole-tree helper (`guarded_files`, `hits`, `files`, `leaks`, `home_path_leaks`,
-    `repo_path_leaks`, `find_live_modules`, `check_sources`, `splits_by_syntax`, `Scan`) with no
+    `repo_path_leaks`, `find_live_modules`, `check_sources`, `check_source_trees`, `source_files`,
+    `splits_by_syntax`, `Scan`) with no
     `under=` folder, over a path that is not the test's own temporary tree, or
   - walks a folder with `glob` or `rglob` that is anchored at the repository: a path built from a
     module-level constant (`ROOT`, `SOURCE_ROOT`, `WORKFLOWS`) or from `__file__`. A folder the
@@ -40,6 +41,8 @@ WHOLE_TREE_CALLS = frozenset(
         "repo_path_leaks",
         "find_live_modules",
         "check_sources",
+        "check_source_trees",
+        "source_files",
         "splits_by_syntax",
         "Scan",
     }

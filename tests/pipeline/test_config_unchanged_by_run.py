@@ -10,7 +10,6 @@ from pathlib import Path
 
 import pytest
 
-import agent_build_kit
 from agent_build_kit import sandboxes
 from agent_build_kit.config import active, models
 from agent_build_kit.installation import Installation
@@ -19,6 +18,7 @@ from agent_build_kit.pipeline.wiring import build_run
 from agent_build_kit.runtimes import AgentRateLimited, AgentRequest, AgentResult
 from agent_build_kit.runtimes.claude_code import ClaudeCodeRuntime, spawn
 from tests.conftest import make_installation
+from tests.ecosystem_names import source_files
 from tests.pipeline.test_config_unchanged_when_confined import EDITED, step
 from tests.pipeline.test_wiring_sandbox import Recording, install
 from tests.runtimes.stand_in import StandInRuntime
@@ -181,12 +181,12 @@ def test_a_step_that_ran_unconfined_under_required_none_warns_and_the_unit_conti
     assert MAY_HAVE_WRITTEN in logged
 
 
+@pytest.mark.integration
 @pytest.mark.time_limit(LOADED_TEST_TIME_LIMIT)
 def test_there_is_no_config_changed_in_the_package() -> None:
-    package = Path(agent_build_kit.__file__).parent
     named = [
-        str(path.relative_to(package))
-        for path in package.rglob("*.py")
+        str(path.relative_to(tree))
+        for tree, path in source_files()
         if "ConfigChanged" in path.read_text()
     ]
 

@@ -52,9 +52,10 @@ def own_installation() -> list[Path]:
     found = [prefix, Path(sys.base_prefix), Path(sys.executable).resolve().parent]
     if entry := shutil.which("abk"):
         found.append(Path(entry).parent)
-    package = Path(agent_build_kit.__file__).resolve().parent
-    if not package.is_relative_to(prefix):
-        found.append(package.parent)
+    for tree in agent_build_kit.__path__:  # the worker package's tree is one of them
+        package = Path(tree).resolve()
+        if not package.is_relative_to(prefix):
+            found.append(package.parent)
     return list(_unique(path.resolve() for path in found if path.exists()))
 
 

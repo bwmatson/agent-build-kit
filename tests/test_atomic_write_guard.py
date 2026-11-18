@@ -12,7 +12,7 @@ import re
 
 import pytest
 
-from tests.ecosystem_names import SOURCE_ROOT
+from tests.ecosystem_names import source_files
 from tests.time_limit import LOADED_TEST_TIME_LIMIT
 
 SHARED = "pipeline/file_lock.py"
@@ -49,8 +49,8 @@ def replacements(tree: ast.AST) -> list[int]:
 @pytest.mark.integration
 def test_no_module_but_the_shared_one_replaces_a_file_from_a_temporary() -> None:
     problems = []
-    for path in sorted(SOURCE_ROOT.rglob("*.py")):
-        name = path.relative_to(SOURCE_ROOT).as_posix()
+    for tree, path in source_files():
+        name = path.relative_to(tree).as_posix()
         if name == SHARED or name in KEEPS_MODE:
             continue
         problems += [f"{name}:{line}" for line in replacements(ast.parse(path.read_text()))]

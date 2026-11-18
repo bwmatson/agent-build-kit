@@ -15,14 +15,17 @@ shrink, so an entry that no longer exists fails until it is removed.
 from __future__ import annotations
 
 import ast
+import tomllib
 from collections.abc import Collection, Iterator, Mapping
 from pathlib import Path
 
 import pytest
 
+from agent_build_kit.cli import COMMANDS_GROUP
+from tests.ecosystem_names import SOURCE_ROOT, WORKER_MODULES, WORKER_SOURCE
 from tests.support.package_seeds import Seeds, baseline, seeds
 
-SOURCE_ROOT = Path(__file__).resolve().parents[1] / "src" / "agent_build_kit"
+WORKER_ROOT = WORKER_SOURCE.parents[1]
 CORE, WORKER, ORCHESTRATOR = "core", "worker", "orchestrator"
 BASELINE_CEILING = 13
 ROOT_MODULE = "__init__"
@@ -102,9 +105,17 @@ def targets(
     return found
 
 
-def module_imports(root: Path) -> dict[str, set[str]]:
-    """Every module of the tree under `root` with the modules it imports at module level."""
-    paths = {module_name(root, p): p for p in sorted(root.rglob("*.py"))}
+def module_imports(root: Path, beside: Collection[Path] = ()) -> dict[str, set[str]]:
+    """Every module of the tree under `root` with the modules it imports at module level.
+
+    `beside` names trees of other packages that install into the same namespace; their modules are
+    scanned as if they sat under `root`.
+    """
+    paths = {
+        module_name(tree_root, p): p
+        for tree_root in (root, *beside)
+        for p in sorted(tree_root.rglob("*.py"))
+    }
     modules = set(paths)
     edges: dict[str, set[str]] = {}
     for module, path in paths.items():
@@ -193,8 +204,10 @@ def cycles(edges: Mapping[str, Collection[str]]) -> list[list[str]]:
     return groups
 
 
-def boundary_problems(root: Path, given: Seeds, known: Collection[Edge]) -> list[str]:
-    edges = module_imports(root)
+def boundary_problems(
+    root: Path, given: Seeds, known: Collection[Edge], beside: Collection[Path] = ()
+) -> list[str]:
+    edges = module_imports(root, beside)
     found = crossings(edges, assign(edges, given))
     problems = [message for edge, message in sorted(found.items()) if edge not in known]
     problems += [
@@ -426,6 +439,49 @@ def test_the_baseline_holds_no_more_than_the_thirteen_imports_of_the_design() ->
 
 @pytest.mark.integration
 def test_the_kit_has_no_import_across_the_packages_beyond_the_baseline() -> None:
-    problems = boundary_problems(SOURCE_ROOT, seeds(), baseline())
+    problems = boundary_problems(SOURCE_ROOT, seeds(), baseline(), [WORKER_SOURCE])
 
     assert problems == [], "\n".join(problems)
+
+
+def worker_problems(
+    worker_source: Path, core_source: Path, given: Seeds, known: Collection[Edge]
+) -> list[str]:
+    """Each module-level import in the worker's tree of an orchestrator module, beyond `known`."""
+    edges = module_imports(core_source, [worker_source])
+    packages = assign(edges, given)
+    own = {module_name(worker_source, p) for p in worker_source.rglob("*.py")}
+    return [
+        f"{module} imports {other} ({ORCHESTRATOR})"
+        for module, imported in sorted(edges.items())
+        if module in own
+        for other in sorted(imported)
+        if packages.get(other) == ORCHESTRATOR and (module, other) not in known
+    ]
+
+
+@pytest.mark.parametrize("module", WORKER_MODULES)
+def test_a_module_the_table_assigns_to_the_worker_is_in_the_worker_package(module: str) -> None:
+    assert (WORKER_SOURCE / module).is_file()
+    assert not (SOURCE_ROOT / module).exists()
+
+
+@pytest.mark.integration
+def test_no_file_of_the_worker_package_imports_an_orchestrator_module() -> None:
+    assert (WORKER_SOURCE / "cli" / "worker.py").is_file()
+
+    problems = worker_problems(WORKER_SOURCE, SOURCE_ROOT, seeds(), baseline())
+
+    assert problems == [], "\n".join(problems)
+
+
+def test_the_worker_package_depends_on_the_core_and_registers_abk_worker_as_a_command() -> None:
+    manifest = WORKER_ROOT / "pyproject.toml"
+    assert manifest.is_file()
+    project = tomllib.loads(manifest.read_text())["project"]
+
+    assert project["name"] == "agent-build-kit-worker"
+    assert any(d.startswith("agent-build-kit-core") for d in project["dependencies"])
+    assert project["entry-points"][COMMANDS_GROUP] == {
+        "worker": "agent_build_kit.cli.worker:register"
+    }

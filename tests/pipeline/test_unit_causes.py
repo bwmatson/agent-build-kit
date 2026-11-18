@@ -12,10 +12,10 @@ from pathlib import Path
 
 import pytest
 
-import agent_build_kit
 from agent_build_kit.pipeline.unit_store import Cause, HeldBy, UnitStore
 from agent_build_kit.pipeline.units import HELD, IN_REVIEW, PLANNED, RUNNING
 from agent_build_kit.pipeline.vocabulary import effective_state
+from tests.ecosystem_names import source_files
 from tests.factories import stored_unit, unit
 from tests.time_limit import LOADED_TEST_TIME_LIMIT
 
@@ -220,10 +220,10 @@ NOTE_PREFIX_CHECKS = re.compile(
 
 
 def sources() -> list[tuple[Path, str]]:
-    root = Path(agent_build_kit.__file__).parent
-    return [(path, path.read_text()) for path in sorted(root.rglob("*.py"))]
+    return [(path, path.read_text()) for _, path in source_files()]
 
 
+@pytest.mark.integration
 @pytest.mark.parametrize("name", DELETED_NAMES)
 @pytest.mark.time_limit(LOADED_TEST_TIME_LIMIT)
 def test_no_module_still_has_a_deleted_note_matcher(name: str) -> None:
@@ -232,6 +232,7 @@ def test_no_module_still_has_a_deleted_note_matcher(name: str) -> None:
     assert users == []
 
 
+@pytest.mark.integration
 @pytest.mark.time_limit(LOADED_TEST_TIME_LIMIT)
 def test_no_module_tests_a_note_by_its_prefix() -> None:
     users = [path.name for path, text in sources() if NOTE_PREFIX_CHECKS.search(text)]

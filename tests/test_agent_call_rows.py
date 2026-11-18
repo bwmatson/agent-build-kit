@@ -23,7 +23,7 @@ from agent_build_kit.runtimes import AgentRequest, AgentResult, AgentRuntime
 from agent_build_kit.runtimes.acp import AcpRuntime
 from agent_build_kit.runtimes.claude_code import ClaudeCodeRuntime
 from agent_build_kit.tracks import runner
-from tests.agent_call_sites import SRC_ROOT, check_sources
+from tests.agent_call_sites import check_source_trees
 from tests.call_rows import agent_rows
 from tests.factories import init_repo
 from tests.init.test_propose import detection, valid_report, write_change
@@ -146,4 +146,4 @@ def test_a_call_at_the_site_writes_exactly_one_row_named_for_it(
 @pytest.mark.time_limit(LOADED_TEST_TIME_LIMIT)
 @pytest.mark.integration
 def test_the_guard_passes_over_the_real_source_with_an_empty_allowlist() -> None:
-    assert check_sources(SRC_ROOT, allowlist={}) == []
+    assert check_source_trees() == []

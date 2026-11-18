@@ -192,7 +192,9 @@ def test_only_the_local_implementation_names_the_sqlite_opener() -> None:
     }
     offenders = [
         path.relative_to(ROOT).as_posix()
-        for path in guarded_files(under=["src/agent_build_kit"], suffixes={".py"})
+        for path in guarded_files(
+            under=["src/agent_build_kit", "packages/worker/src/agent_build_kit"], suffixes={".py"}
+        )
         if path.relative_to(ROOT).as_posix() not in allowed
         and "open_unit_graphs" in path.read_text()
     ]

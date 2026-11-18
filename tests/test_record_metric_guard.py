@@ -7,11 +7,10 @@ both calls; no other function in the source calls `record_metric`.
 from __future__ import annotations
 
 import ast
-from pathlib import Path
 
 import pytest
 
-from tests.ecosystem_names import SOURCE_ROOT
+from tests.ecosystem_names import source_files
 from tests.time_limit import LOADED_TEST_TIME_LIMIT
 
 HELPER = "emit_metric"
@@ -55,11 +54,11 @@ class Callers(ast.NodeVisitor):
 @pytest.mark.integration
 def test_no_function_but_the_helper_calls_the_local_record() -> None:
     problems = []
-    for path in sorted(SOURCE_ROOT.rglob("*.py")):
+    for tree, path in source_files():
         callers = Callers()
         callers.visit(ast.parse(path.read_text()))
         problems += [
-            f"{path.relative_to(Path(SOURCE_ROOT).parent)}:{line} {function} calls {LOCAL_RECORD}"
+            f"{path.relative_to(tree.parent)}:{line} {function} calls {LOCAL_RECORD}"
             for function, line in callers.found
         ]
 

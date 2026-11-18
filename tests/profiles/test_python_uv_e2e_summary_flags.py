@@ -6,7 +6,7 @@ from pathlib import Path
 import pytest
 
 from agent_build_kit.profiles.python_uv import PROFILE
-from tests.ecosystem_names import SOURCE_ROOT
+from tests.ecosystem_names import source_files
 from tests.time_limit import LOADED_TEST_TIME_LIMIT
 
 # `-vv` keeps a summary message whole (below it pytest cuts it to the terminal width).
@@ -45,8 +45,8 @@ def test_every_member_asks_for_the_short_summary(tmp_path: Path) -> None:
 @pytest.mark.time_limit(LOADED_TEST_TIME_LIMIT)
 def test_the_flags_are_named_in_the_python_profile_and_nowhere_else() -> None:
     named = {
-        path.relative_to(SOURCE_ROOT).as_posix()
-        for path in SOURCE_ROOT.rglob("*.py")
+        path.relative_to(tree).as_posix()
+        for tree, path in source_files()
         if any(flag in path.read_text() for flag in NAMED_ONLY_IN_PROFILE)
     }
 

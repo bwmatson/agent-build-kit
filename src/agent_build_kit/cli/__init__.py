@@ -12,14 +12,20 @@ from __future__ import annotations
 
 import argparse
 import importlib
+import importlib.metadata
 import sys
 from pathlib import Path
+from pkgutil import extend_path
+from typing import Any
 
 from agent_build_kit import __version__
 from agent_build_kit import settings as settings_module
 from agent_build_kit.config import ConfigError
 from agent_build_kit.installation import load_installation
 from agent_build_kit.pipeline.planning_sync import live_notice
+
+# The worker package holds the `worker` command's module.
+__path__ = extend_path(__path__, __name__)
 
 # Commands that write the pipeline's state: from a working copy whose installation is live in the
 # pipeline worktree they refuse, unless a config is named. `status` only says where it is.
@@ -58,8 +64,44 @@ COMMAND_MODULES = (
     "agent_build_kit.cli.review_report",
     "agent_build_kit.cli.units_cmd",
     "agent_build_kit.cli.carry_cmd",
-    "agent_build_kit.cli.worker",
 )
+
+# Commands a separately installed package registers: the entry-point group names each one.
+COMMANDS_GROUP = "abk.commands"
+# What each such command needs installed, for the message when it is not.
+COMMAND_PACKAGES = {"worker": "worker"}
+
+
+def register_missing(sub: Any, name: str, package: str) -> None:
+    """Register `name` so it says its package is not installed and exits 2."""
+    parser = sub.add_parser(name, help=f"needs the {package} package, which is not installed")
+    parser.add_argument("rest", nargs=argparse.REMAINDER)
+    parser.set_defaults(
+        func=lambda args, inst: not_installed(name, package), needs_installation=False
+    )
+
+
+def not_installed(name: str, package: str) -> int:
+    print(f"abk {name}: the {package} package is not installed", file=sys.stderr)
+    return 2
+
+
+def register_entry_point_commands(sub: Any) -> None:
+    found = {e.name: e for e in importlib.metadata.entry_points(group=COMMANDS_GROUP)}
+    loaded: set[str] = set()
+    for entry in sorted(found.values(), key=lambda e: e.name):
+        module = entry.module
+        try:
+            register = entry.load()
+        except ModuleNotFoundError as error:
+            if not error.name or not (module == error.name or module.startswith(f"{error.name}.")):
+                raise
+            continue  # a stale or partial install: only this command is missing
+        register(sub)
+        loaded.add(entry.name)
+    for name, package in COMMAND_PACKAGES.items():
+        if name not in loaded:
+            register_missing(sub, name, package)
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -80,6 +122,7 @@ def build_parser() -> argparse.ArgumentParser:
                 raise
             continue
         module.register(sub)
+    register_entry_point_commands(sub)
     return parser
 
 
