@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- A rewrite of a unit's own commits is re-verified like any other change. An `Already-built`
+  marker excuses a commit only when the pipeline recorded it as built, so a marker the agent
+  wrote does not. When a step with a rewrite request moves the branch, the unit's history and
+  the pull request description say the history was rewritten and who asked.
+
 - A tests step resumed over a test or document file that an earlier, killed run left in the
   tree is no longer judged as having written nothing when it keeps that file: the file is
   committed as the tests commit and the unit goes on to its checks. A leftover source file

@@ -147,6 +147,8 @@ def recorded_built(repo: Path, sha: str, recorded: Collection[str] | None = None
     marked = git_out(
         repo, "log", "-1", f"--format=%(trailers:key={ALREADY_BUILT_TRAILER},valueonly)", sha
     )
+    if recorded is not None and sha not in recorded:
+        return False
     return marked.strip() == "yes" and not _files_in(repo, sha)
 
 

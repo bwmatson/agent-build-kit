@@ -576,6 +576,14 @@ a unit review classified `auto` and policy allowed; a person merges any other, a
         )
     if restack_note:
         sections.append(_fixed("restack", f"## What moved underneath this\n\n{restack_note}"))
+    if rewrites := [e for e in unit.history if e.get("event") == "history_rewritten"]:
+        sections.append(
+            _fixed(
+                "rewritten",
+                f"**History rewritten:** {rewrites[-1].get('note', '')}. Commits read in an "
+                "earlier round were replaced.",
+            )
+        )
     if open_points:
         sections.append(
             _fixed(
