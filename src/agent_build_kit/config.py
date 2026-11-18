@@ -1714,7 +1714,7 @@ def stack_versions_for(verify: VerifyConfig, profile: infra.InfraProfile) -> lis
 CLAUDE_CODE = "claude_code"
 
 
-# Mirrors graph.state.SessionRole, which config cannot import; a test keeps them in step.
+# Mirrors pipeline.unit_state.SessionRole, which config cannot import; a test keeps them in step.
 SESSION_REUSE_ROLES = tuple(SESSION_GROUPS)
 
 

@@ -1,34 +1,46 @@
 """The one door `abk serve` reaches a unit's graph thread through.
 
-The graph belongs to the worker package, so `serve` does not import it: the worker's
-`graph/unit.py` registers a handler here, and `run_unit_graph` calls it."""
+The graph belongs to the worker package, so `serve` reads a thread through this typed seam
+and the server, which composes the worker in, registers the worker's implementation of it."""
 
 from __future__ import annotations
 
-from collections.abc import Awaitable, Callable
-from typing import Any
+from typing import Protocol
 
 from langgraph.checkpoint.base import BaseCheckpointSaver
 
-UnitGraphHandler = Callable[[str, BaseCheckpointSaver, str], Awaitable[Any]]
+from agent_build_kit.pipeline.unit_state import Position
 
-_handler: UnitGraphHandler | None = None
+
+class UnitGraph(Protocol):
+    """What a reader of a unit's thread needs of the graph."""
+
+    async def position(self, saver: BaseCheckpointSaver, unit_id: str) -> Position:
+        """Read `unit_id`'s thread without running it."""
+        ...
+
+    async def clear_running_node(self, saver: BaseCheckpointSaver, unit_id: str) -> None:
+        """Forget the start a killed node left in `unit_id`'s thread."""
+        ...
+
+
+_graph: UnitGraph | None = None
 
 
 class UnitGraphNotRegistered(RuntimeError):
-    """`run_unit_graph` was called before any handler was registered."""
+    """`registered_unit_graph` was called before any graph was registered."""
 
 
-def register_unit_graph(handler: UnitGraphHandler | None) -> UnitGraphHandler | None:
-    """Fill the entry with `handler` (None empties it); returns the one it replaced."""
-    global _handler
-    replaced, _handler = _handler, handler
+def register_unit_graph(graph: UnitGraph | None) -> UnitGraph | None:
+    """Fill the entry with `graph` (None empties it); returns the one it replaced."""
+    global _graph
+    replaced, _graph = _graph, graph
     return replaced
 
 
-async def run_unit_graph(operation: str, saver: BaseCheckpointSaver, unit_id: str) -> Any:
-    """Run `operation` (`position` or `clear_running_node`) on `unit_id`'s thread through the
-    registered handler."""
-    if _handler is None:
+def registered_unit_graph() -> UnitGraph:
+    """The registered graph. `create_app` registers it, so code that reads a thread outside a
+    served app (a test, a command) registers one first."""
+    if _graph is None:
         raise UnitGraphNotRegistered("no unit graph is registered: register one first")
-    return await _handler(operation, saver, unit_id)
+    return _graph

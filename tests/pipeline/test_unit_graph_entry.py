@@ -1,24 +1,24 @@
-"""`run_unit_graph` reaches a unit's graph thread through a handler a registration call fills, and
-the graph's state types are defined in the core, so a core or orchestrator module imports no
-worker module for either."""
+"""`registered_unit_graph` reaches a unit's graph thread through an object a registration call
+fills, and the graph's state types are defined in the core, so a core or orchestrator module
+imports no worker module for either."""
 
 from __future__ import annotations
 
 import asyncio
 import importlib
 from collections.abc import Iterator
-from pathlib import Path
 from typing import Any
 
 import pytest
+from langgraph.checkpoint.memory import InMemorySaver
 
-from agent_build_kit.graph.checkpointer import open_checkpointer, unit_graphs_path
 from agent_build_kit.pipeline.unit_graph_entry import (
-    UnitGraphHandler,
+    UnitGraph,
     UnitGraphNotRegistered,
     register_unit_graph,
-    run_unit_graph,
+    registered_unit_graph,
 )
+from agent_build_kit.pipeline.unit_state import Position
 
 
 @pytest.fixture
@@ -29,46 +29,53 @@ def entry() -> Iterator[None]:
     register_unit_graph(before)
 
 
-def call(tmp_path: Path, operation: str) -> Any:
-    async def go() -> Any:
-        async with open_checkpointer(unit_graphs_path(tmp_path)) as saver:
-            return await run_unit_graph(operation, saver, "feature/1")
+class FakeGraph:
+    """Satisfies `UnitGraph`, and records the calls that reach it."""
 
-    return asyncio.run(go())
+    def __init__(self) -> None:
+        self.calls: list[tuple[str, str]] = []
+
+    async def position(self, saver: Any, unit_id: str) -> Position:
+        self.calls.append(("position", unit_id))
+        return Position()
+
+    async def clear_running_node(self, saver: Any, unit_id: str) -> None:
+        self.calls.append(("clear_running_node", unit_id))
 
 
-def test_a_call_with_nothing_registered_fails_saying_so(entry: None, tmp_path: Path) -> None:
+def test_asking_for_the_graph_with_nothing_registered_fails_saying_so(entry: None) -> None:
     with pytest.raises(UnitGraphNotRegistered, match="register"):
-        call(tmp_path, "position")
+        registered_unit_graph()
 
 
-def test_a_call_runs_the_registered_handler_and_returns_its_answer(
-    entry: None, tmp_path: Path
-) -> None:
-    seen: list[tuple[str, str]] = []
+def test_each_method_of_the_registered_graph_is_reached(entry: None) -> None:
+    graph = FakeGraph()
+    register_unit_graph(graph)
+    saver = InMemorySaver()
 
-    async def handler(operation: str, saver: Any, unit_id: str) -> str:
-        seen.append((operation, unit_id))
-        return "answer"
+    async def go() -> Position:
+        found = await registered_unit_graph().position(saver, "feature/1")
+        await registered_unit_graph().clear_running_node(saver, "feature/2")
+        return found
 
-    register_unit_graph(handler)
+    found = asyncio.run(go())
 
-    assert call(tmp_path, "clear_running_node") == "answer"
-    assert seen == [("clear_running_node", "feature/1")]
-
-
-def test_registering_again_returns_the_handler_it_replaced(entry: None) -> None:
-    async def first(operation: str, saver: Any, unit_id: str) -> None: ...
-
-    async def second(operation: str, saver: Any, unit_id: str) -> None: ...
-
-    handlers: list[UnitGraphHandler | None] = [register_unit_graph(first)]
-    handlers.append(register_unit_graph(second))
-
-    assert handlers == [None, first]
+    assert found == Position()
+    assert graph.calls == [("position", "feature/1"), ("clear_running_node", "feature/2")]
 
 
-@pytest.mark.parametrize("name", ["Node", "UnitRun", "AgentSession", "SessionRole", "EventKind"])
+def test_registering_again_returns_the_graph_it_replaced(entry: None) -> None:
+    first: UnitGraph = FakeGraph()
+    second: UnitGraph = FakeGraph()
+
+    replaced = [register_unit_graph(first), register_unit_graph(second)]
+
+    assert replaced == [None, first]
+
+
+@pytest.mark.parametrize(
+    "name", ["Node", "UnitRun", "AgentSession", "SessionRole", "EventKind", "Position"]
+)
 def test_the_graph_state_types_are_defined_in_the_core(name: str) -> None:
     state = importlib.import_module("agent_build_kit.pipeline.unit_state")
 

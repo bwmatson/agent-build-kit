@@ -102,5 +102,6 @@ def baseline() -> frozenset[tuple[str, str]]:
         {
             ("cli.pipeline", "pipeline.resolution_lane"),
             ("cli.pipeline", "pipeline.verify"),
+            ("serve.server", "graph.unit"),
         }
     )

@@ -18,13 +18,11 @@ from langgraph.types import Command, StateSnapshot
 from agent_build_kit.graph.build import BUILD_NODES, compile_build_path
 from agent_build_kit.graph.nodes import WAITS, BuildPath
 from agent_build_kit.graph.run import run_thread
-from agent_build_kit.model import Frozen
 from agent_build_kit.pipeline import spans
 from agent_build_kit.pipeline.metric_records import emit_metric
 from agent_build_kit.pipeline.run_log import RunLog
 from agent_build_kit.pipeline.stack_runner import PauseInfo, RunOutcome, RunStatus, UnitRunner
-from agent_build_kit.pipeline.unit_graph_entry import register_unit_graph
-from agent_build_kit.pipeline.unit_state import EventKind, Node, ResumeEvent, UnitRun
+from agent_build_kit.pipeline.unit_state import EventKind, Node, Position, ResumeEvent, UnitRun
 from agent_build_kit.pipeline.unit_store import StoredUnit, awaits_release, feedback_source_of
 from agent_build_kit.pipeline.units import FAILED, HELD, Unit, branch_name
 from agent_build_kit.pipeline.workspaces import BranchBusy, branch_lock
@@ -45,16 +43,6 @@ class Tracer(Protocol):
 
 class NotWaiting(RuntimeError):
     """An event for a unit whose thread is not in a wait, and cannot be put in one."""
-
-
-class Position(Frozen):
-    """Where a unit's thread stands: the nodes still to run (empty when it has
-    ended or does not exist), its state, and the usage pause it waits in."""
-
-    next: tuple[Node, ...] = ()
-    state: UnitRun | None = None
-    pause: PauseInfo | None = None
-    paused_since: datetime | None = None
 
 
 async def _nothing(state: UnitRun) -> dict[str, Any]:
@@ -106,17 +94,18 @@ async def clear_running_node(saver: BaseCheckpointSaver, unit_id: str) -> None:
     await compiled.aupdate_state(_config(unit_id), {"running_node": ""})
 
 
-async def _serve_operation(operation: str, saver: BaseCheckpointSaver, unit_id: str) -> Any:
-    """The handler the core's entry runs for `abk serve`: reading a thread, or forgetting the
-    start a killed node left in it."""
-    if operation == "position":
+class ServedUnitGraph:
+    """The unit graph as `abk serve` reaches it: it satisfies the core's `UnitGraph` protocol,
+    and the server registers `SERVED_UNIT_GRAPH` with `register_unit_graph`."""
+
+    async def position(self, saver: BaseCheckpointSaver, unit_id: str) -> Position:
         return await thread_position(saver, unit_id)
-    if operation == "clear_running_node":
-        return await clear_running_node(saver, unit_id)
-    raise ValueError(f"no unit graph operation named {operation!r}")
+
+    async def clear_running_node(self, saver: BaseCheckpointSaver, unit_id: str) -> None:
+        await clear_running_node(saver, unit_id)
 
 
-register_unit_graph(_serve_operation)
+SERVED_UNIT_GRAPH = ServedUnitGraph()
 
 
 async def set_pending_replies(

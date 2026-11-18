@@ -40,7 +40,7 @@ from agent_build_kit.pipeline.transcript import (
     read_transcripts,
     unit_transcript_keys,
 )
-from agent_build_kit.pipeline.unit_graph_entry import run_unit_graph
+from agent_build_kit.pipeline.unit_graph_entry import registered_unit_graph
 from agent_build_kit.pipeline.unit_state import AgentSession
 from agent_build_kit.pipeline.unit_store import Cause, StoredUnit
 from agent_build_kit.pipeline.units import RUNNING
@@ -218,7 +218,7 @@ class Chat:
 
         async def clear() -> None:
             async with open_checkpoints(self.installation) as saver:
-                await run_unit_graph("clear_running_node", saver, unit.id)
+                await registered_unit_graph().clear_running_node(saver, unit.id)
 
         asyncio.run(clear())
 

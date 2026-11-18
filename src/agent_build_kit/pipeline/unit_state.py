@@ -3,11 +3,12 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
+from datetime import datetime
 from enum import StrEnum
 from typing import Any
 
 from agent_build_kit.model import Frozen
-from agent_build_kit.pipeline.stack_runner import Restacked, RunStatus
+from agent_build_kit.pipeline.stack_runner import PauseInfo, Restacked, RunStatus
 from agent_build_kit.pipeline.unit_store import FeedbackSource, RequeueReason, ReworkKind
 
 
@@ -193,3 +194,13 @@ class UnitRun(Frozen):
     status: RunStatus | None = None
     detail: str = ""
     pr: int | None = None
+
+
+class Position(Frozen):
+    """Where a unit's thread stands: the nodes still to run (empty when it has
+    ended or does not exist), its state, and the usage pause it waits in."""
+
+    next: tuple[Node, ...] = ()
+    state: UnitRun | None = None
+    pause: PauseInfo | None = None
+    paused_since: datetime | None = None
