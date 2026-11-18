@@ -64,3 +64,21 @@ def test_a_passing_test_is_rejected_in_both_readings() -> None:
     assert stubbed_problems
     assert not ok
     assert problems
+
+
+@pytest.mark.parametrize(
+    ("output", "exit_code"),
+    [("", 5), ("collected 0 items\n", 1), ("no tests ran in 0.01s\n", 1)],
+)
+def test_a_run_that_collected_no_test_is_reported_as_such(output: str, exit_code: int) -> None:
+    assert PROFILE.collected_nothing(output, exit_code)
+
+
+@pytest.mark.parametrize(
+    ("output", "exit_code"),
+    [("1 failed in 0.05s\n", 1), ("1 passed in 0.05s\n", 0), ("1 error in 0.10s\n", 2)],
+)
+def test_a_run_with_a_failure_a_pass_or_a_collection_error_collected_something(
+    output: str, exit_code: int
+) -> None:
+    assert not PROFILE.collected_nothing(output, exit_code)

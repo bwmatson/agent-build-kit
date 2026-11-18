@@ -7706,6 +7706,7 @@ def cmd_gate(args: argparse.Namespace, inst: Installation | None) -> int:
         projects=projects,
         stubbed=stubbed,
         groups=unit_groups(inst, Path(args.repo)) if stubbed else (),
+        log=print,
     )
     for problem in problems:
         print(f"✗ {problem}")

@@ -42,6 +42,7 @@ from agent_build_kit.pipeline.e2e import (
     parse_pytest_summary,
 )
 from agent_build_kit.pipeline.red_check import (
+    NO_TESTS,
     collection_errors,
     judge_red,
     split_report,
@@ -726,6 +727,10 @@ class PythonUvProfile:
         report, console = split_report(output)
         result = judge_red(report, console, exit_code, stubbed=stubbed)
         return result.verdict == "accepted", list(result.problems)
+
+    def collected_nothing(self, output: str, exit_code: int) -> bool:
+        """Whether pytest collected no test: its exit code 5, or a report that says so."""
+        return exit_code == self.no_tests_collected_exit or bool(NO_TESTS.search(output))
 
     def collection_errors(self, output: str) -> list[str]:
         """Each module pytest could not collect, with the start of its error."""

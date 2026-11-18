@@ -2,9 +2,11 @@
 
 ## Unreleased
 
-- The red check no longer runs a project whose only test-folder change is a support helper
-  beside another project of the same commit that adds a failing test; the helper's project
-  used to be run whole and could be rejected as passing before its implementation.
+- The red check no longer rejects a tests commit because one project collected no test, as
+  when it holds only a support helper, while another project of the commit failed for the
+  right reason. A toolchain says a run collected nothing through an optional
+  `collected_nothing` hook (the Python one does); each excused project is named in the log
+  and the unit's history, and a commit where no project failed is rejected as before.
 
 - A unit settling behind a parent's branch, or held as landed off the default branch, is now
   recorded merged when every change it made is already on the default branch, as happens when
