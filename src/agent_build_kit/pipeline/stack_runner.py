@@ -732,6 +732,8 @@ class Verdict(Frozen):
     # the groups or files behind one above the planned estimate.
     classification: str = ""
     drivers: tuple[str, ...] = ()
+    # The history shape the reviewer asks for, in a sentence or two; "" when it asks for none.
+    rewrite_request: str = ""
 
     @property
     def blocking(self) -> tuple[FollowUp, ...]:
