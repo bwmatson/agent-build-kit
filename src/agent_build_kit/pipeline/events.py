@@ -35,7 +35,7 @@ from __future__ import annotations
 import json
 import subprocess
 import time
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Callable, Sequence
 from contextlib import AbstractContextManager, ExitStack, nullcontext
 from datetime import UTC, datetime, timedelta
 from enum import StrEnum
@@ -57,6 +57,7 @@ from agent_build_kit.forges.base import (
 )
 from agent_build_kit.forges.transport import TRANSIENT
 from agent_build_kit.model import Frozen
+from agent_build_kit.pipeline import holds as _holds
 from agent_build_kit.pipeline import spans
 from agent_build_kit.pipeline.check_runner import worktree_at
 from agent_build_kit.pipeline.flakes import (
@@ -67,6 +68,20 @@ from agent_build_kit.pipeline.flakes import (
     waiting_note,
 )
 from agent_build_kit.pipeline.generated import GeneratedFilesFailed, hold_note
+from agent_build_kit.pipeline.holds import (  # noqa: F401 — the hold helpers, re-exported
+    HELD_BY_A_REVIEWER,
+    MOVED_BASE_CAUSES,
+    OWED_CAUSES,
+    OWED_STATES,
+    Claim,
+    held_cause,
+    held_for_its_own_reason,
+    hold_for_conflict,
+    in_a_lane_run,
+    read_base_tip,
+    restore_depth_hold,
+    takeover_note,
+)
 from agent_build_kit.pipeline.landing_check import Landing, merged_on_branch, merged_on_default
 from agent_build_kit.pipeline.landing_intent import clear_intent, has_intent
 from agent_build_kit.pipeline.pr_poller import (  # noqa: F401 — FAILING_CHECKS_REASON re-exported
@@ -162,11 +177,9 @@ class RestackOutcome(StrEnum):
     DEFERRED = "deferred"  # the move could not run now (a pause, a busy checkout): retry later
 
 
+held_for_depth = _holds.held_for_depth  # a local of the same name shadows an import
 Restack = Callable[..., RestackOutcome | None]
 CONFLICT_MOVE_REASON = "the trunk moved under a conflicting pull request"
-# Holds a unit's branch for the length of a handler, or raises `BranchBusy`
-# because a build holds it. See the module docstring.
-Claim = Callable[[StoredUnit], AbstractContextManager[object]]
 # Delivers an event (its kind, reason, feedback and whether the feedback is a
 # person's words, which only a rework has) to the unit's thread on the
 # graph engine, which leaves the thread positioned at the node the event routes
@@ -201,51 +214,6 @@ DEPTH_HOLD = "restack onto {new_base} skipped: depth {depth} is beyond the rebas
 # Failed retarget rounds in a row before the unit is held `base_not_moved`.
 BASE_MOVE_ATTEMPTS = 3
 DEPTH_HOLD_BASE = " (still on {old_base})"
-# What the label handler writes as a hold's note when the reviewer's hold has
-# no reason of its own. Prose for people: nothing reads it.
-HELD_BY_A_REVIEWER = "held by a reviewer"
-
-
-def held_for_depth(unit: StoredUnit) -> bool:
-    """Held for the stack depth cap, which a later merge may free: by the holder
-    the record keeps. A record from before it was kept is not read from its note."""
-    return unit.state == HELD and unit.held_by == HeldBy.DEPTH
-
-
-def held_for_its_own_reason(unit: StoredUnit) -> bool:
-    """Held for a reason the hold label did not make and its removal must not undo:
-    the review loop, the toolchain, a cause not recorded. A depth hold is not one,
-    since a merge frees it, so the label takes it over; and a unit the label
-    already holds is not held for another reason."""
-    return unit.state == HELD and not unit.held_by_the_label and not held_for_depth(unit)
-
-
-def held_cause(unit: StoredUnit) -> str:
-    return unit.held_by or "an unrecorded cause"
-
-
-def takeover_note(unit: StoredUnit, reason: str = "") -> str:
-    """The note the label's hold on `unit` is recorded with. A depth hold keeps its
-    own, for a person reading it; the branch it is still on is the `held_base` field."""
-    if held_for_depth(unit):
-        return unit.note
-    return reason or HELD_BY_A_REVIEWER
-
-
-def restore_depth_hold(store: UnitStore, unit: StoredUnit) -> bool:
-    """Give a unit the label took a depth hold from back to that hold, as the
-    `held_base` it kept says. False when the label's hold was not over one."""
-    if not unit.held_base:
-        return False
-    store.set_state(
-        unit.id,
-        HELD,
-        note=unit.note,
-        held_by=HeldBy.DEPTH,
-        cause=Cause.DEPTH,
-        held_base=unit.held_base,
-    )
-    return True
 
 
 def _unclaimed(unit: StoredUnit) -> AbstractContextManager[object]:
@@ -997,17 +965,6 @@ def remove_merged_branches(
             on_new_base=on_new_base,
             log=log,
         )
-
-
-OWED_STATES = (PLANNED, RUNNING, IN_REVIEW)
-OWED_CAUSES = (Cause.BASE_CHANGED, Cause.RESTACK_DEFERRED)
-# The causes of a unit owed a moved-base run: a restack is owed for the first two only.
-MOVED_BASE_CAUSES = (*OWED_CAUSES, Cause.RESTACK_CONFLICT)
-
-
-def in_a_lane_run(unit: StoredUnit) -> bool:
-    """Whether a resolve worker is making the unit's whole run, so it is that run's to resume."""
-    return unit.state == RUNNING and unit.moved_base_run
 
 
 def owed_its_move(unit: StoredUnit) -> bool:
@@ -2243,17 +2200,6 @@ def _read_base_tip(base_tip: Callable[[StoredUnit], str], unit: StoredUnit, log:
         return None
 
 
-def read_base_tip(
-    checkouts: Mapping[str, Path], unit: StoredUnit, units: Sequence[StoredUnit]
-) -> str:
-    """The commit of the unit's own base, the trunk's remote ref for a unit built on it and
-    its parent's branch for a stacked one, in the unit's repo checkout; raises when it cannot
-    be read. The one reading of a tip, so the conflict handler's attempts and the restack
-    lane's are counted at the same commit."""
-    base = local_ref(base_of(unit, units), repo=unit.repo)
-    return git(checkouts[unit.repo], "rev-parse", base).stdout.strip()
-
-
 def build_base_tip(store: UnitStore, checkouts: dict[str, Path]) -> Callable[[StoredUnit], str]:
     """What `on_conflict` reads as a unit's base tip (see `read_base_tip`)."""
 
@@ -2311,23 +2257,6 @@ def _hold_conflict(
     phrase = conflict_phrase(unit, base_of(unit, store.all()), since)
     note = f"{phrase} (base tip {tip[:12]}): {why}"
     hold_for_conflict(unit, store, note, log, label=f"conflict #{unit.pr}")
-
-
-def hold_for_conflict(
-    unit: StoredUnit, store: UnitStore, note: str, log: Log, *, label: str
-) -> None:
-    """Hold, for a person, a unit whose attempts at a conflict did not settle it (freed by
-    `abk release`): the one hold of the conflict handler and the restack lane."""
-    store.set_state(
-        unit.id,
-        HELD,
-        note=note,
-        held_by=HeldBy.REVIEW,
-        cause=Cause.NEEDS_HUMAN,
-        pr=unit.pr,
-        branch=unit.branch,
-    )
-    log(f"{label}: {unit.id} held — {note}")
 
 
 def on_rerun_checks(

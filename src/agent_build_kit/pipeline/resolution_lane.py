@@ -26,7 +26,8 @@ from typing import Any
 from agent_build_kit.config import active
 from agent_build_kit.installation import Installation
 from agent_build_kit.pipeline import host, spans
-from agent_build_kit.pipeline.events import (
+from agent_build_kit.pipeline.file_lock import atomic_write_text
+from agent_build_kit.pipeline.holds import (
     MOVED_BASE_CAUSES,
     OWED_CAUSES,
     OWED_STATES,
@@ -35,7 +36,6 @@ from agent_build_kit.pipeline.events import (
     in_a_lane_run,
     read_base_tip,
 )
-from agent_build_kit.pipeline.file_lock import atomic_write_text
 from agent_build_kit.pipeline.lease import Leases, lease_dir
 from agent_build_kit.pipeline.shell import git
 from agent_build_kit.pipeline.unit_store import (

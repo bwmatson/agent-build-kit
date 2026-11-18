@@ -74,12 +74,6 @@ from agent_build_kit.pipeline.commit_order import (
 from agent_build_kit.pipeline.e2e import NO_TEST_RAN, E2eVerdict
 from agent_build_kit.pipeline.e2e_schedule import is_scheduled, scheduled_split
 from agent_build_kit.pipeline.e2e_scope import is_product_path, is_test_path
-from agent_build_kit.pipeline.events import (
-    held_cause,
-    held_for_its_own_reason,
-    restore_depth_hold,
-    takeover_note,
-)
 from agent_build_kit.pipeline.fix_reproduction import Outcome, unreproduced_guidance
 from agent_build_kit.pipeline.flakes import (
     FailedOnBase,
@@ -95,6 +89,12 @@ from agent_build_kit.pipeline.flakes import (
 from agent_build_kit.pipeline.gateway_usage import attribution
 from agent_build_kit.pipeline.generated import GeneratedFilesFailed, hold_note
 from agent_build_kit.pipeline.group_mode import GroupMode
+from agent_build_kit.pipeline.holds import (
+    held_cause,
+    held_for_its_own_reason,
+    restore_depth_hold,
+    takeover_note,
+)
 from agent_build_kit.pipeline.manual_steps import unmet_steps
 from agent_build_kit.pipeline.metric_records import emit_metric
 from agent_build_kit.pipeline.moved_base import kinds_of
