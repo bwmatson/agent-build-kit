@@ -2708,6 +2708,7 @@ class BuildPath:
             FeedbackSource.SCOPE,
         )
         in_loop = state.verdict is Verdict.CHANGES
+        asked = stored.rewrite_request.text if stored.rewrite_request else ""
         note = person_guidance(guidance)
         kept: Update = {}
         outside = self.outside_note(state, tree)
@@ -2731,6 +2732,7 @@ class BuildPath:
                         feedback=feedback,
                         boundary=build_boundary,
                         changelog=changelog_note(tree, r.repo_config),
+                        rewrite_request=asked,
                     ),
                     outside,
                 ),
@@ -2785,6 +2787,7 @@ class BuildPath:
                         pr=stored.pr or "(not yet opened)",
                         boundary=build_boundary,
                         changelog=changelog_note(tree, r.repo_config),
+                        rewrite_request=asked,
                     ),
                     outside,
                 ),
