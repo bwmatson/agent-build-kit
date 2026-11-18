@@ -59,7 +59,8 @@ def test_a_direct_connection_to_an_ip_fails(
     backend: SandboxBackend, proxied: tuple[int, Scene]
 ) -> None:
     proxy_port, scene = proxied
-    with listening("127.0.0.2") as port:
+    with listening("127.0.0.2", avoid={proxy_port}) as port:
+        assert port != proxy_port
         assert _connect(backend, scene, proxy_port, "127.0.0.2", port) == "PermissionError"
 
 
