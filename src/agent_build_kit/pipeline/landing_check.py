@@ -37,11 +37,20 @@ def merged_on_default(repo: Path, merge_sha: str, default_branch: str) -> bool:
     return merged_on_branch(repo, merge_sha, default_branch)
 
 
-def content_on_default(repo: Path, merge_sha: str, default_branch: str) -> bool:
+def content_on_default(
+    repo: Path, merge_sha: str, default_branch: str, *, fetch: bool = True
+) -> bool:
     """True when every change `merge_sha` made (its diff against its first parent) is already
-    applied on the default branch on the remote, after a fetch. It is applied when merging the
-    commit into the default branch, with its first parent as the base, changes nothing."""
-    git(repo, "fetch", "-q", "origin", default_branch, check=False)
+    applied on the default branch on the remote, after a fetch (`fetch=False` when the caller
+    has just fetched it). It is applied when merging the commit into the default branch, with
+    its first parent as the base, changes nothing.
+
+    This is conservative: a later commit on the default branch that edits the lines the change
+    touched makes the merge conflict or differ, and the change is then not recognised; the unit
+    stays waiting for a person. It needs git 2.40 or later (`merge-tree --write-tree` with
+    `--merge-base`); an older git cannot run it and the answer is False."""
+    if fetch:
+        git(repo, "fetch", "-q", "origin", default_branch, check=False)
     head = f"refs/remotes/origin/{default_branch}"
     merged = git(
         repo,

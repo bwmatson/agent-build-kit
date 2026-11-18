@@ -1155,7 +1155,7 @@ def recheck_landings(
             continue
         repo, trunk = repos[unit.repo], trunk_of(unit.repo)
         by_commit = merged_on_default(repo, unit.merge_sha, trunk)
-        if not by_commit and not content_on_default(repo, unit.merge_sha, trunk):
+        if not by_commit and not content_on_default(repo, unit.merge_sha, trunk, fetch=False):
             continue
         # Present by content (a squash): the default branch's head stands for the merge.
         landed_as = unit.merge_sha if by_commit else default_head(repo, trunk)
@@ -1174,7 +1174,13 @@ def recheck_landings(
         except BranchBusy as error:
             _deferred("recheck", unit, error, log)
             continue
-        log(f"{unit.id}: its commit is on the default branch, recorded merged")
+        if by_commit:
+            log(f"{unit.id}: its commit is on the default branch, recorded merged")
+        else:
+            log(
+                f"{unit.id}: its changes are on the default branch (squashed), "
+                f"recorded merged at {landed_as}"
+            )
         recorded.append(unit.id)
     return recorded
 
