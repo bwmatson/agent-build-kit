@@ -21,6 +21,8 @@
   the unit's own commits as the note asks. A unit's history records that the request was made,
   by whom, and that it was used. `--rewrite` is refused with `--restart`, without `--rework` or
   without a note, and a `--rework` with no `--rewrite` clears a request the unit holds. The
+  review's reply may carry a `rewrite_request` beside its findings, for the shape of the
+  commits only; when it sends the unit back the request is stored as the review's. The
   pipeline now records the sha of each empty commit it makes to mark a group built, and an
   `Already-built` marker on any other commit no longer lets a resumed run treat that group as
   recorded.

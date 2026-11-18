@@ -988,6 +988,12 @@ someone who has not seen the spec and worked out from the diff: a one-sentence
 behaviour first, naming a file only where that helps and saying nothing about
 files the branch does not change. It rides in the same reply; do not run anything extra for it.
 
+Add `"rewrite_request"` only when the fix is to the shape of the commits: which edits sit in
+which commit, a support edit that belongs in the feature commit, a commit that should be
+split or squashed. It is for the shape of the commits, which the structure check and the red
+check cannot judge, and not for taste or a style preference. It is a sentence or two, beside
+the findings; leave it out otherwise.
+
 Reply with JSON and nothing else:
 {"approved": true|false, "feedback": "anything that is not a finding, empty when approved",
  "findings": [{"file": "path", "line": 12, "summary": "...", "consequence": "...",
@@ -996,7 +1002,7 @@ Reply with JSON and nothing else:
  "needs_human": false,
  "follow_ups": [{"kind": "optional|correctness|test_passes_regardless|missing_test|policy",
                  "point": "..."}],
- "escalate": "", "reasoning": "",
+ "escalate": "", "reasoning": "", "rewrite_request": "",
  "description": {"summary": "...", "changes": ["..."]}}
 """
 )

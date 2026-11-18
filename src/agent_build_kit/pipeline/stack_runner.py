@@ -61,6 +61,8 @@ from agent_build_kit.pipeline.unit_store import (
     Cause,
     Description,
     FeedbackSource,
+    RewriteSource,
+    StoredRewriteRequest,
     StoredUnit,
     UnitStore,
 )
@@ -732,6 +734,8 @@ class Verdict(Frozen):
     # the groups or files behind one above the planned estimate.
     classification: str = ""
     drivers: tuple[str, ...] = ()
+    # The history shape the reviewer asks for, in a sentence or two; "" when it asks for none.
+    rewrite_request: str = ""
 
     @property
     def blocking(self) -> tuple[FollowUp, ...]:
@@ -830,6 +834,11 @@ def escalates(verdict: Verdict, earlier_rounds: Sequence[dict]) -> bool:
     )
 
 
+def _parse_rewrite_request(raw: object) -> str:
+    """The history shape a reviewer asks for; anything but non-blank text is no request."""
+    return raw.strip() if isinstance(raw, str) else ""
+
+
 def parse_verdict(output: str) -> Verdict:
     """A reviewer's reply, read as a verdict.
 
@@ -875,6 +884,7 @@ def parse_verdict(output: str) -> Verdict:
         description=_parse_description(payload.get("description")),
         classification=_parse_classification(payload.get("classification")),
         drivers=_parse_drivers(payload.get("drivers")),
+        rewrite_request=_parse_rewrite_request(payload.get("rewrite_request")),
     )
 
 
@@ -2037,6 +2047,11 @@ class UnitRunner(BaseModel):
                 findings=tuple(f.model_dump() for f in kept),
             )
 
+        if verdict.rewrite_request:
+            self.store.set_rewrite_request(
+                unit.id,
+                StoredRewriteRequest(text=verdict.rewrite_request, source=RewriteSource.REVIEW),
+            )
         self.log(f"review asked for changes: {cut_head(' '.join(why.split()), 300, 'char')}")
         answered = tuple(_apply_answers(earlier_rounds, verdict.earlier))
         recorded = {

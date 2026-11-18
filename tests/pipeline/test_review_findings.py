@@ -21,7 +21,7 @@ from agent_build_kit.pipeline.stack_runner import (
     parse_verdict,
     render_findings,
 )
-from agent_build_kit.pipeline.unit_store import UnitStore
+from agent_build_kit.pipeline.unit_store import RewriteSource, StoredRewriteRequest, UnitStore
 from tests.factories import unit
 from tests.graph_driver import run_on_graph
 from tests.pipeline.test_stack_runner import Recorder, make_runner
@@ -442,6 +442,73 @@ def test_a_note_never_leaves_out_an_unresolved_finding() -> None:
         assert f"[1.{n}]" in note
     assert note.count("x" * 590) == 10
     assert "left out" not in note
+
+
+ASKED_SHAPE = "move the support edits into the feat commit"
+
+
+def test_a_rewrite_request_beside_findings_is_parsed() -> None:
+    verdict = parse_verdict(_reply(_finding(), rewrite_request=f"  {ASKED_SHAPE}  "))
+
+    assert verdict.rewrite_request == ASKED_SHAPE
+    assert len(verdict.findings) == 1
+
+
+@pytest.mark.parametrize("given", [None, "", "   ", 7, ["squash"], {"a": 1}])
+def test_a_missing_or_empty_rewrite_request_is_read_as_none(given: object) -> None:
+    fields: dict[str, Any] = {} if given is None else {"rewrite_request": given}
+
+    assert parse_verdict(_reply(_finding(), rewrite_request=ASKED_SHAPE)).rewrite_request
+    assert parse_verdict(_reply(_finding(), **fields)).rewrite_request == ""
+
+
+def _sent_back(tmp_path: Path, reply: str) -> UnitStore:
+    tmp_path.mkdir(parents=True, exist_ok=True)
+    store = UnitStore(tmp_path / "units.json")
+    store.upsert([unit()])
+    make_runner(store, Recorder(), tmp_path).weigh_review(unit(), reply, judged="sha-1", rounds=())
+    return store
+
+
+def test_sending_a_unit_back_with_a_rewrite_request_stores_it_with_the_review_as_source(
+    tmp_path: Path,
+) -> None:
+    store = _sent_back(tmp_path, _reply(_finding(), rewrite_request=ASKED_SHAPE))
+
+    assert store.get("add-marker/1").rewrite_request == StoredRewriteRequest(
+        text=ASKED_SHAPE, source=RewriteSource.REVIEW
+    )
+
+
+@pytest.mark.parametrize("given", [None, "", "  "])
+def test_sending_a_unit_back_with_no_rewrite_request_stores_none(
+    tmp_path: Path, given: str | None
+) -> None:
+    fields: dict[str, Any] = {} if given is None else {"rewrite_request": given}
+
+    asked = _sent_back(tmp_path / "asked", _reply(_finding(), rewrite_request=ASKED_SHAPE))
+    store = _sent_back(tmp_path / "none", _reply(_finding(), **fields))
+
+    assert asked.get("add-marker/1").rewrite_request is not None
+    assert store.get("add-marker/1").rewrite_request is None
+
+
+def test_an_approval_stores_no_rewrite_request(tmp_path: Path) -> None:
+    asked = _sent_back(tmp_path / "asked", _reply(_finding(), rewrite_request=ASKED_SHAPE))
+    store = _sent_back(tmp_path / "approved", _reply(approved=True, rewrite_request=ASKED_SHAPE))
+
+    assert asked.get("add-marker/1").rewrite_request is not None
+    assert store.get("add-marker/1").rewrite_request is None
+
+
+def test_the_review_prompt_reserves_a_rewrite_request_for_the_shape_of_the_commits() -> None:
+    from agent_build_kit.pipeline.wiring import REVIEW_PROMPT
+
+    review = _flat(REVIEW_PROMPT).lower()
+    assert '"rewrite_request"' in review
+    assert "shape of the commits" in review
+    assert "structure check" in review and "red check" in review
+    assert "not for taste" in review
 
 
 def _weighed_against(tmp_path: Path, stored: dict, answer: dict):
