@@ -1543,6 +1543,19 @@ class UnitStore:
             f"the rewrite request from {held.source.value} was used",
         )
 
+    def withdraw_rewrite_request(self, unit_id: str) -> None:
+        """Drop a request no step read, because a person replaced or withdrew it; its history
+        says it was withdrawn, not used."""
+        held = self.get(unit_id).rewrite_request
+        if held is None:
+            return
+        self._update(unit_id, rewrite_request=None)
+        self.record_event(
+            unit_id,
+            "rewrite_withdrawn",
+            f"the rewrite request from {held.source.value} was withdrawn",
+        )
+
     def set_split_request(self, unit_id: str, request: StoredSplitRequest | None) -> None:
         """What a unit held for its size is to be split by, or none once it has been."""
         self._update(unit_id, split_request=request)

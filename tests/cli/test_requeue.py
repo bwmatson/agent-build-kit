@@ -174,7 +174,9 @@ def test_rework_with_rewrite_and_a_note_stores_a_request_from_a_person(store: Un
     assert after.rewrite_request == StoredRewriteRequest(
         text="squash the fixes", source=RewriteSource.PERSON
     )
-    assert any("rewrite" in str(entry).lower() for entry in after.history)
+    made = [entry for entry in after.history if entry.get("event") == "rewrite_requested"]
+    assert len(made) == 1
+    assert RewriteSource.PERSON.value in made[0]["note"]
 
 
 @pytest.mark.parametrize(
@@ -212,4 +214,27 @@ def test_rework_without_rewrite_clears_a_stored_request(store: UnitStore) -> Non
 
     assert main(["requeue", "add-marker/1", "--rework"]) == 0
 
-    assert store.get("add-marker/1").rewrite_request is None
+    after = store.get("add-marker/1")
+    assert after.rewrite_request is None
+    assert after.history[-1].get("event") != "rewrite_used"
+    assert any(entry.get("event") == "rewrite_withdrawn" for entry in after.history)
+
+
+@pytest.mark.parametrize(
+    "args",
+    [["--rework", "--rewrite", "--note", "x"], ["--rework"]],
+    ids=["with rewrite", "plain rework"],
+)
+def test_a_refused_requeue_leaves_the_held_rewrite_request_and_history_alone(
+    store: UnitStore, args: list[str]
+) -> None:
+    store.upsert([unit("add-marker/1")])
+    store.set_state("add-marker/1", UnitState.IN_REVIEW, pr=4)
+    store.set_rewrite_request(
+        "add-marker/1", StoredRewriteRequest(text="squash", source=RewriteSource.REVIEW)
+    )
+    before = store.get("add-marker/1")
+
+    assert main(["requeue", "add-marker/1", *args]) == 1
+
+    assert store.get("add-marker/1") == before

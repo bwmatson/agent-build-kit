@@ -6806,17 +6806,19 @@ def cmd_requeue(args: argparse.Namespace, inst: Installation) -> int:
             error=True,
         )
         return 1
-    store = run_support.store_for(inst)
-    stored = args.unit in {unit.id for unit in store.all()}
-    if stored and rewrite:
-        store.set_rewrite_request(
-            args.unit, StoredRewriteRequest(text=note, source=RewriteSource.PERSON)
-        )
-    elif stored and mode == "rework":
-        store.clear_rewrite_request(args.unit)
-    code = requeue(inst, args.unit, mode, say=say, note=note, by=REQUEUE_BY)
-    if code != 0 and stored and rewrite:
-        store.clear_rewrite_request(args.unit)
+    # A person's rework replaces or withdraws the request a unit holds; `requeue` does that only
+    # once it has accepted the requeue, so a refused one leaves the request and history as were.
+    asked = StoredRewriteRequest(text=note, source=RewriteSource.PERSON) if rewrite else None
+    code = requeue(
+        inst,
+        args.unit,
+        mode,
+        say=say,
+        note=note,
+        by=REQUEUE_BY,
+        rewrite_request=asked,
+        settle_rewrite=mode == "rework",
+    )
     if code == 0:
         wake.touch(inst.state_dir)
     return code
@@ -7442,8 +7444,13 @@ def requeue(
     note: str = "",
     because: str = "",
     by: str = "",
+    rewrite_request: StoredRewriteRequest | None = None,
+    settle_rewrite: bool = False,
 ) -> int:
     """Give a failed or held unit another go; `abk requeue` and the web UI both call this.
+
+    With `settle_rewrite`, an accepted requeue stores `rewrite_request` on the unit, or
+    withdraws the one it holds when there is none; a refused requeue changes neither.
 
     `mode` is `resume`, `rework` or `restart`, as `cmd_requeue` describes them. Every
     message goes to `say(text, error=...)` instead of being printed, so the caller
@@ -7509,6 +7516,13 @@ def requeue(
     ):
         # A person who reads an oversized unit and lets it through is not held by the same rule.
         store.set_size_waived(unit_id)
+    held_request = known[unit_id].rewrite_request
+    if settle_rewrite:
+        # Before the delivery below, which may run the step that reads it.
+        if rewrite_request is not None:
+            store.set_rewrite_request(unit_id, rewrite_request)
+        else:
+            store.withdraw_rewrite_request(unit_id)
     waits = waiting_on(known[unit_id], list(known.values()))
     merging = merge_parents(known[unit_id], waits, list(known.values()), config.active().repos)
     # What the history entry of a requeue says of a note: its first 200 characters.
@@ -7553,6 +7567,12 @@ def requeue(
             guidance=note,
         )
     except BranchBusy as error:
+        if settle_rewrite and held_request != rewrite_request:
+            # A refusal: put back what the unit held.
+            if held_request is not None:
+                store.set_rewrite_request(unit_id, held_request)
+            else:
+                store.withdraw_rewrite_request(unit_id)
         say(f"{unit_id} is being built ({error}); requeue it again once it has stopped")
         return 1
     if delivered:
