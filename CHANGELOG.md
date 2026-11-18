@@ -6,6 +6,7 @@
   recorded merged when every change it made is already on the default branch, as happens when
   its parent is squash-merged. It is merged with the default branch's head as its commit and no
   longer stays stranded.
+
 - A merged unit's branch is deleted on the host when other units are stacked on it, and its
   last head is kept locally under `refs/abk/bases/` so their restacks still know where they
   were based. A branch the host already rebased onto the default branch is left alone. Set
