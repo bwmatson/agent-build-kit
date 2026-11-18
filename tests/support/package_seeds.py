@@ -100,14 +100,7 @@ def baseline() -> frozenset[tuple[str, str]]:
     """The imports that cross a boundary today, as `(importer, imported)` module names."""
     return frozenset(
         {
-            ("cli.explain_cmd", "pipeline.resolution_lane"),
-            ("cli.pipeline", "graph.state"),
             ("cli.pipeline", "pipeline.resolution_lane"),
             ("cli.pipeline", "pipeline.verify"),
-            ("pipeline.admission", "pipeline.resolution_lane"),
-            ("serve.chat", "graph.state"),
-            ("serve.chat", "graph.unit"),
-            ("serve.server", "graph.state"),
-            ("serve.server", "graph.unit"),
         }
     )

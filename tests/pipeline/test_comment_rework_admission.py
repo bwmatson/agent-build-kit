@@ -13,7 +13,7 @@ from pathlib import Path
 from agent_build_kit.installation import Installation
 from agent_build_kit.pipeline import host
 from agent_build_kit.pipeline.admission import admit, current_occupancy
-from agent_build_kit.pipeline.resolution_lane import record_path
+from agent_build_kit.pipeline.lane_records import record_path
 from agent_build_kit.pipeline.unit_store import UnitStore
 from agent_build_kit.pipeline.units import RUNNING, project_key
 from agent_build_kit.pipeline.workspaces import branch_lock

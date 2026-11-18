@@ -9,7 +9,8 @@ import pytest
 
 from agent_build_kit.pipeline import host
 from agent_build_kit.pipeline.events import build_claim
-from agent_build_kit.pipeline.resolution_lane import ResolutionLane, lane_record
+from agent_build_kit.pipeline.lane_records import lane_record
+from agent_build_kit.pipeline.resolution_lane import ResolutionLane
 from tests.branch_lock_fakes import dead_pid
 from tests.factories import stored_unit
 from tests.restack_lane_fakes import WAIT, Restacks

@@ -58,7 +58,6 @@ from agent_build_kit.cli.policy_cmd import coverage_line
 from agent_build_kit.cli.retire_cmd import cmd_retire
 from agent_build_kit.compat_names import old_tag
 from agent_build_kit.forges.base import CheckStatus
-from agent_build_kit.graph.state import EventKind
 from agent_build_kit.installation import Installation
 from agent_build_kit.model import Frozen, TestTier, widest_kind
 from agent_build_kit.notify.build import build_notifier
@@ -170,6 +169,13 @@ from agent_build_kit.pipeline.joins import JoinContext
 from agent_build_kit.pipeline.label_sweep import sweep_finished
 from agent_build_kit.pipeline.labels import StateLabels
 from agent_build_kit.pipeline.landing import declined_reason, land_units
+from agent_build_kit.pipeline.lane_records import (
+    deferred_until,
+    lane_held_by_record,
+    lane_record,
+    record_path,
+    resolving_phrase,
+)
 from agent_build_kit.pipeline.lease import Leases, lease_dir
 from agent_build_kit.pipeline.manual_steps import (
     evaluate_manual_steps,
@@ -244,14 +250,9 @@ from agent_build_kit.pipeline.resolution_lane import (
     Lane,
     ResolutionLane,
     ResolutionLanes,
-    deferred_until,
     in_a_comment_run,
     in_a_lane_run,
-    lane_held_by_record,
-    lane_record,
     owed_units,
-    record_path,
-    resolving_phrase,
 )
 from agent_build_kit.pipeline.review_order import review_order, review_tiers
 from agent_build_kit.pipeline.review_outcome_sweep import sweep_outcomes
@@ -287,6 +288,7 @@ from agent_build_kit.pipeline.unit_size import (
     recent_examples,
     unit_ceiling,
 )
+from agent_build_kit.pipeline.unit_state import EventKind
 from agent_build_kit.pipeline.unit_store import (
     PARK_BACKOFF,
     PARKED_CAUSES,

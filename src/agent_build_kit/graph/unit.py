@@ -18,12 +18,13 @@ from langgraph.types import Command, StateSnapshot
 from agent_build_kit.graph.build import BUILD_NODES, compile_build_path
 from agent_build_kit.graph.nodes import WAITS, BuildPath
 from agent_build_kit.graph.run import run_thread
-from agent_build_kit.graph.state import EventKind, Node, ResumeEvent, UnitRun
 from agent_build_kit.model import Frozen
 from agent_build_kit.pipeline import spans
 from agent_build_kit.pipeline.metric_records import emit_metric
 from agent_build_kit.pipeline.run_log import RunLog
 from agent_build_kit.pipeline.stack_runner import PauseInfo, RunOutcome, RunStatus, UnitRunner
+from agent_build_kit.pipeline.unit_graph_entry import register_unit_graph
+from agent_build_kit.pipeline.unit_state import EventKind, Node, ResumeEvent, UnitRun
 from agent_build_kit.pipeline.unit_store import StoredUnit, awaits_release, feedback_source_of
 from agent_build_kit.pipeline.units import FAILED, HELD, Unit, branch_name
 from agent_build_kit.pipeline.workspaces import BranchBusy, branch_lock
@@ -103,6 +104,19 @@ async def clear_running_node(saver: BaseCheckpointSaver, unit_id: str) -> None:
     if where.state is None or not where.state.running_node:
         return
     await compiled.aupdate_state(_config(unit_id), {"running_node": ""})
+
+
+async def _serve_operation(operation: str, saver: BaseCheckpointSaver, unit_id: str) -> Any:
+    """The handler the core's entry runs for `abk serve`: reading a thread, or forgetting the
+    start a killed node left in it."""
+    if operation == "position":
+        return await thread_position(saver, unit_id)
+    if operation == "clear_running_node":
+        return await clear_running_node(saver, unit_id)
+    raise ValueError(f"no unit graph operation named {operation!r}")
+
+
+register_unit_graph(_serve_operation)
 
 
 async def set_pending_replies(

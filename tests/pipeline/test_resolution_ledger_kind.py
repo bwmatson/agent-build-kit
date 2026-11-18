@@ -9,7 +9,7 @@ from pathlib import Path
 import pytest
 
 from agent_build_kit.pipeline import spans
-from agent_build_kit.pipeline.resolution_lane import lane_record
+from agent_build_kit.pipeline.lane_records import lane_record
 from tests.emergency_lane_support import build
 from tests.lane_run_slots import Slots
 from tests.tick_driver import Setup, make_setup

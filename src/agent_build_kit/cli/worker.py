@@ -10,15 +10,15 @@ from agent_build_kit import telemetry
 from agent_build_kit.installation import Installation
 from agent_build_kit.pipeline import spans, wake
 from agent_build_kit.pipeline.file_lock import ADMISSION_LOCK, LockTimeout, file_lock
-from agent_build_kit.pipeline.occupancy import marker_live, resolve_claimed
-from agent_build_kit.pipeline.resolution_lane import (
+from agent_build_kit.pipeline.lane_records import (
     clear_deferral,
     clear_worker_record,
     lane_held_by_record,
-    owed_units,
     record_deferral,
     write_worker_record,
 )
+from agent_build_kit.pipeline.occupancy import marker_live, resolve_claimed
+from agent_build_kit.pipeline.resolution_lane import owed_units
 from agent_build_kit.pipeline.units import base_of, project_key, project_tag
 from agent_build_kit.pipeline.workspaces import BranchBusy
 from agent_build_kit.run_support import build_stack_moves, build_turned_move, store_for
