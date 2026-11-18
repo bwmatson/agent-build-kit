@@ -35,3 +35,9 @@ def merged_on_branch(repo: Path, merge_sha: str, branch: str) -> bool:
 def merged_on_default(repo: Path, merge_sha: str, default_branch: str) -> bool:
     """True when `merge_sha` is an ancestor of the default branch on the remote, after a fetch."""
     return merged_on_branch(repo, merge_sha, default_branch)
+
+
+def content_on_default(repo: Path, merge_sha: str, default_branch: str) -> bool:
+    """True when every change `merge_sha` made (its diff against its first parent) is already
+    applied on the default branch on the remote, after a fetch."""
+    raise NotImplementedError
