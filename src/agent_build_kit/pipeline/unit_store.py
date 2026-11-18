@@ -143,6 +143,7 @@ class Cause(StrEnum):
     LANDED_OFF_DEFAULT = "landed_off_default"
     GENERATED_FILES = "generated_files"
     BASE_NOT_MOVED = "base_not_moved"
+    CARRIED = "carried"
 
 
 class Keep:

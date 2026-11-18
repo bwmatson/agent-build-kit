@@ -5,7 +5,9 @@
 - A unit settling behind a parent's branch, or held as landed off the default branch, is now
   recorded merged when every change it made is already on the default branch, as happens when
   its parent is squash-merged. It is merged with the default branch's head as its commit and no
-  longer stays stranded.
+  longer stays stranded. A unit held as landed off the default branch can also be carried onto
+  it: its commit is cherry-picked onto a branch off the default branch, conflicts go to the
+  resolver, and a pull request against the default branch is opened for it.
 
 - A merged unit's branch is deleted on the host when other units are stacked on it, and its
   last head is kept locally under `refs/abk/bases/` so their restacks still know where they

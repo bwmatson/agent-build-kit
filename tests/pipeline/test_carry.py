@@ -12,7 +12,7 @@ import pytest
 from agent_build_kit.pipeline import events
 from agent_build_kit.pipeline.carry import carry
 from agent_build_kit.pipeline.unit_store import Cause, Pull
-from agent_build_kit.pipeline.units import HELD, IN_REVIEW, MERGED
+from agent_build_kit.pipeline.units import HELD, IN_REVIEW, MERGED, SETTLING
 from tests.factories import git
 from tests.forges.stand_in import StandInForge
 from tests.landing_world import CHILD, CHILD_CHANGE, Landing
@@ -172,8 +172,9 @@ def test_the_merge_sha_becomes_the_commit_the_carry_merged_as(carrying: Carrying
         store=carrying.landing.store,
         restack=lambda **kwargs: None,
         merge_commit=carry_merged_as,
+        merge_record=lambda unit: (unit.merge_sha, None),
         log=lambda _line: None,
     )
 
     unit = carrying.landing.store.get(CHILD)
-    assert (unit.state, unit.merge_sha) == (MERGED, carry_merged_as)
+    assert (unit.state, unit.merge_sha) == (SETTLING, carry_merged_as)
