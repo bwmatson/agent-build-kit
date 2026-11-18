@@ -25,7 +25,12 @@ from agent_build_kit.pipeline.stack_runner import (
     WHOLE_ASK,
     person_guidance,
 )
-from agent_build_kit.pipeline.unit_store import FeedbackSource, RequeueReason
+from agent_build_kit.pipeline.unit_store import (
+    FeedbackSource,
+    RequeueReason,
+    RewriteSource,
+    StoredRewriteRequest,
+)
 from tests.factories import unit
 from tests.graph_driver import fresh, tick
 from tests.runner_fakes import rejecting
@@ -187,3 +192,71 @@ def test_a_note_given_to_the_review_loop_s_rework_is_told_to_the_next_review(
     assert NOTE in second
     assert any(NOTE in prompt and "rename the marker" in prompt for prompt in recorder.prompts)
     assert recorder.store.get(UNIT).guidance == ""
+
+
+ASKED = "squash the two fixup commits into the commit they repair"
+NO_REWRITE = "Do not rewrite history"
+
+
+def ask_for_rewrite(recorder: Any, source: RewriteSource = RewriteSource.PERSON) -> None:
+    recorder.store.set_rewrite_request(UNIT, StoredRewriteRequest(text=ASKED, source=source))
+
+
+def rework_prompt(tmp_path: Path, *, asking: bool) -> str:
+    """The one prompt of a requeued rework, with a stored rewrite request when `asking`."""
+    recorder = fresh(tmp_path)
+    tick(tmp_path, recorder)
+    recorder.store.set_feedback(UNIT, FEEDBACK, source=FeedbackSource.REVIEW)
+    if asking:
+        ask_for_rewrite(recorder)
+    prompts: list[str] = []
+
+    def agent(prompt: str, **kwargs: Any) -> str:
+        prompts.append(prompt)
+        return recorder.claude(prompt, **kwargs)
+
+    tick(tmp_path, recorder, event=requeue(""))
+    tick(tmp_path, recorder, run=agent)
+    [prompt] = prompts
+    return prompt
+
+
+def test_a_requeued_rework_with_a_stored_request_carries_it_and_allows_the_rewrite(
+    tmp_path: Path,
+) -> None:
+    prompt = rework_prompt(tmp_path, asking=True)
+
+    assert ASKED in prompt
+    assert f"`Unit: {UNIT}`" in prompt
+    assert NO_REWRITE not in prompt
+
+
+def test_a_requeued_rework_with_no_stored_request_still_forbids_a_rewrite(
+    tmp_path: Path,
+) -> None:
+    prompt = rework_prompt(tmp_path, asking=False)
+
+    assert ASKED not in prompt
+    assert NO_REWRITE in prompt
+
+
+@pytest.mark.parametrize("asking", [True, False], ids=["request", "none"])
+def test_the_review_loops_first_rework_prompt_carries_a_stored_request_only_when_there_is_one(
+    tmp_path: Path, asking: bool
+) -> None:
+    recorder = fresh(tmp_path)
+    recorder.verdicts = [rejecting("rename the marker")]
+    asked = False
+
+    def review(**kwargs: Any) -> str:
+        nonlocal asked
+        if not asked and asking:
+            asked = True
+            ask_for_rewrite(recorder, RewriteSource.REVIEW)
+        return recorder.review(**kwargs)
+
+    tick(tmp_path, recorder, run_review=review, run_rework_review=review)
+
+    [prompt] = [p for p in recorder.prompts if "rename the marker" in p]
+    assert (ASKED in prompt) is asking
+    assert (NO_REWRITE in prompt) is not asking

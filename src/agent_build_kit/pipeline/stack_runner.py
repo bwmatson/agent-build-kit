@@ -162,6 +162,23 @@ one). It stages everything, runs the lint gate and writes the subject and the un
 commit of your own is refused, and would skip all three.
 """
 
+# Said in place of the two notes above that forbid a commit and a rewrite, in the first prompt of a
+# step that holds a stored rewrite request.
+REWRITE_REQUEST_NOTE = """\
+A rewrite of this unit's history was asked for:
+
+---
+{request}
+---
+
+The unit's own commits may be rewritten as it asks (amend, rebase, squash, reorder), and never the
+base: rewrite only the commits in `{base}..HEAD`; `{base}` and everything below it stays as it is,
+so never rebase onto or past another ref. Each commit you write ends with the trailer
+`Unit: {unit}`, and you make no merge commit. Keep the order: tests stay before implementation in
+the rewritten history. After your step the pipeline checks all of this and returns the step to you
+if it fails. Do not push.
+"""
+
 OUTPUT_NOTE = "\n" + output_convention()
 
 # What a builder does for a config file the harness will not let it write (`abk install-config`).
@@ -215,9 +232,20 @@ class PromptTemplate(str):
     file to edit formats it as it always did."""
 
     def format(self, *args: object, **fields: object) -> str:
-        return super().format(
+        rewrite_request = str(fields.pop("rewrite_request", ""))
+        base = str(fields.pop("base", ""))
+        unit = str(fields.pop("unit", ""))
+        text = super().format(
             *args, **{"guidance": "", "commands": "", "tests_guidance": "", **fields}
         )
+        if not rewrite_request or NO_REWRITE_NOTE not in self:
+            return text
+        if PIPELINE_COMMITS_NOTE not in self:
+            raise ValueError("a prompt that forbids a rewrite must carry the commits note too")
+        if not base or not unit:
+            raise ValueError("a rewrite request needs the unit's base ref and its id")
+        note = REWRITE_REQUEST_NOTE.format(request=rewrite_request, base=base, unit=unit)
+        return text.replace(PIPELINE_COMMITS_NOTE, note, 1).replace(NO_REWRITE_NOTE, "", 1)
 
 
 _PERSON_GUIDANCE = """\
