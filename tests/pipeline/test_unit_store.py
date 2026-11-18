@@ -14,7 +14,13 @@ import json
 
 import pytest
 
-from agent_build_kit.pipeline.unit_store import UNPLANNED, UnitStore, corrupt_store_message
+from agent_build_kit.pipeline.unit_store import (
+    UNPLANNED,
+    RewriteSource,
+    StoredRewriteRequest,
+    UnitStore,
+    corrupt_store_message,
+)
 from agent_build_kit.pipeline.units import CLOSED, IN_REVIEW, MERGED, PLANNED, Unit, UnitState
 from tests.factories import unit as app_unit
 
@@ -306,3 +312,55 @@ def test_re_planning_keeps_feedback(tmp_path) -> None:
     store.upsert([unit(title="retitled by the plan")])
 
     assert store.get("add-marker/1").feedback == "rename it"
+
+
+def _history_text(store: UnitStore, uid: str = "add-marker/1") -> str:
+    return " ".join(str(v) for entry in store.get(uid).history for v in entry.values()).lower()
+
+
+@pytest.mark.parametrize("source", list(RewriteSource))
+def test_a_rewrite_request_keeps_its_text_and_source_across_a_reload(tmp_path, source) -> None:
+    path = tmp_path / "units.json"
+    UnitStore(path).upsert([unit()])
+    assert UnitStore(path).get("add-marker/1").rewrite_request is None
+    asked = StoredRewriteRequest(text="move the support edits into the feat commit", source=source)
+
+    UnitStore(path).set_rewrite_request("add-marker/1", asked)
+
+    assert UnitStore(path).get("add-marker/1").rewrite_request == asked
+
+
+@pytest.mark.parametrize("source", list(RewriteSource))
+def test_the_history_records_that_a_rewrite_request_was_made_and_by_whom(tmp_path, source) -> None:
+    store = UnitStore(tmp_path / "units.json")
+    store.upsert([unit()])
+
+    store.set_rewrite_request("add-marker/1", StoredRewriteRequest(text="squash", source=source))
+
+    said = _history_text(store)
+    assert "rewrite" in said
+    assert source.value in said
+
+
+def test_ending_a_step_clears_the_rewrite_request_and_the_history_says_it_was_used(
+    tmp_path,
+) -> None:
+    store = UnitStore(tmp_path / "units.json")
+    store.upsert([unit()])
+    asked = StoredRewriteRequest(text="squash", source=RewriteSource.REVIEW)
+    store.set_rewrite_request("add-marker/1", asked)
+
+    store.clear_rewrite_request("add-marker/1")
+
+    assert store.get("add-marker/1").rewrite_request is None
+    assert "used" in str(store.get("add-marker/1").history[-1]).lower()
+
+
+def test_ending_a_step_with_no_rewrite_request_records_nothing(tmp_path) -> None:
+    store = UnitStore(tmp_path / "units.json")
+    store.upsert([unit()])
+    before = store.get("add-marker/1")
+
+    store.clear_rewrite_request("add-marker/1")
+
+    assert store.get("add-marker/1") == before

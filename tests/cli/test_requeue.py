@@ -15,7 +15,7 @@ import pytest
 from agent_build_kit.cli import main
 from agent_build_kit.config import dump
 from agent_build_kit.installation import Installation
-from agent_build_kit.pipeline.unit_store import UnitStore
+from agent_build_kit.pipeline.unit_store import RewriteSource, StoredRewriteRequest, UnitStore
 from agent_build_kit.pipeline.units import UnitState
 from tests.conftest import make_installation
 from tests.factories import unit
@@ -159,3 +159,82 @@ def test_rework_still_refuses_a_unit_that_is_not_failed_or_held(store: UnitStore
 
     assert main(["requeue", "add-marker/1", "--rework"]) == 1
     assert store.get("add-marker/1").state == "in_review"
+
+
+def test_rework_with_rewrite_and_a_note_stores_a_request_from_a_person(store: UnitStore) -> None:
+    failed_at_verify(store)
+
+    assert (
+        main(["requeue", "add-marker/1", "--rework", "--rewrite", "--note", "squash the fixes"])
+        == 0
+    )
+
+    after = store.get("add-marker/1")
+    assert after.state == "planned"
+    assert after.rewrite_request == StoredRewriteRequest(
+        text="squash the fixes", source=RewriteSource.PERSON
+    )
+    made = [entry for entry in after.history if entry.get("event") == "rewrite_requested"]
+    assert len(made) == 1
+    assert RewriteSource.PERSON.value in made[0]["note"]
+
+
+@pytest.mark.parametrize(
+    ("args", "said"),
+    [
+        (["--restart", "--rewrite", "--note", "squash"], "--restart"),
+        (["--rewrite", "--note", "squash"], "--rework"),
+        (["--rework", "--rewrite"], "note"),
+    ],
+    ids=["with restart", "without rework", "without a note"],
+)
+def test_rewrite_is_refused_where_it_makes_no_sense_and_says_why(
+    store: UnitStore, capsys: pytest.CaptureFixture[str], args: list[str], said: str
+) -> None:
+    failed_at_verify(store)
+    before = store.get("add-marker/1")
+
+    try:
+        code = main(["requeue", "add-marker/1", *args])
+    except SystemExit as stopped:
+        code = int(stopped.code or 0)
+
+    shown = capsys.readouterr()
+    assert code != 0
+    assert "--rewrite" in shown.out + shown.err
+    assert said in shown.out + shown.err
+    assert store.get("add-marker/1") == before
+
+
+def test_rework_without_rewrite_clears_a_stored_request(store: UnitStore) -> None:
+    failed_at_verify(store)
+    store.set_rewrite_request(
+        "add-marker/1", StoredRewriteRequest(text="squash", source=RewriteSource.REVIEW)
+    )
+
+    assert main(["requeue", "add-marker/1", "--rework"]) == 0
+
+    after = store.get("add-marker/1")
+    assert after.rewrite_request is None
+    assert after.history[-1].get("event") != "rewrite_used"
+    assert any(entry.get("event") == "rewrite_withdrawn" for entry in after.history)
+
+
+@pytest.mark.parametrize(
+    "args",
+    [["--rework", "--rewrite", "--note", "x"], ["--rework"]],
+    ids=["with rewrite", "plain rework"],
+)
+def test_a_refused_requeue_leaves_the_held_rewrite_request_and_history_alone(
+    store: UnitStore, args: list[str]
+) -> None:
+    store.upsert([unit("add-marker/1")])
+    store.set_state("add-marker/1", UnitState.IN_REVIEW, pr=4)
+    store.set_rewrite_request(
+        "add-marker/1", StoredRewriteRequest(text="squash", source=RewriteSource.REVIEW)
+    )
+    before = store.get("add-marker/1")
+
+    assert main(["requeue", "add-marker/1", *args]) == 1
+
+    assert store.get("add-marker/1") == before
