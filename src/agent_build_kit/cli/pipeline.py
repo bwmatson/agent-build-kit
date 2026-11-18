@@ -6379,7 +6379,9 @@ def poll_all(inst: Installation, *, store: UnitStore, lane: Lane | None = None) 
         default_of=trunk_of,
         worktrees=inst.worktree_root,
         claim=claim,
-        resolver_for=lambda unit: run_support.repo_resolver(inst, unit.id, unit.repo),
+        resolver_for=lambda unit: run_support.repo_resolver(
+            inst, unit.id, unit.repo, lane.defer_until if lane is not None else None
+        ),
         repo_config_of=inst.repo,
         turn_of=lambda repo: lambda: repo_turn(inst, repo),
         merge_record=lambda unit: run_support.merge_record_of(inst, unit),
