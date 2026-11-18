@@ -50,40 +50,64 @@ def guard_rewrite(
     base: str,
     started_at: str,
     unit_id: str,
+    branch: str | None = None,
 ) -> GuardVerdict:
     """Check the branch checked out in `tree` after a step that started at `started_at` with
-    `request`; `base` is where the unit's own commits begin. A step with no request is not
+    `request`; `base` is where the unit's own commits begin, and `branch`, when given, is the
+    branch the step began on, which HEAD must still be on. A step with no request is not
     checked. A failure moves the branch back to `started_at`."""
     if request is None:
         return GuardVerdict(ok=True)
+    if branch is not None and _current_branch(tree) != branch:
+        put_back(tree, branch=branch, started_at=started_at)
+        return GuardVerdict(
+            ok=False,
+            check=GuardCheck.BASE,
+            reason=f"HEAD is no longer on the unit's branch {branch}; the step must leave "
+            "that branch checked out. The branch was put back to where the step began",
+        )
     head = git_out(tree, "rev-parse", "HEAD")
     if head == started_at:
         return GuardVerdict(ok=True)
     origin = git_out(tree, "merge-base", base, started_at)
     verdict = _check(tree, origin=origin, base=base, head=head, unit_id=unit_id)
     if not verdict.ok:
-        git(tree, "reset", "-q", "--hard", started_at)
+        put_back(tree, branch=branch, started_at=started_at)
     return verdict
+
+
+def _current_branch(tree: Path) -> str | None:
+    """The branch HEAD is on, None when it is detached."""
+    result = git(tree, "symbolic-ref", "--short", "-q", "HEAD", check=False)
+    return result.stdout.strip() or None
+
+
+def put_back(tree: Path, *, branch: str | None, started_at: str) -> None:
+    """Abort any rebase, merge or cherry-pick left half done, check `branch` out again and
+    move it to `started_at`."""
+    for command in ("rebase", "merge", "cherry-pick"):
+        git(tree, command, "--abort", check=False)
+    if branch is not None:
+        git(tree, "checkout", "-q", "-f", branch)
+    git(tree, "reset", "-q", "--hard", started_at)
 
 
 def _check(tree: Path, *, origin: str, base: str, head: str, unit_id: str) -> GuardVerdict:
     """The verdict on the commits between `origin`, where the unit began, and `head`."""
     chain = git_out(tree, "rev-list", "--reverse", "--first-parent", f"{origin}..{head}").split()
+    below = git(tree, "merge-base", "--is-ancestor", origin, head, check=False).returncode != 0
     moved_in = (
         git_out(tree, "rev-parse", base) != origin
         and git(tree, "merge-base", "--is-ancestor", base, head, check=False).returncode == 0
     )
-    if moved_in or (chain and git_out(tree, "rev-parse", f"{chain[0]}^") != origin):
+    if below or moved_in or (chain and git_out(tree, "rev-parse", f"{chain[0]}^") != origin):
         return GuardVerdict(
             ok=False,
             check=GuardCheck.BASE,
             reason=f"the unit's base {base} ({origin}) is no longer where the unit's commits "
             "begin; rewrite only the unit's own commits above it",
         )
-    commits = git_out(tree, "rev-list", "--reverse", f"{origin}..{head}").split()
-    merges = [
-        c for c in commits if len(git_out(tree, "rev-list", "--parents", "-n1", c).split()) > 2
-    ]
+    merges = git_out(tree, "rev-list", "--merges", f"{origin}..{head}").split()
     if merges:
         return GuardVerdict(
             ok=False,
@@ -91,11 +115,18 @@ def _check(tree: Path, *, origin: str, base: str, head: str, unit_id: str) -> Gu
             reason="merge commits above the base are not allowed: " + ", ".join(merges),
         )
     trailer = f"Unit: {unit_id}"
-    missing = [
-        c
-        for c in commits
-        if trailer not in git_out(tree, "show", "-s", "--format=%B", c).splitlines()
-    ]
+    log = git_out(
+        tree,
+        "log",
+        "--reverse",
+        "--format=%H%x09%(trailers:key=Unit,valueonly,separator=%x2C)",
+        f"{origin}..{head}",
+    )
+    missing = []
+    for line in log.splitlines():
+        sha, _, values = line.partition("\t")
+        if sha and unit_id not in [v.strip() for v in values.split(",")]:
+            missing.append(sha)
     if missing:
         return GuardVerdict(
             ok=False,
@@ -113,21 +144,33 @@ def run_guarded_step(
     unit_id: str,
     store: UnitStore,
     agent: Callable[[str], None],
-    returns: int | None,
+    returns: int,
 ) -> GuardedStep:
     """Run `agent` in the step: first with an empty reason, then with the guard's reason each
-    time the guard fails, up to `returns` times (None: no limit). The stored request is cleared
-    when the step ends, passed or failed."""
+    time the guard fails, up to `returns` times (the caller takes it from the configured
+    limit). When the agent raises, the branch is put back before the error goes up. The stored
+    request is cleared when the step ends, passed, failed or raised."""
     started = git_out(tree, "rev-parse", "HEAD")
+    branch = _current_branch(tree)
     returned = 0
     reason = ""
     try:
         while True:
-            agent(reason)
+            try:
+                agent(reason)
+            except BaseException:
+                if request is not None:
+                    put_back(tree, branch=branch, started_at=started)
+                raise
             verdict = guard_rewrite(
-                tree, request=request, base=base, started_at=started, unit_id=unit_id
+                tree,
+                request=request,
+                base=base,
+                started_at=started,
+                unit_id=unit_id,
+                branch=branch,
             )
-            if verdict.ok or (returns is not None and returned >= returns):
+            if verdict.ok or returned >= returns:
                 return GuardedStep(ok=verdict.ok, returned=returned, verdict=verdict)
             returned += 1
             reason = verdict.reason

@@ -19,6 +19,7 @@ from agent_build_kit.pipeline.rewrite_guard import (
 from agent_build_kit.pipeline.shell import git, git_out
 from agent_build_kit.pipeline.unit_store import RewriteSource, StoredRewriteRequest, UnitStore
 from tests.factories import init_repo, unit
+from tests.review_repo import commit as review_commit
 
 REQUEST = StoredRewriteRequest(text="fold the support edits into feat", source=RewriteSource.PERSON)
 UNIT_ID = "app/1"
@@ -26,11 +27,8 @@ UNIT_ID = "app/1"
 
 def commit(repo: Path, name: str, *, trailer: bool = True) -> str:
     """One commit of a file `name`, with the unit trailer unless `trailer` is false."""
-    (repo / name).write_text(f"{name}\n")
-    git(repo, "add", "-A")
     message = f"work: {name}\n\nUnit: {UNIT_ID}\n" if trailer else f"work: {name}\n"
-    git(repo, "commit", "-q", "-m", message)
-    return git_out(repo, "rev-parse", "HEAD")
+    return review_commit(repo, name, f"{name}\n", message)
 
 
 class Scene:
@@ -80,6 +78,20 @@ def rewrite_from_below_the_base(scene: Scene) -> None:
     git(scene.repo, "commit", "-q", "-m", f"work: all\n\nUnit: {UNIT_ID}\n")
 
 
+def drop_below_the_base(scene: Scene) -> None:
+    git(scene.repo, "reset", "-q", "--hard", f"{scene.base_tip}~1")
+
+
+def amend_then_leave_the_branch(scene: Scene) -> None:
+    amend_the_base(scene)
+    git(scene.repo, "checkout", "-q", "-b", "other")
+
+
+def amend_then_raise(scene: Scene) -> None:
+    amend_the_base(scene)
+    raise RuntimeError("the agent's run was interrupted")
+
+
 def guarded(scene: Scene, request: StoredRewriteRequest | None = REQUEST) -> GuardVerdict:
     return guard_rewrite(
         scene.repo,
@@ -101,7 +113,9 @@ def test_a_rewrite_of_the_units_own_commits_with_the_trailer_kept_passes(scene: 
     assert git_out(scene.repo, "rev-list", "--count", f"{scene.base_tip}..HEAD") == "2"
 
 
-@pytest.mark.parametrize("rewrite", [amend_the_base, rewrite_from_below_the_base])
+@pytest.mark.parametrize(
+    "rewrite", [amend_the_base, rewrite_from_below_the_base, drop_below_the_base]
+)
 def test_a_rewrite_that_reaches_the_base_fails_and_the_branch_goes_back(
     scene: Scene, rewrite: Callable[[Scene], None]
 ) -> None:
@@ -112,7 +126,7 @@ def test_a_rewrite_that_reaches_the_base_fails_and_the_branch_goes_back(
 
     assert not verdict.ok
     assert verdict.check is GuardCheck.BASE
-    assert GuardCheck.BASE.value in verdict.reason
+    assert scene.base in verdict.reason
     assert scene.head == scene.started
     assert git_out(scene.repo, "rev-parse", "unit") == scene.started
 
@@ -215,7 +229,7 @@ def store(tmp_path: Path) -> UnitStore:
     return held
 
 
-def run(scene: Scene, store: UnitStore, agent: Agent, returns: int | None) -> GuardedStep:
+def run(scene: Scene, store: UnitStore, agent: Agent, returns: int) -> GuardedStep:
     return run_guarded_step(
         scene.repo,
         request=REQUEST,
@@ -238,7 +252,7 @@ def test_a_failed_guard_is_returned_to_the_agent_inside_the_same_step(
     assert step.returned == 1
     assert len(agent.told) == 2
     assert agent.told[0] == ""
-    assert GuardCheck.BASE.value in agent.told[1]
+    assert scene.base in agent.told[1]
     assert agent.held == [True, True], "the request keeps its permission through the return"
 
 
@@ -278,3 +292,36 @@ def test_a_refused_branch_is_never_left_for_the_push_to_publish(
     assert git_out(scene.repo, "rev-parse", "unit") == git_out(
         scene.repo, "rev-parse", "refs/published/unit"
     ), "the branch is at the head it was published at, so nothing refused can be pushed"
+
+
+def test_a_step_that_leaves_the_unit_branch_fails_and_the_branch_is_put_back(
+    scene: Scene,
+) -> None:
+    amend_then_leave_the_branch(scene)
+
+    verdict = guard_rewrite(
+        scene.repo,
+        request=REQUEST,
+        base=scene.base,
+        started_at=scene.started,
+        unit_id=UNIT_ID,
+        branch="unit",
+    )
+
+    assert not verdict.ok
+    assert verdict.check is GuardCheck.BASE
+    assert "unit" in verdict.reason
+    assert git_out(scene.repo, "rev-parse", "unit") == scene.started
+    assert git_out(scene.repo, "symbolic-ref", "--short", "HEAD") == "unit"
+
+
+def test_an_agent_that_raises_leaves_the_branch_put_back_and_the_request_cleared(
+    scene: Scene, store: UnitStore
+) -> None:
+    agent = Agent(scene, store, [amend_then_raise])
+
+    with pytest.raises(RuntimeError):
+        run(scene, store, agent, returns=1)
+
+    assert git_out(scene.repo, "rev-parse", "unit") == scene.started
+    assert store.get(UNIT_ID).rewrite_request is None
