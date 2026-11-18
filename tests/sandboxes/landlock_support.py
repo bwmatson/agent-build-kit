@@ -6,7 +6,7 @@ import socket
 import subprocess
 import sys
 import tempfile
-from collections.abc import Iterator, Sequence
+from collections.abc import Collection, Iterator, Sequence
 from contextlib import contextmanager
 from pathlib import Path
 
@@ -119,14 +119,27 @@ CONNECT = (
 )
 
 
+LISTEN_TRIES = 10
+
+
 @contextmanager
-def listening(host: str) -> Iterator[int]:
+def listening(host: str, *, avoid: Collection[int] = ()) -> Iterator[int]:
     """A listening local socket on `host`, so a refused connection is the sandbox's doing and not
-    an absent server's."""
-    with socket.socket() as server:
-        server.bind((host, 0))
-        server.listen(1)
-        yield server.getsockname()[1]
+    an absent server's.
+
+    Landlock's connect rule is per port, not per address, so a listener on another address must
+    not share the port the policy grants; pass that port as `avoid` and the socket is bound
+    again until the kernel hands out another."""
+    for _ in range(LISTEN_TRIES):
+        with socket.socket() as server:
+            server.bind((host, 0))
+            port = server.getsockname()[1]
+            if port in avoid:
+                continue
+            server.listen(1)
+            yield port
+            return
+    pytest.fail(f"no free port on {host} outside {sorted(avoid)} after {LISTEN_TRIES} tries")
 
 
 def launcher_args(command: Sequence[str]) -> list[str]:
