@@ -118,6 +118,32 @@ def _red_command(
     )
 
 
+def _red_groups(
+    groups: list[tuple[ProjectConfig | None, list[str]]],
+    touched: list[tuple[str, str]],
+    repo: Path,
+    profile: ToolchainProfile,
+) -> list[tuple[ProjectConfig | None, list[str]]]:
+    """The projects of a tests commit whose red run is built: when some project's files select
+    a test, a project whose files select none (a helper edit) is left out; when none selects
+    one, every project stays and runs its files whole."""
+
+    def selects(owner: ProjectConfig | None, owned: list[str]) -> bool:
+        toolchain = profiles.for_project(owner, profile)
+        if ids_for(touched, repo, repo / (owner.prefix if owner else ""), toolchain):
+            return True
+        # A runner that selects by file alone has no test names to read: its test file is
+        # the selection.
+        return hasattr(toolchain, "test_file_pathspecs") and any(
+            toolchain.collects_path(path) for path in owned
+        )
+
+    selecting = [selects(owner, owned) for owner, owned in groups]
+    if not any(selecting):
+        return groups
+    return [group for group, chosen in zip(groups, selecting, strict=True) if chosen]
+
+
 def _where(sha: str, owner: ProjectConfig | None) -> str:
     """The label a problem of `sha` carries, naming the project when it is not the root."""
     return f"{sha[:8]}: " + (f"{owner.path}: " if owner and owner.prefix else "")
@@ -210,7 +236,10 @@ def red_problems(
 
     problems: list[str] = []
     touched = _touched_in(repo, sha)
-    for owner, owned in by_project(projects, _test_files_in(repo, sha, is_test)):
+    groups = _red_groups(
+        by_project(projects, _test_files_in(repo, sha, is_test)), touched, repo, profile
+    )
+    for owner, owned in groups:
         toolchain = profiles.for_project(owner, profile)
         prefix = owner.prefix if owner else ""
         command = _red_command(toolchain, owned, touched, repo, prefix, sha)
@@ -300,7 +329,9 @@ def check_branch(
 
         commit_problems: list[str] = []
         touched = [] if sha in no_red else _touched_in(repo, sha)
-        for owner, owned in by_project(projects, files):
+        grouped = by_project(projects, files)
+        red_owned = [owned for _, owned in _red_groups(grouped, touched, repo, profile)]
+        for owner, owned in grouped:
             toolchain = profiles.for_project(owner, profile)
             prefix = owner.prefix if owner else ""
             where = _where(sha, owner)
@@ -322,7 +353,7 @@ def check_branch(
             commands: list[str | Callable[[Path], str]] = [clean_in]
             red_line = (
                 None
-                if sha in no_red
+                if sha in no_red or not any(owned is kept for kept in red_owned)
                 else _red_command(toolchain, owned, touched, repo, prefix, sha)
             )
             if red_line is not None:

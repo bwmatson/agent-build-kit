@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- The red check no longer runs a project whose only test-folder change is a support helper
+  beside another project of the same commit that adds a failing test; the helper's project
+  used to be run whole and could be rejected as passing before its implementation.
+
 - A unit settling behind a parent's branch, or held as landed off the default branch, is now
   recorded merged when every change it made is already on the default branch, as happens when
   its parent is squash-merged. It is merged with the default branch's head as its commit and no
