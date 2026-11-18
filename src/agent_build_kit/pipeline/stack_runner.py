@@ -172,10 +172,11 @@ A rewrite of this unit's history was asked for:
 ---
 
 The unit's own commits may be rewritten as it asks (amend, rebase, squash, reorder), and never the
-base: every commit at or below the unit's base stays as it is. Keep the unit trailer on each commit
-you write and make no merge commit. Keep the order: tests stay before implementation in the
-rewritten history. After your step the pipeline checks all of this and returns the step to you if
-it fails. Do not push.
+base: rewrite only the commits in `{base}..HEAD`; `{base}` and everything below it stays as it is,
+so never rebase onto or past another ref. Each commit you write ends with the trailer
+`Unit: {unit}`, and you make no merge commit. Keep the order: tests stay before implementation in
+the rewritten history. After your step the pipeline checks all of this and returns the step to you
+if it fails. Do not push.
 """
 
 OUTPUT_NOTE = "\n" + output_convention()
@@ -232,12 +233,18 @@ class PromptTemplate(str):
 
     def format(self, *args: object, **fields: object) -> str:
         rewrite_request = str(fields.pop("rewrite_request", ""))
+        base = str(fields.pop("base", ""))
+        unit = str(fields.pop("unit", ""))
         text = super().format(
             *args, **{"guidance": "", "commands": "", "tests_guidance": "", **fields}
         )
         if not rewrite_request or NO_REWRITE_NOTE not in self:
             return text
-        note = REWRITE_REQUEST_NOTE.format(request=rewrite_request)
+        if PIPELINE_COMMITS_NOTE not in self:
+            raise ValueError("a prompt that forbids a rewrite must carry the commits note too")
+        if not base or not unit:
+            raise ValueError("a rewrite request needs the unit's base ref and its id")
+        note = REWRITE_REQUEST_NOTE.format(request=rewrite_request, base=base, unit=unit)
         return text.replace(PIPELINE_COMMITS_NOTE, note, 1).replace(NO_REWRITE_NOTE, "", 1)
 
 

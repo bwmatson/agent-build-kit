@@ -78,6 +78,8 @@ def test_the_prompt_that_continues_a_session_does_not_say_it_again(prompt: str) 
     assert "run no command that makes a commit" not in text
 
 
+BASE = "spec/predecessor/1"
+UNIT_ID = "feature/1"
 REQUEST = "Squash the two fixup commits into the commit they repair."
 FIELDS = {
     "change_dir": "/planning/openspec/changes/feature",
@@ -92,7 +94,7 @@ FIELDS = {
 def first_prompt(template: str, request: str = "") -> str:
     """A first prompt of a review-feedback or rework step, with a rewrite request's text when
     one is given."""
-    return said(template.format(**FIELDS, rewrite_request=request))
+    return said(template.format(**FIELDS, rewrite_request=request, base=BASE, unit=UNIT_ID))
 
 
 @pytest.mark.parametrize("template", REWRITING)
@@ -110,6 +112,8 @@ def test_the_first_prompt_with_a_rewrite_request_allows_own_commits_and_never_th
 
     assert "may be rewritten" in text
     assert "never the base" in text
+    assert f"`{BASE}..HEAD`" in text
+    assert f"`Unit: {UNIT_ID}`" in text
 
 
 @pytest.mark.parametrize("template", REWRITING)
