@@ -767,6 +767,8 @@ def build_run(
                 # The pipeline commits what the step leaves in the worktree, with the lint gate,
                 # the unit-id trailer and the group's subject; an agent commit skips all three.
                 no_commit=True,
+                # A step holding a rewrite request may rewrite the unit's own commits.
+                rewrite=rewrite,
             ),
             on_event=journal or log or print,
             on_transcript=transcript,

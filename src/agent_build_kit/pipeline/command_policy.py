@@ -155,9 +155,11 @@ GATE_SWITCHES = {"SKIP", "HUSKY", "LEFTHOOK"}
 COMMIT_VALUED = set("mFCcSt")
 
 GATE_REASON = (
-    "the repo's commit gate is the reason the pipeline may push unattended, so it is never "
-    "skipped or reconfigured — fix what it reports and leave the commit to the pipeline"
+    "the repo's commit gate (skipped by `--no-verify`, a gate switch or a hooks path) is the "
+    "reason the pipeline may push unattended, so it is never skipped or reconfigured — fix what "
+    "it reports and leave the commit to the pipeline"
 )
+HARD_RESET_REASON = "`git reset --hard` discards work that may not be pushed anywhere"
 
 
 def _switches_gate_off(tokens: list[str]) -> bool:
@@ -199,7 +201,9 @@ def _skips_commit_hooks(tokens: list[str]) -> bool:
     return False
 
 
-def _check_segment(segment: str, branch: str, protected: Collection[str] = ()) -> Verdict:
+def _check_segment(
+    segment: str, branch: str, protected: Collection[str] = (), *, rewrite: bool = False
+) -> Verdict:
     raw = _tokens(segment)
     tokens = _strip_wrappers(raw)
     if _switches_gate_off(raw) or _skips_commit_hooks(tokens):
@@ -216,7 +220,7 @@ def _check_segment(segment: str, branch: str, protected: Collection[str] = ()) -
     if denied := forges.denies(tokens):
         return Verdict(allowed=False, reason=f"the agent never merges: {denied}")
 
-    if _is_git(tokens, "commit") and "--amend" in tokens:
+    if _is_git(tokens, "commit") and "--amend" in tokens and not rewrite:
         return Verdict(
             allowed=False,
             reason="amending would fold the implementation into the tests commit and erase "
@@ -229,10 +233,7 @@ def _check_segment(segment: str, branch: str, protected: Collection[str] = ()) -
         )
 
     if _is_git(tokens, "reset") and "--hard" in tokens:
-        return Verdict(
-            allowed=False,
-            reason="`git reset --hard` discards work that may not be pushed anywhere",
-        )
+        return Verdict(allowed=False, reason=HARD_RESET_REASON)
     if _is_git(tokens, "clean"):
         return Verdict(allowed=False, reason="`git clean` discards untracked work")
     if _is_git(tokens, "branch") and "-D" in tokens:
@@ -380,16 +381,57 @@ def _moves_commits(args: list[str]) -> bool:
     return False
 
 
+# What a step holding a rewrite request may run: the commands that reshape the unit's own commits.
+_REWRITE_ALLOWED = frozenset({"commit", "rebase", "cherry-pick", "revert", "reset"})
+_REWRITE_RESET_REFUSED = ("--hard", "--keep", "--merge")
+
+
+def _rewrite_refusal(tokens: list[str], args: list[str]) -> str | None:
+    """The reason a command is refused for a step with a rewrite request, or None if it is allowed:
+    a rewrite of the unit's own commits is, and anything that skips the hooks, brings in another
+    history or moves the branch some other way is not."""
+    if not args or not _moves_commits(args):
+        return None
+    sub, rest = args[0], args[1:]
+    if sub not in _REWRITE_ALLOWED:
+        return (
+            f"`git {sub}` is not allowed: a step with a rewrite request may only commit, "
+            "amend, rebase, cherry-pick, revert and reset --soft or --mixed its own commits"
+        )
+    if (sub == "commit" and _skips_commit_hooks(tokens)) or (
+        sub == "rebase" and "--no-verify" in rest
+    ):
+        return GATE_REASON
+    if sub == "reset":
+        if "--hard" in rest:
+            return HARD_RESET_REASON
+        for mode in _REWRITE_RESET_REFUSED:
+            if mode in rest:
+                return (
+                    f"`git reset {mode}` is not allowed: it discards work in the tree; "
+                    "use --soft or --mixed"
+                )
+    return None
+
+
 def check_no_commit(command: str, *, rewrite: bool = False) -> Verdict:
     """Refuse a command in which any segment makes a commit or moves the branch: a `git commit`
     in any form, and the other commands that do (`cherry-pick`, `revert`, `merge`, `rebase`, `am`,
     `pull`, `commit-tree`, `update-ref`, and a `reset` that moves HEAD). The forms that leave
-    the result in the working tree stay allowed (`_moves_commits`)."""
+    the result in the working tree stay allowed (`_moves_commits`).
+
+    With `rewrite` (a step that holds a rewrite request) the commands that reshape the unit's own
+    commits are allowed, and a segment that skips the hooks, merges or pulls, writes refs or
+    objects directly, filters history or resets hard is still refused, and refuses the whole."""
     for segment in SEGMENT_SPLIT.split(command):
         tokens = _strip_wrappers(_tokens(segment.strip()))
         if tokens and tokens[0] == "git":
             _, args = _git_target(tokens, None)
-            if _moves_commits(args):
+            if rewrite:
+                reason = _rewrite_refusal(tokens, args)
+                if reason is not None:
+                    return Verdict(allowed=False, reason=reason)
+            elif _moves_commits(args):
                 return Verdict(allowed=False, reason=COMMIT_REASON)
     return Verdict(allowed=True)
 
@@ -764,6 +806,7 @@ def check_command(
     cwd: Path | None = None,
     fenced: Collection[Path] = (),
     confined: bool = False,
+    rewrite: bool = False,
 ) -> Verdict:
     """Decide whether `command` may run while working on `branch`.
 
@@ -783,6 +826,9 @@ def check_command(
     `confined` says the kernel confines the step, which already keeps it out of a file beyond
     the worktree: only a fenced file inside the worktree is still checked by text, and all of
     them are while the worktree is unknown.
+
+    `rewrite` says the step holds a rewrite request, so amending its own commit is not refused
+    here (`check_no_commit` keeps the other rewrite commands in bounds).
     """
     if confined:
         fenced = confined_fence(fenced, worktree)
@@ -793,7 +839,7 @@ def check_command(
     variables: dict[str, str] = {}
     for segment in SEGMENT_SPLIT.split(command):
         segment = segment.strip()
-        verdict = _check_segment(segment, branch, protected)
+        verdict = _check_segment(segment, branch, protected, rewrite=rewrite)
         if verdict.allowed and worktree is not None:
             verdict = _check_redirects(segment, worktree, here)
         if verdict.allowed and fenced:

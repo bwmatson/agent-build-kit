@@ -25,7 +25,10 @@
   commits only; when it sends the unit back the request is stored as the review's. The
   pipeline now records the sha of each empty commit it makes to mark a group built, and an
   `Already-built` marker on any other commit no longer lets a resumed run treat that group as
-  recorded.
+  recorded. A review-feedback or rework step that holds such a request may now commit, amend,
+  rebase, cherry-pick, revert and `reset --soft` or `--mixed`, in both the hook and the ACP
+  broker; `--no-verify`, merges, pulls, direct ref writes, history filters and hard resets stay
+  refused, and a step with no request is refused every one of them as before.
 
 - A restack now settles conflicts in files a repository's `generated` setting covers by taking
   the base's version (or removing the file where the base has none), without asking the
