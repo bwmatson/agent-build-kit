@@ -25,8 +25,6 @@ from pydantic import BaseModel
 
 from agent_build_kit import orchestration, runtimes
 from agent_build_kit.graph.checkpointer import carried_unit_graphs
-from agent_build_kit.graph.state import AgentSession
-from agent_build_kit.graph.unit import clear_running_node
 from agent_build_kit.installation import Installation
 from agent_build_kit.orchestration.artifacts import INTERFACE as ARTIFACTS
 from agent_build_kit.orchestration.checkpoints import open_checkpoints
@@ -42,6 +40,8 @@ from agent_build_kit.pipeline.transcript import (
     read_transcripts,
     unit_transcript_keys,
 )
+from agent_build_kit.pipeline.unit_graph_entry import registered_unit_graph
+from agent_build_kit.pipeline.unit_state import AgentSession
 from agent_build_kit.pipeline.unit_store import Cause, StoredUnit
 from agent_build_kit.pipeline.units import RUNNING
 from agent_build_kit.pipeline.vocabulary import OverheadNode
@@ -218,7 +218,7 @@ class Chat:
 
         async def clear() -> None:
             async with open_checkpoints(self.installation) as saver:
-                await clear_running_node(saver, unit.id)
+                await registered_unit_graph().clear_running_node(saver, unit.id)
 
         asyncio.run(clear())
 

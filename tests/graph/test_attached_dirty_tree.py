@@ -8,11 +8,16 @@ as in `test_resume_over_leftovers.py`; the lease is the real one, left by a proc
 
 from __future__ import annotations
 
+from collections.abc import Iterator
 from pathlib import Path
 
+import pytest
+
+from agent_build_kit.graph.unit import SERVED_UNIT_GRAPH
 from agent_build_kit.pipeline.lease import Leases, lease_dir
 from agent_build_kit.pipeline.shell import git_out
 from agent_build_kit.pipeline.stack_runner import RunStatus
+from agent_build_kit.pipeline.unit_graph_entry import register_unit_graph
 from agent_build_kit.pipeline.unit_store import Cause
 from agent_build_kit.pipeline.units import FAILED
 from agent_build_kit.serve.chat import Chat
@@ -78,6 +83,16 @@ def test_a_stale_lease_with_changes_wins_over_a_killed_nodes_recorded_start(
     assert git_out(habitat.tree, "status", "--porcelain").split() == ["??", LEFTOVER]
 
 
+@pytest.fixture
+def served_graph() -> Iterator[None]:
+    """The worker's graph registered with the core's entry, as `create_app` leaves it, and the
+    entry restored afterwards."""
+    before = register_unit_graph(SERVED_UNIT_GRAPH)
+    yield
+    register_unit_graph(before)
+
+
+@pytest.mark.usefixtures("served_graph")
 def test_taking_a_lease_over_a_killed_nodes_start_clears_it_and_keeps_the_leftovers(
     tmp_path: Path,
 ) -> None:

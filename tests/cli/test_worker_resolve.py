@@ -24,14 +24,14 @@ from agent_build_kit.cli.worker import cmd_worker_resolve
 from agent_build_kit.installation import Installation
 from agent_build_kit.pipeline.admission import STARTING_TTL
 from agent_build_kit.pipeline.file_lock import LockTimeout, file_lock
-from agent_build_kit.pipeline.lease import Leases
-from agent_build_kit.pipeline.resolution_lane import (
+from agent_build_kit.pipeline.lane_records import (
     clear_worker_record,
     deferred_until,
     lane_held_by_record,
     record_deferral,
     write_worker_record,
 )
+from agent_build_kit.pipeline.lease import Leases
 from agent_build_kit.pipeline.snapshots import WAKE
 from agent_build_kit.pipeline.unit_store import Cause, UnitStore
 from agent_build_kit.pipeline.units import (

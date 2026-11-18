@@ -20,6 +20,14 @@ if TYPE_CHECKING:
 # The (module, name) of every type the state holds, the only ones a
 # checkpoint may deserialise.
 ALLOWED_MSGPACK_MODULES: tuple[tuple[str, str], ...] = (
+    ("agent_build_kit.pipeline.unit_state", "AgentSession"),
+    ("agent_build_kit.pipeline.unit_state", "EventKind"),
+    ("agent_build_kit.pipeline.unit_state", "Node"),
+    ("agent_build_kit.pipeline.unit_state", "ResumeEvent"),
+    ("agent_build_kit.pipeline.unit_state", "SessionRole"),
+    ("agent_build_kit.pipeline.unit_state", "UnitRun"),
+    ("agent_build_kit.pipeline.unit_state", "Verdict"),
+    # What a checkpoint written before the state moved to the core names.
     ("agent_build_kit.graph.state", "AgentSession"),
     ("agent_build_kit.graph.state", "EventKind"),
     ("agent_build_kit.graph.state", "Node"),

@@ -15,8 +15,9 @@ import pytest
 
 from agent_build_kit.cli.pipeline import unclaimed_runs
 from agent_build_kit.installation import Installation
+from agent_build_kit.pipeline.lane_records import record_deferral
 from agent_build_kit.pipeline.lease import Leases, lease_dir
-from agent_build_kit.pipeline.resolution_lane import lane_runs_owed, owed_units, record_deferral
+from agent_build_kit.pipeline.resolution_lane import lane_runs_owed, owed_units
 from agent_build_kit.pipeline.unit_store import (
     LANE_REWORKS,
     Cause,

@@ -12,6 +12,7 @@ import pytest
 from agent_build_kit.cli import main
 from agent_build_kit.config import dump
 from agent_build_kit.installation import Installation
+from agent_build_kit.pipeline.unit_graph_entry import register_unit_graph
 from agent_build_kit.serve.review import ReviewStore
 from agent_build_kit.serve.server import start_server
 from tests.chat_serving import WAIT
@@ -48,6 +49,22 @@ def test_approve_records_an_approved_decision_for_the_round_at_the_head(
     [decision] = stored_decisions(inst, "feature/2")
     assert (decision["round"], decision["decision"]) == (2, "approve")
     assert decision["head"] == rev(repo, "spec/feature/2")
+
+
+def test_approve_in_a_fresh_process_needs_no_graph_registered_by_an_app(
+    inst: Installation,
+) -> None:
+    """The command reads the unit's thread without `create_app` having run."""
+    seed_branches(inst)
+    seed_review_round(inst, "feature/2", 2)
+    before = register_unit_graph(None)
+    try:
+        assert main(["approve", "feature/2"]) == 0
+    finally:
+        register_unit_graph(before)
+
+    [decision] = stored_decisions(inst, "feature/2")
+    assert decision["round"] == 2
 
 
 def test_it_prints_the_unit_the_head_and_the_round(

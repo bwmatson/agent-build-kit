@@ -28,8 +28,11 @@ from pydantic import Field, model_validator
 from agent_build_kit import orchestration
 from agent_build_kit.cli.pipeline import parked_units
 from agent_build_kit.graph.checkpointer import allowlisted_serde, carried_unit_graphs
-from agent_build_kit.graph.state import AgentSession, SessionRole, UnitRun
-from agent_build_kit.graph.unit import thread_position
+
+# The worker's graph, which `create_app` registers with the core's entry. It is an ordinary
+# import so the boundary scan sees this dependency, kept in the baseline until the worker
+# package is split out.
+from agent_build_kit.graph.unit import SERVED_UNIT_GRAPH
 from agent_build_kit.installation import Installation
 from agent_build_kit.model import Frozen
 from agent_build_kit.orchestration.artifacts import INTERFACE as ARTIFACTS
@@ -38,6 +41,8 @@ from agent_build_kit.orchestration.local.directories import RUN_LOGS
 from agent_build_kit.pipeline.environment import repo_artifacts
 from agent_build_kit.pipeline.run_log import CONTINUATION
 from agent_build_kit.pipeline.stack_runner import unit_follow_ups
+from agent_build_kit.pipeline.unit_graph_entry import register_unit_graph
+from agent_build_kit.pipeline.unit_state import AgentSession, SessionRole, UnitRun
 from agent_build_kit.pipeline.unit_store import StoredUnit
 from agent_build_kit.pipeline.units import base_of, shown_dependencies, unit_file_prefix
 from agent_build_kit.pipeline.usage_forecast_record import FORECASTS_NAME
@@ -65,6 +70,7 @@ from agent_build_kit.serve.review import (
 from agent_build_kit.settings import settings
 
 logger = logging.getLogger(__name__)
+
 
 HOST = "127.0.0.1"
 # Where `npm run build` in `web/` puts the UI; the wheel ships it from here.
@@ -131,7 +137,7 @@ def _unit_run(installation: Installation, unit_id: str) -> UnitRun | None:
 
     async def read() -> UnitRun | None:
         async with _read_only_checkpointer(path) as saver:
-            position = await thread_position(saver, unit_id)
+            position = await SERVED_UNIT_GRAPH.position(saver, unit_id)
         return position.state
 
     try:
@@ -228,7 +234,7 @@ def _recorded_session(installation: Installation, unit_id: str) -> AgentSession 
 
     async def read() -> AgentSession | None:
         async with _read_only_checkpointer(path) as saver:
-            position = await thread_position(saver, unit_id)
+            position = await SERVED_UNIT_GRAPH.position(saver, unit_id)
         return position.state.sessions.get(SessionRole.BUILD) if position.state else None
 
     try:
@@ -242,6 +248,7 @@ def create_app(
     static_dir: Path = STATIC_DIR,
     agent_environment: dict[str, str] | None = None,
 ) -> FastAPI:
+    register_unit_graph(SERVED_UNIT_GRAPH)
     app = FastAPI(title="abk serve", docs_url=None, redoc_url=None, openapi_url=None)
     units_path = installation.state_dir / "units.json"
 

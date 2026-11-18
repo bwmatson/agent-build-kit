@@ -40,6 +40,7 @@ from agent_build_kit.pipeline.file_lock import (
     file_lock,
 )
 from agent_build_kit.pipeline.labels import StateLabels
+from agent_build_kit.pipeline.lane_records import lane_record
 from agent_build_kit.pipeline.pause import (
     Pause,
     pause_for,
@@ -260,9 +261,6 @@ def demote_failed_verify(inst: Installation, change: str, units: list) -> None:
 
 def restacking_bases(inst: Installation) -> dict[str, str]:
     """The base of each unit the restack lane of a live tick holds, running or waiting."""
-    # Late: the lane's record reader is the worker's until the lane records move to the core.
-    from agent_build_kit.pipeline.resolution_lane import lane_record
-
     return {entry["unit"]: entry["base"] for entry in lane_record(inst.state_dir)}
 
 

@@ -14,7 +14,7 @@ import pytest
 
 from agent_build_kit.cli import pipeline as cli
 from agent_build_kit.installation import Installation
-from agent_build_kit.pipeline.resolution_lane import lane_held_by_record, write_worker_record
+from agent_build_kit.pipeline.lane_records import lane_held_by_record, write_worker_record
 from agent_build_kit.pipeline.stack_runner import RunOutcome, RunStatus
 from agent_build_kit.pipeline.unit_store import StoredUnit, UnitStore
 from agent_build_kit.pipeline.units import IN_REVIEW, RUNNING, project_key
