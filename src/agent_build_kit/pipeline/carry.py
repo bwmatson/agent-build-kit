@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import subprocess
+from collections.abc import Callable
 from contextlib import nullcontext
 from pathlib import Path
 
@@ -17,12 +18,14 @@ from agent_build_kit.pipeline.restack import (
     ask_resolver,
     conflict_prompt,
     git,
+    has_staged_changes,
     push_with_lease,
     read_conflict,
+    remote_head,
     take_generated_from_base,
 )
 from agent_build_kit.pipeline.unit_store import Cause, Pull, StoredUnit, UnitStore
-from agent_build_kit.pipeline.units import IN_REVIEW, MERGED
+from agent_build_kit.pipeline.units import IN_REVIEW
 from agent_build_kit.pipeline.workspaces import worktree_key
 
 CARRY_ROLE = "carry"
@@ -53,6 +56,7 @@ def carry(
     repo: Path,
     default_branch: str,
     worktrees: Path,
+    on_empty: Callable[[StoredUnit, str], None],
     resolve: Resolver | None = None,
     repo_config: RepoConfig | None = None,
     turn: Turn = nullcontext,
@@ -60,8 +64,12 @@ def carry(
     """Cherry-pick the unit's merge commit onto `spec/<unit>/carry`, a branch off the default
     branch (as the remote has it, after a fetch) made in a worktree under `worktrees`, and open
     a pull request against the default branch, recorded as role `carry`. The unit is `in_review`
-    with cause `carried`; one that already carries is left alone, and a cherry-pick that leaves
-    nothing to commit opens no pull request and records the unit `merged`.
+    with cause `carried`; one that already carries is left alone. A cherry-pick that leaves
+    nothing to commit opens no pull request: `on_empty` is given the unit and the default
+    branch's head, and records the unit merged as the landing re-check records a squash.
+
+    It can be run again after a failure: the branch is pushed with a lease on what the remote
+    holds for it, and a pull request already open for it is reused.
 
     A conflict is resolved as a restack's is (`ask_resolver`: both sides' intent, generated
     files from the base, the answer checked). One that cannot be resolved aborts the cherry-pick
@@ -95,25 +103,34 @@ def carry(
             repo=repo_config,
         )
         if not _pick(path, sha, resolve, context, repo_config, turn):
-            store.set_state(unit_id, MERGED, note=f"its changes are already on {default_branch}")
+            # Nothing to carry: the default branch's head stands for the merge.
+            on_empty(unit, git(repo, "rev-parse", start).stdout.strip())
             return
         with turn():
-            push_with_lease(path, branch, last_pushed=None)
+            # A retry makes the branch again, with a new commit: lease against what the
+            # remote holds for it now, so the push is not refused as non-fast-forward.
+            held = remote_head(path, branch)
+            if held is None:
+                raise RuntimeError(f"could not ask the remote for {branch}")
+            push_with_lease(path, branch, last_pushed=held or None)
     finally:
         with turn():
             git(repo, "worktree", "remove", "--force", str(path), check=False)
-    first = next((pull.number for pull in unit.pulls if pull.role != CARRY_ROLE), unit.pr)
-    number = forge.create_pr(
-        repo_id,
-        head=branch,
-        base=default_branch,
-        title=f"Carry {unit_id} onto {default_branch}",
-        body=(
-            f"{unit_id} was merged into a branch other than {default_branch}"
-            + (f" (#{first})" if first else "")
-            + "; this carries its work onto it."
-        ),
-    )
+    # One pull request however many rounds it took: one opened before a failure is reused.
+    number = forge.find_pr(repo_id, head=branch)
+    if number is None:
+        first = next((pull.number for pull in unit.pulls if pull.role != CARRY_ROLE), unit.pr)
+        number = forge.create_pr(
+            repo_id,
+            head=branch,
+            base=default_branch,
+            title=f"Carry {unit_id} onto {default_branch}",
+            body=(
+                f"{unit_id} was merged into a branch other than {default_branch}"
+                + (f" (#{first})" if first else "")
+                + "; this carries its work onto it."
+            ),
+        )
     store.set_pulls(unit_id, (*unit.pulls, Pull(number=number, branch=branch, role=CARRY_ROLE)))
     store.set_merge_record(unit_id, None, None)
     store.set_state(
@@ -124,10 +141,6 @@ def carry(
         note=f"carrying onto {default_branch}",
         cause=Cause.CARRIED,
     )
-
-
-def _staged(path: Path) -> bool:
-    return git(path, "diff", "--cached", "--quiet", check=False).returncode != 0
 
 
 def _pick_stopped(path: Path) -> bool:
@@ -165,7 +178,7 @@ def _pick(
     with turn():
         settled, others = take_generated_from_base(path, patterns)
         if not others:
-            if _staged(path):
+            if has_staged_changes(path):
                 git(path, "-c", "core.editor=true", "cherry-pick", "--continue")
                 return True
             # Stopped as empty: the base already holds what the commit changed.

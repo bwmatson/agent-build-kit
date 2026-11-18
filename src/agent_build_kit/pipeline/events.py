@@ -1209,13 +1209,7 @@ def recheck_landings(
                 current = store.get(unit.id)
                 if not _awaiting_landing(current) or current.merge_sha != unit.merge_sha:
                     continue
-                current = current.model_copy(update={"merge_sha": landed_as})
-                if current.state == HELD:
-                    resume(current, "merged", "", "")
-                    settle_merged(store, current, merge_record, cause=Cause.MERGED)
-                else:
-                    settle_merged(store, current, merge_record)
-                store.set_settling_behind(current.id, "")
+                record_landed(store, current, landed_as, merge_record, resume)
         except BranchBusy as error:
             _deferred("recheck", unit, error, log)
             continue
@@ -1228,6 +1222,25 @@ def recheck_landings(
             )
         recorded.append(unit.id)
     return recorded
+
+
+def record_landed(
+    store: UnitStore,
+    unit: StoredUnit,
+    landed_as: str,
+    merge_record: MergeRecord | None,
+    resume: Resume,
+) -> None:
+    """Record a unit whose work is on the default branch as merged, with `landed_as` as its
+    merge commit. A held unit's thread is sent `merged`, which ends the hold it was handed;
+    the caller holds the unit's claim."""
+    unit = unit.model_copy(update={"merge_sha": landed_as})
+    if unit.state == HELD:
+        resume(unit, "merged", "", "")
+        settle_merged(store, unit, merge_record, cause=Cause.MERGED)
+    else:
+        settle_merged(store, unit, merge_record)
+    store.set_settling_behind(unit.id, "")
 
 
 def _awaiting_landing(unit: StoredUnit) -> bool:
@@ -1255,8 +1268,10 @@ def carry_held(
     whose commit or whose changes are already on the default branch (so a unit that needs no
     carry never gets one), then, for each unit still held `landed_off_default` with no carry,
     `carry` under the unit's branch lease. A unit being built, or whose carry cannot be
-    resolved, is left held (the second is noted once and not tried again until its state
-    changes). Returns the ids it carried."""
+    resolved, is left held (the second is noted once and not tried again until something else
+    is recorded for the unit). One unit's failure, of any kind, is logged and never ends the
+    round: a host or model that is unavailable leaves the unit to a later round. Returns the
+    ids it carried."""
     recheck_landings(
         store, repos=repos, merge_record=merge_record, claim=claim, resume=resume, log=log
     )
@@ -1277,6 +1292,9 @@ def carry_held(
                     repo=repos[unit.repo],
                     default_branch=default_of(unit.repo),
                     worktrees=worktrees,
+                    on_empty=lambda held, head: record_landed(
+                        store, held, head, merge_record, resume
+                    ),
                     resolve=resolver_for(unit),
                     repo_config=repo_config_of(unit.repo),
                     turn=turn_of(unit.repo),
@@ -1289,6 +1307,14 @@ def carry_held(
                 unit.id, CARRY_REFUSED, str(error), cause=Cause.LANDED_OFF_DEFAULT.value
             )
             log(f"{unit.id}: carry abandoned, left held — {error}")
+            continue
+        except AGENT_UNAVAILABLE as error:
+            log(f"{unit.id}: carry not tried, the model is unavailable ({error}) — held")
+            continue
+        except Exception as error:  # noqa: BLE001 — one unit's carry never ends the poll
+            # Not recorded as refused: a host that was down is tried again next round, and the
+            # carry can be run again (the push is leased, an open pull request reused).
+            log(f"{unit.id}: carry failed, left held — {type(error).__name__}: {error}")
             continue
         log(f"{unit.id}: carried onto {default_of(unit.repo)}")
         carried.append(unit.id)

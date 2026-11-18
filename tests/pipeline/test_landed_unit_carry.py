@@ -11,18 +11,34 @@ from pathlib import Path
 
 import pytest
 
+from agent_build_kit.forges import RepoId
 from agent_build_kit.pipeline import events
 from agent_build_kit.pipeline.carry import carry
 from agent_build_kit.pipeline.events import carry_held
 from agent_build_kit.pipeline.restack import RestackConflict
-from agent_build_kit.pipeline.unit_store import Cause, Pull
+from agent_build_kit.pipeline.unit_store import Cause, Pull, StoredUnit
 from agent_build_kit.pipeline.units import HELD, IN_REVIEW, MERGED, SETTLING
+from agent_build_kit.runtimes.base import AgentRateLimited
 from tests.factories import commit_files, git
 from tests.forges.stand_in import StandInForge
 from tests.landing_world import CHILD, CHILD_CHANGE, Landing
 
 CARRY_BRANCH = f"spec/{CHILD}/carry"
 CARRY_PR = 7
+
+
+class FlakyForge(StandInForge):
+    """The stand-in whose host refuses the first `failures` pull request creations."""
+
+    def __init__(self, *, number: int, failures: int = 0) -> None:
+        super().__init__(number=number)
+        self.failures = failures
+
+    def create_pr(self, repo: RepoId, *, head: str, base: str, title: str, body: str) -> int:
+        if self.failures:
+            self.failures -= 1
+            raise RuntimeError("the host is unavailable")
+        return super().create_pr(repo, head=head, base=base, title=title, body=body)
 
 
 class Carrying:
@@ -38,9 +54,10 @@ class Carrying:
         self.landing.store.set_pulls(
             CHILD, (Pull(number=2, role="original", merge_sha=self.landing.child_sha),)
         )
-        self.forge = StandInForge(number=CARRY_PR)
+        self.forge = FlakyForge(number=CARRY_PR)
         self.worktrees = root / "worktrees"
         self.prompts: list[str] = []
+        self.resumed: list[tuple[str, str]] = []
         self.resolver: Callable[..., None] = self.resolve
 
     @property
@@ -52,6 +69,15 @@ class Carrying:
         self.prompts.append(prompt)
         (cwd / "a.txt").write_text("two and three\n")
 
+    def resume(self, unit: StoredUnit, kind: str, reason: str, feedback: str) -> bool:
+        self.resumed.append((unit.id, kind))
+        return True
+
+    def record_landed(self, unit: StoredUnit, head: str) -> None:
+        events.record_landed(
+            self.landing.store, unit, head, lambda held: (held.merge_sha, None), self.resume
+        )
+
     def run(self) -> None:
         carry(
             self.landing.store,
@@ -61,6 +87,7 @@ class Carrying:
             repo=self.clone,
             default_branch="main",
             worktrees=self.worktrees,
+            on_empty=self.record_landed,
             resolve=self.resolver,
         )
 
@@ -74,6 +101,8 @@ class Carrying:
             worktrees=self.worktrees,
             claim=lambda unit: nullcontext(),
             resolver_for=lambda unit: self.resolver,
+            merge_record=lambda unit: (unit.merge_sha, None),
+            resume=self.resume,
             log=lambda _line: None,
         )
 
@@ -315,3 +344,59 @@ def test_the_carry_pull_request_names_the_pull_request_that_landed_off_the_defau
     carrying.run()
 
     assert "#2" in carrying.forge.created[0]["body"]
+
+
+def test_a_cherry_pick_that_leaves_nothing_records_the_default_branch_head_and_ends_the_hold(
+    tmp_path: Path,
+) -> None:
+    carrying = Carrying(tmp_path)
+    head = carrying.landing.land_on_main(CHILD_CHANGE)
+
+    carrying.run()
+
+    unit = carrying.landing.store.get(CHILD)
+    assert (unit.state, unit.merge_sha) == (MERGED, head)
+    assert carrying.resumed == [(CHILD, "merged")]
+
+
+def test_a_round_whose_pull_request_creation_fails_leaves_the_unit_held_then_carries_it(
+    carrying: Carrying,
+) -> None:
+    carrying.forge.failures = 1
+
+    assert carrying.round() == []
+    held = carrying.landing.store.get(CHILD)
+    assert (held.state, held.cause) == (HELD, Cause.LANDED_OFF_DEFAULT)
+
+    assert carrying.round() == [CHILD]
+    unit = carrying.landing.store.get(CHILD)
+    assert (unit.state, unit.pr) == (IN_REVIEW, CARRY_PR)
+    assert [c["head"] for c in carrying.forge.created] == [CARRY_BRANCH]
+
+
+def test_a_pull_request_already_open_for_the_carry_branch_is_reused(carrying: Carrying) -> None:
+    carrying.forge.existing = CARRY_PR
+
+    carrying.run()
+
+    assert carrying.forge.created == []
+    assert carrying.landing.store.get(CHILD).pr == CARRY_PR
+
+
+def test_a_resolver_refused_for_usage_leaves_the_unit_held_and_a_later_round_carries_it(
+    tmp_path: Path,
+) -> None:
+    carrying = Carrying(tmp_path)
+    carrying.landing.land_on_main({"a.txt": "three\n"})
+
+    def refused(prompt: str, *, cwd: Path, **_: object) -> None:
+        raise AgentRateLimited("the usage window is spent")
+
+    carrying.resolver = refused
+
+    assert carrying.round() == []
+    assert carrying.landing.store.get(CHILD).state == HELD
+
+    carrying.resolver = carrying.resolve
+    assert carrying.round() == [CHILD]
+    assert carrying.landing.store.get(CHILD).state == IN_REVIEW

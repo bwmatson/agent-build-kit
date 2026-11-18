@@ -391,6 +391,12 @@ def _read(repo: Path, name: str) -> str:
         return ""
 
 
+def has_staged_changes(repo: Path) -> bool:
+    """Whether the index of `repo` differs from its head (a stopped replay with nothing staged
+    has nothing to continue with)."""
+    return git(repo, "diff", "--cached", "--quiet", check=False).returncode != 0
+
+
 def _settle_generated(
     repo: Path,
     stop: subprocess.CompletedProcess[str],
@@ -402,20 +408,18 @@ def _settle_generated(
     it is now at (`stop` itself when nothing was settled). A stop that also conflicts on
     other files is left for the caller, with the generated ones already settled."""
     while True:
-        generated, others = partition_generated(conflicted_files(repo), patterns)
+        generated, others = take_generated_from_base(repo, patterns)
         if not generated:
             return False, stop
-        _take_from_base(repo, generated)
         settled.extend(generated)
         if others:
             return False, stop
-        staged = git(repo, "diff", "--cached", "--quiet", check=False).returncode != 0
         stop = git(
             repo,
             "-c",
             "core.editor=true",
             "rebase",
-            "--continue" if staged else "--skip",
+            "--continue" if has_staged_changes(repo) else "--skip",
             check=False,
         )
         if stop.returncode == 0:
