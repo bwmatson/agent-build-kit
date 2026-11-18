@@ -23,7 +23,7 @@ from __future__ import annotations
 
 import ast
 import subprocess
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Collection, Sequence
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -140,9 +140,10 @@ def _file_at(repo: Path, sha: str, path: str) -> str:
         return ""  # Deleted in this commit; nothing to vouch for.
 
 
-def recorded_built(repo: Path, sha: str) -> bool:
+def recorded_built(repo: Path, sha: str, recorded: Collection[str] | None = None) -> bool:
     """Whether the commit is marked `Already-built: yes` and holds no file. A file keeps the
-    marker from excusing real work."""
+    marker from excusing real work. When `recorded` is given, the commit must also be one the
+    pipeline recorded as built, so a marker the agent wrote excuses nothing."""
     marked = git_out(
         repo, "log", "-1", f"--format=%(trailers:key={ALREADY_BUILT_TRAILER},valueonly)", sha
     )

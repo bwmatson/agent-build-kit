@@ -325,3 +325,18 @@ def test_an_agent_that_raises_leaves_the_branch_put_back_and_the_request_cleared
 
     assert git_out(scene.repo, "rev-parse", "unit") == scene.started
     assert store.get(UNIT_ID).rewrite_request is None
+
+
+def history_events(store: UnitStore) -> list[dict]:
+    return [e for e in store.get(UNIT_ID).history if e.get("event") == "history_rewritten"]
+
+
+def test_a_step_that_rewrote_the_commits_records_in_the_history_who_asked(
+    scene: Scene, store: UnitStore
+) -> None:
+    step = run(scene, store, Agent(scene, store, [fold_three_into_two]), returns=0)
+
+    entries = history_events(store)
+    assert step.ok
+    assert len(entries) == 1
+    assert "person" in entries[0]["note"]
