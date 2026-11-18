@@ -115,6 +115,28 @@ def test_blast_radius_notes_appear_after_a_restack() -> None:
     assert "no conflicts" in body
 
 
+def rewrite_entry(who: str) -> dict:
+    return {
+        "state": "running",
+        "at": "2026-01-01T00:00:00Z",
+        "event": "history_rewritten",
+        "note": f"the unit's commits were rewritten at the request of {who}",
+        "source": who,  # as `record_event` writes it
+    }
+
+
+@pytest.mark.parametrize("who", ["person", "review"])
+def test_a_rewritten_branch_says_its_history_was_rewritten_and_who_asked(who: str) -> None:
+    """A reviewer who read the earlier commits must be told they were replaced."""
+    rewritten = unit(history=(rewrite_entry(who),))
+
+    body = build_pr_body(rewritten, graph=[rewritten], base="main")
+
+    lines = [line for line in body.splitlines() if "rewritten" in line]
+    assert len(lines) == 1
+    assert who in lines[0]
+
+
 def test_open_points_appear_when_the_rounds_ran_out() -> None:
     """A person inheriting a held unit needs the outstanding points in the PR,
     not just a state on disk."""

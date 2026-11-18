@@ -325,3 +325,56 @@ def test_an_agent_that_raises_leaves_the_branch_put_back_and_the_request_cleared
 
     assert git_out(scene.repo, "rev-parse", "unit") == scene.started
     assert store.get(UNIT_ID).rewrite_request is None
+
+
+def history_events(store: UnitStore) -> list[dict]:
+    return [e for e in store.get(UNIT_ID).history if e.get("event") == "history_rewritten"]
+
+
+def test_a_step_that_rewrote_the_commits_records_in_the_history_who_asked(
+    scene: Scene, store: UnitStore
+) -> None:
+    step = run(scene, store, Agent(scene, store, [fold_three_into_two]), returns=0)
+
+    entries = history_events(store)
+    assert step.ok
+    assert len(entries) == 1
+    assert "person" in entries[0]["note"]
+    assert entries[0]["source"] == "person"
+
+
+def no_commit(scene: Scene) -> None:
+    """An agent that leaves the branch where it was."""
+
+
+def test_a_step_with_a_request_whose_agent_makes_no_commit_records_no_rewrite(
+    scene: Scene, store: UnitStore
+) -> None:
+    run(scene, store, Agent(scene, store, [no_commit]), returns=0)
+
+    assert history_events(store) == []
+
+
+def test_a_step_with_no_request_records_no_rewrite_however_the_agent_moves_the_branch(
+    scene: Scene, store: UnitStore
+) -> None:
+    run_guarded_step(
+        scene.repo,
+        request=None,
+        base=scene.base,
+        unit_id=UNIT_ID,
+        store=store,
+        agent=lambda _reason: fold_three_into_two(scene),
+        returns=0,
+    )
+
+    assert history_events(store) == []
+
+
+def test_a_step_whose_guard_fails_on_every_return_records_no_rewrite(
+    scene: Scene, store: UnitStore
+) -> None:
+    step = run(scene, store, Agent(scene, store, [amend_the_base]), returns=1)
+
+    assert not step.ok
+    assert history_events(store) == []

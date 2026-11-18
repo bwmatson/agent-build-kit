@@ -385,6 +385,9 @@ class StoredUnit(Unit):
     # The SHA this runner last published for `branch`. The next push leases
     # against exactly this, so it has to outlive the process that pushed it.
     pushed: str | None = None
+    # The shas of the empty marked commits the pipeline itself made to record a group built;
+    # an `Already-built` marker on any other commit excuses nothing.
+    built_commits: tuple[str, ...] = ()
     # When `pushed` was recorded; None for a store written before this field.
     pushed_at: datetime | None = None
     # The head commit `check_reruns` counts for, and how many times its cancelled
@@ -1793,6 +1796,12 @@ class UnitStore:
         """That the unit's e2e-test step ended as `state`; None clears it, as a new head's
         state is not yet known."""
         self._update(unit_id, e2e_state=state)
+
+    def record_built_commit(self, unit_id: str, sha: str) -> None:
+        """Remember a marked empty commit the pipeline made, so its marker can be trusted."""
+        held = self.get(unit_id).built_commits
+        if sha not in held:
+            self._update(unit_id, built_commits=(*held, sha))
 
     def record_push(self, unit_id: str, sha: str) -> None:
         """Remember what we published, so the next push can lease against it.

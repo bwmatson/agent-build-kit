@@ -1277,8 +1277,10 @@ def build_commit_built(
     unit_id: str = "",
     run: Run | None = None,
     adopted_from: str = "",
+    store: UnitStore | None = None,
 ) -> Callable[..., int]:
-    """The runner's `commit_built(message, *, cwd)`: an empty commit marking a group built.
+    """The runner's `commit_built(message, *, cwd)`: an empty commit marking a group built,
+    its sha recorded on the unit in `store` so the marker is known to be the pipeline's.
 
     Hooks run, and the gate does not; one attempt, since a rejected empty commit leaves
     nothing for an agent to change."""
@@ -1290,6 +1292,10 @@ def build_commit_built(
         if result.returncode:
             raise CommitRejected(
                 f"git commit was rejected in {cwd}:\n{result.stdout}\n{result.stderr}".strip()
+            )
+        if store is not None and unit_id:
+            store.record_built_commit(
+                unit_id, run(["git", "rev-parse", "HEAD"], cwd=cwd).stdout.strip()
             )
         return 1
 
@@ -5477,7 +5483,7 @@ def build_runner(
             repo=repo,
             base=local_ref(repo.default_branch, repo=unit.repo),
         ),
-        commit_built=build_commit_built(unit_id=unit.id),
+        commit_built=build_commit_built(unit_id=unit.id, store=store),
         run_stub_checks=build_stub_checks(profile=profile, projects=repo.projects),
         # Only a stubbed build reaches the red check.
         run_red_check=build_red_check(

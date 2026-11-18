@@ -12,9 +12,11 @@ from tests.pipeline.test_unit_account import labelled
 
 
 def test_the_runner_makes_an_empty_marked_commit_for_its_unit(tmp_path: Path) -> None:
+    store = UnitStore(tmp_path / "units.json")
+    store.upsert([unit()])
     runner = build_runner(
         unit(),
-        store=UnitStore(tmp_path / "units.json"),
+        store=store,
         installation=labelled(tmp_path / "planning", None),
         log=lambda _: None,
     )

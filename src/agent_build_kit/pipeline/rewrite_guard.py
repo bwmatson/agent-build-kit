@@ -171,6 +171,18 @@ def run_guarded_step(
                 branch=branch,
             )
             if verdict.ok or returned >= returns:
+                if (
+                    verdict.ok
+                    and request is not None
+                    and git_out(tree, "rev-parse", "HEAD") != started
+                ):
+                    store.record_event(
+                        unit_id,
+                        "history_rewritten",
+                        f"the unit's commits were rewritten at the request of "
+                        f"{request.source.value}",
+                        source=request.source.value,
+                    )
                 return GuardedStep(ok=verdict.ok, returned=returned, verdict=verdict)
             returned += 1
             reason = verdict.reason

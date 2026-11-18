@@ -221,3 +221,12 @@ def test_a_restack_keeps_a_real_tests_commit_before_an_empty_feat(
     assert recorded_built(repo, git(repo, "rev-parse", "HEAD"))
     assert "Unit: feature/1" in git(repo, "log", "-1", "--format=%B", "HEAD")
     assert group_progress(subjects, ["G3", "G4"]).done == 2
+
+
+def test_a_marker_counts_only_on_a_commit_the_pipeline_recorded_as_built(
+    repo: Path,  # noqa: F811
+) -> None:
+    sha = empty(repo, "test: G4")
+
+    assert recorded_built(repo, sha, recorded=frozenset({sha}))
+    assert not recorded_built(repo, sha, recorded=frozenset())

@@ -15,7 +15,10 @@
 - `abk requeue UNIT --rework --rewrite --note TEXT` stores a request, from a person, to rewrite
   the unit's own commits as the note asks. A unit's history records that the request was made,
   by whom, and that it was used. `--rewrite` is refused with `--restart`, without `--rework` or
-  without a note, and a `--rework` with no `--rewrite` clears a request the unit holds.
+  without a note, and a `--rework` with no `--rewrite` clears a request the unit holds. The
+  pipeline now records the sha of each empty commit it makes to mark a group built, and an
+  `Already-built` marker on any other commit no longer lets a resumed run treat that group as
+  recorded.
 
 - A restack now settles conflicts in files a repository's `generated` setting covers by taking
   the base's version (or removing the file where the base has none), without asking the
