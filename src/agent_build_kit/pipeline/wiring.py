@@ -3610,6 +3610,7 @@ def build_release_dependents(
             rebase_cap=moves["rebase_cap"],
             resume=moves["resume"],
             settled=events.build_settled(installation.checkouts),
+            repos=installation.checkouts,
             log=log,
         )
 
@@ -3635,6 +3636,7 @@ def build_remove_satisfied(
             remove_worktree=moves["remove_worktree"],
             delete_branch=moves["delete_branch"],
             on_new_base=lambda child: events.pr_based_on(child, base_of(child, store.all())),
+            repos=installation.checkouts,
             log=log,
         )
 

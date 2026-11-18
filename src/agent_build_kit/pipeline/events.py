@@ -43,6 +43,7 @@ from functools import partial
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+from agent_build_kit import config as config_module
 from agent_build_kit import forges, profiles
 from agent_build_kit.budget import cut_head
 from agent_build_kit.forges import Forge, PullRequest, RepoId, ReviewNote
@@ -103,7 +104,10 @@ from agent_build_kit.pipeline.restack import (
     RestackConflict,
     TemporaryTree,
     adopt_host_head,
+    base_ref,
     blast_radius_note,
+    drop_base,
+    keep_base,
     push_with_lease,
     remote_head,
     resolved_move,
@@ -274,6 +278,7 @@ def on_merged(
     merge_record: MergeRecord | None = None,
     merge_commit: str | None = None,
     landing: Callable[[], Landing | None] | None = None,
+    repos: dict[str, Path] | None = None,
     log: Log = print,
 ) -> bool:
     """Record the merge, move what was stacked on it, then clean up after it.
@@ -344,6 +349,7 @@ def on_merged(
                 merge_commit=merge_commit,
                 note=note,
                 behind=behind,
+                repos=repos,
                 log=log,
             )
         if landing_path is not None:
@@ -912,6 +918,9 @@ def release_children(
             unmoved(child, f"{type(error).__name__}: {error}")
             continue
 
+    if repos is not None:
+        _keep_base_and_delete(leaving, graph, repos, log)
+
     if rebase_cap is not None:
         still_held = _reconsider_held(
             leaving,
@@ -935,9 +944,32 @@ def release_children(
             building_on_it=building_on_it,
             held_for_depth=held_for_depth,
             not_moved=not_moved,
+            repos=repos,
             log=log,
         )
     return failures
+
+
+def _keep_base_and_delete(
+    leaving: StoredUnit, graph: list[StoredUnit], repos: dict[str, Path], log: Log
+) -> None:
+    """At a merge with units stacked on it: keep the branch's last head under a local ref,
+    and delete its remote branch unless the host does, when the repo's setting says to."""
+    if leaving.state == SATISFIED or leaving.repo not in repos:
+        return
+    if not config_module.active().repos[leaving.repo].delete_merged_branches:
+        return
+    branch = branch_name(leaving)
+    if not any(base_of(child, graph) != branch for child in _children_of(leaving, graph)):
+        return
+    if not keep_base(repos[leaving.repo], branch):
+        return
+    try:
+        forge, repo_id = forges.for_repo(leaving.repo)
+        if not forge.deletes_head_branch_on_merge:
+            forge.delete_remote_branch(repo_id, branch)
+    except Exception as error:  # noqa: BLE001
+        log(f"{leaving.id}: remote branch {branch} not deleted — {error}")
 
 
 def remove_merged_branches(
@@ -970,6 +1002,7 @@ def remove_merged_branches(
             remove_worktree=remove_worktree,
             delete_branch=delete_branch,
             on_new_base=on_new_base,
+            repos=repos,
             log=log,
         )
 
@@ -1025,6 +1058,7 @@ def remove_satisfied(
         building_on_it=[],
         held_for_depth=held_for_depth,
         not_moved=not_moved,
+        repos=repos,
         log=log,
     )
 
@@ -1039,6 +1073,7 @@ def _remove_leaving(
     building_on_it: list[str],
     held_for_depth: list[str],
     not_moved: list[str],
+    repos: dict[str, Path] | None = None,
     log: Log,
 ) -> None:
     old_base = branch_name(leaving)
@@ -1101,6 +1136,10 @@ def _remove_leaving(
         delete_branch(leaving.repo, old_base)
     except Exception as error:  # noqa: BLE001
         log(f"{leaving.id}: branch {old_base} left in place — {error}")
+        return
+    if repos is not None and leaving.repo in repos:
+        # Nothing is owed a move off it now: the kept head goes with the branch.
+        drop_base(repos[leaving.repo], old_base)
 
 
 def _commit_in_hand(event: dict[str, Any]) -> str | None:
@@ -1418,6 +1457,7 @@ def _record_merge(
     merge_record: MergeRecord | None,
     merge_commit: str | None,
     log: Log,
+    repos: dict[str, Path] | None = None,
     note: str = "",
     behind: str = "",
 ) -> None:
@@ -1445,6 +1485,7 @@ def _record_merge(
         retarget=retarget,
         rebase_cap=rebase_cap,
         resume=resume,
+        repos=repos,
         log=log,
     )
 
@@ -2556,6 +2597,8 @@ def build_restack(
     ) -> RestackOutcome:
         repo = repos[child.repo]
         reason = reason or f"{parent.id} merged"
+        # The parent's branch may be gone, deleted at its merge: its kept head stands in.
+        old_base = base_ref(repo, old_base)
         # Prefer the unit's own worktree if it still exists: the checks then
         # run where the branch is checked out, rather than on whatever the
         # main clone happens to have in its working tree. `root` is
@@ -2568,9 +2611,10 @@ def build_restack(
         # or moved by an earlier release. Its PR still points at the satisfied
         # unit's branch, which is closed next, so that moves, unless it already
         # has.
+        # The same when the host already rebased the branch onto its new base: a merged
+        # parent's squash commit is not in the branch, and replaying it would only conflict.
         if (
-            parent.state == SATISFIED
-            and git(
+            git(
                 repo,
                 "merge-base",
                 "--is-ancestor",
@@ -2999,6 +3043,7 @@ def build_dispatch(
                 merge_record=merge_record,
                 merge_commit=_commit_in_hand(kwargs),
                 landing=_landing(repos, repo, kwargs),
+                repos=repos,
                 log=log,
             )
         if event == "settled":

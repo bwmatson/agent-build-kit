@@ -262,6 +262,8 @@ repos:                        # ordered; a task group's [repo] tag is a key here
     path: /abs/path/to/repo   # the checkout
     slug: owner/name          # GitHub; the owner picks the gh account
     default_branch: main
+    delete_merged_branches: true  # delete a merged parent's branch on the host when units are
+                              # stacked on it; its head is kept locally for their restacks
     profile: python-uv        # toolchain profile: python-uv or node-npm
     infra: none               # infrastructure profile: docker or none; docker
                               # records the container listing beside an e2e-test

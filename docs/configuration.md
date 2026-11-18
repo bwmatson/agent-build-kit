@@ -487,6 +487,10 @@ repos:                          # ordered: deploy order is derived from
                                 # `origin/HEAD` — which is a pointer nobody
                                 # updates, so a repo that moved to `dev` still
                                 # answers `main`.
+    delete_merged_branches: true  # at a merge with units stacked on it, delete
+                                # the merged branch on the host and keep its
+                                # last head under `refs/abk/bases/` for their
+                                # restacks; false leaves the branch alone
     forge: github               # the code host (forges/): github or
                                 # azure_devops. Inferred by init from origin.
     azure_devops:               # only for forge: azure_devops. Decoded, not
