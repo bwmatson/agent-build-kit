@@ -82,7 +82,13 @@ from agent_build_kit.pipeline.holds import (  # noqa: F401 — the hold helpers,
     restore_depth_hold,
     takeover_note,
 )
-from agent_build_kit.pipeline.landing_check import Landing, merged_on_branch, merged_on_default
+from agent_build_kit.pipeline.landing_check import (
+    Landing,
+    content_on_default,
+    default_head,
+    merged_on_branch,
+    merged_on_default,
+)
 from agent_build_kit.pipeline.landing_intent import clear_intent, has_intent
 from agent_build_kit.pipeline.pr_poller import (  # noqa: F401 — FAILING_CHECKS_REASON re-exported
     CONFLICT_REASON,
@@ -1138,20 +1144,27 @@ def recheck_landings(
     """Each round, before admission: a unit settling behind another unit's branch (its merge
     went into that branch, not the default branch: `settling_behind`), or held
     `landed_off_default`, becomes merged when its merge commit has become an ancestor of the
-    default branch. A unit that merged into the default branch is left to `on_settled`. The
-    unit is re-read under its claim, and a held unit's thread is sent `merged`, which ends the
-    hold it was handed. Returns the ids it recorded as merged."""
+    default branch, or when every change it made is already applied there (a squash), in which
+    case the default branch's head is recorded as its merge commit. A unit that merged into the
+    default branch is left to `on_settled`. The unit is re-read under its claim, and a held
+    unit's thread is sent `merged`, which ends the hold it was handed. Returns the ids it
+    recorded as merged."""
     recorded: list[str] = []
     for unit in store.all():
         if not _awaiting_landing(unit) or not unit.merge_sha or unit.repo not in repos:
             continue
-        if not merged_on_default(repos[unit.repo], unit.merge_sha, trunk_of(unit.repo)):
+        repo, trunk = repos[unit.repo], trunk_of(unit.repo)
+        by_commit = merged_on_default(repo, unit.merge_sha, trunk)
+        if not by_commit and not content_on_default(repo, unit.merge_sha, trunk, fetch=False):
             continue
+        # Present by content (a squash): the default branch's head stands for the merge.
+        landed_as = unit.merge_sha if by_commit else default_head(repo, trunk)
         try:
             with claim(unit):
                 current = store.get(unit.id)
                 if not _awaiting_landing(current) or current.merge_sha != unit.merge_sha:
                     continue
+                current = current.model_copy(update={"merge_sha": landed_as})
                 if current.state == HELD:
                     resume(current, "merged", "", "")
                     settle_merged(store, current, merge_record, cause=Cause.MERGED)
@@ -1161,7 +1174,13 @@ def recheck_landings(
         except BranchBusy as error:
             _deferred("recheck", unit, error, log)
             continue
-        log(f"{unit.id}: its commit is on the default branch, recorded merged")
+        if by_commit:
+            log(f"{unit.id}: its commit is on the default branch, recorded merged")
+        else:
+            log(
+                f"{unit.id}: its changes are on the default branch (squashed), "
+                f"recorded merged at {landed_as}"
+            )
         recorded.append(unit.id)
     return recorded
 
