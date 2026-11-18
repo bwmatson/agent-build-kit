@@ -606,7 +606,6 @@ def build_run(
     role: Role = "implement",
     planning_paths: tuple[str, ...] = (),
     account: claude_account.Account | None = None,
-    rewrite: bool = False,
 ) -> Callable[..., str]:
     """A scoped agent run inside a unit's worktree, policed by the hook and
     the deny list the runtime applies for a `ToolPolicy`.
@@ -644,7 +643,10 @@ def build_run(
         on_result: AgentCallback | None = None,
         tools: str = "",
         permission_mode: PermissionMode = "edit",
+        rewrite: bool = False,
     ) -> str:
+        """One scoped agent run. `rewrite` is decided per call: a step that holds a rewrite
+        request may rewrite the unit's own commits, and every other step may not."""
         agent = runtime or (through(run) if run else runtimes.active())
         if resume_session and not agent.supports_session_resume:
             raise SessionUnavailable(f"{agent.name} cannot resume a session")

@@ -13,6 +13,7 @@ import json
 from pathlib import Path
 from typing import Any
 
+from agent_build_kit.pipeline.unit_store import FeedbackSource, RewriteSource, StoredRewriteRequest
 from agent_build_kit.pipeline.units import IN_REVIEW, branch_name
 from tests.factories import activate_with, stored_unit, unit
 from tests.graph.test_build_path import build, restacked
@@ -381,3 +382,60 @@ def test_a_reviewer_that_never_approves_is_asked_once_per_round_and_no_rework_fo
     assert outcome.status == "held"
     assert recorder.events.count("review") == 3
     assert recorder.events.count("claude:rework") == 2
+
+
+# --- which steps may rewrite the unit's own commits ------------------------------
+
+
+def rewrite_flags(recorder: Recorder, tmp_path: Path) -> list[bool]:
+    """What each agent run was told about `rewrite`, in order, for one pass of the thread."""
+    build(tmp_path, recorder)
+    return recorder.rewrites
+
+
+def stored_rework(recorder: Recorder, *, asked: bool, source: FeedbackSource) -> None:
+    recorder.store.set_state(unit().id, IN_REVIEW, pr=16, branch=branch_name(unit()))
+    recorder.store.set_feedback(unit().id, "split the commit", source=source)
+    if asked:
+        recorder.store.set_rewrite_request(
+            unit().id, StoredRewriteRequest(text="split it in two", source=RewriteSource.PERSON)
+        )
+
+
+def test_a_rework_of_a_unit_holding_a_rewrite_request_runs_with_the_rewrite_policy(
+    tmp_path: Path,
+) -> None:
+    recorder = fresh(tmp_path)
+    stored_rework(recorder, asked=True, source=FeedbackSource.REVIEW)
+
+    assert rewrite_flags(recorder, tmp_path)[0] is True
+
+
+def test_a_rework_of_a_unit_holding_no_rewrite_request_runs_without_it(tmp_path: Path) -> None:
+    recorder = fresh(tmp_path)
+    stored_rework(recorder, asked=False, source=FeedbackSource.REVIEW)
+
+    assert rewrite_flags(recorder, tmp_path)[0] is False
+
+
+def test_the_rework_of_a_failed_check_runs_without_the_rewrite_policy_even_with_a_request(
+    tmp_path: Path,
+) -> None:
+    recorder = fresh(tmp_path)
+    stored_rework(recorder, asked=True, source=FeedbackSource.UNIT_TEST)
+
+    assert rewrite_flags(recorder, tmp_path)[0] is False
+
+
+def test_a_review_feedback_step_after_a_review_that_asked_for_a_rewrite_runs_with_the_policy(
+    tmp_path: Path,
+) -> None:
+    recorder = fresh(tmp_path)
+    recorder.verdicts = [
+        json.dumps({"approved": False, "feedback": "split it", "rewrite_request": "split it"}),
+        approving(),
+    ]
+
+    flags = rewrite_flags(recorder, tmp_path)
+
+    assert flags.count(True) == 1, "only the review-feedback step may rewrite"

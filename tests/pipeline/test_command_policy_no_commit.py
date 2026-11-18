@@ -141,6 +141,15 @@ STILL_REFUSED = [
     ("git reset --merge abc123", "--merge"),
     ("git add -A && git commit --no-verify -m x", "--no-verify"),
     ("git rebase main && git merge other", "merge"),
+    ('git rebase -x "git commit --amend --no-edit --no-verify" HEAD~1', "--exec"),
+    ("git rebase --exec='git push origin HEAD' HEAD~1", "--exec"),
+    ("git rebase --exec 'make' HEAD~1", "--exec"),
+    ("git rebase --ex 'make' HEAD~1", "--exec"),
+    ("git rebase -ix make HEAD~1", "--exec"),
+    ("git -c sequence.editor='sh -c x' rebase -i HEAD~2", "editor"),
+    ("git -c core.editor=./evil commit --amend", "editor"),
+    ("GIT_SEQUENCE_EDITOR='sh x' git rebase -i HEAD~2", "editor"),
+    ("env GIT_EDITOR=./evil git commit --amend", "editor"),
 ]
 
 

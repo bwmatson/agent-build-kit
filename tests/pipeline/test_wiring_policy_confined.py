@@ -89,8 +89,8 @@ def test_a_step_with_a_rewrite_request_carries_a_policy_that_allows_the_rewrite(
     root, main = install(tmp_path, enabled=False)
     runtime = Recording()
 
-    build_run(runtime=runtime, planning_repo=root, rewrite=True)(
-        "Go.", cwd=main, model=models().implement
+    build_run(runtime=runtime, planning_repo=root)(
+        "Go.", cwd=main, model=models().implement, rewrite=True
     )
 
     (request,) = runtime.requests
@@ -104,16 +104,9 @@ def test_a_step_with_no_rewrite_request_carries_a_policy_that_refuses_the_rewrit
     tmp_path: Path,
 ) -> None:
     root, main = install(tmp_path, enabled=False)
-    asked_runtime = Recording()
-    build_run(runtime=asked_runtime, planning_repo=root, rewrite=True)(
-        "Go.", cwd=main, model=models().implement
-    )
-    (asked,) = asked_runtime.requests
 
     plain = step(root, main)
 
-    assert asked.policy is not None and asked.policy.rewrite is True
     assert plain.policy is not None
     assert plain.policy.rewrite is False
-    assert " --rewrite" in hook_command(asked)
     assert "--rewrite" not in hook_command(plain)

@@ -162,12 +162,12 @@ GATE_REASON = (
 HARD_RESET_REASON = "`git reset --hard` discards work that may not be pushed anywhere"
 
 
-def _switches_gate_off(tokens: list[str]) -> bool:
-    """A leading `SKIP=… cmd`, `env HUSKY=0 cmd` or `export SKIP=…`."""
+def _switches_gate_off(tokens: list[str], names: Collection[str] = GATE_SWITCHES) -> bool:
+    """A leading `SKIP=… cmd`, `env HUSKY=0 cmd` or `export SKIP=…` (or any of `names`)."""
     for token in tokens:
         name = token.split("=", 1)[0]
         if "=" in token and not token.startswith("-"):
-            if name in GATE_SWITCHES:
+            if name in names:
                 return True
         elif token not in WRAPPERS and token != "export":
             return False
@@ -383,16 +383,58 @@ def _moves_commits(args: list[str]) -> bool:
 
 # What a step holding a rewrite request may run: the commands that reshape the unit's own commits.
 _REWRITE_ALLOWED = frozenset({"commit", "rebase", "cherry-pick", "revert", "reset"})
-_REWRITE_RESET_REFUSED = ("--hard", "--keep", "--merge")
+_REWRITE_RESET_REFUSED = ("--keep", "--merge")  # `--hard` has its own reason, returned first
 
 
-def _rewrite_refusal(tokens: list[str], args: list[str]) -> str | None:
-    """The reason a command is refused for a step with a rewrite request, or None if it is allowed:
-    a rewrite of the unit's own commits is, and anything that skips the hooks, brings in another
-    history or moves the branch some other way is not."""
+# Editors git runs for a rebase's todo list or a commit message: a program the checks never read.
+_EDITOR_VARIABLES = frozenset({"GIT_SEQUENCE_EDITOR", "GIT_EDITOR", "EDITOR", "VISUAL"})
+_EDITOR_CONFIG = ("sequence.editor", "core.editor")
+_VALUED_REBASE_FLAGS = frozenset("sXC")  # short options whose value follows in the same cluster
+EXEC_REASON = (
+    "`git rebase --exec` and a configured editor run a command that escapes this policy, "
+    "which would let it commit with `--no-verify` or push — rewrite with the plain commands"
+)
+
+
+def _runs_a_program(raw: list[str], rest: list[str], sub: str) -> bool:
+    """A rebase `--exec`/`-x`, or an editor set by `-c`, `git config` or a variable, which runs a
+    program of the agent's choosing."""
+    if _switches_gate_off(raw, _EDITOR_VARIABLES):
+        return True
+    if any(key in token.lower() for token in raw for key in _EDITOR_CONFIG):
+        return True
+    if sub != "rebase":
+        return False
+    for arg in rest:
+        if arg == "--":
+            break
+        if arg.startswith("--"):
+            # git accepts any unambiguous prefix: `--ex` is already `--exec`.
+            name = arg.split("=", 1)[0]
+            if len(name) >= 4 and "--exec".startswith(name):
+                return True
+        elif arg.startswith("-"):
+            for char in arg[1:]:
+                if char == "x":
+                    return True
+                if char in _VALUED_REBASE_FLAGS:
+                    break
+    return False
+
+
+def _rewrite_refusal(raw: list[str], tokens: list[str], args: list[str]) -> str | None:
+    """The reason a command is refused for a step with a rewrite request, or None if it is allowed.
+
+    Allowed: committing, amending, rebasing, cherry-picking, reverting and `reset --soft` or
+    `--mixed`. Refused: skipped hooks, `merge`, `pull`, `am`, `commit-tree`, `update-ref`,
+    `filter-branch`, `filter-repo`, `reset --hard`, `--keep` and `--merge`, and a program run from
+    inside the rewrite (`rebase --exec`, an editor). That the rewrite stays inside the unit's own
+    commits is the prompt's instruction and the guard's check after the step, not this policy's."""
     if not args or not _moves_commits(args):
         return None
     sub, rest = args[0], args[1:]
+    if sub in _REWRITE_ALLOWED and _runs_a_program(raw, rest, sub):
+        return EXEC_REASON
     if sub not in _REWRITE_ALLOWED:
         return (
             f"`git {sub}` is not allowed: a step with a rewrite request may only commit, "
@@ -424,11 +466,12 @@ def check_no_commit(command: str, *, rewrite: bool = False) -> Verdict:
     commits are allowed, and a segment that skips the hooks, merges or pulls, writes refs or
     objects directly, filters history or resets hard is still refused, and refuses the whole."""
     for segment in SEGMENT_SPLIT.split(command):
-        tokens = _strip_wrappers(_tokens(segment.strip()))
+        raw = _tokens(segment.strip())
+        tokens = _strip_wrappers(raw)
         if tokens and tokens[0] == "git":
             _, args = _git_target(tokens, None)
             if rewrite:
-                reason = _rewrite_refusal(tokens, args)
+                reason = _rewrite_refusal(raw, tokens, args)
                 if reason is not None:
                     return Verdict(allowed=False, reason=reason)
             elif _moves_commits(args):
