@@ -18,6 +18,7 @@ from agent_build_kit.pipeline.events import carry_held
 from agent_build_kit.pipeline.restack import RestackConflict
 from agent_build_kit.pipeline.unit_store import Cause, Pull, StoredUnit
 from agent_build_kit.pipeline.units import HELD, IN_REVIEW, MERGED, SETTLING
+from agent_build_kit.pipeline.workspaces import worktree_path
 from agent_build_kit.runtimes.base import AgentRateLimited
 from tests.factories import commit_files, git
 from tests.forges.stand_in import StandInForge
@@ -400,3 +401,18 @@ def test_a_resolver_refused_for_usage_leaves_the_unit_held_and_a_later_round_car
     carrying.resolver = carrying.resolve
     assert carrying.round() == [CHILD]
     assert carrying.landing.store.get(CHILD).state == IN_REVIEW
+
+
+def test_a_carry_worktree_left_by_a_killed_run_is_cleared_and_the_unit_carried(
+    carrying: Carrying,
+) -> None:
+    left = worktree_path(carrying.clone, CARRY_BRANCH, carrying.worktrees, name="app")
+    left.parent.mkdir(parents=True)
+    git(carrying.clone, "worktree", "add", "-q", "-B", CARRY_BRANCH, str(left), "main")
+    git(left, "cherry-pick", "--no-commit", carrying.landing.child_sha)
+
+    carrying.run()
+
+    unit = carrying.landing.store.get(CHILD)
+    assert (unit.state, unit.pr) == (IN_REVIEW, CARRY_PR)
+    assert carrying.on_carry_branch("a.txt") == CHILD_CHANGE["a.txt"].strip()

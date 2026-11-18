@@ -26,7 +26,7 @@ from agent_build_kit.pipeline.restack import (
 )
 from agent_build_kit.pipeline.unit_store import Cause, Pull, StoredUnit, UnitStore
 from agent_build_kit.pipeline.units import IN_REVIEW
-from agent_build_kit.pipeline.workspaces import worktree_key
+from agent_build_kit.pipeline.workspaces import worktree_path
 
 CARRY_ROLE = "carry"
 CARRY_REFUSED = "carry_refused"
@@ -69,7 +69,8 @@ def carry(
     branch's head, and records the unit merged as the landing re-check records a squash.
 
     It can be run again after a failure: the branch is pushed with a lease on what the remote
-    holds for it, and a pull request already open for it is reused.
+    holds for it, a pull request the forge already has for it is reused, and a worktree left
+    by a run that was killed is cleared first.
 
     A conflict is resolved as a restack's is (`ask_resolver`: both sides' intent, generated
     files from the base, the answer checked). One that cannot be resolved aborts the cherry-pick
@@ -83,13 +84,17 @@ def carry(
     if sha is None:
         raise ValueError(f"{unit_id}: no commit recorded to carry")
     branch = carry_branch(unit_id)
-    path = worktrees / worktree_key(unit_id) / "carry"
+    path = worktree_path(repo, branch, worktrees, name=unit.repo)
     path.parent.mkdir(parents=True, exist_ok=True)
     start = default_branch
     with turn():
         if shell.has_origin(repo):
             git(repo, "fetch", "-q", "origin", default_branch, check=False)
             start = f"refs/remotes/origin/{default_branch}"
+        if path.exists():
+            # Left by a run that was killed mid-carry: cleared first, as a restack's tree is.
+            git(path, "cherry-pick", "--abort", check=False)
+            git(repo, "worktree", "remove", "--force", str(path), check=False)
         git(repo, "worktree", "prune", check=False)
         git(repo, "worktree", "add", "-q", "-B", branch, str(path), start)
     try:
