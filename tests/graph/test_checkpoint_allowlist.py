@@ -17,13 +17,18 @@ from enum import Enum
 from pathlib import Path
 from typing import Any
 
+import ormsgpack
 from langgraph.checkpoint.base import empty_checkpoint
 from pydantic import BaseModel
 
 from agent_build_kit.graph.build import compile_graph
-from agent_build_kit.graph.checkpointer import ALLOWED_MSGPACK_MODULES, open_checkpointer
+from agent_build_kit.graph.checkpointer import (
+    ALLOWED_MSGPACK_MODULES,
+    allowlisted_serde,
+    open_checkpointer,
+)
 from agent_build_kit.graph.run import run_thread
-from agent_build_kit.graph.state import UnitRun
+from agent_build_kit.pipeline.unit_state import ResumeEvent, UnitRun
 from tests.graph.checkpoint_reads import a_config, read_back
 
 
@@ -126,3 +131,34 @@ def test_a_type_off_the_allowlist_does_not_load_as_that_type(tmp_path: Path) -> 
 
     assert loaded is not None
     assert not isinstance(loaded.checkpoint["channel_values"].get("held"), Unlisted)
+
+
+OLD_STATE_MODULE = "agent_build_kit.graph.state"
+
+
+def written_under_the_old_module(data: bytes) -> bytes:
+    """The bytes a checkpoint written before the state moved to the core holds: every type the
+    state names is under `graph.state`, as it was then."""
+    new_module = UnitRun.__module__
+
+    def rename(code: int, payload: bytes) -> ormsgpack.Ext:
+        inner = ormsgpack.unpackb(payload, ext_hook=rename)
+        if inner[0] == new_module:
+            inner[0] = OLD_STATE_MODULE
+        return ormsgpack.Ext(code, ormsgpack.packb(inner))
+
+    return ormsgpack.packb(ormsgpack.unpackb(data, ext_hook=rename))
+
+
+def test_a_checkpoint_written_under_the_old_state_module_still_loads(tmp_path: Path) -> None:
+    value = {"run": populated(UnitRun), "event": populated(ResumeEvent)}
+    kind, data = allowlisted_serde().dumps_typed(value)
+    old = written_under_the_old_module(data)
+    assert OLD_STATE_MODULE.encode() in old
+    assert UnitRun.__module__.encode() not in old
+
+    async def read() -> Any:
+        async with open_checkpointer(tmp_path / "unit-graphs.sqlite") as saver:
+            return saver.serde.loads_typed((kind, old))
+
+    assert asyncio.run(read()) == value

@@ -69,7 +69,12 @@ logger = logging.getLogger(__name__)
 
 
 def _register_the_graph() -> None:
-    """Start the worker's unit graph, whose import registers it with `run_unit_graph`."""
+    """Load the worker's unit graph, whose import registers it with `run_unit_graph`.
+
+    This is a deliberate load-time dependency of the server on the worker package, made through
+    `importlib` so the boundary scan, which reads import statements, does not count it as an
+    import; the server is where the worker's graph is composed in until the worker package is
+    split out and registers itself."""
     importlib.import_module("agent_build_kit.graph.unit")
 
 

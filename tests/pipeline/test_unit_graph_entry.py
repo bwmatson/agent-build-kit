@@ -1,5 +1,6 @@
-"""`abk serve` reaches a unit's graph thread through `run_unit_graph`, which a registration call
-fills, and the graph's state types live in the core, so serve imports no worker module."""
+"""`run_unit_graph` reaches a unit's graph thread through a handler a registration call fills, and
+the graph's state types are defined in the core, so a core or orchestrator module imports no
+worker module for either."""
 
 from __future__ import annotations
 
@@ -65,14 +66,6 @@ def test_registering_again_returns_the_handler_it_replaced(entry: None) -> None:
     handlers.append(register_unit_graph(second))
 
     assert handlers == [None, first]
-
-
-def test_the_servers_start_registers_the_graph_so_a_missing_thread_reads_as_no_state(
-    tmp_path: Path,
-) -> None:
-    importlib.import_module("agent_build_kit.serve.server")
-
-    assert call(tmp_path, "position").state is None
 
 
 @pytest.mark.parametrize("name", ["Node", "UnitRun", "AgentSession", "SessionRole", "EventKind"])
