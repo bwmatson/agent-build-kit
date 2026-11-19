@@ -89,6 +89,10 @@ def append_e2e_output(
 # The most of a failing run's output a bundle keeps, in bytes.
 FAILURE_OUTPUT_CAP = 5_000_000
 
+# The most of a run's trace file (`trace.jsonl`) a bundle keeps, in bytes; its own cap, so the
+# output's cut never shortens it.
+FAILURE_TRACE_CAP = 1_000_000
+
 
 # The size a ledger of unit-test runs reaches before it is rotated, in bytes.
 TEST_RUNS_MAX_BYTES = 1_000_000
@@ -172,6 +176,8 @@ def write_failure_bundle(
     worktree: Mapping[str, object],
     pointed: Collection[Path | str] = (),
     cap: int = FAILURE_OUTPUT_CAP,
+    trace: str | None = None,
+    trace_cap: int = FAILURE_TRACE_CAP,
 ) -> Path: ...
 
 
@@ -188,6 +194,8 @@ def write_failure_bundle(
     worktree: Mapping[str, object],
     pointed: Collection[Path | str] = (),
     cap: int = FAILURE_OUTPUT_CAP,
+    trace: str | None = None,
+    trace_cap: int = FAILURE_TRACE_CAP,
 ) -> str: ...
 
 
@@ -203,6 +211,8 @@ def write_failure_bundle(
     worktree: Mapping[str, object],
     pointed: Collection[Path | str] = (),
     cap: int = FAILURE_OUTPUT_CAP,
+    trace: str | None = None,
+    trace_cap: int = FAILURE_TRACE_CAP,
 ) -> Path | str:
     """Save a failing unit-test run as the keys under `<unit prefix><stamp>/` and return the
     bundle (its key; the folder when given a directory): `output.txt` (redacted, cut at `cap`
@@ -235,6 +245,8 @@ def write_rerun_evidence(
     context: Mapping[str, object],
     machine: Mapping[str, object],
     worktree: Mapping[str, object],
+    trace: str | None = None,
+    trace_cap: int = FAILURE_TRACE_CAP,
 ) -> None:
     """Save serial rerun `number` of a failing run under `<bundle>/reruns/<number>/`: its
     redacted `output.txt`, `context.json`, `machine.json` and `worktree.json`. A diagnostic

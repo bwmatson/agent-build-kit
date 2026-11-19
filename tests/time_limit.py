@@ -22,7 +22,8 @@ import sys
 import tempfile
 import threading
 import time
-from collections.abc import Collection
+from collections.abc import Callable, Collection, Mapping
+from pathlib import Path
 
 import pytest
 
@@ -285,6 +286,79 @@ def inherited_lines(
                 "in this phase"
             )
     return lines
+
+
+# The variable that names the file a worker's trace is written to; without it nothing is written.
+TRACE_VARIABLE = "ABK_TEST_TRACE"
+# A phase over this many wall seconds is always written to the trace file.
+SLOW_PHASE_SECONDS = 5.0
+# The entries a worker keeps in memory, and how many of them a trip writes.
+TRACE_KEPT = 200
+TRIP_ENTRIES = 30
+# The errors after a trip whose full traceback is written.
+TRACED_ERRORS = 2
+
+
+class PhaseEntry(Frozen):
+    """One phase of one test: its id and phase, wall seconds, the process's CPU seconds in it,
+    the live thread and child counts at its end and the one-minute load."""
+
+    test: str
+    phase: str
+    wall: float
+    cpu: float
+    threads: int
+    children: int
+    load: float
+
+
+class PhaseTrace:
+    """A worker's trace of its phases: a bounded list in memory, and lines appended to the file
+    at `path` (none writes nothing) for a slow phase, a trip and the first errors after it. Every
+    reading it makes comes in through the constructor, so a test fakes the clock, the load and
+    the pressure folder; a file that cannot be written drops the line."""
+
+    def __init__(
+        self,
+        path: Path | None,
+        *,
+        clock: Callable[[], float] = time.monotonic,
+        load: Callable[[], tuple[float, float, float]] = os.getloadavg,
+        pressure_dir: Path = Path("/proc/pressure"),
+    ) -> None:
+        raise NotImplementedError
+
+    @property
+    def entries(self) -> list[PhaseEntry]:
+        """The last `TRACE_KEPT` entries, oldest first."""
+        raise NotImplementedError
+
+    def phase_ended(
+        self, nodeid: str, phase: str, *, started: float, start: CpuSnapshot, now: CpuSnapshot
+    ) -> None:
+        """Add the entry of a phase that began at clock reading `started`; a phase over
+        `SLOW_PHASE_SECONDS` of wall time is also written as a `slow` line."""
+        raise NotImplementedError
+
+    def tripped(
+        self,
+        nodeid: str,
+        phase: str,
+        *,
+        clock: str,
+        start: CpuSnapshot,
+        now: CpuSnapshot,
+        own: Collection[int],
+        left_by: Mapping[int, tuple[str, str]],
+    ) -> None:
+        """Write the `trip` line: the terms of the billed CPU, the threads and children that
+        supplied it, the load, the pressure readings and the last `TRIP_ENTRIES` entries; and
+        start counting the errors whose traceback is kept."""
+        raise NotImplementedError
+
+    def error_raised(self, nodeid: str, phase: str, error: BaseException) -> None:
+        """After a trip, write a `traceback` line for each of the next `TRACED_ERRORS` errors."""
+        raise NotImplementedError
 
 
 class TimedOut(BaseException):

@@ -21,13 +21,16 @@ from typing import cast
 import pytest
 
 from agent_build_kit.config import RepoConfig
+from agent_build_kit.installation import Installation
 from agent_build_kit.pipeline import spans
 from agent_build_kit.pipeline.flakes import FlakeFound
 from agent_build_kit.pipeline.run_log import (
     FAILURE_OUTPUT_CAP,
+    FAILURE_TRACE_CAP,
     RUNS_KEPT,
     failure_bundles_dir,
     write_failure_bundle,
+    write_rerun_evidence,
 )
 from agent_build_kit.pipeline.wiring import build_unit_test
 from agent_build_kit.profiles.base import ToolchainProfile
@@ -45,6 +48,8 @@ def _bundle(
     worktree: dict[str, object] | None = None,
     pointed: Collection[Path] = (),
     cap: int = FAILURE_OUTPUT_CAP,
+    trace: str | None = None,
+    trace_cap: int = FAILURE_TRACE_CAP,
 ) -> Path:
     return write_failure_bundle(
         directory,
@@ -57,7 +62,16 @@ def _bundle(
         worktree={"before": {}, "after": {}} if worktree is None else worktree,
         pointed=pointed,
         cap=cap,
+        trace=trace,
+        trace_cap=trace_cap,
     )
+
+
+def _trace_text(folder: Path) -> str:
+    """The text of the `trace.jsonl` in `folder`, after asserting the file was saved."""
+    saved = folder / "trace.jsonl"
+    assert saved.exists(), f"no trace.jsonl in {folder}"
+    return saved.read_text()
 
 
 # --- the writer ---------------------------------------------------------------------
@@ -126,6 +140,83 @@ def test_an_output_under_the_cap_has_no_note(tmp_path: Path) -> None:
     path = _bundle(tmp_path, START, output="short\n", cap=100)
 
     assert (path / "output.txt").read_text() == "short\n"
+
+
+def test_a_trace_is_saved_as_trace_jsonl_beside_the_other_files(tmp_path: Path) -> None:
+    lines = '{"kind": "slow", "test": "a.py::test_x"}\n'
+
+    path = _bundle(tmp_path, START, trace=lines)
+
+    assert _trace_text(path) == lines
+    assert {child.name for child in path.iterdir()} == {
+        "output.txt",
+        "context.json",
+        "machine.json",
+        "worktree.json",
+        "trace.jsonl",
+    }
+
+
+@pytest.mark.parametrize("trace", [None, ""], ids=["no trace", "an empty trace"])
+def test_a_run_that_wrote_no_trace_gets_no_trace_file(tmp_path: Path, trace: str | None) -> None:
+    traced = _bundle(tmp_path, START, trace="line\n")
+
+    path = _bundle(tmp_path, START + timedelta(hours=1), trace=trace)
+
+    assert _trace_text(traced) == "line\n", "a run that wrote one keeps it"
+    assert not (path / "trace.jsonl").exists()
+
+
+def test_the_trace_is_redacted(tmp_path: Path) -> None:
+    with known():
+        path = _bundle(tmp_path, START, trace=f'{{"test": "a.py::test_{SECRET}"}}\n')
+
+    text = _trace_text(path)
+    assert SECRET not in text
+    assert f"[redacted:{NAME}]" in text
+
+
+def test_a_trace_over_its_cap_is_cut_there_and_says_so(tmp_path: Path) -> None:
+    assert FAILURE_TRACE_CAP > 0
+
+    path = _bundle(tmp_path, START, trace="t" * 1000 + "tail\n", trace_cap=100)
+
+    text = _trace_text(path)
+    assert text.startswith("t" * 100)
+    assert "tail" not in text
+    assert "cut" in text.lower()
+    assert len(text) < 400, "the note is short"
+
+
+def test_the_outputs_cut_does_not_shorten_the_trace(tmp_path: Path) -> None:
+    trace = "".join(f'{{"n": {n}}}\n' for n in range(50))
+
+    path = _bundle(tmp_path, START, output="a" * 1000, cap=100, trace=trace)
+
+    assert "cut" in (path / "output.txt").read_text().lower()
+    assert _trace_text(path) == trace
+
+
+def test_a_reruns_folder_gets_its_own_trace(tmp_path: Path) -> None:
+    bundle = _bundle(tmp_path, START)
+
+    write_rerun_evidence(
+        tmp_path,
+        bundle,
+        1,
+        output="1 passed\n",
+        context={},
+        machine={},
+        worktree={},
+        trace='{"kind": "slow"}\n',
+    )
+    write_rerun_evidence(
+        tmp_path, bundle, 2, output="1 passed\n", context={}, machine={}, worktree={}
+    )
+
+    assert _trace_text(bundle / "reruns" / "1") == '{"kind": "slow"}\n'
+    assert not (bundle / "reruns" / "2" / "trace.jsonl").exists()
+    assert not (bundle / "trace.jsonl").exists()
 
 
 def test_the_oldest_bundles_beyond_the_last_three_are_removed(tmp_path: Path) -> None:
@@ -327,6 +418,69 @@ def test_a_passing_run_saves_no_bundle(scratch: Path, tmp_path: Path) -> None:
 
     assert passing == (True, "")
     _only(directory)
+
+
+def _traced_run(
+    scratch: Path, installation: Installation, directory: Path, machine: BundleMachine
+) -> None:
+    """A failing run with an installation, so its commands get the profile's environment."""
+    unit_test = build_unit_test(
+        profile=cast(ToolchainProfile, BundleProfile()),
+        run=machine,
+        changed=lambda *a: ["tests/test_one.py"],
+        failures_dir=directory,
+        installation=installation,
+    )
+    try:
+        unit_test(cwd=scratch, base="main")
+    except FlakeFound:
+        pass
+
+
+def test_the_runs_environment_names_a_trace_file_in_its_own_temp_folder_fresh_for_each_rerun(
+    scratch: Path, tmp_path: Path, installation: Installation
+) -> None:
+    machine = BundleMachine(scratch, reruns=[1, 1])
+
+    _traced_run(scratch, installation, tmp_path / "bundles", machine)
+
+    (folder,) = installation.pytest_temp_root.iterdir()
+    assert len(machine.trace_paths) == 3, "the full run and two reruns"
+    assert len(set(machine.trace_paths)) == 3, "a fresh file for each"
+    for named in machine.trace_paths:
+        assert Path(named).is_relative_to(folder), named
+
+
+def test_the_bundle_and_each_rerun_keep_the_trace_their_run_wrote(
+    scratch: Path, tmp_path: Path, installation: Installation
+) -> None:
+    directory = tmp_path / "bundles"
+    machine = BundleMachine(
+        scratch,
+        reruns=[1, 1],
+        traces=['{"run": "full"}\n', '{"run": "rerun 1"}\n', '{"run": "rerun 2"}\n'],
+    )
+
+    _traced_run(scratch, installation, directory, machine)
+
+    bundle = _only(directory)
+    assert _trace_text(bundle) == '{"run": "full"}\n'
+    assert _trace_text(bundle / "reruns" / "1") == '{"run": "rerun 1"}\n'
+    assert _trace_text(bundle / "reruns" / "2") == '{"run": "rerun 2"}\n'
+
+
+def test_a_run_that_wrote_no_trace_gets_no_trace_file_where_a_rerun_that_wrote_one_does(
+    scratch: Path, tmp_path: Path, installation: Installation
+) -> None:
+    directory = tmp_path / "bundles"
+    machine = BundleMachine(scratch, reruns=[1, 1], traces=[None, None, "line\n"])
+
+    _traced_run(scratch, installation, directory, machine)
+
+    bundle = _only(directory)
+    assert _trace_text(bundle / "reruns" / "2") == "line\n"
+    assert not (bundle / "trace.jsonl").exists()
+    assert not (bundle / "reruns" / "1" / "trace.jsonl").exists()
 
 
 # --- the environment of the process --------------------------------------------------
