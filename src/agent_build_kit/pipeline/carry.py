@@ -42,6 +42,14 @@ def carry_branch(unit_id: str) -> str:
     return f"spec/{unit_id}/carry"
 
 
+def carried_commit(unit: StoredUnit) -> str | None:
+    """The commit `carry` picks for the unit: its merge commit, else the last one a pull
+    request of it recorded."""
+    return unit.merge_sha or next(
+        (pull.merge_sha for pull in reversed(unit.pulls) if pull.merge_sha), None
+    )
+
+
 def is_carrying(unit: StoredUnit) -> bool:
     """Whether the unit has a pull request that carries it already."""
     return any(pull.role == CARRY_ROLE for pull in unit.pulls)
@@ -78,9 +86,7 @@ def carry(
     unit = store.get(unit_id)
     if is_carrying(unit):
         return
-    sha = unit.merge_sha or next(
-        (pull.merge_sha for pull in reversed(unit.pulls) if pull.merge_sha), None
-    )
+    sha = carried_commit(unit)
     if sha is None:
         raise ValueError(f"{unit_id}: no commit recorded to carry")
     branch = carry_branch(unit_id)

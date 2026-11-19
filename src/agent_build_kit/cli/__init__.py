@@ -57,6 +57,7 @@ COMMAND_MODULES = (
     "agent_build_kit.cli.tracker_cmd",
     "agent_build_kit.cli.review_report",
     "agent_build_kit.cli.units_cmd",
+    "agent_build_kit.cli.carry_cmd",
     "agent_build_kit.cli.worker",
 )
 
