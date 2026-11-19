@@ -264,6 +264,9 @@ repos:                        # ordered; a task group's [repo] tag is a key here
     default_branch: main
     delete_merged_branches: true  # delete a merged parent's branch on the host when units are
                               # stacked on it; its head is kept locally for their restacks
+    landing_wait: 3600        # seconds (> 0) a merged pull request with no commit on the
+                              # default branch is waited for; then the unit is held
+                              # `landing_unknown` unless its changes are there
     profile: python-uv        # toolchain profile: python-uv or node-npm
     infra: none               # infrastructure profile: docker or none; docker
                               # records the container listing beside an e2e-test

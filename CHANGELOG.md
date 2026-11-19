@@ -9,6 +9,13 @@
   it, the load and pressure, the last thirty phases, and the tracebacks of the first setup
   errors after a trip; a repository whose tests write nothing there gets no file.
 
+- A pull request merged into the default branch settles only when the commit recorded for
+  it is on that branch. A commit the host reports that is not there is not trusted, and
+  the unit stays settling instead of being recorded merged. A merged pull request with no
+  commit on that branch is settled when its changes are there, and is otherwise held
+  `landing_unknown` once the repo's `landing_wait` (default one hour) has passed; the hold
+  ends when a later round finds the changes on the default branch.
+
 - The pipeline no longer fights a code host that retargets and rebases the pull requests of
   a stack merged at once. A restack leaves a pull request whose base already matches, and a
   child branch the host rebased with the same changes is adopted without a push or a force;

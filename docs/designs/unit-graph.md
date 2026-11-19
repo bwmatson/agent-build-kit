@@ -101,7 +101,7 @@ until a state change passes another cause: `rework`, `base_changed`, `upstream_w
 `depth`, `toolchain`, `review_escalated_class`, `review_escalated_disagreement`, `late_failure`,
 `needs_human`, `reviewer_hold`, `gated`, `restack_conflict`, `restack_deferred`, `restack_handed_back`,
 `dirty_worktree`, `attached`, `host_unavailable`, `network_unavailable`, `service_unavailable`,
-`environment`, `split_held`, `manual_step`, `too_big_for_tier`, `landed_off_default`, `generated_files` and `base_not_moved`. The event causes (`EVENT_CAUSES`) name a transition that is over:
+`environment`, `split_held`, `manual_step`, `too_big_for_tier`, `landed_off_default`, `generated_files`, `base_not_moved` and `landing_unknown`. The event causes (`EVENT_CAUSES`) name a transition that is over:
 `requeued`, `released`, `adopted`, `merged`, `auto_landed`, `closed`, `retired`, `superseded` and `failed`. An event cause ends
 a standing one explicitly. A replan carries a standing cause through the demotion and the promotion
 (and a vanished change and a join do the same), marking the entry `carried`, and a caller's state

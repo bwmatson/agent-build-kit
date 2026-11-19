@@ -34,6 +34,32 @@ def test_a_merged_pull_request_answers_its_merge_commit_in_one_request() -> None
     assert "mergeCommit" in call.query
 
 
+@pytest.mark.parametrize(
+    ("reported", "answer"),
+    [
+        pytest.param({7: "a" * 40, 8: "b" * 40, 9: "c" * 40}, "b" * 40, id="distinct-per-pull"),
+        pytest.param(
+            {7: "d" * 40, 8: "d" * 40, 9: "d" * 40}, "d" * 40, id="the-same-for-every-pull"
+        ),
+        pytest.param({7: None, 8: None, 9: None}, None, id="no-commit"),
+    ],
+)
+def test_the_forge_answers_the_commit_it_reports_for_each_pull_request_of_a_stack(
+    reported: dict[int, str | None], answer: str | None
+) -> None:
+    """The host's answers for a stack merge are hand-written ASSUMPTIONS from its documentation,
+    not recordings (spec: stacked-merge-landing)."""
+    nodes = []
+    for number, sha in reported.items():
+        node = merged(number, sha or MERGED)
+        if sha is None:
+            node["mergeCommit"] = None
+        nodes.append(node)
+    host = GitHubHost(*nodes)
+
+    assert GitHubForge(http=host).merge_commit(REPO, 8) == answer
+
+
 def test_the_rest_pull_request_is_not_read() -> None:
     host = GitHubHost(merged(7))
 

@@ -1565,6 +1565,9 @@ class RepoConfig(Frozen):
     # Delete a merged unit's remote branch at the merge when units are stacked on it, keeping
     # its head under `refs/abk/bases/` for their restacks.
     delete_merged_branches: bool = True
+    # Seconds a merged pull request with no commit on the default branch is waited for before its
+    # unit is held `landing_unknown`.
+    landing_wait: Annotated[int, Field(gt=0)] = 3600
     # The label of the Claude account this repo's units run on; see `runtimes.claude_code.accounts`.
     account: str | None = None
     # The code host this repo lives on (forges/). Inferred by `abk init` from
