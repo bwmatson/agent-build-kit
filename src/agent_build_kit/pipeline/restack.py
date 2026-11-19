@@ -1103,20 +1103,43 @@ def remote_head(repo: Path, branch: str) -> str | None:
     return found.stdout.split()[0] if found.stdout.strip() else ""
 
 
-def host_holds_same_changes(repo: Path, branch: str, host_head: str, *, base: str) -> bool | None:
-    """Whether the host's head for `branch` holds exactly the changes the local branch does over
-    `base`, compared by patch-id, so a forge's rebase of the branch counts as the same. None when
-    git cannot say (an object is missing), and the caller treats the host as it always has."""
-    fetched = git(repo, "fetch", "-q", push_target(repo), f"refs/heads/{branch}", check=False)
-    if fetched.returncode:
+def host_holds_same_changes(
+    repo: Path,
+    branch: str,
+    host_head: str,
+    *,
+    trunk: str,
+    trunk_ref: str,
+    parents: Sequence[str] = (),
+) -> bool | None:
+    """Whether the host's head for `branch` holds exactly the unit's own changes, so a forge's
+    rebase of the branch counts as the same. None when git cannot say (a fetch or an object
+    fails), and the caller treats the host as it always has.
+
+    Each side is taken over its own base with `diff_id`: the local branch over the closest of
+    `parents` (branch names of what it was stacked on, whose kept heads `base_ref` finds) that it
+    still holds, else the local trunk; the host's head over the trunk fetched from the host, which
+    is what the forge rebased onto, however far ahead of the local one it is."""
+    where = push_target(repo)
+    if git(repo, "fetch", "-q", where, f"refs/heads/{branch}", check=False).returncode:
         return None
-    ours = git(repo, "cherry", host_head, branch, base, check=False)
-    theirs = git(repo, "cherry", branch, host_head, base, check=False)
-    if ours.returncode or theirs.returncode:
+    if git(repo, "fetch", "-q", where, f"refs/heads/{trunk}", check=False).returncode:
         return None
-    return not any(
-        line.startswith("+ ") for line in (*ours.stdout.splitlines(), *theirs.stdout.splitlines())
-    )
+    host_trunk = git(repo, "rev-parse", "--verify", "-q", "FETCH_HEAD", check=False).stdout.strip()
+    if not host_trunk:
+        return None
+    own_base = trunk_ref
+    fewest: int | None = None
+    for parent in parents:
+        kept = base_ref(repo, parent)
+        held = git(repo, "merge-base", "--is-ancestor", kept, branch, check=False)
+        counted = git(repo, "rev-list", "--count", f"{kept}..{branch}", check=False)
+        if held.returncode or counted.returncode:
+            continue
+        count = int(counted.stdout.strip() or 0)
+        if fewest is None or count < fewest:
+            own_base, fewest = kept, count
+    return diff_id(repo, own_base, branch) == diff_id(repo, host_trunk, host_head)
 
 
 def adopt_host_head(

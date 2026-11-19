@@ -181,7 +181,10 @@ def test_a_branch_the_host_moved_is_adopted_not_pushed(tmp_path: Path) -> None:
     """Every push passes here, so this catches a unit the host moved whoever
     it is — after a stack merge the host rewrites every PR above the merged
     one, not only its direct child. Pushing would fail its lease forever; the
-    host's head is taken instead, and review sees it before anything is sent."""
+    host's head is taken instead, and review sees it before anything is sent.
+
+    Here git cannot compare the host's head (the directory is no repository, so
+    `host_holds_same_changes` answers None), which is the case that keeps this behaviour."""
     store = UnitStore(tmp_path / "units.json")
     store.upsert([unit()])
     store.set_state("add-marker/1", UnitState.RUNNING, branch="spec/add-marker/1")

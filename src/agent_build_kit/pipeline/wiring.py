@@ -3287,10 +3287,19 @@ def build_push(
     Every push passes here, so this is where a branch the host moved is
     caught — whichever unit it is, and whether or not a run of it moved it.
     After a stack merge the host rebases every PR above the merged one, not
-    only the one sitting on it. Its head is adopted rather than overwritten,
-    the old approval dropped, and `HostMoved` raised so review sees it first.
-    A host head holding the same change (same diff id over the trunk) only moves
-    the lease: the approval stands and the approved head is pushed.
+    only the one sitting on it. What the host holds is compared with the unit's
+    own changes (`host_holds_same_changes`), with three outcomes:
+
+    - the same changes, rebased by the host: its head is adopted, the approval
+      moves to it and nothing is pushed;
+    - different changes: nothing is adopted, the lease push runs and its
+      `StaleRemote` propagates;
+    - git cannot say: the head is adopted rather than overwritten, the old
+      approval dropped, and `HostMoved` raised so review sees it first.
+
+    A host head holding the same change (same diff id over the trunk) as the
+    local branch only moves the lease: the approval stands and the approved head
+    is pushed.
     """
     push = push or _default_push
     remote_head_of = remote_head_of or remote_head
@@ -3312,7 +3321,18 @@ def build_push(
         elif remote and last_pushed and remote != last_pushed:
             unit = store.get(unit_id)
             base = local_ref(trunk_of(unit.repo), repo=unit.repo)
-            same = host_holds_same_changes(cwd, branch, remote, base=base)
+            same = host_holds_same_changes(
+                cwd,
+                branch,
+                remote,
+                trunk=trunk_of(unit.repo),
+                trunk_ref=base,
+                parents=[
+                    branch_name(other)
+                    for other in store.all()
+                    if other.id in unit.depends_on and other.repo == unit.repo
+                ],
+            )
             if same is not False:
                 adopt_head(
                     cwd, branch, host_head=remote, last_pushed=last_pushed, cwd=cwd, base=base
@@ -3321,7 +3341,8 @@ def build_push(
                 after = git(cwd, "rev-parse", "--verify", "-q", branch, check=False).stdout.strip()
                 if same and after == remote:
                     # The forge rebased the branch with the same changes: its head is
-                    # adopted, the approval stands and there is nothing to push.
+                    # adopted, the approval moves to it and there is nothing to push.
+                    store.record_approval(unit_id, remote)
                     return remote
                 if here and after == here:
                     # The host holds the same change, so what review approved

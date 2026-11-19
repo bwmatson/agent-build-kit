@@ -29,9 +29,14 @@ PARENT_BRANCH, CHILD_BRANCH = f"spec/{PARENT}", f"spec/{CHILD}"
 
 @pytest.fixture
 def world(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> World:
-    """The parent squash-merged into main, its child in review, approved and pushed."""
+    """The parent, of two commits, squash-merged into main, its child in review, approved and
+    pushed."""
     world = World(tmp_path, monkeypatch)
     world.branch(PARENT_BRANCH, "main", file="one.txt")
+    git(world.repo, "checkout", "-q", PARENT_BRANCH)
+    world.commit("one-more.txt")
+    git(world.repo, "push", "-q", "origin", PARENT_BRANCH)
+    git(world.repo, "checkout", "-q", "main")
     world.branch(CHILD_BRANCH, PARENT_BRANCH, file="two.txt")
     git(world.repo, "merge", "--squash", PARENT_BRANCH)
     git(world.repo, "commit", "-qm", "feature 1 (squashed)")
@@ -50,10 +55,16 @@ def host_clone(world: World, tmp_path: Path) -> Path:
     return other
 
 
-def forge_rebases_the_child(world: World, tmp_path: Path) -> str:
+def forge_rebases_the_child(world: World, tmp_path: Path, *, trunk_ahead: bool = False) -> str:
     """The forge rebases the child's branch onto main, as it does above a merged pull request,
-    and force-pushes it: the same change in a new commit. Returns the new head."""
+    and force-pushes it: the same change in a new commit. With `trunk_ahead`, main on the host
+    first gains a commit the local clone has not fetched. Returns the new head."""
     other = host_clone(world, tmp_path)
+    if trunk_ahead:
+        git(other, "checkout", "-q", "main")
+        commit(other, "elsewhere.txt")
+        git(other, "push", "-q", "origin", "main")
+        git(other, "checkout", "-q", CHILD_BRANCH)
     git(other, "rebase", "-q", "--onto", "origin/main", f"origin/{PARENT_BRANCH}", CHILD_BRANCH)
     git(other, "push", "-q", "--force", "origin", CHILD_BRANCH)
     return git(other, "rev-parse", "HEAD")
@@ -103,10 +114,11 @@ def test_a_restack_does_not_retarget_a_pull_request_the_forge_already_moved(
     assert retargets == []
 
 
+@pytest.mark.parametrize("trunk_ahead", [False, True])
 def test_a_child_branch_the_forge_rebased_with_the_same_changes_is_adopted_without_a_push(
-    world: World, tmp_path: Path
+    world: World, tmp_path: Path, trunk_ahead: bool
 ) -> None:
-    rebased = forge_rebases_the_child(world, tmp_path)
+    rebased = forge_rebases_the_child(world, tmp_path, trunk_ahead=trunk_ahead)
     pushes: list[str | None] = []
 
     raised = push_outcome(
@@ -116,12 +128,15 @@ def test_a_child_branch_the_forge_rebased_with_the_same_changes_is_adopted_witho
         world.repo,
     )
 
-    assert (raised, pushes, world.sha(CHILD_BRANCH), remote_head(world, CHILD_BRANCH)) == (
-        None,
-        [],
-        rebased,
-        rebased,
-    )
+    unit = world.store.get(CHILD)
+    assert (
+        raised,
+        pushes,
+        world.sha(CHILD_BRANCH),
+        remote_head(world, CHILD_BRANCH),
+        unit.approved,
+        unit.pushed,
+    ) == (None, [], rebased, rebased, rebased, rebased)
 
 
 def test_a_remote_branch_with_different_changes_still_gets_the_lease_push_and_its_failure(
