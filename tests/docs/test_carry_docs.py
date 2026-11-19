@@ -38,10 +38,18 @@ def test_the_pipeline_guide_says_the_content_check_looks_for_changes_on_the_defa
     assert "default branch" in ARCHITECTURE[index : index + 600]
 
 
-def test_the_configuration_guide_ties_the_branch_deletion_setting_to_the_carry() -> None:
+def test_the_configuration_guide_ties_the_branch_deletion_setting_to_the_restack() -> None:
     index = CONFIGURATION.find("delete_merged_branches")
     assert index != -1, "the configuration guide does not document the setting"
-    assert whole("carry", CONFIGURATION[index : index + 600])
+    assert "refs/abk/bases/" in CONFIGURATION[index : index + 600]
+
+
+def test_the_changelog_names_the_carry_and_doctor_under_unreleased() -> None:
+    changelog = (ROOT / "CHANGELOG.md").read_text()
+    start = changelog.index("## Unreleased")
+    unreleased = changelog[start + len("## Unreleased") :].split("\n## ", 1)[0]
+    assert "`abk carry`" in unreleased
+    assert "`abk doctor`" in unreleased
 
 
 def test_the_skill_mentions_the_carry() -> None:

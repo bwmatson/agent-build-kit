@@ -490,10 +490,10 @@ repos:                          # ordered: deploy order is derived from
     delete_merged_branches: true  # at a merge with units stacked on it, delete
                                 # the merged branch on the host and keep its
                                 # last head under `refs/abk/bases/` for their
-                                # restacks; false leaves the branch alone.
-                                # The carry of a unit held landed_off_default
-                                # reads its merged commits, so keep the branch
-                                # when the host does not delete it itself.
+                                # restacks (deleting it lets the host retarget
+                                # them); false leaves the branch alone.
+                                # `abk doctor` reports a host that deletes
+                                # merged branches while this is off.
     forge: github               # the code host (forges/): github or
                                 # azure_devops. Inferred by init from origin.
     azure_devops:               # only for forge: azure_devops. Decoded, not

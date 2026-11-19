@@ -536,7 +536,9 @@ def _merge_guards(inst: Installation, run: Run) -> list[Check]:
 def _merged_branches(inst: Installation) -> list[Check]:
     """Per repository, whether the forge deletes a branch when its pull request merges and
     whether that agrees with `delete_merged_branches`. Only a forge that deletes while the
-    setting is off disagrees: the pipeline then loses the branch a stacked child is based on."""
+    setting is off disagrees: the pipeline then loses the branch a stacked child is based on.
+    This reports the forge's declared behaviour, not a repository's own setting on the host
+    (reading that per repository is a follow-up)."""
     checks = []
     for name in sorted(inst.repos):
         title = f"merged branches {name}"
@@ -547,7 +549,7 @@ def _merged_branches(inst: Installation) -> list[Check]:
             checks.append(_info(title, f"{CANNOT_TELL} whether the forge deletes them: {error}"))
             continue
         setting = inst.repo(name).delete_merged_branches
-        said = f"{name}: the forge {'deletes' if deletes else 'keeps'} merged branches"
+        said = f"{name}: the forge is declared to {'delete' if deletes else 'keep'} merged branches"
         if deletes and not setting:
             checks.append(
                 _warn(
@@ -566,14 +568,30 @@ def _merged_branches(inst: Installation) -> list[Check]:
 def _false_merges(inst: Installation) -> list[Check]:
     """The units recorded `merged` whose merge commit is not on the default branch, each with the
     command that recovers it: `abk carry --repair` when its changes are not there either,
-    `abk carry --landed-as` when they are. Reads git, writes nothing."""
+    `abk carry --landed-as` when they are. Each default branch is fetched once (which updates
+    its remote-tracking ref); nothing else is written."""
     name = "merged units"
     found = []
+    fetched: set[tuple[Path, str]] = set()
     for unit in UnitStore(inst.state_dir / "units.json").all():
         if unit.state != MERGED or not unit.merge_sha or unit.repo not in inst.checkouts:
             continue
         repo, trunk = inst.checkouts[unit.repo], inst.repo(unit.repo).default_branch
-        if merged_on_default(repo, unit.merge_sha, trunk):
+        if (repo, trunk) not in fetched:
+            fetched.add((repo, trunk))
+            git(repo, "fetch", "-q", "origin", trunk, check=False)
+        if merged_on_default(repo, unit.merge_sha, trunk, fetch=False):
+            continue
+        if git(repo, "cat-file", "-e", f"{unit.merge_sha}^{{commit}}", check=False).returncode:
+            found.append(
+                _warn(
+                    name,
+                    f"{unit.id} is recorded merged as {unit.merge_sha[:7]}, a commit this "
+                    f"checkout does not have, so it cannot be checked against {trunk}",
+                    f"fetch the commit, or `abk carry {unit.id} --landed-as <sha of the commit "
+                    f"on {trunk}>`",
+                )
+            )
             continue
         applied = content_on_default(repo, unit.merge_sha, trunk, fetch=False)
         fix = (

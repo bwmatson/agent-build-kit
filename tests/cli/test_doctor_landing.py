@@ -6,10 +6,15 @@ Real git in the retire scene's `app` checkout with an `origin`, and the code hos
 
 from __future__ import annotations
 
+from pathlib import Path
+from typing import Any
+
 import pytest
 
+from agent_build_kit.cli import doctor
 from agent_build_kit.cli.doctor import Check, run_doctor
 from agent_build_kit.config import dump
+from agent_build_kit.pipeline import landing_check
 from agent_build_kit.pipeline.units import MERGED
 from tests.cli.test_doctor import Answers
 from tests.factories import commit_files, git, which_all
@@ -125,6 +130,43 @@ def test_a_merged_unit_whose_commit_is_on_the_default_branch_is_not_listed(
     assert found
     assert [c.status for c in found if c.status != "ok"] == []
     assert UNIT not in said(found)
+
+
+def test_two_merged_units_in_one_repo_fetch_the_default_branch_once(
+    scene: Scene,  # noqa: F811
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    sha = recorded_merged(scene, on_default=False)
+    scene.add("feature/3", MERGED, pr=3, merge_sha=sha)
+    fetches: list[tuple[object, ...]] = []
+    real = doctor.git
+
+    def counting(repo: Path, *args: str, **kwargs: Any) -> Any:  # noqa: ANN401
+        if args[:1] == ("fetch",):
+            fetches.append(args)
+        return real(repo, *args, **kwargs)
+
+    monkeypatch.setattr(doctor, "git", counting)
+    monkeypatch.setattr(landing_check, "git", counting)
+
+    found = checks(scene, FALSE_MERGES)
+
+    assert len(found) == 2
+    assert len(fetches) == 1
+
+
+def test_a_merged_unit_whose_commit_the_checkout_lacks_is_pointed_to_landed_as(
+    scene: Scene,  # noqa: F811
+) -> None:
+    recorded_merged(scene, on_default=False)
+    scene.add("feature/3", MERGED, pr=3, merge_sha="1" * 40)
+
+    found = [c for c in checks(scene, FALSE_MERGES) if "feature/3" in c.detail]
+
+    assert [c.status for c in found] == ["warn"]
+    assert "does not have" in said(found)
+    assert "--landed-as" in said(found)
+    assert "--repair" not in said(found)
 
 
 def test_the_check_writes_nothing(scene: Scene) -> None:  # noqa: F811
