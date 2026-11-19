@@ -15,7 +15,9 @@
   each round: its commit is cherry-picked onto a branch off the remote default branch,
   conflicts go to the resolver under the restack's checks, and a pull request against the
   default branch is opened for it. Status says the pipeline carries it, and shows a unit in
-  review on a carry as one.
+  review on a carry as one. `abk carry UNIT` does the same on demand (`--dry-run` writes
+  nothing, `--repair` carries a unit recorded merged whose commit is not on the default
+  branch, `--landed-as SHA` records the commit that carries its work).
 
 - A merged unit's branch is deleted on the host when other units are stacked on it, and its
   last head is kept locally under `refs/abk/bases/` so their restacks still know where they
