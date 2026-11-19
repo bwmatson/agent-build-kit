@@ -10,6 +10,7 @@ from pathlib import Path
 import pytest
 
 from agent_build_kit.model import Frozen
+from agent_build_kit.pipeline.run_log import TEST_TRACE_VARIABLE
 from tests.tracked_files import ROOT
 
 
@@ -30,6 +31,8 @@ def run_scenario(
     a subprocess with the time-limit plugin loaded."""
     pytester.copy_example(scenario)
     monkeypatch.setenv("PYTHONPATH", str(ROOT))
+    # The outer run's trace file is not the child's: a child writes a trace only when asked to.
+    monkeypatch.delenv(TEST_TRACE_VARIABLE, raising=False)
     for key, value in env.items():
         monkeypatch.setenv(key, value)
     result = pytester.runpytest_subprocess(

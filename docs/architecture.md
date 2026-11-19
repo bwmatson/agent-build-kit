@@ -1928,7 +1928,15 @@ approved.
   cap with a note), `context.json`, `machine.json` and `worktree.json`, and a `reruns/<n>/` folder
   with the same four files for each serial rerun (each rerun is also a unit-log line with its
   counts, seconds, load at start and end and class, and the fix agent's feedback names the same
-  results). `context.json` has an `environment` record: how the process started (`argv`), the
+  results). A run's workers may also leave `trace.jsonl` (in the bundle and in each rerun's folder;
+  redacted, with a byte cap of its own and a note when cut): the time-limit plugin writes one JSON
+  line for each phase over five seconds (`slow`), for a trip (`trip`: the terms of the billed CPU,
+  the threads and children in it, the load, the pressure readings or `unavailable`, and the last
+  thirty phases) and for the full traceback of the next two setup errors after a trip. The run's
+  environment names the file in `ABK_TEST_TRACE`, inside its own temp folder and fresh for each
+  rerun, and whatever the run writes there is kept. The lines above are written by this
+  repository's own time-limit test plugin, which writes nothing when the variable is not set; a
+  repository whose tests write nothing there gets no file. `context.json` has an `environment` record: how the process started (`argv`), the
   names, never the values, of its variables, `HOME`, `TMPDIR`, the first and last entries of
   `PATH`, and where each program the profiles name was found. The last three bundles per unit are kept, and
   one a flake, storm or pre-existing record points at (`evidence`) is kept too. Those records

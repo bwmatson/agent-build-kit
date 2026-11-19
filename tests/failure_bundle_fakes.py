@@ -14,6 +14,7 @@ from pathlib import Path
 
 from agent_build_kit.installation import Installation
 from agent_build_kit.pipeline.flakes import flake_record
+from agent_build_kit.pipeline.run_log import TEST_TRACE_VARIABLE
 from agent_build_kit.profiles.python_uv import PythonUvProfile
 
 RECORDED = Path(__file__).resolve().parent / "fixtures" / "external" / "pytest"
@@ -43,12 +44,36 @@ class BundleProfile(PythonUvProfile):
 class BundleMachine:
     """Git, lint, the version query and the test run as the processes answer."""
 
-    def __init__(self, root: Path, *, reruns: list[int], passing: bool = False) -> None:
+    def __init__(
+        self,
+        root: Path,
+        *,
+        reruns: list[int],
+        passing: bool = False,
+        traces: list[str | None] | None = None,
+    ) -> None:
         self.root = root
         self.reruns = list(reruns)
         self.passing = passing
         self.status_calls = 0
         self.commands: list[list[str]] = []
+        # What the workers of each test run write to the trace file the run's environment names,
+        # in the order the runs come (the full run, then each rerun); None writes none.
+        self.traces = list(traces or [])
+        # The trace file each test run's environment named, in the same order.
+        self.trace_paths: list[str] = []
+
+    def _worker_writes(self, kwargs: dict[str, object]) -> None:
+        """The workers of a test run, writing their trace to the file the environment names."""
+        env = kwargs.get("env")
+        named = env.get(TEST_TRACE_VARIABLE) if isinstance(env, dict) else None
+        if named is None:
+            return
+        self.trace_paths.append(named)
+        text = self.traces.pop(0) if self.traces else None
+        if text is not None:
+            Path(named).parent.mkdir(parents=True, exist_ok=True)
+            Path(named).write_text(text, encoding="utf-8")
 
     def __call__(self, command: list[str], **kwargs: object) -> subprocess.CompletedProcess:
         self.commands.append(command)
@@ -64,6 +89,7 @@ class BundleMachine:
             return subprocess.CompletedProcess(command, 0, sha + "\n", "")
         if command[-2:] == ["--version", "--version"]:
             return subprocess.CompletedProcess(command, 0, VERSIONS, "")
+        self._worker_writes(kwargs)
         if any("::" in argument for argument in command):
             return subprocess.CompletedProcess(command, self.reruns.pop(0), "1 passed\n", "")
         if self.passing:

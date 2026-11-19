@@ -89,6 +89,13 @@ def append_e2e_output(
 # The most of a failing run's output a bundle keeps, in bytes.
 FAILURE_OUTPUT_CAP = 5_000_000
 
+# The most of a run's trace file (`trace.jsonl`) a bundle keeps, in bytes; its own cap, so the
+# output's cut never shortens it.
+FAILURE_TRACE_CAP = 1_000_000
+
+# The variable that names the file a test run's workers write their phase trace to.
+TEST_TRACE_VARIABLE = "ABK_TEST_TRACE"
+
 
 # The size a ledger of unit-test runs reaches before it is rotated, in bytes.
 TEST_RUNS_MAX_BYTES = 1_000_000
@@ -172,6 +179,8 @@ def write_failure_bundle(
     worktree: Mapping[str, object],
     pointed: Collection[Path | str] = (),
     cap: int = FAILURE_OUTPUT_CAP,
+    trace: str | None = None,
+    trace_cap: int = FAILURE_TRACE_CAP,
 ) -> Path: ...
 
 
@@ -188,6 +197,8 @@ def write_failure_bundle(
     worktree: Mapping[str, object],
     pointed: Collection[Path | str] = (),
     cap: int = FAILURE_OUTPUT_CAP,
+    trace: str | None = None,
+    trace_cap: int = FAILURE_TRACE_CAP,
 ) -> str: ...
 
 
@@ -203,6 +214,8 @@ def write_failure_bundle(
     worktree: Mapping[str, object],
     pointed: Collection[Path | str] = (),
     cap: int = FAILURE_OUTPUT_CAP,
+    trace: str | None = None,
+    trace_cap: int = FAILURE_TRACE_CAP,
 ) -> Path | str:
     """Save a failing unit-test run as the keys under `<unit prefix><stamp>/` and return the
     bundle (its key; the folder when given a directory): `output.txt` (redacted, cut at `cap`
@@ -219,7 +232,9 @@ def write_failure_bundle(
             + f"\n[output cut at {cap} bytes; {len(encoded) - cap} more were dropped]\n"
         )
     try:
-        _write_evidence(store, f"{folder}{name}", text, context, machine, worktree)
+        _write_evidence(
+            store, f"{folder}{name}", text, context, machine, worktree, trace, trace_cap
+        )
         _prune_bundles(store, folder, unit_file_prefix(unit_id, change), pointed)
     except (OSError, ValueError):
         pass
@@ -235,6 +250,8 @@ def write_rerun_evidence(
     context: Mapping[str, object],
     machine: Mapping[str, object],
     worktree: Mapping[str, object],
+    trace: str | None = None,
+    trace_cap: int = FAILURE_TRACE_CAP,
 ) -> None:
     """Save serial rerun `number` of a failing run under `<bundle>/reruns/<number>/`: its
     redacted `output.txt`, `context.json`, `machine.json` and `worktree.json`. A diagnostic
@@ -248,6 +265,8 @@ def write_rerun_evidence(
             context,
             machine,
             worktree,
+            trace,
+            trace_cap,
         )
     except (OSError, ValueError):
         pass
@@ -306,13 +325,25 @@ def _write_evidence(
     context: Mapping[str, object],
     machine: Mapping[str, object],
     worktree: Mapping[str, object],
+    trace: str | None = None,
+    trace_cap: int = FAILURE_TRACE_CAP,
 ) -> None:
-    """Write the four files of a run's evidence into `folder`: `output.txt` as given (already
-    redacted and cut) and the three fact files, redacted here."""
+    """Write the files of a run's evidence into `folder`: `output.txt` as given (already
+    redacted and cut), the three fact files, redacted here, and `trace.jsonl` when the run wrote
+    a trace (redacted, and cut at `trace_cap` bytes with a note)."""
     store.put(f"{folder}/output.txt", output.encode())
     for name, facts in (("context", context), ("machine", machine), ("worktree", worktree)):
         body = redact_text(json.dumps(facts, indent=2, default=str), where="failure bundle")
         store.put(f"{folder}/{name}.json", body.encode())
+    if trace:
+        text = redact_text(trace, where="failure bundle")
+        encoded = text.encode()
+        if len(encoded) > trace_cap:
+            text = (
+                encoded[:trace_cap].decode(errors="ignore")
+                + f"\n[trace cut at {trace_cap} bytes; {len(encoded) - trace_cap} more dropped]\n"
+            )
+        store.put(f"{folder}/trace.jsonl", text.encode())
 
 
 def _prune_bundles(

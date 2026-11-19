@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- Each unit-test command's environment now names a fresh file in `ABK_TEST_TRACE`, and
+  whatever the run writes there is kept, redacted and capped, as `trace.jsonl` in a failing
+  run's bundle and in each rerun's folder. This repository's own time-limit test plugin
+  writes the slow phases, the terms of the CPU billed at a trip, the threads and children in
+  it, the load and pressure, the last thirty phases, and the tracebacks of the first setup
+  errors after a trip; a repository whose tests write nothing there gets no file.
+
 - A workspace whose root is itself a package now has its root tests run in the project's
   own environment, in every test command the Python profile makes (changed, all, affected
   and live-stack runs), in parallel when the root declares `pytest-xdist`. The repo's

@@ -16,18 +16,23 @@ run goes on.
 from __future__ import annotations
 
 import faulthandler
+import json
 import os
 import signal
 import sys
 import tempfile
 import threading
 import time
-from collections.abc import Collection
+import traceback
+from collections import deque
+from collections.abc import Callable, Collection, Mapping
+from pathlib import Path
 
 import pytest
 
 from agent_build_kit.compat_names import old_spelling
 from agent_build_kit.model import Frozen, TestTier
+from agent_build_kit.pipeline.run_log import TEST_TRACE_VARIABLE
 
 DEFAULT_TEST_TIME_LIMIT = 60
 # For a test whose work (a repo scan, a unit-graph pass) takes several times longer when loaded.
@@ -227,13 +232,26 @@ def snapshot_cpu() -> CpuSnapshot:
     )
 
 
-def phase_cpu(start: CpuSnapshot, now: CpuSnapshot, own: Collection[int] = ()) -> float:
-    """The CPU a phase used: the process's growth (threads that started and ended in the phase
-    included) less the growth of each thread in `start` that is still alive and the whole of each
-    new thread in `own` (the plugin's own), plus all of each descendant not in `start`, plus the
-    growth of what finished children gave, less what a direct child of `start` had already used
-    when it was reaped in the phase. An inherited thread that exits during the phase is still
-    billed for its last moments."""
+class CpuTerms(Frozen):
+    """The terms a phase's billed CPU is made of, in seconds."""
+
+    process: float
+    inherited: float
+    own: float
+    new_children: float
+    reaped: float
+
+    @property
+    def total(self) -> float:
+        return self.process - self.inherited - self.own + self.new_children + self.reaped
+
+
+def phase_cpu_terms(start: CpuSnapshot, now: CpuSnapshot, own: Collection[int] = ()) -> CpuTerms:
+    """The terms of `phase_cpu`: the process's growth (threads that started and ended in the
+    phase included), the growth of each thread in `start` that is still alive, the whole of each
+    new thread in `own` (the plugin's own), all of each descendant not in `start`, and the
+    growth of what finished children gave less what a direct child of `start` had already used
+    when it was reaped in the phase."""
     inherited = sum(v - start.tasks[tid] for tid, v in now.tasks.items() if tid in start.tasks)
     watching = sum(v for tid, v in now.tasks.items() if tid in own and tid not in start.tasks)
     new_descendants = sum(v for pid, v in now.descendants.items() if pid not in start.descendants)
@@ -242,8 +260,23 @@ def phase_cpu(start: CpuSnapshot, now: CpuSnapshot, own: Collection[int] = ()) -
         for pid in start.children
         if pid in start.descendants and pid not in now.descendants
     )
-    reaped = max(0.0, now.reaped - start.reaped - before_phase)
-    return (now.process - start.process) - inherited - watching + new_descendants + reaped
+    return CpuTerms(
+        process=now.process - start.process,
+        inherited=inherited,
+        own=watching,
+        new_children=new_descendants,
+        reaped=max(0.0, now.reaped - start.reaped - before_phase),
+    )
+
+
+def phase_cpu(start: CpuSnapshot, now: CpuSnapshot, own: Collection[int] = ()) -> float:
+    """The CPU a phase used: the process's growth (threads that started and ended in the phase
+    included) less the growth of each thread in `start` that is still alive and the whole of each
+    new thread in `own` (the plugin's own), plus all of each descendant not in `start`, plus the
+    growth of what finished children gave, less what a direct child of `start` had already used
+    when it was reaped in the phase. An inherited thread that exits during the phase is still
+    billed for its last moments."""
+    return phase_cpu_terms(start, now, own).total
 
 
 # What each phase left alive: task id or process id to (its name, the test that left it).
@@ -265,6 +298,12 @@ def record_left(start: CpuSnapshot, now: CpuSnapshot, nodeid: str) -> None:
             LEFT_BY.setdefault(pid, ("child process", nodeid))
 
 
+def left_by_of(left_by: Mapping[int, tuple[str, str]], kind: str, ident: int) -> tuple[str, str]:
+    """The name of a thread or descendant and the test that left it running, or a name made of
+    its kind and id and `an earlier test`."""
+    return left_by.get(ident, (f"{kind} {ident}", "an earlier test"))
+
+
 def inherited_lines(
     start: CpuSnapshot, now: CpuSnapshot, left_by: dict[int, tuple[str, str]]
 ) -> list[str]:
@@ -279,12 +318,157 @@ def inherited_lines(
             grew = after.get(ident, was) - was
             if grew <= 0:
                 continue
-            name, test = left_by.get(ident, (f"{kind} {ident}", "an earlier test"))
+            name, test = left_by_of(left_by, kind, ident)
             lines.append(
                 f"{name} ({kind} {ident}), left running by {test}, used {grew:.2f} s of CPU "
                 "in this phase"
             )
     return lines
+
+
+# A phase over this many wall seconds is always written to the trace file.
+SLOW_PHASE_SECONDS = 5.0
+# The entries a worker keeps in memory, and how many of them a trip writes.
+TRACE_KEPT = 200
+TRIP_ENTRIES = 30
+# The errors after a trip whose full traceback is written.
+TRACED_ERRORS = 2
+
+
+class PhaseEntry(Frozen):
+    """One phase of one test: its id and phase, wall seconds, the process's CPU seconds in it,
+    the live thread and child counts at its end and the one-minute load."""
+
+    test: str
+    phase: str
+    wall: float
+    cpu: float
+    threads: int
+    children: int
+    load: float
+
+
+class PhaseTrace:
+    """A worker's trace of its phases: a bounded list in memory, and lines appended to the file
+    at `path` (none writes nothing) for a slow phase, a trip and the first errors after it. Every
+    reading it makes comes in through the constructor, so a test fakes the clock, the load and
+    the pressure folder; a file that cannot be written drops the line."""
+
+    def __init__(
+        self,
+        path: Path | None,
+        *,
+        clock: Callable[[], float] = time.monotonic,
+        load: Callable[[], tuple[float, float, float]] = os.getloadavg,
+        pressure_dir: Path = Path("/proc/pressure"),
+    ) -> None:
+        self._path = path
+        self._clock = clock
+        self._load = load
+        self._pressure_dir = pressure_dir
+        self._entries: deque[PhaseEntry] = deque(maxlen=TRACE_KEPT)
+        self._errors_left = 0
+
+    @property
+    def entries(self) -> list[PhaseEntry]:
+        """The last `TRACE_KEPT` entries, oldest first."""
+        return list(self._entries)
+
+    def _write(self, line: Mapping[str, object]) -> None:
+        if self._path is None:
+            return
+        try:
+            self._path.parent.mkdir(parents=True, exist_ok=True)
+            with self._path.open("a", encoding="utf-8") as handle:
+                handle.write(json.dumps(line, default=str) + "\n")
+        except OSError:
+            pass
+
+    def phase_ended(
+        self, nodeid: str, phase: str, *, started: float, start: CpuSnapshot, now: CpuSnapshot
+    ) -> None:
+        """Add the entry of a phase that began at clock reading `started`; a phase over
+        `SLOW_PHASE_SECONDS` of wall time is also written as a `slow` line."""
+        entry = PhaseEntry(
+            test=nodeid,
+            phase=phase,
+            wall=self._clock() - started,
+            cpu=now.process - start.process,
+            threads=len(now.tasks) + len(now.descendants),
+            children=len(now.children),
+            load=self._load()[0],
+        )
+        self._entries.append(entry)
+        if entry.wall > SLOW_PHASE_SECONDS:
+            self._write({"kind": "slow", **entry.model_dump()})
+
+    def _pressure(self) -> dict[str, str]:
+        readings: dict[str, str] = {}
+        for name in ("cpu", "io"):
+            try:
+                readings[name] = (self._pressure_dir / name).read_text()
+            except OSError:
+                readings[name] = "unavailable"
+        return readings
+
+    def tripped(
+        self,
+        nodeid: str,
+        phase: str,
+        *,
+        clock: str,
+        start: CpuSnapshot,
+        now: CpuSnapshot,
+        own: Collection[int],
+        left_by: Mapping[int, tuple[str, str]],
+    ) -> None:
+        """Write the `trip` line: the terms of the billed CPU, the threads and children that
+        supplied it, the load, the pressure readings and the last `TRIP_ENTRIES` entries; and
+        start counting the errors whose traceback is kept."""
+        self._errors_left = TRACED_ERRORS
+        terms = phase_cpu_terms(start, now, own)
+        threads = [
+            {
+                "name": left_by_of(left_by, "task", t)[0],
+                "left_by": left_by_of(left_by, "task", t)[1],
+                "seconds": v - start.tasks.get(t, 0.0),
+            }
+            for t, v in now.tasks.items()
+            if t not in own and v - start.tasks.get(t, 0.0) > 0
+        ]
+        children = [
+            {"pid": p, "seconds": v}
+            for p, v in now.descendants.items()
+            if p not in start.descendants
+        ]
+        self._write(
+            {
+                "kind": "trip",
+                "test": nodeid,
+                "phase": phase,
+                "clock": clock,
+                "terms": {**terms.model_dump(), "total": terms.total},
+                "threads": threads,
+                "children": children,
+                "load": list(self._load()),
+                "pressure": self._pressure(),
+                "recent": [e.model_dump() for e in list(self._entries)[-TRIP_ENTRIES:]],
+            }
+        )
+
+    def error_raised(self, nodeid: str, phase: str, error: BaseException) -> None:
+        """After a trip, write a `traceback` line for each of the next `TRACED_ERRORS` errors."""
+        if self._errors_left <= 0:
+            return
+        self._errors_left -= 1
+        self._write(
+            {
+                "kind": "traceback",
+                "test": nodeid,
+                "phase": phase,
+                "traceback": "".join(traceback.format_exception(error)),
+            }
+        )
 
 
 class TimedOut(BaseException):
@@ -371,6 +555,18 @@ def _trip_in_chain(error: BaseException) -> TimedOut | None:
     return None
 
 
+_TRACE: list[PhaseTrace] = []
+
+
+def worker_trace() -> PhaseTrace:
+    """This worker's trace, made on first use; it writes to the file `TEST_TRACE_VARIABLE` names and
+    nowhere when the variable is not set."""
+    if not _TRACE:
+        named = os.environ.get(TEST_TRACE_VARIABLE)
+        _TRACE.append(PhaseTrace(Path(named) if named else None))
+    return _TRACE[0]
+
+
 def _under_limit(item: pytest.Item, phase: str):
     """Run the rest of a hook, setup, call or teardown, under its budgets."""
     budget = budget_for(item)
@@ -428,7 +624,19 @@ def _under_limit(item: pytest.Item, phase: str):
         running = False
         stopped = caught if isinstance(caught, TimedOut) else _trip_in_chain(caught)
         if stopped is None or not fired:
+            if phase == "setup" and isinstance(caught, Exception):
+                worker_trace().error_raised(item.nodeid, phase, caught)
             raise
+        if start is not None:
+            worker_trace().tripped(
+                item.nodeid,
+                phase,
+                clock=fired[0],
+                start=start,
+                now=last[0] or start,
+                own=[*watching, *([timer.native_id] if timer and timer.native_id else [])],
+                left_by=LEFT_BY,
+            )
         replaced = (
             ""
             if stopped is caught
@@ -462,7 +670,11 @@ def _under_limit(item: pytest.Item, phase: str):
             watcher.join()
         signal.signal(signal.SIGUSR2, previous)
         if start is not None:
-            record_left(start, snapshot_cpu(), item.nodeid)
+            ended = snapshot_cpu()
+            record_left(start, ended, item.nodeid)
+            worker_trace().phase_ended(
+                item.nodeid, phase, started=wall_start, start=start, now=ended
+            )
 
 
 @pytest.hookimpl(wrapper=True)
