@@ -2753,6 +2753,8 @@ class BuildPath:
                     ),
                     outside,
                 ),
+                # Only a step that holds a request may rewrite the unit's own commits.
+                rewrite=bool(asked),
             )
             kept["review_rounds"] = with_response(state.review_rounds, response)
             r.commit(
@@ -2817,6 +2819,8 @@ class BuildPath:
                     ),
                     outside,
                 ),
+                # The failed-check prompt carries no request, so its step may not rewrite.
+                rewrite=bool(asked) and not failed_check,
             )
             if (defect := self.product_defect(answer, stored)) is not None:
                 return defect

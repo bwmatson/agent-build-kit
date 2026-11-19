@@ -327,6 +327,7 @@ def build_argv(request: AgentRequest) -> list[str]:
             fenced_files=request.policy.fenced_files,
             no_push=True,
             no_commit=request.policy.no_commit,
+            rewrite=request.policy.rewrite,
             refusals_only=not request.policy.scoped,
             confined=request.policy.confined,
             **planning,

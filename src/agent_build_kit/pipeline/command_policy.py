@@ -155,17 +155,19 @@ GATE_SWITCHES = {"SKIP", "HUSKY", "LEFTHOOK"}
 COMMIT_VALUED = set("mFCcSt")
 
 GATE_REASON = (
-    "the repo's commit gate is the reason the pipeline may push unattended, so it is never "
-    "skipped or reconfigured — fix what it reports and leave the commit to the pipeline"
+    "the repo's commit gate (skipped by `--no-verify`, a gate switch or a hooks path) is the "
+    "reason the pipeline may push unattended, so it is never skipped or reconfigured — fix what "
+    "it reports and leave the commit to the pipeline"
 )
+HARD_RESET_REASON = "`git reset --hard` discards work that may not be pushed anywhere"
 
 
-def _switches_gate_off(tokens: list[str]) -> bool:
-    """A leading `SKIP=… cmd`, `env HUSKY=0 cmd` or `export SKIP=…`."""
+def _switches_gate_off(tokens: list[str], names: Collection[str] = GATE_SWITCHES) -> bool:
+    """A leading `SKIP=… cmd`, `env HUSKY=0 cmd` or `export SKIP=…` (or any of `names`)."""
     for token in tokens:
         name = token.split("=", 1)[0]
         if "=" in token and not token.startswith("-"):
-            if name in GATE_SWITCHES:
+            if name in names:
                 return True
         elif token not in WRAPPERS and token != "export":
             return False
@@ -199,7 +201,9 @@ def _skips_commit_hooks(tokens: list[str]) -> bool:
     return False
 
 
-def _check_segment(segment: str, branch: str, protected: Collection[str] = ()) -> Verdict:
+def _check_segment(
+    segment: str, branch: str, protected: Collection[str] = (), *, rewrite: bool = False
+) -> Verdict:
     raw = _tokens(segment)
     tokens = _strip_wrappers(raw)
     if _switches_gate_off(raw) or _skips_commit_hooks(tokens):
@@ -216,7 +220,7 @@ def _check_segment(segment: str, branch: str, protected: Collection[str] = ()) -
     if denied := forges.denies(tokens):
         return Verdict(allowed=False, reason=f"the agent never merges: {denied}")
 
-    if _is_git(tokens, "commit") and "--amend" in tokens:
+    if _is_git(tokens, "commit") and "--amend" in tokens and not rewrite:
         return Verdict(
             allowed=False,
             reason="amending would fold the implementation into the tests commit and erase "
@@ -229,10 +233,7 @@ def _check_segment(segment: str, branch: str, protected: Collection[str] = ()) -
         )
 
     if _is_git(tokens, "reset") and "--hard" in tokens:
-        return Verdict(
-            allowed=False,
-            reason="`git reset --hard` discards work that may not be pushed anywhere",
-        )
+        return Verdict(allowed=False, reason=HARD_RESET_REASON)
     if _is_git(tokens, "clean"):
         return Verdict(allowed=False, reason="`git clean` discards untracked work")
     if _is_git(tokens, "branch") and "-D" in tokens:
@@ -380,16 +381,100 @@ def _moves_commits(args: list[str]) -> bool:
     return False
 
 
-def check_no_commit(command: str) -> Verdict:
+# What a step holding a rewrite request may run: the commands that reshape the unit's own commits.
+_REWRITE_ALLOWED = frozenset({"commit", "rebase", "cherry-pick", "revert", "reset"})
+_REWRITE_RESET_REFUSED = ("--keep", "--merge")  # `--hard` has its own reason, returned first
+
+
+# Editors git runs for a rebase's todo list or a commit message: a program the checks never read.
+_EDITOR_VARIABLES = frozenset({"GIT_SEQUENCE_EDITOR", "GIT_EDITOR", "EDITOR", "VISUAL"})
+_EDITOR_CONFIG = ("sequence.editor", "core.editor")
+_VALUED_REBASE_FLAGS = frozenset("sXC")  # short options whose value follows in the same cluster
+EXEC_REASON = (
+    "`git rebase --exec` and a configured editor run a command that escapes this policy, "
+    "which would let it commit with `--no-verify` or push — rewrite with the plain commands"
+)
+
+
+def _runs_a_program(raw: list[str], rest: list[str], sub: str) -> bool:
+    """A rebase `--exec`/`-x`, or an editor set by `-c`, `git config` or a variable, which runs a
+    program of the agent's choosing."""
+    if _switches_gate_off(raw, _EDITOR_VARIABLES):
+        return True
+    if any(key in token.lower() for token in raw for key in _EDITOR_CONFIG):
+        return True
+    if sub != "rebase":
+        return False
+    for arg in rest:
+        if arg == "--":
+            break
+        if arg.startswith("--"):
+            # git accepts any unambiguous prefix: `--ex` is already `--exec`.
+            name = arg.split("=", 1)[0]
+            if len(name) >= 4 and "--exec".startswith(name):
+                return True
+        elif arg.startswith("-"):
+            for char in arg[1:]:
+                if char == "x":
+                    return True
+                if char in _VALUED_REBASE_FLAGS:
+                    break
+    return False
+
+
+def _rewrite_refusal(raw: list[str], tokens: list[str], args: list[str]) -> str | None:
+    """The reason a command is refused for a step with a rewrite request, or None if it is allowed.
+
+    Allowed: committing, amending, rebasing, cherry-picking, reverting and `reset --soft` or
+    `--mixed`. Refused: skipped hooks, `merge`, `pull`, `am`, `commit-tree`, `update-ref`,
+    `filter-branch`, `filter-repo`, `reset --hard`, `--keep` and `--merge`, and a program run from
+    inside the rewrite (`rebase --exec`, an editor). That the rewrite stays inside the unit's own
+    commits is the prompt's instruction and the guard's check after the step, not this policy's."""
+    if not args or not _moves_commits(args):
+        return None
+    sub, rest = args[0], args[1:]
+    if sub in _REWRITE_ALLOWED and _runs_a_program(raw, rest, sub):
+        return EXEC_REASON
+    if sub not in _REWRITE_ALLOWED:
+        return (
+            f"`git {sub}` is not allowed: a step with a rewrite request may only commit, "
+            "amend, rebase, cherry-pick, revert and reset --soft or --mixed its own commits"
+        )
+    if (sub == "commit" and _skips_commit_hooks(tokens)) or (
+        sub == "rebase" and "--no-verify" in rest
+    ):
+        return GATE_REASON
+    if sub == "reset":
+        if "--hard" in rest:
+            return HARD_RESET_REASON
+        for mode in _REWRITE_RESET_REFUSED:
+            if mode in rest:
+                return (
+                    f"`git reset {mode}` is not allowed: it discards work in the tree; "
+                    "use --soft or --mixed"
+                )
+    return None
+
+
+def check_no_commit(command: str, *, rewrite: bool = False) -> Verdict:
     """Refuse a command in which any segment makes a commit or moves the branch: a `git commit`
     in any form, and the other commands that do (`cherry-pick`, `revert`, `merge`, `rebase`, `am`,
     `pull`, `commit-tree`, `update-ref`, and a `reset` that moves HEAD). The forms that leave
-    the result in the working tree stay allowed (`_moves_commits`)."""
+    the result in the working tree stay allowed (`_moves_commits`).
+
+    With `rewrite` (a step that holds a rewrite request) the commands that reshape the unit's own
+    commits are allowed, and a segment that skips the hooks, merges or pulls, writes refs or
+    objects directly, filters history or resets hard is still refused, and refuses the whole."""
     for segment in SEGMENT_SPLIT.split(command):
-        tokens = _strip_wrappers(_tokens(segment.strip()))
+        raw = _tokens(segment.strip())
+        tokens = _strip_wrappers(raw)
         if tokens and tokens[0] == "git":
             _, args = _git_target(tokens, None)
-            if _moves_commits(args):
+            if rewrite:
+                reason = _rewrite_refusal(raw, tokens, args)
+                if reason is not None:
+                    return Verdict(allowed=False, reason=reason)
+            elif _moves_commits(args):
                 return Verdict(allowed=False, reason=COMMIT_REASON)
     return Verdict(allowed=True)
 
@@ -764,6 +849,7 @@ def check_command(
     cwd: Path | None = None,
     fenced: Collection[Path] = (),
     confined: bool = False,
+    rewrite: bool = False,
 ) -> Verdict:
     """Decide whether `command` may run while working on `branch`.
 
@@ -783,6 +869,9 @@ def check_command(
     `confined` says the kernel confines the step, which already keeps it out of a file beyond
     the worktree: only a fenced file inside the worktree is still checked by text, and all of
     them are while the worktree is unknown.
+
+    `rewrite` says the step holds a rewrite request, so amending its own commit is not refused
+    here (`check_no_commit` keeps the other rewrite commands in bounds).
     """
     if confined:
         fenced = confined_fence(fenced, worktree)
@@ -793,7 +882,7 @@ def check_command(
     variables: dict[str, str] = {}
     for segment in SEGMENT_SPLIT.split(command):
         segment = segment.strip()
-        verdict = _check_segment(segment, branch, protected)
+        verdict = _check_segment(segment, branch, protected, rewrite=rewrite)
         if verdict.allowed and worktree is not None:
             verdict = _check_redirects(segment, worktree, here)
         if verdict.allowed and fenced:

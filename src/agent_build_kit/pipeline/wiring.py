@@ -643,7 +643,10 @@ def build_run(
         on_result: AgentCallback | None = None,
         tools: str = "",
         permission_mode: PermissionMode = "edit",
+        rewrite: bool = False,
     ) -> str:
+        """One scoped agent run. `rewrite` is decided per call: a step that holds a rewrite
+        request may rewrite the unit's own commits, and every other step may not."""
         agent = runtime or (through(run) if run else runtimes.active())
         if resume_session and not agent.supports_session_resume:
             raise SessionUnavailable(f"{agent.name} cannot resume a session")
@@ -766,6 +769,8 @@ def build_run(
                 # The pipeline commits what the step leaves in the worktree, with the lint gate,
                 # the unit-id trailer and the group's subject; an agent commit skips all three.
                 no_commit=True,
+                # A step holding a rewrite request may rewrite the unit's own commits.
+                rewrite=rewrite,
             ),
             on_event=journal or log or print,
             on_transcript=transcript,

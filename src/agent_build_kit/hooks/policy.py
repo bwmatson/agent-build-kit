@@ -221,6 +221,7 @@ def decide(
     protected_branches: tuple[str, ...] = (),
     no_push: bool = False,
     no_commit: bool = False,
+    rewrite: bool = False,
     refusals_only: bool = False,
     confined: bool = False,
 ) -> dict | None:
@@ -254,7 +255,7 @@ def decide(
             if no_push:
                 verdict = check_no_push(command)
             if verdict.allowed and no_commit:
-                verdict = check_no_commit(command)
+                verdict = check_no_commit(command, rewrite=rewrite)
             return None if verdict.allowed else _deny(verdict.reason)
 
         branch = _branch_of(cwd)
@@ -285,11 +286,12 @@ def decide(
                 fenced_files=fenced_files,
             ),
             confined=confined,
+            rewrite=rewrite,
         )
         if verdict.allowed and no_push:
             verdict = check_no_push(command)
         if verdict.allowed and no_commit:
-            verdict = check_no_commit(command)
+            verdict = check_no_commit(command, rewrite=rewrite)
         if verdict.allowed:
             return None
         return _deny(verdict.reason)
@@ -316,6 +318,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--protected-branches", default="")
     parser.add_argument("--no-push", action="store_true")
     parser.add_argument("--no-commit", action="store_true")
+    parser.add_argument("--rewrite", action="store_true")
     parser.add_argument("--refusals-only", action="store_true")
     parser.add_argument("--confined", action="store_true")
     try:
@@ -348,6 +351,7 @@ def main(argv: list[str] | None = None) -> int:
         protected_branches=tuple(b for b in args.protected_branches.split(",") if b),
         no_push=args.no_push,
         no_commit=args.no_commit,
+        rewrite=args.rewrite,
         refusals_only=args.refusals_only,
         confined=args.confined,
     )
@@ -368,6 +372,7 @@ def hook_settings(
     protected_branches: tuple[str, ...] = (),
     no_push: bool = False,
     no_commit: bool = False,
+    rewrite: bool = False,
     refusals_only: bool = False,
     confined: bool = False,
 ) -> dict:
@@ -418,6 +423,8 @@ def hook_settings(
         command += " --no-push"
     if no_commit:
         command += " --no-commit"
+    if rewrite:
+        command += " --rewrite"
     if refusals_only:
         command += " --refusals-only"
     if confined:

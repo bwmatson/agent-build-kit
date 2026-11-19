@@ -49,6 +49,7 @@ class Recorder:
         self.store = store
         self.events: list[str] = []
         self.prompts: list[str] = []
+        self.rewrites: list[bool] = []  # the `rewrite` each agent run was given, with `prompts`
         self.logged: list[str] = []
         self.verdicts: list[str] = []
         self.commits_from_impl = commits_from_impl
@@ -105,8 +106,10 @@ class Recorder:
         resume_session: str = "",
         on_session: Callable[[str], None] | None = None,
         on_result: Callable[..., None] | None = None,
+        rewrite: bool = False,
     ) -> str:
         self.prompts.append(prompt)
+        self.rewrites.append(rewrite)
         if "checks (lint" in prompt:
             self.events.append("claude:fix_checks")
         elif "Review asked for" in prompt or "review of this branch" in prompt:

@@ -108,3 +108,73 @@ def test_the_reason_says_the_pipeline_commits_and_the_changes_stay_in_the_tree()
 
     assert "pipeline" in reason
     assert "working tree" in reason
+
+
+# What a step that holds a rewrite request may run, and what it still may not (spec:
+# implement-may-rewrite-its-own-commits).
+REWRITES = [
+    'git commit -m "test: split"',
+    "git commit --amend --no-edit",
+    "git commit -C abc123",
+    "git rebase HEAD~3",
+    "git rebase --continue",
+    "git cherry-pick abc123",
+    "git revert abc123",
+    "git reset --soft HEAD~2",
+    "git reset --mixed abc123",
+    "git add -A && git commit -m x",
+    "git -C wt rebase main",
+]
+
+STILL_REFUSED = [
+    ("git commit --no-verify -m x", "--no-verify"),
+    ("git commit -n -m x", "--no-verify"),
+    ("git merge main", "merge"),
+    ("git pull", "pull"),
+    ("git am fix.patch", "am"),
+    ("git commit-tree HEAD^{tree} -m x", "commit-tree"),
+    ("git update-ref refs/heads/x abc", "update-ref"),
+    ("git filter-branch --all", "filter-branch"),
+    ("git filter-repo --path a", "filter-repo"),
+    ("git reset --hard HEAD~1", "--hard"),
+    ("git reset --keep abc123", "--keep"),
+    ("git reset --merge abc123", "--merge"),
+    ("git add -A && git commit --no-verify -m x", "--no-verify"),
+    ("git rebase main && git merge other", "merge"),
+    ('git rebase -x "git commit --amend --no-edit --no-verify" HEAD~1', "--exec"),
+    ("git rebase --exec='git push origin HEAD' HEAD~1", "--exec"),
+    ("git rebase --exec 'make' HEAD~1", "--exec"),
+    ("git rebase --ex 'make' HEAD~1", "--exec"),
+    ("git rebase -ix make HEAD~1", "--exec"),
+    ("git -c sequence.editor='sh -c x' rebase -i HEAD~2", "editor"),
+    ("git -c core.editor=./evil commit --amend", "editor"),
+    ("GIT_SEQUENCE_EDITOR='sh x' git rebase -i HEAD~2", "editor"),
+    ("env GIT_EDITOR=./evil git commit --amend", "editor"),
+]
+
+
+@pytest.mark.parametrize("command", REWRITES)
+def test_a_step_with_a_rewrite_request_may_rewrite_the_units_commits(command: str) -> None:
+    assert check_no_commit(command, rewrite=True).allowed
+
+
+@pytest.mark.parametrize(("command", "named"), STILL_REFUSED)
+def test_a_step_with_a_rewrite_request_is_refused_what_the_spec_keeps_refused(
+    command: str, named: str
+) -> None:
+    # The same step opens the amend, so the refusal below is the narrowed list and not a blanket.
+    assert check_no_commit("git commit --amend --no-edit", rewrite=True).allowed
+
+    verdict = check_no_commit(command, rewrite=True)
+
+    assert not verdict.allowed
+    assert named in verdict.reason
+
+
+@pytest.mark.parametrize("command", REWRITES)
+def test_a_step_with_no_rewrite_request_is_refused_every_rewrite_command(command: str) -> None:
+    # The request is what opens the command: the same command is allowed with it, refused without.
+    assert check_no_commit(command, rewrite=True).allowed
+
+    assert not check_no_commit(command).allowed
+    assert not check_no_commit(command, rewrite=False).allowed

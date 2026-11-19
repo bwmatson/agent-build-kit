@@ -524,6 +524,7 @@ class _Session:
         # A chat turn's policy: no commit, and for a person's own session nothing of the
         # unit's rules (`ToolPolicy.scoped`).
         self._no_commit = policy is not None and policy.no_commit
+        self._rewrite = policy is not None and policy.rewrite
         self._scoped = policy is None or policy.scoped
         # A run relying on headless permission denial (the planner's graph
         # call): every permission request is refused, whatever it names.
@@ -950,7 +951,7 @@ class _Session:
         """`command` against the unit's command rules, when this run has them."""
         if not self._scoped:
             return Verdict(allowed=True)
-        return check_command(command, fenced=self._config_files(), **where)
+        return check_command(command, fenced=self._config_files(), rewrite=self._rewrite, **where)
 
     def _config_files(self) -> tuple[Path, ...]:
         """The files that hold the review policy, which no command of this run may write."""
@@ -968,7 +969,7 @@ class _Session:
         """What no turn the server runs may do: push, and commit when asked not to."""
         verdict = check_no_push(command)
         if verdict.allowed and self._no_commit:
-            verdict = check_no_commit(command)
+            verdict = check_no_commit(command, rewrite=self._rewrite)
         return verdict
 
     def _policed_worktree(self) -> Path | None:
