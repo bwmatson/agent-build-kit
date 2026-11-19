@@ -589,7 +589,9 @@ repos:                          # ordered: deploy order is derived from
                                 # relates to the others
     tests:
       root_extras: []           # extra packages the repo-root tests/ (outside
-                                # every workspace member) need
+                                # every workspace member) need; ignored by the Python
+                                # profile when the root is a package (declares `[project]`),
+                                # whose root tests run in the project
       workers: auto             # pytest-xdist `-n` of the Python profile's test runs:
                                 # `auto` or a positive integer
       max_workers: 8            # its `--maxprocesses` cap (a positive integer); xdist

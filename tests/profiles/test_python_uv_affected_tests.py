@@ -379,3 +379,111 @@ def test_a_file_naming_the_helper_and_the_mark_only_in_strings_is_neither_ignore
 
     assert no_file_ignored(chosen)
     assert not any(w.startswith("--deselect") for w in chosen)
+
+
+# A workspace whose root is itself a package runs its root tests in the project
+# (spec: python-root-tests-run-in-the-project).
+EXTRAS = ["httpx", "pytest-xdist"]
+ROOT_FILE = "tests/integration/test_live.py"
+
+
+def package_root_repo(tmp_path: Path, *, xdist: bool = False) -> Path:
+    repo = workspace_repo(tmp_path)
+    (repo / "tests" / "integration").mkdir(parents=True)
+    (repo / ROOT_FILE).write_text("")
+    dependencies = '"pytest-xdist>=3"' if xdist else ""
+    (repo / "pyproject.toml").write_text(
+        '[project]\nname = "root-pkg"\n'
+        f"dependencies = [{dependencies}]\n"
+        '[tool.uv.workspace]\nmembers = ["svc-a", "svc-b"]\n'
+    )
+    return repo
+
+
+def bare_root_repo(tmp_path: Path) -> Path:
+    repo = workspace_repo(tmp_path)
+    (repo / "tests" / "integration").mkdir(parents=True)
+    (repo / ROOT_FILE).write_text("")
+    return repo
+
+
+def root_runs(commands: list[list[str]]) -> list[list[str]]:
+    return [c for c in commands if "--package" not in c]
+
+
+def every_root_command(repo: Path) -> dict[str, list[list[str]]]:
+    """The root's run in each command the profile builds for the root's tests."""
+    return {
+        "changed": root_runs(PROFILE.test_commands(repo, ["pyproject.toml"], root_extras=EXTRAS)),
+        "all": root_runs(PROFILE.test_commands_all(repo, root_extras=EXTRAS)),
+        "affected": root_runs(
+            PROFILE.affected_test_commands(
+                repo,
+                ["tests/test_root.py"],
+                [ROOT_ID],
+                seed=repo / "missing" / "affected",
+                root_extras=EXTRAS,
+            )
+            or []
+        ),
+        "acceptance": PROFILE.acceptance_commands(
+            repo, [ROOT_FILE], marker="e2e", exclude_marker="", root_extras=EXTRAS
+        ),
+    }
+
+
+def test_a_root_that_is_a_package_runs_its_tests_in_the_project_and_the_members_are_unchanged(
+    tmp_path: Path,
+) -> None:
+    repo = package_root_repo(tmp_path)
+
+    commands = PROFILE.test_commands_all(repo, root_extras=EXTRAS)
+
+    (root,) = root_runs(commands)
+    assert root[:4] == ["uv", "run", "pytest", "tests"]
+    assert not {"--no-project", "--isolated", "--with"} & set(root)
+    members = [c for c in commands if "--package" in c]
+    assert [c[c.index("--package") + 1] for c in members] == ["svc-a", "svc-b"]
+    assert all("--isolated" in c for c in members)
+
+
+def test_a_root_that_is_only_a_workspace_runs_its_tests_outside_the_project_with_the_extras(
+    tmp_path: Path,
+) -> None:
+    bare = bare_root_repo(tmp_path / "bare")
+    package = package_root_repo(tmp_path / "package")
+
+    (root,) = root_runs(PROFILE.test_commands_all(bare, root_extras=EXTRAS))
+    (in_project,) = root_runs(PROFILE.test_commands_all(package, root_extras=EXTRAS))
+
+    assert root[:4] == ["uv", "run", "--no-project", "--isolated"]
+    withs = [root[i + 1] for i, word in enumerate(root) if word == "--with"]
+    assert withs == ["pytest", *EXTRAS]
+    assert "--no-project" not in in_project
+
+
+@pytest.mark.parametrize("command", ["changed", "all", "affected", "acceptance"])
+def test_every_command_for_a_root_package_runs_the_root_tests_in_the_project(
+    tmp_path: Path, command: str
+) -> None:
+    runs = every_root_command(package_root_repo(tmp_path))[command]
+
+    assert runs
+    for run in runs:
+        assert run[:2] == ["uv", "run"]
+        assert not {"--no-project", "--with", "--isolated"} & set(run)
+
+
+def test_a_root_package_runs_in_parallel_only_when_the_project_declares_xdist(
+    tmp_path: Path,
+) -> None:
+    extras = ["pytest-xdist"]
+    declared = package_root_repo(tmp_path / "declared", xdist=True)
+    undeclared = package_root_repo(tmp_path / "undeclared", xdist=False)
+
+    (with_xdist,) = root_runs(PROFILE.test_commands_all(declared, root_extras=extras))
+    (without,) = root_runs(PROFILE.test_commands_all(undeclared, root_extras=extras))
+
+    assert "--no-project" not in with_xdist
+    assert "-n" in with_xdist
+    assert "-n" not in without

@@ -771,13 +771,20 @@ class PythonUvProfile:
         start, end, _ = _durations_section(lines)
         return "".join(lines[:start] + lines[end:])
 
-    def _root_tests(self, repo: Path, root_extras: list[str], xdist: list[str]) -> list[list[str]]:
-        # The repo-root tests/, which belongs to no member, in the same
-        # environment its CI job uses: pytest plus whatever it declares.
+    def _root_head(self, repo: Path, root_extras: list[str]) -> tuple[list[str], bool]:
+        """How the root's own tests start, and whether they run in parallel. A root that is a
+        package runs in its project and ignores `root_extras`; any other root runs outside it,
+        in an environment holding only pytest and what `root_extras` names."""
+        if "project" in _pyproject(repo):
+            return ["uv", "run"], _declares_xdist(repo)
         withs = [arg for extra in ["pytest", *root_extras] for arg in ("--with", extra)]
-        head = ["uv", "run", "--no-project", "--isolated", *withs]
         # The environment holds only what root_extras names, so workers need it there.
         workers = any(_normalize(extra.split("[")[0]) == XDIST for extra in root_extras)
+        return ["uv", "run", "--no-project", "--isolated", *withs], workers
+
+    def _root_tests(self, repo: Path, root_extras: list[str], xdist: list[str]) -> list[list[str]]:
+        # The repo-root tests/, which belongs to no member.
+        head, workers = self._root_head(repo, root_extras)
         return self._passes(head, ["tests"], parallel=workers, xdist=xdist)
 
     def _passes(
@@ -1366,8 +1373,7 @@ class PythonUvProfile:
         commands = []
         for member, files in sorted(by_member.items(), key=lambda item: item[0] or ""):
             if member is None:
-                withs = [arg for extra in ["pytest", *root_extras] for arg in ("--with", extra)]
-                head = ["uv", "run", "--no-project", "--isolated", *withs]
+                head, _ = self._root_head(checkout, root_extras)
             else:
                 head = ["uv", "run", "--package", package_name(checkout / member), "--isolated"]
             commands.append([*head, "pytest", "-m", selection, *sorted(files)])
