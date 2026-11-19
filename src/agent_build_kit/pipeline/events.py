@@ -100,6 +100,7 @@ from agent_build_kit.pipeline.pr_poller import (  # noqa: F401 — FAILING_CHECK
 from agent_build_kit.pipeline.pr_replies import MARKER, record_posts
 from agent_build_kit.pipeline.regression_agent import Met, meet_all
 from agent_build_kit.pipeline.restack import (
+    BASES_NAMESPACE,
     BranchCheckedOut,
     BranchMoved,
     Moved,
@@ -440,13 +441,13 @@ def on_settled(
                 _record_landed_off_default(store, current, pr, off, resume, log)
                 return True
             if commit_trusted is not None and not commit_trusted(current):
-                if merge_commit is None and repos is not None and current.repo in repos:
-                    _settle_without_commit(store, current, pr, repos, merge_record, log)
-                    return True
-                log(
-                    f"settled #{pr}: {current.id} stays settling, "
-                    "its commit is not on the default branch"
-                )
+                if repos is not None and current.repo in repos:
+                    _settle_without_commit(store, current, pr, repos, merge_record, resume, log)
+                else:
+                    log(
+                        f"settled #{pr}: {current.id} stays settling, "
+                        "its commit is not on the default branch"
+                    )
                 return True
             settle_merged(store, current, merge_record, merge_commit=merge_commit)
             log(f"settled #{pr}: {current.id} merged, every check complete")
@@ -455,22 +456,42 @@ def on_settled(
     return True
 
 
+def _unit_head(repo: Path, unit: StoredUnit) -> str | None:
+    """The commit that stands for a merged unit's work: the one the host gave, else the head of
+    its pull request's branch (the remote's, the head kept under `refs/abk/bases/`, or the
+    local one), None when none of them is there."""
+    if unit.merge_sha:
+        return unit.merge_sha
+    if not unit.branch:
+        return None
+    for ref in (
+        f"refs/remotes/origin/{unit.branch}",
+        f"{BASES_NAMESPACE}{unit.branch}",
+        f"refs/heads/{unit.branch}",
+    ):
+        found = git(repo, "rev-parse", "--verify", "-q", f"{ref}^{{commit}}", check=False)
+        if not found.returncode and found.stdout.strip():
+            return found.stdout.strip()
+    return None
+
+
 def _settle_without_commit(
     store: UnitStore,
     unit: StoredUnit,
     pr: int,
     repos: dict[str, Path],
     merge_record: MergeRecord | None,
+    resume: Resume,
     log: Log,
 ) -> None:
-    """A merged pull request the forge gave no commit for: merged at the default branch's head
-    when its changes are on the default branch, else waiting until `landing_wait` has passed,
-    then held `landing_unknown`. The caller holds the unit's claim."""
+    """A merged pull request with no commit of its own on the default branch (the host gave
+    none, or one that is not there): recorded merged at the default branch's head when its
+    changes are on it, else waiting until `landing_wait` has passed, then held
+    `landing_unknown`. The caller holds the unit's claim."""
     repo, trunk = repos[unit.repo], trunk_of(unit.repo)
-    if unit.merge_sha and content_on_default(repo, unit.merge_sha, trunk):
-        landed = unit.model_copy(update={"merge_sha": default_head(repo, trunk)})
-        settle_merged(store, landed, merge_record)
-        store.set_landing_deadline(unit.id, None)
+    head = _unit_head(repo, unit)
+    if head and content_on_default(repo, head, trunk):
+        record_landed(store, unit, default_head(repo, trunk), merge_record, resume)
         log(f"settled #{pr}: {unit.id} merged, its changes are on the default branch")
         return
     now = spans.clock.now()
@@ -481,6 +502,7 @@ def _settle_without_commit(
     elif now >= unit.landing_deadline:
         note = f"pull request #{pr} merged but no commit of it reached the default branch"
         store.set_state(unit.id, HELD, note=note, cause=Cause.LANDING_UNKNOWN)
+        store.set_landing_deadline(unit.id, None)
         log(f"settled #{pr}: {unit.id} held — {note}")
 
 
@@ -502,6 +524,8 @@ def settle_merged(
     sha, tick = merge_record(unit) if merge_record is not None else (None, None)
     store.set_merge_record(unit.id, unit.merge_sha or sha, tick)
     store.set_state(unit.id, MERGED, note=note, cause=cause)
+    if unit.landing_deadline is not None:
+        store.set_landing_deadline(unit.id, None)
 
 
 def build_base_passes(
@@ -1240,14 +1264,17 @@ def recheck_landings(
     recorded as merged."""
     recorded: list[str] = []
     for unit in store.all():
-        if not _awaiting_landing(unit) or not unit.merge_sha or unit.repo not in repos:
+        if not _awaiting_landing(unit) or unit.repo not in repos:
             continue
         repo, trunk = repos[unit.repo], trunk_of(unit.repo)
-        by_commit = merged_on_default(repo, unit.merge_sha, trunk)
-        if not by_commit and not content_on_default(repo, unit.merge_sha, trunk, fetch=False):
+        head = _unit_head(repo, unit)
+        if head is None:
+            continue
+        by_commit = merged_on_default(repo, head, trunk)
+        if not by_commit and not content_on_default(repo, head, trunk, fetch=False):
             continue
         # Present by content (a squash): the default branch's head stands for the merge.
-        landed_as = unit.merge_sha if by_commit else default_head(repo, trunk)
+        landed_as = head if by_commit else default_head(repo, trunk)
         try:
             with claim(unit):
                 current = store.get(unit.id)
@@ -1289,7 +1316,10 @@ def record_landed(
 
 def _awaiting_landing(unit: StoredUnit) -> bool:
     """A unit whose work is in another branch, not yet on the default branch."""
-    held_off = unit.state == HELD and unit.cause == Cause.LANDED_OFF_DEFAULT
+    held_off = unit.state == HELD and unit.cause in (
+        Cause.LANDED_OFF_DEFAULT,
+        Cause.LANDING_UNKNOWN,
+    )
     return held_off or (unit.state == SETTLING and bool(unit.settling_behind))
 
 
@@ -1622,16 +1652,18 @@ def _unit_commit_trusted(
 ) -> Callable[[StoredUnit], bool] | None:
     """Whether a settling unit's recorded commit, for a pull request merged into the default
     branch, is on it. None when there is no pull request or checkout to ask; a unit with no
-    commit or a merge into another branch is not this check's to judge."""
+    commit is untrusted too; a merge into another branch is not this check's to judge."""
     pull = event.get("pull")
     if repos is None or not isinstance(pull, PullRequest):
         return None
 
     def trusted(unit: StoredUnit) -> bool:
         default = trunk_of(unit.repo)
-        if not unit.merge_sha or unit.repo not in repos or pull.base != default:
+        if unit.repo not in repos or pull.base != default:
             return True
-        return merged_on_default(repos[unit.repo], unit.merge_sha, default)
+        # A merge into the default branch with no commit at all is not trusted either: it is
+        # settled from its content, or waited for.
+        return bool(unit.merge_sha) and merged_on_default(repos[unit.repo], unit.merge_sha, default)
 
     return trusted
 
