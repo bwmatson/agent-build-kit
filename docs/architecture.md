@@ -655,7 +655,9 @@ release could move. The steps:
    never does. The marker taxonomy is the tag of a group (its kind selectors
    say which tests run) and its flags. The prompts follow a mode table: the tests prompt is built
    per group from its mode, and the review prompt from the set of the unit's modes, each rule
-   naming the group it is for.
+   naming the group it is for. On a replan, a group of a started unit that its branch does not
+   yet hold follows the mode the plan gives it (never below its floor); a group the branch holds
+   keeps the mode it was built in, and `abk status` reports one whose mode is not its floor.
 
    **An e2e-test group is never joined.** Every `[e2e-test]` group, flagged or not, has a
    unit of its own: the join check refuses to put it with another group, the plan check

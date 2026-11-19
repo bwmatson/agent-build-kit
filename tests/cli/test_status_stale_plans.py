@@ -98,9 +98,9 @@ def test_status_warns_of_a_built_group_stored_with_a_mode_other_than_its_floor_a
     repo = init_repo(run.inst.checkouts["app"])
     commit_files(repo, "initial", {"README.md": "x"})
     git(repo, "switch", "-q", "-c", "spec/feature/1")
-    for number, name in ((1, "x"), (2, "y")):
-        commit_files(repo, f"test: Group {number}", {f"tests/test_{name}.py": name})
+    commit_files(repo, "test: Group 1", {"tests/test_x.py": "x"})
     commit_files(repo, "feat: Group 1", {"src/x.py": "x"})
+    commit_files(repo, "test: Group 2", {"tests/test_y.py": "y"})
     modes = {"feature/1": "tests_and_code", "feature/2": "tests_only"}
     run.store.upsert([stored_unit("feature/1", change="feature", groups=(1, 2), group_modes=modes)])
     run.store.set_state("feature/1", UnitState.RUNNING, branch="spec/feature/1")

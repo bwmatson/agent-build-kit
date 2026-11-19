@@ -863,12 +863,20 @@ class UnitStore:
         return list(self.get(unit_id).history)
 
     @_exclusive
-    def upsert(self, units: Sequence[Unit], *, change: str | None = None) -> None:
+    def upsert(
+        self,
+        units: Sequence[Unit],
+        *,
+        change: str | None = None,
+        reconciled: Mapping[str, dict[str, str]] | None = None,
+    ) -> None:
         """Merge a freshly planned graph into the store.
 
         Shape comes from the plan; state, branch and PR come from what is
         already recorded. A unit the plan no longer contains is marked
         `unplanned` rather than deleted — it may already have an open PR.
+        A started unit keeps its stored group modes unless `reconciled` gives, by unit id,
+        the modes its replan stores.
         """
         stored = self._read()
         before = dict(stored)
@@ -963,7 +971,7 @@ class UnitStore:
                         "project": existing.project,
                         "split": existing.split,
                         "review_tier": existing.review_tier,
-                        "group_modes": existing.group_modes,
+                        "group_modes": (reconciled or {}).get(unit.id, existing.group_modes),
                     }
                 )
             if existing and existing.joined and not fresh.joined:

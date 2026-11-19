@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import json
 import re
+import subprocess
 from collections.abc import Callable, Collection, Mapping, Sequence
 from pathlib import Path
 
@@ -37,6 +38,7 @@ from agent_build_kit.config import (
 )
 from agent_build_kit.model import Frozen, TestTier, pooled_kind
 from agent_build_kit.pipeline.call_record import recorded
+from agent_build_kit.pipeline.commit_order import branch_commit_subjects, group_progress
 from agent_build_kit.pipeline.joins import (
     JoinContext,
     JoinRefused,
@@ -435,7 +437,30 @@ def reconcile_group_modes(
     or above the floor of its group in `groups`) for each group the branch `ref` of `repo` does
     not hold beyond `base`, the stored mode for each it does; every stored mode when the branch
     cannot be read."""
-    raise NotImplementedError
+    from agent_build_kit.run_support import log
+
+    asked = {
+        key.rsplit("/", 1)[1]: mode
+        for key, mode in fresh.group_modes.items()
+        if key.startswith(f"{kept.change}/")
+    }
+    planned = _group_modes(f"unit {kept.id}", kept.change, kept.groups, groups, asked)
+    by_number = {group.number: group for group in groups}
+    try:
+        subjects = [subject for _, subject in branch_commit_subjects(repo, base, ref)]
+        titles = [by_number[n].title for n in kept.groups]
+        built = group_progress(
+            subjects,
+            titles,
+            [kept.mode_of(kept.change, by_number[n]) for n in kept.groups],
+        ).done
+    except (subprocess.CalledProcessError, KeyError, OSError) as error:
+        log(f"{kept.id}: group modes kept as stored, the branch {ref} cannot be read: {error}")
+        return dict(kept.group_modes)
+    modes = dict(kept.group_modes)
+    for n in kept.groups[built:]:
+        modes[f"{kept.change}/{n}"] = planned[f"{kept.change}/{n}"]
+    return modes
 
 
 def _with_join_modes(join: Join, change: str | None, groups: Sequence[TaskGroup]) -> Join:
