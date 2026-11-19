@@ -417,10 +417,11 @@ def on_settled(
     where the unit's work went when it is not on the default branch: a unit behind an open
     unit's branch stays settling, with its note, and one behind a unit that has landed
     without it is held, so it never waits for a commit that cannot arrive. `commit_trusted` says
-    the commit recorded for a merge into the default branch is on it; one that is not is never
-    accepted, and the unit stays settling. When the event carries no commit at all, the unit is
-    settled from the content check against `repos` with the default branch's head, and
-    otherwise waits `landing_wait` and is held `landing_unknown`."""
+    the commit that would be recorded for a merge into the default branch (the unit's stored
+    one, else `merge_commit`) is on it. One that is not, or none at all, is never recorded: the
+    unit is settled from the content check of its branch head against `repos`, recorded merged at
+    the default branch's head, and otherwise waits `landing_wait` and is held
+    `landing_unknown`."""
     unit = _find(store, repo, pr)
     if unit is None or unit.state != SETTLING:
         return True
@@ -440,9 +441,15 @@ def on_settled(
                     return True
                 _record_landed_off_default(store, current, pr, off, resume, log)
                 return True
-            if commit_trusted is not None and not commit_trusted(current):
+            # The commit settling would record: the stored one, else the event's.
+            recorded = (
+                current
+                if current.merge_sha or not merge_commit
+                else current.model_copy(update={"merge_sha": merge_commit})
+            )
+            if commit_trusted is not None and not commit_trusted(recorded):
                 if repos is not None and current.repo in repos:
-                    _settle_without_commit(store, current, pr, repos, merge_record, resume, log)
+                    _settle_without_commit(store, recorded, pr, repos, merge_record, resume, log)
                 else:
                     log(
                         f"settled #{pr}: {current.id} stays settling, "
@@ -501,9 +508,11 @@ def _settle_without_commit(
         log(f"settled #{pr}: {unit.id} stays settling, no commit of it is on the default branch")
     elif now >= unit.landing_deadline:
         note = f"pull request #{pr} merged but no commit of it reached the default branch"
+        # The hold goes to the unit's thread as a person's would: a merged event ends it.
+        taken = resume(unit, "hold", "", "")
         store.set_state(unit.id, HELD, note=note, cause=Cause.LANDING_UNKNOWN)
         store.set_landing_deadline(unit.id, None)
-        log(f"settled #{pr}: {unit.id} held — {note}")
+        log(f"settled #{pr}: {unit.id} held{' by its thread' if taken else ''} — {note}")
 
 
 def settle_merged(
@@ -1256,10 +1265,12 @@ def recheck_landings(
 ) -> list[str]:
     """Each round, before admission: a unit settling behind another unit's branch (its merge
     went into that branch, not the default branch: `settling_behind`), or held
-    `landed_off_default`, becomes merged when its merge commit has become an ancestor of the
-    default branch, or when every change it made is already applied there (a squash), in which
-    case the default branch's head is recorded as its merge commit. A unit that merged into the
-    default branch is left to `on_settled`. The unit is re-read under its claim, and a held
+    `landed_off_default`, or held `landing_unknown` (a merge into the default branch with no
+    commit on it by `landing_wait`), becomes merged when its merge commit has become an ancestor
+    of the default branch, or when every change it made is already applied there (a squash), in
+    which case the default branch's head is recorded as its merge commit. A unit with no merge
+    commit is checked by the head of its branch (`_unit_head`). Any other unit that merged into
+    the default branch is left to `on_settled`. The unit is re-read under its claim, and a held
     unit's thread is sent `merged`, which ends the hold it was handed. Returns the ids it
     recorded as merged."""
     recorded: list[str] = []

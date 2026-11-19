@@ -36,7 +36,7 @@ class Stack:
     """An origin and a clone, a three-unit stack whose unit `n` is one commit on unit `n - 1`
     with its branch pushed, and a store holding the three units in review."""
 
-    def __init__(self, root: Path) -> None:
+    def __init__(self, root: Path, resume=None) -> None:
         inst = make_installation(root / "inst")
         origin = root / "origin.git"
         origin.mkdir(parents=True)
@@ -71,6 +71,7 @@ class Stack:
             merge_record=self.merge_record,
             repos={"app": self.clone},
             log=lambda _line: None,
+            **({"resume": resume} if resume is not None else {}),
         )
 
     def merge_record(self, unit) -> tuple[str | None, None]:
@@ -274,3 +275,43 @@ def test_a_unit_held_landing_unknown_is_merged_by_the_next_round_once_its_conten
 
     unit = stack.store.get(unit_id(1))
     assert (unit.state, unit.merge_sha) == (MERGED, head)
+
+
+def test_the_landing_unknown_hold_is_sent_to_the_units_thread_before_the_unit_is_held(
+    tmp_path: Path, clock: FakeClock
+) -> None:
+    seen: list[tuple[str, str, object]] = []
+    holder: list[Stack] = []
+
+    def resume(unit, event: str, *_rest: str) -> bool:
+        seen.append((unit.id, event, holder[0].store.get(unit.id).state))
+        return False
+
+    stack = Stack(tmp_path, resume=resume)
+    holder.append(stack)
+    stack.merge(1)
+    stack.settle(1)
+    clock.advance(active().repos["app"].landing_wait + 1)
+
+    stack.settle(1)
+
+    assert (unit_id(1), "hold", SETTLING) in seen
+    assert stack.store.get(unit_id(1)).state == HELD
+
+
+def test_a_commit_on_the_settled_event_is_recorded_when_the_unit_has_none_and_no_branch_is_left(
+    tmp_path: Path, clock: FakeClock
+) -> None:
+    stack = Stack(tmp_path)
+    stack.merge(1)
+    git(stack.clone, "update-ref", "-d", f"refs/remotes/origin/spec/{unit_id(1)}")
+    commit_files(stack.clone, "squash 1", {"f1.txt": "1\n"})
+    git(stack.clone, "push", "-q", "origin", "main")
+    reported = git(stack.clone, "rev-parse", "HEAD")
+    commit_files(stack.clone, "later", {"later.txt": "later\n"})
+    git(stack.clone, "push", "-q", "origin", "main")
+
+    stack.settle(1, reported)
+
+    unit = stack.store.get(unit_id(1))
+    assert (unit.state, unit.merge_sha) == (MERGED, reported)
