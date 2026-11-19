@@ -80,9 +80,9 @@ def test_a_forge_that_deletes_merged_branches_while_the_setting_is_off_is_a_warn
 
     found = checks(scene, BRANCHES)
 
-    assert [c.status for c in found] == ["warn"]
-    assert "app" in said(found)
-    assert "delete_merged_branches" in said(found)
+    warned = [c for c in found if c.status == "warn"]
+    assert [c.name for c in warned if c.name.endswith(" app")] == ["merged branches app"]
+    assert "delete_merged_branches" in said(warned)
 
 
 def test_a_merged_unit_whose_commit_is_not_on_the_default_branch_is_listed_with_the_repair(

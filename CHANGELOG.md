@@ -22,7 +22,10 @@
   default branch is opened for it. Status says the pipeline carries it, and shows a unit in
   review on a carry as one. `abk carry UNIT` does the same on demand (`--dry-run` writes
   nothing, `--repair` carries a unit recorded merged whose commit is not on the default
-  branch, `--landed-as SHA` records the commit that carries its work).
+  branch, `--landed-as SHA` records the commit that carries its work). `abk doctor` warns
+  when a repo's host deletes merged branches while `delete_merged_branches` is off, and
+  lists each unit recorded merged whose commit is not on the default branch, with the
+  `abk carry` command that recovers it.
 
 - A merged unit's branch is deleted on the host when other units are stacked on it, and its
   last head is kept locally under `refs/abk/bases/` so their restacks still know where they

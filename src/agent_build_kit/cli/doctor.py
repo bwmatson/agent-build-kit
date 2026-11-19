@@ -95,6 +95,7 @@ from agent_build_kit.pipeline.environment import matched_inputs
 from agent_build_kit.pipeline.file_lock import try_file_lock
 from agent_build_kit.pipeline.gate_holds import gate_standing, split_gates
 from agent_build_kit.pipeline.install_record import STAGING
+from agent_build_kit.pipeline.landing_check import content_on_default, merged_on_default
 from agent_build_kit.pipeline.mounts import Mount
 from agent_build_kit.pipeline.original_copy import COPY_PATTERN
 from agent_build_kit.pipeline.pending import describe, pending_projects
@@ -117,6 +118,8 @@ from agent_build_kit.pipeline.project_actions import failed_lines
 from agent_build_kit.pipeline.shell import git, git_out, is_ignored, is_tracked, tracked_toplevel
 from agent_build_kit.pipeline.temp_sweep import temp_size
 from agent_build_kit.pipeline.unit_size import is_generated
+from agent_build_kit.pipeline.unit_store import UnitStore
+from agent_build_kit.pipeline.units import MERGED
 from agent_build_kit.pipeline.usage_guard import gate_result
 from agent_build_kit.pipeline.wake import WAKE
 from agent_build_kit.pipeline.workspaces import worktree_entries, worktree_key
@@ -528,6 +531,66 @@ def _merge_guards(inst: Installation, run: Run) -> list[Check]:
         else:
             checks.append(_ok(title, f"{branch} is protected"))
     return checks
+
+
+def _merged_branches(inst: Installation) -> list[Check]:
+    """Per repository, whether the forge deletes a branch when its pull request merges and
+    whether that agrees with `delete_merged_branches`. Only a forge that deletes while the
+    setting is off disagrees: the pipeline then loses the branch a stacked child is based on."""
+    checks = []
+    for name in sorted(inst.repos):
+        title = f"merged branches {name}"
+        try:
+            forge, _ = inst.forge_of(name)
+            deletes = forge.deletes_head_branch_on_merge
+        except Exception as error:  # noqa: BLE001
+            checks.append(_info(title, f"{CANNOT_TELL} whether the forge deletes them: {error}"))
+            continue
+        setting = inst.repo(name).delete_merged_branches
+        said = f"{name}: the forge {'deletes' if deletes else 'keeps'} merged branches"
+        if deletes and not setting:
+            checks.append(
+                _warn(
+                    title,
+                    f"{said}, but delete_merged_branches is off",
+                    f"set `delete_merged_branches: true` on {name} in abk.yaml, or turn off the "
+                    "forge's deletion of merged branches",
+                )
+            )
+        else:
+            state = "on" if setting else "off"
+            checks.append(_ok(title, f"{said}, delete_merged_branches is {state}"))
+    return checks
+
+
+def _false_merges(inst: Installation) -> list[Check]:
+    """The units recorded `merged` whose merge commit is not on the default branch, each with the
+    command that recovers it: `abk carry --repair` when its changes are not there either,
+    `abk carry --landed-as` when they are. Reads git, writes nothing."""
+    name = "merged units"
+    found = []
+    for unit in UnitStore(inst.state_dir / "units.json").all():
+        if unit.state != MERGED or not unit.merge_sha or unit.repo not in inst.checkouts:
+            continue
+        repo, trunk = inst.checkouts[unit.repo], inst.repo(unit.repo).default_branch
+        if merged_on_default(repo, unit.merge_sha, trunk):
+            continue
+        applied = content_on_default(repo, unit.merge_sha, trunk, fetch=False)
+        fix = (
+            f"abk carry {unit.id} --landed-as <sha of the commit on {trunk}>"
+            if applied
+            else f"abk carry --repair {unit.id}"
+        )
+        where = "its changes are" if applied else "its changes are not"
+        found.append(
+            _warn(
+                name,
+                f"{unit.id} is recorded merged as {unit.merge_sha[:7]}, which is not on "
+                f"{trunk} ({where})",
+                fix,
+            )
+        )
+    return found or [_ok(name, "every merged unit's commit is on its default branch")]
 
 
 def _planning_publish(inst: Installation, run: Run) -> list[Check]:
@@ -2554,6 +2617,8 @@ def run_doctor(
     checks += _cassettes(inst)
     checks += _forge_access(inst, run, transport=transport)
     checks += _merge_guards(inst, run)
+    checks += _merged_branches(inst)
+    checks += _false_merges(inst)
     checks += _planning_publish(inst, run)
     checks += _pipeline_worktree(inst)
     checks += _machine_files(inst)
