@@ -8,6 +8,8 @@
   of the rerun and named, like any other id it cannot find.
 - A replan of a started unit now brings each group its branch does not yet hold to the build
   mode the plan gives it, never below the group's floor, so a group whose tasks changed from
+- A replan of a started unit now brings each group its branch does not yet hold to the mode
+  the plan gives it, never below the group's floor, so a group whose tasks changed from
   code to test files is no longer built in the old mode. A group already built keeps the mode
   it was built in, and `abk status` warns when that mode differs from the group's floor.
 
