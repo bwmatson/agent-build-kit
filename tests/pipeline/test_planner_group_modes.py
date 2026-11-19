@@ -10,11 +10,19 @@ import pytest
 
 from agent_build_kit.model import TestTier
 from agent_build_kit.pipeline.joins import JoinContext
-from agent_build_kit.pipeline.planner import Plan, PlannerError, parse_graph, parse_plan, plan_round
+from agent_build_kit.pipeline.planner import (
+    Plan,
+    PlannerError,
+    parse_graph,
+    parse_plan,
+    plan_round,
+    reconcile_group_modes,
+)
+from agent_build_kit.pipeline.shell import git_out as git
 from agent_build_kit.pipeline.units import Unit
 from agent_build_kit.pipeline.work_graph import TaskGroup
 from tests.cli.replan_driver import Replan, answer, planned
-from tests.factories import groups_at, stored_unit
+from tests.factories import commit_files, groups_at, init_repo, stored_unit, unit
 
 CODE_TASK = "Edit `src/pkg/foo.py` to add it."
 DOC_TASK = "Update `docs/guide.md` and `CHANGELOG.md`."
@@ -266,3 +274,67 @@ def test_a_join_of_a_change_stores_the_planners_mode() -> None:
 def test_a_join_below_the_floor_is_refused() -> None:
     with pytest.raises(PlannerError, match=r"join onto base/1.*group 2"):
         join_plan({"2": "no_code"})
+
+
+def branch_with(tmp_path: Path, *subjects: str) -> Path:
+    """A repository whose `main` has one commit and whose `spec/feature/1` has one commit for each
+    of `subjects` beyond it."""
+    repo = init_repo(tmp_path / "code")
+    commit_files(repo, "initial", {"README.md": "x"})
+    git(repo, "switch", "-q", "-c", "spec/feature/1")
+    for number, subject in enumerate(subjects):
+        commit_files(repo, subject, {f"f{number}.txt": subject})
+    return repo
+
+
+STORED = {"feature/1": "tests_and_code", "feature/2": "tests_and_code"}
+FLOORS = {"feature/1": "tests_only", "feature/2": "tests_only"}
+
+
+def replanned_modes(
+    repo: Path, planned_modes: dict[str, str], ref: str = "spec/feature/1"
+) -> dict[str, str]:
+    """The modes a replan stores for a started `feature/1` of two groups stored `tests_and_code`
+    whose tasks now name only test files."""
+    kept = stored_unit("feature/1", change="feature", groups=(1, 2), group_modes=STORED)
+    fresh = unit("feature/1", change="feature", groups=(1, 2), group_modes=planned_modes)
+    named = [group.model_copy(update={"test_code": True}) for group in groups_at(3, 3)]
+    return reconcile_group_modes(kept, fresh, named, repo=repo, base="main", ref=ref)
+
+
+def test_a_replan_gives_an_unbuilt_group_its_floor_and_a_built_group_keeps_its_stored_mode(
+    tmp_path: Path,
+) -> None:
+    repo = branch_with(tmp_path, "test: G1", "feat: G1")
+
+    modes = replanned_modes(repo, FLOORS)
+
+    assert modes == {"feature/1": "tests_and_code", "feature/2": "tests_only"}
+
+
+def test_a_replan_over_a_branch_with_no_commits_gives_every_group_its_current_mode(
+    tmp_path: Path,
+) -> None:
+    repo = branch_with(tmp_path)
+
+    assert replanned_modes(repo, FLOORS) == FLOORS
+
+
+def test_a_replan_refuses_a_mode_below_the_floor_of_an_unbuilt_group(tmp_path: Path) -> None:
+    repo = branch_with(tmp_path, "test: G1", "feat: G1")
+    below = {"feature/1": "tests_only", "feature/2": "no_code"}
+
+    with pytest.raises(PlannerError, match=r"group 2"):
+        replanned_modes(repo, below)
+
+
+def test_a_replan_over_a_branch_that_cannot_be_read_keeps_every_stored_mode_and_logs_why(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    repo = branch_with(tmp_path, "test: G1", "feat: G1")
+    capsys.readouterr()
+
+    modes = replanned_modes(repo, FLOORS, ref="spec/feature/gone")
+
+    assert modes == STORED
+    assert "feature/1" in capsys.readouterr().out

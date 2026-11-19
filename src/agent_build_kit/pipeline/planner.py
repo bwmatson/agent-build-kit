@@ -23,6 +23,7 @@ from __future__ import annotations
 import json
 import re
 from collections.abc import Callable, Collection, Mapping, Sequence
+from pathlib import Path
 
 from agent_build_kit import runtimes
 from agent_build_kit.compat_names import Place, new_spelling, old_spelling
@@ -419,6 +420,22 @@ def _with_group_modes(unit: Unit, groups: Sequence[TaskGroup]) -> Unit:
     """The unit with the mode of each group it builds."""
     modes = _group_modes(f"unit {unit.id}", unit.change, unit.groups, groups, unit.group_modes)
     return unit.model_copy(update={"group_modes": modes})
+
+
+def reconcile_group_modes(
+    kept: StoredUnit,
+    fresh: Unit,
+    groups: Sequence[TaskGroup],
+    *,
+    repo: Path,
+    base: str,
+    ref: str,
+) -> dict[str, str]:
+    """The modes a replan stores for the started unit `kept`: `fresh`'s mode (the planner's, at
+    or above the floor of its group in `groups`) for each group the branch `ref` of `repo` does
+    not hold beyond `base`, the stored mode for each it does; every stored mode when the branch
+    cannot be read."""
+    raise NotImplementedError
 
 
 def _with_join_modes(join: Join, change: str | None, groups: Sequence[TaskGroup]) -> Join:
