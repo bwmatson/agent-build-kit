@@ -1281,31 +1281,27 @@ def carry_held(
             continue
         forge, repo_id = forge_of(unit.repo)
         try:
-            with claim(unit):
-                if not _owed_a_carry(store.get(unit.id)):
-                    continue
-                carry(
-                    store,
-                    unit.id,
-                    forge=forge,
-                    repo_id=repo_id,
-                    repo=repos[unit.repo],
-                    default_branch=default_of(unit.repo),
-                    worktrees=worktrees,
-                    on_empty=lambda held, head: record_landed(
-                        store, held, head, merge_record, resume
-                    ),
-                    resolve=resolver_for(unit),
-                    repo_config=repo_config_of(unit.repo),
-                    turn=turn_of(unit.repo),
-                )
+            done = carry_unit(
+                store,
+                unit,
+                forge=forge,
+                repo_id=repo_id,
+                repo=repos[unit.repo],
+                default_branch=default_of(unit.repo),
+                worktrees=worktrees,
+                claim=claim,
+                resolve=resolver_for(unit),
+                repo_config=repo_config_of(unit.repo),
+                turn=turn_of(unit.repo),
+                merge_record=merge_record,
+                resume=resume,
+            )
+            if not done:
+                continue
         except BranchBusy as error:
             _deferred("carry", unit, error, log)
             continue
         except RestackConflict as error:
-            store.record_event(
-                unit.id, CARRY_REFUSED, str(error), cause=Cause.LANDED_OFF_DEFAULT.value
-            )
             log(f"{unit.id}: carry abandoned, left held — {error}")
             continue
         except AGENT_UNAVAILABLE as error:
@@ -1319,6 +1315,60 @@ def carry_held(
         log(f"{unit.id}: carried onto {default_of(unit.repo)}")
         carried.append(unit.id)
     return carried
+
+
+def carry_unit(
+    store: UnitStore,
+    unit: StoredUnit,
+    *,
+    forge: Forge,
+    repo_id: RepoId,
+    repo: Path,
+    default_branch: str,
+    worktrees: Path,
+    claim: Claim,
+    resolve: Resolver | None = None,
+    repo_config: RepoConfig | None = None,
+    turn: Turn = nullcontext,
+    merge_record: MergeRecord | None = None,
+    resume: Resume = _no_thread,
+    hold: bool = False,
+) -> bool:
+    """Carry one unit under its claim: the unit is read again there and carried only if it is
+    still owed a carry (held `landed_off_default`, no carry yet), so False means nothing was
+    done. With `hold`, a unit recorded merged is first put back to held `landed_off_default`,
+    inside the same claim, so a busy claim leaves it as it was. A carry that cannot be resolved
+    is recorded as refused (the round does not try it again) and `RestackConflict` is re-raised;
+    `BranchBusy` and every other failure are the caller's to report."""
+    with claim(unit):
+        current = store.get(unit.id)
+        if hold:
+            if current.state != MERGED:
+                return False
+            store.set_state(unit.id, HELD, cause=Cause.LANDED_OFF_DEFAULT, note="repair: carrying")
+            current = store.get(unit.id)
+        if not _owed_a_carry(current):
+            return False
+        try:
+            carry(
+                store,
+                unit.id,
+                forge=forge,
+                repo_id=repo_id,
+                repo=repo,
+                default_branch=default_branch,
+                worktrees=worktrees,
+                on_empty=lambda held, head: record_landed(store, held, head, merge_record, resume),
+                resolve=resolve,
+                repo_config=repo_config,
+                turn=turn,
+            )
+        except RestackConflict as error:
+            store.record_event(
+                unit.id, CARRY_REFUSED, str(error), cause=Cause.LANDED_OFF_DEFAULT.value
+            )
+            raise
+    return True
 
 
 def _owed_a_carry(unit: StoredUnit) -> bool:

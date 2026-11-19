@@ -7,7 +7,9 @@ from __future__ import annotations
 
 import pytest
 
+from agent_build_kit import run_support
 from agent_build_kit.cli import main
+from agent_build_kit.pipeline.carry import CARRY_REFUSED
 from agent_build_kit.pipeline.unit_store import Cause
 from agent_build_kit.pipeline.units import HELD, IN_REVIEW, MERGED
 from tests.factories import commit_files, git
@@ -74,6 +76,45 @@ def test_a_dry_run_prints_the_commit_and_the_branch_and_writes_nothing(
     assert not git(scene.repo, "branch", "--list", CARRY_BRANCH).strip()
 
 
+@pytest.mark.parametrize("form", ["repair", "landed_as"])
+def test_a_dry_run_of_every_other_form_writes_nothing(
+    scene: Scene,  # noqa: F811
+    capsys: pytest.CaptureFixture[str],
+    form: str,
+) -> None:
+    landed_off_default(scene, MERGED)
+    commit_files(scene.repo, "on default", {"other.txt": "x\n"})
+    git(scene.repo, "push", "-q", "origin", "main")
+    on_default = git(scene.repo, "rev-parse", "HEAD").strip()
+    flags = ["--repair"] if form == "repair" else ["--landed-as", on_default]
+    before = scene.snapshot()
+
+    code, out = run(capsys, UNIT, *flags, "--dry-run")
+
+    assert code == 0, out
+    assert scene.snapshot() == before
+    assert scene.host.created == []
+
+
+def test_a_carry_that_conflicts_with_no_resolver_is_refused_and_recorded(
+    scene: Scene,  # noqa: F811
+    capsys: pytest.CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    held(scene)
+    commit_files(scene.repo, "same file", {"unit.txt": "other\n"})
+    git(scene.repo, "push", "-q", "origin", "main")
+    monkeypatch.setattr(run_support, "repo_resolver", lambda *args, **kwargs: None)
+
+    code, out = run(capsys, UNIT)
+
+    unit = scene.unit(UNIT)
+    assert code == 1, out
+    assert unit.history[-1]["event"] == CARRY_REFUSED
+    assert (unit.state, unit.cause) == (HELD, Cause.LANDED_OFF_DEFAULT)
+    assert scene.host.created == []
+
+
 def test_repair_carries_a_unit_recorded_merged_with_a_commit_not_on_the_default_branch(
     scene: Scene,  # noqa: F811
     capsys: pytest.CaptureFixture[str],
@@ -100,6 +141,39 @@ def test_landed_as_records_a_commit_of_the_default_branch_as_the_merge_commit(
 
     assert code == 0, out
     assert scene.unit(UNIT).merge_sha == carrying
+
+
+def test_landed_as_records_a_held_unit_merged(
+    scene: Scene,  # noqa: F811
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    held(scene)
+    commit_files(scene.repo, "carries the work", {"unit.txt": "work\n"})
+    git(scene.repo, "push", "-q", "origin", "main")
+    carrying = git(scene.repo, "rev-parse", "HEAD").strip()
+
+    code, out = run(capsys, UNIT, "--landed-as", carrying)
+
+    unit = scene.unit(UNIT)
+    assert code == 0, out
+    assert (unit.state, unit.merge_sha) == (MERGED, carrying)
+
+
+def test_landed_as_refuses_a_unit_whose_work_did_not_land_elsewhere(
+    scene: Scene,  # noqa: F811
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    landed_off_default(scene, IN_REVIEW)
+    commit_files(scene.repo, "on default", {"other.txt": "x\n"})
+    git(scene.repo, "push", "-q", "origin", "main")
+    on_default = git(scene.repo, "rev-parse", "HEAD").strip()
+    before = scene.snapshot()
+
+    code, out = run(capsys, UNIT, "--landed-as", on_default)
+
+    assert code == 1
+    assert IN_REVIEW in out
+    assert scene.snapshot() == before
 
 
 def test_landed_as_refuses_a_commit_that_is_not_on_the_default_branch(
