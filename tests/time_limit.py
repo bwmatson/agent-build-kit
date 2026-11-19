@@ -16,12 +16,15 @@ run goes on.
 from __future__ import annotations
 
 import faulthandler
+import json
 import os
 import signal
 import sys
 import tempfile
 import threading
 import time
+import traceback
+from collections import deque
 from collections.abc import Callable, Collection, Mapping
 from pathlib import Path
 
@@ -326,19 +329,54 @@ class PhaseTrace:
         load: Callable[[], tuple[float, float, float]] = os.getloadavg,
         pressure_dir: Path = Path("/proc/pressure"),
     ) -> None:
-        raise NotImplementedError
+        self._path = path
+        self._clock = clock
+        self._load = load
+        self._pressure_dir = pressure_dir
+        self._entries: deque[PhaseEntry] = deque(maxlen=TRACE_KEPT)
+        self._errors_left = 0
 
     @property
     def entries(self) -> list[PhaseEntry]:
         """The last `TRACE_KEPT` entries, oldest first."""
-        raise NotImplementedError
+        return list(self._entries)
+
+    def _write(self, line: Mapping[str, object]) -> None:
+        if self._path is None:
+            return
+        try:
+            self._path.parent.mkdir(parents=True, exist_ok=True)
+            with self._path.open("a", encoding="utf-8") as handle:
+                handle.write(json.dumps(line, default=str) + "\n")
+        except OSError:
+            pass
 
     def phase_ended(
         self, nodeid: str, phase: str, *, started: float, start: CpuSnapshot, now: CpuSnapshot
     ) -> None:
         """Add the entry of a phase that began at clock reading `started`; a phase over
         `SLOW_PHASE_SECONDS` of wall time is also written as a `slow` line."""
-        raise NotImplementedError
+        entry = PhaseEntry(
+            test=nodeid,
+            phase=phase,
+            wall=self._clock() - started,
+            cpu=now.process - start.process,
+            threads=len(now.tasks) + len(now.descendants),
+            children=len(now.children),
+            load=self._load()[0],
+        )
+        self._entries.append(entry)
+        if entry.wall > SLOW_PHASE_SECONDS:
+            self._write({"kind": "slow", **entry.model_dump()})
+
+    def _pressure(self) -> dict[str, str]:
+        readings: dict[str, str] = {}
+        for name in ("cpu", "io"):
+            try:
+                readings[name] = (self._pressure_dir / name).read_text()
+            except OSError:
+                readings[name] = "unavailable"
+        return readings
 
     def tripped(
         self,
@@ -354,11 +392,64 @@ class PhaseTrace:
         """Write the `trip` line: the terms of the billed CPU, the threads and children that
         supplied it, the load, the pressure readings and the last `TRIP_ENTRIES` entries; and
         start counting the errors whose traceback is kept."""
-        raise NotImplementedError
+        self._errors_left = TRACED_ERRORS
+        inherited = sum(v - start.tasks[t] for t, v in now.tasks.items() if t in start.tasks)
+        own_seconds = sum(v for t, v in now.tasks.items() if t in own and t not in start.tasks)
+        new_children = sum(v for p, v in now.descendants.items() if p not in start.descendants)
+        before_phase = sum(
+            start.descendants[p]
+            for p in start.children
+            if p in start.descendants and p not in now.descendants
+        )
+        threads = [
+            {
+                "name": left_by.get(t, (f"task {t}", ""))[0],
+                "left_by": left_by.get(t, ("", "an earlier test"))[1],
+                "seconds": v - start.tasks.get(t, 0.0),
+            }
+            for t, v in now.tasks.items()
+            if t not in own and v - start.tasks.get(t, 0.0) > 0
+        ]
+        children = [
+            {"pid": p, "seconds": v}
+            for p, v in now.descendants.items()
+            if p not in start.descendants
+        ]
+        self._write(
+            {
+                "kind": "trip",
+                "test": nodeid,
+                "phase": phase,
+                "clock": clock,
+                "terms": {
+                    "process": now.process - start.process,
+                    "inherited": inherited,
+                    "own": own_seconds,
+                    "new_children": new_children,
+                    "reaped": max(0.0, now.reaped - start.reaped - before_phase),
+                    "total": phase_cpu(start, now, own),
+                },
+                "threads": threads,
+                "children": children,
+                "load": list(self._load()),
+                "pressure": self._pressure(),
+                "recent": [e.model_dump() for e in list(self._entries)[-TRIP_ENTRIES:]],
+            }
+        )
 
     def error_raised(self, nodeid: str, phase: str, error: BaseException) -> None:
         """After a trip, write a `traceback` line for each of the next `TRACED_ERRORS` errors."""
-        raise NotImplementedError
+        if self._errors_left <= 0:
+            return
+        self._errors_left -= 1
+        self._write(
+            {
+                "kind": "traceback",
+                "test": nodeid,
+                "phase": phase,
+                "traceback": "".join(traceback.format_exception(error)),
+            }
+        )
 
 
 class TimedOut(BaseException):
@@ -445,6 +536,18 @@ def _trip_in_chain(error: BaseException) -> TimedOut | None:
     return None
 
 
+_TRACE: list[PhaseTrace] = []
+
+
+def worker_trace() -> PhaseTrace:
+    """This worker's trace, made on first use; it writes to the file `TRACE_VARIABLE` names, and
+    nowhere when the variable is not set."""
+    if not _TRACE:
+        named = os.environ.get(TRACE_VARIABLE)
+        _TRACE.append(PhaseTrace(Path(named) if named else None))
+    return _TRACE[0]
+
+
 def _under_limit(item: pytest.Item, phase: str):
     """Run the rest of a hook, setup, call or teardown, under its budgets."""
     budget = budget_for(item)
@@ -502,7 +605,19 @@ def _under_limit(item: pytest.Item, phase: str):
         running = False
         stopped = caught if isinstance(caught, TimedOut) else _trip_in_chain(caught)
         if stopped is None or not fired:
+            if phase == "setup" and isinstance(caught, Exception):
+                worker_trace().error_raised(item.nodeid, phase, caught)
             raise
+        if start is not None:
+            worker_trace().tripped(
+                item.nodeid,
+                phase,
+                clock=fired[0],
+                start=start,
+                now=last[0] or start,
+                own=[*watching, *([timer.native_id] if timer and timer.native_id else [])],
+                left_by=LEFT_BY,
+            )
         replaced = (
             ""
             if stopped is caught
@@ -536,7 +651,11 @@ def _under_limit(item: pytest.Item, phase: str):
             watcher.join()
         signal.signal(signal.SIGUSR2, previous)
         if start is not None:
-            record_left(start, snapshot_cpu(), item.nodeid)
+            ended = snapshot_cpu()
+            record_left(start, ended, item.nodeid)
+            worker_trace().phase_ended(
+                item.nodeid, phase, started=wall_start, start=start, now=ended
+            )
 
 
 @pytest.hookimpl(wrapper=True)

@@ -440,7 +440,7 @@ def _traced_run(
 def test_the_runs_environment_names_a_trace_file_in_its_own_temp_folder_fresh_for_each_rerun(
     scratch: Path, tmp_path: Path, installation: Installation
 ) -> None:
-    machine = BundleMachine(scratch, reruns=[1, 1])
+    machine = BundleMachine(scratch, reruns=[0, 0])
 
     _traced_run(scratch, installation, tmp_path / "bundles", machine)
 
@@ -457,7 +457,7 @@ def test_the_bundle_and_each_rerun_keep_the_trace_their_run_wrote(
     directory = tmp_path / "bundles"
     machine = BundleMachine(
         scratch,
-        reruns=[1, 1],
+        reruns=[0, 0],
         traces=['{"run": "full"}\n', '{"run": "rerun 1"}\n', '{"run": "rerun 2"}\n'],
     )
 
@@ -473,7 +473,7 @@ def test_a_run_that_wrote_no_trace_gets_no_trace_file_where_a_rerun_that_wrote_o
     scratch: Path, tmp_path: Path, installation: Installation
 ) -> None:
     directory = tmp_path / "bundles"
-    machine = BundleMachine(scratch, reruns=[1, 1], traces=[None, None, "line\n"])
+    machine = BundleMachine(scratch, reruns=[0, 0], traces=[None, None, "line\n"])
 
     _traced_run(scratch, installation, directory, machine)
 

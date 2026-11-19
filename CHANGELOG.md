@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- A failing unit-test run's bundle, and each rerun's folder, now keeps `trace.jsonl` when the
+  run's workers wrote one: the slow phases, and for a time-limit trip the terms of the CPU
+  billed, the threads and children in it, the load and pressure, and the last thirty phases.
+  Set `ABK_TEST_TRACE` to a file to get the same trace from your own pytest run.
+
 - A workspace whose root is itself a package now has its root tests run in the project's
   own environment, in every test command the Python profile makes (changed, all, affected
   and live-stack runs), in parallel when the root declares `pytest-xdist`. The repo's

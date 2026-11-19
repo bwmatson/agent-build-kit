@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import ast
 import hashlib
+import itertools
 import logging
 import os
 import re
@@ -182,6 +183,7 @@ from agent_build_kit.pipeline.restack import (
 )
 from agent_build_kit.pipeline.review_paths import is_protected
 from agent_build_kit.pipeline.run_log import (
+    TEST_TRACE_VARIABLE,
     FailedTest,
     TestRun,
     adopt_old_e2e_output,
@@ -1652,6 +1654,10 @@ def build_unit_test(
     # This run's token, and the environment each profile that sets one gave its commands.
     run_token: dict[str, str] = {}
     run_environments: dict[str, dict[str, str]] = {}
+    # The trace file the latest test command was told to write (`TEST_TRACE_VARIABLE`), and how
+    # many commands have been given one: each command gets a fresh file in the run's temp folder.
+    trace_files: dict[str, Path] = {}
+    traced_commands = itertools.count(1)
     # What the current run's test commands asked for, for its ledger row.
     run_facts: dict[str, object] = {}
     # The tests the current run's failed commands named, each read by the profile of the
@@ -2254,6 +2260,7 @@ def build_unit_test(
                 tree_before, failure_evidence.worktree_state(run, where, toolchain)
             ),
             pointed=_pointed_bundles(),
+            trace=latest_trace(),
         )
 
     def root_checks(
@@ -2629,6 +2636,7 @@ def build_unit_test(
                     worktree=failure_evidence.worktree_changes(
                         tree_before, failure_evidence.worktree_state(run, where, toolchain)
                     ),
+                    trace=latest_trace(),
                 )
                 waiting.append(
                     rerun_line(
@@ -2776,7 +2784,22 @@ def build_unit_test(
                 # The folder's name is the run's token alone: this line is how a unit is found
                 # from a path in a failure.
                 _say(log, f"temp folder {folder} (run {run_token['id']})")
-        return {"env": {**os.environ, **run_environments[name]}}
+        given = run_environments[name]
+        env = {**os.environ, **given}
+        trace_files.pop("latest", None)
+        if folder := given.get(TEMP_ROOT_VARIABLE):
+            traced = Path(folder) / "trace" / f"{next(traced_commands)}.jsonl"
+            env[TEST_TRACE_VARIABLE] = str(traced)
+            trace_files["latest"] = traced
+        return {"env": env}
+
+    def latest_trace() -> str | None:
+        """What the workers of the latest test command wrote to its trace file, if anything."""
+        traced = trace_files.get("latest")
+        try:
+            return traced.read_text(encoding="utf-8", errors="replace") if traced else None
+        except OSError:
+            return None
 
     def temp_folder() -> str | None:
         """The temp folder this run's commands were given, when a profile gave one."""
