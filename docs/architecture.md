@@ -976,6 +976,17 @@ keep waiting, until its commit reaches the default branch. A pull request that i
 its stack gives it is retargeted each round and the host's base read back; after three failed
 rounds the unit is held `base_not_moved`.
 
+**The content check and the carry.** A unit held `landed_off_default` is checked each round by
+the content check: it looks for the unit's changes on the default branch, and a unit whose changes
+are already there is recorded merged without a commit of its own. A unit whose changes are not
+there is carried: the carry cherry-picks its merged commits onto the default branch as a unit of
+its own and the pipeline lands that, so work that landed on a branch nobody merges is not lost.
+`abk carry` does the same on demand for a unit (`--dry-run` writes nothing, `--repair` carries a unit
+recorded merged whose commit is not on the default branch, and `--landed-as <sha>` records a commit
+already on the default branch as the unit's merge). Some hosts delete a merged branch by themselves
+and the carry then has nothing to read; `delete_merged_branches` says whether the pipeline deletes
+it, and `abk doctor` reports where the host and the setting disagree.
+
 **The code host outage.** A git push the code host refuses (an authentication refusal, an HTTP 401, 403
 or 5xx, a connection it closed), or cannot reach while the control group is up, parks its unit with the cause
 `host_unavailable`, and a fetch it refuses or cannot reach is noted without parking its unit. The call that
