@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- A workspace whose root is itself a package now has its root tests run in the project's
+  own environment, in every test command the Python profile makes (changed, all, affected
+  and live-stack runs), in parallel when the root declares `pytest-xdist`. The repo's
+  `tests.root_extras` is then ignored; a root with no `[project]` runs as before.
+
 - The red check no longer rejects a tests commit because one project collected no test, as
   when it holds only a support helper, while another project of the commit failed for the
   right reason. A toolchain says a run collected nothing through an optional
