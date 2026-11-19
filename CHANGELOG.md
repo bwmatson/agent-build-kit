@@ -9,6 +9,11 @@
   it, the load and pressure, the last thirty phases, and the tracebacks of the first setup
   errors after a trip; a repository whose tests write nothing there gets no file.
 
+- The pipeline no longer fights a code host that retargets and rebases the pull requests of
+  a stack merged at once. A restack leaves a pull request whose base already matches, and a
+  child branch the host rebased with the same changes is adopted without a push or a force;
+  a remote branch with different changes still meets the lease push and its failure.
+
 - A workspace whose root is itself a package now has its root tests run in the project's
   own environment, in every test command the Python profile makes (changed, all, affected
   and live-stack runs), in parallel when the root declares `pytest-xdist`. The repo's

@@ -2779,7 +2779,7 @@ def build_restack(
         # Retargeted before anything else, and whatever the adopt or the move
         # does: with its base branch merged away, a PR left pointing at it
         # would be closed by GitHub.
-        if child.pr:
+        if child.pr and not pr_based_on(child, new_base):
             retarget(child.pr, new_base, repo=child.repo)
 
         # The pipeline is not the only writer: after a stack merge the host

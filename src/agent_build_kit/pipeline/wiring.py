@@ -175,6 +175,7 @@ from agent_build_kit.pipeline.restack import (
     Turn,
     adopt_host_head,
     diff_id,
+    host_holds_same_changes,
     move_branch_onto,
     push_with_lease,
     remote_head,
@@ -3286,10 +3287,19 @@ def build_push(
     Every push passes here, so this is where a branch the host moved is
     caught — whichever unit it is, and whether or not a run of it moved it.
     After a stack merge the host rebases every PR above the merged one, not
-    only the one sitting on it. Its head is adopted rather than overwritten,
-    the old approval dropped, and `HostMoved` raised so review sees it first.
-    A host head holding the same change (same diff id over the trunk) only moves
-    the lease: the approval stands and the approved head is pushed.
+    only the one sitting on it. What the host holds is compared with the unit's
+    own changes (`host_holds_same_changes`), with three outcomes:
+
+    - the same changes, rebased by the host: its head is adopted, the approval
+      moves to it and nothing is pushed;
+    - different changes: nothing is adopted, the lease push runs and its
+      `StaleRemote` propagates;
+    - git cannot say: the head is adopted rather than overwritten, the old
+      approval dropped, and `HostMoved` raised so review sees it first.
+
+    A host head holding the same change (same diff id over the trunk) as the
+    local branch only moves the lease: the approval stands and the approved head
+    is pushed.
     """
     push = push or _default_push
     remote_head_of = remote_head_of or remote_head
@@ -3309,26 +3319,42 @@ def build_push(
             store.record_push(unit_id, remote)
             last_pushed = remote
         elif remote and last_pushed and remote != last_pushed:
-            adopt_head(
+            unit = store.get(unit_id)
+            base = local_ref(trunk_of(unit.repo), repo=unit.repo)
+            same = host_holds_same_changes(
                 cwd,
                 branch,
-                host_head=remote,
-                last_pushed=last_pushed,
-                cwd=cwd,
-                base=local_ref(trunk_of(store.get(unit_id).repo), repo=store.get(unit_id).repo),
+                remote,
+                trunk=trunk_of(unit.repo),
+                trunk_ref=base,
+                parents=[
+                    branch_name(other)
+                    for other in store.all()
+                    if other.id in unit.depends_on and other.repo == unit.repo
+                ],
             )
-            store.record_push(unit_id, remote)
-            after = git(cwd, "rev-parse", "--verify", "-q", branch, check=False).stdout.strip()
-            if here and after == here:
-                # The host holds the same change, so what review approved
-                # stands: only the lease moves, and the approved head is pushed.
-                last_pushed = remote
-            else:
-                store.record_approval(unit_id, "")
-                raise HostMoved(
-                    f"the host moved {branch} from {last_pushed[:9]} to {remote[:9]}; "
-                    "adopted its head, which review has not seen"
+            if same is not False:
+                adopt_head(
+                    cwd, branch, host_head=remote, last_pushed=last_pushed, cwd=cwd, base=base
                 )
+                store.record_push(unit_id, remote)
+                after = git(cwd, "rev-parse", "--verify", "-q", branch, check=False).stdout.strip()
+                if same and after == remote:
+                    # The forge rebased the branch with the same changes: its head is
+                    # adopted, the approval moves to it and there is nothing to push.
+                    store.record_approval(unit_id, remote)
+                    return remote
+                if here and after == here:
+                    # The host holds the same change, so what review approved
+                    # stands: only the lease moves, and the approved head is pushed.
+                    last_pushed = remote
+                else:
+                    store.record_approval(unit_id, "")
+                    raise HostMoved(
+                        f"the host moved {branch} from {last_pushed[:9]} to {remote[:9]}; "
+                        "adopted its head, which review has not seen"
+                    )
+            # Different changes on the host: the lease push runs and its failure is reported.
 
         sha = push(cwd, branch, last_pushed)
         try:
