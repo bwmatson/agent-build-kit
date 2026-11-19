@@ -14,8 +14,8 @@ from pathlib import Path
 
 from agent_build_kit.installation import Installation
 from agent_build_kit.pipeline.flakes import flake_record
+from agent_build_kit.pipeline.run_log import TEST_TRACE_VARIABLE
 from agent_build_kit.profiles.python_uv import PythonUvProfile
-from tests.time_limit import TRACE_VARIABLE
 
 RECORDED = Path(__file__).resolve().parent / "fixtures" / "external" / "pytest"
 START = datetime(2026, 10, 11, 12, 0, 0, tzinfo=UTC)
@@ -66,7 +66,7 @@ class BundleMachine:
     def _worker_writes(self, kwargs: dict[str, object]) -> None:
         """The workers of a test run, writing their trace to the file the environment names."""
         env = kwargs.get("env")
-        named = env.get(TRACE_VARIABLE) if isinstance(env, dict) else None
+        named = env.get(TEST_TRACE_VARIABLE) if isinstance(env, dict) else None
         if named is None:
             return
         self.trace_paths.append(named)

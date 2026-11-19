@@ -24,6 +24,7 @@ from pathlib import Path
 
 import pytest
 
+from agent_build_kit.pipeline.run_log import TEST_TRACE_VARIABLE
 from tests import time_limit
 from tests.child_pytest import run_scenario
 from tests.time_limit import Budget, CpuSnapshot, PhaseTrace
@@ -725,7 +726,7 @@ def test_a_trip_writes_a_trace_line_to_the_file_the_variable_names(
         CPU_SCENARIO,
         "hangs.py",
         "--test-time-limit=1",
-        env={time_limit.TRACE_VARIABLE: str(path)},
+        env={TEST_TRACE_VARIABLE: str(path)},
         monkeypatch=monkeypatch,
     )
 
@@ -735,17 +736,32 @@ def test_a_trip_writes_a_trace_line_to_the_file_the_variable_names(
     assert trips[0]["phase"] == "call"
 
 
+def test_a_child_run_does_not_write_to_the_trace_file_of_the_run_that_started_it(
+    pytester: pytest.Pytester, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    outer = tmp_path / "outer" / "trace.jsonl"
+    monkeypatch.setenv(TEST_TRACE_VARIABLE, str(outer))
+
+    result = run_scenario(
+        pytester, CPU_SCENARIO, "hangs.py", "--test-time-limit=1", monkeypatch=monkeypatch
+    )
+
+    assert result.code == 1, result.output
+    assert "exceeded the CPU time budget of 1 s" in result.output, result.output
+    assert not outer.exists()
+    assert not outer.parent.exists()
+
+
 def test_a_trip_without_the_variable_writes_no_file_and_fails_the_same_way(
     pytester: pytest.Pytester, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    monkeypatch.delenv(time_limit.TRACE_VARIABLE, raising=False)
     traced = tmp_path / "traced" / "trace.jsonl"
     with_variable = run_scenario(
         pytester,
         CPU_SCENARIO,
         "hangs.py",
         "--test-time-limit=1",
-        env={time_limit.TRACE_VARIABLE: str(traced)},
+        env={TEST_TRACE_VARIABLE: str(traced)},
         monkeypatch=monkeypatch,
     )
     assert traced.exists(), "the control run writes its trace"

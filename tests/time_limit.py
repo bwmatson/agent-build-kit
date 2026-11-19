@@ -32,6 +32,7 @@ import pytest
 
 from agent_build_kit.compat_names import old_spelling
 from agent_build_kit.model import Frozen, TestTier
+from agent_build_kit.pipeline.run_log import TEST_TRACE_VARIABLE
 
 DEFAULT_TEST_TIME_LIMIT = 60
 # For a test whose work (a repo scan, a unit-graph pass) takes several times longer when loaded.
@@ -231,13 +232,26 @@ def snapshot_cpu() -> CpuSnapshot:
     )
 
 
-def phase_cpu(start: CpuSnapshot, now: CpuSnapshot, own: Collection[int] = ()) -> float:
-    """The CPU a phase used: the process's growth (threads that started and ended in the phase
-    included) less the growth of each thread in `start` that is still alive and the whole of each
-    new thread in `own` (the plugin's own), plus all of each descendant not in `start`, plus the
-    growth of what finished children gave, less what a direct child of `start` had already used
-    when it was reaped in the phase. An inherited thread that exits during the phase is still
-    billed for its last moments."""
+class CpuTerms(Frozen):
+    """The terms a phase's billed CPU is made of, in seconds."""
+
+    process: float
+    inherited: float
+    own: float
+    new_children: float
+    reaped: float
+
+    @property
+    def total(self) -> float:
+        return self.process - self.inherited - self.own + self.new_children + self.reaped
+
+
+def phase_cpu_terms(start: CpuSnapshot, now: CpuSnapshot, own: Collection[int] = ()) -> CpuTerms:
+    """The terms of `phase_cpu`: the process's growth (threads that started and ended in the
+    phase included), the growth of each thread in `start` that is still alive, the whole of each
+    new thread in `own` (the plugin's own), all of each descendant not in `start`, and the
+    growth of what finished children gave less what a direct child of `start` had already used
+    when it was reaped in the phase."""
     inherited = sum(v - start.tasks[tid] for tid, v in now.tasks.items() if tid in start.tasks)
     watching = sum(v for tid, v in now.tasks.items() if tid in own and tid not in start.tasks)
     new_descendants = sum(v for pid, v in now.descendants.items() if pid not in start.descendants)
@@ -246,8 +260,23 @@ def phase_cpu(start: CpuSnapshot, now: CpuSnapshot, own: Collection[int] = ()) -
         for pid in start.children
         if pid in start.descendants and pid not in now.descendants
     )
-    reaped = max(0.0, now.reaped - start.reaped - before_phase)
-    return (now.process - start.process) - inherited - watching + new_descendants + reaped
+    return CpuTerms(
+        process=now.process - start.process,
+        inherited=inherited,
+        own=watching,
+        new_children=new_descendants,
+        reaped=max(0.0, now.reaped - start.reaped - before_phase),
+    )
+
+
+def phase_cpu(start: CpuSnapshot, now: CpuSnapshot, own: Collection[int] = ()) -> float:
+    """The CPU a phase used: the process's growth (threads that started and ended in the phase
+    included) less the growth of each thread in `start` that is still alive and the whole of each
+    new thread in `own` (the plugin's own), plus all of each descendant not in `start`, plus the
+    growth of what finished children gave, less what a direct child of `start` had already used
+    when it was reaped in the phase. An inherited thread that exits during the phase is still
+    billed for its last moments."""
+    return phase_cpu_terms(start, now, own).total
 
 
 # What each phase left alive: task id or process id to (its name, the test that left it).
@@ -269,6 +298,12 @@ def record_left(start: CpuSnapshot, now: CpuSnapshot, nodeid: str) -> None:
             LEFT_BY.setdefault(pid, ("child process", nodeid))
 
 
+def left_by_of(left_by: Mapping[int, tuple[str, str]], kind: str, ident: int) -> tuple[str, str]:
+    """The name of a thread or descendant and the test that left it running, or a name made of
+    its kind and id and `an earlier test`."""
+    return left_by.get(ident, (f"{kind} {ident}", "an earlier test"))
+
+
 def inherited_lines(
     start: CpuSnapshot, now: CpuSnapshot, left_by: dict[int, tuple[str, str]]
 ) -> list[str]:
@@ -283,7 +318,7 @@ def inherited_lines(
             grew = after.get(ident, was) - was
             if grew <= 0:
                 continue
-            name, test = left_by.get(ident, (f"{kind} {ident}", "an earlier test"))
+            name, test = left_by_of(left_by, kind, ident)
             lines.append(
                 f"{name} ({kind} {ident}), left running by {test}, used {grew:.2f} s of CPU "
                 "in this phase"
@@ -291,8 +326,6 @@ def inherited_lines(
     return lines
 
 
-# The variable that names the file a worker's trace is written to; without it nothing is written.
-TRACE_VARIABLE = "ABK_TEST_TRACE"
 # A phase over this many wall seconds is always written to the trace file.
 SLOW_PHASE_SECONDS = 5.0
 # The entries a worker keeps in memory, and how many of them a trip writes.
@@ -393,18 +426,11 @@ class PhaseTrace:
         supplied it, the load, the pressure readings and the last `TRIP_ENTRIES` entries; and
         start counting the errors whose traceback is kept."""
         self._errors_left = TRACED_ERRORS
-        inherited = sum(v - start.tasks[t] for t, v in now.tasks.items() if t in start.tasks)
-        own_seconds = sum(v for t, v in now.tasks.items() if t in own and t not in start.tasks)
-        new_children = sum(v for p, v in now.descendants.items() if p not in start.descendants)
-        before_phase = sum(
-            start.descendants[p]
-            for p in start.children
-            if p in start.descendants and p not in now.descendants
-        )
+        terms = phase_cpu_terms(start, now, own)
         threads = [
             {
-                "name": left_by.get(t, (f"task {t}", ""))[0],
-                "left_by": left_by.get(t, ("", "an earlier test"))[1],
+                "name": left_by_of(left_by, "task", t)[0],
+                "left_by": left_by_of(left_by, "task", t)[1],
                 "seconds": v - start.tasks.get(t, 0.0),
             }
             for t, v in now.tasks.items()
@@ -421,14 +447,7 @@ class PhaseTrace:
                 "test": nodeid,
                 "phase": phase,
                 "clock": clock,
-                "terms": {
-                    "process": now.process - start.process,
-                    "inherited": inherited,
-                    "own": own_seconds,
-                    "new_children": new_children,
-                    "reaped": max(0.0, now.reaped - start.reaped - before_phase),
-                    "total": phase_cpu(start, now, own),
-                },
+                "terms": {**terms.model_dump(), "total": terms.total},
                 "threads": threads,
                 "children": children,
                 "load": list(self._load()),
@@ -540,10 +559,10 @@ _TRACE: list[PhaseTrace] = []
 
 
 def worker_trace() -> PhaseTrace:
-    """This worker's trace, made on first use; it writes to the file `TRACE_VARIABLE` names, and
+    """This worker's trace, made on first use; it writes to the file `TEST_TRACE_VARIABLE` names and
     nowhere when the variable is not set."""
     if not _TRACE:
-        named = os.environ.get(TRACE_VARIABLE)
+        named = os.environ.get(TEST_TRACE_VARIABLE)
         _TRACE.append(PhaseTrace(Path(named) if named else None))
     return _TRACE[0]
 

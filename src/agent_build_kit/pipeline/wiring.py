@@ -2773,7 +2773,9 @@ def build_unit_test(
 
     def test_env(toolchain: ToolchainProfile) -> dict[str, dict[str, str]]:
         """The `env` argument for a command of `toolchain`: the profile's test environment for
-        this run, made once; nothing for a profile that sets none."""
+        this run, made once; nothing for a profile that sets none. Each call names a fresh
+        `TEST_TRACE_VARIABLE` file in the run's temp folder and makes it the one `latest_trace()`
+        reads."""
         if installation is None or not isinstance(toolchain, SetsTestEnvironment):
             return {}
         name = type(toolchain).__name__

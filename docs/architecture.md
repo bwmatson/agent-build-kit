@@ -1919,8 +1919,9 @@ approved.
   the threads and children in it, the load, the pressure readings or `unavailable`, and the last
   thirty phases) and for the full traceback of the next two setup errors after a trip. The run's
   environment names the file in `ABK_TEST_TRACE`, inside its own temp folder and fresh for each
-  rerun; a person's own pytest run sets that variable to turn the trace on, and without it nothing
-  is written. `context.json` has an `environment` record: how the process started (`argv`), the
+  rerun, and whatever the run writes there is kept. The lines above are written by this
+  repository's own time-limit test plugin, which writes nothing when the variable is not set; a
+  repository whose tests write nothing there gets no file. `context.json` has an `environment` record: how the process started (`argv`), the
   names, never the values, of its variables, `HOME`, `TMPDIR`, the first and last entries of
   `PATH`, and where each program the profiles name was found. The last three bundles per unit are kept, and
   one a flake, storm or pre-existing record points at (`evidence`) is kept too. Those records
