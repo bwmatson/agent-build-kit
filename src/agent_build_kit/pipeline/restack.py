@@ -1103,6 +1103,22 @@ def remote_head(repo: Path, branch: str) -> str | None:
     return found.stdout.split()[0] if found.stdout.strip() else ""
 
 
+def host_holds_same_changes(repo: Path, branch: str, host_head: str, *, base: str) -> bool | None:
+    """Whether the host's head for `branch` holds exactly the changes the local branch does over
+    `base`, compared by patch-id, so a forge's rebase of the branch counts as the same. None when
+    git cannot say (an object is missing), and the caller treats the host as it always has."""
+    fetched = git(repo, "fetch", "-q", push_target(repo), f"refs/heads/{branch}", check=False)
+    if fetched.returncode:
+        return None
+    ours = git(repo, "cherry", host_head, branch, base, check=False)
+    theirs = git(repo, "cherry", branch, host_head, base, check=False)
+    if ours.returncode or theirs.returncode:
+        return None
+    return not any(
+        line.startswith("+ ") for line in (*ours.stdout.splitlines(), *theirs.stdout.splitlines())
+    )
+
+
 def adopt_host_head(
     repo: Path,
     branch: str,

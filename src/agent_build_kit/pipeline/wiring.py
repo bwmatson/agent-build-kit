@@ -175,6 +175,7 @@ from agent_build_kit.pipeline.restack import (
     Turn,
     adopt_host_head,
     diff_id,
+    host_holds_same_changes,
     move_branch_onto,
     push_with_lease,
     remote_head,
@@ -3309,26 +3310,30 @@ def build_push(
             store.record_push(unit_id, remote)
             last_pushed = remote
         elif remote and last_pushed and remote != last_pushed:
-            adopt_head(
-                cwd,
-                branch,
-                host_head=remote,
-                last_pushed=last_pushed,
-                cwd=cwd,
-                base=local_ref(trunk_of(store.get(unit_id).repo), repo=store.get(unit_id).repo),
-            )
-            store.record_push(unit_id, remote)
-            after = git(cwd, "rev-parse", "--verify", "-q", branch, check=False).stdout.strip()
-            if here and after == here:
-                # The host holds the same change, so what review approved
-                # stands: only the lease moves, and the approved head is pushed.
-                last_pushed = remote
-            else:
-                store.record_approval(unit_id, "")
-                raise HostMoved(
-                    f"the host moved {branch} from {last_pushed[:9]} to {remote[:9]}; "
-                    "adopted its head, which review has not seen"
+            unit = store.get(unit_id)
+            base = local_ref(trunk_of(unit.repo), repo=unit.repo)
+            same = host_holds_same_changes(cwd, branch, remote, base=base)
+            if same is not False:
+                adopt_head(
+                    cwd, branch, host_head=remote, last_pushed=last_pushed, cwd=cwd, base=base
                 )
+                store.record_push(unit_id, remote)
+                after = git(cwd, "rev-parse", "--verify", "-q", branch, check=False).stdout.strip()
+                if same and after == remote:
+                    # The forge rebased the branch with the same changes: its head is
+                    # adopted, the approval stands and there is nothing to push.
+                    return remote
+                if here and after == here:
+                    # The host holds the same change, so what review approved
+                    # stands: only the lease moves, and the approved head is pushed.
+                    last_pushed = remote
+                else:
+                    store.record_approval(unit_id, "")
+                    raise HostMoved(
+                        f"the host moved {branch} from {last_pushed[:9]} to {remote[:9]}; "
+                        "adopted its head, which review has not seen"
+                    )
+            # Different changes on the host: the lease push runs and its failure is reported.
 
         sha = push(cwd, branch, last_pushed)
         try:
