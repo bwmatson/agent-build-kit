@@ -353,6 +353,10 @@ waiting) until its commit reaches the default branch, as a carry or a person's m
 A review unit whose pull request cannot be retargeted onto the base its stack gives it is held
 `base_not_moved` after three failed rounds; `abk status` and `abk explain` name the pull request,
 the branches and what a person can do.
+A unit held `landed_off_default` whose changes are not on the default branch is carried: the carry
+cherry-picks the unit's merge commit onto `spec/<unit>/carry` and opens a pull request against the
+default branch, and the unit is in review again on it. `abk carry` runs the carry on demand for a
+unit (`--dry-run`, `--repair`, `--landed-as <sha>`).
 
 ### Paused for a rejected login
 

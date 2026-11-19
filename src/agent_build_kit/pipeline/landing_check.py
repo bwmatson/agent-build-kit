@@ -17,10 +17,12 @@ class Landing(Frozen):
     on_default: bool
 
 
-def merged_on_branch(repo: Path, merge_sha: str, branch: str) -> bool:
-    """True when `merge_sha` is an ancestor of `branch` on the remote, after a fetch. A branch
-    the remote no longer has is read from the last remote-tracking ref, if there is one."""
-    git(repo, "fetch", "-q", "origin", branch, check=False)
+def merged_on_branch(repo: Path, merge_sha: str, branch: str, *, fetch: bool = True) -> bool:
+    """True when `merge_sha` is an ancestor of `branch` on the remote, after a fetch (`fetch=False`
+    when the caller has just fetched it). A branch the remote no longer has is read from the last
+    remote-tracking ref, if there is one."""
+    if fetch:
+        git(repo, "fetch", "-q", "origin", branch, check=False)
     found = git(
         repo,
         "merge-base",
@@ -32,9 +34,12 @@ def merged_on_branch(repo: Path, merge_sha: str, branch: str) -> bool:
     return found.returncode == 0
 
 
-def merged_on_default(repo: Path, merge_sha: str, default_branch: str) -> bool:
-    """True when `merge_sha` is an ancestor of the default branch on the remote, after a fetch."""
-    return merged_on_branch(repo, merge_sha, default_branch)
+def merged_on_default(
+    repo: Path, merge_sha: str, default_branch: str, *, fetch: bool = True
+) -> bool:
+    """True when `merge_sha` is an ancestor of the default branch on the remote, after a fetch
+    (`fetch=False` when the caller has just fetched it)."""
+    return merged_on_branch(repo, merge_sha, default_branch, fetch=fetch)
 
 
 def content_on_default(
