@@ -33,6 +33,7 @@ from pathlib import Path
 from agent_build_kit import profiles
 from agent_build_kit.budget import cut_tail
 from agent_build_kit.config import ProjectConfig, by_project
+from agent_build_kit.model import Frozen
 from agent_build_kit.pipeline.check_runner import CheckCache, CommandResult, run_at_commit
 from agent_build_kit.pipeline.commit_order import (
     check_structure,
@@ -42,7 +43,7 @@ from agent_build_kit.pipeline.commit_order import (
 from agent_build_kit.pipeline.shell import git
 from agent_build_kit.pipeline.stack_runner import GroupStep
 from agent_build_kit.pipeline.wiring import ids_for, touched_tests
-from agent_build_kit.profiles.base import ToolchainProfile, located
+from agent_build_kit.profiles.base import ReportsNothingCollected, ToolchainProfile, located
 from agent_build_kit.redaction import redact_text
 
 
@@ -116,6 +117,53 @@ def _red_command(
     return toolchain.red_command(
         owned, [i for file in owned for i in chosen[file] or [file]], project=repo / prefix
     )
+
+
+class _Run(Frozen):
+    """One project's red run of a tests commit, as judged: whether the toolchain says it
+    collected no test, and the problems the toolchain found in it."""
+
+    owner: ProjectConfig | None
+    empty: bool
+    problems: list[str]
+
+
+def _run_of(
+    toolchain: ToolchainProfile,
+    red: CommandResult,
+    sha: str,
+    owner: ProjectConfig | None,
+    stubbed: bool,
+) -> _Run:
+    """The judged red run `red` of the project `owner`. A toolchain with no answer for a run
+    that collected nothing never says it did."""
+    empty = isinstance(toolchain, ReportsNothingCollected) and toolchain.collected_nothing(
+        red.stdout + red.stderr, red.exit_code
+    )
+    return _Run(owner=owner, empty=empty, problems=_judged_red(toolchain, red, sha, owner, stubbed))
+
+
+def _settled(sha: str, runs: list[_Run], log: Callable[[str], None] | None) -> list[str]:
+    """The problems of a commit's red runs. A project whose run collected no test adds none
+    when another project failed for the right reason (a run with no problems), and each such
+    excuse is named in `log`. When no project failed for the right reason every problem
+    stands, so a helper-only commit is rejected."""
+    failed = [run.owner.path if run.owner else "." for run in runs if not run.problems]
+    settled: list[str] = []
+    for run in runs:
+        if run.problems and run.empty and failed:
+            if log is not None:
+                project = run.owner.path if run.owner else "."
+                log(
+                    redact_text(
+                        f"{sha[:8]}: {project}: excused, its red run collected no test; "
+                        f"{', '.join(failed)} failed for the right reason",
+                        where="red check log",
+                    )
+                )
+        else:
+            settled.extend(run.problems)
+    return settled
 
 
 def _where(sha: str, owner: ProjectConfig | None) -> str:
@@ -208,8 +256,8 @@ def red_problems(
     def is_test(path: str) -> bool:
         return profiles.for_path(projects, path, profile).is_test_path(path)
 
-    problems: list[str] = []
     touched = _touched_in(repo, sha)
+    runs: list[_Run] = []
     for owner, owned in by_project(projects, _test_files_in(repo, sha, is_test)):
         toolchain = profiles.for_project(owner, profile)
         prefix = owner.prefix if owner else ""
@@ -223,7 +271,8 @@ def red_problems(
         if log is not None:
             for line in _red_log(red, sha, owner, toolchain):
                 log(redact_text(line, where="red check log"))
-        problems.extend(_judged_red(toolchain, red, sha, owner, stubbed))
+        runs.append(_run_of(toolchain, red, sha, owner, stubbed))
+    problems = _settled(sha, runs, log)
     if cache is not None:
         cache.record(
             repo,
@@ -244,6 +293,7 @@ def check_branch(
     projects: list[ProjectConfig] | None = None,
     stubbed: bool = False,
     groups: Sequence[GroupStep] = (),
+    log: Callable[[str], None] | None = None,
 ) -> list[str]:
     """Every reason this branch may not be pushed, or an empty list.
 
@@ -255,7 +305,8 @@ def check_branch(
     Each test file is the toolchain's of the project it belongs to (`projects`),
     and each project's commands run in its directory; `profile` is the repo's own,
     for a file no project holds. A commit touching several projects passes when
-    every project's checks do.
+    every project's checks do, except that a project whose red run collected no test is
+    excused, and named in `log`, beside a project that failed for the right reason.
 
     Whether the build is `stubbed` is the repo's profile's to say, and holds for every
     project. A `stubbed` build also needs its commits paired, runs the clean command with types and
@@ -300,6 +351,7 @@ def check_branch(
 
         commit_problems: list[str] = []
         touched = [] if sha in no_red else _touched_in(repo, sha)
+        runs: list[_Run] = []
         for owner, owned in by_project(projects, files):
             toolchain = profiles.for_project(owner, profile)
             prefix = owner.prefix if owner else ""
@@ -333,8 +385,8 @@ def check_branch(
                     f"{where}lint/format did not pass at the tests commit\n"
                     f"{cut_tail(clean.stdout, 2000)}"
                 )
-            for red in red_run:
-                commit_problems.extend(_judged_red(toolchain, red, sha, owner, stubbed))
+            runs.extend(_run_of(toolchain, red, sha, owner, stubbed) for red in red_run)
+        commit_problems.extend(_settled(sha, runs, log))
 
         if cache is not None:
             cache.record(repo, sha, ok=not commit_problems, mode=commit_mode)

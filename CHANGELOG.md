@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- The red check no longer rejects a tests commit because one project collected no test, as
+  when it holds only a support helper, while another project of the commit failed for the
+  right reason. A toolchain says a run collected nothing through an optional
+  `collected_nothing` hook (the Python one does); each excused project is named in the log
+  and the unit's history, and a commit where no project failed is rejected as before.
+
 - A unit settling behind a parent's branch, or held as landed off the default branch, is now
   recorded merged when every change it made is already on the default branch, as happens when
   its parent is squash-merged. It is merged with the default branch's head as its commit and no

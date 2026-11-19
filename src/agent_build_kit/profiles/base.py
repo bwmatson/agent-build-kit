@@ -364,6 +364,16 @@ class ListsTestFiles(Protocol):
 
 
 @runtime_checkable
+class ReportsNothingCollected(Protocol):
+    """The optional hook of a profile that can tell from a red run's output that the run
+    collected no test. A profile without it never says so, so its runs are judged on their own."""
+
+    def collected_nothing(self, output: str, exit_code: int) -> bool:
+        """Whether the red run's `output` and `exit_code` show that no test was collected."""
+        ...
+
+
+@runtime_checkable
 class ReportsRunFacts(Protocol):
     """The optional hooks a profile adds to say what a test run's own command and a query of the
     runner tell of the conditions it ran under, for the evidence kept of a failing run. A runner
