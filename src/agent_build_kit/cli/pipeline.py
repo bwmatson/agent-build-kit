@@ -138,11 +138,11 @@ from agent_build_kit.pipeline.e2e_schedule import any_due, write_due
 from agent_build_kit.pipeline.e2e_scope import product_path_warnings, task_wording_warnings
 from agent_build_kit.pipeline.events import (
     build_claim,
+    carry_held,
     conflict_phrase,
     late_check_running,
     pr_base_on_host,
     pr_based_on,
-    recheck_landings,
     remove_merged_branches,
     retry_host_retargets,
     warn_base_merged,
@@ -1195,7 +1195,7 @@ def cmd_status(args: argparse.Namespace, inst: Installation) -> int:
         if unit.state == HELD and unit.cause is Cause.DIRTY_WORKTREE:
             log(f"  parked: {unit.id} ({where}) — {unit.note}")
         if landing := landing_hold_text(unit):
-            log(f"  held: {unit.id} ({where}) {landing}")
+            log(f"  {'held' if unit.state == HELD else 'in review'}: {unit.id} ({where}) {landing}")
         if unit.state == RUNNING and unit.cause is Cause.LOGIN:
             log(
                 f"  paused for the login: {unit.id} ({where}) until it is renewed; "
@@ -6370,11 +6370,21 @@ def poll_all(inst: Installation, *, store: UnitStore, lane: Lane | None = None) 
     # Before the events and before admission: a unit that landed later is recognised first.
     claim = build_claim(inst.locks_dir)
     resume = run_support.thread_resumer(inst, store)
-    recheck_landings(
+    # The re-check comes first inside the carry, so a unit whose work is already there is
+    # recorded merged and never carried.
+    carry_held(
         store,
         repos=checkouts,
-        merge_record=lambda unit: run_support.merge_record_of(inst, unit),
+        forge_of=inst.forge_of,
+        default_of=trunk_of,
+        worktrees=inst.worktree_root,
         claim=claim,
+        resolver_for=lambda unit: run_support.repo_resolver(
+            inst, unit.id, unit.repo, lane.defer_until if lane is not None else None
+        ),
+        repo_config_of=inst.repo,
+        turn_of=lambda repo: lambda: repo_turn(inst, repo),
+        merge_record=lambda unit: run_support.merge_record_of(inst, unit),
         resume=resume,
         log=log,
     )

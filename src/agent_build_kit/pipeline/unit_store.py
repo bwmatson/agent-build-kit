@@ -143,6 +143,7 @@ class Cause(StrEnum):
     LANDED_OFF_DEFAULT = "landed_off_default"
     GENERATED_FILES = "generated_files"
     BASE_NOT_MOVED = "base_not_moved"
+    CARRIED = "carried"
 
 
 class Keep:
@@ -2020,9 +2021,12 @@ def landing_hold_text(unit: StoredUnit) -> str:
     pull = f"#{unit.pr}" if unit.pr else "its pull request"
     if unit.state == HELD and unit.cause is Cause.LANDED_OFF_DEFAULT:
         return (
-            f"landed off the default branch: {pull} — {unit.note}; carry its work onto "
-            "the default branch, then release the hold"
+            f"landed off the default branch: {pull} — {unit.note}; the pipeline carries its "
+            "work onto the default branch in a pull request of its own. To carry it yourself "
+            "instead, land the work on the default branch, then release the hold"
         )
+    if unit.state == IN_REVIEW and unit.cause is Cause.CARRIED:
+        return f"{unit.note or 'carrying onto the default branch'}: {pull}, a carry of earlier work"
     if unit.state == HELD and unit.cause is Cause.BASE_NOT_MOVED:
         return (
             f"base not moved: {pull} — {unit.note}; retarget the pull request onto its "

@@ -72,6 +72,7 @@ def test_the_causes_are_the_fixed_set_the_design_names() -> None:
         "landed_off_default",
         "generated_files",
         "base_not_moved",
+        "carried",
     }
 
 

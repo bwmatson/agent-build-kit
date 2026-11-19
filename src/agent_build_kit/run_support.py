@@ -492,6 +492,17 @@ def gated_resolver(
     return Gated()
 
 
+def repo_resolver(
+    installation: Installation,
+    unit_id: str,
+    repo: str,
+    refused: Callable[[str, datetime | None], None] | None = None,
+) -> ConflictSession:
+    """The gated conflict resolver for a unit of `repo`, judged on that repo's own account:
+    the one construction a restack's move and a carry share, so they cannot drift apart."""
+    return gated_resolver(unit_id, refused, claude_account.for_repo(installation.config, repo))
+
+
 def build_turned_move(
     installation: Installation,
     *,
@@ -506,11 +517,7 @@ def build_turned_move(
     def move(path: Path, *args, **kwargs) -> Moved:
         name = names[path]
         if gated and "resolve" not in kwargs:
-            kwargs["resolve"] = gated_resolver(
-                kwargs["moving_unit"],
-                refused,
-                claude_account.for_repo(installation.config, name),
-            )
+            kwargs["resolve"] = repo_resolver(installation, kwargs["moving_unit"], name, refused)
         return resolved_move(
             path,
             *args,

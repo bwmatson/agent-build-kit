@@ -20,6 +20,7 @@ STANDING = [
     Cause.LANDED_OFF_DEFAULT,
     Cause.GENERATED_FILES,
     Cause.BASE_NOT_MOVED,
+    Cause.CARRIED,
     Cause.GATED,
     Cause.UPSTREAM_WENT_BACK,
     Cause.BASE_CHANGED,

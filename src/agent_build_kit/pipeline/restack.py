@@ -391,6 +391,12 @@ def _read(repo: Path, name: str) -> str:
         return ""
 
 
+def has_staged_changes(repo: Path) -> bool:
+    """Whether the index of `repo` differs from its head (a stopped replay with nothing staged
+    has nothing to continue with)."""
+    return git(repo, "diff", "--cached", "--quiet", check=False).returncode != 0
+
+
 def _settle_generated(
     repo: Path,
     stop: subprocess.CompletedProcess[str],
@@ -402,20 +408,18 @@ def _settle_generated(
     it is now at (`stop` itself when nothing was settled). A stop that also conflicts on
     other files is left for the caller, with the generated ones already settled."""
     while True:
-        generated, others = partition_generated(conflicted_files(repo), patterns)
+        generated, others = take_generated_from_base(repo, patterns)
         if not generated:
             return False, stop
-        _take_from_base(repo, generated)
         settled.extend(generated)
         if others:
             return False, stop
-        staged = git(repo, "diff", "--cached", "--quiet", check=False).returncode != 0
         stop = git(
             repo,
             "-c",
             "core.editor=true",
             "rebase",
-            "--continue" if staged else "--skip",
+            "--continue" if has_staged_changes(repo) else "--skip",
             check=False,
         )
         if stop.returncode == 0:
@@ -637,6 +641,147 @@ def _failed_check(repo: Path, conflict: Conflict, *, moving_unit: str) -> tuple[
     return "", []
 
 
+def read_conflict(
+    repo: Path,
+    output: str,
+    *,
+    branch: str,
+    old_base: str,
+    must_keep: list[str] | None,
+    started: str,
+) -> Conflict:
+    """What the checks of a resolution need, read while `repo` is stopped on a conflict (a
+    rebase or a cherry-pick). `output` is what git printed at the stop, `branch` the commit or
+    branch being replayed and `old_base` what it sat on; `started` is the commit the stop falls
+    back to when git names none. `must_keep` defaults to what `derive_must_keep` finds."""
+    files = conflicted_files(repo)
+    replayed = _replayed_files(output, files)
+    return Conflict(
+        files=tuple(files),
+        replayed=tuple(replayed),
+        replayed_content={name: _read(repo, name) for name in replayed},
+        must_keep=tuple(
+            derive_must_keep(repo, branch, old_base=old_base, files=files)
+            if must_keep is None
+            else must_keep
+        ),
+        own_tests=_unit_tests_at_stop(repo, old_base, started),
+    )
+
+
+def conflict_prompt(
+    repo: Path, conflict: Conflict, context: ConflictContext, settled: Sequence[str]
+) -> str:
+    """The first thing the resolver is told: both sides' intent, the files, the diff and the
+    rules, with the generated files already `settled` from the base named."""
+    files = list(conflict.files)
+    prompt = RESOLVE_PROMPT.format(
+        moving_unit=context.moving_unit,
+        moving_intent=context.moving_intent,
+        onto_unit=context.onto_unit,
+        onto_intent=context.onto_intent,
+        files="\n".join(f"- {name}" for name in files) or "- (none reported)",
+        replayed=REPLAYED_NOTE.format(files="\n".join(f"- {name}" for name in conflict.replayed))
+        if conflict.replayed
+        else "",
+        diff=cut_head(git(repo, "diff", check=False).stdout, 8000),
+        changelog_rule=resolver_changelog_rule(repo, files, context.repo),
+        changelog=changelog_note(repo, context.repo),
+    )
+    if settled:
+        prompt += HANDLED_NOTE.format(files=", ".join(sorted(set(settled))))
+    return prompt
+
+
+def take_generated_from_base(repo: Path, patterns: Sequence[str]) -> tuple[list[str], list[str]]:
+    """Settle the conflicted generated files of a stopped replay with the base's version;
+    returns the files settled and the conflicted files left."""
+    generated, others = partition_generated(conflicted_files(repo), patterns)
+    if generated:
+        _take_from_base(repo, generated)
+    return generated, others
+
+
+def ask_resolver(
+    repo: Path,
+    prompt: str,
+    conflict: Conflict,
+    *,
+    resolve: Resolver,
+    context: ConflictContext,
+    turn: Turn,
+    stop: Callable[[], object],
+    give_up: Callable[[str, str], Exception],
+    label: str,
+) -> list[str]:
+    """Ask `resolve` to settle the conflict in `repo`, and check its answer rather than trust
+    it: markers gone, the unit's own change and tests still present. At most two calls; a
+    failed check is named to the resolver in the second, and a second failure ends it.
+
+    `stop` undoes the replay in progress (inside the turn) for a resolver that could not run
+    because the account is out of room, the network is down or the run was killed, and the
+    error is raised as it came. `give_up` undoes it and returns the error to raise when the
+    resolver fails or its second answer fails the check. Returns what each failed attempt said."""
+    asking: dict[str, str] = {}
+    failures: list[str] = []
+    for attempt in (1, 2):
+        try:
+            # At most two calls. An unattended run that loops on a failing resolver
+            # burns the usage window with nothing to show for it.
+            token = _CONFLICT.set(context)
+            try:
+                resolve(prompt, cwd=repo, **asking)
+            finally:
+                _CONFLICT.reset(token)
+        except (
+            AgentRateLimited,
+            AgentInterrupted,
+            LoginRejected,
+            NetworkUnavailable,
+            ServiceUnavailable,
+        ):
+            # Not a conflict nobody could resolve: the account is out of room or its login is
+            # rejected, the network is down, or the run was killed. The branch goes back where
+            # it was, to be moved again once the tick can run.
+            with turn():
+                stop()
+            raise
+        except Exception as error:
+            with turn():
+                raise give_up(
+                    f"the conflict resolver failed on {label}: {error}", "\n".join(failures)
+                ) from error
+
+        failure, marked = _failed_check(repo, conflict, moving_unit=context.moving_unit)
+        if marked:
+            with turn():
+                for name in marked:
+                    if name in conflict.replayed:
+                        # A rejected replay: forget the cached entry before anything else, so
+                        # the next sibling to hit this conflict is offered the conflict itself,
+                        # not the entry that was just judged wrong. Every marked file, not
+                        # just the first: a second rejected replay, or one listed after a
+                        # plain unresolved file, would keep its stale entry otherwise.
+                        git(repo, "rerere", "forget", name, check=False)
+        if not failure:
+            break
+        failures.append(f"step {attempt} of the restack failed its check: {failure}")
+        if attempt == 2:
+            with turn():
+                raise give_up(
+                    f"{failure}"
+                    + (
+                        " — left for a human, since staging a conflict is worse than not moving."
+                        if marked
+                        else ""
+                    ),
+                    "\n".join(failures),
+                )
+        asking = {"follow_up": CONTINUE_PROMPT.format(failure=failure)}
+        prompt = f"{prompt}\n\n{asking['follow_up']}"
+    return failures
+
+
 def move_branch_onto(
     repo: Path,
     branch: str,
@@ -727,95 +872,27 @@ def move_branch_onto(
                 "Left unmoved for a human to resolve.",
             )
 
-        files = conflicted_files(repo)
-        replayed = _replayed_files(result.stdout + result.stderr, files)
-        conflict = Conflict(
-            files=tuple(files),
-            replayed=tuple(replayed),
-            replayed_content={name: _read(repo, name) for name in replayed},
-            must_keep=tuple(
-                derive_must_keep(repo, branch, old_base=old_base, files=files)
-                if must_keep is None
-                else must_keep
-            ),
-            own_tests=_unit_tests_at_stop(repo, old_base, started),
+        conflict = read_conflict(
+            repo,
+            result.stdout + result.stderr,
+            branch=branch,
+            old_base=old_base,
+            must_keep=must_keep,
+            started=started,
         )
-        prompt = RESOLVE_PROMPT.format(
-            moving_unit=context.moving_unit,
-            moving_intent=context.moving_intent,
-            onto_unit=context.onto_unit,
-            onto_intent=context.onto_intent,
-            files="\n".join(f"- {name}" for name in files) or "- (none reported)",
-            replayed=REPLAYED_NOTE.format(files="\n".join(f"- {name}" for name in replayed))
-            if replayed
-            else "",
-            diff=cut_head(git(repo, "diff", check=False).stdout, 8000),
-            changelog_rule=resolver_changelog_rule(repo, files, context.repo),
-            changelog=changelog_note(repo, context.repo),
-        )
-        if settled:
-            prompt += HANDLED_NOTE.format(files=", ".join(sorted(set(settled))))
+        prompt = conflict_prompt(repo, conflict, context, settled)
 
-    asking: dict[str, str] = {}
-    failures: list[str] = []
-    for attempt in (1, 2):
-        try:
-            # At most two calls. An unattended run that loops on a failing resolver
-            # burns the usage window with nothing to show for it.
-            token = _CONFLICT.set(context)
-            try:
-                resolve(prompt, cwd=repo, **asking)
-            finally:
-                _CONFLICT.reset(token)
-        except (
-            AgentRateLimited,
-            AgentInterrupted,
-            LoginRejected,
-            NetworkUnavailable,
-            ServiceUnavailable,
-        ):
-            # Not a conflict nobody could resolve: the account is out of room or its login is
-            # rejected, the network is down, or the run was killed. The branch goes back where
-            # it was, to be moved again once the tick can run.
-            with turn():
-                git(repo, "rebase", "--abort", check=False)
-            raise
-        except Exception as error:
-            with turn():
-                raise _abort(
-                    repo,
-                    f"the conflict resolver failed on {branch}: {error}",
-                    tried="\n".join(failures),
-                ) from error
-
-        failure, marked = _failed_check(repo, conflict, moving_unit=context.moving_unit)
-        if marked:
-            with turn():
-                for name in marked:
-                    if name in conflict.replayed:
-                        # A rejected replay: forget the cached entry before anything else, so
-                        # the next sibling to hit this conflict is offered the conflict itself,
-                        # not the entry that was just judged wrong. Every marked file, not
-                        # just the first: a second rejected replay, or one listed after a
-                        # plain unresolved file, would keep its stale entry otherwise.
-                        git(repo, "rerere", "forget", name, check=False)
-        if not failure:
-            break
-        failures.append(f"step {attempt} of the restack failed its check: {failure}")
-        if attempt == 2:
-            with turn():
-                raise _abort(
-                    repo,
-                    f"{failure}"
-                    + (
-                        " — left for a human, since staging a conflict is worse than not moving."
-                        if marked
-                        else ""
-                    ),
-                    tried="\n".join(failures),
-                )
-        asking = {"follow_up": CONTINUE_PROMPT.format(failure=failure)}
-        prompt = f"{prompt}\n\n{asking['follow_up']}"
+    failures = ask_resolver(
+        repo,
+        prompt,
+        conflict,
+        resolve=resolve,
+        context=context,
+        turn=turn,
+        stop=lambda: git(repo, "rebase", "--abort", check=False),
+        give_up=lambda message, tried: _abort(repo, message, tried),
+        label=branch,
+    )
 
     with turn():
         found = _branch_head(repo, branch)
