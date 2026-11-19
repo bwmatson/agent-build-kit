@@ -144,6 +144,7 @@ class Cause(StrEnum):
     GENERATED_FILES = "generated_files"
     BASE_NOT_MOVED = "base_not_moved"
     CARRIED = "carried"
+    LANDING_UNKNOWN = "landing_unknown"
 
 
 class Keep:
@@ -370,6 +371,9 @@ class StoredUnit(Unit):
     # the unit settles behind it and is recorded merged when its commit reaches the default
     # branch. Empty for a unit that merged into the default branch.
     settling_behind: str = ""
+    # When a merged pull request with no commit on the default branch stops being waited for and
+    # its unit is held `landing_unknown`; None when no such wait is running.
+    landing_deadline: datetime | None = None
     # The pull request's changed lines as the reviewer sees them, generated
     # files left out; None until it has a pull request.
     actual_lines: int | None = None
