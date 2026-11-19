@@ -405,6 +405,7 @@ def on_settled(
     merge_record: MergeRecord | None = None,
     merge_commit: str | None = None,
     landing_of: Callable[[StoredUnit], Landing | None] | None = None,
+    commit_trusted: Callable[[StoredUnit], bool] | None = None,
     resume: Resume = _no_thread,
     log: Log = print,
 ) -> bool:
@@ -413,7 +414,9 @@ def on_settled(
     `merge_commit` is the commit the listing's snapshot carries, if any. `landing_of` says
     where the unit's work went when it is not on the default branch: a unit behind an open
     unit's branch stays settling, with its note, and one behind a unit that has landed
-    without it is held, so it never waits for a commit that cannot arrive."""
+    without it is held, so it never waits for a commit that cannot arrive. `commit_trusted` says
+    the commit recorded for a merge into the default branch is on it; one that is not is never
+    accepted, and the unit stays settling."""
     unit = _find(store, repo, pr)
     if unit is None or unit.state != SETTLING:
         return True
@@ -432,6 +435,12 @@ def on_settled(
                     )
                     return True
                 _record_landed_off_default(store, current, pr, off, resume, log)
+                return True
+            if commit_trusted is not None and not commit_trusted(current):
+                log(
+                    f"settled #{pr}: {current.id} stays settling, "
+                    "its commit is not on the default branch"
+                )
                 return True
             settle_merged(store, current, merge_record, merge_commit=merge_commit)
             log(f"settled #{pr}: {current.id} merged, every check complete")
@@ -1571,6 +1580,25 @@ def _unit_landing(
         return Landing(base=pull.base, default_branch=default, on_default=False)
 
     return landing_of
+
+
+def _unit_commit_trusted(
+    repos: dict[str, Path] | None, event: dict[str, Any]
+) -> Callable[[StoredUnit], bool] | None:
+    """Whether a settling unit's recorded commit, for a pull request merged into the default
+    branch, is on it. None when there is no pull request or checkout to ask; a unit with no
+    commit or a merge into another branch is not this check's to judge."""
+    pull = event.get("pull")
+    if repos is None or not isinstance(pull, PullRequest):
+        return None
+
+    def trusted(unit: StoredUnit) -> bool:
+        default = trunk_of(unit.repo)
+        if not unit.merge_sha or unit.repo not in repos or pull.base != default:
+            return True
+        return merged_on_default(repos[unit.repo], unit.merge_sha, default)
+
+    return trusted
 
 
 def _with_merge(unit: StoredUnit, sha: str | None) -> tuple[Pull, ...]:
@@ -3203,6 +3231,7 @@ def build_dispatch(
                 merge_record=merge_record,
                 merge_commit=_commit_in_hand(kwargs),
                 landing_of=_unit_landing(repos, store, kwargs),
+                commit_trusted=_unit_commit_trusted(repos, kwargs),
                 resume=resume,
                 log=log,
             )

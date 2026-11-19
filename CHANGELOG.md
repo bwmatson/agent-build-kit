@@ -8,6 +8,9 @@
   writes the slow phases, the terms of the CPU billed at a trip, the threads and children in
   it, the load and pressure, the last thirty phases, and the tracebacks of the first setup
   errors after a trip; a repository whose tests write nothing there gets no file.
+- A pull request merged into the default branch settles only when the commit recorded for
+  it is on that branch. A commit the host reports that is not there is not trusted, and
+  the unit stays settling instead of being recorded merged.
 
 - The pipeline no longer fights a code host that retargets and rebases the pull requests of
   a stack merged at once. A restack leaves a pull request whose base already matches, and a

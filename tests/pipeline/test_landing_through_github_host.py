@@ -33,7 +33,7 @@ from agent_build_kit.pipeline.verdict_record import VERDICTS
 from agent_build_kit.pipeline.verify import Verification
 from agent_build_kit.settings import settings
 from tests.conftest import make_installation
-from tests.factories import stored_unit
+from tests.factories import commit, git, init_repo, stored_unit
 from tests.forges import github_answers
 from tests.forges.github_host import GitHubHost, answer
 from tests.forges.github_routes import GitHubState, Seen
@@ -252,3 +252,66 @@ def test_a_person_s_merge_seen_in_the_listing_is_recorded_with_its_commit_withou
     landed = pipeline.unit("c/1")
     assert (landed.state, landed.merge_sha) == (SETTLING, by_hand), "\n".join(pipeline.logged)
     assert pipeline.merge_commit_reads() == []
+
+
+class StackWorld:
+    """An origin and a clone with `main`, a unit settling after its pull request merged, and a
+    commit that exists only on a branch beside `main`."""
+
+    unit = "feature/1"
+    pr = 7
+
+    def __init__(self, tmp_path: Path, patch: pytest.MonkeyPatch) -> None:
+        inst = make_installation(tmp_path / "inst")
+        patch.setattr(settings, "gh_token", "gh-secret")
+        origin = tmp_path / "origin.git"
+        origin.mkdir()
+        git(origin, "init", "-q", "--bare", "-b", "main")
+        self.clone = init_repo(inst.checkouts["app"])
+        git(self.clone, "remote", "add", "origin", str(origin))
+        commit(self.clone, "base")
+        git(self.clone, "push", "-q", "origin", "main")
+        git(self.clone, "checkout", "-q", "-b", "elsewhere")
+        self.off_default = commit(self.clone, "only-on-the-stack-branch")
+        git(self.clone, "push", "-q", "origin", "elsewhere")
+        git(self.clone, "checkout", "-q", "main")
+        self.on_default = commit(self.clone, "squashed-into-main")
+        git(self.clone, "push", "-q", "origin", "main")
+        self.store = UnitStore(tmp_path / "units.json")
+        self.store.upsert([stored_unit(self.unit, change="feature")])
+        self.dispatch = events.build_dispatch(
+            self.store,
+            restack=lambda **k: None,
+            merge_record=lambda unit: (unit.merge_sha, None),
+            repos={"app": self.clone},
+            log=lambda line: None,
+        )
+
+    def settled_on(self, sha: str) -> str:
+        """Settle the unit on `sha`, as the listing's snapshot of its merged pull request
+        reports it, and return the unit's state."""
+        self.store.set_state(self.unit, SETTLING, pr=self.pr, branch=f"spec/{self.unit}")
+        self.store.set_merge_record(self.unit, sha, None)
+        node = github_answers.pull(
+            self.pr, state="MERGED", merged_at="2026-10-01T12:00:00Z", merge_commit=sha
+        )
+        [pull] = GitHubForge(http=GitHubHost(node)).list_prs(REPO)
+        self.dispatch("settled", self.pr, repo="app", pull=pull)
+        return self.store.get(self.unit).state
+
+
+def test_a_reported_commit_on_the_default_branch_is_accepted(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    world = StackWorld(tmp_path, monkeypatch)
+
+    assert world.settled_on(world.on_default) == MERGED
+    assert world.store.get(world.unit).merge_sha == world.on_default
+
+
+def test_a_reported_commit_that_is_not_on_the_default_branch_is_not_trusted(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    world = StackWorld(tmp_path, monkeypatch)
+
+    assert world.settled_on(world.off_default) == SETTLING
