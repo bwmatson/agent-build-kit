@@ -84,7 +84,8 @@ class Stack:
         """Each unit's commit replayed on the default branch, as a rebase merge leaves it: new
         commits and no single one for a pull request. The default branch's head."""
         for pr in PRS:
-            git(self.clone, "cherry-pick", self.tips[pr])
+            # A different committer, as the forge's: the replayed commit is never the original.
+            git(self.clone, "-c", "user.name=Forge", "cherry-pick", self.tips[pr])
         git(self.clone, "push", "-q", "origin", "main")
         return git(self.clone, "rev-parse", "HEAD")
 

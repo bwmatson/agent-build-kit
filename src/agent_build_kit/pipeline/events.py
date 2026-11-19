@@ -406,6 +406,7 @@ def on_settled(
     merge_commit: str | None = None,
     landing_of: Callable[[StoredUnit], Landing | None] | None = None,
     commit_trusted: Callable[[StoredUnit], bool] | None = None,
+    repos: dict[str, Path] | None = None,
     resume: Resume = _no_thread,
     log: Log = print,
 ) -> bool:
@@ -416,7 +417,9 @@ def on_settled(
     unit's branch stays settling, with its note, and one behind a unit that has landed
     without it is held, so it never waits for a commit that cannot arrive. `commit_trusted` says
     the commit recorded for a merge into the default branch is on it; one that is not is never
-    accepted, and the unit stays settling."""
+    accepted, and the unit stays settling. When the event carries no commit at all, the unit is
+    settled from the content check against `repos` with the default branch's head, and
+    otherwise waits `landing_wait` and is held `landing_unknown`."""
     unit = _find(store, repo, pr)
     if unit is None or unit.state != SETTLING:
         return True
@@ -437,6 +440,9 @@ def on_settled(
                 _record_landed_off_default(store, current, pr, off, resume, log)
                 return True
             if commit_trusted is not None and not commit_trusted(current):
+                if merge_commit is None and repos is not None and current.repo in repos:
+                    _settle_without_commit(store, current, pr, repos, merge_record, log)
+                    return True
                 log(
                     f"settled #{pr}: {current.id} stays settling, "
                     "its commit is not on the default branch"
@@ -447,6 +453,35 @@ def on_settled(
     except BranchBusy as error:
         return _deferred(f"settled #{pr}", unit, error, log)
     return True
+
+
+def _settle_without_commit(
+    store: UnitStore,
+    unit: StoredUnit,
+    pr: int,
+    repos: dict[str, Path],
+    merge_record: MergeRecord | None,
+    log: Log,
+) -> None:
+    """A merged pull request the forge gave no commit for: merged at the default branch's head
+    when its changes are on the default branch, else waiting until `landing_wait` has passed,
+    then held `landing_unknown`. The caller holds the unit's claim."""
+    repo, trunk = repos[unit.repo], trunk_of(unit.repo)
+    if unit.merge_sha and content_on_default(repo, unit.merge_sha, trunk):
+        landed = unit.model_copy(update={"merge_sha": default_head(repo, trunk)})
+        settle_merged(store, landed, merge_record)
+        store.set_landing_deadline(unit.id, None)
+        log(f"settled #{pr}: {unit.id} merged, its changes are on the default branch")
+        return
+    now = spans.clock.now()
+    if unit.landing_deadline is None:
+        wait = config_module.active().repos[unit.repo].landing_wait
+        store.set_landing_deadline(unit.id, now + timedelta(seconds=wait))
+        log(f"settled #{pr}: {unit.id} stays settling, no commit of it is on the default branch")
+    elif now >= unit.landing_deadline:
+        note = f"pull request #{pr} merged but no commit of it reached the default branch"
+        store.set_state(unit.id, HELD, note=note, cause=Cause.LANDING_UNKNOWN)
+        log(f"settled #{pr}: {unit.id} held — {note}")
 
 
 def settle_merged(
@@ -3232,6 +3267,7 @@ def build_dispatch(
                 merge_commit=_commit_in_hand(kwargs),
                 landing_of=_unit_landing(repos, store, kwargs),
                 commit_trusted=_unit_commit_trusted(repos, kwargs),
+                repos=repos,
                 resume=resume,
                 log=log,
             )

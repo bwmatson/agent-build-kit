@@ -1701,6 +1701,9 @@ class UnitStore:
     def set_settling_behind(self, unit_id: str, branch: str) -> None:
         self._update(unit_id, settling_behind=branch)
 
+    def set_landing_deadline(self, unit_id: str, deadline: datetime | None) -> None:
+        self._update(unit_id, landing_deadline=deadline)
+
     def set_base_move_failures(self, unit_id: str, failures: int) -> None:
         self._update(unit_id, base_move_failures=failures)
 
