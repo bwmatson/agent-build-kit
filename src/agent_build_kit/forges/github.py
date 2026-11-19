@@ -878,6 +878,11 @@ class GitHubForge:
         pull = _model(MergedPull, found, "pull request merge commit")
         return pull.merge_commit.oid if pull.merged and pull.merge_commit else None
 
+    def merge_commit_of(self, repo: RepoId, pr: int) -> str | None:
+        """The commit the host reports for a pull request merged as part of a stack; None when it
+        reports none."""
+        raise NotImplementedError
+
     def close_pr(self, repo: RepoId, pr: int) -> None:
         """Close without merging - a satisfied unit's stale pull request.
 
