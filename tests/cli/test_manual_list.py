@@ -12,6 +12,7 @@ import pytest
 
 from agent_build_kit.cli import main
 from agent_build_kit.config import dump
+from agent_build_kit.pipeline.manual_steps import manual_status_line
 from agent_build_kit.pipeline.unit_store import UnitStore
 from agent_build_kit.pipeline.units import MERGED, PLANNED, ManualStep, UnitState
 from tests.conftest import make_installation
@@ -21,12 +22,12 @@ CHECKED = datetime(2026, 10, 11, 9, 30, tzinfo=UTC)
 
 
 def step(slug: str, **kw: object) -> ManualStep:
+    fields = {"check": f".abk/manual/{slug}.sh", **kw}
     return ManualStep(
         slug=slug,
         text=f"A person does {slug}",
         runbook=f"docs/runbook-x.md#{slug}",
-        check=f".abk/manual/{slug}.sh",
-        **kw,  # type: ignore[arg-type]
+        **fields,  # type: ignore[arg-type]
     )
 
 
@@ -119,3 +120,49 @@ def test_a_unit_the_tick_no_longer_checks_has_no_outstanding_step(
 
     assert "no manual steps outstanding" in out.lower()
     assert "dropped" not in out and "landed" not in out
+
+
+def test_a_step_with_no_check_is_listed_as_waiting_for_attestation(
+    listing: Listing, capsys: pytest.CaptureFixture[str]
+) -> None:
+    listing.waiting(
+        "feature/1",
+        step("confirm", check=""),
+        step("flip", outcome="unmet", last_line="marker still off"),
+    )
+
+    out = listing.run(capsys)
+
+    assert "waiting for attestation" in out, out
+    assert "abk manual done confirm" in out, out
+    assert "no check declared" not in out
+    assert "marker still off" in out
+    assert "abk manual done flip" not in out
+
+
+def test_an_attested_step_is_listed_with_who_attested_it_and_the_note(
+    listing: Listing, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("LOGNAME", "alice")
+    monkeypatch.setenv("USER", "alice")
+    listing.waiting("feature/1", step("confirm", check=""))
+    attest = ["--config", str(listing.config), "manual", "done", "confirm", "--note", "ran it"]
+    assert main(attest) == 0
+
+    plain = listing.run(capsys)
+    with_done = listing.run(capsys, "--done")
+
+    assert "confirm" not in plain
+    assert "confirm" in with_done and "(done)" in with_done
+    assert "alice" in with_done and "ran it" in with_done, with_done
+
+
+@pytest.mark.parametrize("outcome", ["", "unmet"])
+def test_the_status_line_of_a_step_with_no_check_says_it_waits_for_attestation(
+    outcome: str,
+) -> None:
+    line = manual_status_line(step("confirm", check="", outcome=outcome))
+
+    assert "waiting for attestation" in line, line
+    assert "abk manual done confirm" in line
+    assert "no check declared" not in line
