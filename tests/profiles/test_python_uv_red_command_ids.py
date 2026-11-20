@@ -173,7 +173,7 @@ NESTED_OUTPUT = f"""\
 =================================== FAILURES ===================================
 ____ test_the_outcome_and_traceback_are_those_of_the_same_run ____
 
-    def test_the_outcome_and_traceback_are_those_of_the_same_run():
+tests/test_scratch_dump.py:41: in the_check
 >       assert child.ret == 0
 E       assert 1 == 0
 
