@@ -48,6 +48,7 @@ from agent_build_kit.config import (
     owning_project,
 )
 from agent_build_kit.model import Frozen, TestTier
+from agent_build_kit.pipeline.command_policy import programs
 from agent_build_kit.pipeline.group_mode import GroupMode
 from agent_build_kit.pipeline.group_paths import (
     allows_no_code,
@@ -1716,7 +1717,10 @@ _SHELL_WORDS = frozenset(
     "exec if then else elif fi while until do done for in case esac ! { } return shift trap wait "
     "umask ulimit pwd".split()
 )
-_COMMAND_START = re.compile(r"(?:^|;|&&|\|\||\||\$\(|\(|\bthen\b|\bdo\b|\belse\b)\s*([^\s;&|()]+)")
+_SINGLE_QUOTED = re.compile(r"'[^']*'")
+# Variables the shell itself sets for a command: a `for` loop's, the targets of `read`, `PWD`.
+_LOOP_VARIABLE = re.compile(r"\bfor\s+([A-Za-z_]\w*)\s+in\b")
+_READ_VARIABLES = re.compile(r"\bread\s+(?:-\w+\s+)*((?:[A-Za-z_]\w*\s*)+)")
 _VARIABLE = re.compile(r"\$(?:\{([A-Za-z_]\w*)|([A-Za-z_]\w*))")
 _TILDE_PATH = re.compile(r"(?:^|[\s=:\"'])~(?:/|$|\s)")
 
@@ -1727,22 +1731,30 @@ def check_environment_problems(command: str) -> list[str]:
     from agent_build_kit.pipeline.manual_steps import CHECK_ENVIRONMENT
 
     problems: list[str] = []
-    variables = [m.group(1) or m.group(2) for m in _VARIABLE.finditer(command)]
+    # Single quotes expand nothing, so what they hold is not read as variables or paths.
+    expanded = _SINGLE_QUOTED.sub("''", command)
+    variables = [m.group(1) or m.group(2) for m in _VARIABLE.finditer(expanded)]
+    set_by_shell = {m.group(1) for m in _LOOP_VARIABLE.finditer(expanded)}
+    for read in _READ_VARIABLES.finditer(expanded):
+        set_by_shell.update(read.group(1).split())
     if "HOME" in variables:
         problems.append("expands $HOME, which a check is not given")
-    if _TILDE_PATH.search(command):
+    if _TILDE_PATH.search(expanded):
         problems.append("starts a path with ~, which needs HOME")
     for name in dict.fromkeys(variables):
-        if name in (*CHECK_ENVIRONMENT, "HOME") or re.search(rf"(?:^|[\s;&|(]){name}=", command):
+        if (
+            name in (*CHECK_ENVIRONMENT, "HOME", "PWD")
+            or name in set_by_shell
+            or re.search(rf"(?:^|[\s;&|(]){name}=", expanded)
+        ):
             continue
         problems.append(f"reads ${name}, which nothing in the check sets")
     search_path = CHECK_ENVIRONMENT["PATH"]
-    for word in dict.fromkeys(m.group(1) for m in _COMMAND_START.finditer(command)):
+    for word in dict.fromkeys(programs(command)):
         if (
             word in _SHELL_WORDS
             or "/" in word
-            or word[0] in "$\"'"
-            or re.match(r"[A-Za-z_]\w*=", word)
+            or word[0] == "$"
             or shutil.which(word, path=search_path)
         ):
             continue

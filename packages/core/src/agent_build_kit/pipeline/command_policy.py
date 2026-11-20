@@ -107,6 +107,25 @@ def _strip_wrappers(tokens: list[str]) -> list[str]:
     return tokens
 
 
+# Words that open a command in a shell command without being one: the program follows.
+LEADING_KEYWORDS = frozenset({"if", "then", "else", "elif", "while", "until", "do", "!", "{"})
+
+
+def programs(command: str) -> list[str]:
+    """The program each command of a shell command line runs, in order: the line is split like
+    the policy splits it (and at `(`, `)` and `$(`, where a command starts), and a leading shell
+    keyword, wrapper, flag or `VAR=value` is dropped. A segment with no program gives none."""
+    found: list[str] = []
+    for segment in SEGMENT_SPLIT.split(re.sub(r"\$?\(|\)", ";", command)):
+        tokens = _tokens(segment)
+        while tokens and tokens[0] in LEADING_KEYWORDS:
+            tokens = tokens[1:]
+        tokens = _strip_wrappers(tokens)
+        if tokens:
+            found.append(tokens[0])
+    return found
+
+
 def _looks_like_duration(token: str) -> bool:
     return bool(re.fullmatch(r"\d+[smhd]?", token))
 

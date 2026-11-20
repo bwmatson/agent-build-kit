@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-from tests.prompt_text import flat
+from tests.prompt_text import flat, section
 
 ROOT = Path(__file__).resolve().parents[1]
 SKILLS = ROOT / "src" / "agent_build_kit" / "skills"
@@ -52,20 +52,6 @@ def test_the_needs_a_human_table_names_a_raised_manual_step_for_a_builder_limit(
 GUIDES = [SKILLS / "abk-pipeline" / "SKILL.md", SKILLS / "abk-authoring" / "SKILL.md"]
 
 
-def squashed(path: Path) -> str:
-    return " ".join(path.read_text().split())
-
-
-def section(path: Path, heading: str) -> str:
-    """The text under the heading naming `heading`, to the next heading of its level or above."""
-    body = path.read_text()
-    match = re.search(rf"^(#+) .*{re.escape(heading)}.*$", body, re.M | re.I)
-    assert match, f"{path.name} has no heading naming {heading}"
-    rest = body[match.end() :]
-    following = re.search(rf"^#{{1,{len(match[1])}}} ", rest, re.M)
-    return " ".join((rest[: following.start()] if following else rest).split())
-
-
 def test_the_cli_document_describes_manual_done_and_its_refusals() -> None:
     said = section(ROOT / "docs" / "cli.md", "abk manual")
 
@@ -79,7 +65,7 @@ def test_the_cli_document_describes_manual_done_and_its_refusals() -> None:
 
 @pytest.mark.parametrize("path", GUIDES, ids=lambda p: p.parent.name)
 def test_a_guide_says_what_a_check_runs_with(path: Path) -> None:
-    said = squashed(path)
+    said = text(path)
 
     assert "PATH" in said and "LANG" in said, "it does not name the whole environment"
     assert re.search(r"only `?PATH`? and `?LANG`?|`?PATH`? and `?LANG`? only", said)
@@ -89,7 +75,7 @@ def test_a_guide_says_what_a_check_runs_with(path: Path) -> None:
 
 @pytest.mark.parametrize("path", GUIDES, ids=lambda p: p.parent.name)
 def test_a_guide_says_when_to_write_a_check_and_when_to_attest(path: Path) -> None:
-    said = squashed(path)
+    said = text(path)
 
     assert "abk manual done" in said
     assert re.search(r"attest", said, re.I), "it does not use the word attest"

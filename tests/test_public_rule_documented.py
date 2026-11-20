@@ -9,6 +9,8 @@ from pathlib import Path
 
 import pytest
 
+from tests.prompt_text import section
+
 ROOT = Path(__file__).resolve().parents[1]
 CONFIGURATION = ROOT / "docs" / "configuration.md"
 CLI = ROOT / "docs" / "cli.md"
@@ -21,16 +23,6 @@ CONFIG_AND_SKILL = [CONFIGURATION, SKILL]
 
 def squashed(path: Path) -> str:
     return " ".join(path.read_text().split())
-
-
-def section(path: Path, heading: str) -> str:
-    """The text under the heading naming `heading`, to the next heading of its level or above."""
-    text = path.read_text()
-    match = re.search(rf"^(#+) .*{re.escape(heading)}.*$", text, re.M)
-    assert match, f"{path.name} has no heading naming {heading}"
-    rest = text[match.end() :]
-    following = re.search(rf"^#{{1,{len(match[1])}}} ", rest, re.M)
-    return " ".join((rest[: following.start()] if following else rest).split())
 
 
 def unreleased_bullets() -> list[str]:
