@@ -531,6 +531,9 @@ class TaskGroup(Frozen):
     priority: int = Priority.NORMAL
     # A `Tests: required — <reason>` line in the group.
     tests_required: bool = False
+    # The build mode a `Mode: refactor — <reason>` line declares, and its reason.
+    declared_mode: GroupMode | None = None
+    declared_reason: str = ""
     # Whether the paths the group names are all documents or configuration, so it may be no_code.
     code_free: bool = False
     # Whether the paths the group names are all test code (with documents), so it is tests_only.

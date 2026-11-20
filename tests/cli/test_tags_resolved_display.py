@@ -140,3 +140,55 @@ def test_the_graph_marks_each_unit_by_its_own_group_and_keeps_the_subgraph_title
     assert "resolved" not in node_line(page, "feature/2")
     assert "explicit root" in node_line(page, "feature/3")
     assert "explicit root" not in node_line(page, "feature/4")
+
+
+def declaring(*lines: str, heading: str = "[app] [unit-test] Move it") -> str:
+    """A tasks.md with one group that carries `lines` and names source files."""
+    return (
+        "# Tasks\n\nAcceptance: none — a fixture\n\n"
+        f"## 1. {heading}\n\n" + "".join(f"{line}\n" for line in lines) + "\n"
+        "- [ ] 1.1 Move `src/app/old.py` to `src/app/new.py`.\n"
+    )
+
+
+def test_tags_shows_the_declared_mode_beside_the_group(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    run = Replan(
+        tmp_path, monkeypatch, feature=declaring("Mode: refactor — moves and renames only")
+    )
+
+    status = cli.cmd_tags(TAGS, run.inst)
+
+    line = next(line for line in capsys.readouterr().out.splitlines() if "Move it" in line)
+    assert status == 0
+    assert "refactor" in line
+
+
+@pytest.mark.parametrize(
+    ("lines", "heading"),
+    [
+        (("Mode: refactor",), "[app] [unit-test] Move it"),
+        (("Mode: tests_only — nothing else",), "[app] [unit-test] Move it"),
+        (("Mode: refactor — moves only",), "[app] [e2e-test] Move it"),
+        (("Mode: refactor — moves only", "- [ ] 1.2 Test: it moved."), "[app] [unit-test] Move it"),
+        (
+            ("Mode: refactor — moves only", "Tests: required — risky"),
+            "[app] [unit-test] Move it",
+        ),
+    ],
+    ids=["no reason", "other value", "e2e group", "Test: task", "Tests: required"],
+)
+def test_tags_exits_1_on_a_declared_mode_the_group_cannot_have(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    lines: tuple[str, ...],
+    heading: str,
+) -> None:
+    run = Replan(tmp_path, monkeypatch, feature=declaring(*lines, heading=heading))
+
+    status = cli.cmd_tags(TAGS, run.inst)
+
+    assert status == 1
+    assert "Mode:" in capsys.readouterr().out
