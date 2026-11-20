@@ -172,14 +172,26 @@ def replan_modes(
     return out
 
 
+@pytest.mark.parametrize("planner_asked", [False, True], ids=["every group taken", "planner asked"])
 def test_replan_of_a_started_unit_stores_the_floor_for_an_unbuilt_group_and_keeps_a_built_one(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    planner_asked: bool,
 ) -> None:
+    """With every group taken by the started unit no planner is asked; with a third group not
+    yet taken the planner is asked and the plan goes through the store's upsert."""
     tasks = (
         "# Tasks\n\nAcceptance: none — a fixture\n\n"
         "## 1. [app] [unit-test] Group 1\n\n- [ ] 1.1 Edit `tests/test_x.py` to cover it.\n\n"
         "## 2. [app] [unit-test] Group 2\n\n- [ ] 2.1 Edit `tests/test_y.py` to cover it.\n"
     )
+    if planner_asked:
+        tasks += (
+            "\n## 3. [app] [unit-test] Group 3\n\n- [ ] 3.1 Edit `tests/test_z.py` to cover it.\n"
+        )
+    # The planner may not hand back the started `feature/1`: it plans only the group not taken.
+    reply = answer(planned("feature/2", (3,))) if planner_asked else ""
     run = Replan(tmp_path, monkeypatch, feature=tasks)
     repo = init_repo(run.inst.checkouts["app"])
     commit_files(repo, "initial", {"README.md": "x"})
@@ -192,9 +204,10 @@ def test_replan_of_a_started_unit_stores_the_floor_for_an_unbuilt_group_and_keep
     run.store.set_state("feature/1", UnitState.RUNNING, branch="spec/feature/1")
     run.record("feature")
 
-    code, out = run.run(capsys, "feature", reply=answer(planned("feature/1", (1, 2))))
+    code, out = run.run(capsys, "feature", reply=reply)
 
     assert code == 0, out
+    assert ("nothing was asked of the planner" in out) is not planner_asked, out
     assert run.store.get("feature/1").group_modes == {
         "feature/1": "tests_and_code",
         "feature/2": "tests_only",

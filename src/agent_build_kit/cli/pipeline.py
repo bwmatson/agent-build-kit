@@ -5567,16 +5567,7 @@ def plan_all(
                 results[change] = PlanResult(status="planned", recorded_only=True)
             else:
                 # No planner was asked, so each started unit's unbuilt groups take their floors.
-                started = {u.id: u for u in store.all()}
-                for unit_id, modes in _reconciled_modes(
-                    inst,
-                    started,
-                    [u.model_copy(update={"group_modes": {}}) for u in started.values()],
-                    change,
-                    task_groups,
-                ).items():
-                    if modes != started[unit_id].group_modes:
-                        store.set_group_modes(unit_id, modes)
+                _reconcile_started_modes(inst, store, change, task_groups)
                 # A planned unit of another change that carries a group has its priority
                 # from the edited line, as the planning path gives it.
                 _set_priorities(store, _carrying_unstarted(store, change), task_catalog(inst))
@@ -5775,11 +5766,8 @@ def plan_all(
             continue
         before = {u.id: u for u in store.all()}
         try:
-            store.upsert(
-                units,
-                change=change,
-                reconciled=_reconciled_modes(inst, before, units, change, task_groups),
-            )
+            store.upsert(units, change=change)
+            _reconcile_started_modes(inst, store, change, task_groups)
         except GroupOwned as error:
             # The cause is in the store, not in the model's answer: asking again would
             # propose the same plan, so every attempt is spent until tasks.md changes.
@@ -6192,33 +6180,28 @@ def _plan_stands(record: Mapping[str, Any], has_units: bool) -> bool:
     return bool(record.get("ok") or (record.get("waiting") in PLAN_WAITS and has_units))
 
 
-def _reconciled_modes(
-    inst: Installation,
-    stored: Mapping[str, StoredUnit],
-    units: Sequence[Unit],
-    change: str,
-    task_groups: Sequence[TaskGroup],
-) -> dict[str, dict[str, str]]:
-    """For each planned unit of `change` that already started, the group modes its replan stores:
-    the planner's for a group its branch does not hold, the stored mode for one it does."""
-    found: dict[str, dict[str, str]] = {}
-    for fresh in units:
-        kept = stored.get(fresh.id)
-        if kept is None or kept.unstarted or not kept.owns_groups or kept.change != change:
+def _reconcile_started_modes(
+    inst: Installation, store: UnitStore, change: str, task_groups: Sequence[TaskGroup]
+) -> None:
+    """Bring each group of a started unit of `change` that its branch does not hold to its floor,
+    and keep the mode of each it does. The planner never re-plans a started unit, so its modes
+    are the floors, in a replan that asks the planner and in one that does not."""
+    for kept in store.all():
+        if kept.unstarted or not kept.owns_groups or kept.change != change or not kept.branch:
             continue
-        if not kept.branch:
-            continue
-        if not inst.checkouts.get(kept.repo, Path()).is_dir():
+        checkout = inst.checkouts.get(kept.repo)
+        if checkout is None or not checkout.is_dir():
             continue  # no checkout here, so no branch to read
-        found[fresh.id] = reconcile_group_modes(
+        modes = reconcile_group_modes(
             kept,
-            fresh,
+            kept.model_copy(update={"group_modes": {}}),
             task_groups,
-            repo=inst.checkouts[kept.repo],
+            repo=checkout,
             base=inst.repos[kept.repo].default_branch,
             ref=kept.branch,
         )
-    return found
+        if modes != kept.group_modes:
+            store.set_group_modes(kept.id, modes)
 
 
 def built_group_mode_lines(inst: Installation, units: Sequence[StoredUnit]) -> list[str]:
