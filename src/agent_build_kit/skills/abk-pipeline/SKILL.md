@@ -329,9 +329,11 @@ afterwards: `abk requeue <unit>` returns it.
 
 ### Settling, and a late fix
 
-A merged pull request whose commit is not on the default branch is not recorded merged. Its unit
-waits while its changes are not there; after the repo's `landing_wait` (seconds) it is held
-`landing_unknown`, and a later round that finds the changes on the default branch ends the hold.
+A pull request merged into the default branch whose commit is not on it is not recorded merged. Its
+unit waits while its changes are not there; after the repo's `landing_wait` (seconds) it is held
+`landing_unknown`, and a later round that finds the changes on the default branch ends the hold. A
+pull request merged into another unit's branch is a different case: it waits for that unit, or is
+held `landed_off_default` once that unit has merged.
 
 A merged pull request leaves its unit `settling` until every check has completed; `abk status`
 shows `settling: waiting for <checks> since <time>`. Do not requeue it. If a check will never

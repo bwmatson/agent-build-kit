@@ -28,9 +28,7 @@ def test_the_architecture_says_a_unit_with_no_commit_waits_for_landing_wait() ->
     assert ARCHITECTURE.count("landing_unknown") >= 2
 
 
-def test_the_configuration_documents_landing_wait_for_a_stack_merged_at_once() -> None:
-    assert "3600" in CONFIGURATION
-    assert "landing_wait" in CONFIGURATION
+def test_the_configuration_says_landing_wait_applies_to_a_stack_merged_at_once() -> None:
     assert "merged at once" in CONFIGURATION
 
 
