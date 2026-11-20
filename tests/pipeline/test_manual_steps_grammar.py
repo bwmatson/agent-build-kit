@@ -154,11 +154,11 @@ UNWORKABLE = (
         ("test -f ~/x/done", "~"),
         ("test -f $TARGET/done", "TARGET"),
         ("uv run pytest", "uv"),
-        ("test -f done; az login", "az"),
-        ("test -f done && az login", "az"),
-        ("test -f done || az login", "az"),
-        ("test -f done | az login", "az"),
-        ("n=$(az show); test -n $n", "az"),
+        ("test -f done; no-such-tool login", "no-such-tool"),
+        ("test -f done && no-such-tool login", "no-such-tool"),
+        ("test -f done || no-such-tool login", "no-such-tool"),
+        ("test -f done | no-such-tool login", "no-such-tool"),
+        ("n=$(no-such-tool show); test -n $n", "no-such-tool"),
     ],
 )
 def test_a_check_that_cannot_work_in_its_environment_is_warned_of(

@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import argparse
 import re
+import shutil
 import sys
 import tempfile
 from collections.abc import Callable, Iterable, Mapping, Sequence
@@ -1709,9 +1710,50 @@ def _runbook_anchors(text: str) -> set[str]:
     return anchors
 
 
+# Shell words a check may start a command with that are no program on the check's PATH.
+_SHELL_WORDS = frozenset(
+    "test [ [[ cd echo exit true false : . source export set unset read printf type command eval "
+    "exec if then else elif fi while until do done for in case esac ! { } return shift trap wait "
+    "umask ulimit pwd".split()
+)
+_COMMAND_START = re.compile(r"(?:^|;|&&|\|\||\||\$\(|\(|\bthen\b|\bdo\b|\belse\b)\s*([^\s;&|()]+)")
+_VARIABLE = re.compile(r"\$(?:\{([A-Za-z_]\w*)|([A-Za-z_]\w*))")
+_TILDE_PATH = re.compile(r"(?:^|[\s=:\"'])~(?:/|$|\s)")
+
+
+def check_environment_problems(command: str) -> list[str]:
+    """What in a `Check:` command cannot work under the environment a check runs with
+    (`CHECK_ENVIRONMENT`), each as a short phrase."""
+    from agent_build_kit.pipeline.manual_steps import CHECK_ENVIRONMENT
+
+    problems: list[str] = []
+    variables = [m.group(1) or m.group(2) for m in _VARIABLE.finditer(command)]
+    if "HOME" in variables:
+        problems.append("expands $HOME, which a check is not given")
+    if _TILDE_PATH.search(command):
+        problems.append("starts a path with ~, which needs HOME")
+    for name in dict.fromkeys(variables):
+        if name in (*CHECK_ENVIRONMENT, "HOME") or re.search(rf"(?:^|[\s;&|(]){name}=", command):
+            continue
+        problems.append(f"reads ${name}, which nothing in the check sets")
+    search_path = CHECK_ENVIRONMENT["PATH"]
+    for word in dict.fromkeys(m.group(1) for m in _COMMAND_START.finditer(command)):
+        if (
+            word in _SHELL_WORDS
+            or "/" in word
+            or word[0] in "$\"'"
+            or re.match(r"[A-Za-z_]\w*=", word)
+            or shutil.which(word, path=search_path)
+        ):
+            continue
+        problems.append(f"runs {word}, which is not on {search_path}")
+    return problems
+
+
 def manual_runbook_warnings(path: Path, root: Path) -> list[str]:
     """One warning per `Manual:` line of a tasks file whose runbook file or heading is missing
-    under `root`, as `abk tags` and `abk check` print them."""
+    under `root`, or whose check cannot work in its environment, and one note for each step with
+    no check, as `abk tags` and `abk check` print them."""
     groups, _ = validate_tasks(path)
     warnings: list[str] = []
     for step in (step for group in groups for step in group.manual_steps):
@@ -1721,6 +1763,13 @@ def manual_runbook_warnings(path: Path, root: Path) -> list[str]:
             warnings.append(f"{where} runbook file {file} does not exist")
         elif anchor and anchor.lower() not in _runbook_anchors((root / file).read_text()):
             warnings.append(f"{where} {file} has no heading #{anchor}")
+        if step.check and (problems := check_environment_problems(step.check)):
+            warnings.append(f"{where} its check {'; '.join(problems)}")
+        elif not step.check:
+            warnings.append(
+                f"{path}:line {step.line}: note: manual step `{step.slug}` has no check; "
+                f"a person attests it with `abk manual done {step.slug}`"
+            )
     return warnings
 
 
