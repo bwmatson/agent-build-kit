@@ -142,7 +142,7 @@ def check_output(
 # A second step whose check cannot work: a lint that never ran is told from one that stayed quiet.
 UNWORKABLE = (
     f"Manual: other-marker — Flip the other marker — runbook: {RUNBOOK}#flip",
-    "Check: test -f ~/x/done",
+    "Check: test -f ~/.config/x/done",
 )
 
 
@@ -151,7 +151,7 @@ UNWORKABLE = (
     [
         ('cd "$HOME/projects/x" && test -f done', "HOME"),
         ('cd "${HOME}/projects/x" && test -f done', "HOME"),
-        ("test -f ~/x/done", "~"),
+        ("test -f ~/.config/x/done", "~"),
         ("test -f $TARGET/done", "TARGET"),
         ("uv run pytest", "uv"),
         ("test -f done; no-such-tool login", "no-such-tool"),
