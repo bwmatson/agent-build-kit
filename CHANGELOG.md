@@ -31,7 +31,9 @@
   the unit stays settling instead of being recorded merged. A merged pull request with no
   commit on that branch is settled when its changes are there, and is otherwise held
   `landing_unknown` once the repo's `landing_wait` (default one hour) has passed; the hold
-  ends when a later round finds the changes on the default branch.
+  ends when a later round finds the changes on the default branch. Each pull request of a
+  stack merged at once is read alone, and `landing_wait` and `landing_unknown` are described
+  in the guides.
 
 - The pipeline no longer fights a code host that retargets and rebases the pull requests of
   a stack merged at once. A restack leaves a pull request whose base already matches, and a

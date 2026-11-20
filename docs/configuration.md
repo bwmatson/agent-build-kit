@@ -496,9 +496,10 @@ repos:                          # ordered: deploy order is derived from
                                 # merged branches while this is off.
     landing_wait: 3600          # seconds (greater than 0) a merged pull request
                                 # with no commit on the default branch is waited
-                                # for; when it runs out and the unit's changes
-                                # are still not there, the unit is held
-                                # `landing_unknown`
+                                # for (as for each pull request of a stack
+                                # merged at once); when it runs out and the
+                                # unit's changes are still not there, the unit
+                                # is held `landing_unknown`
     forge: github               # the code host (forges/): github or
                                 # azure_devops. Inferred by init from origin.
     azure_devops:               # only for forge: azure_devops. Decoded, not
