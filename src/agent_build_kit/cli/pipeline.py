@@ -6208,8 +6208,8 @@ def _reconciled_modes(
             continue
         if not kept.branch:
             continue
-        if kept.repo not in inst.checkouts:
-            continue
+        if not inst.checkouts.get(kept.repo, Path()).is_dir():
+            continue  # no checkout here, so no branch to read
         found[fresh.id] = reconcile_group_modes(
             kept,
             fresh,
