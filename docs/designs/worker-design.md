@@ -2,7 +2,9 @@
 
 > The direction from here is [orchestration.md](orchestration.md): the same dispatcher-and-workers shape as one model with a local and a cloud deployment, each
 > part an interface with an implementation per deployment. The mechanisms below (local locks, the wake file, transient systemd units) are what its local
-> implementations start from.
+> implementations start from. Two things there change this document's picture: each repository's collection, landing and checkout work leaves the dispatcher
+> for a `steward` worker on a runner allowed for that repository, and a runner builds only the repositories it is registered for
+> ([orchestration.md, "Scoped runners"](orchestration.md#scoped-runners)).
 
 This document describes what exists: a tick is a short **dispatcher** that decides what runs, **detached worker processes** each carry one unit's work
 (build, resolve or verify), a **wake** path lets a finished worker be noticed in seconds, and one **collector** is the only thing that polls the outside world.
@@ -59,6 +61,8 @@ except a deploy-and-test verification (up to 3,600 s per deploy), which is a `ve
 `Popen(start_new_session=True)` fallback where the user manager is not available. A `build` worker loads the current kit code and configuration, takes the branch lock, runs the unit's graph to its next wait (review, a park, a failure or done),
 records the outcome, releases the lock, **pokes the dispatcher** and exits. The kinds are `build`, `resolve` (the resolution lane, limited by `max_concurrent_resolutions`; it was `restack` when the lane only restacked, and it also runs a comment run) and `verify`.
 
+The kinds are separate modules in the worker package, with the logic they share (claiming, the heartbeat, the branch lock, recording an outcome) in a module of its own; a kind never imports another kind, and a boundary test holds that. A fourth kind, `steward`, comes with the orchestration design.
+
 Each worker is its own cgroup. A memory ceiling (`MemoryMax`) and a CPU weight can be set per worker, and an out-of-memory kill takes one worker, not every build in a process.
 
 ### 3. Wake on events; the timer is the fallback
@@ -81,6 +85,8 @@ Everything a worker needs to *know* about the outside world comes from **snapsho
   about six GraphQL calls for a GitHub repo with 569 pull requests (the cost grows with merged history, because the listing is not open-only and has no conditional requests) and about one list call for an Azure DevOps repo with 80;
   cheaper listing is independent of this design and can follow it.
 - A drift test pins the rule: worker entry-point modules may not import the forge list and poll functions or the usage endpoint reader, only the snapshot reader.
+- Where this is going: the collector becomes one `steward` worker per repository, on a runner allowed for it, writing that repository's snapshot into the store, so the
+  rule becomes "only a repository's steward polls its forge" ([orchestration.md, "Scoped runners"](orchestration.md#scoped-runners)). The usage collection stays with the orchestrator.
 
 ### 5. Slots and admission without a pool
 
@@ -141,11 +147,10 @@ Built in steps: the foundations (branch-lock identity, the admission lock, slot 
 
 ## Decisions made and open questions
 
-Decided: the design above, reached directly; transient systemd units as the spawner with a `Popen` fallback; the wake mechanism as a path unit watching `runs/wake`; workers never poll; a dispatcher lock, an admission lock and a start-time-aware branch lock; the merge-edge rule keyed on the worker; verify as a worker kind.
+Decided: the design above, reached directly; transient systemd units as the spawner with a `Popen` fallback; the wake mechanism as a path unit watching `runs/wake`; workers never poll; a dispatcher lock, an admission lock and a start-time-aware branch lock; the merge-edge rule keyed on the worker; verify as a worker kind. Later decided, in the orchestration design: verify and `land_units` both leave the dispatcher, verify as a worker kind and landing in each repository's `steward`.
 
 Open:
 
-- Whether `verify` and `land_units` stay in the dispatcher, beyond the deploy-and-test part moved to a worker.
 - The default per-worker memory ceiling and CPU weight.
 - The value of the dispatcher timer (one or two minutes) once wake works, given the forge polling cost above.
 - What a worker does when its snapshot is too old and no refresh arrives: wait, proceed with a warning, or fail the step.
