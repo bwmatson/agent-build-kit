@@ -162,7 +162,7 @@ def test_tags_shows_the_declared_mode_beside_the_group(
 
     line = next(line for line in capsys.readouterr().out.splitlines() if "Move it" in line)
     assert status == 0
-    assert "refactor" in line
+    assert "declared refactor" in line
 
 
 @pytest.mark.parametrize(

@@ -53,6 +53,7 @@ from agent_build_kit.pipeline.group_paths import (
     named_paths,
     names_unplaced_glob,
     names_unplaced_work,
+    tasks_asking_for_tests,
 )
 from agent_build_kit.pipeline.units import (
     ManualStep,
@@ -276,7 +277,7 @@ TESTS_REQUIRED = re.compile(r"^required\s*[—–-]+\s*(?P<reason>\S.*)$", re.I)
 
 # "Mode: refactor — moves and renames only", inside a group: it is a reorganization, built in the
 # `refactor` mode whatever the planner says. The reason is what review agrees to.
-MODE_LINE = re.compile(r"^Mode:\s*(?P<value>[^\s—–-]+)(?:\s*[—–-]+\s*(?P<reason>.*?))?\s*$", re.I)
+MODE_LINE = re.compile(r"^Mode:\s*(?P<value>.*?)\s*(?:(?:[—–]+|\s-+)\s*(?P<reason>.*?))?\s*$", re.I)
 NEW_TEST_FILE = re.compile(r"\bnew test files?\b", re.I)
 
 # "Independent: only adds a receiver", inside a group: it depends on no earlier
@@ -905,7 +906,9 @@ def validate_tasks(
                             "what review agrees to",
                         )
                     )
-            if current is not None and (said := MODE_LINE.match(text.strip())):
+            if current is not None and text.strip().lower().startswith("mode:"):
+                said = MODE_LINE.match(text.strip())
+                assert said is not None  # the pattern accepts any text after `Mode:`
                 if said["value"].lower() != GroupMode.REFACTOR.value:
                     errors.append(
                         ValidationError(
@@ -1173,7 +1176,7 @@ def validate_tasks(
             problem = f"its floor is {group.mode.value}, with no source to reorganize"
         elif group.tests_required:
             problem = "it has a `Tests: required` line"
-        elif any(task.lower().startswith("test:") for task in tasks):
+        elif tasks_asking_for_tests(group):
             problem = "it has a `Test:` task, so it adds a test"
         elif any(NEW_TEST_FILE.search(task) for task in tasks):
             problem = "a task adds a new test file"
