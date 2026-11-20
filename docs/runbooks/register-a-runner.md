@@ -35,6 +35,21 @@ On the machine that ran the whole pipeline before, the keys about building (acco
 - [ ] On the orchestrator: `abk runner update <runner> --repo <repo> [--repo <repo> ...]` replaces the list. Tokens minted afterwards carry the new list.
 - [ ] On the runner: add or remove the matching `repos:` entries, and remove the secrets of a repository it no longer builds. Run `abk runner doctor`.
 
+## Drain it
+A draining runner finishes the items it is running (each to its next wait, usually a pull request in review) and takes no more. The units carry on later on any runner allowed for their repository. There is no deadline.
+- [ ] Start the drain, from either side: `abk runner drain <runner>` on the orchestrator, or `abk runner drain` on the runner's machine.
+- [ ] Watch `abk runner list` on the orchestrator until the runner shows `drained`. It lists the items still running.
+- [ ] To take it back into use: `abk runner resume <runner>` on the orchestrator. The runner itself cannot resume.
+- [ ] To shut the machine down: drain it first, then shut it down once it is `drained`. If you cannot wait, shutting it down is a crash (below).
+
+## If it crashed
+You do not need to act for its units:
+- [ ] `abk runner list` shows it `unresponsive` once it has missed three heartbeat intervals, with its last-seen time.
+- [ ] Its items are enqueued again for another runner allowed for the repository when their leases expire, and resume from their checkpoints with the work in progress from the forge. An item lost three times holds its unit; `abk status` names the unit and the runners, and `abk requeue` sends it on once you know why.
+- [ ] When the machine comes back, its first claim pass deletes the clones of items it no longer holds; run `abk runner doctor` and deal with any clone it lists as unchecked.
+- [ ] If the machine is gone for good, revoke it (below).
+
 ## Retire it
+- [ ] Drain it first (above) if it is still running, so its items finish.
 - [ ] On the orchestrator: `abk runner revoke <runner>`. The runner's tokens are refused from then on.
 - [ ] On the runner: `abk install-timers --runner --remove`, then delete `~/.config/abk/abk.runner.yaml`, the secret and the certificate, and the workspaces under each `workspace_root`.

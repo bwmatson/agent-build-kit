@@ -156,7 +156,8 @@ Azurite in containers in CI. Telemetry, at the end of this section, is configura
   admission's fencing token. The visibility timeout is what the `starting` marker (`STARTING_TTL`) is today.
 - Both deployments: a queue table in the store, claimed with a conditional update (and `FOR UPDATE SKIP LOCKED` where the dialect has it). A managed queue is a later
   option, not a need.
-- A worker the Launcher starts is handed its item and token. A runner that is not launched (`abk runner`) claims through the worker API with a token from its registration (see Secrets), and `claim` returns only items of the repositories that token carries.
+- A worker the Launcher starts is handed its item and token. A runner that is not launched (`abk runner`) claims through the worker API with a token from its registration (see Secrets), and `claim` returns only items of the repositories that token carries, and nothing to a runner that is draining.
+- An item whose claim's visibility timeout lapses (its worker's heartbeats stopped) is recorded `lost`, naming the runner, and enqueued again with its attempt counted; after three `lost` attempts of the same item its unit is held for a person instead (see [Draining and lost runners](#draining-and-lost-runners)).
 
 ### Launcher
 
@@ -212,6 +213,7 @@ Azurite in containers in CI. Telemetry, at the end of this section, is configura
 - Both deployments: a partial clone into the worker's own disk with a git directory of its own, so no refs, `rr-cache` or lock files are shared with the orchestrator or
   another worker, from an optional mirror. `git_lock` does nothing; correctness between hosts comes from `--force-with-lease` and the branch lease's token.
 - A worker starts with the repository's merged `rr-cache` from the artifacts and keeps its own in the clone's git directory (see Artifacts).
+- **Work in progress is on the forge.** After each step that commits, the worker pushes the unit's head to a work-in-progress ref, `refs/abk/wip/<unit>`, with `--force-with-lease`, and writes that step's checkpoint only after the push succeeds, so a checkpoint never names a commit the forge does not have. A worker resuming the unit on another runner fetches the ref and checks that the checkpoint's recorded head is on it. The push is the runner's, with the repository's credentials on that runner; the code never passes through the orchestrator. Whether Azure DevOps accepts a ref outside `refs/heads` is to verify; if not, the ref is a branch `abk-wip/<unit>` that CI triggers exclude. The settle-end branch check deletes it with the unit's branch.
 - This retires today's local implementation, `git worktree add` on `repos.<name>.path` with the repository's `repo_turn` as `git_lock`: a worker on another device cannot
   share that git directory, and the shared directory is what the stale `rr-cache` lock and the worktree branch locks came from.
 
@@ -345,6 +347,28 @@ kinds: [build, resolve, verify, steward]   # optional: the kinds this runner tak
 
 **The steward.** One `steward` item per repository and round (deduplicated), claimed by a runner allowed for the repository, does that repository's part of what the round does today (the table in [The orchestrator](#the-orchestrator)) and writes the results into the store: the PR snapshot, events, merges recorded, owed restacks, and the checkout facts `abk doctor` and `abk status` show. The round reads only the store, so it plans and admits a repository's units without its code or its credentials.
 
+### Draining and lost runners
+
+**States.** A runner is `active`, `draining` or `drained`, and revoked or not; the store keeps its `last_seen_at`, from its claim passes and its workers' heartbeats (`orchestrator-serves-a-worker-api` adds the columns and the commands; `workers-claim-work-items` adds what they do to claiming).
+
+**Draining.** A runner leaves gracefully by draining:
+
+- A person runs `abk runner drain <runner>` on the orchestrator, or the runner asks for itself (`abk runner drain` on that machine, through the worker API with its own token). A runner may only narrow what it does, so it may ask to drain and never to resume; `abk runner resume <runner>` is a person's, on the orchestrator.
+- `claim` returns nothing to a draining runner, so its claim passes take no more work. Its running items carry on, renewing their leases, to their next wait (usually a pull request in review, or a park or a failure), and complete. A unit's later items (a rework, a restack) go to any runner allowed for its repository, so a drain finishes items, not units.
+- When it holds no live claim it is `drained`. A drained runner can be revoked, resumed or left as it is.
+- There is no drain deadline: a drain waits as long as its items take. A person who needs the machine sooner revokes the runner, and its items then take the lost path below.
+- A planned shutdown of the machine is a drain, then the shutdown.
+
+**A runner that crashes.** Nothing is asked of it; its leases say it is gone:
+
+- Each worker heartbeats its claim and its unit's branch lease. When the heartbeats stop, the lease expires after its time to live and the claim's visibility timeout lapses; the round records the item `lost`, naming the runner, and enqueues it again for any runner allowed for the repository. This is what `reclaim_stranded` and `reconcile_running` decide today from pid locks on one host.
+- The new worker resumes from the checkpoint with the work in progress from the forge (see [Workspaces](#workspaces)); work inside an agent step that was not committed is lost, and that step runs again, as a resume after a kill does today.
+- After three `lost` attempts of the same item the unit is held, naming the runners, instead of enqueued again (the rebuild budget's attempt counting). A lost steward item is not counted: it runs again in the next round.
+- `abk runner list` shows a runner not seen for three heartbeat intervals as `unresponsive`. It is never revoked by the kit; a person revokes a machine that is gone for good, which refuses its tokens at once.
+- Host-scoped semaphores (the unit-test slots) and installation leases (the e2e stack, the environment) expire with their time to live; item tokens expire within minutes.
+
+**A runner that comes back.** A worker that was cut off, not dead, finds its token stale: the store refuses its writes (`StaleFence`), and its push is refused by `--force-with-lease`, because the new worker has moved the work-in-progress ref on. On its next claim pass the runner sees it holds nothing, deletes the clones of items it no longer holds once their work is on the forge, and `abk runner doctor` lists any it could not check.
+
 ## The store's tables
 
 The tables the planned changes add, in one schema migrated by Alembic. The change that adds each is on its line; a column or table marked *(scoped runners)* is added by this design, and the work item's columns beyond those the Queue section names are settled in `workers-claim-work-items`.
@@ -401,6 +425,8 @@ erDiagram
         text secret_hash
         timestamptz created
         timestamptz revoked
+        text state "scoped runners: active, draining, drained"
+        timestamptz last_seen_at "scoped runners"
         json capabilities "scoped runners"
         timestamptz capabilities_at "scoped runners"
     }
@@ -465,6 +491,8 @@ by the orchestrator. A worker that needs a fix change (a flake, a failure on the
 | About ten JSONL ledgers, some trimmed in place | Append-only ledger streams |
 | Branch locks, leases, slots, `e2e.lock`, `dispatcher.lock`, `.admission` | Coordination leases and semaphores with tokens |
 | `starting` markers in `units.json` | The queue's visibility timeout |
+| `reclaim_stranded` and `reconcile_running`, from pid locks on one host | Lease expiry and the item's `lost` outcome, with a hold after three losses |
+| Commits local until the push after review | A work-in-progress ref pushed after each committing step, before its checkpoint |
 | Failure bundles, transcripts, spec snapshots | Artifacts |
 | Run logs | OTLP logs, through a Collector |
 | `unit-graphs.sqlite` | Checkpoints |
@@ -540,10 +568,10 @@ the same change that adds the interface.
 
 | Change | Needs first | Must include |
 |---|---|---|
-| `workers-claim-work-items` | `orchestrator-serves-a-worker-api`, `coordination-has-leases-and-fencing`, and the async conversion through `the-round-runs-on-an-event-loop` | The Queue Protocol (`enqueue`, `claim` with the runner's repositories and a visibility timeout, `complete`, `fail`), which replaces the `starting` markers; a queue table; the work item (kind build, resolve, verify or steward, repository, unit, group, capabilities); the runner's last-advertised capabilities; the API's queue routes, completing the API change; the Launcher Protocol (`launch`, `status`, `cancel`, `capabilities`) with the process implementation and a manual Container Apps job (one execution per item); the item's token minted at launch |
+| `workers-claim-work-items` | `orchestrator-serves-a-worker-api`, `coordination-has-leases-and-fencing`, and the async conversion through `the-round-runs-on-an-event-loop` | The Queue Protocol (`enqueue`, `claim` with the runner's repositories and a visibility timeout, `complete`, `fail`), which replaces the `starting` markers; a queue table; the work item (kind build, resolve, verify or steward, repository, unit, group, capabilities); the runner's last-advertised capabilities; a claim that returns nothing to a draining runner and the move to `drained` when it holds nothing; the `lost` outcome when a claim's visibility timeout lapses, its re-enqueue and the hold after three losses (replacing `reclaim_stranded` and `reconcile_running`); the API's queue routes, completing the API change; the Launcher Protocol (`launch`, `status`, `cancel`, `capabilities`) with the process implementation and a manual Container Apps job (one execution per item); the item's token minted at launch |
 | `worker-image` | `workers-claim-work-items` | The image contract, publishing to the registry on a kit merge, a separate user, egress through the proxy with an allowlist, `sandbox_coverage: container`, the telemetry resource attributes |
 | `launcher-runs-workers-over-a-docker-context` | `workers-claim-work-items` (the Launcher interface) and `worker-image` | A Docker-context implementation (a remote engine over SSH or TLS): launch passes the token, the API address, the telemetry endpoint and the proxy's root certificate; status from the container's exit code; cancel; `abk doctor` checks for the context |
-| `workspaces-have-a-clone-implementation` | `coordination-has-leases-and-fencing` and `kit-has-a-worker-package` | A clone with its own git directory for every worker in both deployments; retires the worktree implementation, the shared git directory, the worktree branch locks and `repo_turn`; the `dirty_worktree` hold keeps its meaning for a clone |
+| `workspaces-have-a-clone-implementation` | `coordination-has-leases-and-fencing` and `kit-has-a-worker-package` | A clone with its own git directory for every worker in both deployments; retires the worktree implementation, the shared git directory, the worktree branch locks and `repo_turn`; the `dirty_worktree` hold keeps its meaning for a clone; the work-in-progress ref pushed after each committing step and before its checkpoint, the resume that fetches it, and the check of whether Azure DevOps accepts `refs/abk/wip/<unit>` (else an `abk-wip/` branch CI excludes) |
 | `rerere-cache-is-kept-as-an-artifact` | `workspaces-have-a-clone-implementation` and the artifact routes of the API change | A per-repository `rr-cache` artifact; upload of new entries after a restack and download of the merged cache on start; the orchestrator's merge by conflict hash keeping the newest resolution; a command that removes a bad resolution |
 | `secrets-have-implementations` | `orchestrator-serves-a-worker-api` | A repository's secrets read on a runner allowed for it, never through the orchestrator; the environment and files locally, at the paths `abk.runner.yaml` names; Key Vault with a managed identity in the cloud, per repository; tokens that expire and are refreshed during a run; forge tokens for the GitHub App and Entra service principal once decided (open question, before wave 4) |
 | `model-accounts-have-kinds` | `secrets-have-implementations` | Subscription and API-key accounts; the Anthropic API first, then Foundry with a project API key from Key Vault; budget readings from the ledger; a per-unit cap checked between agent steps; a shared backoff; its first task is a live run of the kit's agent step against Foundry, and Entra with a managed identity stays unverified until then |
@@ -551,7 +579,7 @@ the same change that adds the interface.
 | `orchestrator-switches-to-a-new-version` | `the-round-runs-over-the-interfaces` and the Caddy proxy of the API change | The primary lease; sensing a newer version by the fetch-interval setting (off by default); `abk orchestrator switch`; starting the new version beside the old, the handover and drain; the takeover deadline (default 10 minutes) with its record of an abandoned takeover |
 | `the-orchestrator-owns-the-planning-repo` | `the-round-runs-over-the-interfaces` | Tracking records (taking up `task-progress-is-tracked-in-the-state-home-and-archived-to-the-repo`), fix-change requests, the spec snapshot (holding only the item's change) and the planning commit for workers |
 | `repo-duties-run-on-a-steward` | `the-round-runs-over-the-interfaces` and `workers-claim-work-items` | The `steward` kind in its own module; each repository step of the round moved into it, one area per group (fetch and owed restacks; the PR poll, labels, closes and replies; landing and merge recording; branch cleanup, hand-built closes and reverts; the checkout facts doctor and status show), each leaving a local install working; the late check and the carry as items of their own; the round reading only the store |
-| `hybrid-runner` | `workers-claim-work-items` | `abk runner` as a timer-started claim pass; `abk.runner.yaml` (location, keys, loader), `abk runner init` and `abk runner doctor`; the move of the build keys out of `abk.local.yaml`; worker kinds as modules with a shared module and the boundary test |
+| `hybrid-runner` | `workers-claim-work-items` | `abk runner` as a timer-started claim pass; `abk.runner.yaml` (location, keys, loader), `abk runner init` and `abk runner doctor`; the move of the build keys out of `abk.local.yaml`; worker kinds as modules with a shared module and the boundary test; `abk runner drain` from the runner's machine; deleting the clones of items the runner no longer holds once their work is on the forge |
 | `cli-writes-intents` | `the-round-runs-over-the-interfaces` | requeue, approve, and new unit hold, release and prioritize, against either deployment |
 | Wave 4 and 5 changes | Waves 1 to 3 | As their roadmap lines say; the GitHub App and Entra decision comes before wave 4 and the budget decision before wave 5 |
 
@@ -584,6 +612,9 @@ second becomes the tracking records of wave 3.
 - A runner's machine facts (accounts and their directories, workspace roots, secret paths, e2e availability, slots, size, kinds) are in its own `abk.runner.yaml` in the config home; it advertises capabilities derived from them, never paths or secrets.
 - Each repository's forge collection, landing, merge recording and checkout work run in a `steward` item on a runner allowed for it; the orchestrator holds no repository checkout or credential, and the planner needs none.
 - Each worker kind is its own module, with a shared module, and no kind imports another.
+- A runner drains by finishing its current items and claiming no more; a person or the runner itself starts a drain, only a person ends one, and there is no drain deadline.
+- A crashed runner's items are enqueued again for any allowed runner when their leases expire, resuming from the checkpoint; after three losses of the same item the unit is held for a person.
+- Work in progress is pushed to the forge after each committing step, before its checkpoint, so another runner can take a unit over.
 - The `rr-cache` of each repository is an artifact, merged by conflict hash with the newest resolution kept.
 - Deploy keys stay on the machine that runs verify; verify and e2e run on a runner that holds them and is allowed for the repository.
 - The Anthropic API is the first model endpoint; Foundry with a project API key is the second.
@@ -593,5 +624,6 @@ second becomes the tracking records of wave 3.
 
 ## Open questions
 
+- Does Azure DevOps accept a pushed ref outside `refs/heads` (`refs/abk/wip/<unit>`)? If not, the work-in-progress ref is a branch `abk-wip/<unit>` that CI triggers exclude. To check before `workspaces-have-a-clone-implementation`.
 - Is a GitHub App available for the repositories, and an Entra service principal for Azure DevOps, so every forge token expires? To be decided before wave 4.
 - What are the default budget windows and caps, and who is told when one is reached? To be decided before wave 5; the model-accounts change only needs a budget to be configurable per account and window.
