@@ -352,12 +352,12 @@ orchestrator:
 accounts:                             # the shape of runtimes.claude_code.accounts
   work:
     kind: subscription
-    config_dir: /home/me/.claude-work   # absolute, as account directories are today
+    config_dir: /path/to/.claude-work   # absolute, as account directories are today
 repos:                                # where this machine keeps each repository's things, not who may build it
   company-repo:
-    workspace_root: /home/me/abk-work/company-repo
+    workspace_root: /path/to/abk-work/company-repo
     env:                              # the shape of verify.env: providers, values read here only
-      SQL_CONNECTION_STRING: {from: env-file, file: /home/me/secrets/company.env, key: SQL_CONNECTION_STRING}
+      SQL_CONNECTION_STRING: {from: env-file, file: /path/to/secrets/company.env, key: SQL_CONNECTION_STRING}
     deploy: {}                        # deploy commands and keys for verify, as a repository's deploy settings are today
 tests:
   e2e_available: [azure-sql]          # becomes e2e:<dimension> capabilities
