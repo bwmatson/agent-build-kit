@@ -212,11 +212,14 @@ from agent_build_kit.pipeline.planner import (
     GroupTooLarge,
     Pin,
     PlannerError,
+    allowed_modes,
+    built_groups,
     check_flagged_groups,
     in_flight_item,
     plan_kind,
     plan_round,
     promote_ancestors,
+    reconcile_group_modes,
     unit_priority,
 )
 from agent_build_kit.pipeline.planning_commit import commit_and_publish
@@ -955,6 +958,9 @@ def cmd_status(args: argparse.Namespace, inst: Installation) -> int:
             log(f"planning {change}: {_plan_state(record, inst.max_plan_attempts)}")
 
     for line in stale_plan_lines(inst):
+        log(line)
+
+    for line in built_group_mode_lines(inst, run_support.store_for(inst).all()):
         log(line)
 
     for name in inst.repos:
@@ -5560,6 +5566,8 @@ def plan_all(
                 log(f"would record {change} as planned: {why}")
                 results[change] = PlanResult(status="planned", recorded_only=True)
             else:
+                # No planner was asked, so each started unit's unbuilt groups take their floors.
+                _reconcile_started_modes(inst, store, change, task_groups)
                 # A planned unit of another change that carries a group has its priority
                 # from the edited line, as the planning path gives it.
                 _set_priorities(store, _carrying_unstarted(store, change), task_catalog(inst))
@@ -5759,6 +5767,7 @@ def plan_all(
         before = {u.id: u for u in store.all()}
         try:
             store.upsert(units, change=change)
+            _reconcile_started_modes(inst, store, change, task_groups)
         except GroupOwned as error:
             # The cause is in the store, not in the model's answer: asking again would
             # propose the same plan, so every attempt is spent until tasks.md changes.
@@ -6169,6 +6178,61 @@ def _plan_stands(record: Mapping[str, Any], has_units: bool) -> bool:
     """Whether a recorded plan is one whose units stand: it succeeded, or it waits for an
     outage while the change still has stored units."""
     return bool(record.get("ok") or (record.get("waiting") in PLAN_WAITS and has_units))
+
+
+def _reconcile_started_modes(
+    inst: Installation, store: UnitStore, change: str, task_groups: Sequence[TaskGroup]
+) -> None:
+    """Bring each group of a started unit of `change` that its branch does not hold to its floor,
+    and keep the mode of each it does. The planner never re-plans a started unit, so its modes
+    are the floors, in a replan that asks the planner and in one that does not."""
+    for kept in store.all():
+        if kept.unstarted or not kept.owns_groups or kept.change != change or not kept.branch:
+            continue
+        checkout = inst.checkouts.get(kept.repo)
+        if checkout is None or not checkout.is_dir():
+            continue  # no checkout here, so no branch to read
+        modes = reconcile_group_modes(
+            kept,
+            kept.model_copy(update={"group_modes": {}}),
+            task_groups,
+            repo=checkout,
+            base=inst.repos[kept.repo].default_branch,
+            ref=kept.branch,
+        )
+        if modes != kept.group_modes:
+            store.set_group_modes(kept.id, modes)
+
+
+def built_group_mode_lines(inst: Installation, units: Sequence[StoredUnit]) -> list[str]:
+    """One line for each group a unit still to build holds on its branch whose stored mode is
+    outside what its floor allows, naming the unit, the group and both modes."""
+    groups = task_catalog(inst)
+    lines: list[str] = []
+    for unit in units:
+        if not unit.owns_groups or not unit.branch or unit.repo not in inst.checkouts:
+            continue
+        found = groups.get(unit.change, ())
+        try:
+            done = built_groups(
+                unit,
+                found,
+                repo=inst.checkouts[unit.repo],
+                base=inst.repos[unit.repo].default_branch,
+                ref=unit.branch,
+            )
+        except (PlannerError, subprocess.CalledProcessError, OSError):
+            continue
+        by_number = {g.number: g for g in found}
+        for n in unit.groups[:done]:
+            stored = unit.mode_of(unit.change, by_number[n])
+            floor = by_number[n].mode
+            if stored not in allowed_modes(floor):
+                lines.append(
+                    f"{unit.id}: group {n} was built in mode {stored.value} but its floor is "
+                    f"{floor.value} — a replan keeps a built group's mode"
+                )
+    return lines
 
 
 def stale_plan_lines(inst: Installation) -> list[str]:

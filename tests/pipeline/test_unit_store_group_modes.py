@@ -32,6 +32,16 @@ def test_a_replan_gives_an_unstarted_unit_new_modes_and_a_started_one_keeps_its_
     assert store.get("add-marker/2").group_modes == changed
 
 
+def test_the_modes_of_a_unit_can_be_set(tmp_path: Path) -> None:
+    store = UnitStore(tmp_path / "units.json")
+    store.upsert([unit(ID, group_modes={"add-marker/1": "no_code"})])
+    store.set_state(ID, RUNNING)
+
+    store.set_group_modes(ID, {"add-marker/1": "tests_only"})
+
+    assert store.get(ID).group_modes == {"add-marker/1": "tests_only"}
+
+
 def test_a_unit_with_no_stored_value_takes_tests_only_for_e2e_and_tests_and_code_otherwise() -> (
     None
 ):

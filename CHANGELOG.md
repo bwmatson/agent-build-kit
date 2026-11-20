@@ -7,6 +7,12 @@
   were an outer failure. An id pytest reports as a missing file or directory is left out
   of the rerun and named, like any other id it cannot find.
 
+- A replan of a started unit now brings each group its branch does not yet hold to the mode
+  the plan gives it, never below the group's floor, so a group whose tasks changed from
+  code to test files is no longer built in the old mode. A group already built keeps the mode
+  it was built in, and `abk status` warns when that mode is one the group's floor does not
+  allow.
+
 - Each unit-test command's environment now names a fresh file in `ABK_TEST_TRACE`, and
   whatever the run writes there is kept, redacted and capped, as `trace.jsonl` in a failing
   run's bundle and in each rerun's folder. This repository's own time-limit test plugin
