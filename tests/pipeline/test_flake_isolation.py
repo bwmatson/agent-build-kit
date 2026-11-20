@@ -279,10 +279,11 @@ class NotFoundRuns(Runs):
     stderr names the absolute path and the names without the parametrization, then says why on
     the next line. Any other rerun fails again."""
 
-    def __init__(self, failed: list[str], missing: list[str]) -> None:
+    def __init__(self, failed: list[str], missing: list[str], *, as_file: bool = False) -> None:
         super().__init__(reruns=[])
         self.failed = failed
         self.missing = missing
+        self.as_file = as_file
 
     def __call__(self, command: list[str], **kwargs: object) -> subprocess.CompletedProcess:
         if command == ["lint"]:
@@ -294,6 +295,10 @@ class NotFoundRuns(Runs):
             )
         self.commands.append(command)
         absent = [test for test in dict.fromkeys(self.missing) if test in command]
+        if absent and self.as_file:
+            # A path pytest cannot open: the argument as given, with no pattern note.
+            lines = "".join(f"ERROR: file or directory not found: {test}\n" for test in absent)
+            return subprocess.CompletedProcess(command, 4, "no tests ran\n", lines)
         if absent:
             where = Path(str(kwargs["cwd"]))
             lines = "".join(
@@ -326,6 +331,32 @@ def test_the_ids_pytest_cannot_find_are_left_out_named_and_the_others_rerun(
     named = "\n".join(log)
     for test in SPACED:
         assert test in named
+
+
+def test_an_id_naming_a_missing_file_is_left_out_named_and_the_others_rerun(
+    tmp_path: Path,
+) -> None:
+    ghost = "test_child.py::test_fails"
+    runs = NotFoundRuns([*PLAIN, SPACED[0], ghost], missing=[ghost], as_file=True)
+    log: list[str] = []
+
+    passed, message = build_unit_test(
+        profile=cast(ToolchainProfile, HookedProfile()),
+        run=runs,
+        changed=lambda *a: ["tests/test_one.py"],
+        log=log.append,
+    )(cwd=tmp_path, base="main")
+
+    assert not passed, "the failures that stand fail the unit"
+    assert len(runs.serial_runs) >= 2, (
+        "the ids that exist are rerun after the missing one is left out"
+    )
+    assert ghost in runs.serial_runs[0], "the first rerun names every id"
+    reduced = runs.serial_runs[1]
+    assert {*PLAIN, SPACED[0]} <= set(reduced)
+    assert ghost not in reduced
+    assert ghost in "\n".join(log)
+    assert ghost in message
 
 
 def test_when_every_id_is_not_found_nothing_is_rerun_and_every_failure_stands(

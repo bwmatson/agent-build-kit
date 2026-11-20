@@ -129,7 +129,10 @@ _SHARED_RESOURCE_FAILURE = re.compile(
 )
 # pytest's usage error for an id it cannot find. It names the absolute path and the names, never
 # the parametrization, and says why on the next line (or after the id, in older output).
-_NOT_FOUND = re.compile(r"^ERROR: not found: (?P<id>.+?)(?: \(no match in any of .*)?$", re.M)
+# A path it cannot open is reported as `file or directory not found`.
+_NOT_FOUND = re.compile(
+    r"^ERROR: (?:file or directory )?not found: (?P<id>.+?)(?: \(no match in any of .*)?$", re.M
+)
 _PARAMETRIZATION = re.compile(r"\[.*\]$")
 # The line xdist opens a failed test's block with, which names the worker that ran the test.
 _WORKER_LINE = re.compile(r"^\[(gw\d+)\]", re.MULTILINE)
@@ -151,6 +154,13 @@ _BLOCK_HEADER = re.compile(r"^_+ (?P<name>.+?) _+[ \t]*$", re.MULTILINE)
 # hook; a failed one is followed by `- hook id: <id>`. The name is free text a repo can
 # change, the id is what a hook is called in the config, so the id decides.
 _HOOK_FAILED = re.compile(r"^\S.*?\.{3,}Failed[ \t]*\n- hook id: (?P<id>\S+)[ \t]*$", re.MULTILINE)
+
+
+def _last_summary(output: str) -> str | None:
+    """The text after the last short test summary mark, or None without one: a child pytest run
+    captured in a failure block prints its own summary before the run's."""
+    _, mark, summary = output.rpartition(SUMMARY_MARK)
+    return summary if mark else None
 
 
 def _durations_section(lines: list[str]) -> tuple[int, int, list[str]]:
@@ -742,8 +752,8 @@ class PythonUvProfile:
     def parse_test_failures(self, output: str) -> list[TestFailure]:
         """One entry per `FAILED`/`ERROR` line of pytest's short summary, in the order
         printed; a long line is cut with an ellipsis."""
-        _, found, summary = output.partition(SUMMARY_MARK)
-        if not found:
+        summary = _last_summary(output)
+        if summary is None:
             return []
         failures = []
         for line in summary.splitlines():
@@ -820,8 +830,11 @@ class PythonUvProfile:
 
     def failed_tests(self, output: str) -> list[str]:
         """The identifiers of the tests that failed or errored, read from a failed unit-test
-        command's output; empty when it was not a test run."""
-        found = _FAILED_TEST.findall(output)
+        command's output; empty when it was not a test run. Read from the last short-summary
+        section when there is one, so a child run's `FAILED` line inside a failure block is not
+        taken for an outer failure."""
+        summary = _last_summary(output)
+        found = _FAILED_TEST.findall(output if summary is None else summary)
         return list(dict.fromkeys(found))
 
     def _registered_markers(self, repo: Path) -> list[str]:
@@ -892,7 +905,9 @@ class PythonUvProfile:
             reported.append(f"{path}::{names}")
         if among is None:
             return list(dict.fromkeys(reported))
-        return [test for test in among if _PARAMETRIZATION.sub("", test) in reported]
+        # The `file or directory not found` message repeats the argument with its parametrization.
+        bare = {_PARAMETRIZATION.sub("", test) for test in reported}
+        return [test for test in among if _PARAMETRIZATION.sub("", test) in bare]
 
     def time_limit_tests(self, output: str) -> list[str]:
         """The identifiers of the failed tests whose failure is the test's own time limit."""

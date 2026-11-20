@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- The Python profile now reads the failed test ids of a run from that run's own short
+  summary, so a failure of a child pytest run inside a test is no longer rerun as if it
+  were an outer failure. An id pytest reports as a missing file or directory is left out
+  of the rerun and named, like any other id it cannot find.
+
 - Each unit-test command's environment now names a fresh file in `ABK_TEST_TRACE`, and
   whatever the run writes there is kept, redacted and capped, as `trace.jsonl` in a failing
   run's bundle and in each rerun's folder. This repository's own time-limit test plugin
