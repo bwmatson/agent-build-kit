@@ -186,6 +186,14 @@ Declare `Manual: <slug> — <what to do> — runbook: <path>#<heading>`, with an
 heading); `abk tags` warns when the file or heading is missing. The unit waits until the check
 exits 0.
 
+A check runs with only `PATH` and `LANG` in its environment, in the unit's worktree once it has one
+and in the checkout before that. It sees no `$HOME`, no `~` expansion and none of your variables,
+and a program that is not on `PATH` is not found, so `abk tags` warns of such a check.
+
+Write a check when a command can tell the step is done. When nothing a command can read shows it,
+leave the check off: the step then waits for a person to run `abk manual done <slug> --note TEXT`
+to attest it. Attest only what only a person can know.
+
 ## `Project:` lines
 
 Declare a change to the repository's `projects:` list in `abk.yaml` in the group of the repository
