@@ -6,8 +6,10 @@
   summary, so a failure of a child pytest run inside a test is no longer rerun as if it
   were an outer failure. An id pytest reports as a missing file or directory is left out
   of the rerun and named, like any other id it cannot find.
+
 - A replan of a started unit now brings each group its branch does not yet hold to the build
   mode the plan gives it, never below the group's floor, so a group whose tasks changed from
+
 - A replan of a started unit now brings each group its branch does not yet hold to the mode
   the plan gives it, never below the group's floor, so a group whose tasks changed from
   code to test files is no longer built in the old mode. A group already built keeps the mode
