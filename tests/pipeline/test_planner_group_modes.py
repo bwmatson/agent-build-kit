@@ -19,7 +19,7 @@ from agent_build_kit.pipeline.planner import (
     reconcile_group_modes,
 )
 from agent_build_kit.pipeline.shell import git_out as git
-from agent_build_kit.pipeline.units import Unit
+from agent_build_kit.pipeline.units import Unit, UnitState
 from agent_build_kit.pipeline.work_graph import TaskGroup
 from tests.cli.replan_driver import Replan, answer, planned
 from tests.factories import commit_files, groups_at, init_repo, stored_unit, unit
@@ -170,6 +170,35 @@ def replan_modes(
 
     assert code == 0, out
     return out
+
+
+def test_replan_of_a_started_unit_stores_the_floor_for_an_unbuilt_group_and_keeps_a_built_one(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    tasks = (
+        "# Tasks\n\nAcceptance: none — a fixture\n\n"
+        "## 1. [app] [unit-test] Group 1\n\n- [ ] 1.1 Edit `tests/test_x.py` to cover it.\n\n"
+        "## 2. [app] [unit-test] Group 2\n\n- [ ] 2.1 Edit `tests/test_y.py` to cover it.\n"
+    )
+    run = Replan(tmp_path, monkeypatch, feature=tasks)
+    repo = init_repo(run.inst.checkouts["app"])
+    commit_files(repo, "initial", {"README.md": "x"})
+    git(repo, "switch", "-q", "-c", "spec/feature/1")
+    commit_files(repo, "test: Group 1", {"tests/test_x.py": "x"})
+    commit_files(repo, "feat: Group 1", {"src/x.py": "x"})
+    run.store.upsert(
+        [stored_unit("feature/1", change="feature", groups=(1, 2), group_modes=STORED)]
+    )
+    run.store.set_state("feature/1", UnitState.RUNNING, branch="spec/feature/1")
+    run.record("feature")
+
+    code, out = run.run(capsys, "feature", reply=answer(planned("feature/1", (1, 2))))
+
+    assert code == 0, out
+    assert run.store.get("feature/1").group_modes == {
+        "feature/1": "tests_and_code",
+        "feature/2": "tests_only",
+    }, out
 
 
 def test_replan_prints_a_changed_mode(

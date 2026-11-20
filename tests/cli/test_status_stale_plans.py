@@ -117,6 +117,58 @@ def test_status_warns_of_a_built_group_stored_with_a_mode_other_than_its_floor_a
     assert "group 2" not in lines[0]
 
 
+@pytest.mark.parametrize(
+    ("state", "task", "stored", "commits"),
+    [
+        pytest.param(
+            UnitState.MERGED,
+            "Edit `tests/test_x.py` to cover it.",
+            "tests_and_code",
+            ("test: Group 1", "feat: Group 1"),
+            id="a merged unit is no longer built",
+        ),
+        pytest.param(
+            UnitState.RUNNING,
+            "Edit `src/pkg/x.py` to add it.",
+            "refactor",
+            ("feat: Group 1",),
+            id="a mode its floor allows",
+        ),
+    ],
+)
+def test_status_does_not_warn_of_a_built_group_whose_mode_needs_no_attention(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    state: UnitState,
+    task: str,
+    stored: str,
+    commits: tuple[str, ...],
+) -> None:
+    monkeypatch.setattr("agent_build_kit.run_support.current_usage", lambda: None)
+    tasks = (
+        "# Tasks\n\nAcceptance: none — a fixture\n\n"
+        f"## 1. [app] [unit-test] Group 1\n\n- [ ] 1.1 {task}\n"
+    )
+    run = Replan(tmp_path, monkeypatch, feature=tasks)
+    repo = init_repo(run.inst.checkouts["app"])
+    commit_files(repo, "initial", {"README.md": "x"})
+    git(repo, "switch", "-q", "-c", "spec/feature/1")
+    for number, subject in enumerate(commits):
+        commit_files(repo, subject, {f"f{number}.txt": subject})
+    run.store.upsert(
+        [stored_unit("feature/1", change="feature", groups=(1,), group_modes={"feature/1": stored})]
+    )
+    run.store.set_state("feature/1", state, branch="spec/feature/1")
+    run.record("feature")
+    capsys.readouterr()
+
+    assert cli.cmd_status(argparse.Namespace(), run.inst) == 0
+
+    out = capsys.readouterr().out
+    assert [ln for ln in out.splitlines() if "feature/1" in ln and "mode" in ln] == []
+
+
 def test_a_waiting_plan_with_a_unit_stored_is_called_stale(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:

@@ -109,7 +109,6 @@ from agent_build_kit.pipeline.archive import (
     is_ready_to_archive,
 )
 from agent_build_kit.pipeline.audit_record import audit_status_lines
-from agent_build_kit.pipeline.commit_order import branch_commit_subjects, group_progress
 from agent_build_kit.pipeline.config_guard import warning_lines as config_warning_lines
 from agent_build_kit.pipeline.cycles import (
     FINISHED,
@@ -213,6 +212,8 @@ from agent_build_kit.pipeline.planner import (
     GroupTooLarge,
     Pin,
     PlannerError,
+    allowed_modes,
+    built_groups,
     check_flagged_groups,
     in_flight_item,
     plan_kind,
@@ -5565,6 +5566,17 @@ def plan_all(
                 log(f"would record {change} as planned: {why}")
                 results[change] = PlanResult(status="planned", recorded_only=True)
             else:
+                # No planner was asked, so each started unit's unbuilt groups take their floors.
+                started = {u.id: u for u in store.all()}
+                for unit_id, modes in _reconciled_modes(
+                    inst,
+                    started,
+                    [u.model_copy(update={"group_modes": {}}) for u in started.values()],
+                    change,
+                    task_groups,
+                ).items():
+                    if modes != started[unit_id].group_modes:
+                        store.set_group_modes(unit_id, modes)
                 # A planned unit of another change that carries a group has its priority
                 # from the edited line, as the planning path gives it.
                 _set_priorities(store, _carrying_unstarted(store, change), task_catalog(inst))
@@ -6192,7 +6204,9 @@ def _reconciled_modes(
     found: dict[str, dict[str, str]] = {}
     for fresh in units:
         kept = stored.get(fresh.id)
-        if kept is None or kept.unstarted or kept.change != change or not kept.branch:
+        if kept is None or kept.unstarted or not kept.owns_groups or kept.change != change:
+            continue
+        if not kept.branch:
             continue
         if kept.repo not in inst.checkouts:
             continue
@@ -6208,34 +6222,29 @@ def _reconciled_modes(
 
 
 def built_group_mode_lines(inst: Installation, units: Sequence[StoredUnit]) -> list[str]:
-    """One line for each group a started unit's branch holds whose stored mode is not its floor,
-    naming the unit, the group and both modes."""
+    """One line for each group a unit still to build holds on its branch whose stored mode is
+    outside what its floor allows, naming the unit, the group and both modes."""
     groups = task_catalog(inst)
     lines: list[str] = []
     for unit in units:
-        if unit.unstarted or not unit.branch or unit.repo not in inst.checkouts:
+        if not unit.owns_groups or not unit.branch or unit.repo not in inst.checkouts:
             continue
-        by_number = {g.number: g for g in groups.get(unit.change, ())}
-        if not all(n in by_number for n in unit.groups):
-            continue
+        found = groups.get(unit.change, ())
         try:
-            subjects = [
-                subject
-                for _, subject in branch_commit_subjects(
-                    inst.checkouts[unit.repo], inst.repos[unit.repo].default_branch, unit.branch
-                )
-            ]
-        except (subprocess.CalledProcessError, OSError):
+            done = built_groups(
+                unit,
+                found,
+                repo=inst.checkouts[unit.repo],
+                base=inst.repos[unit.repo].default_branch,
+                ref=unit.branch,
+            )
+        except (PlannerError, subprocess.CalledProcessError, OSError):
             continue
-        done = group_progress(
-            subjects,
-            [by_number[n].title for n in unit.groups],
-            [unit.mode_of(unit.change, by_number[n]) for n in unit.groups],
-        ).done
+        by_number = {g.number: g for g in found}
         for n in unit.groups[:done]:
             stored = unit.mode_of(unit.change, by_number[n])
             floor = by_number[n].mode
-            if stored is not floor:
+            if stored not in allowed_modes(floor):
                 lines.append(
                     f"{unit.id}: group {n} was built in mode {stored.value} but its floor is "
                     f"{floor.value} — a replan keeps a built group's mode"

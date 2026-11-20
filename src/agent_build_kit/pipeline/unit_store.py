@@ -1691,6 +1691,10 @@ class UnitStore:
         """The steps only a person can do that the unit waits on."""
         self._update(unit_id, manual_steps=tuple(steps))
 
+    def set_group_modes(self, unit_id: str, modes: Mapping[str, str]) -> None:
+        """The build mode of each group the unit builds, by `<change>/<number>`."""
+        self._update(unit_id, group_modes=dict(modes))
+
     def set_split(self, unit_id: str, split: str) -> None:
         """The e2e-test split the unit is stored in, where a started unit's group was edited."""
         self._update(unit_id, split=split)

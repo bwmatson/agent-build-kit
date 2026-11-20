@@ -380,6 +380,16 @@ PLANNER_MODES = (
 )
 
 
+def allowed_modes(floor: GroupMode) -> tuple[GroupMode, ...]:
+    """The modes a group whose floor is `floor` may be built in: the floor, and what it allows
+    beyond it."""
+    return {
+        GroupMode.TESTS_ONLY: (GroupMode.TESTS_ONLY,),
+        GroupMode.NO_CODE: (GroupMode.NO_CODE, GroupMode.TESTS_AND_CODE),
+        GroupMode.TESTS_AND_CODE: (GroupMode.TESTS_AND_CODE, GroupMode.REFACTOR),
+    }[floor]
+
+
 def _group_modes(
     label: str,
     change: str,
@@ -405,11 +415,7 @@ def _group_modes(
                 modes[f"{change}/{n}"] = value
             continue
         floor = group.mode
-        allowed = {
-            GroupMode.TESTS_ONLY: (GroupMode.TESTS_ONLY,),
-            GroupMode.NO_CODE: (GroupMode.NO_CODE, GroupMode.TESTS_AND_CODE),
-            GroupMode.TESTS_AND_CODE: (GroupMode.TESTS_AND_CODE, GroupMode.REFACTOR),
-        }[floor]
+        allowed = allowed_modes(floor)
         if value is not None and value not in allowed:
             raise PlannerError(
                 f"{label} asks for mode {value!r} for group {n}, but its floor is {floor.value!r}"
@@ -422,6 +428,27 @@ def _with_group_modes(unit: Unit, groups: Sequence[TaskGroup]) -> Unit:
     """The unit with the mode of each group it builds."""
     modes = _group_modes(f"unit {unit.id}", unit.change, unit.groups, groups, unit.group_modes)
     return unit.model_copy(update={"group_modes": modes})
+
+
+class GroupGone(PlannerError):
+    """A group a stored unit carries is no longer in its change's tasks."""
+
+
+def built_groups(
+    unit: StoredUnit, groups: Sequence[TaskGroup], *, repo: Path, base: str, ref: str
+) -> int:
+    """How many of `unit`'s own groups, from the first, the branch `ref` of `repo` holds beyond
+    `base`, each in its stored mode. Raises `GroupGone` when `groups` (the change's) lacks one of
+    them, and the git error when the branch cannot be read."""
+    by_number = {group.number: group for group in groups}
+    if gone := [n for n in unit.groups if n not in by_number]:
+        raise GroupGone(f"group {gone[0]} of {unit.id} is no longer in the change's tasks")
+    subjects = [subject for _, subject in branch_commit_subjects(repo, base, ref)]
+    return group_progress(
+        subjects,
+        [by_number[n].title for n in unit.groups],
+        [unit.mode_of(unit.change, by_number[n]) for n in unit.groups],
+    ).done
 
 
 def reconcile_group_modes(
@@ -445,16 +472,12 @@ def reconcile_group_modes(
         if key.startswith(f"{kept.change}/")
     }
     planned = _group_modes(f"unit {kept.id}", kept.change, kept.groups, groups, asked)
-    by_number = {group.number: group for group in groups}
     try:
-        subjects = [subject for _, subject in branch_commit_subjects(repo, base, ref)]
-        titles = [by_number[n].title for n in kept.groups]
-        built = group_progress(
-            subjects,
-            titles,
-            [kept.mode_of(kept.change, by_number[n]) for n in kept.groups],
-        ).done
-    except (subprocess.CalledProcessError, KeyError, OSError) as error:
+        built = built_groups(kept, groups, repo=repo, base=base, ref=ref)
+    except GroupGone as error:
+        log(f"{kept.id}: group modes kept as stored, {error}")
+        return dict(kept.group_modes)
+    except (subprocess.CalledProcessError, OSError) as error:
         log(f"{kept.id}: group modes kept as stored, the branch {ref} cannot be read: {error}")
         return dict(kept.group_modes)
     modes = dict(kept.group_modes)
