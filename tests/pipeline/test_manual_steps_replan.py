@@ -16,6 +16,33 @@ def planned(step: ManualStep):
     return unit("feature/1").model_copy(update={"manual_steps": (step,)})
 
 
+def test_an_attested_declared_step_keeps_who_attested_it_when_the_unit_is_replanned(
+    tmp_path: Path,
+) -> None:
+    fresh = ManualStep(slug="confirm", text="Confirm it", line=4)
+    store = UnitStore(tmp_path / "units.json")
+    store.upsert([planned(fresh)])
+    store.set_manual_steps(
+        "feature/1",
+        (
+            fresh.model_copy(
+                update=dict(
+                    done=True,
+                    outcome="attested",
+                    last_line="ran it",
+                    checked_at=CHECKED,
+                    attested_by="alice",
+                )
+            ),
+        ),
+    )
+
+    store.upsert([planned(fresh)])
+
+    (step,) = store.get("feature/1").manual_steps
+    assert (step.done, step.outcome, step.attested_by) == (True, "attested", "alice")
+
+
 def test_a_declared_step_marked_done_stays_done_when_the_unit_is_replanned(
     tmp_path: Path,
 ) -> None:

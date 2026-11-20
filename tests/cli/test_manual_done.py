@@ -9,13 +9,15 @@ from pathlib import Path
 
 import pytest
 
-from agent_build_kit.cli import main
+from agent_build_kit.cli import main, manual_cmd
 from agent_build_kit.cli import pipeline as cli
+from agent_build_kit.cli.manual_cmd import ATTESTED_BY
 from agent_build_kit.config import dump
-from agent_build_kit.pipeline.unit_store import UnitStore
+from agent_build_kit.pipeline.unit_store import Cause, UnitStore
 from agent_build_kit.pipeline.units import PLANNED, ManualStep
 from tests.conftest import make_installation
 from tests.factories import stored_unit
+from tests.fake_clock import install
 from tests.parked_split_support import stub_round
 
 SLUG = "migrate-dev-database"
@@ -31,8 +33,10 @@ class Attesting:
 
     def waiting(self, uid: str, *steps: ManualStep) -> None:
         self.store.upsert([stored_unit(uid, change=uid.split("/")[0])])
+        """`uid` as a run leaves it after stopping at `steps`: planned and parked on them."""
         self.store.set_manual_steps(uid, steps)
-        self.store.set_state(uid, PLANNED)
+        self.store.record_step(uid, "open_pr")
+        self.store.set_state(uid, PLANNED, cause=Cause.MANUAL_STEP)
 
     def done(self, *args: str) -> int:
         return main(["--config", str(self.config), "manual", "done", *args])
@@ -51,8 +55,10 @@ def bare(slug: str = SLUG) -> ManualStep:
 
 
 def test_attesting_marks_the_step_done_with_the_note_and_the_time_and_names_who(
-    attesting: Attesting,
+    attesting: Attesting, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    clock = install(monkeypatch)
+    monkeypatch.setattr(manual_cmd, "current_user", lambda: "alice")
     attesting.waiting("feature/1", bare())
     before = len(attesting.store.history("feature/1"))
 
@@ -60,10 +66,23 @@ def test_attesting_marks_the_step_done_with_the_note_and_the_time_and_names_who(
 
     step = attesting.step("feature/1")
     assert (step.done, step.outcome, step.last_line) == (True, "attested", NOTE)
-    assert step.checked_at is not None
+    assert (step.checked_at, step.attested_by) == (clock.now(), "alice")
     added = attesting.store.history("feature/1")[before:]
     assert len(added) == 1
-    assert SLUG in str(added[0]) and NOTE in str(added[0]) and added[0].get("by")
+    assert SLUG in str(added[0]) and NOTE in str(added[0]) and "alice" in str(added[0])
+    assert added[0].get("by") == ATTESTED_BY
+
+
+def test_attesting_a_step_on_a_planned_unit_with_no_cause_leaves_the_cause_none(
+    attesting: Attesting,
+) -> None:
+    attesting.store.upsert([stored_unit("feature/1", change="feature")])
+    attesting.store.set_manual_steps("feature/1", (bare(),))
+    attesting.store.set_state("feature/1", PLANNED)
+
+    assert attesting.done(SLUG) == 0
+
+    assert attesting.store.get("feature/1").cause is None
 
 
 def test_a_tick_pass_after_attesting_resumes_the_unit_with_a_note(

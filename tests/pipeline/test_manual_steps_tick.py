@@ -295,6 +295,26 @@ def test_a_round_runs_each_check_once_and_readmits_the_unit(
     assert stored.history[-1]["note"] == f"requeued: manual step {SLUG} done"
 
 
+def test_a_step_attested_after_the_pass_read_the_store_stays_done(world: World) -> None:
+    class AttestedAfterRead(UnitStore):
+        """A person attests the step right after the pass took its snapshot of the units."""
+
+        def all(self):  # type: ignore[no-untyped-def]
+            snapshot = super().all()
+            done = ManualStep(
+                slug=SLUG, text="A person", done=True, outcome="attested", last_line="did it"
+            )
+            self.set_manual_steps(UNIT, (done,))
+            return snapshot
+
+    world.wait_on(ManualStep(slug=SLUG, text="A person"))
+    world.store = AttestedAfterRead(world.store.path)
+
+    world.evaluate()
+
+    assert (world.step().done, world.step().outcome) == (True, "attested")
+
+
 def test_a_dry_run_changes_nothing_in_the_store(world: World) -> None:
     (world.tree / "flag").write_text("")
     world.wait_on(raised(passing_once_flagged(world)))

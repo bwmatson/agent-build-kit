@@ -11,7 +11,6 @@ from __future__ import annotations
 import os
 import signal
 import subprocess
-from collections.abc import Sequence
 from datetime import datetime
 from pathlib import Path
 from typing import Literal
@@ -124,6 +123,18 @@ def _removed(installation: Installation, unit: StoredUnit, step: ManualStep) -> 
         print(f"{unit.id}: manual step {step.slug} is done, removed {step.check}", flush=True)
 
 
+def replace_step(store: UnitStore, unit_id: str, recorded: ManualStep) -> bool:
+    """Write `recorded` over the step of the same slug in the unit as the store holds it now,
+    leaving the other steps as they are, so a writer holding an older read cannot undo what
+    another wrote meanwhile. False, with nothing written, when that step is already done (a
+    person attested it while a check ran) or is gone."""
+    current = store.get(unit_id).manual_steps
+    if not any(s.slug == recorded.slug and not s.done for s in current):
+        return False
+    store.set_manual_steps(unit_id, [recorded if s.slug == recorded.slug else s for s in current])
+    return True
+
+
 def evaluate_manual_steps(
     installation: Installation,
     store: UnitStore,
@@ -140,8 +151,7 @@ def evaluate_manual_steps(
     for unit in store.all():
         if unit.state != PLANNED:
             continue
-        steps: Sequence[ManualStep] = unit.manual_steps
-        for position, step in enumerate(steps):
+        for step in unit.manual_steps:
             if step.done or (slug and step.slug != slug):
                 continue
             outcome, line = _check(installation, unit, step)
@@ -149,6 +159,8 @@ def evaluate_manual_steps(
             if dry_run:
                 continue
             changed = (outcome, line) != (step.outcome, step.last_line)
+            if not step.check and not changed:
+                continue
             recorded = step.model_copy(
                 update={
                     "done": outcome == "met",
@@ -157,8 +169,8 @@ def evaluate_manual_steps(
                     "checked_at": now,
                 }
             )
-            steps = [*steps[:position], recorded, *steps[position + 1 :]]
-            store.set_manual_steps(unit.id, steps)
+            if not replace_step(store, unit.id, recorded):
+                continue
             if outcome == "met":
                 _removed(installation, unit, step)
             if changed:

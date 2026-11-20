@@ -8,26 +8,28 @@ unit whose branch the worktree is on, and never marks the step done: the tick de
 from __future__ import annotations
 
 import argparse
-import getpass
 import os
 import subprocess
 import sys
-from datetime import UTC, datetime
 from pathlib import Path
 
 from agent_build_kit.cli.install_config import Refused, worktree_root
 from agent_build_kit.cli.pipeline import evaluate_manual_waits
 from agent_build_kit.installation import Installation
-from agent_build_kit.pipeline.manual_steps import MANUAL_FOLDER, unmet_steps
+from agent_build_kit.pipeline import spans
+from agent_build_kit.pipeline.manual_steps import MANUAL_FOLDER, replace_step, unmet_steps
 from agent_build_kit.pipeline.shell import git
-from agent_build_kit.pipeline.unit_store import KEEP, Cause, StoredUnit, unit_id_of_branch
+from agent_build_kit.pipeline.unit_store import KEEP, StoredUnit, unit_id_of_branch
 from agent_build_kit.pipeline.units import (
     BUILDS_NOTHING,
     FINISHED_STATES,
-    PLANNED,
     ManualStep,
 )
 from agent_build_kit.run_support import store_for
+from agent_build_kit.timers import current_user
+
+# The history entry's `by` for an attestation: the command, never the person (who is in the note).
+ATTESTED_BY = "abk manual done"
 
 
 def _unit_id(worktree: Path, prefix: str, units: list[StoredUnit]) -> str:
@@ -79,7 +81,8 @@ def cmd_manual_raise(args: argparse.Namespace, inst: Installation) -> int:
         script = _script(worktree, args.check)
         _runs_in_time(script, worktree, inst.config.global_limits.manual_check_seconds)
         step = ManualStep(slug=args.slug, text=args.text, check=args.check)
-        store.set_manual_steps(unit_id, (*held.manual_steps, step))
+        # Appended to the steps as the store holds them now, not as read before the script ran.
+        store.set_manual_steps(unit_id, (*store.get(unit_id).manual_steps, step))
     except Refused as error:
         print(f"abk manual raise: refused: {error}", file=sys.stderr)
         return 1
@@ -134,26 +137,27 @@ def cmd_manual_done(args: argparse.Namespace, inst: Installation) -> int:
             file=sys.stderr,
         )
         return 1
-    who = getpass.getuser()
+    who = current_user()
     attested = step.model_copy(
         update={
             "done": True,
             "outcome": "attested",
             "last_line": args.note,
-            "checked_at": datetime.now(UTC),
+            "checked_at": spans.clock.now(),
             "attested_by": who,
         }
     )
-    store.set_manual_steps(unit.id, [attested if s.slug == slug else s for s in unit.manual_steps])
-    # A planned unit with no cause is waiting on this step; the cause is what the tick's resume
-    # follows once its last step is done.
-    parked = unit.state == PLANNED and unit.cause is None
+    # Written over the unit as the store holds it now, so a tick pass that wrote meanwhile is
+    # not undone; a step that was done meanwhile is left as it is.
+    if not replace_step(store, unit.id, attested):
+        print(f"abk manual done: step `{slug}` is already done, nothing changed")
+        return 0
     store.set_state(
         unit.id,
         unit.state,
         note=f"manual step {slug} attested by {who}" + (f": {args.note}" if args.note else ""),
-        by=who,
-        cause=Cause.MANUAL_STEP if parked else KEEP,
+        by=ATTESTED_BY,
+        cause=KEEP,
     )
     print(f"abk manual done: step {slug} attested on {unit.id}")
     return 0

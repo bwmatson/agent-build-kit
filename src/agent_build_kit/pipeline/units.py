@@ -164,9 +164,11 @@ class ManualStep(Frozen):
     check: str = ""
     # The `Manual:` line it was declared on, 0 for a raised step.
     line: int = 0
-    # Set once by the tick when the check passes; a step done stays done.
+    # Set once, by the tick when the check passes or by `abk manual done` when a person attests a
+    # step with no check; a step done stays done.
     done: bool = False
     # What the last check came to: `met`, `unmet`, `failed` or `timeout`; empty before the first.
+    # `attested` when a person marked a step with no check done.
     outcome: str = ""
     # The last line the last check printed, bounded and redacted.
     last_line: str = ""
