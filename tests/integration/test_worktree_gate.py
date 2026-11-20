@@ -16,6 +16,7 @@ import re
 import shutil
 import subprocess
 import sys
+import tomllib
 from pathlib import Path
 
 import pytest
@@ -53,6 +54,44 @@ def _hooks(output: str) -> dict[str, tuple[str, str]]:
     return found
 
 
+def _build_paths(project_dir: Path) -> list[str]:
+    """The source paths the project's hatch build names: each target's forced
+    includes (the source side) and packages, relative to the project's folder."""
+    project = tomllib.loads((project_dir / "pyproject.toml").read_text())
+    targets = project.get("tool", {}).get("hatch", {}).get("build", {}).get("targets", {})
+    paths: list[str] = []
+    for target in targets.values():
+        paths.extend(target.get("force-include", {}))
+        paths.extend(target.get("packages", []))
+    return paths
+
+
+def _create_layout(repo: Path, relative_dir: Path) -> None:
+    """Create the folders the copied project at `relative_dir` builds from, and,
+    for each uv workspace member it lists, copy the member's project file from
+    this repository and do the same for it."""
+    for path in _build_paths(repo / relative_dir):
+        target = repo / relative_dir / path
+        if target.exists():
+            continue
+        if target.suffix:
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_text("")
+        else:
+            target.mkdir(parents=True)
+            (target / "__init__.py").write_text("")
+    project = tomllib.loads((repo / relative_dir / "pyproject.toml").read_text())
+    members = project.get("tool", {}).get("uv", {}).get("workspace", {}).get("members", [])
+    for pattern in members:
+        for source in sorted((REPO / relative_dir).glob(pattern)):
+            member = relative_dir / source.relative_to(REPO / relative_dir)
+            if not (source / "pyproject.toml").is_file():
+                continue
+            (repo / member).mkdir(parents=True, exist_ok=True)
+            shutil.copy(source / "pyproject.toml", repo / member / "pyproject.toml")
+            _create_layout(repo, member)
+
+
 def _worktree_of_a_fixture_repo(tmp_path: Path) -> Path:
     """A fixture repo carrying this repository's own gate, with its hooks
     installed, and a worktree of it on a unit's branch — where builds run."""
@@ -65,6 +104,9 @@ def _worktree_of_a_fixture_repo(tmp_path: Path) -> Path:
     (repo / "src" / "agent_build_kit").mkdir()
     (repo / "src" / "agent_build_kit" / "__init__.py").write_text("")
     (repo / "src" / "probe" / "__init__.py").write_text("")
+    # On a branch where the kit is a uv workspace the copied project names more
+    # folders than that; build whatever it names.
+    _create_layout(repo, Path())
     (repo / "tests").mkdir()
     (repo / "tests" / ".keep").write_text("")
     git(repo, "add", "-A")
