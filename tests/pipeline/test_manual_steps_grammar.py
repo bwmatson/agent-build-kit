@@ -130,3 +130,102 @@ def test_the_planner_carries_a_groups_steps_to_the_unit_that_holds_it() -> None:
     units = parse_graph(reply, groups=[group], tasks="## 1. [app] [unit-test] A\n- [ ] 1.1 x\n")
 
     assert units[0].manual_steps == (step,)
+
+
+def check_output(
+    installation: Installation, capsys: pytest.CaptureFixture[str], command: str
+) -> tuple[int, str]:
+    write_change(installation, group_with(STEP, f"Check: {command}"), runbook="## flip\n")
+    return tags_output(installation, capsys)
+
+
+# A second step whose check cannot work: a lint that never ran is told from one that stayed quiet.
+UNWORKABLE = (
+    f"Manual: other-marker — Flip the other marker — runbook: {RUNBOOK}#flip",
+    "Check: test -f ~/x/done",
+)
+
+
+@pytest.mark.parametrize(
+    ("command", "named"),
+    [
+        ('cd "$HOME/projects/x" && test -f done', "HOME"),
+        ('cd "${HOME}/projects/x" && test -f done', "HOME"),
+        ("test -f ~/x/done", "~"),
+        ("test -f $TARGET/done", "TARGET"),
+        ("uv run pytest", "uv"),
+        ("test -f done; az login", "az"),
+        ("test -f done && az login", "az"),
+        ("test -f done || az login", "az"),
+        ("test -f done | az login", "az"),
+        ("n=$(az show); test -n $n", "az"),
+    ],
+)
+def test_a_check_that_cannot_work_in_its_environment_is_warned_of(
+    installation: Installation,
+    capsys: pytest.CaptureFixture[str],
+    command: str,
+    named: str,
+) -> None:
+    status, out = check_output(installation, capsys, command)
+
+    warnings = [line for line in out.splitlines() if "warning" in line and "flip-marker" in line]
+    assert status == 0
+    assert len(warnings) == 1
+    assert named in warnings[0]
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        'n=$(grep -c x f); test "${n:-0}" -ge 4',
+        "test -f .abk/manual/x.done",
+        "grep -q x abk.yaml",
+        "sh -c 'test -f x'",
+        'test "$PATH" != "$LANG"',
+    ],
+)
+def test_a_check_that_works_in_its_environment_is_not_warned_of(
+    installation: Installation, capsys: pytest.CaptureFixture[str], command: str
+) -> None:
+    write_change(
+        installation, group_with(STEP, f"Check: {command}", *UNWORKABLE), runbook="## flip\n"
+    )
+
+    status, out = tags_output(installation, capsys)
+
+    warnings = [line for line in out.splitlines() if "warning" in line]
+    assert status == 0
+    assert len(warnings) == 1
+    assert "other-marker" in warnings[0]
+
+
+def test_a_manual_step_with_no_check_gets_an_info_note_naming_the_attest_command(
+    installation: Installation, capsys: pytest.CaptureFixture[str]
+) -> None:
+    write_change(installation, group_with(STEP), runbook="## flip\n")
+
+    status, out = tags_output(installation, capsys)
+
+    assert status == 0
+    assert "warning" not in out
+    assert "abk manual done flip-marker" in out
+
+
+def test_a_manual_step_with_a_check_gets_no_attestation_note(
+    installation: Installation, capsys: pytest.CaptureFixture[str]
+) -> None:
+    write_change(
+        installation,
+        group_with(
+            STEP,
+            "Check: test -f done",
+            f"Manual: bare-marker — Flip a bare marker — runbook: {RUNBOOK}#flip",
+        ),
+        runbook="## flip\n",
+    )
+
+    _, out = tags_output(installation, capsys)
+
+    assert "abk manual done bare-marker" in out
+    assert "abk manual done flip-marker" not in out
