@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- A group can declare its reorganization with `Mode: refactor — <reason>`. The planner keeps
+  that mode on every replan of an unbuilt group, and `abk tags` shows it and refuses the line
+  where the group adds a test, is an e2e-test group, or names only documents or tests.
+
 - A manual step that declares no check can now be attested: `abk manual done <slug> --note
   TEXT` marks it done with the note, the time and who ran it, and the next tick pass resumes
   the unit. It refuses a step that declares a check (run `abk manual check` instead), an

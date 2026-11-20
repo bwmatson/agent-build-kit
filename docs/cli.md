@@ -549,7 +549,10 @@ one, and shows each line as pending or applied.
 A group whose heading names no project resolves to the declared project that owns every path it
 names; anything outside every project, two projects, or no paths leaves it in the root, and
 `[repo/<root>]` opts out. A `Paths:` line is authoritative when present, and `Reads:` lines are not
-changes. `abk tags` marks a resolved group `(resolved)` and warns of a change that mixes written and
+changes. `abk tags` prints a group's `Mode: refactor — <reason>` line as `declared refactor` beside
+its mode, and exits 1 when the line has no reason or another value, or the group is an e2e-test group, is
+all documents or tests, or has a `Test:` task, a `Tests: required` line or a new test file. It
+marks a resolved group `(resolved)` and warns of a change that mixes written and
 resolved projects. `abk tags --fix-projects [CHANGE | --all] [--dry-run]` writes the resolved
 project into the repo part of the heading of each group whose unit has not started, under the
 refusals of `--fix`; it lists groups that stayed in the root, does not rehash the plan (so unstarted

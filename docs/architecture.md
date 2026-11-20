@@ -651,8 +651,9 @@ release could move. The steps:
    **The group build modes.** Each group has a build mode: build mode `tests_and_code` (tests
    first, then code), build mode `tests_only` (one `test:` commit), build mode `no_code`
    (documents and configuration only, a lone `feat:`) and build mode `refactor` (a lone `feat:`,
-   tests edited only mechanically). The planner gives it to a reorganization; the floor
-   never does. The marker taxonomy is the tag of a group (its kind selectors
+   tests edited only mechanically). The planner gives it to a reorganization, or a group
+   declares it with a `Mode: refactor — <reason>` line the planner keeps on every replan of
+   an unbuilt group; the floor never does. The marker taxonomy is the tag of a group (its kind selectors
    say which tests run) and its flags. The prompts follow a mode table: the tests prompt is built
    per group from its mode, and the review prompt from the set of the unit's modes, each rule
    naming the group it is for. On a replan, a group of a started unit that its branch does not

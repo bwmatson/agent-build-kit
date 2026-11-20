@@ -6790,6 +6790,7 @@ def cmd_tags(args: argparse.Namespace, inst: Installation) -> int:
             print(
                 f"  {group.number}. [{group.tag}] [{group.tier}] {group.title}{urgency}"
                 f"{project_source_note(group)} [{group.mode}]"
+                + (f" declared {group.declared_mode}" if group.declared_mode else "")
             )
             declared = declared_profiles(inst.repos).get(group.repo, {})
             for given in group.project_lines:

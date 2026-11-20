@@ -147,6 +147,11 @@ title and tasks ("move X to Y, no behaviour change"); the planner then builds it
 code commit, no new test, and the existing tests edited only mechanically (imports, paths, names). Bad: a
 group that moves a function and also changes what it returns. Good: a group that moves it and fixes the imports.
 
+To fix the mode instead of leaving it to the planner, add a line `Mode: refactor — <reason>` to the group.
+`abk tags` refuses it without a reason or with another value, in an `[e2e-test]` group, in a group whose
+paths are all documents or tests, and in a group with a `Test:` task, a `Tests: required` line or a task that
+adds a new test file. The planner keeps the declared mode on every replan of an unbuilt group.
+
 ## Which project a group is in
 
 When a repo declares projects and the heading names none (`[app]`), the group resolves to the project that

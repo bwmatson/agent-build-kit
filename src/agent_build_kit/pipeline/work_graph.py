@@ -274,6 +274,11 @@ SEPARATE_LINE = re.compile(r"^Separate:\s*(?P<reason>.*?)\s*$", re.I)
 TESTS_LINE = re.compile(r"^Tests:\s*(?P<rest>.*?)\s*$", re.I)
 TESTS_REQUIRED = re.compile(r"^required\s*[—–-]+\s*(?P<reason>\S.*)$", re.I)
 
+# "Mode: refactor — moves and renames only", inside a group: it is a reorganization, built in the
+# `refactor` mode whatever the planner says. The reason is what review agrees to.
+MODE_LINE = re.compile(r"^Mode:\s*(?P<value>[^\s—–-]+)(?:\s*[—–-]+\s*(?P<reason>.*?))?\s*$", re.I)
+NEW_TEST_FILE = re.compile(r"\bnew test files?\b", re.I)
+
 # "Independent: only adds a receiver", inside a group: it depends on no earlier
 # group of its change. The reason is what review agrees to.
 INDEPENDENT_LINE = re.compile(r"^Independent:\s*(?P<reason>.*?)\s*$", re.I)
@@ -755,6 +760,7 @@ def validate_tasks(
     heading_lines: list[int] = []
     separate: set[int] = set()
     tests_required: set[int] = set()
+    declared_modes: dict[int, tuple[int, str]] = {}
     independent: dict[int, int] = {}
     manual: dict[int, list[ManualStep]] = {}
     manual_slugs: set[str] = set()
@@ -899,6 +905,25 @@ def validate_tasks(
                             "what review agrees to",
                         )
                     )
+            if current is not None and (said := MODE_LINE.match(text.strip())):
+                if said["value"].lower() != GroupMode.REFACTOR.value:
+                    errors.append(
+                        ValidationError(
+                            line=index,
+                            message="`Mode:` takes only `refactor — <reason>`, "
+                            f"not {said['value']!r}",
+                        )
+                    )
+                elif not said["reason"]:
+                    errors.append(
+                        ValidationError(
+                            line=index,
+                            message="`Mode: refactor` needs a reason after it — the reason is "
+                            "what review agrees to",
+                        )
+                    )
+                else:
+                    declared_modes[current] = (index, said["reason"])
             if current is not None and text.strip().lower().startswith("support:"):
                 found = SUPPORT_LINE.match(text.strip())
                 if reading is not None and reading[2] != TestTier.E2E_TEST:
@@ -1102,6 +1127,8 @@ def validate_tasks(
             goal=_goal(lines, g.line),
             separate=g.line in separate,
             tests_required=g.line in tests_required,
+            declared_mode=GroupMode.REFACTOR if g.line in declared_modes else None,
+            declared_reason=declared_modes.get(g.line, (0, ""))[1],
             independent=g.line in independent,
             manual_steps=tuple(manual.get(g.line, ())),
             support=tuple(support.get(g.line, ())),
@@ -1134,6 +1161,29 @@ def validate_tasks(
                         f"{user.number} is tagged [{user.tag}]",
                     )
                 )
+
+    for group in groups:
+        if group.line not in declared_modes:
+            continue
+        tasks = [m["text"] for line in group.body if (m := TASK_LINE.match(line))]
+        problem = None
+        if group.tier == TestTier.E2E_TEST:
+            problem = "an [e2e-test] group builds only tests"
+        elif group.mode is not GroupMode.TESTS_AND_CODE:
+            problem = f"its floor is {group.mode.value}, with no source to reorganize"
+        elif group.tests_required:
+            problem = "it has a `Tests: required` line"
+        elif any(task.lower().startswith("test:") for task in tasks):
+            problem = "it has a `Test:` task, so it adds a test"
+        elif any(NEW_TEST_FILE.search(task) for task in tasks):
+            problem = "a task adds a new test file"
+        if problem:
+            errors.append(
+                ValidationError(
+                    line=declared_modes[group.line][0],
+                    message=f"group {group.number} declares `Mode: refactor` but {problem}",
+                )
+            )
 
     for line in sorted(set(stray_priority) - {g.line for g in groups}):
         errors.append(
