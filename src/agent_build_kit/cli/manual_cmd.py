@@ -134,16 +134,17 @@ def cmd_manual_done(args: argparse.Namespace, inst: Installation) -> int:
             file=sys.stderr,
         )
         return 1
+    who = getpass.getuser()
     attested = step.model_copy(
         update={
             "done": True,
             "outcome": "attested",
             "last_line": args.note,
             "checked_at": datetime.now(UTC),
+            "attested_by": who,
         }
     )
     store.set_manual_steps(unit.id, [attested if s.slug == slug else s for s in unit.manual_steps])
-    who = getpass.getuser()
     # A planned unit with no cause is waiting on this step; the cause is what the tick's resume
     # follows once its last step is done.
     parked = unit.state == PLANNED and unit.cause is None
@@ -180,7 +181,13 @@ def cmd_manual_list(args: argparse.Namespace, inst: Installation) -> int:
         print(f"{unit.id}  {step.slug}{'  (done)' if step.done else ''}: {step.text}")
         if step.runbook:
             print(f"  runbook: {step.runbook}")
-        if step.outcome:
+        if step.outcome == "attested":
+            when = f" at {step.checked_at.isoformat()}" if step.checked_at else ""
+            note = f": {step.last_line}" if step.last_line else ""
+            print(f"  attested by {step.attested_by}{when}{note}")
+        elif not step.check:
+            print(f"  waiting for attestation: abk manual done {step.slug}")
+        elif step.outcome:
             when = f" at {step.checked_at.isoformat()}" if step.checked_at else ""
             print(f"  last check{when}: {step.outcome}: {step.last_line}")
     return 0

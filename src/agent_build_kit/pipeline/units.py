@@ -171,6 +171,8 @@ class ManualStep(Frozen):
     # The last line the last check printed, bounded and redacted.
     last_line: str = ""
     checked_at: datetime | None = None
+    # Who attested a step that declares no check; empty for a step the tick checked.
+    attested_by: str = ""
 
 
 class Unit(Frozen):

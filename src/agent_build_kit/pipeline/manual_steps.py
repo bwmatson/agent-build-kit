@@ -50,7 +50,9 @@ def unmet_steps(unit: StoredUnit) -> list[ManualStep]:
 
 def manual_status_line(step: ManualStep) -> str:
     """The `abk status` words for an unmet step: its last line, or that its check failed."""
-    if not step.outcome:
+    if not step.check:
+        said = f"waiting for attestation: abk manual done {step.slug}"
+    elif not step.outcome:
         said = "not checked yet"
     elif step.outcome in ("failed", "timeout"):
         said = f"check failed: {step.last_line}"
