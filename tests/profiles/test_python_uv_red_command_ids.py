@@ -160,3 +160,43 @@ def test_a_reported_path_is_made_relative_through_a_symlinked_working_directory(
     found = PythonUvProfile().ids_not_found(output, link, ["tests/test_x.py::test_y[a b]"])
 
     assert found == ["tests/test_x.py::test_y[a b]"]
+
+
+OUTER_IDS = [
+    "tests/test_scratch_dump.py::test_the_outcome_and_traceback_are_those_of_the_same_run",
+    "tests/test_other.py::test_cases[a - b]",
+]
+
+# The outer run's failure block for the first test holds a child pytest's own output: its
+# summary section, its `FAILED` line and its result rule.
+NESTED_OUTPUT = f"""\
+=================================== FAILURES ===================================
+____ test_the_outcome_and_traceback_are_those_of_the_same_run ____
+
+    def test_the_outcome_and_traceback_are_those_of_the_same_run():
+>       assert child.ret == 0
+E       assert 1 == 0
+
+----------------------------- Captured stdout call -----------------------------
+=========================== short test summary info ============================
+FAILED test_child.py::test_fails - assert False
+============================== 1 failed in 0.01s ===============================
+=========================== short test summary info ============================
+FAILED {OUTER_IDS[0]} - assert 1 == 0
+FAILED {OUTER_IDS[1]} - assert x[1] == 2
+=========================== 2 failed, 20371 passed in 90.12s ===================
+"""
+
+
+def test_failed_ids_are_those_of_the_outer_summary_not_a_child_runs() -> None:
+    assert PythonUvProfile().failed_tests(NESTED_OUTPUT) == OUTER_IDS
+
+
+def test_a_missing_file_is_an_id_pytest_cannot_find() -> None:
+    output = "ERROR: file or directory not found: test_child.py::test_fails\n\nno tests ran\n"
+    profile = PythonUvProfile()
+
+    assert profile.ids_not_found(output, Path("/work")) == ["test_child.py::test_fails"]
+    assert profile.ids_not_found(
+        output, Path("/work"), ["tests/test_a.py::test_one", "test_child.py::test_fails"]
+    ) == ["test_child.py::test_fails"]
