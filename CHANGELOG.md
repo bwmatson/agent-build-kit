@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- A manual step that declares no check can now be attested: `abk manual done <slug> --note
+  TEXT` marks it done with the note, the time and who ran it, and the next tick pass resumes
+  the unit. It refuses a step that declares a check (run `abk manual check` instead), an
+  unknown slug, and a slug two waiting units share unless `--unit` names one. `abk status`
+  says such a step waits for attestation.
+
 - The Python profile now reads the failed test ids of a run from that run's own short
   summary, so a failure of a child pytest run inside a test is no longer rerun as if it
   were an outer failure. An id pytest reports as a missing file or directory is left out

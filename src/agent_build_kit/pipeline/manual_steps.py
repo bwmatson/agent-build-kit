@@ -107,7 +107,7 @@ def _directory(installation: Installation, unit: StoredUnit) -> Path:
 
 def _check(installation: Installation, unit: StoredUnit, step: ManualStep) -> tuple[Outcome, str]:
     if not step.check:
-        return "unmet", "no check declared"
+        return "unmet", "waits for attestation: abk manual done"
     seconds = installation.config.global_limits.manual_check_seconds
     return _run(step.check, _directory(installation, unit), seconds)
 

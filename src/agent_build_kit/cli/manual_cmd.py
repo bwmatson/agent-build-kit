@@ -8,9 +8,11 @@ unit whose branch the worktree is on, and never marks the step done: the tick de
 from __future__ import annotations
 
 import argparse
+import getpass
 import os
 import subprocess
 import sys
+from datetime import UTC, datetime
 from pathlib import Path
 
 from agent_build_kit.cli.install_config import Refused, worktree_root
@@ -18,8 +20,13 @@ from agent_build_kit.cli.pipeline import evaluate_manual_waits
 from agent_build_kit.installation import Installation
 from agent_build_kit.pipeline.manual_steps import MANUAL_FOLDER, unmet_steps
 from agent_build_kit.pipeline.shell import git
-from agent_build_kit.pipeline.unit_store import StoredUnit, unit_id_of_branch
-from agent_build_kit.pipeline.units import BUILDS_NOTHING, FINISHED_STATES, ManualStep
+from agent_build_kit.pipeline.unit_store import KEEP, Cause, StoredUnit, unit_id_of_branch
+from agent_build_kit.pipeline.units import (
+    BUILDS_NOTHING,
+    FINISHED_STATES,
+    PLANNED,
+    ManualStep,
+)
 from agent_build_kit.run_support import store_for
 
 
@@ -96,7 +103,59 @@ def cmd_manual_check(args: argparse.Namespace, inst: Installation) -> int:
 
 def cmd_manual_done(args: argparse.Namespace, inst: Installation) -> int:
     """Attest a step that declares no check."""
-    raise NotImplementedError
+    slug = args.slug
+    store = store_for(inst)
+    held = [
+        (unit, step)
+        for unit in store.all()
+        if unit.state not in (*BUILDS_NOTHING, *FINISHED_STATES)
+        for step in unit.manual_steps
+        if step.slug == slug and (not args.unit or unit.id == args.unit)
+    ]
+    waiting = [(unit, step) for unit, step in held if not step.done]
+    if not held:
+        print(f"abk manual done: no step `{slug}` on a waiting unit", file=sys.stderr)
+        return 1
+    if not waiting:
+        print(f"abk manual done: step `{slug}` is already done, nothing changed")
+        return 0
+    if len(waiting) > 1:
+        names = ", ".join(unit.id for unit, _ in waiting)
+        print(
+            f"abk manual done: `{slug}` waits on more than one unit ({names}); "
+            "name one with --unit",
+            file=sys.stderr,
+        )
+        return 1
+    unit, step = waiting[0]
+    if step.check:
+        print(
+            f"abk manual done: `{slug}` declares a check; run `abk manual check {slug}`",
+            file=sys.stderr,
+        )
+        return 1
+    attested = step.model_copy(
+        update={
+            "done": True,
+            "outcome": "attested",
+            "last_line": args.note,
+            "checked_at": datetime.now(UTC),
+        }
+    )
+    store.set_manual_steps(unit.id, [attested if s.slug == slug else s for s in unit.manual_steps])
+    who = getpass.getuser()
+    # A planned unit with no cause is waiting on this step; the cause is what the tick's resume
+    # follows once its last step is done.
+    parked = unit.state == PLANNED and unit.cause is None
+    store.set_state(
+        unit.id,
+        unit.state,
+        note=f"manual step {slug} attested by {who}" + (f": {args.note}" if args.note else ""),
+        by=who,
+        cause=Cause.MANUAL_STEP if parked else KEEP,
+    )
+    print(f"abk manual done: step {slug} attested on {unit.id}")
+    return 0
 
 
 def _outstanding(unit: StoredUnit) -> list[ManualStep]:
