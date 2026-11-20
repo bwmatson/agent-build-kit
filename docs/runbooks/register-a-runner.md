@@ -36,17 +36,18 @@ On the machine that ran the whole pipeline before, the keys about building (acco
 - [ ] On the runner: add or remove the matching `repos:` entries, and remove the secrets of a repository it no longer builds. Run `abk runner doctor`.
 
 ## Drain it
-A draining runner finishes the items it is running (each to its next wait, usually a pull request in review) and takes no more. The units carry on later on any runner allowed for their repository. There is no deadline.
+A draining runner takes no more work, and each item it is running stops after its current step, saves (its commits to the forge, its session and checkpoint to the store) and goes back on the queue for another runner allowed for its repository, which continues where it stopped. A running agent step is never cut short, so a drain takes at most one step per item. There is no deadline.
 - [ ] Start the drain, from either side: `abk runner drain <runner>` on the orchestrator, or `abk runner drain` on the runner's machine.
-- [ ] Watch `abk runner list` on the orchestrator until the runner shows `drained`. It lists the items still running.
+- [ ] Watch `abk runner list` on the orchestrator until the runner shows `drained`. It lists the items still finishing their step.
+- [ ] If no other runner is allowed for a repository, its handed-back items wait on the queue; `abk status` shows them. Register or resume a runner for that repository to move them.
 - [ ] To take it back into use: `abk runner resume <runner>` on the orchestrator. The runner itself cannot resume.
 - [ ] To shut the machine down: drain it first, then shut it down once it is `drained`. If you cannot wait, shutting it down is a crash (below).
 
 ## If it crashed
 You do not need to act for its units:
 - [ ] `abk runner list` shows it `unresponsive` once it has missed three heartbeat intervals, with its last-seen time.
-- [ ] Its items are enqueued again for another runner allowed for the repository when their leases expire, and resume from their checkpoints with the work in progress from the forge. An item lost three times holds its unit; `abk status` names the unit and the runners, and `abk requeue` sends it on once you know why.
-- [ ] When the machine comes back, its first claim pass deletes the clones of items it no longer holds; run `abk runner doctor` and deal with any clone it lists as unchecked.
+- [ ] Its items are enqueued again for another runner allowed for the repository when their leases expire. The next worker continues from the last saved step; the step that was running when the machine died runs again. An item lost three times holds its unit; `abk status` names the unit and the runners, and `abk requeue` sends it on once you know why.
+- [ ] When the machine comes back, before taking new work it checks each unit it was building: one another runner has picked up, or that has finished, it lets go of (its clone is deleted once its saved work is on the forge); one nobody has picked up yet, it takes back and continues, in the same agent session when its clone and session are intact. Run `abk runner doctor` and deal with any clone it lists as unchecked.
 - [ ] If the machine is gone for good, revoke it (below).
 
 ## Retire it

@@ -151,13 +151,13 @@ Azurite in containers in CI. Telemetry, at the end of this section, is configura
 
 ### Queue
 
-- `enqueue(item, dedupe_key)`, `claim(repos, capabilities, visibility) -> claim`, `heartbeat(claim)`, `complete(claim, outcome)`, `abandon(claim)`.
+- `enqueue(item, dedupe_key)`, `claim(repos, capabilities, visibility) -> claim`, `heartbeat(claim) -> token, runner state`, `complete(claim, outcome)`, `abandon(claim, reason)`, `reclaim(item) -> claim`.
 - A work item carries its kind (`build`, `resolve`, `verify`, `steward`), its repository, the unit (none for a steward item), the attempt, the capabilities it needs, `kit_ref`, `config_ref`, `planning_sha` and the
   admission's fencing token. The visibility timeout is what the `starting` marker (`STARTING_TTL`) is today.
 - Both deployments: a queue table in the store, claimed with a conditional update (and `FOR UPDATE SKIP LOCKED` where the dialect has it). A managed queue is a later
   option, not a need.
 - A worker the Launcher starts is handed its item and token. A runner that is not launched (`abk runner`) claims through the worker API with a token from its registration (see Secrets), and `claim` returns only items of the repositories that token carries, and nothing to a runner that is draining.
-- An item whose claim's visibility timeout lapses (its worker's heartbeats stopped) is recorded `lost`, naming the runner, and enqueued again with its attempt counted; after three `lost` attempts of the same item its unit is held for a person instead (see [Draining and lost runners](#draining-and-lost-runners)).
+- An item handed back by a draining runner (`abandon(claim, reason=drain)`) is enqueued again at once and not counted. An item whose claim's visibility timeout lapses (its worker's heartbeats stopped) is recorded `lost`, naming the runner, and enqueued again with its attempt counted; after three `lost` attempts of the same item its unit is held for a person instead. `reclaim(item)` gives the runner that last held an item a new claim, lease and token, if nobody has claimed it since, and is not counted (see [Draining and lost runners](#draining-and-lost-runners)).
 
 ### Launcher
 
@@ -213,9 +213,37 @@ Azurite in containers in CI. Telemetry, at the end of this section, is configura
 - Both deployments: a partial clone into the worker's own disk with a git directory of its own, so no refs, `rr-cache` or lock files are shared with the orchestrator or
   another worker, from an optional mirror. `git_lock` does nothing; correctness between hosts comes from `--force-with-lease` and the branch lease's token.
 - A worker starts with the repository's merged `rr-cache` from the artifacts and keeps its own in the clone's git directory (see Artifacts).
-- **Work in progress is on the forge.** After each step that commits, the worker pushes the unit's head to a work-in-progress ref, `refs/abk/wip/<unit>`, with `--force-with-lease`, and writes that step's checkpoint only after the push succeeds, so a checkpoint never names a commit the forge does not have. A worker resuming the unit on another runner fetches the ref and checks that the checkpoint's recorded head is on it. The push is the runner's, with the repository's credentials on that runner; the code never passes through the orchestrator. Whether Azure DevOps accepts a ref outside `refs/heads` is to verify; if not, the ref is a branch `abk-wip/<unit>` that CI triggers exclude. The settle-end branch check deletes it with the unit's branch.
 - This retires today's local implementation, `git worktree add` on `repos.<name>.path` with the repository's `repo_turn` as `git_lock`: a worker on another device cannot
   share that git directory, and the shared directory is what the stale `rr-cache` lock and the worktree branch locks came from.
+
+#### Save and restore
+
+One routine, in one module of the worker package, lets a unit continue on another runner; a drain and a crash both use it.
+
+**Save** runs at every step boundary of the unit's graph: after a step that committed (tests, implement, a fix, a rework), and after one that did not (review, checks, unit-test). It runs in a fixed order, so whatever is saved is consistent:
+
+1. If the step committed, push the head to the unit's work-in-progress ref, `refs/abk/wip/<unit>`, with `--force-with-lease`. The tree is clean at a boundary. The push is the runner's, with the repository's credentials on that runner; the code never passes through the orchestrator.
+2. Upload the agent session file as an artifact of the unit, redacted like a transcript, with its descriptor (below).
+3. Write the checkpoint, naming the pushed head and the session artifact.
+
+A checkpoint therefore never names a commit or a session the forge and the store do not have. The checkpoint is the unit's graph state (`UnitRun`, `pipeline/unit_state.py`), so it already carries what a next worker needs to continue: the review rounds and last findings, a person's comments and pending replies, the commits, the head and the verdict.
+
+**Restore** is what every resuming worker runs, after a drain or a crash: read the latest checkpoint; fetch the work-in-progress ref and check out the recorded head; then check the session descriptor and, where it allows, download the session into this machine's account folder under this clone's path and continue it with `--resume`. Otherwise, or when the resume fails, the step runs in a new session, the path a session made under another account takes today (`graph/nodes.py`).
+
+**The session descriptor.** Claude Code keeps a session as `<account config_dir>/projects/<the working directory, encoded>/<session id>.jsonl`, and the kit continues one with `claude --resume <id>` (`runtimes/claude_code.py`). The session's lines carry its id, its working directory, the Claude Code version and the owning account and organization ids (`ownerAccountUuid`, `ownerOrganizationUuid`); the login's `.claude.json` in the account's `config_dir` carries `oauthAccount.accountUuid` and `organizationUuid`. Save records the session id, the runtime, the owner account and organization ids, the Claude Code version and the clone-relative working directory; restore compares them with its own account before downloading anything:
+
+- the same account and a Claude Code at least as new: download and resume;
+- another account of the same organization: as the first task's spike decides;
+- another organization, another runtime or an older Claude Code: a new session at once;
+- a field missing: not resumable, a new session.
+
+The descriptor keeps ids only, never the e-mail address or name the account file also holds. The session file's location and format are Claude Code's internals, not a published interface, so carrying a session is a runtime capability (a runtime declares whether it can export and import one; `claude_code` can, the others start a new session) and best effort. The change that builds this starts with a spike that moves a session between two configuration directories and two clone paths and resumes it under the same account, under another account of the same organization, and from a redacted copy.
+
+**What each trigger loses.** A drain loses nothing: the worker finishes its step first. A crash loses the step that was running (the agent's uncommitted work in it, and any test or check run it was making), which runs again from its start on the next runner, unless the same machine comes back and reclaims it (see [Draining and lost runners](#draining-and-lost-runners)).
+
+**Deferred: a save inside a step.** A periodic snapshot of a long agent step's dirty tree and session would let a crash resume mid-step. It is left out for now; because save and restore are one routine with a fixed order, it can be added as a second kind of save without changing restore's callers.
+
+**Where the ref lives.** Whether Azure DevOps accepts a ref outside `refs/heads` is to verify; if not, the ref is a branch `abk-wip/<unit>` that CI triggers exclude. The settle-end branch check deletes it with the unit's branch.
 
 ### Events
 
@@ -354,20 +382,33 @@ kinds: [build, resolve, verify, steward]   # optional: the kinds this runner tak
 **Draining.** A runner leaves gracefully by draining:
 
 - A person runs `abk runner drain <runner>` on the orchestrator, or the runner asks for itself (`abk runner drain` on that machine, through the worker API with its own token). A runner may only narrow what it does, so it may ask to drain and never to resume; `abk runner resume <runner>` is a person's, on the orchestrator.
-- `claim` returns nothing to a draining runner, so its claim passes take no more work. Its running items carry on, renewing their leases, to their next wait (usually a pull request in review, or a park or a failure), and complete. A unit's later items (a rework, a restack) go to any runner allowed for its repository, so a drain finishes items, not units.
-- When it holds no live claim it is `drained`. A drained runner can be revoked, resumed or left as it is.
-- There is no drain deadline: a drain waits as long as its items take. A person who needs the machine sooner revokes the runner, and its items then take the lost path below.
+- `claim` returns nothing to a draining runner, so its claim passes take no more work.
+- Each of its workers learns of the drain from its heartbeat's answer, finishes the step it is in, saves (see [Save and restore](#save-and-restore)) and hands the item back with `abandon(claim, reason=drain)`. A running agent step is never interrupted; a step that ends with a dirty tree (the `parked_node` case) yields at the next clean boundary. A handed-back item is enqueued again at once for any runner allowed for its repository and is not counted as lost; the next worker continues from the checkpoint, with the review's findings, the comments and the commits it carries, and with the session where its descriptor allows.
+- If no other runner is allowed for the repository, the item waits on the queue until one is, or until the drained runner is resumed; `abk runner list` and `abk status` show it waiting.
+- When it holds no live claim it is `drained`: at most one step per running item after the drain began. A drained runner can be revoked, resumed or left as it is.
+- There is no drain deadline. A person who cannot wait for the steps revokes the runner, and its items take the crash path.
 - A planned shutdown of the machine is a drain, then the shutdown.
 
 **A runner that crashes.** Nothing is asked of it; its leases say it is gone:
 
-- Each worker heartbeats its claim and its unit's branch lease. When the heartbeats stop, the lease expires after its time to live and the claim's visibility timeout lapses; the round records the item `lost`, naming the runner, and enqueues it again for any runner allowed for the repository. This is what `reclaim_stranded` and `reconcile_running` decide today from pid locks on one host.
-- The new worker resumes from the checkpoint with the work in progress from the forge (see [Workspaces](#workspaces)); work inside an agent step that was not committed is lost, and that step runs again, as a resume after a kill does today.
+- Each worker heartbeats its claim and its unit's branch lease. When the heartbeats stop, the lease expires after its time to live and the claim's visibility timeout lapses; the round records the item `lost`, naming the runner, and enqueues it again at once for any runner allowed for the repository. This is what `reclaim_stranded` and `reconcile_running` decide today from pid locks on one host.
+- The next worker restores from the last save, so the graph continues at the step after the last completed one; the step that was running runs again from its start.
 - After three `lost` attempts of the same item the unit is held, naming the runners, instead of enqueued again (the rebuild budget's attempt counting). A lost steward item is not counted: it runs again in the next round.
 - `abk runner list` shows a runner not seen for three heartbeat intervals as `unresponsive`. It is never revoked by the kit; a person revokes a machine that is gone for good, which refuses its tokens at once.
 - Host-scoped semaphores (the unit-test slots) and installation leases (the e2e stack, the environment) expire with their time to live; item tokens expire within minutes.
 
-**A runner that comes back.** A worker that was cut off, not dead, finds its token stale: the store refuses its writes (`StaleFence`), and its push is refused by `--force-with-lease`, because the new worker has moved the work-in-progress ref on. On its next claim pass the runner sees it holds nothing, deletes the clones of items it no longer holds once their work is on the forge, and `abk runner doctor` lists any it could not check.
+**A runner that comes back.** A runner that restarts after a crash, and a worker that was cut off rather than dead and finds its heartbeat refused, check each item they held before claiming anything new:
+
+- The runner keeps a small local record of its claims (the item, the unit, the clone's path), written when it claims and cleared when it completes or hands an item back.
+- For each item in it, it asks the orchestrator what became of it:
+  - **Picked up by another runner, or finished:** it stops. A worker process still running for it is stopped, its clone is deleted once its saved work is on the forge, and `abk runner doctor` lists any it could not check. Its unsaved work is dropped; the fence would refuse its writes (`StaleFence`) and `--force-with-lease` its pushes anyway.
+  - **Back on the queue and not yet claimed:** it reclaims the item (`reclaim`), with a new claim, lease and fencing token, so any older token of its own is refused. The reclaim is not counted toward the three-loss hold.
+  - **Still its own** (its lease never expired, after a short network drop, say): it carries on.
+- A reclaimed item resumes from what the machine still has. If the clone is intact (its head is the checkpoint's or ahead of it, uncommitted changes included) and the session file is still in the account's folder, the step that was running resumes in that same session with one follow-up ("you were interrupted; the tree is as you left it; continue the step"), so the step is not lost. Otherwise it restores from the last save, as another runner would.
+- Only then does it claim new work, unless it is draining.
+- A crashed runner gets no head start: a lost item goes back on the queue at once, and the reclaim wins only while nobody has claimed it.
+
+**What the store holds.** A repository's derived data (checkpoints with review findings, session artifacts, transcripts, failure bundles) may rest in the store the orchestrator serves; the repository's checkout and its credentials never do.
 
 ## The store's tables
 
@@ -491,8 +532,8 @@ by the orchestrator. A worker that needs a fix change (a flake, a failure on the
 | About ten JSONL ledgers, some trimmed in place | Append-only ledger streams |
 | Branch locks, leases, slots, `e2e.lock`, `dispatcher.lock`, `.admission` | Coordination leases and semaphores with tokens |
 | `starting` markers in `units.json` | The queue's visibility timeout |
-| `reclaim_stranded` and `reconcile_running`, from pid locks on one host | Lease expiry and the item's `lost` outcome, with a hold after three losses |
-| Commits local until the push after review | A work-in-progress ref pushed after each committing step, before its checkpoint |
+| `reclaim_stranded` and `reconcile_running`, from pid locks on one host | Lease expiry and the item's `lost` outcome, with a hold after three losses; a returning runner's reclaim of an item nobody has claimed |
+| Commits local until the push after review | A save at every step boundary: the head to a work-in-progress ref, the session to the artifacts, then the checkpoint |
 | Failure bundles, transcripts, spec snapshots | Artifacts |
 | Run logs | OTLP logs, through a Collector |
 | `unit-graphs.sqlite` | Checkpoints |
@@ -568,10 +609,10 @@ the same change that adds the interface.
 
 | Change | Needs first | Must include |
 |---|---|---|
-| `workers-claim-work-items` | `orchestrator-serves-a-worker-api`, `coordination-has-leases-and-fencing`, and the async conversion through `the-round-runs-on-an-event-loop` | The Queue Protocol (`enqueue`, `claim` with the runner's repositories and a visibility timeout, `complete`, `fail`), which replaces the `starting` markers; a queue table; the work item (kind build, resolve, verify or steward, repository, unit, group, capabilities); the runner's last-advertised capabilities; a claim that returns nothing to a draining runner and the move to `drained` when it holds nothing; the `lost` outcome when a claim's visibility timeout lapses, its re-enqueue and the hold after three losses (replacing `reclaim_stranded` and `reconcile_running`); the API's queue routes, completing the API change; the Launcher Protocol (`launch`, `status`, `cancel`, `capabilities`) with the process implementation and a manual Container Apps job (one execution per item); the item's token minted at launch |
+| `workers-claim-work-items` | `orchestrator-serves-a-worker-api`, `coordination-has-leases-and-fencing`, and the async conversion through `the-round-runs-on-an-event-loop` | The Queue Protocol (`enqueue`, `claim` with the runner's repositories and a visibility timeout, `complete`, `fail`), which replaces the `starting` markers; a queue table; the work item (kind build, resolve, verify or steward, repository, unit, group, capabilities); the runner's last-advertised capabilities; a claim that returns nothing to a draining runner, the hand-back at the next step boundary (`abandon` with a drain reason, not counted) and the move to `drained` when it holds nothing; the `lost` outcome when a claim's visibility timeout lapses, its re-enqueue and the hold after three losses (replacing `reclaim_stranded` and `reconcile_running`); `reclaim` by the runner that last held an item nobody has claimed, and the runner's local claim record and check on return; the API's queue routes, completing the API change; the Launcher Protocol (`launch`, `status`, `cancel`, `capabilities`) with the process implementation and a manual Container Apps job (one execution per item); the item's token minted at launch |
 | `worker-image` | `workers-claim-work-items` | The image contract, publishing to the registry on a kit merge, a separate user, egress through the proxy with an allowlist, `sandbox_coverage: container`, the telemetry resource attributes |
 | `launcher-runs-workers-over-a-docker-context` | `workers-claim-work-items` (the Launcher interface) and `worker-image` | A Docker-context implementation (a remote engine over SSH or TLS): launch passes the token, the API address, the telemetry endpoint and the proxy's root certificate; status from the container's exit code; cancel; `abk doctor` checks for the context |
-| `workspaces-have-a-clone-implementation` | `coordination-has-leases-and-fencing` and `kit-has-a-worker-package` | A clone with its own git directory for every worker in both deployments; retires the worktree implementation, the shared git directory, the worktree branch locks and `repo_turn`; the `dirty_worktree` hold keeps its meaning for a clone; the work-in-progress ref pushed after each committing step and before its checkpoint, the resume that fetches it, and the check of whether Azure DevOps accepts `refs/abk/wip/<unit>` (else an `abk-wip/` branch CI excludes) |
+| `workspaces-have-a-clone-implementation` | `coordination-has-leases-and-fencing` and `kit-has-a-worker-package` | A clone with its own git directory for every worker in both deployments; retires the worktree implementation, the shared git directory, the worktree branch locks and `repo_turn`; the `dirty_worktree` hold keeps its meaning for a clone; save and restore (the save at every step boundary in its fixed order, the work-in-progress ref, the session artifact with its descriptor as a runtime capability, the restore rules and the fallback to a new session), starting with the session-moving spike; the check of whether Azure DevOps accepts `refs/abk/wip/<unit>` (else an `abk-wip/` branch CI excludes); a save inside a step stays deferred |
 | `rerere-cache-is-kept-as-an-artifact` | `workspaces-have-a-clone-implementation` and the artifact routes of the API change | A per-repository `rr-cache` artifact; upload of new entries after a restack and download of the merged cache on start; the orchestrator's merge by conflict hash keeping the newest resolution; a command that removes a bad resolution |
 | `secrets-have-implementations` | `orchestrator-serves-a-worker-api` | A repository's secrets read on a runner allowed for it, never through the orchestrator; the environment and files locally, at the paths `abk.runner.yaml` names; Key Vault with a managed identity in the cloud, per repository; tokens that expire and are refreshed during a run; forge tokens for the GitHub App and Entra service principal once decided (open question, before wave 4) |
 | `model-accounts-have-kinds` | `secrets-have-implementations` | Subscription and API-key accounts; the Anthropic API first, then Foundry with a project API key from Key Vault; budget readings from the ledger; a per-unit cap checked between agent steps; a shared backoff; its first task is a live run of the kit's agent step against Foundry, and Entra with a managed identity stays unverified until then |
@@ -612,9 +653,11 @@ second becomes the tracking records of wave 3.
 - A runner's machine facts (accounts and their directories, workspace roots, secret paths, e2e availability, slots, size, kinds) are in its own `abk.runner.yaml` in the config home; it advertises capabilities derived from them, never paths or secrets.
 - Each repository's forge collection, landing, merge recording and checkout work run in a `steward` item on a runner allowed for it; the orchestrator holds no repository checkout or credential, and the planner needs none.
 - Each worker kind is its own module, with a shared module, and no kind imports another.
-- A runner drains by finishing its current items and claiming no more; a person or the runner itself starts a drain, only a person ends one, and there is no drain deadline.
-- A crashed runner's items are enqueued again for any allowed runner when their leases expire, resuming from the checkpoint; after three losses of the same item the unit is held for a person.
-- Work in progress is pushed to the forge after each committing step, before its checkpoint, so another runner can take a unit over.
+- A draining runner's workers hand their items back at their next step boundary and it claims no more; a person or the runner itself starts a drain, only a person ends one, and there is no drain deadline.
+- One save routine, at every step boundary (the head to a work-in-progress ref, the session to the artifacts, then the checkpoint), serves drain and crash; a save inside a step is deferred.
+- A crashed runner's items are enqueued again for any allowed runner when their leases expire and re-run the step that was running; after three losses of the same item the unit is held for a person. A runner that comes back reclaims an item nobody has claimed, and lets go of the rest.
+- An agent session moves with its unit where its descriptor (account, organization, runtime, version) allows, and otherwise the step runs in a new session.
+- A repository's derived data (checkpoints, findings, sessions, transcripts, bundles) may rest in the orchestrator's store; its checkout and credentials never do.
 - The `rr-cache` of each repository is an artifact, merged by conflict hash with the newest resolution kept.
 - Deploy keys stay on the machine that runs verify; verify and e2e run on a runner that holds them and is allowed for the repository.
 - The Anthropic API is the first model endpoint; Foundry with a project API key is the second.
