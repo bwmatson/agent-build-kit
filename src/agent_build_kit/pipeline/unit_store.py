@@ -1837,6 +1837,7 @@ def _with_raised_steps(unit: Unit, existing: StoredUnit | None) -> tuple[ManualS
                     "outcome": held[step.slug].outcome,
                     "last_line": held[step.slug].last_line,
                     "checked_at": held[step.slug].checked_at,
+                    "attested_by": held[step.slug].attested_by,
                 }
             )
             if step.slug in held

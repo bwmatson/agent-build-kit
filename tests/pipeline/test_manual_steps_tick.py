@@ -295,6 +295,26 @@ def test_a_round_runs_each_check_once_and_readmits_the_unit(
     assert stored.history[-1]["note"] == f"requeued: manual step {SLUG} done"
 
 
+def test_a_step_attested_after_the_pass_read_the_store_stays_done(world: World) -> None:
+    class AttestedAfterRead(UnitStore):
+        """A person attests the step right after the pass took its snapshot of the units."""
+
+        def all(self):  # type: ignore[no-untyped-def]
+            snapshot = super().all()
+            done = ManualStep(
+                slug=SLUG, text="A person", done=True, outcome="attested", last_line="did it"
+            )
+            self.set_manual_steps(UNIT, (done,))
+            return snapshot
+
+    world.wait_on(ManualStep(slug=SLUG, text="A person"))
+    world.store = AttestedAfterRead(world.store.path)
+
+    world.evaluate()
+
+    assert (world.step().done, world.step().outcome) == (True, "attested")
+
+
 def test_a_dry_run_changes_nothing_in_the_store(world: World) -> None:
     (world.tree / "flag").write_text("")
     world.wait_on(raised(passing_once_flagged(world)))
@@ -475,3 +495,30 @@ def test_manual_check_with_a_step_nobody_declared_is_refused(world: World) -> No
     config.write_text(dump(world.inst.config))
 
     assert main(["--config", str(config), "manual", "check", "no-such-step"]) != 0
+
+
+# --- a step with no check waits for a person ------------------------------------------------
+
+
+def test_a_step_with_no_check_stays_unmet_and_says_it_waits_for_attestation(world: World) -> None:
+    world.wait_on(ManualStep(slug=SLUG, text="A person flips the marker", runbook=RUNBOOK))
+
+    world.evaluate()
+
+    step = world.step()
+    assert step.done is False
+    assert "attestation" in step.last_line and "no check declared" not in step.last_line
+
+
+def test_an_attested_step_is_never_run_again_and_stays_done(world: World) -> None:
+    world.wait_on(ManualStep(slug=SLUG, text="A person", runbook=RUNBOOK))
+    config = world.inst.root / "abk.yaml"
+    config.write_text(dump(world.inst.config))
+    assert main(["--config", str(config), "manual", "done", SLUG, "--note", "did it"]) == 0
+    attested = world.step()
+    before = world.store.get(UNIT)
+
+    world.evaluate()
+
+    assert (attested.done, attested.outcome) == (True, "attested")
+    assert world.store.get(UNIT) == before
