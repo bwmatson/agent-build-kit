@@ -94,6 +94,11 @@ def cmd_manual_check(args: argparse.Namespace, inst: Installation) -> int:
     return 0
 
 
+def cmd_manual_done(args: argparse.Namespace, inst: Installation) -> int:
+    """Attest a step that declares no check."""
+    raise NotImplementedError
+
+
 def _outstanding(unit: StoredUnit) -> list[ManualStep]:
     """The unmet steps of a unit the tick still checks; a unit that builds nothing or has
     finished waits on none."""
@@ -133,6 +138,11 @@ def register(sub: argparse._SubParsersAction) -> None:
     checked = actions.add_parser("check", help="run the checks of the outstanding steps now")
     checked.add_argument("slug", nargs="?", default="", help="only the step with this name")
     checked.set_defaults(func=cmd_manual_check)
+    done = actions.add_parser("done", help="attest a step that has no check")
+    done.add_argument("slug", help="the step to mark done")
+    done.add_argument("--unit", default="", help="the unit, when two wait on the same slug")
+    done.add_argument("--note", default="", help="what was done, kept with the attestation")
+    done.set_defaults(func=cmd_manual_done)
     listed = actions.add_parser("list", help="list the steps a person has to do")
     listed.add_argument("--done", action="store_true", help="include the finished steps")
     listed.set_defaults(func=cmd_manual_list)

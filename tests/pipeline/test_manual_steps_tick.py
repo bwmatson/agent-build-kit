@@ -475,3 +475,30 @@ def test_manual_check_with_a_step_nobody_declared_is_refused(world: World) -> No
     config.write_text(dump(world.inst.config))
 
     assert main(["--config", str(config), "manual", "check", "no-such-step"]) != 0
+
+
+# --- a step with no check waits for a person ------------------------------------------------
+
+
+def test_a_step_with_no_check_stays_unmet_and_says_it_waits_for_attestation(world: World) -> None:
+    world.wait_on(ManualStep(slug=SLUG, text="A person flips the marker", runbook=RUNBOOK))
+
+    world.evaluate()
+
+    step = world.step()
+    assert step.done is False
+    assert "attestation" in step.last_line and "no check declared" not in step.last_line
+
+
+def test_an_attested_step_is_never_run_again_and_stays_done(world: World) -> None:
+    world.wait_on(ManualStep(slug=SLUG, text="A person", runbook=RUNBOOK))
+    config = world.inst.root / "abk.yaml"
+    config.write_text(dump(world.inst.config))
+    assert main(["--config", str(config), "manual", "done", SLUG, "--note", "did it"]) == 0
+    attested = world.step()
+    before = world.store.get(UNIT)
+
+    world.evaluate()
+
+    assert (attested.done, attested.outcome) == (True, "attested")
+    assert world.store.get(UNIT) == before
