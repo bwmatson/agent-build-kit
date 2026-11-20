@@ -192,6 +192,24 @@ def test_failed_ids_are_those_of_the_outer_summary_not_a_child_runs() -> None:
     assert PythonUvProfile().failed_tests(NESTED_OUTPUT) == OUTER_IDS
 
 
+def test_the_failures_listed_are_those_of_the_outer_summary_not_a_child_runs() -> None:
+    listed = [failure.test for failure in PythonUvProfile().parse_test_failures(NESTED_OUTPUT)]
+
+    assert "test_child.py::test_fails" not in listed
+    assert len(listed) == len(OUTER_IDS)
+    assert listed[0] == OUTER_IDS[0]
+
+
+def test_a_missing_file_with_a_parametrized_id_is_an_id_pytest_cannot_find() -> None:
+    output = "ERROR: file or directory not found: test_child.py::test_x[a b]\n"
+
+    found = PythonUvProfile().ids_not_found(
+        output, Path("/work"), ["tests/test_a.py::test_one", "test_child.py::test_x[a b]"]
+    )
+
+    assert found == ["test_child.py::test_x[a b]"]
+
+
 def test_a_missing_file_is_an_id_pytest_cannot_find() -> None:
     output = "ERROR: file or directory not found: test_child.py::test_fails\n\nno tests ran\n"
     profile = PythonUvProfile()
