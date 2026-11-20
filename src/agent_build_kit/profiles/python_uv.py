@@ -129,7 +129,10 @@ _SHARED_RESOURCE_FAILURE = re.compile(
 )
 # pytest's usage error for an id it cannot find. It names the absolute path and the names, never
 # the parametrization, and says why on the next line (or after the id, in older output).
-_NOT_FOUND = re.compile(r"^ERROR: not found: (?P<id>.+?)(?: \(no match in any of .*)?$", re.M)
+# A path it cannot open is reported as `file or directory not found`.
+_NOT_FOUND = re.compile(
+    r"^ERROR: (?:file or directory )?not found: (?P<id>.+?)(?: \(no match in any of .*)?$", re.M
+)
 _PARAMETRIZATION = re.compile(r"\[.*\]$")
 # The line xdist opens a failed test's block with, which names the worker that ran the test.
 _WORKER_LINE = re.compile(r"^\[(gw\d+)\]", re.MULTILINE)
@@ -820,8 +823,11 @@ class PythonUvProfile:
 
     def failed_tests(self, output: str) -> list[str]:
         """The identifiers of the tests that failed or errored, read from a failed unit-test
-        command's output; empty when it was not a test run."""
-        found = _FAILED_TEST.findall(output)
+        command's output; empty when it was not a test run. Read from the last short-summary
+        section when there is one, so a child run's `FAILED` line inside a failure block is not
+        taken for an outer failure."""
+        _, mark, summary = output.rpartition(SUMMARY_MARK)
+        found = _FAILED_TEST.findall(summary if mark else output)
         return list(dict.fromkeys(found))
 
     def _registered_markers(self, repo: Path) -> list[str]:
