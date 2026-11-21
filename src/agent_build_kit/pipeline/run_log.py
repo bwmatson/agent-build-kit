@@ -159,6 +159,9 @@ class TestRun(Frozen):
     base: str | None = None
     # Whether the row is a recorded failure reused as a run's result, not a run of the suite.
     reused: bool = False
+    # Whether the failures were found on the unit's base too (`FailedOnBase`), so they are not
+    # the unit's and the row never stands in for a new run.
+    on_base: bool = False
 
 
 def append_test_run(path: Path, run: TestRun, *, max_bytes: int = TEST_RUNS_MAX_BYTES) -> None:

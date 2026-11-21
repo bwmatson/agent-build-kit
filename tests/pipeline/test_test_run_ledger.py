@@ -25,7 +25,13 @@ from agent_build_kit.pipeline.wiring import build_unit_test
 from agent_build_kit.profiles.base import ToolchainProfile
 from tests.e2e_base_fakes import branch
 from tests.factories import stored_unit
-from tests.failure_bundle_fakes import RECORDED, START, BundleMachine, BundleProfile
+from tests.failure_bundle_fakes import (
+    RECORDED,
+    START,
+    BundleMachine,
+    BundleProfile,
+)
+from tests.failure_bundle_fakes import run_ledger_rows as _rows
 from tests.pipeline.test_flake_isolation import HookedProfile
 from tests.pipeline.test_unit_test_base_check import TEST, Runs
 
@@ -45,10 +51,6 @@ def _entry(unit: str, *, failed: list[str] | None = None) -> TestRun:
         tick="t1",
         units_running=[],
     )
-
-
-def _rows(path: Path) -> list[dict]:
-    return [json.loads(line) for line in path.read_text().splitlines() if line.strip()]
 
 
 def test_the_ledger_is_a_jsonl_file_of_the_state_directory(tmp_path: Path) -> None:

@@ -212,6 +212,12 @@ from agent_build_kit.pipeline.shell import (
 from agent_build_kit.pipeline.stack_runner import FixResult, Restacked, UnitRunner, Worktree
 from agent_build_kit.pipeline.transcript import Transcript, TranscriptEvent
 from agent_build_kit.pipeline.ui_review import ui_notes_of, ui_reply_writer, unit_patch_of
+from agent_build_kit.pipeline.unchanged_failure import (
+    ReuseContext,
+    hold_for_unchanged_failure,
+    merged_since,
+    run_or_reuse,
+)
 from agent_build_kit.pipeline.unit_size import actual_lines, branch_diff, over_ceiling, unit_ceiling
 from agent_build_kit.pipeline.unit_store import (
     Cause,
@@ -1757,6 +1763,7 @@ def build_unit_test(
         run_loaded.clear()
         outcome = "failed"
         failed: list[str] = []
+        on_base = False
         gap: float | None = None
         handed = handed_over_at(cwd)
         if handed is not None:
@@ -1770,7 +1777,7 @@ def build_unit_test(
             outcome, failed = "flake", [flake.test for flake in found.flakes]
             raise
         except FailedOnBase as found_on_base:
-            failed = [failure.test for failure in found_on_base.failures]
+            failed, on_base = [failure.test for failure in found_on_base.failures], True
             raise
         except SuspendedRun as suspended_run:
             outcome, gap = "disturbed", suspended_run.seconds
@@ -1788,8 +1795,6 @@ def build_unit_test(
                 [sample_start, sample_end], active().tests.load_high_per_cpu
             )
             try:
-                head_id = git(cwd, "rev-parse", "HEAD", check=False).stdout.strip()
-                base_id = git(cwd, "rev-parse", "--verify", "-q", base + "^{commit}", check=False)
                 append_test_run(
                     test_runs,
                     TestRun(
@@ -1810,8 +1815,9 @@ def build_unit_test(
                         disturbed_seconds=gap,
                         data_source=data_source,
                         data_age_hours=data_age,
-                        head=head_id or None,
-                        base=base_id.stdout.strip() or base or None,
+                        head=_commit_id(cwd, "HEAD") or None,
+                        base=_commit_id(cwd, base) or None,
+                        on_base=on_base,
                     ),
                 )
             except OSError as error:
@@ -1829,32 +1835,57 @@ def build_unit_test(
         """The unit-test run, behind its slot: with `global_limits.max_concurrent_unit_tests` set,
         a run that finds every slot taken waits, outside the command's time limit, and the permit
         is held for the whole run (the reruns inside it take none) and given back however it
-        ends."""
-        with _test_slot(installation, log) as waited:
-            for attempt in (1, 2):
-                rerun_notes.clear()
-                try:
-                    passed, output = recorded(
-                        cwd=cwd,
-                        base=base,
-                        whole_repo=whole_repo,
-                        failed_output=failed_output,
-                        moved_from=moved_from,
-                        waited=waited,
-                    )
-                    if not passed and rerun_notes:
-                        # On the command's own line, so the tail of the output stays whole.
-                        first, newline, rest = output.partition("\n")
-                        output = f"{first} [serial {'; '.join(rerun_notes)}]{newline}{rest}"
-                    return passed, output
-                except SuspendedRun as suspended_run:
-                    _say(
-                        log,
-                        f"unit-test: a suspend of {suspended_run.seconds:.0f} s disturbed the "
-                        "run, so its failures are not judged"
-                        + ("; the checks run again" if attempt == 1 else ""),
-                    )
-            return False, SUSPENDED_NOTE
+        ends. Before a slot is taken, a failed run of the unit on this head and base with nothing
+        changed since stands in for the run (`unchanged_failure.run_or_reuse`)."""
+
+        def slotted() -> tuple[bool, str]:
+            with _test_slot(installation, log) as waited:
+                for attempt in (1, 2):
+                    rerun_notes.clear()
+                    try:
+                        passed, output = recorded(
+                            cwd=cwd,
+                            base=base,
+                            whole_repo=whole_repo,
+                            failed_output=failed_output,
+                            moved_from=moved_from,
+                            waited=waited,
+                        )
+                        if not passed and rerun_notes:
+                            # On the command's own line, so the tail of the output stays whole.
+                            first, newline, rest = output.partition("\n")
+                            output = f"{first} [serial {'; '.join(rerun_notes)}]{newline}{rest}"
+                        return passed, output
+                    except SuspendedRun as suspended_run:
+                        _say(
+                            log,
+                            f"unit-test: a suspend of {suspended_run.seconds:.0f} s disturbed the "
+                            "run, so its failures are not judged"
+                            + ("; the checks run again" if attempt == 1 else ""),
+                        )
+                return False, SUSPENDED_NOTE
+
+        if test_runs is None or installation is None:
+            return slotted()
+        unit_id = spans.current_unit.get()[0]
+        store = UnitStore(installation.state_dir / "units.json")
+        try:
+            rework_note = bool(store.get(unit_id).guidance)
+        except (OSError, ValueError, KeyError):
+            rework_note = False
+        return run_or_reuse(
+            test_runs,
+            ReuseContext(
+                unit=unit_id,
+                head=_commit_id(cwd, "HEAD"),
+                base=_commit_id(cwd, base),
+                rework_note=rework_note,
+            ),
+            merged_since=lambda started: merged_since(store, unit_id, started),
+            run=slotted,
+            hold=lambda note: hold_for_unchanged_failure(store, unit_id, note),
+            log=lambda message: _say(log, message),
+        )
 
     def tested(
         cwd: Path,
@@ -3115,6 +3146,16 @@ def _under(path: Path, where: Path) -> str | None:
         return path.relative_to(where).as_posix()
     except ValueError:
         return None
+
+
+def _commit_id(cwd: Path, ref: str) -> str:
+    """The full commit id `ref` names in `cwd`, or empty when it names none."""
+    try:
+        return git(
+            cwd, "rev-parse", "--verify", "-q", f"{ref}^{{commit}}", check=False
+        ).stdout.strip()
+    except OSError:
+        return ""
 
 
 def _say(log: Callable[[str], None] | None, message: str) -> None:

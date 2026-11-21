@@ -13,6 +13,8 @@ from pathlib import Path
 
 from agent_build_kit.model import Frozen
 from agent_build_kit.pipeline.run_log import TestRun, append_test_run
+from agent_build_kit.pipeline.unit_store import Cause, HeldBy, UnitStore
+from agent_build_kit.pipeline.units import HELD, MERGED, history_stamp
 
 
 class ReuseContext(Frozen):
@@ -46,13 +48,14 @@ def run_or_reuse(
     if (
         last is None
         or last.outcome != "failed"
+        or last.on_base
         or last.head != context.head
         or last.base != context.base
         or context.rework_note
         or merged_since(datetime.fromisoformat(last.started))
     ):
         return run()
-    log(f"unit-test: unchanged since the failed run at {last.started}; not run again")
+    log(f"unchanged since the failed run at {last.started}; not run again")
     # The reused row keeps the recorded run's start, so a later reuse asks about merges from it.
     append_test_run(
         ledger, last.model_copy(update={"seconds": 0.0, "reused": True, "failed_detail": []})
@@ -80,3 +83,30 @@ def _last_run(ledger: Path, unit: str) -> TestRun | None:
         if row.unit == unit:
             return row
     return None
+
+
+def merged_since(store: UnitStore, unit_id: str, started: datetime) -> bool:
+    """Whether a unit `unit_id` depends on or waited on merged after `started`. A store that
+    cannot be read, a unit it does not know and a merge with no readable time all answer yes,
+    so the unit's tests run instead of an old failure being reused."""
+    try:
+        unit = store.get(unit_id)
+        parents = {*unit.depends_on, *unit.needs, *unit.merge_needs, *unit.waited_on}
+        for parent in parents:
+            stored = store.get(parent)
+            if stored.state != MERGED:
+                continue
+            stamps = [
+                history_stamp(entry) for entry in stored.history if entry.get("state") == MERGED
+            ]
+            if not stamps or None in stamps or max(s for s in stamps if s) > started:
+                return True
+    except (OSError, ValueError, KeyError, TypeError):
+        return True
+    return False
+
+
+def hold_for_unchanged_failure(store: UnitStore, unit_id: str, note: str) -> None:
+    """Hold the unit for a person, with `note` saying which tests keep failing on which head and
+    base."""
+    store.set_state(unit_id, HELD, note=note, held_by=HeldBy.CHECKS, cause=Cause.NEEDS_HUMAN)

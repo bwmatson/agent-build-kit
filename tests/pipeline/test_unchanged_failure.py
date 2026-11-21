@@ -7,15 +7,31 @@ the slot-taking suite run: a reused result never calls it.
 
 from __future__ import annotations
 
-import json
+import subprocess
+from collections.abc import Iterator
 from datetime import datetime, timedelta
 from pathlib import Path
+from typing import cast
 
 import pytest
 
+from agent_build_kit.installation import Installation
+from agent_build_kit.pipeline import spans
 from agent_build_kit.pipeline.run_log import TestRun, append_test_run, run_ledger_path
-from agent_build_kit.pipeline.unchanged_failure import ReuseContext, run_or_reuse
+from agent_build_kit.pipeline.unchanged_failure import (
+    ReuseContext,
+    merged_since,
+    run_or_reuse,
+)
+from agent_build_kit.pipeline.unit_store import HeldBy, UnitStore
+from agent_build_kit.pipeline.units import HELD
+from agent_build_kit.pipeline.wiring import build_unit_test
+from agent_build_kit.profiles.base import ToolchainProfile
+from tests.e2e_base_fakes import branch
+from tests.factories import stored_unit
 from tests.failure_bundle_fakes import START
+from tests.failure_bundle_fakes import run_ledger_rows as _rows
+from tests.pipeline.test_flake_isolation import HookedProfile
 
 HEAD = "a" * 40
 BASE = "b" * 40
@@ -67,6 +83,7 @@ def _row(
     head: str | None = HEAD,
     base: str | None = BASE,
     reused: bool = False,
+    on_base: bool = False,
     minutes: int = 0,
 ) -> TestRun:
     return TestRun(
@@ -83,16 +100,13 @@ def _row(
         head=head,
         base=base,
         reused=reused,
+        on_base=on_base,
     )
 
 
 @pytest.fixture
 def ledger(tmp_path: Path) -> Path:
     return run_ledger_path(tmp_path)
-
-
-def _rows(path: Path) -> list[dict]:
-    return [json.loads(line) for line in path.read_text().splitlines() if line.strip()]
 
 
 def test_a_failure_on_the_same_head_and_base_is_reused_and_takes_no_slot(ledger: Path) -> None:
@@ -233,9 +247,7 @@ def test_a_fresh_run_after_a_reuse_starts_the_count_again(ledger: Path) -> None:
     assert spy.holds == []
 
 
-def test_the_two_units_that_looped_are_stopped_at_their_second_turn(ledger: Path) -> None:
-    """The recorded shape of the loop: each unit's full-suite run failed the same tests on the
-    same head and base, over and over."""
+def test_each_unit_is_held_at_its_own_second_reuse(ledger: Path) -> None:
     for unit in ("core/1", "worker/1"):
         append_test_run(ledger, _row(unit, minutes=0))
     spy = Spy()
@@ -249,3 +261,104 @@ def test_the_two_units_that_looped_are_stopped_at_their_second_turn(ledger: Path
     assert spy.runs == 0
     assert len(spy.holds) == 2
     assert all(HEAD in note and BASE in note for note in spy.holds)
+
+
+def test_a_failure_found_on_the_base_is_run_again_not_reused(ledger: Path) -> None:
+    append_test_run(ledger, _row(on_base=True))
+    spy = Spy(passes=False)
+
+    result = spy.decide(ledger)
+
+    assert spy.runs == 1
+    assert result == (False, "the suite ran")
+    assert spy.holds == []
+
+
+# --- the merged parents, the hold and the unit-test call -----------------------------
+
+
+def _store(path: Path, merged_at: datetime | None, *, parent_state: str = "merged") -> UnitStore:
+    history = [] if merged_at is None else [{"state": "merged", "at": merged_at.isoformat()}]
+    store = UnitStore(path / "units.json")
+    store.import_units(
+        [
+            stored_unit("parent/1", change="parent", state=parent_state, history=tuple(history)),
+            stored_unit("feature/1", change="feature", depends_on=("parent/1",)),
+        ]
+    )
+    return store
+
+
+@pytest.mark.parametrize(
+    ("merged_at", "parent_state", "expected"),
+    [
+        (START + timedelta(minutes=1), "merged", True),
+        (START - timedelta(minutes=1), "merged", False),
+        (None, "merged", True),
+        (START + timedelta(minutes=1), "in_review", False),
+    ],
+    ids=["merged after the run", "merged before it", "merged with no time", "not merged"],
+)
+def test_a_parent_merged_after_the_run_began_is_a_merge_since(
+    tmp_path: Path, merged_at: datetime | None, parent_state: str, expected: bool
+) -> None:
+    store = _store(tmp_path, merged_at, parent_state=parent_state)
+
+    assert merged_since(store, "feature/1", START) is expected
+
+
+def test_a_unit_the_store_does_not_know_counts_as_a_merge_since(tmp_path: Path) -> None:
+    assert merged_since(_store(tmp_path, None), "unknown/1", START)
+
+
+@pytest.fixture
+def current_unit() -> Iterator[None]:
+    token = spans.current_unit.set(("feature/1", "feature", "n1", 1))
+    yield
+    spans.current_unit.reset(token)
+
+
+class Silent:
+    """A runner that keeps every command it is asked to run and fails the run that starts."""
+
+    def __init__(self) -> None:
+        self.commands: list[list[str]] = []
+
+    def __call__(self, command: list[str], **kwargs: object) -> subprocess.CompletedProcess:
+        self.commands.append(command)
+        raise AssertionError(f"the unit-test run started {command}")
+
+
+def test_the_unit_test_call_reuses_an_unchanged_failure_and_holds_the_unit_at_the_second(
+    tmp_path: Path, workspace: Installation, current_unit: None
+) -> None:
+    repo, base = branch(tmp_path, {})
+    head = subprocess.run(
+        ["git", "rev-parse", "HEAD"], cwd=repo, capture_output=True, text=True, check=True
+    ).stdout.strip()
+    store = UnitStore(workspace.state_dir / "units.json")
+    store.upsert([stored_unit("feature/1", change="feature", state="running")])
+    ledger = run_ledger_path(workspace.state_dir)
+    append_test_run(ledger, _row(head=head, base=base))
+    runner, lines = Silent(), []
+    unit_test = build_unit_test(
+        profile=cast(ToolchainProfile, HookedProfile()),
+        run=runner,
+        changed=lambda *a: ["src/app.py"],
+        test_runs=ledger,
+        installation=workspace,
+        log=lines.append,
+    )
+
+    first = unit_test(cwd=repo, base=base)
+    held_after_first = store.get("feature/1").state
+    second = unit_test(cwd=repo, base=base)
+
+    assert first[0] is False and second[0] is False
+    assert runner.commands == [], "a reused failure starts no run and takes no slot"
+    assert held_after_first != HELD
+    assert [row["reused"] for row in _rows(ledger)] == [False, True, True]
+    held = store.get("feature/1")
+    assert (held.state, held.held_by) == (HELD, HeldBy.CHECKS)
+    assert head in held.note and base in held.note
+    assert any("not run again" in line for line in lines)

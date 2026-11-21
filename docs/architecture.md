@@ -1958,7 +1958,13 @@ approved.
   start or end was at or above `tests.load_high_per_cpu` (default 1.5) for each CPU, and
   is absent, read as unknown, on a record written before it. Each row of `runs/test-runs.jsonl`
   carries the same `cpus` and `load_high`, and `failed_detail`: the worker (`gw3`) that ran each
-  failed test and whether its failure was the test's time limit. `abk failures [TEST]` reads
+  failed test and whether its failure was the test's time limit, and the `head` and `base`
+  commit ids the run saw (absent on an older row). Before a unit-test slot is taken, a unit
+  whose last row failed on the same head and base, with nothing it waited on merged since, no
+  rework note pending and the failure not found on the base, is not run again: the run's result
+  is that failure, the log says it was unchanged and not run again, and a `reused` row is added.
+  The second reuse for the same head and base holds the unit (`held_by` `checks`) with a note
+  naming the tests, head and base. `abk failures [TEST]` reads
   the records and the bundles (the ledger, `test-runs.jsonl`, answers how often a run was
   loaded): it lists each failing test with its count, first and last time,
   units and load, and with `--show` prints the newest bundle's context, machine and worktree
