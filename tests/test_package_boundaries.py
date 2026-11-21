@@ -24,9 +24,12 @@ import pytest
 from agent_build_kit.cli import COMMANDS_GROUP
 from tests.ecosystem_names import WORKER_MODULES
 from tests.support.package_seeds import Seeds, baseline, seeds
-from tests.tracked_files import SOURCE_ROOT, WORKER_SOURCE
+from tests.tracked_files import ROOT, SOURCE_ROOT, WORKER_SOURCE, tracked
 
 WORKER_ROOT = WORKER_SOURCE.parents[1]
+TESTS = Path("tests")
+WORKER_TESTS = Path("packages") / "worker" / "tests"
+CORE_TEST_PREFIX = "test_checkpoint"
 CORE, WORKER, ORCHESTRATOR = "core", "worker", "orchestrator"
 BASELINE_CEILING = 13
 ROOT_MODULE = "__init__"
@@ -501,3 +504,60 @@ def test_the_worker_package_depends_on_the_core_and_registers_abk_worker_as_a_co
     assert project["entry-points"][COMMANDS_GROUP] == {
         "worker": "agent_build_kit.cli.worker:register"
     }
+
+
+def is_worker_test(relative: Path, modules: Collection[str]) -> bool:
+    """Whether the test file `relative` (below a tests folder) tests a module of the worker.
+
+    A package the worker owns whole (`graph`) owns every test file in its mirror folder except
+    those of a module that stays in the core (`graph.checkpointer`); any other worker module owns
+    the test files in its mirror folder named `test_<module>*.py`.
+    """
+    if not relative.name.startswith("test_") or relative.suffix != ".py":
+        return False
+    folder = relative.parent.as_posix()
+    if folder == "graph":
+        return not relative.name.startswith(CORE_TEST_PREFIX)
+    return any(
+        Path(module).parent.as_posix() == folder
+        and relative.name.startswith(f"test_{Path(module).stem}")
+        for module in modules
+        if not module.startswith("graph/")
+    )
+
+
+@pytest.mark.integration
+def test_every_test_file_of_a_worker_module_is_under_the_worker_package_mirroring_the_source() -> (
+    None
+):
+    modules = worker_modules()
+    files = tracked(ROOT)
+    misplaced = [
+        str(path)
+        for path in files
+        if path.is_relative_to(TESTS) and is_worker_test(path.relative_to(TESTS), modules)
+    ]
+    moved = [
+        path.relative_to(WORKER_TESTS)
+        for path in files
+        if path.is_relative_to(WORKER_TESTS) and path.name.startswith("test_")
+    ]
+
+    assert misplaced == [], "move under packages/worker/tests/: " + ", ".join(misplaced)
+    assert moved, "packages/worker/tests holds no test file"
+    assert [str(p) for p in moved if not is_worker_test(p, modules)] == []
+
+
+@pytest.mark.integration
+def test_a_test_file_base_name_is_unique_across_the_repository() -> None:
+    seen: dict[str, list[str]] = {}
+    files = tracked(ROOT)
+    assert any(
+        path.is_relative_to(WORKER_TESTS) and path.name.startswith("test_") for path in files
+    ), "packages/worker/tests holds no test file, so the uniqueness check does not span it"
+    for path in files:
+        in_a_tests_folder = path.is_relative_to(TESTS) or path.is_relative_to(WORKER_TESTS)
+        if in_a_tests_folder and path.name.startswith("test_") and path.suffix == ".py":
+            seen.setdefault(path.name, []).append(str(path))
+
+    assert {name: paths for name, paths in seen.items() if len(paths) > 1} == {}
