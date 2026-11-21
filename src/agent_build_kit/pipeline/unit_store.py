@@ -1712,7 +1712,7 @@ class UnitStore:
         self._update(unit_id, landing_deadline=deadline)
 
     def set_branch_kept(self, unit_id: str, reason: str) -> None:
-        raise NotImplementedError
+        self._update(unit_id, branch_kept=reason)
 
     def set_base_move_failures(self, unit_id: str, failures: int) -> None:
         self._update(unit_id, base_move_failures=failures)

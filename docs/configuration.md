@@ -487,11 +487,12 @@ repos:                          # ordered: deploy order is derived from
                                 # `origin/HEAD` — which is a pointer nobody
                                 # updates, so a repo that moved to `dev` still
                                 # answers `main`.
-    delete_merged_branches: true  # at a merge with units stacked on it, delete
-                                # the merged branch on the host and keep its
-                                # last head under `refs/abk/bases/` for their
-                                # restacks (deleting it lets the host retarget
-                                # them); false leaves the branch alone.
+    delete_merged_branches: true  # delete a merged unit's remote branch (at the
+                                # merge, and on each pass for any left behind,
+                                # once no open pull request is based on it),
+                                # keeping its last head under `refs/abk/bases/`
+                                # for the restacks of units stacked on it;
+                                # false leaves the branch alone.
                                 # `abk doctor` reports a host that deletes
                                 # merged branches while this is off.
     landing_wait: 3600          # seconds (greater than 0) a merged pull request

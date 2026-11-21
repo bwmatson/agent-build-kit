@@ -413,7 +413,7 @@ def test_with_the_setting_off_the_pass_deletes_nothing_and_on_it_does(swept: Wor
     sweep = Sweep(swept)
 
     sweep()
-    while_off = (PARENT_BRANCH in on_the_remote(swept), swept.forge.deleted)
+    while_off = (PARENT_BRANCH in on_the_remote(swept), list(swept.forge.deleted))
     setting(on=True)
     sweep()
 

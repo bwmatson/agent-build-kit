@@ -998,7 +998,10 @@ commit records the unit merged.
 recorded merged whose commit is not on the default branch, and `--landed-as <sha>` records a commit
 already on the default branch as the unit's merge). `delete_merged_branches` says whether the
 pipeline deletes a merged unit's branch so the host retargets the units stacked on it; the local
-`refs/abk/bases/<branch>` ref keeps their old base for the restack. `abk doctor` reports where the
+`refs/abk/bases/<branch>` ref keeps their old base for the restack. Settling ends with a branch
+check, and each pass repeats it for merged units: the remote branch is deleted once no open pull
+request is based on it, the local worktree and branch go through the usual guards, and what is
+kept is stored on the unit with its reason and shown by `abk status`. `abk doctor` reports where the
 host and the setting disagree, and a unit recorded merged whose commit is not on the default branch.
 
 **The code host outage.** A git push the code host refuses (an authentication refusal, an HTTP 401, 403
