@@ -23,6 +23,7 @@ UNLISTED_WALKS = {
     "test_verdict_readers_guard.py": "walks src/ only",
     "test_test_helpers_defined_once.py": "walks tests/ only",
     "timing_hazards.py": "walks tests/ only",
+    "ecosystem_names.py": "walks the kit's source trees only",
     "tracked_files.py": "is the helper",
     "attach_driver.py": "lists the changes in a scratch repository",
     "test_chat_editing_claude_code.py": "lists the changes in a scratch repository",
