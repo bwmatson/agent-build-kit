@@ -192,3 +192,65 @@ def test_tags_exits_1_on_a_declared_mode_the_group_cannot_have(
 
     assert status == 1
     assert "Mode:" in capsys.readouterr().out
+
+
+def reorganization_warnings(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], text: str
+) -> tuple[int, list[str]]:
+    """The status of `abk tags` over `text` and the warnings it printed that name `Mode:`."""
+    run = Replan(tmp_path, monkeypatch, feature=text)
+    status = cli.cmd_tags(TAGS, run.inst)
+    lines = capsys.readouterr().out.splitlines()
+    return status, [line for line in lines if line.startswith("warning") and "Mode:" in line]
+
+
+MOVES = (
+    "# Tasks\n\nAcceptance: none — a fixture\n\n## 1. [app] [unit-test] Tidy the package\n\n"
+    "{preface}"
+    "- [ ] 1.1 Move `src/pkg/old_name.py` to `src/pkg/new_name.py`.\n"
+    "- [ ] 1.2 Rename `scripts/build_a.py` to `scripts/make_a.py`.\n"
+    "- [ ] 1.3 Edit `src/pkg/__init__.py` to follow the move.\n"
+    "{extra}"
+)
+
+
+def test_tags_warns_of_a_group_that_reads_as_a_reorganization_and_exits_zero(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    text = MOVES.format(preface="", extra="")
+
+    status, warnings = reorganization_warnings(tmp_path, monkeypatch, capsys, text)
+
+    assert status == 0
+    assert len(warnings) == 1
+    assert "group 1" in warnings[0]
+    assert "Mode: refactor — <reason>" in warnings[0]
+    assert "`Test:` task" in warnings[0]
+
+
+@pytest.mark.parametrize(
+    ("preface", "extra"),
+    [
+        ("", "- [ ] 1.4 Test: the new path imports.\n"),
+        ("Tests: required — the move changes an import\n\n", ""),
+        ("Mode: refactor — moves only\n\n", ""),
+    ],
+    ids=["a Test: task", "Tests: required", "a Mode: line"],
+)
+def test_tags_does_not_warn_of_a_reorganization_group_that_has_a_way_out_already(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    preface: str,
+    extra: str,
+) -> None:
+    _, bare = reorganization_warnings(
+        tmp_path / "bare", monkeypatch, capsys, MOVES.format(preface="", extra="")
+    )
+    text = MOVES.format(preface=preface, extra=extra)
+
+    status, warnings = reorganization_warnings(tmp_path / "exit", monkeypatch, capsys, text)
+
+    assert len(bare) == 1
+    assert status == 0
+    assert warnings == []
