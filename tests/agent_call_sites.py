@@ -22,7 +22,7 @@ from pathlib import Path
 
 from agent_build_kit.pipeline.usage_ledger import UNIT_CALL_NODES
 from agent_build_kit.pipeline.vocabulary import OverheadNode
-from tests.ecosystem_names import source_trees
+from tests.tracked_files import source_trees
 
 # Sites that are allowed to record nothing, each with its reason. Every site records now, so
 # it is empty; an entry would need a reason of its own, and may only be removed.

@@ -11,16 +11,9 @@ from pathlib import Path
 
 import pytest
 
-from tests.ecosystem_names import (
-    ALLOWLIST,
-    OWN_TOOLING,
-    SOURCE_ROOT,
-    TOKENS,
-    WORKER_SOURCE,
-    check_source,
-    source_trees,
-)
+from tests.ecosystem_names import ALLOWLIST, OWN_TOOLING, TOKENS, check_source
 from tests.time_limit import LOADED_TEST_TIME_LIMIT
+from tests.tracked_files import SOURCE_ROOT, WORKER_SOURCE, source_trees
 
 NONE: frozenset[str] = frozenset()
 

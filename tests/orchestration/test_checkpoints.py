@@ -28,7 +28,7 @@ from agent_build_kit.run_support import thread_of
 from tests.conftest import make_installation
 from tests.graph.checkpoint_reads import a_config
 from tests.graph.test_checkpoint_allowlist import Unlisted, populated
-from tests.tracked_files import ROOT, guarded_files
+from tests.tracked_files import ROOT, guarded_files, source_tree_folders
 
 
 @pytest.fixture(autouse=True)
@@ -192,9 +192,7 @@ def test_only_the_local_implementation_names_the_sqlite_opener() -> None:
     }
     offenders = [
         path.relative_to(ROOT).as_posix()
-        for path in guarded_files(
-            under=["src/agent_build_kit", "packages/worker/src/agent_build_kit"], suffixes={".py"}
-        )
+        for path in guarded_files(under=source_tree_folders(), suffixes={".py"})
         if path.relative_to(ROOT).as_posix() not in allowed
         and "open_unit_graphs" in path.read_text()
     ]

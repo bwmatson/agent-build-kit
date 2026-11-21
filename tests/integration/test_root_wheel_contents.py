@@ -11,7 +11,8 @@ from pathlib import Path
 import pytest
 
 from agent_build_kit.cli import COMMANDS_GROUP
-from tests.ecosystem_names import REPOSITORY_ROOT, WORKER_MODULES
+from tests.ecosystem_names import WORKER_MODULES
+from tests.tracked_files import ROOT
 
 BUILD_TIME_LIMIT = 300
 
@@ -21,7 +22,7 @@ def wheel_files(tmp_path_factory: pytest.TempPathFactory) -> dict[str, str]:
     """Each member of the root project's built wheel with its text (empty for a binary file)."""
     out = tmp_path_factory.mktemp("wheel")
     subprocess.run(
-        ["uv", "build", "--wheel", "--out-dir", str(out), str(REPOSITORY_ROOT)],
+        ["uv", "build", "--wheel", "--out-dir", str(out), str(ROOT)],
         check=True,
         capture_output=True,
         text=True,

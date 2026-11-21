@@ -8,7 +8,7 @@ from collections import defaultdict
 
 import pytest
 
-from tests.ecosystem_names import source_files
+from tests.tracked_files import source_files
 from tests.time_limit import LOADED_TEST_TIME_LIMIT
 
 

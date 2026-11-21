@@ -13,10 +13,8 @@ import re
 from collections.abc import Collection, Mapping
 from pathlib import Path
 
-REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
-SOURCE_ROOT = REPOSITORY_ROOT / "src" / "agent_build_kit"
-WORKER_SOURCE = REPOSITORY_ROOT / "packages" / "worker" / "src" / "agent_build_kit"
-# The modules the package table assigns to the worker, as paths under a source tree.
+# The modules the package table assigns to the worker, as paths under a source tree; a test of the
+# package boundaries asserts the list equals what the seeds assign.
 WORKER_MODULES = (
     "graph/build.py",
     "graph/check_loop.py",
@@ -27,21 +25,8 @@ WORKER_MODULES = (
     "pipeline/resolution_lane.py",
     "pipeline/verify.py",
     "cli/worker.py",
+    "worker_run.py",
 )
-
-
-def source_trees() -> list[Path]:
-    """Every source tree of the `agent_build_kit` namespace: the root project's and each
-    package's under `packages/`. A guard over the framework's source walks these, never
-    `SOURCE_ROOT` alone."""
-    packages = sorted(REPOSITORY_ROOT.glob("packages/*/src/agent_build_kit"))
-    return [SOURCE_ROOT, *(tree for tree in packages if tree.is_dir())]
-
-
-def source_files(pattern: str = "*.py") -> list[tuple[Path, Path]]:
-    """Each file of the source trees matching `pattern` as `(its tree, the file)`, in a stable
-    order; the file's name relative to its tree is `path.relative_to(tree)`."""
-    return [(tree, path) for tree in source_trees() for path in sorted(tree.rglob(pattern))]
 
 
 # The one place the names live: a new ecosystem's manager is one line.

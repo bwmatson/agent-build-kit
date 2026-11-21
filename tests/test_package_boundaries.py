@@ -22,8 +22,9 @@ from pathlib import Path
 import pytest
 
 from agent_build_kit.cli import COMMANDS_GROUP
-from tests.ecosystem_names import SOURCE_ROOT, WORKER_MODULES, WORKER_SOURCE
+from tests.ecosystem_names import WORKER_MODULES
 from tests.support.package_seeds import Seeds, baseline, seeds
+from tests.tracked_files import SOURCE_ROOT, WORKER_SOURCE
 
 WORKER_ROOT = WORKER_SOURCE.parents[1]
 CORE, WORKER, ORCHESTRATOR = "core", "worker", "orchestrator"
@@ -460,10 +461,25 @@ def worker_problems(
     ]
 
 
-@pytest.mark.parametrize("module", WORKER_MODULES)
+def worker_modules() -> list[str]:
+    """The modules the seeds assign to the worker, as paths under a source tree; a package whose
+    `__init__` stays in the core to extend the namespace is not a module of the worker."""
+    edges = module_imports(SOURCE_ROOT, [WORKER_SOURCE])
+    return sorted(
+        f"{module.replace('.', '/')}.py"
+        for module, package in assign(edges, seeds()).items()
+        if package == WORKER and not (SOURCE_ROOT / module.replace(".", "/")).is_dir()
+    )
+
+
+@pytest.mark.parametrize("module", worker_modules())
 def test_a_module_the_table_assigns_to_the_worker_is_in_the_worker_package(module: str) -> None:
     assert (WORKER_SOURCE / module).is_file()
     assert not (SOURCE_ROOT / module).exists()
+
+
+def test_the_worker_modules_the_wheel_test_lists_are_those_the_seeds_assign() -> None:
+    assert sorted(WORKER_MODULES) == worker_modules()
 
 
 @pytest.mark.integration

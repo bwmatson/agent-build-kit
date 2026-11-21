@@ -21,7 +21,7 @@ from agent_build_kit.forges.local import LocalForge
 from agent_build_kit.hooks.policy import decide
 from agent_build_kit.pipeline.command_policy import check_command
 from agent_build_kit.runtimes.claude_code import DISALLOWED, disallowed
-from tests.ecosystem_names import source_files
+from tests.tracked_files import source_files
 
 MERGES = (
     "gh pr merge 4",

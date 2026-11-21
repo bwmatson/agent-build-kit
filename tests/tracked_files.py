@@ -15,6 +15,8 @@ from agent_build_kit.model import Frozen
 from agent_build_kit.pipeline.shell import git
 
 ROOT = Path(__file__).resolve().parents[1]
+SOURCE_ROOT = ROOT / "src" / "agent_build_kit"
+WORKER_SOURCE = ROOT / "packages" / "worker" / "src" / "agent_build_kit"
 # Vendored and built folders, skipped wherever they sit below the folder a guard reads.
 SKIPPED_DIRS = frozenset({"node_modules", ".venv", "__pycache__", "dist"})
 LISTING_RETRIES = 3
@@ -114,3 +116,23 @@ def guarded_files(
                 break
     found.update(root / name for name in names if (root / name).is_file())
     return sorted(path for path in found if suffixes is None or path.suffix in suffixes)
+
+
+def source_trees() -> list[Path]:
+    """Every source tree of the `agent_build_kit` namespace: the root project's and each
+    package's under `packages/`. A guard over the framework's source walks these, never
+    `SOURCE_ROOT` alone."""
+    packages = sorted(ROOT.glob("packages/*/src/agent_build_kit"))
+    return [SOURCE_ROOT, *(tree for tree in packages if tree.is_dir())]
+
+
+def source_tree_folders() -> list[str]:
+    """The source trees' folders relative to the repository root, as `guarded_files(under=...)`
+    takes them."""
+    return [tree.relative_to(ROOT).as_posix() for tree in source_trees()]
+
+
+def source_files(pattern: str = "*.py") -> list[tuple[Path, Path]]:
+    """Each file of the source trees matching `pattern` as `(its tree, the file)`, in a stable
+    order; the file's name relative to its tree is `path.relative_to(tree)`."""
+    return [(tree, path) for tree in source_trees() for path in sorted(tree.rglob(pattern))]

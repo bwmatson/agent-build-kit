@@ -14,7 +14,7 @@ from pathlib import Path
 import pytest
 
 from tests.time_limit import LOADED_TEST_TIME_LIMIT
-from tests.tracked_files import ROOT, guarded_files
+from tests.tracked_files import ROOT, guarded_files, source_tree_folders
 
 PIPELINE_CLI = ROOT / "src/agent_build_kit/cli/pipeline.py"
 UNITS = ROOT / "src/agent_build_kit/pipeline/units.py"
@@ -44,7 +44,7 @@ def names_in(path: Path) -> list[str]:
 @pytest.mark.time_limit(LOADED_TEST_TIME_LIMIT)
 @pytest.mark.integration
 def test_no_source_file_defines_or_uses_a_pass_rule_or_the_loaded_tick_marker() -> None:
-    sources = guarded_files(under=["src"], suffixes={".py"})
+    sources = guarded_files(under=source_tree_folders(), suffixes={".py"})
     # The forges' read pool is not the build pool; only the pipeline CLI must not import it.
     offences = [
         line

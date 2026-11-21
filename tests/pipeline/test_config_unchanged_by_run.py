@@ -18,7 +18,7 @@ from agent_build_kit.pipeline.wiring import build_run
 from agent_build_kit.runtimes import AgentRateLimited, AgentRequest, AgentResult
 from agent_build_kit.runtimes.claude_code import ClaudeCodeRuntime, spawn
 from tests.conftest import make_installation
-from tests.ecosystem_names import source_files
+from tests.tracked_files import source_files
 from tests.pipeline.test_config_unchanged_when_confined import EDITED, step
 from tests.pipeline.test_wiring_sandbox import Recording, install
 from tests.runtimes.stand_in import StandInRuntime

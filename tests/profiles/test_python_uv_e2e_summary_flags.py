@@ -6,7 +6,7 @@ from pathlib import Path
 import pytest
 
 from agent_build_kit.profiles.python_uv import PROFILE
-from tests.ecosystem_names import source_files
+from tests.tracked_files import source_files
 from tests.time_limit import LOADED_TEST_TIME_LIMIT
 
 # `-vv` keeps a summary message whole (below it pytest cuts it to the terminal width).

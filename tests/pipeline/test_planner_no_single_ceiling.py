@@ -6,7 +6,7 @@ from __future__ import annotations
 
 import pytest
 
-from tests.ecosystem_names import source_files
+from tests.tracked_files import source_files
 from tests.tier_ceiling_support import configure
 from tests.tier_prompt_support import prompt_for
 from tests.time_limit import LOADED_TEST_TIME_LIMIT
