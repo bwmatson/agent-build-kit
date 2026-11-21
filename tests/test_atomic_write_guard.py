@@ -12,8 +12,8 @@ import re
 
 import pytest
 
-from tests.tracked_files import source_files
 from tests.time_limit import LOADED_TEST_TIME_LIMIT
+from tests.tracked_files import source_files
 
 SHARED = "pipeline/file_lock.py"
 # Edits a user's own config file and must keep its mode, which a state-file write has no need to;

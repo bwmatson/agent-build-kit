@@ -6,10 +6,10 @@ from __future__ import annotations
 
 import pytest
 
-from tests.tracked_files import source_files
 from tests.tier_ceiling_support import configure
 from tests.tier_prompt_support import prompt_for
 from tests.time_limit import LOADED_TEST_TIME_LIMIT
+from tests.tracked_files import source_files
 
 SETTING = "max_unit_lines"
 # The load error that refuses the setting, and the migration that moves its value.

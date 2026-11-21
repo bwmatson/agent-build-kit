@@ -12,8 +12,8 @@ from agent_build_kit.cli import build_parser
 from agent_build_kit.pipeline.vocabulary import OverheadNode
 from agent_build_kit.runtimes import acp
 from agent_build_kit.runtimes.known_agents import KnownAgent
-from tests.tracked_files import source_files
 from tests.time_limit import LOADED_TEST_TIME_LIMIT
+from tests.tracked_files import source_files
 
 # The list of commands is the one thing of the probe that stays.
 KEPT = {"PROBE_CLASSES", "probe_branch", "probe_rows"}

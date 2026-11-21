@@ -10,8 +10,8 @@ import ast
 
 import pytest
 
-from tests.tracked_files import source_files
 from tests.time_limit import LOADED_TEST_TIME_LIMIT
+from tests.tracked_files import source_files
 
 HELPER = "emit_metric"
 LOCAL_RECORD = "record_metric"

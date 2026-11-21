@@ -9,10 +9,10 @@ import pytest
 
 from agent_build_kit.pipeline.units import IN_REVIEW
 from agent_build_kit.pipeline.verdict_record import VERDICTS
-from tests.tracked_files import source_files
 from tests.factories import activate_with
 from tests.graph.test_build_path import build, fresh
 from tests.time_limit import LOADED_TEST_TIME_LIMIT
+from tests.tracked_files import source_files
 
 UNIT_ID = "add-marker/1"
 # The recording module, the review node that writes through it, the status listing, and the

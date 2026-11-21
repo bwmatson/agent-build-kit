@@ -13,8 +13,8 @@ import re
 
 import pytest
 
-from tests.tracked_files import source_files
 from tests.time_limit import LOADED_TEST_TIME_LIMIT
+from tests.tracked_files import source_files
 
 READER = re.compile(
     r"\blatest_verdict\(|\breview_tiers?\(|verdicts\.json|\bVERDICTS\b|verdict_record"

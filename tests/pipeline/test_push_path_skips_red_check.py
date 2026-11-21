@@ -10,9 +10,9 @@ from pathlib import Path
 import pytest
 
 from agent_build_kit.pipeline import gate
-from tests.tracked_files import source_files
 from tests.graph.branch_fakes import built, subjects, titled
 from tests.time_limit import LOADED_TEST_TIME_LIMIT
+from tests.tracked_files import source_files
 
 CALL = re.compile(r"\bcheck_branch\(")
 

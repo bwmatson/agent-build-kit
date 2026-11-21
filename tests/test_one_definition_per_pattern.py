@@ -8,8 +8,8 @@ from collections import defaultdict
 
 import pytest
 
-from tests.tracked_files import source_files
 from tests.time_limit import LOADED_TEST_TIME_LIMIT
+from tests.tracked_files import source_files
 
 
 def compiled(tree: ast.Module) -> list[tuple[int, str]]:
