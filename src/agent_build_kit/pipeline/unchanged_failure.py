@@ -12,6 +12,7 @@ from datetime import datetime
 from pathlib import Path
 
 from agent_build_kit.model import Frozen
+from agent_build_kit.pipeline.run_log import TestRun, append_test_run
 
 
 class ReuseContext(Frozen):
@@ -41,4 +42,41 @@ def run_or_reuse(
     to the ledger as a `reused` row, and returns `(False, output)` naming the failed tests. The
     second reuse for the same head and base calls `hold(note)`, the note naming the tests, head and
     base, and returns the same failed result."""
-    raise NotImplementedError
+    last = _last_run(ledger, context.unit)
+    if (
+        last is None
+        or last.outcome != "failed"
+        or last.head != context.head
+        or last.base != context.base
+        or context.rework_note
+        or merged_since(datetime.fromisoformat(last.started))
+    ):
+        return run()
+    log(f"unit-test: unchanged since the failed run at {last.started}; not run again")
+    # The reused row keeps the recorded run's start, so a later reuse asks about merges from it.
+    append_test_run(
+        ledger, last.model_copy(update={"seconds": 0.0, "reused": True, "failed_detail": []})
+    )
+    tests = ", ".join(last.failed)
+    if last.reused:
+        hold(
+            f"the unit-test run failed {tests} on head {context.head} and base {context.base} "
+            "twice with nothing changed; it is not run a third time"
+        )
+    return False, f"unit-test failed, unchanged since the failed run at {last.started}: {tests}"
+
+
+def _last_run(ledger: Path, unit: str) -> TestRun | None:
+    """The unit's newest row in the ledger, or None when it has none."""
+    try:
+        lines = ledger.read_text(encoding="utf-8").splitlines()
+    except OSError:
+        return None
+    for line in reversed(lines):
+        try:
+            row = TestRun.model_validate_json(line)
+        except ValueError:
+            continue
+        if row.unit == unit:
+            return row
+    return None

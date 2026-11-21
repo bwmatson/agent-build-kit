@@ -1788,6 +1788,8 @@ def build_unit_test(
                 [sample_start, sample_end], active().tests.load_high_per_cpu
             )
             try:
+                head_id = git(cwd, "rev-parse", "HEAD", check=False).stdout.strip()
+                base_id = git(cwd, "rev-parse", "--verify", "-q", base + "^{commit}", check=False)
                 append_test_run(
                     test_runs,
                     TestRun(
@@ -1808,6 +1810,8 @@ def build_unit_test(
                         disturbed_seconds=gap,
                         data_source=data_source,
                         data_age_hours=data_age,
+                        head=head_id or None,
+                        base=base_id.stdout.strip() or base or None,
                     ),
                 )
             except OSError as error:
