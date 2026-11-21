@@ -5685,7 +5685,14 @@ def build_reproduce(
             return Reproduction(outcome=Outcome.SKIPPED, note="no test command runs the test")
         command, _ = found
         alone = rerun(command, [test], project=where)
-        loaded = toolchain.repeat_command(command, [file]) or alone
+        loaded = toolchain.repeat_command(command, [file], project=where) or alone
+        collect = getattr(toolchain, "unselected_collection", None)
+
+        def listed_without_selection() -> bool:
+            """Whether a collection with the repo's default selection removed finds the test.
+            False when there is no such collection to make: the runs were not narrowed."""
+            argv = collect(command, [test], project=where) if collect is not None else None
+            return argv is not None and run(argv, cwd=where).returncode == 0
 
         def attempt(argv: list[str], *, whole_file: bool) -> Attempt:
             result = run(argv, cwd=where)
@@ -5701,7 +5708,9 @@ def build_reproduce(
                     and ids_not_found(toolchain, output, where)
                 )
             ):
-                return Attempt.NOT_COLLECTED
+                # Gone only when a collection without the default selection agrees: a test the
+                # selection deselects is collected by none of the runs that carry it.
+                return Attempt.NOT_COLLECTED if not listed_without_selection() else Attempt.PASSED
             if not whole_file and not toolchain.tolerates_exit(argv, result.returncode):
                 return Attempt.FAILED
             return Attempt.PASSED

@@ -27,8 +27,8 @@ from agent_build_kit.pipeline.failure_record import (
 )
 from agent_build_kit.pipeline.file_lock import change_lock
 from agent_build_kit.pipeline.run_log import bundle_exists, bundle_place
-from agent_build_kit.pipeline.unit_store import StoredUnit
-from agent_build_kit.pipeline.units import PRODUCT_DEFECT_PREFIX, Unit
+from agent_build_kit.pipeline.unit_store import StoredUnit, UnitStore
+from agent_build_kit.pipeline.units import PRODUCT_DEFECT_PREFIX, Unit, UnitState
 from agent_build_kit.pipeline.work_graph import FIX_PREFIX, GROUP_HEADING, group_needs
 
 # The longest a change's name gets before it is cut and given a hash of the whole.
@@ -198,18 +198,41 @@ def _archived(inst: Installation, name: str) -> bool:
     return any((inst.changes_dir / "archive").glob(f"*-{name}"))
 
 
+FINISHED_STATES = frozenset(
+    {UnitState.SATISFIED, UnitState.MERGED, UnitState.CLOSED, UnitState.RETIRED}
+)
+
+
+def finished_units(inst: Installation, name: str) -> list[StoredUnit]:
+    """The stored units of the change `name`, when it has some and every one is finished
+    (satisfied, merged, closed or retired); empty otherwise. A change whose units are all
+    finished is done being built, whatever the test it was written for does now."""
+    units = [u for u in UnitStore(inst.state_dir / "units.json").all() if u.change == name]
+    return units if units and all(u.state in FINISHED_STATES for u in units) else []
+
+
+def finished_attempt(inst: Installation, name: str) -> str:
+    """What an earlier change `name` ended as: each unit's state and note."""
+    return "; ".join(
+        f"{u.id} was {u.state.value}" + (f": {u.note}" if u.note else "")
+        for u in finished_units(inst, name)
+    )
+
+
 def open_fix_change(inst: Installation, test: str, prefix: str = "") -> tuple[str | None, str]:
     """The open change that fixes `test` under `prefix` (any test-fix prefix when empty), or
-    None and the last archived attempt (or "")."""
+    None and the last earlier attempt (or ""). A change stops being open when it is archived or
+    when its units have all finished: a finished change that did not fix the test is an earlier
+    attempt, and the next one is a new change."""
     earlier = ""
     for names in _candidates(test, prefix):
         for name in names:
-            if (inst.changes_dir / name).is_dir():
+            if (inst.changes_dir / name).is_dir() and not finished_units(inst, name):
                 return name, earlier
-        archived = [name for name in names if _archived(inst, name)]
-        if not archived:
+        done = [n for n in names if _archived(inst, n) or finished_units(inst, n)]
+        if not done:
             return None, earlier
-        earlier = archived[0]
+        earlier = done[0]
     raise AssertionError("unreachable")
 
 

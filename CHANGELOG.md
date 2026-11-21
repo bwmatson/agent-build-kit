@@ -5,6 +5,12 @@
 - A group can declare its reorganization with `Mode: refactor — <reason>`. The planner keeps
   that mode on every replan of an unbuilt group, and `abk tags` shows it and refuses the line
   where the group adds a test, is an e2e-test group, or names only documents or tests.
+- A fix change whose units all finished while its test still fails is no longer waited on
+  as if it were open: the next failure writes a new fix change that is told how the earlier
+  one ended, and `abk status` names the finished change, the test and the unit. The
+  reproduction check also stops reading a test as gone when the repo's default settings merely
+  deselect its kind: it runs the test with that selection lifted and calls it gone only when
+  a collection without the selection does not find it.
 
 - A manual step that declares no check can now be attested: `abk manual done <slug> --note
   TEXT` marks it done with the note, the time and who ran it, and the next tick pass resumes

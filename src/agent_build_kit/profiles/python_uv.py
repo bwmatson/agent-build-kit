@@ -1145,6 +1145,24 @@ class PythonUvProfile:
             return None
         return [*command[: program + 1], *_by_id_options(options, project), *ids]
 
+    def unselected_collection(
+        self, command: list[str], tests: list[str], *, project: Path
+    ) -> list[str] | None:
+        """A collection of `tests` by `command`'s program with the repo's default selection
+        (the marker its pytest settings apply) removed, so a test of a deselected kind is
+        listed. None when the repo's settings select nothing, so no run of it was narrowed."""
+        program = _pytest_program(command)
+        if program is None or not _addopts_marker(project):
+            return None
+        return [
+            *command[: program + 1],
+            "-o",
+            "addopts=",
+            *tests,
+            "--collect-only",
+            "--verbosity=-1",
+        ]
+
     def affected_test_commands(
         self,
         repo: Path,
