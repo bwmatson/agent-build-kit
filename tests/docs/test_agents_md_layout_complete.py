@@ -3,10 +3,8 @@
 from __future__ import annotations
 
 import re
-from pathlib import Path
 
-ROOT = Path(__file__).resolve().parents[2]
-PACKAGE_ROOT = ROOT / "src" / "agent_build_kit"
+from tests.tracked_files import ROOT, source_trees
 
 
 def layout_block() -> str:
@@ -24,9 +22,12 @@ def names_directory(block: str, name: str) -> bool:
 
 def test_the_layout_block_names_every_source_package() -> None:
     packages = sorted(
-        path.name
-        for path in PACKAGE_ROOT.iterdir()
-        if path.is_dir() and (path / "__init__.py").is_file()
+        {
+            path.name
+            for root in source_trees()
+            for path in root.iterdir()
+            if path.is_dir() and (path / "__init__.py").is_file()
+        }
     )
     assert packages
     block = layout_block()

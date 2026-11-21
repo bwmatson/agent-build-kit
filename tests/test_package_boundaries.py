@@ -24,9 +24,12 @@ import pytest
 from agent_build_kit.cli import COMMANDS_GROUP
 from tests.ecosystem_names import WORKER_MODULES
 from tests.support.package_seeds import Seeds, baseline, seeds
-from tests.tracked_files import ROOT, SOURCE_ROOT, WORKER_SOURCE, tracked
+from tests.tracked_files import ROOT, SOURCE_ROOT, WORKER_SOURCE, source_trees, tracked
+from tests.workspace_packages import PACKAGE_NAME, PACKAGES, source_root
 
 WORKER_ROOT = WORKER_SOURCE.parents[1]
+# The source trees that install into the root package's namespace.
+OTHER_TREES = [tree for tree in source_trees() if tree != SOURCE_ROOT]
 TESTS = Path("tests")
 WORKER_TESTS = Path("packages") / "worker" / "tests"
 CORE_TEST_PREFIX = "test_checkpoint"
@@ -120,6 +123,11 @@ def module_imports(root: Path, beside: Collection[Path] = ()) -> dict[str, set[s
         for tree_root in (root, *beside)
         for p in sorted(tree_root.rglob("*.py"))
     }
+    return imports_of(paths, root.name)
+
+
+def imports_of(paths: Mapping[str, Path], root_name: str) -> dict[str, set[str]]:
+    """The module-level imports of each module in `paths` (module name to file)."""
     modules = set(paths)
     edges: dict[str, set[str]] = {}
     for module, path in paths.items():
@@ -127,7 +135,7 @@ def module_imports(root: Path, beside: Collection[Path] = ()) -> dict[str, set[s
         is_package = path.name == "__init__.py"
         found: set[str] = set()
         for node in import_statements(tree):
-            found |= targets(node, module, is_package, root.name, modules)
+            found |= targets(node, module, is_package, root_name, modules)
         edges[module] = found - {module}
     return edges
 
@@ -219,6 +227,38 @@ def boundary_problems(
         for a, b in sorted(set(known) - found.keys())
     ]
     problems += [f"module-level cycle: {' <-> '.join(group)}" for group in cycles(edges)]
+    return problems
+
+
+def layout_problems(packages: Mapping[str, Path], given: Seeds) -> list[str]:
+    """What the files of each package (name to its project folder) get wrong about the table.
+
+    A module the table assigns to the core must be in the `core` package's source folder (a
+    package's `__init__.py` is exempt, as the layout test owns where those sit), and no core
+    module may import a worker or orchestrator module.
+    """
+    paths: dict[str, Path] = {}
+    owner: dict[str, str] = {}
+    for package, folder in packages.items():
+        source = source_root(folder)
+        for path in sorted(source.rglob("*.py")):
+            module = module_name(source, path)
+            paths[module] = path
+            owner[module] = package
+    edges = imports_of(paths, PACKAGE_NAME)
+    assigned = assign(edges, given)
+    problems = [
+        f"{module} is assigned to the core but is in the {owner[module]} package"
+        for module in sorted(paths)
+        if assigned[module] == CORE
+        and owner[module] != CORE
+        and paths[module].name != "__init__.py"
+    ]
+    problems += [
+        f"core module {message}"
+        for (module, _), message in sorted(crossings(edges, assigned).items())
+        if assigned[module] == CORE
+    ]
     return problems
 
 
@@ -443,7 +483,67 @@ def test_the_baseline_holds_no_more_than_the_thirteen_imports_of_the_design() ->
 
 @pytest.mark.integration
 def test_the_kit_has_no_import_across_the_packages_beyond_the_baseline() -> None:
-    problems = boundary_problems(SOURCE_ROOT, seeds(), baseline(), [WORKER_SOURCE])
+    problems = boundary_problems(SOURCE_ROOT, seeds(), baseline(), OTHER_TREES)
+
+    assert problems == [], "\n".join(problems)
+
+
+def package_folder(root: Path, files: dict[str, str]) -> Path:
+    """A project folder of the workspace holding `files` under `src/agent_build_kit`."""
+    tree(source_root(root), files)
+    return root
+
+
+def test_a_core_module_in_the_root_package_is_reported_naming_both(tmp_path: Path) -> None:
+    packages = {
+        "root": package_folder(tmp_path / "root", {"forges/base.py": ""}),
+        "core": package_folder(tmp_path / "core", {"model.py": ""}),
+    }
+
+    problems = layout_problems(packages, seeds())
+
+    assert problems == ["forges.base is assigned to the core but is in the root package"]
+
+
+def test_a_core_module_in_the_core_package_is_not_reported(tmp_path: Path) -> None:
+    packages = {
+        "root": package_folder(tmp_path / "root", {"pipeline/verify.py": ""}),
+        "core": package_folder(tmp_path / "core", {"forges/base.py": ""}),
+    }
+
+    assert layout_problems(packages, seeds()) == []
+
+
+def test_a_core_module_importing_a_worker_module_is_reported_as_a_core_module(
+    tmp_path: Path,
+) -> None:
+    packages = {
+        "root": package_folder(tmp_path / "root", {"pipeline/verify.py": ""}),
+        "core": package_folder(
+            tmp_path / "core", {"forges/base.py": "from agent_build_kit.pipeline import verify\n"}
+        ),
+    }
+
+    problems = layout_problems(packages, seeds())
+
+    assert len(problems) == 1
+    assert problems[0].startswith("core module ")
+    assert "forges.base" in problems[0]
+    assert "pipeline.verify" in problems[0]
+
+
+def test_an_init_file_in_the_root_package_is_not_reported(tmp_path: Path) -> None:
+    packages = {
+        "root": package_folder(tmp_path / "root", {"forges/__init__.py": ""}),
+        "core": package_folder(tmp_path / "core", {"forges/base.py": ""}),
+    }
+
+    assert layout_problems(packages, seeds()) == []
+
+
+@pytest.mark.integration
+def test_the_core_modules_are_in_the_core_package_and_import_nothing_from_the_others() -> None:
+    problems = layout_problems(PACKAGES, seeds())
 
     assert problems == [], "\n".join(problems)
 
@@ -452,7 +552,8 @@ def worker_problems(
     worker_source: Path, core_source: Path, given: Seeds, known: Collection[Edge]
 ) -> list[str]:
     """Each module-level import in the worker's tree of an orchestrator module, beyond `known`."""
-    edges = module_imports(core_source, [worker_source])
+    beside = [tree for tree in OTHER_TREES if tree != core_source]
+    edges = module_imports(core_source, [worker_source, *(t for t in beside if t != worker_source)])
     packages = assign(edges, given)
     own = {module_name(worker_source, p) for p in worker_source.rglob("*.py")}
     return [
@@ -467,7 +568,7 @@ def worker_problems(
 def worker_modules() -> list[str]:
     """The modules the seeds assign to the worker, as paths under a source tree; a package whose
     `__init__` stays in the core to extend the namespace is not a module of the worker."""
-    edges = module_imports(SOURCE_ROOT, [WORKER_SOURCE])
+    edges = module_imports(SOURCE_ROOT, OTHER_TREES)
     return sorted(
         f"{module.replace('.', '/')}.py"
         for module, package in assign(edges, seeds()).items()

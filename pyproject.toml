@@ -5,6 +5,7 @@ description = "Spec-driven, unattended build pipeline for Claude Code across a w
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
+    "agent-build-kit-core",
     "langgraph==1.2.*",
     "langgraph-checkpoint>=4.1.1,<5",
     "langgraph-checkpoint-sqlite==3.1.*",
@@ -79,14 +80,16 @@ artifacts = ["src/agent_build_kit/serve/static"]
 [tool.ruff]
 line-length = 100
 target-version = "py312"
-src = ["src", "packages/worker/src", "."]
+# The kit's modules live in several source folders (the root package, the core's and the worker's),
+# and the tests import from the checkout root: all are first-party, so isort keeps one block.
+src = ["src", "packages/core/src", "packages/worker/src", "."]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B"]
 
 [tool.pyrefly]
 python-version = "3.12"
-search-path = ["src", "packages/worker/src", "."]
+search-path = ["src", "packages/core/src", "packages/worker/src", "."]
 # Spelled out rather than left to pyrefly's default `**/*.py*` discovery: under
 # pre-commit, in a git worktree (which is where every unattended build runs),
 # that default is dropped as "matched by project-excludes or an ignore file"
@@ -139,5 +142,9 @@ scrub = "pytest tests/test_no_installation_leaks.py"
 web-check = "npm run --prefix web check"
 web-build = "npm run --prefix web build"
 
+[tool.uv.workspace]
+members = ["packages/*"]
+
 [tool.uv.sources]
 agent-build-kit = { workspace = true }
+agent-build-kit-core = { workspace = true }

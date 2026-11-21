@@ -13,10 +13,10 @@ from pathlib import Path
 
 import pytest
 
-from tests.tracked_files import ROOT, guarded_files, source_tree_folders
+from tests.tracked_files import ROOT, guarded_files, source_trees
 
-SOURCE = Path("src") / "agent_build_kit"
-LOCAL_IMPLEMENTATION = SOURCE / "orchestration" / "local"
+# Relative to each package's source folder, as the modules of the guard are named.
+LOCAL_IMPLEMENTATION = Path("orchestration") / "local"
 
 # The directories under the state directory that hold artifacts, as they are named on disk.
 ARTIFACT_DIRECTORIES = frozenset(
@@ -42,13 +42,13 @@ DIRECTORY_CONSTANTS = frozenset(
 
 # The modules that join a directory constant onto a path on purpose, each with its reason.
 ALLOWED = {
-    "src/agent_build_kit/pipeline/spawn.py": (
+    "pipeline/spawn.py": (
         "a worker process on this host writes its output to a file descriptor, not a key"
     ),
-    "src/agent_build_kit/cli/redact_history_cmd.py": (
+    "cli/redact_history_cmd.py": (
         "the temporary command rewrites the files in place with a copy beside each"
     ),
-    "src/agent_build_kit/cli/pipeline.py": (
+    "cli/pipeline.py": (
         "the age-based retention of unit logs reads a file's own age, so it runs only when the "
         "artifacts are files; another store expires them by its own policy"
     ),
@@ -105,10 +105,11 @@ def test_a_path_joined_to_any_other_name_is_not_an_offence() -> None:
 @pytest.mark.integration
 def test_no_module_outside_the_local_implementation_opens_an_artifact_path() -> None:
     offenders = [
-        path.relative_to(ROOT).as_posix()
-        for path in guarded_files(under=source_tree_folders(), suffixes={".py"})
-        if LOCAL_IMPLEMENTATION not in path.relative_to(ROOT).parents
-        and path.relative_to(ROOT).as_posix() not in ALLOWED
+        path.relative_to(root).as_posix()
+        for root in source_trees()
+        for path in guarded_files(under=[root.relative_to(ROOT).as_posix()], suffixes={".py"})
+        if LOCAL_IMPLEMENTATION not in path.relative_to(root).parents
+        and path.relative_to(root).as_posix() not in ALLOWED
         and opens_an_artifact_path(ast.parse(path.read_text()))
     ]
 

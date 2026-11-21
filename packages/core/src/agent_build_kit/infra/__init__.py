@@ -2,7 +2,12 @@
 
 from __future__ import annotations
 
+from pkgutil import extend_path
+
 from agent_build_kit.infra.base import InfraProfile
+
+# Other packages of the workspace add modules to this folder.
+__path__ = extend_path(__path__, __name__)
 
 _REGISTRY: dict[str, InfraProfile] = {}
 

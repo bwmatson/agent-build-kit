@@ -46,6 +46,7 @@ WHOLE_TREE_CALLS = frozenset(
         "check_source_trees",
         "source_files",
         "splits_by_syntax",
+        "shared_init_files",
         "Scan",
     }
 )

@@ -18,13 +18,14 @@ from pathlib import Path
 
 import pytest
 
+import agent_build_kit
 from agent_build_kit.tracks import runner
 
 PROMPTS = Path(runner.__file__).parent / "prompts"
 TOP_LEVEL = sorted(PROMPTS.glob("*.md"))
 CATEGORIES = sorted(PROMPTS.glob("categories/*/*.md"))
 SOURCES = sorted(Path(runner.__file__).parent.glob("*.py")) + [
-    Path(runner.__file__).parent.parent / "cli" / "tracks.py"
+    Path(agent_build_kit.__file__).parent / "cli" / "tracks.py"
 ]
 
 PLACEHOLDER = re.compile(r"__[A-Z_]+__")

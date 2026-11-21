@@ -71,6 +71,12 @@
   with that kind let through, calls a test gone only when a collection without the selection
   does not find it, and skips (rather than counting passes) a test of another deselected
   kind that it could not run.
+- The kit is now a uv workspace of two packages that share the `agent_build_kit` import name:
+  the kit itself and `agent-build-kit-core`, which holds the modules the worker and the
+  orchestrator both use. Nothing you run changes, and every import path stays the same, but
+  the kit now depends on `agent-build-kit-core` from the workspace: install it with `uv`, or
+  with a tool that resolves `[tool.uv.sources]`, and a plain `pip install -e .` of the root
+  alone cannot find the core (install `packages/core` first).
 
 - A manual step that declares no check can now be attested: `abk manual done <slug> --note
   TEXT` marks it done with the note, the time and who ran it, and the next tick pass resumes

@@ -14,7 +14,7 @@ ROOT = Path(__file__).resolve().parents[2]
 PACKAGE = ROOT / "src" / "agent_build_kit"
 ARCHITECTURE = ROOT / "docs" / "architecture.md"
 SKILL = PACKAGE / "skills" / "abk-pipeline" / "SKILL.md"
-PR_BODY = PACKAGE / "pipeline" / "pr_body.py"
+PR_BODY = ROOT / "packages" / "core" / "src" / "agent_build_kit" / "pipeline" / "pr_body.py"
 COPY = "<state dir>/changes/<change>/"
 
 

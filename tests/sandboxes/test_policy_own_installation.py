@@ -92,6 +92,34 @@ def test_an_install_under_the_prefix_adds_no_source_root(
     assert reads(policy, site)
 
 
+def test_a_checkout_install_adds_the_source_root_of_every_package_folder(
+    process: Process, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    other = tmp_path / "other" / "src"
+    (other / "agent_build_kit").mkdir(parents=True)
+    own = process.checkout / "agent_build_kit"
+    monkeypatch.setattr(agent_build_kit, "__path__", [str(own), str(other / "agent_build_kit")])
+
+    found = {path.resolve() for path in own_installation()}
+
+    assert other.resolve() in found
+    assert process.checkout.resolve() in found
+
+
+def test_a_package_folder_under_the_prefix_adds_no_source_root(
+    process: Process, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    site = process.prefix / "lib" / "site-packages"
+    (site / "agent_build_kit").mkdir(parents=True)
+    own = process.checkout / "agent_build_kit"
+    monkeypatch.setattr(agent_build_kit, "__path__", [str(own), str(site / "agent_build_kit")])
+
+    found = {path.resolve() for path in own_installation()}
+
+    assert site.resolve() not in found
+    assert process.checkout.resolve() in found
+
+
 def test_none_of_it_is_writable(scene: Scene, process: Process) -> None:
     policy = scene.policy()
 

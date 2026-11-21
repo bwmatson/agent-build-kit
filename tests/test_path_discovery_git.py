@@ -8,7 +8,7 @@ from tests.factories import init_repo
 from tests.time_limit import LOADED_TEST_TIME_LIMIT
 from tests.tracked_files import ROOT, guarded_files, source_tree_folders
 
-MODULE = ROOT / "src" / "agent_build_kit" / "path_discovery.py"
+MODULE = ROOT / "packages" / "core" / "src" / "agent_build_kit" / "path_discovery.py"
 
 
 def test_nearest_existing_for_folder_file_and_missing_path(tmp_path: Path):

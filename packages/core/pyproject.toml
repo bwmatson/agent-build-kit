@@ -1,0 +1,18 @@
+[project]
+name = "agent-build-kit-core"
+version = "0.1.0"
+description = "The core modules of the agent build kit"
+requires-python = ">=3.12"
+dependencies = []
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/agent_build_kit"]
+
+# uv caches a built directory dependency by its pyproject.toml alone; the core's sources are
+# part of what it builds, so a change to them must rebuild it.
+[tool.uv]
+cache-keys = [{ file = "pyproject.toml" }, { file = "src/**/*.py" }]

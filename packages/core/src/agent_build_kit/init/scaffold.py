@@ -27,6 +27,7 @@ from typing import Any, Literal
 
 import yaml
 
+import agent_build_kit
 from agent_build_kit import forges, openspec, profiles, skills
 from agent_build_kit.config import (
     CLAUDE_CODE,
@@ -63,7 +64,8 @@ from agent_build_kit.pipeline.work_graph import normal_project_path
 from agent_build_kit.runtimes.policy_apply import backup_and_replace
 from agent_build_kit.scrub_terms import LOCAL_LIST
 
-TEMPLATES = Path(__file__).resolve().parent.parent / "templates"
+# Package data stays in the root package, whose folder `agent_build_kit.__file__` names.
+TEMPLATES = Path(agent_build_kit.__file__).resolve().parent / "templates"
 
 # The version of the rules block this framework writes. An installation is
 # expected to reword these rules for its own repos and conventions, so the

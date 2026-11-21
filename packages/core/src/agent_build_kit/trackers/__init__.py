@@ -3,9 +3,13 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+from pkgutil import extend_path
 
 from agent_build_kit.trackers.base import Tracker
 from agent_build_kit.trackers.config import TrackerConfigError, TrackerSection, section_for
+
+# Other packages of the workspace add modules to this folder.
+__path__ = extend_path(__path__, __name__)
 
 __all__ = ["TrackerConfigError", "enabled", "for_repo", "register", "unregister"]
 
