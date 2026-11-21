@@ -180,6 +180,36 @@ def test_a_command_run_from_a_directory_selects_nothing_for_ids_outside_it() -> 
     assert PythonUvProfile().repeat_command(command, ["svc-b/tests/live/test_y.py::u"]) is None
 
 
+def test_an_unselected_collection_from_a_directory_names_the_ids_under_it_relative_to_it(
+    tmp_path: Path,
+) -> None:
+    (tmp_path / "svc-a").mkdir()
+    (tmp_path / "svc-a" / "pyproject.toml").write_text(PYPROJECT)
+    command = ["uv", "run", "--directory", "svc-a", "--package", "svc-a", "--isolated", "pytest"]
+
+    argv = PythonUvProfile().unselected_collection(
+        command, ["svc-a/tests/test_x.py::test_y"], project=tmp_path / "svc-a"
+    )
+
+    assert argv is not None
+    assert argv[-3:] == ["tests/test_x.py::test_y", "--collect-only", "--verbosity=-1"]
+
+
+def test_an_unselected_collection_from_a_directory_has_none_for_an_id_outside_it(
+    tmp_path: Path,
+) -> None:
+    (tmp_path / "svc-a").mkdir()
+    (tmp_path / "svc-a" / "pyproject.toml").write_text(PYPROJECT)
+    command = ["uv", "run", "--directory", "svc-a", "--package", "svc-a", "--isolated", "pytest"]
+
+    assert (
+        PythonUvProfile().unselected_collection(
+            command, ["svc-b/tests/test_x.py::test_y"], project=tmp_path / "svc-a"
+        )
+        is None
+    )
+
+
 def collected_by_rerun(tmp_path: Path, tests: list[str], run: list[str]) -> set[str]:
     """The ids the rerun alone of `run` collects with real pytest, on the deselecting tree."""
     for name, text in DESELECTING.items():

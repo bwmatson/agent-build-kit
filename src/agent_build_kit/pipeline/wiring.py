@@ -5687,7 +5687,7 @@ def build_reproduce(
         alone = rerun(command, [test], project=where)
         loaded = toolchain.repeat_command(command, [file], project=where) or alone
         collect = getattr(toolchain, "unselected_collection", None)
-        not_run: list[list[str]] = []
+        not_run = False
 
         def listed_without_selection() -> bool:
             """Whether a collection with the repo's default selection removed finds the test.
@@ -5696,6 +5696,7 @@ def build_reproduce(
             return argv is not None and run(argv, cwd=where).returncode == 0
 
         def attempt(argv: list[str], *, whole_file: bool) -> Attempt:
+            nonlocal not_run
             result = run(argv, cwd=where)
             output = f"{result.stdout}\n{result.stderr}"
             if test in failed_ids(toolchain, output):
@@ -5714,7 +5715,7 @@ def build_reproduce(
                 # was not run, so the attempt is not a pass.
                 if not listed_without_selection():
                     return Attempt.NOT_COLLECTED
-                not_run.append(argv)
+                not_run = True
                 return Attempt.PASSED
             if not whole_file and not toolchain.tolerates_exit(argv, result.returncode):
                 return Attempt.FAILED

@@ -3,7 +3,7 @@
 
 from __future__ import annotations
 
-from datetime import UTC, datetime, timedelta
+from datetime import timedelta
 from pathlib import Path
 
 import pytest
@@ -11,6 +11,7 @@ import pytest
 from agent_build_kit.pipeline.flakes import Flake, flake_record
 from agent_build_kit.pipeline.unit_store import UnitStore
 from agent_build_kit.pipeline.units import UnitState
+from tests import fake_clock
 from tests.conftest import make_installation, run_status
 from tests.factories import stored_unit
 
@@ -32,6 +33,7 @@ def status_with_fixes(
     unit `one/1` whose last run failed each of those tests, an hour after the fix finished (or,
     with `failed_after_finish` false, an hour before)."""
     hour = timedelta(hours=1) if failed_after_finish else -timedelta(hours=1)
+    clock = fake_clock.install(monkeypatch)
     workspace = make_installation(
         tmp_path, planning=dict(state_dir=".", worktree_root=str(tmp_path.parent / "trees"))
     )
@@ -47,7 +49,7 @@ def status_with_fixes(
                 unit="one/1",
                 command="uv run pytest -n auto -q",
                 output=f"FAILED {test}",
-                at=datetime.now(UTC) + hour,
+                at=clock.now() + hour,
                 change=name,
                 failing=True,
             )

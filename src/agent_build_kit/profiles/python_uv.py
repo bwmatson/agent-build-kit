@@ -425,6 +425,16 @@ def _by_id_options(options: list[str], project: Path | None) -> list[str]:
     return options if found or not selection else [*options, "-m", selection]
 
 
+def _ids_under_directory(command: list[str], program: int, tests: list[str]) -> list[str]:
+    """The ids of `tests` pytest sees when `command` runs it from `--directory <d>`: those under
+    `d`, given relative to it (the ids of other directories are not its tests). `tests`
+    unchanged when the command has no `--directory`."""
+    if "--directory" not in command[:program]:
+        return tests
+    where = command[command.index("--directory") + 1].strip("/")
+    return [t.removeprefix(f"{where}/") for t in tests if t.startswith(f"{where}/")]
+
+
 def _pytest_program(command: list[str]) -> int | None:
     """Where `pytest` is in `command`: the program, not the `--with pytest` that adds it to
     an environment."""
@@ -1120,11 +1130,7 @@ class PythonUvProfile:
         program = _pytest_program(command)
         if program is None:
             return [*command, *tests]
-        # `--directory <d>` runs pytest from `d`: the ids of other directories are not its
-        # tests, and the rest are given as it sees them.
-        if "--directory" in command[:program]:
-            where = command[command.index("--directory") + 1].strip("/")
-            tests = [t.removeprefix(f"{where}/") for t in tests if t.startswith(f"{where}/")]
+        tests = _ids_under_directory(command, program, tests)
         options: list[str] = []
         paths: list[str] = []
         words = iter(command[program + 1 :])
@@ -1154,11 +1160,9 @@ class PythonUvProfile:
         program = _pytest_program(command)
         if program is None or not _addopts_marker(project):
             return None
-        if "--directory" in command[:program]:
-            where = command[command.index("--directory") + 1].strip("/")
-            tests = [t.removeprefix(f"{where}/") for t in tests if t.startswith(f"{where}/")]
-            if not tests:
-                return None
+        tests = _ids_under_directory(command, program, tests)
+        if not tests:
+            return None
         return [
             *command[: program + 1],
             "-o",
