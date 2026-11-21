@@ -8,6 +8,7 @@ git repositories and a bare remote, with the stand-in forge as the code host.
 
 from __future__ import annotations
 
+import stat
 from pathlib import Path
 
 import pytest
@@ -16,7 +17,14 @@ from agent_build_kit import config as config_module
 from agent_build_kit import forges
 from agent_build_kit.pipeline import events
 from agent_build_kit.pipeline.events import RestackOutcome
-from agent_build_kit.pipeline.units import IN_REVIEW, MERGED, base_of
+from agent_build_kit.pipeline.units import (
+    CLOSED,
+    IN_REVIEW,
+    MERGED,
+    SATISFIED,
+    UnitState,
+    base_of,
+)
 from tests.factories import git
 from tests.forges.stand_in import lookup
 from tests.pipeline.test_satisfied_release import RecordingForge, World
@@ -122,18 +130,15 @@ def test_a_merge_keeps_the_parents_last_head_under_a_local_ref(world: World) -> 
     assert kept_head(world) == head
 
 
-def test_a_merge_with_nothing_stacked_on_it_deletes_no_branch_and_keeps_no_ref(
+def test_a_merge_with_nothing_stacked_on_it_deletes_the_remote_branch_and_keeps_no_ref(
     world: World,
 ) -> None:
     world.store.set_state(CHILD, MERGED)
 
     release(world)
-    with_no_child = (list(world.forge.deleted), kept_head(world))
-    world.store.set_state(CHILD, IN_REVIEW)
-    release(world)
 
-    assert with_no_child == ([], None)
     assert world.forge.deleted == [PARENT_BRANCH]
+    assert kept_head(world) is None
 
 
 def test_a_forge_that_deletes_merged_branches_itself_is_not_asked_to_but_the_ref_is_kept(
@@ -234,3 +239,183 @@ def test_on_a_host_that_does_not_retarget_the_explicit_retarget_still_runs(
 
     assert azure_world.forge.deleted == [PARENT_BRANCH]
     assert (2, "main") in azure_world.forge.retargeted()
+
+
+# --- settling ends with a branch check, and each pass makes it ----------------------
+
+REFUSAL = "the project forbids deleting branches"
+
+
+class DeletingForge(RecordingForge):
+    """A host that deletes the branch from the remote when asked, and can refuse."""
+
+    remote: Path
+    refusal: str = ""
+
+    def delete_remote_branch(self, repo, branch: str) -> None:
+        if self.refusal:
+            raise RuntimeError(self.refusal)
+        super().delete_remote_branch(repo, branch)
+        git(self.remote, "branch", "-D", branch)
+
+
+@pytest.fixture
+def host(world: World, monkeypatch: pytest.MonkeyPatch) -> DeletingForge:
+    forge = DeletingForge(world.order)
+    forge.remote = world.remote
+    forge.bases = world.forge.bases
+    world.forge = forge
+    monkeypatch.setattr(forges, "for_repo", lookup(forge))
+    return forge
+
+
+@pytest.fixture
+def swept(world: World, host: DeletingForge) -> World:
+    """The merged parent's branch left on the remote by a merge that did not delete it; the
+    child's pull request is closed and gone, so nothing is stacked on it."""
+    world.store.set_state(CHILD, CLOSED)
+    host.bases.pop(2)
+    return world
+
+
+class Sweep:
+    """One pass over the merged units, and what it asked of the checkout."""
+
+    def __init__(self, world: World) -> None:
+        self.world = world
+        self.removed: list[str] = []
+        self.deleted: list[str] = []
+        self.dirty = ""
+
+    def __call__(self) -> None:
+        def remove_worktree(repo: str, branch: str) -> None:
+            if self.dirty:
+                raise RuntimeError(self.dirty)
+            self.removed.append(branch)
+
+        events.remove_merged_branches(
+            self.world.store,
+            repos={"app": self.world.repo},
+            remove_worktree=remove_worktree,
+            delete_branch=lambda repo, branch: self.deleted.append(branch),
+            on_new_base=lambda child: True,
+            log=lambda line: None,
+        )
+
+
+def on_the_remote(world: World) -> set[str]:
+    listed = git(world.repo, "ls-remote", "--heads", "origin")
+    return {line.split("refs/heads/", 1)[1] for line in listed.splitlines()}
+
+
+def count_remote_reads(world: World) -> Path:
+    """Route the remote's upload-pack through a script that logs each read of its branches."""
+    log = world.remote.parent / "reads.log"
+    script = world.remote.parent / "upload-pack.sh"
+    script.write_text(f'#!/bin/sh\necho read >> "{log}"\nexec git-upload-pack "$@"\n')
+    script.chmod(script.stat().st_mode | stat.S_IEXEC)
+    git(world.repo, "config", "remote.origin.uploadpack", str(script))
+    log.touch()
+    return log
+
+
+def test_a_branch_a_merge_left_behind_is_deleted_everywhere_on_the_pass(swept: World) -> None:
+    sweep = Sweep(swept)
+
+    sweep()
+
+    assert PARENT_BRANCH not in on_the_remote(swept)
+    assert (sweep.removed, sweep.deleted) == ([PARENT_BRANCH], [PARENT_BRANCH])
+    assert swept.store.get(PARENT).branch_kept == ""
+
+
+def test_the_remotes_branches_are_read_once_however_many_merged_units_there_are(
+    swept: World,
+) -> None:
+    swept.branch("spec/feature/3", "main", file="three.txt")
+    swept.add("feature/3", MERGED, pr=3)
+    reads = count_remote_reads(swept)
+
+    Sweep(swept)()
+
+    assert reads.read_text().splitlines() == ["read"]
+    assert on_the_remote(swept) == {"main", CHILD_BRANCH}
+
+
+def test_a_remote_branch_an_open_pull_request_targets_stays_until_it_is_retargeted(
+    swept: World,
+) -> None:
+    swept.forge.bases[2] = (CHILD_BRANCH, PARENT_BRANCH)
+    swept.store.set_state(CHILD, IN_REVIEW)
+    sweep = Sweep(swept)
+
+    sweep()
+    while_targeted = on_the_remote(swept)
+    swept.forge.bases[2] = (CHILD_BRANCH, "main")
+    sweep()
+
+    assert PARENT_BRANCH in while_targeted
+    assert PARENT_BRANCH not in on_the_remote(swept)
+
+
+def add_a_merged_sibling(world: World) -> str:
+    """A merged unit whose branch a merge left on the remote, so a pass has work to do."""
+    world.branch("spec/feature/3", "main", file="three.txt")
+    world.add("feature/3", MERGED, pr=3)
+    return "spec/feature/3"
+
+
+@pytest.mark.parametrize("state", [CLOSED, SATISFIED, UnitState.RETIRED])
+def test_the_branches_of_a_unit_that_did_not_merge_are_left_alone(
+    swept: World, state: UnitState
+) -> None:
+    sibling = add_a_merged_sibling(swept)
+    swept.store.set_state(PARENT, state)
+    sweep = Sweep(swept)
+
+    sweep()
+
+    assert sibling not in on_the_remote(swept)
+    assert PARENT_BRANCH in on_the_remote(swept)
+    assert (sweep.removed, sweep.deleted) == ([sibling], [sibling])
+
+
+def test_a_refused_deletion_does_not_fail_the_pass_is_stored_and_asked_again(
+    swept: World, host: DeletingForge
+) -> None:
+    host.refusal = REFUSAL
+    sweep = Sweep(swept)
+
+    sweep()
+    refused = swept.store.get(PARENT).branch_kept
+    host.refusal = ""
+    sweep()
+
+    assert REFUSAL in refused
+    assert PARENT_BRANCH not in on_the_remote(swept)
+    assert swept.store.get(PARENT).branch_kept == ""
+
+
+def test_a_worktree_with_uncommitted_changes_is_the_stored_reason_and_keeps_the_branch(
+    swept: World,
+) -> None:
+    sweep = Sweep(swept)
+    sweep.dirty = "worktree has uncommitted changes"
+
+    sweep()
+
+    assert "uncommitted changes" in swept.store.get(PARENT).branch_kept
+    assert sweep.deleted == []
+
+
+def test_with_the_setting_off_the_pass_deletes_nothing_and_on_it_does(swept: World) -> None:
+    setting(on=False)
+    sweep = Sweep(swept)
+
+    sweep()
+    while_off = (PARENT_BRANCH in on_the_remote(swept), swept.forge.deleted)
+    setting(on=True)
+    sweep()
+
+    assert while_off == (True, [])
+    assert PARENT_BRANCH not in on_the_remote(swept)
