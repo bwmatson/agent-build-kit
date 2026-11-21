@@ -20,11 +20,11 @@ from agent_build_kit.pipeline import spans
 from agent_build_kit.pipeline.run_log import TestRun, append_test_run, run_ledger_path
 from agent_build_kit.pipeline.unchanged_failure import (
     ReuseContext,
+    held_after_reuse,
     merged_since,
     run_or_reuse,
 )
-from agent_build_kit.pipeline.unit_store import HeldBy, UnitStore
-from agent_build_kit.pipeline.units import HELD
+from agent_build_kit.pipeline.unit_store import UnitStore
 from agent_build_kit.pipeline.wiring import build_unit_test
 from agent_build_kit.profiles.base import ToolchainProfile
 from tests.e2e_base_fakes import branch
@@ -65,10 +65,13 @@ class Spy:
         head: str = HEAD,
         base: str = BASE,
         rework_note: bool = False,
+        feedback: str = "",
     ) -> tuple[bool, str]:
         return run_or_reuse(
             ledger,
-            ReuseContext(unit=unit, head=head, base=base, rework_note=rework_note),
+            ReuseContext(
+                unit=unit, head=head, base=base, rework_note=rework_note, feedback=feedback
+            ),
             merged_since=self.merged_since,
             run=self.run,
             hold=self.holds.append,
@@ -351,14 +354,24 @@ def test_the_unit_test_call_reuses_an_unchanged_failure_and_holds_the_unit_at_th
     )
 
     first = unit_test(cwd=repo, base=base)
-    held_after_first = store.get("feature/1").state
     second = unit_test(cwd=repo, base=base)
 
     assert first[0] is False and second[0] is False
     assert runner.commands == [], "a reused failure starts no run and takes no slot"
-    assert held_after_first != HELD
+    assert held_after_reuse(first[1]) is None
+    note = held_after_reuse(second[1])
+    assert note is not None and head in note and base in note
     assert [row["reused"] for row in _rows(ledger)] == [False, True, True]
-    held = store.get("feature/1")
-    assert (held.state, held.held_by) == (HELD, HeldBy.CHECKS)
-    assert head in held.note and base in held.note
+    assert store.get("feature/1").state == "running", "the graph holds the unit, not this call"
     assert any("not run again" in line for line in lines)
+
+
+def test_a_first_reuse_keeps_the_failure_the_fix_agent_was_to_read(ledger: Path) -> None:
+    append_test_run(ledger, _row())
+    spy = Spy()
+
+    _, output = spy.decide(ledger, feedback="AssertionError: 1 != 2\nline 40 of test_one.py")
+    _, again = spy.decide(ledger, feedback=output)
+
+    assert "AssertionError: 1 != 2" in output
+    assert again.count("unchanged since the failed run") == 1

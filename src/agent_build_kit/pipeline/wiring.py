@@ -214,7 +214,6 @@ from agent_build_kit.pipeline.transcript import Transcript, TranscriptEvent
 from agent_build_kit.pipeline.ui_review import ui_notes_of, ui_reply_writer, unit_patch_of
 from agent_build_kit.pipeline.unchanged_failure import (
     ReuseContext,
-    hold_for_unchanged_failure,
     merged_since,
     run_or_reuse,
 )
@@ -1870,9 +1869,12 @@ def build_unit_test(
         unit_id = spans.current_unit.get()[0]
         store = UnitStore(installation.state_dir / "units.json")
         try:
-            rework_note = bool(store.get(unit_id).guidance)
+            stored = store.get(unit_id)
+            rework_note, saved = bool(stored.guidance), stored.feedback
         except (OSError, ValueError, KeyError):
-            rework_note = False
+            rework_note, saved = False, ""
+        # A second reuse comes back as a result the graph holds the unit with
+        # (`held_after_reuse`); nothing is written to the store here.
         return run_or_reuse(
             test_runs,
             ReuseContext(
@@ -1880,10 +1882,10 @@ def build_unit_test(
                 head=_commit_id(cwd, "HEAD"),
                 base=_commit_id(cwd, base),
                 rework_note=rework_note,
+                feedback=saved,
             ),
             merged_since=lambda started: merged_since(store, unit_id, started),
             run=slotted,
-            hold=lambda note: hold_for_unchanged_failure(store, unit_id, note),
             log=lambda message: _say(log, message),
         )
 

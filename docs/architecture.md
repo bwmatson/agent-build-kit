@@ -1963,8 +1963,10 @@ approved.
   whose last row failed on the same head and base, with nothing it waited on merged since, no
   rework note pending and the failure not found on the base, is not run again: the run's result
   is that failure, the log says it was unchanged and not run again, and a `reused` row is added.
-  The second reuse for the same head and base holds the unit (`held_by` `checks`) with a note
-  naming the tests, head and base. `abk failures [TEST]` reads
+  The first reuse keeps the failure the fix agent was to read. The second reuse for the same
+  head and base is a result the graph holds the unit with, like a time limit (`held_by`
+  `checks`, no fix agent, no feedback saved): the note names the tests, head and base and says
+  a requeue with a rework note, or a new commit, runs the suite again. `abk failures [TEST]` reads
   the records and the bundles (the ledger, `test-runs.jsonl`, answers how often a run was
   loaded): it lists each failing test with its count, first and last time,
   units and load, and with `--show` prints the newest bundle's context, machine and worktree

@@ -13,8 +13,8 @@ from pathlib import Path
 
 from agent_build_kit.model import Frozen
 from agent_build_kit.pipeline.run_log import TestRun, append_test_run
-from agent_build_kit.pipeline.unit_store import Cause, HeldBy, UnitStore
-from agent_build_kit.pipeline.units import HELD, MERGED, history_stamp
+from agent_build_kit.pipeline.unit_store import UnitStore
+from agent_build_kit.pipeline.units import MERGED, history_stamp
 
 
 class ReuseContext(Frozen):
@@ -25,6 +25,12 @@ class ReuseContext(Frozen):
     base: str
     # Whether a person's `abk requeue --rework` with a note is pending for the unit.
     rework_note: bool = False
+    # The failure the unit's last check saved for its fix agent, kept in front of a first reuse.
+    feedback: str = ""
+
+
+UNCHANGED_PREFIX = "unit-test failed, unchanged since the failed run at"
+HELD_PREFIX = "unit-test held after an unchanged failure:"
 
 
 def run_or_reuse(
@@ -33,8 +39,8 @@ def run_or_reuse(
     *,
     merged_since: Callable[[datetime], bool],
     run: Callable[[], tuple[bool, str]],
-    hold: Callable[[str], None],
     log: Callable[[str], None],
+    hold: Callable[[str], None] | None = None,
 ) -> tuple[bool, str]:
     """The unit-test result for `context`: the recorded failure when it stands in, else `run()`.
 
@@ -42,8 +48,9 @@ def run_or_reuse(
     `merged_since(started)` says whether anything the unit waited on merged after the recorded run
     began. A reuse is logged ("unchanged since the failed run at <time>; not run again"), is added
     to the ledger as a `reused` row, and returns `(False, output)` naming the failed tests. The
-    second reuse for the same head and base calls `hold(note)`, the note naming the tests, head and
-    base, and returns the same failed result."""
+    second reuse for the same head and base returns a result whose output carries the hold's note
+    (`held_after_reuse` reads it), naming the tests, head and base, and says how to run again; the
+    graph holds the unit with it. `hold(note)`, when given, is also called with it."""
     last = _last_run(ledger, context.unit)
     if (
         last is None
@@ -61,12 +68,30 @@ def run_or_reuse(
         ledger, last.model_copy(update={"seconds": 0.0, "reused": True, "failed_detail": []})
     )
     tests = ", ".join(last.failed)
+    unchanged = f"{UNCHANGED_PREFIX} {last.started}: {tests}"
     if last.reused:
-        hold(
+        note = (
             f"the unit-test run failed {tests} on head {context.head} and base {context.base} "
-            "twice with nothing changed; it is not run a third time"
+            "twice with nothing changed, so it is not run a third time; a requeue with a rework "
+            "note, or a new commit, runs the suite again"
         )
-    return False, f"unit-test failed, unchanged since the failed run at {last.started}: {tests}"
+        if hold is not None:
+            hold(note)
+        return False, f"{HELD_PREFIX} {note}\n{unchanged}"
+    # The failure the recorded run left for the fix agent stays in front of it.
+    earlier = "\n".join(
+        line for line in context.feedback.splitlines() if not line.startswith(UNCHANGED_PREFIX)
+    ).strip()
+    return False, f"{unchanged}\n{earlier}" if earlier else unchanged
+
+
+def held_after_reuse(output: str) -> str | None:
+    """The note of a second reuse, when `output` is that result (a line of its own holds it); None
+    for any other output. The graph holds the unit for a person with it."""
+    for line in output.splitlines():
+        if line.startswith(HELD_PREFIX):
+            return line.removeprefix(HELD_PREFIX).strip()
+    return None
 
 
 def _last_run(ledger: Path, unit: str) -> TestRun | None:
@@ -104,9 +129,3 @@ def merged_since(store: UnitStore, unit_id: str, started: datetime) -> bool:
     except (OSError, ValueError, KeyError, TypeError):
         return True
     return False
-
-
-def hold_for_unchanged_failure(store: UnitStore, unit_id: str, note: str) -> None:
-    """Hold the unit for a person, with `note` saying which tests keep failing on which head and
-    base."""
-    store.set_state(unit_id, HELD, note=note, held_by=HeldBy.CHECKS, cause=Cause.NEEDS_HUMAN)

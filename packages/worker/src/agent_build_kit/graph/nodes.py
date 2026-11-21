@@ -152,6 +152,7 @@ from agent_build_kit.pipeline.stack_runner import (
     with_response,
     write_tests_prompt,
 )
+from agent_build_kit.pipeline.unchanged_failure import held_after_reuse
 from agent_build_kit.pipeline.unit_store import (
     Cause,
     ClosePending,
@@ -1156,18 +1157,28 @@ class BuildPath:
         or says anything of the code, so no fix agent runs and nothing is saved for one. None
         for any other output."""
         limit = timed_out_after(output)
-        if limit is None and not suspended(output):
+        reused = held_after_reuse(output)
+        if limit is None and reused is None and not suspended(output):
             return None
-        note = (
-            f"{stage}: {SUSPENDED_NOTE} — `abk requeue` runs it again"
-            if limit is None
-            else f"{stage} reached its {limit:g} s time limit: the machine was busy or a test "
-            "hung, so a person judges it — `abk requeue` runs it again"
-        )
+        if reused is not None:
+            note = f"{stage}: {reused}"
+        elif limit is None:
+            note = f"{stage}: {SUSPENDED_NOTE} — `abk requeue` runs it again"
+        else:
+            note = (
+                f"{stage} reached its {limit:g} s time limit: the machine was busy or a test "
+                "hung, so a person judges it — `abk requeue` runs it again"
+            )
         # A failure saved by an earlier round stays until a pass clears it, and a requeue would
         # read it as feedback to rework: the held unit starts its checks again with none.
         self.runner.store.set_feedback(self.unit.id, "")
-        return self.hold(HELD, note, note, cause=Cause.NEEDS_HUMAN)
+        return self.hold(
+            HELD,
+            note,
+            note,
+            cause=Cause.NEEDS_HUMAN,
+            held_by=HeldBy.CHECKS if reused is not None else HeldBy.NONE,
+        )
 
     def tree(self) -> Path:
         if self._tree is None:
