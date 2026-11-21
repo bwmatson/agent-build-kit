@@ -132,6 +132,35 @@ def source_tree_folders() -> list[str]:
     return [tree.relative_to(ROOT).as_posix() for tree in source_trees()]
 
 
+def test_trees(root: Path = ROOT) -> list[Path]:
+    """Every tree of test files: the root project's `tests/` and each package's `tests/` under
+    `packages/` that exists. A guard over the tests walks these, never `ROOT / "tests"` alone."""
+    packages = sorted(root.glob("packages/*/tests"))
+    return [root / "tests", *(tree for tree in packages if tree.is_dir())]
+
+
+def test_tree_folders(root: Path = ROOT) -> list[str]:
+    """The test trees' folders relative to the repository root, as `guarded_files(under=...)`
+    takes them."""
+    return [tree.relative_to(root).as_posix() for tree in test_trees(root)]
+
+
+def test_tree_prefix(tree: Path, root: Path = ROOT) -> str:
+    """What a guard puts before a file's path under `tree` to name it in a report or to match a
+    baseline: nothing for the root project's `tests/` (and for any tree outside a package, such as
+    a scratch folder), so baselines and allowlists keep their form; the tree's folder, relative to
+    the repository, for a package's tests."""
+    if tree.is_relative_to(root / "packages"):
+        return tree.relative_to(root).as_posix() + "/"
+    return ""
+
+
+# Named for what they list, not tests: a test module importing them must not collect them.
+test_trees.__test__ = False  # type: ignore[attr-defined]
+test_tree_folders.__test__ = False  # type: ignore[attr-defined]
+test_tree_prefix.__test__ = False  # type: ignore[attr-defined]
+
+
 def source_files(pattern: str = "*.py") -> list[tuple[Path, Path]]:
     """Each file of the source trees matching `pattern` as `(its tree, the file)`, in a stable
     order; the file's name relative to its tree is `path.relative_to(tree)`."""

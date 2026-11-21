@@ -1,6 +1,6 @@
 """A usage-paused unit reads as paused wherever a state is shown, with its stored state
 unchanged (spec: unit-timeline-is-recorded). A review round's span cause is driven through
-the graph in `tests/graph/test_round_causes.py`."""
+the graph in `packages/worker/tests/graph/test_round_causes.py`."""
 
 from __future__ import annotations
 

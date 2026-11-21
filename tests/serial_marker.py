@@ -8,7 +8,7 @@ the changelog.
 import re
 from pathlib import Path
 
-from tests.tracked_files import guarded_files, lines_of, tracked
+from tests.tracked_files import guarded_files, lines_of, test_tree_folders, tracked
 
 # The word the guard keeps out. A test that needs it as data (a command still carrying the old
 # selection) takes it from here, so the word stays in this file.
@@ -29,7 +29,7 @@ def serial_marker_problems(root: Path) -> list[str]:
     # A root file is tracked when it is among the tracked paths of the repository.
     tracked_root = {path for path in tracked(root) if len(path.parts) == 1}
     configuration = [root / path for path in tracked_root if path.suffix in _CONFIG_SUFFIXES]
-    files = {*guarded_files(root, under=["tests"]), *configuration}
+    files = {*guarded_files(root, under=test_tree_folders(root)), *configuration}
     problems: list[str] = []
     for path in sorted(files):
         relative = path.relative_to(root).as_posix()

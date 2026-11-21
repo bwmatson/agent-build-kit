@@ -15,6 +15,7 @@ from tests.live_tag_drift import (
 )
 from tests.runtime_tag_collection import ROOT
 from tests.time_limit import LOADED_TEST_TIME_LIMIT
+from tests.tracked_files import test_trees
 
 HEADER = "import pytest\n\npytestmark = pytest.mark.e2e\n"
 PLAIN = "\n\ndef test_plain():\n    pass\n"
@@ -154,7 +155,7 @@ def agent_calling_helpers() -> dict[str, Path]:
     """The non-test modules under `tests/` that connect to an agent, or start a subprocess in a
     module that reads the agent command: dotted name to path."""
     found = {}
-    for path in sorted((ROOT / "tests").rglob("*.py")):
+    for path in sorted(path for tree in test_trees() for path in tree.rglob("*.py")):
         if path.name.startswith("test_") or path.name == "conftest.py":
             continue
         tree = ast.parse(path.read_text())

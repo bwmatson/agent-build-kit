@@ -15,8 +15,8 @@ from pathlib import Path
 import pytest
 
 from tests.time_limit import LOADED_TEST_TIME_LIMIT
+from tests.tracked_files import ROOT, test_trees
 
-TESTS = Path(__file__).resolve().parent
 SHARED = {"factories.py", "conftest.py"}
 # Names that stand for one helper, so a definition outside the shared modules is a copy.
 MERGED = ("fake_openspec", "make_installation", "commit_files", "commit_unit_work")
@@ -27,7 +27,7 @@ COPIED = ("commit", "write_change")
 def helpers() -> list[tuple[str, Path, str]]:
     """Each top-level function of a test module that is not a test, as (name, file, shape)."""
     found = []
-    for path in sorted(TESTS.rglob("*.py")):
+    for path in sorted(path for tree in test_trees() for path in tree.rglob("*.py")):
         for node in ast.parse(path.read_text()).body:
             if (
                 not isinstance(node, ast.FunctionDef)
@@ -78,7 +78,7 @@ def test_no_two_merged_helpers_share_a_name_and_a_body() -> None:
     seen = defaultdict(list)
     for name, path, shape in helpers():
         if name in (*MERGED, *COPIED):
-            seen[name, shape].append(str(path.relative_to(TESTS)))
+            seen[name, shape].append(str(path.relative_to(ROOT)))
 
     duplicated = {name: files for (name, _), files in seen.items() if len(files) > 1}
 
@@ -92,7 +92,7 @@ def test_no_test_file_repeats_the_body_of_a_shared_helper_under_any_name() -> No
     shared = {shape: name for name, path, shape in found if path.name in SHARED}
 
     copies = {
-        f"{path.relative_to(TESTS)}:{name}": shared[shape]
+        f"{path.relative_to(ROOT)}:{name}": shared[shape]
         for name, path, shape in found
         if path.name not in SHARED and shape in shared
     }

@@ -89,13 +89,14 @@ def marks_e2e(tree: ast.AST) -> bool:
     return any(is_mark(n, "e2e") for n in ast.walk(tree))
 
 
-def find_live_modules(tests_root: Path) -> list[Path]:
-    """Every Python file under `tests_root`, at any depth and whatever its name, whose syntax
+def find_live_modules(*tests_roots: Path) -> list[Path]:
+    """Every Python file under the `tests_roots` (the repository's test trees, from
+    `tracked_files.test_trees`), at any depth and whatever its name, whose syntax
     marks a test `e2e` (`pytestmark`, a decorator, a `pytest.param` mark, a class
     decorator), sorted. A word in a string or comment does not count. Fails, naming the files,
     on one that cannot be parsed."""
     live, broken = [], []
-    for path in sorted(tests_root.rglob("*.py")):
+    for path in sorted(path for root in tests_roots for path in root.rglob("*.py")):
         try:
             tree = parsed(path.read_text())
         except FileNotFoundError:
@@ -381,12 +382,13 @@ def split_name_drift(pyproject: Path, document: Path) -> list[str]:
     ]
 
 
-def splits_by_syntax(tests_root: Path) -> dict[Path, set[str]]:
-    """For every live module under `tests_root` (as `find_live_modules` finds them), the splits
-    its `runtime_<name>` marks name in its syntax (`pytestmark`, a decorator, a class decorator,
-    a `pytest.param` mark), `rest` when it names none. Nothing is imported or collected."""
+def splits_by_syntax(*tests_roots: Path) -> dict[Path, set[str]]:
+    """For every live module under the `tests_roots` (as `find_live_modules` finds them), the
+    splits its `runtime_<name>` marks name in its syntax (`pytestmark`, a decorator, a class
+    decorator, a `pytest.param` mark), `rest` when it names none. Nothing is imported or
+    collected."""
     found = {}
-    for path in find_live_modules(tests_root):
+    for path in find_live_modules(*tests_roots):
         names = {
             node.attr.removeprefix(PREFIX)
             for node in ast.walk(parsed(path.read_text()))

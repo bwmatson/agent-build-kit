@@ -16,6 +16,7 @@ from tests.live_tag_drift import (
     warn_gap_list_drift,
 )
 from tests.runtime_tag_collection import ROOT
+from tests.tracked_files import test_trees
 
 DOCUMENT = ROOT / "docs" / "agent-runtimes.md"
 HEADER = "import pytest\n\npytestmark = pytest.mark.e2e\n"
@@ -124,7 +125,7 @@ def test_a_list_that_matches_the_document_warns_of_nothing(
 def test_the_kits_current_list_matches_the_documents_without_a_warning(
     pytester: pytest.Pytester,
 ) -> None:
-    modules = find_live_modules(ROOT / "tests")
+    modules = find_live_modules(*test_trees())
     items, _ = pytester.inline_genitems(*(str(m) for m in modules))
 
     current = claude_without_acp(items)

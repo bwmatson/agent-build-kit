@@ -9,7 +9,7 @@ import pytest
 
 from tests.child_sources import ALLOWED, check_tests, source_hits
 from tests.time_limit import LOADED_TEST_TIME_LIMIT
-from tests.tracked_files import ROOT, guarded_files
+from tests.tracked_files import ROOT, guarded_files, test_tree_folders
 
 STRING_RUN = '''\
 def test_runs_a_string(pytester):
@@ -109,7 +109,7 @@ def test_a_module_under_child_modules_with_a_test_string_is_exempt(tmp_path: Pat
 @pytest.mark.time_limit(LOADED_TEST_TIME_LIMIT)
 @pytest.mark.integration
 def test_the_repository_has_no_unlisted_or_stale_module() -> None:
-    files = guarded_files(ROOT, under=["tests"], suffixes={".py"})
+    files = guarded_files(ROOT, under=test_tree_folders(), suffixes={".py"})
 
     assert check_tests(files) == []
 

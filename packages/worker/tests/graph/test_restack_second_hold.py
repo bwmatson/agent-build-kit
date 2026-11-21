@@ -2,8 +2,9 @@
 lane moves it at once, its conflict step asked of the usage guard like any agent step.
 
 The run is driven through `abk tick` over the fake runner (`tests/tick_driver.py`), whose
-`restack_onto` finds a conflict before each push as `tests/graph/test_remaining_paths.py`'s
-`Moves` does. The lane's stack move is the pipeline's own, over a real repository whose branch
+`restack_onto` finds a conflict before each push as
+`packages/worker/tests/graph/test_remaining_paths.py`'s `Moves` does.
+The lane's stack move is the pipeline's own, over a real repository whose branch
 conflicts with the trunk, with the usage endpoint faked at the HTTP boundary.
 """
 

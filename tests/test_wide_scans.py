@@ -53,6 +53,22 @@ WHOLE_TREE_CALLS = [
 ]
 
 
+def test_an_unmarked_scan_in_a_package_test_tree_is_reported_relative_to_the_repository(
+    tmp_path: Path,
+) -> None:
+    tree(
+        tmp_path,
+        {
+            "tests/test_a.py": "def test_x():\n    pass\n",
+            "packages/pkg/tests/graph/test_scan.py": scan("guarded_files()"),
+        },
+    )
+
+    problems = check_tests(baseline=NONE, repository=tmp_path)
+
+    assert [p.split(": ")[0] for p in problems] == ["packages/pkg/tests/graph/test_scan.py::test_x"]
+
+
 @pytest.mark.parametrize("call", WHOLE_TREE_CALLS)
 def test_an_unmarked_scan_of_the_repository_is_reported_by_name(tmp_path: Path, call: str) -> None:
     root = tree(tmp_path, {"pipeline/test_scan.py": scan(call)})

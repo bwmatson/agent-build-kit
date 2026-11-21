@@ -12,8 +12,8 @@ from pathlib import Path
 import pytest
 
 from tests.live_tag_drift import INTEGRATION, find_live_modules
-from tests.runtime_tag_collection import ROOT
 from tests.time_limit import LOADED_TEST_TIME_LIMIT
+from tests.tracked_files import test_trees
 
 # One module per way a test is marked `e2e`.
 MARKS = {
@@ -98,7 +98,7 @@ def test_every_module_the_old_glob_and_text_match_found_is_still_found() -> None
     ]
     assert old
 
-    found = find_live_modules(ROOT / "tests")
+    found = find_live_modules(*test_trees())
 
     assert set(old) <= set(found)
     assert found == sorted(found)

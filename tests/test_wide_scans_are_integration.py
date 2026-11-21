@@ -17,7 +17,7 @@ import pytest
 from tests.child_pytest import collect_items
 from tests.time_limit import LOADED_TEST_TIME_LIMIT
 from tests.tracked_files import ROOT
-from tests.wide_scans import TESTS_ROOT, check_tests, load_baseline
+from tests.wide_scans import check_tests, load_baseline
 
 WIDE_SCANS = [
     ("test_secret_leak_guards.py", "test_no_test_support_model_prints_its_environment"),
@@ -187,4 +187,4 @@ def test_the_default_run_still_collects_the_logic_tests_of_a_check(
 @pytest.mark.time_limit(LOADED_TEST_TIME_LIMIT)
 @pytest.mark.integration
 def test_no_test_of_the_repository_scans_it_without_the_integration_selector() -> None:
-    assert check_tests(TESTS_ROOT, baseline=load_baseline()) == []
+    assert check_tests(baseline=load_baseline()) == []
