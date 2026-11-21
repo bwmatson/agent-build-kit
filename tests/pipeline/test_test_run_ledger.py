@@ -222,6 +222,27 @@ def test_a_run_that_failed_on_the_base_adds_a_row_naming_the_test(tmp_path: Path
     assert row["failed"] == [TEST]
 
 
+def test_a_row_records_the_head_and_the_base_the_run_saw(tmp_path: Path) -> None:
+    repo, base = branch(tmp_path, {})
+    head = subprocess.run(
+        ["git", "rev-parse", "HEAD"], cwd=repo, capture_output=True, text=True, check=True
+    ).stdout.strip()
+    ledger = tmp_path / "test-runs.jsonl"
+    unit_test = build_unit_test(
+        profile=cast(ToolchainProfile, HookedProfile()),
+        run=Runs(repo),
+        changed=lambda *a: ["src/app.py"],
+        test_runs=ledger,
+    )
+
+    with pytest.raises(FailedOnBase):
+        unit_test(cwd=repo, base=base)
+
+    (row,) = _rows(ledger)
+    assert row["head"] == head
+    assert row["base"] == base
+
+
 def test_units_running_holds_the_ids_of_the_running_units_of_the_store_and_no_other(
     scratch: Path, tmp_path: Path, workspace: Installation
 ) -> None:

@@ -153,6 +153,12 @@ class TestRun(Frozen):
     # the recording in hours.
     data_source: str | None = None
     data_age_hours: float | None = None
+    # The unit's head commit and the base commit the run saw (full ids); None on a row written
+    # before they were kept, which never stands in for a new run.
+    head: str | None = None
+    base: str | None = None
+    # Whether the row is a recorded failure reused as a run's result, not a run of the suite.
+    reused: bool = False
 
 
 def append_test_run(path: Path, run: TestRun, *, max_bytes: int = TEST_RUNS_MAX_BYTES) -> None:
