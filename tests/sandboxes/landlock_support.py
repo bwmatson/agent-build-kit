@@ -12,9 +12,9 @@ from pathlib import Path
 
 import pytest
 
-import agent_build_kit
 from agent_build_kit.sandboxes import Coverage, SandboxBackend, SandboxPolicy
 from agent_build_kit.sandboxes.launcher import NETWORK_ABI
+from tests.tracked_files import source_trees
 
 # The backends the contract suites run against; a later backend adds its name.
 BACKENDS = ["landlock", "seatbelt"]
@@ -30,7 +30,7 @@ def readable_folders() -> tuple[Path, ...]:
         Path(sys.base_prefix),
         Path(sys.executable).resolve().parents[1],
         Path(tempfile.gettempdir()),
-        Path(agent_build_kit.__file__).resolve().parent,
+        *source_trees(),
     ]
     return tuple(dict.fromkeys(path.resolve() for path in found if path.exists()))
 
