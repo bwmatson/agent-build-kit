@@ -1119,13 +1119,13 @@ def remove_satisfied(
     children = {child.id for child in _children_of(leaving, graph)}
     held_for_depth: list[str] = []
     not_moved: list[str] = []
-    owed = [d.id for d in _dependents_of(leaving, graph) if owed_its_move(d)]
+    owed = [d.id for d in dependents_of(leaving, graph) if owed_its_move(d)]
     if owed:
         # Neither the tree nor the branch goes while a unit is owed a move off it, or
         # making one: the worker that moves it needs the branch it leaves.
         log(f"{leaving.id}: branch {old_base} kept — {', '.join(owed)} owed their move")
         return
-    for dependent in _dependents_of(leaving, graph):
+    for dependent in dependents_of(leaving, graph):
         if dependent.state == HELD and dependent.held_base == old_base:
             held_for_depth.append(dependent.id)
         elif dependent.id in children and not on_new_base(dependent):
@@ -1178,7 +1178,7 @@ def _remove_leaving(
     # probe sees the trunk from `base_of`, and one holding it now is exactly
     # one that may have taken this branch. It is not moved here — its own
     # resume restacks it.
-    for dependent in _dependents_of(leaving, graph):
+    for dependent in dependents_of(leaving, graph):
         if dependent.id in building_on_it:
             continue
         try:
@@ -1872,7 +1872,7 @@ def _children_of(parent: StoredUnit, graph: list[StoredUnit]) -> list[StoredUnit
     ]
 
 
-def _dependents_of(parent: StoredUnit, graph: list[StoredUnit]) -> list[StoredUnit]:
+def dependents_of(parent: StoredUnit, graph: list[StoredUnit]) -> list[StoredUnit]:
     """Every same-repo unit on `parent` that may yet build, whatever its state.
 
     Wider than `_children_of`: a build may already have taken `parent`'s

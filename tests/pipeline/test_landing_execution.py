@@ -14,7 +14,7 @@ from agent_build_kit.forges.base import PullRequest
 from agent_build_kit.pipeline import landing as landing_step
 from agent_build_kit.pipeline.pr_poller import HOLD_LABEL
 from agent_build_kit.pipeline.unit_store import Cause
-from agent_build_kit.pipeline.units import IN_REVIEW, SETTLING
+from agent_build_kit.pipeline.units import IN_REVIEW, SETTLING, UnitState
 from agent_build_kit.serve.review import ReviewStore
 from tests.forges.stand_in import StandInForge
 from tests.landing_support import HEAD, PR, UNIT, landing, make_landable
@@ -61,6 +61,19 @@ def test_a_unit_another_builds_on_is_merged_without_asking_the_host_to_delete_it
     landed.land()
 
     assert landed.forge.merge_calls == [(PR, HEAD)]
+    assert landed.forge.merge_deletions == [False]
+
+
+def test_a_unit_a_dependent_builds_on_past_a_satisfied_unit_keeps_its_remote_branch(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    landed = landing(tmp_path, monkeypatch)
+    landed.store.set_state("c/2", UnitState.SATISFIED)
+    landed.store.set_state("c/4", UnitState.CLOSED)
+
+    landed.land()
+
+    assert landed.forge.merge_calls == [(PR, HEAD)], "\n".join(landed.logged)
     assert landed.forge.merge_deletions == [False]
 
 
