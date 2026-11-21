@@ -22,7 +22,7 @@ from agent_build_kit.pipeline.planner import (
 from agent_build_kit.pipeline.shell import git_out as git
 from agent_build_kit.pipeline.units import Unit, UnitState
 from agent_build_kit.pipeline.work_graph import TaskGroup
-from tests.cli.replan_driver import Replan, answer, planned
+from tests.cli.replan_driver import Replan, answer, planned, tasks_md
 from tests.factories import commit_files, groups_at, init_repo, stored_unit, unit
 
 CODE_TASK = "Edit `src/pkg/foo.py` to add it."
@@ -530,7 +530,29 @@ def test_a_replan_keeps_the_planners_group_modes_with_the_recorded_plan(
     }
 
 
-def test_a_replan_of_a_started_unit_whose_plan_kept_no_reply_says_the_planner_is_not_recorded(
+def test_a_group_joined_onto_a_stored_unit_has_its_planner_mode_recorded(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    run = Replan(tmp_path, monkeypatch, feature=tasks_md(1), other=tasks_md(1))
+    run.store.upsert([stored_unit("feature/1", change="feature", groups=(1,), review_tier="auto")])
+    run.record("feature")
+    run.record("other")
+    join = {
+        "onto": "feature/1",
+        "change": "other",
+        "groups": [1],
+        "estimated_lines": 20,
+        "group_modes": {"1": "tests_and_code"},
+    }
+
+    code, out = run.run(capsys, "other", reply=answer(joins=[join]))
+
+    assert code == 0, out
+    assert run.records["other"]["group_modes"] == {"feature/1": {"1": "tests_and_code"}}
+    assert not any("planner not recorded" in line for line in group_lines(out))
+
+
+def test_replan_report_says_the_planner_is_not_recorded_for_a_plan_kept_without_its_reply(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     tasks = (

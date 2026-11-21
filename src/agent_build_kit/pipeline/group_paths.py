@@ -247,24 +247,22 @@ def tasks_asking_for_tests(group: TaskGroup) -> list[str]:
     ]
 
 
-_MOVE_TASK = re.compile(r"(?:move|rename|relocate)\b", re.I)
+_MOVE_TASK = re.compile(r"(?:mov|renam|relocat)(?:e|es|ed|ing)\b|.*`git mv\b", re.I)
 
 
 def reorganization_warnings(path: Path, groups: Sequence[TaskGroup]) -> list[str]:
     """One warning per group that reads as a reorganization (a task that moves or renames, and
     no `Test:` task, `Tests: required` or `Mode:` line) yet builds test first, so its build
     would fail for want of a failing test."""
-    from agent_build_kit.pipeline.work_graph import GroupMode
+    from agent_build_kit.pipeline.work_graph import refactor_refusal
 
     return [
         f"warning: {path.parent.name} group {group.number} reads as a reorganization "
         "but has no failing test to write; add `Mode: refactor — <reason>` to build it as one, "
         "or a `Test:` task that fails first"
         for group in groups
-        if group.mode is GroupMode.TESTS_AND_CODE
-        and group.declared_mode is None
-        and not group.tests_required
-        and not tasks_asking_for_tests(group)
+        if group.declared_mode is None
+        and refactor_refusal(group) is None
         and any(_MOVE_TASK.match(first) for first, _ in _tasks(group))
     ]
 

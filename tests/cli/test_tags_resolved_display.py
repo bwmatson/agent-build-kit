@@ -194,7 +194,7 @@ def test_tags_exits_1_on_a_declared_mode_the_group_cannot_have(
     assert "Mode:" in capsys.readouterr().out
 
 
-def reorganization_warnings(
+def tags_mode_warnings(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], text: str
 ) -> tuple[int, list[str]]:
     """The status of `abk tags` over `text` and the warnings it printed that name `Mode:`."""
@@ -219,7 +219,7 @@ def test_tags_warns_of_a_group_that_reads_as_a_reorganization_and_exits_zero(
 ) -> None:
     text = MOVES.format(preface="", extra="")
 
-    status, warnings = reorganization_warnings(tmp_path, monkeypatch, capsys, text)
+    status, warnings = tags_mode_warnings(tmp_path, monkeypatch, capsys, text)
 
     assert status == 0
     assert len(warnings) == 1
@@ -234,8 +234,9 @@ def test_tags_warns_of_a_group_that_reads_as_a_reorganization_and_exits_zero(
         ("", "- [ ] 1.4 Test: the new path imports.\n"),
         ("Tests: required — the move changes an import\n\n", ""),
         ("Mode: refactor — moves only\n\n", ""),
+        ("", "- [ ] 1.4 Add a new test file `tests/test_new.py` for the moved module.\n"),
     ],
-    ids=["a Test: task", "Tests: required", "a Mode: line"],
+    ids=["a Test: task", "Tests: required", "a Mode: line", "a new test file"],
 )
 def test_tags_does_not_warn_of_a_reorganization_group_that_has_a_way_out_already(
     tmp_path: Path,
@@ -244,12 +245,12 @@ def test_tags_does_not_warn_of_a_reorganization_group_that_has_a_way_out_already
     preface: str,
     extra: str,
 ) -> None:
-    _, bare = reorganization_warnings(
+    _, bare = tags_mode_warnings(
         tmp_path / "bare", monkeypatch, capsys, MOVES.format(preface="", extra="")
     )
     text = MOVES.format(preface=preface, extra=extra)
 
-    status, warnings = reorganization_warnings(tmp_path / "exit", monkeypatch, capsys, text)
+    status, warnings = tags_mode_warnings(tmp_path / "exit", monkeypatch, capsys, text)
 
     assert len(bare) == 1
     assert status == 0

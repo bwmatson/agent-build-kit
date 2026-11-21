@@ -5859,7 +5859,7 @@ def plan_all(
                     "sizing": sizing,
                     "attempts": attempts_kept,
                     "ok": True,
-                    "group_modes": _planner_modes(units, change),
+                    "group_modes": _planner_modes(units, plan.joins, change),
                     **resolution_record(task_groups),
                 }
             },
@@ -5870,18 +5870,25 @@ def plan_all(
     return results
 
 
-def _planner_modes(units: Sequence[Unit], change: str) -> dict[str, dict[str, str]]:
-    """The mode the planner gave each group of `change` in each unit it planned, by unit id and
-    group number: what a plan records so a replan can say where a mode differs from the floor."""
+def _planner_modes(
+    units: Sequence[Unit], joins: Sequence[Join], change: str
+) -> dict[str, dict[str, str]]:
+    """The mode the planner gave each group of `change` in each unit it planned and in each join
+    of groups onto a stored unit, by unit id and group number: what a plan records so a replan
+    can say where a mode differs from the floor."""
     prefix = f"{change}/"
-    return {
-        unit.id: {
-            key.removeprefix(prefix): str(mode)
-            for key, mode in unit.group_modes.items()
-            if key.startswith(prefix)
-        }
-        for unit in units
-    }
+    owners = [(unit.id, unit.group_modes) for unit in units]
+    owners += [(join.onto, join.group_modes) for join in joins if not join.unit]
+    modes: dict[str, dict[str, str]] = {}
+    for owner, given in owners:
+        modes.setdefault(owner, {}).update(
+            {
+                key.removeprefix(prefix): str(mode)
+                for key, mode in given.items()
+                if key.startswith(prefix)
+            }
+        )
+    return modes
 
 
 def group_mode_lines(
