@@ -454,6 +454,7 @@ from agent_build_kit.pipeline.work_graph import (
     group_promotions,
     inverted_group_warnings,
     manual_runbook_warnings,
+    no_test_task_warnings,
     old_test_kind_warnings,
     project_line_applied,
     project_source_note,
@@ -6660,6 +6661,7 @@ def _tag_warnings(inst: Installation, path: Path) -> list[str]:
         *product_path_warnings(path, groups, inst.repos),
         *task_wording_warnings(path, groups),
         *reorganization_warnings(path, groups),
+        *no_test_task_warnings(path, groups),
         *manual_runbook_warnings(path, inst.root),
         *inverted_group_warnings(
             path,
@@ -6869,9 +6871,13 @@ def cmd_check(args: argparse.Namespace, inst: Installation) -> int:
 
     ok, output = openspec.check(inst.root)
     print(output, end="")
+    untested = 0
     for tasks in inst.tasks_files():
         for warning in _tag_warnings(inst, tasks):
             print(warning)
+        untested += len(no_test_task_warnings(tasks, validated(inst, tasks)[0]))
+    if untested:
+        print(f"{untested} group(s) have no test task, `Tests: required` line or `Mode:` line")
     problems = _needs_cycle_problems(inst)
     for message in problems.values():
         print(message)

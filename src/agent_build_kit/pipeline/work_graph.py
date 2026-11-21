@@ -1518,6 +1518,24 @@ def inverted_groups(
     return found
 
 
+NO_TEST_TASK_MARKER = "the tests step has nothing to write"
+
+
+def no_test_task_warnings(path: Path, groups: Sequence[TaskGroup]) -> list[str]:
+    """One warning per group built tests first (`tests_and_code`) that has no `Test:` task, no
+    `Tests: required` line and no `Mode:` line: its tests step is given nothing to write."""
+    return [
+        f"{path}:line {group.line}: warning: group {group.number}: {NO_TEST_TASK_MARKER}; "
+        "add a task beginning `Test:`, a `Tests: required — <reason>` line, or, for a "
+        "reorganization, a `Mode: refactor — <reason>` line"
+        for group in groups
+        if group.mode is GroupMode.TESTS_AND_CODE
+        and not group.tests_required
+        and group.declared_mode is None
+        and not tasks_asking_for_tests(group)
+    ]
+
+
 def inverted_group_warnings(
     path: Path,
     changes_dir: Path,
