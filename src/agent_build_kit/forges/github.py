@@ -37,6 +37,7 @@ from agent_build_kit.budget import cut_tail
 from agent_build_kit.forges.base import (
     UNKNOWN_CHECKS,
     BaseMissing,
+    BranchDeletion,
     Check,
     CheckStatus,
     CommitChecks,
@@ -886,6 +887,14 @@ class GitHubForge:
         """
         with self._on(repo) as gh:
             gh.rest.pulls.update(repo.account, repo.name, pr, data={"state": "closed"})
+
+    def branch_deletion(self, repo: RepoId) -> BranchDeletion:
+        """The repository's own "automatically delete head branches" setting."""
+        raise NotImplementedError
+
+    def turn_on_branch_deletion(self, repo: RepoId) -> None:
+        """Turn that setting on, writing that field alone."""
+        raise NotImplementedError
 
     def delete_remote_branch(self, repo: RepoId, branch: str) -> None:
         """Not reached in practice: GitHub deletes the head branch on merge,

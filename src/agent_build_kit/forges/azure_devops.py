@@ -53,6 +53,7 @@ from agent_build_kit.forges.azure_models import (
 from agent_build_kit.forges.base import (
     UNKNOWN_CHECKS,
     BaseMissing,
+    BranchDeletion,
     Check,
     CheckStatus,
     CommitChecks,
@@ -946,7 +947,18 @@ class AzureDevOpsForge:
             return
         self._git(repo, "PATCH", f"pullrequests/{pr}", json={"isDraft": draft}, run=run)
 
-    def merge_pr(self, repo: RepoId, pr: int, *, head: str, run: Run | None = None) -> str:
+    def branch_deletion(self, repo: RepoId) -> BranchDeletion:
+        raise NotImplementedError
+
+    def merge_pr(
+        self,
+        repo: RepoId,
+        pr: int,
+        *,
+        head: str,
+        run: Run | None = None,
+        delete_branch: bool = False,
+    ) -> str:
         """Complete by squash, with `head` as the last merge source commit the host must
         still find. A host that refuses the completion, or leaves the pull request
         active or abandoned, is a refusal carrying its reason; any other failure is the

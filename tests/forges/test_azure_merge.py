@@ -151,3 +151,14 @@ def test_the_commit_of_a_completed_pull_request_is_read_from_the_host() -> None:
 
 def test_an_active_pull_request_has_no_commit() -> None:
     assert forge(RestHost(active())).merge_commit(REPO, 162) is None
+
+
+def test_a_completion_asks_for_the_source_branch_to_go_only_when_deletion_is_on() -> None:
+    host = RestHost(active())
+
+    forge(host).merge_pr(REPO, 162, head=HEAD, delete_branch=True)
+    forge(host).merge_pr(REPO, 162, head=HEAD, delete_branch=False)
+
+    on, off = [call.body["completionOptions"] for call in host.calls("PATCH", PULL)]
+    assert on == {"mergeStrategy": "squash", "deleteSourceBranch": True}
+    assert off == {"mergeStrategy": "squash"}

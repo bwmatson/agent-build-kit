@@ -344,6 +344,11 @@ class RegistersStacks(Protocol):
     def add_to_stack(self, repo: RepoId, stack: int, pulls: Sequence[int]) -> Stack: ...
 
 
+# How a host deletes a merged pull request's source branch: by a repository setting that is
+# on or off, or per pull request at its completion.
+BranchDeletion = Literal["on", "off", "per_pull_request"]
+
+
 class Forge(RegistersStacks, Protocol):
     """The host a repo lives on."""
 

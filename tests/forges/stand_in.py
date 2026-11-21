@@ -27,6 +27,7 @@ from agent_build_kit.forges import (
     StackRefused,
 )
 from agent_build_kit.forges.base import (
+    BranchDeletion,
     CommitChecks,
     CommitOutcome,
     DeniedRequest,
@@ -132,6 +133,11 @@ class StandInForge:
         self.comments: list[str] = []
         self.statuses: list[dict] = []
         self.deleted: list[str] = []
+        # The host's own deletion setting for a repository, the reason a read of it fails
+        # (when set), and every repository it was turned on for.
+        self.repo_branch_deletion: BranchDeletion = "on"
+        self.branch_deletion_error = ""
+        self.branch_deletion_writes: list[str] = []
         self.closed: list[int] = []
         # Every post, close and draft call ("draft" or "ready"), in the order
         # they happened — a post and a close each land in their own list too,
@@ -261,6 +267,15 @@ class StandInForge:
 
     def delete_remote_branch(self, repo: RepoId, branch: str) -> None:
         self.deleted.append(branch)
+
+    def branch_deletion(self, repo: RepoId) -> BranchDeletion:
+        if self.branch_deletion_error:
+            raise RuntimeError(self.branch_deletion_error)
+        return self.repo_branch_deletion
+
+    def turn_on_branch_deletion(self, repo: RepoId) -> None:
+        self.branch_deletion_writes.append(f"{repo.account}/{repo.name}")
+        self.repo_branch_deletion = "on"
 
     # --- labels -------------------------------------------------------------
 
