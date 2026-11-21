@@ -29,6 +29,7 @@
 - A group can declare its reorganization with `Mode: refactor — <reason>`. The planner keeps
   that mode on every replan of an unbuilt group, and `abk tags` shows it and refuses the line
   where the group adds a test, is an e2e-test group, or names only documents or tests.
+
 - The ledger of unit-test runs now records each run's head and base commits, and a failed
   run on an unchanged head and base can stand in for a new one: it is logged as not run
   again and added as a reused row, and the second reuse holds the unit with a note naming
