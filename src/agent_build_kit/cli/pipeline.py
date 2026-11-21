@@ -5894,25 +5894,29 @@ def _planner_modes(
 def group_mode_lines(
     units: Sequence[StoredUnit], groups: Sequence[TaskGroup], record: Mapping[str, Any], change: str
 ) -> list[str]:
-    """One line for each group of `change` a unit owns whose floor, the planner's recorded mode
-    and stored mode are not all the same; `planner not recorded` where the plan kept none."""
+    """One line for each group of `change` a unit builds, its own or carried from `change` onto
+    another change's unit, whose floor, the planner's recorded mode and stored mode are not all
+    the same; `planner not recorded` where the plan kept none."""
     by_number = {group.number: group for group in groups}
     recorded = record.get("group_modes") or {}
     lines: list[str] = []
     for unit in units:
-        if unit.change != change or not unit.owns_groups:
+        if not unit.owns_groups:
             continue
-        for n in unit.groups:
-            if n not in by_number:
+        for member in unit.members():
+            if member.change != change:
                 continue
-            floor = by_number[n].mode.value
-            stored = unit.mode_of(change, by_number[n]).value
-            planner = (recorded.get(unit.id) or {}).get(str(n))
-            if planner is None or not floor == planner == stored:
-                lines.append(
-                    f"{unit.id}: group {n}: floor {floor}, "
-                    f"planner {planner or 'not recorded'}, stored {stored}"
-                )
+            for n in member.groups:
+                if n not in by_number:
+                    continue
+                floor = by_number[n].mode.value
+                stored = unit.mode_of(change, by_number[n]).value
+                planner = (recorded.get(unit.id) or {}).get(str(n))
+                if planner is None or not floor == planner == stored:
+                    lines.append(
+                        f"{unit.id}: group {n}: floor {floor}, "
+                        f"planner {planner or 'not recorded'}, stored {stored}"
+                    )
     return lines
 
 

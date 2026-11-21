@@ -549,7 +549,29 @@ def test_a_group_joined_onto_a_stored_unit_has_its_planner_mode_recorded(
 
     assert code == 0, out
     assert run.records["other"]["group_modes"] == {"feature/1": {"1": "tests_and_code"}}
-    assert not any("planner not recorded" in line for line in group_lines(out))
+
+
+def test_a_group_carried_onto_another_changes_unit_is_reported_with_the_planners_mode(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    run = Replan(tmp_path, monkeypatch, feature=tasks_md(1), other=DOCS_GROUP)
+    run.store.upsert([stored_unit("feature/1", change="feature", groups=(1,), review_tier="auto")])
+    run.record("feature")
+    run.record("other")
+    join = {
+        "onto": "feature/1",
+        "change": "other",
+        "groups": [1],
+        "estimated_lines": 20,
+        "group_modes": {"1": "tests_and_code"},
+    }
+
+    code, out = run.run(capsys, "other", reply=answer(joins=[join]))
+
+    assert code == 0, out
+    assert group_lines(out) == [
+        "feature/1: group 1: floor no_code, planner tests_and_code, stored tests_and_code"
+    ]
 
 
 def test_replan_report_says_the_planner_is_not_recorded_for_a_plan_kept_without_its_reply(

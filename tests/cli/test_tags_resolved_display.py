@@ -229,6 +229,35 @@ def test_tags_warns_of_a_group_that_reads_as_a_reorganization_and_exits_zero(
 
 
 @pytest.mark.parametrize(
+    ("task", "warned"),
+    [
+        ("Renames `src/pkg/a.py` to `src/pkg/b.py`.", 1),
+        ("Moving `src/pkg/a.py` to `src/pkg/b.py`.", 1),
+        ("Run `git mv src/pkg/a.py src/pkg/b.py`.", 1),
+        ("Remove `src/pkg/a.py`.", 0),
+        ("Add a movement helper in `src/pkg/a.py`.", 0),
+    ],
+    ids=["Renames", "Moving", "git mv", "Remove", "movement"],
+)
+def test_tags_warns_of_a_group_by_how_its_task_words_a_move(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    task: str,
+    warned: int,
+) -> None:
+    text = (
+        "# Tasks\n\nAcceptance: none — a fixture\n\n## 1. [app] [unit-test] Tidy the package\n\n"
+        f"- [ ] 1.1 {task}\n"
+    )
+
+    status, warnings = tags_mode_warnings(tmp_path, monkeypatch, capsys, text)
+
+    assert status == 0
+    assert len(warnings) == warned
+
+
+@pytest.mark.parametrize(
     ("preface", "extra"),
     [
         ("", "- [ ] 1.4 Test: the new path imports.\n"),
