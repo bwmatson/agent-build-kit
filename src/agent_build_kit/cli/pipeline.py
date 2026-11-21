@@ -162,7 +162,7 @@ from agent_build_kit.pipeline.file_lock import (
     change_lock,
     file_lock,
 )
-from agent_build_kit.pipeline.flakes import flake_record
+from agent_build_kit.pipeline.flakes import finished_at, flake_record
 from agent_build_kit.pipeline.gate_holds import evaluate_gates, gate_status_lines
 from agent_build_kit.pipeline.idle import idle_units
 from agent_build_kit.pipeline.joins import JoinContext
@@ -1043,6 +1043,17 @@ def cmd_status(args: argparse.Namespace, inst: Installation) -> int:
             + (", recorded as load" if loaded else "")
             + _judged(inst, failed.change)
         )
+        # Only a failure recorded after the fix finished says it did not fix the test.
+        latest = max(
+            (e for e in flake_rows if e.test == failed.test and e.failing), key=lambda e: e.at
+        )
+        done = finished_at(inst, failed.change) if failed.change else None
+        if done is not None and latest.at > done:
+            failing_unit = latest.unit
+            log(
+                f"  finished fix: {failed.change} finished, and {failing_unit} still fails "
+                f"{failed.test}"
+            )
 
     for loaded_test in flake_record(inst).counts(lambda entry: entry.classification == "load"):
         times = f"{loaded_test.count} time{'' if loaded_test.count == 1 else 's'}"

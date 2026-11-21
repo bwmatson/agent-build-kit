@@ -41,9 +41,11 @@ from agent_build_kit.pipeline.flakes import (
     FAILING_TEST_LINE,
     Flake,
     add_needs_to_unit,
+    finished_attempt,
     first_group_test,
     fix_change_name,
     flake_record,
+    is_archived,
     is_fix_change,
     next_fix_name,
     open_fix_change,
@@ -297,6 +299,10 @@ def run_regression_agent(
         else ""
     )
     earlier = failure_history(inst, failure.test, evidence=True)
+    # An archived change is in the shipped spec; one still under `changes/` was finished only.
+    finished = (
+        "" if not archived or is_archived(inst, archived) else finished_attempt(inst, archived)
+    )
     artifacts = orchestration.get(ARTIFACTS, inst)
     first_failure = change_evidence(
         inst.state_dir,
@@ -341,10 +347,15 @@ def run_regression_agent(
         kind_label=KIND_LABEL,
         judgements=" or ".join(f"`{JUDGEMENT_LABEL} {each}`" for each in JUDGEMENTS),
         again=(
-            f"\nAn earlier change, `{archived}`, fixed this test and was merged and archived; "
-            "it fails again. Read it, and say why its fix did not hold. Its requirement is in the "
-            "shipped spec now, and an archive refuses an ADDED requirement of a title the "
-            "shipped spec holds: restate it as a MODIFIED one.\n"
+            (
+                f"\nAn earlier change, `{archived}`, was built and finished, and this test "
+                f"still fails ({finished}). Read it, and say why its fix did not hold.\n"
+                if finished
+                else f"\nAn earlier change, `{archived}`, fixed this test and was merged and "
+                "archived; it fails again. Read it, and say why its fix did not hold. Its "
+                "requirement is in the shipped spec now, and an archive refuses an ADDED "
+                "requirement of a title the shipped spec holds: restate it as a MODIFIED one.\n"
+            )
             if archived
             else ""
         ),

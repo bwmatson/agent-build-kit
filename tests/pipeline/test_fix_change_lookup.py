@@ -17,8 +17,10 @@ from agent_build_kit.pipeline.flakes import (
     open_fix_change,
 )
 from agent_build_kit.pipeline.unit_store import UnitStore
+from agent_build_kit.pipeline.units import UnitState
 from agent_build_kit.pipeline.wiring import build_on_preexisting
 from tests.e2e_wait_fakes import verdict_of
+from tests.factories import stored_unit
 from tests.pipeline.test_flake_fix_change import (
     TEST,
     change_with_unit,
@@ -28,6 +30,7 @@ from tests.pipeline.test_flake_fix_change import (
     waits_on,
 )
 from tests.regression_agent_fakes import waited_on as wait_on_fix
+from tests.regression_agent_support import Attempts
 from tests.untouched_failure_fakes import TEST as RECORDED
 
 PREFIXES = ["fix-test", "fix-flaky", "fix-failing"]
@@ -116,3 +119,70 @@ def test_a_second_failure_after_an_archived_fix_takes_the_next_name(
 
     assert open_fix_change(installation, TEST) == (None, archived)
     assert next_fix_name(installation, TEST) == f"{archived}-2"
+
+
+NOTE = "is no longer in the tree"
+FINISHED = [UnitState.SATISFIED, UnitState.MERGED, UnitState.CLOSED, UnitState.RETIRED]
+
+
+def fix_unit(inst: Installation, name: str, *states: tuple[UnitState, str]) -> None:
+    """A fix change `name`, open under the changes directory, with one stored unit for each of
+    `states` (the state and the note it was left with)."""
+    (inst.changes_dir / name).mkdir(parents=True, exist_ok=True)
+    store = UnitStore(inst.state_dir / "units.json")
+    for number, (state, note) in enumerate(states, start=1):
+        unit_id = f"{name}/{number}"
+        store.upsert([stored_unit(unit_id, change=name, groups=(number,))])
+        store.set_state(unit_id, state, note=note)
+
+
+@pytest.mark.parametrize("state", FINISHED)
+def test_a_fix_change_whose_units_all_finished_is_not_open_for_its_test(
+    installation: Installation, state: UnitState
+) -> None:
+    name = fix_change_name(TEST, FIX_PREFIX)
+    fix_unit(installation, name, (state, NOTE))
+
+    assert open_fix_change(installation, TEST) == (None, name)
+    assert next_fix_name(installation, TEST) == f"{name}-2"
+
+
+def test_a_fix_change_with_one_unit_not_finished_is_open_beside_a_finished_earlier_one(
+    installation: Installation,
+) -> None:
+    first = fix_change_name(TEST, FIX_PREFIX)
+    second = f"{first}-2"
+    fix_unit(installation, first, (UnitState.SATISFIED, NOTE))
+    fix_unit(installation, second, (UnitState.SATISFIED, NOTE), (UnitState.RUNNING, ""))
+
+    assert open_fix_change(installation, TEST) == (second, first)
+
+
+def test_a_fix_change_with_no_stored_unit_is_open_beside_a_finished_earlier_one(
+    installation: Installation,
+) -> None:
+    first = fix_change_name(TEST, FIX_PREFIX)
+    second = f"{first}-2"
+    fix_unit(installation, first, (UnitState.MERGED, NOTE))
+    (installation.changes_dir / second).mkdir()
+
+    assert open_fix_change(installation, TEST) == (second, first)
+
+
+def test_a_failing_unit_waits_on_a_new_change_naming_the_finished_one_and_its_note(
+    installation: Installation,
+) -> None:
+    code_repo(installation)
+    unit = change_with_unit(installation, "feature", "feature/1")
+    finished = fix_change_name(TEST, FIX_PREFIX)
+    fix_unit(installation, finished, (UnitState.SATISFIED, NOTE))
+    new = f"{finished}-2"
+    agent = Attempts(installation, new, {})
+
+    name = wait_on_fix(installation, flaked(), unit, runtime=agent.runtime)
+
+    assert name == new
+    assert waits_on(installation, "feature") == [new]
+    prompt = agent.runtime.request.prompt
+    assert finished in prompt
+    assert "satisfied" in prompt and NOTE in prompt

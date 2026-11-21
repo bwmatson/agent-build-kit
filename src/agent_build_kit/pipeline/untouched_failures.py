@@ -76,7 +76,8 @@ class Exists(Frozen):
 
 
 class Write(Frozen):
-    """The change that would be written for a test, and the archived attempt before it."""
+    """The change that would be written for a test, and the last archived or finished attempt
+    before it."""
 
     name: str
     earlier: str = ""
@@ -88,7 +89,8 @@ class Write(Frozen):
 
 
 def preview_fix(inst: Installation, test: str, prefix: str) -> Exists | Write:
-    """What the ensure step would do for `test` under `prefix`; reads the changes directory only."""
+    """What the ensure step would do for `test` under `prefix`; reads the changes directory and
+    the unit store."""
     name, earlier = open_fix_change(inst, test, prefix)
     if name is not None:
         return Exists(change=name)
@@ -96,7 +98,7 @@ def preview_fix(inst: Installation, test: str, prefix: str) -> Exists | Write:
 
 
 def preview(inst: Installation, test: str) -> Exists | Write:
-    """What the ensure step would do for `test`; reads the changes directory only."""
+    """What the ensure step would do for `test`; reads the changes directory and the unit store."""
     return preview_fix(inst, test, "")
 
 

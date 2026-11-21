@@ -6,6 +6,15 @@
   that mode on every replan of an unbuilt group, and `abk tags` shows it and refuses the line
   where the group adds a test, is an e2e-test group, or names only documents or tests.
 
+- A fix change whose units all finished while its test still fails is no longer waited on
+  as if it were open: the next failure writes a new fix change that is told how the earlier
+  one ended, and `abk status` names the finished change, the test and the unit when the test
+  failed after the fix finished. The reproduction check also stops reading a test as gone
+  when the repo's default settings merely deselect its kind: it runs an `integration` test
+  with that kind let through, calls a test gone only when a collection without the selection
+  does not find it, and skips (rather than counting passes) a test of another deselected
+  kind that it could not run.
+
 - A manual step that declares no check can now be attested: `abk manual done <slug> --note
   TEXT` marks it done with the note, the time and who ran it, and the next tick pass resumes
   the unit. It refuses a step that declares a check (run `abk manual check` instead), an

@@ -27,8 +27,8 @@ from agent_build_kit.pipeline.failure_record import (
 )
 from agent_build_kit.pipeline.file_lock import change_lock
 from agent_build_kit.pipeline.run_log import bundle_exists, bundle_place
-from agent_build_kit.pipeline.unit_store import StoredUnit
-from agent_build_kit.pipeline.units import PRODUCT_DEFECT_PREFIX, Unit
+from agent_build_kit.pipeline.unit_store import StoredUnit, UnitStore
+from agent_build_kit.pipeline.units import FINISHED_STATES, PRODUCT_DEFECT_PREFIX, Unit
 from agent_build_kit.pipeline.work_graph import FIX_PREFIX, GROUP_HEADING, group_needs
 
 # The longest a change's name gets before it is cut and given a hash of the whole.
@@ -194,22 +194,59 @@ def _candidates(test: str, prefix: str):
         attempt += 1
 
 
-def _archived(inst: Installation, name: str) -> bool:
+def is_archived(inst: Installation, name: str) -> bool:
+    """Whether the change `name` has been archived."""
     return any((inst.changes_dir / "archive").glob(f"*-{name}"))
+
+
+def _finished_of(units: list[StoredUnit], name: str) -> list[StoredUnit]:
+    """The units of `name` among `units`, when it has some and every one is finished."""
+    own = [u for u in units if u.change == name]
+    return own if own and all(u.state in FINISHED_STATES for u in own) else []
+
+
+def finished_units(inst: Installation, name: str) -> list[StoredUnit]:
+    """The stored units of the change `name`, when it has some and every one is finished
+    (`units.FINISHED_STATES`); empty otherwise. A change whose units are all finished is done
+    being built, whatever the test it was written for does now."""
+    return _finished_of(UnitStore(inst.state_dir / "units.json").all(), name)
+
+
+def finished_at(inst: Installation, name: str) -> datetime | None:
+    """When the last unit of the finished change `name` reached its finished state, from its
+    history; None when the change is not finished."""
+    stamps: list[datetime] = []
+    for unit in finished_units(inst, name):
+        try:
+            stamps.append(datetime.fromisoformat(str(unit.history[-1]["at"])))
+        except (IndexError, KeyError, ValueError):
+            continue
+    return max(stamps, default=None)
+
+
+def finished_attempt(inst: Installation, name: str) -> str:
+    """What an earlier change `name` ended as: each unit's state and note."""
+    return "; ".join(
+        f"{u.id} was {u.state.value}" + (f": {u.note}" if u.note else "")
+        for u in finished_units(inst, name)
+    )
 
 
 def open_fix_change(inst: Installation, test: str, prefix: str = "") -> tuple[str | None, str]:
     """The open change that fixes `test` under `prefix` (any test-fix prefix when empty), or
-    None and the last archived attempt (or "")."""
+    None and the last earlier attempt (or ""). A change stops being open when it is archived or
+    when its units have all finished: a finished change that did not fix the test is an earlier
+    attempt, and the next one is a new change. Reads the changes directory and the unit store."""
+    units = UnitStore(inst.state_dir / "units.json").all()
     earlier = ""
     for names in _candidates(test, prefix):
         for name in names:
-            if (inst.changes_dir / name).is_dir():
+            if (inst.changes_dir / name).is_dir() and not _finished_of(units, name):
                 return name, earlier
-        archived = [name for name in names if _archived(inst, name)]
-        if not archived:
+        done = [n for n in names if is_archived(inst, n) or _finished_of(units, n)]
+        if not done:
             return None, earlier
-        earlier = archived[0]
+        earlier = done[0]
     raise AssertionError("unreachable")
 
 
@@ -217,7 +254,7 @@ def next_fix_name(inst: Installation, test: str, prefix: str = "") -> str:
     """The name the next change for `test` gets: the first attempt with no change open or
     archived under any prefix looked under, named with `prefix` or `FIX_PREFIX`."""
     for names in _candidates(test, prefix):
-        if not any((inst.changes_dir / n).exists() or _archived(inst, n) for n in names):
+        if not any((inst.changes_dir / n).exists() or is_archived(inst, n) for n in names):
             return names[0]
     raise AssertionError("unreachable")
 

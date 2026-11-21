@@ -5685,9 +5685,18 @@ def build_reproduce(
             return Reproduction(outcome=Outcome.SKIPPED, note="no test command runs the test")
         command, _ = found
         alone = rerun(command, [test], project=where)
-        loaded = toolchain.repeat_command(command, [file]) or alone
+        loaded = toolchain.repeat_command(command, [file], project=where) or alone
+        collect = getattr(toolchain, "unselected_collection", None)
+        not_run = False
+
+        def listed_without_selection() -> bool:
+            """Whether a collection with the repo's default selection removed finds the test.
+            False when there is no such collection to make: the runs were not narrowed."""
+            argv = collect(command, [test], project=where) if collect is not None else None
+            return argv is not None and run(argv, cwd=where).returncode == 0
 
         def attempt(argv: list[str], *, whole_file: bool) -> Attempt:
+            nonlocal not_run
             result = run(argv, cwd=where)
             output = f"{result.stdout}\n{result.stderr}"
             if test in failed_ids(toolchain, output):
@@ -5701,16 +5710,29 @@ def build_reproduce(
                     and ids_not_found(toolchain, output, where)
                 )
             ):
-                return Attempt.NOT_COLLECTED
+                # Gone only when a collection without the default selection agrees. A test it
+                # finds, that the run did not, is of a kind the run's selection does not take: it
+                # was not run, so the attempt is not a pass.
+                if not listed_without_selection():
+                    return Attempt.NOT_COLLECTED
+                not_run = True
+                return Attempt.PASSED
             if not whole_file and not toolchain.tolerates_exit(argv, result.returncode):
                 return Attempt.FAILED
             return Attempt.PASSED
 
-        return check_reproduction(
+        found = check_reproduction(
             test,
             runs,
             alone=lambda: attempt(alone, whole_file=False),
             loaded=lambda: attempt(loaded, whole_file=True),
         )
+        if not_run and found.outcome is not Outcome.FAILS:
+            return Reproduction(
+                outcome=Outcome.SKIPPED,
+                note=f"{test} is collected only without the repo's default selection, which "
+                "the runs keep: it was not run",
+            )
+        return found
 
     return reproduce_test

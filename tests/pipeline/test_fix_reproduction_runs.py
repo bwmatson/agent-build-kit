@@ -8,6 +8,7 @@ planning folder; `build_reproduce` runs the profile's commands through a fake `r
 from __future__ import annotations
 
 import subprocess
+from collections.abc import Callable
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -15,6 +16,7 @@ from agent_build_kit import profiles
 from agent_build_kit.pipeline.fix_reproduction import (
     Attempt,
     Outcome,
+    Reproduction,
     check,
     unreproduced_guidance,
 )
@@ -266,6 +268,96 @@ def test_a_profile_that_cannot_run_one_test_is_skipped(tmp_path: Path) -> None:
     reproduce = build_reproduce(profile=bare, run=lambda *a, **k: done(0))
 
     assert reproduce(cwd=tree, test=TEST, runs=2).outcome is Outcome.SKIPPED
+
+
+INTEGRATION_TEST = "tests/test_widget.py::test_commits_in_a_worktree"
+E2E_TEST = "tests/test_widget.py::test_talks_to_the_stack"
+NO_TESTS = "no tests ran in 0.01s"
+
+
+def under_a_deselecting_default(
+    tmp_path: Path, *, present: bool, fails: bool, test: str = INTEGRATION_TEST
+) -> tuple[Path, Callable[..., Reproduction], list[list[str]]]:
+    """A worktree whose pytest settings deselect the `integration` and `e2e` kinds (`-m "not
+    integration and not e2e"` in addopts), and a runner that answers as pytest does over `test`,
+    a test of the `integration` kind unless it is `E2E_TEST`: with the default selection (or
+    `-k`) it collects nothing and exits 5; with the selection removed it collects the test, and
+    so it does with a marker expression that names `integration` when the test is of that kind
+    (exit 4 "not found" when `present` is false); a run of it fails when `fails`."""
+    tree = tmp_path / "tree"
+    (tree / "tests").mkdir(parents=True)
+    (tree / "tests" / "test_widget.py").write_text("")
+    (tree / "pyproject.toml").write_text(
+        '[project]\nname = "app"\nversion = "0"\ndependencies = ["pytest-xdist"]\n'
+        '[tool.pytest.ini_options]\naddopts = "-m \\"not integration and not e2e\\""\n'
+        'markers = ["integration: needs more", "e2e: needs the stack"]\n'
+    )
+    commands: list[list[str]] = []
+
+    def run(args: list[str], **kwargs: object) -> subprocess.CompletedProcess:
+        commands.append(args)
+        marker = args[args.index("-m") + 1] if "-m" in args else None
+        cleared = any(word in ("addopts=", "-oaddopts=") for word in args)
+        if marker is None and not cleared:
+            marker = "not integration and not e2e"
+        lifted = marker is not None and marker.startswith("integration") and test != E2E_TEST
+        selected = "-k" not in args and (marker is None or lifted)
+        if not selected:
+            return done(5, NO_TESTS)
+        if not present:
+            return done(4, f"ERROR: not found: {test} (no match in any of [])")
+        if "--collect-only" in args:
+            return done(0, f"{test}\n")
+        if fails:
+            return done(1, f"FAILED {test} - assert False\n")
+        return done(0, "1 passed")
+
+    reproduce = build_reproduce(profile=profiles.get("python-uv"), run=run)
+    return tree, reproduce, commands
+
+
+def test_a_test_the_default_selection_deselects_is_not_gone_when_it_passes_every_run(
+    tmp_path: Path,
+) -> None:
+    tree, reproduce, commands = under_a_deselecting_default(tmp_path, present=True, fails=False)
+
+    found = reproduce(cwd=tree, test=INTEGRATION_TEST, runs=2)
+
+    assert found.outcome is Outcome.NOT_REPRODUCED
+    runs = [command for command in commands if "--collect-only" not in command]
+    assert any(
+        "-k" not in command
+        and (
+            any(word in ("addopts=", "-oaddopts=") for word in command)
+            or ("-m" in command and command[command.index("-m") + 1].startswith("integration"))
+        )
+        for command in runs
+    ), "the test was run with the default selection removed"
+
+
+def test_a_test_of_a_kind_the_runs_do_not_lift_is_skipped_and_not_counted_as_run(
+    tmp_path: Path,
+) -> None:
+    tree, reproduce, commands = under_a_deselecting_default(
+        tmp_path, present=True, fails=False, test=E2E_TEST
+    )
+
+    found = reproduce(cwd=tree, test=E2E_TEST, runs=2)
+
+    assert found.outcome is Outcome.SKIPPED
+    assert "0 of" not in found.note and "not run" in found.note
+    assert any("--collect-only" in command for command in commands)
+
+
+def test_an_id_the_collection_without_selection_does_not_find_is_gone(tmp_path: Path) -> None:
+    tree, reproduce, commands = under_a_deselecting_default(tmp_path, present=False, fails=False)
+
+    found = reproduce(cwd=tree, test=INTEGRATION_TEST, runs=2)
+
+    assert found.outcome is Outcome.GONE
+    assert any("--collect-only" in command for command in commands), (
+        "gone is read from a collection"
+    )
 
 
 def test_the_guidance_tells_the_tests_step_too() -> None:
