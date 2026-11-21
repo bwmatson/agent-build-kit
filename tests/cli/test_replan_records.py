@@ -32,6 +32,10 @@ def test_a_change_is_planned_although_its_hash_is_recorded(
         "sizing": cli.sizing_digest(),
         "attempts": 0,
         "ok": True,
+        "group_modes": {
+            "feature/1": {"1": "tests_and_code"},
+            "feature/2": {"2": "tests_and_code"},
+        },
     }
     assert {u.id for u in run.store.all()} == {"feature/1", "feature/2"}
 

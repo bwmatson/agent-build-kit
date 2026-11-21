@@ -152,6 +152,11 @@ To fix the mode instead of leaving it to the planner, add a line `Mode: refactor
 paths are all documents or tests, and in a group with a `Test:` task, a `Tests: required` line or a task that
 adds a new test file. The planner keeps the declared mode on every replan of an unbuilt group.
 
+`abk tags` and `abk check` warn of a group that moves or renames files and has no `Test:` task, `Tests: required`
+or `Mode:` line: it would be built test first with nothing to fail. Add the `Mode:` line, or a failing `Test:` task.
+A replan prints `<unit>: group N: floor F, planner P, stored S` where those differ; `planner not recorded`
+means the plan kept no reply, so run `abk replan <change>` to record one.
+
 ## Which project a group is in
 
 When a repo declares projects and the heading names none (`[app]`), the group resolves to the project that

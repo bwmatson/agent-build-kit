@@ -706,6 +706,22 @@ def _split_problem(number: int, repo: str, tier: str, value: str, declared: tupl
     )
 
 
+def refactor_refusal(group: TaskGroup) -> str | None:
+    """Why `group` cannot be built in the `refactor` mode, or None when it can: the one rule
+    `Mode: refactor` is checked by and a warning that advises the line is held to."""
+    if group.tier == TestTier.E2E_TEST:
+        return "an [e2e-test] group builds only tests"
+    if group.mode is not GroupMode.TESTS_AND_CODE:
+        return f"its floor is {group.mode.value}, with no source to reorganize"
+    if group.tests_required:
+        return "it has a `Tests: required` line"
+    if tasks_asking_for_tests(group):
+        return "it has a `Test:` task, so it adds a test"
+    if any(NEW_TEST_FILE.search(m["text"]) for line in group.body if (m := TASK_LINE.match(line))):
+        return "a task adds a new test file"
+    return None
+
+
 def validate_tasks_text(
     text: str,
     change: str,
@@ -1168,19 +1184,7 @@ def validate_tasks(
     for group in groups:
         if group.line not in declared_modes:
             continue
-        tasks = [m["text"] for line in group.body if (m := TASK_LINE.match(line))]
-        problem = None
-        if group.tier == TestTier.E2E_TEST:
-            problem = "an [e2e-test] group builds only tests"
-        elif group.mode is not GroupMode.TESTS_AND_CODE:
-            problem = f"its floor is {group.mode.value}, with no source to reorganize"
-        elif group.tests_required:
-            problem = "it has a `Tests: required` line"
-        elif tasks_asking_for_tests(group):
-            problem = "it has a `Test:` task, so it adds a test"
-        elif any(NEW_TEST_FILE.search(task) for task in tasks):
-            problem = "a task adds a new test file"
-        if problem:
+        if problem := refactor_refusal(group):
             errors.append(
                 ValidationError(
                     line=declared_modes[group.line][0],

@@ -22,7 +22,7 @@ from agent_build_kit.pipeline.planner import (
 from agent_build_kit.pipeline.shell import git_out as git
 from agent_build_kit.pipeline.units import Unit, UnitState
 from agent_build_kit.pipeline.work_graph import TaskGroup
-from tests.cli.replan_driver import Replan, answer, planned
+from tests.cli.replan_driver import Replan, answer, planned, tasks_md
 from tests.factories import commit_files, groups_at, init_repo, stored_unit, unit
 
 CODE_TASK = "Edit `src/pkg/foo.py` to add it."
@@ -148,6 +148,16 @@ def test_a_reply_naming_a_mode_for_one_group_gives_the_other_its_floor() -> None
     assert unit.group_modes == {"feature/1": "tests_and_code", "feature/2": "tests_and_code"}
 
 
+DOCS_GROUP = (
+    "# Tasks\n\nAcceptance: none — a fixture\n\n## 1. [app] [unit-test] Group 1\n\n"
+    "- [ ] 1.1 Test: it reads.\n- [ ] 1.2 Update `docs/guide.md`.\n"
+)
+CODE_GROUP = (
+    "# Tasks\n\nAcceptance: none — a fixture\n\n## 1. [app] [unit-test] Group 1\n\n"
+    "- [ ] 1.1 Edit `src/pkg/foo.py` to add it.\n"
+)
+
+
 def replan_modes(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -155,13 +165,10 @@ def replan_modes(
     *,
     stored: dict[str, str],
     asked: str,
+    tasks: str = DOCS_GROUP,
 ) -> str:
     """What `abk replan feature` prints for an unstarted `feature/1` stored with `stored` modes
-    when the planner gives its documents group `asked`."""
-    tasks = (
-        "# Tasks\n\nAcceptance: none — a fixture\n\n## 1. [app] [unit-test] Group 1\n\n"
-        "- [ ] 1.1 Test: it reads.\n- [ ] 1.2 Update `docs/guide.md`.\n"
-    )
+    when the planner gives its group (`tasks`, by default one that names a document) `asked`."""
     run = Replan(tmp_path, monkeypatch, feature=tasks)
     run.store.upsert([stored_unit("feature/1", change="feature", groups=(1,), group_modes=stored)])
     run.record("feature")
@@ -463,3 +470,135 @@ def test_a_declared_reorganization_of_two_renamed_scripts_stays_refactor_on_ever
         assert code == 0, out
 
     assert run.store.get("feature/1").group_modes == {"feature/1": "refactor"}
+
+
+def group_lines(out: str) -> list[str]:
+    """The lines a replan printed that report a group's floor, planner and stored modes."""
+    return [line for line in out.splitlines() if ": group " in line and "floor" in line]
+
+
+def test_a_replan_prints_the_floor_planner_and_stored_mode_of_a_group_where_they_differ(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    out = replan_modes(
+        tmp_path,
+        monkeypatch,
+        capsys,
+        stored={"feature/1": "tests_and_code"},
+        asked="tests_and_code",
+    )
+
+    assert group_lines(out) == [
+        "feature/1: group 1: floor no_code, planner tests_and_code, stored tests_and_code"
+    ]
+
+
+def test_a_replan_prints_no_group_line_where_floor_planner_and_stored_mode_agree(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    differing = replan_modes(
+        tmp_path / "differ",
+        monkeypatch,
+        capsys,
+        stored={"feature/1": "tests_and_code"},
+        asked="tests_and_code",
+    )
+    out = replan_modes(
+        tmp_path / "agree",
+        monkeypatch,
+        capsys,
+        stored={"feature/1": "tests_and_code"},
+        asked="tests_and_code",
+        tasks=CODE_GROUP,
+    )
+
+    assert len(group_lines(differing)) == 1
+    assert group_lines(out) == []
+
+
+def test_a_replan_keeps_the_planners_group_modes_with_the_recorded_plan(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    run = Replan(tmp_path, monkeypatch, feature=CODE_GROUP)
+    unit_ = {**planned("feature/1", (1,)), "group_modes": {"1": "tests_and_code"}}
+
+    code, out = run.run(capsys, "feature", reply=answer(unit_))
+
+    assert code == 0, out
+    assert run.records.get("feature", {}).get("group_modes") == {
+        "feature/1": {"1": "tests_and_code"}
+    }
+
+
+def test_a_group_joined_onto_a_stored_unit_has_its_planner_mode_recorded(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    run = Replan(tmp_path, monkeypatch, feature=tasks_md(1), other=tasks_md(1))
+    run.store.upsert([stored_unit("feature/1", change="feature", groups=(1,), review_tier="auto")])
+    run.record("feature")
+    run.record("other")
+    join = {
+        "onto": "feature/1",
+        "change": "other",
+        "groups": [1],
+        "estimated_lines": 20,
+        "group_modes": {"1": "tests_and_code"},
+    }
+
+    code, out = run.run(capsys, "other", reply=answer(joins=[join]))
+
+    assert code == 0, out
+    assert run.records["other"]["group_modes"] == {"feature/1": {"1": "tests_and_code"}}
+
+
+def test_a_group_carried_onto_another_changes_unit_is_reported_with_the_planners_mode(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    run = Replan(tmp_path, monkeypatch, feature=tasks_md(1), other=DOCS_GROUP)
+    run.store.upsert([stored_unit("feature/1", change="feature", groups=(1,), review_tier="auto")])
+    run.record("feature")
+    run.record("other")
+    join = {
+        "onto": "feature/1",
+        "change": "other",
+        "groups": [1],
+        "estimated_lines": 20,
+        "group_modes": {"1": "tests_and_code"},
+    }
+
+    code, out = run.run(capsys, "other", reply=answer(joins=[join]))
+
+    assert code == 0, out
+    assert group_lines(out) == [
+        "feature/1: group 1: floor no_code, planner tests_and_code, stored tests_and_code"
+    ]
+
+
+def test_replan_report_says_the_planner_is_not_recorded_for_a_plan_kept_without_its_reply(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    tasks = (
+        "# Tasks\n\nAcceptance: none — a fixture\n\n"
+        "## 1. [app] [unit-test] Group 1\n\n- [ ] 1.1 Edit `tests/test_x.py` to cover it.\n"
+    )
+    run = Replan(tmp_path, monkeypatch, feature=tasks)
+    repo = init_repo(run.inst.checkouts["app"])
+    commit_files(repo, "initial", {"README.md": "x"})
+    git(repo, "switch", "-q", "-c", "spec/feature/1")
+    run.store.upsert(
+        [
+            stored_unit(
+                "feature/1",
+                change="feature",
+                groups=(1,),
+                group_modes={"feature/1": "tests_and_code"},
+            )
+        ]
+    )
+    run.store.set_state("feature/1", UnitState.RUNNING, branch="spec/feature/1")
+    run.record("feature")
+
+    code, out = run.run(capsys, "feature", "--report")
+
+    assert code == 0, out
+    assert any("planner not recorded" in line for line in group_lines(out)), out
