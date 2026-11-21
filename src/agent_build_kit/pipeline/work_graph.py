@@ -1523,16 +1523,14 @@ NO_TEST_TASK_MARKER = "the tests step has nothing to write"
 
 def no_test_task_warnings(path: Path, groups: Sequence[TaskGroup]) -> list[str]:
     """One warning per group built tests first (`tests_and_code`) that has no `Test:` task, no
-    `Tests: required` line and no `Mode:` line: its tests step is given nothing to write."""
+    `Tests: required` line, no new test file and no `Mode:` line: its tests step is given nothing
+    to write. It is held to `refactor_refusal`, as the `Mode: refactor` line it advises is."""
     return [
         f"{path}:line {group.line}: warning: group {group.number}: {NO_TEST_TASK_MARKER}; "
         "add a task beginning `Test:`, a `Tests: required — <reason>` line, or, for a "
         "reorganization, a `Mode: refactor — <reason>` line"
         for group in groups
-        if group.mode is GroupMode.TESTS_AND_CODE
-        and not group.tests_required
-        and group.declared_mode is None
-        and not tasks_asking_for_tests(group)
+        if group.declared_mode is None and refactor_refusal(group) is None
     ]
 
 

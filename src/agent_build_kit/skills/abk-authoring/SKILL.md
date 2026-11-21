@@ -158,6 +158,7 @@ or `Mode:` line: it would be built test first with nothing to fail. Add the `Mod
 The same two commands also warn, whatever the tasks say, of any tests-first group with no task beginning `Test:`,
 no `Tests: required` line and no `Mode:` line: its tests step has nothing to write. Add a `Test:` task, a
 `Tests: required — <reason>` line, or, for a reorganization, a `Mode: refactor — <reason>` line.
+
 A replan prints `<unit>: group N: floor F, planner P, stored S` where those differ; `planner not recorded`
 means the plan kept no reply, so run `abk replan <change>` to record one.
 

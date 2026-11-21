@@ -441,6 +441,7 @@ from agent_build_kit.pipeline.wiring import (
     follow_predecessors,
 )
 from agent_build_kit.pipeline.work_graph import (
+    NO_TEST_TASK_MARKER,
     Need,
     ProjectSource,
     TaskGroup,
@@ -6873,9 +6874,10 @@ def cmd_check(args: argparse.Namespace, inst: Installation) -> int:
     print(output, end="")
     untested = 0
     for tasks in inst.tasks_files():
-        for warning in _tag_warnings(inst, tasks):
+        warnings = _tag_warnings(inst, tasks)
+        for warning in warnings:
             print(warning)
-        untested += len(no_test_task_warnings(tasks, validated(inst, tasks)[0]))
+        untested += sum(NO_TEST_TASK_MARKER in warning for warning in warnings)
     if untested:
         print(f"{untested} group(s) have no test task, `Tests: required` line or `Mode:` line")
     problems = _needs_cycle_problems(inst)

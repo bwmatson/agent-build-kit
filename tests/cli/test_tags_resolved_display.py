@@ -310,14 +310,34 @@ def test_tags_warns_of_a_tests_first_group_with_no_test_task_names_the_ways_out_
     assert "Mode: refactor" in found[0]
 
 
+def test_tags_warns_of_a_code_group_that_moves_nothing_beyond_the_reorganization_warning(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    text = (
+        "# Tasks\n\nAcceptance: none — a fixture\n\n## 1. [app] [unit-test] Add it\n\n"
+        "- [ ] 1.1 Add `src/app/new.py`.\n"
+    )
+    run = Replan(tmp_path, monkeypatch, feature=text)
+
+    status = cli.cmd_tags(TAGS, run.inst)
+
+    out = capsys.readouterr().out
+    found = nothing_to_write(out)
+    assert status == 0
+    assert len(found) == 1
+    assert "group 1" in found[0]
+    assert "reads as a reorganization" not in out
+
+
 @pytest.mark.parametrize(
     "lines",
     [
         ("- [ ] 1.2 Test: it moved.",),
         ("Tests: required — the move is risky",),
         ("Mode: refactor — moves and renames only",),
+        ("- [ ] 1.2 Add a new test file `tests/test_new.py` for the module.",),
     ],
-    ids=["Test: task", "Tests: required", "Mode: refactor"],
+    ids=["Test: task", "Tests: required", "Mode: refactor", "a new test file"],
 )
 def test_tags_warns_only_of_the_group_with_no_way_out(
     tmp_path: Path,
