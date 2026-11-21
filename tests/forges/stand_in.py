@@ -319,7 +319,7 @@ class StandInForge:
         self.is_draft[pr] = draft
         self.calls.append(("draft" if draft else "ready", pr))
 
-    def merge_pr(self, repo: RepoId, pr: int, *, head: str) -> str:
+    def merge_pr(self, repo: RepoId, pr: int, *, head: str, delete_branch: bool = False) -> str:
         self.merge_calls.append((pr, head))
         if self.merge_refusal:
             raise MergeRefused(self.merge_refusal)

@@ -948,7 +948,8 @@ class AzureDevOpsForge:
         self._git(repo, "PATCH", f"pullrequests/{pr}", json={"isDraft": draft}, run=run)
 
     def branch_deletion(self, repo: RepoId) -> BranchDeletion:
-        raise NotImplementedError
+        """A completion asks for the source branch to go, so the host decides per pull request."""
+        return "per_pull_request"
 
     def merge_pr(
         self,
@@ -964,10 +965,13 @@ class AzureDevOpsForge:
         active or abandoned, is a refusal carrying its reason; any other failure is the
         transport's."""
         route = f"pullrequests/{pr}"
+        options: dict[str, object] = {"mergeStrategy": "squash"}
+        if delete_branch:
+            options["deleteSourceBranch"] = True
         body = {
             "status": "completed",
             "lastMergeSourceCommit": {"commitId": head},
-            "completionOptions": {"mergeStrategy": "squash"},
+            "completionOptions": options,
         }
         try:
             reply = self._git(repo, "PATCH", route, json=body, run=run)

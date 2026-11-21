@@ -538,7 +538,12 @@ class Forge(RegistersStacks, Protocol):
     # kept at the remote; false for a forge whose host the origin has to name.
     any_remote: bool
 
-    def merge_pr(self, repo: RepoId, pr: int, *, head: str) -> str:
+    def branch_deletion(self, repo: RepoId) -> BranchDeletion:
+        """How the host removes a merged pull request's source branch: its repository setting
+        (`on` or `off`), or per pull request at the completion. Raises where it cannot be read."""
+        raise NotImplementedError
+
+    def merge_pr(self, repo: RepoId, pr: int, *, head: str, delete_branch: bool = False) -> str:
         """Squash-merge a pull request when its head is still `head`, the commit the
         caller approved, and return the commit the merge produced. Raises `MergeRefused`
         with the host's reason where the host will not merge."""

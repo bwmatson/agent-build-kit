@@ -72,6 +72,7 @@ from agent_build_kit.forges.github_models import (
     PullConnection,
     PullDoc,
     PullNode,
+    RepoDoc,
     ReviewDoc,
     StackDoc,
 )
@@ -844,7 +845,7 @@ class GitHubForge:
             {"id": current.node_id},
         )
 
-    def merge_pr(self, repo: RepoId, pr: int, *, head: str) -> str:
+    def merge_pr(self, repo: RepoId, pr: int, *, head: str, delete_branch: bool = False) -> str:
         """Squash-merge, with `head` as the commit the host must still find at the head of
         the pull request. 405 (not mergeable, a rule blocks it), 409 (the head moved) and 422
         (a ruleset blocks it) are refusals; any other failure is the transport's."""
@@ -890,11 +891,15 @@ class GitHubForge:
 
     def branch_deletion(self, repo: RepoId) -> BranchDeletion:
         """The repository's own "automatically delete head branches" setting."""
-        raise NotImplementedError
+        with self._on(repo) as gh:
+            reply = gh.rest.repos.get(repo.account, repo.name)
+        on = _parse(reply, RepoDoc, "GET repository").delete_branch_on_merge
+        return "on" if on else "off"
 
     def turn_on_branch_deletion(self, repo: RepoId) -> None:
         """Turn that setting on, writing that field alone."""
-        raise NotImplementedError
+        with self._on(repo) as gh:
+            gh.rest.repos.update(repo.account, repo.name, data={"delete_branch_on_merge": True})
 
     def delete_remote_branch(self, repo: RepoId, branch: str) -> None:
         """Not reached in practice: GitHub deletes the head branch on merge,

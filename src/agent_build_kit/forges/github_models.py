@@ -38,6 +38,10 @@ class PullDoc(_Rest):
     base: RefDoc | None = None
 
 
+class RepoDoc(_Rest):
+    delete_branch_on_merge: bool = False
+
+
 class MergeDoc(_Rest):
     sha: str
 
