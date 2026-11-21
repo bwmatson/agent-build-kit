@@ -5,6 +5,7 @@
 - A group can declare its reorganization with `Mode: refactor — <reason>`. The planner keeps
   that mode on every replan of an unbuilt group, and `abk tags` shows it and refuses the line
   where the group adds a test, is an e2e-test group, or names only documents or tests.
+
 - A fix change whose units all finished while its test still fails is no longer waited on
   as if it were open: the next failure writes a new fix change that is told how the earlier
   one ended, and `abk status` names the finished change, the test and the unit when the test
