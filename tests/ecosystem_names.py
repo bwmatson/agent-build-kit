@@ -13,7 +13,21 @@ import re
 from collections.abc import Collection, Mapping
 from pathlib import Path
 
-SOURCE_ROOT = Path(__file__).resolve().parents[1] / "src" / "agent_build_kit"
+# The modules the package table assigns to the worker, as paths under a source tree; a test of the
+# package boundaries asserts the list equals what the seeds assign.
+WORKER_MODULES = (
+    "graph/build.py",
+    "graph/check_loop.py",
+    "graph/nodes.py",
+    "graph/run.py",
+    "graph/state.py",
+    "graph/unit.py",
+    "pipeline/resolution_lane.py",
+    "pipeline/verify.py",
+    "cli/worker.py",
+    "worker_run.py",
+)
+
 
 # The one place the names live: a new ecosystem's manager is one line.
 TOKENS: tuple[str, ...] = (
@@ -65,25 +79,17 @@ def check_source(
     allowlist: Collection[str],
     own_tooling: Collection[str],
     tokens: tuple[str, ...] = TOKENS,
+    beside: Collection[Path] = (),
 ) -> list[str]:
+    """Problems of the tree under `root` and of each tree of `beside`, files named relative to
+    their own tree."""
     pattern = re.compile("|".join(rf"(?<![\w.-]){re.escape(token)}(?![\w-])" for token in tokens))
     problems: list[str] = []
     named: set[str] = set()
-    for path in sorted(root.rglob("*.py")):
-        name = path.relative_to(root).as_posix()
-        if name.split("/")[0] in EXEMPT_FOLDERS:
-            continue
-        lines = [
-            number
-            for number, text in enumerate(path.read_text().splitlines(), start=1)
-            if pattern.search(text)
-        ]
-        if not lines:
-            continue
-        named.add(name)
-        if name in allowlist or name in own_tooling:
-            continue
-        problems.extend(f"{name}:{line}: names a package manager or lock file" for line in lines)
+    for tree in (root, *beside):
+        for path in sorted(tree.rglob("*.py")):
+            name = path.relative_to(tree).as_posix()
+            problems += _file_problems(path, name, pattern, named, allowlist, own_tooling)
     problems.extend(
         f"{name}: on the allowlist but names no ecosystem; remove it"
         for name in sorted(set(allowlist) - named)
@@ -93,3 +99,26 @@ def check_source(
         for name in sorted(set(own_tooling) - named)
     )
     return problems
+
+
+def _file_problems(
+    path: Path,
+    name: str,
+    pattern: re.Pattern[str],
+    named: set[str],
+    allowlist: Collection[str],
+    own_tooling: Collection[str],
+) -> list[str]:
+    if name.split("/")[0] in EXEMPT_FOLDERS:
+        return []
+    lines = [
+        number
+        for number, text in enumerate(path.read_text().splitlines(), start=1)
+        if pattern.search(text)
+    ]
+    if not lines:
+        return []
+    named.add(name)
+    if name in allowlist or name in own_tooling:
+        return []
+    return [f"{name}:{line}: names a package manager or lock file" for line in lines]

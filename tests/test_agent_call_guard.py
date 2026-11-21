@@ -11,7 +11,7 @@ from pathlib import Path
 
 import pytest
 
-from tests.agent_call_sites import ALLOWLIST, SRC_ROOT, check_sources
+from tests.agent_call_sites import ALLOWLIST, check_source_trees, check_sources
 from tests.time_limit import LOADED_TEST_TIME_LIMIT
 
 NONE: dict[tuple[str, str], str] = {}
@@ -153,4 +153,4 @@ def test_the_allowlist_is_empty() -> None:
 @pytest.mark.time_limit(LOADED_TEST_TIME_LIMIT)
 @pytest.mark.integration
 def test_every_agent_call_in_the_source_records_or_is_on_the_allowlist() -> None:
-    assert check_sources(SRC_ROOT, allowlist=ALLOWLIST) == []
+    assert check_source_trees() == []

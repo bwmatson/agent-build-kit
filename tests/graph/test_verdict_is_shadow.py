@@ -9,10 +9,10 @@ import pytest
 
 from agent_build_kit.pipeline.units import IN_REVIEW
 from agent_build_kit.pipeline.verdict_record import VERDICTS
-from tests.ecosystem_names import SOURCE_ROOT
 from tests.factories import activate_with
 from tests.graph.test_build_path import build, fresh
 from tests.time_limit import LOADED_TEST_TIME_LIMIT
+from tests.tracked_files import source_files
 
 UNIT_ID = "add-marker/1"
 # The recording module, the review node that writes through it, the status listing, and the
@@ -66,11 +66,12 @@ def test_a_state_directory_refusing_the_write_leaves_the_unit_going_on_with_one_
     assert len(failures) == 1, recorder.logged
 
 
+@pytest.mark.integration
 @pytest.mark.time_limit(LOADED_TEST_TIME_LIMIT)
 def test_no_source_reads_the_verdict_file_outside_the_recording_module_and_status() -> None:
     named = {
-        path.relative_to(SOURCE_ROOT).as_posix()
-        for path in SOURCE_ROOT.rglob("*.py")
+        path.relative_to(tree).as_posix()
+        for tree, path in source_files()
         if NAMES.search(path.read_text())
     }
 

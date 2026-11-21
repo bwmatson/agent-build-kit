@@ -2,7 +2,6 @@
 # It may only shrink: a scan leaves it when its test carries `@pytest.mark.integration`, and nothing is
 # added (mark the new scan instead). Read by tests/wide_scans.py; checked by
 # tests/test_wide_scans_are_integration.py.
-graph/test_verdict_is_shadow.py::test_no_source_reads_the_verdict_file_outside_the_recording_module_and_status
 pipeline/test_push_path_skips_red_check.py::test_only_the_gate_command_calls_check_branch_so_a_real_test_and_an_empty_feat_can_push
 pipeline/test_work_graph.py::test_every_fixture_change_passes
 profiles/test_python_uv_e2e_durations.py::test_the_flag_is_named_in_the_python_profile_and_nowhere_else

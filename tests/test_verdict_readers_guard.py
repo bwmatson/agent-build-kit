@@ -10,13 +10,11 @@ and `abk status`).
 from __future__ import annotations
 
 import re
-from pathlib import Path
 
 import pytest
 
 from tests.time_limit import LOADED_TEST_TIME_LIMIT
-
-SOURCE = Path(__file__).resolve().parents[1] / "src" / "agent_build_kit"
+from tests.tracked_files import source_files
 
 READER = re.compile(
     r"\blatest_verdict\(|\breview_tiers?\(|verdicts\.json|\bVERDICTS\b|verdict_record"
@@ -48,8 +46,8 @@ ALLOWED = {
 @pytest.mark.integration
 def test_the_verdict_file_is_read_only_by_the_modules_the_spec_names() -> None:
     readers = {
-        path.relative_to(SOURCE).as_posix()
-        for path in SOURCE.rglob("*.py")
+        path.relative_to(tree).as_posix()
+        for tree, path in source_files()
         if READER.search(path.read_text())
     }
 

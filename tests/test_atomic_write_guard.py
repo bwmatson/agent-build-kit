@@ -12,8 +12,8 @@ import re
 
 import pytest
 
-from tests.ecosystem_names import SOURCE_ROOT
 from tests.time_limit import LOADED_TEST_TIME_LIMIT
+from tests.tracked_files import source_files
 
 SHARED = "pipeline/file_lock.py"
 # Edits a user's own config file and must keep its mode, which a state-file write has no need to;
@@ -49,8 +49,8 @@ def replacements(tree: ast.AST) -> list[int]:
 @pytest.mark.integration
 def test_no_module_but_the_shared_one_replaces_a_file_from_a_temporary() -> None:
     problems = []
-    for path in sorted(SOURCE_ROOT.rglob("*.py")):
-        name = path.relative_to(SOURCE_ROOT).as_posix()
+    for tree, path in source_files():
+        name = path.relative_to(tree).as_posix()
         if name == SHARED or name in KEEPS_MODE:
             continue
         problems += [f"{name}:{line}" for line in replacements(ast.parse(path.read_text()))]

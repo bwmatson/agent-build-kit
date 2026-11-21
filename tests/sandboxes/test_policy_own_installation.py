@@ -24,7 +24,14 @@ class Process:
         self.base = tmp / "uv" / "python"
         self.entry = tmp / "tools" / "bin"
         self.checkout = tmp / "checkout" / "src"
-        for folder in (self.prefix / "bin", self.base, self.entry, self.checkout):
+        self.worker = tmp / "checkout" / "packages" / "worker" / "src"
+        for folder in (
+            self.prefix / "bin",
+            self.base,
+            self.entry,
+            self.checkout,
+            self.worker / "agent_build_kit",
+        ):
             folder.mkdir(parents=True)
         (self.prefix / "bin" / "python").write_text("")
         (self.entry / "abk").write_text("")
@@ -37,6 +44,8 @@ class Process:
         monkeypatch.setattr(shutil, "which", lambda name, *a, **k: str(self.entry / name))
         file = package or self.checkout / "agent_build_kit" / "__init__.py"
         monkeypatch.setattr(agent_build_kit, "__file__", str(file))
+        trees = [str(file.parent), str(self.worker / "agent_build_kit")]
+        monkeypatch.setattr(agent_build_kit, "__path__", trees)
 
 
 @pytest.fixture
@@ -66,6 +75,7 @@ def test_a_checkout_install_adds_the_package_s_source_root(scene: Scene, process
     policy = scene.policy()
 
     assert reads(policy, process.checkout / "agent_build_kit" / "__init__.py")
+    assert reads(policy, process.worker / "agent_build_kit" / "graph" / "nodes.py")
 
 
 def test_an_install_under_the_prefix_adds_no_source_root(
@@ -98,6 +108,7 @@ def test_a_path_that_does_not_exist_adds_nothing(
     monkeypatch.setattr(shutil, "which", lambda name, *a, **k: str(gone / "bin" / name))
     package = gone / "src" / "agent_build_kit" / "__init__.py"
     monkeypatch.setattr(agent_build_kit, "__file__", str(package))
+    monkeypatch.setattr(agent_build_kit, "__path__", [str(package.parent)])
 
     policy = scene.policy()
 
@@ -110,7 +121,7 @@ def test_the_set_is_what_the_process_runs_from_and_only_what_exists(
 ) -> None:
     found = {path.resolve() for path in own_installation()}
 
-    assert {process.prefix, process.base, process.entry, process.checkout} <= found
+    assert {process.prefix, process.base, process.entry, process.checkout, process.worker} <= found
     assert all(path.exists() for path in found)
 
 

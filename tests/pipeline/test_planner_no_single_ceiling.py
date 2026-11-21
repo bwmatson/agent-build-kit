@@ -4,26 +4,24 @@ review-always-on)."""
 
 from __future__ import annotations
 
-from pathlib import Path
-
 import pytest
 
-import agent_build_kit
 from tests.tier_ceiling_support import configure
 from tests.tier_prompt_support import prompt_for
 from tests.time_limit import LOADED_TEST_TIME_LIMIT
+from tests.tracked_files import source_files
 
 SETTING = "max_unit_lines"
 # The load error that refuses the setting, and the migration that moves its value.
 MAY_NAME_IT = {"config.py", "config_migrate.py"}
 
 
+@pytest.mark.integration
 @pytest.mark.time_limit(LOADED_TEST_TIME_LIMIT)
 def test_only_the_load_error_and_the_migration_name_the_setting() -> None:
-    root = Path(agent_build_kit.__file__).parent
     readers = sorted(
-        str(path.relative_to(root))
-        for path in root.rglob("*.py")
+        str(path.relative_to(tree))
+        for tree, path in source_files()
         if SETTING in path.read_text() and path.name not in MAY_NAME_IT
     )
 

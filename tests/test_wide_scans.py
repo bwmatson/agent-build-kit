@@ -42,6 +42,8 @@ WHOLE_TREE_CALLS = [
     "repo_path_leaks(ROOT)",
     "find_live_modules(ROOT / 'tests')",
     "check_sources(SRC_ROOT, allowlist={})",
+    "check_source_trees()",
+    "[p for _, p in source_files()]",
     "splits_by_syntax(ROOT / 'tests')",
     "[ast.parse(p.read_text()) for p in ROOT.rglob('*.py')]",
     "[p.read_text() for p in sorted(SOURCE_ROOT.rglob('*.py'))]",

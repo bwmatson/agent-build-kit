@@ -11,14 +11,9 @@ from pathlib import Path
 
 import pytest
 
-from tests.ecosystem_names import (
-    ALLOWLIST,
-    OWN_TOOLING,
-    SOURCE_ROOT,
-    TOKENS,
-    check_source,
-)
+from tests.ecosystem_names import ALLOWLIST, OWN_TOOLING, TOKENS, check_source
 from tests.time_limit import LOADED_TEST_TIME_LIMIT
+from tests.tracked_files import SOURCE_ROOT, WORKER_SOURCE, source_trees
 
 NONE: frozenset[str] = frozenset()
 
@@ -141,7 +136,19 @@ def test_a_new_token_is_one_line_in_the_token_list(tmp_path: Path) -> None:
 @pytest.mark.time_limit(LOADED_TEST_TIME_LIMIT)
 @pytest.mark.integration
 def test_the_framework_source_names_no_ecosystem_outside_the_lists() -> None:
-    assert check_source(SOURCE_ROOT, allowlist=ALLOWLIST.keys(), own_tooling=OWN_TOOLING) == []
+    problems = check_source(
+        SOURCE_ROOT,
+        allowlist=ALLOWLIST.keys(),
+        own_tooling=OWN_TOOLING,
+        beside=[tree for tree in source_trees() if tree != SOURCE_ROOT],
+    )
+
+    assert problems == []
+
+
+def test_the_source_trees_a_guard_walks_include_the_worker_package() -> None:
+    assert WORKER_SOURCE in source_trees()
+    assert SOURCE_ROOT in source_trees()
 
 
 def test_the_lists_hold_the_files_the_design_names_each_with_a_reason() -> None:

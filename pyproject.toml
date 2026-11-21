@@ -25,6 +25,11 @@ dependencies = [
 abk = "agent_build_kit.cli:main"
 abk-policy-hook = "agent_build_kit.hooks.policy:main"
 
+# Until the worker package is installed beside this one (it needs the core package as its own
+# distribution), this project registers the command from the worker's source so `abk worker` runs.
+[project.entry-points."abk.commands"]
+worker = "agent_build_kit.cli.worker:register"
+
 [project.optional-dependencies]
 acp = [
     "agent-client-protocol==0.12.1",
@@ -66,16 +71,22 @@ packages = ["src/agent_build_kit"]
 # The built web UI is git-ignored, so the wheel is told to carry it (see web/).
 artifacts = ["src/agent_build_kit/serve/static"]
 
+# Until the core and the worker ship as their own distributions, this project's wheel carries the
+# worker's tree too: the CLI imports the worker's modules at module level.
+[tool.hatch.build.targets.wheel.force-include]
+"packages/worker/src/agent_build_kit" = "agent_build_kit"
+
 [tool.ruff]
 line-length = 100
 target-version = "py312"
+src = ["src", "packages/worker/src", "."]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B"]
 
 [tool.pyrefly]
 python-version = "3.12"
-search-path = ["src", "."]
+search-path = ["src", "packages/worker/src", "."]
 # Spelled out rather than left to pyrefly's default `**/*.py*` discovery: under
 # pre-commit, in a git worktree (which is where every unattended build runs),
 # that default is dropped as "matched by project-excludes or an ignore file"
@@ -86,13 +97,13 @@ search-path = ["src", "."]
 # under the pipeline's state directory ("Skipping include pattern ... matched by
 # `project-excludes` or an ignore file"), so unit-test passed on a commit whose
 # test files CI then failed on.
-project-includes = ["src", "tests"]
+project-includes = ["src", "packages/worker/src", "tests"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 # So `from tests.factories import ...` resolves without tests/ being a package
 # (test directories carry no __init__.py; basenames stay unique instead).
-pythonpath = ["."]
+pythonpath = [".", "packages/worker/src"]
 # Where `Pytester.copy_example` reads a child pytest's files from.
 pytester_example_dir = "tests/child_modules"
 # A list held in a tuple field fails the test that serialises it; other warnings are only reported.

@@ -22,8 +22,7 @@ from pathlib import Path
 
 from agent_build_kit.pipeline.usage_ledger import UNIT_CALL_NODES
 from agent_build_kit.pipeline.vocabulary import OverheadNode
-
-SRC_ROOT = Path(__file__).parent.parent / "src" / "agent_build_kit"
+from tests.tracked_files import source_trees
 
 # Sites that are allowed to record nothing, each with its reason. Every site records now, so
 # it is empty; an entry would need a reason of its own, and may only be removed.
@@ -143,6 +142,11 @@ def _scan_function(scope: ast.AST) -> tuple[list[int], list[tuple[int, str]]]:
             ):
                 nodes.append((call.lineno, f"OverheadNode.{value.attr}"))
     return sorted({*bare, *runs, *claude}), nodes
+
+
+def check_source_trees() -> list[str]:
+    """`check_sources` over every source tree of the framework with the (empty) `ALLOWLIST`."""
+    return [p for tree in source_trees() for p in check_sources(tree, allowlist=ALLOWLIST)]
 
 
 def check_sources(root: Path, *, allowlist: Mapping[tuple[str, str], str]) -> list[str]:

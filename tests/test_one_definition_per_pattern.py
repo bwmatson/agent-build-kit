@@ -5,13 +5,11 @@ from __future__ import annotations
 
 import ast
 from collections import defaultdict
-from pathlib import Path
 
 import pytest
 
 from tests.time_limit import LOADED_TEST_TIME_LIMIT
-
-SOURCE_ROOT = Path(__file__).resolve().parents[1] / "src" / "agent_build_kit"
+from tests.tracked_files import source_files
 
 
 def compiled(tree: ast.Module) -> list[tuple[int, str]]:
@@ -45,8 +43,8 @@ def compiled(tree: ast.Module) -> list[tuple[int, str]]:
 @pytest.mark.integration
 def test_no_pattern_is_compiled_at_module_level_in_two_modules() -> None:
     sites: dict[str, list[str]] = defaultdict(list)
-    for path in sorted(SOURCE_ROOT.rglob("*.py")):
-        name = path.relative_to(SOURCE_ROOT).as_posix()
+    for tree, path in source_files():
+        name = path.relative_to(tree).as_posix()
         for line, key in compiled(ast.parse(path.read_text())):
             sites[key].append(f"{name}:{line}")
 

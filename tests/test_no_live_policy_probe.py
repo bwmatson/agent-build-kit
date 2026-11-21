@@ -12,8 +12,8 @@ from agent_build_kit.cli import build_parser
 from agent_build_kit.pipeline.vocabulary import OverheadNode
 from agent_build_kit.runtimes import acp
 from agent_build_kit.runtimes.known_agents import KnownAgent
-from tests.ecosystem_names import SOURCE_ROOT
 from tests.time_limit import LOADED_TEST_TIME_LIMIT
+from tests.tracked_files import source_files
 
 # The list of commands is the one thing of the probe that stays.
 KEPT = {"PROBE_CLASSES", "probe_branch", "probe_rows"}
@@ -52,8 +52,8 @@ def test_the_live_probe_and_its_remains_are_gone() -> None:
     left += [f"OverheadNode.{node.name}" for node in OverheadNode if "probe" in node.name.lower()]
     left += [f"KnownAgent.{field}" for field in KnownAgent.model_fields if field == "oracle"]
     left += [
-        str(path.relative_to(SOURCE_ROOT))
-        for path in sorted(SOURCE_ROOT.rglob("*"))
+        str(path.relative_to(tree))
+        for tree, path in source_files("*")
         if path.is_file()
         and path.suffix in TEXT_SUFFIXES
         and TOKEN_QUESTION in path.read_text(errors="ignore")

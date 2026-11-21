@@ -13,7 +13,6 @@ from pathlib import Path
 
 import pytest
 
-import agent_build_kit
 from agent_build_kit import forges
 from agent_build_kit.forges.azure_devops import AzureDevOpsForge
 from agent_build_kit.forges.base import DeniedRequest
@@ -22,6 +21,7 @@ from agent_build_kit.forges.local import LocalForge
 from agent_build_kit.hooks.policy import decide
 from agent_build_kit.pipeline.command_policy import check_command
 from agent_build_kit.runtimes.claude_code import DISALLOWED, disallowed
+from tests.tracked_files import source_files
 
 MERGES = (
     "gh pr merge 4",
@@ -111,12 +111,12 @@ def test_the_runtime_disallows_every_forge_merge_and_its_own_list() -> None:
     )
 
 
+@pytest.mark.integration
 def test_nothing_but_the_landing_step_calls_the_merge_operation() -> None:
-    source = Path(agent_build_kit.__file__).parent
     call = re.compile(r"\.merge_pr\(")
     callers = {
-        path.relative_to(source).as_posix()
-        for path in source.rglob("*.py")
+        path.relative_to(tree).as_posix()
+        for tree, path in source_files()
         if call.search(path.read_text())
     }
 
