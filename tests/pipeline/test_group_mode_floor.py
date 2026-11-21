@@ -117,3 +117,117 @@ def test_a_tests_line_names_no_path_even_when_its_reason_quotes_one(tmp_path: Pa
 
     assert named_paths(group, []) == ["docs/cli.md"]
     assert group.mode is GroupMode.TESTS_AND_CODE
+
+
+MODE_LINE = "Mode: refactor — moves and renames only"
+SOURCE_TASK = "- [ ] 1.1 Move `src/app/old.py` to `src/app/new.py` and fix `tests/test_old.py`.\n"
+
+
+def declared(heading: str, body: str, folder: Path) -> tuple[list[TaskGroup], list, str]:
+    folder.mkdir(parents=True, exist_ok=True)
+    text = f"# Tasks\n\n{OPT_OUT}\n## {heading}\n\n{body}"
+    (folder / "tasks.md").write_text(text)
+    groups, errors = validate_tasks(folder / "tasks.md")
+    return groups, errors, text
+
+
+def test_a_group_that_declares_a_reorganization_is_read_with_that_mode_and_reason(
+    tmp_path: Path,
+) -> None:
+    groups, errors, _ = declared(
+        "1. [app] [unit-test] Move it", f"{MODE_LINE}\n\n{SOURCE_TASK}", tmp_path
+    )
+
+    assert errors == []
+    assert groups[0].declared_mode is GroupMode.REFACTOR
+    assert groups[0].declared_reason == "moves and renames only"
+
+
+@pytest.mark.parametrize(
+    ("heading", "line", "tasks", "why"),
+    [
+        ("1. [app] [unit-test] Move it", "Mode: refactor", SOURCE_TASK, "reason"),
+        ("1. [app] [unit-test] Move it", "Mode: refactor —", SOURCE_TASK, "reason"),
+        (
+            "1. [app] [unit-test] Move it",
+            "Mode: tests_only — nothing else",
+            SOURCE_TASK,
+            "refactor",
+        ),
+        ("1. [app] [e2e-test] Move it", MODE_LINE, SOURCE_TASK, "e2e-test"),
+        (
+            "1. [app] [unit-test] Move it",
+            MODE_LINE,
+            "- [ ] 1.1 Edit `docs/cli.md` and `CHANGELOG.md`.\n",
+            "no_code",
+        ),
+        (
+            "1. [app] [unit-test] Move it",
+            MODE_LINE,
+            "- [ ] 1.1 Edit `tests/test_old.py`.\n",
+            "tests_only",
+        ),
+        (
+            "1. [app] [unit-test] Move it",
+            MODE_LINE,
+            SOURCE_TASK + "- [ ] 1.2 Test: the new path is read.\n",
+            "Test:",
+        ),
+        (
+            "1. [app] [unit-test] Move it",
+            MODE_LINE,
+            SOURCE_TASK + "- [ ] 1.2 Tests: the new path is read.\n",
+            "Test:",
+        ),
+        ("1. [app] [unit-test] Move it", "Mode:", SOURCE_TASK, "refactor"),
+        ("1. [app] [unit-test] Move it", "Mode: — moves only", SOURCE_TASK, "refactor"),
+        ("1. [app] [unit-test] Move it", "Mode: no-code — docs", SOURCE_TASK, "refactor"),
+        (
+            "1. [app] [unit-test] Move it",
+            f"{MODE_LINE}\nTests: required — the move is risky",
+            SOURCE_TASK,
+            "Tests:",
+        ),
+        (
+            "1. [app] [unit-test] Move it",
+            MODE_LINE,
+            SOURCE_TASK + "- [ ] 1.2 Add a new test file `tests/test_new.py`.\n",
+            "new test file",
+        ),
+    ],
+    ids=[
+        "no reason",
+        "empty reason",
+        "other value",
+        "e2e group",
+        "no_code floor",
+        "tests_only floor",
+        "Test: task",
+        "Tests: task",
+        "no value",
+        "no value before a reason",
+        "hyphenated value",
+        "Tests: required",
+        "new test file",
+    ],
+)
+def test_a_declared_reorganization_the_group_cannot_be_is_an_error_naming_the_line(
+    heading: str, line: str, tasks: str, why: str, tmp_path: Path
+) -> None:
+    _, errors, text = declared(heading, f"{line}\n\n{tasks}", tmp_path)
+
+    at = text.splitlines().index(line.splitlines()[0]) + 1
+    assert [e.message for e in errors if e.line == at and why in e.message] != []
+
+
+def test_a_group_that_names_source_files_and_existing_test_files_may_declare_it(
+    tmp_path: Path,
+) -> None:
+    groups, errors, _ = declared(
+        "1. [app] [unit-test] Move it",
+        f"{MODE_LINE}\n\n{SOURCE_TASK}- [ ] 1.2 Update `tests/test_other.py` for the new path.\n",
+        tmp_path,
+    )
+
+    assert errors == []
+    assert groups[0].declared_mode is GroupMode.REFACTOR

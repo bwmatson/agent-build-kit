@@ -9,6 +9,7 @@ from pathlib import Path
 import pytest
 
 from agent_build_kit.model import TestTier
+from agent_build_kit.pipeline.group_mode import GroupMode
 from agent_build_kit.pipeline.joins import JoinContext
 from agent_build_kit.pipeline.planner import (
     Plan,
@@ -380,3 +381,85 @@ def test_a_replan_over_a_branch_that_cannot_be_read_keeps_every_stored_mode_and_
 
     assert modes == STORED
     assert "feature/1" in capsys.readouterr().out
+
+
+def declared(*numbers: int) -> list[TaskGroup]:
+    """One source-naming group per number, each declaring `Mode: refactor`."""
+    return [
+        group.model_copy(
+            update={"declared_mode": GroupMode.REFACTOR, "declared_reason": "moves only"}
+        )
+        for group in groups_at(*[3] * len(numbers))
+    ]
+
+
+def test_a_declared_group_stores_refactor_whatever_the_planner_replied() -> None:
+    unit = parse_graph(
+        reply({"1": "tests_and_code"}, 1), groups=declared(1), tasks=tasks_text(CODE_TASK)
+    )[0]
+
+    assert unit.group_modes == {"feature/1": "refactor"}
+
+
+def test_a_declared_group_stores_refactor_when_the_planner_gave_no_mode() -> None:
+    unit = parse_graph(reply(None, 1), groups=declared(1), tasks=tasks_text(CODE_TASK))[0]
+
+    assert unit.group_modes == {"feature/1": "refactor"}
+
+
+def test_the_prompt_names_a_group_that_declares_its_mode_as_fixed() -> None:
+    text = prompt()
+
+    assert "declares a mode" in text
+    assert "keeps it" in text
+
+
+def test_a_replan_gives_an_unbuilt_declared_group_refactor_and_a_built_group_its_stored_mode(
+    tmp_path: Path,
+) -> None:
+    repo = branch_with(tmp_path, "test: G1", "feat: G1")
+    kept = stored_unit("feature/1", change="feature", groups=(1, 2), group_modes=STORED)
+    fresh = unit("feature/1", change="feature", groups=(1, 2), group_modes=STORED)
+
+    modes = reconcile_group_modes(
+        kept, fresh, declared(1, 2), repo=repo, base="main", ref="spec/feature/1"
+    )
+
+    assert modes == {"feature/1": "tests_and_code", "feature/2": "refactor"}
+
+
+@pytest.mark.parametrize("replans", [1, 2], ids=["first replan", "second replan"])
+def test_a_declared_reorganization_of_two_renamed_scripts_stays_refactor_on_every_replan(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    replans: int,
+) -> None:
+    """A group that only renames two scripts and follows the move in one test file, with no
+    `Test:` task, was left `tests_and_code` by the planner on each replan."""
+    tasks = (
+        "# Tasks\n\nAcceptance: none — a fixture\n\n## 1. [app] [unit-test] Rename the scripts\n\n"
+        "Mode: refactor — renames two scripts and follows the move in one test file\n\n"
+        "- [ ] 1.1 Rename `scripts/build_a.py` to `scripts/make_a.py` and `scripts/build_b.py` "
+        "to `scripts/make_b.py`.\n"
+        "- [ ] 1.2 Update the paths in `tests/test_scripts.py`.\n"
+    )
+    run = Replan(tmp_path, monkeypatch, feature=tasks)
+    run.store.upsert(
+        [
+            stored_unit(
+                "feature/1",
+                change="feature",
+                groups=(1,),
+                group_modes={"feature/1": "tests_and_code"},
+            )
+        ]
+    )
+    run.record("feature")
+    unit_ = {**planned("feature/1", (1,)), "group_modes": {"1": "tests_and_code"}}
+
+    for _ in range(replans):
+        code, out = run.run(capsys, "feature", reply=answer(unit_))
+        assert code == 0, out
+
+    assert run.store.get("feature/1").group_modes == {"feature/1": "refactor"}

@@ -119,7 +119,8 @@ takes its floor, which for a documents or configuration group is `no_code`, so n
 that must keep its tests as `tests_and_code`. Give `refactor` to a group that is a reorganization:
 it moves, renames or splits code and changes no behaviour, so it adds no test and edits the
 existing tests only mechanically (imports, paths, names). It may name source files; never give
-it to a group that adds or changes behaviour.
+it to a group that adds or changes behaviour. A group with a `Mode:` line declares a mode and
+has it fixed: the planner keeps it, so leave that group out of `group_modes`.
 
 """
 
@@ -413,6 +414,9 @@ def _group_modes(
         if group is None:
             if value is not None:
                 modes[f"{change}/{n}"] = value
+            continue
+        if group.declared_mode is not None:
+            modes[f"{change}/{n}"] = group.declared_mode.value
             continue
         floor = group.mode
         allowed = allowed_modes(floor)
