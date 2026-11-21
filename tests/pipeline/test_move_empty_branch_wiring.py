@@ -9,10 +9,10 @@ from pathlib import Path
 
 from agent_build_kit.pipeline.unit_store import UnitStore
 from agent_build_kit.pipeline.wiring import build_move_empty_branch, build_runner
+from packages.worker.tests.graph.test_outside_commits_prompt import branch
 from tests.conftest import make_installation
 from tests.empty_branch_support import advance, head
 from tests.factories import git, unit
-from tests.graph.test_outside_commits_prompt import branch
 
 
 def test_the_runner_fast_forwards_an_empty_branch_and_gives_the_old_and_new_tips(

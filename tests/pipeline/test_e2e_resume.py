@@ -9,8 +9,8 @@ from typing import Any
 from agent_build_kit.graph.state import EventKind, ResumeEvent
 from agent_build_kit.pipeline.unit_store import Cause, RequeueReason
 from agent_build_kit.pipeline.units import PLANNED
+from packages.worker.tests.graph.test_fresh_base_builds import CLEAN, Moving
 from tests.e2e_wait_fakes import OLD, Failing, Told, snapshot_of, verdict_of
-from tests.graph.test_fresh_base_builds import CLEAN, Moving
 from tests.graph_driver import fresh, tick
 
 GATE_CLEARED = ResumeEvent(

@@ -21,9 +21,9 @@ from agent_build_kit.pipeline.regression_agent import (
     wait_on_regression,
 )
 from agent_build_kit.pipeline.wiring import build_on_flake, build_on_preexisting
+from packages.worker.tests.graph.test_failed_on_base_callers import FAILING
 from tests.e2e_gate_fakes import Planning
 from tests.e2e_wait_fakes import OLD, verdict_of
-from tests.graph.test_failed_on_base_callers import FAILING
 from tests.regression_agent_fakes import DefaultAgent
 from tests.regression_agent_support import openspec_checking
 

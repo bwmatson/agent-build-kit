@@ -63,7 +63,7 @@ WIDE_SCANS = [
         "test_the_verdict_file_is_read_only_by_the_modules_the_spec_names",
     ),
     (
-        "tests/graph/test_verdict_is_shadow.py",
+        "packages/worker/tests/graph/test_verdict_is_shadow.py",
         "test_no_source_reads_the_verdict_file_outside_the_recording_module_and_status",
     ),
     (

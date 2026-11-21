@@ -10,10 +10,10 @@ from agent_build_kit.pipeline.flakes import FailedOnBase, fix_change_name, flake
 from agent_build_kit.pipeline.units import UnitState
 from agent_build_kit.pipeline.untouched_failures import preexisting_record
 from agent_build_kit.pipeline.wiring import build_on_flake, build_on_preexisting
+from packages.worker.tests.graph.test_failed_on_base_callers import FAILING as MET
 from tests.e2e_gate_fakes import Planning
 from tests.e2e_wait_fakes import OLD, verdict_of
 from tests.factories import stored_unit
-from tests.graph.test_failed_on_base_callers import FAILING as MET
 from tests.pipeline.test_flake_fix_change import flaked
 from tests.regression_agent_fakes import DefaultAgent
 from tests.untouched_failure_fakes import failing

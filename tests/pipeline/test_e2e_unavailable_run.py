@@ -7,11 +7,11 @@ from pathlib import Path
 
 from agent_build_kit.installation import Installation
 from agent_build_kit.pipeline.verify import verify_change
+from packages.worker.tests.pipeline.test_verify import Host
 from tests.conftest import make_installation
 from tests.e2e_scope_fakes import PASSED, Ran, branch
 from tests.e2e_scope_fakes import session as shared_session
 from tests.factories import stored_unit
-from tests.pipeline.test_verify import Host
 
 LIVE = "svc-a/tests/integration/test_drive_live_stack.py"
 DIMENSIONS = {

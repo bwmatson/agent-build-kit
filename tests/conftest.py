@@ -669,7 +669,7 @@ def pytest_collection_modifyitems(items: list[pytest.Item]) -> None:
         ("tests.tick_driver", ("Setup", "make_setup")),
         ("tests.lane_run_usage_support", ("make_lane",)),
         ("tests.graph_driver", ("tick", "run_on_graph")),
-        ("tests.graph.test_build_path", ("build",)),
+        ("packages.worker.tests.graph.test_build_path", ("build",)),
         ("tests.graph.branch_fakes", ("built", "built_after_a_pair")),
         ("tests.graph.piece_fakes", ("piece_built",)),
         ("tests.e2e_gate_fakes", ("Planning",)),

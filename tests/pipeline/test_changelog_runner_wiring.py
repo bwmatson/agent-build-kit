@@ -18,9 +18,9 @@ from agent_build_kit.installation import Installation
 from agent_build_kit.pipeline.stack_runner import UnitRunner
 from agent_build_kit.pipeline.unit_store import UnitStore
 from agent_build_kit.pipeline.wiring import build_runner
+from packages.worker.tests.graph.test_build_path import build, fresh
 from tests.conftest import make_installation
 from tests.factories import unit
-from tests.graph.test_build_path import build, fresh
 from tests.pipeline.test_changelog_prompts import FIXTURE_CONVENTION, packaged, repo_with
 from tests.prompt_text import flat
 from tests.runner_fakes import approving

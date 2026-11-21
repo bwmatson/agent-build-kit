@@ -13,8 +13,8 @@ from agent_build_kit.pipeline.unit_store import Cause, RequeueReason, StoredUnit
 from agent_build_kit.pipeline.units import PLANNED
 from agent_build_kit.pipeline.wiring import build_on_flake
 from agent_build_kit.pipeline.work_graph import group_needs
+from packages.worker.tests.graph.test_flake_parking import FLAKE, TEST
 from tests.factories import stored_unit
-from tests.graph.test_flake_parking import FLAKE, TEST
 from tests.pipeline.test_flake_fix_change import change_with_unit, code_repo
 
 

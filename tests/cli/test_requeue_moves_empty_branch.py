@@ -15,9 +15,9 @@ import pytest
 from agent_build_kit.graph.state import EventKind, ResumeEvent
 from agent_build_kit.pipeline.unit_store import RequeueReason
 from agent_build_kit.pipeline.units import FAILED
+from packages.worker.tests.graph.test_outside_commits_prompt import land
 from tests.empty_branch_support import advance, empty_branch, head, moves
 from tests.factories import git
-from tests.graph.test_outside_commits_prompt import land
 from tests.graph_driver import tick
 
 REQUEUES = {
