@@ -553,7 +553,9 @@ changes. `abk tags` prints a group's `Mode: refactor — <reason>` line as `decl
 its mode, and exits 1 when the line has no reason or another value, or the group is an e2e-test group, is
 all documents or tests, or has a `Test:` task, a `Tests: required` line or a new test file. It
 marks a resolved group `(resolved)` and warns of a change that mixes written and
-resolved projects. `abk tags --fix-projects [CHANGE | --all] [--dry-run]` writes the resolved
+resolved projects. It also warns (exit 0) of a group that moves or renames files yet has no `Test:`
+task, `Tests: required` line or `Mode:` line: the group is built test first and would fail for want
+of a failing test, so add `Mode: refactor — <reason>` or a failing `Test:` task. `abk tags --fix-projects [CHANGE | --all] [--dry-run]` writes the resolved
 project into the repo part of the heading of each group whose unit has not started, under the
 refusals of `--fix`; it lists groups that stayed in the root, does not rehash the plan (so unstarted
 units are re-planned), and with `--dry-run` prints "would tag N group(s)" and writes nothing.
@@ -928,6 +930,12 @@ it asks for a fresh answer.
 - **A plan that gives a group to a second unit is refused** while a started unit that has not
   finished carries it: nothing is written for the change, both units and the group are
   named with the way out, and the command exits 1.
+
+- **A group whose floor, planner mode and stored mode differ is printed** as
+  `<unit>: group N: floor F, planner P, stored S`, for a plan the planner was asked for and in
+  `--report`. `planner not recorded` means the plan was recorded without the planner's reply (an
+  older plan, or one taken without the planner): run `abk replan <change>` to record it. Where the
+  planner's mode is below what the group needs, declare it with a `Mode:` line or a `Test:` task.
 
 A name that is not a change, a change without a `tasks.md` and a change with
 task-group tag errors (run `abk tags`) are refused and nothing is planned for them.

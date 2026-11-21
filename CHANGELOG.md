@@ -8,6 +8,10 @@
   `abk doctor` also reads a GitHub repository's own "automatically delete head branches"
   setting, warns when it is off while `delete_merged_branches` is on, and `abk doctor
   --fix` turns it on; a setting it cannot read is an info line.
+- A replan now shows where a group's floor, the planner's mode and the stored mode differ
+  (`planner not recorded` when the plan kept no reply), and `abk tags` and `abk check` warn of
+  a group that moves or renames files with no `Test:` task, `Tests: required` or `Mode:` line,
+  naming `Mode: refactor — <reason>` as the way out.
 
 - A group can declare its reorganization with `Mode: refactor — <reason>`. The planner keeps
   that mode on every replan of an unbuilt group, and `abk tags` shows it and refuses the line

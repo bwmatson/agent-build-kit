@@ -13,6 +13,8 @@ from typing import TYPE_CHECKING
 from agent_build_kit.pipeline.commit_order import CONFIG_SUFFIXES, DOC_SUFFIXES, classify_paths
 
 if TYPE_CHECKING:
+    from pathlib import Path
+
     from agent_build_kit.pipeline.work_graph import TaskGroup
 
 TEST_FOLDERS = frozenset({"tests", "__tests__"})
@@ -242,6 +244,28 @@ def tasks_asking_for_tests(group: TaskGroup) -> list[str]:
         " ".join([first, *(line.strip() for line in lines[1:])])
         for first, lines in _tasks(group)
         if TEST_TASK.match(first)
+    ]
+
+
+_MOVE_TASK = re.compile(r"(?:move|rename|relocate)\b", re.I)
+
+
+def reorganization_warnings(path: Path, groups: Sequence[TaskGroup]) -> list[str]:
+    """One warning per group that reads as a reorganization (a task that moves or renames, and
+    no `Test:` task, `Tests: required` or `Mode:` line) yet builds test first, so its build
+    would fail for want of a failing test."""
+    from agent_build_kit.pipeline.work_graph import GroupMode
+
+    return [
+        f"warning: {path.parent.name} group {group.number} reads as a reorganization "
+        "but has no failing test to write; add `Mode: refactor — <reason>` to build it as one, "
+        "or a `Test:` task that fails first"
+        for group in groups
+        if group.mode is GroupMode.TESTS_AND_CODE
+        and group.declared_mode is None
+        and not group.tests_required
+        and not tasks_asking_for_tests(group)
+        and any(_MOVE_TASK.match(first) for first, _ in _tasks(group))
     ]
 
 

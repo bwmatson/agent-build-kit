@@ -164,6 +164,7 @@ from agent_build_kit.pipeline.file_lock import (
 )
 from agent_build_kit.pipeline.flakes import finished_at, flake_record
 from agent_build_kit.pipeline.gate_holds import evaluate_gates, gate_status_lines
+from agent_build_kit.pipeline.group_paths import reorganization_warnings
 from agent_build_kit.pipeline.idle import idle_units
 from agent_build_kit.pipeline.joins import JoinContext
 from agent_build_kit.pipeline.label_sweep import sweep_finished
@@ -5858,6 +5859,7 @@ def plan_all(
                     "sizing": sizing,
                     "attempts": attempts_kept,
                     "ok": True,
+                    "group_modes": _planner_modes(units, change),
                     **resolution_record(task_groups),
                 }
             },
@@ -5866,6 +5868,45 @@ def plan_all(
     if not dry_run and any(result.status == "planned" for result in results.values()):
         _promote(inst, store)
     return results
+
+
+def _planner_modes(units: Sequence[Unit], change: str) -> dict[str, dict[str, str]]:
+    """The mode the planner gave each group of `change` in each unit it planned, by unit id and
+    group number: what a plan records so a replan can say where a mode differs from the floor."""
+    prefix = f"{change}/"
+    return {
+        unit.id: {
+            key.removeprefix(prefix): str(mode)
+            for key, mode in unit.group_modes.items()
+            if key.startswith(prefix)
+        }
+        for unit in units
+    }
+
+
+def group_mode_lines(
+    units: Sequence[StoredUnit], groups: Sequence[TaskGroup], record: Mapping[str, Any], change: str
+) -> list[str]:
+    """One line for each group of `change` a unit owns whose floor, the planner's recorded mode
+    and stored mode are not all the same; `planner not recorded` where the plan kept none."""
+    by_number = {group.number: group for group in groups}
+    recorded = record.get("group_modes") or {}
+    lines: list[str] = []
+    for unit in units:
+        if unit.change != change or not unit.owns_groups:
+            continue
+        for n in unit.groups:
+            if n not in by_number:
+                continue
+            floor = by_number[n].mode.value
+            stored = unit.mode_of(change, by_number[n]).value
+            planner = (recorded.get(unit.id) or {}).get(str(n))
+            if planner is None or not floor == planner == stored:
+                lines.append(
+                    f"{unit.id}: group {n}: floor {floor}, "
+                    f"planner {planner or 'not recorded'}, stored {stored}"
+                )
+    return lines
 
 
 def _plan_context(units: Sequence[StoredUnit], change: str) -> list[dict]:
@@ -6607,6 +6648,7 @@ def _tag_warnings(inst: Installation, path: Path) -> list[str]:
         *redundant_separate_warnings(path),
         *product_path_warnings(path, groups, inst.repos),
         *task_wording_warnings(path, groups),
+        *reorganization_warnings(path, groups),
         *manual_runbook_warnings(path, inst.root),
         *inverted_group_warnings(
             path,
@@ -7054,6 +7096,16 @@ def cmd_replan(args: argparse.Namespace, inst: Installation) -> int:
                     continue
                 for line in _replan_lines(outcome):
                     print(line)
+                if outcome.results[change].status == "planned" and (
+                    not outcome.results[change].recorded_only
+                ):
+                    for line in group_mode_lines(
+                        list(outcome.after.values()),
+                        validated(inst, inst.changes_dir / change / "tasks.md")[0],
+                        outcome.records[change],
+                        change,
+                    ):
+                        print(line)
                 if outcome.results[change].status != "planned":
                     failed.append(change)
                 # Each refusal was printed above as the plan or the linking logged it.
@@ -7324,6 +7376,10 @@ def _print_replan_report(inst: Installation, store: UnitStore, changes: list[str
             groups = ", ".join(str(n) for n in unit.groups)
             print(f"  {unit.id}: group {groups} ({unit.state.value})")
         task_groups, errors = validated(inst, inst.changes_dir / change / "tasks.md")
+        for line in group_mode_lines(
+            [*started, *unstarted], task_groups, records.get(change) or {}, change
+        ):
+            print(f"  {line}")
         decided = _without_planner(inst, store, change, task_groups, errors)
         if decided is None:
             calls += 1
