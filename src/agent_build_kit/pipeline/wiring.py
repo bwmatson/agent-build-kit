@@ -5687,6 +5687,7 @@ def build_reproduce(
         alone = rerun(command, [test], project=where)
         loaded = toolchain.repeat_command(command, [file], project=where) or alone
         collect = getattr(toolchain, "unselected_collection", None)
+        not_run: list[list[str]] = []
 
         def listed_without_selection() -> bool:
             """Whether a collection with the repo's default selection removed finds the test.
@@ -5708,18 +5709,29 @@ def build_reproduce(
                     and ids_not_found(toolchain, output, where)
                 )
             ):
-                # Gone only when a collection without the default selection agrees: a test the
-                # selection deselects is collected by none of the runs that carry it.
-                return Attempt.NOT_COLLECTED if not listed_without_selection() else Attempt.PASSED
+                # Gone only when a collection without the default selection agrees. A test it
+                # finds, that the run did not, is of a kind the run's selection does not take: it
+                # was not run, so the attempt is not a pass.
+                if not listed_without_selection():
+                    return Attempt.NOT_COLLECTED
+                not_run.append(argv)
+                return Attempt.PASSED
             if not whole_file and not toolchain.tolerates_exit(argv, result.returncode):
                 return Attempt.FAILED
             return Attempt.PASSED
 
-        return check_reproduction(
+        found = check_reproduction(
             test,
             runs,
             alone=lambda: attempt(alone, whole_file=False),
             loaded=lambda: attempt(loaded, whole_file=True),
         )
+        if not_run and found.outcome is not Outcome.FAILS:
+            return Reproduction(
+                outcome=Outcome.SKIPPED,
+                note=f"{test} is collected only without the repo's default selection, which "
+                "the runs keep: it was not run",
+            )
+        return found
 
     return reproduce_test

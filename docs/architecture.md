@@ -2043,9 +2043,11 @@ approved.
   and runs it on the unit's base `global_limits.fix_reproduction_runs` times, alone and under load
   (alone: serially, by id; under load: the whole file it is in, on the repo's parallel workers),
   through `wiring.build_reproduce`. A test that fails on any run goes on to `tests`. Both runs
-  let through the kind of test the repo's default settings deselect, and a run that collects
-  nothing is read as gone only when a collection with that default selection removed does not
-  find the id either. A test that
+  let through the `integration` kind where the repo's default settings deselect it. A run that
+  collects nothing is read as gone only when a collection with the whole default selection
+  removed does not find the id either; when that collection does find it (a test of another
+  deselected kind, which the runs keep out), the check is `SKIPPED` with a note saying the
+  test was not run, since no run was made of it. A test that
   is no longer in the tree, or one whose fix change merged since this change was written, makes
   the unit `satisfied` with that reason. A test that never fails is not held and the check
   does not satisfy it: the unit builds the change as the change wrote it (a regression
@@ -2060,8 +2062,10 @@ approved.
   A fix change whose units have all finished (`satisfied`, `merged`, `closed` or `retired`)
   is not reused for a test that fails again: the lookup treats it as an earlier attempt, the
   next failure writes a new change (`-2`, `-3`) whose agent is told how the earlier one ended
-  (each unit's state and note), and `abk status` prints a `finished fix:` line naming the
-  change, the test and the unit that still fails it.
+  (each unit's state and note; an archived one is told as before that its requirement is in
+  the shipped spec). `abk status` prints a `finished fix:` line naming the change, the test
+  and the unit only when a failure of the test was recorded after the change's last unit
+  reached its finished state.
 - **The regression agent names the tests that share the cause.** When it judges the cause a
   pattern (a shared helper, a scan of a directory the run changes, a fixed time budget, shared
   mutable state), it searches the test tree with read-only tools and lists the other tests in the

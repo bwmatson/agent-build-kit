@@ -45,6 +45,7 @@ from agent_build_kit.pipeline.flakes import (
     first_group_test,
     fix_change_name,
     flake_record,
+    is_archived,
     is_fix_change,
     next_fix_name,
     open_fix_change,
@@ -298,7 +299,10 @@ def run_regression_agent(
         else ""
     )
     earlier = failure_history(inst, failure.test, evidence=True)
-    finished = finished_attempt(inst, archived) if archived else ""
+    # An archived change is in the shipped spec; one still under `changes/` was finished only.
+    finished = (
+        "" if not archived or is_archived(inst, archived) else finished_attempt(inst, archived)
+    )
     artifacts = orchestration.get(ARTIFACTS, inst)
     first_failure = change_evidence(
         inst.state_dir,

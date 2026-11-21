@@ -1154,6 +1154,11 @@ class PythonUvProfile:
         program = _pytest_program(command)
         if program is None or not _addopts_marker(project):
             return None
+        if "--directory" in command[:program]:
+            where = command[command.index("--directory") + 1].strip("/")
+            tests = [t.removeprefix(f"{where}/") for t in tests if t.startswith(f"{where}/")]
+            if not tests:
+                return None
         return [
             *command[: program + 1],
             "-o",

@@ -3,7 +3,7 @@
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import pytest
@@ -25,9 +25,13 @@ def status_with_fixes(
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
     fixes: dict[str, tuple[str, UnitState]],
+    *,
+    failed_after_finish: bool = True,
 ) -> list[str]:
     """`abk status` over fix changes (name to the test it fixes and its one unit's state), and a
-    unit `one/1` whose last run failed each of those tests."""
+    unit `one/1` whose last run failed each of those tests, an hour after the fix finished (or,
+    with `failed_after_finish` false, an hour before)."""
+    hour = timedelta(hours=1) if failed_after_finish else -timedelta(hours=1)
     workspace = make_installation(
         tmp_path, planning=dict(state_dir=".", worktree_root=str(tmp_path.parent / "trees"))
     )
@@ -43,7 +47,7 @@ def status_with_fixes(
                 unit="one/1",
                 command="uv run pytest -n auto -q",
                 output=f"FAILED {test}",
-                at=datetime(2026, 3, 1, 9, 30, tzinfo=UTC),
+                at=datetime.now(UTC) + hour,
                 change=name,
                 failing=True,
             )
@@ -79,3 +83,18 @@ def test_status_names_no_finished_fix_for_a_change_still_being_built(
 
     assert any("finished" in line and FIX in line for line in lines), "\n".join(lines)
     assert not any(OTHER_FIX in line and "finished" in line for line in lines), "\n".join(lines)
+
+
+@pytest.mark.parametrize("state", [UnitState.MERGED, UnitState.SATISFIED])
+def test_status_names_no_finished_fix_when_the_test_failed_only_before_the_fix_finished(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    state: UnitState,
+) -> None:
+    lines = status_with_fixes(
+        tmp_path, monkeypatch, capsys, {FIX: (TEST, state)}, failed_after_finish=False
+    )
+
+    assert any(FIX in line and "failing:" in line for line in lines), "the failure is listed"
+    assert not any("finished" in line and FIX in line for line in lines), "\n".join(lines)

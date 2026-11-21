@@ -7,10 +7,12 @@ from __future__ import annotations
 from pathlib import Path
 
 from agent_build_kit.pipeline.flakes import FailedOnBase, fix_change_name, flake_record
+from agent_build_kit.pipeline.units import UnitState
 from agent_build_kit.pipeline.untouched_failures import preexisting_record
 from agent_build_kit.pipeline.wiring import build_on_flake, build_on_preexisting
 from tests.e2e_gate_fakes import Planning
 from tests.e2e_wait_fakes import OLD, verdict_of
+from tests.factories import stored_unit
 from tests.graph.test_failed_on_base_callers import FAILING as MET
 from tests.pipeline.test_flake_fix_change import flaked
 from tests.regression_agent_fakes import DefaultAgent
@@ -139,6 +141,28 @@ def test_the_earlier_archived_change_is_in_the_agents_prompt(
     assert successor and successor != first
     prompt = no_real_regression_agent.runtime.requests[-1].prompt
     assert f"`{first}`" in prompt and "MODIFIED" in prompt
+
+
+def test_an_archived_fix_whose_unit_is_stored_as_merged_still_gets_the_modified_instruction(
+    tmp_path: Path, no_real_regression_agent: DefaultAgent
+) -> None:
+    planning = Planning(tmp_path)
+    on_flake = quietly(planning)
+    unit = planning.store.get(UNIT)
+    first = on_flake(unit, FAILING)
+    assert first
+    archive = planning.installation.changes_dir / "archive"
+    archive.mkdir()
+    (planning.installation.changes_dir / first).rename(archive / f"2026-03-02-{first}")
+    planning.store.upsert([stored_unit(f"{first}/1", change=first)])
+    planning.store.set_state(f"{first}/1", UnitState.MERGED, note="merged")
+
+    successor = on_flake(unit, FAILING)
+
+    assert successor and successor != first
+    prompt = no_real_regression_agent.runtime.requests[-1].prompt
+    assert f"`{first}`" in prompt and "MODIFIED" in prompt
+    assert "was built and finished" not in prompt
 
 
 def test_a_first_failure_has_no_earlier_change_in_the_prompt(
