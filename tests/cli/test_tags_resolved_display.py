@@ -8,6 +8,7 @@ from pathlib import Path
 
 import pytest
 
+from agent_build_kit import openspec
 from agent_build_kit.cli import pipeline as cli
 from tests.cli.replan_driver import Replan
 from tests.factories import new_unit
@@ -284,3 +285,91 @@ def test_tags_does_not_warn_of_a_reorganization_group_that_has_a_way_out_already
     assert len(bare) == 1
     assert status == 0
     assert warnings == []
+
+
+NOTHING_TO_WRITE = "the tests step has nothing to write"
+
+
+def nothing_to_write(out: str) -> list[str]:
+    return [line for line in out.splitlines() if NOTHING_TO_WRITE in line]
+
+
+def test_tags_warns_of_a_tests_first_group_with_no_test_task_names_the_ways_out_and_exits_0(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    run = Replan(tmp_path, monkeypatch, feature=declaring())
+
+    status = cli.cmd_tags(TAGS, run.inst)
+
+    found = nothing_to_write(capsys.readouterr().out)
+    assert status == 0
+    assert len(found) == 1
+    assert "group 1" in found[0]
+    assert "Test:" in found[0]
+    assert "Tests: required" in found[0]
+    assert "Mode: refactor" in found[0]
+
+
+def test_tags_warns_of_a_code_group_that_moves_nothing_beyond_the_reorganization_warning(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    text = (
+        "# Tasks\n\nAcceptance: none — a fixture\n\n## 1. [app] [unit-test] Add it\n\n"
+        "- [ ] 1.1 Add `src/app/new.py`.\n"
+    )
+    run = Replan(tmp_path, monkeypatch, feature=text)
+
+    status = cli.cmd_tags(TAGS, run.inst)
+
+    out = capsys.readouterr().out
+    found = nothing_to_write(out)
+    assert status == 0
+    assert len(found) == 1
+    assert "group 1" in found[0]
+    assert "reads as a reorganization" not in out
+
+
+@pytest.mark.parametrize(
+    "lines",
+    [
+        ("- [ ] 1.2 Test: it moved.",),
+        ("Tests: required — the move is risky",),
+        ("Mode: refactor — moves and renames only",),
+        ("- [ ] 1.2 Add a new test file `tests/test_new.py` for the module.",),
+    ],
+    ids=["Test: task", "Tests: required", "Mode: refactor", "a new test file"],
+)
+def test_tags_warns_only_of_the_group_with_no_way_out(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    lines: tuple[str, ...],
+) -> None:
+    second = (
+        "## 2. [app] [unit-test] Move that\n\n- [ ] 2.1 Move `src/app/a.py` to `src/app/b.py`.\n"
+    )
+    run = Replan(tmp_path, monkeypatch, feature=declaring(*lines) + second)
+
+    status = cli.cmd_tags(TAGS, run.inst)
+
+    found = nothing_to_write(capsys.readouterr().out)
+    assert status == 0
+    assert len(found) == 1
+    assert "group 2" in found[0]
+
+
+def test_check_prints_the_same_warning_and_the_count_of_groups_it_names(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    run = Replan(tmp_path, monkeypatch, feature=declaring())
+    run.write("other", declaring(heading="[app] [unit-test] Move that"))
+    run.write("fine", declaring("- [ ] 1.2 Test: it moved."))
+    monkeypatch.setattr(openspec, "check", lambda root: (True, "all valid\n"))
+
+    capsys.readouterr()
+    status = cli.cmd_check(argparse.Namespace(), run.inst)
+
+    out = capsys.readouterr().out
+    assert status == 0
+    assert len(nothing_to_write(out)) == 2, out
+    assert any("2 group" in line and "no test task" in line for line in out.splitlines()), out

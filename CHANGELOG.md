@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- `abk tags` and `abk check` now warn of a tests-first task group that has no `Test:` task,
+  no `Tests: required` line and no `Mode:` line, naming the three ways out; `abk check`
+  also prints how many groups it names. The warning does not change the exit status.
+
 - Merged pull requests now ask the host to delete their source branch: a landing by the
   pipeline carries the deletion when `delete_merged_branches` is on (an Azure DevOps
   completion then sets `deleteSourceBranch`), except for a unit another still builds on.
