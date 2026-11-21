@@ -77,7 +77,8 @@ _REGISTERED: list[Scratch] = []
 
 def run_tick(scratch: Scratch, *, timeout: float = 3600) -> TickResult:
     """`abk tick` as a process in the scratch, stamping each output line as it arrives, and
-    remembered as one of the scratch's last ticks."""
+    remembered as one of the scratch's last ticks. The tick's output pipe is closed before it
+    returns."""
     started = time.monotonic()
     lines: list[tuple[float, str]] = []
     process = subprocess.Popen(
@@ -109,6 +110,8 @@ def run_tick(scratch: Scratch, *, timeout: float = 3600) -> TickResult:
         raise
     finally:
         reader.join()
+        if process.stdout is not None:
+            process.stdout.close()
     result = TickResult(
         returncode=returncode, lines=tuple(lines), started=started, ended=time.monotonic()
     )
