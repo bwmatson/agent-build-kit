@@ -30,6 +30,40 @@ def test_a_unit_that_may_land_is_merged_once_at_its_approved_head(
     assert landed.forge.merge_calls == [(PR, HEAD)]
 
 
+LEAF = "c/9"
+LEAF_PR = 9
+
+
+@pytest.mark.parametrize("setting", [True, False])
+def test_the_merge_asks_the_host_to_delete_the_branch_as_the_repo_setting_says(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, setting: bool
+) -> None:
+    landed = landing(tmp_path, monkeypatch)
+    make_landable(landed.inst, landed.store, landed.forge, {LEAF: LEAF_PR})
+    repos = {
+        name: repo.model_copy(update={"delete_merged_branches": setting})
+        for name, repo in landed.inst.config.repos.items()
+    }
+    landed.inst.config = landed.inst.config.model_copy(update={"repos": repos})
+    landed.forge.on_pr[PR] = {HOLD_LABEL}
+
+    landed.land()
+
+    assert landed.forge.merge_calls == [(LEAF_PR, HEAD)], "\n".join(landed.logged)
+    assert landed.forge.merge_deletions == [setting]
+
+
+def test_a_unit_another_builds_on_is_merged_without_asking_the_host_to_delete_its_branch(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    landed = landing(tmp_path, monkeypatch)
+
+    landed.land()
+
+    assert landed.forge.merge_calls == [(PR, HEAD)]
+    assert landed.forge.merge_deletions == [False]
+
+
 def test_it_is_recorded_merged_with_the_cause_auto_landed_and_its_intent_removed(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

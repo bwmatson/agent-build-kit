@@ -358,6 +358,9 @@ class LocalForge:
     def branch_deletion(self, repo: RepoId) -> BranchDeletion:
         return "off"
 
+    def turn_on_branch_deletion(self, repo: RepoId) -> None:
+        """A local pull request has no host setting to turn on."""
+
     def merge_pr(self, repo: RepoId, pr: int, *, head: str, delete_branch: bool = False) -> str:
         raise MergeRefused("a local pull request is merged by a person, with git")
 

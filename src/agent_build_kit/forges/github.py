@@ -894,6 +894,11 @@ class GitHubForge:
         with self._on(repo) as gh:
             reply = gh.rest.repos.get(repo.account, repo.name)
         on = _parse(reply, RepoDoc, "GET repository").delete_branch_on_merge
+        if on is None:
+            raise TransportError(
+                "the repository reply does not carry delete_branch_on_merge: "
+                "the token may lack admin access"
+            )
         return "on" if on else "off"
 
     def turn_on_branch_deletion(self, repo: RepoId) -> None:

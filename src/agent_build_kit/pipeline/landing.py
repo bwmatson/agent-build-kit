@@ -12,10 +12,13 @@ from agent_build_kit.pipeline.audit_sampling import picked
 from agent_build_kit.pipeline.landing_decision import Condition, LandingFacts, decide_landing
 from agent_build_kit.pipeline.ui_review import ui_listing
 from agent_build_kit.pipeline.unit_store import HeldBy, StoredUnit, UnitStore
-from agent_build_kit.pipeline.units import IN_REVIEW, MERGED, parent_landed
+from agent_build_kit.pipeline.units import CLOSED, IN_REVIEW, MERGED, SATISFIED, parent_landed
 from agent_build_kit.pipeline.verdict import ReviewTier
 from agent_build_kit.pipeline.verdict_record import VERDICTS, VerdictEntry, latest_verdict
 from agent_build_kit.pipeline.vocabulary import auto_landed_label
+
+# A unit in one of these states builds on nothing: its parent's branch is not its base.
+_DONE = (MERGED, CLOSED, SATISFIED)
 
 
 def land_units(
@@ -131,8 +134,12 @@ def _land_unit(
         store.record_event(unit.id, "landing_declined", str(error))
         say(f"{unit.id}: not landed — {error}")
         return False
+    # A unit another still builds on keeps its branch at the completion: the merge keeps the
+    # base under a local ref and deletes the remote branch after that, as it does for any host.
+    stacked_on = any(unit.id in other.depends_on and other.state not in _DONE for other in units)
+    delete_branch = inst.repo(unit.repo).delete_merged_branches and not stacked_on
     try:
-        merged = forge.merge_pr(repo_id, unit.pr, head=unit.approved)
+        merged = forge.merge_pr(repo_id, unit.pr, head=unit.approved, delete_branch=delete_branch)
     except MergeRefused as refusal:
         landing_intent.clear_intent(intents, repo=unit.repo, pr=unit.pr)
         store.record_event(unit.id, "landing_refused", refusal.reason)

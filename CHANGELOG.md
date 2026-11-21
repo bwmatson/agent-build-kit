@@ -2,10 +2,12 @@
 
 ## Unreleased
 
-- Merged pull requests now ask the host to delete their source branch: an Azure DevOps
-  completion carries the deletion when `delete_merged_branches` is on. `abk doctor` also
-  reads a GitHub repository's own "automatically delete head branches" setting, warns when
-  it is off while `delete_merged_branches` is on, and `abk doctor --fix` turns it on.
+- Merged pull requests now ask the host to delete their source branch: a landing by the
+  pipeline carries the deletion when `delete_merged_branches` is on (an Azure DevOps
+  completion then sets `deleteSourceBranch`), except for a unit another still builds on.
+  `abk doctor` also reads a GitHub repository's own "automatically delete head branches"
+  setting, warns when it is off while `delete_merged_branches` is on, and `abk doctor
+  --fix` turns it on; a setting it cannot read is an info line.
 
 - A group can declare its reorganization with `Mode: refactor — <reason>`. The planner keeps
   that mode on every replan of an unbuilt group, and `abk tags` shows it and refuses the line

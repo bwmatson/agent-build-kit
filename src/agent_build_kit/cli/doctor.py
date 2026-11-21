@@ -533,31 +533,36 @@ def _merge_guards(inst: Installation, run: Run) -> list[Check]:
     return checks
 
 
-def _host_deletion(inst: Installation, name: str, title: str, fix: bool) -> Check | None:
+def _host_deletion(
+    inst: Installation, forge: forges.Forge, repo: forges.RepoId, name: str, title: str, fix: bool
+) -> Check | None:
     """With `delete_merged_branches` on, the host's own deletion setting for the repository: a
     warning when it is off (turned on under `fix`, writing that setting alone), a note when the
     host decides per pull request, an info line when it cannot be read. None when nothing is
     to be said, so the forge's declared behaviour is what gets reported."""
-    forge, repo = inst.forge_of(name)
     if not forge.merges or not inst.repo(name).delete_merged_branches:
         return None
     try:
         held = forge.branch_deletion(repo)
-        if held == "off" and fix and hasattr(forge, "turn_on_branch_deletion"):
-            forge.turn_on_branch_deletion(repo)
-            held = forge.branch_deletion(repo)
     except Exception as error:  # noqa: BLE001
         return _info(title, f"{name}: {CANNOT_TELL} the repository's deletion setting: {error}")
     if held == "per_pull_request":
-        return _ok(title, f"{name}: the host deletes the branch per pull request, at completion")
-    if held == "off":
-        return _warn(
-            title,
-            f"{name}: delete_merged_branches is on, but the repository's setting to delete "
-            "head branches on merge (delete_branch_on_merge) is off",
-            "run `abk doctor --fix` to turn it on, or turn it on in the repository's settings",
-        )
-    return None
+        return _ok(title, f"{name}: the host decides per pull request whether to delete the branch")
+    if held != "off":
+        return None
+    failed = ""
+    if fix:
+        try:
+            forge.turn_on_branch_deletion(repo)
+            return None
+        except Exception as error:  # noqa: BLE001
+            failed = f"; turning it on failed: {error}"
+    return _warn(
+        title,
+        f"{name}: delete_merged_branches is on, but the repository's setting to delete "
+        f"head branches on merge (delete_branch_on_merge) is off{failed}",
+        "run `abk doctor --fix` to turn it on, or turn it on in the repository's settings",
+    )
 
 
 def _merged_branches(inst: Installation, fix: bool = False) -> list[Check]:
@@ -570,9 +575,9 @@ def _merged_branches(inst: Installation, fix: bool = False) -> list[Check]:
     for name in sorted(inst.repos):
         title = f"merged branches {name}"
         try:
-            forge, _ = inst.forge_of(name)
+            forge, repo = inst.forge_of(name)
             deletes = forge.deletes_head_branch_on_merge
-            host = _host_deletion(inst, name, title, fix)
+            host = _host_deletion(inst, forge, repo, name, title, fix)
         except Exception as error:  # noqa: BLE001
             checks.append(_info(title, f"{CANNOT_TELL} whether the forge deletes them: {error}"))
             continue

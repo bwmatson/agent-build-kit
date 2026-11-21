@@ -153,6 +153,33 @@ def test_a_repository_setting_that_cannot_be_read_is_an_info_line_and_not_a_fail
     assert "403 Forbidden" in said(found)
 
 
+def test_doctor_fix_writes_nothing_where_the_repository_setting_cannot_be_read(
+    scene: Scene,  # noqa: F811
+) -> None:
+    scene.host.branch_deletion_error = "403 Forbidden"
+    setting(scene, on=True)
+
+    found = run_doctor(scene.inst.root / "abk.yaml", run=Answers(), which=which_all, fix=True)
+
+    assert [c.status for c in found if c.name == "merged branches app"] == ["info"]
+    assert scene.host.branch_deletion_writes == []
+
+
+def test_a_refused_write_of_the_repository_setting_is_a_warning_naming_the_refusal(
+    scene: Scene,  # noqa: F811
+) -> None:
+    scene.host.repo_branch_deletion = "off"
+    scene.host.branch_deletion_write_error = "403 on the PATCH"
+    setting(scene, on=True)
+
+    found = run_doctor(scene.inst.root / "abk.yaml", run=Answers(), which=which_all, fix=True)
+
+    warned = [c for c in found if c.name == "merged branches app"]
+    assert [c.status for c in warned] == ["warn"]
+    assert "turning it on failed" in said(warned)
+    assert "403 on the PATCH" in said(warned)
+
+
 def test_a_merged_unit_whose_commit_is_not_on_the_default_branch_is_listed_with_the_repair(
     scene: Scene,  # noqa: F811
 ) -> None:

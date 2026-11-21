@@ -39,7 +39,8 @@ class PullDoc(_Rest):
 
 
 class RepoDoc(_Rest):
-    delete_branch_on_merge: bool = False
+    # Absent from the reply for a token without enough access to the repository.
+    delete_branch_on_merge: bool | None = None
 
 
 class MergeDoc(_Rest):

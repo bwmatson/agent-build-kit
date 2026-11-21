@@ -107,6 +107,8 @@ class StandInForge:
         self.commit_check_reads: list[str] = []
         # Every `merge_pr` call as `(pr, head)`, and the commit each merged pull request produced.
         self.merge_calls: list[tuple[int, str]] = []
+        # The `delete_branch` each `merge_pr` call carried, in the same order.
+        self.merge_deletions: list[bool] = []
         self.merged: dict[int, str] = {}
         # Every `merge_commit` call, by pull request: what a caller asked the host for when
         # nothing it held carried the commit.
@@ -138,6 +140,7 @@ class StandInForge:
         self.repo_branch_deletion: BranchDeletion = "on"
         self.branch_deletion_error = ""
         self.branch_deletion_writes: list[str] = []
+        self.branch_deletion_write_error = ""
         self.closed: list[int] = []
         # Every post, close and draft call ("draft" or "ready"), in the order
         # they happened — a post and a close each land in their own list too,
@@ -274,6 +277,8 @@ class StandInForge:
         return self.repo_branch_deletion
 
     def turn_on_branch_deletion(self, repo: RepoId) -> None:
+        if self.branch_deletion_write_error:
+            raise RuntimeError(self.branch_deletion_write_error)
         self.branch_deletion_writes.append(f"{repo.account}/{repo.name}")
         self.repo_branch_deletion = "on"
 
@@ -321,6 +326,7 @@ class StandInForge:
 
     def merge_pr(self, repo: RepoId, pr: int, *, head: str, delete_branch: bool = False) -> str:
         self.merge_calls.append((pr, head))
+        self.merge_deletions.append(delete_branch)
         if self.merge_refusal:
             raise MergeRefused(self.merge_refusal)
         if self.merge_failures:

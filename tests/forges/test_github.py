@@ -12,6 +12,7 @@ import pytest
 from agent_build_kit import forges
 from agent_build_kit.forges.base import RepoId
 from agent_build_kit.forges.github import FORGE, GitHubForge
+from agent_build_kit.forges.transport import TransportError
 from tests.forges.github_host import GitHubHost, answer
 
 
@@ -93,3 +94,11 @@ def test_turning_the_setting_on_sends_one_write_of_that_field_alone() -> None:
     [call] = host.calls("PATCH")
     assert call.path == ROUTE
     assert call.body == {"delete_branch_on_merge": True}
+
+
+@pytest.mark.usefixtures("github_env")
+def test_a_repository_reply_without_the_setting_is_an_error_and_not_an_off_setting() -> None:
+    host = GitHubHost(routes={("GET", ROUTE): answer({"name": "app"})})
+
+    with pytest.raises(TransportError, match="delete_branch_on_merge"):
+        GitHubForge(http=host).branch_deletion(REPO)

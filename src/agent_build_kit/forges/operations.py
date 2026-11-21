@@ -68,6 +68,7 @@ OPERATIONS: Mapping[str, OperationSpec] = {
     "rerun_checks": _WRITE,
     "delete_remote_branch": _BEST_EFFORT,
     "branch_deletion": _READ,
+    "turn_on_branch_deletion": _WRITE,
     "add_label": _ADVISORY,
     "set_exclusive_label": _ADVISORY,
     "remove_label": _WRITE,

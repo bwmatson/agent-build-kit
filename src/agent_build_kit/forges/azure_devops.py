@@ -948,8 +948,11 @@ class AzureDevOpsForge:
         self._git(repo, "PATCH", f"pullrequests/{pr}", json={"isDraft": draft}, run=run)
 
     def branch_deletion(self, repo: RepoId) -> BranchDeletion:
-        """A completion asks for the source branch to go, so the host decides per pull request."""
+        """The host decides per pull request: a completion can ask for the source branch to go."""
         return "per_pull_request"
+
+    def turn_on_branch_deletion(self, repo: RepoId) -> None:
+        """Nothing to turn on: the deletion is asked for at each completion."""
 
     def merge_pr(
         self,
