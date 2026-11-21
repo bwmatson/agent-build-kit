@@ -975,7 +975,12 @@ unit put back for any other cause waits for the next pass, and the tick log says
 still on as `held_base`, and who holds it as `held_by`. A record with no cause is one from before causes or one an event ended,
 and one with a cause this release does not know reads the same way: the pass never readmits it, and `abk status` lists it.
 
-A merge is recorded only when it is on the default branch. A pull request merged into the branch
+A merge is recorded only when it is on the default branch: a commit the host reports counts only
+when it is on the default branch. A pull request merged into the default branch with no commit there
+is settled when its changes are on the default branch; otherwise the unit waits, and once the
+repository's `landing_wait` has passed it is held `landing_unknown` until a later round finds its
+changes. When a stack is merged at once, each pull request of it is read alone, by its own commit.
+A pull request merged into the branch
 of a unit that had already merged leaves its unit held `landed_off_default`, and its dependents
 keep waiting, until its commit reaches the default branch. A pull request that is not on the base
 its stack gives it is retargeted each round and the host's base read back; after three failed
