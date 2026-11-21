@@ -53,6 +53,7 @@ from agent_build_kit.forges.azure_models import (
 from agent_build_kit.forges.base import (
     UNKNOWN_CHECKS,
     BaseMissing,
+    BranchDeletion,
     Check,
     CheckStatus,
     CommitChecks,
@@ -946,16 +947,34 @@ class AzureDevOpsForge:
             return
         self._git(repo, "PATCH", f"pullrequests/{pr}", json={"isDraft": draft}, run=run)
 
-    def merge_pr(self, repo: RepoId, pr: int, *, head: str, run: Run | None = None) -> str:
+    def branch_deletion(self, repo: RepoId) -> BranchDeletion:
+        """The host decides per pull request: a completion can ask for the source branch to go."""
+        return "per_pull_request"
+
+    def turn_on_branch_deletion(self, repo: RepoId) -> None:
+        """Nothing to turn on: the deletion is asked for at each completion."""
+
+    def merge_pr(
+        self,
+        repo: RepoId,
+        pr: int,
+        *,
+        head: str,
+        run: Run | None = None,
+        delete_branch: bool = False,
+    ) -> str:
         """Complete by squash, with `head` as the last merge source commit the host must
         still find. A host that refuses the completion, or leaves the pull request
         active or abandoned, is a refusal carrying its reason; any other failure is the
         transport's."""
         route = f"pullrequests/{pr}"
+        options: dict[str, object] = {"mergeStrategy": "squash"}
+        if delete_branch:
+            options["deleteSourceBranch"] = True
         body = {
             "status": "completed",
             "lastMergeSourceCommit": {"commitId": head},
-            "completionOptions": {"mergeStrategy": "squash"},
+            "completionOptions": options,
         }
         try:
             reply = self._git(repo, "PATCH", route, json=body, run=run)

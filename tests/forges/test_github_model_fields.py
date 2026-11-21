@@ -95,6 +95,7 @@ READ_FROM: dict[type[_Rest], list[Endpoint]] = {
     ],
     github_models.PullDoc: [Endpoint("pulls", "get")],
     github_models.RefDoc: [Endpoint("pulls", "get", via=("base",))],  # retarget_pr's read-back
+    github_models.RepoDoc: [Endpoint("repos", "get")],
     github_models.MergeDoc: [Endpoint("pulls", "merge")],
     github_models.ReviewDoc: [Endpoint("pulls", "list_reviews")],
     github_models.InlineCommentDoc: [

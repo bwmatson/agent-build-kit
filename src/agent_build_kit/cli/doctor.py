@@ -533,20 +533,56 @@ def _merge_guards(inst: Installation, run: Run) -> list[Check]:
     return checks
 
 
-def _merged_branches(inst: Installation) -> list[Check]:
+def _host_deletion(
+    inst: Installation, forge: forges.Forge, repo: forges.RepoId, name: str, title: str, fix: bool
+) -> Check | None:
+    """With `delete_merged_branches` on, the host's own deletion setting for the repository: a
+    warning when it is off (turned on under `fix`, writing that setting alone), a note when the
+    host decides per pull request, an info line when it cannot be read. None when nothing is
+    to be said, so the forge's declared behaviour is what gets reported."""
+    if not forge.merges or not inst.repo(name).delete_merged_branches:
+        return None
+    try:
+        held = forge.branch_deletion(repo)
+    except Exception as error:  # noqa: BLE001
+        return _info(title, f"{name}: {CANNOT_TELL} the repository's deletion setting: {error}")
+    if held == "per_pull_request":
+        return _ok(title, f"{name}: the host decides per pull request whether to delete the branch")
+    if held != "off":
+        return None
+    failed = ""
+    if fix:
+        try:
+            forge.turn_on_branch_deletion(repo)
+            return None
+        except Exception as error:  # noqa: BLE001
+            failed = f"; turning it on failed: {error}"
+    return _warn(
+        title,
+        f"{name}: delete_merged_branches is on, but the repository's setting to delete "
+        f"head branches on merge (delete_branch_on_merge) is off{failed}",
+        "run `abk doctor --fix` to turn it on, or turn it on in the repository's settings",
+    )
+
+
+def _merged_branches(inst: Installation, fix: bool = False) -> list[Check]:
     """Per repository, whether the forge deletes a branch when its pull request merges and
-    whether that agrees with `delete_merged_branches`. Only a forge that deletes while the
+    whether that agrees with `delete_merged_branches`. A forge that deletes while the
     setting is off disagrees: the pipeline then loses the branch a stacked child is based on.
-    This reports the forge's declared behaviour, not a repository's own setting on the host
-    (reading that per repository is a follow-up)."""
+    With the setting on, the repository's own setting on the host is read too, and `fix` turns
+    it on where it can be."""
     checks = []
     for name in sorted(inst.repos):
         title = f"merged branches {name}"
         try:
-            forge, _ = inst.forge_of(name)
+            forge, repo = inst.forge_of(name)
             deletes = forge.deletes_head_branch_on_merge
+            host = _host_deletion(inst, forge, repo, name, title, fix)
         except Exception as error:  # noqa: BLE001
             checks.append(_info(title, f"{CANNOT_TELL} whether the forge deletes them: {error}"))
+            continue
+        if host is not None:
+            checks.append(host)
             continue
         setting = inst.repo(name).delete_merged_branches
         said = f"{name}: the forge is declared to {'delete' if deletes else 'keep'} merged branches"
@@ -2635,7 +2671,7 @@ def run_doctor(
     checks += _cassettes(inst)
     checks += _forge_access(inst, run, transport=transport)
     checks += _merge_guards(inst, run)
-    checks += _merged_branches(inst)
+    checks += _merged_branches(inst, fix)
     checks += _false_merges(inst)
     checks += _planning_publish(inst, run)
     checks += _pipeline_worktree(inst)

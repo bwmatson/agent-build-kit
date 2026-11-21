@@ -15,6 +15,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, TypeVar
 
 from agent_build_kit.forges.base import (
+    BranchDeletion,
     CommitChecks,
     DeniedRequest,
     FileChange,
@@ -354,7 +355,13 @@ class LocalForge:
 
         return self._change(repo, add)
 
-    def merge_pr(self, repo: RepoId, pr: int, *, head: str) -> str:
+    def branch_deletion(self, repo: RepoId) -> BranchDeletion:
+        return "off"
+
+    def turn_on_branch_deletion(self, repo: RepoId) -> None:
+        """A local pull request has no host setting to turn on."""
+
+    def merge_pr(self, repo: RepoId, pr: int, *, head: str, delete_branch: bool = False) -> str:
         raise MergeRefused("a local pull request is merged by a person, with git")
 
     def merge_commit(self, repo: RepoId, pr: int) -> str | None:

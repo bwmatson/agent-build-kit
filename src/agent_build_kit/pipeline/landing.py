@@ -9,6 +9,7 @@ from agent_build_kit.forges.base import Forge, MergeRefused, PullRequest, RepoId
 from agent_build_kit.installation import Installation
 from agent_build_kit.pipeline import audit_record, demotion_record, landing_intent, spans
 from agent_build_kit.pipeline.audit_sampling import picked
+from agent_build_kit.pipeline.events import dependents_of
 from agent_build_kit.pipeline.landing_decision import Condition, LandingFacts, decide_landing
 from agent_build_kit.pipeline.ui_review import ui_listing
 from agent_build_kit.pipeline.unit_store import HeldBy, StoredUnit, UnitStore
@@ -131,8 +132,12 @@ def _land_unit(
         store.record_event(unit.id, "landing_declined", str(error))
         say(f"{unit.id}: not landed — {error}")
         return False
+    # A unit another still builds on keeps its branch at the completion: the merge keeps the
+    # base under a local ref and deletes the remote branch after that, as it does for any host.
+    stacked_on = bool(dependents_of(unit, units))
+    delete_branch = inst.repo(unit.repo).delete_merged_branches and not stacked_on
     try:
-        merged = forge.merge_pr(repo_id, unit.pr, head=unit.approved)
+        merged = forge.merge_pr(repo_id, unit.pr, head=unit.approved, delete_branch=delete_branch)
     except MergeRefused as refusal:
         landing_intent.clear_intent(intents, repo=unit.repo, pr=unit.pr)
         store.record_event(unit.id, "landing_refused", refusal.reason)

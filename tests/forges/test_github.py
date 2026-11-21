@@ -10,7 +10,10 @@ from __future__ import annotations
 import pytest
 
 from agent_build_kit import forges
-from agent_build_kit.forges.github import FORGE
+from agent_build_kit.forges.base import RepoId
+from agent_build_kit.forges.github import FORGE, GitHubForge
+from agent_build_kit.forges.transport import TransportError
+from tests.forges.github_host import GitHubHost, answer
 
 
 @pytest.mark.parametrize(
@@ -62,3 +65,40 @@ def test_the_web_url_points_at_the_pull_request() -> None:
     assert repo is not None
     assert forges.get("github").web_url(repo) == "https://github.com/example/app"
     assert forges.get("github").web_url(repo, pr=7) == "https://github.com/example/app/pull/7"
+
+
+# --- the repository's own deletion setting ---------------------------------------------
+
+REPO = RepoId(forge="github", account="example", name="app")
+ROUTE = "/repos/example/app"
+
+
+@pytest.mark.usefixtures("github_env")
+@pytest.mark.parametrize(("flag", "reads"), [(True, "on"), (False, "off")])
+def test_the_forge_reads_the_repository_setting_from_the_repository_route(
+    flag: bool, reads: str
+) -> None:
+    body = {"name": "app", "delete_branch_on_merge": flag}
+    host = GitHubHost(routes={("GET", ROUTE): answer(body)})
+
+    assert GitHubForge(http=host).branch_deletion(REPO) == reads
+
+
+@pytest.mark.usefixtures("github_env")
+def test_turning_the_setting_on_sends_one_write_of_that_field_alone() -> None:
+    body = {"name": "app", "delete_branch_on_merge": True}
+    host = GitHubHost(routes={("PATCH", ROUTE): answer(body)})
+
+    GitHubForge(http=host).turn_on_branch_deletion(REPO)
+
+    [call] = host.calls("PATCH")
+    assert call.path == ROUTE
+    assert call.body == {"delete_branch_on_merge": True}
+
+
+@pytest.mark.usefixtures("github_env")
+def test_a_repository_reply_without_the_setting_is_an_error_and_not_an_off_setting() -> None:
+    host = GitHubHost(routes={("GET", ROUTE): answer({"name": "app"})})
+
+    with pytest.raises(TransportError, match="delete_branch_on_merge"):
+        GitHubForge(http=host).branch_deletion(REPO)

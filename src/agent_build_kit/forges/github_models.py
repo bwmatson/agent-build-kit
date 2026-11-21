@@ -38,6 +38,11 @@ class PullDoc(_Rest):
     base: RefDoc | None = None
 
 
+class RepoDoc(_Rest):
+    # Absent from the reply for a token without enough access to the repository.
+    delete_branch_on_merge: bool | None = None
+
+
 class MergeDoc(_Rest):
     sha: str
 

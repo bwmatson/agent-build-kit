@@ -344,6 +344,11 @@ class RegistersStacks(Protocol):
     def add_to_stack(self, repo: RepoId, stack: int, pulls: Sequence[int]) -> Stack: ...
 
 
+# How a host deletes a merged pull request's source branch: by a repository setting that is
+# on or off, or per pull request at its completion.
+BranchDeletion = Literal["on", "off", "per_pull_request"]
+
+
 class Forge(RegistersStacks, Protocol):
     """The host a repo lives on."""
 
@@ -533,7 +538,17 @@ class Forge(RegistersStacks, Protocol):
     # kept at the remote; false for a forge whose host the origin has to name.
     any_remote: bool
 
-    def merge_pr(self, repo: RepoId, pr: int, *, head: str) -> str:
+    def branch_deletion(self, repo: RepoId) -> BranchDeletion:
+        """How the host removes a merged pull request's source branch: its repository setting
+        (`on` or `off`), or per pull request at the completion. Raises where it cannot be read."""
+        raise NotImplementedError
+
+    def turn_on_branch_deletion(self, repo: RepoId) -> None:
+        """Turn the repository's own deletion setting on, writing that setting alone; a no-op
+        where the host has no such setting."""
+        raise NotImplementedError
+
+    def merge_pr(self, repo: RepoId, pr: int, *, head: str, delete_branch: bool = False) -> str:
         """Squash-merge a pull request when its head is still `head`, the commit the
         caller approved, and return the commit the merge produced. Raises `MergeRefused`
         with the host's reason where the host will not merge."""
