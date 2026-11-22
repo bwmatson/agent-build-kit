@@ -24,9 +24,9 @@ def openspec_cli() -> None:
 def _warm_vitest(folder: Path, overrides: dict[str, str]) -> str:
     """Fetch Vitest into the run's npm cache and start it once; the empty string is success.
 
-    The child runs with a `HOME` inside the run's folder, never the real one, so no `~/.npmrc`
-    is read. `npx` is used instead of a global install, so nothing reaches a toolchain manager's
-    own tool folder.
+    The child runs with a `HOME` inside the run's folder, never the real one, so none of
+    the real user's npm configuration is read. `npx` is used instead of a global install, so
+    nothing reaches a toolchain manager's own tool folder.
     """
     home = folder / "home"
     home.mkdir(exist_ok=True)
