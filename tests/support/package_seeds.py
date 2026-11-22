@@ -87,6 +87,7 @@ def seeds() -> Seeds:
                 "pipeline.events",
                 "pipeline.gate",
                 "pipeline.landing",
+                "pipeline.plan_review",
                 "pipeline.planner",
                 "pipeline.planning_view",
                 "pipeline.pr_reconcile",
