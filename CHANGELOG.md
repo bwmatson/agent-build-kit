@@ -21,6 +21,11 @@
   a group that moves or renames files with no `Test:` task, `Tests: required` or `Mode:` line,
   naming `Mode: refactor — <reason>` as the way out.
 
+- Units now end green: `abk tags` and `abk check` warn when two groups name the same test
+  file, the planner is told to keep those groups in one unit, `abk status` names a test file a
+  plan did split, and a group that edits a workspace or test setting gets an info note. The
+  authoring skill and docs state the rule.
+
 - A group can declare its reorganization with `Mode: refactor — <reason>`. The planner keeps
   that mode on every replan of an unbuilt group, and `abk tags` shows it and refuses the line
   where the group adds a test, is an e2e-test group, or names only documents or tests.

@@ -28,6 +28,7 @@ from enum import StrEnum
 from pathlib import Path, PurePosixPath
 from typing import Protocol
 
+from agent_build_kit import profiles
 from agent_build_kit.compat_names import (
     Place,
     TestKind,
@@ -51,6 +52,7 @@ from agent_build_kit.pipeline.group_paths import (
     allows_no_code,
     allows_tests_only,
     named_paths,
+    named_test_paths,
     names_unplaced_glob,
     names_unplaced_work,
     tasks_asking_for_tests,
@@ -1404,6 +1406,69 @@ def cross_repo_needs_notes(
         and not names_own_change(need, path)
         and (repo := _needed_repo(need, changes_dir, repos, projects))
         and repo != own.get(group)
+    ]
+
+
+def number_list(numbers: Iterable[int]) -> str:
+    """Group numbers as prose: `1`, `1 and 3`, `1, 3 and 14`."""
+    texts = [str(n) for n in numbers]
+    return texts[0] if len(texts) == 1 else f"{', '.join(texts[:-1])} and {texts[-1]}"
+
+
+def shared_test_files(tasks: str) -> dict[str, tuple[int, ...]]:
+    """Each test file a `tasks.md` text names in the tasks of two or more groups, with the
+    numbers of those groups. A test is what the tests-only rule calls one."""
+    groups, _ = validate_tasks_text(tasks, "tasks")
+    named: dict[str, list[int]] = {}
+    for group in groups:
+        for file in named_test_paths(group):
+            named.setdefault(file, []).append(group.number)
+    return {file: tuple(numbers) for file, numbers in named.items() if len(numbers) > 1}
+
+
+def shared_test_file_warnings(path: Path) -> list[str]:
+    """One warning per test file a tasks file names in two or more groups, as `abk tags` and
+    `abk check` print it."""
+    groups, _ = validate_tasks(path)
+    lines = {g.number: g.line for g in groups}
+    return [
+        f"{path}:line {lines[numbers[0]]}: warning: `{file}` is named by groups "
+        f"{number_list(numbers)}; if they land in different units the earlier one can break the "
+        "test the later one rewrites, so let the groups share a unit, or leave the file passing "
+        "at the end of each earlier group"
+        for file, numbers in shared_test_files(path.read_text()).items()
+    ]
+
+
+def environment_setting_notes(
+    path: Path, repo_profiles: Mapping[str, str] | None = None
+) -> list[str]:
+    """One info note per group of a tasks file that names a workspace or test setting, as `abk
+    tags` and `abk check` print it. What counts as one is the toolchain profile's
+    (`environment_setting_patterns`): that of the group's repo in `repo_profiles` (repo name to
+    profile name), or of every registered profile for a repo it does not list."""
+    groups, _ = validate_tasks(path)
+    every = profiles.environment_setting_patterns()
+
+    def pattern_of(repo: str) -> re.Pattern[str] | None:
+        found = (
+            profiles.environment_setting_patterns([repo_profiles[repo]])
+            if repo_profiles and repo in repo_profiles
+            else every
+        )
+        return re.compile("|".join(found)) if found else None
+
+    return [
+        f"{path}:line {group.line}: info: group {group.number} names a workspace or test "
+        "setting, which the pipeline's checks read from the installation setting, not from "
+        "the branch; a change to it may need a `Manual:` step to apply it"
+        for group in groups
+        if (setting := pattern_of(group.repo))
+        and any(
+            setting.search(line)
+            for line in group.body
+            if TASK_LINE.match(line) or line[:1].isspace()
+        )
     ]
 
 

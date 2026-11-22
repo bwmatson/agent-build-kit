@@ -72,3 +72,25 @@ def test_the_authoring_prompt_keeps_the_exception() -> None:
 
     assert "Test tasks come before implementation tasks in every group." not in prompt
     assert "only a group that touches code" in prompt
+
+
+GREEN_RULE = "every unit leaves the suite green"
+SAME_GROUP_RULE = "changes that test in the same group"
+DOCS = Path(__file__).resolve().parents[2] / "docs"
+
+
+def test_the_skill_says_once_that_each_unit_leaves_the_suite_green(raw_texts: list[str]) -> None:
+    for text in raw_texts:
+        body = flat(text).lower()
+        assert body.count(GREEN_RULE) == 1
+        assert SAME_GROUP_RULE in body
+        assert "moves, renames or deletes" in body
+        assert "shared-test-file warning" in body
+
+
+def test_the_documents_say_once_that_each_unit_leaves_the_suite_green() -> None:
+    body = flat((DOCS / "cli.md").read_text(encoding="utf-8")).lower()
+
+    assert body.count(GREEN_RULE) == 1
+    assert SAME_GROUP_RULE in body
+    assert "shared-test-file warning" in body

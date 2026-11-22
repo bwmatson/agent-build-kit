@@ -60,6 +60,12 @@ Rules `abk tags` enforces:
   the red tests.
 - New test files go where the repo's layout says: mirroring the source
   folder, integration tests under `tests/integration/`.
+- Every unit leaves the suite green. A group that moves, renames or deletes what an existing
+  test asserts changes that test in the same group, since the unit that makes the change is
+  the one whose suite runs. When two groups name one test file the planner can put them in
+  different units, so `abk tags` prints a shared-test-file warning: let the groups share a
+  unit, or have the earlier one leave the file passing. A group that edits a workspace or
+  test setting gets an info note, because the checks read it from the installation.
 - A `[e2e-test]` group (every `[acceptance]` group is one) is test-only: a stubbed build
   commits it as one `test:` commit and writes no implementation for it, so its tasks are tests
   alone. A `[unit-test]` or `[integration-test]` group still needs its implementation tasks.

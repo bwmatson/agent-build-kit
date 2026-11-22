@@ -7,17 +7,23 @@ the change's own PR, so a missing tag is caught in review rather than by a
 failed run days later.
 """
 
+import argparse
 from pathlib import Path
 
 import pytest
 
+from agent_build_kit.cli import pipeline as cli
 from agent_build_kit.pipeline.work_graph import (
     Need,
     TaskGroup,
     ValidationError,
+    environment_setting_notes,
     group_needs,
+    shared_test_file_warnings,
+    shared_test_files,
     validate_tasks,
 )
+from tests.project_workspace import app_with_projects
 
 # tests/ mirrors src/, so the repo root is two levels up from this file.
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -453,3 +459,137 @@ def test_an_independent_group_cannot_carry_a_flag(flag: str, tmp_path: Path) -> 
     _, errors = parse(text, tmp_path)
 
     assert [e for e in errors if "Independent" in e.message], errors
+
+
+LAYOUT_TEST = "tests/test_project_root.py"
+
+
+def tasks_naming(*bodies: str) -> str:
+    """A tasks file whose group N has one task with the text `bodies[N - 1]`."""
+    text = f"# Tasks\n\n{OPT_OUT}\n"
+    for number, body in enumerate(bodies, start=1):
+        text += f"## {number}. [app] [unit-test] Group {number}\n\n- [ ] {number}.1 {body}\n\n"
+    return text
+
+
+def written(directory: Path, text: str) -> Path:
+    directory.mkdir(parents=True, exist_ok=True)
+    path = directory / "tasks.md"
+    path.write_text(text)
+    return path
+
+
+LAYOUT_GROUPS = tasks_naming(
+    f"Test: `{LAYOUT_TEST}` asserts the folder.",
+    "Move the code.",
+    f"Test: `{LAYOUT_TEST}` asserts the new folder.",
+    *["Move more code."] * 10,
+    f"Rewrite `{LAYOUT_TEST}` for the final layout.",
+)
+
+
+def test_a_test_file_named_by_several_groups_is_found_with_those_groups() -> None:
+    assert shared_test_files(LAYOUT_GROUPS) == {LAYOUT_TEST: (1, 3, 14)}
+
+
+def test_a_test_file_named_by_one_group_is_not_shared() -> None:
+    assert shared_test_files(tasks_naming(f"Test: `{LAYOUT_TEST}`.", "Do it.")) == {}
+
+
+def test_a_source_file_named_by_several_groups_is_not_a_shared_test_file() -> None:
+    assert shared_test_files(tasks_naming("Edit `src/app.py`.", "Edit `src/app.py` again.")) == {}
+
+
+def test_the_warning_names_the_file_and_the_groups_and_what_to_do(tmp_path: Path) -> None:
+    warnings = shared_test_file_warnings(written(tmp_path, LAYOUT_GROUPS))
+
+    assert len(warnings) == 1
+    assert "warning" in warnings[0] and LAYOUT_TEST in warnings[0]
+    assert "1, 3 and 14" in warnings[0]
+    assert "share a unit" in warnings[0] and "leave the file passing" in warnings[0]
+
+
+def test_a_file_named_by_one_group_gives_no_warning(tmp_path: Path) -> None:
+    text = tasks_naming(f"Test: `{LAYOUT_TEST}`.", "Test: `tests/test_other.py`.")
+
+    assert shared_test_file_warnings(written(tmp_path, text)) == []
+
+
+def tags_output(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], text: str
+) -> tuple[int, list[str]]:
+    inst = app_with_projects(tmp_path)
+    written(inst.changes_dir / "feature", text)
+
+    status = cli.cmd_tags(argparse.Namespace(change="feature", all=False), inst)
+
+    return status, capsys.readouterr().out.splitlines()
+
+
+def test_abk_tags_prints_the_shared_file_warning_and_still_exits_zero(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    status, lines = tags_output(tmp_path, capsys, LAYOUT_GROUPS)
+
+    assert status == 0
+    assert any(LAYOUT_TEST in line and "warning" in line for line in lines)
+
+
+@pytest.mark.parametrize(
+    "task",
+    [
+        "Add `[tool.uv.workspace]` to `pyproject.toml`.",
+        "Add a `[project]` table to the root `pyproject.toml`.",
+        "Edit `pytest.toml` to change the markers.",
+        "Set `[tool.pytest.ini_options]` in `pyproject.toml`.",
+    ],
+)
+def test_a_group_editing_a_workspace_or_test_setting_gets_a_note(
+    task: str, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    text = tasks_naming("Edit `src/app.py`.", task)
+
+    notes = environment_setting_notes(written(tmp_path / "plain", text))
+    status, lines = tags_output(tmp_path / "installation", capsys, text)
+
+    assert len(notes) == 1
+    assert "group 2" in notes[0] and "info" in notes[0]
+    assert "installation setting" in notes[0] and "Manual:" in notes[0]
+    assert status == 0
+    assert any("installation setting" in line for line in lines)
+
+
+@pytest.mark.parametrize(
+    "task",
+    [
+        "Set the `workspaces` field of `package.json` to `packages/*`.",
+        "Edit `vitest.config.ts` to change the include globs.",
+    ],
+)
+def test_a_group_editing_a_node_workspace_or_test_setting_gets_a_note(
+    task: str, tmp_path: Path
+) -> None:
+    text = tasks_naming("Edit `src/app.ts`.", task)
+
+    notes = environment_setting_notes(written(tmp_path, text), {"app": "node-npm"})
+
+    assert len(notes) == 1
+    assert "group 2" in notes[0] and "info" in notes[0]
+
+
+def test_a_python_setting_gets_no_note_in_a_repo_on_the_node_profile(tmp_path: Path) -> None:
+    text = tasks_naming("Edit `src/app.ts`.", "Add `[tool.uv.workspace]` to `pyproject.toml`.")
+
+    assert environment_setting_notes(written(tmp_path, text), {"app": "node-npm"}) == []
+
+
+def test_a_group_naming_only_source_and_test_files_gets_no_note(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    text = tasks_naming("Edit `src/app.py`.", "Test: `tests/test_app.py`.")
+
+    status, lines = tags_output(tmp_path / "installation", capsys, text)
+
+    assert environment_setting_notes(written(tmp_path / "plain", text)) == []
+    assert status == 0
+    assert not any("installation setting" in line for line in lines)

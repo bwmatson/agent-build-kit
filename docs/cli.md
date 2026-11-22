@@ -546,6 +546,13 @@ implement, update, refactor, remove, rename or make. The warning names the two r
 `abk-authoring` skill, and `abk project init` makes the same edit by hand), reports a malformed
 one, and shows each line as pending or applied.
 
+Every unit leaves the suite green, so a group that moves, renames or deletes what an existing test
+asserts changes that test in the same group. A test file named by two or more groups can end up
+split across units; `abk tags` and `abk check` print a shared-test-file warning naming the file and
+the groups (exit status unchanged), the planner is told to keep those groups in one unit, and
+`abk status` names a file a plan did split. A group that names a workspace or test setting of a
+toolchain manifest gets an info note, since the checks read that setting from the installation.
+
 A group whose heading names no project resolves to the declared project that owns every path it
 names; anything outside every project, two projects, or no paths leaves it in the root, and
 `[repo/<root>]` opts out. A `Paths:` line is authoritative when present, and `Reads:` lines are not
