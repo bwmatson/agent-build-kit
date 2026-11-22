@@ -1439,10 +1439,28 @@ def shared_test_file_warnings(path: Path) -> list[str]:
     ]
 
 
+# A workspace or test setting of a toolchain manifest: a table of a manifest's tool section or
+# project metadata, or a test runner's own settings file.
+_ENVIRONMENT_SETTING = re.compile(
+    r"\[tool\.[\w.-]*(?:workspace|pytest)[\w.-]*\]|\[project\]|\bpytest\.toml\b|\bpytest\.ini\b"
+)
+
+
 def environment_setting_notes(path: Path) -> list[str]:
     """One info note per group of a tasks file that names a workspace or test setting of a
     toolchain manifest, as `abk tags` and `abk check` print it."""
-    raise NotImplementedError
+    groups, _ = validate_tasks(path)
+    return [
+        f"{path}:line {group.line}: info: group {group.number} names a workspace or test "
+        "setting, which the pipeline's checks read from the installation setting, not from "
+        "the branch; a change to it may need a `Manual:` step to apply it"
+        for group in groups
+        if any(
+            _ENVIRONMENT_SETTING.search(line)
+            for line in group.body
+            if TASK_LINE.match(line) or line[:1].isspace()
+        )
+    ]
 
 
 def old_test_kind_warnings(path: Path) -> list[str]:
