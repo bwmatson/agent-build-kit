@@ -30,6 +30,12 @@
   that mode on every replan of an unbuilt group, and `abk tags` shows it and refuses the line
   where the group adds a test, is an e2e-test group, or names only documents or tests.
 
+- The ledger of unit-test runs now records each run's head and base commits, and a failed
+  run on an unchanged head and base can stand in for a new one: it is logged as not run
+  again and added as a reused row, and the second reuse holds the unit with a note naming
+  the failed tests, head and base. A failure found on the base too, a new merge the unit
+  waited on and a person's rework note each lead to a real run.
+
 - A fix change whose units all finished while its test still fails is no longer waited on
   as if it were open: the next failure writes a new fix change that is told how the earlier
   one ended, and `abk status` names the finished change, the test and the unit when the test

@@ -81,7 +81,12 @@ from agent_build_kit.pipeline import code_host, failure_evidence, snapshots, spa
 from agent_build_kit.pipeline.changelog_convention import review_changelog_paragraph
 from agent_build_kit.pipeline.check_failures import failed_in
 from agent_build_kit.pipeline.check_runner import CheckCache, worktree_at
-from agent_build_kit.pipeline.command_limit import SUSPENDED_NOTE, TIMED_OUT_EXIT, run_limited
+from agent_build_kit.pipeline.command_limit import (
+    SUSPENDED_NOTE,
+    TIMED_OUT_EXIT,
+    run_limited,
+    timed_out,
+)
 from agent_build_kit.pipeline.commit_order import ALREADY_BUILT_TRAILER, branch_subjects
 from agent_build_kit.pipeline.config_guard import config_unchanged
 from agent_build_kit.pipeline.determinism_guidance import determinism_guidance
@@ -203,6 +208,7 @@ from agent_build_kit.pipeline.scratch import (
 from agent_build_kit.pipeline.selection_base import forget_handover, handed_over_at
 from agent_build_kit.pipeline.shell import (
     changed_files,
+    commit_id,
     fork_point,
     git,
     git_out,
@@ -212,6 +218,11 @@ from agent_build_kit.pipeline.shell import (
 from agent_build_kit.pipeline.stack_runner import FixResult, Restacked, UnitRunner, Worktree
 from agent_build_kit.pipeline.transcript import Transcript, TranscriptEvent
 from agent_build_kit.pipeline.ui_review import ui_notes_of, ui_reply_writer, unit_patch_of
+from agent_build_kit.pipeline.unchanged_failure import (
+    ReuseContext,
+    merged_since,
+    run_or_reuse,
+)
 from agent_build_kit.pipeline.unit_size import actual_lines, branch_diff, over_ceiling, unit_ceiling
 from agent_build_kit.pipeline.unit_store import (
     Cause,
@@ -1757,6 +1768,7 @@ def build_unit_test(
         run_loaded.clear()
         outcome = "failed"
         failed: list[str] = []
+        on_base = ran_out = False
         gap: float | None = None
         handed = handed_over_at(cwd)
         if handed is not None:
@@ -1770,7 +1782,7 @@ def build_unit_test(
             outcome, failed = "flake", [flake.test for flake in found.flakes]
             raise
         except FailedOnBase as found_on_base:
-            failed = [failure.test for failure in found_on_base.failures]
+            failed, on_base = [failure.test for failure in found_on_base.failures], True
             raise
         except SuspendedRun as suspended_run:
             outcome, gap = "disturbed", suspended_run.seconds
@@ -1778,6 +1790,7 @@ def build_unit_test(
         else:
             outcome = "passed" if passed else "failed"
             failed = list(run_failed) if run_loaded or not passed else []
+            ran_out = not passed and timed_out(output)
             return passed, output
         finally:
             forget_handover(cwd)
@@ -1808,6 +1821,10 @@ def build_unit_test(
                         disturbed_seconds=gap,
                         data_source=data_source,
                         data_age_hours=data_age,
+                        head=commit_id(cwd, "HEAD") or None,
+                        base=commit_id(cwd, base) or None,
+                        timed_out=ran_out,
+                        on_base=on_base,
                     ),
                 )
             except OSError as error:
@@ -1825,32 +1842,60 @@ def build_unit_test(
         """The unit-test run, behind its slot: with `global_limits.max_concurrent_unit_tests` set,
         a run that finds every slot taken waits, outside the command's time limit, and the permit
         is held for the whole run (the reruns inside it take none) and given back however it
-        ends."""
-        with _test_slot(installation, log) as waited:
-            for attempt in (1, 2):
-                rerun_notes.clear()
-                try:
-                    passed, output = recorded(
-                        cwd=cwd,
-                        base=base,
-                        whole_repo=whole_repo,
-                        failed_output=failed_output,
-                        moved_from=moved_from,
-                        waited=waited,
-                    )
-                    if not passed and rerun_notes:
-                        # On the command's own line, so the tail of the output stays whole.
-                        first, newline, rest = output.partition("\n")
-                        output = f"{first} [serial {'; '.join(rerun_notes)}]{newline}{rest}"
-                    return passed, output
-                except SuspendedRun as suspended_run:
-                    _say(
-                        log,
-                        f"unit-test: a suspend of {suspended_run.seconds:.0f} s disturbed the "
-                        "run, so its failures are not judged"
-                        + ("; the checks run again" if attempt == 1 else ""),
-                    )
-            return False, SUSPENDED_NOTE
+        ends. Before a slot is taken, a failed run of the unit on this head and base with nothing
+        changed since stands in for the run (`unchanged_failure.run_or_reuse`)."""
+
+        def slotted() -> tuple[bool, str]:
+            with _test_slot(installation, log) as waited:
+                for attempt in (1, 2):
+                    rerun_notes.clear()
+                    try:
+                        passed, output = recorded(
+                            cwd=cwd,
+                            base=base,
+                            whole_repo=whole_repo,
+                            failed_output=failed_output,
+                            moved_from=moved_from,
+                            waited=waited,
+                        )
+                        if not passed and rerun_notes:
+                            # On the command's own line, so the tail of the output stays whole.
+                            first, newline, rest = output.partition("\n")
+                            output = f"{first} [serial {'; '.join(rerun_notes)}]{newline}{rest}"
+                        return passed, output
+                    except SuspendedRun as suspended_run:
+                        _say(
+                            log,
+                            f"unit-test: a suspend of {suspended_run.seconds:.0f} s disturbed the "
+                            "run, so its failures are not judged"
+                            + ("; the checks run again" if attempt == 1 else ""),
+                        )
+                return False, SUSPENDED_NOTE
+
+        if test_runs is None or installation is None:
+            return slotted()
+        unit_id = spans.current_unit.get()[0]
+        store = UnitStore(installation.state_dir / "units.json")
+        try:
+            stored = store.get(unit_id)
+            rework_note, saved = bool(stored.guidance), stored.feedback
+        except (OSError, ValueError, KeyError):
+            rework_note, saved = False, ""
+        # A second reuse comes back as a result the graph holds the unit with
+        # (`held_after_reuse`); nothing is written to the store here.
+        return run_or_reuse(
+            test_runs,
+            ReuseContext(
+                unit=unit_id,
+                head=commit_id(cwd, "HEAD"),
+                base=commit_id(cwd, base),
+                rework_note=rework_note,
+                feedback=saved,
+            ),
+            merged_since=lambda started: merged_since(store, unit_id, started),
+            run=slotted,
+            log=lambda message: _say(log, message),
+        )
 
     def tested(
         cwd: Path,

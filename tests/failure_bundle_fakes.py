@@ -24,6 +24,11 @@ START = datetime(2026, 10, 11, 12, 0, 0, tzinfo=UTC)
 VERSIONS = (RECORDED / "version_verbose.txt").read_text()
 
 
+def run_ledger_rows(path: Path) -> list[dict]:
+    """The rows of a ledger of unit-test runs (`runs/test-runs.jsonl`), as written."""
+    return [json.loads(line) for line in path.read_text().splitlines() if line.strip()]
+
+
 def storms(installation: Installation) -> list[dict]:
     """The storm rows of the flake record, as written."""
     try:
