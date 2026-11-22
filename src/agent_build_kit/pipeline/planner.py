@@ -78,7 +78,9 @@ from agent_build_kit.pipeline.work_graph import (
     TaskGroup,
     group_sections,
     known_repos,
+    number_list,
     project_source_note,
+    shared_test_files,
     split_repo_tag,
     validate_tasks_text,
 )
@@ -331,7 +333,29 @@ def parse_plan(
         return Plan(units=tuple(units), joins=tuple(joins))
     highest = max((group.number for group in groups or ()), default=0)
     assigned = assign_unit_ids(units, stored=stored, retired=retired, highest_group=highest)
-    return Plan(units=assigned, joins=tuple(joins))
+    return Plan(units=_with_split_test_files(assigned, tasks), joins=tuple(joins))
+
+
+def _with_split_test_files(units: Sequence[Unit], tasks: str) -> tuple[Unit, ...]:
+    """`units` with, on each, the test files its groups share with a group of a later unit and
+    the ids of those units. A split is recorded, never refused."""
+    shared = shared_test_files(tasks)
+    if not shared:
+        return tuple(units)
+    owner = {n: index for index, unit in enumerate(units) for n in unit.groups}
+    result: list[Unit] = []
+    for index, unit in enumerate(units):
+        split: dict[str, tuple[str, ...]] = {}
+        for file, numbers in shared.items():
+            if not any(owner.get(n) == index for n in numbers):
+                continue
+            later = [
+                units[i].id for i in sorted({owner[n] for n in numbers if owner.get(n, -1) > index})
+            ]
+            if later:
+                split[file] = tuple(later)
+        result.append(unit.model_copy(update={"split_test_files": split}) if split else unit)
+    return tuple(result)
 
 
 def _group_floor(group: TaskGroup, repo: str, tasks: str) -> tuple[str, str]:
@@ -1595,6 +1619,13 @@ def _prompt_and_parts(
             f"\n\nGroups {numbers} of {first} are held by someone outside the kit: put them in "
             "units of their own or with only other held groups, and join nothing else to them."
         )
+    shared = "".join(
+        f"Groups {number_list(numbers)} of {name} name the test file `{file}`: let them share a "
+        "unit. If a plan splits them, the earlier unit must leave the file passing.\n\n"
+        for name, tasks in changes.items()
+        for file, numbers in shared_test_files(tasks).items()
+    )
+    changes_text = shared + changes_text
     lines = [_in_flight_line(item) for item in in_flight]
     if omitted:
         lines.append(omitted_line(omitted))

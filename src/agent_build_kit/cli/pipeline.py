@@ -463,6 +463,7 @@ from agent_build_kit.pipeline.work_graph import (
     resolved_projects,
     retag_headings,
     retag_projects,
+    shared_test_file_warnings,
     specification_text,
     tasks_path,
     unrelated_parent_warnings,
@@ -964,6 +965,9 @@ def cmd_status(args: argparse.Namespace, inst: Installation) -> int:
         log(line)
 
     for line in built_group_mode_lines(inst, run_support.store_for(inst).all()):
+        log(line)
+
+    for line in split_test_file_lines(run_support.store_for(inst).all()):
         log(line)
 
     for name in inst.repos:
@@ -6269,6 +6273,18 @@ def _reconcile_started_modes(
             store.set_group_modes(kept.id, modes)
 
 
+def split_test_file_lines(units: Sequence[StoredUnit]) -> list[str]:
+    """One line for each test file that a unit not yet merged shares with a group of later
+    units, naming the file and the units."""
+    return [
+        f"test file {file} is shared by {unit.id} and {', '.join(later)}: the earlier unit "
+        "must leave it passing"
+        for unit in units
+        if unit.state != MERGED
+        for file, later in unit.split_test_files.items()
+    ]
+
+
 def built_group_mode_lines(inst: Installation, units: Sequence[StoredUnit]) -> list[str]:
     """One line for each group a unit still to build holds on its branch whose stored mode is
     outside what its floor allows, naming the unit, the group and both modes."""
@@ -6659,6 +6675,7 @@ def _tag_warnings(inst: Installation, path: Path) -> list[str]:
         ),
         *old_test_kind_warnings(path),
         *redundant_separate_warnings(path),
+        *shared_test_file_warnings(path),
         *product_path_warnings(path, groups, inst.repos),
         *task_wording_warnings(path, groups),
         *reorganization_warnings(path, groups),

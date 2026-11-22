@@ -51,6 +51,7 @@ from agent_build_kit.pipeline.group_paths import (
     allows_no_code,
     allows_tests_only,
     named_paths,
+    named_test_paths,
     names_unplaced_glob,
     names_unplaced_work,
     tasks_asking_for_tests,
@@ -1407,16 +1408,35 @@ def cross_repo_needs_notes(
     ]
 
 
+def number_list(numbers: Iterable[int]) -> str:
+    """Group numbers as prose: `1`, `1 and 3`, `1, 3 and 14`."""
+    texts = [str(n) for n in numbers]
+    return texts[0] if len(texts) == 1 else f"{', '.join(texts[:-1])} and {texts[-1]}"
+
+
 def shared_test_files(tasks: str) -> dict[str, tuple[int, ...]]:
     """Each test file a `tasks.md` text names in the tasks of two or more groups, with the
-    numbers of those groups."""
-    raise NotImplementedError
+    numbers of those groups. A test is what the tests-only rule calls one."""
+    groups, _ = validate_tasks_text(tasks, "tasks")
+    named: dict[str, list[int]] = {}
+    for group in groups:
+        for file in named_test_paths(group):
+            named.setdefault(file, []).append(group.number)
+    return {file: tuple(numbers) for file, numbers in named.items() if len(numbers) > 1}
 
 
 def shared_test_file_warnings(path: Path) -> list[str]:
     """One warning per test file a tasks file names in two or more groups, as `abk tags` and
     `abk check` print it."""
-    raise NotImplementedError
+    groups, _ = validate_tasks(path)
+    lines = {g.number: g.line for g in groups}
+    return [
+        f"{path}:line {lines[numbers[0]]}: warning: `{file}` is named by groups "
+        f"{number_list(numbers)}; if they land in different units the earlier one can break the "
+        "test the later one rewrites, so let the groups share a unit, or leave the file passing "
+        "at the end of each earlier group"
+        for file, numbers in shared_test_files(path.read_text()).items()
+    ]
 
 
 def old_test_kind_warnings(path: Path) -> list[str]:

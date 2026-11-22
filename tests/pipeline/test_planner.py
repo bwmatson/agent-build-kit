@@ -671,7 +671,7 @@ def test_a_split_of_a_shared_test_file_is_recorded_and_keeping_it_together_is_no
     first, second = layout_plan(list(range(1, 14)), [14])
     (only,) = layout_plan(list(range(1, 15)))
 
-    assert (first.id, second.id) == ("c/1", "c/2")
-    assert first.split_test_files == {LAYOUT_TEST: ("c/2",)}
+    assert (first.id, second.id) == ("c/1", "c/14")
+    assert first.split_test_files == {LAYOUT_TEST: ("c/14",)}
     assert second.split_test_files == {}
     assert only.split_test_files == {}
