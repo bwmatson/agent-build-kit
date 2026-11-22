@@ -78,6 +78,7 @@ from agent_build_kit.pipeline import (
     lock_probe,
     mounts,
     network_probe,
+    plan_review,
     retirement,
     snapshots,
     spans,
@@ -953,6 +954,10 @@ def cmd_status(args: argparse.Namespace, inst: Installation) -> int:
         inst.changes_dir, run_support.store_for(inst).all(), spans.clock.now()
     ):
         log(line)
+    for change, review in plan_review.held_changes(inst).items():
+        log(f"plan review: {change} held, {len(review.findings)} finding(s)")
+        for line in plan_review.finding_lines(review):
+            log(f"  {change}: {line}")
     for line in gate_status_lines(
         inst, now=spans.clock.now(), refresh=getattr(args, "refresh", False)
     ):
@@ -2630,6 +2635,16 @@ def run_round(
         _step("planning", plan_all, inst, store=store, dry_run=dry_run)
         for line in stale_plan_lines(inst):
             log(line)
+        if not dry_run:
+            # Once per plan: a finding holds the change's starts below.
+            _step(
+                "reviewing plans",
+                plan_review.review_changes,
+                inst,
+                store.all(),
+                mechanical=lambda path: _tag_warnings(inst, path),
+                say=log,
+            )
     if not dry_run:
         _step("recording successors", record_successors, store)
         _step(
@@ -2788,7 +2803,9 @@ def run_round(
         [
             unit
             for unit in resumable_units(inst, units, only=only, spared=in_flight, owed=owed)
-            if model_refusal(unit.repo) is None and not waiting_out(unit)
+            if model_refusal(unit.repo) is None
+            and not waiting_out(unit)
+            and unit.change not in plan_review.held_changes(inst)
         ],
         units,
     )
@@ -2803,6 +2820,7 @@ def run_round(
             stored_by_id[uid]
             for uid in (*(lane.waiting if lane else ()), *unclaimed_runs(inst, units))
             if uid in stored_by_id
+            and stored_by_id[uid].change not in plan_review.held_changes(inst)
         ],
         workers=workers,
         resumable=resumable,
@@ -4044,6 +4062,7 @@ def _evaluate_round(
     owed = owed_units(inst, units) if owed is None else owed
     gates = split_gates(inst.config, inst.state_dir, units)
     external = held_units(inst.changes_dir, units)
+    plan_held = plan_review.held_changes(inst)
     holds = code_host.holds_of(inst)
     # Planned units a code host's marker holds back: not ready, and not held in the view either,
     # so a parked one keeps its place among the units in progress.
@@ -4073,6 +4092,8 @@ def _evaluate_round(
             or unit.id in gates
             # Handed to someone outside the kit, whatever its priority.
             or unit.id in external
+            # Its change has plan-review findings no person has cleared.
+            or unit.change in plan_held
             # Someone else owns what it covers on the board, or the board has no item yet; a
             # unit already in progress is the kit's and is not asked.
             or start_gate(unit, units, changes_dir=inst.changes_dir, reads=reads).outcome != "start"

@@ -994,6 +994,10 @@ is a merge) onto a branch `spec/<unit>/carry` off the default branch and opens a
 against the default branch. The unit is in review again on that pull request and is merged when it
 lands, so work that landed on a branch nobody merges is not lost. A pick that leaves nothing to
 commit records the unit merged.
+Before a change's first unit starts, a model reviews its plan (`pipeline/plan_review.py`):
+four fixed questions, asked once per hash of the change's artifacts and planned units, with
+the mechanical checks' report in the request. A finding holds the change's starts until
+`abk review-plan clear`; a review that fails holds nothing.
 `abk carry` does the same on demand for a unit (`--dry-run` writes nothing, `--repair` carries a unit
 recorded merged whose commit is not on the default branch, and `--landed-as <sha>` records a commit
 already on the default branch as the unit's merge). `delete_merged_branches` says whether the
