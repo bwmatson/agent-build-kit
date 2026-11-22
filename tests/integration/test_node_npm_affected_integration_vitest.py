@@ -6,6 +6,7 @@ profile's affected command therefore runs through a config that drops those patt
 proves it against the real runner.
 """
 
+import os
 import subprocess
 from pathlib import Path
 
@@ -27,7 +28,7 @@ TEST = (
 )
 
 
-# npx downloads vitest at test time, which a slow registry can stretch past the default limit.
+# The run's one Vitest fetch can be made in this test's setup, which a slow registry can stretch.
 @pytest.mark.time_limit(180)
 def test_an_affected_run_runs_the_integration_test_the_config_excludes(
     tmp_path: Path, vitest_env: dict[str, str]
@@ -50,7 +51,7 @@ def test_an_affected_run_runs_the_integration_test_the_config_excludes(
         capture_output=True,
         text=True,
         check=False,
-        env=vitest_env,
+        env={**os.environ, **vitest_env},
     )
 
     report, _ = split_report(done.stdout + done.stderr)

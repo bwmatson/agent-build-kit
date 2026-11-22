@@ -31,8 +31,7 @@ pytestmark = [pytest.mark.integration, pytest.mark.time_limit(300)]
 def project(request: pytest.FixtureRequest, tmp_path: Path) -> ScenarioProject:
     env: dict[str, str] | None = None
     if request.param == "node-npm":
-        shared = request.getfixturevalue("vitest_env")
-        env = {key: value for key, value in shared.items() if key.startswith("npm_config_")}
+        env = request.getfixturevalue("vitest_env")
     return ScenarioProject(request.param, tmp_path / "tiny", env=env)
 
 
