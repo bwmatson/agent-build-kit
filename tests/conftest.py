@@ -468,6 +468,10 @@ def workspace_config(root: Path, **overrides) -> WorkspaceConfig:
     # The sandbox is on unless a config says it is off, and most tests are not about it; a test
     # of the shipped default is in tests/config/test_sandbox_config.py.
     overrides.setdefault("sandbox", {"enabled": False})
+    # The plan review asks the model once per plan, which tests that count the planner's calls
+    # would see; most tests are not about it, so it is off unless a test turns it on (the tests
+    # of the shipped default are in tests/pipeline/test_plan_review.py).
+    overrides["planning"] = {"review_plans": False, **overrides.get("planning", {})}
     return WorkspaceConfig.model_validate(
         {"repos": {k: v.model_dump(mode="json") for k, v in repos.items()}, **overrides}
     )
