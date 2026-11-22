@@ -17,6 +17,7 @@ from agent_build_kit.pipeline.work_graph import (
     Need,
     TaskGroup,
     ValidationError,
+    environment_setting_notes,
     group_needs,
     shared_test_file_warnings,
     shared_test_files,
@@ -532,3 +533,39 @@ def test_abk_tags_prints_the_shared_file_warning_and_still_exits_zero(
 
     assert status == 0
     assert any(LAYOUT_TEST in line and "warning" in line for line in lines)
+
+
+@pytest.mark.parametrize(
+    "task",
+    [
+        "Add `[tool.uv.workspace]` to `pyproject.toml`.",
+        "Add a `[project]` table to the root `pyproject.toml`.",
+        "Edit `pytest.toml` to change the markers.",
+        "Set `[tool.pytest.ini_options]` in `pyproject.toml`.",
+    ],
+)
+def test_a_group_editing_a_workspace_or_test_setting_gets_a_note(
+    task: str, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    text = tasks_naming("Edit `src/app.py`.", task)
+
+    notes = environment_setting_notes(written(tmp_path / "plain", text))
+    status, lines = tags_output(tmp_path / "installation", capsys, text)
+
+    assert len(notes) == 1
+    assert "group 2" in notes[0] and "info" in notes[0]
+    assert "installation setting" in notes[0] and "Manual:" in notes[0]
+    assert status == 0
+    assert any("installation setting" in line for line in lines)
+
+
+def test_a_group_naming_only_source_and_test_files_gets_no_note(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    text = tasks_naming("Edit `src/app.py`.", "Test: `tests/test_app.py`.")
+
+    status, lines = tags_output(tmp_path / "installation", capsys, text)
+
+    assert environment_setting_notes(written(tmp_path / "plain", text)) == []
+    assert status == 0
+    assert not any("installation setting" in line for line in lines)

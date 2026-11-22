@@ -1439,6 +1439,12 @@ def shared_test_file_warnings(path: Path) -> list[str]:
     ]
 
 
+def environment_setting_notes(path: Path) -> list[str]:
+    """One info note per group of a tasks file that names a workspace or test setting of a
+    toolchain manifest, as `abk tags` and `abk check` print it."""
+    raise NotImplementedError
+
+
 def old_test_kind_warnings(path: Path) -> list[str]:
     """One notice per group heading of a tasks file that is tagged with an old test-kind tag,
     as `abk tags` and `abk check` print it."""
