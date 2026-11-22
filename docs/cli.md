@@ -657,6 +657,15 @@ held work back, naming every group the released holds covered; `--all` gives bac
 still held, also of a change with no groups yet. Every form takes `--json` (a refusal prints
 `{"refused": REASON}` on stdout too), and `abk status` has an external holds section.
 
+### `abk review-plan show CHANGE`, `abk review-plan clear CHANGE [--note TEXT]`
+
+A model reads each change's plan once (again after `tasks.md` is edited) before its first unit
+starts, and each finding names a group, a question and the evidence. A change with findings is
+held: none of its units start, or start again on a rework or requeue, and `abk status` lists
+the finding lines. `show` prints them; `clear` records the note and frees the change without
+asking for a new review. A review that fails or cannot be read holds nothing and is logged.
+`planning.review_plans: false` turns it off.
+
 ### `abk tracker status`, `sync`, `link`, `conflicts`
 
 The work-tracker mirror of each repo with a `tracker` section. `abk tracker status` shows, per

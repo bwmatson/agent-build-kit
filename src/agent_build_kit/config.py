@@ -161,6 +161,9 @@ class PlanningConfig(Frozen):
     # (`direct`), or to a `planning/...` branch with a pull request (`branch`). No effect in a
     # separate planning repo or a working copy.
     publish: PlanningPublish = PlanningPublish.DIRECT
+    # A model reads each change against the repository before its first unit starts, and a
+    # finding holds the change until a person clears it (`abk review-plan`).
+    review_plans: bool = True
 
 
 class OpenSpecConfig(Frozen):

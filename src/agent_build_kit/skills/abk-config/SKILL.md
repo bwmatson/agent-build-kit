@@ -59,6 +59,7 @@ planning:
                               # planning repo; null = a per-user data dir
                               # named after the planning directory
   self_pull: true             # tracks pull the planning repo before running
+  review_plans: true          # a model reads each plan before its first unit starts
   publish: direct             # direct | branch: push track commits to the default
                               # branch, or to a planning/... branch with a pull request
                               # (only for a repo that is also the planning repo)

@@ -136,6 +136,9 @@ planning:
                                 # tracks' planning commits go: pushed to the default
                                 # branch, or to planning/<run>-<project>-<phase> with
                                 # a pull request. No effect elsewhere.
+  review_plans: true            # a model reads each change's plan before its first
+                                # unit starts; a finding holds the change
+                                # (`abk review-plan`). false asks no model.
 
 openspec:
   command: null                 # argv for the OpenSpec CLI. null = npx --yes
@@ -826,6 +829,11 @@ the top-level `project_limits` is counted for each project, not across all repos
   planning commits go. `direct` pushes them to the default branch. `branch` pushes
   `planning/<run>-<project>-<phase>` and opens a pull request, for a default
   branch that is protected. Archive is not affected: the tick commits nothing.
+- `planning.review_plans` (default `true`): before a change's first unit starts, and after
+  its `tasks.md` is edited, a model is asked four fixed questions about the plan (does each
+  unit end green, does a task need live numbers or an installation edit, can each `Check:`
+  run, does a later test assert what an earlier unit broke). A finding holds the change
+  until `abk review-plan clear`. `false` asks no model and holds nothing.
 
 When a repo in `abk.yaml` is the planning root's own repository (`path: .`), the
 root plays one of three roles: **separate** (no repo shares it), **working copy**

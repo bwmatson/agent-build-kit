@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+- A model now reads each change's plan before its first unit starts, and again after
+  `tasks.md` is edited, asking whether each unit can end green, whether a task needs live
+  numbers or an installation edit, whether each `Check:` can run, and whether a later test
+  asserts what an earlier unit broke. A finding holds the change and shows in `abk status`;
+  `abk review-plan show` prints it and `abk review-plan clear --note TEXT` frees the change.
+  The model is shown the files the tasks name as they stand on each repo's default branch. A
+  unit landing or a box ticked is not an edit, so a clear stands. A review that fails holds
+  nothing and is asked again after an hour, at most three times for one plan, never again
+  when the request was too large. `planning.review_plans: false` turns it off.
+
 - `abk tags` and `abk check` now warn of a tests-first task group that has no `Test:` task,
   no `Tests: required` line and no `Mode:` line, naming the three ways out; `abk check`
   also prints how many groups it names. The warning does not change the exit status.
