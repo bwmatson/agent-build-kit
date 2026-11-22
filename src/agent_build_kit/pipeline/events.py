@@ -1038,6 +1038,12 @@ def release_children(
     return failures
 
 
+def _in_one_piece(error: Exception) -> str:
+    """An error's text with the reasons' separator taken out, so a stored reason splits back
+    into the reasons it was joined from."""
+    return str(error).replace("; ", ", ")
+
+
 def _joined(reasons: list[str]) -> str:
     return "; ".join(reason for reason in reasons if reason)
 
@@ -1062,7 +1068,7 @@ def _keep_base_and_delete(
             forge.delete_remote_branch(repo_id, branch)
     except Exception as error:  # noqa: BLE001
         log(f"{leaving.id}: remote branch {branch} not deleted — {error}")
-        return f"{REMOTE_KEPT}the host refused to delete it: {error}"
+        return f"{REMOTE_KEPT}the host refused to delete it: {_in_one_piece(error)}"
     return ""
 
 
@@ -1109,8 +1115,9 @@ def remove_merged_branches(
             else []
         )
         if not (here or on_remote):
-            if unit.branch_kept and heads is not None:
-                store.set_branch_kept(unit.id, "")
+            # Gone here, and gone there or unknown: only a remote reason can still stand.
+            if _joined(carried) != unit.branch_kept:
+                store.set_branch_kept(unit.id, _joined(carried))
             continue
         reasons: list[str] = carried
         if on_remote:
@@ -1146,7 +1153,7 @@ def _delete_remote_branch(unit: StoredUnit, open_bases: dict[str, set[str]], log
         forge, repo_id = forges.for_repo(unit.repo)
     except Exception as error:  # noqa: BLE001
         log(f"{unit.id}: remote branch {branch} not deleted — {error}")
-        return f"{REMOTE_KEPT}the host could not be reached: {error}"
+        return f"{REMOTE_KEPT}the host could not be reached: {_in_one_piece(error)}"
     if unit.repo not in open_bases:
         try:
             open_bases[unit.repo] = {
@@ -1154,14 +1161,14 @@ def _delete_remote_branch(unit: StoredUnit, open_bases: dict[str, set[str]], log
             }
         except Exception as error:  # noqa: BLE001
             log(f"{unit.id}: remote branch {branch} kept — pull requests not read: {error}")
-            return f"{REMOTE_KEPT}open pull requests could not be read: {error}"
+            return f"{REMOTE_KEPT}open pull requests could not be read: {_in_one_piece(error)}"
     if branch in open_bases[unit.repo]:
         return f"{REMOTE_KEPT}an open pull request is based on it"
     try:
         forge.delete_remote_branch(repo_id, branch)
     except Exception as error:  # noqa: BLE001
         log(f"{unit.id}: remote branch {branch} not deleted — {error}")
-        return f"{REMOTE_KEPT}the host refused to delete it: {error}"
+        return f"{REMOTE_KEPT}the host refused to delete it: {_in_one_piece(error)}"
     return ""
 
 

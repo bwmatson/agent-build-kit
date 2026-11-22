@@ -352,6 +352,33 @@ def test_a_stored_refusal_is_kept_while_the_remote_cannot_be_read(
     assert REFUSAL in swept.store.get(PARENT).branch_kept
 
 
+@pytest.mark.parametrize("remote_readable", [False, True])
+def test_a_stored_local_reason_is_dropped_once_the_local_branch_is_gone(
+    swept: World, remote_readable: bool
+) -> None:
+    setting(on=remote_readable)
+    git(swept.repo, "push", "-q", "origin", "--delete", PARENT_BRANCH)
+    git(swept.repo, "branch", "-q", "-D", PARENT_BRANCH)
+    swept.store.set_branch_kept(PARENT, "spec/feature/9 building on it")
+
+    Sweep(swept)()
+
+    assert swept.store.get(PARENT).branch_kept == ""
+
+
+def test_a_refusal_with_a_semicolon_in_it_is_kept_whole_while_the_remote_cannot_be_read(
+    swept: World, host: DeletingForge
+) -> None:
+    host.refusal = "403; protected branch"
+    sweep = Sweep(swept)
+    sweep()
+    fail_remote_reads(swept)
+
+    sweep()
+
+    assert "protected branch" in swept.store.get(PARENT).branch_kept
+
+
 def test_a_branch_a_merge_left_behind_is_deleted_everywhere_on_the_pass(swept: World) -> None:
     sweep = Sweep(swept)
 
