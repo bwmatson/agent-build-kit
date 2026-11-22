@@ -125,14 +125,16 @@ class ScenarioProject:
     broken: Broken
     root: Path
     seed: Path
+    env: dict[str, str]
 
-    def __init__(self, name: str, root: Path) -> None:
+    def __init__(self, name: str, root: Path, env: dict[str, str] | None = None) -> None:
         assert name in SCENARIOS and name in BROKEN, f"{name} has no scenario project"
         self.name = name
         self.profile = profiles.get(name)
         self.scenario = SCENARIOS[name]
         self.broken = BROKEN[name]
         self.root = root
+        self.env = env or {}
         self.seed = root.parent / f"{root.name}-seed" / "affected"
         self.seed.parent.mkdir()
         self.write(self.scenario.files)
@@ -150,6 +152,7 @@ class ScenarioProject:
     def run(self, command: str | list[str]) -> Run:
         env = {k: v for k, v in os.environ.items() if k not in ("VIRTUAL_ENV", "PYTEST_ADDOPTS")}
         env["npm_config_yes"] = "true"
+        env.update(self.env)
         done = subprocess.run(
             command,
             shell=isinstance(command, str),

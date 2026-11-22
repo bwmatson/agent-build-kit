@@ -29,7 +29,10 @@ pytestmark = [pytest.mark.integration, pytest.mark.time_limit(300)]
 
 @pytest.fixture(params=profiles.names())
 def project(request: pytest.FixtureRequest, tmp_path: Path) -> ScenarioProject:
-    return ScenarioProject(request.param, tmp_path / "tiny")
+    env: dict[str, str] | None = None
+    if request.param == "node-npm":
+        env = request.getfixturevalue("vitest_env")
+    return ScenarioProject(request.param, tmp_path / "tiny", env=env)
 
 
 def test_a_new_failing_test_is_red_when_run_by_id(project: ScenarioProject) -> None:
