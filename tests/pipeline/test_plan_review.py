@@ -6,13 +6,15 @@ started is what the shared builder saw.
 
 from __future__ import annotations
 
+from datetime import timedelta
 from pathlib import Path
 
 import pytest
 
+from agent_build_kit.pipeline import plan_review, shell, spans
 from agent_build_kit.pipeline.plan_review import QUESTIONS
 from agent_build_kit.pipeline.unit_store import Cause
-from agent_build_kit.pipeline.units import PLANNED
+from agent_build_kit.pipeline.units import MERGED, PLANNED
 from tests.plan_review_support import (
     CHANGE,
     DESIGN,
@@ -147,3 +149,65 @@ def test_with_review_plans_off_no_client_is_asked_and_the_unit_starts(
 
     assert off.asked == 0
     assert off.builder.started
+
+
+def test_a_clear_stands_when_a_unit_lands_and_its_boxes_are_ticked(review: Review) -> None:
+    review.runtime.answer = reply(FINDING)
+    review.tick()
+    assert plan_review.clear(review.inst, CHANGE, "accepted") == 1
+
+    review.builder.store.set_state(f"{CHANGE}/1", MERGED)
+    review.edit_tasks(TASKS.replace("- [ ] 1.", "- [x] 1."))
+    review.tick()
+
+    assert review.asked == 1, "a unit landing and its boxes ticking is progress, not an edit"
+    assert CHANGE not in plan_review.held_changes(review.inst)
+    recorded = plan_review.read_reviews(plan_review.record_path(review.inst))[CHANGE]
+    assert recorded.note == "accepted"
+
+
+def test_a_review_that_times_out_is_not_asked_again_on_the_next_tick(review: Review) -> None:
+    review.runtime.ok = False
+    review.runtime.error = "timed out after 600 seconds"
+    review.runtime.answer = ""
+
+    review.tick()
+    started = len(review.builder.started)
+    review.tick()
+
+    assert review.asked == 1, "the failed plan is asked again only after the retry interval"
+    assert started, "the unit starts on the first tick"
+    assert len(review.builder.started) >= started
+
+
+def test_a_failed_review_is_asked_again_once_the_retry_interval_has_passed(
+    review: Review, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    review.runtime.ok = False
+    review.runtime.error = "timed out"
+    review.runtime.answer = ""
+    review.tick()
+    later = spans.clock.now() + plan_review.RETRY_AFTER + timedelta(minutes=1)
+    monkeypatch.setattr(spans.clock, "now", lambda: later)
+
+    review.tick()
+
+    assert review.asked == 2
+
+
+def test_the_request_carries_the_files_the_tasks_name_at_the_default_branch(
+    review: Review,
+) -> None:
+    checkout = review.inst.repo("app").path
+    (checkout / "tests").mkdir(parents=True)
+    (checkout / "tests" / "test_shared.py").write_text("SHARED-MARKER = 1\n")
+    for args in (
+        ("init", "-q", "-b", "main"),
+        ("add", "."),
+        ("-c", "user.name=t", "-c", "user.email=t@example.com", "commit", "-q", "-m", "seed"),
+    ):
+        shell.git(checkout, *args)
+
+    review.tick()
+
+    assert "SHARED-MARKER" in review.prompt

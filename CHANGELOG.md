@@ -7,7 +7,10 @@
   numbers or an installation edit, whether each `Check:` can run, and whether a later test
   asserts what an earlier unit broke. A finding holds the change and shows in `abk status`;
   `abk review-plan show` prints it and `abk review-plan clear --note TEXT` frees the change.
-  A review that fails holds nothing. `planning.review_plans: false` turns it off.
+  The model is shown the files the tasks name as they stand on each repo's default branch. A
+  unit landing or a box ticked is not an edit, so a clear stands. A review that fails holds
+  nothing and is asked again after an hour, at most three times for one plan, never again
+  when the request was too large. `planning.review_plans: false` turns it off.
 
 - `abk tags` and `abk check` now warn of a tests-first task group that has no `Test:` task,
   no `Tests: required` line and no `Mode:` line, naming the three ways out; `abk check`

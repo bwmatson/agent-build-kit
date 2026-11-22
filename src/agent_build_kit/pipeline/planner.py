@@ -1676,15 +1676,18 @@ def _prompt_and_parts(
     return prompt, {"template": len(prompt.encode()) - sum(parts.values()), **parts}
 
 
-def _ask(
+def ask_plan_model(
     prompt: str,
-    runtime: AgentRuntime | None,
+    *,
     change: str = "",
+    runtime: AgentRuntime | None = None,
+    say: Callable[[str], None] = print,
     parts: Mapping[str, int] | None = None,
 ) -> str:
     """The graph call: no worktree and no tools, answered from the prompt
-    alone. A refusal raises as it does for any run; any other failed run
-    fails the attempt on what the runtime said, never read as a plan. A prompt over the
+    alone. The planner and the plan review both ask the plan model through it. A refusal
+    raises as it does for any run; any other failed run fails the attempt on what the runtime
+    said, never read as a plan. A prompt over the
     runtime's safe size fails before the request is made, naming the size of each part."""
     agent = runtime or runtimes.active()
     request = recorded(
@@ -1698,7 +1701,7 @@ def _ask(
         agent,
         node=OverheadNode.PLAN,
         change=change,
-        say=print,
+        say=say,
     )
     try:
         check_prompt_size(request, agent.prompt_transport)
@@ -1757,7 +1760,7 @@ def plan_round(
     answer = (
         run_claude(prompt)
         if run_claude
-        else _ask(prompt, runtime, change=next(iter(changes), ""), parts=parts)
+        else ask_plan_model(prompt, change=next(iter(changes), ""), runtime=runtime, parts=parts)
     )
     if on_answer:
         on_answer(answer)

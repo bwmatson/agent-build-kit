@@ -12,20 +12,24 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
+import re
+import shutil
 from collections.abc import Callable, Mapping, Sequence
+from datetime import datetime, timedelta
 from pathlib import Path
 
-from agent_build_kit import runtimes
-from agent_build_kit.config import models
 from agent_build_kit.installation import Installation
 from agent_build_kit.model import Frozen
-from agent_build_kit.pipeline.call_record import recorded
+from agent_build_kit.pipeline import shell, spans
 from agent_build_kit.pipeline.file_lock import atomic_write_text, file_lock
+from agent_build_kit.pipeline.planner import PlannerError, ask_plan_model
 from agent_build_kit.pipeline.unit_store import StoredUnit
 from agent_build_kit.pipeline.units import BUILDS_NOTHING, FINISHED_STATES
-from agent_build_kit.pipeline.vocabulary import OverheadNode
-from agent_build_kit.runtimes import AgentRequest
-from agent_build_kit.runtimes.base import PromptTooLarge, check_prompt_size
+from agent_build_kit.pipeline.work_graph import specification_text, validate_tasks
+from agent_build_kit.runtimes.base import PromptTooLarge
+
+logger = logging.getLogger(__name__)
 
 # The fixed questions every review asks, in the order a finding numbers them.
 QUESTIONS: tuple[str, ...] = (
@@ -50,6 +54,9 @@ The mechanical checks already report the following for this change. Do not repea
 Planned units:
 {units}
 
+Files the tasks name, as they stand on each repo's default branch:
+{repository}
+
 Artifacts:
 {artifacts}
 
@@ -58,6 +65,14 @@ finding is `{{"group": <group number>, "question": <question number>, "evidence"
 found, naming the files>"}}`. Report only what you can show; `{{"findings": []}}` when the plan
 can work.
 """
+
+# A failed review is asked again after this long, at most `MAX_ATTEMPTS` times for one plan; a
+# prompt that was too large is not asked again until the plan changes.
+RETRY_AFTER = timedelta(hours=1)
+MAX_ATTEMPTS = 3
+# The most bytes of the repository's files the request carries, and of any one file.
+VIEW_BUDGET = 60_000
+VIEW_FILE_LIMIT = 12_000
 
 
 class Finding(Frozen):
@@ -75,10 +90,26 @@ class Review(Frozen):
     findings: tuple[Finding, ...] = ()
     cleared: bool = False
     note: str = ""
+    # A review that failed holds nothing: it records the error, when, and how many times this
+    # plan has been asked, so the same plan is not asked on every tick.
+    error: str = ""
+    attempts: int = 0
+    failed_at: datetime | None = None
+    permanent: bool = False
 
     @property
     def holds(self) -> bool:
         return bool(self.findings) and not self.cleared
+
+    @property
+    def failed(self) -> bool:
+        return bool(self.error)
+
+    def retry_due(self, now: datetime) -> bool:
+        """Whether a failed review of this plan is to be asked again at `now`."""
+        if self.permanent or self.attempts >= MAX_ATTEMPTS or self.failed_at is None:
+            return False
+        return now - self.failed_at >= RETRY_AFTER
 
 
 class Unreadable(ValueError):
@@ -90,11 +121,20 @@ def record_path(inst: Installation) -> Path:
 
 
 def read_reviews(path: Path) -> dict[str, Review]:
-    """Every change's recorded review; none when the file is missing or unreadable."""
+    """Every change's recorded review; none when the file is missing. A file that cannot be
+    read is logged, and `_record` keeps a copy of it beside the new one."""
     try:
-        raw = json.loads(path.read_text())
+        text = path.read_text()
+    except FileNotFoundError:
+        return {}
+    except OSError as error:
+        logger.warning("plan reviews: %s cannot be read: %s", path, error)
+        return {}
+    try:
+        raw = json.loads(text)
         return {change: Review.model_validate(entry) for change, entry in raw.items()}
-    except (OSError, ValueError, AttributeError):
+    except (ValueError, AttributeError) as error:
+        logger.warning("plan reviews: %s cannot be parsed: %s", path, error)
         return {}
 
 
@@ -106,6 +146,8 @@ def _write(path: Path, reviews: Mapping[str, Review]) -> None:
 def _record(path: Path, change: str, review: Review) -> None:
     with file_lock(path.with_name(f"{path.name}.lock")):
         reviews = read_reviews(path)
+        if not reviews and path.is_file() and path.stat().st_size:
+            shutil.copyfile(path, path.with_name(f"{path.name}.unreadable"))
         reviews[change] = review
         _write(path, reviews)
 
@@ -139,13 +181,52 @@ def finding_lines(review: Review) -> list[str]:
     ]
 
 
-def _artifacts(folder: Path) -> str:
+def _artifacts(folder: Path, *, tasks: bool = True) -> str:
     paths = [folder / name for name in ARTIFACTS]
     paths += sorted((folder / "specs").glob("**/spec.md"))
-    paths.append(folder / "tasks.md")
+    if tasks:
+        paths.append(folder / "tasks.md")
     return "\n\n".join(
         f"### {path.relative_to(folder)}\n{path.read_text()}" for path in paths if path.is_file()
     )
+
+
+def _path_names(body: Sequence[str]) -> list[str]:
+    """The backticked path-like names in a group's lines, in order, once each."""
+    found = (name for line in body for name in re.findall(r"`([^`\s]+)`", line))
+    pathlike = (name for name in found if "/" in name and not re.search(r"[*$<>{}]", name))
+    return list(dict.fromkeys(pathlike))
+
+
+def repository_view(inst: Installation, tasks: Path) -> str:
+    """A read-only view of the repository: for each group, the paths its lines name that exist at
+    its repo's default branch, with their content, read through git within `VIEW_BUDGET`."""
+    try:
+        groups, _ = validate_tasks(tasks)
+    except (OSError, ValueError):
+        return "(the tasks could not be read)"
+    sections: list[str] = []
+    seen: set[tuple[str, str]] = set()
+    left = VIEW_BUDGET
+    for group in groups:
+        try:
+            repo = inst.repo(group.repo)
+        except KeyError:
+            continue
+        for name in _path_names((group.title, *group.body)):
+            if (group.repo, name) in seen or left <= 0:
+                continue
+            seen.add((group.repo, name))
+            try:
+                shown = shell.git(repo.path, "show", f"{repo.default_branch}:{name}", check=False)
+            except OSError:
+                continue
+            if shown.returncode:
+                continue
+            content = shown.stdout[: min(VIEW_FILE_LIMIT, left)]
+            left -= len(content.encode())
+            sections.append(f"#### {group.repo}:{name}\n{content}")
+    return "\n\n".join(sections) or "(none of the named paths exist there)"
 
 
 def _unit_line(unit: StoredUnit) -> str:
@@ -167,13 +248,25 @@ def open_units(units: Sequence[StoredUnit], change: str) -> list[StoredUnit]:
 
 
 def plan_hash(folder: Path, units: Sequence[StoredUnit]) -> str:
-    """A hash of what a review reads: the change's artifacts and its planned units."""
-    text = _artifacts(folder) + "\n" + "\n".join(sorted(_unit_line(unit) for unit in units))
+    """A hash of what the change asks for and how it was planned: its artifacts, its tasks with
+    progress stripped (what the planner keys on), and its units by id and groups whatever their
+    state. A unit landing, a ticked box or a tier review raises changes none of it."""
+    tasks = folder / "tasks.md"
+    asked = specification_text(tasks.read_text()) if tasks.is_file() else ""
+    planned = sorted(
+        f"{unit.id}:{','.join(str(n) for member in unit.members() for n in member.groups)}"
+        for unit in units
+    )
+    text = _artifacts(folder, tasks=False) + "\n" + asked + "\n" + "\n".join(planned)
     return hashlib.sha256(text.encode()).hexdigest()
 
 
 def build_prompt(
-    change: str, folder: Path, units: Sequence[StoredUnit], report: Sequence[str]
+    change: str,
+    folder: Path,
+    units: Sequence[StoredUnit],
+    report: Sequence[str],
+    repository: str = "",
 ) -> str:
     """The request: the questions, the artifacts, the units and the mechanical checks' report."""
     return PROMPT.format(
@@ -181,6 +274,7 @@ def build_prompt(
         questions="\n".join(f"{number}. {text}" for number, text in enumerate(QUESTIONS, 1)),
         report="\n".join(report) or "(nothing)",
         units="\n".join(_unit_line(unit) for unit in units),
+        repository=repository or "(none)",
         artifacts=_artifacts(folder),
     )
 
@@ -225,42 +319,38 @@ def review_changes(
         mine = open_units(units, change)
         if not mine:
             continue
-        digest = plan_hash(tasks.parent, mine)
-        if (earlier := reviews.get(change)) is not None and earlier.hash == digest:
+        digest = plan_hash(tasks.parent, [unit for unit in units if unit.change == change])
+        now = spans.clock.now()
+        earlier = reviews.get(change)
+        same = earlier is not None and earlier.hash == digest
+        if earlier is not None and same and not (earlier.failed and earlier.retry_due(now)):
             continue
+        attempts = earlier.attempts + 1 if earlier is not None and same else 1
         try:
             report = mechanical(tasks)
         except Exception as error:  # the report is context, never a reason to skip the review
             say(f"plan review {change}: the mechanical report could not be read: {error}")
             report = []
-        prompt = build_prompt(change, tasks.parent, mine, report)
-        agent = runtimes.active()
-        request = recorded(
-            AgentRequest(
-                prompt=prompt,
-                permission_mode="allowed_tools_only",
-                change=change,
-                role="plan",
-                model=models().plan or None,
-            ),
-            agent,
-            node=OverheadNode.PLAN,
-            change=change,
-            say=say,
-        )
+        prompt = build_prompt(change, tasks.parent, mine, report, repository_view(inst, tasks))
         try:
-            check_prompt_size(request, agent.prompt_transport)
-        except PromptTooLarge as error:
-            say(f"plan review {change}: not asked, {error}")
-            continue
-        result = agent.run(request)
-        if not result.ok:
-            say(f"plan review {change}: the review failed: {result.error}")
-            continue
-        try:
-            findings = parse_findings(result.text)
-        except Unreadable as error:
-            say(f"plan review {change}: the answer could not be read: {error}")
+            answer = ask_plan_model(prompt, change=change, say=say)
+            try:
+                findings = parse_findings(answer)
+            except Unreadable as error:
+                raise PlannerError(f"the answer could not be read: {error}") from error
+        except PlannerError as error:
+            say(f"plan review {change}: {error}")
+            _record(
+                path,
+                change,
+                Review(
+                    hash=digest,
+                    error=str(error),
+                    attempts=attempts,
+                    failed_at=now,
+                    permanent=isinstance(error.__cause__, PromptTooLarge),
+                ),
+            )
             continue
         _record(path, change, Review(hash=digest, findings=findings))
         if findings:

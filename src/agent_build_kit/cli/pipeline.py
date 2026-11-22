@@ -2799,13 +2799,14 @@ def run_round(
             return not account_decision(account, decided, unit=stored_unit).may_start
 
     stored_by_id = {unit.id: unit for unit in units}
+    plan_held = plan_review.held_changes(inst)
     waiting_to_resume = start_order(
         [
             unit
             for unit in resumable_units(inst, units, only=only, spared=in_flight, owed=owed)
             if model_refusal(unit.repo) is None
             and not waiting_out(unit)
-            and unit.change not in plan_review.held_changes(inst)
+            and unit.change not in plan_held
         ],
         units,
     )
@@ -2819,8 +2820,7 @@ def run_round(
         candidates=[
             stored_by_id[uid]
             for uid in (*(lane.waiting if lane else ()), *unclaimed_runs(inst, units))
-            if uid in stored_by_id
-            and stored_by_id[uid].change not in plan_review.held_changes(inst)
+            if uid in stored_by_id and stored_by_id[uid].change not in plan_held
         ],
         workers=workers,
         resumable=resumable,
