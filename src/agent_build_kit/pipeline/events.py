@@ -115,6 +115,7 @@ from agent_build_kit.pipeline.restack import (
     keep_base,
     push_with_lease,
     remote_head,
+    remote_heads,
     resolved_move,
     retried_once,
 )
@@ -1061,7 +1062,7 @@ def _keep_base_and_delete(
             forge.delete_remote_branch(repo_id, branch)
     except Exception as error:  # noqa: BLE001
         log(f"{leaving.id}: remote branch {branch} not deleted — {error}")
-        return f"the host refused to delete the remote branch: {error}"
+        return f"{REMOTE_KEPT}the host refused to delete it: {error}"
     return ""
 
 
@@ -1078,7 +1079,9 @@ def remove_merged_branches(
     """The check each pass makes for the merged units whose branch is still there, here or on
     the remote: the remote branch goes once no open pull request is based on it, and the
     local one (`remove_satisfied`) on the first pass after the last unit stacked on it has
-    moved. What keeps a branch is stored on the unit, and cleared once both are gone."""
+    moved. What keeps a branch is stored on the unit, and cleared once both are gone. A repo
+    whose setting is off, or whose remote could not be read, has its remote side unknown: what
+    is stored for that side is left as it is."""
     merged = [u for u in store.all() if u.state == MERGED and u.repo in repos]
     local: dict[str, set[str]] = {}
     remote: dict[str, set[str] | None] = {}
@@ -1088,27 +1091,29 @@ def remove_merged_branches(
             repos[repo], "for-each-ref", "--format=%(refname:short)", "refs/heads/", check=False
         )
         local[repo] = set(listed.stdout.split()) if not listed.returncode else set()
-        heads = git(repos[repo], "ls-remote", "--heads", "origin", check=False)
         remote[repo] = (
-            None
-            if heads.returncode
-            else {
-                line.split("refs/heads/", 1)[1]
-                for line in heads.stdout.splitlines()
-                if "refs/heads/" in line
-            }
+            remote_heads(repos[repo])
+            if config_module.active().repos[repo].delete_merged_branches
+            else None
         )
-    open_bases: dict[str, set[str] | None] = {}
+    open_bases: dict[str, set[str]] = {}
     for unit in merged:
         branch = branch_name(unit)
-        on_remote = branch in (remote[unit.repo] or set())
+        heads = remote[unit.repo]
+        on_remote = heads is not None and branch in heads
         here = branch in local[unit.repo]
+        # What is stored for a remote side this pass cannot see.
+        carried = (
+            [r for r in unit.branch_kept.split("; ") if r.startswith(REMOTE_KEPT)]
+            if heads is None
+            else []
+        )
         if not (here or on_remote):
-            if unit.branch_kept:
+            if unit.branch_kept and heads is not None:
                 store.set_branch_kept(unit.id, "")
             continue
-        reasons: list[str] = []
-        if on_remote and config_module.active().repos[unit.repo].delete_merged_branches:
+        reasons: list[str] = carried
+        if on_remote:
             reasons.append(_delete_remote_branch(unit, open_bases, log))
         if here:
             reasons.append(
@@ -1128,25 +1133,35 @@ def remove_merged_branches(
             store.set_branch_kept(unit.id, kept)
 
 
-def _delete_remote_branch(
-    unit: StoredUnit, open_bases: dict[str, set[str] | None], log: Log
-) -> str:
+# Opens every stored reason a remote branch is kept, so a pass that cannot read the remote can
+# tell that side's reason from the local one.
+REMOTE_KEPT = "remote branch kept: "
+
+
+def _delete_remote_branch(unit: StoredUnit, open_bases: dict[str, set[str]], log: Log) -> str:
     """Ask the host to delete a merged unit's remote branch unless an open pull request is
     based on it. The reason it was kept, empty when it was deleted."""
     branch = branch_name(unit)
     try:
         forge, repo_id = forges.for_repo(unit.repo)
-        if unit.repo not in open_bases:
+    except Exception as error:  # noqa: BLE001
+        log(f"{unit.id}: remote branch {branch} not deleted — {error}")
+        return f"{REMOTE_KEPT}the host could not be reached: {error}"
+    if unit.repo not in open_bases:
+        try:
             open_bases[unit.repo] = {
                 pr.base for pr in forge.list_prs(repo_id) if pr.state not in (MERGED, CLOSED)
             }
-        bases = open_bases[unit.repo]
-        if bases is not None and branch in bases:
-            return "an open pull request is based on it"
+        except Exception as error:  # noqa: BLE001
+            log(f"{unit.id}: remote branch {branch} kept — pull requests not read: {error}")
+            return f"{REMOTE_KEPT}open pull requests could not be read: {error}"
+    if branch in open_bases[unit.repo]:
+        return f"{REMOTE_KEPT}an open pull request is based on it"
+    try:
         forge.delete_remote_branch(repo_id, branch)
     except Exception as error:  # noqa: BLE001
         log(f"{unit.id}: remote branch {branch} not deleted — {error}")
-        return f"the host refused to delete the remote branch: {error}"
+        return f"{REMOTE_KEPT}the host refused to delete it: {error}"
     return ""
 
 

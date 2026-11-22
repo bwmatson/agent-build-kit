@@ -319,6 +319,39 @@ def count_remote_reads(world: World) -> Path:
     return log
 
 
+def fail_remote_reads(world: World) -> None:
+    """Route the remote's upload-pack through a script that fails, as an outage does."""
+    script = world.remote.parent / "failing-upload-pack.sh"
+    script.write_text("#!/bin/sh\nexit 1\n")
+    script.chmod(script.stat().st_mode | stat.S_IEXEC)
+    git(world.repo, "config", "remote.origin.uploadpack", str(script))
+
+
+def test_a_remote_that_cannot_be_read_deletes_no_remote_branch_and_the_local_removal_runs(
+    swept: World,
+) -> None:
+    fail_remote_reads(swept)
+    sweep = Sweep(swept)
+
+    sweep()
+
+    assert swept.forge.deleted == []
+    assert (sweep.removed, sweep.deleted) == ([PARENT_BRANCH], [PARENT_BRANCH])
+
+
+def test_a_stored_refusal_is_kept_while_the_remote_cannot_be_read(
+    swept: World, host: DeletingForge
+) -> None:
+    host.refusal = REFUSAL
+    sweep = Sweep(swept)
+    sweep()
+    fail_remote_reads(swept)
+
+    sweep()
+
+    assert REFUSAL in swept.store.get(PARENT).branch_kept
+
+
 def test_a_branch_a_merge_left_behind_is_deleted_everywhere_on_the_pass(swept: World) -> None:
     sweep = Sweep(swept)
 
