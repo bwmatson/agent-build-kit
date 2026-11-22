@@ -198,7 +198,6 @@ ALLOWLIST_CEILING = frozenset(
         "test_serve_actions.py",
         "test_serve_approve.py",
         "test_serve_binding.py",
-        "test_serve_metrics.py",
         "test_serve_review_store.py",
         "socket_api.py",
     }

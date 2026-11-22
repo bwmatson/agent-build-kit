@@ -2,14 +2,12 @@
 
 from __future__ import annotations
 
-import http.server
-import json
 import re
-import socket
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
+import httpx
 import pytest
 from fastapi.testclient import TestClient
 
@@ -19,107 +17,108 @@ from agent_build_kit.pipeline.units import RUNNING
 from agent_build_kit.serve.metrics import catalogue
 from agent_build_kit.serve.server import create_app
 from agent_build_kit.settings import reload
-from tests.http_thread import serving
 from tests.ledger_lines import agent_line, span_line, write_ledger
 from tests.metric_names import emitted_names
 from tests.serving import seed_pipeline
+
+Handler = Callable[[httpx.Request], httpx.Response]
 
 
 class FakePrometheus:
     """Answers `/api/v1/query` and `/query_range` with the JSON Prometheus sends:
     one series per query, with a single sample of 42."""
 
+    url = "http://prometheus.test"
+
     def __init__(self) -> None:
         self.queries: list[str] = []
-        outer = self
 
-        class Handler(http.server.BaseHTTPRequestHandler):
-            def do_GET(self) -> None:
-                url = urlparse(self.path)
-                outer.queries += parse_qs(url.query).get("query", [])
-                body = json.dumps(
-                    {
-                        "status": "success",
-                        "data": {
-                            "resultType": "matrix",
-                            "result": [
-                                {
-                                    "metric": {"__name__": "abk", "kind": "input"},
-                                    "values": [[1767261600, "42"]],
-                                }
-                            ],
-                        },
-                    }
-                ).encode()
-                self.send_response(200)
-                self.send_header("Content-Type", "application/json")
-                self.send_header("Content-Length", str(len(body)))
-                self.end_headers()
-                self.wfile.write(body)
-
-            def log_message(self, format: str, *args: object) -> None:
-                pass
-
-        self.server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Handler)
-        self.url = f"http://127.0.0.1:{self.server.server_address[1]}"
+    def __call__(self, request: httpx.Request) -> httpx.Response:
+        self.queries += parse_qs(request.url.query.decode()).get("query", [])
+        return httpx.Response(
+            200,
+            json={
+                "status": "success",
+                "data": {
+                    "resultType": "matrix",
+                    "result": [
+                        {
+                            "metric": {"__name__": "abk", "kind": "input"},
+                            "values": [[1767261600, "42"]],
+                        }
+                    ],
+                },
+            },
+        )
 
 
 class FakeTempo:
     """Answers `/api/search` with the JSON Tempo sends: `traceID`, root names, the
     start as a string of unix nanoseconds and the duration in milliseconds."""
 
+    url = "http://tempo.test"
+
     def __init__(self) -> None:
         self.requests: list[str] = []
-        outer = self
 
-        class Handler(http.server.BaseHTTPRequestHandler):
-            def do_GET(self) -> None:
-                outer.requests.append(self.path)
-                body = json.dumps(
+    def __call__(self, request: httpx.Request) -> httpx.Response:
+        self.requests.append(request.url.raw_path.decode())
+        return httpx.Response(
+            200,
+            json={
+                "traces": [
                     {
-                        "traces": [
-                            {
-                                "traceID": "5b8efff798038103d269b633813fc60c",
-                                "rootServiceName": "agent-build-kit",
-                                "rootTraceName": "abk.tick",
-                                "startTimeUnixNano": "1767261600000000000",
-                                "durationMs": 1234,
-                            }
-                        ],
-                        "metrics": {"inspectedBytes": "1"},
+                        "traceID": "5b8efff798038103d269b633813fc60c",
+                        "rootServiceName": "agent-build-kit",
+                        "rootTraceName": "abk.tick",
+                        "startTimeUnixNano": "1767261600000000000",
+                        "durationMs": 1234,
                     }
-                ).encode()
-                self.send_response(200)
-                self.send_header("Content-Type", "application/json")
-                self.send_header("Content-Length", str(len(body)))
-                self.end_headers()
-                self.wfile.write(body)
+                ],
+                "metrics": {"inspectedBytes": "1"},
+            },
+        )
 
-            def log_message(self, format: str, *args: object) -> None:
-                pass
 
-        self.server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Handler)
-        self.url = f"http://127.0.0.1:{self.server.server_address[1]}"
+DEAD_URL = "http://dead.test"
+
+
+def refuse_connection(request: httpx.Request) -> httpx.Response:
+    raise httpx.ConnectError("connection refused", request=request)
 
 
 @pytest.fixture
-def tempo() -> Iterator[FakeTempo]:
+def upstreams(monkeypatch: pytest.MonkeyPatch) -> dict[str, Handler]:
+    """Hosts the page may reach, each answered in-process; an unknown host is refused."""
+    handlers: dict[str, Handler] = {"dead.test": refuse_connection}
+
+    def route(request: httpx.Request) -> httpx.Response:
+        handler = handlers.get(request.url.host)
+        if handler is None:
+            raise httpx.ConnectError("no such host", request=request)
+        return handler(request)
+
+    transport = httpx.MockTransport(route)
+    monkeypatch.setattr(
+        httpx.HTTPTransport,
+        "handle_request",
+        lambda self, request: transport.handle_request(request),
+    )
+    return handlers
+
+
+@pytest.fixture
+def tempo(upstreams: dict[str, Handler]) -> FakeTempo:
     fake = FakeTempo()
-    with serving(fake.server):
-        yield fake
-
-
-def dead_url() -> str:
-    with socket.socket() as closed:
-        closed.bind(("127.0.0.1", 0))
-        return f"http://127.0.0.1:{closed.getsockname()[1]}"
+    upstreams["tempo.test"] = fake
+    return fake
 
 
 @pytest.fixture
-def prometheus() -> Iterator[FakePrometheus]:
+def prometheus(upstreams: dict[str, Handler]) -> FakePrometheus:
     fake = FakePrometheus()
-    with serving(fake.server):
-        yield fake
+    upstreams["prometheus.test"] = fake
+    return fake
 
 
 def point_at(monkeypatch: pytest.MonkeyPatch, url: str) -> None:
@@ -205,9 +204,12 @@ def test_with_prometheus_answering_charts_use_windowed_sums(
 
 
 def test_with_prometheus_down_the_same_metrics_come_from_local_records(
-    inst: Installation, page: TestClient, monkeypatch: pytest.MonkeyPatch
+    upstreams: dict[str, Handler],
+    inst: Installation,
+    page: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    point_at(monkeypatch, dead_url())
+    point_at(monkeypatch, DEAD_URL)
     write_ledger(
         inst.state_dir / "usage-ledger.jsonl",
         agent_line(cost_usd=1.5),
@@ -228,9 +230,12 @@ def metric(answer: dict, name: str) -> dict:
 
 
 def test_with_prometheus_down_durations_and_unit_counts_come_from_local_files(
-    inst: Installation, page: TestClient, monkeypatch: pytest.MonkeyPatch
+    upstreams: dict[str, Handler],
+    inst: Installation,
+    page: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    point_at(monkeypatch, dead_url())
+    point_at(monkeypatch, DEAD_URL)
     seed_pipeline(inst)
     write_ledger(
         inst.state_dir / "usage-ledger.jsonl",
@@ -267,9 +272,12 @@ def test_with_prometheus_down_durations_and_unit_counts_come_from_local_files(
 
 
 def test_units_reading_reworking_or_rebasing_are_counted_as_running(
-    inst: Installation, page: TestClient, monkeypatch: pytest.MonkeyPatch
+    upstreams: dict[str, Handler],
+    inst: Installation,
+    page: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    point_at(monkeypatch, dead_url())
+    point_at(monkeypatch, DEAD_URL)
     store = seed_pipeline(inst)
     store.set_feedback("feature/7", "rename it", source=FeedbackSource.REVIEW)
     store.set_state("feature/7", RUNNING, note="rework requested", cause=Cause.REWORK)
@@ -286,9 +294,12 @@ def test_units_reading_reworking_or_rebasing_are_counted_as_running(
 
 
 def test_with_prometheus_down_the_ledgers_metric_records_draw_their_charts(
-    inst: Installation, page: TestClient, monkeypatch: pytest.MonkeyPatch
+    upstreams: dict[str, Handler],
+    inst: Installation,
+    page: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    point_at(monkeypatch, dead_url())
+    point_at(monkeypatch, DEAD_URL)
     seed_pipeline(inst)
 
     def record(name: str, value: float, **attributes: str) -> dict:
@@ -321,32 +332,23 @@ def test_with_prometheus_down_the_ledgers_metric_records_draw_their_charts(
 
 
 def test_a_query_prometheus_refuses_leaves_one_chart_empty_not_the_page_local(
-    page: TestClient, monkeypatch: pytest.MonkeyPatch
+    upstreams: dict[str, Handler], page: TestClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    class Refusing(http.server.BaseHTTPRequestHandler):
-        def do_GET(self) -> None:
-            query = parse_qs(urlparse(self.path).query)["query"][0]
-            refused = "abk_agent_cost" in query
-            body = json.dumps(
-                {"status": "error", "error": "bad"}
-                if refused
-                else {
-                    "status": "success",
-                    "data": {"result": [{"metric": {}, "values": [[1767261600, "7"]]}]},
-                }
-            ).encode()
-            self.send_response(400 if refused else 200)
-            self.send_header("Content-Length", str(len(body)))
-            self.end_headers()
-            self.wfile.write(body)
+    def refusing(request: httpx.Request) -> httpx.Response:
+        query = parse_qs(request.url.query.decode())["query"][0]
+        if "abk_agent_cost" in query:
+            return httpx.Response(400, json={"status": "error", "error": "bad"})
+        return httpx.Response(
+            200,
+            json={
+                "status": "success",
+                "data": {"result": [{"metric": {}, "values": [[1767261600, "7"]]}]},
+            },
+        )
 
-        def log_message(self, format: str, *args: object) -> None:
-            pass
-
-    server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Refusing)
-    with serving(server):
-        point_at(monkeypatch, f"http://127.0.0.1:{server.server_address[1]}")
-        answer = page.get("/api/metrics").json()
+    upstreams["refusing.test"] = refusing
+    point_at(monkeypatch, "http://refusing.test")
+    answer = page.get("/api/metrics").json()
 
     assert answer["source"] == "prometheus"
     assert metric(answer, "abk.agent.cost")["series"] == []
@@ -397,10 +399,14 @@ def test_with_tempo_answering_the_page_lists_its_traces(
 
 @pytest.mark.parametrize("down", [False, True])
 def test_with_tempo_down_or_unset_traces_come_from_the_ledger_spans(
-    inst: Installation, page: TestClient, monkeypatch: pytest.MonkeyPatch, down: bool
+    upstreams: dict[str, Handler],
+    inst: Installation,
+    page: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+    down: bool,
 ) -> None:
     if down:
-        monkeypatch.setenv("ABK_TEMPO_URL", dead_url())
+        monkeypatch.setenv("ABK_TEMPO_URL", DEAD_URL)
         reload(None)
     write_ledger(
         inst.state_dir / "usage-ledger.jsonl",

@@ -44,7 +44,6 @@ ALLOWLIST: frozenset[str] = frozenset(
         "test_serve_actions.py",
         "test_serve_approve.py",
         "test_serve_binding.py",
-        "test_serve_metrics.py",
         "test_serve_review_store.py",
         # The `api` fixture over a real socket, for the modules whose subject needs one.
         "socket_api.py",
