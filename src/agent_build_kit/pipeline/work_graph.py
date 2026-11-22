@@ -28,6 +28,7 @@ from enum import StrEnum
 from pathlib import Path, PurePosixPath
 from typing import Protocol
 
+from agent_build_kit import profiles
 from agent_build_kit.compat_names import (
     Place,
     TestKind,
@@ -1439,24 +1440,32 @@ def shared_test_file_warnings(path: Path) -> list[str]:
     ]
 
 
-# A workspace or test setting of a toolchain manifest: a table of a manifest's tool section or
-# project metadata, or a test runner's own settings file.
-_ENVIRONMENT_SETTING = re.compile(
-    r"\[tool\.[\w.-]*(?:workspace|pytest)[\w.-]*\]|\[project\]|\bpytest\.toml\b|\bpytest\.ini\b"
-)
-
-
-def environment_setting_notes(path: Path) -> list[str]:
-    """One info note per group of a tasks file that names a workspace or test setting of a
-    toolchain manifest, as `abk tags` and `abk check` print it."""
+def environment_setting_notes(
+    path: Path, repo_profiles: Mapping[str, str] | None = None
+) -> list[str]:
+    """One info note per group of a tasks file that names a workspace or test setting, as `abk
+    tags` and `abk check` print it. What counts as one is the toolchain profile's
+    (`environment_setting_patterns`): that of the group's repo in `repo_profiles` (repo name to
+    profile name), or of every registered profile for a repo it does not list."""
     groups, _ = validate_tasks(path)
+    every = profiles.environment_setting_patterns()
+
+    def pattern_of(repo: str) -> re.Pattern[str] | None:
+        found = (
+            profiles.environment_setting_patterns([repo_profiles[repo]])
+            if repo_profiles and repo in repo_profiles
+            else every
+        )
+        return re.compile("|".join(found)) if found else None
+
     return [
         f"{path}:line {group.line}: info: group {group.number} names a workspace or test "
         "setting, which the pipeline's checks read from the installation setting, not from "
         "the branch; a change to it may need a `Manual:` step to apply it"
         for group in groups
-        if any(
-            _ENVIRONMENT_SETTING.search(line)
+        if (setting := pattern_of(group.repo))
+        and any(
+            setting.search(line)
             for line in group.body
             if TASK_LINE.match(line) or line[:1].isspace()
         )

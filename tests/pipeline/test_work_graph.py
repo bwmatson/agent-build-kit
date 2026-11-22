@@ -559,6 +559,30 @@ def test_a_group_editing_a_workspace_or_test_setting_gets_a_note(
     assert any("installation setting" in line for line in lines)
 
 
+@pytest.mark.parametrize(
+    "task",
+    [
+        "Set the `workspaces` field of `package.json` to `packages/*`.",
+        "Edit `vitest.config.ts` to change the include globs.",
+    ],
+)
+def test_a_group_editing_a_node_workspace_or_test_setting_gets_a_note(
+    task: str, tmp_path: Path
+) -> None:
+    text = tasks_naming("Edit `src/app.ts`.", task)
+
+    notes = environment_setting_notes(written(tmp_path, text), {"app": "node-npm"})
+
+    assert len(notes) == 1
+    assert "group 2" in notes[0] and "info" in notes[0]
+
+
+def test_a_python_setting_gets_no_note_in_a_repo_on_the_node_profile(tmp_path: Path) -> None:
+    text = tasks_naming("Edit `src/app.ts`.", "Add `[tool.uv.workspace]` to `pyproject.toml`.")
+
+    assert environment_setting_notes(written(tmp_path, text), {"app": "node-npm"}) == []
+
+
 def test_a_group_naming_only_source_and_test_files_gets_no_note(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:

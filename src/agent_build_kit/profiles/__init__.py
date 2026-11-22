@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Iterator
+from collections.abc import Iterable, Iterator
 from contextlib import contextmanager
 from pathlib import Path
 
@@ -75,6 +75,20 @@ def environment_tools() -> list[str]:
             if tool not in found:
                 found.append(tool)
     return found
+
+
+def environment_setting_patterns(profile_names: Iterable[str] | None = None) -> tuple[str, ...]:
+    """The regular expressions the named profiles give for a workspace or test setting of their
+    toolchain (`environment_setting_patterns` on a profile; a profile without it gives none).
+    `None` names every registered profile."""
+    _load_builtin()
+    chosen = names() if profile_names is None else [n for n in profile_names if n in _REGISTRY]
+    found: list[str] = []
+    for name in chosen:
+        for pattern in getattr(_REGISTRY[name], "environment_setting_patterns", ()):
+            if pattern not in found:
+                found.append(pattern)
+    return tuple(found)
 
 
 def detect_environment(

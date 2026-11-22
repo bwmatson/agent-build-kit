@@ -6677,7 +6677,7 @@ def _tag_warnings(inst: Installation, path: Path) -> list[str]:
         *old_test_kind_warnings(path),
         *redundant_separate_warnings(path),
         *shared_test_file_warnings(path),
-        *environment_setting_notes(path),
+        *environment_setting_notes(path, {name: repo.profile for name, repo in inst.repos.items()}),
         *product_path_warnings(path, groups, inst.repos),
         *task_wording_warnings(path, groups),
         *reorganization_warnings(path, groups),

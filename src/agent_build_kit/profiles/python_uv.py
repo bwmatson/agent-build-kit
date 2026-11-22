@@ -465,6 +465,13 @@ class PythonUvProfile:
     # The programs a failing run's bundle records the place of.
     environment_tools: tuple[str, ...] = ("uv",)
     detect_markers: tuple[str, ...] = ("uv.lock", "pyproject.toml")
+    # What a task names when it edits a workspace or test setting of the checkout.
+    environment_setting_patterns: tuple[str, ...] = (
+        r"\[tool\.[\w.-]*(?:workspace|pytest)[\w.-]*\]",
+        r"\[project\]",
+        r"\bpytest\.toml\b",
+        r"\bpytest\.ini\b",
+    )
     supports_stubs = True
     allowed_tools: str = (
         "Bash(uv run *) Bash(uv lock*) Bash(uv sync*) Bash(uv add *) Bash(uv remove *) "

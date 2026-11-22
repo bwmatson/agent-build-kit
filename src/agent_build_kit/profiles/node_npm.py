@@ -341,6 +341,11 @@ class NodeNpmProfile:
     # The programs a failing run's bundle records the place of.
     environment_tools: tuple[str, ...] = ("node", "npm", "npx")
     detect_markers: tuple[str, ...] = ("package-lock.json", "package.json")
+    # What a task names when it edits a workspace or test setting of the checkout.
+    environment_setting_patterns: tuple[str, ...] = (
+        r"`workspaces`",
+        r"\bvitest\.(?:config|workspace)\.\w+",
+    )
     supports_stubs = True
     allowed_tools: str = "Bash(npm *) Bash(npx *)"
     agent_commands: tuple[AgentCommand, ...] = (
