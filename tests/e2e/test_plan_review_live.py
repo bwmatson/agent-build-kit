@@ -15,17 +15,18 @@ review took are in the assertion message and the test's report, for the pull req
 
 from __future__ import annotations
 
-import os
 import shutil
 import time
 from pathlib import Path
 
 import pytest
 
-from agent_build_kit import claude_account
+from agent_build_kit import claude_account, config, runtimes
 from agent_build_kit.pipeline import plan_review
-from tests.conftest import make_installation
+from agent_build_kit.settings import settings
+from tests.conftest import make_private_trees_installation
 from tests.factories import git, init_repo
+from tests.live_account import environment_account
 from tests.tick_pass import stored
 
 pytestmark = [pytest.mark.e2e, pytest.mark.runtime_claude_code]
@@ -62,7 +63,7 @@ ROOT = Path(__file__).resolve().parent.parent
 
 def test_every_package_is_under_src() -> None:
     packages = sorted(p.name for p in (ROOT / "src").iterdir() if p.is_dir())
-    assert packages == [f"pkg{n}" for n in range(1, 12)]
+    assert packages == sorted(f"pkg{n}" for n in range(1, 13))
 """
 
 
@@ -72,17 +73,13 @@ def tasks_text() -> str:
     parts = [
         "# Tidy the layout\n\nAcceptance: none: a fixture about plan review\n",
     ]
-    for number in range(1, 12):
+    for number in FIRST_UNIT_GROUPS:
+        last = " Then delete the now-empty `src/`." if number == FIRST_UNIT_GROUPS[-1] else ""
         parts.append(
             f"## {number}. [app] [unit-test] Move pkg{number} out of src\n\n"
             f"- [ ] {number}.1 Move `src/pkg{number}/` to `pkg{number}/` with `git mv`, and fix "
-            "the imports. Verify: the suite passes.\n"
+            f"the imports.{last} Verify: the suite passes.\n"
         )
-    parts.append(
-        "## 12. [app] [unit-test] Remove the empty src folder\n\n"
-        "- [ ] 12.1 Move the last folder out of `src/` and delete `src/`. "
-        "Verify: the suite passes.\n"
-    )
     parts.append(
         "## 13. [app] [unit-test] Describe the layout\n\n"
         "- [ ] 13.1 Describe the new layout in `README.md`. Verify: the suite passes.\n"
@@ -99,12 +96,7 @@ def tasks_text() -> str:
 def account() -> claude_account.Account | None:
     """The account the environment names, read before the autouse fixture removes it from each
     test; None for the default account."""
-    for name in claude_account.NAMES:
-        if os.environ.get(name):
-            return claude_account.Account(
-                label="plan-review", config_dir=Path(os.environ[name]).expanduser()
-            )
-    return None
+    return environment_account("plan-review")
 
 
 @pytest.fixture
@@ -116,13 +108,14 @@ def claude_account_env(
         pytest.skip("claude is not on PATH: the kit's runtime: claude_code e2e is not available")
     if account is not None:
         monkeypatch.setenv(claude_account.VARIABLE, str(account.config_dir))
-    monkeypatch.setenv("ABK_RUNTIME", "claude_code")
+    # The runtime in force is read from the settings, which read the environment once at import.
+    monkeypatch.setattr(settings, "runtime", "claude_code")
 
 
 def write_repo(path: Path) -> None:
     """The app's checkout: twelve folders under `src/` and the test that asserts them."""
     init_repo(path)
-    for number in range(1, 12):
+    for number in FIRST_UNIT_GROUPS:
         folder = path / "src" / f"pkg{number}"
         folder.mkdir(parents=True)
         (folder / "__init__.py").write_text(f"NAME = 'pkg{number}'\n")
@@ -136,14 +129,7 @@ def write_repo(path: Path) -> None:
 def test_a_real_review_names_the_unit_that_cannot_end_green_and_the_test_that_asserts_src(
     tmp_path: Path, claude_account_env: None
 ) -> None:
-    inst = make_installation(
-        tmp_path / "planning",
-        planning={
-            "state_dir": ".",
-            "worktree_root": str(tmp_path / "trees"),
-            "review_plans": True,
-        },
-    )
+    inst = make_private_trees_installation(tmp_path)
     write_repo(inst.repo("app").path)
     folder = inst.changes_dir / CHANGE
     (folder / "specs" / "layout").mkdir(parents=True)
@@ -173,13 +159,18 @@ def test_a_real_review_names_the_unit_that_cannot_end_green_and_the_test_that_as
     named = [
         finding
         for finding in review.findings
-        if finding.group in FIRST_UNIT_GROUPS and ASSERTING_TEST in finding.evidence
+        if finding.group in FIRST_UNIT_GROUPS and Path(ASSERTING_TEST).name in finding.evidence
     ]
     # The finding, the model and the seconds are what the pull request records.
-    print(f"plan review: {len(review.findings)} finding(s) in {seconds:.0f}s")
+    runtime = runtimes.active().name
+    model = config.models().plan or "runtime default"
+    summary = (
+        f"{len(review.findings)} finding(s) in {seconds:.0f}s, model {model}, runtime {runtime}"
+    )
+    print(f"plan review: {summary}")
     for finding in review.findings:
         print(f"  group {finding.group}, question {finding.question}: {finding.evidence}")
     assert named, (
         f"no finding names a group of unit 1 (groups 1 to 12) and {ASSERTING_TEST}; "
-        f"findings: {review.findings}; took {seconds:.0f}s"
+        f"findings: {review.findings}; {summary}"
     )
