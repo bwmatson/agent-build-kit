@@ -129,7 +129,7 @@ def write_repo(path: Path) -> None:
 def test_a_real_review_names_the_unit_that_cannot_end_green_and_the_test_that_asserts_src(
     tmp_path: Path, claude_account_env: None
 ) -> None:
-    inst = make_private_trees_installation(tmp_path)
+    inst = make_private_trees_installation(tmp_path, planning={"review_plans": True})
     write_repo(inst.repo("app").path)
     folder = inst.changes_dir / CHANGE
     (folder / "specs" / "layout").mkdir(parents=True)
