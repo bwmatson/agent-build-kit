@@ -7,14 +7,13 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from tests.graph.test_build_path import build
-from tests.graph.test_remaining_paths import fresh
-
 from agent_build_kit.pipeline.run_log import TestRun, append_test_run, run_ledger_path
 from agent_build_kit.pipeline.stack_runner import RunStatus
 from agent_build_kit.pipeline.unchanged_failure import ReuseContext, run_or_reuse
 from agent_build_kit.pipeline.unit_store import Cause, HeldBy
 from agent_build_kit.pipeline.units import HELD
+from packages.worker.tests.graph.test_build_path import build
+from packages.worker.tests.graph.test_remaining_paths import fresh
 from tests.factories import unit
 from tests.failure_bundle_fakes import START
 
