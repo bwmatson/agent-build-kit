@@ -31,7 +31,7 @@ from agent_build_kit.forges.base import (
     redacted_text,
 )
 from agent_build_kit.pipeline.file_lock import atomic_write_text, file_lock
-from agent_build_kit.pipeline.shell import fork_point, git
+from agent_build_kit.pipeline.shell import commit_id, fork_point, git
 from agent_build_kit.pipeline.units import MERGED, build_ref
 
 if TYPE_CHECKING:
@@ -433,19 +433,14 @@ def _seen(checkout: Path, pull: Stored) -> tuple[str, bool]:
     before, and the merge is judged on that: an ancestor of the trunk (a merge commit or a
     fast-forward), or its change found there by patch identity (a squash)."""
     trunk = build_ref(checkout, str(pull["base"]))
-    if not _commit(checkout, trunk):
+    if not commit_id(checkout, trunk):
         return "", False
-    current = _commit(checkout, f"refs/heads/{pull['head']}")
+    current = commit_id(checkout, f"refs/heads/{pull['head']}")
     own = current if current and not _is_ancestor(checkout, current, trunk) else ""
     tip = own or str(pull.get("tip", ""))
-    if not tip or not _commit(checkout, tip):
+    if not tip or not commit_id(checkout, tip):
         return own, False
     return own, _in_trunk(checkout, tip, trunk)
-
-
-def _commit(checkout: Path, ref: str) -> str:
-    found = git(checkout, "rev-parse", "--verify", "-q", f"{ref}^{{commit}}", check=False)
-    return "" if found.returncode else found.stdout.strip()
 
 
 def _is_ancestor(checkout: Path, ancestor: str, ref: str) -> bool:

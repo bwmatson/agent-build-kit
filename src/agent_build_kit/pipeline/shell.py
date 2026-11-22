@@ -83,6 +83,15 @@ def git_out(repo: Path, *args: str) -> str:
     return git(repo, *args).stdout.strip()
 
 
+def commit_id(repo: Path, ref: str) -> str:
+    """The full commit id `ref` names in `repo`, or empty when it names no commit."""
+    try:
+        found = git(repo, "rev-parse", "--verify", "-q", f"{ref}^{{commit}}", check=False)
+    except OSError:  # the repository's folder is gone
+        return ""
+    return "" if found.returncode else found.stdout.strip()
+
+
 def changed_files(repo: Path, base: str) -> list[str]:
     """The paths the checked-out branch changes against `base` (`git diff base...HEAD`)."""
     result = git(repo, "diff", "--name-only", f"{base}...HEAD", check=False)

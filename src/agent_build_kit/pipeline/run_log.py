@@ -162,6 +162,9 @@ class TestRun(Frozen):
     # Whether the failures were found on the unit's base too (`FailedOnBase`), so they are not
     # the unit's and the row never stands in for a new run.
     on_base: bool = False
+    # Whether the run ended at the command's time limit, which says nothing of the code: a rerun
+    # is wanted, so the row never stands in for a new run.
+    timed_out: bool = False
 
 
 def append_test_run(path: Path, run: TestRun, *, max_bytes: int = TEST_RUNS_MAX_BYTES) -> None:

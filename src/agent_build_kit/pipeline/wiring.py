@@ -81,7 +81,12 @@ from agent_build_kit.pipeline import code_host, failure_evidence, snapshots, spa
 from agent_build_kit.pipeline.changelog_convention import review_changelog_paragraph
 from agent_build_kit.pipeline.check_failures import failed_in
 from agent_build_kit.pipeline.check_runner import CheckCache, worktree_at
-from agent_build_kit.pipeline.command_limit import SUSPENDED_NOTE, TIMED_OUT_EXIT, run_limited
+from agent_build_kit.pipeline.command_limit import (
+    SUSPENDED_NOTE,
+    TIMED_OUT_EXIT,
+    run_limited,
+    timed_out,
+)
 from agent_build_kit.pipeline.commit_order import ALREADY_BUILT_TRAILER, branch_subjects
 from agent_build_kit.pipeline.config_guard import config_unchanged
 from agent_build_kit.pipeline.determinism_guidance import determinism_guidance
@@ -203,6 +208,7 @@ from agent_build_kit.pipeline.scratch import (
 from agent_build_kit.pipeline.selection_base import forget_handover, handed_over_at
 from agent_build_kit.pipeline.shell import (
     changed_files,
+    commit_id,
     fork_point,
     git,
     git_out,
@@ -1762,7 +1768,7 @@ def build_unit_test(
         run_loaded.clear()
         outcome = "failed"
         failed: list[str] = []
-        on_base = False
+        on_base = ran_out = False
         gap: float | None = None
         handed = handed_over_at(cwd)
         if handed is not None:
@@ -1784,6 +1790,7 @@ def build_unit_test(
         else:
             outcome = "passed" if passed else "failed"
             failed = list(run_failed) if run_loaded or not passed else []
+            ran_out = not passed and timed_out(output)
             return passed, output
         finally:
             forget_handover(cwd)
@@ -1814,8 +1821,9 @@ def build_unit_test(
                         disturbed_seconds=gap,
                         data_source=data_source,
                         data_age_hours=data_age,
-                        head=_commit_id(cwd, "HEAD") or None,
-                        base=_commit_id(cwd, base) or None,
+                        head=commit_id(cwd, "HEAD") or None,
+                        base=commit_id(cwd, base) or None,
+                        timed_out=ran_out,
                         on_base=on_base,
                     ),
                 )
@@ -1879,8 +1887,8 @@ def build_unit_test(
             test_runs,
             ReuseContext(
                 unit=unit_id,
-                head=_commit_id(cwd, "HEAD"),
-                base=_commit_id(cwd, base),
+                head=commit_id(cwd, "HEAD"),
+                base=commit_id(cwd, base),
                 rework_note=rework_note,
                 feedback=saved,
             ),
@@ -3148,16 +3156,6 @@ def _under(path: Path, where: Path) -> str | None:
         return path.relative_to(where).as_posix()
     except ValueError:
         return None
-
-
-def _commit_id(cwd: Path, ref: str) -> str:
-    """The full commit id `ref` names in `cwd`, or empty when it names none."""
-    try:
-        return git(
-            cwd, "rev-parse", "--verify", "-q", f"{ref}^{{commit}}", check=False
-        ).stdout.strip()
-    except OSError:
-        return ""
 
 
 def _say(log: Callable[[str], None] | None, message: str) -> None:

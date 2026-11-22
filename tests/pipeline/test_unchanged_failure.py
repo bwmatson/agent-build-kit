@@ -39,7 +39,8 @@ FAILED = ["tests/test_one.py::test_plain", "tests/test_two.py::test_other"]
 
 
 class Spy:
-    """Counts the suite runs, the holds and the log lines of one decision."""
+    """Counts the suite runs, the holds (the notes `held_after_reuse` reads from a result) and the
+    log lines of one decision."""
 
     def __init__(self, *, passes: bool = True, merged: bool = False) -> None:
         self.runs = 0
@@ -67,16 +68,18 @@ class Spy:
         rework_note: bool = False,
         feedback: str = "",
     ) -> tuple[bool, str]:
-        return run_or_reuse(
+        result = run_or_reuse(
             ledger,
             ReuseContext(
                 unit=unit, head=head, base=base, rework_note=rework_note, feedback=feedback
             ),
             merged_since=self.merged_since,
             run=self.run,
-            hold=self.holds.append,
             log=self.lines.append,
         )
+        if (note := held_after_reuse(result[1])) is not None:
+            self.holds.append(note)
+        return result
 
 
 def _row(
@@ -87,6 +90,8 @@ def _row(
     base: str | None = BASE,
     reused: bool = False,
     on_base: bool = False,
+    timed_out: bool = False,
+    failed: list[str] | None = None,
     minutes: int = 0,
 ) -> TestRun:
     return TestRun(
@@ -94,7 +99,8 @@ def _row(
         started=(START + timedelta(minutes=minutes)).isoformat(),
         seconds=2760.0,
         outcome=outcome,
-        failed=FAILED if outcome == "failed" else [],
+        failed=(FAILED if failed is None else failed) if outcome == "failed" else [],
+        timed_out=timed_out,
         load_start=None,
         load_end=None,
         workers=None,
@@ -266,8 +272,19 @@ def test_each_unit_is_held_at_its_own_second_reuse(ledger: Path) -> None:
     assert all(HEAD in note and BASE in note for note in spy.holds)
 
 
-def test_a_failure_found_on_the_base_is_run_again_not_reused(ledger: Path) -> None:
-    append_test_run(ledger, _row(on_base=True))
+@pytest.mark.parametrize(
+    "row",
+    [
+        _row(on_base=True),
+        _row(timed_out=True),
+        _row(failed=[]),
+    ],
+    ids=["found on the base", "ended at the time limit", "names no failed test"],
+)
+def test_a_failure_that_says_nothing_of_the_units_code_is_run_again_not_reused(
+    ledger: Path, row: TestRun
+) -> None:
+    append_test_run(ledger, row)
     spy = Spy(passes=False)
 
     result = spy.decide(ledger)

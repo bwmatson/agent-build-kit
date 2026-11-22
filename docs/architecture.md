@@ -1964,8 +1964,10 @@ approved.
   rework note pending and the failure not found on the base, is not run again: the run's result
   is that failure, the log says it was unchanged and not run again, and a `reused` row is added.
   The first reuse keeps the failure the fix agent was to read. The second reuse for the same
-  head and base is a result the graph holds the unit with, like a time limit (`held_by`
-  `checks`, no fix agent, no feedback saved): the note names the tests, head and base and says
+  head and base is a result the graph holds the unit with, for a person as a time limit is, but
+  with `held_by` `checks`, no fix agent and no feedback saved. A run that ended at its time
+  limit, one found on the base and one naming no failed test are never reused (a row records
+  `timed_out` and `on_base`). The note names the tests, head and base and says
   a requeue with a rework note, or a new commit, runs the suite again. `abk failures [TEST]` reads
   the records and the bundles (the ledger, `test-runs.jsonl`, answers how often a run was
   loaded): it lists each failing test with its count, first and last time,

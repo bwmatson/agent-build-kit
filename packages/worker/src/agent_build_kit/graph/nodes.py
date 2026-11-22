@@ -1154,8 +1154,10 @@ class BuildPath:
     def held_for_a_person(self, output: str, stage: str) -> Update | None:
         """Hold the unit for a person when `output` is that of a run that ended at the command's
         time limit, or of checks the machine was suspended in twice: neither names a failing test
-        or says anything of the code, so no fix agent runs and nothing is saved for one. None
-        for any other output."""
+        or says anything of the code, so no fix agent runs and nothing is saved for one. The
+        second reuse of an unchanged failed run (`held_after_reuse`) is held the same way, and is
+        the one held with `HeldBy.CHECKS`; the others take `HeldBy.NONE`. None for any other
+        output."""
         limit = timed_out_after(output)
         reused = held_after_reuse(output)
         if limit is None and reused is None and not suspended(output):

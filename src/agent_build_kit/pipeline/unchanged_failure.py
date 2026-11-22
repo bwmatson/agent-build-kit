@@ -40,7 +40,6 @@ def run_or_reuse(
     merged_since: Callable[[datetime], bool],
     run: Callable[[], tuple[bool, str]],
     log: Callable[[str], None],
-    hold: Callable[[str], None] | None = None,
 ) -> tuple[bool, str]:
     """The unit-test result for `context`: the recorded failure when it stands in, else `run()`.
 
@@ -50,12 +49,15 @@ def run_or_reuse(
     to the ledger as a `reused` row, and returns `(False, output)` naming the failed tests. The
     second reuse for the same head and base returns a result whose output carries the hold's note
     (`held_after_reuse` reads it), naming the tests, head and base, and says how to run again; the
-    graph holds the unit with it. `hold(note)`, when given, is also called with it."""
+    graph holds the unit with it. A row of a run that ended at its time limit, one found on the
+    base and one that names no failed test never stands in for a run."""
     last = _last_run(ledger, context.unit)
     if (
         last is None
         or last.outcome != "failed"
         or last.on_base
+        or last.timed_out
+        or not last.failed
         or last.head != context.head
         or last.base != context.base
         or context.rework_note
@@ -75,8 +77,6 @@ def run_or_reuse(
             "twice with nothing changed, so it is not run a third time; a requeue with a rework "
             "note, or a new commit, runs the suite again"
         )
-        if hold is not None:
-            hold(note)
         return False, f"{HELD_PREFIX} {note}\n{unchanged}"
     # The failure the recorded run left for the fix agent stays in front of it.
     earlier = "\n".join(
