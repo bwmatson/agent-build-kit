@@ -17,7 +17,8 @@ import pytest
 
 from agent_build_kit.pipeline.planner import GroupTooLarge, PlannerError, parse_graph, plan_round
 from agent_build_kit.pipeline.work_graph import TaskGroup
-from tests.factories import activate_with
+from tests.factories import activate_with, groups_at
+from tests.project_workspace import tasks_editing
 
 GOOD = {
     "units": [
@@ -628,3 +629,49 @@ def test_one_group_over_the_ceiling_says_the_tasks_need_splitting() -> None:
     message = str(rejected.value)
     assert "group 1" in message
     assert "split" in message
+
+
+LAYOUT_TEST = "tests/test_project_root.py"
+
+
+def layout_tasks() -> str:
+    """Fourteen `app` groups, of which groups 1, 3 and 14 each edit one test file."""
+    sharing = {1, 3, 14}
+    return tasks_editing(
+        *[
+            ("[app] [unit-test] Step", LAYOUT_TEST if n in sharing else f"src/step_{n}.py")
+            for n in range(1, 15)
+        ]
+    )
+
+
+def layout_plan(*members: list[int]) -> list:
+    units = [
+        planned(id=f"c/{index}", groups=numbers, estimated_lines=100)
+        for index, numbers in enumerate(members, start=1)
+    ]
+    return parse_graph(graph_json(units), groups=groups_at(*[3] * 14), tasks=layout_tasks())
+
+
+def test_the_prompt_lists_the_groups_that_name_one_test_file_as_groups_to_keep_in_a_unit() -> None:
+    captured: dict = {}
+
+    def fake_claude(prompt: str) -> str:
+        captured["prompt"] = prompt
+        return json.dumps({"units": []})
+
+    plan_round(changes={"c": layout_tasks()}, in_flight=[], run_claude=fake_claude)
+
+    paragraph = next(p for p in captured["prompt"].split("\n\n") if LAYOUT_TEST in p)
+    assert "1, 3 and 14" in paragraph
+    assert "share a unit" in paragraph
+
+
+def test_a_split_of_a_shared_test_file_is_recorded_and_keeping_it_together_is_not() -> None:
+    first, second = layout_plan(list(range(1, 14)), [14])
+    (only,) = layout_plan(list(range(1, 15)))
+
+    assert (first.id, second.id) == ("c/1", "c/2")
+    assert first.split_test_files == {LAYOUT_TEST: ("c/2",)}
+    assert second.split_test_files == {}
+    assert only.split_test_files == {}

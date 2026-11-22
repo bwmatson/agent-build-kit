@@ -201,6 +201,9 @@ class Unit(Frozen):
     # The build mode (a `GroupMode` value) of each group the unit builds, keyed
     # `<change>/<number>`; empty for a unit planned before modes existed.
     group_modes: dict[str, str] = Field(default_factory=dict)
+    # Each test file this unit's groups share with a group of a later unit, with the ids of
+    # those units; empty when no file is split across units.
+    split_test_files: dict[str, tuple[str, ...]] = Field(default_factory=dict)
     state: UnitState = PLANNED
     issue: int | None = None
     groups: tuple[int, ...] = ()

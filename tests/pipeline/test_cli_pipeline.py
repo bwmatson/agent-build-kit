@@ -1885,6 +1885,31 @@ def test_status_is_silent_about_the_queue_below_the_limit(
     assert "units in progress, limit" not in capsys.readouterr().out.lower()
 
 
+def test_status_names_a_test_file_shared_with_a_later_unit_and_both_units(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    workspace_inst = make_installation(
+        tmp_path, planning=dict(state_dir=".", worktree_root=str(tmp_path.parent / "trees"))
+    )
+    store = UnitStore(tmp_path / "units.json")
+    store.upsert(
+        [
+            stored("one/1", change="one", split_test_files={"tests/test_layout.py": ("one/2",)}),
+            stored("one/2", change="one", groups=(2,)),
+            stored("two/1", change="two"),
+        ]
+    )
+    monkeypatch.setattr("agent_build_kit.run_support.current_usage", lambda: reading())
+
+    assert cli.cmd_status(argv_namespace(), workspace_inst) == 0
+
+    out = capsys.readouterr().out
+    lines = [line for line in out.splitlines() if "tests/test_layout.py" in line]
+    assert len(lines) == 1
+    assert "one/1" in lines[0] and "one/2" in lines[0]
+    assert "two/1" not in lines[0]
+
+
 def carrier_store(tmp_path: Path, *, joined_groups: tuple[int, ...] = (1,)) -> UnitStore:
     """`other/1`, merged, whose own group is another change's and which carries
     `add-marker`'s `joined_groups` (none: nothing of `add-marker`)."""

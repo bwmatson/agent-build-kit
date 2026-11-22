@@ -1407,6 +1407,18 @@ def cross_repo_needs_notes(
     ]
 
 
+def shared_test_files(tasks: str) -> dict[str, tuple[int, ...]]:
+    """Each test file a `tasks.md` text names in the tasks of two or more groups, with the
+    numbers of those groups."""
+    raise NotImplementedError
+
+
+def shared_test_file_warnings(path: Path) -> list[str]:
+    """One warning per test file a tasks file names in two or more groups, as `abk tags` and
+    `abk check` print it."""
+    raise NotImplementedError
+
+
 def old_test_kind_warnings(path: Path) -> list[str]:
     """One notice per group heading of a tasks file that is tagged with an old test-kind tag,
     as `abk tags` and `abk check` print it."""
