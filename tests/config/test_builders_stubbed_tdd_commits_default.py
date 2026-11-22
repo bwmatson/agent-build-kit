@@ -35,7 +35,8 @@ def test_a_workspace_with_no_builders_section_builds_stubbed() -> None:
 
 
 def test_an_explicit_off_reports_off_and_reads_unstubbed_beside_the_default_on() -> None:
-    """The one-pair build itself is pinned in tests/graph/test_per_group_unstubbed.py."""
+    """The one-pair build itself is pinned in
+    packages/worker/tests/graph/test_per_group_unstubbed.py."""
     off = load({"stubbed_tdd_commits": False}).builders
 
     assert load().builders.stubbed_tdd_commits is True

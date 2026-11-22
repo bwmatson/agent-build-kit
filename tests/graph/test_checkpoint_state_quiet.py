@@ -11,10 +11,15 @@ import pytest
 
 from agent_build_kit.graph.state import UnitRun
 from agent_build_kit.pipeline.unit_store import Cause
+from packages.worker.tests.graph.test_held_state_plain_text import (
+    HOLD_IDS,
+    HOLDS,
+    THREAD,
+    held_unit,
+)
+from packages.worker.tests.graph.test_hold_causes import Held
 from tests.checkpoint_types import blocked_on_load, node_updates, state_from_updates
 from tests.graph.test_checkpoint_allowlist import populated
-from tests.graph.test_held_state_plain_text import HOLD_IDS, HOLDS, THREAD, held_unit
-from tests.graph.test_hold_causes import Held
 
 SERIALIZER_WARNING = "PydanticSerializationUnexpectedValue"
 

@@ -14,13 +14,14 @@ from __future__ import annotations
 
 import ast
 import re
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from pathlib import Path
 
 from pydantic_settings import BaseSettings
 
 from agent_build_kit import settings as settings_module
 from tests.live_tag_drift import AgentStart, callee, is_mark, module_functions_reached
+from tests.tracked_files import test_trees
 from tests.wide_scans import check_modules, walk_tests
 from tests.wide_scans import load_baseline as load_baseline_entries
 
@@ -179,14 +180,15 @@ def _violators(text: str, required_fields: Mapping[str, frozenset[str]]) -> dict
 
 
 def check_tests(
-    root: Path = TESTS_ROOT,
+    root: Path | Sequence[Path] | None = None,
     *,
     baseline: frozenset[str],
     required_fields: Mapping[str, frozenset[str]],
 ) -> list[str]:
-    """One message per problem in the test modules under `root`."""
+    """One message per problem in the test modules under `root`; every test tree of the repository
+    when none is given."""
     return check_modules(
-        root,
+        test_trees() if root is None else root,
         lambda text: _violators(text, required_fields),
         baseline=baseline,
         baseline_file=BASELINE_FILE,

@@ -20,8 +20,8 @@ from agent_build_kit.pipeline.events import build_base_tip
 from agent_build_kit.pipeline.pr_poller import CONFLICT_REASON
 from agent_build_kit.pipeline.unit_store import HeldBy, ReworkKind
 from agent_build_kit.pipeline.units import HELD, IN_REVIEW, MERGED
+from packages.worker.tests.graph.test_restack_lane_prepare import BRANCH, Scene
 from tests.factories import commit, git, init_repo
-from tests.graph.test_restack_lane_prepare import BRANCH, Scene
 from tests.tick_driver import OTHER, UNIT, Setup, make_setup
 
 PR = 8

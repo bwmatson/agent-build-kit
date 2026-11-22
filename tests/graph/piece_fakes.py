@@ -15,10 +15,10 @@ from agent_build_kit.pipeline.stack_runner import RunOutcome
 from agent_build_kit.pipeline.unit_store import UnitStore
 from agent_build_kit.pipeline.units import UnitState
 from agent_build_kit.pipeline.workspaces import keep_superseded_tip, superseded_ref
+from packages.worker.tests.graph.test_build_path import build
+from packages.worker.tests.graph.test_outside_commits_prompt import branch, land
 from tests.factories import activate_with, git, stored_unit
 from tests.graph.branch_fakes import OnBranch, titled, write_tasks
-from tests.graph.test_build_path import build
-from tests.graph.test_outside_commits_prompt import branch, land
 
 PARENT = "add-marker/1"
 PIECE = "add-marker/1-s2"

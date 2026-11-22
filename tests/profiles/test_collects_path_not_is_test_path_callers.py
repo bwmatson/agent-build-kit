@@ -14,7 +14,13 @@ import pytest
 from agent_build_kit import profiles
 from agent_build_kit.config import DeployConfig, DeployRule, RepoConfig
 from agent_build_kit.pipeline.verify import deploy_commands
-from tests.graph.test_outside_commits_prompt import ADOPTED, FREE_SESSION, branch, drive, land
+from packages.worker.tests.graph.test_outside_commits_prompt import (
+    ADOPTED,
+    FREE_SESSION,
+    branch,
+    drive,
+    land,
+)
 from tests.graph_driver import tick
 
 PY = profiles.get("python-uv")

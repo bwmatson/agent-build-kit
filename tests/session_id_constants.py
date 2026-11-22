@@ -13,13 +13,13 @@ SESSION_ID = re.compile(
 )
 
 
-def duplicated_session_ids(root: Path) -> dict[str, list[Path]]:
+def duplicated_session_ids(*roots: Path) -> dict[str, list[Path]]:
     """Each string constant shaped like a session id (a UUID or `sess_` and a token) that is
-    defined in two or more `.py` files under `root`, with the files; a constant repeated inside
-    one file is one.
+    defined in two or more `.py` files under the `roots` together, with the files; a constant
+    repeated inside one file is one.
     Any UUID counts, whatever it names, so a fixture's message or object id must differ per file."""
     files: dict[str, set[Path]] = defaultdict(set)
-    for path in sorted(root.rglob("*.py")):
+    for path in sorted(path for root in roots for path in root.rglob("*.py")):
         for node in ast.walk(ast.parse(path.read_text())):
             if (
                 isinstance(node, ast.Constant)

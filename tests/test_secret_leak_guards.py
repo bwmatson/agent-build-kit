@@ -22,8 +22,8 @@ from pydantic_settings import BaseSettings
 from agent_build_kit import settings as settings_module
 from agent_build_kit.settings import Settings
 from tests.time_limit import LOADED_TEST_TIME_LIMIT
+from tests.tracked_files import ROOT, test_trees
 
-TESTS = Path(__file__).parent
 SAMPLE = "sample-env-value-0001"
 ENV_FIELDS = {"env", "environ"}
 
@@ -31,9 +31,9 @@ ENV_FIELDS = {"env", "environ"}
 def _models_with_an_environment() -> list[str]:
     """`module:Class` for each class under `tests/` with an `env`/`environ` field."""
     found = []
-    for path in sorted(TESTS.rglob("*.py")):
+    for path in sorted(path for tree in test_trees() for path in tree.rglob("*.py")):
         tree = ast.parse(path.read_text())
-        module = ".".join(path.relative_to(TESTS.parent).with_suffix("").parts)
+        module = ".".join(path.relative_to(ROOT).with_suffix("").parts)
         for node in ast.walk(tree):
             if isinstance(node, ast.ClassDef) and any(
                 isinstance(field, ast.AnnAssign)

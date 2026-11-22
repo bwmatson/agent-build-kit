@@ -29,12 +29,12 @@ from agent_build_kit.pipeline.stack_runner import RunOutcome, RunStatus
 from agent_build_kit.pipeline.unit_store import Cause, StoredUnit, UnitStore
 from agent_build_kit.pipeline.units import PLANNED, Unit
 from agent_build_kit.pipeline.wiring import build_on_flake, build_unit_test
+from packages.worker.tests.graph.test_build_path import build, restacked
+from packages.worker.tests.graph.test_flake_parking import FLAKE, TEST
+from packages.worker.tests.graph.test_fresh_base_builds import Moving
+from packages.worker.tests.graph.test_remaining_paths import fresh
 from tests.conftest import make_installation
 from tests.factories import stored_unit
-from tests.graph.test_build_path import build, restacked
-from tests.graph.test_flake_parking import FLAKE, TEST
-from tests.graph.test_fresh_base_builds import Moving
-from tests.graph.test_remaining_paths import fresh
 from tests.moved_base_fakes import moved
 from tests.pipeline.test_flake_fix_change import (
     change_with_unit,

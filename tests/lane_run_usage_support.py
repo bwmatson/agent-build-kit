@@ -20,10 +20,10 @@ from agent_build_kit import runtimes
 from agent_build_kit.pipeline import usage_guard
 from agent_build_kit.pipeline.wiring import build_usage_gate
 from agent_build_kit.runtimes import AgentRateLimited, AgentRequest, AgentResult
+from packages.worker.tests.graph.test_adapt_in_the_restack_session import MISSING, Failing
+from packages.worker.tests.graph.test_restack_lane_prepare import Scene
+from packages.worker.tests.graph.test_session_continuation import Sessions, agents
 from tests.graph.agent_fakes import distinct_models
-from tests.graph.test_adapt_in_the_restack_session import MISSING, Failing
-from tests.graph.test_restack_lane_prepare import Scene
-from tests.graph.test_session_continuation import Sessions, agents
 from tests.restack_lane_fakes import asked_of_the_guard
 from tests.tick_driver import Setup, make_setup
 from tests.usage_host import Host, payload

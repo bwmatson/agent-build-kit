@@ -6,9 +6,9 @@ from pathlib import Path
 
 from agent_build_kit.pipeline.stack_runner import TESTS_PROMPT
 from agent_build_kit.pipeline.unit_store import FeedbackSource
+from packages.worker.tests.graph.test_build_path import build
 from tests.factories import activate_with
 from tests.graph.stub_loop_fakes import StubLoop, stubbed_build
-from tests.graph.test_build_path import build
 from tests.graph_driver import fresh as fresh_store
 from tests.prompt_text import flat
 

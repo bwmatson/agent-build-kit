@@ -21,6 +21,9 @@ from __future__ import annotations
 import ast
 from pathlib import Path
 
+from tests.tracked_files import ROOT as REPOSITORY
+from tests.tracked_files import test_tree_prefix, test_trees
+
 TESTS_ROOT = Path(__file__).parent
 
 # Files of shared helpers that may hold a hazard, as paths under the tests root.
@@ -211,11 +214,13 @@ def _hazards(text: str) -> list[int]:
     return sorted(set(lines))
 
 
-def check_tests(root: Path, *, allowlist: frozenset[str], shared: frozenset[str]) -> list[str]:
+def _scan(
+    root: Path, prefix: str, allowlist: frozenset[str], shared: frozenset[str]
+) -> tuple[list[str], set[str]]:
     problems: list[str] = []
     hazardous: set[str] = set()
     for path in sorted(root.rglob("*.py")):
-        name = path.relative_to(root).as_posix()
+        name = prefix + path.relative_to(root).as_posix()
         lines = _hazards(path.read_text())
         if not lines:
             continue
@@ -223,6 +228,28 @@ def check_tests(root: Path, *, allowlist: frozenset[str], shared: frozenset[str]
         if name in shared or name in allowlist:
             continue
         problems.extend(f"{name}:{line}: timing hazard" for line in lines)
+    return problems, hazardous
+
+
+def check_tests(root: Path, *, allowlist: frozenset[str], shared: frozenset[str]) -> list[str]:
+    problems, hazardous = _scan(root, "", allowlist, shared)
+    for name in sorted(allowlist - hazardous):
+        problems.append(f"{name}: on the allowlist but has no timing hazard; remove it")
+    return problems
+
+
+def check_test_trees(
+    repository: Path = REPOSITORY, *, allowlist: frozenset[str], shared: frozenset[str]
+) -> list[str]:
+    """`check_tests` over every test tree of `repository` (`tracked_files.test_trees`). A file of
+    the root project's `tests/` is named relative to it, as the allowlist and the shared helpers
+    are; a file of a package's tests is named relative to the repository."""
+    problems: list[str] = []
+    hazardous: set[str] = set()
+    for tree in test_trees(repository):
+        found, hazards = _scan(tree, test_tree_prefix(tree, repository), allowlist, shared)
+        problems.extend(found)
+        hazardous |= hazards
     for name in sorted(allowlist - hazardous):
         problems.append(f"{name}: on the allowlist but has no timing hazard; remove it")
     return problems

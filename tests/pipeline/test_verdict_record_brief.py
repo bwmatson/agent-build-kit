@@ -7,8 +7,8 @@ from pathlib import Path
 from typing import Any
 
 from agent_build_kit.pipeline.verdict_record import VERDICTS, mark_brief
+from packages.worker.tests.graph.test_build_path import build, fresh
 from tests.factories import activate_with
-from tests.graph.test_build_path import build, fresh
 from tests.runner_fakes import Recorder, approving
 
 UNIT_ID = "add-marker/1"

@@ -1,7 +1,8 @@
 """The reads `open_pr` makes of a unit's recorded pull request.
 
-Its state is read from the snapshot the round keeps (`tests/graph/test_nodes_read_pr_snapshot.py`
-has the host not being asked); the merge commit is still the forge's, as an act on the host.
+Its state is read from the snapshot the round keeps
+(`packages/worker/tests/graph/test_nodes_read_pr_snapshot.py` has the host not being asked);
+the merge commit is still the forge's, as an act on the host.
 A pull request is found by its number: a snapshot of `spec/feature/10` does not answer for 7.
 """
 

@@ -14,6 +14,7 @@ from tests.live_tag_drift import (
     splits_by_syntax,
 )
 from tests.runtime_tag_collection import ROOT
+from tests.tracked_files import test_trees
 
 PYPROJECT = ROOT / "pyproject.toml"
 DOCUMENT = ROOT / "docs" / "agent-runtimes.md"
@@ -73,7 +74,7 @@ def test_an_extra_split_is_named(tmp_path: Path) -> None:
 @pytest.mark.integration
 def test_every_tagged_live_test_of_the_kit_is_in_one_derived_split() -> None:
     splits = derived_splits(PYPROJECT) | {"rest"}
-    found = splits_by_syntax(ROOT / "tests")
+    found = splits_by_syntax(*test_trees())
 
     assert found
     assert [str(p) for p, names in found.items() if not names <= splits] == []

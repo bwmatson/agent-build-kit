@@ -18,6 +18,7 @@ from tests.live_tag_drift import (
 )
 from tests.prompt_text import flat
 from tests.runtime_tag_collection import ROOT
+from tests.tracked_files import test_trees
 
 HEADER = "import pytest\n\npytestmark = pytest.mark.e2e\n"
 MERGE = "merge into one parametrized test"
@@ -50,7 +51,7 @@ def test_telemetry_local_is_registered_beside_telemetry_otel() -> None:
 def test_no_two_live_tests_of_the_kit_differ_in_name_only_by_a_dimension_value(
     pytester: pytest.Pytester,
 ) -> None:
-    modules = find_live_modules(ROOT / "tests")
+    modules = find_live_modules(*test_trees())
     assert modules
     items, _ = pytester.inline_genitems(*(str(m) for m in modules))
 

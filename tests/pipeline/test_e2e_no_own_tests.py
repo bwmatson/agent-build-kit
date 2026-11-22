@@ -11,12 +11,12 @@ import pytest
 from agent_build_kit.cli import pipeline as pipeline_cli
 from agent_build_kit.pipeline.e2e import STATUS_CONTEXT, post_status, stack_lock
 from agent_build_kit.profiles.python_uv import PythonUvProfile
+from packages.worker.tests.graph.test_build_path import build
+from packages.worker.tests.graph.test_remaining_paths import fresh
 from tests.conftest import make_installation
 from tests.e2e_scope_fakes import NEW, OLD, Ran, branch, session
 from tests.factories import git, unit
 from tests.forges.stand_in import StandInForge
-from tests.graph.test_build_path import build
-from tests.graph.test_remaining_paths import fresh
 
 SKIPPED = "e2e-test skipped: no e2e test added or changed"
 

@@ -20,9 +20,9 @@ from agent_build_kit.pipeline.unit_store import Cause
 from agent_build_kit.pipeline.units import HELD
 from agent_build_kit.pipeline.verdict_record import VERDICTS, latest_verdict
 from agent_build_kit.pipeline.wiring import build_run_review
+from packages.worker.tests.graph.test_build_path import build
+from packages.worker.tests.graph.test_remaining_paths import fresh
 from tests.factories import unit
-from tests.graph.test_build_path import build
-from tests.graph.test_remaining_paths import fresh
 from tests.runner_fakes import rejecting
 from tests.runtimes.stand_in import StandInRuntime
 

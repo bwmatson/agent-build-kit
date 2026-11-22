@@ -18,6 +18,7 @@ from tests.live_tag_drift import (
 )
 from tests.runtime_tag_collection import ROOT, collect
 from tests.runtime_tags import runtime_tags
+from tests.tracked_files import test_trees
 
 INIT_CONVENTIONS = INTEGRATION / "test_init_conventions_workspace.py"
 
@@ -75,7 +76,7 @@ def test_the_init_conventions_module_which_starts_no_agent_passes_untagged(
 
     assert items
     assert drift(items) == []
-    assert INIT_CONVENTIONS in find_live_modules(ROOT / "tests")
+    assert INIT_CONVENTIONS in find_live_modules(*test_trees())
 
 
 @pytest.mark.time_limit(EVERY_LIVE_MODULE_TIME_LIMIT)
@@ -83,7 +84,7 @@ def test_the_init_conventions_module_which_starts_no_agent_passes_untagged(
 def test_every_test_of_the_kits_live_modules_that_starts_an_agent_has_exactly_one_tag(
     pytester: pytest.Pytester,
 ) -> None:
-    modules = find_live_modules(ROOT / "tests")
+    modules = find_live_modules(*test_trees())
     assert modules
     items, _ = pytester.inline_genitems(*(str(m) for m in modules))
 

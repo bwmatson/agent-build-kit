@@ -16,8 +16,8 @@ from agent_build_kit.pipeline.unit_store import E2eState, UnitStore
 from agent_build_kit.pipeline.units import HELD
 from agent_build_kit.pipeline.verdict import ClassHistory, GateResult, ReviewTier, VerdictFacts
 from agent_build_kit.pipeline.verdict_record import VERDICTS, latest_verdict, record_verdict
+from packages.worker.tests.graph.test_build_path import build, fresh
 from tests.factories import activate_with, unit
-from tests.graph.test_build_path import build, fresh
 from tests.otlp import enabled
 from tests.runner_fakes import Killed, Recorder, approving, rejecting
 

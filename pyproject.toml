@@ -97,10 +97,10 @@ search-path = ["src", "packages/worker/src", "."]
 # under the pipeline's state directory ("Skipping include pattern ... matched by
 # `project-excludes` or an ignore file"), so unit-test passed on a commit whose
 # test files CI then failed on.
-project-includes = ["src", "packages/worker/src", "tests"]
+project-includes = ["src", "packages/worker/src", "tests", "packages/worker/tests"]
 
 [tool.pytest.ini_options]
-testpaths = ["tests"]
+testpaths = ["tests", "packages/worker/tests"]
 # So `from tests.factories import ...` resolves without tests/ being a package
 # (test directories carry no __init__.py; basenames stay unique instead).
 pythonpath = [".", "packages/worker/src"]

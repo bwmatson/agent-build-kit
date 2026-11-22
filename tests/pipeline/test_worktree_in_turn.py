@@ -15,9 +15,9 @@ from agent_build_kit.pipeline.stack_runner import RunStatus, UnitRunner
 from agent_build_kit.pipeline.unit_store import UnitStore
 from agent_build_kit.pipeline.wiring import build_runner
 from agent_build_kit.pipeline.workspaces import DirtyWorktree
+from packages.worker.tests.graph.test_resume_over_leftovers import STRAY, UNIT, killed_in
 from tests.conftest import make_installation
 from tests.factories import unit
-from tests.graph.test_resume_over_leftovers import STRAY, UNIT, killed_in
 from tests.graph_driver import tick
 from tests.leftovers_driver import LEFTOVER, Habitat, Hands
 

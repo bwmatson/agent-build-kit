@@ -23,11 +23,11 @@ from agent_build_kit.installation import Installation
 from agent_build_kit.model import TestTier
 from agent_build_kit.pipeline.wiring import E2eSession, build_post_status
 from agent_build_kit.settings import settings
+from packages.worker.tests.graph.test_build_path import build
+from packages.worker.tests.graph.test_remaining_paths import fresh
 from tests.forges import azure_answers
 from tests.forges.azure_rest_host import RestHost
 from tests.forges.github_host import HOSTS, GitHubHost, answer
-from tests.graph.test_build_path import build
-from tests.graph.test_remaining_paths import fresh
 
 
 @pytest.fixture(autouse=True)

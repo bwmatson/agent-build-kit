@@ -11,8 +11,8 @@ from pathlib import Path
 from typing import Any
 
 from agent_build_kit.pipeline.wiring import branch_commits, build_move_empty_branch, tip
+from packages.worker.tests.graph.test_outside_commits_prompt import branch, drive
 from tests.factories import commit, git
-from tests.graph.test_outside_commits_prompt import branch, drive
 from tests.runner_fakes import Recorder
 
 BRANCH = "spec/add-marker/1"

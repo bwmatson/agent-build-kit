@@ -12,7 +12,7 @@ from pathlib import Path
 import pytest
 
 from tests.time_limit import LOADED_TEST_TIME_LIMIT
-from tests.timing_hazards import ALLOWLIST, SHARED_HELPERS, TESTS_ROOT, check_tests
+from tests.timing_hazards import ALLOWLIST, SHARED_HELPERS, check_test_trees, check_tests
 
 NONE: frozenset[str] = frozenset()
 
@@ -151,7 +151,24 @@ def test_an_allowlisted_file_that_no_longer_exists_must_leave_the_allowlist(
 @pytest.mark.time_limit(LOADED_TEST_TIME_LIMIT)
 @pytest.mark.integration
 def test_the_suite_has_no_hazard_outside_the_allowlist() -> None:
-    assert check_tests(TESTS_ROOT, allowlist=ALLOWLIST, shared=SHARED_HELPERS) == []
+    assert check_test_trees(allowlist=ALLOWLIST, shared=SHARED_HELPERS) == []
+
+
+def test_a_hazard_in_a_package_test_tree_is_reported_relative_to_the_repository(
+    tmp_path: Path,
+) -> None:
+    tree(
+        tmp_path,
+        {
+            "tests/test_a.py": "def test_x():\n    pass\n",
+            "packages/pkg/tests/graph/test_x.py": SLEEPS,
+        },
+    )
+
+    problems = check_test_trees(tmp_path, allowlist=NONE, shared=NONE)
+
+    assert len(problems) == 1
+    assert problems[0].startswith("packages/pkg/tests/graph/test_x.py:5")
 
 
 def test_a_tuple_argument_to_a_call_that_is_not_an_address_is_not_a_port(tmp_path: Path) -> None:

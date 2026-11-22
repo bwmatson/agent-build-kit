@@ -42,6 +42,21 @@ def relative(root: Path, found: list[Path]) -> list[str]:
     return [path.relative_to(root).as_posix() for path in found]
 
 
+def test_the_test_trees_include_the_worker_packages_tests() -> None:
+    assert Path("packages") / "worker" / "tests" in [
+        tree.relative_to(tracked_files.ROOT) for tree in tracked_files.test_trees()
+    ]
+    assert "packages/worker/tests" in tracked_files.test_tree_folders()
+
+
+def test_the_test_trees_are_the_root_tests_and_each_package_tests_that_exists(
+    tmp_path: Path,
+) -> None:
+    build(tmp_path, {"tests/a.py": "", "packages/one/tests/b.py": "", "packages/two/src/c.py": ""})
+
+    assert tracked_files.test_tree_folders(tmp_path) == ["tests", "packages/one/tests"]
+
+
 def test_planning_content_is_left_out_by_default(tmp_path: Path) -> None:
     root = build(tmp_path)
 

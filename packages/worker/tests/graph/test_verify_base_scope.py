@@ -1,0 +1,131 @@
+"""A clean move before a push carries the base it left to unit-test, which says whether it ran
+scoped or in full (spec: a-moved-base-is-checked-by-what-it-can-affect).
+
+`verify_base` and the `unit-test` node are driven over the recorder's fakes; the runner's own
+log line is read from the real unit-test runner over a real repository whose commands are faked.
+"""
+
+from __future__ import annotations
+
+from pathlib import Path
+from typing import Any
+
+from agent_build_kit.config import RestackCheck
+from agent_build_kit.pipeline.wiring import build_unit_test
+from packages.worker.tests.graph.test_build_path import build, restacked
+from packages.worker.tests.graph.test_fresh_base_builds import RESOLVED, Moving
+from packages.worker.tests.graph.test_remaining_paths import fresh
+from tests.conftest import make_installation
+from tests.moved_base_fakes import Profile, moved, passing
+
+OLD_BASE = "old-base-sha"
+LINE = "moved base:"
+
+
+def test_a_clean_move_passes_the_base_it_left_to_unit_test(tmp_path: Path) -> None:
+    recorder = fresh(tmp_path)
+    moving = Moving(recorder, restacked(old_base=OLD_BASE))
+
+    outcome = build(tmp_path, recorder, **moving.overrides())
+
+    assert outcome.status == "open"
+    assert recorder.unit_test_moved_from == [None, OLD_BASE], "the first check is not a moved base"
+
+
+def test_a_resolved_move_goes_to_rebase_and_its_unit_test_is_not_a_moved_base_check(
+    tmp_path: Path,
+) -> None:
+    recorder = fresh(tmp_path)
+    moving = Moving(
+        recorder, restacked(old_base=OLD_BASE), RESOLVED.model_copy(update={"old_base": "stale"})
+    )
+
+    build(tmp_path, recorder, **moving.overrides())
+
+    assert recorder.unit_test_moved_from == [None, OLD_BASE]
+
+
+def test_a_conflicting_move_goes_to_rebase_and_its_old_base_never_reaches_unit_test(
+    tmp_path: Path,
+) -> None:
+    recorder = fresh(tmp_path)
+    conflict = restacked(old_base="stale", conflict="CONFLICT in a.py")
+    moving = Moving(recorder, restacked(old_base=OLD_BASE), conflict)
+
+    build(tmp_path, recorder, **moving.overrides())
+
+    assert recorder.unit_test_moved_from == [None, OLD_BASE]
+
+
+def test_an_e2e_unit_still_runs_e2e_after_its_scoped_unit_test(tmp_path: Path) -> None:
+    recorder = fresh(tmp_path, tier="e2e-test")
+    moving = Moving(recorder, restacked(old_base=OLD_BASE))
+
+    outcome = build(tmp_path, recorder, **moving.overrides())
+
+    assert outcome.status == "open"
+    assert recorder.unit_test_moved_from[-1] == OLD_BASE
+    after = recorder.events[recorder.events.index("moved") :]
+    assert after.index("unit-test") < after.index("e2e-test") < after.index("push")
+
+
+def lines_logged(
+    tmp_path: Path,
+    *,
+    own: dict[str, str],
+    incoming: dict[str, str],
+    old_base: str | None = None,
+    setting: RestackCheck = RestackCheck.AFFECTED,
+) -> list[str]:
+    """What the real unit-test runner logs for a unit moved onto a base that gained `incoming`."""
+    limits: dict[str, Any] = {"unit_test_repeat_runs": 0}
+    if setting is RestackCheck.FULL:
+        limits["restack_check"] = setting.value
+    make_installation(tmp_path / "planning", limits=limits)
+    repo, left = moved(tmp_path, own=own, incoming=incoming)
+    logged: list[str] = []
+    unit_test = build_unit_test(profile=Profile(), run=passing, log=logged.append)
+    ok, _ = unit_test(cwd=repo, base="main", moved_from=left if old_base is None else old_base)
+    assert ok
+    return [line for line in logged if LINE in line]
+
+
+def test_a_move_over_disjoint_files_logs_one_moved_base_line(tmp_path: Path) -> None:
+    found = lines_logged(tmp_path, own={"a.py": "a = 2\n"}, incoming={"b.py": "b = 2\n"})
+
+    assert len(found) == 1
+    assert "ran the full suite" not in found[0], "a scoped move is not logged as a fallback"
+
+
+def test_a_file_the_unit_changes_is_logged_as_the_reason_for_the_full_suite(
+    tmp_path: Path,
+) -> None:
+    found = lines_logged(
+        tmp_path, own={"a.py": "a = 1\nx = 2\n"}, incoming={"a.py": "w = 0\na = 1\n"}
+    )
+
+    assert len(found) == 1
+    assert "full suite" in found[0] and "a.py" in found[0]
+
+
+def test_the_full_setting_is_logged_as_the_reason_for_the_full_suite(tmp_path: Path) -> None:
+    found = lines_logged(
+        tmp_path,
+        own={"a.py": "a = 2\n"},
+        incoming={"b.py": "b = 2\n"},
+        setting=RestackCheck.FULL,
+    )
+
+    assert len(found) == 1
+    assert "full suite" in found[0] and "restack_check" in found[0]
+
+
+def test_a_move_with_no_old_base_is_logged_as_the_reason_for_the_full_suite(
+    tmp_path: Path,
+) -> None:
+    found = lines_logged(
+        tmp_path, own={"a.py": "a = 2\n"}, incoming={"b.py": "b = 2\n"}, old_base=""
+    )
+
+    assert len(found) == 1
+    assert "full suite" in found[0] and "old base" in found[0]

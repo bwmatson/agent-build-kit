@@ -23,9 +23,9 @@ from agent_build_kit.pipeline.units import FAILED, HELD, PLANNED, ManualStep
 from agent_build_kit.pipeline.vocabulary import WaitReason
 from agent_build_kit.pipeline.wait_log import Wait
 from agent_build_kit.pipeline.workspaces import worktree_path
+from packages.worker.tests.graph.test_session_continuation import Sessions, agents
 from tests.conftest import make_installation, run_status
 from tests.factories import stored_unit, unit
-from tests.graph.test_session_continuation import Sessions, agents
 from tests.graph_driver import fresh, tick
 from tests.parked_split_support import stub_round
 from tests.redaction_fakes import SECRET, known

@@ -27,10 +27,10 @@ from agent_build_kit.pipeline.stack_runner import (
 )
 from agent_build_kit.pipeline.standards_guidance import standards_guidance
 from agent_build_kit.pipeline.unit_store import FeedbackSource
+from packages.worker.tests.graph.test_build_path import build
+from packages.worker.tests.graph.test_rework_guidance import requeue
 from tests.factories import unit
 from tests.graph.branch_fakes import prepared, titled
-from tests.graph.test_build_path import build
-from tests.graph.test_rework_guidance import requeue
 from tests.graph_driver import fresh, tick
 from tests.prompt_text import filled, flat
 from tests.runner_fakes import rejecting

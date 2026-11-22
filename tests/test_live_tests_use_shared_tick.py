@@ -9,8 +9,8 @@ from pathlib import Path
 import pytest
 
 from tests.live_tag_drift import find_live_modules
-from tests.runtime_tag_collection import ROOT
 from tests.time_limit import LOADED_TEST_TIME_LIMIT
+from tests.tracked_files import test_trees
 
 TESTS = Path(__file__).resolve().parent
 INTEGRATION = TESTS / "integration"
@@ -22,7 +22,7 @@ SHARED = TESTS / "scratch_tick.py"
 
 def live_files() -> list[Path]:
     """The three live tests and every other integration test marked `e2e`."""
-    return sorted({GRAPH, BUILD, TELEMETRY, *find_live_modules(ROOT / "tests")})
+    return sorted({GRAPH, BUILD, TELEMETRY, *find_live_modules(*test_trees())})
 
 
 def strings_in(node: ast.AST) -> list[str]:

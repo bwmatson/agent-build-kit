@@ -6,14 +6,12 @@ it over the real `tests/` tree.
 
 from __future__ import annotations
 
-from pathlib import Path
-
 import pytest
 
 from tests.hand_walks import hand_walks
 from tests.time_limit import LOADED_TEST_TIME_LIMIT
+from tests.tracked_files import ROOT, test_trees
 
-TESTS = Path(__file__).resolve().parent
 # Modules that walk only `src/` or `tests/`, or only name the calls, each with its reason.
 UNLISTED_WALKS = {
     "test_atomic_write_guard.py": "walks src/ only",
@@ -78,8 +76,8 @@ def test_a_call_on_a_temporary_path_passes() -> None:
 @pytest.mark.integration
 def test_no_test_module_walks_the_checkout_by_hand() -> None:
     problems = [
-        f"{path.relative_to(TESTS.parent)}:{line}"
-        for path in sorted(TESTS.rglob("*.py"))
+        f"{path.relative_to(ROOT)}:{line}"
+        for path in sorted(path for tree in test_trees() for path in tree.rglob("*.py"))
         if path.name not in UNLISTED_WALKS
         for line in hand_walks(path.read_text())
     ]

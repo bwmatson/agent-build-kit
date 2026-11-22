@@ -25,8 +25,10 @@ does not know is not found; the baseline and the audit catch those, and the guar
 from __future__ import annotations
 
 import ast
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Mapping, Sequence
 from pathlib import Path
+
+from tests.tracked_files import ROOT, test_tree_prefix, test_trees
 
 TESTS_ROOT = Path(__file__).parent
 BASELINE_FILE = TESTS_ROOT / "wide_scans_baseline.txt"
@@ -161,32 +163,39 @@ def walk_tests(
 
 
 def check_modules(
-    root: Path,
+    root: Path | Sequence[Path],
     find: Callable[[str], Mapping[str, str]],
     *,
     baseline: frozenset[str],
     baseline_file: Path,
     new_message: Callable[[str, str], str],
     stale_reason: str,
+    repository: Path = ROOT,
 ) -> list[str]:
     """The skeleton both guards share: `find` maps a module's text to its offending tests (name to
     detail); one message per offender the baseline does not name, one per baseline entry that
-    offends no longer, and one per module that cannot be parsed."""
+    offends no longer, and one per module that cannot be parsed. `root` is a folder of test
+    modules or the test trees of the repository (`tracked_files.test_trees`); a module is named
+    relative to its tree, with the tree's folder before it for a package's tests."""
     found: dict[str, str] = {}
     problems: list[str] = []
-    for path in sorted(root.rglob("test_*.py")):
-        if any(
-            part.startswith(".") or part == "child_modules" for part in path.relative_to(root).parts
-        ):
-            continue
-        relative = path.relative_to(root).as_posix()
-        try:
-            offenders = find(path.read_text())
-        except SyntaxError as error:
-            problems.append(f"{relative}: cannot be parsed ({error.msg}, line {error.lineno})")
-            continue
-        for name, detail in offenders.items():
-            found[f"{relative}::{name}"] = detail
+    trees = [root] if isinstance(root, Path) else list(root)
+    for tree in trees:
+        prefix = test_tree_prefix(tree, repository)
+        for path in sorted(tree.rglob("test_*.py")):
+            if any(
+                part.startswith(".") or part == "child_modules"
+                for part in path.relative_to(tree).parts
+            ):
+                continue
+            relative = prefix + path.relative_to(tree).as_posix()
+            try:
+                offenders = find(path.read_text())
+            except SyntaxError as error:
+                problems.append(f"{relative}: cannot be parsed ({error.msg}, line {error.lineno})")
+                continue
+            for name, detail in offenders.items():
+                found[f"{relative}::{name}"] = detail
     problems += [new_message(entry, found[entry]) for entry in sorted(found.keys() - baseline)]
     problems += [
         f"{entry}: stale baseline entry, {stale_reason}; remove it from {baseline_file.name}"
@@ -223,11 +232,18 @@ def _unmarked_scans(text: str) -> dict[str, str]:
     }
 
 
-def check_tests(root: Path = TESTS_ROOT, *, baseline: frozenset[str]) -> list[str]:
-    """One message per problem in the test modules under `root`."""
+def check_tests(
+    root: Path | Sequence[Path] | None = None,
+    *,
+    baseline: frozenset[str],
+    repository: Path = ROOT,
+) -> list[str]:
+    """One message per problem in the test modules under `root`; every test tree of `repository`
+    when none is given."""
     return check_modules(
-        root,
+        test_trees(repository) if root is None else root,
         _unmarked_scans,
+        repository=repository,
         baseline=baseline,
         baseline_file=BASELINE_FILE,
         new_message=lambda entry, _: (
