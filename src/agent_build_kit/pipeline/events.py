@@ -115,6 +115,7 @@ from agent_build_kit.pipeline.restack import (
     keep_base,
     push_with_lease,
     remote_head,
+    remote_heads,
     resolved_move,
     retried_once,
 )
@@ -999,8 +1000,9 @@ def release_children(
             unmoved(child, f"{type(error).__name__}: {error}")
             continue
 
+    reasons: list[str] = []
     if repos is not None:
-        _keep_base_and_delete(leaving, graph, repos, log)
+        reasons.append(_keep_base_and_delete(leaving, graph, repos, log))
 
     if rebase_cap is not None:
         still_held = _reconsider_held(
@@ -1015,42 +1017,59 @@ def release_children(
     if owed_a_move:
         # The pass check (`remove_satisfied`) removes it once the last of them has moved.
         log(f"{leaving.id}: branch {old_base} kept — {', '.join(owed_a_move)} owed their move")
+        reasons.append(f"{', '.join(owed_a_move)} owed their move off it")
     elif remove_worktree and delete_branch:
-        _remove_leaving(
-            leaving,
-            graph=store.all(),
-            claim=claim,
-            remove_worktree=remove_worktree,
-            delete_branch=delete_branch,
-            building_on_it=building_on_it,
-            held_for_depth=held_for_depth,
-            not_moved=not_moved,
-            repos=repos,
-            log=log,
+        reasons.append(
+            _remove_leaving(
+                leaving,
+                graph=store.all(),
+                claim=claim,
+                remove_worktree=remove_worktree,
+                delete_branch=delete_branch,
+                building_on_it=building_on_it,
+                held_for_depth=held_for_depth,
+                not_moved=not_moved,
+                repos=repos,
+                log=log,
+            )
         )
+    if leaving.state == MERGED:
+        store.set_branch_kept(leaving.id, _joined(reasons))
     return failures
+
+
+def _in_one_piece(error: Exception) -> str:
+    """An error's text with the reasons' separator taken out, so a stored reason splits back
+    into the reasons it was joined from."""
+    return str(error).replace("; ", ", ")
+
+
+def _joined(reasons: list[str]) -> str:
+    return "; ".join(reason for reason in reasons if reason)
 
 
 def _keep_base_and_delete(
     leaving: StoredUnit, graph: list[StoredUnit], repos: dict[str, Path], log: Log
-) -> None:
-    """At a merge with units stacked on it: keep the branch's last head under a local ref,
-    and delete its remote branch unless the host does, when the repo's setting says to."""
+) -> str:
+    """At a merge: keep the branch's last head under a local ref when units are stacked on it,
+    and delete its remote branch unless the host does, when the repo's setting says to. The
+    reason the remote branch was kept, empty when it was not."""
     if leaving.state == SATISFIED or leaving.repo not in repos:
-        return
+        return ""
     if not config_module.active().repos[leaving.repo].delete_merged_branches:
-        return
+        return ""
     branch = branch_name(leaving)
-    if not any(base_of(child, graph) != branch for child in _children_of(leaving, graph)):
-        return
-    if not keep_base(repos[leaving.repo], branch):
-        return
+    stacked = any(base_of(child, graph) != branch for child in _children_of(leaving, graph))
+    if stacked and not keep_base(repos[leaving.repo], branch):
+        return ""
     try:
         forge, repo_id = forges.for_repo(leaving.repo)
         if not forge.deletes_head_branch_on_merge:
             forge.delete_remote_branch(repo_id, branch)
     except Exception as error:  # noqa: BLE001
         log(f"{leaving.id}: remote branch {branch} not deleted — {error}")
+        return f"{REMOTE_KEPT}the host refused to delete it: {_in_one_piece(error)}"
+    return ""
 
 
 def remove_merged_branches(
@@ -1063,29 +1082,94 @@ def remove_merged_branches(
     on_new_base: Callable[[StoredUnit], bool],
     log: Log = print,
 ) -> None:
-    """The check each pass makes for the merged units whose branch is still there: it goes
-    (`remove_satisfied`) on the first pass after the last unit stacked on it has moved."""
+    """The check each pass makes for the merged units whose branch is still there, here or on
+    the remote: the remote branch goes once no open pull request is based on it, and the
+    local one (`remove_satisfied`) on the first pass after the last unit stacked on it has
+    moved. What keeps a branch is stored on the unit, and cleared once both are gone. A repo
+    whose setting is off, or whose remote could not be read, has its remote side unknown: what
+    is stored for that side is left as it is."""
     merged = [u for u in store.all() if u.state == MERGED and u.repo in repos]
     local: dict[str, set[str]] = {}
+    remote: dict[str, set[str] | None] = {}
     for repo in {unit.repo for unit in merged}:
-        # One read for the repo, not one for each merged unit the store keeps.
+        # One read of each for the repo, not one for each merged unit the store keeps.
         listed = git(
             repos[repo], "for-each-ref", "--format=%(refname:short)", "refs/heads/", check=False
         )
         local[repo] = set(listed.stdout.split()) if not listed.returncode else set()
-    for unit in merged:
-        if branch_name(unit) not in local[unit.repo]:
-            continue
-        remove_satisfied(
-            unit,
-            store=store,
-            claim=claim,
-            remove_worktree=remove_worktree,
-            delete_branch=delete_branch,
-            on_new_base=on_new_base,
-            repos=repos,
-            log=log,
+        remote[repo] = (
+            remote_heads(repos[repo])
+            if config_module.active().repos[repo].delete_merged_branches
+            else None
         )
+    open_bases: dict[str, set[str]] = {}
+    for unit in merged:
+        branch = branch_name(unit)
+        heads = remote[unit.repo]
+        on_remote = heads is not None and branch in heads
+        here = branch in local[unit.repo]
+        # What is stored for a remote side this pass cannot see.
+        carried = (
+            [r for r in unit.branch_kept.split("; ") if r.startswith(REMOTE_KEPT)]
+            if heads is None
+            else []
+        )
+        if not (here or on_remote):
+            # Gone here, and gone there or unknown: only a remote reason can still stand.
+            if _joined(carried) != unit.branch_kept:
+                store.set_branch_kept(unit.id, _joined(carried))
+            continue
+        reasons: list[str] = carried
+        if on_remote:
+            reasons.append(_delete_remote_branch(unit, open_bases, log))
+        if here:
+            reasons.append(
+                remove_satisfied(
+                    unit,
+                    store=store,
+                    claim=claim,
+                    remove_worktree=remove_worktree,
+                    delete_branch=delete_branch,
+                    on_new_base=on_new_base,
+                    repos=repos,
+                    log=log,
+                )
+            )
+        kept = _joined(reasons)
+        if kept != unit.branch_kept:
+            store.set_branch_kept(unit.id, kept)
+
+
+# Opens every stored reason a remote branch is kept, so a pass that cannot read the remote can
+# tell that side's reason from the local one.
+REMOTE_KEPT = "remote branch kept: "
+
+
+def _delete_remote_branch(unit: StoredUnit, open_bases: dict[str, set[str]], log: Log) -> str:
+    """Ask the host to delete a merged unit's remote branch unless an open pull request is
+    based on it. The reason it was kept, empty when it was deleted."""
+    branch = branch_name(unit)
+    try:
+        forge, repo_id = forges.for_repo(unit.repo)
+    except Exception as error:  # noqa: BLE001
+        log(f"{unit.id}: remote branch {branch} not deleted — {error}")
+        return f"{REMOTE_KEPT}the host could not be reached: {_in_one_piece(error)}"
+    if unit.repo not in open_bases:
+        try:
+            open_bases[unit.repo] = {
+                pr.base for pr in forge.list_prs(repo_id) if pr.state not in (MERGED, CLOSED)
+            }
+        except Exception as error:  # noqa: BLE001
+            log(f"{unit.id}: remote branch {branch} kept — pull requests not read: {error}")
+            return f"{REMOTE_KEPT}open pull requests could not be read: {_in_one_piece(error)}"
+    if branch in open_bases[unit.repo]:
+        return f"{REMOTE_KEPT}an open pull request is based on it"
+    try:
+        forge.delete_remote_branch(repo_id, branch)
+    except Exception as error:  # noqa: BLE001
+        log(f"{unit.id}: remote branch {branch} not deleted — {error}")
+        return f"{REMOTE_KEPT}the host refused to delete it: {_in_one_piece(error)}"
+    return ""
 
 
 def owed_its_move(unit: StoredUnit) -> bool:
@@ -1105,7 +1189,7 @@ def remove_satisfied(
     on_new_base: Callable[[StoredUnit], bool],
     repos: dict[str, Path] | None = None,
     log: Log = print,
-) -> None:
+) -> str:
     """Remove a satisfied unit's worktree and branch, once the run that found it
     satisfied has left its tree, by the rules a merged unit's removal follows.
 
@@ -1124,13 +1208,13 @@ def remove_satisfied(
         # Neither the tree nor the branch goes while a unit is owed a move off it, or
         # making one: the worker that moves it needs the branch it leaves.
         log(f"{leaving.id}: branch {old_base} kept — {', '.join(owed)} owed their move")
-        return
+        return f"{', '.join(owed)} owed their move off it"
     for dependent in dependents_of(leaving, graph):
         if dependent.state == HELD and dependent.held_base == old_base:
             held_for_depth.append(dependent.id)
         elif dependent.id in children and not on_new_base(dependent):
             not_moved.append(dependent.id)
-    _remove_leaving(
+    return _remove_leaving(
         leaving,
         graph=graph,
         claim=claim,
@@ -1156,7 +1240,9 @@ def _remove_leaving(
     not_moved: list[str],
     repos: dict[str, Path] | None = None,
     log: Log,
-) -> None:
+) -> str:
+    """Remove the leaving unit's worktree and local branch; the reason they were kept, empty
+    when both are gone."""
     old_base = branch_name(leaving)
 
     # Last, and only the leaving unit's own: a child still has an open PR and
@@ -1170,7 +1256,7 @@ def _remove_leaving(
         # and the branch stays too: deleting it would strand that work on a
         # checkout with no ref pointing at it.
         log(f"{leaving.id}: worktree and branch left in place — {error}")
-        return
+        return str(error)
 
     # A build holds its lock and fixes its base ref while its unit still reads
     # `planned`, so the state alone misses one that is just starting. The lock
@@ -1194,13 +1280,13 @@ def _remove_leaving(
     if held_for_depth:
         # Still based on this branch, and not moved: deleting it strands them.
         log(f"{leaving.id}: branch {old_base} kept — {', '.join(held_for_depth)} held for depth")
-        return
+        return f"{', '.join(held_for_depth)} held for depth"
 
     if not_moved:
         # Still based on this branch, and left for a person: deleting it
         # strands them.
         log(f"{leaving.id}: branch {old_base} kept — {', '.join(not_moved)} not moved off it")
-        return
+        return f"{', '.join(not_moved)} not moved off it"
 
     if building_on_it:
         # A running build fixed its base ref when it started, and for a stacked
@@ -1209,7 +1295,7 @@ def _remove_leaving(
         # no commits" before its next step can hold it. A leftover local
         # branch is harmless; the child's resume moves it off by name.
         log(f"{leaving.id}: branch {old_base} kept — {', '.join(building_on_it)} building on it")
-        return
+        return f"{', '.join(building_on_it)} building on it"
 
     try:
         # Only now: a branch checked out in a worktree cannot be deleted, so
@@ -1217,10 +1303,11 @@ def _remove_leaving(
         delete_branch(leaving.repo, old_base)
     except Exception as error:  # noqa: BLE001
         log(f"{leaving.id}: branch {old_base} left in place — {error}")
-        return
+        return f"the local branch could not be deleted: {error}"
     if repos is not None and leaving.repo in repos:
         # Nothing is owed a move off it now: the kept head goes with the branch.
         drop_base(repos[leaving.repo], old_base)
+    return ""
 
 
 def _commit_in_hand(event: dict[str, Any]) -> str | None:

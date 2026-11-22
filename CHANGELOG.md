@@ -11,7 +11,10 @@
   completion then sets `deleteSourceBranch`), except for a unit another still builds on.
   `abk doctor` also reads a GitHub repository's own "automatically delete head branches"
   setting, warns when it is off while `delete_merged_branches` is on, and `abk doctor
-  --fix` turns it on; a setting it cannot read is an info line.
+  --fix` turns it on; a setting it cannot read is an info line. Settling now ends with a
+  branch check, and each pass makes it for merged units: the first pass deletes the remote
+  branches of units merged earlier that were left behind, once no open pull request is based
+  on them. `abk status` lists a merged unit whose branch is kept, with the reason.
 
 - A replan now shows where a group's floor, the planner's mode and the stored mode differ
   (`planner not recorded` when the plan kept no reply), and `abk tags` and `abk check` warn of

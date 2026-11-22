@@ -374,6 +374,9 @@ class StoredUnit(Unit):
     # When a merged pull request with no commit on the default branch stops being waited for and
     # its unit is held `landing_unknown`; None when no such wait is running.
     landing_deadline: datetime | None = None
+    # Why a merged unit's remote or local branch is still there (a worktree with uncommitted
+    # changes, a child building on it, a refused deletion); empty once both are gone.
+    branch_kept: str = ""
     # The pull request's changed lines as the reviewer sees them, generated
     # files left out; None until it has a pull request.
     actual_lines: int | None = None
@@ -1707,6 +1710,9 @@ class UnitStore:
 
     def set_landing_deadline(self, unit_id: str, deadline: datetime | None) -> None:
         self._update(unit_id, landing_deadline=deadline)
+
+    def set_branch_kept(self, unit_id: str, reason: str) -> None:
+        self._update(unit_id, branch_kept=reason)
 
     def set_base_move_failures(self, unit_id: str, failures: int) -> None:
         self._update(unit_id, base_move_failures=failures)

@@ -1103,6 +1103,31 @@ def remote_head(repo: Path, branch: str) -> str | None:
     return found.stdout.split()[0] if found.stdout.strip() else ""
 
 
+def remote_heads(repo: Path) -> set[str] | None:
+    """The names of every branch where branches are pushed, in one read; None when it could
+    not be asked (no origin, a failed read, or one that timed out).
+
+    Read from `push_target`, as `remote_head` does.
+    """
+    if not shell.has_origin(repo):
+        return None
+    try:
+        found = git(
+            repo,
+            "ls-remote",
+            "--heads",
+            push_target(repo),
+            check=False,
+            timeout=REMOTE_READ_TIMEOUT_SECONDS,
+        )
+    except subprocess.TimeoutExpired:
+        return None
+    if found.returncode:
+        return None
+    prefix = "refs/heads/"
+    return {line.split(prefix, 1)[1] for line in found.stdout.splitlines() if prefix in line}
+
+
 def host_holds_same_changes(
     repo: Path,
     branch: str,

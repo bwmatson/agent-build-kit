@@ -262,8 +262,9 @@ repos:                        # ordered; a task group's [repo] tag is a key here
     path: /abs/path/to/repo   # the checkout
     slug: owner/name          # GitHub; the owner picks the gh account
     default_branch: main
-    delete_merged_branches: true  # delete a merged parent's branch on the host when units are
-                              # stacked on it; its head is kept locally for their restacks
+    delete_merged_branches: true  # delete a merged unit's remote branch (at the merge and on each
+                              # pass, once no open pull request is based on it); the head is
+                              # kept locally for the restacks of units stacked on it
     landing_wait: 3600        # seconds (> 0) a merged pull request with no commit on the
                               # default branch is waited for; then the unit is held
                               # `landing_unknown` unless its changes are there

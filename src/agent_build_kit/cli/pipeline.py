@@ -996,6 +996,9 @@ def cmd_status(args: argparse.Namespace, inst: Installation) -> int:
     log(_snapshot_line(inst))
 
     units = run_support.store_for(inst).all()
+    for unit in units:
+        if unit.state == MERGED and unit.branch_kept:
+            log(f"{unit.id}: merged, branch {branch_name(unit)} kept — {unit.branch_kept}")
     unit_of_branch = {branch_name(unit): (unit.id, unit.repo) for unit in units}
     if not units:
         log("no units planned")
