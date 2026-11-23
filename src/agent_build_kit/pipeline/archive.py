@@ -22,6 +22,8 @@ failure is logged and the change skipped; the next tick tries it again.
 
 from __future__ import annotations
 
+import hashlib
+import json
 import logging
 import shutil
 import subprocess
@@ -32,7 +34,7 @@ from agent_build_kit import openspec
 from agent_build_kit.installation import changes_dir_under
 from agent_build_kit.orchestration.artifacts import Artifacts
 from agent_build_kit.orchestration.local.directories import E2E_OUTPUTS
-from agent_build_kit.pipeline.file_lock import change_lock
+from agent_build_kit.pipeline.file_lock import atomic_write_text, change_lock
 from agent_build_kit.pipeline.run_log import remove_change_logs
 from agent_build_kit.pipeline.scratch import remove_leftovers
 from agent_build_kit.pipeline.task_progress import (
@@ -158,6 +160,7 @@ def archive_ready_changes(
     worktrees: Callable[[str], list[Path]] = lambda change: [],
     tracked: Tracked | None = None,
     publish: Callable[[str], None] | None = None,
+    failures: Path | None = None,
 ) -> list[str]:
     """Archive every change whose units have all merged, oldest merge first —
     and that `may_archive` lets through: the tick passes whether the change
@@ -165,7 +168,9 @@ def archive_ready_changes(
     change's worktrees, whose scratch folders are cleared once it is archived.
 
     A change that fails to archive, or has no directory (withdrawn), is logged
-    and skipped.
+    and skipped. With `failures`, a failure is recorded there with a hash of the
+    change's files, and the change is not tried again until those files change:
+    an archive that failed on what the change says fails the same way every tick.
 
     Returns the changes archived, so the caller can commit them and say so in
     the run log.
@@ -180,10 +185,14 @@ def archive_ready_changes(
     }
 
     archived: list[str] = []
+    failed = read_archive_failures(failures) if failures is not None else {}
     for change in sorted(ready, key=lambda name: _merged_at(name, units)):
         directory = changes_dir_under(planning_repo, specs_dir) / change
         if not directory.is_dir():
             logger.warning("not archiving %s: withdrawn, no change directory", change)
+            continue
+        digest = change_files_hash(directory)
+        if change in failed and failed[change].get("hash") == digest:
             continue
         folder = progress_dir(tracked, change) if tracked is not None else None
         before: dict[Path, str | None] = {}
@@ -198,7 +207,12 @@ def archive_ready_changes(
         except RuntimeError as exc:
             _restore(before)
             logger.warning("archiving %s failed, skipping it: %s", change, str(exc))
+            if failures is not None:
+                failed[change] = {"hash": digest, "error": _archive_error(str(exc))}
+                _write_archive_failures(failures, failed)
             continue
+        if failures is not None and failed.pop(change, None) is not None:
+            _write_archive_failures(failures, failed)
         archived.append(change)
         if publish is not None:
             publish(change)
@@ -225,3 +239,41 @@ def archive_ready_changes(
                 remove_leftovers(worktree)
 
     return archived
+
+
+ARCHIVE_FAILURES = "archive_failures.json"
+
+
+def change_files_hash(directory: Path) -> str:
+    """A hash of every file of a change, so a failed archive is tried again once it is edited."""
+    digest = hashlib.sha256()
+    for path in sorted(directory.rglob("*")):
+        if path.is_file() and not path.name.endswith(".lock"):
+            digest.update(str(path.relative_to(directory)).encode())
+            digest.update(path.read_bytes())
+    return digest.hexdigest()
+
+
+def _archive_error(text: str) -> str:
+    """The lines of an archive failure that say what is wrong: the last ones, without the
+    warnings and the task status the CLI prints before them."""
+    noise = ("⚠", "proposal warnings", "task status", "aborted. no files were changed")
+    lines = [
+        line.strip()
+        for line in text.splitlines()
+        if line.strip() and not line.strip().lower().startswith(noise)
+    ]
+    return " ".join(lines[-3:])[:500]
+
+
+def read_archive_failures(path: Path) -> dict[str, dict[str, str]]:
+    """The changes whose archive failed, each with the hash of its files then and the error."""
+    try:
+        raw = json.loads(path.read_text())
+    except (OSError, ValueError):
+        return {}
+    return raw if isinstance(raw, dict) else {}
+
+
+def _write_archive_failures(path: Path, failed: dict[str, dict[str, str]]) -> None:
+    atomic_write_text(path, json.dumps(failed, indent=2, sort_keys=True) + "\n")

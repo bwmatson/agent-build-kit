@@ -105,9 +105,11 @@ from agent_build_kit.pipeline.admission_record import (
     read_admissions,
 )
 from agent_build_kit.pipeline.archive import (
+    ARCHIVE_FAILURES,
     _already_archived,
     archive_ready_changes,
     is_ready_to_archive,
+    read_archive_failures,
 )
 from agent_build_kit.pipeline.audit_record import audit_status_lines
 from agent_build_kit.pipeline.config_guard import warning_lines as config_warning_lines
@@ -298,6 +300,8 @@ from agent_build_kit.pipeline.unit_store import (
     PARK_BACKOFF,
     PARKED_CAUSES,
     REQUEUE_BY,
+    REQUEUED_BY_PIPELINE,
+    REQUEUED_ON_LOGIN,
     UNPLANNED,
     Cause,
     FeedbackSource,
@@ -912,6 +916,10 @@ def cmd_status(args: argparse.Namespace, inst: Installation) -> int:
     """What the pipeline thinks is going on, without changing anything."""
     if off := guard_off_line():
         log(off)
+    from agent_build_kit.cli.attention_cmd import items_for
+
+    if needs := items_for(inst):
+        log(f"attention: {len(needs)} item(s) need a person — `abk attention` lists them")
     for paused in pauses_in_force(inst.state_dir):
         log(pause_report(inst, paused))
     for outage in code_host.long_outages(inst, spans.clock.now()):
@@ -966,6 +974,11 @@ def cmd_status(args: argparse.Namespace, inst: Installation) -> int:
             continue
         for line in plan_review.finding_lines(review):
             log(f"  {change}: {line}")
+    for change, failure in read_archive_failures(inst.state_dir / ARCHIVE_FAILURES).items():
+        log(
+            f"archive: {change} failed and waits for its files to change: "
+            f"{failure.get('error', '')}"
+        )
     for line in gate_status_lines(
         inst, now=spans.clock.now(), refresh=getattr(args, "refresh", False)
     ):
@@ -2272,7 +2285,10 @@ def record_login_pauses(inst: Installation) -> list[str]:
             continue
         if not rejected_login_note(claude_account.for_repo(inst.config, unit.repo)):
             continue
-        if requeue(inst, unit.id, "resume", say=lambda text, **_: log(text), by=REQUEUE_BY) == 0:
+        if (
+            requeue(inst, unit.id, "resume", say=lambda text, **_: log(text), by=REQUEUED_ON_LOGIN)
+            == 0
+        ):
             revived.append(unit.id)
             log(f"{unit.id}: failed on a rejected login, resumed to wait for it")
     return revived
@@ -2506,6 +2522,7 @@ def _verify_and_archive(
             worktrees=_worktrees_of(inst, units),
             tracked=inst,
             publish=_archive_publisher(inst),
+            failures=inst.state_dir / ARCHIVE_FAILURES,
         ):
             log(f"archived {change}")
 
@@ -7626,9 +7643,12 @@ def cmd_approve(args: argparse.Namespace, inst: Installation) -> int:
     return code
 
 
-def requeue_refusal(unit: StoredUnit) -> str | None:
-    """Why `unit` cannot be requeued as stored; None when it can."""
+def requeue_refusal(unit: StoredUnit, *, idle: bool = False) -> str | None:
+    """Why `unit` cannot be requeued as stored; None when it can. A running unit no run holds
+    (`idle`) can be: it is waiting to resume, and a requeue replaces what it was asked."""
     if unit.state in (FAILED, HELD):
+        return None
+    if unit.state == RUNNING and idle:
         return None
     if unit.state == PLANNED and parked_on_split(unit):
         if unit.pr is not None:
@@ -7684,9 +7704,12 @@ def requeue(
             error=True,
         )
         return 2
-    if (refusal := requeue_refusal(known[unit_id])) is not None:
+    idle = known[unit_id].state == RUNNING and unit_id in _idle_units(inst, [known[unit_id]], ())
+    if (refusal := requeue_refusal(known[unit_id], idle=idle)) is not None:
         say(refusal)
         return 1
+    # Who asked, on every history entry this requeue writes: a person, or the pipeline itself.
+    by = by or REQUEUED_BY_PIPELINE
     if note and mode == "resume":
         say(
             f"{unit_id}: a note is read by the agent, and a plain requeue resumes a step "
@@ -7795,7 +7818,12 @@ def requeue(
             f"{unit_id} thread resumed ({mode}): {outcome.status} — {outcome.detail}",
             error=delivered.raised,
         )
-        return 1 if delivered.raised else _requeued(store, unit_id, clears_park)
+        if delivered.raised:
+            return 1
+        # The thread's own entry says only "requeue: <mode>": it is told who asked.
+        store.mark_last_entry(unit_id, by=by)
+        _say_what_stops(inst, store.get(unit_id), say)
+        return _requeued(store, unit_id, clears_park)
     if note and mode != "restart":
         store.set_guidance(unit_id, note)
     if mode == "rework":
@@ -7837,7 +7865,23 @@ def requeue(
             by=by,
         )
         say(f"{unit_id} requeued, resuming where it stopped")
+    _say_what_stops(inst, store.get(unit_id), say)
     return _requeued(store, unit_id, clears_park)
+
+
+def _say_what_stops(inst: Installation, unit: StoredUnit, say: Callable[..., None]) -> None:
+    """Tell the person what will keep a requeued unit from starting, so "delivered" is not read
+    as "running": its change's plan-review hold, or a hold by someone outside the kit."""
+    if unit.unstarted and unit.change in plan_review.held_changes(inst):
+        say(
+            f"{unit.id} will not start until the plan review of {unit.change} is resolved: "
+            f"`abk review-plan show {unit.change}`"
+        )
+    if unit.id in held_units(inst.changes_dir, [unit]):
+        say(
+            f"{unit.id} will not start while {unit.change} is held outside the kit "
+            "(`abk status` lists the hold)"
+        )
 
 
 def _parked_resume_refusal(inst: Installation, unit: StoredUnit) -> str | None:

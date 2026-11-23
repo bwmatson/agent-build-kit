@@ -65,6 +65,7 @@ COMMAND_MODULES = (
     "agent_build_kit.cli.units_cmd",
     "agent_build_kit.cli.carry_cmd",
     "agent_build_kit.cli.review_plan_cmd",
+    "agent_build_kit.cli.attention_cmd",
 )
 
 # Commands a separately installed package registers: the entry-point group names each one.

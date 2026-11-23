@@ -35,6 +35,9 @@ def pipeline(
 
     monkeypatch.setattr("agent_build_kit.run_support.has_thread", lambda inst, unit_id: False)
     monkeypatch.setattr(run_support, "resume_thread", lambda inst, unit, kind, **kwargs: None)
+    # The seeded running units are being built: a run holds each branch. (A running unit no run
+    # holds is waiting to resume, and a requeue of it is accepted.)
+    monkeypatch.setattr(run_support, "branch_is_held", lambda inst, branch: True)
     seed_pipeline(inst)
     return api
 

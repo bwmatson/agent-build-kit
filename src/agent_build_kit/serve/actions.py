@@ -26,7 +26,7 @@ from agent_build_kit.cli.pipeline import (
 from agent_build_kit.installation import Installation
 from agent_build_kit.pipeline.pr_poller import HOLD_LABEL
 from agent_build_kit.pipeline.unit_store import REQUEUE_BY, StoredUnit
-from agent_build_kit.pipeline.units import HELD, IN_REVIEW
+from agent_build_kit.pipeline.units import HELD, IN_REVIEW, RUNNING
 from agent_build_kit.run_support import store_for
 
 ACTIONS = ("requeue", "hold", "release", "approve")
@@ -40,7 +40,11 @@ class ActionBody(BaseModel):
 def refusal(action: str, unit: StoredUnit, installation: Installation) -> str | None:
     """Why `action` does not apply to `unit` as stored; None when it does."""
     if action == "requeue":
-        return requeue_refusal(unit)
+        # The CLI's own test of a running unit: one no run holds is waiting to resume.
+        from agent_build_kit.cli.pipeline import _idle_units
+
+        idle = unit.state == RUNNING and unit.id in _idle_units(installation, [unit], ())
+        return requeue_refusal(unit, idle=idle)
     if action == "hold":
         if unit.state == IN_REVIEW and unit.pr is not None:
             return None
