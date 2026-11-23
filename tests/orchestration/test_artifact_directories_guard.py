@@ -13,7 +13,7 @@ from pathlib import Path
 
 import pytest
 
-from tests.tracked_files import ROOT, guarded_files, source_trees
+from tests.tracked_files import guarded_files, source_tree_folders, source_trees
 
 # Relative to each package's source folder, as the modules of the guard are named.
 LOCAL_IMPLEMENTATION = Path("orchestration") / "local"
@@ -106,8 +106,8 @@ def test_a_path_joined_to_any_other_name_is_not_an_offence() -> None:
 def test_no_module_outside_the_local_implementation_opens_an_artifact_path() -> None:
     offenders = [
         path.relative_to(root).as_posix()
-        for root in source_trees()
-        for path in guarded_files(under=[root.relative_to(ROOT).as_posix()], suffixes={".py"})
+        for root, folder in zip(source_trees(), source_tree_folders(), strict=True)
+        for path in guarded_files(under=[folder], suffixes={".py"})
         if LOCAL_IMPLEMENTATION not in path.relative_to(root).parents
         and path.relative_to(root).as_posix() not in ALLOWED
         and opens_an_artifact_path(ast.parse(path.read_text()))

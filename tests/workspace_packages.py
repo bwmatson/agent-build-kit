@@ -1,8 +1,8 @@
 """The packages of the kit's uv workspace, defined once for the tests of its layout.
 
-`PACKAGES` maps each package's name to its project folder (the root project and each folder
-under `packages/`), so a new package is picked up without an edit here. Where the source trees
-of the packages are, and how a guard walks them, is `tests/tracked_files.py`'s `source_trees`.
+`PACKAGES` maps each package's name to its project folder (the root project and each package
+under `packages/`), derived from `tests/tracked_files.py`'s `source_trees`, which is also how a
+guard walks the source, so a new package is picked up without an edit here.
 `shared_init_files` names a folder's `__init__.py` that more than one package ships (a package
 split across projects keeps it in one only).
 """
@@ -12,16 +12,13 @@ from __future__ import annotations
 from collections.abc import Mapping
 from pathlib import Path
 
-from tests.tracked_files import ROOT
+from tests.tracked_files import ROOT, source_trees
 
 PACKAGE_NAME = "agent_build_kit"
+# Derived from the source trees, so the two cannot disagree about where a package's modules sit.
 PACKAGES: dict[str, Path] = {
-    "root": ROOT,
-    **{
-        project.name: project
-        for project in sorted((ROOT / "packages").iterdir())
-        if (project / "pyproject.toml").is_file()
-    },
+    "root" if tree.parents[1] == ROOT else tree.parents[1].name: tree.parents[1]
+    for tree in source_trees()
 }
 
 

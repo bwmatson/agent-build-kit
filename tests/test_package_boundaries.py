@@ -1,9 +1,11 @@
 """The guard that the worker's and the orchestrator's modules never import each other (spec:
 package-boundaries).
 
-An AST scan of `src/agent_build_kit` assigns every module to the core, the worker or the
-orchestrator from the seeds in `tests/support/package_seeds.py`: the longest seed that names the
-module or a package above it wins, and a module no seed names is core. A module that a core
+An AST scan of every source tree of the `agent_build_kit` namespace (`source_trees` in
+`tests/tracked_files.py`: the root package's and each package's under `packages/`) assigns every
+module to the core, the worker or the orchestrator from the seeds in
+`tests/support/package_seeds.py`: the longest seed that names the module or a package above it
+wins, and a module no seed names is core. A module that a core
 module imports at module level is then lifted into the core, unless a seed names that very
 module (a seed that names a module pins it; one that names a package is lifted from). The scan
 fails on an import between a worker and an orchestrator module, on a core module importing a

@@ -100,7 +100,13 @@ search-path = ["src", "packages/core/src", "packages/worker/src", "."]
 # under the pipeline's state directory ("Skipping include pattern ... matched by
 # `project-excludes` or an ignore file"), so unit-test passed on a commit whose
 # test files CI then failed on.
-project-includes = ["src", "packages/worker/src", "tests", "packages/worker/tests"]
+project-includes = [
+    "src",
+    "packages/core/src",
+    "packages/worker/src",
+    "tests",
+    "packages/worker/tests",
+]
 
 [tool.pytest.ini_options]
 testpaths = ["tests", "packages/worker/tests"]

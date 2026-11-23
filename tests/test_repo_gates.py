@@ -7,11 +7,13 @@ from __future__ import annotations
 import re
 import subprocess
 import sys
+import tomllib
 from pathlib import Path
 
 import pytest
 import yaml
 
+from tests import tracked_files
 from tests.factories import git, init_repo
 
 ROOT = Path(__file__).parent.parent
@@ -32,6 +34,21 @@ def skips(config: dict, hook_id: str, path: str) -> bool:
     """Whether `hook_id` never reads `path`: the top-level exclude or its own covers it."""
     patterns = (config.get("exclude"), hook(config, hook_id).get("exclude"))
     return any(re.search(pattern, path) for pattern in patterns if pattern)
+
+
+def reads(config: dict, hook_id: str, path: str) -> bool:
+    """Whether `hook_id` runs for a change to `path`: its `files` pattern matches and no
+    exclude skips it."""
+    pattern = hook(config, hook_id).get("files")
+    return (pattern is None or re.search(pattern, path) is not None) and not skips(
+        config, hook_id, path
+    )
+
+
+def pyrefly_includes() -> list[str]:
+    return tomllib.loads((ROOT / "pyproject.toml").read_text())["tool"]["pyrefly"][
+        "project-includes"
+    ]
 
 
 def workflow() -> dict:
@@ -57,6 +74,32 @@ def test_yamllint_is_strict_and_reads_abk_yaml_while_the_state_directory_is_skip
     assert "--strict" in hook(config, "yamllint")["args"]
     assert not skips(config, "yamllint", "abk.yaml")
     assert skips(config, "yamllint", STATE_FILE)
+
+
+@pytest.mark.parametrize(
+    "path",
+    [
+        "src/agent_build_kit/__init__.py",
+        "packages/core/src/agent_build_kit/model.py",
+        "packages/worker/src/agent_build_kit/graph/nodes.py",
+    ],
+)
+def test_the_type_check_hook_runs_for_a_change_in_any_package(path: str) -> None:
+    assert reads(pre_commit(), "pyrefly-check", path)
+
+
+def test_the_type_check_project_covers_every_source_and_test_tree() -> None:
+    includes = pyrefly_includes()
+    # `test_tree_folders` is a helper, not a test: reached through the module, pytest skips it.
+    trees = [*tracked_files.source_tree_folders(), *tracked_files.test_tree_folders()]
+
+    uncovered = [
+        tree
+        for tree in trees
+        if not any(tree == include or tree.startswith(f"{include}/") for include in includes)
+    ]
+
+    assert uncovered == [], f"pyrefly's project-includes leaves out {uncovered}"
 
 
 def test_a_scope_job_gates_the_test_and_integration_jobs_on_its_code_output() -> None:
