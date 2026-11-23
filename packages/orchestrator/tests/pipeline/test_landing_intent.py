@@ -18,8 +18,7 @@ from agent_build_kit.pipeline.landing_intent import IntentNotWritten
 from agent_build_kit.pipeline.unit_store import Cause, UnitStore
 from agent_build_kit.pipeline.units import SETTLING
 from tests.factories import deep_store
-
-ROOT = Path(__file__).resolve().parents[2]
+from tests.tracked_files import ROOT
 
 
 @pytest.fixture
