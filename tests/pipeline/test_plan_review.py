@@ -122,6 +122,7 @@ def test_each_question_is_asked_in_its_own_pass_with_read_only_tools_over_the_re
         assert f"{number}. {question}" in asked.prompt
         assert [other for other in QUESTIONS if other != question and other in asked.prompt] == []
         assert asked.allowed_tools == REVIEW_TOOLS
+        assert "never needs a `Needs:` line on a group of its own change" in asked.prompt
         assert asked.permission_mode == "allowed_tools_only"
         assert review.inst.repo("app").path in [str(path) for path in asked.add_dirs] or not (
             Path(review.inst.repo("app").path).is_dir()

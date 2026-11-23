@@ -80,7 +80,9 @@ You may read the repositories yourself. Each repo's checkout is listed below wit
 branch; read what is on that branch, not the working tree (`git show <branch>:<path>`, `git
 ls-tree -r --name-only <branch> -- <folder>`, `git grep <pattern> <branch> -- <path>`). Files the
 change will create do not exist yet, by design. Before you say a file, test or setting is missing,
-look for it.
+look for it. A change's groups are built in order, each on the one before, unless a group carries
+an `Independent:` line: a group never needs a `Needs:` line on a group of its own change, and
+`abk tags` refuses one.
 
 Repositories:
 {repos}
