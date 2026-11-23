@@ -99,6 +99,7 @@ project-includes = [
     "packages/orchestrator/src",
     "tests",
     "packages/worker/tests",
+    "packages/orchestrator/tests",
 ]
 
 [tool.pytest.ini_options]

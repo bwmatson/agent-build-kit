@@ -21,6 +21,8 @@ from pathlib import Path
 from tests.timing_hazards import TESTS_ROOT
 
 SERVE_TESTS = TESTS_ROOT / "serve"
+# The chat tests live beside the orchestrator's code; the other serve tests stay under `tests`.
+ORCHESTRATOR_SERVE_TESTS = TESTS_ROOT.parent / "packages" / "orchestrator" / "tests" / "serve"
 
 # The in-process client's base URL: the one an ASGI transport answers.
 IN_PROCESS_URL = "http://testserver"

@@ -103,7 +103,7 @@ def test_environment_is_read_only_through_the_settings_layer(
     scan: Scan, pattern: re.Pattern
 ) -> None:
     hits = [h for h in scan.hits(pattern) if h.split(":")[0].rsplit("/", 1)[-1] not in ENV_ALLOWED]
-    hits = [h for h in hits if not h.startswith("tests/")]
+    hits = [h for h in hits if not h.startswith("tests/") and "/tests/" not in h]
     assert hits == []
 
 
