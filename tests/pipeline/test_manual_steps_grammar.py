@@ -25,7 +25,12 @@ def parse(text: str, tmp_path: Path) -> tuple[list[TaskGroup], list[ValidationEr
 
 
 def group_with(*lines: str) -> str:
-    return "## 1. [app] [unit-test] A\n" + "".join(f"{line}\n" for line in lines) + "- [ ] 1.1 x\n"
+    return (
+        "## 1. [app] [unit-test] A\n"
+        + "".join(f"{line}\n" for line in lines)
+        + "Tests: required — the fixture's task is no test\n"
+        + "- [ ] 1.1 x\n"
+    )
 
 
 def test_a_manual_line_gives_the_group_a_step_with_its_runbook(tmp_path: Path) -> None:
