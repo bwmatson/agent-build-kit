@@ -660,11 +660,18 @@ still held, also of a change with no groups yet. Every form takes `--json` (a re
 ### `abk review-plan show CHANGE`, `abk review-plan clear CHANGE [--note TEXT]`
 
 A model reads each change's plan once (again after `tasks.md` is edited) before its first unit
-starts, and each finding names a group, a question and the evidence. A change with findings is
-held: none of its units start, or start again on a rework or requeue, and `abk status` lists
-the finding lines. `show` prints them; `clear` records the note and frees the change without
-asking for a new review. A review that fails or cannot be read holds nothing and is logged.
-`planning.review_plans: false` turns it off.
+starts: each of the four questions in its own pass, with read-only tools over each repo's default
+branch. Each finding names a group, a question, a kind (`blocker` or `advice`), the evidence and,
+when it can, the fix. A blocker with a fix is repaired first: the plan model rewrites `tasks.md`,
+the rewrite is kept only when every group heading is unchanged and the tasks validate, it is
+committed to the planning repo, and the plan is reviewed again (at most
+`planning.plan_review_repairs` times per change). A blocker left over holds the change's units
+that have not started; a unit with a branch, a commit or a pull request is never held. Advice
+holds nothing. `abk status` lists the finding lines. `show` prints them and the repairs made;
+`clear` records the note, frees the change without asking for a new review, and keeps each
+finding so a later review does not raise it again while its group's text is unchanged. A review
+that fails or cannot be read holds nothing and is logged. `planning.review_plans: false` turns it
+off.
 
 ### `abk tracker status`, `sync`, `link`, `conflicts`
 

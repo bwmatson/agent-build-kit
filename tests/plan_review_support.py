@@ -15,6 +15,9 @@ import pytest
 from agent_build_kit import runtimes
 from agent_build_kit.config import dump
 from agent_build_kit.installation import Installation
+from agent_build_kit.pipeline import shell
+from agent_build_kit.pipeline.plan_review import QUESTIONS
+from agent_build_kit.runtimes import AgentRequest
 from tests.conftest import make_installation
 from tests.runtimes.stand_in import StandInRuntime
 from tests.tick_pass import Builder, install_builder, isolate, stored, tick
@@ -41,8 +44,20 @@ EDITED_TASKS = TASKS + "\n## 3. [app] [unit-test] Third group\n\n- [ ] 3.1 Test:
 FINDING = {
     "group": 2,
     "question": 1,
+    "kind": "blocker",
     "evidence": "group 2 renames what tests/test_shared.py asserts",
 }
+ADVICE = {
+    "group": 1,
+    "question": 2,
+    "kind": "advice",
+    "evidence": "the Verify of 1.1 names no folder to run from",
+}
+FIXABLE = FINDING | {"fix": "2.1 asserts the new name"}
+REPAIRED_TASKS = TASKS.replace(
+    "- [ ] 2.1 Test: `tests/test_shared.py` asserts it again.",
+    "- [ ] 2.1 Test: `tests/test_shared.py` asserts the new name.",
+)
 
 
 def reply(*findings: dict) -> str:
@@ -83,13 +98,51 @@ class Review:
     def edit_tasks(self, text: str) -> None:
         (self.inst.changes_dir / CHANGE / "tasks.md").write_text(text)
 
+    def commit_planning(self) -> None:
+        """Make the planning root a git repo with everything committed, as a repair needs."""
+        for args in (
+            ("init", "-q", "-b", "main"),
+            ("add", "."),
+            ("-c", "user.name=t", "-c", "user.email=t@example.com", "commit", "-q", "-m", "seed"),
+        ):
+            shell.git(self.inst.root, *args)
+        shell.git(self.inst.root, "config", "user.name", "t")
+        shell.git(self.inst.root, "config", "user.email", "t@example.com")
+
+    def repair_with(self, tasks: str, *, review_answer: str) -> None:
+        """Answer a repair request with `tasks`, and every review pass with `review_answer`."""
+
+        def act(request: AgentRequest) -> None:
+            if request.prompt.startswith("The plan of the change"):
+                self.runtime.answer = f"Here it is.\n<<<TASKS\n{tasks}\nTASKS>>>\n"
+            else:
+                self.runtime.answer = review_answer
+
+        self.runtime.act = act
+
+    @property
+    def tasks(self) -> str:
+        return (self.inst.changes_dir / CHANGE / "tasks.md").read_text()
+
     def tick(self) -> int:
         return tick(self.inst)
 
     @property
+    def passes(self) -> list[AgentRequest]:
+        """The review passes asked, one per question per review."""
+        return [r for r in self.runtime.requests if r.prompt.startswith("You are reviewing")]
+
+    @property
+    def repairs(self) -> list[AgentRequest]:
+        return [r for r in self.runtime.requests if r.prompt.startswith("The plan of the change")]
+
+    @property
     def asked(self) -> int:
-        return len(self.runtime.requests)
+        """How many reviews were asked: each asks every question in its own pass, the first
+        question first, and a failed pass ends its review."""
+        return sum(f"1. {QUESTIONS[0]}" in r.prompt for r in self.passes)
 
     @property
     def prompt(self) -> str:
-        return self.runtime.requests[0].prompt
+        """Every pass of the first review, joined."""
+        return "\n".join(r.prompt for r in self.passes[: len(QUESTIONS)])

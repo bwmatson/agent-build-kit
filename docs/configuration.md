@@ -137,8 +137,11 @@ planning:
                                 # branch, or to planning/<run>-<project>-<phase> with
                                 # a pull request. No effect elsewhere.
   review_plans: true            # a model reads each change's plan before its first
-                                # unit starts; a finding holds the change
-                                # (`abk review-plan`). false asks no model.
+                                # unit starts; a blocker it cannot repair holds the
+                                # change's unstarted units (`abk review-plan`).
+                                # false asks no model.
+  plan_review_repairs: 2        # rewrites of tasks.md per change to resolve blockers
+                                # before they hold; 0 turns the repair off
 
 openspec:
   command: null                 # argv for the OpenSpec CLI. null = npx --yes
@@ -832,8 +835,15 @@ the top-level `project_limits` is counted for each project, not across all repos
 - `planning.review_plans` (default `true`): before a change's first unit starts, and after
   its `tasks.md` is edited, a model is asked four fixed questions about the plan (does each
   unit end green, does a task need live numbers or an installation edit, can each `Check:`
-  run, does a later test assert what an earlier unit broke). A finding holds the change
-  until `abk review-plan clear`. `false` asks no model and holds nothing.
+  run, does a later test assert what an earlier unit broke), each in its own pass with
+  read-only tools over the repos' default branches. A `blocker` finding holds the change's
+  units that have not started until `abk review-plan clear`; `advice` holds nothing. `false`
+  asks no model and holds nothing.
+- `planning.plan_review_repairs` (default `2`): how many times the pipeline may rewrite a
+  change's `tasks.md` to resolve the review's blockers that name a fix. A rewrite is kept only
+  when every group heading is unchanged and the tasks validate, and only when `tasks.md` has no
+  edit that is not committed; it is committed to the planning repo and the plan is reviewed
+  again. `0` turns the repair off.
 
 When a repo in `abk.yaml` is the planning root's own repository (`path: .`), the
 root plays one of three roles: **separate** (no repo shares it), **working copy**

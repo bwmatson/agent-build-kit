@@ -954,8 +954,16 @@ def cmd_status(args: argparse.Namespace, inst: Installation) -> int:
         inst.changes_dir, run_support.store_for(inst).all(), spans.clock.now()
     ):
         log(line)
-    for change, review in plan_review.held_changes(inst).items():
-        log(f"plan review: {change} held, {len(review.findings)} finding(s)")
+    for change, review in plan_review.read_reviews(plan_review.record_path(inst)).items():
+        if review.holds:
+            log(
+                f"plan review: {change} held (units not yet started), "
+                f"{len(review.blockers)} blocker(s), {len(review.findings)} finding(s)"
+            )
+        elif review.findings and not review.cleared:
+            log(f"plan review: {change} has {len(review.findings)} advice finding(s), not held")
+        else:
+            continue
         for line in plan_review.finding_lines(review):
             log(f"  {change}: {line}")
     for line in gate_status_lines(
@@ -2798,15 +2806,14 @@ def run_round(
         with not_recording() if dry_run else nullcontext():
             return not account_decision(account, decided, unit=stored_unit).may_start
 
+    # A plan-review hold stops only units that have not started (`_evaluate_round`): a unit with
+    # a thread resumes, and so does a comment rework.
     stored_by_id = {unit.id: unit for unit in units}
-    plan_held = plan_review.held_changes(inst)
     waiting_to_resume = start_order(
         [
             unit
             for unit in resumable_units(inst, units, only=only, spared=in_flight, owed=owed)
-            if model_refusal(unit.repo) is None
-            and not waiting_out(unit)
-            and unit.change not in plan_held
+            if model_refusal(unit.repo) is None and not waiting_out(unit)
         ],
         units,
     )
@@ -2820,7 +2827,7 @@ def run_round(
         candidates=[
             stored_by_id[uid]
             for uid in (*(lane.waiting if lane else ()), *unclaimed_runs(inst, units))
-            if uid in stored_by_id and stored_by_id[uid].change not in plan_held
+            if uid in stored_by_id
         ],
         workers=workers,
         resumable=resumable,
@@ -4092,8 +4099,9 @@ def _evaluate_round(
             or unit.id in gates
             # Handed to someone outside the kit, whatever its priority.
             or unit.id in external
-            # Its change has plan-review findings no person has cleared.
-            or unit.change in plan_held
+            # Its change has plan-review blockers no person has cleared, and it has not started:
+            # a unit with a branch, a commit or a pull request is never held by the review.
+            or (unit.change in plan_held and unit.unstarted)
             # Someone else owns what it covers on the board, or the board has no item yet; a
             # unit already in progress is the kit's and is not asked.
             or start_gate(unit, units, changes_dir=inst.changes_dir, reads=reads).outcome != "start"
