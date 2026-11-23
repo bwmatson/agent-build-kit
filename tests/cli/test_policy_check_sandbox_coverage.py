@@ -15,8 +15,8 @@ from agent_build_kit.cli import pipeline as cli
 from agent_build_kit.runtimes.base import PolicyReport
 from agent_build_kit.sandboxes import Coverage
 from agent_build_kit.settings import reload
+from packages.orchestrator.tests.cli.test_init import app, stubs  # noqa: F401 — fixtures
 from tests.cli.policy_step_fakes import configured
-from tests.cli.test_init import app, stubs  # noqa: F401 — fixtures
 from tests.conftest import make_installation
 from tests.runtimes.selectable import SelectableRuntime, select
 

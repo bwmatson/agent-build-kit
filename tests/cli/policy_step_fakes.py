@@ -15,7 +15,7 @@ from agent_build_kit.cli import init as init_cmd
 from agent_build_kit.cli import main
 from agent_build_kit.pipeline.command_spellings import SpellingName, probe_rows
 from agent_build_kit.runtimes import AgentRuntime, PolicyReport
-from tests.cli.test_init import init_args
+from packages.orchestrator.tests.cli.test_init import init_args
 from tests.factories import recognised_planning
 from tests.runtimes.selectable import (
     AMEND,

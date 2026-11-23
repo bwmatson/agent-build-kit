@@ -102,7 +102,7 @@ project-includes = [
 ]
 
 [tool.pytest.ini_options]
-testpaths = ["tests", "packages/worker/tests"]
+testpaths = ["tests", "packages/worker/tests", "packages/orchestrator/tests"]
 # So `from tests.factories import ...` resolves without tests/ being a package
 # (test directories carry no __init__.py; basenames stay unique instead).
 pythonpath = [".", "packages/worker/src", "packages/orchestrator/src"]

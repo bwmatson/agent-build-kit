@@ -16,7 +16,7 @@ from agent_build_kit.cli import main
 from agent_build_kit.cli.doctor import Check, run_doctor
 from agent_build_kit.config import ModelsConfig
 from agent_build_kit.settings import settings
-from tests.cli.test_doctor import Answers, which_all
+from packages.orchestrator.tests.cli.test_doctor import Answers, which_all
 from tests.factories import init_repo
 from tests.runtimes.selectable import SelectableRuntime, select
 

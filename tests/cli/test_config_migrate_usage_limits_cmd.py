@@ -13,10 +13,10 @@ import yaml
 from agent_build_kit.cli import main
 from agent_build_kit.cli.doctor import run_doctor
 from agent_build_kit.runtimes.policy_apply import BACKUP_SUFFIX
+from packages.orchestrator.tests.cli.test_doctor import Answers, which_all
 from tests.cli.config_migrate_fakes import beside, run_migrate, write
 from tests.cli.config_migrate_machine_fakes import tracked
 from tests.cli.config_migrate_running_fakes import ONE, run_watched, running_unit
-from tests.cli.test_doctor import Answers, which_all
 from tests.factories import init_repo
 
 OLD = (

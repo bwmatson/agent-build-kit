@@ -17,6 +17,7 @@ from agent_build_kit.pipeline.admission_record import (
     config_fingerprint,
     read_admissions,
 )
+from packages.orchestrator.tests.pipeline.test_admission_record import in_review, installation
 from tests import fake_clock
 from tests.cli.test_admission_asks_own_account import (  # noqa: F401 — fixtures
     PERSONAL,
@@ -26,7 +27,6 @@ from tests.cli.test_admission_asks_own_account import (  # noqa: F401 — fixtur
     round_of,
     unit,
 )
-from tests.pipeline.test_admission_record import in_review, installation
 
 
 def explain(

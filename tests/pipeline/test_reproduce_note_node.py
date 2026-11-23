@@ -15,8 +15,8 @@ import pytest
 from agent_build_kit import config as config_module
 from agent_build_kit.config import AgentPurpose, RepoConfig
 from agent_build_kit.pipeline import agent_commands, events
+from packages.orchestrator.tests.pipeline.test_events import checks_pull
 from tests.forges.stand_in import StandInForge, lookup
-from tests.pipeline.test_events import checks_pull
 
 LINT = {"lint": "oxlint src"}
 FORMAT = {"format:check": "oxfmt --check src"}

@@ -12,6 +12,7 @@ from agent_build_kit.cli.explain_cmd import cmd_explain
 from agent_build_kit.pipeline.admission_record import ADMISSIONS_NAME, read_admissions
 from agent_build_kit.pipeline.unit_store import Cause, HeldBy
 from agent_build_kit.pipeline.units import HELD, PLANNED
+from packages.orchestrator.tests.pipeline.test_admission_record import installation
 from tests.cli.test_admission_asks_own_account import (  # noqa: F401 — fixtures
     Accounts,
     accounts,
@@ -20,7 +21,6 @@ from tests.cli.test_admission_asks_own_account import (  # noqa: F401 — fixtur
     unit,
 )
 from tests.factories import RECHECK_BUNDLES, RECHECK_NOTE, RECHECK_TEST
-from tests.pipeline.test_admission_record import installation
 
 
 def test_a_gated_unit_shows_its_wait_and_the_record_that_admitted_it(

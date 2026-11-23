@@ -20,7 +20,7 @@ from agent_build_kit.config import dump
 from agent_build_kit.pipeline.planning_sync import write_pipeline_marker
 from agent_build_kit.pipeline.unit_store import UnitStore
 from agent_build_kit.settings import settings
-from tests.cli.test_doctor import Answers
+from packages.orchestrator.tests.cli.test_doctor import Answers
 from tests.factories import git, stored_unit, which_all
 from tests.planning_worktree_support import installation_at, working_copy_of
 

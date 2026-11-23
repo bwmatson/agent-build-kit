@@ -12,11 +12,11 @@ from agent_build_kit.cli import main
 from agent_build_kit.config import SandboxConfig
 from agent_build_kit.runtimes.guards import guard_lines
 from agent_build_kit.sandboxes import Coverage
+from packages.orchestrator.tests.cli.test_init import app, stubs  # noqa: F401 — fixtures
 from tests.cli.guard_listing_support import ACTIVE, KEPT, SKIPPED, state_of
 from tests.cli.policy_step_fakes import configured
 from tests.cli.sandbox_cli_support import NAME, CountingBackend, switch_off, switch_on
 from tests.cli.sandbox_cli_support import stand_in as stand_in  # noqa: F401 — fixture
-from tests.cli.test_init import app, stubs  # noqa: F401 — fixtures
 from tests.conftest import make_installation
 from tests.runtimes.selectable import SelectableRuntime
 
