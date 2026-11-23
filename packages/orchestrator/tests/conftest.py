@@ -1,5 +1,5 @@
-"""The suite's guards and fixtures, for the orchestrator's tests: they apply to every test here as they
-do to the tests under `tests/`.
+"""The suite's guards and fixtures, for the orchestrator's tests: they apply to every test here
+as they do to the tests under `tests/`.
 
 The root conftest's fixtures and plugin list are taken over by name. Its collection hook is not:
 when a run collects both trees the root conftest is loaded too and runs it over every item, and a
