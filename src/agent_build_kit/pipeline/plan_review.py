@@ -325,7 +325,7 @@ def _artifacts(folder: Path, *, tasks: bool = True) -> str:
 
 def _path_names(body: Sequence[str]) -> list[str]:
     """The backticked path-like names in a group's lines, in order, once each: a name with a
-    folder, or a file name with an extension at a repo's root (`pyproject.toml`)."""
+    folder, or a file name with an extension at a repo's root (`config.yaml`)."""
     found = (name for line in body for name in re.findall(r"`([^`\s]+)`", line))
     pathlike = (
         name
