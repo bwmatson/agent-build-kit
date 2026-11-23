@@ -24,6 +24,7 @@ from collections.abc import Collection, Iterator, Mapping
 from pathlib import Path
 
 import pytest
+import yaml
 
 from agent_build_kit.cli import COMMANDS_GROUP
 from tests.ecosystem_names import WORKER_MODULES
@@ -44,6 +45,7 @@ ORCHESTRATOR_ROOT = ORCHESTRATOR_SOURCE.parents[1]
 OTHER_TREES = [tree for tree in source_trees() if tree != SOURCE_ROOT]
 TESTS = Path("tests")
 WORKER_TESTS = Path("packages") / "worker" / "tests"
+ORCHESTRATOR_TESTS = Path("packages") / "orchestrator" / "tests"
 CORE_TEST_PREFIX = "test_checkpoint"
 CORE, WORKER, ORCHESTRATOR = "core", "worker", "orchestrator"
 BASELINE_CEILING = 13
@@ -822,6 +824,13 @@ def is_worker_test(relative: Path, modules: Collection[str]) -> bool:
     folder = relative.parent.as_posix()
     if folder == "graph":
         return not relative.name.startswith(CORE_TEST_PREFIX)
+    return is_module_test(relative, modules)
+
+
+def is_module_test(relative: Path, modules: Collection[str]) -> bool:
+    """Whether the test file `relative` (below a tests folder) sits in the mirror folder of one of
+    `modules` (paths under a source tree) and is named `test_<module>*.py`."""
+    folder = relative.parent.as_posix()
     return any(
         Path(module).parent.as_posix() == folder
         and relative.name.startswith(f"test_{Path(module).stem}")
@@ -853,14 +862,54 @@ def test_every_test_file_of_a_worker_module_is_under_the_worker_package_mirrorin
 
 
 @pytest.mark.integration
+def test_every_orchestrator_module_test_file_is_in_the_orchestrator_package_mirroring_source() -> (
+    None
+):
+    modules = [m for m in orchestrator_modules() if not m.endswith("__init__.py")]
+    files = tracked(ROOT)
+    misplaced = [
+        str(path)
+        for path in files
+        if path.is_relative_to(TESTS)
+        and path.name.startswith("test_")
+        and path.suffix == ".py"
+        and is_module_test(path.relative_to(TESTS), modules)
+    ]
+    moved = [
+        path.relative_to(ORCHESTRATOR_TESTS)
+        for path in files
+        if path.is_relative_to(ORCHESTRATOR_TESTS) and path.name.startswith("test_")
+    ]
+
+    assert misplaced == [], "move under packages/orchestrator/tests/: " + ", ".join(misplaced)
+    assert moved, "packages/orchestrator/tests holds no test file"
+    assert [str(p) for p in moved if not is_module_test(p, modules)] == []
+
+
+def test_the_pytest_run_and_the_ci_test_job_cover_the_root_suite_and_each_package_tests() -> None:
+    config = tomllib.loads((ROOT / "pyproject.toml").read_text())["tool"]
+    testpaths = config["pytest"]["ini_options"]["testpaths"]
+    task = config["poe"]["tasks"]["test"]
+    workflow = yaml.safe_load((ROOT / ".github" / "workflows" / "ci.yml").read_text())
+    commands = [step.get("run", "") for step in workflow["jobs"]["test"]["steps"]]
+
+    assert {"tests", WORKER_TESTS.as_posix(), ORCHESTRATOR_TESTS.as_posix()} <= set(testpaths)
+    assert task == "pytest -n auto --maxprocesses=8"
+    assert any("poe test" in command for command in commands)
+
+
+@pytest.mark.integration
 def test_a_test_file_base_name_is_unique_across_the_repository() -> None:
     seen: dict[str, list[str]] = {}
     files = tracked(ROOT)
-    assert any(
-        path.is_relative_to(WORKER_TESTS) and path.name.startswith("test_") for path in files
-    ), "packages/worker/tests holds no test file, so the uniqueness check does not span it"
+    for folder in (WORKER_TESTS, ORCHESTRATOR_TESTS):
+        assert any(
+            path.is_relative_to(folder) and path.name.startswith("test_") for path in files
+        ), f"{folder} holds no test file, so the uniqueness check does not span it"
     for path in files:
-        in_a_tests_folder = path.is_relative_to(TESTS) or path.is_relative_to(WORKER_TESTS)
+        in_a_tests_folder = any(
+            path.is_relative_to(folder) for folder in (TESTS, WORKER_TESTS, ORCHESTRATOR_TESTS)
+        )
         if in_a_tests_folder and path.name.startswith("test_") and path.suffix == ".py":
             seen.setdefault(path.name, []).append(str(path))
 
