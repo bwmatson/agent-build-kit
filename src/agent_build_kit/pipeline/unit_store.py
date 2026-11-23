@@ -67,6 +67,11 @@ UNPLANNED = UnitState.UNPLANNED
 
 # What `abk requeue` writes as `by`: a person's requeue ends a unit's run of bounces.
 REQUEUE_BY = "abk requeue"
+# What a history entry says of a requeue the pipeline made itself.
+REQUEUED_BY_PIPELINE = "pipeline"
+# The pipeline's requeue of a unit that failed on a rejected login: like a person's, it ends the
+# unit's run of bounces, and the history says it was the pipeline.
+REQUEUED_ON_LOGIN = "pipeline: login renewed"
 # What `abk retire` adds to the note of a unit it ended while `running` with no holder.
 IDLE_NOTE = "was idle (running with no holder)"
 
@@ -1393,7 +1398,7 @@ class UnitStore:
         restarts for another cause, and is zero after a long run, no cause, a person's
         requeue, review, failure or a finished state. Any other write leaves it."""
         zero: dict[str, object] = {"bounces": 0, "bounce_cause": None, "bounce_at": None}
-        if by == REQUEUE_BY or state in _ENDS_BOUNCES:
+        if by in (REQUEUE_BY, REQUEUED_ON_LOGIN) or state in _ENDS_BOUNCES:
             return zero
         if unit.state != RUNNING or state not in (PLANNED, HELD):
             return {}
@@ -1760,6 +1765,17 @@ class UnitStore:
             **fields,
         }
         stored[unit_id] = unit.model_copy(update={"history": (*unit.history, entry)})
+        self._write(stored)
+
+    def mark_last_entry(self, unit_id: str, **fields: str) -> None:
+        """Add `fields` to the unit's latest history entry, which a step wrote without them (who
+        asked for a requeue the unit's thread recorded)."""
+        stored = self._read()
+        unit = stored[unit_id]
+        if not unit.history:
+            return
+        *earlier, last = unit.history
+        stored[unit_id] = unit.model_copy(update={"history": (*earlier, {**last, **fields})})
         self._write(stored)
 
     def set_stack_refusal(self, unit_id: str, reason: str) -> None:

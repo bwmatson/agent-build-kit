@@ -23,6 +23,7 @@ from agent_build_kit.pipeline import archive
 from agent_build_kit.pipeline.archive import (
     archive_ready_changes,
     is_ready_to_archive,
+    read_archive_failures,
 )
 from agent_build_kit.pipeline.unit_store import StoredUnit
 from tests.factories import stored_unit
@@ -294,3 +295,26 @@ def test_a_roll_up_that_raises_does_not_stop_archiving_or_log_removal(
     assert not any(log.exists() for log in logs)
     assert "first" in caplog.text
     assert "does not sum" in caplog.text
+
+
+def test_a_recorded_failure_is_not_tried_again_until_the_change_is_edited(
+    tmp_path: Path,
+) -> None:
+    """An archive that failed on what the change says fails the same way every tick; with a
+    record it is tried once, kept with its error, and tried again once the change's files change."""
+    runner = FailingFor("first")
+    units = [unit("first/1", change="first")]
+    make_change(tmp_path, "first")
+    record = tmp_path / "archive_failures.json"
+
+    archive_ready_changes(units, planning_repo=tmp_path, run=runner, failures=record)
+    archive_ready_changes(units, planning_repo=tmp_path, run=runner, failures=record)
+
+    assert len(runner.calls) == 1, "the unchanged change is not tried on the second call"
+    assert "conflicted" in read_archive_failures(record)["first"]["error"]
+
+    change = tmp_path / "openspec" / "changes" / "first"
+    next(path for path in sorted(change.rglob("*.md"))).write_text("edited\n")
+    archive_ready_changes(units, planning_repo=tmp_path, run=FakeRunner(), failures=record)
+
+    assert read_archive_failures(record) == {}, "the archive that worked clears the record"

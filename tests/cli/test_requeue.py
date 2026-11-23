@@ -12,6 +12,7 @@ from pathlib import Path
 
 import pytest
 
+from agent_build_kit import run_support
 from agent_build_kit.cli import main
 from agent_build_kit.config import dump
 from agent_build_kit.installation import Installation
@@ -79,9 +80,13 @@ def test_a_held_unit_can_be_requeued_too(store: UnitStore) -> None:
 
 
 @pytest.mark.parametrize("state", ["planned", "running", "in_review", "merged", "closed"])
-def test_a_unit_that_is_not_stuck_is_left_alone(store: UnitStore, state: UnitState, capsys) -> None:
-    """Requeueing a running unit double-builds it; an in-review one has a PR
-    that would be orphaned; a merged one is done."""
+def test_a_unit_that_is_not_stuck_is_left_alone(
+    store: UnitStore, state: UnitState, capsys, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Requeueing a running unit a run holds double-builds it; an in-review one has a PR
+    that would be orphaned; a merged one is done. (A running unit no run holds is waiting to
+    resume, and can be requeued: tests/cli/test_attention.py.)"""
+    monkeypatch.setattr(run_support, "branch_is_held", lambda inst, branch: True)
     store.upsert([unit("add-marker/1")])
     store.set_state("add-marker/1", state)
 

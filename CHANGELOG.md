@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- `abk attention` lists what needs a person, each item with the command that acts on it and how
+  many units it holds up, and `abk status` opens with the count. `abk requeue` accepts a running
+  unit no run holds, records who asked on every requeue (the pipeline's own say `pipeline`, and
+  the revival after a rejected login says so), and says when a plan-review hold or an outside
+  hold will still keep the unit from starting. A failed archive is recorded with its error, shown
+  in `abk status` and `abk attention`, and not tried again until the change's files change.
+
 - The plan review holds less and repairs first. Each question is asked in its own pass, with
   read-only tools over each repo's default branch, and each finding is a `blocker` or `advice`;
   only a blocker holds, and only the change's units that have not started (a unit with a branch,

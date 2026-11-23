@@ -9,6 +9,7 @@ from pathlib import Path
 
 import pytest
 
+from agent_build_kit import run_support
 from agent_build_kit.cli import main
 from agent_build_kit.cli import pipeline as cli
 from agent_build_kit.config import dump
@@ -243,6 +244,8 @@ def test_what_is_not_a_parked_unit_is_refused_as_before_and_a_parked_one_is_not(
     inst: Installation, store: UnitStore, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     thread = Reworks(monkeypatch, store)
+    # A run holds each branch: a running unit no run holds is waiting to resume and is accepted.
+    monkeypatch.setattr(run_support, "branch_is_held", lambda inst, branch: True)
     # A unit in each state that is refused; only the dropped one keeps the park it was left with.
     states = {
         "running": RUNNING,

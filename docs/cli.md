@@ -657,6 +657,15 @@ held work back, naming every group the released holds covered; `--all` gives bac
 still held, also of a change with no groups yet. Every form takes `--json` (a refusal prints
 `{"refused": REASON}` on stdout too), and `abk status` has an external holds section.
 
+### `abk attention [--json]`
+
+What needs a person now, one item a line, each with the command that acts on it, the items
+holding up the most units first: failed units (not those waiting on a dependency, which are
+requeued when the wait ends), held units, running units no run has held for an hour, plan-review
+holds on changes with units not yet started (not where someone outside the kit holds all of
+them), unmet manual steps, archives that failed, and merged branches kept because something has
+them checked out. `abk status` opens with the count. Reads only.
+
 ### `abk review-plan show CHANGE`, `abk review-plan clear CHANGE [--note TEXT]`
 
 A model reads each change's plan once (again after `tasks.md` is edited) before its first unit
@@ -785,8 +794,12 @@ no `UNIT` argument and no `--dry-run`, and an unknown unit is refused.
 
 ### `abk requeue UNIT [--restart | --rework] [--note TEXT | --note-file PATH]`
 
-Gives a `failed` or `held` unit another go. Three different things, and the
-command says which:
+Gives a `failed` or `held` unit another go, or a `running` unit no run holds (one waiting
+to resume, whose instruction a new note replaces). Every requeue records who asked in the
+unit's history (`by`: `abk requeue` for a person, `pipeline` for the pipeline's own), and the
+command says when something will still keep the unit from starting: a plan-review hold on its
+change, or a hold by someone outside the kit. Three different things, and the command says
+which:
 
 - **Default: resume where it stopped.** Right when the failure was the
   environment's — a missing tool, a flaky check. A failed unit remembers the
