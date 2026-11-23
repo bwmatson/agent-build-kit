@@ -17,8 +17,11 @@ def cmd_show(args: argparse.Namespace, inst: Installation) -> int:
     if not review.findings:
         print(f"{args.change}: the plan review has no findings")
         return 0
-    state = "cleared" if review.cleared else "held"
-    print(f"{args.change}: plan review {state}, {len(review.findings)} finding(s)")
+    state = "cleared" if review.cleared else "held" if review.holds else "advice only, not held"
+    print(
+        f"{args.change}: plan review {state}, {len(review.findings)} finding(s), "
+        f"{len(review.blockers)} blocker(s); repairs made: {review.repairs}"
+    )
     for line in plan_review.finding_lines(review):
         print(f"  {line}")
     if review.note:
@@ -31,7 +34,10 @@ def cmd_clear(args: argparse.Namespace, inst: Installation) -> int:
     if not count:
         print(f"{args.change}: no findings to clear")
         return 0
-    print(f"{args.change}: cleared {count} finding(s); the next tick starts its units")
+    print(
+        f"{args.change}: cleared {count} blocker(s); the next tick starts its units, and the same "
+        "findings are not raised again while their groups' text stands"
+    )
     return 0
 
 

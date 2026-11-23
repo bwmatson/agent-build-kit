@@ -995,9 +995,14 @@ against the default branch. The unit is in review again on that pull request and
 lands, so work that landed on a branch nobody merges is not lost. A pick that leaves nothing to
 commit records the unit merged.
 Before a change's first unit starts, a model reviews its plan (`pipeline/plan_review.py`):
-four fixed questions, asked once per hash of the change's artifacts and planned units, with
-the mechanical checks' report in the request. A finding holds the change's starts until
-`abk review-plan clear`; a review that fails holds nothing.
+four fixed questions, each in its own pass with read-only tools over the repos' default
+branches, asked once per hash of the change's artifacts and planned units, with the mechanical
+checks' report in the request. A `blocker` finding with a fix is repaired by a rewrite of
+`tasks.md` that keeps every group heading, which is committed and reviewed again (at most
+`planning.plan_review_repairs` times); a blocker left over holds the starts of the change's
+units that have not started until `abk review-plan clear`, and `advice` holds nothing. A
+cleared finding is not raised again while its group's text stands; a review that fails holds
+nothing.
 `abk carry` does the same on demand for a unit (`--dry-run` writes nothing, `--repair` carries a unit
 recorded merged whose commit is not on the default branch, and `--landed-as <sha>` records a commit
 already on the default branch as the unit's merge). `delete_merged_branches` says whether the

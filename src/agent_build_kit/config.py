@@ -162,8 +162,12 @@ class PlanningConfig(Frozen):
     # separate planning repo or a working copy.
     publish: PlanningPublish = PlanningPublish.DIRECT
     # A model reads each change against the repository before its first unit starts, and a
-    # finding holds the change until a person clears it (`abk review-plan`).
+    # blocker finding the pipeline could not repair holds the change's units that have not
+    # started, until a person clears it (`abk review-plan`) or edits tasks.md.
     review_plans: bool = True
+    # How many times the pipeline may rewrite a change's tasks.md to resolve the review's blocker
+    # findings before what is left holds the change; 0 turns the repair off.
+    plan_review_repairs: int = Field(default=2, ge=0)
 
 
 class OpenSpecConfig(Frozen):
