@@ -11,6 +11,7 @@
   reviewed again, at most `planning.plan_review_repairs` (default 2) times per change. A finding
   a person cleared is not raised again while its group's text is unchanged. `abk status` shows
   advice too, and `abk review-plan show` prints each finding's kind and fix and the repairs made.
+
 - A model now reads each change's plan before its first unit starts, and again after
   `tasks.md` is edited, asking whether each unit can end green, whether a task needs live
   numbers or an installation edit, whether each `Check:` can run, and whether a later test
