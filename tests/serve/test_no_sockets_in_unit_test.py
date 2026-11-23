@@ -6,12 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from tests.serve_sockets import (
-    ALLOWLIST,
-    ORCHESTRATOR_SERVE_TESTS,
-    SERVE_TESTS,
-    check_serve_tests,
-)
+from tests.serve_sockets import ALLOWLIST, SERVE_TEST_ROOTS, check_serve_tests
 
 
 def tree(root: Path, files: dict[str, str]) -> Path:
@@ -216,19 +211,20 @@ def test_the_allowlist_does_not_grow() -> None:
 def test_every_unit_test_module_under_tests_serve_opens_no_socket_but_the_allowlisted() -> None:
     # `conftest.py` is scanned too: the `api` fixture every module draws on stays in-process.
     problems: list[str] = []
-    for root in (SERVE_TESTS, ORCHESTRATOR_SERVE_TESTS):
+    present: set[str] = set()
+    for root in SERVE_TEST_ROOTS:
         here = {p.relative_to(root).as_posix() for p in root.rglob("*.py")}
+        present |= here
         problems += check_serve_tests(root, allowlist=ALLOWLIST & here)
     assert problems == []
-    assert ALLOWLIST <= {
-        p.relative_to(root).as_posix()
-        for root in (SERVE_TESTS, ORCHESTRATOR_SERVE_TESTS)
-        for p in root.rglob("*.py")
-    }
+    assert ALLOWLIST <= present
 
 
 def test_the_chat_sessions_module_and_the_conftest_are_clean_with_no_allowlist() -> None:
-    assert (
-        check_serve_tests(ORCHESTRATOR_SERVE_TESTS, only={"conftest.py", "test_chat_sessions.py"})
-        == []
-    )
+    names = {"conftest.py", "test_chat_sessions.py"}
+    scanned: set[str] = set()
+    for root in SERVE_TEST_ROOTS:
+        only = {name for name in names if (root / name).is_file()}
+        scanned |= only
+        assert check_serve_tests(root, only=only) == []
+    assert scanned == names

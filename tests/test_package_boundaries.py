@@ -894,7 +894,9 @@ def test_the_pytest_run_and_the_ci_test_job_cover_the_root_suite_and_each_packag
     commands = [step.get("run", "") for step in workflow["jobs"]["test"]["steps"]]
 
     assert {"tests", WORKER_TESTS.as_posix(), ORCHESTRATOR_TESTS.as_posix()} <= set(testpaths)
-    assert task == "pytest -n auto --maxprocesses=8"
+    # The task names no test path of its own, so it runs what `testpaths` lists.
+    arguments = (task if isinstance(task, str) else task["cmd"]).split()
+    assert [a for a in arguments if a.startswith(("tests", "packages"))] == []
     assert any("poe test" in command for command in commands)
 
 
