@@ -99,4 +99,5 @@ def test_parked_units_are_named_paused_beside_other_states_in_the_same_line(
 
     line = full_line(lines)
     assert "1 waiting for the environment" in line
+    assert "; 1 failed not counted" in line
     assert "2 paused" in line

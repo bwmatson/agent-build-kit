@@ -106,7 +106,7 @@ def test_a_full_account_slot_with_a_free_emergency_lane_says_a_priority_zero_may
 ) -> None:
     line = lane_status(tmp_path, monkeypatch, capsys, lane=())
 
-    assert line.endswith(LANE_NOTE)
+    assert line.endswith("; 1 failed not counted; " + LANE_NOTE)
 
 
 def test_a_full_default_account_queue_does_not_list_another_accounts_blocked_units(

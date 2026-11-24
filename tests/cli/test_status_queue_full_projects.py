@@ -110,6 +110,7 @@ def test_each_line_counts_only_its_own_projects_blocked_and_failed_waiting_units
     api = next(line for line in full if "app/api" in line)
     lane = "; a priority-0 unit may still start while the emergency lane has room"
     assert web.endswith(
-        "(5 in review, 2 running, 2 waiting for the environment); 1 blocked not counted" + lane
+        "(5 in review, 2 running, 2 waiting for the environment); 1 blocked not counted"
+        "; 1 failed not counted" + lane
     )
-    assert api.endswith("(9 in review); 1 failed waiting not counted" + lane)
+    assert api.endswith("(9 in review); 1 failed not counted" + lane)

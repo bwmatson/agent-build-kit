@@ -49,6 +49,33 @@ def test_a_failed_unit_resumes_where_it_stopped(store: UnitStore, capsys) -> Non
     assert "resuming" in capsys.readouterr().out
 
 
+@pytest.mark.parametrize(
+    ("places_held", "waits"),
+    [(1, True), (0, False)],
+    ids=["full-project", "room-in-project"],
+)
+def test_requeueing_a_failed_unit_says_it_waits_for_room_only_when_its_project_is_full(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    places_held: int,
+    waits: bool,
+) -> None:
+    inst = make_installation(tmp_path / "planning", project_limits={"max_units_in_progress": 1})
+    (inst.root / "abk.yaml").write_text(dump(inst.config))
+    monkeypatch.chdir(inst.root)
+    store = UnitStore(inst.state_dir / "units.json")
+    for number in range(places_held):
+        store.upsert([unit(f"busy/{number + 1}")])
+        store.set_state(f"busy/{number + 1}", UnitState.IN_REVIEW, pr=number + 7, branch="spec/b")
+    failed_at_verify(store)
+
+    assert main(["requeue", "add-marker/1"]) == 0
+
+    out = capsys.readouterr().out
+    assert ("waits for room in its project" in out) is waits
+
+
 def test_restart_throws_the_attempt_away(store: UnitStore, capsys) -> None:
     """For a failure that was the attempt's own — built on the wrong base,
     say — where resuming would judge work that was never valid."""

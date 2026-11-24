@@ -294,6 +294,7 @@ def test_a_failed_unit_beside_the_places_is_not_named_among_those_holding_them(
     out = capsys.readouterr().out
     assert builder.started == []
     assert "2 units in progress, limit 2 (2 in review)" in out
+    assert "; 1 failed not counted" in out
 
 
 def test_an_idle_pipeline_still_says_nothing_is_ready(
