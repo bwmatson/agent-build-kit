@@ -6,6 +6,11 @@
   failing output, before it fails: the checks, review and e2e-test run again on the fix. A
   second failure, a unit requeued after its automatic rework, a scheduled run, a failure only
   of tests failing on the base and a run on a moved commit are not reworked this way.
+- A failed unit no longer holds a place under `max_units_in_progress`, so failures read days later
+  stop filling a project's or an account's places and blocking new starts. A unit failed for the
+  environment keeps its place, since the tick resumes it. A unit requeued out of failed or held,
+  or released from a hold, waits for room like a never-started unit and starts first when a place
+  frees. A failed unit still blocks its dependents and the work on its branch.
 
 - The unit graph page no longer breaks when a unit's title has a double quote or an angle bracket in it: a quote ended the node's label early and the diagram stopped drawing (the title
   `"Not logged in" pauses for the login…` did). These characters are now written as entity codes in a label, which mermaid draws as the characters.

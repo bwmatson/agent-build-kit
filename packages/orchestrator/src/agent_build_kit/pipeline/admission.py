@@ -23,7 +23,13 @@ from agent_build_kit.pipeline.occupancy import (
 )
 from agent_build_kit.pipeline.slots import account_labels, extra_of, slot_stack_limit
 from agent_build_kit.pipeline.unit_store import Starting, StoredUnit, UnitStore
-from agent_build_kit.pipeline.units import Unit, branch_name, in_progress, project_key
+from agent_build_kit.pipeline.units import (
+    Unit,
+    branch_name,
+    in_progress,
+    project_key,
+    waits_for_room,
+)
 from agent_build_kit.pipeline.workspaces import branch_held
 
 # How long a unit admitted to a worker holds its place before the worker takes the branch's lock.
@@ -106,7 +112,7 @@ def admit(
             # against it: it is the unit being placed.
             found = current_occupancy(inst, [u for u in units if u.id != current.id], now)
             key = project_key(current)
-            new = not in_progress(current, units)
+            new = not in_progress(current, units) or waits_for_room(current, units)
             label = account(current)
             # The account's cap on builds holds a lane start as it holds an ordinary one, and its
             # lane places count beside the project's: only the project's workers and units in

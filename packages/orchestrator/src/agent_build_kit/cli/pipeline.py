@@ -381,6 +381,7 @@ from agent_build_kit.pipeline.units import (
     uncounted,
     waiting_on,
     waiting_on_me,
+    waits_for_room,
 )
 from agent_build_kit.pipeline.unplanned_sweep import live_changes, sweep
 from agent_build_kit.pipeline.untouched_failures import preexisting_record, preview
@@ -8344,7 +8345,7 @@ def _planned_wait(
         return Wait(reason=WaitReason.READY)
     slot_of = _slot_of(inst)
     room = start_room(view, _slot_limit(inst)(slot_of(unit)), slot_of(unit), slot_of)
-    if not in_progress(unit, view) and not room:
+    if (not in_progress(unit, view) or waits_for_room(unit, view)) and not room:
         return Wait(reason=WaitReason.QUEUE_FULL)
     if (hold := _stack_hold(inst, unit, building)) is not None:
         return Wait(reason=WaitReason.SLOT, detail=_stack_hold_text(slot_of(unit), hold))

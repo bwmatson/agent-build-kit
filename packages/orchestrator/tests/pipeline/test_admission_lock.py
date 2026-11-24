@@ -200,7 +200,7 @@ def test_a_unit_requeued_out_of_failed_is_held_to_the_project_room_and_admitted_
 
     held = admit(inst, store, [store.get("c/1")], worker="w2", now=now, ttl=TTL)
     store.set_state("a/1", MERGED, pr=1, branch="spec/a/1")
-    freed = admit(inst, store, [store.get("c/1")], worker="w2", now=now, ttl=TTL)
+    freed = admit(inst, store, [store.get("c/1")], worker="w2", now=now + 2 * TTL, ttl=TTL)
 
     assert ([unit.id for unit in held], [unit.id for unit in freed]) == ([], ["c/1"])
 

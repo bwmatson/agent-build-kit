@@ -290,7 +290,7 @@ def project_counts(
 ) -> dict[Hashable, int]:
     """The units in progress (`in_progress`) in each slot (a project, unless `slot_of` names the
     account) that has any; no total is kept."""
-    return count_by(graph, slot_of, lambda unit: in_progress(unit, graph))
+    return count_by(graph, slot_of, lambda unit: in_progress(unit, graph) and not _came_back(unit))
 
 
 def count_by_project(
@@ -1224,15 +1224,18 @@ def in_progress(unit: Unit, graph: Sequence[Unit] = ()) -> bool:
     held it, and a unit set aside that way should not keep new work from
     starting. Requeued, it counts again from its next start.
 
+    A failed unit is not either, whatever branch, commit or pull request it has,
+    unless its cause is `environment`: the pipeline's own environment failed and
+    the tick resumes it, so it keeps its place. A unit requeued out of failed or
+    held waits for room (`waits_for_room`) until it starts.
+
     A blocked planned unit (`blocked`, judged against `graph`) does not count
-    however much work it has, and counts again when it is no longer blocked. A
-    failed unit that waits on another unit (`failed_waiting`) does not count
-    while it waits, and stays failed.
+    however much work it has, and counts again when it is no longer blocked.
     """
     if unit.state in (MERGED, CLOSED, SATISFIED, HELD, UnitState.RETIRED):
         return False
     if unit.state == FAILED:
-        return not failed_waiting(unit, graph)
+        return getattr(unit, "cause", None) == "environment"
     if unit.state in (RUNNING, IN_REVIEW, SETTLING):
         return True
     if parked_on_split(unit):
@@ -1255,19 +1258,35 @@ def failed_waiting_units(graph: Sequence[Unit]) -> list[Unit]:
     return [unit for unit in graph if failed_waiting(unit, graph)]
 
 
-def _waits_for_room(unit: Unit, graph: Sequence[Unit]) -> bool:
-    """Whether a planned unit that was blocked, and no longer is, must wait for
-    room: it has work and no pull request, and either its record still carries
-    the cause of the wait it left, or a unit it depends on was outside review
-    and merge at some point since the unit last changed state (`_parent_went_back`).
-    A build interrupted by a usage pause, a backoff or a lease, whose parents stayed
-    reviewed or merged throughout, resumes at the limit."""
+def _came_back(unit: Unit) -> bool:
+    """Whether a planned unit was requeued out of failed or held, or released from a hold: its
+    cause says `requeued` or `released` and the state before the last says `failed` or `held`.
+    Such a unit held no place, so a running unit no run holds, or one off a split park, is not."""
+    if unit.state != PLANNED or getattr(unit, "cause", None) not in ("requeued", "released"):
+        return False
+    history = getattr(unit, "history", ())
+    return len(history) >= 2 and history[-2].get("state") in (FAILED, HELD)
+
+
+def waits_for_room(unit: Unit, graph: Sequence[Unit]) -> bool:
+    """Whether a planned unit with work must wait for room as a never-started unit does, and so
+    is not counted until it starts. It was requeued out of failed or held, or released from a
+    hold, with or without a pull request; or it was blocked and no longer is, has no pull
+    request, and either its record still carries the cause of the wait it left, or a unit it
+    depends on was outside review and merge at some point since the unit last changed state
+    (`_parent_went_back`). A build interrupted by a usage pause, a backoff or a lease, whose
+    parents stayed reviewed or merged throughout, resumes at the limit."""
     # The cause is standing, so a replan carries it and this reads the same after one.
     return (
         unit.state == PLANNED
         and in_progress(unit, graph)
-        and getattr(unit, "pr", None) is None
-        and (getattr(unit, "cause", None) in _WAIT_CAUSES or _parent_went_back(unit, graph))
+        and (
+            _came_back(unit)
+            or (
+                getattr(unit, "pr", None) is None
+                and (getattr(unit, "cause", None) in _WAIT_CAUSES or _parent_went_back(unit, graph))
+            )
+        )
     )
 
 
@@ -1422,7 +1441,7 @@ def emergency_start(unit: Unit, graph: Sequence[Unit], excluded: Collection[str]
     for room as a new unit does (`_waits_for_room`), and its effective priority is 0, its
     own or lent by a unit that waits on it. A unit already in progress (a rework, a resume)
     is not: it draws on no place, and keeps to the workers."""
-    return (not in_progress(unit, graph) or _waits_for_room(unit, graph)) and effective_priority(
+    return (not in_progress(unit, graph) or waits_for_room(unit, graph)) and effective_priority(
         unit, graph, excluded
     ) == 0
 
@@ -1506,7 +1525,7 @@ def ready_units(
     counted = count_by(
         graph,
         slot_of,
-        lambda unit: in_progress(unit, graph) and not _waits_for_room(unit, graph),
+        lambda unit: in_progress(unit, graph) and not waits_for_room(unit, graph),
     )
 
     ready: list[Unit] = []
@@ -1546,7 +1565,7 @@ def ready_units(
         if stacks is not None and building.get(slot, 0) + begun.get(slot, 0) >= stacks:
             continue
         limit = slot_limit(slot) if slot_limit else max_units_in_progress
-        new = not in_progress(unit, graph) or _waits_for_room(unit, graph)
+        new = not in_progress(unit, graph) or waits_for_room(unit, graph)
         draws = max_units_in_progress is not None and new
         # A unit already started is held to the workers the lane's units leave.
         busy = running.get(key, 0) - (0 if new else lane_running.get(key, 0))
