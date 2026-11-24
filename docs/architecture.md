@@ -368,7 +368,7 @@ backoff, a lease, a limited tick and a usage pause do not make a unit blocked. O
 unit that has never started is stopped by the limit, and no more of them start than
 leave room, except a priority-0 unit in the project's emergency lane (above); so is a planned unit that was blocked and no longer is (its record carries
 the cause of the wait, or a unit it depends on was outside review and merge since it last
-changed state), which stays planned until the other units in progress are below the limit.
+changed state), which stays planned until the other units in progress are below the limit. A failed unit is not in progress (unless it waits for the environment), so it holds no place; one requeued out of failed or held waits for room and is first when a place frees.
 A failed unit that waits on another unit (`waiting_on`) does not count while it waits
 either; it stays failed and counts again when the wait
 ends. A failed unit is requeued by a person or when its wait ends: the pipeline requeues it once
