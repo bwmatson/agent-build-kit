@@ -19,13 +19,15 @@ from agent_build_kit.cli import main
 from agent_build_kit.cli.pipeline import reconcile_running, resumable_units
 from agent_build_kit.config import dump
 from agent_build_kit.installation import Installation
-from agent_build_kit.pipeline.unit_store import UnitStore
+from agent_build_kit.pipeline.unit_store import RETRY_BY, UnitStore
 from agent_build_kit.pipeline.units import FAILED, HELD, IN_REVIEW, PLANNED, RUNNING, UnitState
 from tests.branch_lock_fakes import dead_pid, lock_held_by
 from tests.conftest import make_installation
 from tests.factories import unit
 
 NOTE = "the run ended without recording its outcome"
+# A literal on purpose: it pins the cause the history records, which a rename must not change.
+LOST_RUN = "lost run"
 
 
 @pytest.fixture
@@ -49,10 +51,33 @@ def stored(store: UnitStore, uid: str, state: UnitState = RUNNING) -> str:
     return branch
 
 
-def test_a_running_unit_whose_holder_is_dead_is_failed_and_can_be_requeued(
+def with_lost_run_spent(store: UnitStore, uid: str) -> None:
+    """Record the unit's one retry for a lost run, as a first loss would have."""
+    store.record_retry(uid, LOST_RUN, "lost run: its run ended without an outcome")
+
+
+def test_a_first_lost_run_is_requeued_to_resume_and_not_failed(
     inst: Installation, store: UnitStore
 ) -> None:
     branch = stored(store, "add-marker/1")
+    lock_held_by(inst, branch, dead_pid())
+
+    reconcile_running(inst, store)
+
+    after = store.get("add-marker/1")
+    assert after.state == PLANNED
+    assert after.note != NOTE
+    retries = [e for e in store.history("add-marker/1") if e.get("by") == RETRY_BY]
+    assert len(retries) == 1
+    assert str(retries[0]["note"]).startswith(LOST_RUN)
+    assert store.retry_spent("add-marker/1", LOST_RUN)
+
+
+def test_a_running_unit_whose_lost_run_retry_is_spent_is_failed_and_can_be_requeued(
+    inst: Installation, store: UnitStore
+) -> None:
+    branch = stored(store, "add-marker/1")
+    with_lost_run_spent(store, "add-marker/1")
     lock_held_by(inst, branch, dead_pid())
 
     reconcile_running(inst, store)
@@ -62,6 +87,13 @@ def test_a_running_unit_whose_holder_is_dead_is_failed_and_can_be_requeued(
     assert after.note == NOTE
     assert main(["requeue", "add-marker/1"]) == 0
     assert store.get("add-marker/1").state == PLANNED
+    assert not store.retry_spent("add-marker/1", LOST_RUN)
+    store.set_state("add-marker/1", RUNNING)
+
+    reconcile_running(inst, store)
+
+    assert store.get("add-marker/1").state == PLANNED
+    assert store.retry_spent("add-marker/1", LOST_RUN)
 
 
 def test_a_running_unit_with_a_live_holder_is_unchanged(
@@ -137,14 +169,18 @@ def test_a_unit_in_another_state_is_untouched_whatever_its_lock_says(
 
 def test_only_the_unit_whose_holder_is_dead_is_failed(inst: Installation, store: UnitStore) -> None:
     gone = stored(store, "add-marker/1")
+    with_lost_run_spent(store, "add-marker/1")
     alive = stored(store, "add-marker/2")
     lock_held_by(inst, gone, dead_pid())
     lock_held_by(inst, alive, os.getpid())
+    fresh = stored(store, "add-marker/3")
+    lock_held_by(inst, fresh, dead_pid())
 
     reconcile_running(inst, store)
 
     assert store.get("add-marker/1").state == FAILED
     assert store.get("add-marker/2").state == RUNNING
+    assert store.get("add-marker/3").state == PLANNED
 
 
 def test_an_outcome_is_recorded_when_the_first_read_fails_and_the_second_succeeds(

@@ -21,11 +21,12 @@ from agent_build_kit import runtimes
 from agent_build_kit.cli import pipeline as cli
 from agent_build_kit.cli.pipeline import has_identity as real_has_identity
 from agent_build_kit.cli.pipeline import plan_all as real_plan_all
+from agent_build_kit.config import ConfigError
 from agent_build_kit.forges import PullRequest
 from agent_build_kit.graph.checkpointer import open_checkpointer, unit_graphs_path
 from agent_build_kit.graph.state import Node, UnitRun
 from agent_build_kit.graph.unit import seed_thread
-from agent_build_kit.installation import Installation
+from agent_build_kit.installation import Installation, MissingEnvSetting
 from agent_build_kit.pipeline.pause import RESUME_GRACE, is_paused, pause_until
 from agent_build_kit.pipeline.planner import Plan
 from agent_build_kit.pipeline.pr_poller import Poller, state_path
@@ -393,6 +394,38 @@ def test_a_unit_that_raises_is_recorded_as_failed_and_the_tick_continues(
     assert cli.cmd_tick(argv_namespace(dry_run=False), inst) == 0
     assert built == ["add-marker/2"]
     assert store.get("add-marker/1").state == "failed"
+
+
+class Raising:
+    def __init__(self, error: Exception) -> None:
+        self.error = error
+
+    def run(self, unit, *, base, graph):
+        raise self.error
+
+
+def test_a_missing_env_setting_fails_a_unit_for_the_environment_and_other_errors_do_not(
+    healthy, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    store = UnitStore(tmp_path / "units.json")
+    store.upsert([stored(), stored("add-marker/2")])
+    errors: dict[str, Exception] = {
+        "add-marker/1": MissingEnvSetting(Path("/env/.env"), "ABK_TEST_STORE_HOST"),
+        "add-marker/2": ConfigError("abk.yaml does not match the schema"),
+    }
+    monkeypatch.setattr(
+        "agent_build_kit.run_support.build_runner",
+        lambda unit, **kwargs: Raising(errors[unit.id]),
+    )
+
+    assert cli.cmd_tick(argv_namespace(dry_run=False), inst) == 0
+
+    missing = store.get("add-marker/1")
+    assert (missing.state, missing.cause) == (UnitState.FAILED, Cause.ENVIRONMENT)
+    assert "/env/.env" in missing.note
+    assert "ABK_TEST_STORE_HOST" in missing.note
+    other = store.get("add-marker/2")
+    assert (other.state, other.cause) == (UnitState.FAILED, Cause.FAILED)
 
 
 def test_a_unit_that_pauses_records_the_pause_without_stopping_the_others(

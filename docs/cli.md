@@ -894,6 +894,8 @@ added later starts a new wait.
 
 A unit never has to be requeued out of `running` by hand. At the start of each
 pass, a `running` unit whose branch lock names a process that is gone is
+planned again to resume once by itself (a `pipeline: retry` entry for `lost run`
+in its history); when that retry is spent it is
 failed with the note "the run ended without recording its outcome", and can then
 be requeued as above. One with a live holder is left, and so is one with no lock
 (or an unreadable one) at all, which the pass reports. So is one with a thread,

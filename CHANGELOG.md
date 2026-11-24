@@ -19,7 +19,10 @@
 - A run that reaches the command's time limit, or checks the machine was suspended in twice,
   now runs once more by itself before anything waits for you: the stop holds its unit for a
   person only after one rerun. Each rerun is a `pipeline: retry` entry in the unit's history,
-  and `abk requeue` gives the unit a fresh one.
+  and `abk requeue` gives the unit a fresh one. A `running` unit whose run was lost (its
+  process is gone) is likewise planned again once before it is failed, and a unit whose
+  build stopped for a missing line in the installation's env file now waits for the
+  environment and resumes by itself once the line is added.
 
 - The orchestrator (the round, the commands you run, `abk serve`, the trackers' sync and the
   notifier) is now its own package under `packages/orchestrator`, which installs the `abk`

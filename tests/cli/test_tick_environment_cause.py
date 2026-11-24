@@ -11,7 +11,7 @@ from pathlib import Path
 import pytest
 
 from agent_build_kit.cli import pipeline as cli
-from agent_build_kit.installation import Installation
+from agent_build_kit.installation import Installation, MissingEnvSetting
 from agent_build_kit.pipeline.unit_store import Cause, UnitStore
 from agent_build_kit.pipeline.units import FAILED, PLANNED, in_progress
 from tests.cli.test_tick_scheduling import (  # noqa: F401
@@ -124,6 +124,36 @@ def test_a_healthy_check_resumes_the_units_and_the_log_says_the_environment_was_
     assert "check" in env.calls()
     restored = [line for line in capsys.readouterr().out.splitlines() if "restored" in line]
     assert restored and "environment" in restored[0]
+
+
+def test_a_unit_failed_for_a_missing_env_file_setting_stays_failed_until_the_line_is_added(
+    tmp_path: Path,
+    builder: Builder,  # noqa: F811
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    inst, _ = managed(tmp_path)
+    env_file = tmp_path / "store.env"
+    env_file.write_text("ABK_TEST_OTHER=1\n")
+    builder.store.upsert([stored("feature/1")])
+    builder.store.set_state(
+        "feature/1",
+        FAILED,
+        note=str(MissingEnvSetting(env_file, "ABK_TEST_STORE_HOST")),
+        cause=Cause.ENVIRONMENT,
+    )
+
+    tick(inst)
+
+    assert builder.started == []
+    waiting = builder.store.get("feature/1")
+    assert (waiting.state, waiting.cause) == (FAILED, Cause.ENVIRONMENT)
+    line = next(line for line in status_lines(inst, capsys) if "feature/1" in line)
+    assert "waiting for the environment" in line
+
+    env_file.write_text("ABK_TEST_OTHER=1\nABK_TEST_STORE_HOST=db.example\n")
+    tick(inst)
+
+    assert builder.started == ["feature/1"]
 
 
 def test_units_still_waiting_are_not_resumed_while_the_environment_stays_broken(

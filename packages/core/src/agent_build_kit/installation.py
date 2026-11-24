@@ -8,6 +8,7 @@ installed anywhere and pointed at any planning repo.
 
 from __future__ import annotations
 
+import re
 import subprocess
 from functools import cached_property
 from pathlib import Path
@@ -348,15 +349,47 @@ class Installation:
         redaction.activate(redaction.gather(self))
 
 
+class MissingEnvSetting(ConfigError):
+    """The installation's env file has no line for a key a run reads."""
+
+    def __init__(self, file: Path, key: str) -> None:
+        super().__init__(f"{file} has no {key}=")
+        self.file = file
+        self.key = key
+
+
+_MISSING_ENV_NOTE = re.compile(r"^(?P<file>.+) has no (?P<key>\S+)=$")
+
+
+def _env_file_value(file: Path, key: str) -> str | None:
+    """The value of the line in `file` that names `key`, unquoted; None when no line does.
+    The one rule for what a line is, shared by the build's read and the tick's recheck."""
+    for line in file.expanduser().read_text().splitlines():
+        name, sep, value = line.partition("=")
+        if sep and name.strip() == key:
+            return value.strip().strip('"').strip("'")
+    return None
+
+
+def env_setting_still_missing(note: str) -> bool:
+    """Whether `note`, the text of a `MissingEnvSetting`, names a file that still has no line for
+    its key. A note of another shape, or a file that cannot be read, is not a missing setting."""
+    found = _MISSING_ENV_NOTE.match(note)
+    if found is None:
+        return False
+    try:
+        return _env_file_value(Path(found["file"]), found["key"]) is None
+    except OSError:
+        return False
+
+
 def _resolve(provider: object) -> str:
     if isinstance(provider, LiteralProvider):
         return provider.value
     if isinstance(provider, EnvFileProvider):
-        for line in provider.file.expanduser().read_text().splitlines():
-            key, sep, value = line.partition("=")
-            if sep and key.strip() == provider.key:
-                return value.strip().strip('"').strip("'")
-        raise ConfigError(f"{provider.file} has no {provider.key}=")
+        if (value := _env_file_value(provider.file, provider.key)) is None:
+            raise MissingEnvSetting(provider.file, provider.key)
+        return value
     if isinstance(provider, CommandProvider):
         result = subprocess.run(provider.argv, capture_output=True, text=True, check=False)
         if result.returncode:

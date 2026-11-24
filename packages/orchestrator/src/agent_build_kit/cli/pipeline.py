@@ -58,7 +58,7 @@ from agent_build_kit.cli.policy_cmd import coverage_line
 from agent_build_kit.cli.retire_cmd import cmd_retire
 from agent_build_kit.compat_names import old_tag
 from agent_build_kit.forges.base import CheckStatus
-from agent_build_kit.installation import Installation
+from agent_build_kit.installation import Installation, env_setting_still_missing
 from agent_build_kit.model import Frozen, TestTier, widest_kind
 from agent_build_kit.notify.build import build_notifier
 from agent_build_kit.notify.reconcile import reconcile as reconcile_notifications
@@ -1945,7 +1945,11 @@ def _resume_environment_waiters(inst: Installation, store: UnitStore) -> None:
     stopped, now that the environment is healthy; the concurrency limits apply as
     they do to any resumed unit."""
     waiting = [
-        unit.id for unit in store.all() if unit.state == FAILED and unit.cause is Cause.ENVIRONMENT
+        unit.id
+        for unit in store.all()
+        if unit.state == FAILED
+        and unit.cause is Cause.ENVIRONMENT
+        and not env_setting_still_missing(unit.note)
     ]
     if not waiting:
         return
@@ -3277,10 +3281,13 @@ def reclaim_stranded(
 def reconcile_running(
     inst: Installation, store: UnitStore, *, in_flight: Collection[str] = ()
 ) -> None:
-    """Fail each `running` unit whose branch lock names a process that is gone.
+    """Plan again, once, each `running` unit whose branch lock names a process that is gone.
 
     Its run ended without recording an outcome, so `abk requeue` could not move
-    it while it read `running`. One with a live holder is left, and so is one
+    it while it read `running`. The first loss plans the unit again to resume, recorded as a
+    `pipeline: retry` entry for `lost run`; only when that retry is spent (it is given back by
+    `abk requeue` and by an entry into review) is the unit failed with "the run ended without
+    recording its outcome". One with a live holder is left, and so is one
     with no lock, which is reported: nothing says whether its run ever started.
     A unit in `in_flight`, with a live `starting` marker or with a thread, is left and not
     reported: its thread resumes it, which is how a run killed in a node carries on."""
@@ -3295,6 +3302,15 @@ def reconcile_running(
         gone = lock_holder_gone(unit.branch or branch_name(unit), root=inst.locks_dir)
         if gone is None:
             log(f"{unit.id}: running, but no lock names a run for it")
+        elif gone and not store.retry_spent(unit.id, LOST_RUN):
+            store.record_retry(unit.id, LOST_RUN, "its run ended without an outcome; it resumes")
+            store.set_state(
+                unit.id,
+                PLANNED,
+                note="lost run: it resumes once by itself",
+                cause=Cause.REQUEUED,
+            )
+            log(f"{unit.id}: its run is gone — planned again to resume once")
         elif gone:
             store.set_state(
                 unit.id,
@@ -3492,6 +3508,8 @@ def requeue_wait_ended(
             store.set_waited_on(unit.id, ())
 
 
+# The retry cause for a run that ended without recording its outcome.
+LOST_RUN = "lost run"
 _ENVIRONMENTAL = (Cause.TOOLCHAIN, Cause.ENVIRONMENT, *PARKED_CAUSES)
 WAIT_ENDED = "its wait ended"
 
