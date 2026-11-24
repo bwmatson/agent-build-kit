@@ -13,8 +13,8 @@ import pytest
 
 from agent_build_kit.pipeline import plan_review, shell, spans
 from agent_build_kit.pipeline.plan_review import QUESTIONS, REVIEW_TOOLS
-from agent_build_kit.pipeline.unit_store import Cause
-from agent_build_kit.pipeline.units import MERGED, PLANNED
+from agent_build_kit.pipeline.unit_store import Cause, StoredUnit
+from agent_build_kit.pipeline.units import IN_REVIEW, MERGED, PLANNED, UnitState
 from tests.plan_review_support import (
     ADVICE,
     CHANGE,
@@ -344,3 +344,45 @@ def test_the_request_carries_the_files_the_tasks_name_at_the_default_branch(
     review.tick()
 
     assert "SHARED-MARKER" in review.prompt
+
+
+def test_the_request_lists_the_units_in_build_order_with_merged_ones_and_their_pull_requests(
+    tmp_path: Path,
+) -> None:
+    def unit(number: int, *, after: tuple[str, ...] = (), **more: object) -> StoredUnit:
+        return StoredUnit.model_validate(
+            {
+                "id": f"{CHANGE}/{number}",
+                "change": CHANGE,
+                "title": f"Group {number}",
+                "repo": "app",
+                "tier": "unit-test",
+                "depends_on": after,
+                "estimated_lines": 100,
+                "groups": (number,),
+                **more,
+            }
+        )
+
+    first = unit(1, state=MERGED, pr=11)
+    second = unit(3, after=(first.id,), state=IN_REVIEW, pr=12)
+    # Stored before the units it is built after, as a planner's listing may have it.
+    last = unit(17, after=(second.id,))
+    retired = unit(5, state=UnitState.RETIRED)
+    other = unit(2).model_copy(update={"id": "other/2", "change": "other"})
+    (tmp_path / "tasks.md").write_text(TASKS)
+
+    ordered = plan_review.build_order([last, retired, other, second, first], CHANGE)
+    prompt = plan_review.build_prompt(CHANGE, tmp_path, ordered, [])
+
+    assert [u.id for u in ordered] == [first.id, second.id, last.id], (
+        "the change's own units, merged ones kept, each after what it depends on; a retired unit "
+        "and another change's unit are left out"
+    )
+    lines = [line for line in prompt.splitlines() if line.startswith(f"- {CHANGE}/")]
+    assert lines == [
+        f"- {CHANGE}/1 [app, unit-test] ({CHANGE} group 1) merged, pull request 11: Group 1",
+        f"- {CHANGE}/3 [app, unit-test] ({CHANGE} group 3) in_review, pull request 12: Group 3",
+        f"- {CHANGE}/17 [app, unit-test] ({CHANGE} group 17) planned: Group 17",
+    ]
+    assert "in the order they are built" in prompt
