@@ -4,6 +4,7 @@
 
 - The unit graph page no longer breaks when a unit's title has a double quote or an angle bracket in it: a quote ended the node's label early and the diagram stopped drawing (the title
   `"Not logged in" pauses for the login…` did). These characters are now written as entity codes in a label, which mermaid draws as the characters.
+
 - A run that reaches the command's time limit, or checks the machine was suspended in twice,
   now runs once more by itself before anything waits for you: the stop holds its unit for a
   person only after one rerun. Each rerun is a `pipeline: retry` entry in the unit's history,
