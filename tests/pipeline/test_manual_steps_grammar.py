@@ -25,7 +25,12 @@ def parse(text: str, tmp_path: Path) -> tuple[list[TaskGroup], list[ValidationEr
 
 
 def group_with(*lines: str) -> str:
-    return "## 1. [app] [unit-test] A\n" + "".join(f"{line}\n" for line in lines) + "- [ ] 1.1 x\n"
+    return (
+        "## 1. [app] [unit-test] A\n"
+        + "".join(f"{line}\n" for line in lines)
+        + "Tests: required — the fixture's task is no test\n"
+        + "- [ ] 1.1 x\n"
+    )
 
 
 def test_a_manual_line_gives_the_group_a_step_with_its_runbook(tmp_path: Path) -> None:
@@ -130,3 +135,120 @@ def test_the_planner_carries_a_groups_steps_to_the_unit_that_holds_it() -> None:
     units = parse_graph(reply, groups=[group], tasks="## 1. [app] [unit-test] A\n- [ ] 1.1 x\n")
 
     assert units[0].manual_steps == (step,)
+
+
+def check_output(
+    installation: Installation, capsys: pytest.CaptureFixture[str], command: str
+) -> tuple[int, str]:
+    write_change(installation, group_with(STEP, f"Check: {command}"), runbook="## flip\n")
+    return tags_output(installation, capsys)
+
+
+# A second step whose check cannot work: a lint that never ran is told from one that stayed quiet.
+UNWORKABLE = (
+    f"Manual: other-marker — Flip the other marker — runbook: {RUNBOOK}#flip",
+    "Check: test -f ~/.config/x/done",
+)
+
+
+@pytest.mark.parametrize(
+    ("command", "named"),
+    [
+        ('cd "$HOME/projects/x" && test -f done', "HOME"),
+        ('cd "${HOME}/projects/x" && test -f done', "HOME"),
+        ("test -f ~/.config/x/done", "~"),
+        ("test -f $TARGET/done", "TARGET"),
+        ("no-such-runner run tests", "no-such-runner"),
+        ("FOO=1 no-such-tool login", "no-such-tool"),
+        ("timeout 10 no-such-tool login", "no-such-tool"),
+        ("if no-such-tool login; then :; fi", "no-such-tool"),
+        ("! no-such-tool login", "no-such-tool"),
+        ("test -f done; no-such-tool login", "no-such-tool"),
+        ("test -f done && no-such-tool login", "no-such-tool"),
+        ("test -f done || no-such-tool login", "no-such-tool"),
+        ("test -f done | no-such-tool login", "no-such-tool"),
+        ("n=$(no-such-tool show); test -n $n", "no-such-tool"),
+        ('test -n "$(no-such-tool x)"', "no-such-tool"),
+    ],
+)
+def test_a_check_that_cannot_work_in_its_environment_is_warned_of(
+    installation: Installation,
+    capsys: pytest.CaptureFixture[str],
+    command: str,
+    named: str,
+) -> None:
+    status, out = check_output(installation, capsys, command)
+
+    warnings = [line for line in out.splitlines() if "warning" in line and "flip-marker" in line]
+    assert status == 0
+    assert len(warnings) == 1
+    assert named in warnings[0]
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        'n=$(grep -c x f); test "${n:-0}" -ge 4',
+        "test -f .abk/manual/x.done",
+        "grep -q x abk.yaml",
+        "sh -c 'test -f x'",
+        'test "$PATH" != "$LANG"',
+        "awk '{print $NF}' abk.yaml",
+        'for f in a b; do test -f "$f"; done',
+        "grep -q 'x$y' abk.yaml",
+        'test -d "$PWD"',
+        'test -n "$(cat abk.yaml)"',
+        'test "$(cat abk.yaml)" != ""',
+        "grep -q 'v(1)' abk.yaml",
+        "awk '{a=1; print a}' abk.yaml",
+        'grep -Eq "x|y" abk.yaml',
+        'grep -q "a;b" abk.yaml',
+        'grep -q "v(1)" abk.yaml',
+        r"grep -q a\|b abk.yaml",
+        'read -r line < abk.yaml; test -n "$line"',
+    ],
+)
+def test_a_check_that_works_in_its_environment_is_not_warned_of(
+    installation: Installation, capsys: pytest.CaptureFixture[str], command: str
+) -> None:
+    write_change(
+        installation, group_with(STEP, f"Check: {command}", *UNWORKABLE), runbook="## flip\n"
+    )
+
+    status, out = tags_output(installation, capsys)
+
+    warnings = [line for line in out.splitlines() if "warning" in line]
+    assert status == 0
+    assert len(warnings) == 1
+    assert "other-marker" in warnings[0]
+
+
+def test_a_manual_step_with_no_check_gets_an_info_note_naming_the_attest_command(
+    installation: Installation, capsys: pytest.CaptureFixture[str]
+) -> None:
+    write_change(installation, group_with(STEP), runbook="## flip\n")
+
+    status, out = tags_output(installation, capsys)
+
+    assert status == 0
+    assert "warning" not in out
+    assert "abk manual done flip-marker" in out
+
+
+def test_a_manual_step_with_a_check_gets_no_attestation_note(
+    installation: Installation, capsys: pytest.CaptureFixture[str]
+) -> None:
+    write_change(
+        installation,
+        group_with(
+            STEP,
+            "Check: test -f done",
+            f"Manual: bare-marker — Flip a bare marker — runbook: {RUNBOOK}#flip",
+        ),
+        runbook="## flip\n",
+    )
+
+    _, out = tags_output(installation, capsys)
+
+    assert "abk manual done bare-marker" in out
+    assert "abk manual done flip-marker" not in out

@@ -602,6 +602,12 @@ cannot do, and what a person does about it:
 stopped on a step only a person can do. Each tick runs its check; when it exits 0 the unit
 resumes. `abk manual list` shows every outstanding step with its runbook and last check output.
 
+A check runs with only `PATH` and `LANG` in its environment, in the unit's worktree once it has one
+and in the checkout before that. A check that reads `$HOME` or another variable, or a program off
+`PATH`, never passes there. Write a check when a command can tell the step is done. A step with no
+check says it waits for attestation: when only a person can know it is done, they run
+`abk manual done <slug> --note TEXT`.
+
 ## When nothing is moving
 
 - `abk status` lists `looping: <unit> (<label>) <n> times in a row, cause <cause> — <note>` for a

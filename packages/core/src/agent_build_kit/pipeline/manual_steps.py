@@ -28,7 +28,7 @@ MANUAL_FOLDER = ".abk/manual"
 # The longest line of a check's output that is kept.
 LINE_LIMIT = 300
 # All a check is given of the environment: it reads the repository, not the machine's secrets.
-_ENVIRONMENT = {"PATH": "/usr/local/bin:/usr/bin:/bin", "LANG": "C.UTF-8"}
+CHECK_ENVIRONMENT = {"PATH": "/usr/local/bin:/usr/bin:/bin", "LANG": "C.UTF-8"}
 
 Outcome = Literal["met", "unmet", "failed", "timeout"]
 
@@ -73,7 +73,7 @@ def _run(command: str, cwd: Path, seconds: int) -> tuple[Outcome, str]:
         process = subprocess.Popen(
             ["sh", "-c", command],
             cwd=cwd,
-            env=_ENVIRONMENT,
+            env=CHECK_ENVIRONMENT,
             stdin=subprocess.DEVNULL,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,

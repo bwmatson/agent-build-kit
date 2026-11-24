@@ -93,7 +93,10 @@
   TEXT` marks it done with the note, the time and who ran it, and the next tick pass resumes
   the unit. It refuses a step that declares a check (run `abk manual check` instead), an
   unknown slug, and a slug two waiting units share unless `--unit` names one. `abk status`
-  says such a step waits for attestation.
+  says such a step waits for attestation. `abk tags` and `abk check` now warn of a `Check:`
+  that cannot work in the environment a check runs with (it expands `$HOME`, starts a path
+  with `~`, reads a variable nothing sets, or runs a program that is not on `PATH`), and
+  note a `Manual:` with no check, naming `abk manual done`.
 
 - The Python profile now reads the failed test ids of a run from that run's own short
   summary, so a failure of a child pytest run inside a test is no longer rerun as if it

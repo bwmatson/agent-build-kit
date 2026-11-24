@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import argparse
 import re
+import shutil
 import sys
 import tempfile
 from collections.abc import Callable, Iterable, Mapping, Sequence
@@ -47,6 +48,7 @@ from agent_build_kit.config import (
     owning_project,
 )
 from agent_build_kit.model import Frozen, TestTier
+from agent_build_kit.pipeline.command_policy import programs
 from agent_build_kit.pipeline.group_mode import GroupMode
 from agent_build_kit.pipeline.group_paths import (
     allows_no_code,
@@ -1709,9 +1711,66 @@ def _runbook_anchors(text: str) -> set[str]:
     return anchors
 
 
+# Shell words a check may start a command with that are no program on the check's PATH.
+_SHELL_WORDS = frozenset(
+    "test [ [[ cd echo exit true false : . source export set unset read printf type command eval "
+    "exec if then else elif fi while until do done for in case esac ! { } return shift trap wait "
+    "umask ulimit pwd".split()
+)
+_SINGLE_QUOTED = re.compile(r"'[^']*'")
+_DOUBLE_QUOTED = re.compile(r'"[^"$`]*"')
+_ESCAPED = re.compile(r"\\.", re.S)
+# Variables the shell itself sets for a command: a `for` loop's, the targets of `read`, `PWD`.
+_LOOP_VARIABLE = re.compile(r"\bfor\s+([A-Za-z_]\w*)\s+in\b")
+_READ_VARIABLES = re.compile(r"\bread\s+(?:-\w+\s+)*((?:[A-Za-z_]\w*\s*)+)")
+_VARIABLE = re.compile(r"\$(?:\{([A-Za-z_]\w*)|([A-Za-z_]\w*))")
+_TILDE_PATH = re.compile(r"(?:^|[\s=:\"'])~(?:/|$|\s)")
+
+
+def check_environment_problems(command: str) -> list[str]:
+    """What in a `Check:` command cannot work under the environment a check runs with
+    (`CHECK_ENVIRONMENT`), each as a short phrase."""
+    from agent_build_kit.pipeline.manual_steps import CHECK_ENVIRONMENT
+
+    problems: list[str] = []
+    # Single quotes expand nothing, so what they hold is not read as variables or paths.
+    expanded = _SINGLE_QUOTED.sub("''", command)
+    variables = [m.group(1) or m.group(2) for m in _VARIABLE.finditer(expanded)]
+    set_by_shell = {m.group(1) for m in _LOOP_VARIABLE.finditer(expanded)}
+    for read in _READ_VARIABLES.finditer(expanded):
+        set_by_shell.update(read.group(1).split())
+    if "HOME" in variables:
+        problems.append("expands $HOME, which a check is not given")
+    if _TILDE_PATH.search(expanded):
+        problems.append("starts a path with ~, which needs HOME")
+    for name in dict.fromkeys(variables):
+        if (
+            name in (*CHECK_ENVIRONMENT, "HOME", "PWD")
+            or name in set_by_shell
+            or re.search(rf"(?:^|[\s;&|(]){name}=", expanded)
+        ):
+            continue
+        problems.append(f"reads ${name}, which nothing in the check sets")
+    search_path = CHECK_ENVIRONMENT["PATH"]
+    # An escaped character and a double-quoted span with no command substitution hold no operator
+    # that splits the line, so they are blanked; a quoted `$(...)` keeps its command checked.
+    unquoted = _DOUBLE_QUOTED.sub('""', _ESCAPED.sub("x", expanded))
+    for word in dict.fromkeys(programs(unquoted)):
+        if (
+            word in _SHELL_WORDS
+            or "/" in word
+            or word[0] == "$"
+            or shutil.which(word, path=search_path)
+        ):
+            continue
+        problems.append(f"runs {word}, which is not on {search_path}")
+    return problems
+
+
 def manual_runbook_warnings(path: Path, root: Path) -> list[str]:
     """One warning per `Manual:` line of a tasks file whose runbook file or heading is missing
-    under `root`, as `abk tags` and `abk check` print them."""
+    under `root`, or whose check cannot work in its environment, and one note for each step with
+    no check, as `abk tags` and `abk check` print them."""
     groups, _ = validate_tasks(path)
     warnings: list[str] = []
     for step in (step for group in groups for step in group.manual_steps):
@@ -1721,6 +1780,13 @@ def manual_runbook_warnings(path: Path, root: Path) -> list[str]:
             warnings.append(f"{where} runbook file {file} does not exist")
         elif anchor and anchor.lower() not in _runbook_anchors((root / file).read_text()):
             warnings.append(f"{where} {file} has no heading #{anchor}")
+        if step.check and (problems := check_environment_problems(step.check)):
+            warnings.append(f"{where} its check {'; '.join(problems)}")
+        elif not step.check:
+            warnings.append(
+                f"{path}:line {step.line}: note: manual step `{step.slug}` has no check; "
+                f"a person attests it with `abk manual done {step.slug}`"
+            )
     return warnings
 
 

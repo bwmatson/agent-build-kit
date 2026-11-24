@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-from tests.prompt_text import flat
+from tests.prompt_text import flat, section
 
 ROOT = Path(__file__).resolve().parents[1]
 SKILLS = ROOT / "src" / "agent_build_kit" / "skills"
@@ -47,3 +47,36 @@ def test_the_needs_a_human_table_names_a_raised_manual_step_for_a_builder_limit(
     body = (SKILLS / "abk-pipeline" / "SKILL.md").read_text(encoding="utf-8")
     section = body.split('## Why a unit is held "needs a human"', 1)[1].split("\n## ", 1)[0]
     assert re.search(r"abk manual raise", flat(section))
+
+
+GUIDES = [SKILLS / "abk-pipeline" / "SKILL.md", SKILLS / "abk-authoring" / "SKILL.md"]
+
+
+def test_the_cli_document_describes_manual_done_and_its_refusals() -> None:
+    said = section(ROOT / "docs" / "cli.md", "abk manual")
+
+    assert "abk manual done" in said
+    assert "--note" in said and "--unit" in said
+    assert "abk manual check" in said, "it does not say a step with a check is refused"
+    assert re.search(r"unknown", said, re.I), "it does not say an unknown slug is refused"
+    assert re.search(r"two|more than one|ambiguous", said, re.I), "no word on a shared slug"
+    assert re.search(r"already done", said, re.I), "it does not say what a done step does"
+
+
+@pytest.mark.parametrize("path", GUIDES, ids=lambda p: p.parent.name)
+def test_a_guide_says_what_a_check_runs_with(path: Path) -> None:
+    said = text(path)
+
+    assert "PATH" in said and "LANG" in said, "it does not name the whole environment"
+    assert re.search(r"only `?PATH`? and `?LANG`?|`?PATH`? and `?LANG`? only", said)
+    assert re.search(r"worktree", said), "it does not name the directory a check runs in"
+    assert re.search(r"checkout", said), "it does not name the checkout as the other directory"
+
+
+@pytest.mark.parametrize("path", GUIDES, ids=lambda p: p.parent.name)
+def test_a_guide_says_when_to_write_a_check_and_when_to_attest(path: Path) -> None:
+    said = text(path)
+
+    assert "abk manual done" in said
+    assert re.search(r"attest", said, re.I), "it does not use the word attest"
+    assert re.search(r"only a person can", said, re.I), "it does not say attesting is for a person"

@@ -641,6 +641,12 @@ output and time; `--done` adds the finished ones, and it says so when none is ou
 `abk manual raise <slug> --text … --check .abk/manual/<slug>.sh` is how a builder registers a
 step, and never marks it done. `abk manual check [<slug>]` runs the checks now, as a tick pass does.
 
+`abk manual done <slug> --note TEXT [--unit ID]` attests a step that declares no check: it marks
+the step done with the note, the time and who ran it, and the next tick pass resumes the unit.
+It refuses a step that declares a check (run `abk manual check` instead), an unknown slug, and a
+slug that more than one waiting unit shares unless `--unit` names one (the refusal lists them).
+A step that is already done is reported as already done and left as it is.
+
 ### `abk external hand-off`, `list`, `done`, `release`
 
 Work handed to someone outside the kit (see `hand-off.md`). `abk external hand-off CHANGE
