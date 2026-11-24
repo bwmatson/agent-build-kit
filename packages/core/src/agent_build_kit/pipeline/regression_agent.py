@@ -353,8 +353,10 @@ def run_regression_agent(
                 if finished
                 else f"\nAn earlier change, `{archived}`, fixed this test and was merged and "
                 "archived; it fails again. Read it, and say why its fix did not hold. Its "
-                "requirement is in the shipped spec now, and an archive refuses an ADDED "
-                "requirement of a title the shipped spec holds: restate it as a MODIFIED one.\n"
+                "requirement is in the shipped spec now only if it was archived there, and an "
+                "archive refuses an ADDED requirement of a title the shipped spec holds and a "
+                "MODIFIED one of a title it lacks: use MODIFIED only for a title the shipped "
+                "spec holds, and ADDED for any other.\n"
             )
             if archived
             else ""
@@ -546,6 +548,43 @@ def _write_paths_lines(inst: Installation, name: str, *, say: Callable[[str], No
         tasks.write_bytes("\n".join(lines).encode())
 
 
+_DELTA_SECTION = re.compile(r"^##\s+(ADDED|MODIFIED|REMOVED|RENAMED)\s+Requirements\s*$", re.I)
+_REQUIREMENT_TITLE = re.compile(r"^###\s+Requirement:\s*(.+?)\s*$")
+
+
+def _delta_problems(inst: Installation, root: Path) -> list[str]:
+    """Each requirement of a delta spec whose header the shipped spec of its capability
+    disagrees with: `MODIFIED` or `REMOVED` of a title it lacks, `ADDED` of a title it holds."""
+    found: list[str] = []
+    for delta in sorted((root / "specs").glob("*/spec.md")):
+        capability = delta.parent.name
+        living = inst.specs_dir / "specs" / capability / "spec.md"
+        held: set[str] = set()
+        if living.is_file():
+            for line in living.read_text().splitlines():
+                if title := _REQUIREMENT_TITLE.match(line):
+                    held.add(title[1])
+        header = ""
+        where = f"specs/{capability}/spec.md"
+        for line in delta.read_text().splitlines():
+            if section := _DELTA_SECTION.match(line):
+                header = section[1].upper()
+            elif (title := _REQUIREMENT_TITLE.match(line)) and header:
+                name = title[1]
+                if header in ("MODIFIED", "REMOVED") and name not in held:
+                    use = "; use ADDED" if header == "MODIFIED" else ""
+                    found.append(
+                        f"{where}: `{name}` is under {header}, but the shipped spec holds "
+                        f"no requirement of that title{use}"
+                    )
+                elif header == "ADDED" and name in held:
+                    found.append(
+                        f"{where}: `{name}` is under ADDED, but the shipped spec already "
+                        "holds it; use MODIFIED"
+                    )
+    return found
+
+
 def _problems(
     inst: Installation,
     name: str,
@@ -607,6 +646,7 @@ def _problems(
         test_wrong=_judgement_of(proposal) == JUDGEMENTS[0],
         projects=projects,
     )
+    found += _delta_problems(inst, root)
     found += _standard_problems((root / "proposal.md").read_text())
     return found + _exposure_problems((root / "proposal.md").read_text())
 
