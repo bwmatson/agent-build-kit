@@ -37,7 +37,9 @@ def failed_run(
     recorder = fresh(tmp_path)
     if feedback:
         recorder.store.set_feedback("add-marker/1", feedback, source=FeedbackSource.REVIEW)
-    e2e = Failing(recorder.events, snapshot_of(*tests, tail=tail), verdict)
+    # Twice: a failure of its own is reworked once, and the unit's saved feedback is that of the
+    # failure that stops it.
+    e2e = Failing(recorder.events, snapshot_of(*tests, tail=tail), verdict, fails=2)
     tick(
         tmp_path,
         recorder,
@@ -82,7 +84,7 @@ def test_the_tail_is_kept_when_every_failed_test_in_it_is_the_units(tmp_path: Pa
         tmp_path, verdict=verdict_of(own=(OWN,)), tests=(OWN,), tail=OWN_OUTPUT
     )
 
-    assert e2e.asked == 1, "the failures were classified, and none is untouched"
+    assert e2e.asked == 2, "on each run the failures were classified, and none is untouched"
     assert OWN_OUTPUT in feedback
     assert "also failing on the base" not in feedback
 
@@ -91,7 +93,7 @@ def test_an_unclassified_failure_saves_the_text_saved_today(tmp_path: Path) -> N
     feedback, source, e2e = failed_run(tmp_path, verdict=None, tests=(OWN, OLD))
 
     assert feedback == ("e2e-test failed:\n" + e2e.snapshot).strip()
-    assert e2e.asked == 1, "the node asked, and was told nothing was classified"
+    assert e2e.asked == 2, "on each run the node asked, and was told nothing was classified"
     assert source is FeedbackSource.E2E
 
 
@@ -116,7 +118,10 @@ def test_the_prompt_made_from_the_saved_text_holds_none_of_an_untouched_tests_ou
 ) -> None:
     recorder = fresh(tmp_path)
     e2e = Failing(
-        recorder.events, snapshot_of(OWN, OLD, tail=TAIL), verdict_of(own=(OWN,), old=(OLD,))
+        recorder.events,
+        snapshot_of(OWN, OLD, tail=TAIL),
+        verdict_of(own=(OWN,), old=(OLD,)),
+        fails=2,
     )
     overrides = dict(
         tier="e2e-test",

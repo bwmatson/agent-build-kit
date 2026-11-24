@@ -20,7 +20,7 @@ def test_a_failure_whose_split_is_unknown_is_the_units_own_with_its_output_as_fe
 ) -> None:
     planning = Planning(tmp_path, whole=False)
 
-    status = planning.fails(split=UNKNOWN)
+    status = planning.fails(split=UNKNOWN, runs=2)
 
     assert status != RunStatus.HELD
     assert preexisting_record(planning.installation).entries() == []

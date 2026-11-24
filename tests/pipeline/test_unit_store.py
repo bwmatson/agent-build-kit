@@ -18,6 +18,8 @@ from agent_build_kit.pipeline.unit_store import (
     REQUEUE_BY,
     RETRY_BY,
     UNPLANNED,
+    AutoRework,
+    Cause,
     RewriteSource,
     StoredRewriteRequest,
     UnitStore,
@@ -420,3 +422,47 @@ def test_a_retry_after_a_requeue_by_a_person_reads_as_spent(tmp_path) -> None:
     store.record_retry("add-marker/1", "time limit", "time limit: runs once more by itself")
 
     assert store.retry_spent("add-marker/1", "time limit")
+
+
+def test_a_recorded_automatic_rework_is_kept_per_cause(tmp_path) -> None:
+    store = UnitStore(tmp_path / "units.json")
+    store.upsert([unit()])
+
+    store.record_auto_rework("add-marker/1", AutoRework.E2E_FAILED)
+    store.record_auto_rework("add-marker/1", AutoRework.PRODUCT_CODE)
+    store.record_auto_rework("add-marker/1", AutoRework.E2E_FAILED)
+
+    assert store.get("add-marker/1").auto_reworks == (
+        AutoRework.E2E_FAILED,
+        AutoRework.PRODUCT_CODE,
+    ), "each cause once, however often it is recorded"
+
+
+def test_an_automatic_rework_survives_a_requeue_a_replan_and_a_restart(tmp_path) -> None:
+    path = tmp_path / "units.json"
+    store = UnitStore(path)
+    store.upsert([unit()])
+    store.record_auto_rework("add-marker/1", AutoRework.E2E_FAILED)
+
+    store.set_state("add-marker/1", UnitState.FAILED, note="e2e-test failed")
+    store.set_state("add-marker/1", PLANNED, cause=Cause.REQUEUED, by=REQUEUE_BY)
+    store.upsert([unit(title="new wording")])
+
+    assert UnitStore(path).get("add-marker/1").auto_reworks == (AutoRework.E2E_FAILED,)
+
+
+def test_a_stored_unit_written_before_the_record_existed_has_had_no_automatic_rework(
+    tmp_path,
+) -> None:
+    path = tmp_path / "units.json"
+    UnitStore(path).upsert([unit()])
+    raw = json.loads(path.read_text())
+    for record in raw["units"]:
+        record.pop("auto_reworks", None)
+    path.write_text(json.dumps(raw))
+    store = UnitStore(path)
+    assert store.get("add-marker/1").auto_reworks == ()
+
+    store.record_auto_rework("add-marker/1", AutoRework.E2E_FAILED)
+
+    assert UnitStore(path).get("add-marker/1").auto_reworks == (AutoRework.E2E_FAILED,)
