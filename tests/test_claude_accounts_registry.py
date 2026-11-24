@@ -14,9 +14,9 @@ from agent_build_kit import claude_account
 from agent_build_kit.cli.doctor import Check, run_doctor
 from agent_build_kit.config import CLAUDE_CODE, ConfigError, load
 from agent_build_kit.installation import Installation, load_installation
+from packages.orchestrator.tests.cli.test_doctor import workspace  # noqa: F401 — fixture
 from tests.account_settings import Configure
 from tests.cli.claude_auth_fakes import FakeClaude, in_planning_env, said
-from tests.cli.test_doctor import workspace  # noqa: F401 — fixture
 from tests.factories import which_all
 
 APP = {"path": ".", "slug": "example/app"}

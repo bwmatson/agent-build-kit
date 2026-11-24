@@ -13,7 +13,7 @@ from agent_build_kit.cli import main
 from agent_build_kit.cli.doctor import Check, run_doctor
 from agent_build_kit.compat_names import old_spelling
 from agent_build_kit.model import TestTier
-from tests.cli.test_doctor import Answers, which_all
+from packages.orchestrator.tests.cli.test_doctor import Answers, which_all
 from tests.factories import init_repo
 
 GLOBAL_PAIRS = {

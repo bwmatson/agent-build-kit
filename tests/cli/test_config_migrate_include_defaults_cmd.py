@@ -9,11 +9,11 @@ import yaml
 
 from agent_build_kit.cli import main
 from agent_build_kit.cli.doctor import MACHINE_KEYS, Check, run_doctor
+from packages.orchestrator.tests.cli.test_doctor import Answers
 from tests.cli.config_migrate_fakes import beside, run_migrate
 from tests.cli.config_migrate_machine_fakes import DEFAULTS as TEXT
 from tests.cli.config_migrate_machine_fakes import tracked
 from tests.cli.public_content_repo import committed_config
-from tests.cli.test_doctor import Answers
 from tests.config_migrate_machine_support import merged
 from tests.factories import which_all
 

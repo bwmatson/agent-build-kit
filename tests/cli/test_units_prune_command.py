@@ -16,10 +16,10 @@ from agent_build_kit.cli.units_cmd import cmd_units_prune
 from agent_build_kit.installation import Installation
 from agent_build_kit.pipeline.unit_store import StoredUnit, UnitStore
 from agent_build_kit.pipeline.units import UnitState
+from packages.orchestrator.tests.trackers.test_tick_step import Watching
 from tests.conftest import make_installation
 from tests.factories import stored_unit
 from tests.trackers.board_support import board_section, write_change
-from tests.trackers.test_tick_step import Watching
 
 
 @pytest.fixture(autouse=True)

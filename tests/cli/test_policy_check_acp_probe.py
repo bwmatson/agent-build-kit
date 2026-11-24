@@ -14,8 +14,8 @@ from agent_build_kit.installation import load_installation
 from agent_build_kit.runtimes import policy_check
 from agent_build_kit.runtimes.policy_check import Denial, SandboxProbeResult
 from agent_build_kit.settings import reload
+from packages.orchestrator.tests.cli.test_policy_cmd_check import run_check
 from tests.cli.policy_static_cli import abk_yaml, agent_command
-from tests.cli.test_policy_cmd_check import run_check
 
 UNVERIFIED_LINE = "sandbox_coverage: process (unverified against a real agent)"
 ALL: tuple[Denial, ...] = ("write", "read", "host")

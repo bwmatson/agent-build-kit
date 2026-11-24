@@ -12,7 +12,7 @@ from agent_build_kit.cli import main
 from agent_build_kit.cli.doctor import Check, run_doctor
 from agent_build_kit.config import ReviewConfig, deprecations, load
 from agent_build_kit.init.scaffold import REVIEW_BLOCK
-from tests.cli.test_doctor import Answers, which_all
+from packages.orchestrator.tests.cli.test_doctor import Answers, which_all
 from tests.factories import init_repo
 
 KEY = "review.enabled"

@@ -10,7 +10,7 @@ import yaml
 
 from agent_build_kit.cli import main
 from agent_build_kit.cli.doctor import run_doctor
-from tests.cli.test_doctor import Answers, which_all
+from packages.orchestrator.tests.cli.test_doctor import Answers, which_all
 from tests.factories import init_repo
 
 OLD = "version: 1\nglobal_limits:\n  max_unit_lines: 600\n"

@@ -18,10 +18,10 @@ from agent_build_kit.pipeline.restack import move_branch_onto, resolved_move
 from agent_build_kit.pipeline.unit_store import Cause
 from agent_build_kit.pipeline.units import HELD
 from agent_build_kit.pipeline.wiring import build_restack_onto
+from packages.orchestrator.tests.pipeline.test_events_restack_scope import restacking
 from packages.worker.tests.graph.test_build_path import build
 from packages.worker.tests.graph.test_remaining_paths import fresh
 from tests.factories import commit_files, git, init_repo, unit
-from tests.pipeline.test_events_restack_scope import restacking
 from tests.pipeline.test_flake_fix_change import code_repo
 from tests.pipeline.test_restack_onto_before_push import BASE, BRANCH, Repos, Resolver, stack
 

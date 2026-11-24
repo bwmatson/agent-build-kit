@@ -7,7 +7,7 @@ from pathlib import Path
 import yaml
 
 from agent_build_kit.config import load
-from tests.cli.test_init_environment import (
+from packages.orchestrator.tests.cli.test_init_environment import (
     SOURCES,
     code_repo,
     planning_with,

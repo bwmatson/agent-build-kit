@@ -22,7 +22,7 @@ from agent_build_kit.forges.base import RepoId
 from agent_build_kit.forges.github import GitHubForge
 from agent_build_kit.forges.transport import clear_credentials
 from agent_build_kit.settings import reload, settings
-from tests.cli.test_doctor import Answers, which_all
+from packages.orchestrator.tests.cli.test_doctor import Answers, which_all
 from tests.factories import init_repo
 from tests.forges.conftest import GH_TOKEN
 from tests.forges.github_host import GitHubHost, answer

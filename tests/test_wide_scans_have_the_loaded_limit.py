@@ -95,7 +95,7 @@ WIDE_SCANS = [
         "test_only_the_gate_command_calls_check_branch_so_a_real_test_and_an_empty_feat_can_push",
     ),
     (
-        "tests/pipeline/test_planner_no_single_ceiling.py",
+        "packages/orchestrator/tests/pipeline/test_planner_no_single_ceiling.py",
         "test_only_the_load_error_and_the_migration_name_the_setting",
     ),
     (

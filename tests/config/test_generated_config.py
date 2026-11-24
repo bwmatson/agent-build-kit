@@ -15,7 +15,7 @@ from agent_build_kit.cli.doctor import Check, run_doctor
 from agent_build_kit.config import ConfigError, RepoConfig, WorkspaceConfig, dump, load
 from agent_build_kit.forges import FileChange
 from agent_build_kit.pipeline.unit_size import actual_lines
-from tests.cli.test_doctor import Answers
+from packages.orchestrator.tests.cli.test_doctor import Answers
 from tests.factories import git, init_repo, which_all
 
 ENTRY = {

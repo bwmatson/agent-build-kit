@@ -23,11 +23,11 @@ from agent_build_kit.runtimes import AgentRequest, AgentResult, AgentRuntime
 from agent_build_kit.runtimes.acp import AcpRuntime
 from agent_build_kit.runtimes.claude_code import ClaudeCodeRuntime
 from agent_build_kit.tracks import runner
+from packages.orchestrator.tests.pipeline.test_planner_runtime import CHANGES, IN_FLIGHT, PLAN
 from tests.agent_call_sites import check_source_trees
 from tests.call_rows import agent_rows
 from tests.factories import init_repo
 from tests.init.test_propose import detection, valid_report, write_change
-from tests.pipeline.test_planner_runtime import CHANGES, IN_FLIGHT, PLAN
 from tests.pipeline.test_restack_conflict_rows import conflicting, move
 from tests.runtimes.acp_agent import use_agent
 from tests.runtimes.claude_cli import FakeClaude, record

@@ -21,7 +21,7 @@ from agent_build_kit.pipeline.project_actions import (
     status_lines,
 )
 from agent_build_kit.pipeline.unit_store import UnitStore
-from tests.cli.test_doctor import Answers
+from packages.orchestrator.tests.cli.test_doctor import Answers
 from tests.factories import stored_unit, which_all
 from tests.pipeline.test_project_actions_apply import CHANGE, Planning, carrier
 from tests.project_workspace import OPT_OUT

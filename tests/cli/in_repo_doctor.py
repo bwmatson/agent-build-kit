@@ -11,8 +11,8 @@ from agent_build_kit.config import RepoConfig
 from agent_build_kit.init.scaffold import template
 from agent_build_kit.pipeline.mounts import Mount
 from agent_build_kit.pipeline.planning_sync import write_pipeline_marker
+from packages.orchestrator.tests.cli.test_doctor import Answers
 from tests.cli.public_content_repo import planning
-from tests.cli.test_doctor import Answers
 from tests.factories import git, which_all
 from tests.forges.stand_in import StandInForge
 

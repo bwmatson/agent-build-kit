@@ -11,7 +11,7 @@ import yaml
 
 from agent_build_kit.cli.doctor import Check, run_doctor
 from agent_build_kit.config import RepoConfig, WorkspaceConfig, dump, merge_local
-from tests.cli.test_doctor import Answers
+from packages.orchestrator.tests.cli.test_doctor import Answers
 from tests.factories import git, init_repo, which_all
 
 CHECK = "public content"

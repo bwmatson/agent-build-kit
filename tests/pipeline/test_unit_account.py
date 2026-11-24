@@ -22,6 +22,7 @@ from agent_build_kit.pipeline.unit_store import UnitStore
 from agent_build_kit.pipeline.wiring import build_run, build_runner
 from agent_build_kit.runtimes import AgentRequest
 from agent_build_kit.settings import settings
+from packages.orchestrator.tests.pipeline.test_planner_runtime import CHANGES, PLAN
 from packages.worker.tests.graph.test_agent_session import (
     Sessions,
     killed_in_the_tests_step,
@@ -33,7 +34,6 @@ from tests.conftest import make_installation
 from tests.factories import commit, git, init_repo, unit
 from tests.graph.agent_fakes import Runs
 from tests.graph_driver import fresh, tick
-from tests.pipeline.test_planner_runtime import CHANGES, PLAN
 from tests.runtimes.stand_in import StandInRuntime
 
 MODEL = "m"

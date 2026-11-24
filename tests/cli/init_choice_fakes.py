@@ -23,7 +23,7 @@ from agent_build_kit.runtimes.base import (
     Which,
     validate_argv,
 )
-from tests.cli.test_init import fake_claude
+from packages.orchestrator.tests.cli.test_init import fake_claude
 from tests.runtimes.probe_fakes import Host, table
 from tests.runtimes.selectable import SelectableRuntime
 

@@ -19,8 +19,12 @@ from collections.abc import Collection
 from pathlib import Path
 
 from tests.timing_hazards import TESTS_ROOT
+from tests.tracked_files import test_trees
 
 SERVE_TESTS = TESTS_ROOT / "serve"
+# Every `serve` folder of a test tree: the serve tests are split between the root project's
+# `tests/` and the orchestrator's, and a guard over them reads each.
+SERVE_TEST_ROOTS = [tree / "serve" for tree in test_trees() if (tree / "serve").is_dir()]
 
 # The in-process client's base URL: the one an ASGI transport answers.
 IN_PROCESS_URL = "http://testserver"

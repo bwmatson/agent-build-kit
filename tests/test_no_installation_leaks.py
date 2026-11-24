@@ -24,6 +24,7 @@ from tests.installation_leaks import (
     repo_path_leaks,
 )
 from tests.time_limit import LOADED_TEST_TIME_LIMIT
+from tests.tracked_files import test_tree_folders
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -103,7 +104,8 @@ def test_environment_is_read_only_through_the_settings_layer(
     scan: Scan, pattern: re.Pattern
 ) -> None:
     hits = [h for h in scan.hits(pattern) if h.split(":")[0].rsplit("/", 1)[-1] not in ENV_ALLOWED]
-    hits = [h for h in hits if not h.startswith("tests/")]
+    test_folders = tuple(f"{folder}/" for folder in test_tree_folders())
+    hits = [h for h in hits if not h.startswith(test_folders)]
     assert hits == []
 
 

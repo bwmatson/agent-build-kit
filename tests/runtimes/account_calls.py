@@ -21,7 +21,7 @@ from agent_build_kit.runtimes import AgentRequest
 from agent_build_kit.runtimes.claude_code import ClaudeCodeRuntime, through
 from agent_build_kit.settings import settings
 from agent_build_kit.tracks import runner
-from tests.pipeline.test_planner_runtime import CHANGES, PLAN
+from packages.orchestrator.tests.pipeline.test_planner_runtime import CHANGES, PLAN
 from tests.runtimes.claude_cli import FakeClaude, finished_build, record
 from tests.tracks.test_runner import described_installation, project
 

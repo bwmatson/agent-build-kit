@@ -11,6 +11,7 @@ import pytest
 from agent_build_kit.cli.doctor import Check, run_doctor
 from agent_build_kit.pipeline.e2e_holds import HELD_FILE
 from agent_build_kit.pipeline.unit_store import UnitStore
+from packages.orchestrator.tests.cli.test_doctor import Answers
 from tests.cli.e2e_hold_fakes import (
     SPLITS_ACP_RELEASED,
     abk,
@@ -18,7 +19,6 @@ from tests.cli.e2e_hold_fakes import (
     own_splits,
     planning,
 )
-from tests.cli.test_doctor import Answers
 from tests.factories import init_repo, stored_unit, which_all
 
 

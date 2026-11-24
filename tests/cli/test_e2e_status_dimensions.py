@@ -9,8 +9,8 @@ from pathlib import Path
 import pytest
 
 from agent_build_kit.cli.doctor import run_doctor
+from packages.orchestrator.tests.cli.test_doctor import Answers
 from tests.cli.e2e_hold_fakes import abk, planning
-from tests.cli.test_doctor import Answers
 from tests.factories import init_repo, which_all
 
 DECLARED = """\

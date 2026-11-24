@@ -11,15 +11,15 @@ from agent_build_kit.cli import main
 from agent_build_kit.cli.doctor import run_doctor
 from agent_build_kit.runtimes import PolicyReport, policy_check
 from agent_build_kit.runtimes.recommended_policy import patterns
-from tests.cli.policy_static_cli import abk_yaml, agent_command, planning_for
-from tests.cli.test_doctor import (  # noqa: F401 — fixture
+from packages.orchestrator.tests.cli.test_doctor import (  # noqa: F401 — fixture
     Answers,
     by_name,
     select_runtime,
     which_all,
     workspace,
 )
-from tests.cli.test_init import app, stubs  # noqa: F401 — fixtures
+from packages.orchestrator.tests.cli.test_init import app, stubs  # noqa: F401 — fixtures
+from tests.cli.policy_static_cli import abk_yaml, agent_command, planning_for
 from tests.runtimes.policy_static_support import LABEL, agent_home, recording_program, write_config
 
 

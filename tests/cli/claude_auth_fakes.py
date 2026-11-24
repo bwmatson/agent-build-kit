@@ -8,8 +8,8 @@ import subprocess
 from pathlib import Path
 
 from agent_build_kit.cli.doctor import Check, run_doctor
+from packages.orchestrator.tests.cli.test_doctor import Answers
 from tests.account_settings import Configure
-from tests.cli.test_doctor import Answers
 from tests.factories import which_all
 
 VARIABLE = "CLAUDE_CONFIG_DIR"
