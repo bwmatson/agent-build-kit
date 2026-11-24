@@ -17,6 +17,7 @@ shrink, so an entry that no longer exists fails until it is removed.
 from __future__ import annotations
 
 import ast
+import fnmatch
 import subprocess
 import sys
 import tomllib
@@ -47,6 +48,11 @@ TESTS = Path("tests")
 WORKER_TESTS = Path("packages") / "worker" / "tests"
 ORCHESTRATOR_TESTS = Path("packages") / "orchestrator" / "tests"
 CORE_TESTS = Path("packages") / "core" / "tests"
+CORE_TESTS_BASELINE = ROOT / "packages" / "core" / "core_tests_baseline.toml"
+# The packages the core owns whole: every test file in their mirror folder is the core's.
+CORE_OWNED_WHOLE = frozenset(
+    {"forges", "profiles", "sandboxes", "hooks", "runtimes", "orchestration"}
+)
 CORE_TEST_PREFIX = "test_checkpoint"
 CORE, WORKER, ORCHESTRATOR = "core", "worker", "orchestrator"
 BASELINE_CEILING = 13
@@ -932,12 +938,29 @@ def is_core_test(
     `runtimes`, `orchestration`), or when it is a `graph/test_checkpoint*` file; a file that reads
     the whole repository (`scans_repository`) is never the core's.
     """
-    raise NotImplementedError
+    if scans_repository or not relative.name.startswith("test_") or relative.suffix != ".py":
+        return False
+    folder = relative.parent.as_posix()
+    if folder in CORE_OWNED_WHOLE:
+        return True
+    if folder == "graph":
+        return relative.name.startswith(CORE_TEST_PREFIX)
+    best = ("", False)
+    for modules, is_core in ((core_modules, True), (other_modules, False)):
+        for module in modules:
+            stem = Path(module).stem
+            if (
+                Path(module).parent.as_posix() == folder
+                and relative.name.startswith(f"test_{stem}")
+                and len(stem) > len(best[0])
+            ):
+                best = (stem, is_core)
+    return best[1]
 
 
 def core_baseline() -> list[str]:
     """The globs, relative to `tests/`, of the core tests the baseline tolerates in the root."""
-    raise NotImplementedError
+    return tomllib.loads(CORE_TESTS_BASELINE.read_text())["globs"]
 
 
 def core_test_problems(
@@ -950,13 +973,51 @@ def core_test_problems(
     """What the tracked `files` (relative to `root`, under `tests/`) get wrong about where the
     core's tests are: a root test the core claims that no baseline glob covers, and a baseline
     glob that covers no claimed file."""
-    raise NotImplementedError
+    claimed: list[Path] = []
+    for path in files:
+        if not path.is_relative_to(TESTS):
+            continue
+        scans = "tracked_files" in (root / path).read_text()
+        if is_core_test(
+            path.relative_to(TESTS), core_modules, other_modules, scans_repository=scans
+        ):
+            claimed.append(path.relative_to(TESTS))
+
+    def covered(relative: Path, pattern: str) -> bool:
+        # A `*` stays within one path segment.
+        names, patterns = relative.parts, pattern.split("/")
+        return len(names) == len(patterns) and all(
+            fnmatch.fnmatchcase(n, p) for n, p in zip(names, patterns, strict=True)
+        )
+
+    problems = [
+        f"{TESTS / path} is a core test: move it under {CORE_TESTS / path.parent}/"
+        for path in claimed
+        if not any(covered(path, pattern) for pattern in baseline_globs)
+    ]
+    problems += [
+        f"baseline entry {pattern} covers no core test: remove it from the baseline"
+        for pattern in baseline_globs
+        if not any(covered(path, pattern) for path in claimed)
+    ]
+    return problems
 
 
 def base_name_clashes(files: Iterable[Path]) -> dict[str, list[str]]:
     """The test file base names (`test_*.py` below a tests folder of the root, the core, the worker
     or the orchestrator) that more than one file carries, each with all its paths."""
-    raise NotImplementedError
+    seen: dict[str, list[str]] = {}
+    for path in files:
+        if (
+            any(
+                path.is_relative_to(f)
+                for f in (TESTS, CORE_TESTS, WORKER_TESTS, ORCHESTRATOR_TESTS)
+            )
+            and path.name.startswith("test_")
+            and path.suffix == ".py"
+        ):
+            seen.setdefault(path.name, []).append(path.as_posix())
+    return {name: paths for name, paths in seen.items() if len(paths) > 1}
 
 
 def written(tmp_path: Path, files: Mapping[str, str]) -> list[Path]:
