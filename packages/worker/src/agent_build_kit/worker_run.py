@@ -23,7 +23,7 @@ from agent_build_kit import (
 from agent_build_kit.budget import cut_head
 from agent_build_kit.forges.transport import HostUnavailable
 from agent_build_kit.graph.state import Node, UnitRun
-from agent_build_kit.installation import Installation
+from agent_build_kit.installation import Installation, MissingEnvSetting
 from agent_build_kit.orchestration.artifacts import INTERFACE as ARTIFACTS
 from agent_build_kit.pipeline import (
     code_host,
@@ -553,8 +553,13 @@ def _build_unit(
         # The error's type and text, and the step it came from, are on the
         # unit's record, not only in a tick log someone would have to find.
         note = f"{type(error).__name__}: {error}"
+        cause = Cause.FAILED
+        if isinstance(error, MissingEnvSetting):
+            # It waits for the environment: the note is the error's text, which names the
+            # file and the key, and a tick resumes the unit once the file has the line.
+            note, cause = str(error), Cause.ENVIRONMENT
         try:
-            store.set_state(unit.id, UnitState.FAILED, note=note, cause=Cause.FAILED)
+            store.set_state(unit.id, UnitState.FAILED, note=note, cause=cause)
         except Exception as second:  # noqa: BLE001
             say(f"could not be recorded as failed — {second}")
 

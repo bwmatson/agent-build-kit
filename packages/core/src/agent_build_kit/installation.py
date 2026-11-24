@@ -8,6 +8,7 @@ installed anywhere and pointed at any planning repo.
 
 from __future__ import annotations
 
+import re
 import subprocess
 from functools import cached_property
 from pathlib import Path
@@ -357,6 +358,24 @@ class MissingEnvSetting(ConfigError):
         self.key = key
 
 
+_MISSING_ENV_NOTE = re.compile(r"^(?P<file>.+) has no (?P<key>\w+)=$")
+
+
+def env_setting_still_missing(note: str) -> bool:
+    """Whether `note`, the text of a `MissingEnvSetting`, names a file that still has no line for
+    its key. A note of another shape, or a file that cannot be read, is not a missing setting."""
+    found = _MISSING_ENV_NOTE.match(note)
+    if found is None:
+        return False
+    try:
+        lines = Path(found["file"]).expanduser().read_text().splitlines()
+    except OSError:
+        return False
+    return not any(
+        sep and name.strip() == found["key"] for name, sep, _ in (ln.partition("=") for ln in lines)
+    )
+
+
 def _resolve(provider: object) -> str:
     if isinstance(provider, LiteralProvider):
         return provider.value
@@ -365,7 +384,7 @@ def _resolve(provider: object) -> str:
             key, sep, value = line.partition("=")
             if sep and key.strip() == provider.key:
                 return value.strip().strip('"').strip("'")
-        raise ConfigError(f"{provider.file} has no {provider.key}=")
+        raise MissingEnvSetting(provider.file, provider.key)
     if isinstance(provider, CommandProvider):
         result = subprocess.run(provider.argv, capture_output=True, text=True, check=False)
         if result.returncode:
