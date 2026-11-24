@@ -26,6 +26,7 @@ from tests.conftest import make_installation
 from tests.factories import unit
 
 NOTE = "the run ended without recording its outcome"
+# A literal on purpose: it pins the cause the history records, which a rename must not change.
 LOST_RUN = "lost run"
 
 

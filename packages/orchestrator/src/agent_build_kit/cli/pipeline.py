@@ -3281,10 +3281,13 @@ def reclaim_stranded(
 def reconcile_running(
     inst: Installation, store: UnitStore, *, in_flight: Collection[str] = ()
 ) -> None:
-    """Fail each `running` unit whose branch lock names a process that is gone.
+    """Plan again, once, each `running` unit whose branch lock names a process that is gone.
 
     Its run ended without recording an outcome, so `abk requeue` could not move
-    it while it read `running`. One with a live holder is left, and so is one
+    it while it read `running`. The first loss plans the unit again to resume, recorded as a
+    `pipeline: retry` entry for `lost run`; only when that retry is spent (it is given back by
+    `abk requeue` and by an entry into review) is the unit failed with "the run ended without
+    recording its outcome". One with a live holder is left, and so is one
     with no lock, which is reported: nothing says whether its run ever started.
     A unit in `in_flight`, with a live `starting` marker or with a thread, is left and not
     reported: its thread resumes it, which is how a run killed in a node carries on."""

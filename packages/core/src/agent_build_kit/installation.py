@@ -358,7 +358,17 @@ class MissingEnvSetting(ConfigError):
         self.key = key
 
 
-_MISSING_ENV_NOTE = re.compile(r"^(?P<file>.+) has no (?P<key>\w+)=$")
+_MISSING_ENV_NOTE = re.compile(r"^(?P<file>.+) has no (?P<key>\S+)=$")
+
+
+def _env_file_value(file: Path, key: str) -> str | None:
+    """The value of the line in `file` that names `key`, unquoted; None when no line does.
+    The one rule for what a line is, shared by the build's read and the tick's recheck."""
+    for line in file.expanduser().read_text().splitlines():
+        name, sep, value = line.partition("=")
+        if sep and name.strip() == key:
+            return value.strip().strip('"').strip("'")
+    return None
 
 
 def env_setting_still_missing(note: str) -> bool:
@@ -368,23 +378,18 @@ def env_setting_still_missing(note: str) -> bool:
     if found is None:
         return False
     try:
-        lines = Path(found["file"]).expanduser().read_text().splitlines()
+        return _env_file_value(Path(found["file"]), found["key"]) is None
     except OSError:
         return False
-    return not any(
-        sep and name.strip() == found["key"] for name, sep, _ in (ln.partition("=") for ln in lines)
-    )
 
 
 def _resolve(provider: object) -> str:
     if isinstance(provider, LiteralProvider):
         return provider.value
     if isinstance(provider, EnvFileProvider):
-        for line in provider.file.expanduser().read_text().splitlines():
-            key, sep, value = line.partition("=")
-            if sep and key.strip() == provider.key:
-                return value.strip().strip('"').strip("'")
-        raise MissingEnvSetting(provider.file, provider.key)
+        if (value := _env_file_value(provider.file, provider.key)) is None:
+            raise MissingEnvSetting(provider.file, provider.key)
+        return value
     if isinstance(provider, CommandProvider):
         result = subprocess.run(provider.argv, capture_output=True, text=True, check=False)
         if result.returncode:
