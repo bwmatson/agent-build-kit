@@ -211,6 +211,9 @@ instance).
   time limit"). It names no failing test, so no fix agent ran and nothing was saved for one. Look
   at the machine's load and the units running (`runs/test-runs.jsonl` has `seconds`,
   `load_start` and `units_running` for the run), then `abk requeue` the unit when it is quieter.
+  The first such stop (and the first suspended-twice stop) is not held: the unit runs once more
+  by itself, recorded as a `pipeline: retry` history entry, and only the second holds it for a
+  person. `abk requeue` gives a fresh retry.
   What a reviewer returns is a verdict: `approved`, a `findings` list (file,
   optional line, summary, consequence, what done looks like, required), and
   from round two an `earlier` list answering each earlier required finding by

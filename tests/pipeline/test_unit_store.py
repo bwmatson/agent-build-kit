@@ -15,6 +15,8 @@ import json
 import pytest
 
 from agent_build_kit.pipeline.unit_store import (
+    REQUEUE_BY,
+    RETRY_BY,
     UNPLANNED,
     RewriteSource,
     StoredRewriteRequest,
@@ -364,3 +366,57 @@ def test_ending_a_step_with_no_rewrite_request_records_nothing(tmp_path) -> None
     store.clear_rewrite_request("add-marker/1")
 
     assert store.get("add-marker/1") == before
+
+
+def test_a_retry_adds_one_history_entry_by_the_pipeline_with_its_note(tmp_path) -> None:
+    store = UnitStore(tmp_path / "units.json")
+    store.upsert([unit()])
+    before = len(store.history("add-marker/1"))
+
+    store.record_retry("add-marker/1", "time limit", "time limit: runs once more by itself")
+
+    entries = store.history("add-marker/1")
+    assert len(entries) == before + 1
+    assert entries[-1]["by"] == RETRY_BY
+    assert entries[-1]["note"].startswith("time limit")
+
+
+def test_a_history_with_no_retry_entry_reads_as_not_spent(tmp_path) -> None:
+    store = UnitStore(tmp_path / "units.json")
+    store.upsert([unit()])
+
+    assert not store.retry_spent("add-marker/1", "time limit")
+
+
+def test_a_retry_reads_as_spent_for_its_own_cause_only(tmp_path) -> None:
+    store = UnitStore(tmp_path / "units.json")
+    store.upsert([unit()])
+    store.record_retry("add-marker/1", "time limit", "time limit: runs once more by itself")
+
+    assert store.retry_spent("add-marker/1", "time limit")
+    assert not store.retry_spent("add-marker/1", "suspended")
+
+
+@pytest.mark.parametrize(
+    ("state", "by"), [(IN_REVIEW, ""), (PLANNED, REQUEUE_BY)], ids=["review", "person's requeue"]
+)
+def test_a_retry_before_review_or_a_requeue_by_a_person_reads_as_not_spent(
+    tmp_path, state, by
+) -> None:
+    store = UnitStore(tmp_path / "units.json")
+    store.upsert([unit()])
+    store.record_retry("add-marker/1", "time limit", "time limit: runs once more by itself")
+
+    store.set_state("add-marker/1", state, by=by)
+
+    assert not store.retry_spent("add-marker/1", "time limit")
+
+
+def test_a_retry_after_a_requeue_by_a_person_reads_as_spent(tmp_path) -> None:
+    store = UnitStore(tmp_path / "units.json")
+    store.upsert([unit()])
+    store.set_state("add-marker/1", PLANNED, by=REQUEUE_BY)
+
+    store.record_retry("add-marker/1", "time limit", "time limit: runs once more by itself")
+
+    assert store.retry_spent("add-marker/1", "time limit")

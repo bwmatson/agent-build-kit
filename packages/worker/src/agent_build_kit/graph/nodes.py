@@ -1174,6 +1174,14 @@ class BuildPath:
         # A failure saved by an earlier round stays until a pass clears it, and a requeue would
         # read it as feedback to rework: the held unit starts its checks again with none.
         self.runner.store.set_feedback(self.unit.id, "")
+        if reused is None:
+            cause = "suspended" if limit is None else "time limit"
+            if not self.runner.store.retry_spent(self.unit.id, cause):
+                again = f"{stage}: {cause}: it runs once more by itself"
+                self.runner.store.record_retry(
+                    self.unit.id, cause, f"{cause}: {stage} runs once more by itself"
+                )
+                return self.hold(PLANNED, again, again, cause=Cause.REQUEUED)
         return self.hold(
             HELD,
             note,
