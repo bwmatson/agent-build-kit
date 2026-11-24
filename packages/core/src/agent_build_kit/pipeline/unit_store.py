@@ -1553,11 +1553,19 @@ class UnitStore:
         """Whether the unit's retry for `cause` is spent: its history holds a `RETRY_BY` entry
         whose note begins with `cause` after its latest entry into review and its latest requeue
         by a person."""
-        raise NotImplementedError
+        spent = False
+        for entry in self.history(unit_id):
+            if entry.get("by") == RETRY_BY:
+                spent = spent or str(entry.get("note", "")).startswith(cause)
+            elif entry.get("state") == UnitState.IN_REVIEW or entry.get("by") == REQUEUE_BY:
+                spent = False
+        return spent
 
     def record_retry(self, unit_id: str, cause: str, note: str) -> None:
         """Add one history entry with `by` `RETRY_BY` and a note beginning with `cause`."""
-        raise NotImplementedError
+        if not note.startswith(cause):
+            note = f"{cause}: {note}"
+        self.record_event(unit_id, "retry", note, by=RETRY_BY)
 
     def clear_rewrite_request(self, unit_id: str) -> None:
         """End a request when the step that read it ends; its history says it was used."""

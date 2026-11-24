@@ -1844,7 +1844,11 @@ approved.
   (`needs_human`, a note naming the limit) in the checks before review, in the unit-test after a
   clean move and in the run that confirms a group already built, and runs no fix agent, counts no
   fix round and saves no feedback. `abk requeue` runs it again. The restack's re-test is not held
-  by it and raises its error as before.
+  by it and raises its error as before. The first such stop, and the first stop of checks the
+  machine was suspended in twice, is not held: the unit goes back to `planned` to run once more
+  by itself, and only the second stop for that cause holds it for a person. Each retry is a
+  history entry with `by` `pipeline: retry` and a note that begins with its cause (`time limit`
+  or `suspended`); `abk requeue`, or review, gives the unit a fresh retry.
 - **A build agent runs its own tests.** The pipeline runs the whole suite, in every unit, with the
   data and the machine it needs, and a fix agent that ran it again took 39 to 56 minutes, changed
   nothing and failed its unit. The profile defaults for the commands an agent may run name the

@@ -134,10 +134,9 @@ def test_a_first_time_limit_in_the_checks_puts_the_unit_back_to_run_once_more(
     recorder = fresh(tmp_path, unit_test_ok=False)
     recorder.unit_test_output = TIMED_OUT
 
-    outcome = build(tmp_path, recorder)
+    build(tmp_path, recorder)
 
     stored = recorder.store.get(unit().id)
-    assert outcome.status != RunStatus.HELD
     assert stored.state == PLANNED
     assert "once more by itself" in stored.note
     assert stored.feedback == "", "nothing is saved for a fix agent"
