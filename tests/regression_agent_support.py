@@ -164,17 +164,18 @@ def write_change(
     proposal: str = PROPOSAL,
     test: str = TEST,
     kind: str = "regression",
+    capability: str = "label",
 ) -> None:
     """The files of a complete change for `test` of `kind` in `root`; `tasks` replaces the whole
     tasks.md, `exposure` is the proposal's `Same exposure` section, left out when empty, and
-    `proposal` replaces the whole proposal."""
-    (root / "specs" / "label").mkdir(parents=True, exist_ok=True)
+    `proposal` replaces the whole proposal; the delta spec is the one of `capability`."""
+    (root / "specs" / capability).mkdir(parents=True, exist_ok=True)
     (root / "proposal.md").write_text(
         proposal.format(test=test, base=BASE, exposure=exposure, kind=kind)
     )
     (root / "design.md").write_text("## Context\n\nThe label is read too early.\n")
     (root / "tasks.md").write_text(tasks or TASKS.format(flag=flag, priority=priority, test=test))
-    (root / "specs" / "label" / "spec.md").write_text(spec)
+    (root / "specs" / capability / "spec.md").write_text(spec)
 
 
 def asked_kind(request: AgentRequest) -> str:
