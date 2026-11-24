@@ -9,7 +9,7 @@ dist/
 .claude/
 
 # The built web UI (npm run build in web/).
-src/agent_build_kit/serve/static/
+packages/orchestrator/src/agent_build_kit/serve/static/
 # abk:planning v1
 runs/*.lock
 runs/locks/

@@ -7,7 +7,7 @@ import { defineConfig } from "vite";
 export default defineConfig({
   plugins: [react(), tailwindcss()],
   build: {
-    outDir: "../src/agent_build_kit/serve/static",
+    outDir: "../packages/orchestrator/src/agent_build_kit/serve/static",
     emptyOutDir: true,
   },
   server: { proxy: { "/api": "http://127.0.0.1:8765" } },

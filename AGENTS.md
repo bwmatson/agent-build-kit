@@ -122,9 +122,12 @@ can't vouch for". The reasoning is in `docs/designs/agent-efficient-coding-philo
 
 ## Layout
 
-The kit is a uv workspace of two distributions that share the `agent_build_kit` import name:
-the root package (`src/agent_build_kit`) and the core (`packages/core/src/agent_build_kit`,
-the modules the worker and the orchestrator both use). Which package a module sits in is
+The kit is a uv workspace of distributions that share the `agent_build_kit` import name: the
+core (`packages/core/src/agent_build_kit`, the modules the worker and the orchestrator both
+use), the worker (`packages/worker`), the orchestrator (`packages/orchestrator`: `cli/`,
+`serve/`, `notify/`, `split/`, the round's pipeline modules and the `abk` script) and the root
+project (`src/agent_build_kit`, which holds only package `__init__.py` files and data, and
+depends on the other three). Which package a module sits in is
 fixed by the seeds in `tests/support/package_seeds.py` and checked by
 `tests/test_package_boundaries.py`; a folder holds an `__init__.py` in one package only, and
 several folders (`pipeline/`, `serve/`, `graph/`) have modules in both. The tree below lists
@@ -159,7 +162,8 @@ agent_build_kit/
   split/           splitting a planning repo: moving one repo's content into another installation
   telemetry/       dashboards shipped as package data
 web/               the web UI `abk serve` shows (React, TypeScript, Tailwind; Vite builds it into
-                   src/agent_build_kit/serve/static, which is git-ignored and ships in the wheel)
+                   packages/orchestrator/src/agent_build_kit/serve/static, which is git-ignored and
+                   ships in the orchestrator's wheel)
 tests/             mirrors src/ (tests/pipeline/test_<module>.py, tests/hooks/, ...);
                    tests/integration/ holds what needs node or the network (marked `integration`); a test
                    that scans the whole repository is marked `integration` wherever it sits

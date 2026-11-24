@@ -6,6 +6,8 @@ readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
     "agent-build-kit-core",
+    "agent-build-kit-worker",
+    "agent-build-kit-orchestrator",
     "langgraph==1.2.*",
     "langgraph-checkpoint>=4.1.1,<5",
     "langgraph-checkpoint-sqlite==3.1.*",
@@ -23,13 +25,7 @@ dependencies = [
 ]
 
 [project.scripts]
-abk = "agent_build_kit.cli:main"
 abk-policy-hook = "agent_build_kit.hooks.policy:main"
-
-# Until the worker package is installed beside this one (it needs the core package as its own
-# distribution), this project registers the command from the worker's source so `abk worker` runs.
-[project.entry-points."abk.commands"]
-worker = "agent_build_kit.cli.worker:register"
 
 [project.optional-dependencies]
 acp = [
@@ -69,27 +65,23 @@ build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/agent_build_kit"]
-# The built web UI is git-ignored, so the wheel is told to carry it (see web/).
-artifacts = ["src/agent_build_kit/serve/static"]
-
-# Until the core and the worker ship as their own distributions, this project's wheel carries the
-# worker's tree too: the CLI imports the worker's modules at module level.
-[tool.hatch.build.targets.wheel.force-include]
-"packages/worker/src/agent_build_kit" = "agent_build_kit"
+# The worker's and the orchestrator's trees are not force-included: an editable build copies
+# force-included files into site-packages, where they would shadow `packages/*/src`. The `abk`
+# script and the `worker` command are registered by those packages' own distributions.
 
 [tool.ruff]
 line-length = 100
 target-version = "py312"
 # The kit's modules live in several source folders (the root package, the core's and the worker's),
 # and the tests import from the checkout root: all are first-party, so isort keeps one block.
-src = ["src", "packages/core/src", "packages/worker/src", "."]
+src = ["src", "packages/core/src", "packages/worker/src", "packages/orchestrator/src", "."]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B"]
 
 [tool.pyrefly]
 python-version = "3.12"
-search-path = ["src", "packages/core/src", "packages/worker/src", "."]
+search-path = ["src", "packages/core/src", "packages/worker/src", "packages/orchestrator/src", "."]
 # Spelled out rather than left to pyrefly's default `**/*.py*` discovery: under
 # pre-commit, in a git worktree (which is where every unattended build runs),
 # that default is dropped as "matched by project-excludes or an ignore file"
@@ -104,6 +96,7 @@ project-includes = [
     "src",
     "packages/core/src",
     "packages/worker/src",
+    "packages/orchestrator/src",
     "tests",
     "packages/worker/tests",
 ]
@@ -112,7 +105,7 @@ project-includes = [
 testpaths = ["tests", "packages/worker/tests"]
 # So `from tests.factories import ...` resolves without tests/ being a package
 # (test directories carry no __init__.py; basenames stay unique instead).
-pythonpath = [".", "packages/worker/src"]
+pythonpath = [".", "packages/worker/src", "packages/orchestrator/src"]
 # Where `Pytester.copy_example` reads a child pytest's files from.
 pytester_example_dir = "tests/child_modules"
 # A list held in a tuple field fails the test that serialises it; other warnings are only reported.
@@ -154,3 +147,5 @@ members = ["packages/*"]
 [tool.uv.sources]
 agent-build-kit = { workspace = true }
 agent-build-kit-core = { workspace = true }
+agent-build-kit-worker = { workspace = true }
+agent-build-kit-orchestrator = { workspace = true }

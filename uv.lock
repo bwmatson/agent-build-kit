@@ -11,6 +11,7 @@ resolution-markers = [
 members = [
     "agent-build-kit",
     "agent-build-kit-core",
+    "agent-build-kit-orchestrator",
     "agent-build-kit-worker",
 ]
 
@@ -32,6 +33,8 @@ version = "0.1.0"
 source = { editable = "." }
 dependencies = [
     { name = "agent-build-kit-core" },
+    { name = "agent-build-kit-orchestrator" },
+    { name = "agent-build-kit-worker" },
     { name = "aiosqlite" },
     { name = "fastapi" },
     { name = "githubkit" },
@@ -84,6 +87,8 @@ dev = [
 requires-dist = [
     { name = "agent-build-kit", extras = ["acp"], marker = "extra == 'modal'", editable = "." },
     { name = "agent-build-kit-core", editable = "packages/core" },
+    { name = "agent-build-kit-orchestrator", editable = "packages/orchestrator" },
+    { name = "agent-build-kit-worker", editable = "packages/worker" },
     { name = "agent-client-protocol", marker = "extra == 'acp'", specifier = "==0.12.1" },
     { name = "aiosqlite", specifier = ">=0.20" },
     { name = "azure-identity", marker = "extra == 'azure'", specifier = ">=1.19" },
@@ -126,6 +131,17 @@ dev = [
 name = "agent-build-kit-core"
 version = "0.1.0"
 source = { editable = "packages/core" }
+
+[[package]]
+name = "agent-build-kit-orchestrator"
+version = "0.1.0"
+source = { editable = "packages/orchestrator" }
+dependencies = [
+    { name = "agent-build-kit-core" },
+]
+
+[package.metadata]
+requires-dist = [{ name = "agent-build-kit-core", editable = "packages/core" }]
 
 [[package]]
 name = "agent-build-kit-worker"
