@@ -14,6 +14,8 @@ part is delivered is kept outside the kit, in an implementation plan that points
 **Goals**
 
 - A test has one kind, and the kind says where it runs and what it may need.
+- A test asserts behaviour at a public seam, so a move, a rename or a reworded document does not break it.
+- A new case extends the existing test file for its module, and the suite stays inside a time budget that is measured each week.
 - The test-first loop is enforced by a program in the build, not by an instruction to the agent. A test that was not seen to fail,
   or failed for the wrong reason, goes back to the agent that wrote it before any code is built on it.
 - Every test is held to one numbered catalogue of standards. A guard failure, a review finding and a fix change all cite the
@@ -44,8 +46,10 @@ source files must keep its tests. The *red check* is the check that a new test f
 proved loop"). The *push gate* is the same check run by a person or a hook on a branch. The *checks round* is the step after a unit's
 tests run, where lint, types and the standards check run. A *stubbed build* writes signatures that only raise before the tests.
 *Affected selection* chooses the tests whose covered code a change touched. A *tree-wide test* reads many files across the
-repository; a *wide scan* is the kind that walks the whole tree, and a *conformance test* checks that documents, configuration,
-layout or code structure agree.
+repository; a *wide scan* is the kind that walks the whole tree, and a *conformance test* checks the architecture: package and
+import boundaries, configuration, selector registrations, the placement of test files, and the profile registry. A *wording test*
+asserts the text of a document, a prompt, a skill or a changelog. An *exclusion guard* is the one wording check that keeps named
+content out of a repository. *Migration scaffolding* is a guard or a table written only to carry a move or a rename.
 
 **Group mode.** `tests_and_code` (a test commit, then a code commit), `tests_only` (a lone test commit, no code), `no_code` (a lone
 code commit, no tests: documents and configuration), `refactor` (a lone code commit that reorganizes code and edits existing tests
@@ -66,23 +70,26 @@ A builder decides in this order.
 1. It needs a live service, credentials, a model, an agent, or an MCP or API call: **e2e**. It carries the e2e selector, named `e2e`
    (a repository may name it otherwise by configuration), and the runtime tag where a runtime applies.
 2. Otherwise it needs only what a CI job can give it, or it reads the whole repository, or it collects other modules in a child
-   run, or it checks something that is not code behaviour: **integration**. It is wider than one file's behaviour: it exercises
+   run, or it checks the repository's architecture: **integration**. It is wider than one file's behaviour: it exercises
    several modules together, a process or tree boundary, or the repository itself, and it uses no live service. The last case is a
-   *conformance test* of the repository: documents say what the code does, configuration files, CI templates, layout, names and
-   selector registrations agree, a guard's list is current. Conformance tests have real value. They are integration tests because
-   they read the tree, not because they are suspect.
+   *conformance test* of the repository: package and import boundaries hold, configuration and selector registrations agree, each
+   test file sits where placement (T2) puts it, the exclusion guard finds nothing, and the commands and options a document names
+   exist. Conformance tests have real value. They are integration tests because they read the tree, not because they are suspect.
+   They do not pin wording or file-by-file layout (see "What a test asserts").
 3. Otherwise it is a **unit** test: pure logic, fakes, temporary folders. It does not walk the repository.
 
-**Placement.** A new test goes into the existing test file for its subject, a file named for the module it exercises. A new test
-file is created only when a new logic file is created for the unit under test. A new behaviour of an existing module is a new case
-in that module's existing test file, never a new file. File names are unique across the tree.
+**Placement: one test file per source file.** The unit tests of a source module live in exactly one file, `test_<module>.py` (in the
+toolchain's convention), at the path that mirrors the module inside its package's tests. That file is the only home for the
+module's unit tests. A new behaviour of an existing module is a new case in that file, never a new file; a new test file exists only
+for a new source file, and a task names the file its cases go in. Tests that span modules live in the `integration` or `e2e` folder,
+and the root's cross-checks (boundaries, scans, the exclusion guard) are outside the rule. A very large source module gets a very
+large test file: the remedy is to split the module, not its tests. File names are unique across the tree. One placement guard per
+repository holds the rule, with a baseline of today's violations that may only shrink.
 
-**Folders say the kind.** Unit tests sit under the tests root, mirroring the source tree. Integration tests live in an `integration`
-folder and e2e tests in an `e2e` folder, each at the root of the project's tests, and inside them the files are grouped by subject.
-A reader can then tell a test's kind from its path, a run can be pointed at a folder as well as at a selector, and a test never needs
-its selector read to know where it belongs. The folder and the selector must agree: an e2e test in the integration folder is
-misfiled even when its selector is right, and the same holds for an integration test outside its folder. Helpers shared by a kind's
-tests live in that kind's folder.
+**Kind folders.** Unit tests sit under the tests root, mirroring the source tree. Integration tests live in an `integration` folder
+and e2e tests in an `e2e` folder, each at the root of the project's tests, so a run can be pointed at a folder as well as at a
+selector. The selector decides a test's kind; that the folder agrees with it is guidance, checked in review and not by a guard.
+Helpers shared by a kind's tests live in that kind's folder.
 
 **Where each kind runs.**
 
@@ -144,8 +151,9 @@ and the tests' environment reads, in the project's own language, so it follows t
 **One kind at most** from {unit, `integration`, `e2e`}. An e2e test carries exactly one runtime tag where a runtime applies. Each
 toolchain's registration text quotes the table above.
 
-**Every conformance test is an integration test**, whatever it checks: documents against behaviour, configuration, layout, names,
-selector registrations, or the structure of the code itself (the profile registry). It reads the tree or the registry and nothing
+**Every conformance test is an integration test**, whatever it checks: package and import boundaries, configuration, test
+placement, unique test file names, selector registrations, the exclusion table, the commands documents name, or the structure of
+the code itself (the profile registry). It reads the tree or the registry and nothing
 live, so it runs in CI on every pull request and never in the unit gate unless the unit added or changed it, or changed a file it
 declares. A tree-wide test that declares nothing is refused.
 
@@ -153,20 +161,66 @@ declares. A tree-wide test that declares nothing is refused.
 A check that spans projects is a *workspace conformance test* at the repository root, marked `integration`, and is the only place
 that may name every project. CI runs each project's set and the root set.
 
+## What a test asserts
+
+A test is worth its cost when it fails because behaviour broke and for no other reason. A test that pins wording, file layout or
+which collaborator was called fails on every move, rename and rewording, and a builder who meets such a test learns to write a new
+file beside it rather than change it. The rules below keep a test on behaviour.
+
+- **Behaviour at a public seam.** A test drives a command, a module's public functions, or a fake installation or tick driver, and
+  asserts what comes out: the result, the state, the files written, the calls made across a boundary. It does not assert wording,
+  file layout, or which collaborator inside the code under test was called (T4).
+- **No wording tests**, with three exceptions (T4):
+  1. *Exclusion guards.* Content that must stay out of a repository (an installation's details, ecosystem names, old names and
+     markers, home paths) is checked by one guard per repository, fed by one table. A new forbidden entry is a row in that table,
+     never a new guard.
+  2. *Load-bearing prompt directives.* One table-driven test per agent prompt, covering only the directives that change what the
+     agent does.
+  3. *Commands in documents.* One check that the commands and options a document names exist.
+- **Migration scaffolding expires.** A guard or a table written for a move or a rename (a list of moved names, an old-location test)
+  is removed in that change's last group, or becomes a row of the exclusion guard's table (T26).
+- **No guards about guards.** A guard is not itself guarded: no test checks that another guard uses a helper, carries a selector or
+  keeps a baseline (T22).
+- **One scenario, one test.** Facts that come from one setup and one action are checked in one test with several assertions, not
+  split into a test per fact. Inputs that share a shape are rows of one parametrised table (T19, T21).
+- **Assert properties, not prose.** Check the outcome, the state, or that a named directive or command is present. Do not compare
+  long literal sentences, or constants that are tuning values (T20).
+- **Prefer fakes at boundaries to patching collaborators.** Replace the git host, the model, the clock, the filesystem or the unit
+  store with a fake, rather than patching a function inside the code under test by its import path (T23). A patch by path breaks
+  when the function moves, even though nothing a user sees has changed, so every move and every conversion edits tests that should
+  have proved it. A stubbed collaborator proves that it was called, not that the code did the right thing. And a test that patches
+  by path is modified by more changes, each of which then has to satisfy the red check.
+- **A suite budget.** The suite has a full-run time target. The test count and the full-run minutes are reported each week (see
+  "The suite budget"), and a prune is due when the target is exceeded.
+
+**Why.** A study of 636 of the kit's own pull requests found these rules missing in practice. Tests were added far faster than
+existing ones were changed (4.6 added for each one modified), and 48% of new test files sat beside an existing file for the same
+subject. 425 tests shared their setup and action with a sibling and differed only in their assertions, and 30% held a single
+assertion. About 1,800 tests asserted the wording of documents, skills, prompts and the changelog. The approach itself produced
+them: placement, folder and helper guards, document conformance tests, and a red check that refused an extended test that still
+passed.
+
 ## TDD as a proved loop
 
 The build writes the tests and signatures first, commits them as `test:`, then writes the code and commits it as `feat:`. The build
 checks the shape (a `test:` commit followed by a `feat:` commit of the same title, stubs that are only a raise or a constant) and
 lint, format and types at the tests commit. The rest of the loop is proved at the tests commit by the red check.
 
-**The red check runs in the build, at the tests commit, before the implementation step.** It runs the tests the commit added or
-changed, by id, and accepts the commit only if every one of them fails, and fails for a reason that shows the behaviour is missing:
-an assertion failure or a not-implemented signal. A passing test, or an error in collecting, setting up or compiling the test, is
-rejected and the tests agent is asked again. In the stubbed build a missing name is also rejected, because the stub should have
+**The red check runs in the build, at the tests commit, before the implementation step.** It selects by id the tests the commit
+added or modified, and holds each to one of three rules:
+
+- a **new test** must fail;
+- a **modified test whose diff adds or changes an assertion** must fail;
+- a **modified test whose diff touches no assertion** (only its setup, its name or the helpers it calls) may pass, so an existing
+  test keeps working beside the new cases that extend its file.
+
+A test that must fail must fail for a reason that shows the behaviour is missing: an assertion failure or a not-implemented
+signal. A passing test that had to fail, or an error in collecting, setting up or compiling any selected test, is rejected and the
+tests agent is asked again. The check reports which rule each selected test met. In the stubbed build a missing name is also rejected, because the stub should have
 supplied it. The pull request text says the tests were committed first and seen to fail only when the check ran.
 
-- **By id.** Selecting by id lets a failing new case sit beside passing tests in the file for its subject, so the placement rule
-  above does not fight the loop. A commit that changes only a helper or a shared fixture file, which has no test to select, runs its
+- **By id.** Selecting by id lets a failing new case sit beside passing tests in the file for its module, and the rule for modified
+  tests lets an existing test be extended, so the placement rule above does not fight the loop. A commit that changes only a helper or a shared fixture file, which has no test to select, runs its
   files whole.
 - **Integration tests too.** The repository's default selection deselects an integration test even when it is named by id, so the
   selection overrides the default for the ids the commit added or changed. The unit's later runs add the integration tests that its
@@ -216,7 +270,9 @@ split, and the behaviour part is built tests first like any other change.
 - **Placement follows the move.** A module that moves takes its test file with it. Two modules that merge have their test files
   merged by moving cases, not by rewriting them.
 - **Nothing a consumer sees changes.** The change needs no changelog bullet. Documents that cite a moved path move with the code,
-  and the documents' own guards fail if they do not.
+  checked in review, and the documents check fails if a command or option they name no longer exists.
+- **Scaffolding expires with the move.** A guard or a table written to carry the move (a list of moved names, a test that the old
+  location is gone) is removed in the change's last group, or becomes a row of the exclusion guard's table (T26).
 
 ## The test standards catalogue
 
@@ -229,16 +285,20 @@ fixed port`.
 
 - **T1 Kind.** A test has exactly one kind by the decision procedure above. Check: guard (wide scans, runtime tags, the
   CI-runnability guard); review.
-- **T2 Placement.** The test lives in the file named for the module it exercises, at the path that mirrors the module (in the
-  toolchain's convention). A case for an existing module joins that file; a new file exists only for a new logic file; one subject
-  has one test file. Check: gate (the red check accepts a case by id); guard (a new test file for a subject that has one, mirror
-  paths); review.
+- **T2 Placement.** One test file per source file: a module's unit tests live in exactly one file, `test_<module>.py` (in the
+  toolchain's convention), at the path that mirrors the module inside its package's tests, and that file is their only home. A case
+  for an existing module joins that file; a new test file exists only for a new source file. Tests that span modules live in
+  `integration/` or `e2e/`. A large module is split, not its tests. Check: gate (the red check accepts a case by id, and a modified
+  test that touches no assertion may pass); guard (one placement guard per repository, with a baseline that may only shrink);
+  review.
 - **T3 Name.** A test name states one behaviour as a sentence. File names are unique across the tree. Check: guard (no two test
   files share a base name); review.
-- **T4 Surface.** A test reaches a public surface and imports no private name. Check: guard; review.
+- **T4 Surface.** A test asserts behaviour at a public seam (a command, a module's public functions, a fake installation or tick
+  driver) and imports no private name. It does not assert wording, except in the one exclusion guard per repository, the one
+  table-driven test per agent prompt for its load-bearing directives, and the one check that the commands and options documents
+  name exist. Check: guard (private names); review.
 - **T27 Kind folder.** An integration test lives in the project's `integration` folder and an e2e test in its `e2e` folder, and a
-  unit test in neither; the folder and the test's selector agree. Check: guard (each test file's folder against its selectors);
-  review.
+  unit test in neither. The selector decides the kind; the folder agreeing with it is guidance. Check: review.
 
 **Determinism: the same result every time, in any order, under load**
 
@@ -253,7 +313,7 @@ fixed port`.
   test adds one fixture argument and nothing else. A rule that covers every test is one guard over the tree, never a repeated check
   or repeated setup in each test. The same setup block (the same environment-patching sequence, the same temporary-tree builder, the
   same fake server) in several test files is a missing fixture or helper, and reusability is not given up to get isolation. Check:
-  guard (helpers defined once, repeated setup across files); review.
+  guard (the shared fixtures apply to every test); review (repeated setup across files).
 - **T9 Order and worker independence.** A test passes alone, in any order and under any worker count. Check: gate (the repeat
   check); guard (a randomised-order run of a sample in CI).
 - **T10 Injected clock and randomness.** A test that depends on time or randomness uses a stand-in. Code that orders by time is
@@ -274,22 +334,27 @@ fixed port`.
 
 **Cost: cheap enough to run under load**
 
-- **T16 Time budget.** A unit test fits its budget; one that needs more is a wide scan or is split. Check: guard (the time limit).
+- **T16 Time budget.** A unit test fits its budget; one that needs more is a wide scan or is split. The whole suite has a full-run
+  time target, and a prune is due when it is exceeded (see "The suite budget"). Check: guard (the time limit); the weekly report
+  for the suite.
 - **T17 Wide scans are integration, and scan once.** A whole-repository walk is an integration test and shares one session-scoped
   result, not one scan per test. A scan that runs at import time, while the runner collects, makes selecting its tests useless and
-  must be lazy. Check: guard (every scan carries the selector; repeated scans).
+  must be lazy. Check: review.
 - **T18 A child test run's code is a file**, not a string, where a toolchain starts child runs. Check: guard.
 
 **Design: a test says something, once**
 
-- **T19 One behaviour**, arranged, acted, asserted. Check: review.
-- **T20 Assertions bite.** A test fails when the behaviour it names is removed. A test that passes with the guard it tests deleted
-  is vacuous. Check: gate (the red check proves the new test fails for the right reason); review asks what change to the code fails
-  it.
-- **T21 Parametrise, do not copy; helpers are defined once.** Check: guard.
-- **T22 No test of a test.** Check: review.
-- **T23 Fakes satisfy the seam.** A swappable seam is typed against a Protocol; a fake is a plain class, not a mock of an internal.
-  Check: review.
+- **T19 One scenario, one test**, arranged, acted, asserted. Facts that come from one setup and one action are checked in one test
+  with several assertions, not split into a test per fact. Check: review.
+- **T20 Assertions bite, on properties.** A test fails when the behaviour it names is removed. A test that passes with the guard it
+  tests deleted is vacuous. It asserts the outcome, the state, or that a named directive or command is present, not a long literal
+  sentence or a constant that is a tuning value. Check: gate (the red check proves the new test fails for the right reason); review
+  asks what change to the code fails it.
+- **T21 Parametrise, do not copy; helpers are defined once.** Inputs that share a shape are rows of one table. Check: review.
+- **T22 No test of a test, and no guard about a guard.** Check: review.
+- **T23 Fakes at the boundary satisfy the seam.** A swappable seam (the git host, a model, the clock, the filesystem, the unit
+  store) is typed against a Protocol; a fake is a plain class, not a mock of an internal. A test replaces a boundary with a fake in
+  preference to patching a collaborator inside the code under test by its import path. Check: review.
 - **T24 Generated data is current.** Goldens and schemas are regenerated by the change that alters their generator, and a check
   fails if the committed copy is stale. Check: guard.
 - **T25 A missing environment is a skip or a configuration error**, never a failure. Check: review.
@@ -297,8 +362,9 @@ fixed port`.
 **Reorganizing code**
 
 - **T26 A reorganization changes tests only mechanically.** Names and locations change; assertions, expected values, the count of
-  tests, skips, markers and limits do not. Check: gate (a before-and-after comparison of the changed test files); review asks
-  whether behaviour changed.
+  tests, skips, markers and limits do not. Migration scaffolding written for the move expires with it: it is removed in the change's
+  last group, or becomes a row of the exclusion guard's table. Check: gate (a before-and-after comparison of the changed test
+  files); review asks whether behaviour changed and whether scaffolding was left behind.
 
 **New tests and existing tests**
 
@@ -348,9 +414,9 @@ A unit can carry groups of different modes, so a prompt is built per group where
 set of modes where the review sees the whole unit; the checklist then names the group each rule is for. The deterministic standards
 check and the red check key off the same mode, so the program and the prompt never disagree about what a group is held to.
 
-**One source.** The catalogue is a machine-readable file, one record per standard: ID, rule, reason, check class, the guard or check
-that enforces it, and whether it applies to new tests, existing tests or both. The reference page, the builder's table, the
-full-text file and the reviewer's checklist are all generated from it, and a test fails when a rendering is stale.
+**One source.** The catalogue above is the source. The builder's table, the full-text file and the reviewer's checklist state its
+IDs and rules, and each prompt's load-bearing directives are held by that prompt's one table-driven test. No test pins the wording
+of a rendering or checks that one is current: that would be a wording test, which this design retires.
 
 **Measuring the full-text file.** How well agents use the full text is measured, not assumed: whether they open it, whether the
 rules they violate are the ones only the file holds, whether they cite the IDs, and whether a build with the file does better than
@@ -378,6 +444,26 @@ Three rules.
   run. The budget counts the runs the pipeline starts. A run a person starts by hand is not monitored and is not counted.
 - **Tests are designed for a loaded machine.** The cap lowers how often a heavy load happens. It does not excuse a test that passes
   only on a quiet machine. Standards T5, T6 and T17 are what make a test load-tolerant.
+
+## The suite budget
+
+The suite has a full-run time target. A suite that grows past it costs every unit a longer gate and a longer wait for a test slot,
+so its size is measured and kept, not left to grow.
+
+- **Weekly figures.** `abk tests report` prints, for any repository the installation configures, from its git history, its
+  profile's test parser and, where one is kept, the run ledger:
+  1. *placement*: unit-test files that are not the one `test_<module>.py` for a source module;
+  2. *new files*: the share of new test files in the window that are not for a new source file;
+  3. *added to modified*: tests added for each existing test modified;
+  4. *shape*: tests that share their setup and action with a sibling, and the share of single-assert tests;
+  5. *cost*: the suite's size and its full-run median minutes.
+
+  A profile that cannot parse its tests says so, and the figures that need the parser are left out.
+- **Direction.** Placement violations only fall (the placement guard's baseline may only shrink). New files beside an existing
+  same-subject file fall toward none, and added to modified moves toward one to one.
+- **A prune when the target is exceeded.** A prune deletes or folds tests under a named rule of this design, lists its files, and
+  records the test count and full-run minutes before and after. Folding tests that share setup and action into one scenario, and
+  near-copies into parametrise rows, is part of it. An inventory of assertions before and after shows nothing that bites was lost.
 
 ## Classifying a failing test
 
@@ -434,7 +520,21 @@ changed paths include shared configuration, a setup file, a lock file or a works
 ## Decisions made
 
 - **The red check is enforced in the build loop**, at the tests commit, and not only at a push gate.
-- **A new test joins the existing file for its subject**; a new test file exists only for a new logic file.
+- **One test file per source file.** A module's unit tests live only in `test_<module>.py` at its mirror path; a new test file
+  exists only for a new source file; a large module is split, not its tests. One placement guard per repository holds it, with a
+  baseline that may only shrink.
+- **The red check holds modified tests to what changed.** A new test, or a modified test whose diff adds or changes an assertion,
+  must fail; a modified test whose diff touches no assertion may pass.
+- **Tests assert behaviour at a public seam.** No wording tests except one exclusion guard per repository, one table-driven test
+  per agent prompt for its load-bearing directives, and one check that the commands and options documents name exist.
+- **Structure is checked only where it is architecture.** Package and import boundaries, test placement and unique base names are
+  guards; kind folders, scan sharing and helpers defined once are guidance checked in review; document shape, file-by-file layout
+  and the wording of the catalogue's renderings are not tested.
+- **Migration scaffolding expires** in the last group of the change that wrote it, or becomes an exclusion entry.
+- **No guards about guards.**
+- **One scenario, one test**, and inputs of one shape are parametrise rows. Assertions check properties, not prose or tuning
+  constants. Fakes at boundaries are preferred to patching collaborators by import path.
+- **The suite has a budget**, with weekly figures from `abk tests report`; a prune is due when the target is exceeded.
 - **Integration means runnable in CI.** Anything needing credentials, a live service, a model, an agent or an MCP or API call is e2e.
   Every integration test runs in CI on every pull request; a unit's gate also runs the integration tests it added or changed and
   those whose covered code it changed.
@@ -451,8 +551,8 @@ changed paths include shared configuration, a setup file, a lock file or a works
 - **Guidance follows the group mode.** The tests and review prompts are built from the unit's group modes and leave out what cannot
   apply.
 - **A project's tests touch only its own domain**; cross-project checks live at the root.
-- **A test lives in the folder of its kind** (`integration`, `e2e`, or the mirrored tree for unit tests), and the folder and
-  selector agree.
+- **Integration and e2e tests keep their folders** (`integration`, `e2e`, and the mirrored tree for unit tests), and the selector
+  decides the kind; folder agreement is checked in review.
 - **The e2e selector is named `e2e`**, for what the test is and never for how a stack is run.
 - **Every conformance test is an integration test.**
 - **A tree-wide integration test declares the files it reads**, and the affected selection chooses it when a declared file changes.
