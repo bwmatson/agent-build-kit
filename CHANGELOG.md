@@ -5,7 +5,9 @@
 - An `[e2e-test]` unit whose own test fails is now reworked once, automatically, with the
   failing output, before it fails: the checks, review and e2e-test run again on the fix. A
   second failure, a unit requeued after its automatic rework, a scheduled run, a failure only
-  of tests failing on the base and a run on a moved commit are not reworked this way.
+  of tests failing on the base and a run on a moved commit are not reworked this way. An
+  `[e2e-test]` unit whose branch changes product code is reworked once the same way, with the
+  files and the rule, before the unit fails; the second stop fails it.
 
 - A failed unit no longer holds a place under `max_units_in_progress`, so failures read days later
   stop filling a project's or an account's places and blocking new starts. A unit failed for the

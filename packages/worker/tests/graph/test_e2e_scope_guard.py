@@ -25,7 +25,7 @@ from tests.e2e_scope_fakes import CHANGED, NEW, OLD, branch
 from tests.e2e_wait_fakes import OWN as OWN_FAILURE
 from tests.e2e_wait_fakes import Failing, Told, verdict_of
 from tests.factories import git, unit
-from tests.product_defect_fakes import FIX, account, defect
+from tests.product_defect_fakes import account, defect
 from tests.runner_fakes import Recorder, rejecting
 
 UNIT = unit().id
@@ -213,7 +213,8 @@ def product_code_reworks(stored: StoredUnit) -> list[dict]:
 def test_a_stopped_unit_is_reworked_once_with_the_feedback_and_goes_on_when_the_file_is_restored(
     tmp_path: Path,
 ) -> None:
-    scoped = Scoped(tmp_path, PRODUCT_CHANGED, base_files=PRODUCT_BASE)
+    scoped = Scoped(tmp_path, PRODUCT_CHANGED, base_files=PRODUCT_BASE, commits_from_impl=0)
+    scoped.recorder.made = 2
 
     outcome = scoped.build(run=restoring_agent(scoped))
 
@@ -255,7 +256,8 @@ def test_a_valid_product_defect_block_in_the_automatic_rework_files_the_change_a
 
     def filing(prompt: str, **kwargs: Any) -> str:
         scoped.recorder.claude(prompt, **kwargs)
-        return account(defect(files=[PRODUCT]))
+        # The scope feedback names files, not a test: the defect names what it can be read from.
+        return account(defect(test=PRODUCT, files=[PRODUCT]))
 
     def on_defect(unit: Unit, report: Any) -> str | None:
         told.append(unit.id)
@@ -265,7 +267,8 @@ def test_a_valid_product_defect_block_in_the_automatic_rework_files_the_change_a
 
     assert outcome.status == RunStatus.HELD, outcome
     assert told == [UNIT]
-    assert FIX in {path.name for path in inst.changes_dir.iterdir() if path.is_dir()}
+    filed = {path.name for path in inst.changes_dir.iterdir() if path.is_dir()}
+    assert "fix-product-defect-src-app-route-py" in filed
     stored = scoped.stored
     assert (stored.state, stored.cause) == (PLANNED, Cause.GATED)
     assert not {"unit-test", "review", "push", "pr"} & set(scoped.recorder.events)

@@ -287,7 +287,8 @@ flowchart TD
     checks -->|passed| review
     checks -->|failed, fix rounds left| fix_checks
     checks -->|failed, fix rounds spent| failed
-    checks -->|e2e-test unit changes product code: scope guard| failed
+    checks -->|e2e-test unit changes product code, first time| rework
+    checks -->|e2e-test unit changes product code, again: scope guard| failed
     adapt -->|tests not accounted for| failed
     fix_checks --> checks
     review -->|approved, e2e-test unit| e2e-test

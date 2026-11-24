@@ -2374,7 +2374,19 @@ class BuildPath:
         r.store.set_feedback(
             unit.id, SCOPE_FEEDBACK.format(files=named), source=FeedbackSource.SCOPE
         )
-        return self.stop(f"the e2e-test unit changes product code: {named}")
+        reason = f"the e2e-test unit changes product code: {named}"
+        if AutoRework.PRODUCT_CODE in r.store.get(unit.id).auto_reworks:
+            return self.stop(reason)
+        # The first stop is reworked once, by the pipeline, with the files named.
+        r.store.record_auto_rework(unit.id, AutoRework.PRODUCT_CODE)
+        r.store.set_state(
+            unit.id,
+            RUNNING,
+            note="rework requested by the pipeline: the unit changes product code",
+            cause=Cause.REWORK,
+        )
+        self.say(f"{reason}: reworking once before the unit fails")
+        return {"auto_rework": True, "had_feedback": True}
 
     def product_defect(self, account: str, stored: StoredUnit) -> Update | None:
         """What an `[e2e-test]` unit's rework does with a `product-defect` block in the builder's
@@ -2849,7 +2861,7 @@ class BuildPath:
                 return defect
             committed = r.commit(f"fix: {unit.title}", cwd=tree, base=self.ref(state))
             r.store.set_guidance(unit.id, "")
-            if state.auto_rework:
+            if state.auto_rework and stored.feedback_source is not FeedbackSource.SCOPE:
                 if not committed:
                     # Nothing to run e2e-test on again: the failure stands, as saved.
                     return {**self.stop("e2e-test failed"), "auto_rework": False}
@@ -3797,7 +3809,11 @@ def after_last_group(state: UnitRun) -> Node:
 
 
 def after_checks(state: UnitRun) -> Node:
-    return halted(state) or (Node.RESTACK_REVIEW if state.checks_ok else Node.FIX_CHECKS)
+    if stop := halted(state):
+        return stop
+    if state.auto_rework:
+        return Node.REWORK
+    return Node.RESTACK_REVIEW if state.checks_ok else Node.FIX_CHECKS
 
 
 def after_restack_review(state: UnitRun) -> Node:
@@ -3961,7 +3977,10 @@ ROUTES: Mapping[Node, tuple[Callable[[UnitRun], Target], tuple[Target, ...]]] = 
         after_implement,
         (Node.HELD, Node.FAILED, Node.UNIT_TEST, Node.CHECKS, Node.TESTS),
     ),
-    Node.CHECKS: (after_checks, (Node.HELD, Node.FAILED, Node.RESTACK_REVIEW, Node.FIX_CHECKS)),
+    Node.CHECKS: (
+        after_checks,
+        (Node.HELD, Node.FAILED, Node.RESTACK_REVIEW, Node.FIX_CHECKS, Node.REWORK),
+    ),
     Node.RESTACK_REVIEW: (
         after_restack_review,
         (Node.HELD, Node.FAILED, Node.PREPARE, Node.UNIT_TEST, Node.REVIEW),
