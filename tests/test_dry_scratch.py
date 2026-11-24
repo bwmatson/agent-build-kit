@@ -27,6 +27,7 @@ from tests.dry_checks import (
 )
 from tests.dry_scratch import SQUEEZE, dry_app, seed_branch
 from tests.factories import git
+from tests.time_limit import LOADED_TEST_TIME_LIMIT
 
 pytestmark = [
     pytest.mark.integration,
@@ -45,12 +46,14 @@ def unit_test(root: Path, base: str, files: list[str]) -> None:
         assert result.returncode == 0, f"{command}\n{result.stdout}\n{result.stderr}"
 
 
+@pytest.mark.time_limit(LOADED_TEST_TIME_LIMIT)
 def test_the_dry_apps_own_tests_pass_under_the_profiles_unit_test_commands(tmp_path: Path) -> None:
     app = dry_app(tmp_path / "app")
 
     unit_test(app, "HEAD~1", ["tests/test_text.py"])
 
 
+@pytest.mark.time_limit(LOADED_TEST_TIME_LIMIT)
 def test_the_dry_app_leaves_nothing_for_git_to_report_while_its_lock_exists(tmp_path: Path) -> None:
     app = dry_app(tmp_path / "app")
 
@@ -70,6 +73,7 @@ def test_the_dry_app_holds_the_helper_once_with_its_distinctive_body(tmp_path: P
     assert literal_count(app, "main", SQUEEZE) == 1
 
 
+@pytest.mark.time_limit(LOADED_TEST_TIME_LIMIT)
 @pytest.mark.parametrize("duplicate", [True, False], ids=["duplicate", "clean"])
 def test_a_seeded_branch_holds_a_tests_commit_then_an_implementation_commit_and_passes_unit_test(
     tmp_path: Path, duplicate: bool

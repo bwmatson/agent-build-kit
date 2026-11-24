@@ -16,9 +16,11 @@ import pytest
 
 from agent_build_kit import profiles
 from tests.factories import git, scratch_app
+from tests.time_limit import LOADED_TEST_TIME_LIMIT
 
 pytestmark = [
     pytest.mark.integration,
+    pytest.mark.time_limit(LOADED_TEST_TIME_LIMIT),
     pytest.mark.skipif(shutil.which("uv") is None, reason="uv is not on PATH"),
 ]
 
