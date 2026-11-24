@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- The unit graph page no longer breaks when a unit's title has a double quote or an angle bracket in it: a quote ended the node's label early and the diagram stopped drawing (the title
+  `"Not logged in" pauses for the login…` did). These characters are now written as entity codes in a label, which mermaid draws as the characters.
+
 - The orchestrator (the round, the commands you run, `abk serve`, the trackers' sync and the
   notifier) is now its own package under `packages/orchestrator`, which installs the `abk`
   script, beside the worker's. The project at the repository root depends on both, so

@@ -50,6 +50,12 @@ from agent_build_kit.pipeline.units import (
 from agent_build_kit.pipeline.vocabulary import STATES, ChecksOf, effective_state
 
 
+def _text(value: str) -> str:
+    """Text for inside a quoted mermaid label: a double quote would end the label and a `<` start
+    a tag, so each is written as its entity code, which mermaid draws as the character."""
+    return value.replace('"', "#quot;").replace("<", "#lt;").replace(">", "#gt;")
+
+
 def _carried(unit: StoredUnit) -> str:
     """A line per change the unit carries, with its groups; nothing for a plain unit."""
     return "".join(
@@ -164,10 +170,10 @@ def render_mermaid(
             if wait := second_parent_wait(unit, graph):
                 name = f"{name}, {wait}"
             where = (unit_notes or {}).get(unit.id, "")
-            head = f"{unit.id}{where}<br/>{unit.title}<br/>{_carried(unit)}"
+            head = f"{unit.id}{_text(where)}<br/>{_text(unit.title)}<br/>{_carried(unit)}"
             urgency = f" · {note}" if (note := priority_note(unit, graph)) else ""
-            waiting = _waiting(unit)
-            label = f"{head}<small>{unit.tier} · {name}{waiting}{pr}{urgency}</small>"
+            state = _text(f"{name}{_waiting(unit)}")
+            label = f"{head}<small>{unit.tier} · {state}{pr}{_text(urgency)}</small>"
             indent = "            " if nested else "        "
             lines.append(f'{indent}{_node_id(unit.id)}["{label}"]')
         if nested:
