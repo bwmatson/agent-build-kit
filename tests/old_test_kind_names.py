@@ -16,7 +16,7 @@ from tests.tracked_files import guarded_files, lines_of, planning_dirs
 # Built in parts so this file carries no old spelling for the guard to find.
 OLD_SPELLING = re.compile("ti" + "er[-_ ]?([12]|one|two)", re.IGNORECASE)
 
-SCANNED = ("src", "tests", "web/src", "docs", "scripts", ".github")
+SCANNED = ("src", "packages", "tests", "web/src", "docs", "scripts", ".github")
 
 # The files that write an old spelling on purpose: the table of them, the tests of it and of
 # the settings migration, and the documents that explain the

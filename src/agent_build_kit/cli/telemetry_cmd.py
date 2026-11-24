@@ -12,9 +12,9 @@ import json
 import re
 import urllib.error
 import urllib.request
-from importlib import resources
 from typing import Any
 
+from agent_build_kit import telemetry
 from agent_build_kit.installation import Installation
 from agent_build_kit.settings import settings
 
@@ -47,8 +47,7 @@ def cmd_push_dashboard(args: argparse.Namespace, inst: Installation | None) -> i
     if not settings.grafana_url:
         print("abk telemetry push-dashboard: set ABK_GRAFANA_URL")
         return 2
-    path = resources.files("agent_build_kit") / "telemetry" / "dashboards" / "pipeline.json"
-    dashboard = json.loads(path.read_text())
+    dashboard = json.loads(telemetry.DASHBOARD.read_text())
     try:
         folder = _folder_uid(settings.grafana_folder)
         _call(

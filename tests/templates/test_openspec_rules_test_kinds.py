@@ -8,12 +8,12 @@ from pathlib import Path
 
 import pytest
 
-import agent_build_kit.tracks
 from agent_build_kit.init.propose import PROMPT
 from agent_build_kit.init.scaffold import template
+from agent_build_kit.tracks import runner
 from tests.prompt_text import flat
 
-PROPOSE_MD = Path(agent_build_kit.tracks.__file__).parent / "prompts" / "propose.md"
+PROPOSE_MD = Path(runner.__file__).parent / "prompts" / "propose.md"
 
 TEXTS = {
     "rules": lambda: template("openspec_rules.yaml"),

@@ -176,11 +176,11 @@ def calls_in(path: Path, name: str) -> list[tuple[str, ast.Call]]:
 
 
 def test_no_agent_request_is_built_under_serve_outside_chat_request() -> None:
-    serve_dir = Path(serve_package.__file__).parent
-
+    # `serve` spans the kit's package and the core's, so it has no single folder.
     built = {
         f"{path.name}:{scope}"
-        for path in serve_dir.rglob("*.py")
+        for folder in serve_package.__path__
+        for path in Path(folder).rglob("*.py")
         for scope, _ in calls_in(path, "AgentRequest")
     }
 

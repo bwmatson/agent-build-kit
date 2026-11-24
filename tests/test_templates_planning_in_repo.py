@@ -7,12 +7,15 @@ import re
 from pathlib import Path
 
 from agent_build_kit import skills
+from agent_build_kit.tracks import runner
 from tests.prompt_text import flat, placeholders
 
 PACKAGE = Path(skills.SKILLS_DIR).parent
 TEMPLATES = PACKAGE / "templates"
 ORIENTATIONS = [TEMPLATES / "planning-CLAUDE.md", TEMPLATES / "planning-orientation.md"]
-PROMPTS = sorted((PACKAGE / "tracks" / "prompts").rglob("*.md"))
+PROMPTS_ROOT = Path(runner.__file__).parent / "prompts"
+PROMPTS = sorted(PROMPTS_ROOT.rglob("*.md"))
+assert PROMPTS, "the track prompts were not found"
 
 SEPARATION = re.compile(
     r"application code|no (application |source )?code lives here|planning side"
@@ -28,7 +31,9 @@ def test_the_orientation_templates_name_no_fixed_separation() -> None:
 
 
 def test_the_track_prompts_name_no_fixed_separation() -> None:
-    named = [str(p.relative_to(PACKAGE)) for p in PROMPTS if SEPARATION.search(flat(p.read_text()))]
+    named = [
+        str(p.relative_to(PROMPTS_ROOT)) for p in PROMPTS if SEPARATION.search(flat(p.read_text()))
+    ]
 
     assert named == []
 

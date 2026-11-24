@@ -62,4 +62,4 @@ repos:
         entry: uv run --frozen pyrefly check
         language: system
         pass_filenames: false
-        files: ^(src|tests)/
+        files: ^(src|tests|packages)/

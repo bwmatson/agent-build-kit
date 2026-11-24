@@ -26,7 +26,7 @@ from agent_build_kit.pipeline.shell import git
 from agent_build_kit.scrub_terms import ISSUE_REFERENCE, REPLACEMENT, TOOL_DIRS
 from tests.tracked_files import PlanningDirs, guarded_files, lines_of, planning_dirs
 
-SCANNED = ("src", "tests", "docs", "web", "openspec")
+SCANNED = ("src", "packages", "tests", "docs", "web", "openspec")
 # The root files read when present; `abk.yaml` and the tracked unit store are planning
 # content, read as committed. Ignored state (logs, ledgers) is not listed.
 ROOT_FILES = ("README.md", "CLAUDE.md", "CHANGELOG.md", "abk.yaml", "runs/units.json")

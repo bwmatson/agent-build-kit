@@ -15,6 +15,7 @@ import atexit
 import logging
 import threading
 from collections.abc import Callable
+from pathlib import Path
 from typing import Any
 
 from agent_build_kit.settings import settings
@@ -23,6 +24,7 @@ log = logging.getLogger(__name__)
 
 # Seconds an exporter may spend on one request. shutdown() flushes the trace
 # and metric providers in turn, so it can take up to about two of these.
+DASHBOARD = Path(__file__).resolve().parent / "telemetry" / "dashboards" / "pipeline.json"
 EXPORT_TIMEOUT = 3.0
 METRIC_INTERVAL_MS = 30_000
 

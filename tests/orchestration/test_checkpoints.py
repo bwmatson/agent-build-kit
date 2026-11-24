@@ -28,7 +28,7 @@ from agent_build_kit.run_support import thread_of
 from tests.conftest import make_installation
 from tests.graph.checkpoint_reads import a_config
 from tests.graph.test_checkpoint_allowlist import Unlisted, populated
-from tests.tracked_files import ROOT, guarded_files, source_tree_folders
+from tests.tracked_files import guarded_files, source_tree_folders, source_trees
 
 
 @pytest.fixture(autouse=True)
@@ -186,14 +186,12 @@ def test_a_units_thread_is_opened_through_the_registered_implementation(
 
 @pytest.mark.integration
 def test_only_the_local_implementation_names_the_sqlite_opener() -> None:
-    allowed = {
-        "src/agent_build_kit/graph/checkpointer.py",
-        "src/agent_build_kit/orchestration/local/checkpoints.py",
-    }
+    allowed = {"graph/checkpointer.py", "orchestration/local/checkpoints.py"}
     offenders = [
-        path.relative_to(ROOT).as_posix()
-        for path in guarded_files(under=source_tree_folders(), suffixes={".py"})
-        if path.relative_to(ROOT).as_posix() not in allowed
+        path.relative_to(root).as_posix()
+        for root, folder in zip(source_trees(), source_tree_folders(), strict=True)
+        for path in guarded_files(under=[folder], suffixes={".py"})
+        if path.relative_to(root).as_posix() not in allowed
         and "open_unit_graphs" in path.read_text()
     ]
 

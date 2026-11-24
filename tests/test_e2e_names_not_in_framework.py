@@ -9,12 +9,17 @@ provider table's own module is the one place a provider is named.
 from __future__ import annotations
 
 import ast
-from pathlib import Path
 
 from agent_build_kit import runtimes
 from agent_build_kit.runtimes import known_agents, providers
+from tests.tracked_files import source_trees
 
-SOURCE = Path(__file__).resolve().parent.parent / "src" / "agent_build_kit"
+
+def source_text(relative: str) -> str:
+    # A module is in whichever package of the workspace holds it.
+    holder = next(root for root in source_trees() if (root / relative).is_file())
+    return (holder / relative).read_text(encoding="utf-8")
+
 
 # The modules of the mechanism: the selection, the held set, the schedule, the record (the
 # per-split failure record included), the check and the `e2e-test` command group, and the text
@@ -73,9 +78,9 @@ def tokens(text: str) -> set[str]:
 def scanned() -> list[tuple[str, ast.AST]]:
     trees: list[tuple[str, ast.AST]] = []
     for relative in MODULES:
-        trees.append((relative, ast.parse((SOURCE / relative).read_text(encoding="utf-8"))))
+        trees.append((relative, ast.parse(source_text(relative))))
     for relative, name in CLASSES:
-        module = ast.parse((SOURCE / relative).read_text(encoding="utf-8"))
+        module = ast.parse(source_text(relative))
         found = [n for n in ast.walk(module) if isinstance(n, ast.ClassDef) and n.name == name]
         assert found, f"{relative} has no class {name}"
         # The decorators are left out: `@runtime_checkable` is a typing name, not a runtime.
@@ -117,7 +122,7 @@ def test_the_scan_finds_a_runtime_a_marker_and_a_provider_but_not_a_typing_name(
 
 
 def test_the_provider_table_is_flagged_by_the_scan_so_only_its_exemption_keeps_it_out() -> None:
-    table = ast.parse((SOURCE / PROVIDER_TABLE).read_text(encoding="utf-8"))
+    table = ast.parse(source_text(PROVIDER_TABLE))
 
     hits = hits_in(PROVIDER_TABLE, table, forbidden())
 

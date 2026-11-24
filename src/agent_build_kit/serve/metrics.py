@@ -14,7 +14,6 @@ from collections import defaultdict
 from collections.abc import Callable, Sequence
 from datetime import UTC, datetime, timedelta
 from functools import cache
-from importlib import resources
 from pathlib import Path
 from typing import Any, Protocol
 
@@ -22,6 +21,7 @@ import httpx
 from pydantic import ValidationError
 
 import agent_build_kit
+from agent_build_kit import telemetry
 from agent_build_kit.model import Frozen
 from agent_build_kit.pipeline.metric_records import MetricRecord
 from agent_build_kit.pipeline.spans import Span
@@ -82,8 +82,7 @@ class MetricSource(Protocol):
 
 def dashboard_uid() -> str:
     """The uid of the dashboard `abk telemetry push-dashboard` pushes."""
-    path = resources.files("agent_build_kit") / "telemetry" / "dashboards" / "pipeline.json"
-    return str(json.loads(path.read_text())["uid"])
+    return str(json.loads(telemetry.DASHBOARD.read_text())["uid"])
 
 
 def _dict_literal(node: ast.AST) -> tuple[Sequence[ast.expr], list[str]] | None:

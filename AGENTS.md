@@ -122,8 +122,16 @@ can't vouch for". The reasoning is in `docs/designs/agent-efficient-coding-philo
 
 ## Layout
 
+The kit is a uv workspace of two distributions that share the `agent_build_kit` import name:
+the root package (`src/agent_build_kit`) and the core (`packages/core/src/agent_build_kit`,
+the modules the worker and the orchestrator both use). Which package a module sits in is
+fixed by the seeds in `tests/support/package_seeds.py` and checked by
+`tests/test_package_boundaries.py`; a folder holds an `__init__.py` in one package only, and
+several folders (`pipeline/`, `serve/`, `graph/`) have modules in both. The tree below lists
+the modules by import path, whichever package holds them.
+
 ```
-src/agent_build_kit/
+agent_build_kit/
   config.py        abk.yaml schema (pydantic, extra=forbid); config.active() for leaf modules
   installation.py  Installation: planning root, state/specs/graph paths, repos, verify env
   settings.py      machine-level settings from the environment and the planning repo's .env

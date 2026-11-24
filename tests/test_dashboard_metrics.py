@@ -5,9 +5,9 @@ from __future__ import annotations
 
 import json
 import re
-from importlib import resources
 from typing import Any
 
+from agent_build_kit import telemetry
 from tests.metric_names import emitted_names
 
 # Prometheus exposes an OTLP metric as its name with dots as underscores, the
@@ -17,8 +17,7 @@ QUERIED = re.compile(r"\babk_[a-z0-9_]+")
 
 
 def _dashboard() -> dict[str, Any]:
-    path = resources.files("agent_build_kit") / "telemetry" / "dashboards" / "pipeline.json"
-    return json.loads(path.read_text())
+    return json.loads(telemetry.DASHBOARD.read_text())
 
 
 def _expressions(node: Any) -> list[str]:

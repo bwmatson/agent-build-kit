@@ -12,6 +12,7 @@ from datetime import UTC, datetime
 from functools import cache
 from pathlib import Path
 
+import agent_build_kit
 from agent_build_kit.config import active_state_dir
 from agent_build_kit.model import Frozen
 from agent_build_kit.path_discovery import checkout_root
@@ -21,7 +22,7 @@ from agent_build_kit.pipeline.shell import git
 TICK_FILE = "tick.json"
 
 # The directory the `agent_build_kit` package was imported from.
-PACKAGE_DIR: Path = Path(__file__).resolve().parent.parent
+PACKAGE_DIR: Path = Path(agent_build_kit.__file__).resolve().parent
 
 
 @cache

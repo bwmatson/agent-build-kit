@@ -7,6 +7,13 @@ resolution-markers = [
     "python_full_version < '3.14'",
 ]
 
+[manifest]
+members = [
+    "agent-build-kit",
+    "agent-build-kit-core",
+    "agent-build-kit-worker",
+]
+
 [[package]]
 name = "ag-ui-protocol"
 version = "1.0.0"
@@ -24,6 +31,7 @@ name = "agent-build-kit"
 version = "0.1.0"
 source = { editable = "." }
 dependencies = [
+    { name = "agent-build-kit-core" },
     { name = "aiosqlite" },
     { name = "fastapi" },
     { name = "githubkit" },
@@ -75,6 +83,7 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "agent-build-kit", extras = ["acp"], marker = "extra == 'modal'", editable = "." },
+    { name = "agent-build-kit-core", editable = "packages/core" },
     { name = "agent-client-protocol", marker = "extra == 'acp'", specifier = "==0.12.1" },
     { name = "aiosqlite", specifier = ">=0.20" },
     { name = "azure-identity", marker = "extra == 'azure'", specifier = ">=1.19" },
@@ -112,6 +121,22 @@ dev = [
     { name = "pytest-xdist", specifier = ">=3.6.0" },
     { name = "ruff", specifier = ">=0.16" },
 ]
+
+[[package]]
+name = "agent-build-kit-core"
+version = "0.1.0"
+source = { editable = "packages/core" }
+
+[[package]]
+name = "agent-build-kit-worker"
+version = "0.1.0"
+source = { editable = "packages/worker" }
+dependencies = [
+    { name = "agent-build-kit-core" },
+]
+
+[package.metadata]
+requires-dist = [{ name = "agent-build-kit-core", editable = "packages/core" }]
 
 [[package]]
 name = "agent-client-protocol"

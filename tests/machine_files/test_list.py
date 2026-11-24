@@ -5,14 +5,13 @@ from __future__ import annotations
 import subprocess
 from pathlib import Path
 
-import agent_build_kit
 from agent_build_kit import config_migrate_write
 from agent_build_kit.machine_files import MACHINE_FILES
 from tests.cli.in_repo_doctor import checks_of, in_repo, named
 from tests.factories import git
 from tests.machine_files_support import CONTENT
+from tests.tracked_files import source_trees
 
-SOURCE = Path(agent_build_kit.__file__).parent
 MAY_NAME_THE_SCRUB_LIST = {"machine_files.py", "config.py", "scrub_terms.py"}
 CONFIG_LOCAL = [name for name in MACHINE_FILES if name != ".env"]
 
@@ -42,7 +41,7 @@ def test_the_migration_ignores_the_list_without_the_env_file() -> None:
 
 def test_no_other_module_holds_the_scrub_list_literal() -> None:
     found = subprocess.run(
-        ["grep", "-rl", "--include=*.py", '"scrub.local"', str(SOURCE)],
+        ["grep", "-rl", "--include=*.py", '"scrub.local"', *map(str, source_trees())],
         capture_output=True,
         text=True,
         check=False,
