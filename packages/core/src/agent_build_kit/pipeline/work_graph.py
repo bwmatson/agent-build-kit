@@ -1718,6 +1718,8 @@ _SHELL_WORDS = frozenset(
     "umask ulimit pwd".split()
 )
 _SINGLE_QUOTED = re.compile(r"'[^']*'")
+_DOUBLE_QUOTED = re.compile(r'"[^"$`]*"')
+_ESCAPED = re.compile(r"\\.", re.S)
 # Variables the shell itself sets for a command: a `for` loop's, the targets of `read`, `PWD`.
 _LOOP_VARIABLE = re.compile(r"\bfor\s+([A-Za-z_]\w*)\s+in\b")
 _READ_VARIABLES = re.compile(r"\bread\s+(?:-\w+\s+)*((?:[A-Za-z_]\w*\s*)+)")
@@ -1750,7 +1752,10 @@ def check_environment_problems(command: str) -> list[str]:
             continue
         problems.append(f"reads ${name}, which nothing in the check sets")
     search_path = CHECK_ENVIRONMENT["PATH"]
-    for word in dict.fromkeys(programs(expanded)):
+    # An escaped character and a double-quoted span with no command substitution hold no operator
+    # that splits the line, so they are blanked; a quoted `$(...)` keeps its command checked.
+    unquoted = _DOUBLE_QUOTED.sub('""', _ESCAPED.sub("x", expanded))
+    for word in dict.fromkeys(programs(unquoted)):
         if (
             word in _SHELL_WORDS
             or "/" in word

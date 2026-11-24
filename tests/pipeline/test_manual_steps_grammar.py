@@ -168,6 +168,7 @@ UNWORKABLE = (
         ("test -f done || no-such-tool login", "no-such-tool"),
         ("test -f done | no-such-tool login", "no-such-tool"),
         ("n=$(no-such-tool show); test -n $n", "no-such-tool"),
+        ('test -n "$(no-such-tool x)"', "no-such-tool"),
     ],
 )
 def test_a_check_that_cannot_work_in_its_environment_is_warned_of(
@@ -200,6 +201,10 @@ def test_a_check_that_cannot_work_in_its_environment_is_warned_of(
         'test "$(cat abk.yaml)" != ""',
         "grep -q 'v(1)' abk.yaml",
         "awk '{a=1; print a}' abk.yaml",
+        'grep -Eq "x|y" abk.yaml',
+        'grep -q "a;b" abk.yaml',
+        'grep -q "v(1)" abk.yaml',
+        r"grep -q a\|b abk.yaml",
         'read -r line < abk.yaml; test -n "$line"',
     ],
 )
