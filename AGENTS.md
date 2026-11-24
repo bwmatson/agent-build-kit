@@ -179,8 +179,9 @@ docs/              architecture, configuration, cli, toolchain-profiles, agent-r
   name. Tests needing node or the network go under `tests/integration/`,
   marked `integration` (excluded by default); so is a test that scans the whole repository,
   wherever it sits: the mark goes on the scan test itself, never on a file that also holds the
-  check's `tmp_path` logic tests, and a whole-repository scan runs in CI's `integration` check, not
-  in a unit's gate. `tests/test_wide_scans_are_integration.py` lists the named scans and finds an
+  check's `tmp_path` logic tests, and a whole-repository scan runs in CI's `integration` check and
+  in a unit's gate, where an affected run leaves out a scan that calls the `tests.scan_helper`
+  helper and reads none of the changed files. `tests/test_wide_scans_are_integration.py` lists the named scans and finds an
   unmarked one by its syntax (`tests/wide_scans.py`); the scans unmarked today are in
   `tests/wide_scans_baseline.txt`, which may only shrink. Tests driving a real agent on
   the host are `e2e-test` tests: they live under `tests/integration/` too, are marked
