@@ -223,6 +223,13 @@ class FeedbackSource(StrEnum):
         return None
 
 
+class AutoRework(StrEnum):
+    """A cause for which the pipeline reworked a unit by itself, at most once per unit."""
+
+    E2E_FAILED = "e2e-test-failed"
+    PRODUCT_CODE = "product-code"
+
+
 class E2eState(StrEnum):
     """What became of a unit's e2e-test step for the head it pushed."""
 
@@ -510,6 +517,9 @@ class StoredUnit(Unit):
     # How many times in a row the model service's status has parked it.
     service_attempts: int = 0
     history: tuple[dict, ...] = ()
+    # The causes the pipeline has already reworked this unit for by itself; kept across a
+    # requeue and a restart, so a cause is reworked automatically once.
+    auto_reworks: tuple[AutoRework, ...] = ()
     # When the unit was first evaluated with nothing blocking it, and when a
     # person first answered its pull request; None until then.
     ready_at: datetime | None = None
@@ -1519,6 +1529,10 @@ class UnitStore:
             feedback_from_person=from_person and bool(feedback),
             feedback_source=source if feedback else FeedbackSource.NONE,
         )
+
+    def record_auto_rework(self, unit_id: str, cause: AutoRework) -> None:
+        """Record that the unit had its automatic rework for `cause`."""
+        raise NotImplementedError
 
     def set_starting(self, unit_id: str, marker: Starting | None) -> None:
         """The marker admission leaves on a unit it let start, or none once it lapses."""
