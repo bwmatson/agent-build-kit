@@ -7876,7 +7876,8 @@ def requeue(
 
 def _say_what_stops(inst: Installation, unit: StoredUnit, say: Callable[..., None]) -> None:
     """Tell the person what will keep a requeued unit from starting, so "delivered" is not read
-    as "running": its change's plan-review hold, or a hold by someone outside the kit."""
+    as "running": its change's plan-review hold, a hold by someone outside the kit, or a full
+    project or account it waits for room in."""
     if unit.unstarted and unit.change in plan_review.held_changes(inst):
         say(
             f"{unit.id} will not start until the plan review of {unit.change} is resolved: "

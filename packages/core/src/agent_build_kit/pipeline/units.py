@@ -1438,7 +1438,7 @@ def handoff_units(
 
 def emergency_start(unit: Unit, graph: Sequence[Unit], excluded: Collection[str]) -> bool:
     """Whether a planned unit may start in the emergency lane: it has never started, or waits
-    for room as a new unit does (`_waits_for_room`), and its effective priority is 0, its
+    for room as a new unit does (`waits_for_room`), and its effective priority is 0, its
     own or lent by a unit that waits on it. A unit already in progress (a rework, a resume)
     is not: it draws on no place, and keeps to the workers."""
     return (not in_progress(unit, graph) or waits_for_room(unit, graph)) and effective_priority(
