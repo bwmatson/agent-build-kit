@@ -1595,6 +1595,20 @@ def _test_slot(
         yield waited
 
 
+# The most failed tests the base check runs one by one; an output naming more is a broken
+# collection or import, which the base cannot explain test by test.
+BASE_CHECK_LIMIT = 25
+
+
+def unit_wrote(test: str, where: Path, root: Path, files: Collection[str]) -> bool:
+    """Whether the unit wrote `test` (an id relative to `where`, a project of the checkout
+    `root`): its file, or the `conftest.py` beside it, is among the changed `files`. The one
+    rule for which failed tests a base run may excuse."""
+    path = where / test.partition("::")[0]
+    shown = path.relative_to(root) if path.is_relative_to(root) else path
+    return written_by_unit(shown, files)
+
+
 def build_unit_test_base_check(
     *,
     run: Run | None = None,
@@ -1638,11 +1652,14 @@ def build_unit_test_base_check(
             ids = [
                 test
                 for test in failed_ids(toolchain, failed_output)
-                if not written_by_unit((where / test.partition("::")[0]).relative_to(cwd), files)
+                if not unit_wrote(test, where, cwd, files)
             ]
             if ids:
                 found.append((where, toolchain, ids))
         if not found:
+            return []
+        if sum(len(ids) for _, _, ids in found) > BASE_CHECK_LIMIT:
+            _say(log, f"more than {BASE_CHECK_LIMIT} failed tests: not run on the base one by one")
             return []
         failing: list[str] = []
         try:
@@ -2876,12 +2893,7 @@ def build_unit_test(
             files = set(changed(root, base))
         except (subprocess.CalledProcessError, OSError):
             return True
-        for test in tests:
-            path = where / test.partition("::")[0]
-            shown = path.relative_to(root) if path.is_relative_to(root) else path
-            if written_by_unit(shown, files):
-                return True
-        return False
+        return any(unit_wrote(test, where, root, files) for test in tests)
 
     def fails_on_base(
         rerun: list[str], tests: list[str], where: Path, toolchain: ToolchainProfile, base: str
