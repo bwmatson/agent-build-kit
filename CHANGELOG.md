@@ -7,6 +7,12 @@
   script, beside the worker's. The project at the repository root depends on both, so
   `uv sync` and `abk` work as before; the web UI now builds into the orchestrator package.
 
+- A fix change written for a failing test is checked against the shipped spec before it is
+  accepted: a `MODIFIED` or `REMOVED` requirement whose title the spec lacks, or an `ADDED` one
+  it already holds, is sent back to the agent once, naming the title and the header to use, and
+  held if the second attempt still disagrees. The prompt no longer tells the agent to restate an
+  earlier fix as `MODIFIED` when that requirement was never archived.
+
 - The plan review is shown the change's units in the order they are built, each after the units
   it depends on, with merged units included and each unit's state and pull request, so a
   reviewer no longer reads the planner's listing order as the build order or flags a group for

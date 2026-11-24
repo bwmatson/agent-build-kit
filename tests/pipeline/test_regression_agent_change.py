@@ -29,6 +29,7 @@ from tests.regression_agent_support import (
     UNDECIDED,
     Attempts,
     failure,
+    refusal_of,
     run,
     writes,
 )
@@ -289,3 +290,105 @@ def test_two_units_meeting_one_test_share_one_change(
 
     assert first.change == second.change == name
     assert len(agent.runtime.requests) == 1
+
+
+CAPABILITY = "test-determinism"
+HELD_TITLE = "The label follows the config"
+NEW_TITLE = "The label is read at render time"
+
+
+def delta(header: str, title: str) -> str:
+    """A delta spec with one `header` requirement (`ADDED`, `MODIFIED` or `REMOVED`) of `title`."""
+    return (
+        f"## {header} Requirements\n\n### Requirement: {title}\n\n"
+        "The label SHALL be read when it is rendered.\n\n"
+        "#### Scenario: Config changes\n\n- **WHEN** the config changes\n"
+        "- **THEN** the next render shows it\n"
+    )
+
+
+def living_spec(installation: Installation, *titles: str) -> None:
+    """The shipped `test-determinism` spec holding a requirement of each of `titles`."""
+    path = installation.specs_dir / "specs" / CAPABILITY / "spec.md"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    body = "".join(f"### Requirement: {title}\n\nIt SHALL hold.\n\n" for title in titles)
+    path.write_text(f"# {CAPABILITY}\n\n## Requirements\n\n{body}")
+
+
+def written(header: str, title: str) -> dict[str, str]:
+    return {"spec": delta(header, title), "capability": CAPABILITY}
+
+
+@pytest.mark.parametrize(
+    ("header", "title", "use", "fixed_header", "fixed_title"),
+    [
+        ("MODIFIED", NEW_TITLE, "ADDED", "ADDED", NEW_TITLE),
+        ("REMOVED", NEW_TITLE, "", "REMOVED", HELD_TITLE),
+        ("ADDED", HELD_TITLE, "MODIFIED", "MODIFIED", HELD_TITLE),
+    ],
+    ids=["modified-title-absent", "removed-title-absent", "added-title-held"],
+)
+def test_a_delta_header_the_living_spec_disagrees_with_is_sent_back_naming_the_title(
+    installation: Installation,
+    tmp_path: Path,
+    header: str,
+    title: str,
+    use: str,
+    fixed_header: str,
+    fixed_title: str,
+) -> None:
+    living_spec(installation, HELD_TITLE)
+    name = next_fix_name(installation, TEST)
+    agent = Attempts(installation, name, written(header, title), written(fixed_header, fixed_title))
+
+    outcome = run(installation, tmp_path, agent.runtime)
+
+    assert outcome == FixOutcome(change=name)
+    assert len(agent.runtime.requests) == 2
+    refusal = refusal_of(agent.runtime.requests[1])
+    assert title in refusal
+    assert use in refusal
+
+
+def test_a_modified_title_the_living_spec_lacks_is_held_when_the_second_attempt_has_it_too(
+    installation: Installation, tmp_path: Path
+) -> None:
+    living_spec(installation, HELD_TITLE)
+    name = next_fix_name(installation, TEST)
+    agent = Attempts(installation, name, written("MODIFIED", NEW_TITLE))
+
+    outcome = run(installation, tmp_path, agent.runtime)
+
+    assert len(agent.runtime.requests) == 2
+    assert outcome.held
+    assert NEW_TITLE in outcome.reason
+
+
+@pytest.mark.parametrize("header", ["MODIFIED", "REMOVED"])
+def test_a_capability_with_no_living_spec_is_sent_back_for_anything_but_added(
+    installation: Installation, tmp_path: Path, header: str
+) -> None:
+    name = next_fix_name(installation, TEST)
+    agent = Attempts(installation, name, written(header, NEW_TITLE), written("ADDED", NEW_TITLE))
+
+    outcome = run(installation, tmp_path, agent.runtime)
+
+    assert outcome == FixOutcome(change=name)
+    assert len(agent.runtime.requests) == 2
+    assert NEW_TITLE in refusal_of(agent.runtime.requests[1])
+
+
+def test_the_prompt_after_an_archived_earlier_fix_does_not_say_to_restate_it_as_modified(
+    installation: Installation, tmp_path: Path
+) -> None:
+    first = next_fix_name(installation, TEST)
+    (installation.changes_dir / "archive" / f"2026-03-02-{first}").mkdir(parents=True)
+    name = next_fix_name(installation, TEST)
+    agent = Attempts(installation, name, {})
+
+    run(installation, tmp_path, agent.runtime)
+
+    prompt = agent.runtime.request.prompt
+    assert f"`{first}`" in prompt
+    assert "restate it as a MODIFIED one" not in prompt
+    assert "only for a title the" in prompt
