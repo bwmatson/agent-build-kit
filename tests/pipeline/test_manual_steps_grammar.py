@@ -196,6 +196,10 @@ def test_a_check_that_cannot_work_in_its_environment_is_warned_of(
         'for f in a b; do test -f "$f"; done',
         "grep -q 'x$y' abk.yaml",
         'test -d "$PWD"',
+        'test -n "$(cat abk.yaml)"',
+        'test "$(cat abk.yaml)" != ""',
+        "grep -q 'v(1)' abk.yaml",
+        "awk '{a=1; print a}' abk.yaml",
         'read -r line < abk.yaml; test -n "$line"',
     ],
 )

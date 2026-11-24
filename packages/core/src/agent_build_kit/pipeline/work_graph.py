@@ -1750,7 +1750,7 @@ def check_environment_problems(command: str) -> list[str]:
             continue
         problems.append(f"reads ${name}, which nothing in the check sets")
     search_path = CHECK_ENVIRONMENT["PATH"]
-    for word in dict.fromkeys(programs(command)):
+    for word in dict.fromkeys(programs(expanded)):
         if (
             word in _SHELL_WORDS
             or "/" in word

@@ -121,7 +121,8 @@ def programs(command: str) -> list[str]:
         while tokens and tokens[0] in LEADING_KEYWORDS:
             tokens = tokens[1:]
         tokens = _strip_wrappers(tokens)
-        if tokens:
+        # A bare quote is what a split inside a quoted `$(...)` leaves of the quote, not a program.
+        if tokens and tokens[0].strip("\"'"):
             found.append(tokens[0])
     return found
 
