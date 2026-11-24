@@ -7,7 +7,9 @@ commit. A checker that is configured well for a checkout can match no files at
 all there, and the only symptom is a unit whose commit is rejected with nothing
 wrong in its code. This puts one trivially correct file through that gate.
 
-Needs the network on a first run, to install the hooks' environments.
+Needs the network on a first run, to install the hooks' environments. That first
+run installs them into the test's empty home, so the test carries the loaded
+time limit.
 """
 
 from __future__ import annotations
@@ -23,8 +25,12 @@ import pytest
 
 from agent_build_kit.pipeline.shell import git as run_git
 from tests.factories import git, init_repo
+from tests.time_limit import LOADED_TEST_TIME_LIMIT
 
-pytestmark = pytest.mark.integration
+pytestmark = [
+    pytest.mark.integration,
+    pytest.mark.time_limit(LOADED_TEST_TIME_LIMIT),
+]
 
 REPO = Path(__file__).resolve().parents[2]
 
