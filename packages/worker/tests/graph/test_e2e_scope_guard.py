@@ -14,7 +14,6 @@ from agent_build_kit.pipeline.unit_store import (
     AutoRework,
     Cause,
     FeedbackSource,
-    StoredUnit,
     UnitStore,
 )
 from agent_build_kit.pipeline.units import PLANNED, Unit
@@ -23,7 +22,7 @@ from packages.worker.tests.graph.test_build_path import build
 from tests.conftest import make_installation
 from tests.e2e_scope_fakes import CHANGED, NEW, OLD, branch
 from tests.e2e_wait_fakes import OWN as OWN_FAILURE
-from tests.e2e_wait_fakes import Failing, Told, verdict_of
+from tests.e2e_wait_fakes import Failing, Told, pipeline_reworks, verdict_of
 from tests.factories import git, unit
 from tests.product_defect_fakes import account, defect
 from tests.runner_fakes import Recorder, rejecting
@@ -199,17 +198,6 @@ def scope_reworks(scoped: Scoped) -> list[str]:
     return [prompt for prompt in scoped.recorder.prompts if PRODUCT in prompt]
 
 
-def product_code_reworks(stored: StoredUnit) -> list[dict]:
-    """The history entries of a rework the pipeline asked for over changed product code."""
-    return [
-        entry
-        for entry in stored.history
-        if entry.get("cause") == Cause.REWORK
-        and "pipeline" in str(entry.get("note", ""))
-        and "product code" in str(entry.get("note", "")).lower()
-    ]
-
-
 def test_a_stopped_unit_is_reworked_once_with_the_feedback_and_goes_on_when_the_file_is_restored(
     tmp_path: Path,
 ) -> None:
@@ -226,7 +214,7 @@ def test_a_stopped_unit_is_reworked_once_with_the_feedback_and_goes_on_when_the_
     stored = scoped.stored
     assert stored.feedback_source != FeedbackSource.SCOPE
     assert stored.auto_reworks == (AutoRework.PRODUCT_CODE,)
-    assert len(product_code_reworks(stored)) == 1
+    assert len(pipeline_reworks(stored, "product code")) == 1
 
 
 def test_a_rework_that_leaves_the_product_file_fails_the_unit_at_the_second_stop(
@@ -243,7 +231,7 @@ def test_a_rework_that_leaves_the_product_file_fails_the_unit_at_the_second_stop
     stored = scoped.stored
     assert stored.feedback_source == FeedbackSource.SCOPE
     assert stored.auto_reworks == (AutoRework.PRODUCT_CODE,)
-    assert len(product_code_reworks(stored)) == 1
+    assert len(pipeline_reworks(stored, "product code")) == 1
 
 
 def test_a_valid_product_defect_block_in_the_automatic_rework_files_the_change_and_parks_it(
@@ -319,7 +307,7 @@ def test_a_unit_reworked_for_an_e2e_failure_whose_rework_adds_a_product_file_is_
     assert case.e2e.runs == 2
     stored = scoped.stored
     assert stored.auto_reworks == (AutoRework.E2E_FAILED, AutoRework.PRODUCT_CODE)
-    assert len(product_code_reworks(stored)) == 1
+    assert len(pipeline_reworks(stored, "product code")) == 1
 
 
 def test_a_further_product_code_stop_after_both_automatic_reworks_fails_the_unit(

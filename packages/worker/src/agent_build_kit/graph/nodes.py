@@ -2378,14 +2378,21 @@ class BuildPath:
         if AutoRework.PRODUCT_CODE in r.store.get(unit.id).auto_reworks:
             return self.stop(reason)
         # The first stop is reworked once, by the pipeline, with the files named.
-        r.store.record_auto_rework(unit.id, AutoRework.PRODUCT_CODE)
+        return self.rework_once(AutoRework.PRODUCT_CODE, "the unit changes product code")
+
+    def rework_once(self, cause: AutoRework, why: str) -> Update:
+        """The one way the pipeline sends a unit to `rework` by itself: the cause is recorded, so
+        no later run grants another, the unit runs again with a history entry saying the pipeline
+        asked, and the run is routed to the rework node with its saved feedback."""
+        r, unit = self.runner, self.unit
+        r.store.record_auto_rework(unit.id, cause)
         r.store.set_state(
             unit.id,
             RUNNING,
-            note="rework requested by the pipeline: the unit changes product code",
+            note=f"rework requested by the pipeline: {why}",
             cause=Cause.REWORK,
         )
-        self.say(f"{reason}: reworking once before the unit fails")
+        self.say(f"{why}: reworking once before the unit fails")
         return {"auto_rework": True, "had_feedback": True}
 
     def product_defect(self, account: str, stored: StoredUnit) -> Update | None:
@@ -3114,15 +3121,7 @@ class BuildPath:
         )
         if first:
             # The first failure of its own is reworked once, by the pipeline, with the output.
-            r.store.record_auto_rework(unit.id, AutoRework.E2E_FAILED)
-            r.store.set_state(
-                unit.id,
-                RUNNING,
-                note="rework requested by the pipeline: e2e-test failed",
-                cause=Cause.REWORK,
-            )
-            self.say("e2e-test failed: reworking once before the unit fails")
-            return {"auto_rework": True, "had_feedback": True}
+            return self.rework_once(AutoRework.E2E_FAILED, "e2e-test failed")
         return self.stop("e2e-test failed")
 
     def wait_for_preexisting(self, verdict: E2eVerdict) -> Update | None:

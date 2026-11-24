@@ -16,7 +16,6 @@ from agent_build_kit.pipeline.unit_store import (
     Cause,
     FeedbackSource,
     RequeueReason,
-    StoredUnit,
 )
 from agent_build_kit.pipeline.units import FAILED, PLANNED, Unit
 from packages.worker.tests.graph.test_build_path import build
@@ -26,7 +25,7 @@ from tests.e2e_base_fakes import branch as plain_branch
 from tests.e2e_scope_fakes import NEW, OLD, PASSED, WHOLE, Ran, branch, session
 from tests.e2e_wait_fakes import OLD as FAILS_ON_BASE
 from tests.e2e_wait_fakes import OWN as OWN_FAILURE
-from tests.e2e_wait_fakes import Failing, Told, snapshot_of, verdict_of
+from tests.e2e_wait_fakes import Failing, Told, pipeline_reworks, snapshot_of, verdict_of
 from tests.factories import git, unit
 from tests.graph_driver import tick
 from tests.product_defect_fakes import account, defect
@@ -145,15 +144,6 @@ def run_e2e_unit(tmp_path: Path, recorder: Recorder, e2e: Failing, **overrides: 
 def given_run(recorder: Recorder, number: int) -> list[str]:
     """The prompts that carry the output of the e2e-test run `number`."""
     return [prompt for prompt in recorder.prompts if f"RUN-{number}-OUTPUT" in prompt]
-
-
-def pipeline_reworks(stored: StoredUnit) -> list[dict]:
-    """The history entries of a rework the pipeline asked for."""
-    return [
-        entry
-        for entry in stored.history
-        if entry.get("cause") == Cause.REWORK and "pipeline" in str(entry.get("note", ""))
-    ]
 
 
 def reworked_own_failure(root: Path) -> bool:
