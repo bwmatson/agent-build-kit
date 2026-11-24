@@ -348,6 +348,15 @@ class Installation:
         redaction.activate(redaction.gather(self))
 
 
+class MissingEnvSetting(ConfigError):
+    """The installation's env file has no line for a key a run reads."""
+
+    def __init__(self, file: Path, key: str) -> None:
+        super().__init__(f"{file} has no {key}=")
+        self.file = file
+        self.key = key
+
+
 def _resolve(provider: object) -> str:
     if isinstance(provider, LiteralProvider):
         return provider.value
