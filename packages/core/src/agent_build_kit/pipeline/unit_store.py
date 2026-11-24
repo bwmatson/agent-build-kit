@@ -72,6 +72,8 @@ REQUEUED_BY_PIPELINE = "pipeline"
 # The pipeline's requeue of a unit that failed on a rejected login: like a person's, it ends the
 # unit's run of bounces, and the history says it was the pipeline.
 REQUEUED_ON_LOGIN = "pipeline: login renewed"
+# What a history entry says of a retry the pipeline made by itself; its note begins with the cause.
+RETRY_BY = "pipeline: retry"
 # What `abk retire` adds to the note of a unit it ended while `running` with no holder.
 IDLE_NOTE = "was idle (running with no holder)"
 
@@ -1546,6 +1548,16 @@ class UnitStore:
             "rewrite_requested",
             f"a rewrite of the unit's commits was requested by {request.source.value}",
         )
+
+    def retry_spent(self, unit_id: str, cause: str) -> bool:
+        """Whether the unit's retry for `cause` is spent: its history holds a `RETRY_BY` entry
+        whose note begins with `cause` after its latest entry into review and its latest requeue
+        by a person."""
+        raise NotImplementedError
+
+    def record_retry(self, unit_id: str, cause: str, note: str) -> None:
+        """Add one history entry with `by` `RETRY_BY` and a note beginning with `cause`."""
+        raise NotImplementedError
 
     def clear_rewrite_request(self, unit_id: str) -> None:
         """End a request when the step that read it ends; its history says it was used."""

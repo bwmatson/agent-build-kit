@@ -20,6 +20,7 @@ def test_checks_the_machine_was_suspended_in_twice_hold_the_unit_and_run_no_fix_
     tmp_path: Path,
 ) -> None:
     recorder = fresh(tmp_path, unit_test_ok=False)
+    recorder.store.record_retry(unit().id, "suspended", "suspended: runs once more by itself")
     recorder.unit_test_output = SUSPENDED_NOTE
 
     outcome = build(tmp_path, recorder)
@@ -36,6 +37,7 @@ def test_a_suspend_after_a_fix_round_clears_the_failure_that_round_answered(
     tmp_path: Path,
 ) -> None:
     recorder = fresh(tmp_path)
+    recorder.store.record_retry(unit().id, "suspended", "suspended: runs once more by itself")
     recorder.unit_test_results = [(False, FAILING), (False, SUSPENDED_NOTE)]
 
     outcome = build(tmp_path, recorder)
