@@ -6,6 +6,7 @@
   notifier) is now its own package under `packages/orchestrator`, which installs the `abk`
   script, beside the worker's. The project at the repository root depends on both, so
   `uv sync` and `abk` work as before; the web UI now builds into the orchestrator package.
+
 - A fix change written for a failing test is checked against the shipped spec before it is
   accepted: a `MODIFIED` or `REMOVED` requirement whose title the spec lacks, or an `ADDED` one
   it already holds, is sent back to the agent once, naming the title and the header to use, and
