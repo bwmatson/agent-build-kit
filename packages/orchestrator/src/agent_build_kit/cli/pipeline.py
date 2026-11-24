@@ -381,6 +381,7 @@ from agent_build_kit.pipeline.units import (
     uncounted,
     waiting_on,
     waiting_on_me,
+    waits_for_room,
 )
 from agent_build_kit.pipeline.unplanned_sweep import live_changes, sweep
 from agent_build_kit.pipeline.untouched_failures import preexisting_record, preview
@@ -4364,8 +4365,12 @@ def _queue_full_by_project(inst: Installation, units: list[StoredUnit]) -> dict[
         waiting = _blocked_lines(units, key, slot_of)
         if waiting:
             line += f"; {len(waiting)} blocked not counted"
-        if failed := [u for u in failed_waiting_units(units) if slot_of(u) == key]:
-            line += f"; {len(failed)} failed waiting not counted"
+        if failed := [
+            u
+            for u in units
+            if u.state == FAILED and not in_progress(u, units) and slot_of(u) == key
+        ]:
+            line += f"; {len(failed)} failed not counted"
         lines[key] = line
     return lines
 
@@ -7871,7 +7876,8 @@ def requeue(
 
 def _say_what_stops(inst: Installation, unit: StoredUnit, say: Callable[..., None]) -> None:
     """Tell the person what will keep a requeued unit from starting, so "delivered" is not read
-    as "running": its change's plan-review hold, or a hold by someone outside the kit."""
+    as "running": its change's plan-review hold, a hold by someone outside the kit, or a full
+    project or account it waits for room in."""
     if unit.unstarted and unit.change in plan_review.held_changes(inst):
         say(
             f"{unit.id} will not start until the plan review of {unit.change} is resolved: "
@@ -7882,6 +7888,13 @@ def _say_what_stops(inst: Installation, unit: StoredUnit, say: Callable[..., Non
             f"{unit.id} will not start while {unit.change} is held outside the kit "
             "(`abk status` lists the hold)"
         )
+    units = run_support.store_for(inst).all()
+    slot_of = _slot_of(inst)
+    if waits_for_room(unit, units) and not start_room(
+        units, _slot_limit(inst)(slot_of(unit)), slot_of(unit), slot_of
+    ):
+        where = "project" if slot_of is project_key else "account"
+        say(f"{unit.id} waits for room in its {where} before it starts")
 
 
 def _parked_resume_refusal(inst: Installation, unit: StoredUnit) -> str | None:
@@ -8344,7 +8357,7 @@ def _planned_wait(
         return Wait(reason=WaitReason.READY)
     slot_of = _slot_of(inst)
     room = start_room(view, _slot_limit(inst)(slot_of(unit)), slot_of(unit), slot_of)
-    if not in_progress(unit, view) and not room:
+    if (not in_progress(unit, view) or waits_for_room(unit, view)) and not room:
         return Wait(reason=WaitReason.QUEUE_FULL)
     if (hold := _stack_hold(inst, unit, building)) is not None:
         return Wait(reason=WaitReason.SLOT, detail=_stack_hold_text(slot_of(unit), hold))

@@ -49,7 +49,9 @@ under both, and a unit held by the account's cap says so in its wait reason; its
 `max_units_in_progress` replaces the project's value for the account's slot. There is one such line for each project at its
 limit, and a workspace with several projects names the project in it
 (`queue is full: app/web: 9 units in progress, limit 9 (...)`); each line lists only its own
-project's blocked and failed-waiting units, and the reason a pass started nothing names only
+project's units, ending with "N blocked not counted" and "N failed not counted" (a failed unit
+holds no place unless it waits for the environment; a requeued failed or held unit waits for room
+and is first when a place frees), and the reason a pass started nothing names only
 the full projects that hold a ready unit back. A unit of a repo with several projects is
 labelled `(repo/project)` wherever a status line names it. A workspace with one project reads
 as it always did. Free slots

@@ -136,7 +136,7 @@ def test_a_unit_no_longer_blocked_counts_again() -> None:
     assert start_room(graph, 2) == 0
 
 
-def test_running_review_and_failed_units_with_no_wait_count_and_a_held_unit_does_not() -> None:
+def test_running_and_review_units_count_and_a_failed_unit_and_a_held_unit_do_not() -> None:
     graph = [
         new("a/1", state=RUNNING),
         review("b/1"),
@@ -144,7 +144,7 @@ def test_running_review_and_failed_units_with_no_wait_count_and_a_held_unit_does
         new("d/1", state=HELD, branch="spec/d/1"),
     ]
 
-    assert start_room(graph, 5) == 2
+    assert start_room(graph, 5) == 3
 
 
 def test_a_unit_left_out_of_a_limited_tick_is_not_blocked_by_that() -> None:
@@ -300,7 +300,7 @@ def test_a_paused_unit_whose_predecessor_stayed_in_review_resumes_at_the_limit()
     assert chosen(graph, limit=3) == ["back/1"]
 
 
-@pytest.mark.parametrize("cause", [None, Cause.HOST_UNAVAILABLE, Cause.RELEASED])
+@pytest.mark.parametrize("cause", [None, Cause.HOST_UNAVAILABLE])
 def test_an_interrupted_build_whose_dependencies_had_merged_resumes_at_the_limit(
     cause: Cause | None,
 ) -> None:

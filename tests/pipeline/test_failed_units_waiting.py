@@ -1,5 +1,5 @@
-"""A failed unit that waits on another unit holds no place, and counts again,
-still failed, once the wait ends.
+"""A failed unit that waits on another unit holds no place, and stays uncounted,
+still failed, once the wait ends: no failed unit is counted.
 
 The wait is whatever `waiting_on` says. These graphs are stored units, so
 nothing asks the forge, and none names `merge_before` or `unmet_gates`.
@@ -84,59 +84,61 @@ def test_a_failed_unit_counts_once_its_predecessor_is_merged_and_not_while_in_re
     graph = [ahead, waiter()]
 
     assert failed_waiting(graph[1], graph) is not merged
-    assert in_progress(graph[1], graph) is merged
+    assert not in_progress(graph[1], graph)
 
 
-def test_a_failed_unit_with_no_dependency_counts() -> None:
+def test_a_failed_unit_with_no_dependency_does_not_count() -> None:
     unit = new("alone/1", state=FAILED)
 
     assert not failed_waiting(unit, [unit])
-    assert in_progress(unit, [unit])
+    assert not in_progress(unit, [unit])
 
 
 @pytest.mark.parametrize("prerequisite", [PLANNED, RUNNING, FAILED, HELD])
-def test_a_waiting_failed_unit_raises_the_room_by_one(prerequisite: str) -> None:
+def test_a_waiting_failed_unit_leaves_the_room_as_a_plain_failed_unit_does(
+    prerequisite: str,
+) -> None:
     ahead = new("base/1", state=prerequisite)
     waiting = [ahead, waiter()]
     free = [ahead, new("next/1", state=FAILED, branch="spec/next/1")]
 
-    assert start_room(waiting, 5) == start_room(free, 5) + 1
+    assert start_room(waiting, 5) == start_room(free, 5)
     assert start_room(waiting, 5) == start_room([ahead], 5)
 
 
-def test_the_room_rises_for_every_waiting_failed_unit() -> None:
+def test_every_waiting_failed_unit_is_listed_and_none_takes_room() -> None:
     base = new("base/1", state=RUNNING)
     two = [base, waiter(), new("also/1", state=FAILED, depends_on=("base/1",))]
     plain = [base, new("next/1", state=FAILED), new("also/1", state=FAILED)]
 
-    assert start_room(two, 6) == start_room(plain, 6) + 2
+    assert start_room(two, 6) == start_room(plain, 6) == start_room([base], 6)
     assert failed_waiting_units(two) == [two[1], two[2]]
 
 
 # --- 1.2 the wait ends -------------------------------------------------------------
 
 
-def test_a_failed_unit_counts_again_still_failed_once_the_prerequisite_is_merged() -> None:
+def test_a_failed_unit_stays_uncounted_and_failed_once_the_prerequisite_is_merged() -> None:
     unit = waiter()
     assert not in_progress(unit, [new("base/1", state=RUNNING), unit])
 
     assert failed_waiting(unit, [review("base/1"), unit])
     reviewed = [new("base/1", state=MERGED, pr=1), unit]
 
-    assert in_progress(unit, reviewed)
+    assert not in_progress(unit, reviewed)
     assert not failed_waiting(unit, reviewed)
     assert unit.state == FAILED
     assert unit == waiter()
     assert chosen(reviewed) == []
 
 
-def test_a_failed_unit_counts_again_when_the_prerequisite_merges() -> None:
+def test_a_failed_unit_stays_uncounted_and_failed_when_the_prerequisite_merges() -> None:
     unit = waiter()
     assert not in_progress(unit, [review("base/1", repo="platform"), unit])
 
     merged = [new("base/1", state=MERGED, repo="platform", pr=1), unit]
 
-    assert in_progress(unit, merged)
+    assert not in_progress(unit, merged)
     assert unit.state == FAILED
     assert chosen(merged) == []
 
@@ -170,7 +172,7 @@ def test_when_the_wait_ends_work_in_progress_proceeds_over_the_limit_and_nothing
     ended = [graph[0], new("base/1", state=MERGED, pr=2), *graph[2:]]
 
     started = chosen(ended, limit=3)
-    assert in_progress(ended[2], ended)
+    assert not in_progress(ended[2], ended)
     assert "next/1" not in started
     assert "n/1" not in started
     assert set(started) == {"r/1", "s/1", "t/1"}
@@ -194,12 +196,12 @@ def test_a_planned_unit_no_longer_blocked_stays_planned_until_the_count_is_below
     ]
     assert chosen(graph, limit=4) == ["back/1"]
 
-    # The merge frees the place q held; another unit in review fills it, so the count is the
-    # one the wait ending alone brought (q in review used to stand there).
+    # The merge frees the place q held; another unit in review fills it. The failed unit that
+    # waited on q is still not counted, its wait ending changes nothing.
     ended = [*graph[:3], new("q/1", state=MERGED, pr=2), review("other/1", pr=7), graph[4]]
 
-    assert chosen(ended, limit=4) == []
-    assert chosen(ended, limit=5) == ["back/1"]
+    assert chosen(ended, limit=3) == []
+    assert chosen(ended, limit=4) == ["back/1"]
 
 
 # --- 1.4 the caps and the handoff --------------------------------------------------

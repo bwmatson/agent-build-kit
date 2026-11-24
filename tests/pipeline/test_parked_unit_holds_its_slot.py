@@ -14,7 +14,7 @@ from pathlib import Path
 import pytest
 
 from agent_build_kit.pipeline.pause import PAUSE_MARKER, pause_until
-from agent_build_kit.pipeline.unit_store import UnitStore
+from agent_build_kit.pipeline.unit_store import Cause, UnitStore
 from agent_build_kit.pipeline.units import FAILED, RUNNING
 from tests.conftest import status_lines
 from tests.factories import new_unit
@@ -89,10 +89,15 @@ def test_parked_units_are_named_paused_beside_other_states_in_the_same_line(
     def with_failed(store: UnitStore) -> None:
         parked(store)
         store.upsert([new_unit("broke/1")])
-        store.set_state("broke/1", FAILED, note="broke", branch="spec/broke/1")
+        store.set_state(
+            "broke/1", FAILED, note="broke", branch="spec/broke/1", cause=Cause.ENVIRONMENT
+        )
+        store.upsert([new_unit("plain/1")])
+        store.set_state("plain/1", FAILED, note="broke", branch="spec/plain/1")
 
     lines = status_lines(tmp_path, monkeypatch, capsys, limit=3, record=with_failed)
 
     line = full_line(lines)
-    assert "1 failed" in line
+    assert "1 waiting for the environment" in line
+    assert "; 1 failed not counted" in line
     assert "2 paused" in line

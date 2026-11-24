@@ -52,6 +52,7 @@ __all__ = [
     "own_group",
     "output_of",
     "replaced",
+    "requeued_unit",
     "snapshot",
     "started_ids",
     "stored_unit",
@@ -183,6 +184,23 @@ def new_unit(uid: str, **overrides) -> StoredUnit:
 def worked_unit(uid: str, **overrides) -> StoredUnit:
     """A planned unit a run began and stopped: it has recorded its branch."""
     return new_unit(uid, branch=f"spec/{uid}", **overrides)
+
+
+def requeued_unit(
+    uid: str,
+    out_of: str = "failed",
+    *,
+    cause: Cause = Cause.REQUEUED,
+    before: Cause | None = None,
+    **overrides,
+) -> StoredUnit:
+    """A planned unit with a branch whose history says it left `out_of` (a state, optionally
+    with the cause `before`) and was then planned again with `cause`."""
+    earlier = {"state": out_of, "at": "2026-01-01T00:00:00+00:00"}
+    if before is not None:
+        earlier["cause"] = before.value
+    later = {"state": "planned", "at": "2026-01-02T00:00:00+00:00", "cause": cause.value}
+    return worked_unit(uid, state="planned", history=(earlier, later), **overrides)
 
 
 def started_ids(graph, *, slots: int = 1, **kw) -> list[str]:

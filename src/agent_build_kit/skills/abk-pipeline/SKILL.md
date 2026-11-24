@@ -654,8 +654,8 @@ check says it waits for attestation: when only a person can know it is done, the
   `project_limits` takes the same four settings as the top level: its `max_concurrent_stacks`,
   `max_concurrent_resolutions` and `emergency_extra` are counted for the account across its projects,
   beside each project's own cap, and a unit needs room under both (a unit held by the account's cap
-  says so in its wait reason); its `max_units_in_progress` replaces the project's value for the account's slot. A failed unit holds its slot until it is requeued and
-  finishes, or closed: free one that way. A started unit that a usage pause parked before its
+  says so in its wait reason); its `max_units_in_progress` replaces the project's value for the account's slot. A failed unit holds no slot unless it waits for the
+  environment, and a requeued one waits for room. A started unit that a usage pause parked before its
   agent step also holds its slot, and the full-queue line names it `paused`. Before `prepare`, a
   ready unit is checked against its own account's usage decision, and a refused one waits with
   `usage_pause` naming the account.
@@ -683,14 +683,15 @@ check says it waits for attestation: when only a person can know it is done, the
    unit of a repo with several projects is labelled `(repo/project)` in status lines); each line
    lists its own project's blocked and failed-waiting units, and the reason a pass started
    nothing names only the full projects holding a ready unit back. The line is followed by "N blocked not counted" and a
-   `blocked: <unit> … waits on <unit>` line for each, and "N failed waiting not
-   counted" for failed units that wait on another unit (they stay failed, and
-   count again when the wait ends). A planned unit that waits on
+   `blocked: <unit> … waits on <unit>` line for each, and "N failed not
+   counted" for failed units (a failed unit holds no place unless it waits for the
+   environment; it still blocks its dependents, a unit stacked on its branch and its
+   branch's work). A planned unit that waits on
    another unit is blocked and holds no place however much work it has; the unit it
    waits on starts into that place first, and when the waiter is no longer blocked it
    starts only while there is room. A place frees when a unit's PR is merged or closed, when a
-   unit is held (a held unit does not count until it is requeued), or when a
-   failed unit is requeued (`abk requeue`) and finishes, or is closed. Free slots go to
+   unit is held or fails (neither counts), and a held or failed unit that is requeued
+   waits for room and is first when a place frees. Free slots go to
    open-PR work first (reworks, restacks), then resuming builds, then new
    units. Each builds only its own task groups, never a later unit's, even
    when the tasks for one are visible right there in `tasks.md`, and ends

@@ -30,7 +30,7 @@ from agent_build_kit.pipeline.pause import RESUME_GRACE, is_paused, pause_until
 from agent_build_kit.pipeline.planner import Plan
 from agent_build_kit.pipeline.pr_poller import Poller, state_path
 from agent_build_kit.pipeline.stack_runner import PauseInfo, RunOutcome
-from agent_build_kit.pipeline.unit_store import ClosePending, StoredUnit, UnitStore
+from agent_build_kit.pipeline.unit_store import Cause, ClosePending, StoredUnit, UnitStore
 from agent_build_kit.pipeline.units import IN_REVIEW, PLANNED, Member, UnitState
 from agent_build_kit.pipeline.usage_guard import Decision, UsageReading
 from agent_build_kit.pipeline.workspaces import BranchBusy
@@ -1834,16 +1834,23 @@ def test_status_names_a_failed_unit_holding_a_place(
         project_limits=dict(max_units_in_progress=2),
     )
     store = UnitStore(tmp_path / "units.json")
-    store.upsert([stored("one/1", change="one"), stored("two/1", change="two")])
+    store.upsert(
+        [
+            stored("one/1", change="one"),
+            stored("two/1", change="two"),
+            stored("three/1", change="three"),
+        ]
+    )
     store.set_state("one/1", IN_REVIEW, pr=11)
-    store.set_state("two/1", UnitState.FAILED)
+    store.set_state("two/1", UnitState.FAILED, cause=Cause.ENVIRONMENT)
+    store.set_state("three/1", UnitState.FAILED, branch="spec/three/1")
     monkeypatch.setattr("agent_build_kit.run_support.current_usage", lambda: reading())
 
     assert cli.cmd_status(argv_namespace(), workspace_inst) == 0
 
     out = capsys.readouterr().out
     assert "2 units in progress, limit 2" in out
-    assert "1 failed" in out
+    assert "1 waiting for the environment" in out
 
 
 def test_status_names_reworks_and_resumes_by_why_they_count(
