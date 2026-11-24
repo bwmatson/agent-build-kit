@@ -10,7 +10,7 @@ from pathlib import Path
 import pytest
 
 from agent_build_kit.pipeline.unit_store import UnitStore
-from agent_build_kit.pipeline.units import FAILED
+from agent_build_kit.pipeline.units import FAILED, IN_REVIEW
 from tests.conftest import status_lines
 from tests.factories import new_unit, started_ids
 
@@ -30,10 +30,12 @@ def repos(root: Path, labels: dict[str, str]) -> dict:
 
 
 def stalled(repo: str, count: int, store: UnitStore) -> None:
-    ids = [f"{repo}-failed{n}/1" for n in range(count)]
+    ids = [f"{repo}-review{n}/1" for n in range(count)]
     store.upsert([new_unit(uid, repo=repo) for uid in ids])
-    for uid in ids:
-        store.set_state(uid, FAILED, note="broke", branch=f"spec/{uid}")
+    for number, uid in enumerate(ids, start=1):
+        store.set_state(uid, IN_REVIEW, pr=number, branch=f"spec/{uid}")
+    store.upsert([new_unit(f"{repo}-broke/1", repo=repo)])
+    store.set_state(f"{repo}-broke/1", FAILED, note="broke", branch=f"spec/{repo}-broke/1")
 
 
 def status(
@@ -141,10 +143,11 @@ def gate(kit_limit: int, default_limit: int = 5):
 
 
 def kit_graph() -> list:
-    failed = [
-        new_unit(f"f{n}/1", repo="app", state=FAILED, branch=f"spec/f{n}/1") for n in range(2)
+    reviewing = [
+        new_unit(f"f{n}/1", repo="app", state=IN_REVIEW, pr=n + 1, branch=f"spec/f{n}/1")
+        for n in range(2)
     ]
-    return [*failed, new_unit("app-ready/1", repo="app"), new_unit("web-ready/1", repo="web")]
+    return [*reviewing, new_unit("app-ready/1", repo="app"), new_unit("web-ready/1", repo="web")]
 
 
 def test_the_gate_starts_the_default_accounts_unit_while_the_full_account_waits() -> None:

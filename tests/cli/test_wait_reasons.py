@@ -390,8 +390,8 @@ def test_a_unit_of_a_full_account_waits_for_room_while_a_default_account_unit_is
         store.upsert(
             [*full, new_unit("app-ready/1", repo="app"), new_unit("web-ready/1", repo="web")]
         )
-        for unit in full:
-            store.set_state(unit.id, FAILED, note="broke", branch=f"spec/{unit.id}")
+        for number, unit in enumerate(full, start=1):
+            store.set_state(unit.id, IN_REVIEW, pr=number, branch=f"spec/{unit.id}")
 
     def repo(name: str, **fields: str) -> dict:
         return {"path": str(tmp_path / "checkouts" / name), "slug": f"example/{name}", **fields}

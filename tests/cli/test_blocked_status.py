@@ -25,12 +25,13 @@ pytestmark = pytest.mark.usefixtures("scripted_engine")
 
 
 def full_queue_with_a_blocked_unit(builder: Builder) -> None:  # noqa: F811
-    """Two places held: a failed prerequisite and a unit in review, and a
+    """Two places held by units in review, a failed prerequisite that holds none, and a
     started unit that waits on the failed one."""
     builder.store.upsert([stored("base/1"), stored("wait/1", depends_on=("base/1",))])
-    builder.store.set_state("base/1", FAILED)
+    builder.store.set_state("base/1", FAILED, branch="spec/base/1")
     builder.store.set_state("wait/1", PLANNED, branch="spec/wait/1")
     open_pr(builder, "rev/1", 11)
+    open_pr(builder, "rev/2", 12)
 
 
 def test_the_status_counts_the_blocked_units_and_says_what_each_waits_on(

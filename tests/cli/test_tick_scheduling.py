@@ -279,21 +279,21 @@ def test_a_full_queue_starts_nothing_and_says_so(
     assert "platform" not in out
 
 
-def test_a_failed_unit_is_named_among_those_holding_the_places(
+def test_a_failed_unit_beside_the_places_is_not_named_among_those_holding_them(
     builder: Builder, tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     inst = limit_workspace(tmp_path, 2)
     open_pr(builder, "one/1", 11)
+    open_pr(builder, "two/1", 12)
     builder.store.upsert([stored("broke/1")])
-    builder.store.set_state("broke/1", UnitState.FAILED)
+    builder.store.set_state("broke/1", UnitState.FAILED, branch="spec/broke/1")
     builder.store.upsert([stored("new/1")])
 
     assert tick(inst) == 0
 
     out = capsys.readouterr().out
     assert builder.started == []
-    assert "2 units in progress, limit 2" in out
-    assert "1 failed" in out
+    assert "2 units in progress, limit 2 (2 in review)" in out
 
 
 def test_an_idle_pipeline_still_says_nothing_is_ready(

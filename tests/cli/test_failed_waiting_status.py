@@ -15,7 +15,7 @@ from tests.factories import new_unit
 
 def full_queue() -> list[StoredUnit]:
     """Two places held (a unit in review and a running prerequisite), a failed
-    unit that waits on the prerequisite and a failed one that waits on nothing."""
+    unit that waits on the prerequisite and a failed one that waits on nothing, which hold none."""
     return [
         new_unit("rev/1", state=IN_REVIEW, pr=11),
         new_unit("base/1", state=RUNNING),
@@ -30,8 +30,8 @@ def test_the_queue_line_leaves_a_waiting_failed_unit_out_and_says_how_many_are_n
     lines = status_lines(tmp_path, monkeypatch, capsys, full_queue(), limit=2)
 
     queue = next(line for line in lines if "queue is full" in line)
-    assert "3 units in progress" in queue
-    assert "(1 failed, 1 in review, 1 running)" in queue
+    assert "2 units in progress" in queue
+    assert "(1 in review, 1 running)" in queue
     assert queue.endswith(
         "1 failed waiting not counted"
         "; a priority-0 unit may still start while the emergency lane has room"

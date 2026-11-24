@@ -18,8 +18,8 @@ from agent_build_kit.pipeline import emergency_lane
 from agent_build_kit.pipeline.admission import ADMISSION_LOCK, admit
 from agent_build_kit.pipeline.file_lock import LockTimeout, file_lock
 from agent_build_kit.pipeline.lease import Leases
-from agent_build_kit.pipeline.unit_store import UnitStore
-from agent_build_kit.pipeline.units import IN_REVIEW, PLANNED, RUNNING
+from agent_build_kit.pipeline.unit_store import Cause, UnitStore
+from agent_build_kit.pipeline.units import FAILED, IN_REVIEW, MERGED, PLANNED, RUNNING
 from agent_build_kit.pipeline.workspaces import branch_lock
 from agent_build_kit.settings import settings
 from tests.conftest import make_installation
@@ -180,6 +180,47 @@ def test_the_units_in_progress_of_a_project_hold_back_a_new_unit_not_one_in_prog
     )
 
     assert [unit.id for unit in admitted] == ["c/1"]
+
+
+def requeue_out_of_failed(store: UnitStore, uid: str) -> None:
+    store.set_state(uid, FAILED, note="red check", branch=f"spec/{uid}")
+    store.set_state(uid, PLANNED, cause=Cause.REQUEUED)
+
+
+def test_a_unit_requeued_out_of_failed_is_held_to_the_project_room_and_admitted_when_it_frees(
+    tmp_path,
+):
+    inst = make_installation(
+        tmp_path, project_limits=dict(max_concurrent_stacks=3, max_units_in_progress=1)
+    )
+    store = store_of(inst, "a/1", "c/1")
+    requeue_out_of_failed(store, "c/1")
+    now = datetime.now(UTC)
+    admit(inst, store, [store.get("a/1")], worker="w1", now=now, ttl=TTL)
+
+    held = admit(inst, store, [store.get("c/1")], worker="w2", now=now, ttl=TTL)
+    store.set_state("a/1", MERGED, pr=1, branch="spec/a/1")
+    freed = admit(inst, store, [store.get("c/1")], worker="w2", now=now, ttl=TTL)
+
+    assert ([unit.id for unit in held], [unit.id for unit in freed]) == ([], ["c/1"])
+
+
+def test_a_unit_requeued_out_of_failed_is_held_to_the_account_room(tmp_path):
+    inst = make_installation(
+        tmp_path,
+        planning={"state_dir": ".", "worktree_root": str(tmp_path.parent / "trees")},
+        repos=repos(tmp_path, {"app": "kit"}),
+        runtimes={
+            "claude_code": {"accounts": kit(tmp_path, project_limits={"max_units_in_progress": 1})}
+        },
+    )
+    store = UnitStore(tmp_path / "units.json")
+    store.upsert([new_unit("a/1", repo="app"), new_unit("c/1", repo="app")])
+    requeue_out_of_failed(store, "c/1")
+    now = datetime.now(UTC)
+    admit(inst, store, [store.get("a/1")], worker="w1", now=now, ttl=TTL)
+
+    assert admit(inst, store, [store.get("c/1")], worker="w2", now=now, ttl=TTL) == []
 
 
 def test_a_paused_unit_counts_toward_the_units_in_progress_and_takes_no_worker(tmp_path):

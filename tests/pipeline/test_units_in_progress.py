@@ -6,8 +6,14 @@ pull request number and the branch a run recorded — are on the stored unit,
 so these graphs are stored units and nothing asks the forge.
 """
 
+from typing import Any
+
+import pytest
+
+from agent_build_kit.pipeline.unit_store import Cause
 from agent_build_kit.pipeline.units import (
     CLOSED,
+    FAILED,
     HELD,
     IN_REVIEW,
     MERGED,
@@ -15,9 +21,12 @@ from agent_build_kit.pipeline.units import (
     RUNNING,
     SATISFIED,
     in_progress,
+    project_counts,
     ready_units,
+    start_room,
 )
-from tests.factories import stored_unit
+from tests.factories import requeued_unit, stored_unit
+from tests.restack_lane_fakes import caused
 
 
 def at_review(uid: str, pr: int, **kw):
@@ -59,7 +68,6 @@ def test_started_work_counts_as_in_progress() -> None:
     started = [
         stored_unit("a/1", change="a", state=RUNNING),
         at_review("b/1", 2),
-        failed("d/1"),
         rework("e/1", 5),
         resuming("f/1"),
         stored_unit("g/1", change="g", state="unplanned", pr=7),
@@ -210,10 +218,10 @@ def test_a_restacked_unit_with_a_pull_request_starts_at_the_limit() -> None:
     assert ready(graph, limit=2) == ["b/1"]
 
 
-# --- 1.4 a paused unit and a failed unit each hold a place -------------------------
+# --- 1.4 a paused unit holds a place, a failed unit holds none ---------------------
 
 
-def test_four_started_units_one_failed_with_no_wait_and_a_limit_of_five_start_one_new_unit() -> (
+def test_three_started_units_one_failed_with_no_wait_and_a_limit_of_five_start_two_new_units() -> (
     None
 ):
     graph = [
@@ -228,13 +236,13 @@ def test_four_started_units_one_failed_with_no_wait_and_a_limit_of_five_start_on
 
     started = ready(graph, limit=5)
 
-    assert [uid for uid in started if uid.startswith("n/")] == ["n/1"]
+    assert [uid for uid in started if uid.startswith("n/")] == ["n/1", "n/2"]
 
 
-def test_a_failed_unit_that_does_not_wait_holds_a_place() -> None:
+def test_a_failed_unit_that_does_not_wait_holds_no_place() -> None:
     graph = [at_review("a/1", 1), failed("b/1"), new("c/1")]
 
-    assert ready(graph, limit=2) == []
+    assert ready(graph, limit=2) == ["c/1"]
 
 
 def test_a_paused_unit_with_no_pull_request_holds_a_place() -> None:
@@ -296,3 +304,146 @@ def test_a_unit_with_a_pull_request_past_the_depth_cap_is_not_started() -> None:
     ]
 
     assert ready(graph, slots=1, depth_cap=2) == ["b/1"]
+
+
+# --- a failed unit holds no place --------------------------------------------------
+
+FAILED_WITH = {
+    "nothing": {},
+    "a branch": {"branch": "spec/f/1"},
+    "a pushed commit": {"branch": "spec/f/1", "pushed": "abc123"},
+    "a pull request": {"pr": 4, "branch": "spec/f/1"},
+}
+
+
+@pytest.mark.parametrize("held", FAILED_WITH.values(), ids=FAILED_WITH.keys())
+def test_a_failed_unit_is_not_in_progress_whatever_it_has(held: dict) -> None:
+    assert not in_progress(failed("f/1", **held))
+
+
+def test_only_a_unit_failed_for_the_environment_is_in_progress() -> None:
+    plain = failed("f/1", branch="spec/f/1")
+    environment = caused("f/2", FAILED, Cause.ENVIRONMENT, branch="spec/f/2")
+
+    assert (in_progress(plain), in_progress(environment)) == (False, True)
+
+
+def test_a_failed_unit_with_a_pull_request_leaves_room_for_a_never_started_unit() -> None:
+    graph = [at_review("a/1", 1), failed("b/1", pr=4, branch="spec/b/1"), new("c/1")]
+
+    assert ready(graph, limit=2) == ["c/1"]
+
+
+def test_a_unit_failed_for_the_environment_keeps_its_place_from_a_never_started_unit() -> None:
+    def graph(beside_review):
+        return [at_review("a/1", 1), beside_review, new("c/1")]
+
+    environment = caused("b/1", FAILED, Cause.ENVIRONMENT, branch="spec/b/1")
+    plain = failed("b/1", branch="spec/b/1")
+
+    assert (ready(graph(environment), limit=2), ready(graph(plain), limit=2)) == ([], ["c/1"])
+
+
+def test_a_planned_unit_depending_on_a_failed_unit_does_not_start() -> None:
+    graph = [
+        at_review("r/1", 1),
+        failed("a/1"),
+        new("b/1", depends_on=("a/1",)),
+        new("c/1"),
+    ]
+
+    # The failed unit holds no place, so c/1 starts; b/1 still waits on it.
+    assert ready(graph, limit=2) == ["c/1"]
+
+
+# --- a unit requeued out of failed or held waits for room ---------------------------
+
+# How the unit came back: out of which state, and the cause the requeue or release recorded.
+COMES_BACK: dict[str, dict[str, Any]] = {
+    "failed": dict(out_of="failed"),
+    "held": dict(out_of="held"),
+    "released": dict(out_of="held", cause=Cause.RELEASED),
+}
+
+
+def comes_back(uid: str, kind: str, **kw):
+    return requeued_unit(uid, **COMES_BACK[kind], **kw)
+
+
+@pytest.mark.parametrize("pr", [None, 3])
+@pytest.mark.parametrize("kind", COMES_BACK)
+def test_a_unit_requeued_out_of_failed_or_held_does_not_start_at_a_full_limit(
+    kind: str, pr: int | None
+) -> None:
+    graph = [at_review("a/1", 1), at_review("b/1", 2), comes_back("c/1", kind, pr=pr)]
+
+    assert ready(graph, limit=2) == []
+
+
+@pytest.mark.parametrize("pr", [None, 3])
+@pytest.mark.parametrize("kind", COMES_BACK)
+def test_a_unit_waiting_for_room_after_a_requeue_is_not_counted(kind: str, pr: int | None) -> None:
+    graph = [at_review("a/1", 1), comes_back("c/1", kind, pr=pr)]
+
+    assert sum(project_counts(graph).values()) == 1
+    assert start_room(graph, 2) == 1
+
+
+@pytest.mark.parametrize("kind", COMES_BACK)
+def test_a_unit_waiting_for_room_after_a_requeue_is_not_counted_in_an_account(kind: str) -> None:
+    graph = [at_review("a/1", 1), comes_back("c/1", kind)]
+
+    assert project_counts(graph, lambda unit: "account") == {"account": 1}
+    assert start_room(graph, 2, "account", lambda unit: "account") == 1
+
+
+@pytest.mark.parametrize("kind", COMES_BACK)
+def test_a_requeued_unit_takes_the_place_that_frees_before_a_never_started_unit(
+    kind: str,
+) -> None:
+    graph = [new("n/1"), at_review("a/1", 1), comes_back("c/1", kind)]
+
+    # The requeued unit waits for room and so is not counted: one place is free for it.
+    assert start_room(graph, 2) == 1
+    assert ready(graph, limit=2) == ["c/1"]
+
+
+@pytest.mark.parametrize("kind", COMES_BACK)
+def test_a_requeued_priority_zero_unit_starts_in_the_emergency_lane_at_a_full_limit(
+    kind: str,
+) -> None:
+    graph = [at_review("a/1", 1), at_review("b/1", 2), comes_back("c/1", kind, priority=0)]
+
+    def lane_starts(extra: int) -> list[str]:
+        return [
+            unit.id
+            for unit in ready_units(
+                graph,
+                max_concurrent=9,
+                depth_cap=9,
+                max_units_in_progress=2,
+                emergency_extra=extra,
+            )
+        ]
+
+    assert (lane_starts(1), lane_starts(0)) == (["c/1"], [])
+
+
+KEPT_ITS_PLACE: dict[str, dict[str, Any]] = {
+    "a running unit no run holds": dict(out_of="running"),
+    "a unit off a split park": dict(out_of="planned", before=Cause.SPLIT_HELD),
+}
+
+
+@pytest.mark.parametrize("kept", KEPT_ITS_PLACE.values(), ids=KEPT_ITS_PLACE.keys())
+def test_a_unit_that_kept_its_place_starts_at_a_full_limit_and_one_out_of_failed_does_not(
+    kept: dict,
+) -> None:
+    graph = [
+        at_review("a/1", 1),
+        at_review("b/1", 2),
+        requeued_unit("c/1", **kept),
+        comes_back("d/1", "failed"),
+    ]
+
+    assert ready(graph, limit=2) == ["c/1"]

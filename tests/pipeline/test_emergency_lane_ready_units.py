@@ -173,6 +173,13 @@ def test_a_free_worker_with_the_places_full_still_starts_a_priority_zero_unit_in
     assert starts(graph, extra=0) == []
 
 
+def test_a_failed_unit_recorded_in_the_lane_uses_no_lane_place() -> None:
+    failed_in_lane = worked("lane/1", state="failed", priority=0)
+    graph = [*full(), failed_in_lane, new("zero/1", priority=0)]
+
+    assert starts(graph, lane=["lane/1"]) == ["zero/1"]
+
+
 def test_a_finished_unit_left_in_the_lane_record_uses_no_cap() -> None:
     graph = [*full(), worked("gone/1", state=MERGED, priority=0), new("zero/1", priority=0)]
 

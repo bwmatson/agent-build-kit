@@ -10,7 +10,7 @@ import pytest
 
 from agent_build_kit.pipeline import emergency_lane
 from agent_build_kit.pipeline.unit_store import UnitStore
-from agent_build_kit.pipeline.units import FAILED, PLANNED
+from agent_build_kit.pipeline.units import FAILED, IN_REVIEW, PLANNED
 from tests.cli.test_tick_scheduling import open_pr
 from tests.conftest import make_installation, status_lines
 from tests.factories import new_unit
@@ -64,14 +64,16 @@ def lane_status(
     *,
     lane: tuple[str, ...],
 ) -> str:
-    """The `kit` account's queue-full line, its two places held by failed `app` units of which
+    """The `kit` account's queue-full line, its two places held by `app` units in review of which
     `lane` are recorded in the emergency lane."""
 
     def record(store: UnitStore) -> None:
         ids = ("held0/1", "held1/1")
         store.upsert([new_unit(uid, repo="app") for uid in ids])
-        for uid in ids:
-            store.set_state(uid, FAILED, note="broke", branch=f"spec/{uid}")
+        for number, uid in enumerate(ids, start=1):
+            store.set_state(uid, IN_REVIEW, pr=number, branch=f"spec/{uid}")
+        store.upsert([new_unit("broke/1", repo="app")])
+        store.set_state("broke/1", FAILED, note="broke", branch="spec/broke/1")
         for uid in lane:
             emergency_lane.enter(tmp_path, store.get(uid))
 

@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-from agent_build_kit.pipeline.unit_store import UnitStore
+from agent_build_kit.pipeline.unit_store import Cause, UnitStore
 from agent_build_kit.pipeline.units import FAILED, IN_REVIEW, PLANNED, RUNNING
 from tests.conftest import status_lines
 from tests.factories import new_unit
@@ -17,8 +17,8 @@ LIMIT = 9
 
 
 def two_full_projects(store: UnitStore) -> None:
-    """`app/web`: seven failed and two running, with a blocked unit; `app/api`: nine in review,
-    with a failed unit that waits on a unit not yet started."""
+    """`app/web`: five in review, two failed for the environment and two running, with a blocked
+    unit; `app/api`: nine in review, with a failed unit that waits on a unit not yet started."""
     store.upsert(
         [
             *[new_unit(f"w{n}/1", project="web") for n in range(9)],
@@ -28,14 +28,20 @@ def two_full_projects(store: UnitStore) -> None:
             new_unit("awaiting/1", project="api", depends_on=("pending/1",)),
         ]
     )
-    for n in range(7):
-        store.set_state(f"w{n}/1", FAILED, note="broke", branch=f"spec/w{n}/1")
+    for n in (0, 1):
+        store.set_state(
+            f"w{n}/1", FAILED, note="broke", branch=f"spec/w{n}/1", cause=Cause.ENVIRONMENT
+        )
+    for n in range(2, 7):
+        store.set_state(f"w{n}/1", IN_REVIEW, pr=n + 20, branch=f"spec/w{n}/1")
     for n in (7, 8):
         store.set_state(f"w{n}/1", RUNNING, branch=f"spec/w{n}/1")
     for n in range(9):
         store.set_state(f"a{n}/1", IN_REVIEW, pr=n + 1, branch=f"spec/a{n}/1")
     store.set_state("wblocked/1", PLANNED, branch="spec/wblocked/1")
     store.set_state("awaiting/1", FAILED, note="broke", branch="spec/awaiting/1")
+    store.upsert([new_unit("wfailed/1", project="web")])
+    store.set_state("wfailed/1", FAILED, note="broke", branch="spec/wfailed/1")
 
 
 def full_lines(lines: list[str]) -> list[str]:
@@ -58,7 +64,10 @@ def test_each_project_at_its_limit_gets_its_own_line(
     assert len(full) == 2
     web = next(line for line in full if "app/web" in line)
     api = next(line for line in full if "app/api" in line)
-    assert "queue is full: app/web: 9 units in progress, limit 9 (7 failed, 2 running)" in web
+    assert (
+        "queue is full: app/web: 9 units in progress, limit 9 "
+        "(5 in review, 2 running, 2 waiting for the environment)"
+    ) in web
     assert "queue is full: app/api: 9 units in progress, limit 9 (9 in review)" in api
 
 
@@ -100,5 +109,7 @@ def test_each_line_counts_only_its_own_projects_blocked_and_failed_waiting_units
     web = next(line for line in full if "app/web" in line)
     api = next(line for line in full if "app/api" in line)
     lane = "; a priority-0 unit may still start while the emergency lane has room"
-    assert web.endswith("(7 failed, 2 running); 1 blocked not counted" + lane)
+    assert web.endswith(
+        "(5 in review, 2 running, 2 waiting for the environment); 1 blocked not counted" + lane
+    )
     assert api.endswith("(9 in review); 1 failed waiting not counted" + lane)
