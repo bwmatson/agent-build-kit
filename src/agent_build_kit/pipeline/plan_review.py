@@ -41,7 +41,7 @@ from agent_build_kit.pipeline.file_lock import atomic_write_text, file_lock
 from agent_build_kit.pipeline.planner import PlannerError, ask_plan_model
 from agent_build_kit.pipeline.planning_commit import commit_and_publish
 from agent_build_kit.pipeline.unit_store import StoredUnit
-from agent_build_kit.pipeline.units import BUILDS_NOTHING, FINISHED_STATES
+from agent_build_kit.pipeline.units import BUILDS_NOTHING, FINISHED_STATES, IN_REVIEW, MERGED
 from agent_build_kit.pipeline.vocabulary import OverheadNode
 from agent_build_kit.pipeline.work_graph import (
     specification_text,
@@ -90,7 +90,10 @@ Repositories:
 The mechanical checks already report the following for this change. Do not repeat it:
 {report}
 
-Planned units:
+The change's units, in the order they are built. Each line says its state: the groups of a
+`merged` unit are on the default branch already, and an `in_review` unit's groups are on its branch
+with the pull request named. Judge each group against what the units before it leave, not
+against the order units happen to be listed elsewhere.
 {units}
 
 Files the tasks name, as they stand on each repo's default branch:
@@ -388,7 +391,38 @@ def _unit_line(unit: StoredUnit) -> str:
     groups = ", ".join(
         f"{member.change} group {number}" for member in unit.members() for number in member.groups
     )
-    return f"- {unit.id} [{unit.repo}, {unit.tier}] ({groups}): {unit.title}"
+    state = str(unit.state)
+    if unit.pr is not None and unit.state in (IN_REVIEW, MERGED):
+        state += f", pull request {unit.pr}"
+    return f"- {unit.id} [{unit.repo}, {unit.tier}] ({groups}) {state}: {unit.title}"
+
+
+def _first_group(unit: StoredUnit, change: str) -> int:
+    numbers = [n for member in unit.members() if member.change == change for n in member.groups]
+    return min(numbers, default=0)
+
+
+def build_order(units: Sequence[StoredUnit], change: str) -> list[StoredUnit]:
+    """The units of `change` a review is shown, merged ones included, in the order they are built:
+    a unit after every unit of the change it depends on, and otherwise by its lowest group of the
+    change. A retired or unplanned unit builds nothing and is left out."""
+    mine = {
+        unit.id: unit
+        for unit in units
+        if unit.change == change and unit.state not in BUILDS_NOTHING
+    }
+    placed: list[StoredUnit] = []
+    done: set[str] = set()
+    waiting = sorted(mine.values(), key=lambda unit: (_first_group(unit, change), unit.id))
+    while waiting:
+        ready = next(
+            (u for u in waiting if all(d in done or d not in mine for d in u.depends_on)),
+            waiting[0],  # a cycle cannot be planned; fall back to group order rather than stop
+        )
+        waiting.remove(ready)
+        placed.append(ready)
+        done.add(ready.id)
+    return placed
 
 
 def open_units(units: Sequence[StoredUnit], change: str) -> list[StoredUnit]:
@@ -634,7 +668,7 @@ def _review_change(
     """Review `change` once if its plan has no review; return the review when a repair was
     committed, so it is reviewed again, or None when nothing more is to be done this round."""
     path = record_path(inst)
-    mine = open_units(units, change)
+    mine = build_order(units, change)
     digest = plan_hash(tasks.parent, [unit for unit in units if unit.change == change])
     now = spans.clock.now()
     same = earlier is not None and earlier.hash == digest

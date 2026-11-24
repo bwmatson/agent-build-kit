@@ -997,7 +997,8 @@ commit records the unit merged.
 Before a change's first unit starts, a model reviews its plan (`pipeline/plan_review.py`):
 four fixed questions, each in its own pass with read-only tools over the repos' default
 branches, asked once per hash of the change's artifacts and planned units, with the mechanical
-checks' report in the request. A `blocker` finding with a fix is repaired by a rewrite of
+checks' report in the request. The request lists the change's units in the order they are built,
+merged ones included, each with its state and, once it has one, its pull request. A `blocker` finding with a fix is repaired by a rewrite of
 `tasks.md` that keeps every group heading, which is committed and reviewed again (at most
 `planning.plan_review_repairs` times); a blocker left over holds the starts of the change's
 units that have not started until `abk review-plan clear`, and `advice` holds nothing. A

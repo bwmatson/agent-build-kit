@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- The plan review is shown the change's units in the order they are built, each after the units
+  it depends on, with merged units included and each unit's state and pull request, so a
+  reviewer no longer reads the planner's listing order as the build order or flags a group for
+  code an earlier unit already merged.
+
 - `abk attention` lists what needs a person, each item with the command that acts on it and how
   many units it holds up, and `abk status` opens with the count. `abk requeue` accepts a running
   unit no run holds, records who asked on every requeue (the pipeline's own say `pipeline`, and
