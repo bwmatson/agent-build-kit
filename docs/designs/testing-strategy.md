@@ -179,8 +179,8 @@ file beside it rather than change it. The rules below keep a test on behaviour.
   3. *Commands in documents.* One check that the commands and options a document names exist.
 - **Migration scaffolding expires.** A guard or a table written for a move or a rename (a list of moved names, an old-location test)
   is removed in that change's last group, or becomes a row of the exclusion guard's table (T26).
-- **No guards about guards.** A guard is not itself guarded: no test checks that another guard uses a helper, carries a selector or
-  keeps a baseline (T22).
+- **No guards about guards, and no test of test code.** A guard is not itself guarded: no test checks that another guard uses a helper, carries a selector or
+  keeps a baseline (T22). One exception, for conformance projects only: a conformance check may keep a fixture-driven specification of what it flags (a table of source and expected violation) and an assertion that the check read more than zero files. The kit's own detector checks (the wide-scan and CI-runnable detectors, the tracked-files helper and the package-boundary scanner) may keep such a table. It never applies to an ordinary project's tests.
 - **One scenario, one test.** Facts that come from one setup and one action are checked in one test with several assertions, not
   split into a test per fact. Inputs that share a shape are rows of one parametrised table (T19, T21).
 - **Assert properties, not prose.** Check the outcome, the state, or that a named directive or command is present. Do not compare
@@ -351,7 +351,7 @@ fixed port`.
   sentence or a constant that is a tuning value. Check: gate (the red check proves the new test fails for the right reason); review
   asks what change to the code fails it.
 - **T21 Parametrise, do not copy; helpers are defined once.** Inputs that share a shape are rows of one table. Check: review.
-- **T22 No test of a test, and no guard about a guard.** Check: review.
+- **T22 No test of a test, and no guard about a guard, except in a conformance project.** In a conformance project, a conformance check may keep a fixture-driven specification of what it flags (a table of source and expected violation) and an assertion that the check read more than zero files; this covers the kit's own detector checks (the wide-scan and CI-runnable detectors, the tracked-files helper and the package-boundary scanner) and never an ordinary project's tests. Check: review.
 - **T23 Fakes at the boundary satisfy the seam.** A swappable seam (the git host, a model, the clock, the filesystem, the unit
   store) is typed against a Protocol; a fake is a plain class, not a mock of an internal. A test replaces a boundary with a fake in
   preference to patching a collaborator inside the code under test by its import path. Check: review.
@@ -531,7 +531,7 @@ changed paths include shared configuration, a setup file, a lock file or a works
   guards; kind folders, scan sharing and helpers defined once are guidance checked in review; document shape, file-by-file layout
   and the wording of the catalogue's renderings are not tested.
 - **Migration scaffolding expires** in the last group of the change that wrote it, or becomes an exclusion entry.
-- **No guards about guards.**
+- **No guards about guards, and no test of test code**, except that a conformance check keeps its fixture-driven specification table and its read-more-than-zero-files assertion.
 - **One scenario, one test**, and inputs of one shape are parametrise rows. Assertions check properties, not prose or tuning
   constants. Fakes at boundaries are preferred to patching collaborators by import path.
 - **The suite has a budget**, with weekly figures from `abk tests report`; a prune is due when the target is exceeded.
