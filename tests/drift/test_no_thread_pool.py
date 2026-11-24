@@ -16,7 +16,7 @@ import pytest
 from tests.time_limit import LOADED_TEST_TIME_LIMIT
 from tests.tracked_files import ROOT, guarded_files, source_tree_folders
 
-PIPELINE_CLI = ROOT / "src/agent_build_kit/cli/pipeline.py"
+PIPELINE_CLI = ROOT / "packages/orchestrator/src/agent_build_kit/cli/pipeline.py"
 UNITS = ROOT / "packages/core/src/agent_build_kit/pipeline/units.py"
 REMOVED_NAMES = frozenset(
     {"READMITTED_CAUSES", "REBUILDS_PER_PASS", "_pool_size", "running_tick", "ThreadPoolExecutor"}

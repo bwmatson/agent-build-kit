@@ -17,6 +17,8 @@ shrink, so an entry that no longer exists fails until it is removed.
 from __future__ import annotations
 
 import ast
+import subprocess
+import sys
 import tomllib
 from collections.abc import Collection, Iterator, Mapping
 from pathlib import Path
@@ -26,10 +28,18 @@ import pytest
 from agent_build_kit.cli import COMMANDS_GROUP
 from tests.ecosystem_names import WORKER_MODULES
 from tests.support.package_seeds import Seeds, baseline, seeds
-from tests.tracked_files import ROOT, SOURCE_ROOT, WORKER_SOURCE, source_trees, tracked
+from tests.tracked_files import (
+    ORCHESTRATOR_SOURCE,
+    ROOT,
+    SOURCE_ROOT,
+    WORKER_SOURCE,
+    source_trees,
+    tracked,
+)
 from tests.workspace_packages import PACKAGE_NAME, PACKAGES, source_root
 
 WORKER_ROOT = WORKER_SOURCE.parents[1]
+ORCHESTRATOR_ROOT = ORCHESTRATOR_SOURCE.parents[1]
 # The source trees that install into the root package's namespace.
 OTHER_TREES = [tree for tree in source_trees() if tree != SOURCE_ROOT]
 TESTS = Path("tests")
@@ -550,32 +560,44 @@ def test_the_core_modules_are_in_the_core_package_and_import_nothing_from_the_ot
     assert problems == [], "\n".join(problems)
 
 
-def worker_problems(
-    worker_source: Path, core_source: Path, given: Seeds, known: Collection[Edge]
+def foreign_imports(
+    own_tree: Path, forbidden: str, given: Seeds, known: Collection[Edge], trees: list[Path]
 ) -> list[str]:
-    """Each module-level import in the worker's tree of an orchestrator module, beyond `known`."""
-    beside = [tree for tree in OTHER_TREES if tree != core_source]
-    edges = module_imports(core_source, [worker_source, *(t for t in beside if t != worker_source)])
+    """Each module-level import in `own_tree` of a module the seeds assign to the package
+    `forbidden`, beyond `known`; the modules of every tree in `trees` (the root's first) are
+    scanned, so an import of a module that sits in another package's tree is recognised."""
+    edges = module_imports(trees[0], trees[1:])
     packages = assign(edges, given)
-    own = {module_name(worker_source, p) for p in worker_source.rglob("*.py")}
+    own = {module_name(own_tree, p) for p in own_tree.rglob("*.py")}
     return [
-        f"{module} imports {other} ({ORCHESTRATOR})"
+        f"{module} imports {other} ({forbidden})"
         for module, imported in sorted(edges.items())
         if module in own
         for other in sorted(imported)
-        if packages.get(other) == ORCHESTRATOR and (module, other) not in known
+        if packages.get(other) == forbidden and (module, other) not in known
     ]
 
 
+def assigned_modules(package: str, *, packages_as_init: bool) -> list[str]:
+    """The modules the seeds assign to `package`, as paths under a source tree. A package folder
+    is its `__init__.py` when `packages_as_init`, and is left out otherwise."""
+    trees = [SOURCE_ROOT, *OTHER_TREES]
+    found = []
+    for module, assigned in assign(module_imports(SOURCE_ROOT, OTHER_TREES), seeds()).items():
+        if assigned != package:
+            continue
+        stem = module.replace(".", "/")
+        if not any((tree / stem).is_dir() for tree in trees):
+            found.append(f"{stem}.py")
+        elif packages_as_init:
+            found.append(f"{stem}/__init__.py")
+    return sorted(found)
+
+
 def worker_modules() -> list[str]:
-    """The modules the seeds assign to the worker, as paths under a source tree; a package whose
-    `__init__` stays in the core to extend the namespace is not a module of the worker."""
-    edges = module_imports(SOURCE_ROOT, OTHER_TREES)
-    return sorted(
-        f"{module.replace('.', '/')}.py"
-        for module, package in assign(edges, seeds()).items()
-        if package == WORKER and not (SOURCE_ROOT / module.replace(".", "/")).is_dir()
-    )
+    """The modules the seeds assign to the worker; a package whose `__init__` stays in another
+    package to extend the namespace is not a module of the worker."""
+    return assigned_modules(WORKER, packages_as_init=False)
 
 
 @pytest.mark.parametrize("module", worker_modules())
@@ -592,9 +614,27 @@ def test_the_worker_modules_the_wheel_test_lists_are_those_the_seeds_assign() ->
 def test_no_file_of_the_worker_package_imports_an_orchestrator_module() -> None:
     assert (WORKER_SOURCE / "cli" / "worker.py").is_file()
 
-    problems = worker_problems(WORKER_SOURCE, SOURCE_ROOT, seeds(), baseline())
+    problems = foreign_imports(WORKER_SOURCE, ORCHESTRATOR, seeds(), baseline(), source_trees())
 
     assert problems == [], "\n".join(problems)
+
+
+def test_a_worker_file_importing_a_module_only_the_orchestrator_tree_holds_is_reported(
+    tmp_path: Path,
+) -> None:
+    core = tree(tmp_path / "core" / "pkg", {"__init__.py": ""})
+    worker = tree(
+        tmp_path / "worker" / "pkg",
+        {"graph/__init__.py": "", "graph/nodes.py": "from pkg.cli.pipeline import main\n"},
+    )
+    orchestrator = tree(
+        tmp_path / "orchestrator" / "pkg", {"cli/__init__.py": "", "cli/pipeline.py": ""}
+    )
+    given = Seeds(core=frozenset(), worker=frozenset({"graph"}), orchestrator=frozenset({"cli"}))
+
+    problems = foreign_imports(worker, ORCHESTRATOR, given, set(), [core, worker, orchestrator])
+
+    assert problems == [f"graph.nodes imports cli.pipeline ({ORCHESTRATOR})"]
 
 
 def test_the_worker_package_depends_on_the_core_and_registers_abk_worker_as_a_command() -> None:
@@ -607,6 +647,167 @@ def test_the_worker_package_depends_on_the_core_and_registers_abk_worker_as_a_co
     assert project["entry-points"][COMMANDS_GROUP] == {
         "worker": "agent_build_kit.cli.worker:register"
     }
+
+
+def orchestrator_modules() -> list[str]:
+    """The modules the seeds assign to the orchestrator, as paths under a source tree; a package
+    is its `__init__.py`."""
+    return assigned_modules(ORCHESTRATOR, packages_as_init=True)
+
+
+def unresolved_imports(
+    source: Path, installed: Collection[Path], known: Collection[Edge], trees: Collection[Path]
+) -> list[str]:
+    """Each module-level import in the tree `source` of a module no file under `installed` holds,
+    beyond the crossings in `known`. An import is resolved against the modules of every tree in
+    `trees`, so `from pkg import sub` and `from pkg.mod import sub` name the submodule `sub` where
+    one exists."""
+    modules = {module_name(t, p) for t in trees for p in t.rglob("*.py")}
+    available = {module_name(t, p) for t in installed for p in t.rglob("*.py")}
+    found: list[str] = []
+    for path in sorted(source.rglob("*.py")):
+        module = module_name(source, path)
+        for node in import_statements(ast.parse(path.read_text())):
+            is_package = path.name == "__init__.py"
+            for name in sorted(targets(node, module, is_package, source.name, modules)):
+                if name not in available and (module, name) not in known:
+                    found.append(f"{module} imports {name}, which is in no installed package")
+    return found
+
+
+def split_trees(tmp_path: Path, orchestrator_file: str) -> tuple[Path, Path, Path]:
+    """A core tree, a worker tree holding `graph/nodes.py` and `sub.py`, and an orchestrator tree
+    whose one module is `orchestrator_file`."""
+    core = tree(tmp_path / "core" / "pkg", {"__init__.py": "", "graph/__init__.py": ""})
+    worker = tree(tmp_path / "worker" / "pkg", {"graph/nodes.py": "", "sub.py": ""})
+    orchestrator = tree(tmp_path / "orchestrator" / "pkg", {"cli.py": orchestrator_file})
+    return core, worker, orchestrator
+
+
+@pytest.mark.parametrize("module", orchestrator_modules())
+def test_a_module_the_table_assigns_to_the_orchestrator_is_in_the_orchestrator_package(
+    module: str,
+) -> None:
+    assert (ORCHESTRATOR_SOURCE / module).is_file()
+    assert not (SOURCE_ROOT / module).exists()
+
+
+@pytest.mark.integration
+def test_no_file_of_the_orchestrator_package_imports_a_worker_module() -> None:
+    assert (ORCHESTRATOR_SOURCE / "cli" / "pipeline.py").is_file()
+
+    problems = foreign_imports(ORCHESTRATOR_SOURCE, WORKER, seeds(), baseline(), source_trees())
+
+    assert problems == [], "\n".join(problems)
+
+
+@pytest.mark.parametrize(
+    ("statement", "missing"),
+    [
+        ("from pkg.graph import nodes\n", "graph.nodes"),
+        ("from pkg import sub\n", "sub"),
+        ("import pkg.sub\n", "sub"),
+    ],
+)
+def test_an_orchestrator_import_of_a_submodule_only_the_worker_tree_holds_is_reported(
+    tmp_path: Path, statement: str, missing: str
+) -> None:
+    core, worker, orchestrator = split_trees(tmp_path, statement)
+
+    problems = unresolved_imports(
+        orchestrator, [core, orchestrator], set(), [core, worker, orchestrator]
+    )
+
+    assert problems == [f"cli imports {missing}, which is in no installed package"]
+
+
+def test_an_orchestrator_import_of_an_attribute_of_a_module_the_core_holds_is_not_reported(
+    tmp_path: Path,
+) -> None:
+    core, worker, orchestrator = split_trees(tmp_path, "from pkg.graph import Thing\n")
+
+    problems = unresolved_imports(
+        orchestrator, [core, orchestrator], set(), [core, worker, orchestrator]
+    )
+
+    assert problems == []
+
+
+@pytest.mark.integration
+def test_the_core_and_orchestrator_files_alone_resolve_every_orchestrator_import() -> None:
+    assert (ORCHESTRATOR_SOURCE / "cli" / "pipeline.py").is_file()
+    core_trees = [tree for tree in source_trees() if tree != WORKER_SOURCE]
+
+    problems = unresolved_imports(ORCHESTRATOR_SOURCE, core_trees, baseline(), source_trees())
+
+    assert problems == [], "\n".join(problems)
+
+
+def test_the_orchestrator_package_depends_on_the_core_not_the_worker_and_owns_the_abk_script() -> (
+    None
+):
+    manifest = ORCHESTRATOR_ROOT / "pyproject.toml"
+    assert manifest.is_file()
+    project = tomllib.loads(manifest.read_text())["project"]
+
+    assert project["name"] == "agent-build-kit-orchestrator"
+    assert any(d.startswith("agent-build-kit-core") for d in project["dependencies"])
+    assert not any(d.startswith("agent-build-kit-worker") for d in project["dependencies"])
+    assert project["scripts"]["abk"] == "agent_build_kit.cli:main"
+
+
+@pytest.mark.integration
+def test_the_root_source_tree_holds_no_module_once_the_packages_hold_them() -> None:
+    assert (ORCHESTRATOR_SOURCE / "cli" / "pipeline.py").is_file()
+
+    left = [
+        p.relative_to(SOURCE_ROOT).as_posix()
+        for p in sorted(SOURCE_ROOT.rglob("*.py"))
+        if p.name != "__init__.py"
+    ]
+
+    assert left == [], "\n".join(left)
+
+
+def test_the_root_project_depends_on_the_worker_and_the_orchestrator() -> None:
+    project = tomllib.loads((ROOT / "pyproject.toml").read_text())["project"]
+
+    names = {d.split(">")[0].split("=")[0].split("[")[0].strip() for d in project["dependencies"]}
+
+    assert {"agent-build-kit-worker", "agent-build-kit-orchestrator"} <= names
+
+
+def test_the_root_project_leaves_the_abk_script_and_the_worker_command_to_the_packages() -> None:
+    project = tomllib.loads((ROOT / "pyproject.toml").read_text())["project"]
+
+    assert "abk" not in project["scripts"]
+    assert COMMANDS_GROUP not in project.get("entry-points", {})
+
+
+def test_every_package_the_root_project_installs_from_packages_is_a_workspace_member() -> None:
+    uv = tomllib.loads((ROOT / "pyproject.toml").read_text())["tool"]["uv"]
+
+    packages = {name for name in uv["sources"] if name.startswith("agent-build-kit-")}
+
+    assert {"agent-build-kit-worker", "agent-build-kit-orchestrator"} <= packages
+    assert {name for name in packages if uv["sources"][name] != {"workspace": True}} == set()
+    assert "packages/*" in uv["workspace"]["members"]
+
+
+@pytest.mark.integration
+def test_a_plain_interpreter_imports_the_cli_and_the_worker_from_the_packages() -> None:
+    code = (
+        "import agent_build_kit.cli as cli, agent_build_kit.graph.unit as unit;"
+        "print(cli.__file__); print(unit.__file__)"
+    )
+
+    result = subprocess.run(
+        [sys.executable, "-I", "-c", code], capture_output=True, text=True, check=True, timeout=120
+    )
+
+    cli_file, unit_file = (Path(line).resolve() for line in result.stdout.splitlines())
+    assert cli_file.is_relative_to(ORCHESTRATOR_SOURCE)
+    assert unit_file.is_relative_to(WORKER_SOURCE)
 
 
 def is_worker_test(relative: Path, modules: Collection[str]) -> bool:

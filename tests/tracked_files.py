@@ -17,10 +17,11 @@ from agent_build_kit.pipeline.shell import git
 ROOT = Path(__file__).resolve().parents[1]
 SOURCE_ROOT = ROOT / "src" / "agent_build_kit"
 WORKER_SOURCE = ROOT / "packages" / "worker" / "src" / "agent_build_kit"
+ORCHESTRATOR_SOURCE = ROOT / "packages" / "orchestrator" / "src" / "agent_build_kit"
 # Vendored and built folders, skipped wherever they sit below the folder a guard reads.
 SKIPPED_DIRS = frozenset({"node_modules", ".venv", "__pycache__", "dist"})
 LISTING_RETRIES = 3
-BUILT_WEB = Path("src/agent_build_kit/serve/static")
+BUILT_WEB = Path("packages/orchestrator/src/agent_build_kit/serve/static")
 
 
 class PlanningDirs(Frozen):

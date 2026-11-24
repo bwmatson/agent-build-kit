@@ -24,6 +24,7 @@ from pathlib import Path
 
 import yaml
 
+import agent_build_kit
 from agent_build_kit import claude_account, openspec, runtimes, skills, timers
 from agent_build_kit import config as config_module
 from agent_build_kit.cli.doctor import sandbox_check
@@ -87,7 +88,7 @@ from agent_build_kit.runtimes.base import Run, Which, validate_argv
 from agent_build_kit.runtimes.known_agents import agent_for_command
 from agent_build_kit.runtimes.policy_apply import Status
 
-RECOMMENDATIONS = Path(__file__).resolve().parent.parent / "recommendations"
+RECOMMENDATIONS = Path(agent_build_kit.__file__).resolve().parent / "recommendations"
 
 # A language whose recommendations live under another's document.
 LANGUAGE_ALIAS = {"typescript": "javascript"}

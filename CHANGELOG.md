@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- The orchestrator (the round, the commands you run, `abk serve`, the trackers' sync and the
+  notifier) is now its own package under `packages/orchestrator`, which installs the `abk`
+  script, beside the worker's. The project at the repository root depends on both, so
+  `uv sync` and `abk` work as before; the web UI now builds into the orchestrator package.
+
 - The plan review is shown the change's units in the order they are built, each after the units
   it depends on, with merged units included and each unit's state and pull request, so a
   reviewer no longer reads the planner's listing order as the build order or flags a group for
