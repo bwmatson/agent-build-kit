@@ -316,6 +316,7 @@ flowchart TD
     e2e-test -->|passed| verify_base
     e2e-test -->|passed, scheduled run| satisfied
     e2e-test -->|passed, after a clean move| new_comments
+    e2e-test -->|failed, first time| rework
     e2e-test -->|failed| failed
     e2e-test -->|failed after a move| prepare
     verify_base -->|base moved, clean| unit-test
@@ -386,7 +387,7 @@ are the reference for each condition. The nodes:
 | `review` | One review round; records the verdict, findings, follow-ups and the approved commit. After a person's rework it is also given their comments, quoted, each with the builder's reply or `(no reply)` | `run_review` / `run_rework_review` |
 | `rework` | Addresses review or forge feedback and records the builder's replies | `run`, `commit` |
 | `adapt` | The last step of a conflict, after the restack's two resolver steps failed their checks: ports the old work onto the new base in the same session, told what was tried, and accounts for each test | the adapt agent, `check_test_decisions` |
-| `unit-test`, `e2e-test` | The test kinds. `unit-test` is **not** run after a review: approval leaves the branch as `checks` judged it. It runs for a unit that produced nothing (judged on unit-test alone) and on a branch moved cleanly onto a new base, before the push. `e2e-test` follows approval for an e2e-test unit, unless its repo's `e2e_before_merge` is `deferred`: then the node is skipped after review, at an already approved tip and after a clean move (a scheduled run still runs it), and the unit's stored e2e state is `deferred` once its pull request opens | `unit-test`, `run_e2e` |
+| `unit-test`, `e2e-test` | The test kinds. `unit-test` is **not** run after a review: approval leaves the branch as `checks` judged it. It runs for a unit that produced nothing (judged on unit-test alone) and on a branch moved cleanly onto a new base, before the push. The first failure of an e2e-test unit's own tests (not a scheduled run, a failure only of tests failing on the base, or a run on a moved commit) goes to `rework` once, with the saved `e2e-test failed:` output; the cause is recorded on the unit (`auto_reworks`), so a requeue or restart does not give it a second one, and a rework that commits nothing stops the unit with the failure as saved. `e2e-test` follows approval for an e2e-test unit, unless its repo's `e2e_before_merge` is `deferred`: then the node is skipped after review, at an already approved tip and after a clean move (a scheduled run still runs it), and the unit's stored e2e state is `deferred` once its pull request opens | `unit-test`, `run_e2e` |
 | `verify_base` | The fresh-base check before a push | fetch, `fresh_base`, `restack_onto` |
 | `new_comments` | Before the push, for a rework of a unit with a pull request, reads the notes and conversation again; those not in `seen_comments` and not the pipeline's own go back to `rework` as feedback, restarting the round counters; `open_pr` records the ids given to the agent so the poller ignores them | `fetch_comments` |
 | `push` | Pushes only the approved commit | the push gate, `push` |

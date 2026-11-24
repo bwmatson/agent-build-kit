@@ -151,9 +151,13 @@ class Planning:
         )
         return tick(self.tmp_path, self.recorder, **{**wired, **more})
 
-    def fails(self, *, split: str) -> RunStatus:
-        """The unit's e2e-test run fails on `OLD` of split `split`, which the base fails too."""
-        e2e = Failing(self.recorder.events, snapshot_of(OLD), verdict_of(old=(OLD,), group=split))
+    def fails(self, *, split: str, runs: int = 1) -> RunStatus:
+        """The unit's e2e-test run fails on `OLD` of split `split`, which the base fails too, on
+        each of its first `runs` runs: a failure of its own is reworked once, so a unit that is
+        to fail has two."""
+        e2e = Failing(
+            self.recorder.events, snapshot_of(OLD), verdict_of(old=(OLD,), group=split), runs
+        )
         return self.tick(
             run_e2e=e2e.run,
             e2e_verdict=e2e.judged,

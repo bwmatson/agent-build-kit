@@ -42,7 +42,8 @@ def test_an_untouched_failing_test_is_rerun_on_the_base_the_node_runs_against(
         run_e2e=gate.run,
     )
 
-    assert runs.on_base == [PROFILE.serial_rerun_command(runs.on_unit[0], [FAILED])]
-    assert runs.heads == [base_sha]
+    # The unit's one automatic rework runs e2e-test again, so each run is checked on the base.
+    assert runs.on_base == [PROFILE.serial_rerun_command(runs.on_unit[0], [FAILED])] * 2
+    assert runs.heads == [base_sha] * 2
     assert gate.verdict is not None
     assert [f.test for f in gate.verdict.pre_existing] == [FAILED]

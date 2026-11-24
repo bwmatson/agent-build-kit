@@ -34,12 +34,15 @@ from tests.regression_agent_fakes import waited_on as wait_on_fix
 from tests.untouched_failure_fakes import TEST as RECORDED
 
 
-def run(tmp_path: Path, *, own=(), broken=(), old=(), told: Told | None = None):
+def run(tmp_path: Path, *, own=(), broken=(), old=(), told: Told | None = None, fails: int = 2):
+    """A tick of an `[e2e-test]` unit whose e2e-test fails `fails` times: a failure of its own is
+    reworked once, so a unit that is to fail runs twice."""
     recorder = fresh(tmp_path)
     e2e = Failing(
         recorder.events,
         snapshot_of(*own, *broken, *old),
         verdict_of(own=own, broken=broken, old=old),
+        fails,
     )
     told = told or Told()
     outcome = tick(
@@ -71,7 +74,7 @@ def test_a_unit_whose_failures_are_all_pre_existing_is_parked_gated_on_the_fix(
 def test_a_unit_of_the_fix_change_is_not_parked_and_fails_as_today(tmp_path: Path) -> None:
     recorder, outcome, told, _ = run(tmp_path, old=(OLD,), told=Told(fix=None))
 
-    assert told.told == [("add-marker/1", OLD, True)]
+    assert told.told == [("add-marker/1", OLD, True)] * 2, "told of each of its two runs"
     assert outcome.status != RunStatus.HELD
     stored = recorder.store.get("add-marker/1")
     assert stored.cause is not Cause.GATED and stored.gated_requeue is None
@@ -83,7 +86,8 @@ def test_a_failure_of_its_own_fails_the_unit_and_it_does_not_wait_for_the_pre_ex
 ) -> None:
     recorder, outcome, told, _ = run(tmp_path, own=(OWN,), old=(OLD,))
 
-    assert told.told == [("add-marker/1", OLD, False)], "recorded and fixed, but not waited on"
+    # Told of each of its two runs: recorded and fixed, but not waited on.
+    assert told.told == [("add-marker/1", OLD, False)] * 2
     assert outcome.status != RunStatus.HELD
     stored = recorder.store.get("add-marker/1")
     assert stored.cause is not Cause.GATED and stored.gated_requeue is None
@@ -93,7 +97,7 @@ def test_a_failure_of_its_own_fails_the_unit_and_it_does_not_wait_for_the_pre_ex
 def test_a_failure_broken_by_the_unit_fails_it_and_it_does_not_wait(tmp_path: Path) -> None:
     recorder, outcome, told, _ = run(tmp_path, broken=(BROKEN,), old=(OLD,))
 
-    assert told.told == [("add-marker/1", OLD, False)]
+    assert told.told == [("add-marker/1", OLD, False)] * 2
     assert outcome.status != RunStatus.HELD
     assert recorder.store.get("add-marker/1").cause is not Cause.GATED
 
@@ -101,7 +105,9 @@ def test_a_failure_broken_by_the_unit_fails_it_and_it_does_not_wait(tmp_path: Pa
 def test_a_base_run_that_passes_never_parks_a_unit(tmp_path: Path) -> None:
     recorder, outcome, told, e2e = run(tmp_path, broken=(BROKEN,))
 
-    assert e2e.asked == 1, "the node read what the run found of whose each failure is"
+    assert e2e.asked == 2, (
+        "on each of its two runs the node read what the run found of whose each failure is"
+    )
     assert told.told == [], "nothing failed on the base, so nothing is recorded or waited on"
     assert outcome.status != RunStatus.HELD
     assert recorder.store.get("add-marker/1").feedback.startswith("e2e-test failed:")

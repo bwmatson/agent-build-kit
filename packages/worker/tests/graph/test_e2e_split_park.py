@@ -116,7 +116,8 @@ def test_a_unit_whose_other_splits_failed_fails_as_before_and_is_not_parked(
 
     outcome = run.tick()
 
-    assert run.parking.results_read == 1, "the node read what the run parked, and did not park"
+    # Twice: the unit's one automatic rework runs e2e-test again.
+    assert run.parking.results_read == 2, "the node read what each run parked, and did not park"
     assert outcome.status != RunStatus.HELD
     assert run.stored.feedback.startswith("e2e-test failed:")
     assert run.stored.cause is not Cause.SPLIT_HELD and run.stored.parked_splits == []
@@ -172,7 +173,9 @@ def test_the_resumed_node_posts_no_status_when_the_parked_split_failed(tmp_path:
     outcome = run.resume()
 
     assert outcome.status != "open"
-    assert run.parking.only == [None, "acp"]
+    # The failure of the parked split is the unit's first of its own: its one rework runs the
+    # whole again.
+    assert run.parking.only == [None, "acp", None]
     assert "status" not in run.recorder.events
 
 

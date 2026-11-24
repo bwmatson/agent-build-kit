@@ -952,6 +952,7 @@ class UnitStore:
                 parked_attempts=existing.parked_attempts if existing else 0,
                 # Runtime state, not shape: a replan must not drop what a run left.
                 service_attempts=existing.service_attempts if existing else 0,
+                auto_reworks=existing.auto_reworks if existing else (),
                 gated_requeue=existing.gated_requeue if existing else None,
                 waited_on=existing.waited_on if existing else (),
                 wait_ended=existing.wait_ended if existing else "",
@@ -1532,7 +1533,9 @@ class UnitStore:
 
     def record_auto_rework(self, unit_id: str, cause: AutoRework) -> None:
         """Record that the unit had its automatic rework for `cause`."""
-        raise NotImplementedError
+        had = self.get(unit_id).auto_reworks
+        if cause not in had:
+            self._update(unit_id, auto_reworks=(*had, cause))
 
     def set_starting(self, unit_id: str, marker: Starting | None) -> None:
         """The marker admission leaves on a unit it let start, or none once it lapses."""

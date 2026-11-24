@@ -65,7 +65,8 @@ def test_an_own_test_that_fails_fails_the_unit_with_its_output_and_nothing_else(
     feedback = recorder.store.get(unit().id).feedback
     assert feedback.startswith("e2e-test failed:")
     assert "assert 1 == 2" in feedback
-    assert [where for _, where in ran.calls] == [repo], "no base run was made"
+    # The first failure is reworked once, so the unit's own test ran twice, both in its tree.
+    assert {where for _, where in ran.calls} == {repo}, "no base run was made"
     assert gate.verdict is None
     assert told.told == [], "nothing is recorded as pre-existing"
     assert not {"push", "pr"} & set(recorder.events)
@@ -266,10 +267,15 @@ def test_a_failure_on_a_moved_commit_restacks_and_is_not_reworked_automatically(
     recorder = fresh(tmp_path, tier="e2e-test")
     moves = Moves(recorder, CLEAN)
     verdict = verdict_of(own=(OWN_FAILURE,))
+    failed_on_moved: list[bool] = []
 
     def run(*, cwd: Path, base: str | None = None) -> tuple[bool, str]:
         recorder.events.append("e2e-test")
-        return not moves.moved, snapshot_of(OWN_FAILURE, tail="MOVED-RUN-OUTPUT")
+        # Only the run on the moved commit fails, and only once: the restack's own rerun is
+        # not the subject.
+        failing_run = moves.moved and not failed_on_moved
+        failed_on_moved.extend([True] if failing_run else [])
+        return not failing_run, snapshot_of(OWN_FAILURE, tail="MOVED-RUN-OUTPUT")
 
     tick(
         tmp_path,

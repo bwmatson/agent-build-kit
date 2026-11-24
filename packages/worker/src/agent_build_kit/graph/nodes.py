@@ -154,6 +154,7 @@ from agent_build_kit.pipeline.stack_runner import (
 )
 from agent_build_kit.pipeline.unchanged_failure import held_after_reuse
 from agent_build_kit.pipeline.unit_store import (
+    AutoRework,
     Cause,
     ClosePending,
     E2eState,
@@ -2847,6 +2848,10 @@ class BuildPath:
                 return defect
             committed = r.commit(f"fix: {unit.title}", cwd=tree, base=self.ref(state))
             r.store.set_guidance(unit.id, "")
+            if state.auto_rework:
+                if not committed:
+                    # Nothing to run e2e-test on again: the failure stands, as saved.
+                    return {**self.stop("e2e-test failed"), "auto_rework": False}
             said = parse_answer(answer) if answer else None
             if answer and stored.pr and not failed_check:
                 # Only an existing pull request has a reviewer waiting in its threads.
@@ -2868,6 +2873,7 @@ class BuildPath:
         self.forget_e2e_result()
         return {
             **kept,
+            "auto_rework": False,
             "comments_pending": False,
             "verdict": None,
             "fix_rounds": 0,
@@ -3074,12 +3080,31 @@ class BuildPath:
         # Words a person left stay theirs: e2e-test's output is added to them, not
         # the other way round.
         review = stored.feedback_source is FeedbackSource.REVIEW
+        first = (
+            not state.scheduled
+            and not review
+            and not stored.feedback_from_person
+            and AutoRework.E2E_FAILED not in stored.auto_reworks
+        )
+        # The output of the run the pipeline reworked is replaced, not kept beside the new one.
+        kept_words = "" if stored.feedback_source is FeedbackSource.E2E else stored.feedback
         r.store.set_feedback(
             unit.id,
-            f"{stored.feedback}\n\ne2e-test failed:\n{snapshot}".strip(),
+            f"{kept_words}\n\ne2e-test failed:\n{snapshot}".strip(),
             from_person=stored.feedback_from_person,
             source=FeedbackSource.REVIEW if review else FeedbackSource.E2E,
         )
+        if first:
+            # The first failure of its own is reworked once, by the pipeline, with the output.
+            r.store.record_auto_rework(unit.id, AutoRework.E2E_FAILED)
+            r.store.set_state(
+                unit.id,
+                RUNNING,
+                note="rework requested by the pipeline: e2e-test failed",
+                cause=Cause.REWORK,
+            )
+            self.say("e2e-test failed: reworking once before the unit fails")
+            return {"auto_rework": True, "had_feedback": True}
         return self.stop("e2e-test failed")
 
     def wait_for_preexisting(self, verdict: E2eVerdict) -> Update | None:
@@ -3815,6 +3840,8 @@ def after_e2e(state: UnitRun) -> Node:
         return stop
     if state.restack:
         return Node.PREPARE
+    if state.auto_rework:
+        return Node.REWORK
     if state.scheduled:
         return Node.SATISFIED
     return Node.NEW_COMMENTS if state.moved else Node.VERIFY_BASE
@@ -3961,6 +3988,7 @@ ROUTES: Mapping[Node, tuple[Callable[[UnitRun], Target], tuple[Target, ...]]] = 
             Node.FAILED,
             Node.PREPARE,
             Node.SATISFIED,
+            Node.REWORK,
             Node.VERIFY_BASE,
             Node.NEW_COMMENTS,
         ),

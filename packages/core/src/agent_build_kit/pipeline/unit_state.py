@@ -181,6 +181,7 @@ class UnitRun(Frozen):
     adopted: bool = False  # the next review follows a chat's commit and is round zero
     snapshot: str = ""  # e2e-test's results, for the pull request body
     e2e_ran_none: bool = False  # e2e-test ran no test: the unit has none of its own
+    auto_rework: bool = False  # e2e-test's first own failure goes to `rework` with its output
     restack: bool = False  # go back to `prepare`: the base moved before the push
     rebased: bool = False  # the run already went back once, so the next time it holds
     # Why the run holds, and the state the store is left in.
