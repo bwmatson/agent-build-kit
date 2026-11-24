@@ -35,6 +35,18 @@ def test_a_node_says_what_the_unit_is() -> None:
     assert "e2e-test" in diagram
 
 
+def test_a_title_with_quotes_or_angle_brackets_cannot_end_its_label() -> None:
+    """A node's label is a quoted string: a title's own double quote ended it early, and the
+    page stopped drawing (a title written as `"Not logged in" pauses ...`)."""
+    diagram = render_mermaid(
+        [unit("add-marker/1", title='"Not logged in" pauses for the login, and <b>more</b>')]
+    )
+
+    label = next(line for line in diagram.splitlines() if "add_marker_1[" in line)
+    assert label.count('"') == 2, "the quotes of the label itself are the only two"
+    assert "#quot;Not logged in#quot; pauses for the login, and #lt;b#gt;more#lt;/b#gt;" in label
+
+
 def test_node_ids_are_safe_for_mermaid() -> None:
     """Unit ids contain a slash; mermaid would read it as syntax."""
     diagram = render_mermaid(
