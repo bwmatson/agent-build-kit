@@ -1595,6 +1595,20 @@ def _test_slot(
         yield waited
 
 
+def build_unit_test_base_check(
+    *,
+    run: Run | None = None,
+    changed: Callable[..., list[str]] | None = None,
+    profile: ToolchainProfile | None = None,
+    projects: list[ProjectConfig] | None = None,
+    log: Callable[[str], None] | None = None,
+    repo: RepoConfig | None = None,
+) -> Callable[..., list[str]]:
+    """The stack runner's `unit_test_on_base`: the failed tests of a saved output that fail
+    alone in a clean worktree of the base, run per project."""
+    raise NotImplementedError
+
+
 def build_unit_test(
     *,
     run: Run | None = None,
