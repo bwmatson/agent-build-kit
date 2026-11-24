@@ -8,15 +8,17 @@ from pathlib import Path
 from typing import Any
 
 from agent_build_kit.config import E2eUnitScope
+from agent_build_kit.graph.state import EventKind, ResumeEvent
 from agent_build_kit.pipeline.stack_runner import RunStatus
 from agent_build_kit.pipeline.unit_store import (
     REQUEUE_BY,
     AutoRework,
     Cause,
     FeedbackSource,
+    RequeueReason,
     StoredUnit,
 )
-from agent_build_kit.pipeline.units import FAILED, PLANNED
+from agent_build_kit.pipeline.units import FAILED, PLANNED, Unit
 from packages.worker.tests.graph.test_build_path import build
 from packages.worker.tests.graph.test_remaining_paths import CLEAN, Moves, fresh
 from tests.e2e_base_fakes import Runs, pytest_output
@@ -27,6 +29,7 @@ from tests.e2e_wait_fakes import OWN as OWN_FAILURE
 from tests.e2e_wait_fakes import Failing, Told, snapshot_of, verdict_of
 from tests.factories import git, unit
 from tests.graph_driver import tick
+from tests.product_defect_fakes import account, defect
 from tests.runner_fakes import Recorder
 from tests.scheduled_e2e_fakes import ScheduledRun
 
@@ -66,7 +69,7 @@ def test_an_own_test_that_fails_fails_the_unit_with_its_output_and_nothing_else(
     assert feedback.startswith("e2e-test failed:")
     assert "assert 1 == 2" in feedback
     # The first failure is reworked once, so the unit's own test ran twice, both in its tree.
-    assert {where for _, where in ran.calls} == {repo}, "no base run was made"
+    assert [where for _, where in ran.calls] == [repo, repo], "no base run was made"
     assert gate.verdict is None
     assert told.told == [], "nothing is recorded as pre-existing"
     assert not {"push", "pr"} & set(recorder.events)
@@ -287,10 +290,50 @@ def test_a_failure_on_a_moved_commit_restacks_and_is_not_reworked_automatically(
         **moves.overrides(),
     )
 
+    assert failed_on_moved == [True], "the run on the moved commit ran and failed once"
+    log = " ".join(recorder.logged)
+    assert "e2e-test failed on main" in log, "and sent the unit back to restack"
+    assert recorder.events.count("e2e-test") == 3, "before, on the moved commit and after"
     stored = recorder.store.get(unit().id)
     assert stored.auto_reworks == ()
     assert pipeline_reworks(stored) == []
     assert reworked_own_failure(tmp_path / "own"), "while a failure of its own is reworked"
+
+
+def test_a_unit_parked_by_its_automatic_rework_is_not_reworked_again_when_it_resumes(
+    tmp_path: Path,
+) -> None:
+    filed: list[str] = []
+
+    def file_fix(unit: Unit, report: Any) -> str:
+        filed.append(report.test)
+        return "fix-change"
+
+    recorder = fresh(tmp_path, tier="e2e-test")
+    e2e = failing(recorder)
+
+    def run(prompt: str, **kwargs: Any) -> str:
+        recorder.claude(prompt, **kwargs)
+        return account(defect(test=OWN_FAILURE))
+
+    overrides: dict[str, Any] = {"on_product_defect": file_fix, "run": run}
+
+    parked = run_e2e_unit(tmp_path, recorder, e2e, **overrides)
+
+    assert parked.status == RunStatus.HELD, parked
+    assert filed == [OWN_FAILURE]
+    prompts = len(recorder.prompts)
+    assert len(given_run(recorder, 1)) == 1, "the automatic rework was the one prompt"
+    resume = ResumeEvent(
+        kind=EventKind.REQUEUE, requeue=RequeueReason.RESUME, reason="the fix merged"
+    )
+
+    run_e2e_unit(tmp_path, recorder, e2e, event=resume, **overrides)
+    outcome = run_e2e_unit(tmp_path, recorder, e2e, **overrides)
+
+    assert outcome.status == "open", outcome
+    assert "push" in recorder.events, " ".join(recorder.logged)
+    assert len(recorder.prompts) == prompts, "the passing run was not reworked"
 
 
 def test_a_failing_scheduled_e2e_run_is_never_reworked(tmp_path: Path) -> None:

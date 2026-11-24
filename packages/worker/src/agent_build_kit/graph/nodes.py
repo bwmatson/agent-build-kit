@@ -233,6 +233,7 @@ FRESH: Update = {
     "produced_nothing": False,
     "snapshot": "",
     "e2e_ran_none": False,
+    "auto_rework": False,
 }
 
 # Paths of uncommitted work named in a prompt or a hold; the rest are counted.
@@ -3057,7 +3058,12 @@ class BuildPath:
         if ok:
             # Said while the run's result is at hand: `satisfied` may be resumed by a new runner.
             note = r.e2e_passed_note() if state.scheduled else ""
-            return {"snapshot": snapshot, "e2e_ran_none": ran_none, "scheduled_note": note}
+            return {
+                "snapshot": snapshot,
+                "e2e_ran_none": ran_none,
+                "scheduled_note": note,
+                "auto_rework": False,
+            }
         for line in snapshot.splitlines():
             if "**Full output:**" in line:
                 self.say(line.strip("- ").replace("**", ""))
@@ -3652,6 +3658,7 @@ class BuildPath:
             "hold_state": "",
             "hold_note": "",
             "adopted": False,
+            "auto_rework": False,
         }
 
     def failed(self, state: UnitRun) -> Update:

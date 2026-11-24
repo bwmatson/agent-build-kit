@@ -429,8 +429,13 @@ def test_a_recorded_automatic_rework_is_kept_per_cause(tmp_path) -> None:
     store.upsert([unit()])
 
     store.record_auto_rework("add-marker/1", AutoRework.E2E_FAILED)
+    store.record_auto_rework("add-marker/1", AutoRework.PRODUCT_CODE)
+    store.record_auto_rework("add-marker/1", AutoRework.E2E_FAILED)
 
-    assert store.get("add-marker/1").auto_reworks == (AutoRework.E2E_FAILED,)
+    assert store.get("add-marker/1").auto_reworks == (
+        AutoRework.E2E_FAILED,
+        AutoRework.PRODUCT_CODE,
+    ), "each cause once, however often it is recorded"
 
 
 def test_an_automatic_rework_survives_a_requeue_a_replan_and_a_restart(tmp_path) -> None:
