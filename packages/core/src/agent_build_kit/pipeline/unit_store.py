@@ -2135,6 +2135,24 @@ def landing_hold_text(unit: StoredUnit) -> str:
     return ""
 
 
+_LEFTOVER_FILES_SHOWN = 5
+
+
+def leftovers_line(unit: StoredUnit) -> str:
+    """The line naming a running unit's saved leftovers: each ref, its files (the first five and
+    a count) and the command that shows it; "" for a unit with none, or a merged or closed one."""
+    if not unit.leftovers or unit.state in (UnitState.MERGED, UnitState.CLOSED):
+        return ""
+    saves = []
+    for saved in unit.leftovers:
+        shown = ", ".join(saved.files[:_LEFTOVER_FILES_SHOWN])
+        more = len(saved.files) - _LEFTOVER_FILES_SHOWN
+        if more > 0:
+            shown += f" and {more} more"
+        saves.append(f"{saved.ref} ({shown}; `git show --stat {saved.ref}`)")
+    return f"{unit.id}: leftovers saved: " + "; ".join(saves)
+
+
 # How long a parked unit waits, by consecutive parking.
 PARK_BACKOFF = (
     timedelta(minutes=1),

@@ -18,7 +18,7 @@ from agent_build_kit.pipeline.admission_record import (
 from agent_build_kit.pipeline.external_file import external_reason, held_units
 from agent_build_kit.pipeline.lane_records import lane_record, resolving_phrase
 from agent_build_kit.pipeline.regression_agent import waited_fixes
-from agent_build_kit.pipeline.unit_store import Cause, landing_hold_text
+from agent_build_kit.pipeline.unit_store import Cause, landing_hold_text, leftovers_line
 from agent_build_kit.pipeline.units import PLANNED, RUNNING, history_stamp
 from agent_build_kit.run_support import store_for
 
@@ -102,6 +102,8 @@ def cmd_explain(args: argparse.Namespace, inst: Installation) -> int:
     ]
     record = records[-1] if records else None
     unit = next((each for each in store_for(inst).all() if each.id == args.unit), None)
+    if unit is not None and (saved_line := leftovers_line(unit)):
+        print(saved_line)
     events = [
         (stamp, entry)
         for entry in (unit.history if unit else ())
