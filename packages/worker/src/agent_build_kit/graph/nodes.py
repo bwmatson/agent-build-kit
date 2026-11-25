@@ -2330,7 +2330,35 @@ class BuildPath:
                 f"checks failing and fix round {n} changed nothing, before review"
             ),
             on_unchanged=lambda n: self.recheck(state, n),
+            on_base=lambda: self.park_on_base(state),
         )
+
+    def park_on_base(self, state: UnitRun) -> Update | None:
+        """Before the checks loop stops the unit: the failed tests its saved output names that
+        fail alone on the unit's base are not its fault. Each gets a fix change and the unit waits,
+        gated, for them; its feedback keeps the output and names them. None when the output names
+        no test, the unit is of a fix change, no test fails on the base, or nothing could be
+        filed: the unit stops as before."""
+        r, unit = self.runner, self.unit
+        config = active().repos.get(unit.repo)
+        if config is None or is_fix_change(unit.change):
+            return None
+        feedback = r.store.get(unit.id).feedback
+        if not failed_ids(profiles.get(config.profile), feedback):
+            return None
+        failing = r.unit_test_on_base(cwd=self.tree(), base=self.ref(state), failed_output=feedback)
+        if not failing:
+            return None
+        at = datetime.now(UTC)
+        flakes = tuple(Flake(test=t, command="", output=feedback, at=at) for t in failing)
+        if (parked := self.wait_for_fix(FailedOnBase(flakes))) is None:
+            return None
+        r.store.set_feedback(
+            unit.id,
+            f"{feedback}\nFailing on the base too: {', '.join(failing)}",
+            source=FeedbackSource.UNIT_TEST,
+        )
+        return {**parked, "checks_ok": False}
 
     def recheck(self, state: UnitRun, attempt: int) -> Update | None:
         """After a checks fix round that changed nothing: run the failed tests once more, by id.

@@ -1999,6 +1999,12 @@ approved.
   is not the unit's and the regression agent runs. Note that a test the unit wrote is not run on the base,
   and a test that fails by its time limit in the full run and fails again by itself under a serial
   rerun is recorded with one fix and the unit waits, it is not failed.
+  The same comparison is made where the checks loop would stop a unit, with its fix rounds spent or
+  after a fix round that changed nothing: the failed tests its saved output names (a lint or
+  collection failure names none, and runs nothing) are run alone on the unit's base, and each that
+  fails there gets a fix change, the unit is parked gated on them and its feedback keeps the output
+  and names them. A unit of a fix change, and a run where every test passes on the base or no base
+  worktree can be made, stop as before.
   The regression agent (model of the `regression` role, Opus under Claude Code) writes the change
   for a flake, a pre-existing failure and a unit-test failure that fails on the base alike. It is
   named `fix-test-<slug>` (a long name is cut and takes a hash) whatever the kind, which is recorded in the proposal, and its

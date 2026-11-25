@@ -38,7 +38,9 @@ class CheckLoop(Frozen):
     whether a pass erases the saved feedback; `already_done` says a fix round is already on the
     branch; `on_failure` is told of each failed check with its round; `annotate` adds to the
     failed output before it is saved as feedback; `on_unchanged` is given the round that changed
-    nothing and answers with an update in place of the stop, or None to stop."""
+    nothing and answers with an update in place of the stop, or None to stop; `on_base` is asked
+    before either stop, and answers an update that parks the unit on tests that fail on its base,
+    or None to stop as before."""
 
     check: Callable[[], tuple[bool, str]]
     source: FeedbackSource
@@ -53,6 +55,7 @@ class CheckLoop(Frozen):
     on_failure: Callable[[str, int], None] | None = None
     annotate: Callable[[str], str] | None = None
     on_unchanged: Callable[[int], dict[str, Any] | None] | None = None
+    on_base: Callable[[], dict[str, Any] | None] | None = None
     spent_message: Callable[[int], str]
     unchanged_message: Callable[[int], str]
 
@@ -88,6 +91,8 @@ def check_round(nodes: BuildPath, state: UnitRun, loop: CheckLoop) -> Update:
     saved = f"{loop.heading}\n{output}".strip() if loop.heading else output
     r.store.set_feedback(unit.id, saved, source=loop.source)
     if (budget := out_of_rounds(used)) is not None:
+        if loop.on_base is not None and (waiting := loop.on_base()) is not None:
+            return waiting
         return nodes.stop(loop.spent_message(budget))
     return {}
 
@@ -119,6 +124,8 @@ def fix_round(nodes: BuildPath, state: UnitRun, loop: CheckLoop) -> Update:
         nodes.apply_fixers()
         r.commit(loop.commit.format(title=unit.title, n=attempt), cwd=tree, base=nodes.ref(state))
     if (r.head(tree), r.tree_state(tree)) == before:
+        if loop.on_base is not None and (waiting := loop.on_base()) is not None:
+            return waiting
         if loop.on_unchanged is not None and (answer := loop.on_unchanged(attempt)) is not None:
             return answer
         return nodes.stop(loop.unchanged_message(attempt))
