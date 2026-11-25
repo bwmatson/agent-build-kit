@@ -17,6 +17,8 @@ from agent_build_kit.pipeline.admission_record import (
     config_fingerprint,
     read_admissions,
 )
+from agent_build_kit.pipeline.unit_store import SavedLeftovers, UnitStore
+from agent_build_kit.pipeline.units import CLOSED, IN_REVIEW, MERGED, UnitState
 from packages.orchestrator.tests.pipeline.test_admission_record import in_review, installation
 from tests import fake_clock
 from tests.cli.test_admission_asks_own_account import (  # noqa: F401 — fixtures
@@ -159,3 +161,60 @@ def test_it_marks_a_decision_made_on_a_configuration_the_files_no_longer_match(
 
     assert "stale configuration" not in current
     assert "stale configuration" in changed
+
+
+def save_leftovers(store: UnitStore, uid: str, *, state: UnitState = IN_REVIEW) -> str:
+    ref = f"refs/abk/leftovers/{uid}"
+    store.set_state(uid, state)
+    store.record_leftovers(
+        uid, SavedLeftovers(ref=ref, files=("stray.txt",), at="2026-11-24T00:00:00+00:00")
+    )
+    return ref
+
+
+def test_it_prints_the_saved_leftovers_line_first_for_a_unit_that_has_saves(
+    tmp_path: Path, accounts: Accounts, capsys: pytest.CaptureFixture[str]
+) -> None:
+    inst, store = installation(tmp_path, [unit("one/1", "app")])
+    round_of(inst, store)
+    ref = save_leftovers(store, "one/1")
+
+    code, out = explain(inst, "one/1", capsys)
+
+    first, _, rest = out.partition("\n")
+    assert code == 0
+    assert ref in first
+    assert "stray.txt" in first
+    assert f"git show --stat {ref}" in first
+    assert "admitted" in rest
+
+
+@pytest.mark.parametrize("state", [MERGED, CLOSED])
+def test_it_prints_no_saved_leftovers_line_for_a_merged_or_closed_unit(
+    tmp_path: Path, accounts: Accounts, capsys: pytest.CaptureFixture[str], state: UnitState
+) -> None:
+    inst, store = installation(tmp_path, [unit("one/1", "app"), unit("two/1", "app")])
+    round_of(inst, store)
+    ref = save_leftovers(store, "one/1", state=state)
+    running_ref = save_leftovers(store, "two/1")
+
+    _, out = explain(inst, "one/1", capsys)
+    _, running_out = explain(inst, "two/1", capsys)
+
+    assert running_ref in running_out, "a running unit prints the line"
+    assert ref not in out
+
+
+def test_it_prints_a_unit_with_no_saves_as_before(
+    tmp_path: Path, accounts: Accounts, capsys: pytest.CaptureFixture[str]
+) -> None:
+    inst, store = installation(tmp_path, [unit("one/1", "app"), unit("two/1", "app")])
+    round_of(inst, store)
+    saved_ref = save_leftovers(store, "two/1")
+
+    _, out = explain(inst, "one/1", capsys)
+    _, saved_out = explain(inst, "two/1", capsys)
+
+    assert saved_ref in saved_out, "a unit with saves prints the line"
+    assert "leftover" not in out
+    assert "admitted" in out
