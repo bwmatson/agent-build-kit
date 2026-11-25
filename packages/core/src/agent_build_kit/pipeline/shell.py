@@ -105,21 +105,28 @@ def fork_point(repo: Path, ref: str, head: str = "HEAD") -> str:
     return git(repo, "merge-base", ref, head, check=False).stdout.strip()
 
 
-def porcelain(path: Path, *pathspec: str) -> list[tuple[str, str]]:
-    """The checkout's changes as (status code, exact path), every untracked file named, limited
-    to `pathspec` when given. Raises `CalledProcessError` where `path` is not under git."""
+def porcelain_entries(path: Path, *pathspec: str) -> list[tuple[str, str, str | None]]:
+    """The checkout's changes as (status code, exact path, source), every untracked file named,
+    limited to `pathspec` when given; the source is where a staged rename or copy came from, and
+    None for any other change. Raises `CalledProcessError` where `path` is not under git."""
     args = ["status", "--porcelain", "-z", "--untracked-files=all"]
     fields = git(path, *args, *(("--", *pathspec) if pathspec else ())).stdout.split("\0")
-    entries: list[tuple[str, str]] = []
+    entries: list[tuple[str, str, str | None]] = []
     pending = iter(fields)
     for field in pending:
         if not field:
             continue
         code, name = field[:2], field[3:]
-        if "R" in code or "C" in code:
-            next(pending, None)  # the source of a rename or copy follows as its own field
-        entries.append((code, name))
+        # the source of a rename or copy follows as its own field
+        source = (next(pending, "") or None) if "R" in code or "C" in code else None
+        entries.append((code, name, source))
     return entries
+
+
+def porcelain(path: Path, *pathspec: str) -> list[tuple[str, str]]:
+    """The checkout's changes as (status code, exact path), every untracked file named, limited
+    to `pathspec` when given. Raises `CalledProcessError` where `path` is not under git."""
+    return [(code, name) for code, name, _ in porcelain_entries(path, *pathspec)]
 
 
 def has_origin(repo: Path) -> bool:

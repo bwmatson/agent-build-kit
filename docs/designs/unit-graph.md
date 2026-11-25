@@ -102,7 +102,7 @@ until a state change passes another cause: `rework`, `base_changed`, `upstream_w
 `needs_human`, `reviewer_hold`, `gated`, `restack_conflict`, `restack_deferred`, `restack_handed_back`,
 `dirty_worktree`, `attached`, `host_unavailable`, `network_unavailable`, `service_unavailable`,
 `environment`, `split_held`, `manual_step`, `too_big_for_tier`, `landed_off_default`, `generated_files`, `base_not_moved` and `landing_unknown`. The event causes (`EVENT_CAUSES`) name a transition that is over:
-`requeued`, `released`, `adopted`, `merged`, `auto_landed`, `closed`, `retired`, `superseded` and `failed`. An event cause ends
+`requeued`, `leftovers_saved`, `released`, `adopted`, `merged`, `auto_landed`, `closed`, `retired`, `superseded` and `failed`. An event cause ends
 a standing one explicitly. A replan carries a standing cause through the demotion and the promotion
 (and a vanished change and a join do the same), marking the entry `carried`, and a caller's state
 change passes its own cause or none. `upsert` keeps a unit's runtime fields, so a gated or parked
@@ -608,9 +608,13 @@ at `prepare`, and any other event is `NotWaiting`, and the handler acts on the s
   runtime cannot continue it) is told in its prompt which paths are uncommitted
   work from an interrupted run, to be reviewed and finished. The node's commit
   includes them. Any other dirty tree (no record, another node's, a node that
-  runs no agent, a hand edit) holds the unit with the cause `dirty_worktree`,
-  the paths and a request to commit or remove them; nothing is cleaned, and
-  `abk requeue` after the tree is clean resumes a park at an agent step at that step
+  runs no agent, a hand edit) is saved: its files, and only those, go to a commit
+  under `refs/abk/leftovers/<unit>/<n>` (never on the branch), are cleaned from the
+  tree, are recorded in the unit's history and named by `abk status` and
+  `abk explain`, and the unit goes on. It holds the unit with the cause
+  `dirty_worktree`, the paths and a request to commit or remove them, as before,
+  when `git.save_leftovers` is false, when a rebase, merge or cherry-pick is stopped
+  in the tree, or when the tree holds a nested repository. `abk requeue` after the tree is clean resumes a park at an agent step at that step
   (`parked_node` in the thread state), with that node's inputs as they stood, a
   rework's feedback included; a park anywhere else, and `abk requeue --restart`,
   begin again at `prepare`. A requeue while the tree is still dirty leaves the unit

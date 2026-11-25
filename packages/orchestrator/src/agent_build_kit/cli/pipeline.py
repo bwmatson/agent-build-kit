@@ -317,6 +317,7 @@ from agent_build_kit.pipeline.unit_store import (
     awaits_release,
     guidance_excerpt,
     landing_hold_text,
+    leftovers_line,
     waiting_for,
 )
 from agent_build_kit.pipeline.unit_test_slots import slot_status_lines, waiting_since
@@ -1249,6 +1250,8 @@ def cmd_status(args: argparse.Namespace, inst: Installation) -> int:
             log(f"  held by the checks: {unit.id} ({where}) — {unit.note}")
         if unit.state == HELD and unit.cause is Cause.DIRTY_WORKTREE:
             log(f"  parked: {unit.id} ({where}) — {unit.note}")
+        if saved_line := leftovers_line(unit):
+            log(f"  {saved_line}")
         if landing := landing_hold_text(unit):
             log(f"  {'held' if unit.state == HELD else 'in review'}: {unit.id} ({where}) {landing}")
         if unit.state == RUNNING and unit.cause is Cause.LOGIN:

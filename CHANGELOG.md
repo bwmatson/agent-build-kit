@@ -6,6 +6,13 @@
   finish, so a change whose units have all merged, or that has none, is no longer repeated
   on every pass. `abk replan` still lists every stale plan.
 
+- Uncommitted files in a unit's worktree that are not a node's own no longer hold the unit.
+  They are saved to a `refs/abk/leftovers/<unit>/<n>` ref (never to the branch), cleaned out
+  of the worktree, named in the unit's history and the run log, and the unit goes on. A chat
+  with changes, and a rebase, merge or cherry-pick in progress, still hold it. Set
+  `git.save_leftovers: false` to keep the old hold. `abk status` and `abk explain` name each
+  saved ref, its files and the `git show --stat <ref>` that shows it, for a unit still going.
+
 - A checks fix round that changes nothing now gets one more attempt before the unit stops. The
   second attempt is told the last one changed nothing and is given the failing output. When it
   also changes nothing, the failed tests are rerun once, one at a time: a pass goes on to

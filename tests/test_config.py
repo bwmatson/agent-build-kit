@@ -234,6 +234,22 @@ def test_a_file_with_neither_section_keeps_the_defaults(tmp_path: Path) -> None:
     assert load(path).git.push_host == ""
 
 
+def test_saving_leftovers_is_on_when_the_file_does_not_say(tmp_path: Path) -> None:
+    path = tmp_path / "abk.yaml"
+    path.write_text("git:\n  branch_prefix: work/\n")
+
+    assert load(path).git.save_leftovers is True
+
+
+def test_saving_leftovers_reads_false_from_the_file_over_a_default_of_true(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "abk.yaml"
+    path.write_text("git:\n  save_leftovers: false\n")
+
+    assert load(path).git.save_leftovers is False
+
+
 def test_the_fix_rounds_for_failing_checks_default_to_three_and_may_be_unlimited() -> None:
     from agent_build_kit.config import LimitsConfig, WorkspaceConfig
 

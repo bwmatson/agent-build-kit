@@ -163,6 +163,12 @@ git:
                                 # units are <prefix><change>/<n>, the poller
                                 # ignores everything else, and force-with-lease
                                 # is permitted only under it.
+  save_leftovers: true          # uncommitted files in a unit's worktree that are
+                                # not a node's own are saved to
+                                # refs/abk/leftovers/<unit>/<n> and cleaned, so
+                                # the unit goes on; false holds the unit as
+                                # `dirty_worktree` instead. A chat's changes and
+                                # a git operation in progress always hold it.
 
 runtime: claude_code            # what executes every build/review/rework step,
                                 # for the whole workspace. The registry in

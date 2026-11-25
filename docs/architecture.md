@@ -958,7 +958,7 @@ A standing cause names a situation that lasts until a state change passes anothe
 `restack_deferred`, `restack_handed_back`, `dirty_worktree`, `attached`, `host_unavailable`,
 `network_unavailable`, `service_unavailable`, `environment`, `split_held`, `manual_step`,
 `too_big_for_tier`, `landed_off_default` (a pull request merged into a branch that is not the default branch), `base_not_moved` (a pull request whose retarget failed three rounds in a row), `generated_files` (a repository's `generated` command failed after a restack) and `landing_unknown` (a merged pull request whose commit did not reach the default branch within the repository's `landing_wait`).
-An event cause names a transition that has happened and is over: `requeued`, `released`,
+An event cause names a transition that has happened and is over: `requeued`, `leftovers_saved`, `released`,
 `adopted`, `merged`, `auto_landed`, `closed`, `retired`, `superseded` and `failed`. Recording an event cause ends a standing
 one explicitly. A state change the store makes on its own account (a replan's demotion and
 promotion, a vanished change, a join) passes `KEEP` and so carries a standing cause forward,
@@ -2684,7 +2684,7 @@ unit's transcript as a `user` event, so a reloaded tab shows the question before
   | held by a live process | any | leaves the unit alone; `abk status` lists it as attached with the number of files |
   | stale, marked as holding changes | any | commits and continues nothing; holds the unit with the cause `attached` |
   | none | names the node being re-run | failure leftovers: resumes over them, the node's commit includes them |
-  | none | none | holds the unit as an unexplained dirty tree (`dirty_worktree`) |
+  | none | none | saves the files to `refs/abk/leftovers/<unit>/<n>`, cleans only them and goes on (`abk status` names the ref); holds the unit as `dirty_worktree` instead when `git.save_leftovers` is false, a rebase, merge or cherry-pick is stopped in the tree, or it holds a nested repository |
 
   A path named in the repository's `environment.inputs.lock` is never part of a dirty tree:
   it does not hold a unit, is not discarded and is not listed as a leftover.

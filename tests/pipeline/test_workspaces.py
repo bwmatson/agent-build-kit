@@ -23,8 +23,11 @@ from agent_build_kit.pipeline.workspaces import (
     BranchBusy,
     DirtyWorktree,
     branch_lock,
+    changed_paths,
+    operation_in_progress,
     prepare_detached,
     prepare_worktree,
+    save_leftovers,
 )
 from tests.factories import git, init_repo
 
@@ -209,3 +212,117 @@ def test_a_detached_checkout_moves_when_its_ref_does(repo: Path, tmp_path: Path)
     assert again == tree
     assert _head(tree) == _head(repo)
     assert (tree / "later.txt").exists()
+
+
+# --- leftovers: saved to a ref, then only those files cleaned -------------------------------
+
+LOCKS = ("deps.lock",)
+ARTIFACTS = ("out/**",)
+SAVED = {
+    "notes.txt": "edited by hand\n",
+    "staged.txt": "new and staged\n",
+    "loose/stray.txt": "not added\n",
+}
+
+
+@pytest.fixture
+def stray_tree(repo: Path, tmp_path: Path) -> Path:
+    """A unit's worktree holding every kind of uncommitted file: three the save takes (a modified
+    tracked file, a staged new file, an untracked file in a folder) and three it leaves (an
+    ignored file, a tracked lock the sync rewrote, an untracked artifact)."""
+    (repo / ".gitignore").write_text("ignored.log\n")
+    (repo / "notes.txt").write_text("notes\n")
+    (repo / "deps.lock").write_text("locked\n")
+    git(repo, "add", "-A")
+    git(repo, "commit", "-qm", "more")
+    tree = prepare_worktree(
+        repo, "spec/change/1", base="main", root=tmp_path / "trees", name=repo.name
+    )
+    for name, text in SAVED.items():
+        (tree / name).parent.mkdir(parents=True, exist_ok=True)
+        (tree / name).write_text(text)
+    git(tree, "add", "staged.txt")
+    (tree / "ignored.log").write_text("scratch\n")
+    (tree / "deps.lock").write_text("re-resolved\n")
+    (tree / "out").mkdir()
+    (tree / "out" / "build.bin").write_text("artifact\n")
+    return tree
+
+
+def test_saved_leftovers_are_one_commit_on_the_branch_head_under_a_numbered_ref(
+    stray_tree: Path,
+) -> None:
+    head = _head(stray_tree)
+
+    saved = save_leftovers(stray_tree, "change/1", locks=LOCKS, artifacts=ARTIFACTS)
+
+    assert saved.ref == "refs/abk/leftovers/change/1/1"
+    assert sorted(saved.files) == sorted(SAVED)
+    assert git(stray_tree, "rev-parse", f"{saved.ref}^") == head, "one commit on the head"
+    for name, text in SAVED.items():
+        assert git(stray_tree, "show", f"{saved.ref}:{name}") == text.rstrip("\n")
+    changed = git(stray_tree, "diff", "--name-only", head, saved.ref).splitlines()
+    assert sorted(changed) == sorted(SAVED), "the lock, the artifact and the ignored file are out"
+
+
+def test_a_second_save_for_the_unit_takes_the_next_number_and_leaves_the_first(
+    stray_tree: Path,
+) -> None:
+    first = save_leftovers(stray_tree, "change/1", locks=LOCKS, artifacts=ARTIFACTS)
+    first_commit = git(stray_tree, "rev-parse", first.ref)
+    (stray_tree / "again.txt").write_text("another\n")
+
+    second = save_leftovers(stray_tree, "change/1", locks=LOCKS, artifacts=ARTIFACTS)
+
+    assert second.ref == "refs/abk/leftovers/change/1/2"
+    assert git(stray_tree, "rev-parse", first.ref) == first_commit
+    assert second.files == ("again.txt",)
+
+
+def test_a_staged_rename_is_saved_with_its_source_and_both_are_cleaned(stray_tree: Path) -> None:
+    git(stray_tree, "mv", "notes.txt", "moved.txt")
+
+    saved = save_leftovers(stray_tree, "change/1", locks=LOCKS, artifacts=ARTIFACTS)
+
+    in_ref = git(stray_tree, "ls-tree", "-r", "--name-only", saved.ref).splitlines()
+    assert "moved.txt" in in_ref
+    assert "notes.txt" not in in_ref, "the source is saved as a deletion"
+    assert changed_paths(stray_tree, artifacts=ARTIFACTS) == ("deps.lock",), "only the lock is left"
+    assert (stray_tree / "notes.txt").read_text() == "notes\n"
+    assert not (stray_tree / "moved.txt").exists()
+
+
+def test_a_revert_stopped_on_a_conflict_is_an_operation_in_progress(repo: Path) -> None:
+    for text in ("one\n", "two\n"):
+        (repo / "README.md").write_text(text)
+        git(repo, "commit", "-qam", text.strip())
+    assert not operation_in_progress(repo)
+
+    reverted = subprocess.run(
+        ["git", "revert", "--no-edit", "HEAD~1"], cwd=repo, capture_output=True, check=False
+    )
+
+    assert reverted.returncode != 0
+    assert operation_in_progress(repo)
+    git(repo, "revert", "--abort")
+    assert not operation_in_progress(repo)
+
+
+def test_saving_cleans_only_the_saved_files_and_moves_nothing_on_the_branch(
+    stray_tree: Path,
+) -> None:
+    head = _head(stray_tree)
+    branches = git(stray_tree, "branch", "--list")
+
+    save_leftovers(stray_tree, "change/1", locks=LOCKS, artifacts=ARTIFACTS)
+
+    assert _head(stray_tree) == head, "no commit on the branch"
+    assert git(stray_tree, "branch", "--list") == branches
+    assert changed_paths(stray_tree, artifacts=ARTIFACTS) == ("deps.lock",), "only the lock is left"
+    assert (stray_tree / "notes.txt").read_text() == "notes\n"
+    assert not (stray_tree / "staged.txt").exists()
+    assert not (stray_tree / "loose").exists(), "a folder the removal emptied goes too"
+    assert (stray_tree / "ignored.log").read_text() == "scratch\n"
+    assert (stray_tree / "deps.lock").read_text() == "re-resolved\n"
+    assert (stray_tree / "out" / "build.bin").read_text() == "artifact\n"
+    assert git(stray_tree, "diff", "--cached", "--name-only") == "", "the index is the head's"

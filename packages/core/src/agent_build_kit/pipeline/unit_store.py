@@ -39,6 +39,7 @@ from agent_build_kit.pipeline.file_lock import atomic_write_text, file_lock
 from agent_build_kit.pipeline.units import (
     BUILDS_NOTHING,
     FAILED,
+    FINISHED_STATES,
     HELD,
     IN_REVIEW,
     MANUAL_STEP_CAUSE,
@@ -131,6 +132,7 @@ class Cause(StrEnum):
     RESTACK_DEFERRED = "restack_deferred"
     RESTACK_HANDED_BACK = "restack_handed_back"
     DIRTY_WORKTREE = "dirty_worktree"
+    LEFTOVERS_SAVED = "leftovers_saved"
     ATTACHED = "attached"
     ADOPTED = "adopted"
     MERGED = "merged"
@@ -167,6 +169,7 @@ KEEP = Keep()
 EVENT_CAUSES: frozenset[Cause] = frozenset(
     {
         Cause.REQUEUED,
+        Cause.LEFTOVERS_SAVED,
         Cause.RELEASED,
         Cause.ADOPTED,
         Cause.MERGED,
@@ -365,6 +368,15 @@ class Starting(Frozen):
     until: datetime
 
 
+class SavedLeftovers(Frozen):
+    """One save of a worktree's uncommitted files: the ref they sit under, the files, and when
+    (stamped by the store's clock when the save is recorded)."""
+
+    ref: str
+    files: tuple[str, ...]
+    at: str = ""
+
+
 class StoredUnit(Unit):
     """A unit plus what has happened to it."""
 
@@ -517,6 +529,8 @@ class StoredUnit(Unit):
     # How many times in a row the model service's status has parked it.
     service_attempts: int = 0
     history: tuple[dict, ...] = ()
+    # The saves of uncommitted files made so a node could go on, oldest first.
+    leftovers: tuple[SavedLeftovers, ...] = ()
     # The causes the pipeline has already reworked this unit for by itself; kept across a
     # requeue and a restart, so a cause is reworked automatically once.
     auto_reworks: tuple[AutoRework, ...] = ()
@@ -1804,6 +1818,27 @@ class UnitStore:
         stored[unit_id] = unit.model_copy(update={"history": (*unit.history, entry)})
         self._write(stored)
 
+    @_exclusive
+    def record_leftovers(self, unit_id: str, saved: SavedLeftovers) -> None:
+        """Remember a save of uncommitted files, and say it in the history; the state stays."""
+        stored = self._read()
+        unit = stored[unit_id]
+        note = f"saved leftover files to {saved.ref}: {', '.join(saved.files)}"
+        at = _now()
+        saved = saved.model_copy(update={"at": at})
+        entry = {
+            "state": unit.state,
+            "at": at,
+            "event": "leftovers_saved",
+            "cause": Cause.LEFTOVERS_SAVED.value,
+            "note": note,
+        }
+        stored[unit_id] = unit.model_copy(
+            update={"leftovers": (*unit.leftovers, saved), "history": (*unit.history, entry)}
+        )
+        self._write(stored)
+
+    @_exclusive
     def mark_last_entry(self, unit_id: str, **fields: str) -> None:
         """Add `fields` to the unit's latest history entry, which a step wrote without them (who
         asked for a requeue the unit's thread recorded)."""
@@ -2104,6 +2139,25 @@ def landing_hold_text(unit: StoredUnit) -> str:
             "base by hand, then release the hold"
         )
     return ""
+
+
+_LEFTOVER_FILES_SHOWN = 5
+
+
+def leftovers_line(unit: StoredUnit) -> str:
+    """The line naming a running unit's saved leftovers: each ref, its files (the first five and
+    a count) and the command that shows it; "" for a unit with none, or a finished one (merged,
+    satisfied, closed or retired)."""
+    if not unit.leftovers or unit.state in FINISHED_STATES:
+        return ""
+    saves = []
+    for saved in unit.leftovers:
+        shown = ", ".join(saved.files[:_LEFTOVER_FILES_SHOWN])
+        more = len(saved.files) - _LEFTOVER_FILES_SHOWN
+        if more > 0:
+            shown += f" and {more} more"
+        saves.append(f"{saved.ref} ({shown}; `git show --stat {saved.ref}`)")
+    return f"{unit.id}: leftovers saved: " + "; ".join(saves)
 
 
 # How long a parked unit waits, by consecutive parking.

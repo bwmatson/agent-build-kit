@@ -25,17 +25,22 @@ from __future__ import annotations
 import json
 import os
 import re
+import tempfile
 from collections.abc import Sequence
 from contextlib import contextmanager
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from agent_build_kit.model import Frozen
 from agent_build_kit.path_patterns import matches_any
 from agent_build_kit.pipeline import host
 from agent_build_kit.pipeline.file_lock import file_lock, proc_identity, same_process
 from agent_build_kit.pipeline.scratch import ensure_scratch
-from agent_build_kit.pipeline.shell import git, git_out, porcelain
+from agent_build_kit.pipeline.shell import git, git_out, porcelain_entries
+
+if TYPE_CHECKING:
+    from agent_build_kit.pipeline.unit_store import SavedLeftovers
 
 
 class BranchBusy(RuntimeError):
@@ -342,6 +347,26 @@ def worktree_path(repo: Path, branch: str, root: Path, *, name: str) -> Path:
     return root / worktree_key(name) / re.sub(r"[^A-Za-z0-9]", "_", branch)
 
 
+def _own(code: str, name: str, locks: Sequence[str], artifacts: Sequence[str]) -> bool:
+    """Whether a path is the pipeline's own: in `locks`, or untracked and matched by an
+    `artifacts` pattern."""
+    return matches_any(locks, name) or (code == "??" and matches_any(artifacts, name))
+
+
+def _uncommitted_entries(
+    path: Path,
+    locks: Sequence[str] = (),
+    artifacts: Sequence[str] = (),
+    only: Sequence[str] = (),
+) -> list[tuple[str, str, str | None]]:
+    """The worktree's changes, with a rename's or copy's source, without the pipeline's own."""
+    return [
+        (code, name, source)
+        for code, name, source in porcelain_entries(path, *only)
+        if not _own(code, name, locks, artifacts)
+    ]
+
+
 def _uncommitted(
     path: Path,
     locks: Sequence[str] = (),
@@ -350,11 +375,7 @@ def _uncommitted(
 ) -> list[tuple[str, str]]:
     """The worktree's changes without the pipeline's own: a path in `locks`, and an untracked
     path an `artifacts` pattern matches."""
-    return [
-        (code, name)
-        for code, name in porcelain(path, *only)
-        if not matches_any(locks, name) and not (code == "??" and matches_any(artifacts, name))
-    ]
+    return [(code, name) for code, name, _ in _uncommitted_entries(path, locks, artifacts, only)]
 
 
 def changed_paths(
@@ -387,6 +408,77 @@ def discard_changes(path: Path, artifacts: Sequence[str] = ()) -> None:
                 folder.rmdir()
             except OSError:
                 break
+
+
+def operation_in_progress(path: Path) -> bool:
+    """Whether a rebase, merge, cherry-pick or revert is stopped in the worktree: its files are
+    git's."""
+    for name in (
+        "rebase-merge",
+        "rebase-apply",
+        "MERGE_HEAD",
+        "CHERRY_PICK_HEAD",
+        "REVERT_HEAD",
+        "sequencer",
+    ):
+        where = git_out(path, "rev-parse", "--git-path", name)
+        if (path / where).exists():
+            return True
+    return False
+
+
+def _next_leftovers_number(path: Path, unit_id: str) -> int:
+    prefix = f"refs/abk/leftovers/{unit_id}/"
+    refs = git_out(path, "for-each-ref", "--format=%(refname)", prefix).splitlines()
+    numbers = [int(ref.removeprefix(prefix)) for ref in refs if ref.removeprefix(prefix).isdigit()]
+    return max(numbers, default=0) + 1
+
+
+def save_leftovers(
+    path: Path,
+    unit_id: str,
+    *,
+    locks: Sequence[str] = (),
+    artifacts: Sequence[str] = (),
+) -> SavedLeftovers:
+    """Save the worktree's uncommitted files as one commit on the branch head under
+    `refs/abk/leftovers/<unit_id>/<n>` and restore only those files to the head."""
+    from agent_build_kit.pipeline.unit_store import SavedLeftovers
+
+    entries = _uncommitted_entries(path, locks, artifacts)
+    # A rename removes its source, so the source is a change to save and restore too.
+    sources = {
+        source
+        for _, _, source in entries
+        if source is not None and not _own("D ", source, locks, artifacts)
+    }
+    names = sorted({name for _, name, _ in entries} | sources)
+    head = git_out(path, "rev-parse", "HEAD")
+    with tempfile.TemporaryDirectory() as scratch:
+        env = {**os.environ, "GIT_INDEX_FILE": str(Path(scratch) / "index")}
+        git(path, "read-tree", head, env=env)
+        git(path, "add", "-A", "--", *names, env=env)
+        tree = git(path, "write-tree", env=env).stdout.strip()
+    number = _next_leftovers_number(path, unit_id)
+    ref = f"refs/abk/leftovers/{unit_id}/{number}"
+    commit = git_out(
+        path, "commit-tree", tree, "-p", head, "-m", f"leftovers of {unit_id} (save {number})"
+    )
+    git_out(path, "update-ref", ref, commit)
+    git(path, "reset", "-q", "HEAD", "--", *names)
+    for name in names:
+        if git(path, "cat-file", "-e", f"HEAD:{name}", check=False).returncode == 0:
+            git_out(path, "checkout", "--", name)
+            continue
+        (path / name).unlink(missing_ok=True)
+        for folder in (path / name).parents:  # a folder the removal emptied goes too
+            if folder == path:
+                break
+            try:
+                folder.rmdir()
+            except OSError:
+                break
+    return SavedLeftovers(ref=ref, files=tuple(names))
 
 
 def commit_changes(path: Path, message: str) -> str:

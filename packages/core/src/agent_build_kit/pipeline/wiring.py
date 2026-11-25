@@ -236,6 +236,7 @@ from agent_build_kit.pipeline.unit_size import actual_lines, branch_diff, over_c
 from agent_build_kit.pipeline.unit_store import (
     Cause,
     Pull,
+    SavedLeftovers,
     StoredUnit,
     UnitStore,
     unit_id_of_branch,
@@ -279,7 +280,12 @@ from agent_build_kit.pipeline.usage_guard import (
     snapshot_reading,
 )
 from agent_build_kit.pipeline.vocabulary import effective_state
-from agent_build_kit.pipeline.workspaces import BranchBusy, prepare_detached, prepare_worktree
+from agent_build_kit.pipeline.workspaces import (
+    BranchBusy,
+    prepare_detached,
+    prepare_worktree,
+    save_leftovers,
+)
 from agent_build_kit.profiles.base import (
     TEMP_ROOT_VARIABLE,
     AgentEnvironment,
@@ -4108,6 +4114,17 @@ def build_close_pr(
     return close_pr
 
 
+def _tree_options(repo: RepoConfig | None, checkout: Path) -> dict[str, Any]:
+    """The lock paths and artifact patterns of a repo's worktrees, as the options a worktree
+    is prepared and a save of its leftovers are given; a kind with none is left out."""
+    options: dict[str, Any] = {}
+    if locks := lock_paths(repo, checkout):
+        options["locks"] = locks
+    if artifacts := artifact_patterns(repo, checkout):
+        options["artifacts"] = artifacts
+    return options
+
+
 def build_worktree(
     repos: dict[str, Path],
     *,
@@ -4133,16 +4150,24 @@ def build_worktree(
                 f"{unit.id} targets {unit.repo}, which has no checkout configured "
                 f"(known: {', '.join(sorted(repos)) or 'none'})"
             )
-        options: dict[str, Any] = {"name": unit.repo}
+        options: dict[str, Any] = {"name": unit.repo, **_tree_options(repo, repos[unit.repo])}
         if allow_dirty:
             options["allow_dirty"] = True
-        if locks := lock_paths(repo, repos[unit.repo]):
-            options["locks"] = locks
-        if artifacts := artifact_patterns(repo, repos[unit.repo]):
-            options["artifacts"] = artifacts
         return prepare(repos[unit.repo], branch_name(unit), base, root, **options)
 
     return worktree
+
+
+def build_save_leftovers(
+    repos: dict[str, Path], *, repo: RepoConfig | None = None
+) -> Callable[[Unit, Path], SavedLeftovers]:
+    """The runner's way to save the leftovers of the worktree it resolved for a unit to a ref
+    and clean them."""
+
+    def save(unit: Unit, tree: Path) -> SavedLeftovers:
+        return save_leftovers(tree, unit.id, **_tree_options(repo, repos[unit.repo]))
+
+    return save
 
 
 Reading = Callable[[], UsageReading | None]
@@ -5837,6 +5862,7 @@ def build_runner(
         planning_repo=planning_repo,
         repo_config=repo,
         worktree=worktree_in_turn,
+        save_leftovers=build_save_leftovers(installation.checkouts, repo=repo),
         reset_to=reset_to,
         head_reachable=head_reachable,
         tests_in=tests_in,

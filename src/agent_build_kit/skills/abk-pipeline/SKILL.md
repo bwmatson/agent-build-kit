@@ -268,10 +268,17 @@ refused.
 
 ### Parked for its worktree
 
-A `held` unit with the cause `dirty_worktree` found uncommitted changes in its
-worktree that its own killed agent did not leave: a hand edit, or an edit while
-the unit waited. `abk status` lists it as `parked` with the paths. Nothing is
-cleaned, since the changes may be the only copy. Commit or remove them, then
+Uncommitted changes in a unit's worktree that its own killed agent did not leave (a hand
+edit, or an edit while the unit waited) are saved by default: the files go to a commit under
+`refs/abk/leftovers/<unit>/<n>`, only those files are cleaned, the history records them with the
+event cause `leftovers_saved`, `abk status` and `abk explain` name each ref with the
+`git show --stat <ref>` that shows it, and the unit goes on. Restore a file from the ref with
+`git checkout <ref> -- <path>`.
+
+A `held` unit with the cause `dirty_worktree` is the same tree when `git.save_leftovers` is
+false, a rebase, merge or cherry-pick is stopped in it, or it holds a nested repository.
+`abk status` lists it as `parked` with the paths. Nothing is cleaned, since the changes may be
+the only copy. Commit or remove them, then
 `abk requeue <unit>` resumes a park at an agent step at that step, and begins a park anywhere
 else again at `prepare`. A requeue while the tree is still dirty leaves it parked. Changes an agent left when it was killed
 mid-run are not this: the node resumes over them and commits them.
@@ -576,7 +583,7 @@ of the exits below, and which one depends on how it was held.
 | The review loop (`review`) | A person | Decide the point, then `abk requeue` (`--rework` or `--note` where useful); or finish the pull request by hand (merge) or close it | Requeue runs the unit again from its branch; a merge or close is recorded by the next poll. |
 | A merge left it beyond the depth cap (`depth`) | Nobody | A later merge in the same repo restacks it; to move it sooner a person raises `global_limits.stack_depth_rebase_cap` or restacks the branch by hand | The unit leaves `held` when restacked. |
 | The toolchain cannot build it (`toolchain`) | A person | Build the unit by hand on its branch, or change the plan; `abk requeue` alone fixes nothing | The same failure returns until the cause is changed. |
-| Parked, `dirty_worktree` | A person | Commit or remove the changes in the worktree, then `abk requeue` | A requeue while the tree is still dirty leaves it parked. |
+| Parked, `dirty_worktree` (`git.save_leftovers` false, an operation stopped in the tree, or a nested repository) | A person | Commit or remove the changes in the worktree, then `abk requeue` | A requeue while the tree is still dirty leaves it parked. |
 | Parked, `attached` | A person | Start `abk serve` again, or `abk attach release <unit> --commit "MESSAGE"` or `--discard`, then `abk requeue` | The unit stays held until requeued. |
 
 Release applies only to a hold the `agent-hold` label made; for a review-loop

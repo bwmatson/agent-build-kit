@@ -26,6 +26,7 @@ from packages.worker.tests.graph.test_resume_over_leftovers import (
     UNIT,
     edit_by_hand,
     killed_in,
+    requeued,
     rework_event,
 )
 from tests.attach_driver import leave_lease
@@ -63,6 +64,31 @@ def test_a_stale_lease_with_changes_parks_the_unit_as_attached_and_commits_nothi
     assert habitat.commits_on_branch() == commits, "nothing was committed"
     assert (habitat.tree / STRAY).read_text() == "mine\n", "the changes are as they were left"
     assert git_out(habitat.tree, "status", "--porcelain").split() == ["??", STRAY]
+
+
+def test_a_stale_lease_with_changes_makes_no_leftovers_ref_with_the_setting_on(
+    tmp_path: Path,
+) -> None:
+    make_installation(tmp_path / "inst", git={"save_leftovers": True})
+    habitat = Habitat(tmp_path, Hands())
+    recorder = fresh(tmp_path)
+    tick(tmp_path, recorder, may_start=lambda: (False, "window"), **habitat.overrides())
+    edit_by_hand(habitat)
+    leave_lease(lease_dir(tmp_path / "state"), UNIT, files=1)
+    commits = habitat.commits_on_branch()
+
+    outcome = tick(tmp_path, recorder, leases=leases_of(tmp_path), **habitat.overrides())
+
+    assert outcome.status == RunStatus.HELD
+    assert recorder.store.get(UNIT).cause == Cause("attached")
+    assert habitat.commits_on_branch() == commits, "nothing was committed"
+    refs = git_out(habitat.tree, "for-each-ref", "refs/abk/leftovers/")
+    assert refs == "", "nothing was saved"
+    assert (habitat.tree / STRAY).read_text() == "mine\n"
+    assert recorder.store.get(UNIT).leftovers == ()
+    requeued(tmp_path, habitat, recorder)
+    refs = git_out(habitat.tree, "for-each-ref", "--format=%(refname)", "refs/abk/leftovers/")
+    assert refs == f"refs/abk/leftovers/{UNIT}/1", "with no lease read the file is saved"
 
 
 def test_a_stale_lease_with_changes_wins_over_a_killed_nodes_recorded_start(

@@ -20,6 +20,7 @@ from packages.worker.tests.graph.test_environment_lock_files import (
     committed,
     reworked,
 )
+from tests.conftest import make_installation
 from tests.factories import unit
 
 UNIT = unit().id
@@ -47,6 +48,7 @@ def test_an_artifact_folder_the_sync_created_does_not_hold_the_rework(
 def test_another_uncommitted_file_still_holds_the_unit_and_is_the_only_one_named(
     tmp_path: Path,
 ) -> None:
+    make_installation(tmp_path / "off", git={"save_leftovers": False})
     habitat, recorder = built(tmp_path, artifacts=("modules",))
     (habitat.tree / STRAY).write_text("mine\n")
     asked = len(habitat.runtime.requests)
@@ -65,6 +67,7 @@ def test_another_uncommitted_file_still_holds_the_unit_and_is_the_only_one_named
 
 
 def test_a_repository_with_no_artifacts_is_held_for_the_folder_as_before(tmp_path: Path) -> None:
+    make_installation(tmp_path / "off", git={"save_leftovers": False})
     habitat, recorder = built(tmp_path)
     (habitat.tree / "modules" / "pkg").mkdir(parents=True)
     (habitat.tree / "modules" / "pkg" / "built.bin").write_text("built\n")
