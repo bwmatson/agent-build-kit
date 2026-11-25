@@ -16,7 +16,7 @@ from datetime import datetime, timedelta
 from agent_build_kit import run_support
 from agent_build_kit.installation import Installation
 from agent_build_kit.model import Frozen
-from agent_build_kit.pipeline import plan_review, spans
+from agent_build_kit.pipeline import outlines, plan_review, spans
 from agent_build_kit.pipeline.archive import ARCHIVE_FAILURES, read_archive_failures
 from agent_build_kit.pipeline.external_file import held_units
 from agent_build_kit.pipeline.manual_steps import manual_status_line, unmet_steps
@@ -147,6 +147,14 @@ def attention_items(
                 action=f"abk review-plan show {change}; edit its tasks.md, or "
                 f"abk review-plan clear {change} --note TEXT",
                 blocks=by_change.get(change, 0),
+            )
+        )
+    for reading in outlines.ready_outlines(inst, units):
+        items.append(
+            Item(
+                subject=reading.outline.name,
+                what="outline ready to detail: the work it waits on is near enough to build",
+                action=f"abk outlines; then detail {reading.outline.name} as a change",
             )
         )
     for change, failure in read_archive_failures(inst.state_dir / ARCHIVE_FAILURES).items():

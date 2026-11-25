@@ -9,7 +9,9 @@
 - `abk outlines` reports each outline's distance (the units ahead of it that are not yet in
   review or merged) and marks the ones ready to detail. With `--overlaps` it also lists the
   outlines whose paths overlap a detailed change, flagging those that rework it often. It
-  reads only and prints nothing when there are no outlines.
+  reads only and prints nothing when there are no outlines. `abk status` and `abk attention`
+  also name each outline that is ready to detail, so a detailing batch that is due shows up
+  without running `abk outlines`.
 
 - Two planning settings for outlines: `planning.outline_lead_units` (default `1`) sets how
   many units ahead of its prerequisites an outline is ready to detail, and `planning.outlines`
