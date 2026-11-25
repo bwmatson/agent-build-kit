@@ -39,6 +39,7 @@ TESTS_PREFIX = "test: "
 CODE_PREFIX = "feat: "
 FIX_PREFIX = "fix: "
 ALREADY_BUILT_TRAILER = "Already-built"  # the trailer key; its one value is `yes`
+GROUP_TRAILER = "Group"  # the trailer key; its value is `<change>/<number>`
 STUB_BODY_HINT = "only `raise NotImplementedError`"
 
 # A path is a test if any part of it is a tests directory, so this holds for a
@@ -205,6 +206,7 @@ class GroupProgress(Frozen):
     done: int  # groups done: each has its pair, or for a test-only group its tests commit
     tests_made: bool  # the next group's tests commit is there, its implementation not
     lone_feat: str = ""  # the `feat:` subject of the next group found where its `test:` belongs
+    notes: tuple[str, ...] = ()  # commits counted by their `Group:` trailer despite an older title
 
 
 def _group_size(subjects: list[str], position: int, title: str, mode: GroupMode) -> int | None:
@@ -244,6 +246,15 @@ def group_progress(
             return GroupProgress(done=done, tests_made=False, lone_feat=at if lone else "")
         position += size
     return GroupProgress(done=len(titles), tests_made=False)
+
+
+def walk_group_progress(
+    repo: Path, base: str, steps: Sequence[GroupStep], ref: str = "HEAD"
+) -> GroupProgress:
+    """`group_progress` over the branch at `ref`, matching a commit to its group by the number in
+    its `Group:` trailer and, for a commit with none, by its title; `notes` names each pair
+    counted under an older title."""
+    raise NotImplementedError
 
 
 def adopted_subject(unit_title: str, steps: Sequence[GroupStep], subjects: list[str]) -> str:

@@ -16,15 +16,39 @@ import pytest
 
 from agent_build_kit.pipeline.commit_order import (
     STUB_BODY_HINT,
+    branch_subjects,
     check_structure,
     classify_paths,
     extended_test_file,
+    group_progress,
     stub_violations,
+    walk_group_progress,
 )
+from agent_build_kit.pipeline.group_mode import GroupMode
 from agent_build_kit.pipeline.group_paths import allows_tests_only
+from agent_build_kit.pipeline.stack_runner import GroupStep
 from agent_build_kit.profiles.python_uv import PROFILE
 from tests.factories import commit_files as commit
 from tests.factories import git, init_repo
+
+CHANGE = "feature"
+
+
+def step(number: int, title: str, mode: GroupMode = GroupMode.TESTS_AND_CODE) -> GroupStep:
+    return GroupStep(change_dir=f"changes/{CHANGE}", number=number, title=title, mode=mode)
+
+
+def grouped(repo: Path, subject: str, files: dict[str, str], group: str = "") -> None:
+    """A commit with the unit's trailer and, when `group` is given, `Group: <change>/<group>`."""
+    trailers = "Unit: feature/1" + (f"\nGroup: {CHANGE}/{group}" if group else "")
+    commit(repo, f"{subject}\n\n{trailers}\n", files)
+
+
+def stale_pair(repo: Path, number: int, old: str, new_feat: str | None = None) -> None:
+    """Group `number`'s pair under its trailer, its `test:` titled `old` and its `feat:` titled
+    `new_feat` (`old` too when not given)."""
+    grouped(repo, f"test: {old}", {f"tests/test_{number}.py": "def test_x(): ...\n"}, str(number))
+    grouped(repo, f"feat: {new_feat or old}", {f"src/mod_{number}.py": "x = 1\n"}, str(number))
 
 
 @pytest.fixture
@@ -239,3 +263,69 @@ def test_a_lockfile_only_commit_after_the_implementation_is_accepted(repo: Path)
     commit(repo, "chore: Update the lockfile", {"uv.lock": "version = 1\n"})
 
     assert check_structure(repo, "main") == []
+
+
+def test_a_pair_under_a_groups_trailer_with_an_older_title_is_counted_and_noted(
+    repo: Path,
+) -> None:
+    stale_pair(repo, 1, "One")
+    stale_pair(repo, 2, "Old two")
+
+    progress = walk_group_progress(repo, "main", [step(1, "One"), step(2, "Two")])
+
+    assert progress.done == 2
+    assert len(progress.notes) == 1
+    note = progress.notes[0]
+    assert "test: Old two" in note
+    assert "feat: Old two" in note
+    assert "Two" in note
+
+
+def test_a_pair_whose_titles_differ_under_one_trailer_passes_the_gates_pairing(repo: Path) -> None:
+    stale_pair(repo, 1, "One")
+    stale_pair(repo, 2, "Old two", new_feat="Two")
+
+    problems = check_structure(repo, "main", paired=True, groups=[step(1, "One"), step(2, "Two")])
+
+    assert problems == []
+
+
+def test_a_commit_at_a_groups_place_with_another_groups_trailer_is_not_counted_for_it(
+    repo: Path,
+) -> None:
+    stale_pair(repo, 1, "One")
+    grouped(repo, "test: Two", {"tests/test_2.py": "def test_x(): ...\n"}, "3")
+    grouped(repo, "feat: Two", {"src/mod_2.py": "x = 1\n"}, "3")
+
+    progress = walk_group_progress(repo, "main", [step(1, "One"), step(2, "Two"), step(3, "Three")])
+
+    assert progress.done == 1
+    assert progress.notes == ()
+
+
+def test_commits_with_no_group_trailer_give_the_walk_the_results_they_gave_before(
+    repo: Path,
+) -> None:
+    commit(repo, "test: One", {"tests/test_1.py": "def test_x(): ...\n"})
+    commit(repo, "feat: One", {"src/mod_1.py": "x = 1\n"})
+    commit(repo, "test: Two", {"tests/test_2.py": "def test_x(): ...\n"})
+    steps = [step(1, "One"), step(2, "Two")]
+
+    walked = walk_group_progress(repo, "main", steps)
+
+    assert walked == group_progress(branch_subjects(repo, "main"), ["One", "Two"])
+    assert (walked.done, walked.tests_made, walked.notes) == (1, True, ())
+    assert check_structure(repo, "main", paired=True, groups=steps) == check_structure(
+        repo, "main", paired=True
+    )
+
+
+def test_a_refactor_groups_place_holding_a_tests_commit_under_its_own_trailer_is_not_counted(
+    repo: Path,
+) -> None:
+    grouped(repo, "test: One", {"tests/test_1.py": "def test_x(): ...\n"}, "1")
+    grouped(repo, "feat: One", {"src/mod_1.py": "x = 1\n"}, "1")
+
+    progress = walk_group_progress(repo, "main", [step(1, "One", GroupMode.REFACTOR)])
+
+    assert progress.done == 0
