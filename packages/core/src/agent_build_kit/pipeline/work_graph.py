@@ -24,7 +24,7 @@ import re
 import shutil
 import sys
 import tempfile
-from collections.abc import Callable, Iterable, Mapping, Sequence
+from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
 from enum import StrEnum
 from pathlib import Path, PurePosixPath
 from typing import Protocol
@@ -49,9 +49,13 @@ from agent_build_kit.config import (
 )
 from agent_build_kit.model import Frozen, TestTier
 from agent_build_kit.pipeline.command_policy import programs
+from agent_build_kit.pipeline.commit_order import (
+    TEST_DIR_NAMES,
+    TEST_FILE_PREFIXES,
+    extended_test_file,
+)
 from agent_build_kit.pipeline.group_mode import GroupMode
 from agent_build_kit.pipeline.group_paths import (
-    TEST_FOLDERS,
     allows_no_code,
     allows_tests_only,
     line_paths,
@@ -1450,7 +1454,7 @@ def missing_test_folder_warnings(
     changes_dir: Path,
     folder_present: Callable[[str, str], bool | None],
 ) -> list[str]:
-    """One warning per group and test folder (`tests` or `__tests__` root) a task names a
+    """One warning per group and test folder (a root named in `TEST_DIR_NAMES`) a task names a
     file under when `folder_present(repo, root)` says the repo's default branch lacks it and
     no earlier group, nor a group of a change reached through `Needs:`, creates it. The lookup
     returns None when it cannot tell, and the check is then quiet."""
@@ -1504,6 +1508,7 @@ def new_test_file_warnings(
         files = branch_files(group.repo)
         if files is None:
             continue
+        held = frozenset(files)
         named_before: set[str] | None = None
         for key, text, lines in numbered_tasks(group):
             if text.startswith("Reads:"):
@@ -1511,7 +1516,7 @@ def new_test_file_warnings(
             reported: set[str] = set()
             for file in dict.fromkeys(p for line in lines for p in line_paths(line)):
                 split = _new_test_file(file)
-                if split is None or file in files or file in reported:
+                if split is None or file in held or file in reported:
                     continue
                 folder, name = split
                 if _backs(files, folder, name):
@@ -1522,13 +1527,19 @@ def new_test_file_warnings(
                         for earlier in groups
                         if earlier.number <= group.number
                         for p in _task_paths(earlier)
-                    } | _paths_from_needs(path, changes_dir, group.number, needs)
+                    } | {
+                        p
+                        for each in _groups_reached_through_needs(
+                            path, changes_dir, group.number, needs
+                        )
+                        for p in _task_paths(each)
+                    }
                 if _backs(named_before, folder, name):
                     continue
                 reported.add(file)
-                existing = _module_test_file(files, file, name)
+                existing = extended_test_file(file, held.__contains__)
                 fix = (
-                    f"add the case to `{existing}`"
+                    f"add the case to `{existing[0]}`"
                     if existing
                     else f"add the case to the test file of the module `{name}` belongs to"
                 )
@@ -1545,13 +1556,14 @@ def _new_test_file(file: str) -> tuple[str, str] | None:
     """The folder below its test root and the `<name>` of a `test_<name>.py` path under a test
     folder, outside `integration/` and `e2e/`; None for any other path."""
     pure = PurePosixPath(file)
-    if not (pure.name.startswith("test_") and pure.suffix == ".py"):
+    prefix = next((each for each in TEST_FILE_PREFIXES if pure.name.startswith(each)), None)
+    if prefix is None or pure.suffix != ".py":
         return None
     parts = pure.parts[:-1]
-    at = next((i for i, part in enumerate(parts) if part in TEST_FOLDERS), None)
+    at = next((i for i, part in enumerate(parts) if part in TEST_DIR_NAMES), None)
     if at is None or {"integration", "e2e"}.intersection(parts[at + 1 :]):
         return None
-    return "/".join(parts[at + 1 :]), pure.stem.removeprefix("test_")
+    return "/".join(parts[at + 1 :]), pure.stem.removeprefix(prefix)
 
 
 def _backs(files: Iterable[str], folder: str, name: str) -> bool:
@@ -1559,30 +1571,12 @@ def _backs(files: Iterable[str], folder: str, name: str) -> bool:
     `folder`."""
     for each in files:
         pure = PurePosixPath(each)
-        if pure.name != f"{name}.py" or TEST_FOLDERS.intersection(pure.parts):
+        if pure.name != f"{name}.py" or TEST_DIR_NAMES.intersection(pure.parts):
             continue
         parent = pure.parent.as_posix()
         if not folder or parent == folder or parent.endswith(f"/{folder}"):
             return True
     return False
-
-
-def _module_test_file(files: Sequence[str], file: str, name: str) -> str | None:
-    """The test file of the folder of `file` on the branch whose module name is the longest
-    leading part of `name`."""
-    parent = PurePosixPath(file).parent
-    found = [
-        each
-        for each in files
-        if PurePosixPath(each).parent == parent
-        and PurePosixPath(each).name.startswith("test_")
-        and PurePosixPath(each).suffix == ".py"
-        and (
-            name.startswith(f"{PurePosixPath(each).stem.removeprefix('test_')}_")
-            or name == PurePosixPath(each).stem.removeprefix("test_")
-        )
-    ]
-    return max(found, key=len, default=None)
 
 
 def _task_paths(group: TaskGroup) -> list[str]:
@@ -1594,43 +1588,6 @@ def _task_paths(group: TaskGroup) -> list[str]:
         for line in lines
         for p in line_paths(line)
     ]
-
-
-def _paths_from_needs(
-    path: Path, changes_dir: Path, group: int, needs: Mapping[int, list[Need]]
-) -> set[str]:
-    """The paths the groups a group `Needs:` name, with what those groups need in turn (and the
-    groups before each of them in its change)."""
-
-    def needed(file: Path, up_to: int) -> list[tuple[str, int]]:
-        return [
-            (need.change, need.group)
-            for number, found in group_needs(file).items()
-            if number <= up_to
-            for need in found
-        ]
-
-    start = [
-        (need.change, need.group)
-        for number, found in needs.items()
-        if number <= group
-        for need in found
-        if not names_own_change(need, path)
-    ]
-
-    def successors(node: tuple[str, int]) -> list[tuple[str, int]]:
-        other = tasks_path(node[0], changes_dir)
-        return needed(other, node[1]) if other.is_file() else []
-
-    paths: set[str] = set()
-    for change, up_to in reachable(start, successors):
-        other = tasks_path(change, changes_dir)
-        if not other.is_file():
-            continue
-        for each in validate_tasks(other)[0]:
-            if each.number <= up_to:
-                paths.update(_task_paths(each))
-    return paths
 
 
 def _named_by_task(group: TaskGroup) -> list[tuple[str, dict[str, str], set[str]]]:
@@ -1647,7 +1604,7 @@ def _named_by_task(group: TaskGroup) -> list[tuple[str, dict[str, str], set[str]
         for line in lines:
             for named in line_paths(line):
                 parts = PurePosixPath(named).parts
-                at = next((i for i, part in enumerate(parts) if part in TEST_FOLDERS), None)
+                at = next((i for i, part in enumerate(parts) if part in TEST_DIR_NAMES), None)
                 if at is None:
                     continue
                 roots.setdefault(named, "/".join(parts[: at + 1]))
@@ -1661,6 +1618,19 @@ def _roots_from_needs(
     path: Path, changes_dir: Path, group: int, needs: Mapping[int, list[Need]]
 ) -> set[str]:
     """The test folders the groups a group `Needs:` name, with what those groups need in turn
+    (and the groups before each of them in its change)."""
+    return {
+        root
+        for each in _groups_reached_through_needs(path, changes_dir, group, needs)
+        for _, found, _ in _named_by_task(each)
+        for root in found.values()
+    }
+
+
+def _groups_reached_through_needs(
+    path: Path, changes_dir: Path, group: int, needs: Mapping[int, list[Need]]
+) -> Iterator[TaskGroup]:
+    """The groups of other changes a group `Needs:` reaches, with what those groups need in turn
     (and the groups before each of them in its change)."""
 
     def needed(file: Path, up_to: int) -> list[tuple[str, int]]:
@@ -1683,17 +1653,13 @@ def _roots_from_needs(
         other = tasks_path(node[0], changes_dir)
         return needed(other, node[1]) if other.is_file() else []
 
-    roots: set[str] = set()
     for change, up_to in reachable(start, successors):
         other = tasks_path(change, changes_dir)
         if not other.is_file():
             continue
         for each in validate_tasks(other)[0]:
             if each.number <= up_to:
-                roots.update(
-                    root for _, found, _ in _named_by_task(each) for root in found.values()
-                )
-    return roots
+                yield each
 
 
 def environment_setting_notes(

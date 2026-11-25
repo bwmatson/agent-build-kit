@@ -24,8 +24,7 @@ from agent_build_kit.pipeline.call_record import recorded
 from agent_build_kit.pipeline.check_runner import worktree_at
 from agent_build_kit.pipeline.commit_order import (
     DOC_SUFFIXES,
-    TEST_FILE_PREFIXES,
-    TEST_FILE_SUFFIXES,
+    extended_test_file,
 )
 from agent_build_kit.pipeline.external_file import HELD, Hold, add_hold, already_held, read_holds
 from agent_build_kit.pipeline.failure_evidence import EVIDENCE_HEADING, change_evidence
@@ -866,27 +865,8 @@ def _sibling_test_file(path: str, checkout: Path) -> tuple[Path, str] | None:
     subject of `path`: same folder and naming form (a prefix or a suffix of `TEST_FILE_PREFIXES`
     or `TEST_FILE_SUFFIXES`), and a subject that is a leading part of `path`'s own
     (`test_widget.py` for `test_widget_label.py`, `widget.test.ts` for `widget.label.test.ts`)."""
-    name = Path(path).name
-    parts: tuple[str, str, str] | None = None
-    for prefix in TEST_FILE_PREFIXES:
-        if name.startswith(prefix):
-            parts = (prefix, Path(name).stem[len(prefix) :], Path(name).suffix)
-            break
-    if parts is None:
-        for suffix in TEST_FILE_SUFFIXES:
-            if name.endswith(suffix):
-                parts = ("", name[: -len(suffix)], suffix)
-                break
-    if parts is None:
-        return None
-    head, subject, tail = parts
-    for found in re.finditer(r"[_.]", subject):
-        if found.start() == 0:
-            continue
-        sibling = Path(path).with_name(f"{head}{subject[: found.start()]}{tail}")
-        if (checkout / sibling).is_file():
-            return sibling, subject
-    return None
+    found = extended_test_file(path, lambda candidate: (checkout / candidate).is_file())
+    return None if found is None else (Path(found[0]), found[1])
 
 
 def _test_code_problems(

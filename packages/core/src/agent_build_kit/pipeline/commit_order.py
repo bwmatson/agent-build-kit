@@ -22,9 +22,10 @@ through.
 from __future__ import annotations
 
 import ast
+import re
 import subprocess
 from collections.abc import Callable, Collection, Sequence
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import TYPE_CHECKING
 
 from agent_build_kit.model import Frozen
@@ -54,6 +55,38 @@ DOC_SUFFIXES = (".md", ".rst", ".txt")
 
 # Configuration a group may change without writing code.
 CONFIG_SUFFIXES = (".yml", ".yaml", ".toml", ".json", ".ini", ".cfg")
+
+
+def extended_test_file(path: str, exists: Callable[[str], bool]) -> tuple[str, str] | None:
+    """The existing test file the new test file `path` extends, with the subject of `path`.
+
+    The file sits in the same folder, has the same naming form (a prefix of `TEST_FILE_PREFIXES`
+    or a suffix of `TEST_FILE_SUFFIXES`) and a subject that is a leading part of `path`'s own
+    (`test_widget.py` for `test_widget_label.py`, `widget.test.ts` for `widget.label.test.ts`).
+    When several qualify the one with the shortest subject wins. `exists(candidate)` says
+    whether a path holds a file."""
+    pure = PurePosixPath(path)
+    name = pure.name
+    parts: tuple[str, str, str] | None = None
+    for prefix in TEST_FILE_PREFIXES:
+        if name.startswith(prefix):
+            parts = (prefix, pure.stem[len(prefix) :], pure.suffix)
+            break
+    if parts is None:
+        for suffix in TEST_FILE_SUFFIXES:
+            if name.endswith(suffix):
+                parts = ("", name[: -len(suffix)], suffix)
+                break
+    if parts is None:
+        return None
+    head, subject, tail = parts
+    for found in re.finditer(r"[_.]", subject):
+        if found.start() == 0:
+            continue
+        sibling = pure.with_name(f"{head}{subject[: found.start()]}{tail}").as_posix()
+        if exists(sibling):
+            return sibling, subject
+    return None
 
 
 def classify_paths(

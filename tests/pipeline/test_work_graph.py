@@ -873,6 +873,13 @@ def test_a_behaviour_named_new_test_file_is_warned_of_with_the_module_file_it_be
     assert f"{TEST_DIR}/test_units.py" in warnings[0]
 
 
+def test_a_module_outside_the_mirror_folder_does_not_back_a_new_test_file(tmp_path: Path) -> None:
+    text = groups_text((f"Test: `{BEHAVIOUR_TEST}`.",))
+    elsewhere = (*UNITS_BRANCH, "packages/core/src/agent_build_kit/other/units_in_progress.py")
+
+    assert len(new_file_warnings(tmp_path, text, elsewhere)) == 1
+
+
 @pytest.mark.parametrize(
     ("groups", "needs", "others", "files"),
     [

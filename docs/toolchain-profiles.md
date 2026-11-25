@@ -117,7 +117,8 @@ And what it knows:
   scope; the node profile gives `npx vitest run` (and with a path), `npx oxlint .`,
   `npx oxfmt --check .` and `npx tsc --noEmit`. A workspace member that needs
   `--package <name> --isolated` is what the repo's own `agent_commands` is for.
-- `is_test_path`: a `tests` directory anywhere above the file, or a file named
+- `is_test_path`: a test directory (`tests`, `test` or `__tests__`, the shared definition) anywhere
+  above the file, or a file named
   `test_*.py`, `*_test.py` or `conftest.py`.
 - `collects_path`: the file's own name matches `test_*.py` or `*_test.py`, wherever it is, so
   `conftest.py` and a helper module under `tests/` are test-side but not collected.

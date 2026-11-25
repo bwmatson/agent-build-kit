@@ -573,7 +573,7 @@ the groups (exit status unchanged), the planner is told to keep those groups in 
 `abk status` names a file a plan did split. A group that names a workspace or test setting of a
 toolchain manifest gets an info note, since the checks read that setting from the installation.
 
-A task that names a test file under a `tests` or `__tests__` folder the repo's default branch
+A task that names a test file under a test folder (`tests`, `test` or `__tests__`) the repo's default branch
 lacks gets a warning from `abk tags` and `abk check`, once per group and folder, unless an earlier
 group names a path under that folder, or a group it `Needs:` does (directly or through that
 change's own `Needs:` lines). The warning names the group, the task and the path, and says to
@@ -586,7 +586,8 @@ A task that names a new `test_<name>.py` under a test folder (not `integration/`
 the default branch lacks gets a second warning when no `<name>.py` outside the test folders sits
 in a mirror folder and no group at or before the task's, nor one it `Needs:`, names one. A module
 has one test file, so the warning names the group, the task, the path and the rule, and the
-existing test file of that folder whose module name begins `<name>`, where the case belongs. It
+folder's existing test file for the module `<name>` begins with (the shortest such module, so
+`test_units.py` for `test_units_in_progress.py`), where the case belongs. It
 never changes the exit status, the plan review's report carries it, and a repo whose checkout
 cannot be read is not checked.
 

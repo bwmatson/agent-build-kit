@@ -22,7 +22,6 @@ if TYPE_CHECKING:
 
     from agent_build_kit.pipeline.work_graph import TaskGroup
 
-TEST_FOLDERS = TEST_DIR_NAMES
 TEST_FILE_PATTERNS = ("test_*.py", "*_test.py", "*.test.*", "*.spec.*")
 TICKED = re.compile(r"`([^`]+)`")
 _LINE_SUFFIX = re.compile(r":\d+$")
@@ -130,7 +129,7 @@ def _is_test_code(path: str) -> bool:
     (`TEST_DIR_NAMES`), or a test file by name. A `testing` folder alone does not count: it may
     hold a product module."""
     pure = PurePosixPath(path)
-    return bool(TEST_FOLDERS.intersection(pure.parts)) or any(
+    return bool(TEST_DIR_NAMES.intersection(pure.parts)) or any(
         fnmatch(pure.name, pattern) for pattern in TEST_FILE_PATTERNS
     )
 

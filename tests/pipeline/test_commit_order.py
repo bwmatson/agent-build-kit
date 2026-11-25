@@ -18,6 +18,7 @@ from agent_build_kit.pipeline.commit_order import (
     STUB_BODY_HINT,
     check_structure,
     classify_paths,
+    extended_test_file,
     stub_violations,
 )
 from agent_build_kit.pipeline.group_paths import allows_tests_only
@@ -179,6 +180,30 @@ def test_the_three_readers_of_a_test_folder_agree_and_a_testing_folder_is_not_on
     assert commit_order == expected
     assert group_reading == expected
     assert profile == expected
+
+
+@pytest.mark.parametrize(
+    ("new", "held", "expected"),
+    [
+        (
+            "t/test_units_in_progress.py",
+            {"t/test_units.py", "t/test_units_in.py"},
+            ("t/test_units.py", "units_in_progress"),
+        ),
+        (
+            "web/units.label.test.ts",
+            {"web/units.test.ts"},
+            ("web/units.test.ts", "units.label"),
+        ),
+        ("t/test_units_x.py", {"other/test_units.py"}, None),
+        ("t/test_units.py", {"t/test_units_x.py"}, None),
+        ("t/helpers.py", {"t/test_units.py"}, None),
+    ],
+)
+def test_the_test_file_a_new_one_extends_is_the_one_with_the_shortest_leading_subject(
+    new: str, held: set[str], expected: tuple[str, str] | None
+) -> None:
+    assert extended_test_file(new, held.__contains__) == expected
 
 
 def test_stub_detection_reads_python_bodies() -> None:
