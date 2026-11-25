@@ -5,6 +5,7 @@
 - The tick and `abk status` now name a stale plan only while its change has a unit left to
   finish, so a change whose units have all merged, or that has none, is no longer repeated
   on every pass. `abk replan` still lists every stale plan.
+
 - Uncommitted files in a unit's worktree that are not a node's own no longer hold the unit.
   They are saved to a `refs/abk/leftovers/<unit>/<n>` ref (never to the branch), cleaned out
   of the worktree, named in the unit's history and the run log, and the unit goes on. A chat
