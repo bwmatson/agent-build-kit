@@ -28,7 +28,7 @@ The one rule specific to this repo, and the reason it can be public:
 - **A checkout naming itself is not a reference.** Note that the checkout's own entry in its
   own `abk.yaml` is not a consumer reference: a repo with path `.` names the checkout itself,
   so scanning the checkout for its own name is not a hit.
-- **Two checks keep it that way.** `tests/test_no_installation_leaks.py` is a
+- **Two checks keep it that way.** `tests/test_exclusions.py` is a
   structural check (home paths, non-fixture GitHub slugs, `word#number`
   anecdotes, product config paths, literal env keys) that runs with the
   suite; it also reads planning content (`openspec/`, the committed `abk.yaml`, the

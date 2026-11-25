@@ -8,7 +8,7 @@ variable read by literal name outside the settings layer. The term-based half
 of the check is `abk scrub-check`, run from an installation with the terms
 derived from its own abk.yaml.
 
-`tests/test_no_installation_leaks.py` runs it over this repository; tests of the scan
+`tests/test_exclusions.py` runs it over this repository; tests of the scan
 itself run it over a temporary tree.
 """
 
@@ -49,7 +49,7 @@ TEXT = {
 # The files that spell the patterns, or fixtures of what they catch, as text.
 SELF = {
     "installation_leaks.py",
-    "test_no_installation_leaks.py",
+    "test_exclusions.py",
     "test_installation_leaks.py",
     "test_scrub_references.py",
     "test_scrub_store_references.py",

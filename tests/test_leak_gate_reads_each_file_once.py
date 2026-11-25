@@ -15,7 +15,7 @@ from tests.installation_leaks import files
 from tests.time_limit import LOADED_TEST_TIME_LIMIT
 from tests.tracked_files import ROOT
 
-GATE = ROOT / "tests" / "test_no_installation_leaks.py"
+GATE = ROOT / "tests" / "test_exclusions.py"
 
 
 @pytest.mark.time_limit(LOADED_TEST_TIME_LIMIT)

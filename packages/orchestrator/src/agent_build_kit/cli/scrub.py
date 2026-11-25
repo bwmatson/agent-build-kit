@@ -1,6 +1,6 @@
 """`abk scrub-check`: the framework checkout must not name this installation.
 
-The framework's own test (`tests/test_no_installation_leaks.py`) is
+The framework's own test (`tests/test_exclusions.py`) is
 structural and term-free by design — the words that identify an installation
 must not appear in the framework even as a deny list. This is the other half:
 run *from* an installation, it derives the forbidden terms from the
