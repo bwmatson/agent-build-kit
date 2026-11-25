@@ -47,6 +47,7 @@ STANDING = [
 ]
 EVENT = [
     Cause.REQUEUED,
+    Cause.LEFTOVERS_SAVED,
     Cause.RELEASED,
     Cause.ADOPTED,
     Cause.MERGED,

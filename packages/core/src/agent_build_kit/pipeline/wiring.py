@@ -280,7 +280,13 @@ from agent_build_kit.pipeline.usage_guard import (
     snapshot_reading,
 )
 from agent_build_kit.pipeline.vocabulary import effective_state
-from agent_build_kit.pipeline.workspaces import BranchBusy, prepare_detached, prepare_worktree
+from agent_build_kit.pipeline.workspaces import (
+    BranchBusy,
+    prepare_detached,
+    prepare_worktree,
+    save_leftovers,
+    worktree_path,
+)
 from agent_build_kit.profiles.base import (
     TEMP_ROOT_VARIABLE,
     AgentEnvironment,
@@ -4152,7 +4158,14 @@ def build_save_leftovers(
     """The runner's way to save a unit's worktree leftovers to a ref and clean them."""
 
     def save(unit: Unit, paths: Sequence[str]) -> SavedLeftovers:
-        raise NotImplementedError
+        checkout = repos[unit.repo]
+        tree = worktree_path(checkout, branch_name(unit), root, name=unit.repo)
+        return save_leftovers(
+            tree,
+            unit.id,
+            locks=lock_paths(repo, checkout),
+            artifacts=artifact_patterns(repo, checkout),
+        )
 
     return save
 
@@ -5849,6 +5862,9 @@ def build_runner(
         planning_repo=planning_repo,
         repo_config=repo,
         worktree=worktree_in_turn,
+        save_leftovers=build_save_leftovers(
+            installation.checkouts, root=installation.worktree_root, repo=repo
+        ),
         reset_to=reset_to,
         head_reachable=head_reachable,
         tests_in=tests_in,

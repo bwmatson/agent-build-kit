@@ -298,6 +298,7 @@ def rework_event() -> ResumeEvent:
 
 
 def test_a_hand_edit_on_a_unit_that_was_not_killed_parks_it(tmp_path: Path) -> None:
+    make_installation(tmp_path / "off", git={"save_leftovers": False})
     habitat = Habitat(tmp_path, Hands())
     recorder = fresh(tmp_path)
     assert tick(tmp_path, recorder, **habitat.overrides()).status == RunStatus.OPEN
@@ -312,6 +313,7 @@ def test_a_hand_edit_on_a_unit_that_was_not_killed_parks_it(tmp_path: Path) -> N
 
 
 def test_a_dirty_tree_at_a_node_that_runs_no_agent_parks_the_unit(tmp_path: Path) -> None:
+    make_installation(tmp_path / "off", git={"save_leftovers": False})
     habitat = Habitat(tmp_path, Hands())
     recorder = fresh(tmp_path)
     ran = {"checks": 0}
@@ -334,6 +336,7 @@ def test_a_dirty_tree_at_a_node_that_runs_no_agent_parks_the_unit(tmp_path: Path
 def test_an_edit_on_a_unit_waiting_at_an_agent_node_that_never_started_parks_it(
     tmp_path: Path,
 ) -> None:
+    make_installation(tmp_path / "off", git={"save_leftovers": False})
     habitat = Habitat(tmp_path, Hands())
     recorder = fresh(tmp_path)
     waiting = tick(tmp_path, recorder, may_start=lambda: (False, "window"), **habitat.overrides())
@@ -347,6 +350,7 @@ def test_an_edit_on_a_unit_waiting_at_an_agent_node_that_never_started_parks_it(
 
 
 def test_a_requeue_after_the_tree_is_cleaned_resumes_the_unit(tmp_path: Path) -> None:
+    make_installation(tmp_path / "off", git={"save_leftovers": False})
     habitat = Habitat(tmp_path, Hands())
     recorder = fresh(tmp_path)
     tick(tmp_path, recorder, may_start=lambda: (False, "window"), **habitat.overrides())
@@ -433,6 +437,7 @@ def requeued(tmp_path: Path, habitat: Habitat, recorder: Recorder) -> RunOutcome
 
 
 def test_a_review_killed_with_a_dirty_tree_parks_the_unit_at_review(tmp_path: Path) -> None:
+    make_installation(tmp_path / "off", git={"save_leftovers": False})
     habitat = Habitat(tmp_path, Hands())
     recorder = fresh(tmp_path)
 
@@ -455,6 +460,7 @@ def test_a_review_killed_with_a_dirty_tree_parks_the_unit_at_review(tmp_path: Pa
 
 
 def test_a_requeue_after_a_park_at_implement_runs_implement(tmp_path: Path) -> None:
+    make_installation(tmp_path / "off", git={"save_leftovers": False})
     habitat = Habitat(tmp_path, Hands())
     recorder = fresh(tmp_path)
     window = [0, False]  # guard calls so far, and whether it is open now
@@ -485,6 +491,7 @@ def test_a_requeue_after_a_park_at_implement_runs_implement(tmp_path: Path) -> N
 def test_a_requeue_after_the_edits_were_committed_by_hand_still_runs_implement(
     tmp_path: Path,
 ) -> None:
+    make_installation(tmp_path / "off", git={"save_leftovers": False})
     habitat = Habitat(tmp_path, Hands())
     recorder = fresh(tmp_path)
     window = [0, False]  # guard calls so far, and whether it is open now
@@ -515,6 +522,7 @@ def test_a_requeue_after_the_edits_were_committed_by_hand_still_runs_implement(
 
 
 def test_a_requeue_after_a_park_at_rework_keeps_the_feedback(tmp_path: Path) -> None:
+    make_installation(tmp_path / "off", git={"save_leftovers": False})
     habitat = Habitat(tmp_path, Hands())
     recorder = fresh(tmp_path)
     assert tick(tmp_path, recorder, **habitat.overrides()).status == RunStatus.OPEN
@@ -532,6 +540,7 @@ def test_a_requeue_after_a_park_at_rework_keeps_the_feedback(tmp_path: Path) -> 
 
 
 def test_a_requeue_before_the_tree_is_clean_leaves_the_unit_parked(tmp_path: Path) -> None:
+    make_installation(tmp_path / "off", git={"save_leftovers": False})
     habitat = Habitat(tmp_path, Hands())
     recorder = fresh(tmp_path)
     window = [0, False]  # guard calls so far, and whether it is open now

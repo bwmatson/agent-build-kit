@@ -19,6 +19,7 @@ from agent_build_kit.pipeline.shell import git_out
 from agent_build_kit.pipeline.stack_runner import RunOutcome, RunStatus
 from agent_build_kit.pipeline.unit_store import Cause
 from packages.worker.tests.graph.test_resume_over_leftovers import rework_event
+from tests.conftest import make_installation
 from tests.created_files_fakes import LOCK, MAKES_LOCK, configured, registered
 from tests.factories import unit
 from tests.graph_driver import fresh, tick
@@ -66,6 +67,7 @@ def test_an_untracked_file_the_profile_names_does_not_hold_the_rework(tmp_path: 
 def test_another_uncommitted_file_still_holds_the_unit_and_is_the_only_one_named(
     tmp_path: Path,
 ) -> None:
+    make_installation(tmp_path / "off", git={"save_leftovers": False})
     habitat, recorder = built(tmp_path)
     (habitat.tree / LOCK).write_text("created by a unit-test command\n")
     (habitat.tree / STRAY).write_text("mine\n")

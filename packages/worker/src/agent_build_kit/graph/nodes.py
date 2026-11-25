@@ -202,7 +202,11 @@ from agent_build_kit.pipeline.verdict_record import (
     recorded_history,
 )
 from agent_build_kit.pipeline.work_graph import group_sections
-from agent_build_kit.pipeline.workspaces import DirtyWorktree, superseded_ref
+from agent_build_kit.pipeline.workspaces import (
+    DirtyWorktree,
+    operation_in_progress,
+    superseded_ref,
+)
 from agent_build_kit.profiles.base import stubbed_build
 from agent_build_kit.redaction import redact_text
 from agent_build_kit.runtimes.base import (
@@ -1199,13 +1203,36 @@ class BuildPath:
             try:
                 self._tree = self.runner.worktree(self.unit, base)
             except DirtyWorktree as dirty:
-                if not (self._own or self._stopped_in_stub_loop()) or self._chat_changes():
+                if self._chat_changes():
                     raise
+                if not (self._own or self._stopped_in_stub_loop()):
+                    if not self._saves_leftovers(dirty):
+                        raise
+                    self._save_leftovers(dirty)
+                    self._tree = self.runner.worktree(self.unit, base)
+                    return self._tree
                 self._tree = self.runner.worktree(self.unit, base, allow_dirty=True)
                 self._leftovers = dirty.paths
                 if not self._own:
                     self._stub_leftovers = dirty.paths
         return self._tree
+
+    def _saves_leftovers(self, dirty: DirtyWorktree) -> bool:
+        """Whether a tree that is not the node's own is saved and cleaned rather than held: the
+        setting is on, a way to save is wired, and no git operation is stopped in the tree."""
+        if not active().git.save_leftovers or self.runner.save_leftovers is None or not dirty.paths:
+            return False
+        tree = self.runner.worktree(
+            self.unit, local_ref(self.base, repo=self.unit.repo), allow_dirty=True
+        )
+        return not operation_in_progress(tree)
+
+    def _save_leftovers(self, dirty: DirtyWorktree) -> None:
+        save = self.runner.save_leftovers
+        assert save is not None
+        saved = save(self.unit, dirty.paths)
+        self.runner.store.record_leftovers(self.unit.id, saved)
+        self.say(f"saved leftover files to {saved.ref}: {_listed(saved.files)}")
 
     def _stopped_in_stub_loop(self) -> bool:
         """Whether the unit stopped in the stub check loop: the tests and stubs it left

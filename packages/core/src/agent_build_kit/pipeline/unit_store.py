@@ -131,6 +131,7 @@ class Cause(StrEnum):
     RESTACK_DEFERRED = "restack_deferred"
     RESTACK_HANDED_BACK = "restack_handed_back"
     DIRTY_WORKTREE = "dirty_worktree"
+    LEFTOVERS_SAVED = "leftovers_saved"
     ATTACHED = "attached"
     ADOPTED = "adopted"
     MERGED = "merged"
@@ -167,6 +168,7 @@ KEEP = Keep()
 EVENT_CAUSES: frozenset[Cause] = frozenset(
     {
         Cause.REQUEUED,
+        Cause.LEFTOVERS_SAVED,
         Cause.RELEASED,
         Cause.ADOPTED,
         Cause.MERGED,
@@ -1812,6 +1814,23 @@ class UnitStore:
             **fields,
         }
         stored[unit_id] = unit.model_copy(update={"history": (*unit.history, entry)})
+        self._write(stored)
+
+    def record_leftovers(self, unit_id: str, saved: SavedLeftovers) -> None:
+        """Remember a save of uncommitted files, and say it in the history; the state stays."""
+        stored = self._read()
+        unit = stored[unit_id]
+        note = f"saved leftover files to {saved.ref}: {', '.join(saved.files)}"
+        entry = {
+            "state": unit.state,
+            "at": _now(),
+            "event": "leftovers_saved",
+            "cause": Cause.LEFTOVERS_SAVED.value,
+            "note": note,
+        }
+        stored[unit_id] = unit.model_copy(
+            update={"leftovers": (*unit.leftovers, saved), "history": (*unit.history, entry)}
+        )
         self._write(stored)
 
     def mark_last_entry(self, unit_id: str, **fields: str) -> None:

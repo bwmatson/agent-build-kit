@@ -25,6 +25,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import tempfile
 from collections.abc import Sequence
 from contextlib import contextmanager
 from datetime import UTC, datetime
@@ -393,6 +394,22 @@ def discard_changes(path: Path, artifacts: Sequence[str] = ()) -> None:
                 break
 
 
+def operation_in_progress(path: Path) -> bool:
+    """Whether a rebase, merge or cherry-pick is stopped in the worktree: its files are git's."""
+    for name in ("rebase-merge", "rebase-apply", "MERGE_HEAD", "CHERRY_PICK_HEAD"):
+        where = git_out(path, "rev-parse", "--git-path", name)
+        if (path / where).exists():
+            return True
+    return False
+
+
+def _next_leftovers_number(path: Path, unit_id: str) -> int:
+    prefix = f"refs/abk/leftovers/{unit_id}/"
+    refs = git_out(path, "for-each-ref", "--format=%(refname)", prefix).splitlines()
+    numbers = [int(ref.removeprefix(prefix)) for ref in refs if ref.removeprefix(prefix).isdigit()]
+    return max(numbers, default=0) + 1
+
+
 def save_leftovers(
     path: Path,
     unit_id: str,
@@ -402,7 +419,35 @@ def save_leftovers(
 ) -> SavedLeftovers:
     """Save the worktree's uncommitted files as one commit on the branch head under
     `refs/abk/leftovers/<unit_id>/<n>` and restore only those files to the head."""
-    raise NotImplementedError
+    from agent_build_kit.pipeline.unit_store import SavedLeftovers
+
+    names = sorted({name for _, name in _uncommitted(path, locks, artifacts)})
+    head = git_out(path, "rev-parse", "HEAD")
+    with tempfile.TemporaryDirectory() as scratch:
+        env = {**os.environ, "GIT_INDEX_FILE": str(Path(scratch) / "index")}
+        git(path, "read-tree", head, env=env)
+        git(path, "add", "-A", "--", *names, env=env)
+        tree = git(path, "write-tree", env=env).stdout.strip()
+    number = _next_leftovers_number(path, unit_id)
+    ref = f"refs/abk/leftovers/{unit_id}/{number}"
+    commit = git_out(
+        path, "commit-tree", tree, "-p", head, "-m", f"leftovers of {unit_id} (save {number})"
+    )
+    git_out(path, "update-ref", ref, commit)
+    git(path, "reset", "-q", "HEAD", "--", *names)
+    for name in names:
+        if git(path, "cat-file", "-e", f"HEAD:{name}", check=False).returncode == 0:
+            git_out(path, "checkout", "--", name)
+            continue
+        (path / name).unlink(missing_ok=True)
+        for folder in (path / name).parents:  # a folder the removal emptied goes too
+            if folder == path:
+                break
+            try:
+                folder.rmdir()
+            except OSError:
+                break
+    return SavedLeftovers(ref=ref, files=tuple(names), at=datetime.now(UTC).isoformat())
 
 
 def commit_changes(path: Path, message: str) -> str:
