@@ -369,11 +369,12 @@ class Starting(Frozen):
 
 
 class SavedLeftovers(Frozen):
-    """One save of a worktree's uncommitted files: the ref they sit under, the files, and when."""
+    """One save of a worktree's uncommitted files: the ref they sit under, the files, and when
+    (stamped by the store's clock when the save is recorded)."""
 
     ref: str
     files: tuple[str, ...]
-    at: str
+    at: str = ""
 
 
 class StoredUnit(Unit):
@@ -1817,6 +1818,7 @@ class UnitStore:
         stored[unit_id] = unit.model_copy(update={"history": (*unit.history, entry)})
         self._write(stored)
 
+    @_exclusive
     def record_leftovers(self, unit_id: str, saved: SavedLeftovers) -> None:
         """Remember a save of uncommitted files, and say it in the history; the state stays."""
         stored = self._read()
@@ -1836,6 +1838,7 @@ class UnitStore:
         )
         self._write(stored)
 
+    @_exclusive
     def mark_last_entry(self, unit_id: str, **fields: str) -> None:
         """Add `fields` to the unit's latest history entry, which a step wrote without them (who
         asked for a requeue the unit's thread recorded)."""

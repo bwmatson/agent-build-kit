@@ -411,8 +411,16 @@ def discard_changes(path: Path, artifacts: Sequence[str] = ()) -> None:
 
 
 def operation_in_progress(path: Path) -> bool:
-    """Whether a rebase, merge or cherry-pick is stopped in the worktree: its files are git's."""
-    for name in ("rebase-merge", "rebase-apply", "MERGE_HEAD", "CHERRY_PICK_HEAD"):
+    """Whether a rebase, merge, cherry-pick or revert is stopped in the worktree: its files are
+    git's."""
+    for name in (
+        "rebase-merge",
+        "rebase-apply",
+        "MERGE_HEAD",
+        "CHERRY_PICK_HEAD",
+        "REVERT_HEAD",
+        "sequencer",
+    ):
         where = git_out(path, "rev-parse", "--git-path", name)
         if (path / where).exists():
             return True
@@ -470,7 +478,7 @@ def save_leftovers(
                 folder.rmdir()
             except OSError:
                 break
-    return SavedLeftovers(ref=ref, files=tuple(names), at=datetime.now(UTC).isoformat())
+    return SavedLeftovers(ref=ref, files=tuple(names))
 
 
 def commit_changes(path: Path, message: str) -> str:

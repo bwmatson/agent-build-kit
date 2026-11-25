@@ -24,6 +24,7 @@ from agent_build_kit.pipeline.workspaces import (
     DirtyWorktree,
     branch_lock,
     changed_paths,
+    operation_in_progress,
     prepare_detached,
     prepare_worktree,
     save_leftovers,
@@ -289,6 +290,22 @@ def test_a_staged_rename_is_saved_with_its_source_and_both_are_cleaned(stray_tre
     assert changed_paths(stray_tree, artifacts=ARTIFACTS) == ("deps.lock",), "only the lock is left"
     assert (stray_tree / "notes.txt").read_text() == "notes\n"
     assert not (stray_tree / "moved.txt").exists()
+
+
+def test_a_revert_stopped_on_a_conflict_is_an_operation_in_progress(repo: Path) -> None:
+    for text in ("one\n", "two\n"):
+        (repo / "README.md").write_text(text)
+        git(repo, "commit", "-qam", text.strip())
+    assert not operation_in_progress(repo)
+
+    reverted = subprocess.run(
+        ["git", "revert", "--no-edit", "HEAD~1"], cwd=repo, capture_output=True, check=False
+    )
+
+    assert reverted.returncode != 0
+    assert operation_in_progress(repo)
+    git(repo, "revert", "--abort")
+    assert not operation_in_progress(repo)
 
 
 def test_saving_cleans_only_the_saved_files_and_moves_nothing_on_the_branch(
