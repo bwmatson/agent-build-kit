@@ -207,6 +207,17 @@ class GroupProgress(Frozen):
     tests_made: bool  # the next group's tests commit is there, its implementation not
     lone_feat: str = ""  # the `feat:` subject of the next group found where its `test:` belongs
     notes: tuple[str, ...] = ()  # commits counted by their `Group:` trailer despite an older title
+    # The subject standing where the walk stopped, "" when the branch ends there or every group is
+    # done. A report for the stop's text: two progresses that differ only here are equal.
+    at_place: str = ""
+
+    def __eq__(self, other: object) -> bool:
+        if not isinstance(other, GroupProgress):
+            return NotImplemented
+        return self.model_dump(exclude={"at_place"}) == other.model_dump(exclude={"at_place"})
+
+    def __hash__(self) -> int:
+        return hash((self.done, self.tests_made, self.lone_feat, self.notes))
 
 
 def group_key(step: GroupStep) -> str:
@@ -309,12 +320,16 @@ def group_progress(
                 and mode.writes_code
                 and _is_commit(subjects, trailers, position, TESTS_PREFIX, title, key)
             ):
-                return GroupProgress(done=done, tests_made=True, notes=tuple(notes))
+                return GroupProgress(done=done, tests_made=True, notes=tuple(notes), at_place=at)
             lone = mode is GroupMode.TESTS_AND_CODE and _is_commit(
                 subjects, trailers, position, CODE_PREFIX, title, key
             )
             return GroupProgress(
-                done=done, tests_made=False, lone_feat=at if lone else "", notes=tuple(notes)
+                done=done,
+                tests_made=False,
+                lone_feat=at if lone else "",
+                notes=tuple(notes),
+                at_place=at,
             )
         if note := _stale_note(subjects, title, key, position, size):
             notes.append(note)
@@ -322,22 +337,18 @@ def group_progress(
     return GroupProgress(done=len(titles), tests_made=False, notes=tuple(notes))
 
 
-def subject_at_place(
-    subjects: list[str],
-    steps: Sequence[GroupStep],
-    trailers: Sequence[str] = (),
-    *,
-    group: int,
-) -> str:
-    """The subject of the commit standing where group number `group` (an index into `steps`)
-    belongs after the groups before it, "" when the branch ends there."""
-    position = 0
-    for step in steps[:group]:
-        size = _group_size(subjects, position, step.title, step.mode, trailers, group_key(step))
-        if size is None:
-            break
-        position += size
-    return subjects[position] if position < len(subjects) else ""
+def steps_progress(
+    subjects: list[str], trailers: Sequence[str], steps: Sequence[GroupStep]
+) -> GroupProgress:
+    """`group_progress` of the unit's `steps`: the one place their titles, modes and `Group:` keys
+    are put together, so a walk of the branch cannot leave the trailers or keys out."""
+    return group_progress(
+        subjects,
+        [step.title for step in steps],
+        [step.mode for step in steps],
+        trailers,
+        [group_key(step) for step in steps],
+    )
 
 
 def walk_group_progress(
@@ -346,12 +357,10 @@ def walk_group_progress(
     """`group_progress` over the branch at `ref`, matching a commit to its group by the number in
     its `Group:` trailer and, for a commit with none, by its title; `notes` names each pair
     counted under an older title."""
-    return group_progress(
+    return steps_progress(
         [subject for _, subject in branch_commit_subjects(repo, base, ref)],
-        [step.title for step in steps],
-        [step.mode for step in steps],
         branch_commit_trailers(repo, base, ref),
-        [group_key(step) for step in steps],
+        steps,
     )
 
 
@@ -360,13 +369,7 @@ def adopted_group(steps: Sequence[GroupStep], subjects: list[str], trailers: Seq
     reached, the last group once every one has its commits, "" with no groups."""
     if not steps:
         return ""
-    progress = group_progress(
-        subjects,
-        [step.title for step in steps],
-        [step.mode for step in steps],
-        trailers,
-        [group_key(step) for step in steps],
-    )
+    progress = steps_progress(subjects, trailers, steps)
     return group_key(steps[min(progress.done, len(steps) - 1)])
 
 

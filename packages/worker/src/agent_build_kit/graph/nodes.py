@@ -69,9 +69,8 @@ from agent_build_kit.pipeline.commit_order import (
     cherry_pick,
     classify_paths,
     group_key,
-    group_progress,
     recorded_built,
-    subject_at_place,
+    steps_progress,
     superseded_pairs,
 )
 from agent_build_kit.pipeline.e2e import NO_TEST_RAN, E2eVerdict
@@ -374,6 +373,7 @@ class BuildPath:
         # thread; the gate records the pause once the guard lets the node start.
         self.paused_since: spans.Mark | None = None
         self._tree: Path | None = None
+        self._said_notes: set[str] = set()  # the stale-title notes already in the log
         self._node = ""
         # Whether a dirty tree is the running node's own, killed mid-agent, and what it holds.
         self._own = False
@@ -2023,13 +2023,7 @@ class BuildPath:
                 f"a feat: commit for group {step.number} has no test: commit before it "
                 f"({progress.lone_feat})"
             )
-        r = self.runner
-        at = subject_at_place(
-            r.branch_subjects(self.tree(), ref),
-            steps,
-            r.branch_trailers(self.tree(), ref),
-            group=progress.done,
-        )
+        at = progress.at_place
         found = f"; found `{at}` at its place" if at else "; nothing is there"
         if step.test_only:
             return f"the branch holds no tests commit for group {step.number} ({step.title}){found}"
@@ -2045,15 +2039,13 @@ class BuildPath:
         the one reading resume, the pair count and the recorded-group decision share."""
         r = self.runner
         steps = r.group_steps(self.unit)
-        progress = group_progress(
-            r.branch_subjects(self.tree(), ref),
-            [s.title for s in steps],
-            [s.mode for s in steps],
-            r.branch_trailers(self.tree(), ref),
-            [group_key(s) for s in steps],
+        progress = steps_progress(
+            r.branch_subjects(self.tree(), ref), r.branch_trailers(self.tree(), ref), steps
         )
         for note in progress.notes:
-            self.say(note)
+            if note not in self._said_notes:  # once per build, not on every read of the branch
+                self._said_notes.add(note)
+                self.say(note)
         return progress
 
     def half_recorded(self, state: UnitRun, progress: GroupProgress) -> bool:

@@ -579,8 +579,8 @@ release could move. The steps:
    matches a commit to its group by that number, whatever its title, so a
    heading edited after the commits were made does not lose the pair (the
    build's log names the commits counted under the older title). A commit with
-   no trailer, or whose trailer names another group, is matched by its exact
-   subject as before. The tests run
+   no trailer is matched by its exact subject as before, and a commit whose
+   trailer names another group is not counted for this one. The tests run
    writes the group's tests and stubs and the pipeline does not commit them
    yet: `stub_checks` runs lint, format and types over the stubs and tests
    (no test run), and only then commits `test:`. Before that check the pipeline

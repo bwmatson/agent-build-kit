@@ -12,7 +12,7 @@ from collections.abc import Callable, Collection, Mapping
 from pathlib import Path
 from typing import Any
 
-from agent_build_kit.pipeline.commit_order import branch_subjects
+from agent_build_kit.pipeline.commit_order import branch_commit_trailers, branch_subjects
 from agent_build_kit.pipeline.stack_runner import RunOutcome
 from agent_build_kit.pipeline.unit_store import UnitStore
 from agent_build_kit.pipeline.units import Member
@@ -154,6 +154,9 @@ class OnBranch(StubLoop):
     def branch_subjects(self, cwd: Path, base: str) -> list[str]:
         return branch_subjects(cwd, base)
 
+    def branch_trailers(self, cwd: Path, base: str) -> list[str]:
+        return branch_commit_trailers(cwd, base)
+
     def overrides(self, tmp_path: Path) -> dict[str, Any]:
         return {
             **super().overrides(tmp_path),
@@ -183,10 +186,15 @@ def messages(repo: Path) -> list[str]:
 
 def group_trailers(repo: Path) -> list[str]:
     """The `Group:` trailer value of each commit on the branch, oldest first."""
-    log = git(
-        repo, "log", "--reverse", "--format=%(trailers:key=Group,valueonly)%x00", f"{BASE}..HEAD"
-    )
-    return [entry.strip() for entry in log.split("\0")[:-1]]
+    return branch_commit_trailers(repo, BASE)
+
+
+def land_grouped(repo: Path, subject: str, group: str) -> None:
+    """A commit on the branch with the unit's trailer and `Group: <group>`, as a build made it
+    before the group's heading was edited."""
+    (repo / f"grouped-{group.replace('/', '-')}-{subject[:4]}.txt").write_text(f"{subject}\n")
+    git(repo, "add", "-A")
+    git(repo, "commit", "-q", "-m", f"{subject}\n\n{TRAILER}\nGroup: {group}\n")
 
 
 def subjects(repo: Path) -> list[str]:
