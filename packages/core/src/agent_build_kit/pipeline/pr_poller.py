@@ -194,6 +194,8 @@ def snapshot(pull: PullRequest, ignore: Collection[str] = ()) -> dict:
         "head": pull.head,
         # True, False, or None while the host has not worked it out.
         "mergeable": pull.mergeable,
+        # Whether the host lists it as a draft.
+        "draft": pull.draft,
     }
 
 
@@ -205,6 +207,7 @@ def host_view(current: dict) -> dict:
         "mergeable": current["mergeable"],
         "checks": dict(current["checks"]),
         "labels": list(current["labels"]),
+        "draft": current["draft"],
     }
 
 

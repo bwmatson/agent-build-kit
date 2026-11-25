@@ -8,6 +8,8 @@
   a package's test file must be `test_<module>.py`, with today's exceptions in
   `placement_baseline.toml`. A `testing/` folder no longer marks a test path, and a `test/`
   folder does everywhere.
+- Each poll now records whether the host lists a pull request as a draft, beside the state,
+  checks and labels it already keeps, without treating a change of draft state as an event.
 
 - A unit's group commits now carry a `Group: <change>/<number>` trailer beside `Unit:`, and
   the build matches a commit to its group by that number. A group whose heading was edited
