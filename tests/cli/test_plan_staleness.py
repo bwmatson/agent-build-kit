@@ -81,9 +81,13 @@ def test_a_tick_over_three_stale_plans_makes_no_planner_call_and_logs_each(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     changes = ("alpha", "beta", "gamma")
-    run = ticking_replan(tmp_path, monkeypatch, {change: tasks_md(1) for change in changes})
+    run = ticking_replan(
+        tmp_path, monkeypatch, {change: tasks_md(1) for change in (*changes, "done")}
+    )
     for change in changes:
         run.record(change)
+        run.store.upsert([unit(f"{change}/1", change=change, groups=(1,))])
+    run.record_finished("done")
     # Something else in progress makes the tick run, so what it says is heard.
     run.store.upsert([unit("other/1", change="other", groups=(1,))])
     run.store.set_state("other/1", IN_REVIEW, pr=5, branch="spec/other/1")
@@ -95,3 +99,4 @@ def test_a_tick_over_three_stale_plans_makes_no_planner_call_and_logs_each(
     for change in changes:
         lines = [line for line in out.splitlines() if change in line and BEFORE_POLICY in line]
         assert len(lines) == 1, f"{change} is logged once, with its reason:\n{out}"
+    assert not [line for line in out.splitlines() if "done" in line and BEFORE_POLICY in line]

@@ -10,7 +10,7 @@ import pytest
 
 from agent_build_kit.cli import pipeline as cli
 from agent_build_kit.pipeline.shell import git_out as git
-from agent_build_kit.pipeline.units import UnitState
+from agent_build_kit.pipeline.units import Member, UnitState
 from tests.cli.plan_outage_fakes import raises, service
 from tests.cli.replan_driver import Replan, answer, enable_review, planned, tasks_md
 from tests.factories import commit_files, init_repo, stored_unit
@@ -28,7 +28,14 @@ def test_status_prints_a_line_for_each_stale_plan_naming_the_change_and_the_reas
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     monkeypatch.setattr("agent_build_kit.run_support.current_usage", lambda: None)
-    run = Replan(tmp_path, monkeypatch, alpha=tasks_md(1), beta=tasks_md(1), gamma=tasks_md(1))
+    run = Replan(
+        tmp_path,
+        monkeypatch,
+        alpha=tasks_md(1),
+        beta=tasks_md(1),
+        gamma=tasks_md(1),
+        delta=tasks_md(1),
+    )
     enable_review(run, ceilings={"full": 750})
     code, _ = run.run(capsys, "alpha", reply=answer(planned("alpha/1", (1,))))
     assert code == 0
@@ -36,9 +43,12 @@ def test_status_prints_a_line_for_each_stale_plan_naming_the_change_and_the_reas
     code, _ = run.run(capsys, "gamma", reply=answer(planned("gamma/1", (1,))))
     assert code == 0
     run.record("beta")
+    run.store.upsert([stored_unit("beta/1", change="beta", groups=(1,))])
+    run.record_finished("delta")
 
     lines = status_lines(run, capsys)
 
+    assert not any("delta" in line for line in lines), "delta has no unit left to finish"
     assert len(lines) == 2
     assert any("alpha" in line and "ceilings changed" in line for line in lines)
     assert any("beta" in line and "planned before the review policy" in line for line in lines)
@@ -167,6 +177,57 @@ def test_status_does_not_warn_of_a_built_group_whose_mode_needs_no_attention(
 
     out = capsys.readouterr().out
     assert [ln for ln in out.splitlines() if "feature/1" in ln and "mode" in ln] == []
+
+
+@pytest.mark.parametrize(
+    "state",
+    [
+        pytest.param(UnitState.MERGED, id="merged"),
+        pytest.param(UnitState.SATISFIED, id="satisfied"),
+        pytest.param(UnitState.CLOSED, id="closed"),
+        pytest.param(UnitState.RETIRED, id="retired"),
+        pytest.param(None, id="no stored unit"),
+    ],
+)
+def test_status_prints_no_stale_plan_line_for_a_change_with_no_unit_to_finish_yet_replan_lists_it(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    state: UnitState | None,
+) -> None:
+    monkeypatch.setattr("agent_build_kit.run_support.current_usage", lambda: None)
+    run = Replan(tmp_path, monkeypatch, alpha=tasks_md(1))
+    enable_review(run)
+    run.record("alpha")
+    if state is not None:
+        run.store.upsert([stored_unit("alpha/1", change="alpha", groups=(1,))])
+        run.store.set_state("alpha/1", state)
+
+    assert status_lines(run, capsys) == []
+    code, listing = run.run(capsys)
+    assert code == 2
+    assert "stale" in next(line for line in listing.splitlines() if line.startswith("alpha:"))
+
+
+def test_status_prints_the_line_of_a_stale_plan_whose_change_has_a_unit_carried_by_another(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    monkeypatch.setattr("agent_build_kit.run_support.current_usage", lambda: None)
+    run = Replan(tmp_path, monkeypatch, alpha=tasks_md(1), beta=tasks_md(1), gamma=tasks_md(1))
+    enable_review(run)
+    run.record("alpha")
+    run.record("gamma")
+    run.store.upsert([stored_unit("gamma/1", change="gamma", groups=(1,))])
+    run.store.set_state("gamma/1", UnitState.MERGED)
+    carrier = stored_unit(
+        "beta/1", change="beta", groups=(1,), joined=(Member(change="alpha", groups=(1,)),)
+    )
+    run.store.upsert([carrier])
+
+    lines = status_lines(run, capsys)
+
+    assert [line for line in lines if " alpha:" in line]
+    assert [line for line in lines if " gamma:" in line] == []
 
 
 def test_a_waiting_plan_with_a_unit_stored_is_called_stale(
