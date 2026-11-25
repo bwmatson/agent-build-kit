@@ -63,12 +63,15 @@ from agent_build_kit.pipeline.command_limit import SUSPENDED_NOTE, suspended, ti
 from agent_build_kit.pipeline.commit_body import commit_body
 from agent_build_kit.pipeline.commit_order import (
     CODE_PREFIX,
+    GROUP_TRAILER,
     TESTS_PREFIX,
     GroupProgress,
     cherry_pick,
     classify_paths,
+    group_key,
     group_progress,
     recorded_built,
+    subject_at_place,
     superseded_pairs,
 )
 from agent_build_kit.pipeline.e2e import NO_TEST_RAN, E2eVerdict
@@ -1479,7 +1482,14 @@ class BuildPath:
         if git(tree, "rev-parse", "--verify", "-q", kept, check=False).returncode:
             return
         steps = r.group_steps(parent)
-        found = superseded_pairs(tree, kept, ref, [s.title for s in steps], [s.mode for s in steps])
+        found = superseded_pairs(
+            tree,
+            kept,
+            ref,
+            [s.title for s in steps],
+            [s.mode for s in steps],
+            [group_key(s) for s in steps],
+        )
         if found is None:
             self.say(f"commits of {parent_id} not reused: they are not a pair for each group")
             return
@@ -1992,8 +2002,11 @@ class BuildPath:
         step = self.group_step(state)
         steps = [step] if step else self.runner.group_steps(self.unit)
         body = commit_body(steps, tests=tests)
-        return f"{prefix}{step.title if step else self.unit.title}" + (
-            f"\n\n{body}" if body else ""
+        group = f"\n\n{GROUP_TRAILER}: {group_key(step)}" if step else ""
+        return (
+            f"{prefix}{step.title if step else self.unit.title}"
+            + (f"\n\n{body}" if body else "")
+            + group
         )
 
     def unpaired(self, state: UnitRun, ref: str) -> str:
@@ -2005,18 +2018,26 @@ class BuildPath:
         if progress.done > state.group:
             return ""
         step = steps[progress.done]
-        if step.test_only:
-            return f"the branch holds no tests commit for group {step.number} ({step.title})"
-        if not step.mode.writes_tests:
-            return f"the branch holds no commit for group {step.number} ({step.title})"
         if progress.lone_feat:
             return (
                 f"a feat: commit for group {step.number} has no test: commit before it "
                 f"({progress.lone_feat})"
             )
+        r = self.runner
+        at = subject_at_place(
+            r.branch_subjects(self.tree(), ref),
+            steps,
+            r.branch_trailers(self.tree(), ref),
+            group=progress.done,
+        )
+        found = f"; found `{at}` at its place" if at else "; nothing is there"
+        if step.test_only:
+            return f"the branch holds no tests commit for group {step.number} ({step.title}){found}"
+        if not step.mode.writes_tests:
+            return f"the branch holds no commit for group {step.number} ({step.title}){found}"
         return (
             f"the branch holds no tests and implementation pair for group {step.number} "
-            f"({step.title})"
+            f"({step.title}){found}"
         )
 
     def branch_progress(self, ref: str) -> GroupProgress:
@@ -2024,11 +2045,16 @@ class BuildPath:
         the one reading resume, the pair count and the recorded-group decision share."""
         r = self.runner
         steps = r.group_steps(self.unit)
-        return group_progress(
+        progress = group_progress(
             r.branch_subjects(self.tree(), ref),
             [s.title for s in steps],
             [s.mode for s in steps],
+            r.branch_trailers(self.tree(), ref),
+            [group_key(s) for s in steps],
         )
+        for note in progress.notes:
+            self.say(note)
+        return progress
 
     def half_recorded(self, state: UnitRun, progress: GroupProgress) -> bool:
         """Whether a killed run left this group's marked empty tests commit as the tip, with its

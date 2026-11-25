@@ -171,9 +171,22 @@ def seeded_branch(tmp_path: Path, subjects: list[str]) -> Path:
 
 
 def messages(repo: Path) -> list[str]:
-    """The whole message of each commit on the branch, oldest first."""
+    """The whole message of each commit on the branch, oldest first, without its `Group:`
+    trailer, which `group_trailers` reads."""
     log = git(repo, "log", "--reverse", "--format=%B%x00", f"{BASE}..HEAD")
-    return [entry.strip() for entry in log.split("\0") if entry.strip()]
+    return [
+        "\n".join(row for row in entry.strip().split("\n") if not row.startswith("Group: "))
+        for entry in log.split("\0")
+        if entry.strip()
+    ]
+
+
+def group_trailers(repo: Path) -> list[str]:
+    """The `Group:` trailer value of each commit on the branch, oldest first."""
+    log = git(
+        repo, "log", "--reverse", "--format=%(trailers:key=Group,valueonly)%x00", f"{BASE}..HEAD"
+    )
+    return [entry.strip() for entry in log.split("\0")[:-1]]
 
 
 def subjects(repo: Path) -> list[str]:

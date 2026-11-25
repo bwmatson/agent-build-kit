@@ -209,43 +209,135 @@ class GroupProgress(Frozen):
     notes: tuple[str, ...] = ()  # commits counted by their `Group:` trailer despite an older title
 
 
-def _group_size(subjects: list[str], position: int, title: str, mode: GroupMode) -> int | None:
+def group_key(step: GroupStep) -> str:
+    """The value of the `Group:` trailer the commits of `step` carry: `<change>/<number>`."""
+    return f"{Path(step.change_dir).name}/{step.number}"
+
+
+def branch_commit_trailers(repo: Path, base: str, ref: str = "HEAD") -> list[str]:
+    """The `Group:` trailer value of each commit the branch at `ref` carries beyond `base`, oldest
+    first, "" for a commit with none; aligned with `branch_commit_subjects`."""
+    out = git_out(
+        repo,
+        "log",
+        "--reverse",
+        f"--format=%(trailers:key={GROUP_TRAILER},valueonly,separator=%x2C)%x00",
+        f"{base}..{ref}",
+    )
+    return [value.strip() for value in out.split("\0")[:-1]]
+
+
+def _is_commit(
+    subjects: list[str], trailers: Sequence[str], index: int, prefix: str, title: str, key: str
+) -> bool:
+    """Whether the commit at `index` is the `prefix` commit of the group `key` titled `title`: by
+    its `Group:` trailer when it has one (its title is then free), else by the exact subject."""
+    if index >= len(subjects):
+        return False
+    trailer = trailers[index] if index < len(trailers) else ""
+    if trailer:
+        return trailer == key and subjects[index].startswith(prefix)
+    return subjects[index] == f"{prefix}{title}"
+
+
+def _group_size(
+    subjects: list[str],
+    position: int,
+    title: str,
+    mode: GroupMode,
+    trailers: Sequence[str] = (),
+    key: str = "",
+) -> int | None:
     """How many commits a finished group takes from `subjects` at `position`, None when the
     group is not finished there. A `tests_and_code` group takes a `test:` then a `feat:`; a
     `tests_only` group its `test:` alone; a `no_code` group a lone `feat:` or that pair; a
-    `refactor` group a lone `feat:`."""
-    tests, feat = f"{TESTS_PREFIX}{title}", f"{CODE_PREFIX}{title}"
-    at = subjects[position] if position < len(subjects) else None
-    following = subjects[position + 1] if position + 1 < len(subjects) else None
-    if mode.accepts_tests_commit and at == tests:
+    `refactor` group a lone `feat:`. A commit whose `trailers` entry is set is the group `key`'s
+    by that value, whatever its title."""
+
+    def is_commit(index: int, prefix: str) -> bool:
+        return _is_commit(subjects, trailers, index, prefix, title, key)
+
+    if mode.accepts_tests_commit and is_commit(position, TESTS_PREFIX):
         if mode is GroupMode.TESTS_ONLY:
             return 1
-        return 2 if following == feat else None
-    if mode in (GroupMode.NO_CODE, GroupMode.REFACTOR) and at == feat:
+        return 2 if is_commit(position + 1, CODE_PREFIX) else None
+    if mode in (GroupMode.NO_CODE, GroupMode.REFACTOR) and is_commit(position, CODE_PREFIX):
         return 1
     return None
 
 
+def _stale_note(subjects: list[str], title: str, key: str, start: int, size: int) -> str:
+    """The note for commits counted by their trailer under an older title, "" when each has the
+    group's own subject."""
+    stale = [
+        subject
+        for subject in subjects[start : start + size]
+        if subject not in (f"{TESTS_PREFIX}{title}", f"{CODE_PREFIX}{title}")
+    ]
+    if not stale:
+        return ""
+    names = " and ".join(f"`{subject}`" for subject in stale)
+    return (
+        f"{names} counted for group {key} by its Group trailer, though it is now titled `{title}`"
+    )
+
+
 def group_progress(
-    subjects: list[str], titles: Sequence[str], modes: Sequence[GroupMode] = ()
+    subjects: list[str],
+    titles: Sequence[str],
+    modes: Sequence[GroupMode] = (),
+    trailers: Sequence[str] = (),
+    keys: Sequence[str] = (),
 ) -> GroupProgress:
     """Walk the groups in the unit's order, each taking the commits its mode calls for with its
     title from the front of `subjects` (oldest first); `modes` is by position, like `titles`, and
     a group with none is `tests_and_code`. The position in the unit, not the title, tells groups
     apart, so two groups with one title are told apart. A branch that does not begin with the
-    first group's commits has made no progress."""
+    first group's commits has made no progress. `trailers` is each subject's `Group:` value and
+    `keys` each group's, by position: a commit whose trailer is its group's counts whatever its
+    title, and one whose trailer names another group does not count."""
     position = 0
+    notes: list[str] = []
     for done, title in enumerate(titles):
         mode = mode_at(modes, done)
-        size = _group_size(subjects, position, title, mode)
+        key = keys[done] if done < len(keys) else ""
+        size = _group_size(subjects, position, title, mode, trailers, key)
         if size is None:
             at = subjects[position] if position < len(subjects) else ""
-            if mode.accepts_tests_commit and mode.writes_code and at == f"{TESTS_PREFIX}{title}":
-                return GroupProgress(done=done, tests_made=True)
-            lone = mode is GroupMode.TESTS_AND_CODE and at == f"{CODE_PREFIX}{title}"
-            return GroupProgress(done=done, tests_made=False, lone_feat=at if lone else "")
+            if (
+                mode.accepts_tests_commit
+                and mode.writes_code
+                and _is_commit(subjects, trailers, position, TESTS_PREFIX, title, key)
+            ):
+                return GroupProgress(done=done, tests_made=True, notes=tuple(notes))
+            lone = mode is GroupMode.TESTS_AND_CODE and _is_commit(
+                subjects, trailers, position, CODE_PREFIX, title, key
+            )
+            return GroupProgress(
+                done=done, tests_made=False, lone_feat=at if lone else "", notes=tuple(notes)
+            )
+        if note := _stale_note(subjects, title, key, position, size):
+            notes.append(note)
         position += size
-    return GroupProgress(done=len(titles), tests_made=False)
+    return GroupProgress(done=len(titles), tests_made=False, notes=tuple(notes))
+
+
+def subject_at_place(
+    subjects: list[str],
+    steps: Sequence[GroupStep],
+    trailers: Sequence[str] = (),
+    *,
+    group: int,
+) -> str:
+    """The subject of the commit standing where group number `group` (an index into `steps`)
+    belongs after the groups before it, "" when the branch ends there."""
+    position = 0
+    for step in steps[:group]:
+        size = _group_size(subjects, position, step.title, step.mode, trailers, group_key(step))
+        if size is None:
+            break
+        position += size
+    return subjects[position] if position < len(subjects) else ""
 
 
 def walk_group_progress(
@@ -254,7 +346,28 @@ def walk_group_progress(
     """`group_progress` over the branch at `ref`, matching a commit to its group by the number in
     its `Group:` trailer and, for a commit with none, by its title; `notes` names each pair
     counted under an older title."""
-    raise NotImplementedError
+    return group_progress(
+        [subject for _, subject in branch_commit_subjects(repo, base, ref)],
+        [step.title for step in steps],
+        [step.mode for step in steps],
+        branch_commit_trailers(repo, base, ref),
+        [group_key(step) for step in steps],
+    )
+
+
+def adopted_group(steps: Sequence[GroupStep], subjects: list[str], trailers: Sequence[str]) -> str:
+    """The `Group:` trailer value an adopted commit takes: that of the group `subjects` has
+    reached, the last group once every one has its commits, "" with no groups."""
+    if not steps:
+        return ""
+    progress = group_progress(
+        subjects,
+        [step.title for step in steps],
+        [step.mode for step in steps],
+        trailers,
+        [group_key(step) for step in steps],
+    )
+    return group_key(steps[min(progress.done, len(steps) - 1)])
 
 
 def adopted_subject(unit_title: str, steps: Sequence[GroupStep], subjects: list[str]) -> str:
@@ -275,19 +388,26 @@ def adopted_subject(unit_title: str, steps: Sequence[GroupStep], subjects: list[
 
 
 def superseded_pairs(
-    repo: Path, ref: str, base: str, titles: Sequence[str], modes: Sequence[GroupMode]
+    repo: Path,
+    ref: str,
+    base: str,
+    titles: Sequence[str],
+    modes: Sequence[GroupMode],
+    keys: Sequence[str] = (),
 ) -> list[list[str]] | None:
     """The commits of each group on the branch at `ref`, oldest group first, when the branch
-    beyond `base` is exactly the commits each of the groups (`titles`, by position, with `modes`)
-    takes, in order; None for any other branch, which has a commit that belongs to no group or
-    lacks one."""
+    beyond `base` is exactly the commits each of the groups (`titles`, by position, with `modes`
+    and, matched by trailer, `keys`) takes, in order; None for any other branch, which has a
+    commit that belongs to no group or lacks one."""
     found = branch_commit_subjects(repo, base, ref)
     shas = [sha for sha, _ in found]
     subjects = [subject for _, subject in found]
+    trailers = branch_commit_trailers(repo, base, ref)
     taken = 0
     groups: list[list[str]] = []
     for index, title in enumerate(titles):
-        size = _group_size(subjects, taken, title, mode_at(modes, index))
+        key = keys[index] if index < len(keys) else ""
+        size = _group_size(subjects, taken, title, mode_at(modes, index), trailers, key)
         if size is None:
             return None
         groups.append(shas[taken : taken + size])
@@ -334,16 +454,19 @@ def _name_unit(repo: Path, unit_id: str) -> bool:
     return amended.returncode == 0
 
 
-def _commit_modes(subjects: list[str], groups: Sequence[GroupStep]) -> list[GroupMode | None]:
+def _commit_modes(
+    subjects: list[str], groups: Sequence[GroupStep], trailers: Sequence[str] = ()
+) -> list[GroupMode | None]:
     """For each subject, the mode of the group whose commit it is, None for a commit that belongs
     to no group. The groups are walked in order, each taking the commits its mode calls for with
-    its title, so position tells two groups with one title apart."""
+    its title (or its `Group:` trailer), so position tells two groups with one title apart."""
     found: list[GroupMode | None] = [None] * len(subjects)
     position = 0
     for group in groups:
-        size = _group_size(subjects, position, group.title, group.mode)
+        key = group_key(group)
+        size = _group_size(subjects, position, group.title, group.mode, trailers, key)
         if size is None:
-            if position < len(subjects) and subjects[position] == f"{TESTS_PREFIX}{group.title}":
+            if _is_commit(subjects, trailers, position, TESTS_PREFIX, group.title, key):
                 found[position] = group.mode if group.mode.accepts_tests_commit else None
             break
         found[position : position + size] = [group.mode] * size
@@ -369,10 +492,12 @@ def commits_without_red_check(repo: Path, base: str, groups: Sequence[GroupStep]
     }
 
 
-def _pair_problems(subjects: list[str], test_only: list[bool]) -> list[str]:
+def _pair_problems(
+    subjects: list[str], test_only: list[bool], trailers: Sequence[str] = ()
+) -> list[str]:
     """What is wrong with how `subjects` (oldest first) pair up: each `test:` commit is
-    followed directly by a `feat:` commit with the same title, unless it is the commit of a
-    test-only group (`test_only`, by position)."""
+    followed directly by a `feat:` commit with the same title, or with the same `Group:` trailer,
+    unless it is the commit of a test-only group (`test_only`, by position)."""
     problems: list[str] = []
     for index, subject in enumerate(subjects):
         if not subject.startswith(TESTS_PREFIX) or test_only[index]:
@@ -385,7 +510,14 @@ def _pair_problems(subjects: list[str], test_only: list[bool]) -> list[str]:
             )
             continue
         title = subject.removeprefix(TESTS_PREFIX)
-        if following != f"{CODE_PREFIX}{title}":
+        trailer = trailers[index] if index < len(trailers) else ""
+        same_group = (
+            bool(trailer)
+            and following is not None
+            and following.startswith(CODE_PREFIX)
+            and trailers[index + 1] == trailer
+        )
+        if following != f"{CODE_PREFIX}{title}" and not same_group:
             found = f"`{following}`" if following else "nothing"
             problems.append(
                 f"`{subject}` is not directly followed by `{CODE_PREFIX}{title}` (next: {found})"
@@ -415,7 +547,8 @@ def check_structure(
     if not shas:
         return [f"no commits between {base} and HEAD"]
     subjects = branch_subjects(repo, base)
-    owners = _commit_modes(subjects, groups if paired else ())
+    trailers = branch_commit_trailers(repo, base)
+    owners = _commit_modes(subjects, groups if paired else (), trailers)
     test_only = [
         mode is GroupMode.TESTS_ONLY and subject.startswith(TESTS_PREFIX)
         for subject, mode in zip(subjects, owners, strict=True)
@@ -494,8 +627,8 @@ def check_structure(
             break
 
     if paired:
-        problems.extend(_pair_problems(subjects, test_only))
-        if (title := _refactor_given_tests(subjects, groups)) is not None:
+        problems.extend(_pair_problems(subjects, test_only, trailers))
+        if (title := _refactor_given_tests(subjects, groups, trailers)) is not None:
             problems.append(
                 f"`{TESTS_PREFIX}{title}` is a tests commit for a reorganization, "
                 f"which takes a lone `{CODE_PREFIX}{title}`"
@@ -504,17 +637,19 @@ def check_structure(
     return problems
 
 
-def _refactor_given_tests(subjects: list[str], groups: Sequence[GroupStep]) -> str | None:
+def _refactor_given_tests(
+    subjects: list[str], groups: Sequence[GroupStep], trailers: Sequence[str] = ()
+) -> str | None:
     """The title of the `refactor` group the walk of `groups` over `subjects` stops at because its
     place holds its own `test:` commit, None when the walk stops elsewhere or not at all. By
     position, so a `refactor` group does not take the tests commit of an earlier group with its
     title."""
     position = 0
     for group in groups:
-        size = _group_size(subjects, position, group.title, group.mode)
+        key = group_key(group)
+        size = _group_size(subjects, position, group.title, group.mode, trailers, key)
         if size is None:
-            at_place = subjects[position] if position < len(subjects) else ""
-            tests = f"{TESTS_PREFIX}{group.title}"
-            return group.title if group.mode is GroupMode.REFACTOR and at_place == tests else None
+            own_tests = _is_commit(subjects, trailers, position, TESTS_PREFIX, group.title, key)
+            return group.title if group.mode is GroupMode.REFACTOR and own_tests else None
         position += size
     return None

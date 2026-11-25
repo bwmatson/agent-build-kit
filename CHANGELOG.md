@@ -8,6 +8,12 @@
   a package's test file must be `test_<module>.py`, with today's exceptions in
   `placement_baseline.toml`. A `testing/` folder no longer marks a test path, and a `test/`
   folder does everywhere.
+- A unit's group commits now carry a `Group: <change>/<number>` trailer beside `Unit:`, and
+  the build matches a commit to its group by that number. A group whose heading was edited
+  after its commits were made is no longer reported as missing its pair: the build says in
+  its log which commits it counted under the older title. A stop for a group the branch does
+  not complete now names the subject found at that group's place, or says nothing is there.
+  Commits made before this release carry no trailer and are read as before.
 
 - `abk tags` and `abk check` now warn when a task names a test file under a `tests` or
   `__tests__` folder that the repo's default branch lacks and no earlier group, or group it

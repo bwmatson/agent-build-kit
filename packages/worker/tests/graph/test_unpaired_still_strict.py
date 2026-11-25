@@ -13,6 +13,7 @@ from packages.worker.tests.graph.test_build_path import build
 from tests.graph.branch_fakes import (
     TRAILER,
     built_after_a_pair,
+    group_trailers,
     messages,
     prepared,
     subjects,
@@ -20,7 +21,6 @@ from tests.graph.branch_fakes import (
 )
 
 HAND_MADE = "Release the unit after the config edit"
-OLD_TITLE = "test: The earlier title of group 3"
 PAIR = "the branch holds no tests and implementation pair for group 3 (G3)"
 
 
@@ -57,16 +57,15 @@ def test_every_commit_a_stubbed_build_makes_for_a_group_carries_the_groups_trail
     assert outcome.status != "failed", outcome.detail
     made = messages(repo)
     assert len(made) == 4
-    for message, number in zip(made, (3, 3, 4, 4), strict=True):
-        assert TRAILER in message
-        assert f"Group: add-marker/{number}" in message.splitlines(), message
+    assert all(TRAILER in message for message in made)
+    assert group_trailers(repo) == [f"add-marker/{number}" for number in (3, 3, 4, 4)]
 
 
 def test_the_stop_names_the_subject_found_at_the_groups_place(tmp_path: Path) -> None:
     recorder, repo = prepared(
         tmp_path,
         groups={"add-marker": titled(3)},
-        seeded=[OLD_TITLE],
+        seeded=["test: G3", HAND_MADE],
         no_commit_for="3",
         unit_test_ok=False,
     )
@@ -75,4 +74,4 @@ def test_the_stop_names_the_subject_found_at_the_groups_place(tmp_path: Path) ->
 
     assert outcome.status == "failed"
     assert PAIR in outcome.detail
-    assert OLD_TITLE in outcome.detail, "the stop names what stands where group 3's tests belong"
+    assert "found `test: G3` at its place" in outcome.detail
