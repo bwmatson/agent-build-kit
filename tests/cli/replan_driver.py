@@ -23,7 +23,7 @@ from agent_build_kit.pipeline.units import FAILED, MERGED
 from agent_build_kit.pipeline.work_graph import specification_text
 from tests.calibration_support import write_store
 from tests.conftest import make_installation
-from tests.factories import activate_with, new_unit
+from tests.factories import activate_with, new_unit, unit
 from tests.runtimes.stand_in import StandInRuntime
 from tests.tick_pass import isolate
 
@@ -134,6 +134,12 @@ class Replan:
     def record(self, change: str, **fields) -> None:
         """Record `change` as planned at its current `tasks.md`, with `fields` changed."""
         record_plan(self.inst, change, **fields)
+
+    def record_finished(self, change: str, **fields) -> None:
+        """Record `change` as planned, with `fields` changed, and with no unit left to finish."""
+        self.record(change, **fields)
+        self.store.upsert([unit(f"{change}/1", change=change, groups=(1,))])
+        self.store.set_state(f"{change}/1", MERGED)
 
     def run(
         self, capsys: pytest.CaptureFixture[str], *argv: str, reply: str = ""

@@ -6391,15 +6391,24 @@ def built_group_mode_lines(inst: Installation, units: Sequence[StoredUnit]) -> l
 
 def stale_plan_lines(inst: Installation) -> list[str]:
     """One line for each change whose standing plan was made under another policy, naming the
-    change and why, and saying how to plan it again."""
+    change and why, and saying how to plan it again. A change with no unit left to finish (a unit
+    that carries its groups counts as its unit) is left out; `abk replan` still lists it."""
     records = marked_for_moved_projects(inst, planned_hashes(inst))
     current = sizing_digest()
-    standing = {unit.change for unit in run_support.store_for(inst).all()}
+    units = run_support.store_for(inst).all()
+    standing = {unit.change for unit in units}
+    unfinished = {
+        member.change
+        for unit in units
+        if unit.state not in FINISHED_STATES
+        for member in unit.members()
+    }
     return [
         f"{change}: plan is stale, {plan_stale_reason(record, current)} "
         f"— `abk replan {change}` plans it again"
         for change in (path.parent.name for path in inst.tasks_files())
-        if (record := records.get(change))
+        if change in unfinished
+        and (record := records.get(change))
         and _plan_stands(record, change in standing)
         and plan_is_stale(record, current)
     ]
