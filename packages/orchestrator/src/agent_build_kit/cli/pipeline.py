@@ -466,6 +466,7 @@ from agent_build_kit.pipeline.work_graph import (
     inverted_group_warnings,
     manual_runbook_warnings,
     missing_test_folder_warnings,
+    new_test_file_warnings,
     no_test_task_warnings,
     old_test_kind_warnings,
     project_line_applied,
@@ -6746,34 +6747,50 @@ def _needs_cycle_problems(inst: Installation) -> dict[str, str]:
     return {change: f"{change}: Needs: cycle {chain}" for change in crossing}
 
 
-def _default_branch_has(inst: Installation) -> Callable[[str, str], bool | None]:
-    """A lookup of whether a repo's default branch holds a folder: None when the checkout is
-    missing, is not a git repository or has no such branch, so the caller cannot tell."""
+def _default_branch_has(
+    files: Callable[[str], list[str] | None],
+) -> Callable[[str, str], bool | None]:
+    """A lookup of whether a repo's default branch holds a folder, answered from the listing
+    `files` gives: None when that cannot tell."""
 
-    answers: dict[tuple[str, str], bool | None] = {}
+    def has(repo: str, folder: str) -> bool | None:
+        listing = files(repo)
+        if listing is None:
+            return None
+        return any(name == folder or name.startswith(f"{folder}/") for name in listing)
 
-    def look(repo: str, folder: str) -> bool | None:
+    return has
+
+
+def _default_branch_files(inst: Installation) -> Callable[[str], list[str] | None]:
+    """A lookup of the files a repo's default branch tracks: None when the checkout is missing,
+    is not a git repository or has no such branch, so the caller cannot tell."""
+
+    answers: dict[str, list[str] | None] = {}
+
+    def look(repo: str) -> list[str] | None:
         checkout = inst.checkouts.get(repo)
         if checkout is None:
             return None
         try:
             branch = default_branch_of(checkout)
-            listing = git(checkout, "ls-tree", "--name-only", branch, "--", folder, check=False)
+            listing = git(checkout, "ls-tree", "-r", "--name-only", branch, check=False)
         except OSError:
             return None
-        return bool(listing.stdout.strip()) if listing.returncode == 0 else None
+        return listing.stdout.splitlines() if listing.returncode == 0 else None
 
-    def has(repo: str, folder: str) -> bool | None:
-        if (repo, folder) not in answers:
-            answers[repo, folder] = look(repo, folder)
-        return answers[repo, folder]
+    def files(repo: str) -> list[str] | None:
+        if repo not in answers:
+            answers[repo] = look(repo)
+        return answers[repo]
 
-    return has
+    return files
 
 
 def _tag_warnings(inst: Installation, path: Path) -> list[str]:
     """What `abk tags` and `abk check` warn of in a tasks file, none of it a problem."""
     groups = validated(inst, path)[0]
+    branch_files = _default_branch_files(inst)
     sources = {g.source for g in groups if g.source == ProjectSource.RESOLVED or g.project != "."}
     mixed = (
         [
@@ -6796,7 +6813,8 @@ def _tag_warnings(inst: Installation, path: Path) -> list[str]:
         *old_test_kind_warnings(path),
         *redundant_separate_warnings(path),
         *shared_test_file_warnings(path),
-        *missing_test_folder_warnings(path, inst.changes_dir, _default_branch_has(inst)),
+        *missing_test_folder_warnings(path, inst.changes_dir, _default_branch_has(branch_files)),
+        *new_test_file_warnings(path, inst.changes_dir, branch_files),
         *environment_setting_notes(path, {name: repo.profile for name, repo in inst.repos.items()}),
         *product_path_warnings(path, groups, inst.repos),
         *task_wording_warnings(path, groups),

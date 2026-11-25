@@ -18,8 +18,11 @@ from agent_build_kit.pipeline.commit_order import (
     STUB_BODY_HINT,
     check_structure,
     classify_paths,
+    extended_test_file,
     stub_violations,
 )
+from agent_build_kit.pipeline.group_paths import allows_tests_only
+from agent_build_kit.profiles.python_uv import PROFILE
 from tests.factories import commit_files as commit
 from tests.factories import git, init_repo
 
@@ -159,6 +162,48 @@ def test_docs_only_changes_ride_along_with_either_commit(repo: Path) -> None:
 )
 def test_paths_are_classified_by_where_they_live(path: str, kind: str) -> None:
     assert classify_paths([path])[path] == kind
+
+
+def test_the_three_readers_of_a_test_folder_agree_and_a_testing_folder_is_not_one() -> None:
+    expected = {
+        "pkg/tests/x.py": True,
+        "web/src/test/api.ts": True,
+        "web/src/__tests__/a.ts": True,
+        "src/pkg/testing/helpers.py": False,
+        "src/pkg/module.py": False,
+    }
+
+    commit_order = {p: classify_paths([p])[p] == "test" for p in expected}
+    group_reading = {p: allows_tests_only([p]) for p in expected}
+    profile = {p: PROFILE.is_test_path(p) for p in expected}
+
+    assert commit_order == expected
+    assert group_reading == expected
+    assert profile == expected
+
+
+@pytest.mark.parametrize(
+    ("new", "held", "expected"),
+    [
+        (
+            "t/test_units_in_progress.py",
+            {"t/test_units.py", "t/test_units_in.py"},
+            ("t/test_units.py", "units_in_progress"),
+        ),
+        (
+            "web/units.label.test.ts",
+            {"web/units.test.ts"},
+            ("web/units.test.ts", "units.label"),
+        ),
+        ("t/test_units_x.py", {"other/test_units.py"}, None),
+        ("t/test_units.py", {"t/test_units_x.py"}, None),
+        ("t/helpers.py", {"t/test_units.py"}, None),
+    ],
+)
+def test_the_test_file_a_new_one_extends_is_the_one_with_the_shortest_leading_subject(
+    new: str, held: set[str], expected: tuple[str, str] | None
+) -> None:
+    assert extended_test_file(new, held.__contains__) == expected
 
 
 def test_stub_detection_reads_python_bodies() -> None:

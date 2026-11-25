@@ -10,14 +10,18 @@ from fnmatch import fnmatch
 from pathlib import PurePosixPath
 from typing import TYPE_CHECKING
 
-from agent_build_kit.pipeline.commit_order import CONFIG_SUFFIXES, DOC_SUFFIXES, classify_paths
+from agent_build_kit.pipeline.commit_order import (
+    CONFIG_SUFFIXES,
+    DOC_SUFFIXES,
+    TEST_DIR_NAMES,
+    classify_paths,
+)
 
 if TYPE_CHECKING:
     from pathlib import Path
 
     from agent_build_kit.pipeline.work_graph import TaskGroup
 
-TEST_FOLDERS = frozenset({"tests", "__tests__"})
 TEST_FILE_PATTERNS = ("test_*.py", "*_test.py", "*.test.*", "*.spec.*")
 TICKED = re.compile(r"`([^`]+)`")
 _LINE_SUFFIX = re.compile(r":\d+$")
@@ -121,11 +125,11 @@ def allows_no_code(paths: Sequence[str]) -> bool:
 
 
 def _is_test_code(path: str) -> bool:
-    """Whether `path` is test code for the tests-only rule: under a `tests` or `__tests__` folder,
-    or a test file by name. A `test` or `testing` folder alone does not count: it may hold a
-    product module."""
+    """Whether `path` is test code for the tests-only rule: under a test folder
+    (`TEST_DIR_NAMES`), or a test file by name. A `testing` folder alone does not count: it may
+    hold a product module."""
     pure = PurePosixPath(path)
-    return bool(TEST_FOLDERS.intersection(pure.parts)) or any(
+    return bool(TEST_DIR_NAMES.intersection(pure.parts)) or any(
         fnmatch(pure.name, pattern) for pattern in TEST_FILE_PATTERNS
     )
 
