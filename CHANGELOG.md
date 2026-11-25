@@ -6,6 +6,15 @@
   `__tests__` folder that the repo's default branch lacks and no earlier group, or group it
   needs, creates, since the unit could not place the test. The exit status is unchanged.
 
+- `abk outlines` reports each outline's distance (the units ahead of it that are not yet in
+  review or merged) and marks the ones ready to detail. With `--overlaps` it also lists the
+  outlines whose paths overlap a detailed change, flagging those that rework it often. It
+  reads only and prints nothing when there are no outlines.
+
+- Two planning settings for outlines: `planning.outline_lead_units` (default `1`) sets how
+  many units ahead of its prerequisites an outline is ready to detail, and `planning.outlines`
+  (default `openspec/outlines`) names the folder of outlines, relative to the planning root.
+
 - The tick and `abk status` now name a stale plan only while its change has a unit left to
   finish, so a change whose units have all merged, or that has none, is no longer repeated
   on every pass. `abk replan` still lists every stale plan.

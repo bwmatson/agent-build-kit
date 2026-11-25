@@ -250,6 +250,39 @@ def test_saving_leftovers_reads_false_from_the_file_over_a_default_of_true(
     assert load(path).git.save_leftovers is False
 
 
+@pytest.mark.parametrize(
+    ("planning_block", "lead", "folder"),
+    [
+        ("{}", 1, "openspec/outlines"),
+        ("{outline_lead_units: 0}", 0, "openspec/outlines"),
+        ("{outlines: plans/outlines}", 1, "plans/outlines"),
+    ],
+)
+def test_the_outline_settings_default_and_are_read_as_given(
+    tmp_path: Path, planning_block: str, lead: int, folder: str
+) -> None:
+    path = tmp_path / "abk.yaml"
+    path.write_text(f"planning: {planning_block}\n")
+
+    planning = load(path).planning
+
+    assert planning.outline_lead_units == lead
+    assert planning.outlines == folder
+
+
+def test_a_negative_outline_lead_is_refused_naming_the_setting(tmp_path: Path) -> None:
+    path = tmp_path / "abk.yaml"
+    path.write_text("planning:\n  outline_lead_units: -1\n")
+
+    refusal = ""
+    try:
+        load(path)
+    except ConfigError as error:
+        refusal = str(error)
+
+    assert "outline_lead_units" in refusal
+
+
 def test_the_fix_rounds_for_failing_checks_default_to_three_and_may_be_unlimited() -> None:
     from agent_build_kit.config import LimitsConfig, WorkspaceConfig
 
