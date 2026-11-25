@@ -6,6 +6,7 @@ process boundary the tick does: its exit status, its first lines of output and i
 
 from __future__ import annotations
 
+import time
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
@@ -17,7 +18,7 @@ from agent_build_kit.cli import main
 from agent_build_kit.cli import pipeline as cli
 from agent_build_kit.config import dump
 from agent_build_kit.installation import Installation
-from agent_build_kit.pipeline.manual_steps import evaluate_manual_steps
+from agent_build_kit.pipeline.manual_steps import evaluate_manual_steps, read_repeats
 from agent_build_kit.pipeline.unit_store import Cause, UnitStore
 from agent_build_kit.pipeline.units import FAILED, HELD, PLANNED, ManualStep
 from agent_build_kit.pipeline.vocabulary import WaitReason
@@ -626,16 +627,76 @@ def test_status_counts_the_checks_with_the_same_result_from_the_time_of_the_firs
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    clock = install(monkeypatch, datetime(2030, 1, 1, 9, 0, tzinfo=UTC))
-    world.wait_on(raised(world.script("exit 1")))
+    monkeypatch.setenv("TZ", "Asia/Kolkata")
+    time.tzset()
+    try:
+        clock = install(monkeypatch, datetime(2030, 1, 1, 9, 0, tzinfo=UTC))
+        world.wait_on(raised(world.script("exit 1")))
 
+        for _ in range(3):
+            cli.evaluate_manual_waits(world.inst, world.store)
+            clock.advance(3600)
+
+        line = waiting_line(world, monkeypatch, capsys)
+    finally:
+        monkeypatch.undo()
+        time.tzset()
+    assert "same result for 3 checks" in line
+    assert "14:30" in line and "09:00" not in line and "15:30" not in line
+
+
+def test_a_count_that_began_on_an_earlier_day_names_the_day(
+    world: World,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    monkeypatch.setenv("TZ", "Asia/Kolkata")
+    time.tzset()
+    try:
+        clock = install(monkeypatch, datetime(2030, 1, 1, 9, 0, tzinfo=UTC))
+        world.wait_on(raised(world.script("exit 1")))
+        for _ in range(2):
+            cli.evaluate_manual_waits(world.inst, world.store)
+        clock.advance(24 * 3600)
+
+        line = waiting_line(world, monkeypatch, capsys)
+    finally:
+        monkeypatch.undo()
+        time.tzset()
+    assert "since Tue 01 Jan 14:30" in line
+
+
+def test_a_step_that_is_done_leaves_no_count_while_its_sibling_keeps_one(
+    world: World, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr("agent_build_kit.run_support.resume_thread", lambda *a, **k: None)
+    first = raised(world.script("test -f flag && exit 0\nexit 1", name="a.sh"), "step-a")
+    second = raised(world.script("exit 1", name="b.sh"), "step-b")
+    world.wait_on(first, second)
+    for _ in range(2):
+        cli.evaluate_manual_waits(world.inst, world.store)
+    assert f"{UNIT}/step-a" in read_repeats(world.inst)
+    (world.tree / "flag").write_text("")
+
+    cli.evaluate_manual_waits(world.inst, world.store)
+    cli.evaluate_manual_waits(world.inst, world.store)
+
+    kept = read_repeats(world.inst)
+    assert f"{UNIT}/step-a" not in kept
+    assert f"{UNIT}/step-b" in kept
+
+
+def test_a_step_with_no_check_gets_no_repeat_count(
+    world: World,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    world.wait_on(ManualStep(slug=SLUG, text="A person flips the marker", runbook=RUNBOOK))
     for _ in range(3):
         cli.evaluate_manual_waits(world.inst, world.store)
-        clock.advance(3600)
 
-    line = waiting_line(world, monkeypatch, capsys)
-    assert "same result for 3 checks" in line
-    assert "09:00" in line and "10:00" not in line
+    assert "same result for" not in waiting_line(world, monkeypatch, capsys)
+    assert f"{UNIT}/{SLUG}" not in read_repeats(world.inst)
 
 
 def test_a_changed_result_starts_the_count_again(

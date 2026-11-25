@@ -185,6 +185,7 @@ from agent_build_kit.pipeline.manual_steps import (
     evaluate_manual_steps,
     manual_status_line,
     read_repeats,
+    repeat_note,
     unmet_steps,
 )
 from agent_build_kit.pipeline.metric_records import emit_metric
@@ -3976,12 +3977,14 @@ def _manual_wait_lines(inst: Installation, units: Sequence[StoredUnit]) -> list[
     """One line for each manual step a planned unit waits on: the last line of its check, how
     many checks in a row gave it, and where the runbook is."""
     repeats = read_repeats(inst)
-    return [
-        f"  {unit.id}: {manual_status_line(step, repeats.get(unit.id + '/' + step.slug))}"
-        for unit in units
-        if unit.state == PLANNED
-        for step in unmet_steps(unit)
-    ]
+    lines = []
+    for unit in units:
+        if unit.state != PLANNED:
+            continue
+        for step in unmet_steps(unit):
+            note = repeat_note(repeats.get(f"{unit.id}/{step.slug}"), local_time)
+            lines.append(f"  {unit.id}: {manual_status_line(step, note)}")
+    return lines
 
 
 def _preview_split_releases(

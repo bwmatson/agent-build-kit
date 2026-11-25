@@ -12,6 +12,7 @@ import json
 import os
 import signal
 import subprocess
+from collections.abc import Callable
 from datetime import datetime
 from pathlib import Path
 from typing import Literal
@@ -43,7 +44,7 @@ class ManualAction(Frozen):
     outcome: Outcome
     line: str = ""
     # Whether the result differs from the one stored on the step before this pass.
-    changed: bool = True
+    changed: bool
 
 
 class Repeat(Frozen):
@@ -72,11 +73,12 @@ def read_repeats(installation: Installation) -> dict[str, Repeat]:
         return {}
 
 
-def repeat_note(repeat: Repeat | None) -> str:
-    """The words `abk status` adds for a step whose last checks agreed; empty for one check."""
+def repeat_note(repeat: Repeat | None, when: Callable[[datetime], str]) -> str:
+    """The words `abk status` adds for a step whose last checks agreed; empty for one check.
+    `when` writes the time of the first of them as the status writes its times."""
     if repeat is None or repeat.count < 2:
         return ""
-    return f"same result for {repeat.count} checks since {repeat.since:%H:%M}"
+    return f"same result for {repeat.count} checks since {when(repeat.since)}"
 
 
 def _record_repeats(
@@ -88,6 +90,7 @@ def _record_repeats(
         for unit in store.all()
         if unit.state == PLANNED
         for step in unmet_steps(unit)
+        if step.check
     }
     with file_lock(installation.state_dir / REPEATS_LOCK):
         records = {k: v for k, v in read_repeats(installation).items() if k in waiting}
@@ -110,9 +113,9 @@ def unmet_steps(unit: StoredUnit) -> list[ManualStep]:
     return [step for step in unit.manual_steps if not step.done]
 
 
-def manual_status_line(step: ManualStep, repeat: Repeat | None = None) -> str:
+def manual_status_line(step: ManualStep, note: str = "") -> str:
     """The `abk status` words for an unmet step: its last line, or that its check failed, and
-    how many checks in a row said the same when `repeat` is given."""
+    `note` (see `repeat_note`) when given."""
     if not step.check:
         said = f"waiting for attestation: abk manual done {step.slug}"
     elif not step.outcome:
@@ -121,7 +124,7 @@ def manual_status_line(step: ManualStep, repeat: Repeat | None = None) -> str:
         said = f"check failed: {step.last_line}"
     else:
         said = step.last_line or "not done"
-    if note := repeat_note(repeat):
+    if note:
         said = f"{said} ({note})"
     runbook = f" (runbook: {step.runbook})" if step.runbook else ""
     return f"waiting for manual step {step.slug}: {said}{runbook}"
