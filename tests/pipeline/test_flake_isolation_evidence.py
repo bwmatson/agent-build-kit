@@ -811,7 +811,7 @@ def test_the_recheck_reruns_each_failed_test_alone_with_the_serial_command_and_p
     scratch: Path, tmp_path: Path
 ) -> None:
     directory = tmp_path / "bundles"
-    machine = RerunMachine(scratch, reruns=[1, 1])
+    machine = RerunMachine(scratch, reruns=[1])
     message, ids = failed_first_run(scratch, directory, machine)
     made = len(machine.serial)
     machine.reruns.extend([0] * len(ids))
@@ -835,7 +835,7 @@ def test_a_test_that_fails_again_on_the_recheck_is_not_passed_and_keeps_the_bund
     scratch: Path, tmp_path: Path
 ) -> None:
     directory = tmp_path / "bundles"
-    machine = RerunMachine(scratch, reruns=[1, 1])
+    machine = RerunMachine(scratch, reruns=[1])
     message, ids = failed_first_run(scratch, directory, machine)
     machine.reruns.extend([0, 1, *[0] * (len(ids) - 2)])
 

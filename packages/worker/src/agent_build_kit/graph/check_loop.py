@@ -40,7 +40,9 @@ class CheckLoop(Frozen):
     failed output before it is saved as feedback; `on_unchanged` is given the round that changed
     nothing and answers with an update in place of the stop, or None to stop; `on_base` is asked
     before either stop, and answers an update that parks the unit on tests that fail on its base,
-    or None to stop as before."""
+    or None to stop as before; `retry` is the prompt of one more attempt in the same round after an
+    attempt that changed nothing (given the feedback and the guidance), None for a loop that
+    makes none."""
 
     check: Callable[[], tuple[bool, str]]
     source: FeedbackSource
@@ -56,6 +58,7 @@ class CheckLoop(Frozen):
     annotate: Callable[[str], str] | None = None
     on_unchanged: Callable[[int], dict[str, Any] | None] | None = None
     on_base: Callable[[], dict[str, Any] | None] | None = None
+    retry: Callable[[str, str], str] | None = None
     spent_message: Callable[[int], str]
     unchanged_message: Callable[[int], str]
 
@@ -112,21 +115,26 @@ def fix_round(nodes: BuildPath, state: UnitRun, loop: CheckLoop) -> Update:
     note = person_guidance(r.store.get(unit.id).guidance)
     before = (r.head(tree), r.tree_state(tree))
     nodes.say(f"fix the failing {loop.label} ({model}), round {attempt}")
-    nodes.agent(
-        r.run,
-        loop.prompt(feedback, note),
-        cwd=tree,
-        state=state,
-        model=model,
-        follow_up=loop.follow_up(feedback, note) if loop.follow_up else "",
-    )
-    if loop.commit is not None:
-        nodes.apply_fixers()
-        r.commit(loop.commit.format(title=unit.title, n=attempt), cwd=tree, base=nodes.ref(state))
-    if (r.head(tree), r.tree_state(tree)) == before:
-        if loop.on_base is not None and (waiting := loop.on_base()) is not None:
-            return waiting
-        if loop.on_unchanged is not None and (answer := loop.on_unchanged(attempt)) is not None:
-            return answer
-        return nodes.stop(loop.unchanged_message(attempt))
-    return {loop.rounds: attempt}
+
+    def attempt_once(prompt: str, follow_up: str) -> bool:
+        """One agent call and the commit rule; whether the branch moved."""
+        nodes.agent(r.run, prompt, cwd=tree, state=state, model=model, follow_up=follow_up)
+        if loop.commit is not None:
+            nodes.apply_fixers()
+            r.commit(
+                loop.commit.format(title=unit.title, n=attempt), cwd=tree, base=nodes.ref(state)
+            )
+        return (r.head(tree), r.tree_state(tree)) != before
+
+    follow_up = loop.follow_up(feedback, note) if loop.follow_up else ""
+    if attempt_once(loop.prompt(feedback, note), follow_up):
+        return {loop.rounds: attempt}
+    if loop.on_base is not None and (waiting := loop.on_base()) is not None:
+        return waiting
+    if loop.retry is not None:
+        nodes.say(f"fix round {attempt} changed nothing; one more attempt")
+        if attempt_once(loop.retry(feedback, note), ""):
+            return {loop.rounds: attempt}
+    if loop.on_unchanged is not None and (answer := loop.on_unchanged(attempt)) is not None:
+        return answer
+    return nodes.stop(loop.unchanged_message(attempt))

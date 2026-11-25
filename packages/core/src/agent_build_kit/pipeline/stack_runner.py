@@ -1211,6 +1211,14 @@ suite.
     + "{changelog}"
 )
 
+# Put before the checks prompt when the first attempt of a fix round changed nothing.
+CHECKS_UNCHANGED_NOTE = """\
+Your last attempt at these failures changed nothing: the branch and its files are as they
+were. Read the output below again, find what it names, and make a change that addresses it.
+If the failure is not in this unit's code, say so and why.
+
+"""
+
 CHECKS_CONTINUATION = ChecksTemplate(
     """\
 {guidance}The pipeline's checks (lint, formatting, types and the tests) failed on this

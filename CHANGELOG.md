@@ -5,6 +5,12 @@
 - The tick and `abk status` now name a stale plan only while its change has a unit left to
   finish, so a change whose units have all merged, or that has none, is no longer repeated
   on every pass. `abk replan` still lists every stale plan.
+- A checks fix round that changes nothing now gets one more attempt before the unit stops. The
+  second attempt is told the last one changed nothing and is given the failing output. When it
+  also changes nothing, the failed tests are rerun once, one at a time: a pass goes on to
+  review and is recorded as unexplained, and a failure holds the unit for a person with the
+  tests and the bundle of each run named.
+
 - A unit whose checks keep failing on a test that also fails on its base is no longer failed
   for it. Before the checks loop stops a unit (fix rounds spent, or a fix round that changed
   nothing), the failed tests are run alone on the base; each that fails there gets a fix

@@ -121,6 +121,7 @@ from agent_build_kit.pipeline.stack_runner import (
     ADAPT_PROMPT,
     CHECKS_CONTINUATION,
     CHECKS_PROMPT,
+    CHECKS_UNCHANGED_NOTE,
     E2E_SCOPE_NOTE,
     IMPLEMENTATION_CONTINUATION,
     IMPLEMENTATION_PROMPT,
@@ -2331,6 +2332,7 @@ class BuildPath:
             ),
             on_unchanged=lambda n: self.recheck(state, n),
             on_base=lambda: self.park_on_base(state),
+            retry=lambda feedback, note: CHECKS_UNCHANGED_NOTE + fix_prompt(feedback, note),
         )
 
     def park_on_base(self, state: UnitRun) -> Update | None:

@@ -453,7 +453,7 @@ def test_a_no_change_round_whose_two_attempts_change_nothing_goes_on_when_the_wi
     assert recorder.events.count("claude:fix_checks") == 2
     (entry,) = recorder.unexplained
     assert entry.passed and entry.tests == (TEST_ID,)
-    assert RED in entry.first_output
+    assert RED.strip() in entry.first_output
     assert any("after a recheck" in line for line in recorder.logged), recorder.logged
     assert "review" in recorder.events
     routine.assert_ran(fix=True)
