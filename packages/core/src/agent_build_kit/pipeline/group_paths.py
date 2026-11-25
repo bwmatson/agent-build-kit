@@ -59,6 +59,11 @@ def line_paths(line: str) -> list[str]:
     return found
 
 
+def line_globs(line: str) -> list[str]:
+    """The globs a task line names in backticks, kept whole (`packages/core/**`)."""
+    return [t for t in TICKED.findall(line) if _is_path_token(t) and "*" in t]
+
+
 def _glob_prefix(token: str) -> str | None:
     """The literal directory prefix of a glob token (`web/src/**` is `web/src/`), None when the
     token is not a glob or has no directory before it."""

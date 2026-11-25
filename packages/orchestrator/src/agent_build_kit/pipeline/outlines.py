@@ -10,7 +10,7 @@ from fnmatch import fnmatchcase
 
 from agent_build_kit.installation import Installation
 from agent_build_kit.model import Frozen
-from agent_build_kit.pipeline.group_paths import TICKED, line_paths
+from agent_build_kit.pipeline.group_paths import TICKED, line_globs, line_paths
 from agent_build_kit.pipeline.unit_store import StoredUnit
 from agent_build_kit.pipeline.units import UnitState
 
@@ -124,10 +124,11 @@ def read_outlines(inst: Installation) -> list[Outline]:
     ]
 
 
-def _units_ahead(units: Sequence[StoredUnit], change: str, group: int) -> int:
+def _units_ahead(
+    units: Sequence[StoredUnit], by_id: dict[str, StoredUnit], change: str, group: int
+) -> int:
     """The units carrying `group` of `change`, with their ancestors, each once, that are not yet
     in review; one per group up to `group` when no unit carries it."""
-    by_id = {unit.id: unit for unit in units}
     carrying = [
         unit.id
         for unit in units
@@ -151,7 +152,10 @@ def readings(inst: Installation, units: Sequence[StoredUnit]) -> list[Reading]:
     """Each outline's distance over `units`, nearest first, then by name."""
     outlines = {outline.name: outline for outline in read_outlines(inst)}
     detailed = {path.parent.name for path in inst.tasks_files()}
+    by_id = {unit.id: unit for unit in units}
     memo: dict[str, int | tuple[str, ...]] = {}
+    # Each outline's `Waits on:` targets with the units each contributes, kept off a cycle.
+    shown: dict[str, tuple[tuple[str, int, int], ...]] = {}
 
     def resolve(name: str, path: tuple[str, ...]) -> int | tuple[str, ...]:
         if name in memo:
@@ -159,9 +163,10 @@ def readings(inst: Installation, units: Sequence[StoredUnit]) -> list[Reading]:
         if name in path:
             return (*path[path.index(name) :], name)
         longest = 0
+        contributions: list[tuple[str, int, int]] = []
         for wait in outlines[name].waits_on:
             if wait.target in detailed:
-                ahead = _units_ahead(units, wait.target, wait.group)
+                ahead = _units_ahead(units, by_id, wait.target, wait.group)
             elif wait.target in outlines:
                 inner = resolve(wait.target, (*path, name))
                 if isinstance(inner, tuple):
@@ -171,8 +176,10 @@ def readings(inst: Installation, units: Sequence[StoredUnit]) -> list[Reading]:
                 ahead = sketched + inner
             else:
                 continue
+            contributions.append((wait.target, wait.group, ahead))
             longest = max(longest, ahead)
         memo[name] = longest
+        shown[name] = tuple(contributions)
         return longest
 
     lead = inst.config.planning.outline_lead_units
@@ -191,11 +198,7 @@ def readings(inst: Installation, units: Sequence[StoredUnit]) -> list[Reading]:
                     for w in outline.waits_on
                     if w.target not in detailed and w.target not in outlines
                 ),
-                ahead=tuple(
-                    (w.target, w.group, _units_ahead(units, w.target, w.group))
-                    for w in outline.waits_on
-                    if w.target in detailed
-                ),
+                ahead=shown.get(name, ()),
             )
         )
     return sorted(found, key=lambda r: (r.distance is None, r.distance or 0, r.outline.name))
@@ -218,7 +221,11 @@ def overlaps(inst: Installation) -> list[Overlap]:
     outlines = read_outlines(inst)
     found: list[Overlap] = []
     for tasks in inst.tasks_files():
-        named = [path for line in tasks.read_text().splitlines() for path in line_paths(line)]
+        named = [
+            path
+            for line in tasks.read_text().splitlines()
+            for path in (*line_paths(line), *line_globs(line))
+        ]
         for outline in outlines:
             if any(_overlap(path, token) for path in named for token in outline.touches):
                 found.append(

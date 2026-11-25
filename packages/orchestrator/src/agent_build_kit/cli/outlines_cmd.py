@@ -15,7 +15,9 @@ def _line(reading: outlines.Reading) -> str:
         parts.append("cycle: " + " -> ".join(reading.cycle))
     else:
         parts.append(f"distance {reading.distance}")
-    parts += [f"waits on {t} group {g}: {n} units" for t, g, n in reading.ahead]
+    parts += [
+        f"waits on {t} group {g}: {n} unit{'' if n == 1 else 's'}" for t, g, n in reading.ahead
+    ]
     parts += [f"{name}: not found" for name in reading.not_found]
     parts += [f"unreadable: {line}" for line in reading.outline.unparsed]
     if reading.ready:

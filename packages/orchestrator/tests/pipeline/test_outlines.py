@@ -162,7 +162,10 @@ def test_an_outlined_prerequisite_adds_its_sketched_groups_to_its_own_distance(
     write_outline(inst, "next", waits=(waits("base", 1),), groups=3)
     write_outline(inst, "far", waits=(waits("next", 2),))
 
-    assert distance_of(inst, [unit("base/1", R)], "far") == 3
+    far = next(r for r in readings(inst, [unit("base/1", R)]) if r.outline.name == "far")
+
+    assert far.distance == 3
+    assert ("next", 2, 3) in far.ahead
 
 
 def test_a_name_that_is_neither_a_change_nor_an_outline_counts_nothing_and_is_not_found(
@@ -262,6 +265,14 @@ def test_a_touches_path_overlapping_a_named_path_is_listed_with_its_reworks_coun
         assert [(o.change, o.outline, o.reworks, o.promote_earlier) for o in found] == [
             ("feature", "later", reworks, flag)
         ]
+
+
+def test_a_glob_a_change_names_overlaps_an_outline_path_it_matches(tmp_path: Path) -> None:
+    inst = planning(tmp_path)
+    write_change(inst, "feature", "Paths: `packages/core/**`")
+    write_outline(inst, "later", touches="`packages/core/src/agent_build_kit/config.py`")
+
+    assert [(o.change, o.outline) for o in overlaps(inst)] == [("feature", "later")]
 
 
 def test_a_paths_line_counts_and_an_outline_path_and_glob_both_overlap_it(tmp_path: Path) -> None:

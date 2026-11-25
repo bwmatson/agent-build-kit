@@ -61,6 +61,8 @@ def test_each_outline_is_listed_once_nearest_first_with_the_ready_one_marked(
     assert code == 0
     assert [line for line in lines if "next" in line and "ready to detail" in line]
     assert not [line for line in lines if "far" in line and "ready to detail" in line]
+    assert [line for line in lines if line.startswith("next") and "distance 1" in line]
+    assert [line for line in lines if line.startswith("far") and "distance 3" in line]
     assert sum("next" in line for line in lines) == 1
     assert sum("far" in line for line in lines) == 1
     assert out.index("next") < out.index("far")
