@@ -14,13 +14,11 @@ import pytest
 
 from tests.time_limit import LOADED_TEST_TIME_LIMIT
 from tests.tracked_files import test_trees
-from tests.wide_scans import check_tests, load_baseline
+from tests.wide_scans import check_tests, load_baseline, walk_test_modules
 
 
 @pytest.mark.time_limit(LOADED_TEST_TIME_LIMIT)
 @pytest.mark.integration
 def test_no_test_of_the_repository_scans_it_without_the_integration_selector() -> None:
-    modules = [path for tree in test_trees() for path in tree.rglob("test_*.py")]
-
-    assert len(modules) > 0
+    assert len(walk_test_modules(test_trees())) > 0
     assert check_tests(baseline=load_baseline()) == []

@@ -17,7 +17,7 @@ import pytest
 from tests.ci_runnable import check_tests, load_baseline, required_settings_fields
 from tests.time_limit import LOADED_TEST_TIME_LIMIT
 from tests.tracked_files import test_trees
-from tests.wide_scans import walk_tests
+from tests.wide_scans import walk_test_modules, walk_tests
 
 NONE: frozenset[str] = frozenset()
 REQUIRED = {"Settings": frozenset({"api_token"})}
@@ -156,9 +156,7 @@ def test_the_guard_reports_what_the_row_expects(tmp_path: Path, row: str) -> Non
 def test_no_integration_test_of_the_kit_needs_more_than_ci_has() -> None:
     integration = [
         node
-        for tree in test_trees()
-        for path in tree.rglob("test_*.py")
-        if "child_modules" not in path.parts
+        for _, path in walk_test_modules(test_trees())
         for node, marked in walk_tests(ast.parse(path.read_text()))
         if marked
     ]

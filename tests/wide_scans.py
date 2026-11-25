@@ -163,6 +163,24 @@ def walk_tests(
     return found
 
 
+def walk_test_modules(
+    root: Path | Sequence[Path], repository: Path = ROOT
+) -> list[tuple[str, Path]]:
+    """The test modules the guards read: each is a name relative to its tree, with the tree's folder
+    before it for a package's tests, and its path. Hidden folders and `child_modules` are left
+    out. `root` is a folder of test modules or the test trees of the repository."""
+    trees = [root] if isinstance(root, Path) else list(root)
+    modules: list[tuple[str, Path]] = []
+    for tree in trees:
+        prefix = test_tree_prefix(tree, repository)
+        for path in sorted(tree.rglob("test_*.py")):
+            parts = path.relative_to(tree).parts
+            if any(part.startswith(".") or part == "child_modules" for part in parts):
+                continue
+            modules.append((prefix + path.relative_to(tree).as_posix(), path))
+    return modules
+
+
 def check_modules(
     root: Path | Sequence[Path],
     find: Callable[[str], Mapping[str, str]],
@@ -180,23 +198,14 @@ def check_modules(
     relative to its tree, with the tree's folder before it for a package's tests."""
     found: dict[str, str] = {}
     problems: list[str] = []
-    trees = [root] if isinstance(root, Path) else list(root)
-    for tree in trees:
-        prefix = test_tree_prefix(tree, repository)
-        for path in sorted(tree.rglob("test_*.py")):
-            if any(
-                part.startswith(".") or part == "child_modules"
-                for part in path.relative_to(tree).parts
-            ):
-                continue
-            relative = prefix + path.relative_to(tree).as_posix()
-            try:
-                offenders = find(path.read_text())
-            except SyntaxError as error:
-                problems.append(f"{relative}: cannot be parsed ({error.msg}, line {error.lineno})")
-                continue
-            for name, detail in offenders.items():
-                found[f"{relative}::{name}"] = detail
+    for relative, path in walk_test_modules(root, repository):
+        try:
+            offenders = find(path.read_text())
+        except SyntaxError as error:
+            problems.append(f"{relative}: cannot be parsed ({error.msg}, line {error.lineno})")
+            continue
+        for name, detail in offenders.items():
+            found[f"{relative}::{name}"] = detail
     problems += [new_message(entry, found[entry]) for entry in sorted(found.keys() - baseline)]
     problems += [
         f"{entry}: stale baseline entry, {stale_reason}; remove it from {baseline_file.name}"

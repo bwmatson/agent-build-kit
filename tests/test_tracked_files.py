@@ -2,7 +2,8 @@
 
 One table specifies it: each row is a tree, whether it is a git repository (its files committed, a
 few left untracked or deleted from the disk), how many `ls-files` listings a fake git refuses
-(`rev-parse` is always refused, as on a loaded machine), the call and the expected result. A failed
+(in a row that refuses listings, every `rev-parse` is refused too, as on a loaded machine), the
+call and the expected result. A failed
 listing never widens the set to files git does not track, and a vanished file is not listed. A
 second test reads the real checkout, so a helper that yields nothing cannot pass the guards that
 use it unnoticed.
