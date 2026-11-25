@@ -36,3 +36,14 @@ class StateDrafts:
         except Exception as error:
             what = f"setting #{unit.pr} to draft={draft}"
             self.log(f"draft: {what} failed - {type(error).__name__}: {error}")
+
+    def reconcile(
+        self,
+        units: list[StoredUnit],
+        recorded: Callable[[str, int], bool | None],
+        *,
+        limit: int,
+    ) -> None:
+        """Write the draft state each unit calls for onto a pull request the poll recorded
+        otherwise, at most `limit` writes, lowest number first within each repo."""
+        raise NotImplementedError
