@@ -31,7 +31,7 @@ from agent_build_kit.pipeline.wiring import (
     build_unit_test,
     build_unit_test_recheck,
 )
-from agent_build_kit.profiles.base import ToolchainProfile
+from agent_build_kit.profiles.base import TEMP_ROOT_VARIABLE, ToolchainProfile
 from tests.artifact_fakes import MemoryArtifacts
 from tests.conftest import make_installation
 from tests.e2e_gate_fakes import Planning
@@ -50,6 +50,7 @@ def unit_test_of(
     directory: Path | MemoryArtifacts,
     log: Callable[[str], None] | None = None,
     profile: BundleProfile | None = None,
+    installation: Installation | None = None,
 ):
     loads = iter(range(1, 100))
     clock = iter(START + timedelta(seconds=10 * n) for n in range(100))
@@ -61,6 +62,7 @@ def unit_test_of(
         now=lambda: next(clock),
         machine=lambda: {"load": [float(next(loads))] * 3},
         log=log,
+        installation=installation,
     )
 
 
@@ -798,11 +800,16 @@ def test_six_hits_and_five_hundred_nineteen_setup_errors_after_them_write_no_fix
 
 
 def failed_first_run(
-    scratch: Path, directory: Path, machine: RerunMachine
+    scratch: Path,
+    directory: Path,
+    machine: RerunMachine,
+    installation: Installation | None = None,
 ) -> tuple[str, list[str]]:
-    """A unit-test run whose failed tests fail both serial reruns, so it fails the unit: the
+    """A unit-test run whose failed tests fail their serial rerun, so it fails the unit: the
     failure message the checks save and the ids the run named."""
-    passed, message = unit_test_of(scratch, machine, directory)(cwd=scratch, base="main")
+    passed, message = unit_test_of(scratch, machine, directory, installation=installation)(
+        cwd=scratch, base="main"
+    )
     assert not passed
     return message, [a for a in machine.id_runs[0][0] if "::" in a]
 
@@ -810,15 +817,16 @@ def failed_first_run(
 def test_the_recheck_reruns_each_failed_test_alone_with_the_serial_command_and_passes(
     scratch: Path, tmp_path: Path
 ) -> None:
+    installation = make_installation(scratch)
     directory = tmp_path / "bundles"
     machine = RerunMachine(scratch, reruns=[1])
-    message, ids = failed_first_run(scratch, directory, machine)
+    message, ids = failed_first_run(scratch, directory, machine, installation)
     made = len(machine.id_runs)
     machine.reruns.extend([0] * len(ids))
 
-    found = build_unit_test_recheck(run=machine, profile=BundleProfile(), failures_dir=directory)(
-        cwd=scratch, base="main", failed_output=message
-    )
+    found = build_unit_test_recheck(
+        run=machine, profile=BundleProfile(), failures_dir=directory, installation=installation
+    )(cwd=scratch, base="main", failed_output=message)
 
     assert found is not None
     assert found.passed
@@ -826,9 +834,15 @@ def test_the_recheck_reruns_each_failed_test_alone_with_the_serial_command_and_p
     assert found.first_output == message
     rechecks = machine.id_runs[made:]
     assert [[a for a in command if "::" in a] for command, _ in rechecks] == [[t] for t in ids]
+    folders = set()
     for command, kwargs in rechecks:
         assert "-n" not in command, "serially"
-        assert kwargs.get("env") == machine.id_runs[0][1].get("env"), "the unit-test run's env"
+        env = cast(dict[str, str], kwargs["env"])
+        assert Path(env[TEMP_ROOT_VARIABLE]).parent == installation.pytest_temp_root
+        folders.add(env[TEMP_ROOT_VARIABLE])
+    first = cast(dict[str, str], machine.id_runs[0][1]["env"])
+    assert Path(first[TEMP_ROOT_VARIABLE]).parent == installation.pytest_temp_root
+    assert len(folders) == 1, "the whole recheck shares one temp folder"
 
 
 def test_a_test_that_fails_again_on_the_recheck_is_not_passed_and_keeps_the_bundle_of_each_run(

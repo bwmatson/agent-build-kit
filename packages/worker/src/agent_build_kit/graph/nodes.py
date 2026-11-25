@@ -2342,18 +2342,15 @@ class BuildPath:
         no test, the unit is of a fix change, no test fails on the base, or nothing could be
         filed: the unit stops as before."""
         r, unit = self.runner, self.unit
-        config = active().repos.get(unit.repo)
-        if config is None or is_fix_change(unit.change):
+        if is_fix_change(unit.change):
             return None
         feedback = r.store.get(unit.id).feedback
-        if not failed_ids(profiles.get(config.profile), feedback):
+        if not self.failed_tests_of(feedback):
             return None
         failing = r.unit_test_on_base(cwd=self.tree(), base=self.ref(state), failed_output=feedback)
         if not failing:
             return None
-        at = datetime.now(UTC)
-        flakes = tuple(Flake(test=t, command="", output=feedback, at=at) for t in failing)
-        if (parked := self.wait_for_fix(FailedOnBase(flakes))) is None:
+        if (parked := self.wait_on_tests(failing, feedback)) is None:
             return None
         r.store.set_feedback(
             unit.id,
@@ -2507,10 +2504,20 @@ class BuildPath:
         """A failed unit-test run whose failed tests include one that an open change already
         fixes: the unit waits on that change before anything runs again. None when no failed
         test has one."""
-        config = active().repos.get(self.unit.repo)
-        tests = covered_tests(failed_ids(profiles.get(config.profile), output)) if config else []
+        tests = covered_tests(self.failed_tests_of(output) or [])
         if not tests:
             return None
+        return self.wait_on_tests(tests, output)
+
+    def failed_tests_of(self, output: str) -> list[str] | None:
+        """The ids of the failed tests `output` names, read by the profile of the unit's repo;
+        None when the repo is not configured."""
+        config = active().repos.get(self.unit.repo)
+        return failed_ids(profiles.get(config.profile), output) if config else None
+
+    def wait_on_tests(self, tests: list[str], output: str) -> Update | None:
+        """File a fix change for each of `tests`, which failed with `output`, and wait for them:
+        the one place the bare evidence a fix change is filed from is made."""
         at = datetime.now(UTC)
         return self.wait_for_fix(
             FailedOnBase(tuple(Flake(test=t, command="", output=output, at=at) for t in tests))

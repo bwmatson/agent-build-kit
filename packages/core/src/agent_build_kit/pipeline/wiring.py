@@ -76,10 +76,8 @@ from agent_build_kit.installation import Installation
 from agent_build_kit.model import Frozen, TestTier
 from agent_build_kit.orchestration.artifacts import INTERFACE as ARTIFACTS
 from agent_build_kit.orchestration.artifacts import Artifacts
-from agent_build_kit.orchestration.local.directories import FAILURE_BUNDLES
 from agent_build_kit.path_patterns import matches_any
 from agent_build_kit.pipeline import code_host, failure_evidence, snapshots, spans
-from agent_build_kit.pipeline.artifact_scope import scoped
 from agent_build_kit.pipeline.changelog_convention import review_changelog_paragraph
 from agent_build_kit.pipeline.check_failures import failed_in
 from agent_build_kit.pipeline.check_runner import CheckCache, worktree_at
@@ -197,7 +195,9 @@ from agent_build_kit.pipeline.run_log import (
     adopt_old_e2e_output,
     append_e2e_output,
     append_test_run,
+    rerun_place,
     run_ledger_path,
+    unit_bundle_places,
     write_failure_bundle,
     write_rerun_evidence,
 )
@@ -262,7 +262,6 @@ from agent_build_kit.pipeline.units import (
     start_key,
     through_satisfied,
     trunk_of,
-    unit_file_prefix,
 )
 from agent_build_kit.pipeline.untouched_failures import (
     PreExisting,
@@ -1653,6 +1652,71 @@ def _failed_command(
     )
 
 
+# One failed test of a saved output that can be run again alone: the project folder it sits in,
+# its profile, its id and the profile's serial rerun command for it.
+Rerunnable = tuple[Path, ToolchainProfile, str, list[str]]
+
+
+def _rerunnable(
+    cwd: Path,
+    profile: ToolchainProfile,
+    projects: list[ProjectConfig] | None,
+    failed_output: str,
+    *,
+    worker_settings: dict[str, Any],
+    skip: Callable[[str, Path], bool] | None = None,
+    log: Callable[[str], None] | None = None,
+) -> list[Rerunnable]:
+    """The failed tests a saved output names that the profile can run again alone, per project,
+    less those `skip` says to leave out (given the id and its project folder). Empty when the
+    output names more than `BASE_CHECK_LIMIT`: that many is a broken collection or import, which
+    running them one by one cannot explain. The one reading both the base check and the recheck
+    take their tests from."""
+    found: list[Rerunnable] = []
+    for where, toolchain in _failed_work(cwd, profile, projects, failed_output):
+        rerun = getattr(toolchain, "serial_rerun_command", None)
+        if rerun is None:
+            continue
+        ids = [
+            test
+            for test in failed_ids(toolchain, failed_output)
+            if skip is None or not skip(test, where)
+        ]
+        if not ids:
+            continue
+        failed_command = _failed_command(
+            failed_output, toolchain, where, worker_settings=worker_settings
+        )
+        found.extend(
+            (where, toolchain, test, rerun(failed_command, [test], project=where)) for test in ids
+        )
+    if len(found) > BASE_CHECK_LIMIT:
+        _say(log, f"more than {BASE_CHECK_LIMIT} failed tests: not run again one by one")
+        return []
+    return found
+
+
+def _given_environment(
+    installation: Installation | None,
+    toolchain: ToolchainProfile,
+    token: str,
+    made: dict[str, dict[str, str]],
+    log: Callable[[str], None] | None,
+) -> dict[str, str] | None:
+    """The test environment `toolchain` gives a run with `token`, made once per profile into
+    `made`; None for a profile that sets none or no installation. Its temp folder is told in the
+    log, which is how a unit is found from a path in a failure."""
+    if installation is None or not isinstance(toolchain, SetsTestEnvironment):
+        return None
+    name = type(toolchain).__name__
+    if name not in made:
+        unit = spans.current_unit.get()[0]
+        made[name] = toolchain.test_environment(installation, unit, token)
+        if folder := made[name].get(TEMP_ROOT_VARIABLE):
+            _say(log, f"temp folder {folder} (run {token})")
+    return made[name]
+
+
 def build_unit_test_base_check(
     *,
     run: Run | None = None,
@@ -1676,44 +1740,31 @@ def build_unit_test_base_check(
     )
 
     def on_base(*, cwd: Path, base: str, failed_output: str) -> list[str]:
-        work = _failed_work(cwd, profile, projects, failed_output)
-        found: list[tuple[Path, ToolchainProfile, list[str]]] = []
         try:
             files = set(changed(cwd, base))
         except (subprocess.CalledProcessError, OSError):
             return []
-        for where, toolchain in work:
-            if getattr(toolchain, "serial_rerun_command", None) is None:
-                continue
-            ids = [
-                test
-                for test in failed_ids(toolchain, failed_output)
-                if not unit_wrote(test, where, cwd, files)
-            ]
-            if ids:
-                found.append((where, toolchain, ids))
+        found = _rerunnable(
+            cwd,
+            profile,
+            projects,
+            failed_output,
+            worker_settings=worker_settings,
+            skip=lambda test, where: unit_wrote(test, where, cwd, files),
+            log=log,
+        )
         if not found:
-            return []
-        if sum(len(ids) for _, _, ids in found) > BASE_CHECK_LIMIT:
-            _say(log, f"more than {BASE_CHECK_LIMIT} failed tests: not run on the base one by one")
             return []
         failing: list[str] = []
         try:
             with worktree_at(cwd, base) as tree:
-                for where, toolchain, ids in found:
+                for where, toolchain, test, rerun in found:
                     shown = where.relative_to(cwd)
-                    failed_command = _failed_command(
-                        failed_output, toolchain, where, worker_settings=worker_settings
-                    )
-                    for test in ids:
-                        rerun = getattr(toolchain, "serial_rerun_command")(  # noqa: B009
-                            failed_command, [test], project=where
-                        )
-                        command = located(toolchain, rerun, tree / shown, tree)
-                        done = run(command, cwd=tree / shown)
-                        text = f"{done.stdout or ''}\n{done.stderr or ''}"
-                        if test in failed_ids(toolchain, text):
-                            failing.append(test)
+                    command = located(toolchain, rerun, tree / shown, tree)
+                    done = run(command, cwd=tree / shown)
+                    text = f"{done.stdout or ''}\n{done.stderr or ''}"
+                    if test in failed_ids(toolchain, text):
+                        failing.append(test)
         except (subprocess.CalledProcessError, OSError, ValueError) as error:
             logger.warning("unit-test base run could not be made, so it proves nothing: %s", error)
             return []
@@ -1748,83 +1799,56 @@ def build_unit_test_recheck(
         else {}
     )
 
-    def environment(toolchain: ToolchainProfile) -> dict[str, dict[str, str]]:
-        if installation is None or not isinstance(toolchain, SetsTestEnvironment):
-            return {}
-        unit = spans.current_unit.get()[0]
-        given = toolchain.test_environment(installation, unit, uuid.uuid4().hex[:8])
-        return {"env": {**os.environ, **given}}
-
-    def kept_bundles() -> list[str]:
-        """The newest bundle of the unit's failing run, then the serial reruns it kept."""
-        if failures_dir is None:
-            return []
-        store, folder = scoped(failures_dir, FAILURE_BUNDLES)
-        unit, change, _, _ = spans.current_unit.get()
-        prefix = folder + unit_file_prefix(unit, change)
-        named = re.compile(re.escape(prefix) + r"\d{8}-\d{6}(?=/)")
-        names = sorted({m[0] for key in store.list(prefix) if (m := named.match(key))})
-        if not names:
-            return []
-        newest = names[-1]
-        rerun = re.compile(re.escape(newest) + r"/reruns/\d+(?=/)")
-        keys = [
-            newest,
-            *sorted({m[0] for key in store.list(f"{newest}/") if (m := rerun.match(key))}),
-        ]
-        if isinstance(failures_dir, Path):
-            return [str(failures_dir.parent / key) for key in keys]
-        return keys
-
     def recheck(*, cwd: Path, base: str, failed_output: str) -> Recheck | None:
-        runnable: list[tuple[Path, ToolchainProfile, list[str]]] = []
-        for where, toolchain in _failed_work(cwd, profile, projects, failed_output):
-            if getattr(toolchain, "serial_rerun_command", None) is None:
-                continue
-            if ids := failed_ids(toolchain, failed_output):
-                runnable.append((where, toolchain, ids))
-        if not runnable:
+        found = _rerunnable(
+            cwd, profile, projects, failed_output, worker_settings=worker_settings, log=log
+        )
+        if not found:
             return None
-        bundles = kept_bundles()
+        unit, change, _, _ = spans.current_unit.get()
+        bundles: list[Path | str] = (
+            unit_bundle_places(failures_dir, unit, change) if failures_dir is not None else []
+        )
+        # One run token for the whole recheck, so its commands share one temp folder.
+        token = uuid.uuid4().hex[:8]
+        made: dict[str, dict[str, str]] = {}
         tests: list[str] = []
         failing: list[str] = []
         outputs: list[str] = []
-        for where, toolchain, ids in runnable:
-            failed_command = _failed_command(
-                failed_output, toolchain, where, worker_settings=worker_settings
+        for where, toolchain, test, rerun in found:
+            tests.append(test)
+            command = located(toolchain, rerun, where, cwd)
+            given = _given_environment(installation, toolchain, token, made, log)
+            started = clock()
+            done = run(
+                command,
+                cwd=where,
+                **({} if given is None else {"env": {**os.environ, **given}}),
             )
-            for test in ids:
-                tests.append(test)
-                rerun = getattr(toolchain, "serial_rerun_command")(  # noqa: B009
-                    failed_command, [test], project=where
+            if toolchain.tolerates_exit(command, done.returncode):
+                continue
+            failing.append(test)
+            text = f"{done.stdout or ''}\n{done.stderr or ''}".strip()
+            outputs.append(text)
+            if failures_dir is not None and bundles:
+                # Kept beside the first run's own reruns, in that run's bundle.
+                number = len(bundles)
+                write_rerun_evidence(
+                    failures_dir,
+                    bundles[0],
+                    number,
+                    output=text,
+                    context={
+                        "command": shlex.join(command),
+                        "exit": done.returncode,
+                        "recheck": True,
+                        "started": started.isoformat(),
+                        "ended": clock().isoformat(),
+                    },
+                    machine={},
+                    worktree={},
                 )
-                command = located(toolchain, rerun, where, cwd)
-                started = clock()
-                done = run(command, cwd=where, **environment(toolchain))
-                if toolchain.tolerates_exit(command, done.returncode):
-                    continue
-                failing.append(test)
-                text = f"{done.stdout or ''}\n{done.stderr or ''}".strip()
-                outputs.append(text)
-                if failures_dir is not None and bundles:
-                    # Kept beside the first run's own reruns, in that run's bundle.
-                    number = len(bundles)
-                    write_rerun_evidence(
-                        failures_dir,
-                        bundles[0],
-                        number,
-                        output=text,
-                        context={
-                            "command": shlex.join(command),
-                            "exit": done.returncode,
-                            "recheck": True,
-                            "started": started.isoformat(),
-                            "ended": clock().isoformat(),
-                        },
-                        machine={},
-                        worktree={},
-                    )
-                    bundles.append(f"{bundles[0]}/reruns/{number}")
+                bundles.append(rerun_place(bundles[0], number))
         if failing:
             _say(log, f"recheck: {', '.join(failing)} failed again")
         else:
@@ -1834,7 +1858,7 @@ def build_unit_test_recheck(
             tests=tuple(tests),
             first_output=failed_output,
             output=redact_text(cut_tail("\n".join(outputs), 4000), where="unit-test recheck"),
-            bundles=() if not failing else tuple(bundles),
+            bundles=() if not failing else tuple(str(bundle) for bundle in bundles),
         )
 
     return recheck
@@ -3064,15 +3088,10 @@ def build_unit_test(
         reads."""
         if installation is None or not isinstance(toolchain, SetsTestEnvironment):
             return {}
-        name = type(toolchain).__name__
-        if name not in run_environments:
-            unit = spans.current_unit.get()[0]
-            run_environments[name] = toolchain.test_environment(installation, unit, run_token["id"])
-            if folder := run_environments[name].get(TEMP_ROOT_VARIABLE):
-                # The folder's name is the run's token alone: this line is how a unit is found
-                # from a path in a failure.
-                _say(log, f"temp folder {folder} (run {run_token['id']})")
-        given = run_environments[name]
+        given = (
+            _given_environment(installation, toolchain, run_token["id"], run_environments, log)
+            or {}
+        )
         env = {**os.environ, **given}
         trace_files.pop("latest", None)
         if folder := given.get(TEMP_ROOT_VARIABLE):
