@@ -1487,6 +1487,18 @@ def missing_test_folder_warnings(
     return warnings
 
 
+def new_test_file_warnings(
+    path: Path,
+    changes_dir: Path,
+    branch_files: Callable[[str], Sequence[str] | None],
+) -> list[str]:
+    """One warning per task naming a new `test_<name>.py` that no module `<name>.py` backs.
+
+    `branch_files(repo)` lists the tracked files of the repo's default branch, or None when it
+    cannot tell, and the check is then quiet."""
+    raise NotImplementedError
+
+
 def _named_by_task(group: TaskGroup) -> list[tuple[str, dict[str, str], set[str]]]:
     """Each task of `group` (its `<group>.<task>` number) with the paths its lines name that sit
     under a test folder, each with that folder's root, and the roots the task creates by name (a

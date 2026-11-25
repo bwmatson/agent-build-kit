@@ -29,6 +29,14 @@ import yaml
 
 from agent_build_kit.cli import COMMANDS_GROUP
 from tests.ecosystem_names import WORKER_MODULES
+from tests.placement_baseline import (
+    BASELINE,
+    PlacementTree,
+    kit_trees,
+    placement_problems,
+    read_baseline,
+    write_baseline,
+)
 from tests.support.package_seeds import Seeds, baseline, seeds
 from tests.tracked_files import (
     ORCHESTRATOR_SOURCE,
@@ -1142,3 +1150,108 @@ def test_pyrefly_checks_the_core_tests() -> None:
 
 def test_the_core_tests_baseline_holds_no_more_lines_than_the_ceiling() -> None:
     assert 0 < len(core_baseline()) <= CORE_TESTS_BASELINE_CEILING
+
+
+EXTRA_TEST = "pipeline/test_units_in_progress.py"
+OWN_TEST = "pipeline/test_units.py"
+
+
+def units_tree(tests_root: str = "tests", *, root_tests: bool = False) -> PlacementTree:
+    return PlacementTree(
+        tests_root=Path(tests_root), modules=("pipeline/units.py",), root_tests=root_tests
+    )
+
+
+def lay_out(tmp_path: Path, tests_root: str, *names: str) -> None:
+    tree(tmp_path, {f"{tests_root}/{name}": "" for name in names})
+
+
+def test_a_second_test_file_for_a_module_fails_naming_it_and_the_file_it_belongs_in(
+    tmp_path: Path,
+) -> None:
+    lay_out(tmp_path, "tests", OWN_TEST, EXTRA_TEST)
+
+    problems = placement_problems(tmp_path, [units_tree()], [])
+
+    assert len(problems) == 1
+    assert EXTRA_TEST in problems[0] and OWN_TEST in problems[0]
+
+
+def test_a_test_file_in_the_baseline_passes(tmp_path: Path) -> None:
+    lay_out(tmp_path, "tests", OWN_TEST, EXTRA_TEST)
+
+    assert placement_problems(tmp_path, [units_tree()], [EXTRA_TEST]) == []
+
+
+@pytest.mark.parametrize("names", [(OWN_TEST,), (OWN_TEST, EXTRA_TEST)], ids=["gone", "fixed"])
+def test_a_baseline_entry_that_names_no_offending_file_fails_until_removed(
+    names: tuple[str, ...], tmp_path: Path
+) -> None:
+    entry = "pipeline/test_units_gone.py" if len(names) == 1 else OWN_TEST
+    lay_out(tmp_path, "tests", *names)
+
+    problems = placement_problems(tmp_path, [units_tree()], [EXTRA_TEST, entry])
+
+    assert len(problems) == 1 and entry in problems[0]
+
+
+def test_a_baseline_entry_still_allows_a_file_after_it_moves_to_the_core_tests(
+    tmp_path: Path,
+) -> None:
+    lay_out(tmp_path, "packages/core/tests", OWN_TEST, EXTRA_TEST)
+
+    problems = placement_problems(tmp_path, [units_tree("packages/core/tests")], [EXTRA_TEST])
+
+    assert problems == []
+
+
+@pytest.mark.parametrize(
+    "name",
+    [
+        "integration/test_anything_goes.py",
+        "e2e/test_anything_goes.py",
+        "docs/test_anything_goes.py",
+        "test_anything_goes.py",
+    ],
+)
+def test_a_file_under_integration_or_e2e_or_unclaimed_in_the_root_tests_is_outside_the_rule(
+    name: str, tmp_path: Path
+) -> None:
+    lay_out(tmp_path, "tests", OWN_TEST, name)
+
+    assert placement_problems(tmp_path, [units_tree(root_tests=True)], []) == []
+
+
+def test_a_root_test_file_named_for_a_module_of_another_package_is_left_to_that_package(
+    tmp_path: Path,
+) -> None:
+    lay_out(tmp_path, "tests", OWN_TEST, "pipeline/test_gate_extra.py")
+    root_tree = PlacementTree(
+        tests_root=Path("tests"),
+        modules=("pipeline/units.py",),
+        other_modules=("pipeline/gate.py",),
+        root_tests=True,
+    )
+
+    assert placement_problems(tmp_path, [root_tree], []) == []
+
+
+def test_the_baseline_generator_writes_the_sorted_offenders_and_a_second_run_changes_nothing(
+    tmp_path: Path,
+) -> None:
+    lay_out(tmp_path, "tests", OWN_TEST, EXTRA_TEST, "pipeline/test_a_second.py", "e2e/test_x.py")
+    path = tmp_path / "placement_baseline.toml"
+
+    write_baseline(tmp_path, [units_tree()], path)
+    first = path.read_text()
+    write_baseline(tmp_path, [units_tree()], path)
+
+    assert read_baseline(path) == ["pipeline/test_a_second.py", EXTRA_TEST]
+    assert path.read_text() == first
+
+
+@pytest.mark.integration
+def test_the_kit_test_trees_break_the_placement_rule_only_where_the_baseline_says() -> None:
+    problems = placement_problems(ROOT, kit_trees(ROOT), read_baseline(BASELINE))
+
+    assert problems == [], "\n".join(problems)

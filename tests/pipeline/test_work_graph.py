@@ -22,6 +22,7 @@ from agent_build_kit.pipeline.work_graph import (
     environment_setting_notes,
     group_needs,
     missing_test_folder_warnings,
+    new_test_file_warnings,
     shared_test_file_warnings,
     shared_test_files,
     validate_tasks,
@@ -835,3 +836,115 @@ def test_abk_tags_goes_quiet_and_does_not_fail_when_the_checkout_becomes_unusabl
     assert any(MISSING_TEST in line and "warning" in line for line in before)
     assert status == 0
     assert not any(MISSING_TEST in line for line in lines)
+
+
+SRC_DIR = "packages/core/src/agent_build_kit/pipeline"
+TEST_DIR = "packages/core/tests/pipeline"
+UNITS_BRANCH = (f"{SRC_DIR}/units.py", f"{TEST_DIR}/test_units.py")
+BEHAVIOUR_TEST = f"{TEST_DIR}/test_units_in_progress.py"
+
+
+def new_file_warnings(
+    tmp_path: Path,
+    text: str,
+    files: tuple[str, ...] | None,
+    *,
+    others: Mapping[str, str] | None = None,
+) -> list[str]:
+    """The new-test-file warnings of the change `feature` (tasks `text`) when the default branch
+    holds `files`, or cannot be listed when `files` is None."""
+    changes = tmp_path / "changes"
+    path = written(changes / "feature", text)
+    for name, other in (others or {}).items():
+        written(changes / name, other)
+    return new_test_file_warnings(path, changes, lambda repo: files)
+
+
+def test_a_behaviour_named_new_test_file_is_warned_of_with_the_module_file_it_belongs_in(
+    tmp_path: Path,
+) -> None:
+    text = groups_text(("Edit `src/app.py`.", f"Test: `{BEHAVIOUR_TEST}` covers it."))
+
+    warnings = new_file_warnings(tmp_path, text, UNITS_BRANCH)
+
+    assert len(warnings) == 1
+    assert "warning" in warnings[0] and "group 1" in warnings[0] and "1.2" in warnings[0]
+    assert BEHAVIOUR_TEST in warnings[0]
+    assert f"{TEST_DIR}/test_units.py" in warnings[0]
+
+
+@pytest.mark.parametrize(
+    ("groups", "needs", "others", "files"),
+    [
+        pytest.param(
+            ((f"Test: `{TEST_DIR}/test_units.py`.",),), None, None, UNITS_BRANCH[:1], id="own-file"
+        ),
+        pytest.param(
+            ((f"Test: `{TEST_DIR}/test_ledger.py`.", f"Edit `{SRC_DIR}/ledger.py`."),),
+            None,
+            None,
+            UNITS_BRANCH,
+            id="new-source-same-group",
+        ),
+        pytest.param(
+            ((f"Edit `{SRC_DIR}/ledger.py`.",), (f"Test: `{TEST_DIR}/test_ledger.py`.",)),
+            None,
+            None,
+            UNITS_BRANCH,
+            id="new-source-earlier-group",
+        ),
+        pytest.param(
+            ((f"Test: `{TEST_DIR}/test_ledger.py`.",),),
+            {1: "other-change group 1"},
+            {"other-change": groups_text((f"Edit `{SRC_DIR}/ledger.py`.",))},
+            UNITS_BRANCH,
+            id="new-source-needed-change",
+        ),
+        pytest.param(
+            ((f"Test: `{BEHAVIOUR_TEST}`.",),),
+            None,
+            None,
+            (*UNITS_BRANCH, BEHAVIOUR_TEST),
+            id="file-exists",
+        ),
+        pytest.param(
+            (("Test: `packages/core/tests/integration/test_units_in_progress.py`.",),),
+            None,
+            None,
+            UNITS_BRANCH,
+            id="integration",
+        ),
+        pytest.param(
+            (("Test: `packages/core/tests/e2e/test_units_in_progress.py`.",),),
+            None,
+            None,
+            UNITS_BRANCH,
+            id="e2e",
+        ),
+        pytest.param(
+            ((f"Edit `{TEST_DIR}/helpers.py`.",),), None, None, UNITS_BRANCH, id="not-a-test-file"
+        ),
+        pytest.param(((f"Test: `{BEHAVIOUR_TEST}`.",),), None, None, None, id="lookup-cannot-tell"),
+    ],
+)
+def test_a_new_test_file_a_module_backs_or_that_the_rule_leaves_out_gives_no_warning(
+    groups: tuple[tuple[str, ...], ...],
+    needs: dict[int, str] | None,
+    others: Mapping[str, str] | None,
+    files: tuple[str, ...] | None,
+    tmp_path: Path,
+) -> None:
+    text = groups_text(*groups, needs=needs)
+
+    assert new_file_warnings(tmp_path, text, files, others=others) == []
+
+
+def test_abk_tags_warns_of_a_behaviour_named_test_file_and_still_exits_zero(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    git_checkout(tmp_path, *UNITS_BRANCH)
+
+    status, lines = tags_output(tmp_path, capsys, groups_text((f"Test: `{BEHAVIOUR_TEST}`.",)))
+
+    assert status == 0
+    assert any(BEHAVIOUR_TEST in line and "warning" in line for line in lines)
