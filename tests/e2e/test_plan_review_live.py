@@ -9,8 +9,10 @@ one names the first unit's last group (or any of its groups) and the test file.
 
 Needs Claude Code on this host, logged in as the account the environment names, as the kit's
 other claude_code live tests do. Where the `claude` program is missing the test is held (skipped).
-Bills on demand, so it is marked e2e-test and excluded from the default suite. The seconds the
-review took are in the assertion message and the test's report, for the pull request.
+The plan repair is turned off, so the recorded findings are the review's own and the seconds are
+those of the one review call. Bills on demand, so it is marked e2e-test and excluded from the
+default suite. The seconds the review took are in the assertion message and the test's report,
+for the pull request.
 """
 
 from __future__ import annotations
@@ -129,7 +131,10 @@ def write_repo(path: Path) -> None:
 def test_a_real_review_names_the_unit_that_cannot_end_green_and_the_test_that_asserts_src(
     tmp_path: Path, claude_account_env: None
 ) -> None:
-    inst = make_private_trees_installation(tmp_path, planning={"review_plans": True})
+    # Repairs are off: the review makes one model call and records its own findings unrepaired.
+    inst = make_private_trees_installation(
+        tmp_path, planning={"review_plans": True, "plan_review_repairs": 0}
+    )
     write_repo(inst.repo("app").path)
     folder = inst.changes_dir / CHANGE
     (folder / "specs" / "layout").mkdir(parents=True)
