@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- `abk tags` and `abk check` now warn when a task names a test file under a `tests` or
+  `__tests__` folder that the repo's default branch lacks and no earlier group, or group it
+  needs, creates, since the unit could not place the test. The exit status is unchanged.
+
 - The tick and `abk status` now name a stale plan only while its change has a unit left to
   finish, so a change whose units have all merged, or that has none, is no longer repeated
   on every pass. `abk replan` still lists every stale plan.

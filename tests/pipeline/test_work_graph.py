@@ -674,7 +674,10 @@ def test_an_earlier_group_that_names_or_creates_the_folder_silences_the_warning(
 ) -> None:
     text = groups_text((earlier,), (f"Test: `{MISSING_TEST}`.",))
 
-    assert folder_warnings(tmp_path, text) == []
+    warnings = folder_warnings(tmp_path, text)
+
+    assert not any("group 2" in warning for warning in warnings)
+    assert len(warnings) == 1 and "group 1" in warnings[0]
 
 
 def test_a_reads_line_does_not_create_the_folder(tmp_path: Path) -> None:

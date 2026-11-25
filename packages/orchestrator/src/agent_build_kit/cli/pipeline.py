@@ -465,6 +465,7 @@ from agent_build_kit.pipeline.work_graph import (
     group_promotions,
     inverted_group_warnings,
     manual_runbook_warnings,
+    missing_test_folder_warnings,
     no_test_task_warnings,
     old_test_kind_warnings,
     project_line_applied,
@@ -6745,6 +6746,24 @@ def _needs_cycle_problems(inst: Installation) -> dict[str, str]:
     return {change: f"{change}: Needs: cycle {chain}" for change in crossing}
 
 
+def _default_branch_has(inst: Installation) -> Callable[[str, str], bool | None]:
+    """A lookup of whether a repo's default branch holds a folder: None when the checkout is
+    missing, is not a git repository or has no such branch, so the caller cannot tell."""
+
+    def has(repo: str, folder: str) -> bool | None:
+        checkout = inst.checkouts.get(repo)
+        if checkout is None:
+            return None
+        try:
+            branch = default_branch_of(checkout)
+            listing = git(checkout, "ls-tree", "--name-only", branch, "--", folder, check=False)
+        except OSError:
+            return None
+        return bool(listing.stdout.strip()) if listing.returncode == 0 else None
+
+    return has
+
+
 def _tag_warnings(inst: Installation, path: Path) -> list[str]:
     """What `abk tags` and `abk check` warn of in a tasks file, none of it a problem."""
     groups = validated(inst, path)[0]
@@ -6770,6 +6789,7 @@ def _tag_warnings(inst: Installation, path: Path) -> list[str]:
         *old_test_kind_warnings(path),
         *redundant_separate_warnings(path),
         *shared_test_file_warnings(path),
+        *missing_test_folder_warnings(path, inst.changes_dir, _default_branch_has(inst)),
         *environment_setting_notes(path, {name: repo.profile for name, repo in inst.repos.items()}),
         *product_path_warnings(path, groups, inst.repos),
         *task_wording_warnings(path, groups),

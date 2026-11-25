@@ -51,8 +51,10 @@ from agent_build_kit.model import Frozen, TestTier
 from agent_build_kit.pipeline.command_policy import programs
 from agent_build_kit.pipeline.group_mode import GroupMode
 from agent_build_kit.pipeline.group_paths import (
+    TEST_FOLDERS,
     allows_no_code,
     allows_tests_only,
+    line_paths,
     named_paths,
     named_test_paths,
     names_unplaced_glob,
@@ -1451,7 +1453,82 @@ def missing_test_folder_warnings(
     file under when `folder_present(repo, root)` says the repo's default branch lacks it and
     no earlier group, nor a group of a change reached through `Needs:`, creates it. The lookup
     returns None when it cannot tell, and the check is then quiet."""
-    raise NotImplementedError
+    groups, _ = validate_tasks(path)
+    named = {g.number: _named_by_task(g) for g in groups}
+    needs = group_needs(path)
+    warnings: list[str] = []
+    for group in groups:
+        created = {
+            root
+            for earlier in groups
+            if earlier.number < group.number
+            for _, found in named[earlier.number]
+            for root in found.values()
+        } | _roots_from_needs(path, changes_dir, group.number, needs)
+        reported: set[str] = set()
+        for key, found in named[group.number]:
+            for file, root in found.items():
+                if root in reported or root in created:
+                    continue
+                if folder_present(group.repo, root) is not False:
+                    continue
+                reported.add(root)
+                warnings.append(
+                    f"{path}:line {group.line}: warning: group {group.number}: task {key} names "
+                    f"`{file}`, but `{root}` is not on the default branch and no earlier group "
+                    "creates it; name the group that creates the folder, add a `Needs:` line on "
+                    "it, or use a test folder that exists"
+                )
+    return warnings
+
+
+def _named_by_task(group: TaskGroup) -> list[tuple[str, dict[str, str]]]:
+    """Each task of `group` (its `<group>.<task>` number) with the paths its lines name that sit
+    under a test folder, each with that folder's root; a `Reads:` task creates nothing and is
+    left out."""
+    found: list[tuple[str, dict[str, str]]] = []
+    current: dict[str, str] | None = None
+    for line in group.body:
+        if task := TASK_LINE.match(line):
+            current = {} if not task["text"].startswith("Reads:") else None
+            if current is not None:
+                found.append((f"{task['group']}.{task['number']}", current))
+        elif current is not None and not line.strip():
+            current = None
+        if current is None:
+            continue
+        for named in line_paths(line):
+            parts = PurePosixPath(named).parts
+            at = next((i for i, part in enumerate(parts) if part in TEST_FOLDERS), None)
+            if at is not None:
+                current.setdefault(named, "/".join(parts[: at + 1]))
+    return found
+
+
+def _roots_from_needs(
+    path: Path, changes_dir: Path, group: int, needs: Mapping[int, list[Need]]
+) -> set[str]:
+    """The test folders the groups a group `Needs:` name, with what those groups need in turn."""
+    roots: set[str] = set()
+    seen: set[tuple[str, int]] = set()
+    pending = [need for number, found in needs.items() if number <= group for need in found]
+    while pending:
+        need = pending.pop()
+        if (need.change, need.group) in seen or names_own_change(need, path):
+            continue
+        seen.add((need.change, need.group))
+        other = tasks_path(need.change, changes_dir)
+        if not other.is_file():
+            continue
+        other_groups, _ = validate_tasks(other)
+        other_needs = group_needs(other)
+        for each in other_groups:
+            if each.number <= need.group:
+                roots.update(root for _, found in _named_by_task(each) for root in found.values())
+        pending.extend(
+            n for number, found in other_needs.items() if number <= need.group for n in found
+        )
+    return roots
 
 
 def environment_setting_notes(

@@ -555,6 +555,15 @@ the groups (exit status unchanged), the planner is told to keep those groups in 
 `abk status` names a file a plan did split. A group that names a workspace or test setting of a
 toolchain manifest gets an info note, since the checks read that setting from the installation.
 
+A task that names a test file under a `tests` or `__tests__` folder the repo's default branch
+lacks gets a warning from `abk tags` and `abk check`, once per group and folder, unless an earlier
+group names a path under that folder, or a group it `Needs:` does (directly or through that
+change's own `Needs:` lines). The warning names the group, the task and the path, and says to
+name the group that creates the folder, add a `Needs:` line or use a folder that exists. It never
+changes the exit status, and the plan review's report carries it. A folder the default branch
+cannot be read for (no checkout, not a git repository) is not checked, nor is a test folder
+outside the repo's collected test paths.
+
 A group whose heading names no project resolves to the declared project that owns every path it
 names; anything outside every project, two projects, or no paths leaves it in the root, and
 `[repo/<root>]` opts out. A `Paths:` line is authoritative when present, and `Reads:` lines are not
