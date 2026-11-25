@@ -233,6 +233,16 @@ def _unmarked_scans(text: str) -> dict[str, str]:
     }
 
 
+def scans_the_repository(text: str) -> bool:
+    """Whether a test module scans the repository: a test or a helper of it does, marked
+    `integration` or not. Importing a path constant of the tracked-files helper is not a scan."""
+    if not any(word in text for word in SCAN_TEXT):
+        return False
+    tree = ast.parse(text)
+    helpers = _scan_helpers(tree)
+    return bool(helpers) or any(_is_scan(node, helpers) for node, _ in walk_tests(tree))
+
+
 def check_tests(
     root: Path | Sequence[Path] | None = None,
     *,

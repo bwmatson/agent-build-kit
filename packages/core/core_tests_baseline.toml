@@ -1,0 +1,18 @@
+# The core's tests still in the root `tests/`, as globs relative to `tests/`. It may only shrink:
+# each move group deletes its lines and none adds any.
+globs = [
+    "hooks/test_*.py",
+    "orchestration/test_*.py",
+    "sandboxes/test_*.py",
+    "split/test_*.py",
+    "tracks/test_*.py",
+    "init/test_*.py",
+    "trackers/test_*.py",
+    "serve/test_*.py",
+    "graph/test_checkpoint*.py",
+    "forges/test_*.py",
+    "profiles/test_*.py",
+    "runtimes/test_*.py",
+    "test_*.py",
+    "pipeline/test_*.py",
+]
