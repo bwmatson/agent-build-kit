@@ -19,7 +19,7 @@ if TYPE_CHECKING:
 
 TEST_FOLDERS = frozenset({"tests", "__tests__"})
 TEST_FILE_PATTERNS = ("test_*.py", "*_test.py", "*.test.*", "*.spec.*")
-_TICKED = re.compile(r"`([^`]+)`")
+TICKED = re.compile(r"`([^`]+)`")
 _LINE_SUFFIX = re.compile(r":\d+$")
 _EXTENSION = re.compile(r"\.[A-Za-z0-9]+$")
 _NOT_A_PATH = re.compile(r"[\s=(<]")
@@ -50,7 +50,7 @@ def line_paths(line: str) -> list[str]:
     without a trailing `:<line>`, `::<test id>` or `/`; URLs, flags, assignments, globs and
     symbols are skipped."""
     found: list[str] = []
-    for token in _TICKED.findall(line):
+    for token in TICKED.findall(line):
         if not _is_path_token(token) or "*" in token:
             continue
         cleaned = _LINE_SUFFIX.sub("", token.split("::", 1)[0]).rstrip("/")
@@ -89,9 +89,9 @@ def changed_paths(line: str, projects: Sequence[str]) -> list[str]:
     for sentence in _SENTENCE_END.split(text):
         sentence = _NOT_A_CHANGE.sub("", sentence)
         found += line_paths(sentence)
-        found += [prefix for t in _TICKED.findall(sentence) if (prefix := _glob_prefix(t))]
+        found += [prefix for t in TICKED.findall(sentence) if (prefix := _glob_prefix(t))]
         if anchored:
-            found += [w.rstrip(".:") for w in anchored.findall(_TICKED.sub(" ", sentence))]
+            found += [w.rstrip(".:") for w in anchored.findall(TICKED.sub(" ", sentence))]
     return list(dict.fromkeys(found))
 
 
@@ -287,7 +287,7 @@ def _command_paths(line: str) -> list[str]:
         return []
     found: list[str] = []
     for sentence in _SENTENCE_END.split(_VERIFY.sub("", line)):
-        for token in _TICKED.findall(_NOT_A_CHANGE.sub("", sentence)):
+        for token in TICKED.findall(_NOT_A_CHANGE.sub("", sentence)):
             found += line_paths(" ".join(f"`{word}`" for word in token.split()))
     return found
 
@@ -319,7 +319,7 @@ def names_unplaced_glob(group: TaskGroup) -> bool:
         if _NOT_CHANGES.match(line):
             continue
         for sentence in _SENTENCE_END.split(_VERIFY.sub("", line)):
-            for token in _TICKED.findall(_NOT_A_CHANGE.sub("", sentence)):
+            for token in TICKED.findall(_NOT_A_CHANGE.sub("", sentence)):
                 if _is_path_token(token) and "*" in token and _glob_prefix(token) is None:
                     return True
     return False

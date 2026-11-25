@@ -10,7 +10,7 @@ from fnmatch import fnmatchcase
 
 from agent_build_kit.installation import Installation
 from agent_build_kit.model import Frozen
-from agent_build_kit.pipeline.group_paths import line_paths
+from agent_build_kit.pipeline.group_paths import TICKED, line_paths
 from agent_build_kit.pipeline.unit_store import StoredUnit
 from agent_build_kit.pipeline.units import UnitState
 
@@ -73,7 +73,6 @@ _NOT_AHEAD = frozenset(
 )
 _WAITS = re.compile(r"^Waits on:\s*(\S+)\s+group\s+(\d+)\b")
 _SKETCH = re.compile(r"^(\d+)\.\s")
-_TICKED = re.compile(r"`([^`]+)`")
 
 
 def _parse(name: str, text: str) -> Outline:
@@ -97,7 +96,7 @@ def _parse(name: str, text: str) -> Outline:
             else:
                 unparsed.append(line)
         elif line.startswith("Touches:"):
-            touches += _TICKED.findall(line)
+            touches += TICKED.findall(line)
         elif line.startswith("Reworks:"):
             reworks.append(line.removeprefix("Reworks:").strip())
         elif section == "its part":
