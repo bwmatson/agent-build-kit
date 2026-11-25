@@ -277,7 +277,8 @@ def run_regression_agent(
     """Run the agent for `failure` in `cwd`, a checkout of the unit's `base`, and check the
     change it wrote with what `abk check` and `abk tags` run, then its own checks: the files, a
     `[contract]` group and a `Priority:` line. A change that fails is rewritten once, then held.
-    A run that fails, or that cannot decide, is held at once, with no second run.
+    A run that fails is run once more and held if it fails again; a run that cannot decide is
+    held at once.
 
     The change's name is taken, and its directory made, under the flakes lock. An open fix of the
     test that holds a `tasks.md` is the change, whether it is in flight or held for a person, and
@@ -396,19 +397,29 @@ def run_regression_agent(
                 sandbox=confined,
             ),
         )
-        result = runtime.run(
-            recorded(
-                request,
-                runtime,
-                node=OverheadNode.REGRESSION,
-                unit=unit.id,
-                change=name,
-                say=print,
+
+        for second in (False, True):
+            if second:
+                # A failed run needs no judgement: it runs once more, counted against the hour
+                # (on the live clock: the caller's injected `now` stamps only the first run).
+                _take_run(inst, failure.test, spans.clock.now())
+            result = runtime.run(
+                recorded(
+                    request,
+                    runtime,
+                    node=OverheadNode.REGRESSION,
+                    unit=unit.id,
+                    change=name,
+                    say=print,
+                )
             )
-        )
+            if result.succeeded:
+                break
         if not result.succeeded:
             reason = result.error or result.stop_reason or "no reason given"
-            stopped = FixOutcome(change=name, held=True, reason=f"the agent's run failed: {reason}")
+            stopped = FixOutcome(
+                change=name, held=True, reason=f"the agent's run failed twice: {reason}"
+            )
             return []
         # A change held as undecided is read by a person later, and built when the test no longer
         # fails: it carries the evidence too.

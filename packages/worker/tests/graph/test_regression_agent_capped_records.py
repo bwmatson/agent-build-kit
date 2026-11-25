@@ -151,17 +151,10 @@ def test_a_directory_a_dead_run_left_is_written_again(
 # --- a run that ended held for a person ---------------------------------------------
 
 
-@pytest.mark.parametrize(
-    "runtime",
-    [
-        StandInRuntime(answer="I cannot tell.\nJUDGEMENT: undecided\n"),
-        StandInRuntime(ok=False, error="exit 1"),
-    ],
-    ids=["undecided", "failed"],
-)
-def test_a_change_held_for_a_person_is_waited_on_and_the_agent_is_not_run_again(
-    installation: Installation, runtime: StandInRuntime
+def test_a_change_held_as_undecided_is_waited_on_and_the_agent_is_not_run_again(
+    installation: Installation,
 ) -> None:
+    runtime = StandInRuntime(answer="I cannot tell.\nJUDGEMENT: undecided\n")
     code_repo(installation)
     units = [
         change_with_unit(installation, "feature", "feature/1"),
@@ -177,6 +170,27 @@ def test_a_change_held_for_a_person_is_waited_on_and_the_agent_is_not_run_again(
     assert waits_on(installation, "feature") == [fix]
     assert waits_on(installation, "other") == [fix]
     assert len((installation.state_dir / RUNS_FILE).read_text().split()) == 1
+
+
+def test_a_change_held_for_a_failed_run_is_waited_on_after_two_runs_for_the_first_unit(
+    installation: Installation,
+) -> None:
+    runtime = StandInRuntime(ok=False, error="exit 1")
+    code_repo(installation)
+    units = [
+        change_with_unit(installation, "feature", "feature/1"),
+        change_with_unit(installation, "other", "other/1"),
+    ]
+    fix = flake_change_name(TEST)
+
+    named = [waited_on(installation, flaked(unit=u.id), u, runtime=runtime) for u in units]
+
+    assert named == [fix, fix]
+    assert len(runtime.requests) == 2, "both runs are made for the first unit, none for the second"
+    assert not (installation.changes_dir / fix / "tasks.md").exists()
+    assert waits_on(installation, "feature") == [fix]
+    assert waits_on(installation, "other") == [fix]
+    assert len((installation.state_dir / RUNS_FILE).read_text().split()) == 2
 
 
 def test_a_held_change_a_person_removed_is_written_again(installation: Installation) -> None:

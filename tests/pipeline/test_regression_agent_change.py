@@ -239,16 +239,42 @@ def test_a_group_after_the_acceptance_group_is_sent_back(
     assert outcome == FixOutcome(change=name)
 
 
-def test_a_run_that_failed_is_held_with_its_error_and_not_run_again(
+def test_a_run_that_failed_twice_is_held_with_its_error_and_the_reason_says_so(
     installation: Installation, tmp_path: Path
 ) -> None:
     runtime = StandInRuntime(ok=False, error="the agent exited 1")
 
     outcome = run(installation, tmp_path, runtime)
 
-    assert len(runtime.requests) == 1
+    assert len(runtime.requests) == 2
     assert outcome.held
+    assert "failed twice" in outcome.reason
     assert "the agent exited 1" in outcome.reason
+
+
+def test_a_run_that_failed_once_is_run_again_and_its_change_is_not_held(
+    installation: Installation, tmp_path: Path
+) -> None:
+    name = next_fix_name(installation, TEST)
+    agent = Attempts(installation, name, {})
+    runtime = agent.runtime
+    write = runtime.act
+    assert write is not None
+
+    def fails_first(request: AgentRequest) -> None:
+        second = len(runtime.requests) >= 2
+        runtime.ok = second
+        runtime.error = "" if second else "the agent exited 1"
+        if second:
+            write(request)
+
+    runtime.act = fails_first
+
+    outcome = run(installation, tmp_path, runtime)
+
+    assert len(runtime.requests) == 2
+    assert runtime.requests[1].prompt == runtime.requests[0].prompt
+    assert outcome == FixOutcome(change=name)
 
 
 def test_a_runtime_that_raises_leaves_no_empty_change_directory(

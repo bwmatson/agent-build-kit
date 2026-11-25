@@ -9,8 +9,6 @@ import argparse
 import shutil
 from datetime import UTC, datetime
 
-import pytest
-
 from agent_build_kit.cli import pipeline as cli
 from agent_build_kit.cli.external_cmd import cmd_release
 from agent_build_kit.installation import Installation
@@ -135,17 +133,27 @@ def test_release_all_refuses_a_change_that_is_not_held(installation: Installatio
     assert release(installation, "fix-test-free") == 1
 
 
-@pytest.mark.parametrize("ok", [True, False], ids=["undecided", "failed"])
-def test_a_second_unit_meeting_a_held_change_runs_nothing(
-    installation: Installation, ok: bool
+def test_a_second_unit_meeting_a_change_held_as_undecided_runs_nothing(
+    installation: Installation,
 ) -> None:
     store = waiting_store(installation)
     store.upsert([stored_unit("other/1", change="feature", groups=(1,))])
-    runtime = StandInRuntime(
-        ok=ok, answer=f"{UNDECIDED}\n" if ok else "", error="" if ok else "exit 1"
-    )
+    runtime = StandInRuntime(answer=f"{UNDECIDED}\n")
 
     waited_on(installation, flaked(), store.get("feature/1"), runtime=runtime)
     waited_on(installation, flaked(unit="other/1"), store.get("other/1"), runtime=runtime)
 
     assert len(runtime.requests) == 1
+
+
+def test_a_second_unit_meeting_a_change_held_for_a_failed_run_runs_nothing(
+    installation: Installation,
+) -> None:
+    store = waiting_store(installation)
+    store.upsert([stored_unit("other/1", change="feature", groups=(1,))])
+    runtime = StandInRuntime(ok=False, error="exit 1")
+
+    waited_on(installation, flaked(), store.get("feature/1"), runtime=runtime)
+    waited_on(installation, flaked(unit="other/1"), store.get("other/1"), runtime=runtime)
+
+    assert len(runtime.requests) == 2, "both runs are made for the first unit, none for the second"

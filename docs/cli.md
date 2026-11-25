@@ -170,6 +170,7 @@ something talks to the API, so a line that says a token has expired with no rece
 login nothing has yet noticed. When an account's login was rejected, status adds the line that says
 so, with the command that renews it, and `account <name>: N units paused for the login`; each
 unit paused for it is listed as `paused for the login`, and `abk explain` says the same of the unit.
+The CLI's `Not logged in · Please run /login` pauses for the login too.
 
 Beside the usage reading, status prints a `usage allowances:` line: for each window its cost fit,
 as `session 2.65 points/$ + 5.1 points/h (31 pairs with cost, scale 1.2)`, or the reason the
