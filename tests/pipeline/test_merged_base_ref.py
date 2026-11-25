@@ -551,4 +551,22 @@ def test_a_stored_reason_that_clears_when_the_branch_is_deleted_is_logged_on_tha
     sweep()
 
     assert swept.store.get(PARENT).branch_kept == ""
+    assert len(sweep.lines) == 1
+    assert "no longer kept" in sweep.lines[0]
+
+
+def test_a_stored_reason_that_clears_because_the_branch_was_removed_by_hand_is_logged_once(
+    swept: World,
+) -> None:
+    sweep = Sweep(swept)
+    sweep.delete_error = LOCAL_REFUSAL
+    sweep()
+    sweep.lines.clear()
+    git(swept.repo, "branch", "-q", "-D", PARENT_BRANCH)
+
+    sweep()
+
+    assert swept.store.get(PARENT).branch_kept == ""
     assert [line for line in sweep.lines if PARENT in line] != []
+    assert len(sweep.lines) == 1
+    assert "no longer kept" in sweep.lines[0]
