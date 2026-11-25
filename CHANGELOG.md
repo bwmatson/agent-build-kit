@@ -6,6 +6,9 @@
   finish, so a change whose units have all merged, or that has none, is no longer repeated
   on every pass. `abk replan` still lists every stale plan.
 
+- A merged unit's branch that cannot be deleted is now logged by the tick when its reason
+  appears, changes or clears, not on every pass. The deletion is still retried each pass.
+
 - An `[e2e-test]` unit whose own test fails is now reworked once, automatically, with the
   failing output, before it fails: the checks, review and e2e-test run again on the fix. A
   second failure, a unit requeued after its automatic rework, a scheduled run, a failure only

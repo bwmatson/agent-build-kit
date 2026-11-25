@@ -285,7 +285,10 @@ class Sweep:
         self.world = world
         self.removed: list[str] = []
         self.deleted: list[str] = []
+        self.tried: list[str] = []
         self.dirty = ""
+        self.delete_error = ""
+        self.lines: list[str] = []
 
     def __call__(self) -> None:
         def remove_worktree(repo: str, branch: str) -> None:
@@ -293,13 +296,19 @@ class Sweep:
                 raise RuntimeError(self.dirty)
             self.removed.append(branch)
 
+        def delete_branch(repo: str, branch: str) -> None:
+            self.tried.append(branch)
+            if self.delete_error:
+                raise RuntimeError(self.delete_error)
+            self.deleted.append(branch)
+
         events.remove_merged_branches(
             self.world.store,
             repos={"app": self.world.repo},
             remove_worktree=remove_worktree,
-            delete_branch=lambda repo, branch: self.deleted.append(branch),
+            delete_branch=delete_branch,
             on_new_base=lambda child: True,
-            log=lambda line: None,
+            log=self.lines.append,
         )
 
 
@@ -479,3 +488,85 @@ def test_with_the_setting_off_the_pass_deletes_nothing_and_on_it_does(swept: Wor
 
     assert while_off == (True, [])
     assert PARENT_BRANCH not in on_the_remote(swept)
+
+
+# --- a kept branch is logged when its reason appears or changes ---------------------
+
+LOCAL_REFUSAL = "error: cannot delete branch used by worktree"
+
+
+def test_a_local_branch_that_cannot_be_deleted_is_logged_on_the_first_pass_and_tried_on_both(
+    swept: World,
+) -> None:
+    sweep = Sweep(swept)
+    sweep.delete_error = LOCAL_REFUSAL
+
+    sweep()
+    after_first = list(sweep.lines)
+    sweep()
+
+    assert [line for line in after_first if LOCAL_REFUSAL in line] != []
+    assert sweep.lines == after_first
+    assert sweep.tried == [PARENT_BRANCH, PARENT_BRANCH]
+
+
+def test_a_remote_refusal_that_repeats_is_logged_once_across_two_passes(
+    swept: World, host: DeletingForge
+) -> None:
+    host.refusal = REFUSAL
+    sweep = Sweep(swept)
+
+    sweep()
+    sweep()
+
+    assert len([line for line in sweep.lines if REFUSAL in line]) == 1
+
+
+def test_a_reason_that_changes_between_passes_is_logged_on_the_pass_where_it_changes(
+    swept: World,
+) -> None:
+    sweep = Sweep(swept)
+    sweep.delete_error = "first reason"
+    sweep()
+    sweep.lines.clear()
+    sweep.delete_error = "second reason"
+
+    sweep()
+    after_change = list(sweep.lines)
+    sweep()
+
+    assert [line for line in after_change if "second reason" in line] != []
+    assert sweep.lines == after_change
+
+
+def test_a_stored_reason_that_clears_when_the_branch_is_deleted_is_logged_on_that_pass(
+    swept: World,
+) -> None:
+    sweep = Sweep(swept)
+    sweep.delete_error = LOCAL_REFUSAL
+    sweep()
+    sweep.lines.clear()
+    sweep.delete_error = ""
+
+    sweep()
+
+    assert swept.store.get(PARENT).branch_kept == ""
+    assert len(sweep.lines) == 1
+    assert "no longer kept" in sweep.lines[0]
+
+
+def test_a_stored_reason_that_clears_because_the_branch_was_removed_by_hand_is_logged_once(
+    swept: World,
+) -> None:
+    sweep = Sweep(swept)
+    sweep.delete_error = LOCAL_REFUSAL
+    sweep()
+    sweep.lines.clear()
+    git(swept.repo, "branch", "-q", "-D", PARENT_BRANCH)
+
+    sweep()
+
+    assert swept.store.get(PARENT).branch_kept == ""
+    assert [line for line in sweep.lines if PARENT in line] != []
+    assert len(sweep.lines) == 1
+    assert "no longer kept" in sweep.lines[0]

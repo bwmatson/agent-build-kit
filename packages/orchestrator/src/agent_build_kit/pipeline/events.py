@@ -1117,11 +1117,16 @@ def remove_merged_branches(
         if not (here or on_remote):
             # Gone here, and gone there or unknown: only a remote reason can still stand.
             if _joined(carried) != unit.branch_kept:
+                if not carried:
+                    _log_no_longer_kept(unit, branch, log)
                 store.set_branch_kept(unit.id, _joined(carried))
             continue
         reasons: list[str] = carried
+        # A kept branch is retried each pass but said once: its lines are held back and
+        # emitted only when the joined reason differs from the stored one.
+        held: list[str] = []
         if on_remote:
-            reasons.append(_delete_remote_branch(unit, open_bases, log))
+            reasons.append(_delete_remote_branch(unit, open_bases, held.append))
         if here:
             reasons.append(
                 remove_satisfied(
@@ -1132,12 +1137,21 @@ def remove_merged_branches(
                     delete_branch=delete_branch,
                     on_new_base=on_new_base,
                     repos=repos,
-                    log=log,
+                    log=held.append,
                 )
             )
         kept = _joined(reasons)
         if kept != unit.branch_kept:
+            for line in held:
+                log(line)
+            if not kept:
+                _log_no_longer_kept(unit, branch, log)
             store.set_branch_kept(unit.id, kept)
+
+
+def _log_no_longer_kept(unit: StoredUnit, branch: str, log: Log) -> None:
+    """The one line a pass logs when a stored kept reason clears."""
+    log(f"{unit.id}: branch {branch} no longer kept — it is gone")
 
 
 # Opens every stored reason a remote branch is kept, so a pass that cannot read the remote can
