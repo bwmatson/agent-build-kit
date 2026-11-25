@@ -133,6 +133,7 @@ from agent_build_kit.pipeline.flakes import (
     flake_record,
     record_load,
     record_storm,
+    record_unexplained,
 )
 from agent_build_kit.pipeline.gateway_usage import Spend, attribution, configured_source
 from agent_build_kit.pipeline.git_output import (
@@ -195,7 +196,9 @@ from agent_build_kit.pipeline.run_log import (
     adopt_old_e2e_output,
     append_e2e_output,
     append_test_run,
+    rerun_place,
     run_ledger_path,
+    unit_bundle_places,
     write_failure_bundle,
     write_rerun_evidence,
 )
@@ -215,7 +218,13 @@ from agent_build_kit.pipeline.shell import (
     has_origin,
     porcelain,
 )
-from agent_build_kit.pipeline.stack_runner import FixResult, Restacked, UnitRunner, Worktree
+from agent_build_kit.pipeline.stack_runner import (
+    FixResult,
+    Recheck,
+    Restacked,
+    UnitRunner,
+    Worktree,
+)
 from agent_build_kit.pipeline.transcript import Transcript, TranscriptEvent
 from agent_build_kit.pipeline.ui_review import ui_notes_of, ui_reply_writer, unit_patch_of
 from agent_build_kit.pipeline.unchanged_failure import (
@@ -1609,6 +1618,106 @@ def unit_wrote(test: str, where: Path, root: Path, files: Collection[str]) -> bo
     return written_by_unit(shown, files)
 
 
+def _failed_work(
+    cwd: Path,
+    profile: ToolchainProfile,
+    projects: list[ProjectConfig] | None,
+    failed_output: str,
+) -> list[tuple[Path, ToolchainProfile]]:
+    """Where each project's failed tests sit: a project is named by the line its failure
+    carries, and a repo with one place to run has no such line to look for."""
+    declared = projects or []
+    work = [(cwd, profile)] if not declared else []
+    for project in declared:
+        where = cwd / project.path
+        if where.is_dir() and (len(declared) == 1 or failed_in(where) in failed_output):
+            work.append((where, profiles.get(project.profile)))
+    return work
+
+
+def _failed_command(
+    failed_output: str,
+    toolchain: ToolchainProfile,
+    where: Path,
+    *,
+    worker_settings: dict[str, Any],
+) -> list[str]:
+    """The test command a saved failed output came from: the one its header names, else the
+    toolchain's first test command for `where`."""
+    header = re.match(r"\s*\$ (?P<command>.+) \(exit -?\d+\)", failed_output)
+    if header:
+        return shlex.split(header["command"])
+    return next(
+        iter(toolchain.test_commands(where, [], root_extras=[], **worker_settings)),
+        [],
+    )
+
+
+# One failed test of a saved output that can be run again alone: the project folder it sits in,
+# its profile, its id and the profile's serial rerun command for it.
+Rerunnable = tuple[Path, ToolchainProfile, str, list[str]]
+
+
+def _rerunnable(
+    cwd: Path,
+    profile: ToolchainProfile,
+    projects: list[ProjectConfig] | None,
+    failed_output: str,
+    *,
+    worker_settings: dict[str, Any],
+    skip: Callable[[str, Path], bool] | None = None,
+    log: Callable[[str], None] | None = None,
+) -> list[Rerunnable]:
+    """The failed tests a saved output names that the profile can run again alone, per project,
+    less those `skip` says to leave out (given the id and its project folder). Empty when the
+    output names more than `BASE_CHECK_LIMIT`: that many is a broken collection or import, which
+    running them one by one cannot explain. The one reading both the base check and the recheck
+    take their tests from."""
+    found: list[Rerunnable] = []
+    for where, toolchain in _failed_work(cwd, profile, projects, failed_output):
+        rerun = getattr(toolchain, "serial_rerun_command", None)
+        if rerun is None:
+            continue
+        ids = [
+            test
+            for test in failed_ids(toolchain, failed_output)
+            if skip is None or not skip(test, where)
+        ]
+        if not ids:
+            continue
+        failed_command = _failed_command(
+            failed_output, toolchain, where, worker_settings=worker_settings
+        )
+        found.extend(
+            (where, toolchain, test, rerun(failed_command, [test], project=where)) for test in ids
+        )
+    if len(found) > BASE_CHECK_LIMIT:
+        _say(log, f"more than {BASE_CHECK_LIMIT} failed tests: not run again one by one")
+        return []
+    return found
+
+
+def _given_environment(
+    installation: Installation | None,
+    toolchain: ToolchainProfile,
+    token: str,
+    made: dict[str, dict[str, str]],
+    log: Callable[[str], None] | None,
+) -> dict[str, str] | None:
+    """The test environment `toolchain` gives a run with `token`, made once per profile into
+    `made`; None for a profile that sets none or no installation. Its temp folder is told in the
+    log, which is how a unit is found from a path in a failure."""
+    if installation is None or not isinstance(toolchain, SetsTestEnvironment):
+        return None
+    name = type(toolchain).__name__
+    if name not in made:
+        unit = spans.current_unit.get()[0]
+        made[name] = toolchain.test_environment(installation, unit, token)
+        if folder := made[name].get(TEMP_ROOT_VARIABLE):
+            _say(log, f"temp folder {folder} (run {token})")
+    return made[name]
+
+
 def build_unit_test_base_check(
     *,
     run: Run | None = None,
@@ -1617,11 +1726,12 @@ def build_unit_test_base_check(
     projects: list[ProjectConfig] | None = None,
     log: Callable[[str], None] | None = None,
     repo: RepoConfig | None = None,
-) -> Callable[..., list[str]]:
+) -> Callable[..., list[Flake]]:
     """The stack runner's `unit_test_on_base`: the failed tests of a saved output that fail
-    alone in a clean worktree of the base, run per project. A test the unit wrote (its file or
-    the `conftest.py` beside it changed) is left out, as in the full run's base check, and a base
-    worktree that cannot be made answers none: it proves nothing."""
+    alone in a clean worktree of the base, run per project, each as the `Flake` a fix change is
+    filed from: its command, project folder, the base and its own output there. A test the unit
+    wrote (its file or the `conftest.py` beside it changed) is left out, as in the full run's base
+    check, and a base worktree that cannot be made answers none: it proves nothing."""
     run = run or _run
     changed = changed or changed_files
     profile = profile or profiles.get("python-uv")
@@ -1631,69 +1741,156 @@ def build_unit_test_base_check(
         else {}
     )
 
-    def on_base(*, cwd: Path, base: str, failed_output: str) -> list[str]:
-        # Where each project's failed tests sit: a project is named by the line its failure
-        # carries, and a repo with one place to run has no such line to look for.
-        declared = projects or []
-        work = [(cwd, profile)] if not declared else []
-        for project in declared:
-            where = cwd / project.path
-            if where.is_dir() and (len(declared) == 1 or failed_in(where) in failed_output):
-                work.append((where, profiles.get(project.profile)))
-        header = re.match(r"\s*\$ (?P<command>.+) \(exit -?\d+\)", failed_output)
-        found: list[tuple[Path, ToolchainProfile, list[str]]] = []
+    def on_base(*, cwd: Path, base: str, failed_output: str) -> list[Flake]:
         try:
             files = set(changed(cwd, base))
         except (subprocess.CalledProcessError, OSError):
             return []
-        for where, toolchain in work:
-            if getattr(toolchain, "serial_rerun_command", None) is None:
-                continue
-            ids = [
-                test
-                for test in failed_ids(toolchain, failed_output)
-                if not unit_wrote(test, where, cwd, files)
-            ]
-            if ids:
-                found.append((where, toolchain, ids))
+        found = _rerunnable(
+            cwd,
+            profile,
+            projects,
+            failed_output,
+            worker_settings=worker_settings,
+            skip=lambda test, where: unit_wrote(test, where, cwd, files),
+            log=log,
+        )
         if not found:
             return []
-        if sum(len(ids) for _, _, ids in found) > BASE_CHECK_LIMIT:
-            _say(log, f"more than {BASE_CHECK_LIMIT} failed tests: not run on the base one by one")
-            return []
-        failing: list[str] = []
+        failing: list[Flake] = []
+        at = datetime.now(UTC)
+        stored = redact_text(failed_output, where="unit-test output")
         try:
             with worktree_at(cwd, base) as tree:
-                for where, toolchain, ids in found:
+                for where, toolchain, test, rerun in found:
                     shown = where.relative_to(cwd)
-                    if header:
-                        failed_command = shlex.split(header["command"])
-                    else:
-                        failed_command = next(
-                            iter(
-                                toolchain.test_commands(
-                                    where, [], root_extras=[], **worker_settings
-                                )
-                            ),
-                            [],
+                    command = located(toolchain, rerun, tree / shown, tree)
+                    done = run(command, cwd=tree / shown)
+                    text = f"{done.stdout or ''}\n{done.stderr or ''}"
+                    if test in failed_ids(toolchain, text):
+                        failing.append(
+                            Flake(
+                                test=test,
+                                command=shlex.join(rerun),
+                                output=cut_tail(stored, 4000),
+                                at=at,
+                                directory=str(where),
+                                base=base,
+                                base_output=redact_text(
+                                    cut_tail(text.strip(), 4000), where="unit-test base output"
+                                ),
+                                failing=True,
+                            )
                         )
-                    for test in ids:
-                        rerun = getattr(toolchain, "serial_rerun_command")(  # noqa: B009
-                            failed_command, [test], project=where
-                        )
-                        command = located(toolchain, rerun, tree / shown, tree)
-                        done = run(command, cwd=tree / shown)
-                        text = f"{done.stdout or ''}\n{done.stderr or ''}"
-                        if test in failed_ids(toolchain, text):
-                            failing.append(test)
         except (subprocess.CalledProcessError, OSError, ValueError) as error:
             logger.warning("unit-test base run could not be made, so it proves nothing: %s", error)
             return []
         if log is not None and failing:
-            _say(log, f"failed on the base too: {', '.join(failing)}")
+            _say(log, f"failed on the base too: {', '.join(flake.test for flake in failing)}")
         return failing
 
     return on_base
+
+
+def build_unit_test_recheck(
+    *,
+    run: Run | None = None,
+    profile: ToolchainProfile | None = None,
+    projects: list[ProjectConfig] | None = None,
+    failures_dir: Artifacts | Path | None = None,
+    log: Callable[[str], None] | None = None,
+    repo: RepoConfig | None = None,
+    installation: Installation | None = None,
+    now: Callable[[], datetime] | None = None,
+) -> Callable[..., Recheck | None]:
+    """The stack runner's `recheck_unit_test`: reruns the failed tests of a saved output once,
+    by id and one at a time, with the profile's serial rerun command, keeping each run in the
+    evidence bundle; None when the profile has no serial rerun command or the output names no
+    test. `installation` gives the runs the test environment the unit-test run gives its own."""
+    run = run or _run
+    profile = profile or profiles.get("python-uv")
+    clock = now or (lambda: datetime.now(UTC))
+    worker_settings: dict[str, Any] = (
+        {"workers": repo.tests.workers, "max_workers": repo.tests.max_workers}
+        if repo is not None
+        else {}
+    )
+
+    def recheck(*, cwd: Path, base: str, failed_output: str) -> Recheck | None:
+        found = _rerunnable(
+            cwd, profile, projects, failed_output, worker_settings=worker_settings, log=log
+        )
+        if not found:
+            return None
+        unit, change, node, round_number = spans.current_unit.get()
+        bundles: list[Path | str] = (
+            unit_bundle_places(failures_dir, unit, change) if failures_dir is not None else []
+        )
+        # One run token for the whole recheck, so its commands share one temp folder.
+        token = uuid.uuid4().hex[:8]
+        made: dict[str, dict[str, str]] = {}
+        tests: list[str] = []
+        failing: list[str] = []
+        outputs: list[str] = []
+        for where, toolchain, test, rerun in found:
+            tests.append(test)
+            command = located(toolchain, rerun, where, cwd)
+            given = _given_environment(installation, toolchain, token, made, log)
+            started = clock()
+            mark = spans.Mark()
+            done = run(
+                command,
+                cwd=where,
+                **({} if given is None else {"env": {**os.environ, **given}}),
+            )
+            passed = toolchain.tolerates_exit(command, done.returncode)
+            spans.record_span(
+                mark,
+                log or (lambda message: None),
+                unit=unit,
+                change=change,
+                node=node,
+                round_number=round_number,
+                outcome="ok" if passed else f"exit {done.returncode}",
+                command=" ".join(command),
+            )
+            if passed:
+                continue
+            failing.append(test)
+            text = f"{done.stdout or ''}\n{done.stderr or ''}".strip()
+            outputs.append(text)
+            if failures_dir is not None and bundles:
+                # Kept beside the first run's own reruns, in that run's bundle.
+                number = len(bundles)
+                write_rerun_evidence(
+                    failures_dir,
+                    bundles[0],
+                    number,
+                    output=text,
+                    context={
+                        "command": shlex.join(command),
+                        "exit": done.returncode,
+                        "recheck": True,
+                        "started": started.isoformat(),
+                        "ended": clock().isoformat(),
+                    },
+                    machine={},
+                    worktree={},
+                )
+                bundles.append(rerun_place(bundles[0], number))
+        if failing:
+            _say(log, f"recheck: {', '.join(failing)} failed again")
+        else:
+            _say(log, f"recheck: {', '.join(tests)} passed")
+        return Recheck(
+            passed=not failing,
+            tests=tuple(tests),
+            first_output=failed_output,
+            output=redact_text(cut_tail("\n".join(outputs), 4000), where="unit-test recheck"),
+            bundles=tuple(str(bundle) for bundle in bundles),
+        )
+
+    return recheck
 
 
 def build_unit_test(
@@ -2920,15 +3117,10 @@ def build_unit_test(
         reads."""
         if installation is None or not isinstance(toolchain, SetsTestEnvironment):
             return {}
-        name = type(toolchain).__name__
-        if name not in run_environments:
-            unit = spans.current_unit.get()[0]
-            run_environments[name] = toolchain.test_environment(installation, unit, run_token["id"])
-            if folder := run_environments[name].get(TEMP_ROOT_VARIABLE):
-                # The folder's name is the run's token alone: this line is how a unit is found
-                # from a path in a failure.
-                _say(log, f"temp folder {folder} (run {run_token['id']})")
-        given = run_environments[name]
+        given = (
+            _given_environment(installation, toolchain, run_token["id"], run_environments, log)
+            or {}
+        )
         env = {**os.environ, **given}
         trace_files.pop("latest", None)
         if folder := given.get(TEMP_ROOT_VARIABLE):
@@ -5724,6 +5916,15 @@ def build_runner(
         unit_test_on_base=build_unit_test_base_check(
             profile=profile, projects=repo.projects, log=log, repo=repo
         ),
+        recheck_unit_test=build_unit_test_recheck(
+            profile=profile,
+            projects=repo.projects,
+            failures_dir=artifacts,
+            log=log,
+            repo=repo,
+            installation=installation,
+        ),
+        on_unexplained=record_unexplained,
         on_flake=build_on_flake(store, installation, log=log),
         reproduce_test=build_reproduce(
             profile=profile,

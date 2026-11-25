@@ -6,6 +6,18 @@
   finish, so a change whose units have all merged, or that has none, is no longer repeated
   on every pass. `abk replan` still lists every stale plan.
 
+- A checks fix round that changes nothing now gets one more attempt before the unit stops. The
+  second attempt is told the last one changed nothing and is given the failing output. When it
+  also changes nothing, the failed tests are rerun once, one at a time: a pass goes on to
+  review, and a failure holds the unit for a person with the tests and the bundle of each
+  run named.
+
+- A unit whose checks keep failing on a test that also fails on its base is no longer failed
+  for it. Before the checks loop stops a unit (fix rounds spent, or a fix round that changed
+  nothing), the failed tests are run alone on the base; each that fails there gets a fix
+  change and the unit waits for it, with its feedback naming the tests. A lint failure, a unit
+  of a fix change and a test that passes on the base stop as before.
+
 - A merged unit's branch that cannot be deleted is now logged by the tick when its reason
   appears, changes or clears, not on every pass. The deletion is still retried each pass.
 

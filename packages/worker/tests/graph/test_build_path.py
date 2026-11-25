@@ -309,7 +309,7 @@ def test_a_fix_that_leaves_the_branch_as_it_was_stops_a_runner_that_cannot_reche
 
     assert outcome.status == "failed"
     assert "changed nothing" in outcome.detail
-    assert recorder.events.count("claude:fix_checks") == 1
+    assert recorder.events.count("claude:fix_checks") == 2, "the first attempt and one more"
     assert "review" not in recorder.events
 
 

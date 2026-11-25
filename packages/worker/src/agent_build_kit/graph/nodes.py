@@ -121,6 +121,7 @@ from agent_build_kit.pipeline.stack_runner import (
     ADAPT_PROMPT,
     CHECKS_CONTINUATION,
     CHECKS_PROMPT,
+    CHECKS_UNCHANGED_NOTE,
     E2E_SCOPE_NOTE,
     IMPLEMENTATION_CONTINUATION,
     IMPLEMENTATION_PROMPT,
@@ -2330,7 +2331,33 @@ class BuildPath:
                 f"checks failing and fix round {n} changed nothing, before review"
             ),
             on_unchanged=lambda n: self.recheck(state, n),
+            on_base=lambda: self.park_on_base(state),
+            retry=lambda feedback, note: CHECKS_UNCHANGED_NOTE + fix_prompt(feedback, note),
         )
+
+    def park_on_base(self, state: UnitRun) -> Update | None:
+        """Before the checks loop stops the unit: the failed tests its saved output names that
+        fail alone on the unit's base are not its fault. Each gets a fix change and the unit waits,
+        gated, for them; its feedback keeps the output and names them. None when the output names
+        no test, the unit is of a fix change, no test fails on the base, or nothing could be
+        filed: the unit stops as before."""
+        r, unit = self.runner, self.unit
+        if is_fix_change(unit.change):
+            return None
+        feedback = r.store.get(unit.id).feedback
+        if not self.failed_tests_of(feedback):
+            return None
+        failing = r.unit_test_on_base(cwd=self.tree(), base=self.ref(state), failed_output=feedback)
+        if not failing:
+            return None
+        if (parked := self.wait_on_tests(failing, feedback)) is None:
+            return None
+        r.store.set_feedback(
+            unit.id,
+            f"{feedback}\nFailing on the base too: {', '.join(f.test for f in failing)}",
+            source=FeedbackSource.UNIT_TEST,
+        )
+        return {**parked, "checks_ok": False}
 
     def recheck(self, state: UnitRun, attempt: int) -> Update | None:
         """After a checks fix round that changed nothing: run the failed tests once more, by id.
@@ -2477,13 +2504,29 @@ class BuildPath:
         """A failed unit-test run whose failed tests include one that an open change already
         fixes: the unit waits on that change before anything runs again. None when no failed
         test has one."""
-        config = active().repos.get(self.unit.repo)
-        tests = covered_tests(failed_ids(profiles.get(config.profile), output)) if config else []
+        tests = covered_tests(self.failed_tests_of(output) or [])
         if not tests:
             return None
+        return self.wait_on_tests(tests, output)
+
+    def failed_tests_of(self, output: str) -> list[str] | None:
+        """The ids of the failed tests `output` names, read by the profile of the unit's repo;
+        None when the repo is not configured."""
+        config = active().repos.get(self.unit.repo)
+        return failed_ids(profiles.get(config.profile), output) if config else None
+
+    def wait_on_tests(self, tests: list[str] | list[Flake], output: str) -> Update | None:
+        """File a fix change for each of `tests`, which failed with `output`, and wait for them.
+        A test given as a `Flake` (a base run's, with its command, folder, base and output there)
+        is filed as it is; a bare id gets the bare evidence the unit's own output makes."""
         at = datetime.now(UTC)
         return self.wait_for_fix(
-            FailedOnBase(tuple(Flake(test=t, command="", output=output, at=at) for t in tests))
+            FailedOnBase(
+                tuple(
+                    t if isinstance(t, Flake) else Flake(test=t, command="", output=output, at=at)
+                    for t in tests
+                )
+            )
         )
 
     def park_for_fix(self, note: str) -> Update:

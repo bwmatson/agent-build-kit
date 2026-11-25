@@ -25,14 +25,23 @@ from agent_build_kit.installation import Installation
 from agent_build_kit.pipeline.failure_evidence import change_evidence
 from agent_build_kit.pipeline.flakes import Flake, FlakeFound, flake_record, reproduction_evidence
 from agent_build_kit.pipeline.run_log import RUNS_KEPT
+from agent_build_kit.pipeline.stack_runner import Recheck
+from agent_build_kit.pipeline.unit_store import UnitStore
 from agent_build_kit.pipeline.untouched_failures import preexisting_record
-from agent_build_kit.pipeline.wiring import build_on_preexisting, build_unit_test
-from agent_build_kit.profiles.base import ToolchainProfile
+from agent_build_kit.pipeline.wiring import (
+    build_on_preexisting,
+    build_runner,
+    build_unit_test,
+    build_unit_test_recheck,
+)
+from agent_build_kit.profiles.base import TEMP_ROOT_VARIABLE, ToolchainProfile
 from tests.artifact_fakes import MemoryArtifacts
 from tests.conftest import make_installation
 from tests.e2e_gate_fakes import Planning
 from tests.e2e_wait_fakes import OLD, verdict_of
-from tests.failure_bundle_fakes import START, BundleMachine, BundleProfile, storms
+from tests.factories import unit
+from tests.failure_bundle_fakes import START, BundleMachine, BundleProfile, RerunMachine, storms
+from tests.pipeline.test_flake_isolation import WithoutHooks
 from tests.pipeline.test_run_log_load_flag import CPUS, THRESHOLD, sampling
 from tests.redaction_fakes import SECRET, known
 
@@ -45,6 +54,7 @@ def unit_test_of(
     directory: Path | MemoryArtifacts,
     log: Callable[[str], None] | None = None,
     profile: BundleProfile | None = None,
+    installation: Installation | None = None,
 ):
     loads = iter(range(1, 100))
     clock = iter(START + timedelta(seconds=10 * n) for n in range(100))
@@ -56,6 +66,7 @@ def unit_test_of(
         now=lambda: next(clock),
         machine=lambda: {"load": [float(next(loads))] * 3},
         log=log,
+        installation=installation,
     )
 
 
@@ -787,3 +798,121 @@ def test_six_hits_and_five_hundred_nineteen_setup_errors_after_them_write_no_fix
     assert storms(run.installation) == []
     for rerun in run.machine.reruns_made:
         assert not [argument for argument in rerun if "test_cases" in argument]
+
+
+# --- the recheck of the failed tests ----------------------------------------------------
+
+
+def failed_first_run(
+    scratch: Path,
+    directory: Path,
+    machine: RerunMachine,
+    installation: Installation | None = None,
+) -> tuple[str, list[str]]:
+    """A unit-test run whose failed tests fail their serial rerun, so it fails the unit: the
+    failure message the checks save and the ids the run named."""
+    passed, message = unit_test_of(scratch, machine, directory, installation=installation)(
+        cwd=scratch, base="main"
+    )
+    assert not passed
+    return message, [a for a in machine.id_runs[0][0] if "::" in a]
+
+
+def test_the_recheck_reruns_each_failed_test_alone_with_the_serial_command_and_passes(
+    scratch: Path, tmp_path: Path
+) -> None:
+    installation = make_installation(scratch)
+    directory = tmp_path / "bundles"
+    machine = RerunMachine(scratch, reruns=[1])
+    message, ids = failed_first_run(scratch, directory, machine, installation)
+    made = len(machine.id_runs)
+    machine.reruns.extend([0] * len(ids))
+
+    found = build_unit_test_recheck(
+        run=machine, profile=BundleProfile(), failures_dir=directory, installation=installation
+    )(cwd=scratch, base="main", failed_output=message)
+
+    assert found is not None
+    assert found.passed
+    assert sorted(found.tests) == sorted(ids)
+    assert found.first_output == message
+    rechecks = machine.id_runs[made:]
+    assert [[a for a in command if "::" in a] for command, _ in rechecks] == [[t] for t in ids]
+    folders = set()
+    for command, kwargs in rechecks:
+        assert "-n" not in command, "serially"
+        env = cast(dict[str, str], kwargs["env"])
+        assert Path(env[TEMP_ROOT_VARIABLE]).parent == installation.pytest_temp_root
+        folders.add(env[TEMP_ROOT_VARIABLE])
+    first = cast(dict[str, str], machine.id_runs[0][1]["env"])
+    assert Path(first[TEMP_ROOT_VARIABLE]).parent == installation.pytest_temp_root
+    assert len(folders) == 1, "the whole recheck shares one temp folder"
+
+
+def test_a_test_that_fails_again_on_the_recheck_is_not_passed_and_keeps_the_bundle_of_each_run(
+    scratch: Path, tmp_path: Path
+) -> None:
+    directory = tmp_path / "bundles"
+    machine = RerunMachine(scratch, reruns=[1])
+    message, ids = failed_first_run(scratch, directory, machine)
+    machine.reruns.extend([0, 1, *[0] * (len(ids) - 2)])
+
+    found = build_unit_test_recheck(run=machine, profile=BundleProfile(), failures_dir=directory)(
+        cwd=scratch, base="main", failed_output=message
+    )
+
+    assert found is not None
+    assert not found.passed
+    contexts = [read(Path(bundle) / "context.json") for bundle in found.bundles[1:]]
+    (recheck_run,) = [context for context in contexts if context.get("recheck")]
+    assert ids[1] in recheck_run["command"], "the recheck run that failed is the second test's"
+    assert found.bundles[0] == str(only_bundle(directory)), "the first run's bundle comes first"
+    assert len(found.bundles) >= 3, "the first run, the serial reruns and the recheck"
+    assert all(Path(bundle).exists() for bundle in found.bundles)
+
+
+@pytest.mark.parametrize(
+    ("with_hooks", "output"),
+    [(False, None), (True, "3 passed in 0.01s\n")],
+    ids=["no serial rerun command", "output names no test"],
+)
+def test_a_profile_that_cannot_rerun_by_id_or_an_output_naming_no_test_cannot_be_rechecked(
+    scratch: Path, tmp_path: Path, with_hooks: bool, output: str | None
+) -> None:
+    machine = RerunMachine(scratch, reruns=[1, 1])
+    message, _ = failed_first_run(scratch, tmp_path / "bundles", machine)
+    made = len(machine.id_runs)
+    profile = BundleProfile() if with_hooks else WithoutHooks()
+
+    found = build_unit_test_recheck(
+        run=machine, profile=cast(ToolchainProfile, profile), failures_dir=tmp_path / "bundles"
+    )(cwd=scratch, base="main", failed_output=output or message)
+
+    assert found is None
+    assert len(machine.id_runs) == made, "nothing was run"
+
+
+def test_a_passed_recheck_is_recorded_unexplained_with_the_first_runs_bundle_by_the_wired_runner(
+    scratch: Path, tmp_path: Path
+) -> None:
+    installation = make_installation(
+        tmp_path / "planning",
+        repos={"app": {"path": str(scratch), "slug": "example/app"}},
+        planning=dict(worktree_root=str(tmp_path / "trees")),
+    )
+    runner = build_runner(
+        unit(),
+        store=UnitStore(tmp_path / "units.json"),
+        installation=installation,
+        log=lambda _: None,
+    )
+    bundle = str(tmp_path / "bundles" / "app-01-20260101-000000")
+    test = "tests/test_y.py::test_other"
+    passed = Recheck(passed=True, tests=(test,), first_output="first output", bundles=(bundle,))
+
+    runner.on_unexplained(unit(), passed)
+
+    (row,) = flake_record(installation).entries()
+    assert (row.test, row.classification, row.unit) == (test, "unexplained", unit().id)
+    assert row.output == "first output"
+    assert row.evidence == bundle, "the first run's bundle"

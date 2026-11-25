@@ -45,7 +45,7 @@ from agent_build_kit.pipeline.e2e import E2eResult, E2eVerdict, latest_full_outp
 from agent_build_kit.pipeline.e2e_holds import Holds
 from agent_build_kit.pipeline.file_lock import change_lock
 from agent_build_kit.pipeline.fix_reproduction import Outcome, Reproduction
-from agent_build_kit.pipeline.flakes import OnFlake
+from agent_build_kit.pipeline.flakes import Flake, OnFlake
 from agent_build_kit.pipeline.git_output import FetchFailed, TransportFailure
 from agent_build_kit.pipeline.group_mode import GroupMode
 from agent_build_kit.pipeline.group_paths import named_test_paths
@@ -1211,6 +1211,14 @@ suite.
     + "{changelog}"
 )
 
+# Put before the checks prompt when the first attempt of a fix round changed nothing.
+CHECKS_UNCHANGED_NOTE = """\
+Your last attempt at these failures changed nothing: the branch and its files are as they
+were. Read the output below again, find what it names, and make a change that addresses it.
+If the failure is not in this unit's code, say so and why.
+
+"""
+
 CHECKS_CONTINUATION = ChecksTemplate(
     """\
 {guidance}The pipeline's checks (lint, formatting, types and the tests) failed on this
@@ -1636,7 +1644,7 @@ def _no_recheck(*, cwd: Path, base: str, failed_output: str) -> Recheck | None:
     return None
 
 
-def _none_fail_on_base(*, cwd: Path, base: str, failed_output: str) -> list[str]:
+def _none_fail_on_base(*, cwd: Path, base: str, failed_output: str) -> list[Flake]:
     return []
 
 
@@ -1830,7 +1838,7 @@ class UnitRunner(BaseModel):
     recheck_unit_test: Callable[..., Recheck | None] = _no_recheck
     # The tests `failed_output` names that fail when run alone in a clean worktree of `base`, given
     # `cwd=`, `base=` and `failed_output=`; none by default. A test the unit wrote is not run.
-    unit_test_on_base: Callable[..., list[str]] = _none_fail_on_base
+    unit_test_on_base: Callable[..., list[Flake]] = _none_fail_on_base
     # Told the unit and a recheck that passed: records the tests in the flake ledger as
     # unexplained, with the first run's evidence.
     on_unexplained: Callable[[Unit, Recheck], None] = lambda unit, recheck: None

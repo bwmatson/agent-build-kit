@@ -12,7 +12,7 @@ from __future__ import annotations
 import hashlib
 import re
 from datetime import UTC, datetime
-from typing import Literal, Protocol, runtime_checkable
+from typing import TYPE_CHECKING, Literal, Protocol, runtime_checkable
 
 from agent_build_kit import orchestration
 from agent_build_kit.config import active, active_root
@@ -30,6 +30,9 @@ from agent_build_kit.pipeline.run_log import bundle_exists, bundle_place
 from agent_build_kit.pipeline.unit_store import StoredUnit, UnitStore
 from agent_build_kit.pipeline.units import FINISHED_STATES, PRODUCT_DEFECT_PREFIX, Unit
 from agent_build_kit.pipeline.work_graph import FIX_PREFIX, GROUP_HEADING, group_needs
+
+if TYPE_CHECKING:
+    from agent_build_kit.pipeline.stack_runner import Recheck
 
 # The longest a change's name gets before it is cut and given a hash of the whole.
 NAME_LIMIT = 70
@@ -161,6 +164,28 @@ def record_load(unit: str, flakes: tuple[Flake, ...]) -> None:
         return
     for flake in flakes:
         record.append(flake.model_copy(update={"unit": unit, "classification": "load"}))
+
+
+def record_unexplained(unit: Unit, recheck: Recheck) -> None:
+    """Record each test of a recheck that passed as an `unexplained` failure of `unit`: it failed
+    the checks and passed alone, and a fix round that changed nothing did not explain it. The row
+    keeps the first run's output and its bundle (the first of the recheck's). No fix change is
+    written for it. Nothing is written when no workspace is loaded."""
+    if (record := _active_flake_record()) is None:
+        return
+    at = datetime.now(UTC)
+    for test in recheck.tests:
+        record.append(
+            Flake(
+                test=test,
+                command="",
+                output=recheck.first_output,
+                at=at,
+                unit=unit.id,
+                classification="unexplained",
+                evidence=str(recheck.bundles[0]) if recheck.bundles else "",
+            )
+        )
 
 
 def flake_change_name(test: str) -> str:

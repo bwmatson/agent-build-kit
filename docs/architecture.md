@@ -687,9 +687,13 @@ release could move. The steps:
    handed to the builder with the check prompt, then unit-test runs again, up to
    `global_limits.max_check_rounds` times (3; `null` is no limit; 0 means no fix
    attempt, not no check), before the unit is `failed` with the output kept. A
-   fix that changes nothing is followed by one recheck of the failed tests: a
+   fix whose first attempt changes nothing gets one more attempt in the same round, told that
+   the last one changed nothing and given the saved output; one that commits runs the checks
+   again and counts as one round. When both attempts change nothing, the failed tests are
+   rechecked, rerun once by id, one at a time, with the profile's serial rerun command: a
    pass goes on to review, a failure holds the unit for a person (`HeldBy.CHECKS`),
-   whatever the limit. Before each
+   whatever the limit. A profile with no serial rerun command, or an output naming no test,
+   cannot be rechecked, and the unit stops. Before each
    `fix: <title> (checks, round N)` commit the pipeline runs the profile's
    fixers over the unit's own files with no model call; a round the fixers
    alone changed moves the head and is not the "changed nothing" stop. This
@@ -1947,8 +1951,9 @@ approved.
   rerun nor handed to a fix agent, and no fix round is spent. The ledger row has outcome
   `disturbed` and `disturbed_seconds`, the gap. The checks run once more; a second disturbed
   run holds the unit for a person with a note naming the suspend.
-  **A fix round that changes nothing is rechecked.** The failed tests are rerun once, by id and
-  one at a time. A pass goes on to review and is recorded in the flake ledger as `unexplained`;
+  **A fix round that changes nothing is rechecked.** After a second attempt that also changes
+  nothing, the failed tests are rerun once, by id and one at a time; each failing recheck run is
+  kept in the first run's bundle beside its serial reruns. A pass goes on to review and is recorded in the flake ledger as `unexplained`;
   a failure holds the unit for a person, and `abk status` and `abk explain` show it as held by
   the checks, naming the tests and the bundle of each of the three runs.
   **Evidence of the conditions.** A failing unit-test run saves a bundle under
@@ -1999,6 +2004,12 @@ approved.
   is not the unit's and the regression agent runs. Note that a test the unit wrote is not run on the base,
   and a test that fails by its time limit in the full run and fails again by itself under a serial
   rerun is recorded with one fix and the unit waits, it is not failed.
+  The same comparison is made where the checks loop would stop a unit, with its fix rounds spent or
+  after a fix round that changed nothing: the failed tests its saved output names (a lint or
+  collection failure names none, and runs nothing) are run alone on the unit's base, and each that
+  fails there gets a fix change, the unit is parked gated on them and its feedback keeps the output
+  and names them. A unit of a fix change, and a run where every test passes on the base or no base
+  worktree can be made, stop as before.
   The regression agent (model of the `regression` role, Opus under Claude Code) writes the change
   for a flake, a pre-existing failure and a unit-test failure that fails on the base alike. It is
   named `fix-test-<slug>` (a long name is cut and takes a hash) whatever the kind, which is recorded in the proposal, and its

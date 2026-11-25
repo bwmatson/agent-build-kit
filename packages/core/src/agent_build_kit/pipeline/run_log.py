@@ -358,14 +358,41 @@ def _write_evidence(
         store.put(f"{folder}/trace.jsonl", text.encode())
 
 
+def _bundle_keys(store: Artifacts, folder: str, prefix: str) -> list[str]:
+    """The keys of a unit's bundles under `folder`, oldest first."""
+    named = re.compile(re.escape(folder + prefix) + r"\d{8}-\d{6}(?=/)")
+    return sorted({m[0] for key in store.list(folder + prefix) if (m := named.match(key))})
+
+
+def rerun_place(bundle: Path | str, number: int) -> Path | str:
+    """Where serial rerun `number` of `bundle` is kept, in the same form as `bundle` (a path
+    under a directory, a key otherwise)."""
+    if isinstance(bundle, Path):
+        return bundle / "reruns" / str(number)
+    return f"{str(bundle).rstrip('/')}/reruns/{number}"
+
+
+def unit_bundle_places(target: Artifacts | Path, unit_id: str, change: str) -> list[Path | str]:
+    """The newest bundle of a unit's failing run, then the folder of each serial rerun kept in
+    it, in order; empty when the unit has no bundle. Each is a path when `target` is a
+    directory, a key otherwise."""
+    store, folder = scoped(target, FAILURE_BUNDLES)
+    names = _bundle_keys(store, folder, unit_file_prefix(unit_id, change))
+    if not names:
+        return []
+    newest = names[-1]
+    rerun = re.compile(re.escape(newest) + r"/reruns/(\d+)(?=/)")
+    numbers = sorted({int(m[1]) for key in store.list(f"{newest}/") if (m := rerun.match(key))})
+    bundle: Path | str = target.parent / newest if isinstance(target, Path) else newest
+    return [bundle, *(rerun_place(bundle, number) for number in numbers)]
+
+
 def _prune_bundles(
     store: Artifacts, folder: str, prefix: str, pointed: Collection[Path | str]
 ) -> None:
     """Remove the unit's bundles beyond the newest `RUNS_KEPT`, except those pointed at."""
     keep = {f"{folder}{_last(place)}" for place in pointed}
-    named = re.compile(re.escape(folder + prefix) + r"\d{8}-\d{6}(?=/)")
-    bundles = sorted({m[0] for key in store.list(folder + prefix) if (m := named.match(key))})
-    for old in bundles[:-RUNS_KEPT]:
+    for old in _bundle_keys(store, folder, prefix)[:-RUNS_KEPT]:
         if old not in keep:
             store.delete(f"{old}/")
 
