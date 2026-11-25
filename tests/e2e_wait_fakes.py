@@ -5,6 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from agent_build_kit.pipeline.e2e import E2eResult, E2eVerdict, TestFailure, build_snapshot
+from agent_build_kit.pipeline.unit_store import Cause, StoredUnit
 from agent_build_kit.pipeline.units import Unit
 
 OWN = "tests/live/test_own.py::test_own"
@@ -15,6 +16,18 @@ FIX = "fix-failing-test-old"
 OLD_OUTPUT = "OLD-OUTPUT-MARK the base fails this one too"
 OWN_OUTPUT = "OWN-OUTPUT-MARK the unit's own test fails"
 COMMAND = "uv run pytest -m e2e -v"
+
+
+def pipeline_reworks(stored: StoredUnit, about: str = "") -> list[dict]:
+    """The history entries of a rework the pipeline asked for, those whose note holds `about`
+    (any, when it is empty)."""
+    return [
+        entry
+        for entry in stored.history
+        if entry.get("cause") == Cause.REWORK
+        and "pipeline" in str(entry.get("note", ""))
+        and about.lower() in str(entry.get("note", "")).lower()
+    ]
 
 
 def failure(test: str, group: str = "") -> TestFailure:

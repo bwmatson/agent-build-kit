@@ -672,7 +672,8 @@ release could move. The steps:
    **The scope guard and the product-defect path.** The top of `checks` holds a guard: an
    e2e-test unit whose branch changes product code, meaning anything other than tests, test support, docs, the changelog
    or declared support is stopped before any unit-test run, with feedback from the scope
-   source. The builder fixes a test fault in place; for a product fault it reports a
+   source. The first such stop is reworked once by the pipeline with that feedback, before the
+   unit fails; a second one fails it. The builder fixes a test fault in place; for a product fault it reports a
    `product-defect` block, which the pipeline reads without a model and turns into one
    `fix-product-defect` fix change (a `[unit-test]` group to reproduce, then fix). The e2e
    unit gets a `Needs:` on it and is held as planned and gated on it, with a resume requeue

@@ -2374,7 +2374,26 @@ class BuildPath:
         r.store.set_feedback(
             unit.id, SCOPE_FEEDBACK.format(files=named), source=FeedbackSource.SCOPE
         )
-        return self.stop(f"the e2e-test unit changes product code: {named}")
+        reason = f"the e2e-test unit changes product code: {named}"
+        if AutoRework.PRODUCT_CODE in r.store.get(unit.id).auto_reworks:
+            return self.stop(reason)
+        # The first stop is reworked once, by the pipeline, with the files named.
+        return self.rework_once(AutoRework.PRODUCT_CODE, "the unit changes product code")
+
+    def rework_once(self, cause: AutoRework, why: str) -> Update:
+        """The one way the pipeline sends a unit to `rework` by itself: the cause is recorded, so
+        no later run grants another, the unit runs again with a history entry saying the pipeline
+        asked, and the run is routed to the rework node with its saved feedback."""
+        r, unit = self.runner, self.unit
+        r.store.record_auto_rework(unit.id, cause)
+        r.store.set_state(
+            unit.id,
+            RUNNING,
+            note=f"rework requested by the pipeline: {why}",
+            cause=Cause.REWORK,
+        )
+        self.say(f"{why}: reworking once before the unit fails")
+        return {"auto_rework": True, "had_feedback": True}
 
     def product_defect(self, account: str, stored: StoredUnit) -> Update | None:
         """What an `[e2e-test]` unit's rework does with a `product-defect` block in the builder's
@@ -2849,7 +2868,7 @@ class BuildPath:
                 return defect
             committed = r.commit(f"fix: {unit.title}", cwd=tree, base=self.ref(state))
             r.store.set_guidance(unit.id, "")
-            if state.auto_rework:
+            if state.auto_rework and stored.feedback_source is not FeedbackSource.SCOPE:
                 if not committed:
                     # Nothing to run e2e-test on again: the failure stands, as saved.
                     return {**self.stop("e2e-test failed"), "auto_rework": False}
@@ -3102,15 +3121,7 @@ class BuildPath:
         )
         if first:
             # The first failure of its own is reworked once, by the pipeline, with the output.
-            r.store.record_auto_rework(unit.id, AutoRework.E2E_FAILED)
-            r.store.set_state(
-                unit.id,
-                RUNNING,
-                note="rework requested by the pipeline: e2e-test failed",
-                cause=Cause.REWORK,
-            )
-            self.say("e2e-test failed: reworking once before the unit fails")
-            return {"auto_rework": True, "had_feedback": True}
+            return self.rework_once(AutoRework.E2E_FAILED, "e2e-test failed")
         return self.stop("e2e-test failed")
 
     def wait_for_preexisting(self, verdict: E2eVerdict) -> Update | None:
@@ -3797,7 +3808,11 @@ def after_last_group(state: UnitRun) -> Node:
 
 
 def after_checks(state: UnitRun) -> Node:
-    return halted(state) or (Node.RESTACK_REVIEW if state.checks_ok else Node.FIX_CHECKS)
+    if stop := halted(state):
+        return stop
+    if state.auto_rework:
+        return Node.REWORK
+    return Node.RESTACK_REVIEW if state.checks_ok else Node.FIX_CHECKS
 
 
 def after_restack_review(state: UnitRun) -> Node:
@@ -3961,7 +3976,10 @@ ROUTES: Mapping[Node, tuple[Callable[[UnitRun], Target], tuple[Target, ...]]] = 
         after_implement,
         (Node.HELD, Node.FAILED, Node.UNIT_TEST, Node.CHECKS, Node.TESTS),
     ),
-    Node.CHECKS: (after_checks, (Node.HELD, Node.FAILED, Node.RESTACK_REVIEW, Node.FIX_CHECKS)),
+    Node.CHECKS: (
+        after_checks,
+        (Node.HELD, Node.FAILED, Node.RESTACK_REVIEW, Node.FIX_CHECKS, Node.REWORK),
+    ),
     Node.RESTACK_REVIEW: (
         after_restack_review,
         (Node.HELD, Node.FAILED, Node.PREPARE, Node.UNIT_TEST, Node.REVIEW),
