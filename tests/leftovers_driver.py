@@ -139,9 +139,7 @@ class Habitat:
             head=lambda cwd: git_out(cwd, "rev-parse", "HEAD"),
             branch_commits=lambda cwd, base: branch_commits(cwd, base),
             run=agent,
-            save_leftovers=build_save_leftovers(
-                {"app": self.repo}, root=self.trees, repo=self.config
-            ),
+            save_leftovers=build_save_leftovers({"app": self.repo}, repo=self.config),
         )
 
     @property

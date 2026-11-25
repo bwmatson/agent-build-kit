@@ -789,6 +789,32 @@ def test_a_stopped_rebase_with_a_conflicting_path_still_holds_the_unit_and_saves
     assert again.status != RunStatus.HELD, again.detail
 
 
+def test_an_untracked_nested_repository_still_holds_the_unit_and_saves_nothing(
+    tmp_path: Path,
+) -> None:
+    make_installation(tmp_path / "on", git={"save_leftovers": True})
+    habitat = Habitat(tmp_path, Hands())
+    recorder = fresh(tmp_path)
+    tick(tmp_path, recorder, may_start=lambda: (False, "window"), **habitat.overrides())
+    nested = habitat.tree / "sub"
+    nested.mkdir()
+    shell_git(nested, "init", "-q", "-b", "main")
+    shell_git(nested, "config", "user.email", "t@t.t")
+    shell_git(nested, "config", "user.name", "t")
+    (nested / "inner.txt").write_text("inner\n")
+    shell_git(nested, "add", "-A")
+    shell_git(nested, "commit", "-q", "-m", "inner")
+
+    outcome = resumed(tmp_path, habitat, recorder)
+
+    assert outcome.status == RunStatus.HELD
+    stored = recorder.store.get(UNIT)
+    assert stored.cause is Cause.DIRTY_WORKTREE
+    assert saved_refs(habitat) == []
+    assert stored.leftovers == ()
+    assert (nested / "inner.txt").read_text() == "inner\n", "the nested repository is untouched"
+
+
 def test_a_killed_implement_nodes_own_leftovers_are_committed_and_nothing_is_saved(
     tmp_path: Path,
 ) -> None:

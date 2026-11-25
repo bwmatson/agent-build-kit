@@ -278,6 +278,19 @@ def test_a_second_save_for_the_unit_takes_the_next_number_and_leaves_the_first(
     assert second.files == ("again.txt",)
 
 
+def test_a_staged_rename_is_saved_with_its_source_and_both_are_cleaned(stray_tree: Path) -> None:
+    git(stray_tree, "mv", "notes.txt", "moved.txt")
+
+    saved = save_leftovers(stray_tree, "change/1", locks=LOCKS, artifacts=ARTIFACTS)
+
+    in_ref = git(stray_tree, "ls-tree", "-r", "--name-only", saved.ref).splitlines()
+    assert "moved.txt" in in_ref
+    assert "notes.txt" not in in_ref, "the source is saved as a deletion"
+    assert changed_paths(stray_tree, artifacts=ARTIFACTS) == ("deps.lock",), "only the lock is left"
+    assert (stray_tree / "notes.txt").read_text() == "notes\n"
+    assert not (stray_tree / "moved.txt").exists()
+
+
 def test_saving_cleans_only_the_saved_files_and_moves_nothing_on_the_branch(
     stray_tree: Path,
 ) -> None:

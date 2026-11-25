@@ -1206,9 +1206,10 @@ class BuildPath:
                 if self._chat_changes():
                     raise
                 if not (self._own or self._stopped_in_stub_loop()):
-                    if not self._saves_leftovers(dirty):
+                    kept = self._tree_to_save(dirty, base)
+                    if kept is None:
                         raise
-                    self._save_leftovers(dirty)
+                    self._save_leftovers(kept)
                     self._tree = self.runner.worktree(self.unit, base)
                     return self._tree
                 self._tree = self.runner.worktree(self.unit, base, allow_dirty=True)
@@ -1217,20 +1218,21 @@ class BuildPath:
                     self._stub_leftovers = dirty.paths
         return self._tree
 
-    def _saves_leftovers(self, dirty: DirtyWorktree) -> bool:
-        """Whether a tree that is not the node's own is saved and cleaned rather than held: the
-        setting is on, a way to save is wired, and no git operation is stopped in the tree."""
-        if not active().git.save_leftovers or self.runner.save_leftovers is None or not dirty.paths:
-            return False
-        tree = self.runner.worktree(
-            self.unit, local_ref(self.base, repo=self.unit.repo), allow_dirty=True
-        )
-        return not operation_in_progress(tree)
+    def _tree_to_save(self, dirty: DirtyWorktree, base: str) -> Path | None:
+        """The tree to save and clean when it is not the node's own, rather than hold the unit:
+        None when the setting is off, no way to save is wired, a git operation is stopped in
+        the tree, or a nested repository sits in it (a folder, not a file to save)."""
+        if not active().git.save_leftovers or self.runner.save_leftovers is None:
+            return None
+        if not dirty.paths or any(each.endswith("/") for each in dirty.paths):
+            return None
+        tree = self.runner.worktree(self.unit, base, allow_dirty=True)
+        return None if operation_in_progress(tree) else tree
 
-    def _save_leftovers(self, dirty: DirtyWorktree) -> None:
+    def _save_leftovers(self, tree: Path) -> None:
         save = self.runner.save_leftovers
         assert save is not None
-        saved = save(self.unit, dirty.paths)
+        saved = save(self.unit, tree)
         self.runner.store.record_leftovers(self.unit.id, saved)
         self.say(f"saved leftover files to {saved.ref}: {_listed(saved.files)}")
 

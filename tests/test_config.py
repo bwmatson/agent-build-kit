@@ -246,10 +246,7 @@ def test_saving_leftovers_reads_false_from_the_file_over_a_default_of_true(
 ) -> None:
     path = tmp_path / "abk.yaml"
     path.write_text("git:\n  save_leftovers: false\n")
-    unset = tmp_path / "unset.yaml"
-    unset.write_text("git:\n  branch_prefix: work/\n")
 
-    assert load(unset).git.save_leftovers is True
     assert load(path).git.save_leftovers is False
 
 

@@ -122,6 +122,20 @@ def porcelain(path: Path, *pathspec: str) -> list[tuple[str, str]]:
     return entries
 
 
+def porcelain_sources(path: Path, *pathspec: str) -> list[str]:
+    """The paths a staged rename or copy in the checkout came from, which `porcelain` leaves
+    out: a rename removes its source, so the source is a change too."""
+    args = ["status", "--porcelain", "-z", "--untracked-files=all"]
+    fields = git(path, *args, *(("--", *pathspec) if pathspec else ())).stdout.split("\0")
+    sources: list[str] = []
+    pending = iter(fields)
+    for field in pending:
+        if field and ("R" in field[:2] or "C" in field[:2]):
+            if source := next(pending, ""):
+                sources.append(source)
+    return sources
+
+
 def has_origin(repo: Path) -> bool:
     """Does the checkout have an `origin`? Only a repo git itself says has none is
     without one: a path git cannot read is left to fail where it is used."""

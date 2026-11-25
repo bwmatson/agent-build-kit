@@ -39,6 +39,7 @@ from agent_build_kit.pipeline.file_lock import atomic_write_text, file_lock
 from agent_build_kit.pipeline.units import (
     BUILDS_NOTHING,
     FAILED,
+    FINISHED_STATES,
     HELD,
     IN_REVIEW,
     MANUAL_STEP_CAUSE,
@@ -1821,9 +1822,11 @@ class UnitStore:
         stored = self._read()
         unit = stored[unit_id]
         note = f"saved leftover files to {saved.ref}: {', '.join(saved.files)}"
+        at = _now()
+        saved = saved.model_copy(update={"at": at})
         entry = {
             "state": unit.state,
-            "at": _now(),
+            "at": at,
             "event": "leftovers_saved",
             "cause": Cause.LEFTOVERS_SAVED.value,
             "note": note,
@@ -2140,8 +2143,9 @@ _LEFTOVER_FILES_SHOWN = 5
 
 def leftovers_line(unit: StoredUnit) -> str:
     """The line naming a running unit's saved leftovers: each ref, its files (the first five and
-    a count) and the command that shows it; "" for a unit with none, or a merged or closed one."""
-    if not unit.leftovers or unit.state in (UnitState.MERGED, UnitState.CLOSED):
+    a count) and the command that shows it; "" for a unit with none, or a finished one (merged,
+    satisfied, closed or retired)."""
+    if not unit.leftovers or unit.state in FINISHED_STATES:
         return ""
     saves = []
     for saved in unit.leftovers:

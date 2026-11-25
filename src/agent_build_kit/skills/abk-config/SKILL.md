@@ -72,6 +72,9 @@ git:
   push_host: ""               # ssh host alias carrying the key to push agent
                               # branches as; "" = origin
   branch_prefix: spec/        # marks a branch and its PR as agent-owned
+  save_leftovers: true        # uncommitted files that are not a node's own are saved to
+                              # refs/abk/leftovers/<unit>/<n> and cleaned so the unit
+                              # goes on; false holds it as `dirty_worktree` instead
 
 runtime: claude_code          # the agent runtime every step runs on;
                               # ABK_RUNTIME overrides it on one machine. An

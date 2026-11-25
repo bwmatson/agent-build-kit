@@ -37,7 +37,7 @@ from agent_build_kit.path_patterns import matches_any
 from agent_build_kit.pipeline import host
 from agent_build_kit.pipeline.file_lock import file_lock, proc_identity, same_process
 from agent_build_kit.pipeline.scratch import ensure_scratch
-from agent_build_kit.pipeline.shell import git, git_out, porcelain
+from agent_build_kit.pipeline.shell import git, git_out, porcelain, porcelain_sources
 
 if TYPE_CHECKING:
     from agent_build_kit.pipeline.unit_store import SavedLeftovers
@@ -421,7 +421,8 @@ def save_leftovers(
     `refs/abk/leftovers/<unit_id>/<n>` and restore only those files to the head."""
     from agent_build_kit.pipeline.unit_store import SavedLeftovers
 
-    names = sorted({name for _, name in _uncommitted(path, locks, artifacts)})
+    sources = [name for name in porcelain_sources(path) if not matches_any(locks, name)]
+    names = sorted({name for _, name in _uncommitted(path, locks, artifacts)} | set(sources))
     head = git_out(path, "rev-parse", "HEAD")
     with tempfile.TemporaryDirectory() as scratch:
         env = {**os.environ, "GIT_INDEX_FILE": str(Path(scratch) / "index")}

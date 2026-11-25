@@ -2684,7 +2684,7 @@ unit's transcript as a `user` event, so a reloaded tab shows the question before
   | held by a live process | any | leaves the unit alone; `abk status` lists it as attached with the number of files |
   | stale, marked as holding changes | any | commits and continues nothing; holds the unit with the cause `attached` |
   | none | names the node being re-run | failure leftovers: resumes over them, the node's commit includes them |
-  | none | none | holds the unit as an unexplained dirty tree (`dirty_worktree`) |
+  | none | none | saves the files to `refs/abk/leftovers/<unit>/<n>`, cleans only them and goes on (`abk status` names the ref); holds the unit as `dirty_worktree` instead when `git.save_leftovers` is false, a rebase, merge or cherry-pick is stopped in the tree, or it holds a nested repository |
 
   A path named in the repository's `environment.inputs.lock` is never part of a dirty tree:
   it does not hold a unit, is not discarded and is not listed as a leftover.

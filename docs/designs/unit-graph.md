@@ -608,9 +608,13 @@ at `prepare`, and any other event is `NotWaiting`, and the handler acts on the s
   runtime cannot continue it) is told in its prompt which paths are uncommitted
   work from an interrupted run, to be reviewed and finished. The node's commit
   includes them. Any other dirty tree (no record, another node's, a node that
-  runs no agent, a hand edit) holds the unit with the cause `dirty_worktree`,
-  the paths and a request to commit or remove them; nothing is cleaned, and
-  `abk requeue` after the tree is clean resumes a park at an agent step at that step
+  runs no agent, a hand edit) is saved: its files, and only those, go to a commit
+  under `refs/abk/leftovers/<unit>/<n>` (never on the branch), are cleaned from the
+  tree, are recorded in the unit's history and named by `abk status` and
+  `abk explain`, and the unit goes on. It holds the unit with the cause
+  `dirty_worktree`, the paths and a request to commit or remove them, as before,
+  when `git.save_leftovers` is false, when a rebase, merge or cherry-pick is stopped
+  in the tree, or when the tree holds a nested repository. `abk requeue` after the tree is clean resumes a park at an agent step at that step
   (`parked_node` in the thread state), with that node's inputs as they stood, a
   rework's feedback included; a park anywhere else, and `abk requeue --restart`,
   begin again at `prepare`. A requeue while the tree is still dirty leaves the unit
