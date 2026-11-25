@@ -414,6 +414,16 @@ def planning(root: Path) -> Installation:
     return inst
 
 
+def write_outline(inst: Installation, name: str, *lines: str) -> None:
+    """An outline with one sketched group, then `lines` (Waits on, Touches, ...)."""
+    folder = inst.root / inst.config.planning.outlines / name
+    folder.mkdir(parents=True, exist_ok=True)
+    (folder / "proposal.md").write_text(
+        f"# {name}\n\nInitiative: grow — wave 1: {name}\n\n"
+        "## Groups (sketch)\n1. [app] [unit-test] A\n\n" + "\n".join(lines) + "\n"
+    )
+
+
 def which_all(name: str) -> str | None:
     """A `which` that finds every program."""
     return f"/usr/bin/{name}"

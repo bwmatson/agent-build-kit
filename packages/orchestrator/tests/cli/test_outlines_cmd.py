@@ -12,7 +12,7 @@ from agent_build_kit.cli.outlines_cmd import cmd_outlines
 from agent_build_kit.installation import Installation
 from agent_build_kit.pipeline.units import UnitState
 from tests.conftest import make_installation
-from tests.factories import stored_unit
+from tests.factories import stored_unit, write_outline
 
 
 def planning(tmp_path: Path) -> Installation:
@@ -22,14 +22,6 @@ def planning(tmp_path: Path) -> Installation:
 def write(path: Path, text: str) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(text)
-
-
-def outline(inst: Installation, name: str, *lines: str) -> None:
-    body = (
-        f"# {name}\n\nInitiative: grow — wave 1: {name}\n\n"
-        "## Groups (sketch)\n1. [app] [unit-test] A\n\n"
-    )
-    write(inst.root / "openspec/outlines" / name / "proposal.md", body + "\n".join(lines) + "\n")
 
 
 def run(inst: Installation, capsys: pytest.CaptureFixture[str], *, overlaps: bool = False):
@@ -47,8 +39,8 @@ def test_each_outline_is_listed_once_nearest_first_with_the_ready_one_marked(
 ) -> None:
     inst = planning(tmp_path)
     write(inst.changes_dir / "base" / "tasks.md", "## 1. [app] [unit-test] Work\n")
-    outline(inst, "far", "Waits on: base group 3 — needs it")
-    outline(inst, "next", "Waits on: base group 1 — needs it")
+    write_outline(inst, "far", "Waits on: base group 3 — needs it")
+    write_outline(inst, "next", "Waits on: base group 1 — needs it")
     store = run_support.store_for(inst)
     store.upsert([stored_unit("base/1", change="base", groups=(1,))])
     store.set_state("base/1", UnitState.RUNNING)
@@ -78,7 +70,7 @@ def test_overlaps_name_the_change_the_outline_and_its_reworks_count(
         inst.changes_dir / "feature" / "tasks.md",
         "- [ ] 1.1 Edit `packages/core/src/agent_build_kit/config.py`\n",
     )
-    outline(
+    write_outline(
         inst,
         "later",
         "Touches: `packages/core/**`",
@@ -86,7 +78,7 @@ def test_overlaps_name_the_change_the_outline_and_its_reworks_count(
         "Reworks: feature — b",
         "Reworks: feature — c",
     )
-    outline(inst, "docs-only", "Touches: `docs/**`")
+    write_outline(inst, "docs-only", "Touches: `docs/**`")
 
     code, out = run(inst, capsys, overlaps=True)
 

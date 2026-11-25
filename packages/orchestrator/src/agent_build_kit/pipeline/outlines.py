@@ -45,7 +45,7 @@ class Reading(Frozen):
     cycle: tuple[str, ...] = ()
     # Prerequisite names that are neither a change nor an outline.
     not_found: tuple[str, ...] = ()
-    # Each detailed `Waits on:` target and group with the units it contributes.
+    # Each detailed or outlined `Waits on:` target and group with the units it contributes.
     ahead: tuple[tuple[str, int, int], ...] = ()
 
 

@@ -78,6 +78,7 @@ from agent_build_kit.pipeline import (
     lock_probe,
     mounts,
     network_probe,
+    outlines,
     plan_review,
     retirement,
     snapshots,
@@ -980,6 +981,8 @@ def cmd_status(args: argparse.Namespace, inst: Installation) -> int:
             continue
         for line in plan_review.finding_lines(review):
             log(f"  {change}: {line}")
+    for reading in outlines.ready_outlines(inst, run_support.store_for(inst).all()):
+        log(f"outline {reading.outline.name} is ready to detail (abk outlines)")
     for change, failure in read_archive_failures(inst.state_dir / ARCHIVE_FAILURES).items():
         log(
             f"archive: {change} failed and waits for its files to change: "

@@ -157,6 +157,9 @@ nothing when there are no outlines.
 
 ### `abk status`
 
+After the plan-review lines it prints one line for each outline ready to detail, as
+`abk outlines` marks them, and nothing when there are none.
+
 `abk status --temp` prints a `pytest temp:` line with the size of the run folders the unit-test
 step left in its pytest temp root and in the root it had before, and their number, warning above
 `global_limits.temp_warn_mb`; nothing when neither root exists. Without `--temp` the folder is not
@@ -711,8 +714,9 @@ holding up the most units first: failed units (not those waiting on a dependency
 requeued when the wait ends), held units, running units no run has held for an hour, plan-review
 holds on changes with units not yet started (not where someone outside the kit holds all of
 them), unmet manual steps, archives that failed, and merged branches kept because something has
-them checked out. `abk status` opens with the count. Reads only. The tick retries a kept
-branch each pass but logs it only when its reason appears, changes or clears.
+them checked out, and each outline ready to detail (see `abk outlines`). `abk status` opens with
+the count. Reads only. The tick retries a kept branch each pass but logs it only when its reason
+appears, changes or clears.
 
 ### `abk review-plan show CHANGE`, `abk review-plan clear CHANGE [--note TEXT]`
 
