@@ -43,7 +43,7 @@ STUB_BODY_HINT = "only `raise NotImplementedError`"
 # A path is a test if any part of it is a tests directory, so this holds for a
 # monorepo (svc-a/tests/...) as well as a flat one (tests/...). Fixtures and
 # conftest live there too and count the same way.
-TEST_DIR_NAMES = {"tests", "test", "testing", "__tests__"}
+TEST_DIR_NAMES = frozenset({"tests", "test", "__tests__"})
 TEST_FILE_PREFIXES = ("test_",)
 TEST_FILE_SUFFIXES = ("_test.py", ".test.ts", ".spec.ts")
 

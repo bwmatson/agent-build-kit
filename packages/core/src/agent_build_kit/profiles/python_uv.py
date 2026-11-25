@@ -33,6 +33,7 @@ from agent_build_kit.config import (
 )
 from agent_build_kit.installation import Installation
 from agent_build_kit.path_discovery import find_up
+from agent_build_kit.pipeline.commit_order import TEST_DIR_NAMES
 from agent_build_kit.pipeline.commit_order import stub_violations as _stub_violations
 from agent_build_kit.pipeline.e2e import (
     E2eSelection,
@@ -638,7 +639,7 @@ class PythonUvProfile:
 
     def is_test_path(self, path: str) -> bool:
         parts = path.split("/")
-        return "tests" in parts[:-1] or bool(_TEST_FILE.match(parts[-1]))
+        return bool(TEST_DIR_NAMES.intersection(parts[:-1])) or bool(_TEST_FILE.match(parts[-1]))
 
     def version_probe(self, command: list[str]) -> list[str] | None:
         """pytest's own version query, run in the environment `command` uses: the test commands

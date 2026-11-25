@@ -582,6 +582,14 @@ changes the exit status, and the plan review's report carries it. A folder the d
 cannot be read for (no checkout, not a git repository) is not checked, and a folder that exists but
 lies outside the repo's collected test paths is not warned of.
 
+A task that names a new `test_<name>.py` under a test folder (not `integration/` or `e2e/`) that
+the default branch lacks gets a second warning when no `<name>.py` outside the test folders sits
+in a mirror folder and no group at or before the task's, nor one it `Needs:`, names one. A module
+has one test file, so the warning names the group, the task, the path and the rule, and the
+existing test file of that folder whose module name begins `<name>`, where the case belongs. It
+never changes the exit status, the plan review's report carries it, and a repo whose checkout
+cannot be read is not checked.
+
 A group whose heading names no project resolves to the declared project that owns every path it
 names; anything outside every project, two projects, or no paths leaves it in the root, and
 `[repo/<root>]` opts out. A `Paths:` line is authoritative when present, and `Reads:` lines are not

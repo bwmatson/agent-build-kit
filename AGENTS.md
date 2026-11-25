@@ -164,7 +164,8 @@ agent_build_kit/
 web/               the web UI `abk serve` shows (React, TypeScript, Tailwind; Vite builds it into
                    packages/orchestrator/src/agent_build_kit/serve/static, which is git-ignored and
                    ships in the orchestrator's wheel)
-tests/             mirrors src/ (tests/pipeline/test_<module>.py, tests/hooks/, ...);
+tests/             mirrors src/ (tests/pipeline/test_<module>.py, tests/hooks/, ...); a module has one
+                   test file, and `placement_baseline.toml` (the files that predate that rule) may only shrink;
                    tests/integration/ holds what needs node or the network (marked `integration`); a test
                    that scans the whole repository is marked `integration` wherever it sits
 docs/              architecture, configuration, cli, toolchain-profiles, agent-runtimes, unit-graph,

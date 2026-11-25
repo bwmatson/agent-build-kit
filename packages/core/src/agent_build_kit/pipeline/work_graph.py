@@ -1495,8 +1495,142 @@ def new_test_file_warnings(
     """One warning per task naming a new `test_<name>.py` that no module `<name>.py` backs.
 
     `branch_files(repo)` lists the tracked files of the repo's default branch, or None when it
-    cannot tell, and the check is then quiet."""
-    raise NotImplementedError
+    cannot tell, and the check is then quiet. A module's source file named by a group at or
+    before the task's, or by a group of a change reached through `Needs:`, backs the test file."""
+    groups, _ = validate_tasks(path)
+    needs = group_needs(path)
+    warnings: list[str] = []
+    for group in groups:
+        files = branch_files(group.repo)
+        if files is None:
+            continue
+        named_before: set[str] | None = None
+        for key, text, lines in numbered_tasks(group):
+            if text.startswith("Reads:"):
+                continue
+            reported: set[str] = set()
+            for file in dict.fromkeys(p for line in lines for p in line_paths(line)):
+                split = _new_test_file(file)
+                if split is None or file in files or file in reported:
+                    continue
+                folder, name = split
+                if _backs(files, folder, name):
+                    continue
+                if named_before is None:
+                    named_before = {
+                        p
+                        for earlier in groups
+                        if earlier.number <= group.number
+                        for p in _task_paths(earlier)
+                    } | _paths_from_needs(path, changes_dir, group.number, needs)
+                if _backs(named_before, folder, name):
+                    continue
+                reported.add(file)
+                existing = _module_test_file(files, file, name)
+                fix = (
+                    f"add the case to `{existing}`"
+                    if existing
+                    else f"add the case to the test file of the module `{name}` belongs to"
+                )
+                warnings.append(
+                    f"{path}:line {group.line}: warning: group {group.number}: task {key} names "
+                    f"`{file}`, a new test file, but no `{name}.py` module exists or is named by "
+                    "an earlier group; a module has one test file `test_<module>.py`, so "
+                    f"{fix}, or name the new source file `{name}.py` in the group"
+                )
+    return warnings
+
+
+def _new_test_file(file: str) -> tuple[str, str] | None:
+    """The folder below its test root and the `<name>` of a `test_<name>.py` path under a test
+    folder, outside `integration/` and `e2e/`; None for any other path."""
+    pure = PurePosixPath(file)
+    if not (pure.name.startswith("test_") and pure.suffix == ".py"):
+        return None
+    parts = pure.parts[:-1]
+    at = next((i for i, part in enumerate(parts) if part in TEST_FOLDERS), None)
+    if at is None or {"integration", "e2e"}.intersection(parts[at + 1 :]):
+        return None
+    return "/".join(parts[at + 1 :]), pure.stem.removeprefix("test_")
+
+
+def _backs(files: Iterable[str], folder: str, name: str) -> bool:
+    """Whether one of `files` is a `<name>.py` outside the test folders in a folder ending with
+    `folder`."""
+    for each in files:
+        pure = PurePosixPath(each)
+        if pure.name != f"{name}.py" or TEST_FOLDERS.intersection(pure.parts):
+            continue
+        parent = pure.parent.as_posix()
+        if not folder or parent == folder or parent.endswith(f"/{folder}"):
+            return True
+    return False
+
+
+def _module_test_file(files: Sequence[str], file: str, name: str) -> str | None:
+    """The test file of the folder of `file` on the branch whose module name is the longest
+    leading part of `name`."""
+    parent = PurePosixPath(file).parent
+    found = [
+        each
+        for each in files
+        if PurePosixPath(each).parent == parent
+        and PurePosixPath(each).name.startswith("test_")
+        and PurePosixPath(each).suffix == ".py"
+        and (
+            name.startswith(f"{PurePosixPath(each).stem.removeprefix('test_')}_")
+            or name == PurePosixPath(each).stem.removeprefix("test_")
+        )
+    ]
+    return max(found, key=len, default=None)
+
+
+def _task_paths(group: TaskGroup) -> list[str]:
+    """The paths the tasks of `group` name, a `Reads:` task left out."""
+    return [
+        p
+        for _, text, lines in numbered_tasks(group)
+        if not text.startswith("Reads:")
+        for line in lines
+        for p in line_paths(line)
+    ]
+
+
+def _paths_from_needs(
+    path: Path, changes_dir: Path, group: int, needs: Mapping[int, list[Need]]
+) -> set[str]:
+    """The paths the groups a group `Needs:` name, with what those groups need in turn (and the
+    groups before each of them in its change)."""
+
+    def needed(file: Path, up_to: int) -> list[tuple[str, int]]:
+        return [
+            (need.change, need.group)
+            for number, found in group_needs(file).items()
+            if number <= up_to
+            for need in found
+        ]
+
+    start = [
+        (need.change, need.group)
+        for number, found in needs.items()
+        if number <= group
+        for need in found
+        if not names_own_change(need, path)
+    ]
+
+    def successors(node: tuple[str, int]) -> list[tuple[str, int]]:
+        other = tasks_path(node[0], changes_dir)
+        return needed(other, node[1]) if other.is_file() else []
+
+    paths: set[str] = set()
+    for change, up_to in reachable(start, successors):
+        other = tasks_path(change, changes_dir)
+        if not other.is_file():
+            continue
+        for each in validate_tasks(other)[0]:
+            if each.number <= up_to:
+                paths.update(_task_paths(each))
+    return paths
 
 
 def _named_by_task(group: TaskGroup) -> list[tuple[str, dict[str, str], set[str]]]:

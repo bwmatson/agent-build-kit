@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- `abk tags` and `abk check` now warn when a task names a new `test_<name>.py` for which no
+  module `<name>.py` exists or is named by an earlier group, and say which existing test file
+  the case belongs in; the exit status is unchanged. The kit's own placement guard is now exact:
+  a package's test file must be `test_<module>.py`, with today's exceptions in
+  `placement_baseline.toml`. A `testing/` folder no longer marks a test path, and a `test/`
+  folder does everywhere.
+
 - `abk tags` and `abk check` now warn when a task names a test file under a `tests` or
   `__tests__` folder that the repo's default branch lacks and no earlier group, or group it
   needs, creates, since the unit could not place the test. The exit status is unchanged.

@@ -85,7 +85,7 @@ def test_an_e2e_group_stays_tests_only_beside_a_source_path(tmp_path: Path) -> N
         (["src/app/tests/x.py"], True),
         (["src/app/testing/x.py"], False),
         (["src/app/testing/mock_server.py"], False),
-        (["src/app/test/x.py"], False),
+        (["src/app/test/x.py"], True),
         (["tests/test_foo.py", "src/app/testing/x.py"], False),
     ],
 )
@@ -113,7 +113,6 @@ def test_abk_tags_prints_the_tests_only_mode(tmp_path: Path, capsys: pytest.Capt
     "task",
     [
         "- [ ] 1.1 Fix `src/app/testing/mock_server.py`.\n",
-        "- [ ] 1.1 Fix `src/app/test/x.py`.\n",
     ],
 )
 def test_a_product_module_in_a_testing_folder_keeps_the_code_floor(

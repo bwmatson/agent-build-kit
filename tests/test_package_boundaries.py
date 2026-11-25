@@ -1190,7 +1190,9 @@ def test_a_baseline_entry_that_names_no_offending_file_fails_until_removed(
     entry = "pipeline/test_units_gone.py" if len(names) == 1 else OWN_TEST
     lay_out(tmp_path, "tests", *names)
 
-    problems = placement_problems(tmp_path, [units_tree()], [EXTRA_TEST, entry])
+    listed = [name for name in names if name == EXTRA_TEST]
+
+    problems = placement_problems(tmp_path, [units_tree()], [*listed, entry])
 
     assert len(problems) == 1 and entry in problems[0]
 

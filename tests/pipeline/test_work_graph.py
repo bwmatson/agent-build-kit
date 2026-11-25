@@ -812,7 +812,7 @@ def test_abk_tags_warns_of_a_folder_the_checkout_lacks_and_still_exits_zero(
 def test_abk_tags_is_quiet_about_a_folder_the_checkout_has_and_warns_of_one_it_lacks(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    git_checkout(tmp_path, f"{MISSING_ROOT}/.gitkeep")
+    git_checkout(tmp_path, f"{MISSING_ROOT}/.gitkeep", "packages/core/src/pkg/store/units.py")
     text = groups_text((f"Test: `{MISSING_TEST}`.", "Test: `web/__tests__/panel.test.ts`."))
 
     status, lines = tags_output(tmp_path, capsys, text)
