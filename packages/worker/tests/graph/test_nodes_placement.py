@@ -39,16 +39,31 @@ def test_a_node_repo_is_told_to_keep_new_tests_in_all_failing_files(tmp_path: Pa
     assert "existing test file" not in text
 
 
-def test_a_python_repo_with_a_node_project_is_told_the_whole_file_rule(tmp_path: Path) -> None:
+def nearest_phrase(note: str, path: str) -> str:
+    """Which placement sentence the note says nearest a mention of `path`."""
+    text = flat(note)
+    spots = [i for i in range(len(text)) if text.startswith(path, i)]
+    assert spots, f"the note names {path}"
+    distances = {
+        phrase: min(abs(spot - text.index(phrase)) for spot in spots)
+        for phrase in (IN_EXISTING_FILE, IN_ALL_FAILING_FILES)
+    }
+    return min(distances, key=lambda phrase: distances[phrase])
+
+
+def test_a_python_repo_with_a_node_project_is_told_each_profiles_placement(
+    tmp_path: Path,
+) -> None:
     repo = repo_of(tmp_path, projects=[ProjectConfig(path="."), NODE_WEB])
 
     text = prompt_sent(tmp_path, repo)
 
+    assert IN_EXISTING_FILE in text
     assert IN_ALL_FAILING_FILES in text
-    assert "existing test file" not in text
+    assert nearest_phrase(placement_note(repo), "web") == IN_ALL_FAILING_FILES
 
 
-def test_a_node_repo_with_a_python_project_is_told_the_whole_file_rule() -> None:
+def test_a_node_repo_with_a_python_project_is_told_each_profiles_placement() -> None:
     repo = RepoConfig(
         path=Path("."),
         slug="example/app",
@@ -56,7 +71,10 @@ def test_a_node_repo_with_a_python_project_is_told_the_whole_file_rule() -> None
         projects=[ProjectConfig(path="svc", profile="python-uv")],
     )
 
-    assert placement_note(repo) == ""
+    note = flat(placement_note(repo))
+
+    assert IN_ALL_FAILING_FILES in note
+    assert nearest_phrase(note, "svc") == IN_EXISTING_FILE
 
 
 def test_projects_that_share_one_placement_use_it() -> None:
