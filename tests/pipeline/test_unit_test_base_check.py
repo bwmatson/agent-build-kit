@@ -17,7 +17,7 @@ import pytest
 
 from agent_build_kit.config import ProjectConfig
 from agent_build_kit.installation import Installation
-from agent_build_kit.pipeline.flakes import FailedOnBase, fix_change_name
+from agent_build_kit.pipeline.flakes import FailedOnBase, Flake, fix_change_name
 from agent_build_kit.pipeline.wiring import (
     BASE_CHECK_LIMIT,
     build_unit_test,
@@ -184,7 +184,7 @@ def base_check(
     *,
     changed: list[str],
     projects: list[ProjectConfig] | None = None,
-) -> list[str]:
+) -> list[Flake]:
     return build_unit_test_base_check(
         profile=cast(ToolchainProfile, HookedProfile()),
         run=runs,
@@ -202,7 +202,11 @@ def test_the_base_check_answers_the_failed_tests_that_fail_on_the_base_and_not_t
 
     found = base_check(repo, base, runs, output, changed=["src/app.py"])
 
-    assert found == [TEST]
+    assert [flake.test for flake in found] == [TEST]
+    (flake,) = found
+    assert flake.failing and flake.base == base, "filed as failing on the unit's base"
+    assert flake.directory == str(repo) and flake.command, "with where and how it was run"
+    assert flake.base_output, "and its own output there, which makes it a pre-existing failure"
     assert set(runs.ids) == {TEST, OTHER}, "each failed test was run on the base"
     assert set(runs.heads) == {base}, "in a tree at the base"
     assert repo not in {where for where, _ in runs.ran}, "not in the unit's checkout"
@@ -273,7 +277,7 @@ def test_the_ids_of_a_project_are_run_in_that_projects_folder_of_the_base_worktr
         repo, base, runs, output, changed=["src/app.py"], projects=[ProjectConfig(path="svc")]
     )
 
-    assert found == [PROJECT_TEST]
+    assert [flake.test for flake in found] == [PROJECT_TEST]
     [(where, _)] = runs.ran
     assert where.name == "svc" and where != repo / "svc", "in the base's copy of the project"
 
@@ -298,5 +302,5 @@ def test_a_failure_naming_one_of_several_projects_is_run_in_that_project_only(
         projects=[ProjectConfig(path="svc"), ProjectConfig(path="web")],
     )
 
-    assert found == [PROJECT_TEST]
+    assert [flake.test for flake in found] == [PROJECT_TEST]
     assert [where.name for where, _ in runs.ran] == ["svc"], "none in web"

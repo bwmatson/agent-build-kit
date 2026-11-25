@@ -25,9 +25,12 @@ from agent_build_kit.installation import Installation
 from agent_build_kit.pipeline.failure_evidence import change_evidence
 from agent_build_kit.pipeline.flakes import Flake, FlakeFound, flake_record, reproduction_evidence
 from agent_build_kit.pipeline.run_log import RUNS_KEPT
+from agent_build_kit.pipeline.stack_runner import Recheck
+from agent_build_kit.pipeline.unit_store import UnitStore
 from agent_build_kit.pipeline.untouched_failures import preexisting_record
 from agent_build_kit.pipeline.wiring import (
     build_on_preexisting,
+    build_runner,
     build_unit_test,
     build_unit_test_recheck,
 )
@@ -36,6 +39,7 @@ from tests.artifact_fakes import MemoryArtifacts
 from tests.conftest import make_installation
 from tests.e2e_gate_fakes import Planning
 from tests.e2e_wait_fakes import OLD, verdict_of
+from tests.factories import unit
 from tests.failure_bundle_fakes import START, BundleMachine, BundleProfile, RerunMachine, storms
 from tests.pipeline.test_flake_isolation import WithoutHooks
 from tests.pipeline.test_run_log_load_flag import CPUS, THRESHOLD, sampling
@@ -859,7 +863,9 @@ def test_a_test_that_fails_again_on_the_recheck_is_not_passed_and_keeps_the_bund
 
     assert found is not None
     assert not found.passed
-    assert ids[1] in found.tests
+    contexts = [read(Path(bundle) / "context.json") for bundle in found.bundles[1:]]
+    (recheck_run,) = [context for context in contexts if context.get("recheck")]
+    assert ids[1] in recheck_run["command"], "the recheck run that failed is the second test's"
     assert found.bundles[0] == str(only_bundle(directory)), "the first run's bundle comes first"
     assert len(found.bundles) >= 3, "the first run, the serial reruns and the recheck"
     assert all(Path(bundle).exists() for bundle in found.bundles)
@@ -884,3 +890,29 @@ def test_a_profile_that_cannot_rerun_by_id_or_an_output_naming_no_test_cannot_be
 
     assert found is None
     assert len(machine.id_runs) == made, "nothing was run"
+
+
+def test_a_passed_recheck_is_recorded_unexplained_with_the_first_runs_bundle_by_the_wired_runner(
+    scratch: Path, tmp_path: Path
+) -> None:
+    installation = make_installation(
+        tmp_path / "planning",
+        repos={"app": {"path": str(scratch), "slug": "example/app"}},
+        planning=dict(worktree_root=str(tmp_path / "trees")),
+    )
+    runner = build_runner(
+        unit(),
+        store=UnitStore(tmp_path / "units.json"),
+        installation=installation,
+        log=lambda _: None,
+    )
+    bundle = str(tmp_path / "bundles" / "app-01-20260101-000000")
+    test = "tests/test_y.py::test_other"
+    passed = Recheck(passed=True, tests=(test,), first_output="first output", bundles=(bundle,))
+
+    runner.on_unexplained(unit(), passed)
+
+    (row,) = flake_record(installation).entries()
+    assert (row.test, row.classification, row.unit) == (test, "unexplained", unit().id)
+    assert row.output == "first output"
+    assert row.evidence == bundle, "the first run's bundle"

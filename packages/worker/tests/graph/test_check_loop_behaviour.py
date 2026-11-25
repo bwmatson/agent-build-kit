@@ -490,14 +490,29 @@ class OnBase:
     def __init__(self, *failing: str) -> None:
         self.failing = list(failing)
         self.asked: list[str] = []
+        self.bases: list[str] = []
         self.filed: list[str] = []
+        self.flakes: list[Flake] = []
 
-    def on_base(self, *, cwd: Path, base: str, failed_output: str) -> list[str]:
+    def on_base(self, *, cwd: Path, base: str, failed_output: str) -> list[Flake]:
         self.asked.append(failed_output)
-        return self.failing
+        self.bases.append(base)
+        at = datetime.now(UTC)
+        return [
+            Flake(
+                test=test,
+                command="pytest",
+                output=failed_output,
+                at=at,
+                base=base,
+                base_output=f"{test} failed on the base",
+            )
+            for test in self.failing
+        ]
 
     def on_flake(self, unit: Any, flake: Flake, *, wait: bool = True) -> str:
         self.filed.append(flake.test)
+        self.flakes.append(flake)
         return FIX_FILED
 
     def overrides(self) -> dict[str, Any]:
@@ -540,6 +555,25 @@ def test_spent_fix_rounds_on_a_test_red_on_the_base_file_a_fix_and_park_the_unit
     feedback = recorder.store.get(unit().id).feedback
     assert FAILING in feedback, "the saved feedback keeps the output"
     assert feedback.count(TEST_ID) > FAILING.count(TEST_ID), "and names the test as found on base"
+    routine.assert_ran(fix=True)
+
+
+def test_a_test_red_on_the_base_is_filed_failing_with_the_base_and_its_output_there(
+    tmp_path: Path, routine: Routine
+) -> None:
+    limited(max_check_rounds=1)
+    recorder = Recorder(fresh_store(tmp_path).store, unit_test_ok=False)
+    recorder.unit_test_output = FAILING
+    base = OnBase(TEST_ID)
+
+    build(tmp_path, recorder, **base.overrides())
+
+    (flake,) = base.flakes
+    assert flake.failing, "filed as a failure that is not the unit's"
+    assert base.bases[0] and flake.base == base.bases[0], "judged against the unit's own ref"
+    assert flake.base_output, (
+        "so it is a pre-existing failure and the agent reads the base's output"
+    )
     routine.assert_ran(fix=True)
 
 

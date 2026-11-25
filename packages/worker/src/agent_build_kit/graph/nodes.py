@@ -2354,7 +2354,7 @@ class BuildPath:
             return None
         r.store.set_feedback(
             unit.id,
-            f"{feedback}\nFailing on the base too: {', '.join(failing)}",
+            f"{feedback}\nFailing on the base too: {', '.join(f.test for f in failing)}",
             source=FeedbackSource.UNIT_TEST,
         )
         return {**parked, "checks_ok": False}
@@ -2515,12 +2515,18 @@ class BuildPath:
         config = active().repos.get(self.unit.repo)
         return failed_ids(profiles.get(config.profile), output) if config else None
 
-    def wait_on_tests(self, tests: list[str], output: str) -> Update | None:
-        """File a fix change for each of `tests`, which failed with `output`, and wait for them:
-        the one place the bare evidence a fix change is filed from is made."""
+    def wait_on_tests(self, tests: list[str] | list[Flake], output: str) -> Update | None:
+        """File a fix change for each of `tests`, which failed with `output`, and wait for them.
+        A test given as a `Flake` (a base run's, with its command, folder, base and output there)
+        is filed as it is; a bare id gets the bare evidence the unit's own output makes."""
         at = datetime.now(UTC)
         return self.wait_for_fix(
-            FailedOnBase(tuple(Flake(test=t, command="", output=output, at=at) for t in tests))
+            FailedOnBase(
+                tuple(
+                    t if isinstance(t, Flake) else Flake(test=t, command="", output=output, at=at)
+                    for t in tests
+                )
+            )
         )
 
     def park_for_fix(self, note: str) -> Update:
