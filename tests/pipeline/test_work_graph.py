@@ -26,7 +26,7 @@ from agent_build_kit.pipeline.work_graph import (
     shared_test_files,
     validate_tasks,
 )
-from tests.factories import git, init_repo
+from tests.factories import commit_files, init_repo
 from tests.project_workspace import app_with_projects
 
 # tests/ mirrors src/, so the repo root is two levels up from this file.
@@ -662,17 +662,10 @@ def test_two_tasks_of_a_group_naming_one_missing_folder_give_one_warning(tmp_pat
     assert len(folder_warnings(tmp_path, text)) == 1
 
 
-@pytest.mark.parametrize(
-    "earlier",
-    [
-        f"Test: `{MISSING_ROOT}/test_marker.py`.",
-        f"Create the `{MISSING_ROOT}` folder.",
-    ],
-)
-def test_an_earlier_group_that_names_or_creates_the_folder_silences_the_warning(
-    earlier: str, tmp_path: Path
+def test_an_earlier_group_that_names_a_path_under_the_folder_silences_a_later_group(
+    tmp_path: Path,
 ) -> None:
-    text = groups_text((earlier,), (f"Test: `{MISSING_TEST}`.",))
+    text = groups_text((f"Test: `{MISSING_ROOT}/test_marker.py`.",), (f"Test: `{MISSING_TEST}`.",))
 
     warnings = folder_warnings(tmp_path, text)
 
@@ -680,7 +673,35 @@ def test_an_earlier_group_that_names_or_creates_the_folder_silences_the_warning(
     assert len(warnings) == 1 and "group 1" in warnings[0]
 
 
-def test_a_reads_line_does_not_create_the_folder(tmp_path: Path) -> None:
+def test_a_task_that_creates_the_folder_by_name_silences_its_own_group(tmp_path: Path) -> None:
+    text = groups_text(
+        (f"Create the `{MISSING_ROOT}` folder.", f"Test: `{MISSING_TEST}`."),
+    )
+
+    assert folder_warnings(tmp_path, text) == []
+
+
+@pytest.mark.parametrize(
+    "continuation",
+    [
+        f"  Reads: `{MISSING_ROOT}/test_marker.py`",
+        f"  Not changed: `{MISSING_ROOT}/test_marker.py`",
+    ],
+)
+def test_a_reads_or_not_changed_line_under_a_task_does_not_create_the_folder(
+    continuation: str, tmp_path: Path
+) -> None:
+    text = groups_text(
+        (f"Edit `src/app.py`.\n{continuation}",),
+        (f"Test: `{MISSING_TEST}`.",),
+    )
+
+    warnings = folder_warnings(tmp_path, text)
+
+    assert len(warnings) == 1 and "group 2" in warnings[0]
+
+
+def test_a_reads_task_does_not_create_the_folder(tmp_path: Path) -> None:
     text = groups_text(
         ("Edit `src/app.py`.", f"Reads: `{MISSING_ROOT}/test_marker.py`"),
         (f"Test: `{MISSING_TEST}`.",),
@@ -772,12 +793,7 @@ def git_checkout(tmp_path: Path, *tracked: str) -> Path:
     """The `app` checkout of `app_with_projects(tmp_path)` as a git repo on `main` holding
     `tracked` files."""
     checkout = init_repo(tmp_path / "checkouts" / "app")
-    for name in tracked:
-        (checkout / name).parent.mkdir(parents=True, exist_ok=True)
-        (checkout / name).write_text("")
-    (checkout / "README.md").write_text("")
-    git(checkout, "add", "-A")
-    git(checkout, "commit", "-q", "-m", "init")
+    commit_files(checkout, "init", {"README.md": "", **{name: "" for name in tracked}})
     return checkout
 
 

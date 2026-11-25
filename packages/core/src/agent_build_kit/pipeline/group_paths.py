@@ -238,6 +238,18 @@ def _tasks(group: TaskGroup) -> list[tuple[str, list[str]]]:
     return found
 
 
+def numbered_tasks(group: TaskGroup) -> list[tuple[str, str, list[str]]]:
+    """Each task of `group` as (its `<group>.<task>` number, its first line's text, its lines),
+    split as `named_test_paths` and `tasks_asking_for_tests` split them."""
+    from agent_build_kit.pipeline.work_graph import TASK_LINE
+
+    return [
+        (f"{match['group']}.{match['number']}", text, lines)
+        for text, lines in _tasks(group)
+        if (match := TASK_LINE.match(lines[0])) is not None
+    ]
+
+
 def tasks_asking_for_tests(group: TaskGroup) -> list[str]:
     """The `Test:` tasks of `group`, each as its text followed by the lines that go on from it."""
     return [

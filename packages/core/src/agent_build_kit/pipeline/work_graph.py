@@ -59,6 +59,7 @@ from agent_build_kit.pipeline.group_paths import (
     named_test_paths,
     names_unplaced_glob,
     names_unplaced_work,
+    numbered_tasks,
     tasks_asking_for_tests,
 )
 from agent_build_kit.pipeline.units import (
@@ -1458,15 +1459,19 @@ def missing_test_folder_warnings(
     needs = group_needs(path)
     warnings: list[str] = []
     for group in groups:
-        created = {
-            root
-            for earlier in groups
-            if earlier.number < group.number
-            for _, found in named[earlier.number]
-            for root in found.values()
-        } | _roots_from_needs(path, changes_dir, group.number, needs)
+        created = (
+            {
+                root
+                for earlier in groups
+                if earlier.number < group.number
+                for _, found, _ in named[earlier.number]
+                for root in found.values()
+            }
+            | {root for _, _, made in named[group.number] for root in made}
+            | _roots_from_needs(path, changes_dir, group.number, needs)
+        )
         reported: set[str] = set()
-        for key, found in named[group.number]:
+        for key, found, _ in named[group.number]:
             for file, root in found.items():
                 if root in reported or root in created:
                     continue
@@ -1482,52 +1487,66 @@ def missing_test_folder_warnings(
     return warnings
 
 
-def _named_by_task(group: TaskGroup) -> list[tuple[str, dict[str, str]]]:
+def _named_by_task(group: TaskGroup) -> list[tuple[str, dict[str, str], set[str]]]:
     """Each task of `group` (its `<group>.<task>` number) with the paths its lines name that sit
-    under a test folder, each with that folder's root; a `Reads:` task creates nothing and is
-    left out."""
-    found: list[tuple[str, dict[str, str]]] = []
-    current: dict[str, str] | None = None
-    for line in group.body:
-        if task := TASK_LINE.match(line):
-            current = {} if not task["text"].startswith("Reads:") else None
-            if current is not None:
-                found.append((f"{task['group']}.{task['number']}", current))
-        elif current is not None and not line.strip():
-            current = None
-        if current is None:
+    under a test folder, each with that folder's root, and the roots the task creates by name (a
+    line saying "create" beside the folder itself). A `Reads:` task creates nothing and is left
+    out."""
+    found: list[tuple[str, dict[str, str], set[str]]] = []
+    for key, text, lines in numbered_tasks(group):
+        if text.startswith("Reads:"):
             continue
-        for named in line_paths(line):
-            parts = PurePosixPath(named).parts
-            at = next((i for i, part in enumerate(parts) if part in TEST_FOLDERS), None)
-            if at is not None:
-                current.setdefault(named, "/".join(parts[: at + 1]))
+        roots: dict[str, str] = {}
+        made: set[str] = set()
+        for line in lines:
+            for named in line_paths(line):
+                parts = PurePosixPath(named).parts
+                at = next((i for i, part in enumerate(parts) if part in TEST_FOLDERS), None)
+                if at is None:
+                    continue
+                roots.setdefault(named, "/".join(parts[: at + 1]))
+                if at == len(parts) - 1 and re.search(r"\bcreat", line, re.I):
+                    made.add(named)
+        found.append((key, roots, made))
     return found
 
 
 def _roots_from_needs(
     path: Path, changes_dir: Path, group: int, needs: Mapping[int, list[Need]]
 ) -> set[str]:
-    """The test folders the groups a group `Needs:` name, with what those groups need in turn."""
+    """The test folders the groups a group `Needs:` name, with what those groups need in turn
+    (and the groups before each of them in its change)."""
+
+    def needed(file: Path, up_to: int) -> list[tuple[str, int]]:
+        return [
+            (need.change, need.group)
+            for number, found in group_needs(file).items()
+            if number <= up_to
+            for need in found
+        ]
+
+    start = [
+        (need.change, need.group)
+        for number, found in needs.items()
+        if number <= group
+        for need in found
+        if not names_own_change(need, path)
+    ]
+
+    def successors(node: tuple[str, int]) -> list[tuple[str, int]]:
+        other = tasks_path(node[0], changes_dir)
+        return needed(other, node[1]) if other.is_file() else []
+
     roots: set[str] = set()
-    seen: set[tuple[str, int]] = set()
-    pending = [need for number, found in needs.items() if number <= group for need in found]
-    while pending:
-        need = pending.pop()
-        if (need.change, need.group) in seen or names_own_change(need, path):
-            continue
-        seen.add((need.change, need.group))
-        other = tasks_path(need.change, changes_dir)
+    for change, up_to in reachable(start, successors):
+        other = tasks_path(change, changes_dir)
         if not other.is_file():
             continue
-        other_groups, _ = validate_tasks(other)
-        other_needs = group_needs(other)
-        for each in other_groups:
-            if each.number <= need.group:
-                roots.update(root for _, found in _named_by_task(each) for root in found.values())
-        pending.extend(
-            n for number, found in other_needs.items() if number <= need.group for n in found
-        )
+        for each in validate_tasks(other)[0]:
+            if each.number <= up_to:
+                roots.update(
+                    root for _, found, _ in _named_by_task(each) for root in found.values()
+                )
     return roots
 
 

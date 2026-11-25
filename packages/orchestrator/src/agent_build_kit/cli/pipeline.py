@@ -6750,7 +6750,9 @@ def _default_branch_has(inst: Installation) -> Callable[[str, str], bool | None]
     """A lookup of whether a repo's default branch holds a folder: None when the checkout is
     missing, is not a git repository or has no such branch, so the caller cannot tell."""
 
-    def has(repo: str, folder: str) -> bool | None:
+    answers: dict[tuple[str, str], bool | None] = {}
+
+    def look(repo: str, folder: str) -> bool | None:
         checkout = inst.checkouts.get(repo)
         if checkout is None:
             return None
@@ -6760,6 +6762,11 @@ def _default_branch_has(inst: Installation) -> Callable[[str, str], bool | None]
         except OSError:
             return None
         return bool(listing.stdout.strip()) if listing.returncode == 0 else None
+
+    def has(repo: str, folder: str) -> bool | None:
+        if (repo, folder) not in answers:
+            answers[repo, folder] = look(repo, folder)
+        return answers[repo, folder]
 
     return has
 

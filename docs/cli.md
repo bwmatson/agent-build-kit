@@ -561,8 +561,8 @@ group names a path under that folder, or a group it `Needs:` does (directly or t
 change's own `Needs:` lines). The warning names the group, the task and the path, and says to
 name the group that creates the folder, add a `Needs:` line or use a folder that exists. It never
 changes the exit status, and the plan review's report carries it. A folder the default branch
-cannot be read for (no checkout, not a git repository) is not checked, nor is a test folder
-outside the repo's collected test paths.
+cannot be read for (no checkout, not a git repository) is not checked, and a folder that exists but
+lies outside the repo's collected test paths is not warned of.
 
 A group whose heading names no project resolves to the declared project that owns every path it
 names; anything outside every project, two projects, or no paths leaves it in the root, and
