@@ -59,10 +59,3 @@ def test_every_abk_command_the_guide_shows_is_a_real_subcommand(
             build_parser().parse_args([command, "--help"])
         assert stopped.value.code == 0, f"`abk {command}` is not a subcommand"
     capsys.readouterr()
-
-
-def test_the_guide_holds_no_real_home_path_and_writes_paths_as_placeholders() -> None:
-    text = guide_text()
-
-    assert not re.search(r"/(?:home|Users)/\w+", text)
-    assert "$HOME" in text or "<config dir>" in text

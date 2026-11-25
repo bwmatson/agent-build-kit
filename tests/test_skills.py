@@ -1,10 +1,7 @@
-"""The shipped skills, templates and recommendation seeds: well-formed, and
-free of anything that names a particular installation.
+"""The shipped skills: well-formed, installed, and stale when they differ from the rendered text.
 
-This is a public framework. A skill that mentions one user's repo, home
-directory or PR would be wrong in every other installation, so the rule is
-mechanical: nothing under skills/, templates/ or recommendations/ contains a
-home path, a tilde-relative path or an owner/name#N-style PR reference.
+That nothing shipped names an installation is an entry of the exclusion table
+(`tests/exclusions.py`).
 """
 
 from __future__ import annotations
@@ -16,22 +13,6 @@ import pytest
 import yaml
 
 from agent_build_kit import __version__, skills
-
-PACKAGE = Path(skills.SKILLS_DIR).parent
-SHIPPED = sorted(
-    [
-        *PACKAGE.glob("skills/*/SKILL.md"),
-        *PACKAGE.glob("templates/**/*"),
-        *PACKAGE.glob("recommendations/*.md"),
-    ]
-)
-SHIPPED = [path for path in SHIPPED if path.is_file()]
-
-LEAKS = {
-    "home path": re.compile(r"/home/"),
-    "tilde path": re.compile("~" + "/"),
-    "PR reference": re.compile(r"\b[\w.-]+/[\w.-]+#\d+"),
-}
 
 
 def frontmatter(path: Path) -> dict:
@@ -64,14 +45,6 @@ def test_rendered_skill_carries_the_framework_version(name: str) -> None:
 
     assert f"generatedBy: agent-build-kit {__version__}" in rendered
     assert yaml.safe_load(rendered.split("---\n", 2)[1])["name"] == name
-
-
-@pytest.mark.parametrize("path", SHIPPED, ids=lambda p: str(p.relative_to(PACKAGE)))
-def test_shipped_text_names_no_installation(path: Path) -> None:
-    text = path.read_text()
-    for what, pattern in LEAKS.items():
-        found = pattern.findall(text)
-        assert not found, f"{path.relative_to(PACKAGE)} has a {what}: {found}"
 
 
 def test_stale_detection(tmp_path: Path) -> None:

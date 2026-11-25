@@ -139,7 +139,7 @@ format = { sequence = [
 test = "pytest -n auto --maxprocesses=8"
 test-integration = "pytest -m integration"
 test-e2e = "pytest -m e2e"
-scrub = "pytest tests/test_no_installation_leaks.py"
+scrub = "pytest -m \"integration or not integration\" tests/test_exclusions.py"
 web-check = "npm run --prefix web check"
 web-build = "npm run --prefix web build"
 
