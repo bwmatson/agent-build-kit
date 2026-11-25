@@ -521,9 +521,10 @@ class PythonUvProfile:
         stub="a signature whose body is only `raise NotImplementedError`, or a model field",
         placement=(
             "Placement (T2, T3, T21): a new case goes in the existing test file for the module\n"
-            "it exercises. A new test file is created only for a new logic file; a new behaviour\n"
-            "of an existing module is a case, never a new file. One subject has one test file,\n"
-            "and test directories carry no `__init__.py`."
+            "it exercises: extend an existing test or add a case before adding a test. A new test\n"
+            "file is created only for a new source file; a new behaviour of an existing module is\n"
+            "a case, never a new file. One subject has one test file, and test directories carry\n"
+            "no `__init__.py`."
         ),
     )
     no_tests_collected_exit: int = NO_TESTS_COLLECTED

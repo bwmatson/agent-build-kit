@@ -17,6 +17,7 @@ from agent_build_kit.config import (
     active_checkout,
 )
 from agent_build_kit.pipeline import wiring
+from agent_build_kit.pipeline.stack_runner import WHOLE_FILE_PLACEMENT
 from agent_build_kit.profiles.base import AgentCommands, AgentCommandsIn
 from agent_build_kit.tool_patterns import allows
 
@@ -65,15 +66,22 @@ def effective(repo: RepoConfig) -> list[AgentCommand]:
 
 def placement_note(repo: RepoConfig | None) -> str:
     """Where the tests prompt says a new test goes: the placement every profile the repo uses
-    (the root's and each project's) states, or `""` (the whole-file rule) when they differ, since
-    the red check runs each file with its own project's profile."""
+    (the root's and each project's) states. When they differ, one entry per profile names the
+    project paths it covers and its placement (the whole-file rule for a profile that states
+    none), since the red check runs each file with its own project's profile."""
     if repo is None:
         return ""
-    chosen = {
-        profiles.get(name).prompt_words.placement
-        for name in (repo.profile, *(p.profile for p in repo.projects))
-    }
-    return chosen.pop() if len(chosen) == 1 else ""
+    covered: dict[str, list[str]] = {}
+    for name, path in ((repo.profile, "."), *((p.profile, p.path) for p in repo.projects)):
+        covered.setdefault(name, []).append(str(path))
+    states = {profiles.get(name).prompt_words.placement for name in covered}
+    if len(states) == 1:
+        return states.pop()
+    return "\n\n".join(
+        f"For {', '.join(paths)}:\n"
+        + (profiles.get(name).prompt_words.placement or WHOLE_FILE_PLACEMENT)
+        for name, paths in covered.items()
+    )
 
 
 def allow_list(repo: RepoConfig) -> str:

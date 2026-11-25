@@ -1134,10 +1134,11 @@ adding Y" in the summary); one that nearly does it has its missing behaviour tes
 new name created; with no helper and two places needing the logic, one stub at the shared
 place covers the helper and the tests cover each call site. A profile states the
 rule in `prompt_words.placement`, and should set it only when its `red_command` selects by id; when
-the repo's profiles (the root's and each project's) differ the whole-file rule stands. A new case goes in the
+the repo's profiles (the root's and each project's) differ, the prompt states each profile's placement with
+the project paths it covers, the whole-file rule only for a profile that states none. A new case goes in the
 existing test file for the module it exercises, since the red check judges only the tests
-the commit added or changed; a new test file is for a new logic file, and one subject has
-one test file. A profile that runs whole files keeps new tests in files in which every test
+the commit added or changed; extend an existing test or add a case before adding a test; a new test file is
+for a new source file, and one subject has one test file. A profile that runs whole files keeps new tests in files in which every test
 fails. A
 conversion with no new behaviour is tested by observing the call site reach the existing
 function. The implementing prompt and its continuation (and no other continuation) let the
