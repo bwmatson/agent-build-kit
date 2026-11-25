@@ -5,6 +5,7 @@
 - `abk tags` and `abk check` now warn when a task names a test file under a `tests` or
   `__tests__` folder that the repo's default branch lacks and no earlier group, or group it
   needs, creates, since the unit could not place the test. The exit status is unchanged.
+
 - `abk outlines` reports each outline's distance (the units ahead of it that are not yet in
   review or merged) and marks the ones ready to detail. With `--overlaps` it also lists the
   outlines whose paths overlap a detailed change, flagging those that rework it often. It
