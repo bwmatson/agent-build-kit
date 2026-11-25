@@ -6,6 +6,7 @@ process boundary the tick does: its exit status, its first lines of output and i
 
 from __future__ import annotations
 
+import time
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
@@ -17,7 +18,7 @@ from agent_build_kit.cli import main
 from agent_build_kit.cli import pipeline as cli
 from agent_build_kit.config import dump
 from agent_build_kit.installation import Installation
-from agent_build_kit.pipeline.manual_steps import evaluate_manual_steps
+from agent_build_kit.pipeline.manual_steps import evaluate_manual_steps, read_repeats
 from agent_build_kit.pipeline.unit_store import Cause, UnitStore
 from agent_build_kit.pipeline.units import FAILED, HELD, PLANNED, ManualStep
 from agent_build_kit.pipeline.vocabulary import WaitReason
@@ -26,6 +27,7 @@ from agent_build_kit.pipeline.workspaces import worktree_path
 from packages.worker.tests.graph.test_session_continuation import Sessions, agents
 from tests.conftest import make_installation, run_status
 from tests.factories import stored_unit, unit
+from tests.fake_clock import install
 from tests.graph_driver import fresh, tick
 from tests.parked_split_support import stub_round
 from tests.redaction_fakes import SECRET, known
@@ -495,6 +497,256 @@ def test_manual_check_with_a_step_nobody_declared_is_refused(world: World) -> No
     config.write_text(dump(world.inst.config))
 
     assert main(["--config", str(config), "manual", "check", "no-such-step"]) != 0
+
+
+# --- a check's result is logged when it changes ---------------------------------------------
+
+
+def said(capsys: pytest.CaptureFixture[str], outcome: str) -> list[str]:
+    """The lines printed since the last read that report `outcome` for the step."""
+    out = capsys.readouterr()
+    return [
+        line for line in (out.out + out.err).splitlines() if f"manual step {SLUG} {outcome}" in line
+    ]
+
+
+def waiting_line(
+    world: World, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> str:
+    lines = run_status(world.inst, monkeypatch, capsys)
+    return next(line for line in lines if "waiting for manual step" in line)
+
+
+def test_a_failure_with_no_output_is_logged_on_the_first_pass_and_not_on_the_second(
+    world: World, capsys: pytest.CaptureFixture[str]
+) -> None:
+    world.wait_on(raised(world.script("exit 1")))
+    capsys.readouterr()
+
+    cli.evaluate_manual_waits(world.inst, world.store)
+    first = said(capsys, "failed")
+    cli.evaluate_manual_waits(world.inst, world.store)
+    second = said(capsys, "failed")
+
+    assert len(first) == 1 and "exited 1 and printed nothing" in first[0]
+    assert second == []
+
+
+def test_a_result_that_changes_is_logged_on_the_pass_where_it_changes(
+    world: World, capsys: pytest.CaptureFixture[str]
+) -> None:
+    check = world.script(f'test -f said && echo "{MISSING}"\nexit 1')
+    world.wait_on(raised(check))
+    cli.evaluate_manual_waits(world.inst, world.store)
+    capsys.readouterr()
+
+    cli.evaluate_manual_waits(world.inst, world.store)
+    unchanged = said(capsys, "failed")
+    (world.tree / "said").write_text("")
+    cli.evaluate_manual_waits(world.inst, world.store)
+    changed = said(capsys, "unmet")
+
+    assert unchanged == []
+    assert len(changed) == 1 and MISSING in changed[0]
+
+
+def test_a_check_that_passes_after_repeated_failures_is_logged_as_met(
+    world: World, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    monkeypatch.setattr("agent_build_kit.run_support.resume_thread", lambda *a, **k: None)
+    world.wait_on(raised(world.script("test -f flag && exit 0\nexit 1")))
+    cli.evaluate_manual_waits(world.inst, world.store)
+    capsys.readouterr()
+
+    cli.evaluate_manual_waits(world.inst, world.store)
+    repeated = said(capsys, "failed")
+    (world.tree / "flag").write_text("")
+    cli.evaluate_manual_waits(world.inst, world.store)
+    passed = said(capsys, "met")
+
+    assert repeated == []
+    assert len(passed) == 1
+
+
+def test_a_step_with_no_check_is_logged_once_and_not_again_while_it_waits(
+    world: World, capsys: pytest.CaptureFixture[str]
+) -> None:
+    world.wait_on(ManualStep(slug=SLUG, text="A person flips the marker", runbook=RUNBOOK))
+    capsys.readouterr()
+
+    cli.evaluate_manual_waits(world.inst, world.store)
+    first = said(capsys, "unmet")
+    cli.evaluate_manual_waits(world.inst, world.store)
+    second = said(capsys, "unmet")
+
+    assert len(first) == 1
+    assert second == []
+
+
+def test_a_dry_run_prints_the_result_on_every_pass(
+    world: World, capsys: pytest.CaptureFixture[str]
+) -> None:
+    world.wait_on(raised(world.script("exit 1")))
+    cli.evaluate_manual_waits(world.inst, world.store)
+    cli.evaluate_manual_waits(world.inst, world.store)
+    tick_repeat = said(capsys, "failed")
+
+    cli.evaluate_manual_waits(world.inst, world.store, dry_run=True)
+    first = said(capsys, "failed")
+    cli.evaluate_manual_waits(world.inst, world.store, dry_run=True)
+    second = said(capsys, "failed")
+
+    assert len(tick_repeat) == 1
+    assert len(first) == 1 and len(second) == 1
+
+
+def test_manual_check_prints_a_result_that_is_the_one_stored(
+    world: World, capsys: pytest.CaptureFixture[str]
+) -> None:
+    world.wait_on(raised(world.script("exit 1")))
+    config = world.inst.root / "abk.yaml"
+    config.write_text(dump(world.inst.config))
+    cli.evaluate_manual_waits(world.inst, world.store)
+    cli.evaluate_manual_waits(world.inst, world.store)
+    tick_repeat = said(capsys, "failed")
+
+    assert main(["--config", str(config), "manual", "check"]) == 0
+    first = said(capsys, "failed")
+    assert main(["--config", str(config), "manual", "check"]) == 0
+    second = said(capsys, "failed")
+
+    assert len(tick_repeat) == 1
+    assert len(first) == 1 and len(second) == 1
+
+
+# --- how many checks in a row gave the same result ------------------------------------------
+
+
+def test_status_counts_the_checks_with_the_same_result_from_the_time_of_the_first(
+    world: World,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    monkeypatch.setenv("TZ", "Asia/Kolkata")
+    time.tzset()
+    try:
+        clock = install(monkeypatch, datetime(2030, 1, 1, 9, 0, tzinfo=UTC))
+        world.wait_on(raised(world.script("exit 1")))
+
+        for _ in range(3):
+            cli.evaluate_manual_waits(world.inst, world.store)
+            clock.advance(3600)
+
+        line = waiting_line(world, monkeypatch, capsys)
+    finally:
+        monkeypatch.undo()
+        time.tzset()
+    assert "same result for 3 checks" in line
+    assert "14:30" in line and "09:00" not in line and "15:30" not in line
+
+
+def test_a_count_that_began_on_an_earlier_day_names_the_day(
+    world: World,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    monkeypatch.setenv("TZ", "Asia/Kolkata")
+    time.tzset()
+    try:
+        clock = install(monkeypatch, datetime(2030, 1, 1, 9, 0, tzinfo=UTC))
+        world.wait_on(raised(world.script("exit 1")))
+        for _ in range(2):
+            cli.evaluate_manual_waits(world.inst, world.store)
+        clock.advance(24 * 3600)
+
+        line = waiting_line(world, monkeypatch, capsys)
+    finally:
+        monkeypatch.undo()
+        time.tzset()
+    assert "since Tue 01 Jan 14:30" in line
+
+
+def test_a_step_that_is_done_leaves_no_count_while_its_sibling_keeps_one(
+    world: World, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr("agent_build_kit.run_support.resume_thread", lambda *a, **k: None)
+    first = raised(world.script("test -f flag && exit 0\nexit 1", name="a.sh"), "step-a")
+    second = raised(world.script("exit 1", name="b.sh"), "step-b")
+    world.wait_on(first, second)
+    for _ in range(2):
+        cli.evaluate_manual_waits(world.inst, world.store)
+    assert f"{UNIT}/step-a" in read_repeats(world.inst)
+    (world.tree / "flag").write_text("")
+
+    cli.evaluate_manual_waits(world.inst, world.store)
+    cli.evaluate_manual_waits(world.inst, world.store)
+
+    kept = read_repeats(world.inst)
+    assert f"{UNIT}/step-a" not in kept
+    assert f"{UNIT}/step-b" in kept
+
+
+def test_a_step_with_no_check_gets_no_repeat_count(
+    world: World,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    world.wait_on(ManualStep(slug=SLUG, text="A person flips the marker", runbook=RUNBOOK))
+    for _ in range(3):
+        cli.evaluate_manual_waits(world.inst, world.store)
+
+    assert "same result for" not in waiting_line(world, monkeypatch, capsys)
+    assert f"{UNIT}/{SLUG}" not in read_repeats(world.inst)
+
+
+def test_a_changed_result_starts_the_count_again(
+    world: World,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    clock = install(monkeypatch, datetime(2030, 1, 1, 9, 0, tzinfo=UTC))
+    world.wait_on(raised(world.script(f'test -f said && echo "{MISSING}"\nexit 1')))
+    for _ in range(3):
+        cli.evaluate_manual_waits(world.inst, world.store)
+        clock.advance(3600)
+    (world.tree / "said").write_text("")
+    for _ in range(2):
+        cli.evaluate_manual_waits(world.inst, world.store)
+
+    line = waiting_line(world, monkeypatch, capsys)
+    assert "same result for 2 checks" in line and MISSING in line
+
+
+def test_a_unit_that_stops_waiting_leaves_no_count_behind_for_when_it_waits_again(
+    world: World,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    world.wait_on(raised(world.script("exit 1")))
+    for _ in range(3):
+        cli.evaluate_manual_waits(world.inst, world.store)
+    world.store.set_state(UNIT, HELD, note="held for a while")
+    cli.evaluate_manual_waits(world.inst, world.store)
+    world.store.set_state(UNIT, PLANNED, note="waits again", cause=Cause.MANUAL_STEP)
+
+    for _ in range(2):
+        cli.evaluate_manual_waits(world.inst, world.store)
+
+    assert "same result for 2 checks" in waiting_line(world, monkeypatch, capsys)
+
+
+def test_a_step_with_no_record_shows_no_repeat_count_until_a_tick_checks_it_twice(
+    world: World,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    world.wait_on(raised(world.script("exit 1")))
+    before = waiting_line(world, monkeypatch, capsys)
+    for _ in range(2):
+        cli.evaluate_manual_waits(world.inst, world.store)
+
+    assert "same result for" not in before
+    assert "same result for 2 checks" in waiting_line(world, monkeypatch, capsys)
 
 
 # --- a step with no check waits for a person ------------------------------------------------

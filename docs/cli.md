@@ -641,7 +641,10 @@ Steps only a person can do, declared with a `Manual:` line (see abk-authoring). 
 shows every outstanding step with its unit, description, runbook link and the last check's
 output and time; `--done` adds the finished ones, and it says so when none is outstanding.
 `abk manual raise <slug> --text … --check .abk/manual/<slug>.sh` is how a builder registers a
-step, and never marks it done. `abk manual check [<slug>]` runs the checks now, as a tick pass does.
+step, and never marks it done. `abk manual check [<slug>]` runs the checks now, as a tick pass does, and prints every result.
+The tick logs a check's result only when it differs from the one before (or passes), and
+`abk status` adds `same result for N checks since HH:MM` (local time, with the day when it is not today) to the
+waiting line of a step that has a check, once two or more checks in a row agreed; the count is kept in `manual-repeats.json` under the state dir.
 
 `abk manual done <slug> --note TEXT [--unit ID]` attests a step that declares no check: it marks
 the step done with the note, the time and who ran it, and the next tick pass resumes the unit.
