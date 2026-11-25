@@ -1442,6 +1442,18 @@ def shared_test_file_warnings(path: Path) -> list[str]:
     ]
 
 
+def missing_test_folder_warnings(
+    path: Path,
+    changes_dir: Path,
+    folder_present: Callable[[str, str], bool | None],
+) -> list[str]:
+    """One warning per group and test folder (`tests` or `__tests__` root) a task names a
+    file under when `folder_present(repo, root)` says the repo's default branch lacks it and
+    no earlier group, nor a group of a change reached through `Needs:`, creates it. The lookup
+    returns None when it cannot tell, and the check is then quiet."""
+    raise NotImplementedError
+
+
 def environment_setting_notes(
     path: Path, repo_profiles: Mapping[str, str] | None = None
 ) -> list[str]:
