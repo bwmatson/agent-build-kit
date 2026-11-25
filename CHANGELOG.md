@@ -8,6 +8,7 @@
   a package's test file must be `test_<module>.py`, with today's exceptions in
   `placement_baseline.toml`. A `testing/` folder no longer marks a test path, and a `test/`
   folder does everywhere.
+
 - A unit's group commits now carry a `Group: <change>/<number>` trailer beside `Unit:`, and
   the build matches a commit to its group by that number. A group whose heading was edited
   after its commits were made is no longer reported as missing its pair: the build says in
