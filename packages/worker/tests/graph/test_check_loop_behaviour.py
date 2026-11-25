@@ -19,8 +19,11 @@ from agent_build_kit.pipeline.flakes import Flake, FlakeFound
 from agent_build_kit.pipeline.stack_runner import UNIT_TEST_FAILED, Recheck, RunStatus
 from agent_build_kit.pipeline.unit_store import Cause, FeedbackSource, HeldBy
 from agent_build_kit.pipeline.units import FAILED, HELD, PLANNED
+from agent_build_kit.pipeline.wiring import build_unit_test_recheck
 from packages.worker.tests.graph.test_build_path import build, limited
+from tests.e2e_base_fakes import pytest_output
 from tests.factories import stored_unit, unit
+from tests.failure_bundle_fakes import BundleProfile, RerunMachine
 from tests.graph.stub_loop_fakes import StubLoop, feedback_writes, stubbed_build
 from tests.graph_driver import fresh as fresh_store
 from tests.runner_fakes import Recorder, make_runner
@@ -335,7 +338,8 @@ def test_one_recheck_is_made_for_the_no_change_round_and_none_for_the_round_that
     limited(max_check_rounds=None)
     recorder = Recorder(fresh_store(tmp_path).store)
     recorder.unit_test_results = [(False, FAILING), (False, FAILING), (True, "")]
-    recorder.commits_by_round = [1, 1, 0]  # the build, then the two fix rounds
+    # The build, the first fix round, then the second round's two attempts.
+    recorder.commits_by_round = [1, 1, 0, 0]
     passed = Recheck(passed=True, tests=(TEST_ID,), first_output=FAILING, bundles=BUNDLES[:2])
     recorder.recheck_results = [passed]
 
@@ -344,7 +348,133 @@ def test_one_recheck_is_made_for_the_no_change_round_and_none_for_the_round_that
     assert outcome.status == "open"
     steps = [e for e in recorder.events if e in ("unit-test", "recheck", "review")]
     assert steps == ["unit-test", "unit-test", "recheck", "review"]
+    attempts = recorder.events.count("claude:fix_checks")
+    assert attempts == 3, "one attempt, then two in the no-change round"
     assert len(recorder.rechecks) == 1
+    routine.assert_ran(fix=True)
+
+
+def fix_prompts(recorder: Recorder) -> list[str]:
+    """The prompts the checks fix agent was given, in order."""
+    return [p for p in recorder.prompts if "checks (lint" in p]
+
+
+def test_a_fix_round_that_changes_nothing_makes_one_more_attempt_before_the_recheck(
+    tmp_path: Path, routine: Routine
+) -> None:
+    passed = Recheck(passed=True, tests=(TEST_ID,), first_output=FAILING, bundles=BUNDLES[:2])
+    recorder = no_change_recorder(tmp_path, passed)
+
+    outcome = build(tmp_path, recorder)
+
+    assert outcome.status == "open"
+    steps = [e for e in recorder.events if e in ("claude:fix_checks", "recheck", "review")]
+    assert steps == ["claude:fix_checks", "claude:fix_checks", "recheck", "review"]
+    assert len(recorder.rechecks) == 1
+    routine.assert_ran(fix=True)
+
+
+def test_the_second_attempt_is_told_the_last_one_changed_nothing_and_given_the_lint_output(
+    tmp_path: Path, routine: Routine
+) -> None:
+    limited(max_check_rounds=None)
+    recorder = Recorder(fresh_store(tmp_path).store, commits_from_impl=0, unit_test_ok=False)
+    recorder.unit_test_output = LINT
+
+    build(tmp_path, recorder, recheck_unit_test=lambda **_: None)
+
+    prompts = fix_prompts(recorder)
+    assert len(prompts) == 2, "a second attempt was made"
+    first, second = prompts
+    assert "changed nothing" not in first
+    assert "changed nothing" in second
+    assert LINT in second
+    routine.assert_ran(fix=True)
+
+
+def test_a_second_attempt_that_commits_runs_the_checks_again_with_no_recheck_and_one_round(
+    tmp_path: Path, routine: Routine
+) -> None:
+    limited(max_check_rounds=None)
+    recorder = Recorder(fresh_store(tmp_path).store)
+    recorder.unit_test_results = [(False, FAILING), (True, "")]
+    recorder.commits_by_round = [1, 0, 1]  # the build, then the first and the second attempt
+
+    outcome = build(tmp_path, recorder)
+
+    assert outcome.status == "open"
+    steps = [e for e in recorder.events if e in ("unit-test", "claude:fix_checks", "recheck")]
+    assert steps == ["unit-test", "claude:fix_checks", "claude:fix_checks", "unit-test"]
+    assert recorder.rechecks == []
+    assert not any("round 2" in subject for subject in recorder.subjects), "one round was counted"
+    routine.assert_ran(fix=True)
+
+
+def test_two_attempts_that_change_nothing_stop_a_runner_that_cannot_recheck(
+    tmp_path: Path, routine: Routine
+) -> None:
+    limited(max_check_rounds=None)
+    recorder = Recorder(fresh_store(tmp_path).store, commits_from_impl=0, unit_test_ok=False)
+    recorder.unit_test_output = FAILING
+
+    outcome = build(tmp_path, recorder, recheck_unit_test=lambda **_: None)
+
+    assert outcome.status == "failed"
+    assert "checks failing and fix round 1 changed nothing, before review" in outcome.detail
+    assert recorder.events.count("claude:fix_checks") == 2
+    routine.assert_ran(fix=True)
+
+
+RED = pytest_output(failed={TEST_ID: "assert 1 == 2"})
+
+
+def wired_recheck(tmp_path: Path, *, reruns: list[int]) -> tuple[RerunMachine, Any]:
+    """The recheck the installation's runner is built with, over a machine whose serial runs
+    exit as `reruns` says, keeping its bundles in a folder of its own."""
+    machine = RerunMachine(tmp_path, reruns=reruns)
+    recheck = build_unit_test_recheck(
+        run=machine, profile=BundleProfile(), failures_dir=tmp_path / "bundles"
+    )
+    return machine, recheck
+
+
+def test_a_no_change_round_whose_two_attempts_change_nothing_goes_on_when_the_wired_rerun_passes(
+    tmp_path: Path, routine: Routine
+) -> None:
+    limited(max_check_rounds=None)
+    recorder = Recorder(fresh_store(tmp_path).store, commits_from_impl=0)
+    recorder.unit_test_results = [(False, RED), (True, "")]
+    machine, recheck = wired_recheck(tmp_path, reruns=[0])
+
+    outcome = build(tmp_path, recorder, recheck_unit_test=recheck)
+
+    assert outcome.status == "open"
+    assert [[a for a in c if "::" in a] for c, _ in machine.serial] == [[TEST_ID]]
+    assert recorder.events.count("claude:fix_checks") == 2
+    (entry,) = recorder.unexplained
+    assert entry.passed and entry.tests == (TEST_ID,)
+    assert RED in entry.first_output
+    assert any("after a recheck" in line for line in recorder.logged), recorder.logged
+    assert "review" in recorder.events
+    routine.assert_ran(fix=True)
+
+
+def test_a_no_change_round_whose_wired_rerun_fails_holds_the_unit_with_the_tests_named(
+    tmp_path: Path, routine: Routine
+) -> None:
+    limited(max_check_rounds=None)
+    recorder = Recorder(fresh_store(tmp_path).store, commits_from_impl=0)
+    recorder.unit_test_results = [(False, RED), (True, "")]
+    _, recheck = wired_recheck(tmp_path, reruns=[1])
+
+    outcome = build(tmp_path, recorder, recheck_unit_test=recheck)
+
+    stored = recorder.store.get(unit().id)
+    assert outcome.status == RunStatus.HELD
+    assert (stored.state, stored.cause) == (HELD, Cause.NEEDS_HUMAN)
+    assert TEST_ID in stored.note and "three" in stored.note
+    assert recorder.unexplained == []
+    assert "review" not in recorder.events
     routine.assert_ran(fix=True)
 
 

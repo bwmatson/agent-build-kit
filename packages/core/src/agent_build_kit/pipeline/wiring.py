@@ -215,7 +215,13 @@ from agent_build_kit.pipeline.shell import (
     has_origin,
     porcelain,
 )
-from agent_build_kit.pipeline.stack_runner import FixResult, Restacked, UnitRunner, Worktree
+from agent_build_kit.pipeline.stack_runner import (
+    FixResult,
+    Recheck,
+    Restacked,
+    UnitRunner,
+    Worktree,
+)
 from agent_build_kit.pipeline.transcript import Transcript, TranscriptEvent
 from agent_build_kit.pipeline.ui_review import ui_notes_of, ui_reply_writer, unit_patch_of
 from agent_build_kit.pipeline.unchanged_failure import (
@@ -1694,6 +1700,22 @@ def build_unit_test_base_check(
         return failing
 
     return on_base
+
+
+def build_unit_test_recheck(
+    *,
+    run: Run | None = None,
+    profile: ToolchainProfile | None = None,
+    projects: list[ProjectConfig] | None = None,
+    failures_dir: Artifacts | Path | None = None,
+    log: Callable[[str], None] | None = None,
+    repo: RepoConfig | None = None,
+) -> Callable[..., Recheck | None]:
+    """The stack runner's `recheck_unit_test`: reruns the failed tests of a saved output once,
+    by id and one at a time, with the profile's serial rerun command, keeping each run in the
+    evidence bundle; None when the profile has no serial rerun command or the output names no
+    test."""
+    raise NotImplementedError
 
 
 def build_unit_test(

@@ -26,13 +26,18 @@ from agent_build_kit.pipeline.failure_evidence import change_evidence
 from agent_build_kit.pipeline.flakes import Flake, FlakeFound, flake_record, reproduction_evidence
 from agent_build_kit.pipeline.run_log import RUNS_KEPT
 from agent_build_kit.pipeline.untouched_failures import preexisting_record
-from agent_build_kit.pipeline.wiring import build_on_preexisting, build_unit_test
+from agent_build_kit.pipeline.wiring import (
+    build_on_preexisting,
+    build_unit_test,
+    build_unit_test_recheck,
+)
 from agent_build_kit.profiles.base import ToolchainProfile
 from tests.artifact_fakes import MemoryArtifacts
 from tests.conftest import make_installation
 from tests.e2e_gate_fakes import Planning
 from tests.e2e_wait_fakes import OLD, verdict_of
-from tests.failure_bundle_fakes import START, BundleMachine, BundleProfile, storms
+from tests.failure_bundle_fakes import START, BundleMachine, BundleProfile, RerunMachine, storms
+from tests.pipeline.test_flake_isolation import WithoutHooks
 from tests.pipeline.test_run_log_load_flag import CPUS, THRESHOLD, sampling
 from tests.redaction_fakes import SECRET, known
 
@@ -787,3 +792,81 @@ def test_six_hits_and_five_hundred_nineteen_setup_errors_after_them_write_no_fix
     assert storms(run.installation) == []
     for rerun in run.machine.reruns_made:
         assert not [argument for argument in rerun if "test_cases" in argument]
+
+
+# --- the recheck of the failed tests ----------------------------------------------------
+
+
+def failed_first_run(
+    scratch: Path, directory: Path, machine: RerunMachine
+) -> tuple[str, list[str]]:
+    """A unit-test run whose failed tests fail both serial reruns, so it fails the unit: the
+    failure message the checks save and the ids the run named."""
+    passed, message = unit_test_of(scratch, machine, directory)(cwd=scratch, base="main")
+    assert not passed
+    return message, [a for a in machine.serial[0][0] if "::" in a]
+
+
+def test_the_recheck_reruns_each_failed_test_alone_with_the_serial_command_and_passes(
+    scratch: Path, tmp_path: Path
+) -> None:
+    directory = tmp_path / "bundles"
+    machine = RerunMachine(scratch, reruns=[1, 1])
+    message, ids = failed_first_run(scratch, directory, machine)
+    made = len(machine.serial)
+    machine.reruns.extend([0] * len(ids))
+
+    found = build_unit_test_recheck(run=machine, profile=BundleProfile(), failures_dir=directory)(
+        cwd=scratch, base="main", failed_output=message
+    )
+
+    assert found is not None
+    assert found.passed
+    assert sorted(found.tests) == sorted(ids)
+    assert found.first_output == message
+    rechecks = machine.serial[made:]
+    assert [[a for a in command if "::" in a] for command, _ in rechecks] == [[t] for t in ids]
+    for command, kwargs in rechecks:
+        assert "-n" not in command, "serially"
+        assert kwargs.get("env") == machine.serial[0][1].get("env"), "the unit-test run's env"
+
+
+def test_a_test_that_fails_again_on_the_recheck_is_not_passed_and_keeps_the_bundle_of_each_run(
+    scratch: Path, tmp_path: Path
+) -> None:
+    directory = tmp_path / "bundles"
+    machine = RerunMachine(scratch, reruns=[1, 1])
+    message, ids = failed_first_run(scratch, directory, machine)
+    machine.reruns.extend([0, 1, *[0] * (len(ids) - 2)])
+
+    found = build_unit_test_recheck(run=machine, profile=BundleProfile(), failures_dir=directory)(
+        cwd=scratch, base="main", failed_output=message
+    )
+
+    assert found is not None
+    assert not found.passed
+    assert ids[1] in found.tests
+    assert found.bundles[0] == str(only_bundle(directory)), "the first run's bundle comes first"
+    assert len(found.bundles) >= 3, "the first run, the serial reruns and the recheck"
+    assert all(Path(bundle).exists() for bundle in found.bundles)
+
+
+@pytest.mark.parametrize(
+    ("with_hooks", "output"),
+    [(False, None), (True, "3 passed in 0.01s\n")],
+    ids=["no serial rerun command", "output names no test"],
+)
+def test_a_profile_that_cannot_rerun_by_id_or_an_output_naming_no_test_cannot_be_rechecked(
+    scratch: Path, tmp_path: Path, with_hooks: bool, output: str | None
+) -> None:
+    machine = RerunMachine(scratch, reruns=[1, 1])
+    message, _ = failed_first_run(scratch, tmp_path / "bundles", machine)
+    made = len(machine.serial)
+    profile = BundleProfile() if with_hooks else WithoutHooks()
+
+    found = build_unit_test_recheck(
+        run=machine, profile=cast(ToolchainProfile, profile), failures_dir=tmp_path / "bundles"
+    )(cwd=scratch, base="main", failed_output=output or message)
+
+    assert found is None
+    assert len(machine.serial) == made, "nothing was run"

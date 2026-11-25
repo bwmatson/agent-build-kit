@@ -16,6 +16,7 @@ from agent_build_kit.installation import Installation
 from agent_build_kit.pipeline.flakes import flake_record
 from agent_build_kit.pipeline.run_log import TEST_TRACE_VARIABLE
 from agent_build_kit.profiles.python_uv import PythonUvProfile
+from tests.e2e_base_fakes import pytest_output
 
 RECORDED = Path(__file__).resolve().parent / "fixtures" / "external" / "pytest"
 START = datetime(2026, 10, 11, 12, 0, 0, tzinfo=UTC)
@@ -103,3 +104,24 @@ class BundleMachine:
         (self.root / "tests" / "test_new.py").write_text("")
         failure = (RECORDED / "console_failures.txt").read_text().split("\n", 1)[1]
         return subprocess.CompletedProcess(command, 1, failure, "")
+
+
+class RerunMachine(BundleMachine):
+    """`BundleMachine` whose runs by test id print what pytest prints for those ids: a failure
+    line per id when the run exits non-zero, a pass otherwise. `serial` keeps each such run with
+    the keyword arguments it was given."""
+
+    def __init__(self, root: Path, *, reruns: list[int]) -> None:
+        super().__init__(root, reruns=reruns)
+        self.serial: list[tuple[list[str], dict[str, object]]] = []
+
+    def __call__(self, command: list[str], **kwargs: object) -> subprocess.CompletedProcess:
+        ids = [argument for argument in command if "::" in argument]
+        if not ids:
+            return super().__call__(command, **kwargs)
+        self.commands.append(command)
+        self.serial.append((command, kwargs))
+        exit_code = self.reruns.pop(0)
+        failed = {test: "assert 1 == 2" for test in ids} if exit_code else {}
+        output = pytest_output(failed=failed, passed=() if exit_code else tuple(ids))
+        return subprocess.CompletedProcess(command, exit_code, output, "")
