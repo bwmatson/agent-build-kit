@@ -365,6 +365,14 @@ class Starting(Frozen):
     until: datetime
 
 
+class SavedLeftovers(Frozen):
+    """One save of a worktree's uncommitted files: the ref they sit under, the files, and when."""
+
+    ref: str
+    files: tuple[str, ...]
+    at: str
+
+
 class StoredUnit(Unit):
     """A unit plus what has happened to it."""
 
@@ -517,6 +525,8 @@ class StoredUnit(Unit):
     # How many times in a row the model service's status has parked it.
     service_attempts: int = 0
     history: tuple[dict, ...] = ()
+    # The saves of uncommitted files made so a node could go on, oldest first.
+    leftovers: tuple[SavedLeftovers, ...] = ()
     # The causes the pipeline has already reworked this unit for by itself; kept across a
     # requeue and a restart, so a cause is reworked automatically once.
     auto_reworks: tuple[AutoRework, ...] = ()

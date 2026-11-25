@@ -194,6 +194,9 @@ class GitConfig(Frozen):
     # Marks a branch and its PR as agent-owned: the poller ignores everything
     # else, and the force-push exception is scoped to this prefix.
     branch_prefix: str = "spec/"
+    # Whether uncommitted files that are not a node's own are saved to a ref and the unit goes
+    # on, rather than held. Stub: the default becomes true with the implementation.
+    save_leftovers: bool = False
 
 
 # The one table of defaults, role name to model. A new role is a row here, a field on both

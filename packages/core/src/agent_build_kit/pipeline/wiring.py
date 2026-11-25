@@ -236,6 +236,7 @@ from agent_build_kit.pipeline.unit_size import actual_lines, branch_diff, over_c
 from agent_build_kit.pipeline.unit_store import (
     Cause,
     Pull,
+    SavedLeftovers,
     StoredUnit,
     UnitStore,
     unit_id_of_branch,
@@ -4143,6 +4144,17 @@ def build_worktree(
         return prepare(repos[unit.repo], branch_name(unit), base, root, **options)
 
     return worktree
+
+
+def build_save_leftovers(
+    repos: dict[str, Path], *, root: Path, repo: RepoConfig | None = None
+) -> Callable[[Unit, Sequence[str]], SavedLeftovers]:
+    """The runner's way to save a unit's worktree leftovers to a ref and clean them."""
+
+    def save(unit: Unit, paths: Sequence[str]) -> SavedLeftovers:
+        raise NotImplementedError
+
+    return save
 
 
 Reading = Callable[[], UsageReading | None]

@@ -14,6 +14,7 @@ from typing import Any
 import pytest
 
 from agent_build_kit.graph.state import EventKind, Node, ResumeEvent
+from agent_build_kit.pipeline.shell import git as shell_git
 from agent_build_kit.pipeline.shell import git_out
 from agent_build_kit.pipeline.stack_runner import LEFTOVERS_NOTE, RunOutcome, RunStatus
 from agent_build_kit.pipeline.unit_store import Cause
@@ -27,6 +28,7 @@ from packages.worker.tests.graph.test_tests_step_writes_nothing import (
     TEST_TEXT,
     resumed_over,
 )
+from tests.conftest import make_installation
 from tests.factories import unit
 from tests.graph_driver import fresh, position, tick
 from tests.leftovers_driver import LEFTOVER, Habitat, Hands, step_of
@@ -640,3 +642,161 @@ def test_an_acp_agent_that_cannot_load_the_session_is_sent_the_full_prompt(
     assert prompts[0].startswith(killed.prompt)
     assert INTERRUPTED_PROMPT not in prompts
     assert any("cannot be continued" in line for line in recorder.logged)
+
+
+# --- 1.7 a tree that is not the node's own is saved to a ref and the unit goes on --------------
+
+
+SAVED_REF = f"refs/abk/leftovers/{UNIT}/1"
+
+
+def saved_refs(habitat: Habitat) -> list[str]:
+    return git_out(
+        habitat.tree, "for-each-ref", "--format=%(refname)", "refs/abk/leftovers/"
+    ).splitlines()
+
+
+def went_on(habitat: Habitat, recorder: Recorder, outcome: RunOutcome, asked: int) -> None:
+    """The stray file is in the saved ref and in no commit of the branch, the unit's record and
+    history name both, the tree is clean and no agent was told of the file."""
+    assert outcome.status == RunStatus.OPEN, outcome.detail
+    stored = recorder.store.get(UNIT)
+    assert stored.state == "in_review"
+    assert saved_refs(habitat) == [SAVED_REF]
+    assert git_out(habitat.tree, "show", f"{SAVED_REF}:{STRAY}") == "mine"
+    in_branch = git_out(habitat.tree, "log", "--format=", "--name-only", "origin/main..HEAD")
+    assert STRAY not in in_branch.split()
+    assert not (habitat.tree / STRAY).exists()
+    assert [(s.ref, s.files) for s in stored.leftovers] == [(SAVED_REF, (STRAY,))]
+    notes = [e["note"] for e in stored.history if e.get("cause") == "leftovers_saved"]
+    assert len(notes) == 1 and SAVED_REF in notes[0] and STRAY in notes[0]
+    assert not any(STRAY in r.prompt for r in habitat.runtime.requests[asked:])
+
+
+def test_a_hand_edit_on_a_unit_that_was_not_killed_is_saved_and_the_unit_goes_to_review(
+    tmp_path: Path,
+) -> None:
+    habitat = Habitat(tmp_path, Hands())
+    recorder = fresh(tmp_path)
+    assert tick(tmp_path, recorder, **habitat.overrides()).status == RunStatus.OPEN
+    asked = len(habitat.runtime.requests)
+    edit_by_hand(habitat)
+    tick(tmp_path, recorder, event=rework_event(), **habitat.overrides())
+
+    outcome = tick(tmp_path, recorder, **habitat.overrides())
+
+    went_on(habitat, recorder, outcome, asked)
+    assert any(s.startswith("fix:") for s in habitat.commits_on_branch()), "the rework ran"
+
+
+def test_a_stray_file_at_a_node_that_runs_no_agent_is_saved_and_the_checks_run(
+    tmp_path: Path,
+) -> None:
+    habitat = Habitat(tmp_path, Hands())
+    recorder = fresh(tmp_path)
+    ran = {"checks": 0}
+
+    def checks(**kwargs: Any) -> tuple[bool, str]:
+        ran["checks"] += 1
+        if ran["checks"] == 1:
+            raise Killed("power loss")
+        return True, ""
+
+    with pytest.raises(Killed):
+        tick(tmp_path, recorder, **habitat.overrides(), run_unit_test=checks)
+    assert position(tmp_path).next == (Node.CHECKS,)
+    asked = len(habitat.runtime.requests)
+    edit_by_hand(habitat)
+
+    outcome = tick(tmp_path, recorder, **habitat.overrides(), run_unit_test=checks)
+
+    went_on(habitat, recorder, outcome, asked)
+    assert ran["checks"] == 2, "the checks ran on the clean tree"
+
+
+def test_a_stray_file_at_an_agent_node_that_never_started_is_saved_and_the_node_runs(
+    tmp_path: Path,
+) -> None:
+    habitat = Habitat(tmp_path, Hands())
+    recorder = fresh(tmp_path)
+    waiting = tick(tmp_path, recorder, may_start=lambda: (False, "window"), **habitat.overrides())
+    assert waiting.status == RunStatus.PAUSED
+    edit_by_hand(habitat)
+
+    outcome = resumed(tmp_path, habitat, recorder)
+
+    went_on(habitat, recorder, outcome, 0)
+    assert [s.split(":")[0] for s in habitat.commits_on_branch()] == ["test", "feat"]
+
+
+def test_a_unit_held_with_the_setting_off_is_saved_and_runs_again_once_it_is_on(
+    tmp_path: Path,
+) -> None:
+    make_installation(tmp_path / "off", git={"save_leftovers": False})
+    habitat = Habitat(tmp_path, Hands())
+    recorder = fresh(tmp_path)
+    tick(tmp_path, recorder, may_start=lambda: (False, "window"), **habitat.overrides())
+    edit_by_hand(habitat)
+    parked(tmp_path, recorder, habitat, resumed(tmp_path, habitat, recorder))
+    assert saved_refs(habitat) == [], "nothing was saved while the setting was off"
+    make_installation(tmp_path / "on", git={"save_leftovers": True})
+
+    outcome = requeued(tmp_path, habitat, recorder)
+
+    went_on(habitat, recorder, outcome, 0)
+
+
+def test_a_stopped_rebase_with_a_conflicting_path_still_holds_the_unit_and_saves_nothing(
+    tmp_path: Path,
+) -> None:
+    make_installation(tmp_path / "on", git={"save_leftovers": True})
+    habitat = Habitat(tmp_path, Hands())
+    recorder = fresh(tmp_path)
+    tick(tmp_path, recorder, may_start=lambda: (False, "window"), **habitat.overrides())
+    (habitat.tree / "conflict.txt").write_text("branch\n")
+    git_out(habitat.tree, "add", "conflict.txt")
+    git_out(habitat.tree, "commit", "-q", "-m", "chore: branch side")
+    (habitat.repo / "conflict.txt").write_text("trunk\n")
+    git_out(habitat.repo, "add", "conflict.txt")
+    git_out(habitat.repo, "commit", "-q", "-m", "trunk side")
+    assert shell_git(habitat.tree, "rebase", "main", check=False).returncode != 0
+    stopped = git_out(habitat.tree, "status", "--porcelain")
+    assert "conflict.txt" in stopped
+
+    outcome = resumed(tmp_path, habitat, recorder)
+
+    assert outcome.status == RunStatus.HELD
+    stored = recorder.store.get(UNIT)
+    assert stored.cause is Cause.DIRTY_WORKTREE
+    assert saved_refs(habitat) == []
+    assert stored.leftovers == ()
+    assert git_out(habitat.tree, "status", "--porcelain") == stopped, "nothing was cleaned"
+    shell_git(habitat.tree, "rebase", "--abort")
+    edit_by_hand(habitat)
+
+    again = requeued(tmp_path, habitat, recorder)
+
+    assert saved_refs(habitat) == [SAVED_REF], "once the rebase is over the stray file is saved"
+    assert again.status != RunStatus.HELD, again.detail
+
+
+def test_a_killed_implement_nodes_own_leftovers_are_committed_and_nothing_is_saved(
+    tmp_path: Path,
+) -> None:
+    make_installation(tmp_path / "on", git={"save_leftovers": True})
+    habitat, recorder = killed_in(tmp_path, "implement", sessions=False)
+
+    outcome = resumed(tmp_path, habitat, recorder)
+
+    assert outcome.status == RunStatus.OPEN
+    assert LEFTOVER in habitat.files_in("feat:")
+    assert saved_refs(habitat) == []
+    assert recorder.store.get(UNIT).leftovers == ()
+    asked = len(habitat.runtime.requests)
+    edit_by_hand(habitat)
+    tick(tmp_path, recorder, event=rework_event(), **habitat.overrides())
+
+    after = tick(tmp_path, recorder, **habitat.overrides())
+
+    went_on(habitat, recorder, after, asked)
+    assert LEFTOVER not in git_out(habitat.tree, "show", "--name-only", SAVED_REF)

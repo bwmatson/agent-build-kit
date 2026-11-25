@@ -29,6 +29,7 @@ from collections.abc import Sequence
 from contextlib import contextmanager
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from agent_build_kit.model import Frozen
 from agent_build_kit.path_patterns import matches_any
@@ -36,6 +37,9 @@ from agent_build_kit.pipeline import host
 from agent_build_kit.pipeline.file_lock import file_lock, proc_identity, same_process
 from agent_build_kit.pipeline.scratch import ensure_scratch
 from agent_build_kit.pipeline.shell import git, git_out, porcelain
+
+if TYPE_CHECKING:
+    from agent_build_kit.pipeline.unit_store import SavedLeftovers
 
 
 class BranchBusy(RuntimeError):
@@ -387,6 +391,18 @@ def discard_changes(path: Path, artifacts: Sequence[str] = ()) -> None:
                 folder.rmdir()
             except OSError:
                 break
+
+
+def save_leftovers(
+    path: Path,
+    unit_id: str,
+    *,
+    locks: Sequence[str] = (),
+    artifacts: Sequence[str] = (),
+) -> SavedLeftovers:
+    """Save the worktree's uncommitted files as one commit on the branch head under
+    `refs/abk/leftovers/<unit_id>/<n>` and restore only those files to the head."""
+    raise NotImplementedError
 
 
 def commit_changes(path: Path, message: str) -> str:

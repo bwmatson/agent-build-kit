@@ -62,6 +62,7 @@ from agent_build_kit.pipeline.unit_store import (
     Description,
     FeedbackSource,
     RewriteSource,
+    SavedLeftovers,
     StoredRewriteRequest,
     StoredUnit,
     UnitStore,
@@ -1796,6 +1797,9 @@ class UnitRunner(BaseModel):
     leases: Leases | None = None
     # The repo being built, for what its settings decide: None reads as the defaults.
     repo_config: RepoConfig | None = None
+    # Saves the worktree's uncommitted files to a ref and cleans them, given the unit and the
+    # paths a dirty check listed; None where nothing can be saved.
+    save_leftovers: Callable[[Unit, Sequence[str]], SavedLeftovers] | None = None
     # The Claude account the unit's calls run on, resolved once; None: the default account.
     account: Account | None = None
     worktree: Worktree

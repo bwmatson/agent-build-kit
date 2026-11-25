@@ -19,6 +19,7 @@ from agent_build_kit.pipeline.wiring import (
     branch_commits,
     build_commit,
     build_run,
+    build_save_leftovers,
     build_worktree,
 )
 from agent_build_kit.pipeline.workspaces import worktree_path
@@ -138,6 +139,9 @@ class Habitat:
             head=lambda cwd: git_out(cwd, "rev-parse", "HEAD"),
             branch_commits=lambda cwd, base: branch_commits(cwd, base),
             run=agent,
+            save_leftovers=build_save_leftovers(
+                {"app": self.repo}, root=self.trees, repo=self.config
+            ),
         )
 
     @property
