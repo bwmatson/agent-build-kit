@@ -5,8 +5,6 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
-from tests.installation_leaks import leaky_line
-
 ROOT = Path(__file__).resolve().parents[2]
 HEADING = "## Code changes go through the spec process"
 CODE_AREAS = ("tick", "requeue", "wait-end", "plan", "graph", "build", "usage", "gate")
@@ -46,12 +44,6 @@ def test_the_section_has_one_example_needs_line() -> None:
         if re.search(r"Needs: [\w<>-]+ group \d+ merged", line)
     ]
     assert len(lines) == 1
-
-
-def test_the_added_text_names_no_installation() -> None:
-    lines = [line for line in section().splitlines() if "merged" in line or "loads" in line]
-    assert lines
-    assert [line for line in lines if leaky_line(line)] == []
 
 
 def test_claude_md_only_loads_agents_md() -> None:

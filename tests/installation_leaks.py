@@ -49,8 +49,8 @@ TEXT = {
 # The files that spell the patterns, or fixtures of what they catch, as text.
 SELF = {
     "installation_leaks.py",
+    "exclusions.py",
     "test_exclusions.py",
-    "test_installation_leaks.py",
     "test_scrub_references.py",
     "test_scrub_store_references.py",
     "test_split_scrub_references.py",

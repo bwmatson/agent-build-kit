@@ -1,0 +1,79 @@
+One-off record of the entries of the guards the exclusion table folds, for the comparison in group 4. Not a test input.
+Format: guard file | kind | entry | scope or reason. A forbidden term is named by its constant, never spelled.
+
+== Group 2: the leak guard (tests/installation_leaks.py, tests/test_exclusions.py) ==
+tests/installation_leaks.py | forbidden | HOME_PRODUCT_DIR | a product directory under the home directory, any text file of SCANNED and ROOT_FILES
+tests/installation_leaks.py | forbidden | HOME_PATH | a home path or a tilde path outside TOOL_DIRS, same scope
+tests/installation_leaks.py | forbidden | ABSOLUTE_HOME_PATH | the rule inside the specification folder: only an absolute home path
+tests/installation_leaks.py | forbidden | GITHUB_SLUG via foreign_slug_owners | an owner outside FIXTURE_OWNERS and UPSTREAM_OWNERS, API addresses included, docs site not
+tests/installation_leaks.py | forbidden | AZURE_ORG via foreign_azure_orgs | an organisation outside FIXTURE_AZURE_ORGS
+tests/installation_leaks.py | forbidden | NOREPLY | a personal noreply address
+tests/installation_leaks.py | forbidden | ANECDOTE | the shared issue reference pattern less a fixture owner's own
+tests/installation_leaks.py | forbidden | DATED_ANECDOTE | a verb of what was decided beside a date
+tests/installation_leaks.py | forbidden | ENV_LITERAL | the environment read by literal name
+tests/installation_leaks.py | forbidden | repo_path_leaks | a repo path of the committed configuration that leaves the checkout, naming the key, never the value
+tests/installation_leaks.py | forbidden | overlay_leaks | the local overlay tracked, or not ignored, with its leaky lines and repo paths
+tests/installation_leaks.py | scope | SCANNED | src, packages, tests, docs, web, openspec
+tests/installation_leaks.py | scope | ROOT_FILES | README, CLAUDE, CHANGELOG, abk.yaml, the tracked unit store; AGENTS.md added by this group
+tests/installation_leaks.py | scope | TEXT | the suffixes read
+tests/installation_leaks.py | scope | specs=True | the specification folder is read; the state folder is not, but the tracked unit store is
+tests/installation_leaks.py | exemption | SELF | the files that spell the patterns: the table module, its guard, the scrub reference tests, the repo-wide guard documentation test
+tests/installation_leaks.py | exemption | package-lock.json | a generated lock file
+tests/installation_leaks.py | fixture owners | FIXTURE_OWNERS | example, acme, octo, owner, o
+tests/installation_leaks.py | upstream owners | UPSTREAM_OWNERS | the upstream projects the framework builds on
+tests/installation_leaks.py | fixture organisations | FIXTURE_AZURE_ORGS | acme, example, o, org
+tests/test_exclusions.py | exemption | the changelog | dated on purpose, for the dated entry
+tests/test_exclusions.py | exemption | the reports folder | each report is a dated record, for the dated entry
+tests/test_exclusions.py | exemption | ENV_ALLOWED | settings.py, usage_guard.py, config.py, for the environment entry
+tests/test_exclusions.py | exemption | the test folders | test_tree_folders, for the environment entry
+tests/test_skills.py | forbidden | LEAKS (home path, tilde path, PR reference) | the shipped skills, templates and recommendation seeds
+tests/docs/test_agents_md_merged_guidance.py | forbidden | leaky_line | the lines of the spec-process section of AGENTS.md; now the whole file is in the leak scope
+tests/docs/test_claude_account_guide.py | forbidden | a home path of either system with a user name | the second-account guide; now every Markdown file of docs
+tests/docs/test_claude_account_guide.py | dropped | the guide holds a placeholder | a positive assertion about wording
+
+== Group 3: names ==
+tests/ecosystem_names.py | forbidden | TOKENS | package managers, manifests and lock files, as a whole word and not part of a hyphenated name, in framework source
+tests/ecosystem_names.py | exemption | EXEMPT_FOLDERS | profiles and init
+tests/ecosystem_names.py | allowlist | ALLOWLIST | two source files, each with its reason; may only shrink; stale when it covers no file
+tests/ecosystem_names.py | own tooling | OWN_TOOLING | five source files, each with its reason; stale when it covers no file
+tests/old_test_kind_names.py | forbidden | OLD_SPELLING | file contents and file names; SCANNED is src, packages, tests, web/src, docs, scripts, .github, pyproject.toml and the root Markdown files
+tests/old_test_kind_names.py | exemption | EXEMPT_NAMES | the compatibility module, its tests, the settings alias tests, the changelog, two design documents and two runbooks
+tests/old_test_kind_names.py | exemption | EXEMPT_PREFIXES | the test files of the key migration
+tests/old_test_kind_names.py | exemption | the reports folder | track reports quote what they saw
+tests/old_marker_name.py | forbidden | OLD_E2E_MARKER from the doctor module | every tracked file
+tests/old_marker_name.py | exemption | CHANGELOG | the changelog
+tests/serial_marker.py | forbidden | MARKER | as a word, not before a rerun; tracked test files and root configuration files by suffix _CONFIG_SUFFIXES
+tests/serial_marker.py | exemption | _OWN | the guard's own files; the changelog is not read
+tests/test_live_test_names.py | forbidden | OLD_STEMS | the two old live-test module stems, in any tracked file and as a module
+tests/test_live_test_names.py | exemption | EXEMPT | the changelog
+tests/test_live_test_names.py | dropped | NEW_STEMS exist | scaffolding of a finished rename
+tests/test_e2e_names_not_in_framework.py | forbidden | forbidden() | a runtime, the protocol runtime, a name beginning with the runtime prefix, a provider; read from syntax, comments ignored
+tests/test_e2e_names_not_in_framework.py | scope | MODULES and CLASSES | the mechanism's modules and four classes of larger modules
+tests/test_e2e_names_not_in_framework.py | exemption | PROVIDER_TABLE | the provider table's own module
+tests/test_e2e_names_not_in_framework.py | exemption | STDLIB | a typing name that begins with the runtime prefix
+tests/test_docs_e2e_splits.py | forbidden | OLD_NAMES | the old runtime list names, in docs, the README and the skills
+tests/docs/test_review_docs_status.py | forbidden | REMOVED | the removed review keys, a paragraph that does not name the migration command
+tests/docs/test_review_docs_status.py | exemption | HISTORY and RUNBOOK | two design documents and the migration runbook, and the changelog
+tests/docs/test_usage_limits_documented.py | forbidden | OLD_SPELLING and OLD_KEY_LINE | the old key as the current one, in the README, docs and the skills
+tests/docs/test_usage_limits_documented.py | exemption | RENAME_WORDS | a paragraph that explains the rename and names the new key
+tests/docs/test_document_guards_skip_planning_content.py | rule | an archived change is not reported, docs is | three cases: removed key, old merge rule, old module name
+
+== Group 4: statements and prompt text ==
+tests/old_merge_rule.py | forbidden | OLD_RULE | the old statement of who merges, with its three lookahead exceptions
+tests/docs/test_no_human_merges_every_pr.py | scope | every Markdown file via repo_markdown, and the skills | hidden folders and planning content left out
+tests/docs/test_no_human_merges_every_pr.py | exemption | EXEMPT | the changelog, the reports folder, two design documents
+tests/docs/test_skills_say_who_merges.py | forbidden | statements of OLD_RULE in each skill | the statement part only
+tests/docs/test_state_home_documented.py | forbidden | COMMITTED | a document saying the store is committed: docs, skills, one runbook, the changelog
+tests/docs/test_reuse_guidance_documented.py | forbidden | the reuse guidance heading text | each skill
+tests/skills/test_emergency_lane_text.py | forbidden | the phrase about bypassing no limit | each skill (the same test over four named documents is a fixed list, not open-ended)
+tests/pipeline/test_determinism_prompts.py | forbidden | TOOLS | the determinism rule blocks of the tests prompt and the review prompt
+tests/pipeline/test_output_convention_prompts.py | forbidden | a home path and a word-hash-number reference | the output convention text
+tests/pipeline/test_reuse_guidance_prompts.py | forbidden | home path, word-hash-number, the kit's own names, tool words, source paths and suffixes | the part of each kind
+tests/pipeline/test_stub_guidance_prompts.py | forbidden | the same list | the stub paragraph; its positive assertion is wording and is dropped
+tests/test_authoring_skill_describes_behaviour.py | forbidden | installation, language, tool and path words; language-specific syntax | the authoring skill's section and its examples
+tests/test_scratch_app_instructions.py | forbidden | BARE | a bare test or lint program in the generated instruction file
+tests/pipeline/test_agent_commands_no_ecosystem.py | forbidden | the profile names and TOOL_WORDS | the command composer's source
+tests/pipeline/test_changelog_prompts.py | forbidden | a word-hash-number reference and a home path | the packaged changelog text; the positive assertions stay
+
+== Other scanning guards searched for ==
+A search of tests and packages/*/tests for a home-path literal and for loops over globbed files found only the prompt tests above; no further open-ended term guard was found.
