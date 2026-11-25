@@ -1636,6 +1636,10 @@ def _no_recheck(*, cwd: Path, base: str, failed_output: str) -> Recheck | None:
     return None
 
 
+def _none_fail_on_base(*, cwd: Path, base: str, failed_output: str) -> list[str]:
+    return []
+
+
 def _no_red_check(*, cwd: Path) -> tuple[bool, str]:
     return True, ""
 
@@ -1824,6 +1828,9 @@ class UnitRunner(BaseModel):
     # and one at a time, in the environment `run_unit_test` uses, given `cwd=`, `base=` and
     # `failed_output=`; None when this runner cannot, and the round stops as it always did.
     recheck_unit_test: Callable[..., Recheck | None] = _no_recheck
+    # The tests `failed_output` names that fail when run alone in a clean worktree of `base`, given
+    # `cwd=`, `base=` and `failed_output=`; none by default. A test the unit wrote is not run.
+    unit_test_on_base: Callable[..., list[str]] = _none_fail_on_base
     # Told the unit and a recheck that passed: records the tests in the flake ledger as
     # unexplained, with the first run's evidence.
     on_unexplained: Callable[[Unit, Recheck], None] = lambda unit, recheck: None

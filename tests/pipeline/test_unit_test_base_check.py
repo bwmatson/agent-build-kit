@@ -15,9 +15,14 @@ from typing import cast
 
 import pytest
 
+from agent_build_kit.config import ProjectConfig
 from agent_build_kit.installation import Installation
 from agent_build_kit.pipeline.flakes import FailedOnBase, fix_change_name
-from agent_build_kit.pipeline.wiring import build_unit_test
+from agent_build_kit.pipeline.wiring import (
+    BASE_CHECK_LIMIT,
+    build_unit_test,
+    build_unit_test_base_check,
+)
 from agent_build_kit.profiles.base import ToolchainProfile
 from tests.conftest import make_installation
 from tests.e2e_base_fakes import branch, pytest_output
@@ -139,3 +144,159 @@ def test_a_failing_test_with_an_open_fix_is_waited_on_before_any_rerun(
 
     assert [failure.test for failure in found.value.failures] == [TEST]
     assert runs.in_unit == [] and runs.in_base == [], "nothing was run again"
+
+
+# The base check of a saved failure: the failed tests that fail on the base, found from output.
+
+OTHER = "tests/far/test_two.py::test_two"
+PROJECT_TEST = "tests/test_a.py::test_a"
+
+
+class BaseRuns:
+    """Answers each run of tests by id as the process would: a test in `red` fails and any other
+    passes, wherever it runs. What ran, where, and what each run saw checked out is kept."""
+
+    def __init__(self, *, red: tuple[str, ...]) -> None:
+        self.red = red
+        self.ran: list[tuple[Path, list[str]]] = []
+        # Read as each run began: the base's tree is gone afterwards.
+        self.heads: list[str] = []
+
+    def __call__(self, command: list[str], **kwargs: object) -> subprocess.CompletedProcess:
+        ids = [argument for argument in command if "::" in argument]
+        self.ran.append((Path(str(kwargs["cwd"])), ids))
+        self.heads.append(git(Path(str(kwargs["cwd"])), "rev-parse", "HEAD").strip())
+        failed = {test: REASON for test in ids if test in self.red}
+        passed = tuple(test for test in ids if test not in self.red)
+        output = pytest_output(failed=failed, passed=passed)
+        return subprocess.CompletedProcess(command, 1 if failed else 0, output, "")
+
+    @property
+    def ids(self) -> list[str]:
+        return [test for _, ids in self.ran for test in ids]
+
+
+def base_check(
+    repo: Path,
+    base: str,
+    runs: BaseRuns,
+    failed_output: str,
+    *,
+    changed: list[str],
+    projects: list[ProjectConfig] | None = None,
+) -> list[str]:
+    return build_unit_test_base_check(
+        profile=cast(ToolchainProfile, HookedProfile()),
+        run=runs,
+        changed=lambda *a: changed,
+        projects=projects,
+    )(cwd=repo, base=base, failed_output=failed_output)
+
+
+def test_the_base_check_answers_the_failed_tests_that_fail_on_the_base_and_not_those_that_pass(
+    tmp_path: Path,
+) -> None:
+    repo, base = branch(tmp_path, {"src/app.py": "x = 1\n"})
+    runs = BaseRuns(red=(TEST,))
+    output = pytest_output(failed={TEST: REASON, OTHER: REASON})
+
+    found = base_check(repo, base, runs, output, changed=["src/app.py"])
+
+    assert found == [TEST]
+    assert set(runs.ids) == {TEST, OTHER}, "each failed test was run on the base"
+    assert set(runs.heads) == {base}, "in a tree at the base"
+    assert repo not in {where for where, _ in runs.ran}, "not in the unit's checkout"
+
+
+def test_an_output_naming_more_failed_tests_than_the_limit_is_not_run_on_the_base(
+    tmp_path: Path,
+) -> None:
+    repo, base = branch(tmp_path, {})
+    tests = [f"tests/far/test_n.py::test_{n}" for n in range(BASE_CHECK_LIMIT + 1)]
+    runs = BaseRuns(red=tuple(tests))
+
+    found = base_check(
+        repo, base, runs, pytest_output(failed=dict.fromkeys(tests, REASON)), changed=["a.py"]
+    )
+
+    assert found == []
+    assert runs.ran == [], "a collection failure is not explained test by test"
+
+
+@pytest.mark.parametrize("written", ["tests/far/test_one.py", "tests/far/conftest.py"])
+def test_a_test_whose_file_or_conftest_the_unit_changed_is_not_run_on_the_base(
+    tmp_path: Path, written: str
+) -> None:
+    repo, base = branch(tmp_path, {})
+    runs = BaseRuns(red=(TEST, OTHER))
+    output = pytest_output(failed={TEST: REASON})
+
+    found = base_check(repo, base, runs, output, changed=[written])
+
+    assert found == []
+    assert runs.ran == [], "nothing was run on the base"
+
+
+def test_an_output_that_names_no_test_runs_nothing_on_the_base_and_answers_none(
+    tmp_path: Path,
+) -> None:
+    repo, base = branch(tmp_path, {})
+    runs = BaseRuns(red=(TEST,))
+
+    found = base_check(repo, base, runs, "ruff.....Failed\n- hook id: ruff\n", changed=["a.py"])
+
+    assert found == []
+    assert runs.ran == []
+
+
+def test_a_base_worktree_that_cannot_be_made_answers_none(tmp_path: Path) -> None:
+    repo, _ = branch(tmp_path, {})
+    runs = BaseRuns(red=(TEST,))
+
+    found = base_check(
+        repo, "no-such-ref", runs, pytest_output(failed={TEST: REASON}), changed=["src/app.py"]
+    )
+
+    assert found == []
+    assert runs.ran == []
+
+
+def test_the_ids_of_a_project_are_run_in_that_projects_folder_of_the_base_worktree(
+    tmp_path: Path,
+) -> None:
+    repo, base = branch(tmp_path, {}, base_files={"svc/tests/test_a.py": "def test_a(): ...\n"})
+    runs = BaseRuns(red=(PROJECT_TEST,))
+    header = f"$ pytest (exit 1)\n(in {repo / 'svc'})\n"
+    output = header + pytest_output(failed={PROJECT_TEST: REASON})
+
+    found = base_check(
+        repo, base, runs, output, changed=["src/app.py"], projects=[ProjectConfig(path="svc")]
+    )
+
+    assert found == [PROJECT_TEST]
+    [(where, _)] = runs.ran
+    assert where.name == "svc" and where != repo / "svc", "in the base's copy of the project"
+
+
+def test_a_failure_naming_one_of_several_projects_is_run_in_that_project_only(
+    tmp_path: Path,
+) -> None:
+    body = "def test_a(): ...\n"
+    repo, base = branch(
+        tmp_path, {}, base_files={"svc/tests/test_a.py": body, "web/tests/test_a.py": body}
+    )
+    runs = BaseRuns(red=(PROJECT_TEST,))
+    header = f"$ pytest (exit 1)\n(in {repo / 'svc'})\n"
+    output = header + pytest_output(failed={PROJECT_TEST: REASON})
+
+    found = base_check(
+        repo,
+        base,
+        runs,
+        output,
+        changed=["src/app.py"],
+        projects=[ProjectConfig(path="svc"), ProjectConfig(path="web")],
+    )
+
+    assert found == [PROJECT_TEST]
+    assert [where.name for where, _ in runs.ran] == ["svc"], "none in web"
