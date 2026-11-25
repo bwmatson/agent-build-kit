@@ -8,6 +8,10 @@
   a package's test file must be `test_<module>.py`, with today's exceptions in
   `placement_baseline.toml`. A `testing/` folder no longer marks a test path, and a `test/`
   folder does everywhere.
+- A pull request whose draft state a refused write left wrong now heals: after each poll the
+  draft or ready state its unit calls for is written onto any pull request the poll read
+  otherwise, at most `label_sweep_per_tick` per poll, and a refused write is logged once.
+
 - Each poll now records whether the host lists a pull request as a draft, beside the state,
   checks and labels it already keeps, without treating a change of draft state as an event.
 

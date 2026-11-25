@@ -1,7 +1,7 @@
 """A unit's state, written onto its pull request as a draft or not.
 
-Cosmetic by construction: nothing here raises, and nothing reads the draft
-state back.
+Cosmetic by construction: nothing here raises. The draft state is also
+reconciled after each poll against the state the poll recorded.
 """
 
 from __future__ import annotations
@@ -13,29 +13,28 @@ from agent_build_kit.pipeline.unit_store import StoredUnit
 from agent_build_kit.pipeline.units import IN_REVIEW, PLANNED, RUNNING
 
 
+def wanted_draft(unit: StoredUnit) -> bool | None:
+    """The draft state a unit calls for: a draft while it runs or waits, ready in review,
+    and None when its state or its lack of a pull request leaves the pull request alone."""
+    if unit.pr is None or unit.state not in (RUNNING, PLANNED, IN_REVIEW):
+        return None
+    return unit.state != IN_REVIEW
+
+
 class StateDrafts:
     def __init__(self, for_repo: ForRepo, *, log: Callable[[str], None] = print) -> None:
         self.for_repo = for_repo
         self.log = log
         self._said_no_drafts = False
+        self._failed: set[tuple[str, int, bool]] = set()
 
     def follow(self, unit: StoredUnit, units: list[StoredUnit], *, opened: bool) -> None:
         """Make the unit's pull request a draft while it runs or waits, ready in review."""
-        if opened or unit.pr is None or unit.state not in (RUNNING, PLANNED, IN_REVIEW):
+        if opened:
             return
-        draft = unit.state != IN_REVIEW
-        try:
-            forge, repo_id = self.for_repo(unit.repo)
-            forge.set_draft(repo_id, unit.pr, draft)
-        except NotImplementedError:
-            # A host with no drafts is not a fault, and saying so on every
-            # state change would read as one.
-            if not self._said_no_drafts:
-                self._said_no_drafts = True
-                self.log("draft: this host keeps no drafts, so none are set")
-        except Exception as error:
-            what = f"setting #{unit.pr} to draft={draft}"
-            self.log(f"draft: {what} failed - {type(error).__name__}: {error}")
+        draft = wanted_draft(unit)
+        if draft is not None:
+            self._write(unit, draft)
 
     def reconcile(
         self,
@@ -46,4 +45,41 @@ class StateDrafts:
     ) -> None:
         """Write the draft state each unit calls for onto a pull request the poll recorded
         otherwise, at most `limit` writes, lowest number first within each repo."""
-        raise NotImplementedError
+        pending: list[tuple[StoredUnit, bool]] = []
+        for repo in dict.fromkeys(unit.repo for unit in units):
+            mismatched: dict[int, tuple[StoredUnit, bool]] = {}
+            for unit in units:
+                draft = wanted_draft(unit)
+                if unit.repo != repo or draft is None or unit.pr is None:
+                    continue
+                seen = recorded(repo, unit.pr)
+                if seen is not None and seen != draft:
+                    mismatched[unit.pr] = (unit, draft)
+            pending.extend(mismatched[pr] for pr in sorted(mismatched))
+        for unit, draft in pending[:limit]:
+            self._write(unit, draft)
+            if self._said_no_drafts:
+                return
+
+    def _write(self, unit: StoredUnit, draft: bool) -> None:
+        """Set the draft state; never raises. A failure is logged once per repo, pull request
+        and state wanted, and forgotten on a success."""
+        if unit.pr is None:
+            return
+        key = (unit.repo, unit.pr, draft)
+        try:
+            forge, repo_id = self.for_repo(unit.repo)
+            forge.set_draft(repo_id, unit.pr, draft)
+        except NotImplementedError:
+            # A host with no drafts is not a fault, and saying so on every
+            # state change would read as one.
+            if not self._said_no_drafts:
+                self._said_no_drafts = True
+                self.log("draft: this host keeps no drafts, so none are set")
+        except Exception as error:
+            if key not in self._failed:
+                self._failed.add(key)
+                what = f"setting #{unit.pr} to draft={draft}"
+                self.log(f"draft: {what} failed - {type(error).__name__}: {error}")
+        else:
+            self._failed.discard(key)
