@@ -16,6 +16,7 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Literal
 
+from agent_build_kit import skills
 from agent_build_kit.model import Frozen
 from tests.factories import git, init_repo
 from tests.installation_leaks import (
@@ -33,10 +34,12 @@ from tests.installation_leaks import (
     TEXT,
     foreign_azure_orgs,
     foreign_slug_owners,
+    in_specs_folder,
     overlay_leaks,
     repo_path_leaks,
 )
 from tests.tracked_files import (
+    ROOT,
     PlanningDirs,
     guarded_files,
     lines_of,
@@ -46,19 +49,16 @@ from tests.tracked_files import (
 
 OVERLAY = "abk.local.yaml"
 HOME_LINE = "see /home/someone/work for the checkout\n"
-SHIPPED = (
-    "src/agent_build_kit/skills",
-    "src/agent_build_kit/templates",
-    "src/agent_build_kit/recommendations",
-)
+PACKAGE = Path(skills.SKILLS_DIR).parent.relative_to(ROOT).as_posix()
+SHIPPED = tuple(f"{PACKAGE}/{name}" for name in ("skills", "templates", "recommendations"))
 GUIDE = "docs/claude-code-second-account.md"
 SPECIFICATION_FILE = "openspec/specs/x/spec.md"
 
 
 class Case(Frozen):
-    """A file written into a temporary tree. `line` is the line the first finding is on (none for a
-    finding about a file, not a line); `in_report` and `not_in_report` are text the findings must
-    and must not hold. A `state` other than `none` makes the tree a git repository."""
+    """A file written into a temporary tree. `line` is the one line that has a finding (none when
+    the findings are about a file, not a line); `in_report` and `not_in_report` are text the
+    findings must and must not hold. A `state` other than `none` makes the tree a git repository."""
 
     path: str
     text: str
@@ -294,8 +294,15 @@ ENTRIES: tuple[Entry, ...] = (
                 line=None,
                 state="repo",
                 in_report=("not ignored",),
+                not_in_report=("tracked by git",),
             ),
-            Case(path=OVERLAY, text="verify:\n  env: {}\n", line=None, in_report=("not ignored",)),
+            Case(
+                path=OVERLAY,
+                text="verify:\n  env: {}\n",
+                line=None,
+                in_report=("not ignored",),
+                not_in_report=("tracked by git",),
+            ),
         ),
         passes=(
             Case(
@@ -403,13 +410,14 @@ class Reading:
         if entry.check is not None:
             return entry.check(self.root)
         assert entry.found is not None, entry.name
-        specs = Path(self.dirs.specs_dir)
         found = []
         for path in self.files(entry):
             relative = path.relative_to(self.root)
             if any(exempt.covers(relative.as_posix()) for exempt in entry.exemptions):
                 continue
-            rule = entry.in_specs if entry.in_specs and specs in relative.parents else entry.found
+            rule = entry.found
+            if entry.in_specs and in_specs_folder(self.root, path, self.dirs):
+                rule = entry.in_specs
             found += [
                 f"{relative.as_posix()}:{number}: {line.strip()[:100]}"
                 for number, line in enumerate(self.lines(path), start=1)

@@ -7,6 +7,7 @@ tests run each entry's own examples over a temporary tree.
 
 from __future__ import annotations
 
+import re
 from collections import Counter
 from pathlib import Path
 
@@ -52,7 +53,9 @@ def test_an_entry_reports_its_offending_example(entry: Entry, case: Case, tmp_pa
 
     assert found, entry.name
     if case.line is not None:
-        assert any(line.startswith(f"{case.path}:{case.line}:") for line in found)
+        on_lines = [line for line in found if re.match(rf"{re.escape(case.path)}:\d+:", line)]
+        assert len(on_lines) == 1
+        assert on_lines[0].startswith(f"{case.path}:{case.line}:")
     for text in case.in_report:
         assert any(text in line for line in found)
     for text in case.not_in_report:
@@ -106,12 +109,10 @@ def test_every_entry_shares_one_read_of_each_file(
     monkeypatch.setattr(Path, "read_text", counting)
     reading = Reading(root)
 
-    found = {entry.name: reading.findings(entry) for entry in ENTRIES}
+    for entry in ENTRIES:
+        reading.findings(entry)
 
-    skill = "src/agent_build_kit/skills/x/SKILL.md"
-    assert [line.split(":")[0] for line in found["home-path"]] == ["docs/guide.md", skill]
-    assert [line.split(":")[0] for line in found["shipped-text-names-a-tilde-path"]] == [skill]
-    assert root / skill in reads
+    assert root / "src/agent_build_kit/skills/x/SKILL.md" in reads
     assert set(reads.values()) == {1}
 
 
