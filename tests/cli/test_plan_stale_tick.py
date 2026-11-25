@@ -26,14 +26,16 @@ def run_in(
 def test_a_stale_plan_is_not_planned_is_named_and_is_not_work(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    run = ticking_replan(tmp_path, monkeypatch, {"feature": tasks_md(1), "done": tasks_md(1)})
+    run = run_in(tmp_path, monkeypatch, tasks_md(1))
     run.record("feature", sizing=OLD_SIZING)
-    run.record_finished("done", sizing=OLD_SIZING)
     # A failed unit is still to finish, yet is no work for a tick (a planned one would be).
     run.store.upsert([unit("feature/1", change="feature", groups=(1,))])
     run.store.set_state("feature/1", UnitState.FAILED)
 
     assert not cli.has_work(run.inst, run.store), "a stale plan alone is no work"
+
+    run.write("done", tasks_md(1))
+    run.record_finished("done", sizing=OLD_SIZING)
 
     # Something else in progress makes the tick run, so what it says is heard.
     run.store.upsert([unit("other/1", change="other", groups=(1,))])

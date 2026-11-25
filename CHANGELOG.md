@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- The tick and `abk status` now name a stale plan only while its change has a unit left to
+  finish, so a change whose units have all merged, or that has none, is no longer repeated
+  on every pass. `abk replan` still lists every stale plan.
+
 - An `[e2e-test]` unit whose own test fails is now reworked once, automatically, with the
   failing output, before it fails: the checks, review and e2e-test run again on the fix. A
   second failure, a unit requeued after its automatic rework, a scheduled run, a failure only

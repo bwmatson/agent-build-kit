@@ -951,7 +951,9 @@ it asks for a fresh answer.
   (`planned`, `failing 2/3: <reason>`, `given up` with `abk replan --failed` to plan it
   again, `stale` for a plan recorded under other review sizing (a plan is stale when anything in the `review` section changes (its ceilings, protected paths, classes or auto_land), a repo's `review` block changes, or `global_limits.min_unit_lines` changes; `abk replan <change>`
   plans it and records the current sizing, and a tick reports stale plans without planning
-  them or counting them as work), `waiting for the network` or `waiting for the model service` with the time of
+  them or counting them as work; the tick and `abk status` name a stale plan only while its
+  change has a unit to finish, one that carries its groups counting, and this listing shows
+  every stale plan), `waiting for the network` or `waiting for the model service` with the time of
   the next try and the attempts, which a wait does not use, `never planned`), plans
   nothing and exits 2. A change that meets the outage again prints that it is waiting
   and that no attempt was used, and exits 1. `--failed` selects a waiting change.
