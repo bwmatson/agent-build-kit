@@ -705,8 +705,9 @@ holding up the most units first: failed units (not those waiting on a dependency
 requeued when the wait ends), held units, running units no run has held for an hour, plan-review
 holds on changes with units not yet started (not where someone outside the kit holds all of
 them), unmet manual steps, archives that failed, and merged branches kept because something has
-them checked out, and each outline ready to detail (see `abk outlines`). `abk status` opens with the count. Reads only. The tick retries a kept
-branch each pass but logs it only when its reason appears, changes or clears.
+them checked out, and each outline ready to detail (see `abk outlines`). `abk status` opens with
+the count. Reads only. The tick retries a kept branch each pass but logs it only when its reason
+appears, changes or clears.
 
 ### `abk review-plan show CHANGE`, `abk review-plan clear CHANGE [--note TEXT]`
 

@@ -12,16 +12,7 @@ from agent_build_kit.cli import pipeline as cli
 from agent_build_kit.installation import Installation
 from agent_build_kit.pipeline.units import UnitState
 from tests.conftest import make_installation
-from tests.factories import stored_unit
-
-
-def outline(inst: Installation, name: str, *lines: str) -> None:
-    folder = inst.root / "openspec/outlines" / name
-    folder.mkdir(parents=True)
-    (folder / "proposal.md").write_text(
-        f"# {name}\n\nInitiative: grow — wave 1: {name}\n\n"
-        "## Groups (sketch)\n1. [app] [unit-test] A\n\n" + "\n".join(lines) + "\n"
-    )
+from tests.factories import stored_unit, write_outline
 
 
 def outline_lines(inst: Installation, capsys: pytest.CaptureFixture[str]) -> list[str]:
@@ -41,8 +32,8 @@ def test_status_prints_one_line_for_the_ready_outline_and_none_for_the_far_one(
     store.upsert([stored_unit("base/1", change="base", groups=(1,))])
     store.set_state("base/1", UnitState.RUNNING)
     assert outline_lines(inst, capsys) == []
-    outline(inst, "next", "Waits on: base group 1 — needs it")
-    outline(inst, "far", "Waits on: base group 3 — needs it")
+    write_outline(inst, "next", "Waits on: base group 1 — needs it")
+    write_outline(inst, "far", "Waits on: base group 3 — needs it")
 
     lines = outline_lines(inst, capsys)
 
