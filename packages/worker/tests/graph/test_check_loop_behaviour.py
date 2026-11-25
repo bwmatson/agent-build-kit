@@ -429,7 +429,7 @@ RED = pytest_output(failed={TEST_ID: "assert 1 == 2"})
 
 
 def wired_recheck(tmp_path: Path, *, reruns: list[int]) -> tuple[RerunMachine, Any]:
-    """The recheck the installation's runner is built with, over a machine whose serial runs
+    """The recheck the installation's runner is built with, over a machine whose runs by id
     exit as `reruns` says, keeping its bundles in a folder of its own."""
     machine = RerunMachine(tmp_path, reruns=reruns)
     recheck = build_unit_test_recheck(
@@ -449,7 +449,7 @@ def test_a_no_change_round_whose_two_attempts_change_nothing_goes_on_when_the_wi
     outcome = build(tmp_path, recorder, recheck_unit_test=recheck)
 
     assert outcome.status == "open"
-    assert [[a for a in c if "::" in a] for c, _ in machine.serial] == [[TEST_ID]]
+    assert [[a for a in c if "::" in a] for c, _ in machine.id_runs] == [[TEST_ID]]
     assert recorder.events.count("claude:fix_checks") == 2
     (entry,) = recorder.unexplained
     assert entry.passed and entry.tests == (TEST_ID,)

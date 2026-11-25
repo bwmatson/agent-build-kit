@@ -108,19 +108,19 @@ class BundleMachine:
 
 class RerunMachine(BundleMachine):
     """`BundleMachine` whose runs by test id print what pytest prints for those ids: a failure
-    line per id when the run exits non-zero, a pass otherwise. `serial` keeps each such run with
+    line per id when the run exits non-zero, a pass otherwise. `id_runs` keeps each such run with
     the keyword arguments it was given."""
 
     def __init__(self, root: Path, *, reruns: list[int]) -> None:
         super().__init__(root, reruns=reruns)
-        self.serial: list[tuple[list[str], dict[str, object]]] = []
+        self.id_runs: list[tuple[list[str], dict[str, object]]] = []
 
     def __call__(self, command: list[str], **kwargs: object) -> subprocess.CompletedProcess:
         ids = [argument for argument in command if "::" in argument]
         if not ids:
             return super().__call__(command, **kwargs)
         self.commands.append(command)
-        self.serial.append((command, kwargs))
+        self.id_runs.append((command, kwargs))
         exit_code = self.reruns.pop(0)
         failed = {test: "assert 1 == 2" for test in ids} if exit_code else {}
         output = pytest_output(failed=failed, passed=() if exit_code else tuple(ids))

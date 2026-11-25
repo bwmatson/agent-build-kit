@@ -804,7 +804,7 @@ def failed_first_run(
     failure message the checks save and the ids the run named."""
     passed, message = unit_test_of(scratch, machine, directory)(cwd=scratch, base="main")
     assert not passed
-    return message, [a for a in machine.serial[0][0] if "::" in a]
+    return message, [a for a in machine.id_runs[0][0] if "::" in a]
 
 
 def test_the_recheck_reruns_each_failed_test_alone_with_the_serial_command_and_passes(
@@ -813,7 +813,7 @@ def test_the_recheck_reruns_each_failed_test_alone_with_the_serial_command_and_p
     directory = tmp_path / "bundles"
     machine = RerunMachine(scratch, reruns=[1])
     message, ids = failed_first_run(scratch, directory, machine)
-    made = len(machine.serial)
+    made = len(machine.id_runs)
     machine.reruns.extend([0] * len(ids))
 
     found = build_unit_test_recheck(run=machine, profile=BundleProfile(), failures_dir=directory)(
@@ -824,11 +824,11 @@ def test_the_recheck_reruns_each_failed_test_alone_with_the_serial_command_and_p
     assert found.passed
     assert sorted(found.tests) == sorted(ids)
     assert found.first_output == message
-    rechecks = machine.serial[made:]
+    rechecks = machine.id_runs[made:]
     assert [[a for a in command if "::" in a] for command, _ in rechecks] == [[t] for t in ids]
     for command, kwargs in rechecks:
         assert "-n" not in command, "serially"
-        assert kwargs.get("env") == machine.serial[0][1].get("env"), "the unit-test run's env"
+        assert kwargs.get("env") == machine.id_runs[0][1].get("env"), "the unit-test run's env"
 
 
 def test_a_test_that_fails_again_on_the_recheck_is_not_passed_and_keeps_the_bundle_of_each_run(
@@ -861,7 +861,7 @@ def test_a_profile_that_cannot_rerun_by_id_or_an_output_naming_no_test_cannot_be
 ) -> None:
     machine = RerunMachine(scratch, reruns=[1, 1])
     message, _ = failed_first_run(scratch, tmp_path / "bundles", machine)
-    made = len(machine.serial)
+    made = len(machine.id_runs)
     profile = BundleProfile() if with_hooks else WithoutHooks()
 
     found = build_unit_test_recheck(
@@ -869,4 +869,4 @@ def test_a_profile_that_cannot_rerun_by_id_or_an_output_naming_no_test_cannot_be
     )(cwd=scratch, base="main", failed_output=output or message)
 
     assert found is None
-    assert len(machine.serial) == made, "nothing was run"
+    assert len(machine.id_runs) == made, "nothing was run"
