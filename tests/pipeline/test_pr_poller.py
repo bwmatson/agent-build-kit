@@ -184,6 +184,22 @@ def test_a_pull_request_listed_as_a_draft_after_being_ready_is_not_an_event(poll
     assert seen == []
 
 
+def test_a_poll_records_each_pull_requests_draft_state_in_the_hosts_view(
+    poller, tmp_path: Path
+) -> None:
+    path = tmp_path / "poll.json"
+    instance, seen = poller([[pr(4, draft=True), pr(5)], [pr(4), pr(5, draft=True)]])
+
+    instance.poll()
+    first = PrState.host(path, "app")
+    instance.poll()
+    second = PrState.host(path, "app")
+
+    assert (first["4"].get("draft"), first["5"].get("draft")) == (True, False)
+    assert (second["4"].get("draft"), second["5"].get("draft")) == (False, True)
+    assert seen == [], "a draft state recorded beside the rest is not an event"
+
+
 def test_the_hold_label_stops_a_stack_advancing(poller) -> None:
     instance, seen = poller([[pr()], [pr(labels=("agent-hold",))]])
     instance.poll()
