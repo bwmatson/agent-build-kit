@@ -24,6 +24,7 @@ REVOKED = (
     'Failed to authenticate. API Error: 401 {"type":"error","error":'
     '{"type":"authentication_error","message":"OAuth token has been revoked"}}'
 )
+NOT_LOGGED_IN = "Not logged in · Please run /login"
 WRONG_KEY = 'API Error: 401 {"type":"error","error":{"message":"invalid x-api-key"}}'
 WRONG_KEY_AUTH = "Failed to authenticate. " + WRONG_KEY
 OTHER = "Tool execution failed: pytest exited 2"
@@ -54,6 +55,30 @@ def _personal(host: Host) -> Account:
 @pytest.mark.parametrize("said", [EXPIRED, EXPIRED_ONLY, REVOKED])
 def test_the_clis_authentication_failure_is_a_login_rejection(said: str) -> None:
     assert login_rejection(said) is True
+
+
+def test_the_clis_not_logged_in_notice_is_a_login_rejection() -> None:
+    assert login_rejection(NOT_LOGGED_IN) is True
+
+
+def test_a_run_that_meets_not_logged_in_raises_naming_the_account_and_records_it(
+    host: Host, tmp_path: Path
+) -> None:
+    personal = _personal(host)
+    fake = FakeClaude(stdout=refused(tmp_path, NOT_LOGGED_IN), returncode=1)
+
+    raised: LoginRejected | None = None
+    try:
+        ClaudeCodeRuntime(execute=fake).run(_request(tmp_path, personal))
+    except LoginRejected as error:
+        raised = error
+
+    assert raised is not None, "the run met 'Not logged in' and did not raise LoginRejected"
+    assert raised.account == personal
+    assert "personal" in str(raised)
+    note = usage_guard.rejected_login_note(personal)
+    assert note is not None
+    assert "personal" in note
 
 
 @pytest.mark.parametrize("said", [WRONG_KEY, WRONG_KEY_AUTH, OTHER, ""])

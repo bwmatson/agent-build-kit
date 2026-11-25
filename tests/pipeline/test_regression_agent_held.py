@@ -149,3 +149,16 @@ def test_a_second_unit_meeting_a_held_change_runs_nothing(
     waited_on(installation, flaked(unit="other/1"), store.get("other/1"), runtime=runtime)
 
     assert len(runtime.requests) == 1
+
+
+def test_a_second_unit_meeting_a_change_held_for_a_failed_run_runs_nothing(
+    installation: Installation,
+) -> None:
+    store = waiting_store(installation)
+    store.upsert([stored_unit("other/1", change="feature", groups=(1,))])
+    runtime = StandInRuntime(ok=False, error="exit 1")
+
+    waited_on(installation, flaked(), store.get("feature/1"), runtime=runtime)
+    waited_on(installation, flaked(unit="other/1"), store.get("other/1"), runtime=runtime)
+
+    assert len(runtime.requests) == 2, "both runs are made for the first unit, none for the second"
