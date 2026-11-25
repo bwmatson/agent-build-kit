@@ -51,12 +51,15 @@ from agent_build_kit.model import Frozen, TestTier
 from agent_build_kit.pipeline.command_policy import programs
 from agent_build_kit.pipeline.group_mode import GroupMode
 from agent_build_kit.pipeline.group_paths import (
+    TEST_FOLDERS,
     allows_no_code,
     allows_tests_only,
+    line_paths,
     named_paths,
     named_test_paths,
     names_unplaced_glob,
     names_unplaced_work,
+    numbered_tasks,
     tasks_asking_for_tests,
 )
 from agent_build_kit.pipeline.units import (
@@ -1440,6 +1443,111 @@ def shared_test_file_warnings(path: Path) -> list[str]:
         "at the end of each earlier group"
         for file, numbers in shared_test_files(path.read_text()).items()
     ]
+
+
+def missing_test_folder_warnings(
+    path: Path,
+    changes_dir: Path,
+    folder_present: Callable[[str, str], bool | None],
+) -> list[str]:
+    """One warning per group and test folder (`tests` or `__tests__` root) a task names a
+    file under when `folder_present(repo, root)` says the repo's default branch lacks it and
+    no earlier group, nor a group of a change reached through `Needs:`, creates it. The lookup
+    returns None when it cannot tell, and the check is then quiet."""
+    groups, _ = validate_tasks(path)
+    named = {g.number: _named_by_task(g) for g in groups}
+    needs = group_needs(path)
+    warnings: list[str] = []
+    for group in groups:
+        created = (
+            {
+                root
+                for earlier in groups
+                if earlier.number < group.number
+                for _, found, _ in named[earlier.number]
+                for root in found.values()
+            }
+            | {root for _, _, made in named[group.number] for root in made}
+            | _roots_from_needs(path, changes_dir, group.number, needs)
+        )
+        reported: set[str] = set()
+        for key, found, _ in named[group.number]:
+            for file, root in found.items():
+                if root in reported or root in created:
+                    continue
+                if folder_present(group.repo, root) is not False:
+                    continue
+                reported.add(root)
+                warnings.append(
+                    f"{path}:line {group.line}: warning: group {group.number}: task {key} names "
+                    f"`{file}`, but `{root}` is not on the default branch and no earlier group "
+                    "creates it; name the group that creates the folder, add a `Needs:` line on "
+                    "it, or use a test folder that exists"
+                )
+    return warnings
+
+
+def _named_by_task(group: TaskGroup) -> list[tuple[str, dict[str, str], set[str]]]:
+    """Each task of `group` (its `<group>.<task>` number) with the paths its lines name that sit
+    under a test folder, each with that folder's root, and the roots the task creates by name (a
+    line saying "create" beside the folder itself). A `Reads:` task creates nothing and is left
+    out."""
+    found: list[tuple[str, dict[str, str], set[str]]] = []
+    for key, text, lines in numbered_tasks(group):
+        if text.startswith("Reads:"):
+            continue
+        roots: dict[str, str] = {}
+        made: set[str] = set()
+        for line in lines:
+            for named in line_paths(line):
+                parts = PurePosixPath(named).parts
+                at = next((i for i, part in enumerate(parts) if part in TEST_FOLDERS), None)
+                if at is None:
+                    continue
+                roots.setdefault(named, "/".join(parts[: at + 1]))
+                if at == len(parts) - 1 and re.search(r"\bcreat", line, re.I):
+                    made.add(named)
+        found.append((key, roots, made))
+    return found
+
+
+def _roots_from_needs(
+    path: Path, changes_dir: Path, group: int, needs: Mapping[int, list[Need]]
+) -> set[str]:
+    """The test folders the groups a group `Needs:` name, with what those groups need in turn
+    (and the groups before each of them in its change)."""
+
+    def needed(file: Path, up_to: int) -> list[tuple[str, int]]:
+        return [
+            (need.change, need.group)
+            for number, found in group_needs(file).items()
+            if number <= up_to
+            for need in found
+        ]
+
+    start = [
+        (need.change, need.group)
+        for number, found in needs.items()
+        if number <= group
+        for need in found
+        if not names_own_change(need, path)
+    ]
+
+    def successors(node: tuple[str, int]) -> list[tuple[str, int]]:
+        other = tasks_path(node[0], changes_dir)
+        return needed(other, node[1]) if other.is_file() else []
+
+    roots: set[str] = set()
+    for change, up_to in reachable(start, successors):
+        other = tasks_path(change, changes_dir)
+        if not other.is_file():
+            continue
+        for each in validate_tasks(other)[0]:
+            if each.number <= up_to:
+                roots.update(
+                    root for _, found, _ in _named_by_task(each) for root in found.values()
+                )
+    return roots
 
 
 def environment_setting_notes(

@@ -8,6 +8,8 @@ failed run days later.
 """
 
 import argparse
+import shutil
+from collections.abc import Callable, Mapping
 from pathlib import Path
 
 import pytest
@@ -19,10 +21,12 @@ from agent_build_kit.pipeline.work_graph import (
     ValidationError,
     environment_setting_notes,
     group_needs,
+    missing_test_folder_warnings,
     shared_test_file_warnings,
     shared_test_files,
     validate_tasks,
 )
+from tests.factories import commit_files, init_repo
 from tests.project_workspace import app_with_projects
 
 # tests/ mirrors src/, so the repo root is two levels up from this file.
@@ -593,3 +597,241 @@ def test_a_group_naming_only_source_and_test_files_gets_no_note(
     assert environment_setting_notes(written(tmp_path / "plain", text)) == []
     assert status == 0
     assert not any("installation setting" in line for line in lines)
+
+
+MISSING_ROOT = "packages/core/tests"
+MISSING_TEST = f"{MISSING_ROOT}/store/test_units.py"
+
+
+def groups_text(*groups: tuple[str, ...], needs: dict[int, str] | None = None) -> str:
+    """A tasks file whose group N has the tasks `groups[N - 1]`, each task one line, and the
+    `Needs:` line `needs[N]` when given."""
+    text = f"# Tasks\n\n{OPT_OUT}\n"
+    for number, tasks in enumerate(groups, start=1):
+        text += f"## {number}. [app] [unit-test] Group {number}\n\n"
+        if needs and number in needs:
+            text += f"Needs: {needs[number]}\n\n"
+        for index, task in enumerate(tasks, start=1):
+            text += f"- [ ] {number}.{index} {task}\n"
+        text += "\n"
+    return text
+
+
+def folder_lookup(*present: str) -> Callable[[str, str], bool | None]:
+    """A lookup of which test folders the default branch holds: `present` are held."""
+    return lambda repo, root: root in present
+
+
+def folder_warnings(
+    tmp_path: Path,
+    text: str,
+    lookup: Callable[[str, str], bool | None] | None = None,
+    *,
+    others: Mapping[str, str] | None = None,
+) -> list[str]:
+    """The warnings of the change `feature`, whose tasks file is `text`, with the tasks files
+    `others` written as the changes of those names."""
+    changes = tmp_path / "changes"
+    path = written(changes / "feature", text)
+    for name, other in (others or {}).items():
+        written(changes / name, other)
+    return missing_test_folder_warnings(path, changes, lookup or folder_lookup())
+
+
+def test_a_test_folder_the_branch_lacks_is_warned_of_once_with_the_fixes(tmp_path: Path) -> None:
+    text = groups_text(
+        ("Edit `src/app.py`.",),
+        (f"Test: `{MISSING_TEST}` covers it.", f"Test: `{MISSING_ROOT}/test_other.py` too."),
+    )
+
+    warnings = folder_warnings(tmp_path, text)
+
+    assert len(warnings) == 1
+    assert "warning" in warnings[0] and "group 2" in warnings[0]
+    assert "2.1" in warnings[0] and MISSING_TEST in warnings[0]
+    assert "not on the default branch" in warnings[0]
+    assert "no earlier group creates it" in warnings[0]
+    assert "Needs:" in warnings[0] and "folder that exists" in warnings[0]
+
+
+def test_two_tasks_of_a_group_naming_one_missing_folder_give_one_warning(tmp_path: Path) -> None:
+    text = groups_text(
+        (f"Test: `{MISSING_ROOT}/test_a.py`.", f"Test: `{MISSING_ROOT}/test_b.py`."),
+    )
+
+    assert len(folder_warnings(tmp_path, text)) == 1
+
+
+def test_an_earlier_group_that_names_a_path_under_the_folder_silences_a_later_group(
+    tmp_path: Path,
+) -> None:
+    text = groups_text((f"Test: `{MISSING_ROOT}/test_marker.py`.",), (f"Test: `{MISSING_TEST}`.",))
+
+    warnings = folder_warnings(tmp_path, text)
+
+    assert not any("group 2" in warning for warning in warnings)
+    assert len(warnings) == 1 and "group 1" in warnings[0]
+
+
+def test_a_task_that_creates_the_folder_by_name_silences_its_own_group(tmp_path: Path) -> None:
+    text = groups_text(
+        (f"Create the `{MISSING_ROOT}` folder.", f"Test: `{MISSING_TEST}`."),
+    )
+
+    assert folder_warnings(tmp_path, text) == []
+
+
+@pytest.mark.parametrize(
+    "continuation",
+    [
+        f"  Reads: `{MISSING_ROOT}/test_marker.py`",
+        f"  Not changed: `{MISSING_ROOT}/test_marker.py`",
+    ],
+)
+def test_a_reads_or_not_changed_line_under_a_task_does_not_create_the_folder(
+    continuation: str, tmp_path: Path
+) -> None:
+    text = groups_text(
+        (f"Edit `src/app.py`.\n{continuation}",),
+        (f"Test: `{MISSING_TEST}`.",),
+    )
+
+    warnings = folder_warnings(tmp_path, text)
+
+    assert len(warnings) == 1 and "group 2" in warnings[0]
+
+
+def test_a_reads_task_does_not_create_the_folder(tmp_path: Path) -> None:
+    text = groups_text(
+        ("Edit `src/app.py`.", f"Reads: `{MISSING_ROOT}/test_marker.py`"),
+        (f"Test: `{MISSING_TEST}`.",),
+    )
+
+    assert len(folder_warnings(tmp_path, text)) == 1
+
+
+def test_a_later_group_naming_the_folder_does_not_create_it_for_an_earlier_one(
+    tmp_path: Path,
+) -> None:
+    text = groups_text((f"Test: `{MISSING_TEST}`.",), (f"Test: `{MISSING_ROOT}/test_later.py`.",))
+
+    warnings = folder_warnings(tmp_path, text)
+
+    assert len(warnings) == 1 and "group 1" in warnings[0]
+
+
+def test_a_group_of_a_needed_change_that_names_the_folder_silences_the_warning(
+    tmp_path: Path,
+) -> None:
+    text = groups_text(
+        ("Edit `src/app.py`.",),
+        (f"Test: `{MISSING_TEST}`.",),
+        needs={2: "other-change group 1"},
+    )
+    other = groups_text((f"Test: `{MISSING_ROOT}/test_marker.py`.",))
+
+    assert folder_warnings(tmp_path, text, others={"other-change": other}) == []
+
+
+def test_a_folder_created_further_along_the_needs_chain_silences_the_warning(
+    tmp_path: Path,
+) -> None:
+    text = groups_text((f"Test: `{MISSING_TEST}`.",), needs={1: "other-change group 1"})
+    other = groups_text(("Edit `src/app.py`.",), needs={1: "third-change group 1"})
+    third = groups_text((f"Test: `{MISSING_ROOT}/test_marker.py`.",))
+
+    assert (
+        folder_warnings(tmp_path, text, others={"other-change": other, "third-change": third}) == []
+    )
+
+
+def test_a_needed_change_that_does_not_name_the_folder_leaves_the_warning(tmp_path: Path) -> None:
+    text = groups_text((f"Test: `{MISSING_TEST}`.",), needs={1: "other-change group 1"})
+    other = groups_text(("Test: `tests/test_elsewhere.py`.",))
+
+    assert len(folder_warnings(tmp_path, text, others={"other-change": other})) == 1
+
+
+@pytest.mark.parametrize(
+    "task",
+    [
+        "Test: `packages/core/tests/test_new.py`.",
+        "Test: `packages/core/tests/store/test_units.py`.",
+        "Test: `packages/core/tests/markers/deep/test_registry.py`.",
+    ],
+)
+def test_a_new_file_or_subfolder_under_a_folder_the_branch_has_gives_no_warning(
+    task: str, tmp_path: Path
+) -> None:
+    lookup = folder_lookup(MISSING_ROOT)
+
+    assert folder_warnings(tmp_path, groups_text((task,)), lookup) == []
+
+
+@pytest.mark.parametrize(
+    "task",
+    ["Edit `src/app.py`.", "Edit `docs/cli.md`.", "Test: `src/app/test_inside.py`."],
+)
+def test_a_path_outside_a_test_folder_gives_no_warning(task: str, tmp_path: Path) -> None:
+    assert folder_warnings(tmp_path, groups_text((task,))) == []
+
+
+def test_a_node_shaped_test_folder_is_checked_like_a_tests_folder(tmp_path: Path) -> None:
+    text = groups_text(("Test: `web/__tests__/panel.test.ts`.",))
+
+    assert len(folder_warnings(tmp_path, text)) == 1
+    assert folder_warnings(tmp_path, text, folder_lookup("web/__tests__")) == []
+
+
+def test_a_lookup_that_cannot_tell_gives_no_warning(tmp_path: Path) -> None:
+    text = groups_text((f"Test: `{MISSING_TEST}`.",))
+
+    assert folder_warnings(tmp_path, text, lambda repo, root: None) == []
+
+
+def git_checkout(tmp_path: Path, *tracked: str) -> Path:
+    """The `app` checkout of `app_with_projects(tmp_path)` as a git repo on `main` holding
+    `tracked` files."""
+    checkout = init_repo(tmp_path / "checkouts" / "app")
+    commit_files(checkout, "init", {"README.md": "", **{name: "" for name in tracked}})
+    return checkout
+
+
+def test_abk_tags_warns_of_a_folder_the_checkout_lacks_and_still_exits_zero(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    git_checkout(tmp_path, "tests/.gitkeep")
+
+    status, lines = tags_output(tmp_path, capsys, groups_text((f"Test: `{MISSING_TEST}`.",)))
+
+    assert status == 0
+    assert any(MISSING_TEST in line and "warning" in line for line in lines)
+
+
+def test_abk_tags_is_quiet_about_a_folder_the_checkout_has_and_warns_of_one_it_lacks(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    git_checkout(tmp_path, f"{MISSING_ROOT}/.gitkeep")
+    text = groups_text((f"Test: `{MISSING_TEST}`.", "Test: `web/__tests__/panel.test.ts`."))
+
+    status, lines = tags_output(tmp_path, capsys, text)
+
+    assert status == 0
+    assert any("panel.test.ts" in line and "warning" in line for line in lines)
+    assert not any(MISSING_TEST in line for line in lines)
+
+
+@pytest.mark.parametrize("kind", ["missing", "not-a-repo"])
+def test_abk_tags_goes_quiet_and_does_not_fail_when_the_checkout_becomes_unusable(
+    kind: str, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    checkout = git_checkout(tmp_path, "tests/.gitkeep")
+    text = groups_text((f"Test: `{MISSING_TEST}`.",))
+    _, before = tags_output(tmp_path, capsys, text)
+    shutil.rmtree(checkout / ".git" if kind == "not-a-repo" else checkout)
+
+    status, lines = tags_output(tmp_path, capsys, text)
+
+    assert any(MISSING_TEST in line and "warning" in line for line in before)
+    assert status == 0
+    assert not any(MISSING_TEST in line for line in lines)
