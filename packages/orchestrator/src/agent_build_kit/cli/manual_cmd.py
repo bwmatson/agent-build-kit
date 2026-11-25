@@ -100,7 +100,7 @@ def cmd_manual_check(args: argparse.Namespace, inst: Installation) -> int:
     ):
         print(f"abk manual check: no outstanding step `{args.slug}`", file=sys.stderr)
         return 1
-    evaluate_manual_waits(inst, store, slug=args.slug)
+    evaluate_manual_waits(inst, store, slug=args.slug, every=True)
     return 0
 
 

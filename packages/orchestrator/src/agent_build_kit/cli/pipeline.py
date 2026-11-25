@@ -184,6 +184,7 @@ from agent_build_kit.pipeline.lease import Leases, lease_dir
 from agent_build_kit.pipeline.manual_steps import (
     evaluate_manual_steps,
     manual_status_line,
+    read_repeats,
     unmet_steps,
 )
 from agent_build_kit.pipeline.metric_records import emit_metric
@@ -1146,7 +1147,7 @@ def cmd_status(args: argparse.Namespace, inst: Installation) -> int:
         log(line)
     for line in [
         *_split_wait_lines(inst, units),
-        *_manual_wait_lines(units),
+        *_manual_wait_lines(inst, units),
         *_blocked_lines(units),
         *_retire_lines(units),
         *_failed_waiting_lines(units),
@@ -1996,13 +1997,17 @@ def evaluate_manual_waits(
     dry_run: bool = False,
     in_flight: Collection[str] = (),
     slug: str = "",
+    every: bool = False,
 ) -> None:
     """Run the checks of the manual steps units wait on, with no agent call and no usage
     reading, and deliver the resume to each unit whose last step is now done. A dry run says
-    what it found and changes nothing."""
+    what it found and changes nothing. A pass logs a result only when it differs from the one
+    before, or passes; a dry run and `every` (`abk manual check`) log every result."""
     for action in evaluate_manual_steps(
         inst, store, now=spans.clock.now(), dry_run=dry_run, slug=slug
     ):
+        if not (dry_run or every or action.changed or action.outcome == "met"):
+            continue
         said = f"{action.unit}: manual step {action.slug} {action.outcome}"
         log(f"{said}: {action.line}" if action.line else said)
     if dry_run:
@@ -3967,11 +3972,12 @@ def _split_wait_lines(inst: Installation, units: Sequence[StoredUnit]) -> list[s
     return lines
 
 
-def _manual_wait_lines(units: Sequence[StoredUnit]) -> list[str]:
-    """One line for each manual step a planned unit waits on: the last line of its check and
-    where the runbook is."""
+def _manual_wait_lines(inst: Installation, units: Sequence[StoredUnit]) -> list[str]:
+    """One line for each manual step a planned unit waits on: the last line of its check, how
+    many checks in a row gave it, and where the runbook is."""
+    repeats = read_repeats(inst)
     return [
-        f"  {unit.id}: {manual_status_line(step)}"
+        f"  {unit.id}: {manual_status_line(step, repeats.get(unit.id + '/' + step.slug))}"
         for unit in units
         if unit.state == PLANNED
         for step in unmet_steps(unit)

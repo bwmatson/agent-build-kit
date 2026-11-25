@@ -20,6 +20,9 @@
 
 - A merged unit's branch that cannot be deleted is now logged by the tick when its reason
   appears, changes or clears, not on every pass. The deletion is still retried each pass.
+- The tick now logs a manual step's check result only when it changes, instead of on every
+  pass, and `abk status` shows how many checks in a row gave the same result and since when.
+  `abk manual check` and a dry run still print every result.
 
 - An `[e2e-test]` unit whose own test fails is now reworked once, automatically, with the
   failing output, before it fails: the checks, review and e2e-test run again on the fix. A
