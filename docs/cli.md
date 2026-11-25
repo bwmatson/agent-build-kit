@@ -138,6 +138,23 @@ one test. `--show` then prints the newest bundle's `context`, `machine` and `wor
 `flaky:` line of `abk status` adds `(load 12 to 22)` from the same records, and a `failing:` line
 adds `recorded as load` when its record says the host was loaded (`conditions.load_high`).
 
+### `abk outlines [--overlaps]`
+
+`abk outlines` reads each outline under `planning.outlines` that holds a `proposal.md` and
+prints one line for it, nearest first: its distance, each `Waits on:` target with the units it
+contributes, and `ready to detail` when the distance is at most `planning.outline_lead_units`.
+The distance is the longest, over the outline's `Waits on: <name> group <n>` lines, of the
+units ahead that are not yet in review or merged. For a detailed change that is the stored units
+carrying group `n` (or joined into it) and their ancestors, in any state but `in_review`,
+`settling`, `merged`, `satisfied`, `closed`, `retired` and `unplanned`, so a held or failed unit
+counts; a change with no such unit yet counts one per group up to `n`. For an outline it is one
+per sketched group up to `n` plus that outline's own distance. A name that is neither is shown
+as `not found` and counts 0, and outlines waiting on each other are shown as a cycle with no
+distance and are never ready. `--overlaps` adds, for each detailed change, the outlines whose
+`Touches:` paths overlap a path its `tasks.md` names, with the outline's `Reworks:` count and
+`promote earlier` above two. The command makes no model call, changes nothing, and prints
+nothing when there are no outlines.
+
 ### `abk status`
 
 `abk status --temp` prints a `pytest temp:` line with the size of the run folders the unit-test
