@@ -151,17 +151,10 @@ def test_a_directory_a_dead_run_left_is_written_again(
 # --- a run that ended held for a person ---------------------------------------------
 
 
-@pytest.mark.parametrize(
-    "runtime",
-    [
-        StandInRuntime(answer="I cannot tell.\nJUDGEMENT: undecided\n"),
-        StandInRuntime(ok=False, error="exit 1"),
-    ],
-    ids=["undecided", "failed"],
-)
-def test_a_change_held_for_a_person_is_waited_on_and_the_agent_is_not_run_again(
-    installation: Installation, runtime: StandInRuntime
+def test_a_change_held_as_undecided_is_waited_on_and_the_agent_is_not_run_again(
+    installation: Installation,
 ) -> None:
+    runtime = StandInRuntime(answer="I cannot tell.\nJUDGEMENT: undecided\n")
     code_repo(installation)
     units = [
         change_with_unit(installation, "feature", "feature/1"),

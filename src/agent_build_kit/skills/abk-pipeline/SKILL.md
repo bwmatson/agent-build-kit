@@ -377,7 +377,7 @@ unit (`--dry-run`, `--repair`, `--landed-as <sha>`).
 ### Paused for a rejected login
 
 When an account's Claude login is rejected (the CLI says `Failed to authenticate`, HTTP 401, `OAuth
-access token has expired`), the account's units are paused, not failed: a unit stays `running` with
+access token has expired`, or `Not logged in · Please run /login`), the account's units are paused, not failed: a unit stays `running` with
 the cause `login`, counts as in progress and holds no worker, and `abk status` shows the rejected
 login with the command that renews it (`claude auth login`, with the account's directory) and
 `account <name>: N units paused for the login`. No unit that has never started is admitted on the

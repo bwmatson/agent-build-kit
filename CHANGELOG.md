@@ -45,6 +45,10 @@
   or released from a hold, waits for room like a never-started unit and starts first when a place
   frees. A failed unit still blocks its dependents and the work on its branch.
 
+- A run that says `Not logged in · Please run /login` now pauses its units for the login, as a
+  rejected token does, instead of failing them. A regression-agent run that fails is run once
+  more before its change is held for a person, and the hold says the run failed twice.
+
 - The unit graph page no longer breaks when a unit's title has a double quote or an angle bracket in it: a quote ended the node's label early and the diagram stopped drawing (the title
   `"Not logged in" pauses for the login…` did). These characters are now written as entity codes in a label, which mermaid draws as the characters.
 
