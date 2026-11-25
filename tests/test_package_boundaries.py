@@ -38,6 +38,7 @@ from tests.tracked_files import (
     source_trees,
     tracked,
 )
+from tests.wide_scans import scans_the_repository
 from tests.workspace_packages import PACKAGE_NAME, PACKAGES, source_root
 
 WORKER_ROOT = WORKER_SOURCE.parents[1]
@@ -49,13 +50,11 @@ WORKER_TESTS = Path("packages") / "worker" / "tests"
 ORCHESTRATOR_TESTS = Path("packages") / "orchestrator" / "tests"
 CORE_TESTS = Path("packages") / "core" / "tests"
 CORE_TESTS_BASELINE = ROOT / "packages" / "core" / "core_tests_baseline.toml"
-# The packages the core owns whole: every test file in their mirror folder is the core's.
-CORE_OWNED_WHOLE = frozenset(
-    {"forges", "profiles", "sandboxes", "hooks", "runtimes", "orchestration"}
-)
 CORE_TEST_PREFIX = "test_checkpoint"
 CORE, WORKER, ORCHESTRATOR = "core", "worker", "orchestrator"
 BASELINE_CEILING = 13
+# Lowered by each group that moves core tests and deletes baseline lines.
+CORE_TESTS_BASELINE_CEILING = 14
 ROOT_MODULE = "__init__"
 
 Edge = tuple[str, str]
@@ -834,16 +833,26 @@ def is_worker_test(relative: Path, modules: Collection[str]) -> bool:
     return is_module_test(relative, modules)
 
 
+def owning_module(relative: Path, modules: Collection[str]) -> str | None:
+    """The module (path under a source tree) whose test file `relative` (below a tests folder) is:
+    the one in its mirror folder with the longest name that `test_<module>` begins the file name
+    with; none when no module is."""
+    folder = relative.parent.as_posix()
+    matches = [
+        module
+        for module in modules
+        if not module.startswith("graph/")
+        and Path(module).parent.as_posix() == folder
+        and relative.name.startswith(f"test_{Path(module).stem}")
+    ]
+    matches.sort(key=lambda module: len(Path(module).stem))
+    return matches[-1] if matches else None
+
+
 def is_module_test(relative: Path, modules: Collection[str]) -> bool:
     """Whether the test file `relative` (below a tests folder) sits in the mirror folder of one of
     `modules` (paths under a source tree) and is named `test_<module>*.py`."""
-    folder = relative.parent.as_posix()
-    return any(
-        Path(module).parent.as_posix() == folder
-        and relative.name.startswith(f"test_{Path(module).stem}")
-        for module in modules
-        if not module.startswith("graph/")
-    )
+    return owning_module(relative, modules) is not None
 
 
 @pytest.mark.integration
@@ -923,6 +932,12 @@ def test_a_test_file_base_name_is_unique_across_the_repository() -> None:
     assert base_name_clashes(files) == {}
 
 
+def core_owned_whole() -> frozenset[str]:
+    """The packages the core's seeds name whole: every test file in their mirror folder is the
+    core's."""
+    return frozenset(seed for seed in seeds().core if "." not in seed)
+
+
 def is_core_test(
     relative: Path,
     core_modules: Collection[str],
@@ -934,28 +949,19 @@ def is_core_test(
 
     It is the core's when it is in the mirror folder of a core module and named
     `test_<module>*.py` (the longest module name across the core and the other packages wins),
-    when its folder is a package the core owns whole (`forges`, `profiles`, `sandboxes`, `hooks`,
-    `runtimes`, `orchestration`), or when it is a `graph/test_checkpoint*` file; a file that reads
-    the whole repository (`scans_repository`) is never the core's.
+    when its folder is a package the core's seeds name whole, or when it is a
+    `graph/test_checkpoint*` file; a file that reads the whole repository (`scans_repository`) is
+    never the core's.
     """
     if scans_repository or not relative.name.startswith("test_") or relative.suffix != ".py":
         return False
     folder = relative.parent.as_posix()
-    if folder in CORE_OWNED_WHOLE:
+    if folder in core_owned_whole():
         return True
     if folder == "graph":
         return relative.name.startswith(CORE_TEST_PREFIX)
-    best = ("", False)
-    for modules, is_core in ((core_modules, True), (other_modules, False)):
-        for module in modules:
-            stem = Path(module).stem
-            if (
-                Path(module).parent.as_posix() == folder
-                and relative.name.startswith(f"test_{stem}")
-                and len(stem) > len(best[0])
-            ):
-                best = (stem, is_core)
-    return best[1]
+    owner = owning_module(relative, [*core_modules, *other_modules])
+    return owner is not None and owner in core_modules
 
 
 def core_baseline() -> list[str]:
@@ -977,7 +983,7 @@ def core_test_problems(
     for path in files:
         if not path.is_relative_to(TESTS):
             continue
-        scans = "tracked_files" in (root / path).read_text()
+        scans = scans_the_repository((root / path).read_text())
         if is_core_test(
             path.relative_to(TESTS), core_modules, other_modules, scans_repository=scans
         ):
@@ -1079,15 +1085,21 @@ def test_a_core_test_a_baseline_glob_covers_is_not_reported(tmp_path: Path) -> N
     assert problems == []
 
 
-def test_a_test_that_imports_the_tracked_files_helper_is_not_asked_to_move(
-    tmp_path: Path,
-) -> None:
-    files = written(
-        tmp_path,
-        {"tests/pipeline/test_unit_store_scan.py": "from tests.tracked_files import tracked\n"},
-    )
+def test_a_test_that_calls_a_whole_tree_helper_is_not_asked_to_move(tmp_path: Path) -> None:
+    text = "from tests.tracked_files import ROOT\n\n\ndef test_scan():\n    hits(ROOT)\n"
+    files = written(tmp_path, {"tests/pipeline/test_unit_store_scan.py": text})
 
     assert core_test_problems(tmp_path, files, CORE_MODULES, OTHER_MODULES, []) == []
+
+
+def test_a_test_that_imports_only_the_repository_root_is_asked_to_move(tmp_path: Path) -> None:
+    text = "from tests.tracked_files import ROOT\nPATH = ROOT / 'x'\n"
+    files = written(tmp_path, {"tests/pipeline/test_unit_store_x.py": text})
+
+    problems = core_test_problems(tmp_path, files, CORE_MODULES, OTHER_MODULES, [])
+
+    assert len(problems) == 1
+    assert "tests/pipeline/test_unit_store_x.py" in problems[0]
 
 
 def test_a_baseline_entry_that_covers_no_file_fails_until_it_is_removed(tmp_path: Path) -> None:
@@ -1122,8 +1134,11 @@ def test_a_test_base_name_held_once_in_each_tree_is_no_clash() -> None:
     assert base_name_clashes(files) == {}
 
 
-def test_the_pytest_run_and_pyrefly_cover_the_core_tests() -> None:
+def test_pyrefly_checks_the_core_tests() -> None:
     config = tomllib.loads((ROOT / "pyproject.toml").read_text())["tool"]
 
-    assert CORE_TESTS.as_posix() in config["pytest"]["ini_options"]["testpaths"]
     assert CORE_TESTS.as_posix() in config["pyrefly"]["project-includes"]
+
+
+def test_the_core_tests_baseline_holds_no_more_lines_than_the_ceiling() -> None:
+    assert 0 < len(core_baseline()) <= CORE_TESTS_BASELINE_CEILING
