@@ -5,6 +5,7 @@
 - The tick and `abk status` now name a stale plan only while its change has a unit left to
   finish, so a change whose units have all merged, or that has none, is no longer repeated
   on every pass. `abk replan` still lists every stale plan.
+
 - A merged unit's branch that cannot be deleted is now logged by the tick when its reason
   appears, changes or clears, not on every pass. The deletion is still retried each pass.
 
