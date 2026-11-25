@@ -9,6 +9,7 @@ from pathlib import Path
 from agent_build_kit import run_support
 from agent_build_kit.cli import pipeline as cli
 from agent_build_kit.cli.attention_cmd import attention_items
+from agent_build_kit.installation import Installation
 from agent_build_kit.pipeline import plan_review
 from agent_build_kit.pipeline.plan_review import Finding, Review
 from agent_build_kit.pipeline.unit_store import Cause
@@ -107,3 +108,31 @@ def test_a_requeue_into_a_plan_hold_says_the_unit_will_wait(tmp_path: Path) -> N
     assert cli.requeue(inst, "a/1", "resume", say=lambda text, **_: said.append(text)) == 0
 
     assert any("will not start until the plan review of a is resolved" in line for line in said)
+
+
+def write_outline(inst: Installation, name: str, *lines: str) -> None:
+    folder = inst.root / "openspec/outlines" / name
+    folder.mkdir(parents=True)
+    (folder / "proposal.md").write_text(
+        f"# {name}\n\nInitiative: grow — wave 1: {name}\n\n"
+        "## Groups (sketch)\n1. [app] [unit-test] A\n\n" + "\n".join(lines) + "\n"
+    )
+
+
+def test_an_outline_ready_to_detail_is_listed_with_the_command_that_reads_it(
+    tmp_path: Path,
+) -> None:
+    inst = make_installation(tmp_path, planning=dict(state_dir="."))
+    (inst.changes_dir / "base").mkdir(parents=True)
+    (inst.changes_dir / "base" / "tasks.md").write_text("## 1. [app] [unit-test] Work\n")
+    running = stored_unit("base/1", change="base", groups=(1,), state=RUNNING)
+    assert attention_items(inst, [running], idle=set(), now=NOW) == []
+    write_outline(inst, "next", "Waits on: base group 1 — needs it")
+    write_outline(inst, "far", "Waits on: base group 3 — needs it")
+
+    items = attention_items(inst, [running], idle=set(), now=NOW)
+
+    ready = [i for i in items if "next" in i.subject or "next" in i.what]
+    assert len(ready) == 1
+    assert "abk outlines" in ready[0].action
+    assert not [i for i in items if "far" in i.subject or "far" in i.what]
