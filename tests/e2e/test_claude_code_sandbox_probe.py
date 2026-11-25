@@ -26,7 +26,6 @@ and excluded from the default suite.
 
 from __future__ import annotations
 
-import os
 import shutil
 import socket
 import tempfile
@@ -44,6 +43,7 @@ from agent_build_kit.runtimes.claude_code import API_HOST, ClaudeCodeRuntime, sp
 from agent_build_kit.sandboxes import Coverage
 from agent_build_kit.sandboxes.policy import build_policy
 from tests.factories import git, init_repo
+from tests.live_account import environment_account
 
 pytestmark = [pytest.mark.e2e, pytest.mark.runtime_claude_code]
 
@@ -99,12 +99,7 @@ def connected_hosts(monkeypatch: pytest.MonkeyPatch) -> list[str]:
 def account() -> claude_account.Account | None:
     """The account the environment names, read before the autouse fixture removes it from each
     test, as the kit's other claude_code live tests do; None for the default account."""
-    for name in claude_account.NAMES:
-        if os.environ.get(name):
-            return claude_account.Account(
-                label="probe", config_dir=Path(os.environ[name]).expanduser()
-            )
-    return None
+    return environment_account("probe")
 
 
 class Probe:
