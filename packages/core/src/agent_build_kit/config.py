@@ -168,10 +168,12 @@ class PlanningConfig(Frozen):
     # How many times the pipeline may rewrite a change's tasks.md to resolve the review's blocker
     # findings before what is left holds the change; 0 turns the repair off.
     plan_review_repairs: int = Field(default=2, ge=0)
-    # Stub: the distance, in units, at which an outline is ready to detail.
-    outline_lead_units: int = 0
-    # Stub: the outlines folder, relative to the planning root.
-    outlines: str = ""
+    # How many units ahead of its prerequisites an outline may be detailed: an outline whose
+    # distance is at most this is ready to detail; 0 waits until nothing it waits on is short
+    # of review.
+    outline_lead_units: int = Field(default=1, ge=0)
+    # The folder holding the outlines, relative to the planning root.
+    outlines: str = "openspec/outlines"
 
 
 class OpenSpecConfig(Frozen):

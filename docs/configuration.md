@@ -142,6 +142,10 @@ planning:
                                 # false asks no model.
   plan_review_repairs: 2        # rewrites of tasks.md per change to resolve blockers
                                 # before they hold; 0 turns the repair off
+  outline_lead_units: 1         # an outline is ready to detail at a distance of at
+                                # most this many units; 0 waits until nothing it
+                                # waits on is short of review
+  outlines: openspec/outlines   # the outlines folder, relative to the planning root
 
 openspec:
   command: null                 # argv for the OpenSpec CLI. null = npx --yes
@@ -850,6 +854,12 @@ the top-level `project_limits` is counted for each project, not across all repos
   when every group heading is unchanged and the tasks validate, and only when `tasks.md` has no
   edit that is not committed; it is committed to the planning repo and the plan is reviewed
   again. `0` turns the repair off.
+- `planning.outline_lead_units` (default `1`, at least `0`): how far ahead an outline may be
+  detailed. An outline's distance is the number of units that must still reach review before
+  everything it waits on is there; it is ready to detail at a distance of at most this lead.
+  `0` waits until nothing it waits on is short of review (a held or failed unit still counts).
+- `planning.outlines` (default `openspec/outlines`): the folder of outlines, relative to the
+  planning root.
 
 When a repo in `abk.yaml` is the planning root's own repository (`path: .`), the
 root plays one of three roles: **separate** (no repo shares it), **working copy**

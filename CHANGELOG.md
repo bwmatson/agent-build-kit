@@ -5,6 +5,9 @@
 - `abk tags` and `abk check` now warn when a task names a test file under a `tests` or
   `__tests__` folder that the repo's default branch lacks and no earlier group, or group it
   needs, creates, since the unit could not place the test. The exit status is unchanged.
+- Two planning settings for outlines: `planning.outline_lead_units` (default `1`) sets how
+  many units ahead of its prerequisites an outline is ready to detail, and `planning.outlines`
+  (default `openspec/outlines`) names the folder of outlines, relative to the planning root.
 
 - The tick and `abk status` now name a stale plan only while its change has a unit left to
   finish, so a change whose units have all merged, or that has none, is no longer repeated
