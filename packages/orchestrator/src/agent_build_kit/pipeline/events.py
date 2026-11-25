@@ -1120,8 +1120,11 @@ def remove_merged_branches(
                 store.set_branch_kept(unit.id, _joined(carried))
             continue
         reasons: list[str] = carried
+        # A kept branch is retried each pass but said once: its lines are held back and
+        # emitted only when the joined reason differs from the stored one.
+        held: list[str] = []
         if on_remote:
-            reasons.append(_delete_remote_branch(unit, open_bases, log))
+            reasons.append(_delete_remote_branch(unit, open_bases, held.append))
         if here:
             reasons.append(
                 remove_satisfied(
@@ -1132,11 +1135,15 @@ def remove_merged_branches(
                     delete_branch=delete_branch,
                     on_new_base=on_new_base,
                     repos=repos,
-                    log=log,
+                    log=held.append,
                 )
             )
         kept = _joined(reasons)
         if kept != unit.branch_kept:
+            for line in held:
+                log(line)
+            if not kept:
+                log(f"{unit.id}: branch {branch} no longer kept — it is deleted")
             store.set_branch_kept(unit.id, kept)
 
 
