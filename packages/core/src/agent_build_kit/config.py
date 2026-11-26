@@ -174,6 +174,8 @@ class PlanningConfig(Frozen):
     outline_lead_units: int = Field(default=1, ge=0)
     # The folder holding the outlines, relative to the planning root.
     outlines: str = "openspec/outlines"
+    # The most plan-model review and repair calls in flight at once; 1 is one call at a time.
+    plan_review_concurrency: int = Field(default=4, ge=1)
 
 
 class OpenSpecConfig(Frozen):

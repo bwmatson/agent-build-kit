@@ -42,19 +42,24 @@ class StandInRuntime:
         ok: bool = True,
         error: str = "",
         act: Callable[[AgentRequest], None] | None = None,
+        respond: Callable[[AgentRequest], str] | None = None,
     ) -> None:
         self.answer = answer
         self.raw = raw
         self.ok = ok
         self.error = error
         self.act = act
+        # The answer chosen from the request itself, so calls that overlap cannot read each
+        # other's: when set, it is used in place of `answer`.
+        self.respond = respond
         self.requests: list[AgentRequest] = []
 
     def run(self, request: AgentRequest) -> AgentResult:
         self.requests.append(request)
         if self.act is not None:
             self.act(request)
-        return AgentResult(ok=self.ok, text=self.answer, raw=self.raw, error=self.error)
+        text = self.respond(request) if self.respond is not None else self.answer
+        return AgentResult(ok=self.ok, text=text, raw=self.raw, error=self.error)
 
     def get_usage_status(self) -> None:
         return None

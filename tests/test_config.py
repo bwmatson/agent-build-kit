@@ -531,3 +531,24 @@ def test_the_azure_settings_in_the_overlay_load_with_the_kind_from_the_committed
 
     assert deployment.kind == "azure"
     assert {name: getattr(deployment.azure, name) for name in AZURE_SETTINGS} == AZURE_SETTINGS
+
+
+def test_plan_review_concurrency_defaults_to_four() -> None:
+    assert WorkspaceConfig().planning.plan_review_concurrency == 4
+
+
+@pytest.mark.parametrize("value", [0, -3])
+def test_plan_review_concurrency_accepts_one_and_refuses_below_one_naming_the_setting(
+    value: int,
+) -> None:
+    assert (
+        WorkspaceConfig(planning={"plan_review_concurrency": 1}).planning.plan_review_concurrency
+        == 1
+    )
+
+    with pytest.raises(ValidationError) as refused:
+        WorkspaceConfig(planning={"plan_review_concurrency": value})
+
+    # the bound's own message, not the schema's refusal of an unknown key
+    assert "plan_review_concurrency" in str(refused.value)
+    assert "greater than or equal to 1" in str(refused.value)
