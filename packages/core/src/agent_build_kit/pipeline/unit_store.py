@@ -34,7 +34,9 @@ from pydantic import Field, ValidationError, field_validator, model_validator
 from agent_build_kit.budget import cut_head
 from agent_build_kit.compat_names import Place, new_spelling
 from agent_build_kit.model import Frozen, TestTier, widest_kind
+from agent_build_kit.orchestration import store as units_store
 from agent_build_kit.orchestration.store import UnitsStore
+from agent_build_kit.orchestration.sync_bridge import run_store
 from agent_build_kit.pipeline import spans
 from agent_build_kit.pipeline.file_lock import atomic_write_text, file_lock
 from agent_build_kit.pipeline.units import (
@@ -846,6 +848,9 @@ class UnitStore:
         self.on_write = on_write
         self.on_state = on_state
         self.bounce_span_seconds = bounce_span_seconds
+        self.store = store
+        # The version each unit had when `_read` last listed the store.
+        self._seen: dict[str, int] = {}
 
     def locked(self) -> AbstractContextManager[None]:
         """The lock every change to the store is made under, for a rewrite of the file
@@ -853,6 +858,10 @@ class UnitStore:
         return file_lock(self.path.with_name(f"{self.path.name}.lock"))
 
     def _read(self) -> dict[str, StoredUnit]:
+        if self.store is not None:
+            rows = run_store(self.store.list())
+            self._seen = {row.id: row.version for row in rows}
+            return {row.id: StoredUnit.model_validate(row.body) for row in rows}
         if not self.path.exists():
             return {}
 
@@ -878,7 +887,30 @@ class UnitStore:
             stored[unit.id] = unit
         return stored
 
+    def _write_to_store(self, store: UnitsStore, stored: dict[str, StoredUnit]) -> None:
+        """Write the units that differ from what `_read` saw. Nothing is written when any of
+        them has moved in the store since: `VersionConflict` then names their ids."""
+        if vanished := [uid for uid in self._seen if uid not in stored]:
+            raise NotImplementedError(f"the units store cannot delete units yet: {vanished}")
+        records = {uid: _record(unit) for uid, unit in stored.items()}
+        held = {row.id: row for row in run_store(store.list())}
+        changed = [
+            uid for uid, record in records.items() if uid not in held or held[uid].body != record
+        ]
+        moved = [
+            uid for uid in changed if uid in held and held[uid].version != self._seen.get(uid, 0)
+        ]
+        if moved:
+            raise units_store.VersionConflict(moved)
+        for uid in changed:
+            run_store(store.put_if(uid, records[uid], self._seen.get(uid, 0)))
+
     def _write(self, stored: dict[str, StoredUnit]) -> None:
+        if self.store is not None:
+            self._write_to_store(self.store, stored)
+            if self.on_write:
+                self.on_write(list(stored.values()))
+            return
         self.path.parent.mkdir(parents=True, exist_ok=True)
         # mode="json" so tuples land as JSON arrays and datetimes as strings,
         # which is what `model_validate` reads back on the next tick.
@@ -1117,7 +1149,10 @@ class UnitStore:
             return moved
         if changed or removed:
             kept = {uid: unit for uid, unit in stored.items() if uid not in removed}
-            self._write({**kept, **{uid: after[uid] for uid in changed}})
+            try:
+                self._write({**kept, **{uid: after[uid] for uid in changed}})
+            except units_store.VersionConflict as conflict:
+                return list(conflict.args[0])
         if also is not None:
             also()
         return []

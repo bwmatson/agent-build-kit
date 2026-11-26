@@ -41,10 +41,9 @@ class RacingStore(InMemoryUnitsStore):
 
     async def list(self):  # noqa: ANN201
         listed = await super().list()
-        if not self.raced:
+        current = await self.get(self.racer)
+        if not self.raced and current is not None:
             self.raced = True
-            current = await self.get(self.racer)
-            assert current is not None
             body: dict[str, Any] = {**current.body, "estimated_lines": 777}
             await self.put_if(self.racer, body, current.version)
         return listed
