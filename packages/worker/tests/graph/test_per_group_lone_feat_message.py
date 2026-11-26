@@ -21,7 +21,7 @@ def marked_empty(repo: Path) -> None:
 
 
 def test_a_lone_feat_stops_the_unit_naming_it(tmp_path: Path) -> None:
-    _, outcome, _ = built(tmp_path, groups=GROUPS, seeded=SEEDED)
+    _, outcome, _ = built(tmp_path, groups=GROUPS, seeded=SEEDED, asked=True)
 
     assert outcome.status == "failed"
     assert LONE in outcome.detail
@@ -32,7 +32,12 @@ def test_the_stop_is_the_same_with_an_empty_marked_pair_after_the_lone_feat(
     tmp_path: Path,
 ) -> None:
     recorder, _ = prepared(
-        tmp_path, groups=GROUPS, seeded=SEEDED, silent_groups=(4,), meanwhile=marked_empty
+        tmp_path,
+        groups=GROUPS,
+        seeded=SEEDED,
+        silent_groups=(4,),
+        meanwhile=marked_empty,
+        asked=True,
     )
 
     outcome = build(tmp_path, recorder, **recorder.overrides(tmp_path))

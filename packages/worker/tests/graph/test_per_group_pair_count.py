@@ -16,7 +16,9 @@ GROUPS = {"add-marker": TITLES}
 def test_a_last_implementation_that_made_no_commit_stops_the_unit_naming_the_group(
     tmp_path: Path,
 ) -> None:
-    recorder, outcome, repo = built(tmp_path, groups=GROUPS, no_commit_for="3", unit_test_ok=False)
+    recorder, outcome, repo = built(
+        tmp_path, groups=GROUPS, no_commit_for="3", unit_test_ok=False, asked=True
+    )
 
     assert outcome.status == "failed"
     assert "Drop the key" in outcome.detail or "group 3" in outcome.detail
@@ -27,7 +29,7 @@ def test_a_last_implementation_that_made_no_commit_stops_the_unit_naming_the_gro
 
 def test_a_full_count_goes_on_to_the_checks_and_a_short_one_does_not(tmp_path: Path) -> None:
     short, stopped, _ = built(
-        tmp_path / "short", groups=GROUPS, no_commit_for="3", unit_test_ok=False
+        tmp_path / "short", groups=GROUPS, no_commit_for="3", unit_test_ok=False, asked=True
     )
     full, outcome, repo = built(tmp_path / "full", groups=GROUPS)
 
@@ -40,7 +42,7 @@ def test_a_full_count_goes_on_to_the_checks_and_a_short_one_does_not(tmp_path: P
 
 def test_a_unit_that_is_not_stubbed_is_counted_as_before(tmp_path: Path) -> None:
     stubbed, stopped, _ = built(
-        tmp_path / "stubbed", groups=GROUPS, no_commit_for="3", unit_test_ok=False
+        tmp_path / "stubbed", groups=GROUPS, no_commit_for="3", unit_test_ok=False, asked=True
     )
     plain, outcome, repo = built(
         tmp_path / "plain", groups=GROUPS, setting=False, no_commit_for="1, 2, 3"
@@ -55,7 +57,9 @@ def test_a_unit_that_is_not_stubbed_is_counted_as_before(tmp_path: Path) -> None
 def test_a_middle_group_without_an_implementation_commit_stops_the_unit_at_that_group(
     tmp_path: Path,
 ) -> None:
-    recorder, outcome, repo = built(tmp_path, groups=GROUPS, no_commit_for="1", unit_test_ok=False)
+    recorder, outcome, repo = built(
+        tmp_path, groups=GROUPS, no_commit_for="1", unit_test_ok=False, asked=True
+    )
 
     assert outcome.status == "failed"
     assert "group 1" in outcome.detail
@@ -74,6 +78,7 @@ def test_real_tests_with_no_implementation_and_failing_unit_tests_keep_the_pair_
         seeded=["test: G3", "feat: G3", "test: G4"],
         no_commit_for="4",
         unit_test_ok=False,
+        asked=True,
     )
 
     outcome = build(tmp_path, recorder, **recorder.overrides(tmp_path))

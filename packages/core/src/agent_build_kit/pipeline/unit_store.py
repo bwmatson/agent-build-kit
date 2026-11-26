@@ -343,6 +343,7 @@ class RewriteSource(StrEnum):
 
     REVIEW = "review"
     PERSON = "person"
+    COMMIT_SHAPE = "commit-shape check"
 
 
 class StoredRewriteRequest(Frozen):

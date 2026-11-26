@@ -16,7 +16,7 @@ NOTE = "nothing to add and unit-test passes — satisfied"
 def test_a_last_group_that_made_nothing_stops_naming_it_when_the_unit_tests_fail(
     tmp_path: Path,
 ) -> None:
-    recorder, outcome, repo = built(tmp_path, silent_groups=(3,), unit_test_ok=False)
+    recorder, outcome, repo = built(tmp_path, silent_groups=(3,), unit_test_ok=False, asked=True)
 
     assert outcome.status == "failed"
     assert "the branch holds no tests and implementation pair for group 3" in outcome.detail
@@ -42,7 +42,7 @@ def test_a_last_group_that_made_nothing_is_recorded_with_an_empty_pair_when_they
 def test_a_first_group_that_made_nothing_is_named_when_the_second_committed_a_pair(
     tmp_path: Path,
 ) -> None:
-    recorder, outcome, repo = built(tmp_path, silent_groups=(1,))
+    recorder, outcome, repo = built(tmp_path, silent_groups=(1,), asked=True)
 
     assert outcome.status == "failed"
     assert "pair for group 1" in outcome.detail
@@ -56,7 +56,11 @@ def test_a_tests_agent_that_leaves_uncommitted_files_has_them_committed_and_is_n
     tmp_path: Path,
 ) -> None:
     recorder, outcome, repo = built(
-        tmp_path, groups={"add-marker": titled(1)}, no_commit_for="1", unit_test_ok=False
+        tmp_path,
+        groups={"add-marker": titled(1)},
+        no_commit_for="1",
+        unit_test_ok=False,
+        asked=True,
     )
 
     assert subjects(repo) == ["test: G1"], "the tests agent's files are committed"

@@ -36,7 +36,12 @@ def test_a_test_only_group_with_nothing_to_commit_and_passing_tests_is_recorded_
 def test_the_same_group_with_failing_tests_records_nothing_and_stops(tmp_path: Path) -> None:
     passing, _, _ = built(tmp_path / "passing", groups=GROUPS, e2e=(2,), silent_groups=(2,))
     recorder, outcome, repo = built(
-        tmp_path / "failing", groups=GROUPS, e2e=(2,), silent_groups=(2,), unit_test_ok=False
+        tmp_path / "failing",
+        groups=GROUPS,
+        e2e=(2,),
+        silent_groups=(2,),
+        unit_test_ok=False,
+        asked=True,
     )
 
     assert passing.events.count("unit-test:whole_repo") == 1

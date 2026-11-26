@@ -46,6 +46,7 @@ def test_failing_whole_repo_tests_record_nothing_and_stop_the_unit_with_the_pair
         groups={"add-marker": titled(3, 4)},
         silent_groups=(4,),
         unit_test_ok=False,
+        asked=True,
     )
     recorder.unit_test_output = FAILURE
 
@@ -66,7 +67,7 @@ def test_failing_whole_repo_tests_record_nothing_and_stop_the_unit_with_the_pair
 def test_a_flake_found_on_that_run_counts_as_the_same_failure(tmp_path: Path) -> None:
     passing_beside(tmp_path)
     recorder, repo = prepared(
-        tmp_path / "flaking", groups={"add-marker": titled(3, 4)}, silent_groups=(4,)
+        tmp_path / "flaking", groups={"add-marker": titled(3, 4)}, silent_groups=(4,), asked=True
     )
 
     def flaking(*, cwd: Path, base: str = "main", whole_repo: bool = False, **_: Any) -> NoReturn:
@@ -124,6 +125,7 @@ def test_a_real_tests_commit_with_no_implementation_stops_when_the_suite_fails_a
         groups={"add-marker": titled(3, 4)},
         no_commit_for="4",
         unit_test_ok=False,
+        asked=True,
     )
 
     assert outcome.status == "failed"
