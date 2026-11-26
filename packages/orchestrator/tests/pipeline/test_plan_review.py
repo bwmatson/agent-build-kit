@@ -839,3 +839,49 @@ def test_a_rules_edit_does_not_ask_again_and_the_changes_own_edit_reads_the_new_
     latest = "\n".join(r.prompt for r in review.passes[len(QUESTIONS) :])
     assert "SECOND-RULES" in latest
     assert "FIRST-RULES" not in latest
+
+
+def test_the_repair_prompt_carries_the_chain_and_the_rules_as_the_review_request_does(
+    review: Review,
+) -> None:
+    near_test = "packages/core/tests/test_near.py"
+    review.add_neighbour("base", "Base title", tests=(near_test,), support=("tests/support/b.py",))
+    review.need("base")
+    review.commit_planning()
+    commit_app(review, **{"AGENTS.md": "APP-RULES-MARKER\n"})
+    review.repair_with(REPAIRED_TASKS, review_answer=reply(FIXABLE))
+
+    review.tick()
+
+    assert len(review.repairs) == 1
+    prompt = review.repairs[0].prompt
+    assert prompt.startswith("The plan of the change")
+    markers = (near_test, "tests/support/b.py", "Base title", "abk-authoring", "AGENTS.md")
+    in_request = [
+        line for line in review.passes[0].prompt.splitlines() if any(m in line for m in markers)
+    ]
+    assert in_request, "the review request lists the chain and the rules' sources"
+    for line in in_request:
+        assert line in prompt, "the repair shows each of them exactly as the request does"
+    assert "APP-RULES-MARKER" in prompt
+    shipped = plan_review.skill_section(
+        skills.source("abk-authoring"), plan_review.AUTHORING_RULES_SECTION
+    )
+    assert shipped in prompt
+    assert "consistent" in prompt, "the repair is told to keep its paths consistent"
+
+
+def test_a_repair_with_no_chain_and_no_guidance_file_shows_none_for_both(review: Review) -> None:
+    review.commit_planning()
+    commit_app(review, **{"README.md": "readme\n"})
+    review.repair_with(REPAIRED_TASKS, review_answer=reply(FIXABLE))
+
+    review.tick()
+
+    assert len(review.repairs) == 1
+    prompt = review.repairs[0].prompt
+    assert prompt.startswith("The plan of the change")
+    assert any("app" in ln and "(none)" in ln for ln in prompt.splitlines()), (
+        "the repository's rules read (none) under its own name"
+    )
+    assert prompt.count("(none)") >= 2, "the empty chain reads (none) too"
