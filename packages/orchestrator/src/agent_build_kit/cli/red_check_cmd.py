@@ -8,6 +8,7 @@ import sys
 from agent_build_kit import profiles
 from agent_build_kit.cli.install_config import Refused, worktree_root
 from agent_build_kit.installation import Installation
+from agent_build_kit.pipeline.environment import artifact_patterns, lock_paths
 from agent_build_kit.pipeline.gate import tree_red_problems
 from agent_build_kit.pipeline.shell import git
 from agent_build_kit.pipeline.unit_store import unit_id_of_branch
@@ -42,6 +43,8 @@ def cmd_red_check(args: argparse.Namespace, inst: Installation) -> int:
             profile=profile,
             projects=repo.projects,
             stubbed=stubbed_build(inst.config.builders, profile),
+            locks=lock_paths(repo, worktree),
+            artifacts=artifact_patterns(repo, worktree),
             log=print,
         )
         if not verdict.judged:

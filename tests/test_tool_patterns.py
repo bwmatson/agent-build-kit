@@ -20,6 +20,16 @@ def test_a_pattern_covers_a_line_it_matches() -> None:
 
 
 @pytest.mark.parametrize(
+    ("line", "covered"),
+    [("uv run", True), ("uv run pytest", True), ("uv runx", False), ("uv", False)],
+)
+def test_a_pattern_ending_in_a_space_and_a_star_also_covers_the_bare_command(
+    line: str, covered: bool
+) -> None:
+    assert allows("Bash(uv run *)", line) is covered
+
+
+@pytest.mark.parametrize(
     "line",
     [
         "uv run pytest -q; echo $?",

@@ -21,8 +21,10 @@
 
 - A tests step can now run `abk red-check` in its unit's worktree to see, before it finishes,
   the verdict the build's red check will give its new and changed tests. It judges the working
-  tree as it stands, changes nothing in it, and exits 0 when each test fails for the right
-  reason, 1 with the problems printed, and 2 when there is nothing to judge. The tests prompt of
+  tree as it stands (without the lock files and build artifacts the build's commit leaves out),
+  changes nothing in it beyond what the red command itself writes, and exits 0 when each test
+  fails for the right reason, 1 with the problems printed, and 2 when there is nothing to judge.
+  The tests prompt of
   a group that builds code names the command. A tool pattern ending in a space and a star now
   also covers the command with no arguments.
 

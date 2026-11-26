@@ -278,7 +278,8 @@ NO_TESTS_COMMIT = (
 ACCOUNT_QUOTE = 300  # characters of the agent's report a stop quotes
 RED_CHECK_NOTE = (
     "The red check ran your tests before any implementation exists and rejected them:\n"
-    "{reason}\nRewrite them so each new test fails in a way the red words above count as red."
+    "{reason}\nRewrite them so each new test fails with an assertion, or in another way the "
+    "red words in your instructions count as red."
 )
 SELECTOR_CHECK_NOTE = (
     "This group's tests are integration tests, and the selector check rejected them:\n"

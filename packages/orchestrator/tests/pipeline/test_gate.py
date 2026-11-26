@@ -444,3 +444,19 @@ def test_a_tree_that_changes_no_test_file_has_nothing_to_judge(repo: Path, fake_
     assert not verdict.judged
     assert verdict.problems == []
     assert git(repo, "diff", "--cached") == ""
+
+
+def test_an_untracked_artifact_is_not_in_the_commit_a_tree_is_judged_as(
+    repo: Path, fake_commands
+) -> None:
+    commit(repo, "test: the tests that exist", {THING: ASSERTS})
+    (repo / "tests/test_built.py").write_text("def test_built():\n    assert False\n")
+    fake_commands(red_output=IN_PLACE_REPORT)
+
+    kept = tree_red_problems(repo, profile=profiles.get("python-uv"))
+    left_out = tree_red_problems(
+        repo, profile=profiles.get("python-uv"), artifacts=("tests/test_built.py",)
+    )
+
+    assert kept.judged
+    assert not left_out.judged

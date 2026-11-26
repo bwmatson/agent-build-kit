@@ -691,6 +691,19 @@ It refuses a step that declares a check (run `abk manual check` instead), an unk
 slug that more than one waiting unit shares unless `--unit` names one (the refusal lists them).
 A step that is already done is reported as already done and left as it is.
 
+### `abk red-check`
+
+Run in a unit's worktree, by the tests step of a group that builds code. It judges the working
+tree's new and changed tests against `HEAD` the way the build's red check judges a tests commit:
+the same selection by id, the same rules, the same reading of the red run (a stubbed build's
+words in a stubbed build). The red command runs in the worktree itself, so a command that writes
+(a package manager refreshing its lock file) can write there; `HEAD`, the index and the files
+are otherwise left as they were. The pipeline's own files (lock files, and untracked files an
+artifact pattern matches) are left out of what it judges, as they are left out of the build's
+commit. It exits 0 when the check accepts the tests, 1 with the problems printed, and 2 when run
+outside a unit's branch or when no test file changed. The build's own check on the committed
+tests still decides.
+
 ### `abk external hand-off`, `list`, `done`, `release`
 
 Work handed to someone outside the kit (see `hand-off.md`). `abk external hand-off CHANGE

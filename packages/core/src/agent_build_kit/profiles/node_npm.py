@@ -235,14 +235,14 @@ _TYPE_CHECK_COMMAND = ["sh", "-c", _TYPE_CHECK_ALL]
 _RED_FILE = "abk red file: "
 _NOT_IMPLEMENTED = "not implemented"
 # Failure types that are red: an assertion, or an error thrown by the code under test.
-_RED_ERRORS = ("AssertionError", "Error")
+RED_ERRORS = ("AssertionError", "Error")
 # Failure types that say a name is missing or the test is broken, never missing behaviour.
-_BROKEN_TEST_ERRORS = ("TypeError", "ReferenceError", "SyntaxError")
+BROKEN_TEST_ERRORS = ("TypeError", "ReferenceError", "SyntaxError")
 # What the tests prompt says counts as red, from the sets above.
 _RED_WORDS = RedWords(
-    red_types=_RED_ERRORS,
+    red_types=RED_ERRORS,
     not_red=(
-        f"{', '.join(_BROKEN_TEST_ERRORS)}: a missing name or a broken test",
+        f"{', '.join(BROKEN_TEST_ERRORS)}: a missing name or a broken test",
         "any other failure type",
     ),
     advice="Reach new names inside the test body, and fail by an assertion.",
@@ -757,13 +757,13 @@ class NodeNpmProfile:
                         f"{name}: the test file could not be loaded, so no test failed for "
                         f"the missing behaviour ({first})"
                     )
-                elif bad.get("type") in _BROKEN_TEST_ERRORS:
+                elif bad.get("type") in BROKEN_TEST_ERRORS:
                     first = message.split("\n", 1)[0]
                     problems.append(
                         f"{name}: failed with a {bad.get('type')}: a missing name or a broken "
                         f"test, not missing behaviour ({first})"
                     )
-                elif bad.get("type") not in _RED_ERRORS:
+                elif bad.get("type") not in RED_ERRORS:
                     problems.append(f"{name}: {UNRECOGNISED_FAILURE}")
         if passed:
             problems.append(passed_problem(passed))

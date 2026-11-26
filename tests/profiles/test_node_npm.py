@@ -6,7 +6,7 @@ from __future__ import annotations
 import pytest
 
 from agent_build_kit import profiles
-from agent_build_kit.profiles.node_npm import _BROKEN_TEST_ERRORS, _RED_ERRORS
+from agent_build_kit.profiles.node_npm import BROKEN_TEST_ERRORS, RED_ERRORS
 
 
 @pytest.mark.parametrize("stubbed", [True, False], ids=["stubbed", "unstubbed"])
@@ -15,5 +15,5 @@ def test_the_red_words_follow_the_profiles_sets(stubbed: bool) -> None:
     words = words.red_stubbed if stubbed else words.red
     not_red = " ".join(words.not_red)
 
-    assert set(words.red_types) == set(_RED_ERRORS)
-    assert all(name in not_red for name in _BROKEN_TEST_ERRORS)
+    assert set(words.red_types) == set(RED_ERRORS)
+    assert all(name in not_red for name in BROKEN_TEST_ERRORS)

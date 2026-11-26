@@ -434,6 +434,35 @@ def _next_leftovers_number(path: Path, unit_id: str) -> int:
     return max(numbers, default=0) + 1
 
 
+def snapshot_commit(
+    path: Path,
+    message: str,
+    *,
+    locks: Sequence[str] = (),
+    artifacts: Sequence[str] = (),
+) -> tuple[str, tuple[str, ...]]:
+    """Record the worktree's uncommitted files, without the pipeline's own (`locks`, and
+    untracked files an `artifacts` pattern matches), as a commit on `HEAD` that no ref names,
+    through a scratch index: `HEAD`, the index and the files are left as they were. The
+    commit's id, and the paths it records."""
+    entries = _uncommitted_entries(path, locks, artifacts)
+    # A rename removes its source, so the source is a change to record too.
+    sources = {
+        source
+        for _, _, source in entries
+        if source is not None and not _own("D ", source, locks, artifacts)
+    }
+    names = tuple(sorted({name for _, name, _ in entries} | sources))
+    head = git_out(path, "rev-parse", "HEAD")
+    with tempfile.TemporaryDirectory() as scratch:
+        env = {**os.environ, "GIT_INDEX_FILE": str(Path(scratch) / "index")}
+        git(path, "read-tree", head, env=env)
+        if names:  # with no pathspec `add -A` would take the whole tree
+            git(path, "add", "-A", "--", *names, env=env)
+        tree = git(path, "write-tree", env=env).stdout.strip()
+    return git_out(path, "commit-tree", tree, "-p", head, "-m", message), names
+
+
 def save_leftovers(
     path: Path,
     unit_id: str,
@@ -445,24 +474,10 @@ def save_leftovers(
     `refs/abk/leftovers/<unit_id>/<n>` and restore only those files to the head."""
     from agent_build_kit.pipeline.unit_store import SavedLeftovers
 
-    entries = _uncommitted_entries(path, locks, artifacts)
-    # A rename removes its source, so the source is a change to save and restore too.
-    sources = {
-        source
-        for _, _, source in entries
-        if source is not None and not _own("D ", source, locks, artifacts)
-    }
-    names = sorted({name for _, name, _ in entries} | sources)
-    head = git_out(path, "rev-parse", "HEAD")
-    with tempfile.TemporaryDirectory() as scratch:
-        env = {**os.environ, "GIT_INDEX_FILE": str(Path(scratch) / "index")}
-        git(path, "read-tree", head, env=env)
-        git(path, "add", "-A", "--", *names, env=env)
-        tree = git(path, "write-tree", env=env).stdout.strip()
     number = _next_leftovers_number(path, unit_id)
     ref = f"refs/abk/leftovers/{unit_id}/{number}"
-    commit = git_out(
-        path, "commit-tree", tree, "-p", head, "-m", f"leftovers of {unit_id} (save {number})"
+    commit, names = snapshot_commit(
+        path, f"leftovers of {unit_id} (save {number})", locks=locks, artifacts=artifacts
     )
     git_out(path, "update-ref", ref, commit)
     git(path, "reset", "-q", "HEAD", "--", *names)

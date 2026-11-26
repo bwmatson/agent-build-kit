@@ -124,7 +124,7 @@ def test_a_worktree_with_no_test_file_changed_is_refused_with_exit_2(
 
     captured = capsys.readouterr()
     assert code == 2
-    assert (captured.out + captured.err).strip()
+    assert "no test file" in captured.err
     assert tree.snapshot() == before
 
 
@@ -141,5 +141,5 @@ def test_a_worktree_outside_a_units_branch_is_refused_with_exit_2(
 
     captured = capsys.readouterr()
     assert code == 2
-    assert (captured.out + captured.err).strip()
+    assert "scratch" in captured.err
     assert tree.snapshot() == before
