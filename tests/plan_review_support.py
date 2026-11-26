@@ -73,16 +73,17 @@ def needing(tasks: str, *changes: str) -> str:
 
 
 def neighbour_tasks(
-    title: str, needs: Sequence[str], tests: Sequence[str], support: Sequence[str]
+    needs: Sequence[str], tests: Sequence[str], support: Sequence[str], repo: str = "app"
 ) -> str:
-    """The tasks.md of a neighbouring change: its title, a `Needs:` line on group 1 of each of
-    `needs`, a task naming each of `tests` and a `Support:` line naming each of `support`."""
+    """The tasks.md of a neighbouring change, headed `# Tasks` as a real one is: its one group is
+    in `repo`, with a `Needs:` line on group 1 of each of `needs`, a task naming each of `tests`
+    and a `Support:` line naming each of `support`."""
     body = "".join(f"Needs: {change} group 1\n" for change in needs)
     body += "".join(f"- [ ] 1.{n} Test: `{path}` asserts it.\n" for n, path in enumerate(tests, 1))
     body += "".join(f"Support: `{path}`\n" for path in support)
     return (
-        f"# {title}\n\nAcceptance: none — a neighbour in a fixture\n\n"
-        f"## 1. [app] [unit-test] Its group\n\n{body}"
+        f"# Tasks\n\nAcceptance: none — a neighbour in a fixture\n\n"
+        f"## 1. [{repo}] [unit-test] Its group\n\n{body}"
     )
 
 
@@ -242,9 +243,11 @@ class Review:
         review_plans: bool = True,
         concurrency: int | None = None,
         runtime: StandInRuntime | None = None,
+        repos: dict[str, dict] | None = None,
     ) -> None:
         isolate(monkeypatch)
         bound = {} if concurrency is None else {"plan_review_concurrency": concurrency}
+        named = {} if repos is None else {"repos": repos}
         self.inst: Installation = make_installation(
             tmp_path,
             planning={
@@ -254,6 +257,7 @@ class Review:
                 **bound,
             },
             project_limits={"max_concurrent_stacks": 4, "max_units_in_progress": 50},
+            **named,
         )
         self.config = self.inst.root / "abk.yaml"
         self.config.write_text(dump(self.inst.config))
@@ -284,20 +288,20 @@ class Review:
     def add_neighbour(
         self,
         name: str,
-        title: str,
         *,
         needs: Sequence[str] = (),
         tests: Sequence[str] = (),
         support: Sequence[str] = (),
+        repo: str = "app",
     ) -> None:
-        """Add a change `name` with no units (so it is never reviewed itself), whose title is
-        `title`, whose first group has a `Needs:` line on each of `needs` and names each of
-        `tests` in its tasks and each of `support` on a `Support:` line. Called again for the same
-        name, it rewrites the change."""
+        """Add a change `name` with no units (so it is never reviewed itself), whose first group
+        is in `repo`, has a `Needs:` line on each of `needs` and names each of `tests` in its
+        tasks and each of `support` on a `Support:` line. Called again for the same name, it
+        rewrites the change."""
         folder = self.inst.changes_dir / name
         folder.mkdir(parents=True, exist_ok=True)
-        (folder / "proposal.md").write_text(f"# {title}\n\nwhy\n")
-        (folder / "tasks.md").write_text(neighbour_tasks(title, needs, tests, support))
+        (folder / "proposal.md").write_text("## Why\n\nwhy\n")
+        (folder / "tasks.md").write_text(neighbour_tasks(needs, tests, support, repo))
 
     def write_proposal(self, *, initiative: str = "", its_part: str = "") -> None:
         """Rewrite `feature`'s proposal with an `Initiative:` line and a `## Its part` section,

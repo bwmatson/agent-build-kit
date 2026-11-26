@@ -38,14 +38,16 @@ from agent_build_kit.installation import Installation
 from agent_build_kit.model import Frozen
 from agent_build_kit.pipeline import shell, spans
 from agent_build_kit.pipeline.call_record import recorded
+from agent_build_kit.pipeline.e2e_scope import is_test_path
 from agent_build_kit.pipeline.file_lock import atomic_write_text, file_lock
-from agent_build_kit.pipeline.outlines import Outline, overlaps, parse_proposal, read_outlines
+from agent_build_kit.pipeline.outlines import Outline, overlapping, parse_proposal, read_outlines
 from agent_build_kit.pipeline.planner import PlannerError, ask_plan_model
 from agent_build_kit.pipeline.planning_commit import commit_and_publish
 from agent_build_kit.pipeline.unit_store import StoredUnit
 from agent_build_kit.pipeline.units import BUILDS_NOTHING, FINISHED_STATES, IN_REVIEW, MERGED
 from agent_build_kit.pipeline.vocabulary import OverheadNode
 from agent_build_kit.pipeline.work_graph import (
+    GROUP_HEADING,
     group_needs,
     specification_text,
     validate_tasks,
@@ -183,7 +185,7 @@ REWORK_QUESTION = (
     " overlapping outline will redo, with no `Reworks:` line or interim naming it? Begin the"
     " evidence of such a finding with `rework:`."
 )
-REWORK_MARK = "rework"
+REWORK_MARK = "rework:"
 # A repository's guidance file, the first that is committed at its default branch.
 GUIDANCE_FILES = ("AGENTS.md", "CLAUDE.md")
 
@@ -445,31 +447,21 @@ def _needed(path: Path) -> set[str]:
         return set()
 
 
-def _is_test_path(name: str) -> bool:
-    parts = name.split("/")
-    base = parts[-1]
-    return (
-        any(part in ("tests", "test") for part in parts[:-1])
-        or base.startswith("test_")
-        or re.search(r"_test\.\w+$|\.(test|spec)\.\w+$", base) is not None
-    )
-
-
-def _is_support_path(name: str) -> bool:
-    parts = name.split("/")
-    return "fixtures" in parts[:-1] or parts[-1] == "conftest.py"
-
-
-def _chain_paths(text: str) -> list[str]:
-    """The test and support paths a tasks file names, once each, each with its group's repo."""
+def _chain_paths(inst: Installation, text: str) -> list[str]:
+    """The test and support paths a tasks file names, once each, each with its group's repo: a path
+    its repo's profile calls a test path, and every path on a `Support:` line."""
     found: list[str] = []
     repo = ""
     for line in text.splitlines():
-        if heading := re.match(r"##\s+\d+\.\s+\[([^\]]+)\]", line):
-            repo = heading.group(1)
+        if heading := GROUP_HEADING.match(line):
+            repo = heading.group("repo")
+        try:
+            config = inst.repo(repo)
+        except KeyError:
+            config = None
         on_support = line.strip().startswith("Support:")
         for name in _path_names((line,)):
-            if on_support or _is_test_path(name) or _is_support_path(name):
+            if on_support or is_test_path(name, config):
                 found.append(f"{repo}:{name}")
     return list(dict.fromkeys(found))
 
@@ -493,7 +485,7 @@ def _distances(start: str, edges: Mapping[str, set[str]]) -> dict[str, int]:
 
 def chain_listing(inst: Installation, tasks: Path) -> str:
     """The changes in the `Needs:` chain of the change whose tasks file is `tasks`, nearest first
-    then by name, each with its title and its test and support paths, cut to `CHAIN_BUDGET` (and
+    then by name, each with its test and support paths, cut to `CHAIN_BUDGET` (and
     `CHAIN_CHANGE_LIMIT` paths a change); the changes left out are named. Empty without a chain."""
     me = tasks.parent.name
     files = {path.parent.name: path for path in inst.tasks_files()}
@@ -514,9 +506,8 @@ def chain_listing(inst: Installation, tasks: Path) -> str:
             text = files[name].read_text()
         except OSError:
             continue
-        title = next((ln[2:].strip() for ln in text.splitlines() if ln.startswith("# ")), "")
-        paths = _chain_paths(text)
-        lines = [f"### {name} — {title}", *(f"- {p}" for p in paths[:CHAIN_CHANGE_LIMIT])]
+        paths = _chain_paths(inst, text)
+        lines = [f"### {name}", *(f"- {p}" for p in paths[:CHAIN_CHANGE_LIMIT])]
         if len(paths) > CHAIN_CHANGE_LIMIT:
             lines.append(f"- (and {len(paths) - CHAIN_CHANGE_LIMIT} more)")
         entry = "\n".join(lines)
@@ -600,11 +591,10 @@ def initiative_listing(inst: Installation, folder: Path) -> str:
         f"#### abk-authoring skill, version {__version__}, section {MATURITY_RULES_SECTION}\n"
         f"{rules}\n"
     ]
-    touching = {found.outline for found in overlaps(inst) if found.change == folder.name}
     shown: list[str] = []
     left_out: list[str] = []
     used = 0
-    for outline in (found for found in read_outlines(inst) if found.name in touching):
+    for outline in overlapping(folder / "tasks.md", read_outlines(inst)):
         text = f"#### {outline.name}\n{_proposal_lines(outline)}"
         if left_out or (shown and used + len(text) > OUTLINES_BUDGET):
             left_out.append(outline.name)
@@ -739,12 +729,7 @@ def parse_findings(text: str) -> tuple[Finding, ...]:
                 raise Unreadable(str(error)) from error
             if any(not 1 <= item.question <= len(QUESTIONS) for item in findings):
                 raise Unreadable("a finding names a question that does not exist")
-            return tuple(
-                item.model_copy(update={"kind": "advice"})
-                if item.question == len(QUESTIONS) and item.evidence.lower().startswith(REWORK_MARK)
-                else item
-                for item in findings
-            )
+            return findings
     raise Unreadable("no findings object in the answer")
 
 
@@ -862,7 +847,16 @@ async def _pass(
     except _Stopped:
         return None
     # A pass answers one question; a finding it files under another is that pass's to find.
-    return tuple(item for item in found if item.question == number)
+    answered = tuple(item for item in found if item.question == number)
+    if not initiative or number != len(QUESTIONS):
+        return answered
+    # In a change of an initiative a rework the reviewer marks as the prompt asks is advice.
+    return tuple(
+        item.model_copy(update={"kind": "advice"})
+        if item.evidence.strip().lower().startswith(REWORK_MARK)
+        else item
+        for item in answered
+    )
 
 
 async def _review_once(

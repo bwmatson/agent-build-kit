@@ -37,9 +37,14 @@ from tests.plan_review_support import (
     run_bounded,
 )
 
-# The hash of `feature` with its first group naming `base` in a `Needs:` line, computed from the
-# change's own artifacts and units before the chain listing existed.
-OWN_HASH = "75eb227e07db731dbd36af38b7ec4605fec4a9623f549259b0f3bfa484bd517a"
+CHAIN_HEADING = "Changes in this change's `Needs:` chain"
+
+
+def chain_part(prompt: str) -> str:
+    """The part of a request or a repair that lists the chain, from its heading to the rules."""
+    start = prompt.index(CHAIN_HEADING)
+    return prompt[start : prompt.index(RULES_HEADING, start)].strip()
+
 
 pytestmark = pytest.mark.usefixtures("scripted_engine")
 
@@ -569,20 +574,19 @@ def test_a_refused_call_starts_no_more_calls_and_lets_those_in_flight_finish(
     assert "AgentRateLimited" in out.out + out.err
 
 
-def test_the_request_lists_each_chain_change_nearest_first_with_its_title_and_paths_once(
+def test_the_request_lists_each_chain_change_nearest_first_with_its_paths_once(
     review: Review,
 ) -> None:
     core_test = "packages/core/tests/test_near.py"
     review.add_neighbour(
         "zz-near",
-        "Near title",
         needs=("aa-far",),
         tests=(core_test, core_test),
         support=("tests/support/near_helper.py",),
     )
-    review.add_neighbour("aa-far", "Far title", tests=("tests/test_far.py",))
-    review.add_neighbour("zz-top", "Top title", needs=(CHANGE,), tests=("tests/test_top.py",))
-    review.add_neighbour("mm-other", "Other title", tests=("tests/test_other_only.py",))
+    review.add_neighbour("aa-far", tests=("tests/test_far.py",))
+    review.add_neighbour("zz-top", needs=(CHANGE,), tests=("tests/test_top.py",))
+    review.add_neighbour("mm-other", tests=("tests/test_other_only.py",))
     review.need("zz-near")
 
     review.tick()
@@ -593,18 +597,50 @@ def test_the_request_lists_each_chain_change_nearest_first_with_its_title_and_pa
         assert "convention" in text, "the reviewer is told what to do with a differing convention"
         assert text.count(core_test) == 1, "a path named twice is listed once"
         for shown in (
-            "Near title",
-            "Far title",
-            "Top title",
+            "### zz-near",
+            "### aa-far",
+            "### zz-top",
             "tests/support/near_helper.py",
             "tests/test_far.py",
             "tests/test_top.py",
         ):
             assert shown in text
-        assert text.index("Near title") < text.index("Far title"), "nearest first, not by name"
-        assert text.index("Top title") < text.index("Far title")
-        for outside in ("Other title", "tests/test_other_only.py", "mm-other"):
+        assert text.index("### zz-near") < text.index("### aa-far"), "nearest first, not by name"
+        assert text.index("### zz-top") < text.index("### aa-far")
+        for outside in ("tests/test_other_only.py", "mm-other"):
             assert outside not in text, "a change outside the chain is not mentioned"
+
+
+def test_a_chain_change_lists_the_paths_its_repositorys_profile_calls_test_paths(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    checkouts = tmp_path / "checkouts"
+    review = Review(
+        tmp_path,
+        monkeypatch,
+        repos={
+            "app": {"path": str(checkouts / "app"), "slug": "example/app"},
+            "web": {
+                "path": str(checkouts / "web"),
+                "slug": "example/web",
+                "profile": "node-npm",
+            },
+        },
+    )
+    node_test = "web/src/x.test.ts"
+    python_shaped = "web/tests/test_y.py"
+    review.add_neighbour("node-base", repo="web", tests=(node_test, python_shaped))
+    review.add_neighbour("py-base", tests=("tests/test_z.py",))
+    review.need("node-base", "py-base")
+
+    review.tick()
+
+    assert review.asked == 1
+    for asked in review.passes:
+        text = chain_part(asked.prompt)
+        assert f"web:{node_test}" in text, "the node profile calls it a test path"
+        assert python_shaped not in text, "the node profile does not call it one"
+        assert "app:tests/test_z.py" in text, "the python profile still lists its own"
 
 
 @pytest.mark.parametrize(
@@ -618,7 +654,11 @@ def test_a_change_with_no_chain_shows_none_and_a_needs_on_a_missing_change_adds_
     review.tick()
 
     assert review.asked == 1
-    assert "(none)" in review.prompt
+    for asked in review.passes:
+        shown = chain_part(asked.prompt).splitlines()
+        assert shown[-1] == "(none)" and sum(ln == "(none)" for ln in shown) == 1, (
+            "the empty chain reads (none) where the entries would be"
+        )
     own_mentions = len(QUESTIONS) * review.tasks.count("ghost")
     assert review.prompt.count("ghost") == own_mentions, "only the change's own tasks name it"
 
@@ -627,12 +667,12 @@ def test_a_chain_over_the_budget_lists_the_nearest_cuts_long_changes_and_names_t
     review: Review, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setattr(plan_review, "CHAIN_CHANGE_LIMIT", 2)
-    monkeypatch.setattr(plan_review, "CHAIN_BUDGET", 300)
+    monkeypatch.setattr(plan_review, "CHAIN_BUDGET", 250)
     long_paths = tuple(f"packages/core/tests/pipeline/test_long_{n}.py" for n in range(7))
     names = ("aa-big", "bb-mid", "cc-mid", "zz-last")
-    review.add_neighbour("aa-big", "Big title", tests=long_paths)
+    review.add_neighbour("aa-big", tests=long_paths)
     for name in names[1:]:
-        review.add_neighbour(name, f"{name} title", tests=(f"packages/core/tests/{name}.py",))
+        review.add_neighbour(name, tests=(f"packages/core/tests/{name}.py",))
     review.need(*names)
 
     review.tick()
@@ -640,11 +680,11 @@ def test_a_chain_over_the_budget_lists_the_nearest_cuts_long_changes_and_names_t
     assert review.asked == 1
     for asked in review.passes:
         text = asked.prompt
-        assert "Big title" in text, "the nearest change is listed"
+        assert "### aa-big" in text, "the nearest change is listed"
         assert long_paths[0] in text
         assert long_paths[2] not in text, "a change over its path limit is cut"
         assert "(and 5 more)" in text
-        assert "zz-last title" not in text, "a change that does not fit is not listed"
+        assert "### zz-last" not in text, "a change that does not fit is not listed"
         left_out = next(
             line for line in text.splitlines() if "not listed, over the size limit" in line
         )
@@ -655,17 +695,20 @@ def test_a_chain_over_the_budget_lists_the_nearest_cuts_long_changes_and_names_t
 def test_a_neighbours_edit_does_not_ask_again_and_the_hash_is_the_changes_own(
     review: Review,
 ) -> None:
-    review.add_neighbour("base", "Base title", tests=("tests/test_a.py",))
+    review.add_neighbour("base", tests=("tests/test_a.py",))
     review.need("base")
     review.tick()
     assert review.asked == 1
     recorded = plan_review.read_reviews(plan_review.record_path(review.inst))[CHANGE].hash
 
-    review.add_neighbour("base", "Renamed base", tests=("packages/core/tests/test_a.py",))
+    review.add_neighbour("base", tests=("packages/core/tests/test_a.py",))
     review.tick()
 
     assert review.asked == 1, "a neighbour's edit asks nothing"
-    assert recorded == OWN_HASH, "the hash is of the change's own artifacts and units alone"
+    own_units = [unit for unit in review.builder.store.all() if unit.change == CHANGE]
+    assert recorded == plan_review.plan_hash(review.inst.changes_dir / CHANGE, own_units), (
+        "the hash is of the change's own artifacts and units alone"
+    )
 
     review.need("base", tasks=EDITED_TASKS)
     review.tick()
@@ -673,7 +716,6 @@ def test_a_neighbours_edit_does_not_ask_again_and_the_hash_is_the_changes_own(
     assert review.asked == 2, "the change's own edit is reviewed"
     latest = "\n".join(r.prompt for r in review.passes[len(QUESTIONS) :])
     assert "packages/core/tests/test_a.py" in latest
-    assert "Renamed base" in latest
 
 
 RULES_HEADING = "Rules the plan follows"
@@ -845,7 +887,7 @@ def test_the_repair_prompt_carries_the_chain_and_the_rules_as_the_review_request
     review: Review,
 ) -> None:
     near_test = "packages/core/tests/test_near.py"
-    review.add_neighbour("base", "Base title", tests=(near_test,), support=("tests/support/b.py",))
+    review.add_neighbour("base", tests=(near_test,), support=("tests/support/b.py",))
     review.need("base")
     review.commit_planning()
     commit_app(review, **{"AGENTS.md": "APP-RULES-MARKER\n"})
@@ -856,7 +898,7 @@ def test_the_repair_prompt_carries_the_chain_and_the_rules_as_the_review_request
     assert review.repairs, "the blocker is repaired (again, as the reviewer keeps finding it)"
     prompt = review.repairs[0].prompt
     assert prompt.startswith("The plan of the change")
-    markers = (near_test, "tests/support/b.py", "Base title", "abk-authoring", "AGENTS.md")
+    markers = (near_test, "tests/support/b.py", "### base", "abk-authoring", "AGENTS.md")
     in_request = [
         line for line in review.passes[0].prompt.splitlines() if any(m in line for m in markers)
     ]
@@ -884,7 +926,10 @@ def test_a_repair_with_no_chain_and_no_guidance_file_shows_none_for_both(review:
     assert any("app" in ln and "(none)" in ln for ln in prompt.splitlines()), (
         "the repository's rules read (none) under its own name"
     )
-    assert prompt.count("(none)") >= 2, "the empty chain reads (none) too"
+    shown = chain_part(prompt).splitlines()
+    assert shown[-1] == "(none)" and sum(ln == "(none)" for ln in shown) == 1, (
+        "the empty chain reads (none) where the entries would be"
+    )
 
 
 INITIATIVE_HEADING = "Its initiative"
@@ -994,6 +1039,26 @@ def test_a_rework_finding_is_recorded_as_advice_and_another_question_four_blocke
     assert [found.kind for found in recorded.findings] == ["blocker" if held else "advice"]
     assert (CHANGE in plan_review.held_changes(review.inst)) is held
     assert bool(review.builder.started) is not held
+
+
+@pytest.mark.parametrize(
+    "evidence",
+    ["rework: builds the config the outline redoes", "Reworking the helper makes group 1 red"],
+    ids=["the-mark", "a-word-that-starts-alike"],
+)
+def test_a_question_four_blocker_of_a_change_with_no_initiative_holds_whatever_it_starts_with(
+    review: Review, evidence: str
+) -> None:
+    finding = {"group": 1, "question": 4, "kind": "blocker", "evidence": evidence}
+    review.runtime.respond = lambda request: reply(
+        *([finding] if question_of(request) == 4 else [])
+    )
+
+    review.tick()
+
+    recorded = plan_review.read_reviews(plan_review.record_path(review.inst))[CHANGE]
+    assert [found.kind for found in recorded.findings] == ["blocker"]
+    assert CHANGE in plan_review.held_changes(review.inst)
 
 
 @pytest.mark.parametrize("outline", [False, True], ids=["no-outline", "an-overlapping-outline"])

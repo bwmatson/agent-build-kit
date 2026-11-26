@@ -1028,9 +1028,11 @@ stored priority of their open units, ties by name. The passes and the changes ru
 at most `planning.plan_review_concurrency` calls at a time, and leave the same records and log
 as a one-at-a-time run. The request lists the change's units in the order they are built,
 merged ones included, each with its state and, once it has one, its pull request. It also lists
-the change's `Needs:` chain (the changes it names and the changes that name it, each followed
-through the others), nearest first, with each change's title and the test and support paths its
-tasks name, so a path convention that differs from the chain's is a finding. An oversized chain
+the change's `Needs:` chain (the changes it names, followed through the changes those name, and
+the changes that name it, followed through the changes that name those; a sibling that only
+shares a base with it is not in the chain), nearest first, with the test paths its profile
+recognizes and the `Support:` paths each change's tasks name, so a path convention that differs
+from the chain's is a finding. An oversized chain
 is cut to `CHAIN_BUDGET` and `CHAIN_CHANGE_LIMIT`, and the changes left out are named. The listing
 is not part of the review hash, so a neighbour's edit does not ask for a new review. A `blocker` finding with a fix is repaired by a rewrite of
 `tasks.md` that keeps every group heading and every path consistent with the same chain listing

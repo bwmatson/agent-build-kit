@@ -7,6 +7,7 @@ from __future__ import annotations
 import re
 from collections.abc import Sequence
 from fnmatch import fnmatchcase
+from pathlib import Path
 
 from agent_build_kit.installation import Installation
 from agent_build_kit.model import Frozen
@@ -217,24 +218,30 @@ def _overlap(a: str, b: str) -> bool:
     return left.startswith(right + "/") or right.startswith(left + "/")
 
 
+def overlapping(tasks: Path, outlines: Sequence[Outline]) -> list[Outline]:
+    """The `outlines` whose `Touches:` overlap a path the tasks file `tasks` names."""
+    named = [
+        path
+        for line in tasks.read_text().splitlines()
+        for path in (*line_paths(line), *line_globs(line))
+    ]
+    return [
+        outline
+        for outline in outlines
+        if any(_overlap(path, token) for path in named for token in outline.touches)
+    ]
+
+
 def overlaps(inst: Installation) -> list[Overlap]:
     """For each detailed change, each outline whose `Touches:` overlaps a path its tasks name."""
     outlines = read_outlines(inst)
-    found: list[Overlap] = []
-    for tasks in inst.tasks_files():
-        named = [
-            path
-            for line in tasks.read_text().splitlines()
-            for path in (*line_paths(line), *line_globs(line))
-        ]
-        for outline in outlines:
-            if any(_overlap(path, token) for path in named for token in outline.touches):
-                found.append(
-                    Overlap(
-                        change=tasks.parent.name,
-                        outline=outline.name,
-                        reworks=len(outline.reworks),
-                        promote_earlier=len(outline.reworks) > 2,
-                    )
-                )
-    return found
+    return [
+        Overlap(
+            change=tasks.parent.name,
+            outline=outline.name,
+            reworks=len(outline.reworks),
+            promote_earlier=len(outline.reworks) > 2,
+        )
+        for tasks in inst.tasks_files()
+        for outline in overlapping(tasks, outlines)
+    ]
