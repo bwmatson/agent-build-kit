@@ -77,6 +77,7 @@ from agent_build_kit.pipeline import (
     loaded_code,
     lock_probe,
     mounts,
+    needs_targets,
     network_probe,
     outlines,
     plan_review,
@@ -6765,6 +6766,23 @@ def _refresh_check_labels(
 # --- tags / gate / check / archive / openspec ----------------------------------------
 
 
+def _unmet_needs(inst: Installation) -> list[needs_targets.UnmetNeed]:
+    """Every unmet `Needs:` line of the active changes, resolved against its target."""
+    files = [path for path in inst.tasks_files() if _is_text(path)]
+    records = planned_hashes(inst)
+    states = {
+        path.parent.name: _plan_state(records.get(path.parent.name), inst.max_plan_attempts)
+        for path in inst.tasks_files()
+    }
+    return needs_targets.unmet_needs(
+        files,
+        run_support.store_for(inst).all(),
+        inst.changes_dir,
+        [outline.name for outline in outlines.read_outlines(inst)],
+        states,
+    )
+
+
 def _is_text(path: Path) -> bool:
     """Whether `path` reads as text; a file that does not is left out of the cycle check and
     is reported for itself where it is selected."""
@@ -7021,6 +7039,7 @@ def cmd_tags(args: argparse.Namespace, inst: Installation) -> int:
         return 0 if all(handled) else 1
     failed = 0
     cycles = _needs_cycle_problems(inst)
+    unmet = _unmet_needs(inst)
     for change in changes:
         groups, errors = check_tags(
             change,
@@ -7033,7 +7052,9 @@ def cmd_tags(args: argparse.Namespace, inst: Installation) -> int:
         if change.lower() in cycles:
             errors.append(cycles[change.lower()])
         path = tasks_path(change, inst.changes_dir)
-        for warning in _tag_warnings(inst, path) if path.is_file() else []:
+        need_errors, need_warnings = needs_targets.needs_messages(path, unmet)
+        errors.extend(need_errors)
+        for warning in [*(_tag_warnings(inst, path) if path.is_file() else []), *need_warnings]:
             print(warning)
         for error in errors:
             print(error)
@@ -7080,7 +7101,14 @@ def cmd_check(args: argparse.Namespace, inst: Installation) -> int:
     problems = _needs_cycle_problems(inst)
     for message in problems.values():
         print(message)
-    return 0 if ok and not problems else 1
+    unmet = _unmet_needs(inst)
+    refused = 0
+    for tasks in inst.tasks_files():
+        need_errors, need_warnings = needs_targets.needs_messages(tasks, unmet)
+        for message in [*need_errors, *need_warnings]:
+            print(message)
+        refused += len(need_errors)
+    return 0 if ok and not problems and not refused else 1
 
 
 def cmd_archive(args: argparse.Namespace, inst: Installation) -> int:
