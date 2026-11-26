@@ -119,3 +119,13 @@ def test_the_tests_prompt_for_a_python_repo_places_new_cases_in_the_existing_fil
 
     assert "extend an existing test or add a case before adding a test" in text
     assert "files in which every test fails" not in text
+    assert "which must fail" not in text
+    assert "every new test must fail" not in text
+
+
+def test_the_placement_rule_cites_its_standards_once_and_a_whole_file_profile_has_no_init() -> None:
+    node = profiles.get("node-npm").prompt_words.placement
+
+    for standard in ("T2", "T3", "T21"):
+        assert len(re.findall(rf"\b{standard}\b", PYTHON_PLACEMENT)) == 1
+    assert "__init__.py" not in node

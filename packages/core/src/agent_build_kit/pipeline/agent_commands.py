@@ -78,7 +78,7 @@ def placement_note(repo: RepoConfig | None) -> str:
     if len(states) == 1:
         return states.pop()
     return "\n\n".join(
-        f"For {', '.join(paths)}:\n"
+        f"For {', '.join(dict.fromkeys(paths))}:\n"
         + (profiles.get(name).prompt_words.placement or WHOLE_FILE_PLACEMENT)
         for name, paths in covered.items()
     )

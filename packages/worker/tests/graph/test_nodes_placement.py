@@ -5,6 +5,7 @@ The agent is faked at the recorder's edge, which keeps each prompt it was handed
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 from agent_build_kit.config import ProjectConfig, RepoConfig
@@ -39,16 +40,13 @@ def test_a_node_repo_is_told_to_keep_new_tests_in_all_failing_files(tmp_path: Pa
     assert "existing test file" not in text
 
 
-def nearest_phrase(note: str, path: str) -> str:
-    """Which placement sentence the note says nearest a mention of `path`."""
-    text = flat(note)
-    spots = [i for i in range(len(text)) if text.startswith(path, i)]
-    assert spots, f"the note names {path}"
-    distances = {
-        phrase: min(abs(spot - text.index(phrase)) for spot in spots)
-        for phrase in (IN_EXISTING_FILE, IN_ALL_FAILING_FILES)
-    }
-    return min(distances, key=lambda phrase: distances[phrase])
+def placement_for(note: str, path: str) -> str:
+    """The placement sentence of the entry whose 'For <paths>:' heading names `path`."""
+    entries = re.split(r"(?m)^For ([^\n]*):\n", note)[1:]
+    for heading, body in zip(entries[::2], entries[1::2], strict=True):
+        if path in [name.strip() for name in heading.split(",")]:
+            return IN_EXISTING_FILE if IN_EXISTING_FILE in flat(body) else IN_ALL_FAILING_FILES
+    raise AssertionError(f"no entry of the note names {path}")
 
 
 def test_a_python_repo_with_a_node_project_is_told_each_profiles_placement(
@@ -60,7 +58,7 @@ def test_a_python_repo_with_a_node_project_is_told_each_profiles_placement(
 
     assert IN_EXISTING_FILE in text
     assert IN_ALL_FAILING_FILES in text
-    assert nearest_phrase(placement_note(repo), "web") == IN_ALL_FAILING_FILES
+    assert placement_for(placement_note(repo), "web") == IN_ALL_FAILING_FILES
 
 
 def test_a_node_repo_with_a_python_project_is_told_each_profiles_placement() -> None:
@@ -71,10 +69,10 @@ def test_a_node_repo_with_a_python_project_is_told_each_profiles_placement() -> 
         projects=[ProjectConfig(path="svc", profile="python-uv")],
     )
 
-    note = flat(placement_note(repo))
+    note = placement_note(repo)
 
-    assert IN_ALL_FAILING_FILES in note
-    assert nearest_phrase(note, "svc") == IN_EXISTING_FILE
+    assert IN_ALL_FAILING_FILES in flat(note)
+    assert placement_for(note, "svc") == IN_EXISTING_FILE
 
 
 def test_projects_that_share_one_placement_use_it() -> None:
