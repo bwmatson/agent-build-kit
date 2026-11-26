@@ -331,8 +331,9 @@ TESTS_FINISH = """\
 Before you finish: run linting and formatting, which must pass, and run the
 new and changed tests. A new test and a changed assertion must fail, and a test
 changed only in setup, names or helpers may pass. A new test or changed assertion
-that passes now is not testing the behaviour this group adds. Then run `abk red-check`: it
-judges them as the pipeline's red check will; fix what it prints. Do not write the
+that passes now is not testing the behaviour this group adds. Then run
+`abk red-check`: it judges them as the pipeline's red check will; fix what it
+prints. Do not write the
 implementation.
 """
 
