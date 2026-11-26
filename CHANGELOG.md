@@ -18,6 +18,10 @@
   initiative, the rules for an initiative's changes and the outlines that touch the same paths,
   and its fourth question asks whether it builds something they will redo; such a finding is
   advice and holds nothing.
+- A build that made nothing is no longer marked satisfied when its builder reported the work
+  blocked. The builder is told to write a `BLOCKED:` line naming what is missing when work needs
+  something that does not exist yet; such a unit is held for a person, with that line as its note,
+  instead of being closed as already done.
 
 - The tests prompt of a group that builds code now states which failures the red check counts
   as red and which it does not, for a stubbed and an unstubbed build, from the toolchain profile

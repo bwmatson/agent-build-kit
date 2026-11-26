@@ -176,6 +176,7 @@ class UnitRun(Frozen):
     reproduction_guidance: str = ""  # what the builder prompts say of it, until the last group
     unreproduced_note: str = ""  # what the check found, for the note of a build that finds nothing
     satisfied_because: str = ""  # why `reproduce` found the unit satisfied, for its note
+    blocked_lines: str = ""  # the builder's `BLOCKED:` lines this run, joined by `; `
     scheduled_note: str = ""  # what its passing run says of itself, once e2e-test has passed
     conflict: Restacked | None = None  # a restack that could not be merged, for `adapt` to port
     spent: bool = False  # the review rounds ran out with points outstanding

@@ -8,6 +8,7 @@ branch's tip, the pushed commit, the pull request — and does nothing twice.
 from __future__ import annotations
 
 import asyncio
+import re
 import time
 from collections.abc import Callable, Mapping
 from contextlib import AbstractContextManager, nullcontext
@@ -1791,11 +1792,21 @@ class BuildPath:
             if stubbed:
                 # Committed by `stub_checks`, once the stubs and tests pass the static checks.
                 # Kept for a test-only group's record, and for the first group's empty one.
-                return {"head": r.head(tree), "stub_loop": True, "tests_account": account}
+                return {
+                    "head": r.head(tree),
+                    "stub_loop": True,
+                    "tests_account": account,
+                    **blocked_update(state, account),
+                }
             self.apply_fixers()
             r.commit(self.message(TESTS_PREFIX, True, state), cwd=tree, base=self.ref(state))
         kept_account = {"tests_account": account} if state.unreproduced and account else {}
-        return {"head": r.head(tree), "stub_loop": False, **kept_account}
+        return {
+            "head": r.head(tree),
+            "stub_loop": False,
+            **kept_account,
+            **blocked_update(state, account),
+        }
 
     @staticmethod
     def retry_note(required: bool, refused: tuple[RefusedCall, ...]) -> str:
@@ -2185,6 +2196,7 @@ class BuildPath:
         r, unit = self.runner, self.unit
         tree, ref = self.tree(), self.ref(state)
         kept: Update = {}
+        blocked: Update = {}
         statement = ""
         if r.head(tree) != state.head and not (
             self.group_step(state) is not None
@@ -2227,6 +2239,8 @@ class BuildPath:
                 ),
             )
             statement = account
+            blocked = blocked_update(state, account)
+            kept.update(blocked)
             self.apply_fixers()
             if (
                 own is not None
@@ -2253,7 +2267,7 @@ class BuildPath:
         commits = r.branch_commits(tree, ref)
         if self.group_step(state) is not None:
             # A group's pair is done: the next group's tests come before the checks.
-            kept = self.settle_group(state, ref, commits)
+            kept = {**self.settle_group(state, ref, commits), **blocked}
             if "stopped" in kept:
                 return kept
         return {
@@ -2997,6 +3011,7 @@ class BuildPath:
             )
             if (defect := self.product_defect(answer, stored)) is not None:
                 return defect
+            kept.update(blocked_update(state, answer))
             # A walk that stopped short goes on at its first incomplete group: anything the
             # rewrite left uncommitted is left for that group's own step, not a `fix:` commit
             # between the groups.
@@ -3153,6 +3168,11 @@ class BuildPath:
                     lead=move_lead("before_review" if state.pre_review else "before_pr"),
                 )
             return self.stop("unit-test failed")
+        if state.produced_nothing and state.blocked_lines and not state.restack:
+            # A build that made nothing, whose builder said what it lacks, waits for a person
+            # instead of being satisfied.
+            why = f"the builder reports the work blocked: {state.blocked_lines}"
+            return self.hold(HELD, why, why, cause=Cause.NEEDS_HUMAN)
         if state.pre_review:
             # Not yet reviewed: the move came before the review, which reads this commit.
             # The flag stays for the router, which sends the unit to the review.
@@ -3807,6 +3827,7 @@ class BuildPath:
             "more_groups": False,
             "test_only_done": False,
             "tests_account": "",
+            "blocked_lines": "",
             "held": "",
             "hold_state": "",
             "hold_note": "",
@@ -3854,6 +3875,18 @@ def _round(node: Node, state: UnitRun) -> int:
     if node is Node.REWORK:
         return state.review_round
     return 0
+
+
+BLOCKED_LINE = re.compile(r"^[ \t]*(?:(?:[-*+]|\d+[.)])[ \t]+)?(?:\*\*)?[ \t]*(BLOCKED:.*)$", re.M)
+
+
+def blocked_update(state: UnitRun, account: str) -> Update:
+    """The run's `blocked_lines` with the lines of `account` that start `BLOCKED:` added, or
+    nothing when it has none: a later step's empty answer does not clear an earlier one's."""
+    found = [line.group(1).strip() for line in BLOCKED_LINE.finditer(account)]
+    if not found:
+        return {}
+    return {"blocked_lines": "; ".join(filter(None, [state.blocked_lines, *found]))}
 
 
 def halted(state: UnitRun) -> Node | None:
