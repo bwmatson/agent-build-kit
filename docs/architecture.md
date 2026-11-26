@@ -1039,6 +1039,13 @@ and rules the request carries, which is committed and reviewed again (at most
 units that have not started until `abk review-plan clear`, and `advice` holds nothing. A
 cleared finding is not raised again while its group's text stands; a review that fails holds
 nothing.
+A change whose proposal has an `Initiative:` line is also shown its initiative and its
+`## Its part`, the shipped `abk-authoring` skill's `## Initiatives and change maturity` section
+and the outlines whose `Touches:` overlap the paths its tasks name (cut to `OUTLINES_BUDGET`, the
+left-out ones named), and its fourth question also asks whether it builds something its
+initiative or an overlapping outline will redo with no `Reworks:` line or interim; there is no
+extra pass. A finding that answers that with a rework is recorded as `advice` and holds nothing.
+The outlines are not part of the review hash.
 `abk carry` does the same on demand for a unit (`--dry-run` writes nothing, `--repair` carries a unit
 recorded merged whose commit is not on the default branch, and `--landed-as <sha>` records a commit
 already on the default branch as the unit's merge). `delete_merged_branches` says whether the

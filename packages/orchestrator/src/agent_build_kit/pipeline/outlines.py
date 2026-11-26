@@ -75,7 +75,8 @@ _WAITS = re.compile(r"^Waits on:\s*(\S+)\s+group\s+(\d+)\b")
 _SKETCH = re.compile(r"^(\d+)\.\s")
 
 
-def _parse(name: str, text: str) -> Outline:
+def parse_proposal(name: str, text: str) -> Outline:
+    """The lines of a `proposal.md` a tool reads (an outline's or a change's), under `name`."""
     initiative = ""
     part: list[str] = []
     groups: list[int] = []
@@ -119,7 +120,7 @@ def read_outlines(inst: Installation) -> list[Outline]:
     """Every folder under `planning.outlines` that holds a `proposal.md`, in name order."""
     folder = inst.root / inst.config.planning.outlines
     return [
-        _parse(proposal.parent.name, proposal.read_text())
+        parse_proposal(proposal.parent.name, proposal.read_text())
         for proposal in sorted(folder.glob("*/proposal.md"))
     ]
 

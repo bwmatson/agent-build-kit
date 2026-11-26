@@ -39,6 +39,7 @@ from agent_build_kit.model import Frozen
 from agent_build_kit.pipeline import shell, spans
 from agent_build_kit.pipeline.call_record import recorded
 from agent_build_kit.pipeline.file_lock import atomic_write_text, file_lock
+from agent_build_kit.pipeline.outlines import Outline, overlaps, parse_proposal, read_outlines
 from agent_build_kit.pipeline.planner import PlannerError, ask_plan_model
 from agent_build_kit.pipeline.planning_commit import commit_and_publish
 from agent_build_kit.pipeline.unit_store import StoredUnit
@@ -114,7 +115,7 @@ Rules the plan follows: the shipped authoring rules every task follows, then eac
 guidance file as it stands on its default branch. The plan's paths and tasks must agree with them;
 one that does not is a finding on the group that has it, and its fix names the rule.
 {rules}
-
+{initiative}
 Artifacts:
 {artifacts}
 
@@ -175,6 +176,14 @@ REPO_RULES_LIMIT = 12_000
 # and the most bytes of the overlapping outlines the request carries.
 MATURITY_RULES_SECTION = "Initiatives and change maturity"
 OUTLINES_BUDGET = 8_000
+# What a change of an initiative adds to the fourth question, and the start of the evidence of a
+# finding that answers it: such a finding is advice whatever kind the reviewer gave it.
+REWORK_QUESTION = (
+    "For a change of an initiative, also: does it build something its initiative or an"
+    " overlapping outline will redo, with no `Reworks:` line or interim naming it? Begin the"
+    " evidence of such a finding with `rework:`."
+)
+REWORK_MARK = "rework"
 # A repository's guidance file, the first that is committed at its default branch.
 GUIDANCE_FILES = ("AGENTS.md", "CLAUDE.md")
 
@@ -568,6 +577,50 @@ def rules_listing(inst: Installation, tasks: Path) -> str:
     return "\n\n".join(parts)
 
 
+def _proposal_lines(outline: Outline) -> str:
+    lines = [f"Initiative: {outline.initiative}"] if outline.initiative else []
+    lines += [f"Reworks: {rework}" for rework in outline.reworks]
+    return "\n".join([*lines, "## Its part", outline.its_part or "(none)"])
+
+
+def initiative_listing(inst: Installation, folder: Path) -> str:
+    """What a change of an initiative is also shown: its `Initiative:` line and `## Its part`
+    under the shipped maturity rules, then the outlines whose `Touches:` overlap the paths its
+    tasks name, cut to `OUTLINES_BUDGET` with the left-out ones named. Empty for a change whose
+    proposal has no `Initiative:` line."""
+    proposal = folder / "proposal.md"
+    mine = parse_proposal(folder.name, proposal.read_text() if proposal.is_file() else "")
+    if not mine.initiative:
+        return ""
+    rules = skill_section(skills.source("abk-authoring"), MATURITY_RULES_SECTION)
+    parts = [
+        "\nIts initiative: the change's own initiative line and part, then the shipped rules for"
+        " an initiative's changes.\n"
+        f"#### {folder.name}\n{_proposal_lines(mine)}\n"
+        f"#### abk-authoring skill, version {__version__}, section {MATURITY_RULES_SECTION}\n"
+        f"{rules}\n"
+    ]
+    touching = {found.outline for found in overlaps(inst) if found.change == folder.name}
+    shown: list[str] = []
+    left_out: list[str] = []
+    used = 0
+    for outline in (found for found in read_outlines(inst) if found.name in touching):
+        text = f"#### {outline.name}\n{_proposal_lines(outline)}"
+        if left_out or (shown and used + len(text) > OUTLINES_BUDGET):
+            left_out.append(outline.name)
+            continue
+        shown.append(text)
+        used += len(text)
+    if shown:
+        parts.append(
+            "Outlines that touch the same paths as this change's tasks:\n" + "\n".join(shown)
+        )
+        if left_out:
+            parts.append(f"Outlines left out at the size limit: {', '.join(left_out)}")
+        parts.append("")
+    return "\n".join(parts)
+
+
 def _unit_line(unit: StoredUnit) -> str:
     groups = ", ".join(
         f"{member.change} group {number}" for member in unit.members() for number in member.groups
@@ -642,13 +695,19 @@ def build_prompt(
     repos: Sequence[tuple[str, Path, str]] = (),
     chain: str = "",
     rules: str = "",
+    initiative: str = "",
 ) -> str:
     """The request for one question: the question, the repos to read, the artifacts, the units
-    and the mechanical checks' report."""
+    and the mechanical checks' report. A change of an initiative (`initiative` is its
+    `initiative_listing`) is shown it, and its fourth question also asks about rework."""
+    asked = QUESTIONS[question - 1]
+    if initiative and question == len(QUESTIONS):
+        asked = f"{asked} {REWORK_QUESTION}"
     return PROMPT.format(
         change=change,
         number=question,
-        question=QUESTIONS[question - 1],
+        question=asked,
+        initiative=initiative,
         repos="\n".join(
             f"- {name}: {path} (default branch `{branch}`)" for name, path, branch in repos
         )
@@ -680,7 +739,12 @@ def parse_findings(text: str) -> tuple[Finding, ...]:
                 raise Unreadable(str(error)) from error
             if any(not 1 <= item.question <= len(QUESTIONS) for item in findings):
                 raise Unreadable("a finding names a question that does not exist")
-            return findings
+            return tuple(
+                item.model_copy(update={"kind": "advice"})
+                if item.question == len(QUESTIONS) and item.evidence.lower().startswith(REWORK_MARK)
+                else item
+                for item in findings
+            )
     raise Unreadable("no findings object in the answer")
 
 
@@ -763,6 +827,7 @@ async def _pass(
     repos: Sequence[tuple[str, Path, str]],
     chain: str,
     rules: str,
+    initiative: str,
     say: Callable[[str], None],
 ) -> tuple[Finding, ...] | PlannerError | None:
     """One question's pass: its findings, the `PlannerError` it ended in, or None when it was
@@ -777,6 +842,7 @@ async def _pass(
         repos=repos,
         chain=chain,
         rules=rules,
+        initiative=initiative,
     )
     try:
         answer = await gate.call(
@@ -814,6 +880,7 @@ async def _review_once(
     view = repository_view(inst, tasks)
     chain = chain_listing(inst, tasks)
     rules = rules_listing(inst, tasks)
+    initiative = initiative_listing(inst, tasks.parent)
     async with asyncio.TaskGroup() as group:
         passes = [
             group.create_task(
@@ -829,6 +896,7 @@ async def _review_once(
                     repos=repos,
                     chain=chain,
                     rules=rules,
+                    initiative=initiative,
                     say=say,
                 )
             )

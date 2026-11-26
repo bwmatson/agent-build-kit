@@ -9,7 +9,10 @@
   branch), and is told to keep the plan's paths and tasks in agreement with them. The listing and
   the rules are context only: editing a neighbouring change or a guidance file does not ask for a
   new review. The repair of a blocker is shown the same chain and rules, so it keeps the plan's
-  paths consistent with them.
+  paths consistent with them. A change that belongs to an initiative is also shown that
+  initiative, the rules for an initiative's changes and the outlines that touch the same paths,
+  and its fourth question asks whether it builds something they will redo; such a finding is
+  advice and holds nothing.
 
 - The `abk-authoring` skill now carries the rules every task follows (check paths against the
   default branch, edit every check of the old behaviour in the same group, a `Test:` task that the
