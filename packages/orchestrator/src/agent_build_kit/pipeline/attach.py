@@ -14,8 +14,7 @@ from agent_build_kit.installation import Installation
 from agent_build_kit.model import Frozen
 from agent_build_kit.pipeline.commit_order import (
     GROUP_TRAILER,
-    adopted_group,
-    adopted_subject,
+    adopted_names,
     branch_commit_trailers,
     branch_subjects,
 )
@@ -142,10 +141,7 @@ def adopt(
     commit = build_commit(
         unit_id=unit.id, fix=fix, adopted_from=session, repo=inst.repo(unit.repo), base=base
     )
-    subject = subject_for(inst, unit, tree, base)
-    group = adopted_group(
-        steps_for(inst, unit), branch_subjects(tree, base), branch_commit_trailers(tree, base)
-    )
+    subject, group = names_for(inst, unit, tree, base)
     trailer = f"\n\n{GROUP_TRAILER}: {group}" if group else ""
     if not commit(f"{subject}\n\n{message}{trailer}", cwd=tree):
         raise NothingToCommit("nothing to commit")
@@ -156,9 +152,15 @@ def adopt(
     return finish(inst, unit, head, subject)
 
 
-def subject_for(inst: Installation, unit: StoredUnit, tree: Path, base: str) -> str:
-    """The subject an adopted commit of `unit` takes, from its group progress."""
-    return adopted_subject(unit.title, steps_for(inst, unit), branch_subjects(tree, base))
+def names_for(inst: Installation, unit: StoredUnit, tree: Path, base: str) -> tuple[str, str]:
+    """The subject and the `Group:` trailer value an adopted commit of `unit` takes, both from
+    one walk of the branch's group progress."""
+    return adopted_names(
+        unit.title,
+        steps_for(inst, unit),
+        branch_subjects(tree, base),
+        branch_commit_trailers(tree, base),
+    )
 
 
 def steps_for(inst: Installation, unit: StoredUnit) -> tuple[GroupStep, ...]:

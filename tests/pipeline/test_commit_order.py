@@ -16,6 +16,8 @@ import pytest
 
 from agent_build_kit.pipeline.commit_order import (
     STUB_BODY_HINT,
+    adopted_names,
+    branch_commit_trailers,
     branch_subjects,
     check_structure,
     classify_paths,
@@ -329,3 +331,18 @@ def test_a_refactor_groups_place_holding_a_tests_commit_under_its_own_trailer_is
     progress = walk_group_progress(repo, "main", [step(1, "One", GroupMode.REFACTOR)])
 
     assert progress.done == 0
+
+
+def test_an_adopted_commit_after_a_retitled_pair_is_named_for_the_next_group_by_subject_and_trailer(
+    repo: Path,
+) -> None:
+    stale_pair(repo, 3, "Old G3")
+
+    subject, group = adopted_names(
+        "Unit",
+        [step(3, "G3"), step(4, "G4")],
+        branch_subjects(repo, "main"),
+        branch_commit_trailers(repo, "main"),
+    )
+
+    assert (subject, group) == ("test: G4", f"{CHANGE}/4")

@@ -38,7 +38,11 @@ from agent_build_kit.config import (
 )
 from agent_build_kit.model import Frozen, TestTier, pooled_kind
 from agent_build_kit.pipeline.call_record import recorded
-from agent_build_kit.pipeline.commit_order import branch_commit_subjects, group_progress
+from agent_build_kit.pipeline.commit_order import (
+    branch_commit_subjects,
+    branch_commit_trailers,
+    group_progress,
+)
 from agent_build_kit.pipeline.joins import (
     JoinContext,
     JoinRefused,
@@ -476,6 +480,8 @@ def built_groups(
         subjects,
         [by_number[n].title for n in unit.groups],
         [unit.mode_of(unit.change, by_number[n]) for n in unit.groups],
+        branch_commit_trailers(repo, base, ref),
+        [f"{unit.change}/{n}" for n in unit.groups],
     ).done
 
 

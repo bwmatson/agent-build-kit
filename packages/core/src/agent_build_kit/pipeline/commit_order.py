@@ -208,7 +208,8 @@ class GroupProgress(Frozen):
     lone_feat: str = ""  # the `feat:` subject of the next group found where its `test:` belongs
     notes: tuple[str, ...] = ()  # commits counted by their `Group:` trailer despite an older title
     # The subject standing where the walk stopped, "" when the branch ends there or every group is
-    # done. A report for the stop's text: two progresses that differ only here are equal.
+    # done. A report for the stop's text, NOT part of equality or the hash: two progresses that
+    # differ only here compare equal, so an assertion on a progress cannot catch a wrong value.
     at_place: str = ""
 
     def __eq__(self, other: object) -> bool:
@@ -364,30 +365,40 @@ def walk_group_progress(
     )
 
 
-def adopted_group(steps: Sequence[GroupStep], subjects: list[str], trailers: Sequence[str]) -> str:
-    """The `Group:` trailer value an adopted commit takes: that of the group `subjects` has
-    reached, the last group once every one has its commits, "" with no groups."""
+def adopted_names(
+    unit_title: str,
+    steps: Sequence[GroupStep],
+    subjects: list[str],
+    trailers: Sequence[str] = (),
+) -> tuple[str, str]:
+    """The subject and the `Group:` trailer value of the commit a person's adopted changes become,
+    both read from one walk of `subjects` (oldest first, with their `trailers`), so they name the
+    same group. The subject is what the counter takes for the commit the build expected next:
+    `test:` or `feat:` with the title of the group reached, `fix: <last title> (adopted)` once
+    every group has its commits. The trailer is that group's, the last group's once every one has
+    its commits. `steps` is empty for a unit that is not built in stubbed groups, which takes
+    `unit_title` and no trailer."""
     if not steps:
-        return ""
+        subject = (
+            f"{FIX_PREFIX}{unit_title} (adopted)" if subjects else f"{CODE_PREFIX}{unit_title}"
+        )
+        return subject, ""
     progress = steps_progress(subjects, trailers, steps)
-    return group_key(steps[min(progress.done, len(steps) - 1)])
-
-
-def adopted_subject(unit_title: str, steps: Sequence[GroupStep], subjects: list[str]) -> str:
-    """The subject of the commit a person's adopted changes become, so the counter takes it for the
-    commit the build expected next: `test:` or `feat:` with the title of the group `subjects`
-    (oldest first) has reached, `fix: <last title> (adopted)` once every group has its commits.
-    `steps` is empty for a unit that is not built in stubbed groups, which takes `unit_title`."""
-    if not steps:
-        return f"{FIX_PREFIX}{unit_title} (adopted)" if subjects else f"{CODE_PREFIX}{unit_title}"
-    progress = group_progress(
-        subjects, [step.title for step in steps], [step.mode for step in steps]
-    )
     if progress.done >= len(steps):
-        return f"{FIX_PREFIX}{steps[-1].title} (adopted)"
+        return f"{FIX_PREFIX}{steps[-1].title} (adopted)", group_key(steps[-1])
     reached = steps[progress.done]
     prefix = CODE_PREFIX if progress.tests_made or not reached.mode.writes_tests else TESTS_PREFIX
-    return f"{prefix}{reached.title}"
+    return f"{prefix}{reached.title}", group_key(reached)
+
+
+def adopted_subject(
+    unit_title: str,
+    steps: Sequence[GroupStep],
+    subjects: list[str],
+    trailers: Sequence[str] = (),
+) -> str:
+    """The subject of the commit a person's adopted changes become: the first of `adopted_names`."""
+    return adopted_names(unit_title, steps, subjects, trailers)[0]
 
 
 def superseded_pairs(
