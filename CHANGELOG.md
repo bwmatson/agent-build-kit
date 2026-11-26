@@ -108,6 +108,13 @@
   pass, and `abk status` shows how many checks in a row gave the same result and since when.
   `abk manual check` and a dry run still print every result.
 
+- Plan reviews now take the changes most urgent first, by the most urgent priority among
+  each change's open units (ties by name), so the change that matters most is reviewed and
+  can start before the others, instead of in alphabetical order. The four passes of a review
+  and several changes now run together, with at most `planning.plan_review_concurrency`
+  (default `4`) model calls in flight and repairs one at a time; `1` asks one call at a time.
+  The records and log lines are the same as a one-at-a-time run's.
+
 - An `[e2e-test]` unit whose own test fails is now reworked once, automatically, with the
   failing output, before it fails: the checks, review and e2e-test run again on the fix. A
   second failure, a unit requeued after its automatic rework, a scheduled run, a failure only

@@ -146,6 +146,8 @@ planning:
                                 # most this many units; 0 waits until nothing it
                                 # waits on is short of review
   outlines: openspec/outlines   # the outlines folder, relative to the planning root
+  plan_review_concurrency: 4    # most review and repair calls in flight at once;
+                                # 1 is one call at a time
 
 openspec:
   command: null                 # argv for the OpenSpec CLI. null = npx --yes
@@ -861,6 +863,10 @@ the top-level `project_limits` is counted for each project, not across all repos
   `0` waits until nothing it waits on is short of review (a held or failed unit still counts).
 - `planning.outlines` (default `openspec/outlines`): the folder of outlines, relative to the
   planning root.
+- `planning.plan_review_concurrency` (default `4`, at least `1`): the most plan-model review
+  and repair calls in flight at once. The passes of a review and several changes run together
+  within it, starting in the changes' order of urgency; `1` is one call at a time. Repairs are
+  always one at a time, since each commits to the planning repo.
 
 When a repo in `abk.yaml` is the planning root's own repository (`path: .`), the
 root plays one of three roles: **separate** (no repo shares it), **working copy**

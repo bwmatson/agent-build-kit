@@ -6,6 +6,7 @@ started is what the shared builder saw.
 
 from __future__ import annotations
 
+import threading
 from datetime import timedelta
 from pathlib import Path
 
@@ -15,6 +16,7 @@ from agent_build_kit.pipeline import plan_review, shell, spans
 from agent_build_kit.pipeline.plan_review import QUESTIONS, REVIEW_TOOLS
 from agent_build_kit.pipeline.unit_store import Cause, StoredUnit
 from agent_build_kit.pipeline.units import IN_REVIEW, MERGED, PLANNED, UnitState
+from agent_build_kit.runtimes import AgentRateLimited
 from tests.plan_review_support import (
     ADVICE,
     CHANGE,
@@ -26,8 +28,12 @@ from tests.plan_review_support import (
     REPAIRED_TASKS,
     SPEC,
     TASKS,
+    GatedRuntime,
     Review,
+    change_of,
+    question_of,
     reply,
+    run_bounded,
 )
 
 pytestmark = pytest.mark.usefixtures("scripted_engine")
@@ -36,6 +42,12 @@ pytestmark = pytest.mark.usefixtures("scripted_engine")
 @pytest.fixture
 def review(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Review:
     return Review(tmp_path, monkeypatch)
+
+
+@pytest.fixture
+def one_call_review(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Review:
+    """A review at the bound of one: review order is read from the order calls start."""
+    return Review(tmp_path, monkeypatch, concurrency=1)
 
 
 def test_a_change_with_planned_units_and_no_review_is_reviewed_once(review: Review) -> None:
@@ -118,7 +130,8 @@ def test_each_question_is_asked_in_its_own_pass_with_read_only_tools_over_the_re
     review.tick()
 
     assert len(review.passes) == len(QUESTIONS)
-    for number, (asked, question) in enumerate(zip(review.passes, QUESTIONS, strict=True), 1):
+    ordered = review.passes_in_question_order
+    for number, (asked, question) in enumerate(zip(ordered, QUESTIONS, strict=True), 1):
         assert f"{number}. {question}" in asked.prompt
         assert [other for other in QUESTIONS if other != question and other in asked.prompt] == []
         assert asked.allowed_tools == REVIEW_TOOLS
@@ -172,15 +185,16 @@ def test_a_cleared_finding_holds_again_once_its_group_is_edited(review: Review) 
 def test_a_blocker_with_a_fix_is_repaired_committed_and_reviewed_again(review: Review) -> None:
     review.commit_planning()
     review.repair_with(REPAIRED_TASKS, review_answer=reply(FIXABLE))
-    answers = iter([reply(FIXABLE)] * len(QUESTIONS) + [reply()] * len(QUESTIONS))
+    repaired = False
 
-    def act(request) -> None:
+    def respond(request) -> str:
+        nonlocal repaired
         if request.prompt.startswith("The plan of the change"):
-            review.runtime.answer = f"<<<TASKS\n{REPAIRED_TASKS}\nTASKS>>>"
-        else:
-            review.runtime.answer = next(answers)
+            repaired = True
+            return f"<<<TASKS\n{REPAIRED_TASKS}\nTASKS>>>"
+        return reply() if repaired else reply(FIXABLE)
 
-    review.runtime.act = act
+    review.runtime.respond = respond
 
     review.tick()
 
@@ -225,14 +239,13 @@ def test_repairs_stop_at_the_configured_count(review: Review) -> None:
     review.repair_with(REPAIRED_TASKS, review_answer=reply(FIXABLE))
     rounds = iter(range(100))
 
-    def act(request) -> None:
+    def respond(request) -> str:
         if request.prompt.startswith("The plan of the change"):
             n = next(rounds)
-            review.runtime.answer = f"<<<TASKS\n{REPAIRED_TASKS}\n- [ ] 2.{n + 3} More.\nTASKS>>>"
-        else:
-            review.runtime.answer = reply(FIXABLE)
+            return f"<<<TASKS\n{REPAIRED_TASKS}\n- [ ] 2.{n + 3} More.\nTASKS>>>"
+        return reply(FIXABLE)
 
-    review.runtime.act = act
+    review.runtime.respond = respond
 
     review.tick()
 
@@ -386,3 +399,166 @@ def test_the_request_lists_the_units_in_build_order_with_merged_ones_and_their_p
         f"- {CHANGE}/17 [app, unit-test] ({CHANGE} group 17) planned: Group 17",
     ]
     assert "in the order they are built" in prompt
+
+
+def test_changes_are_reviewed_by_the_most_urgent_priority_of_their_open_units(
+    one_call_review: Review,
+) -> None:
+    review = one_call_review
+    review.finish_default_change()
+    review.add_change("alpha", 3, 3)
+    review.add_change("zeta", 1)
+    review.add_change("mid", 4, 2)
+
+    review.tick()
+
+    assert review.reviewed_order == ["zeta", "mid", "alpha"]
+
+
+def test_changes_of_equal_urgency_are_reviewed_in_name_order(one_call_review: Review) -> None:
+    review = one_call_review
+    review.finish_default_change()
+    review.add_change("b", 3)
+    review.add_change("a", 3)
+    review.add_change("c", 1)
+
+    review.tick()
+
+    assert review.reviewed_order == ["c", "a", "b"]
+
+
+def test_a_change_ranks_by_its_open_units_not_by_one_that_has_merged(
+    one_call_review: Review,
+) -> None:
+    review = one_call_review
+    review.finish_default_change()
+    review.add_change("late", 1, 4)
+    review.add_change("other", 3)
+    review.builder.store.set_state("late/1", MERGED)
+
+    review.tick()
+
+    assert review.reviewed_order == ["other", "late"], (
+        "late's priority-1 unit has merged, so only its priority-4 unit counts"
+    )
+
+
+def test_a_promoted_units_stored_priority_counts_in_the_order(one_call_review: Review) -> None:
+    review = one_call_review
+    review.finish_default_change()
+    review.add_change("aaa", 3)
+    review.add_change("zzz", 4)
+    review.builder.store.set_priority("zzz/1", 2)
+
+    review.tick()
+
+    assert review.reviewed_order == ["zzz", "aaa"]
+
+
+def test_the_four_passes_of_a_review_are_in_flight_together_and_recorded_in_question_order(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    done = {number: threading.Event() for number in range(1, len(QUESTIONS) + 1)}
+
+    def respond(request) -> str:
+        number = question_of(request)
+        if number < len(QUESTIONS):
+            done[number + 1].wait(5)  # a later question answers first
+        found = {"group": 1, "question": number, "kind": "advice", "evidence": f"pass {number}"}
+        done[number].set()
+        return reply(found)
+
+    runtime = GatedRuntime(hold_until=len(QUESTIONS), respond=respond)
+    review = Review(tmp_path, monkeypatch, concurrency=len(QUESTIONS), runtime=runtime)
+
+    review.tick()
+
+    assert runtime.most_in_flight == len(QUESTIONS)
+    findings = plan_review.read_reviews(plan_review.record_path(review.inst))[CHANGE].findings
+    assert [found.evidence for found in findings] == [
+        f"pass {number}" for number in range(1, len(QUESTIONS) + 1)
+    ]
+
+
+def test_changes_reviewed_two_calls_at_a_time_leave_the_record_and_log_of_one_at_a_time(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    together = run_bounded(tmp_path / "two", monkeypatch, capsys, 2)
+    alone = run_bounded(tmp_path / "one", monkeypatch, capsys, 1)
+
+    assert together.most_in_flight == 2, "never more than two in flight, and two at some point"
+    assert together.record == alone.record
+    assert alone.log, "the single-call run logged the held changes"
+    assert together.log == alone.log
+
+
+def test_with_the_bound_at_one_calls_go_one_at_a_time_most_urgent_change_first(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    alone = run_bounded(tmp_path / "one", monkeypatch, capsys, 1)
+    wider = run_bounded(tmp_path / "two", monkeypatch, capsys, 2)
+
+    assert wider.most_in_flight > alone.most_in_flight, "the bound is what keeps calls apart"
+    assert alone.most_in_flight == 1
+    assert alone.started == tuple(
+        (change, number)
+        for change in ("zeta", "mid", "alpha")
+        for number in range(1, len(QUESTIONS) + 1)
+    )
+
+
+def test_repairs_of_two_changes_run_one_at_a_time_and_both_changes_are_reviewed_again(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    repaired: set[str] = set()
+
+    def respond(request) -> str:
+        change = change_of(request)
+        if request.prompt.startswith("The plan of the change"):
+            repaired.add(change)
+            return f"<<<TASKS\n{REPAIRED_TASKS}\nTASKS>>>"
+        return reply() if change in repaired else reply(FIXABLE)
+
+    runtime = GatedRuntime(hold_until=2, hold_repairs_until=2, repair_deadline=0.2, respond=respond)
+    review = Review(tmp_path, monkeypatch, concurrency=4, runtime=runtime)
+    review.finish_default_change()
+    review.add_change("one", 3)
+    review.add_change("two", 3)
+    review.commit_planning()
+
+    review.tick()
+
+    assert runtime.most_in_flight >= 2, "the changes are reviewed together, only repairs are not"
+    assert runtime.most_repairs_in_flight == 1
+    subjects = shell.git(review.inst.root, "log", "--format=%s").stdout
+    for change in ("one", "two"):
+        assert f"plan({change}): repair the plan review's findings on group 2" in subjects
+    assert review.asked == 4, "each repaired change is reviewed again"
+    assert plan_review.held_changes(review.inst) == {}
+
+
+def test_a_refused_call_starts_no_more_calls_and_lets_those_in_flight_finish(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    def refuse(request) -> Exception | None:
+        refused = change_of(request) == "urgent" and question_of(request) == 2
+        return AgentRateLimited("usage window exhausted") if refused else None
+
+    runtime = GatedRuntime(hold_until=len(QUESTIONS), refuse=refuse, respond=lambda _: reply())
+    review = Review(tmp_path, monkeypatch, concurrency=len(QUESTIONS), runtime=runtime)
+    review.finish_default_change()
+    review.add_change("urgent", 1)
+    review.add_change("later", 3)
+    capsys.readouterr()
+
+    review.tick()
+
+    out = capsys.readouterr()
+    assert runtime.most_in_flight == len(QUESTIONS)
+    assert {change_of(r) for r in runtime.requests} == {"urgent"}, (
+        "no call starts after the refusal"
+    )
+    assert sorted(question_of(r) for r in runtime.completed) == [1, 3, 4]
+    assert plan_review.read_reviews(plan_review.record_path(review.inst)) == {}
+    assert "reviewing plans failed" in out.out + out.err
+    assert "AgentRateLimited" in out.out + out.err

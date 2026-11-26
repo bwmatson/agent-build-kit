@@ -21,6 +21,7 @@ review can never stop the pipeline.
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import json
 import logging
@@ -29,7 +30,7 @@ import shutil
 from collections.abc import Callable, Iterable, Mapping, Sequence
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Literal
+from typing import Literal, TypeVar
 
 from agent_build_kit import runtimes
 from agent_build_kit.config import models
@@ -52,6 +53,8 @@ from agent_build_kit.runtimes import AgentRequest
 from agent_build_kit.runtimes.base import PromptTooLarge, check_prompt_size
 
 logger = logging.getLogger(__name__)
+
+_T = TypeVar("_T")
 
 # The fixed questions every review asks, in the order a finding numbers them.
 QUESTIONS: tuple[str, ...] = (
@@ -536,37 +539,115 @@ def ask_reviewer(
     return result.text
 
 
-def _review_once(
+class _Stopped(Exception):
+    """A call was not made, or was refused, and no further call is to start."""
+
+
+class _Gate:
+    """What the calls of one step share: the bound on calls in flight, the lock that makes
+    repairs one at a time, and the first refusal (any error that is not a `PlannerError`), after
+    which no further call starts."""
+
+    def __init__(self, bound: int) -> None:
+        self.slots = asyncio.Semaphore(bound)
+        self.repairs = asyncio.Lock()
+        self.refusal: Exception | None = None
+
+    async def call(self, blocking: Callable[[], _T]) -> _T:
+        """Run `blocking` in a thread once a slot is free. Raises `PlannerError` as it does and
+        `_Stopped` when it was not started or was refused."""
+        async with self.slots:
+            if self.refusal is not None:
+                raise _Stopped
+            try:
+                return await asyncio.to_thread(blocking)
+            except PlannerError:
+                raise
+            except Exception as error:
+                self.refusal = self.refusal or error
+                raise _Stopped from error
+
+
+async def _pass(
+    gate: _Gate,
+    number: int,
+    *,
+    inst: Installation,
+    change: str,
+    tasks: Path,
+    mine: Sequence[StoredUnit],
+    report: Sequence[str],
+    view: str,
+    repos: Sequence[tuple[str, Path, str]],
+    say: Callable[[str], None],
+) -> tuple[Finding, ...] | PlannerError | None:
+    """One question's pass: its findings, the `PlannerError` it ended in, or None when it was
+    stopped."""
+    prompt = build_prompt(change, tasks.parent, mine, report, view, question=number, repos=repos)
+    try:
+        answer = await gate.call(
+            lambda: ask_reviewer(
+                prompt,
+                change=change,
+                planning_root=inst.root,
+                checkouts=[path for _, path, _ in repos],
+                say=say,
+            )
+        )
+        found = parse_findings(answer)
+    except PlannerError as error:
+        return error
+    except Unreadable as error:
+        return PlannerError(f"the answer could not be read: {error}")
+    except _Stopped:
+        return None
+    # A pass answers one question; a finding it files under another is that pass's to find.
+    return tuple(item for item in found if item.question == number)
+
+
+async def _review_once(
+    gate: _Gate,
     inst: Installation,
     change: str,
     tasks: Path,
     mine: Sequence[StoredUnit],
     report: Sequence[str],
     say: Callable[[str], None],
-) -> tuple[Finding, ...]:
-    """Every question asked in its own pass; the findings of all of them. Raises `PlannerError`
-    when a pass fails or its answer cannot be read."""
+) -> tuple[Finding, ...] | PlannerError | None:
+    """Every question asked in its own pass, together; the findings of all of them in question
+    order, or the error of the lowest-numbered pass that failed. None when a call was stopped."""
     repos = _repo_checkouts(inst, tasks)
     view = repository_view(inst, tasks)
-    findings: list[Finding] = []
-    for number in range(1, len(QUESTIONS) + 1):
-        prompt = build_prompt(
-            change, tasks.parent, mine, report, view, question=number, repos=repos
-        )
-        answer = ask_reviewer(
-            prompt,
-            change=change,
-            planning_root=inst.root,
-            checkouts=[path for _, path, _ in repos],
-            say=say,
-        )
-        try:
-            found = parse_findings(answer)
-        except Unreadable as error:
-            raise PlannerError(f"the answer could not be read: {error}") from error
-        # A pass answers one question; a finding it files under another is that pass's to find.
-        findings += [item for item in found if item.question == number]
-    return tuple(findings)
+    async with asyncio.TaskGroup() as group:
+        passes = [
+            group.create_task(
+                _pass(
+                    gate,
+                    number,
+                    inst=inst,
+                    change=change,
+                    tasks=tasks,
+                    mine=mine,
+                    report=report,
+                    view=view,
+                    repos=repos,
+                    say=say,
+                )
+            )
+            for number in range(1, len(QUESTIONS) + 1)
+        ]
+    results = [one.result() for one in passes]
+    if any(result is None for result in results):
+        return None
+    failed = next((result for result in results if isinstance(result, PlannerError)), None)
+    if failed is not None:
+        return failed
+    return tuple(
+        item
+        for result in results
+        if not isinstance(result, PlannerError) and result
+        for item in result
+    )
 
 
 _TASKS_BLOCK = re.compile(r"<<<TASKS\n(.*?)\nTASKS>>>", re.DOTALL)
@@ -639,24 +720,71 @@ def review_changes(
     mechanical: Callable[[Path], list[str]],
     say: Callable[[str], None],
 ) -> None:
-    """Review each change with open units whose plan has no review yet, repair what it can, and
-    record what is left. A review that fails is logged and holds nothing."""
+    """Review each change with open units whose plan has no review yet, most urgent first (the
+    most urgent stored priority of its open units, ties by name), repair what it can, and
+    record what is left. A review that fails is logged and holds nothing.
+
+    The passes of a review and several changes run together, with at most
+    `planning.plan_review_concurrency` review and repair calls in flight and the calls starting in
+    the order of the changes' urgency. A call refused for usage (any error that is not a
+    `PlannerError`) starts no further call; the calls in flight finish, the reviews whose calls
+    all answered are recorded, and the refusal is raised. Each change's log lines are written
+    together, in the order the reviews started. Not to be entered from a running event loop."""
     if not inst.config.planning.review_plans:
         return
-    path = record_path(inst)
-    reviews = read_reviews(path)
-    for tasks in sorted(inst.tasks_files()):
-        change = tasks.parent.name
-        if not open_units(units, change):
-            continue
-        earlier = reviews.get(change)
-        while True:
-            earlier = _review_change(inst, change, tasks, units, earlier, mechanical, say)
-            if earlier is None:
-                break
+    reviews = read_reviews(record_path(inst))
+    due = [
+        (min(unit.priority for unit in open_now), tasks)
+        for tasks in inst.tasks_files()
+        if (open_now := open_units(units, tasks.parent.name))
+    ]
+    ordered = [tasks for _, tasks in sorted(due, key=lambda item: (item[0], item[1].parent.name))]
+    logs: list[list[str]] = [[] for _ in ordered]
+    gate = _Gate(inst.config.planning.plan_review_concurrency)
+
+    async def run_all() -> None:
+        async with asyncio.TaskGroup() as group:
+            for tasks, lines in zip(ordered, logs, strict=True):
+                group.create_task(
+                    _review_until_done(gate, inst, tasks, units, reviews, mechanical, lines.append)
+                )
+
+    try:
+        asyncio.run(run_all())
+    except ExceptionGroup as group:
+        # The task group wraps what one change's review raised; the tick logs the real error.
+        leaf: BaseException = group
+        while isinstance(leaf, ExceptionGroup):
+            leaf = leaf.exceptions[0]
+        raise leaf from None
+    finally:
+        for lines in logs:
+            for line in lines:
+                say(line)
+    if gate.refusal is not None:
+        raise gate.refusal
 
 
-def _review_change(
+async def _review_until_done(
+    gate: _Gate,
+    inst: Installation,
+    tasks: Path,
+    units: Sequence[StoredUnit],
+    reviews: Mapping[str, Review],
+    mechanical: Callable[[Path], list[str]],
+    say: Callable[[str], None],
+) -> None:
+    """Review one change, and again after each repair that was committed."""
+    change = tasks.parent.name
+    earlier = reviews.get(change)
+    while True:
+        earlier = await _review_change(gate, inst, change, tasks, units, earlier, mechanical, say)
+        if earlier is None:
+            return
+
+
+async def _review_change(
+    gate: _Gate,
     inst: Installation,
     change: str,
     tasks: Path,
@@ -682,9 +810,11 @@ def _review_change(
     except Exception as error:  # the report is context, never a reason to skip the review
         say(f"plan review {change}: the mechanical report could not be read: {error}")
         report = []
-    try:
-        findings = _review_once(inst, change, tasks, mine, report, say)
-    except PlannerError as error:
+    outcome = await _review_once(gate, inst, change, tasks, mine, report, say)
+    if outcome is None:
+        return None  # a call was stopped: nothing is recorded, so the plan is asked again
+    if isinstance(outcome, PlannerError):
+        error = outcome
         say(f"plan review {change}: {error}")
         _record(
             path,
@@ -700,11 +830,15 @@ def _review_change(
             ),
         )
         return None
-    findings = _not_kept(findings, kept, group_texts(tasks))
+    findings = _not_kept(outcome, kept, group_texts(tasks))
     review = Review(hash=digest, findings=findings, kept=kept, repairs=repairs)
     fixable = [found for found in review.blockers if found.fix.strip()]
     if fixable and repairs < inst.config.planning.plan_review_repairs:
-        why = repair(inst, change, tasks, fixable, say=say)
+        async with gate.repairs:  # one repair at a time: each commits to the planning repo
+            try:
+                why = await gate.call(lambda: repair(inst, change, tasks, fixable, say=say))
+            except _Stopped:
+                return None  # not recorded, so the plan is reviewed and repaired next time
         review = review.model_copy(update={"repairs": repairs + 1})
         _record(path, change, review)
         if not why:
