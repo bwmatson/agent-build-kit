@@ -16,7 +16,10 @@ import yaml
 
 from tests.exclusions import (
     ALLOWLIST,
+    E2E_CLASSES,
+    E2E_MODULES,
     ENTRIES,
+    OWN_TOOLING,
     Case,
     Entry,
     Exemption,
@@ -26,7 +29,7 @@ from tests.exclusions import (
 from tests.factories import git, init_repo
 from tests.old_merge_rule import statements
 from tests.time_limit import LOADED_TEST_TIME_LIMIT
-from tests.tracked_files import ROOT
+from tests.tracked_files import ROOT, source_trees
 
 LINE_ENTRIES = [entry for entry in ENTRIES if entry.check is None]
 OFFENDING = [(entry, case) for entry in ENTRIES for case in entry.offends]
@@ -130,6 +133,25 @@ def test_a_listing_that_covers_no_hit_is_reported_as_stale(
 
 def test_the_ecosystem_allowlist_only_shrinks() -> None:
     assert set(ALLOWLIST) <= {"cli/doctor.py", "tracks/runner.py"}
+
+
+def test_the_ecosystem_own_tooling_list_is_fixed_and_each_listing_has_a_reason() -> None:
+    assert set(OWN_TOOLING) <= {
+        "openspec.py",
+        "serve/server.py",
+        "settings.py",
+        "config.py",
+        "timers.py",
+    }
+    assert all(reason.strip() for reason in [*ALLOWLIST.values(), *OWN_TOOLING.values()])
+
+
+@pytest.mark.parametrize(
+    "relative",
+    [*E2E_MODULES, *(module for module, _ in E2E_CLASSES)],
+)
+def test_each_module_the_e2e_entry_reads_exists_in_a_source_tree(relative: str) -> None:
+    assert any((tree / relative).is_file() for tree in source_trees()), relative
 
 
 @pytest.mark.parametrize("entry", DOCUMENT_GUARDS, ids=lambda entry: entry.name)

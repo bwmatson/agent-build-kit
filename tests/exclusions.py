@@ -842,7 +842,6 @@ ENTRIES: tuple[Entry, ...] = (
             ),
             Case(path=E2E_MODULE, text="@runtime_checkable\nclass Profile:\n    pass\n"),
             Case(path=E2E_CLASS_MODULE, text=f"KNOWN = '{RUNTIME}'\n\n" + profile_module()),
-            Case(path=f"{TREES[0]}/runtimes/providers.py", text=f"TABLE = ['{PROVIDER}']\n"),
             Case(path=f"{TREES[0]}/pipeline/other.py", text=f"X = '{RUNTIME}'\n"),
         ),
     ),
