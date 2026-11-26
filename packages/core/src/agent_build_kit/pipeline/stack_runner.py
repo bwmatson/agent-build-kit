@@ -331,7 +331,8 @@ TESTS_FINISH = """\
 Before you finish: run linting and formatting, which must pass, and run the
 new and changed tests. A new test and a changed assertion must fail, and a test
 changed only in setup, names or helpers may pass. A new test or changed assertion
-that passes now is not testing the behaviour this group adds. Do not write the
+that passes now is not testing the behaviour this group adds. Then run `abk red-check`: it
+judges them as the pipeline's red check will; fix what it prints. Do not write the
 implementation.
 """
 
@@ -339,9 +340,9 @@ implementation.
 # implementation is committed.
 STUBBED_TESTS_FINISH = """\
 Before you finish: the stubs and tests you wrote must pass lint, format and types, so run
-those checks and fix what they report. Stubs hold no logic. Do not run the new tests: they
-are meant to fail until the implementation exists, and the pipeline checks that they do.
-Do not write the implementation.
+those checks and fix what they report. Stubs hold no logic. Then run `abk red-check`: it
+judges your new and changed tests as the pipeline's red check will, and exits 0 when each fails
+for the right reason; fix what it prints and run it again. Do not write the implementation.
 """
 
 

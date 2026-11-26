@@ -36,10 +36,15 @@ def matches(command: str, patterns: tuple[str, ...]) -> bool:
     line = command.strip()
     if any(operator in line for operator in SHELL_OPERATORS):
         return False
-    return any(
-        re.fullmatch(".*".join(re.escape(part) for part in pattern.split("*")), line, re.DOTALL)
-        for pattern in patterns
-    )
+    return any(re.fullmatch(_regex_of(pattern), line, re.DOTALL) for pattern in patterns)
+
+
+def _regex_of(pattern: str) -> str:
+    """The expression a pattern stands for. A pattern ending ` *` (a space, then the star)
+    also covers the command with no arguments, as Claude Code's does."""
+    if pattern.endswith(" *"):
+        return _regex_of(pattern[:-2]) + "(?: .*)?"
+    return ".*".join(re.escape(part) for part in pattern.split("*"))
 
 
 def allows(tool_list: str, command: str) -> bool:

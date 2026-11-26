@@ -19,6 +19,13 @@
   of each project the repository uses. A tests step no longer has to guess why its tests were
   rejected.
 
+- A tests step can now run `abk red-check` in its unit's worktree to see, before it finishes,
+  the verdict the build's red check will give its new and changed tests. It judges the working
+  tree as it stands, changes nothing in it, and exits 0 when each test fails for the right
+  reason, 1 with the problems printed, and 2 when there is nothing to judge. The tests prompt of
+  a group that builds code names the command. A tool pattern ending in a space and a star now
+  also covers the command with no arguments.
+
 - The `abk-authoring` skill now carries the rules every task follows (check paths against the
   default branch, edit every check of the old behaviour in the same group, a `Test:` task that the
   red check accepts, test edits only in the `test:` commit, test tiers, a mode for a no-test

@@ -414,6 +414,9 @@ INSTALL_CONFIG_TOOL = "Bash(abk install-config *)"
 # A builder raises a step only a person can do, with a check script it wrote.
 MANUAL_TOOL = "Bash(abk manual *)"
 
+# A builder judges its new tests as the build's red check will, before it finishes.
+RED_CHECK_TOOL = "Bash(abk red-check *)"
+
 
 def forge_read_tools(forge: Forge) -> str:
     return " ".join(f"Bash({' '.join(command)}*)" for command in forge.read_commands)
@@ -425,7 +428,7 @@ def allowed_tools(
     """The repo profile's tools and those of each project's profile, each listed once."""
     toolchains = [profile, *(profiles.get(p.profile) for p in projects or [])]
     tools = dict.fromkeys(t.allowed_tools for t in toolchains)
-    own = f"{BASE_TOOLS} {INSTALL_CONFIG_TOOL} {MANUAL_TOOL}"
+    own = f"{BASE_TOOLS} {INSTALL_CONFIG_TOOL} {MANUAL_TOOL} {RED_CHECK_TOOL}"
     return f"{own} {forge_read_tools(forge)} {' '.join(tools)}".strip()
 
 

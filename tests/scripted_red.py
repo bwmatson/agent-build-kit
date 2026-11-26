@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import shlex
 from pathlib import Path
 
 import pytest
@@ -29,8 +30,8 @@ def script_commands(
             return f"exit {clean_exit}"
 
         def red_command(self, files: list[str], ids: list[str] | None = None, **_: object) -> str:
-            where = f"pwd >> {str(cwd_log)!r} && " if cwd_log else ""
-            return f"{where}printf '%s' {red_output!r} && exit {red_exit}"
+            where = f"pwd >> {shlex.quote(str(cwd_log))} && " if cwd_log else ""
+            return f"{where}printf '%s' {shlex.quote(red_output)} && exit {red_exit}"
 
         def __getattr__(self, name):
             return getattr(PYTHON, name)
