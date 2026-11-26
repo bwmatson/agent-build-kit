@@ -170,3 +170,20 @@ def test_a_unit_moving_into_review_is_labelled_for_the_checks_already_recorded(
     store.set_state("add-marker/1", IN_REVIEW)
 
     assert forge.on_pr[PR] & {"in-review", "checking"} == {"checking"}
+
+
+def test_the_poll_makes_a_running_units_ready_pull_request_a_draft(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, clock: FakeClock
+) -> None:
+    inst = make_installation(
+        tmp_path, planning=dict(state_dir=".", worktree_root=str(tmp_path.parent / "trees"))
+    )
+    store = UnitStore(tmp_path / "units.json")
+    store.upsert([stored_unit("add-marker/1")])
+    store.set_state("add-marker/1", RUNNING, pr=PR)
+    forge = StandInForge(prs=[pull()])
+    monkeypatch.setattr(inst, "forge_of", lambda repo: (forge, forge.repo_id()))
+
+    cli.poll_all(inst, store=store)
+
+    assert ("draft", PR) in forge.calls

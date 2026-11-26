@@ -38,7 +38,6 @@ from agent_build_kit.pipeline.workspaces import BranchBusy
 from agent_build_kit.profiles.base import ProfileUnsupported
 from tests.conftest import make_installation
 from tests.factories import own_group
-from tests.forges.stand_in import StandInForge
 from tests.runtimes.stand_in import StandInRuntime
 from tests.time_limit import LOADED_TEST_TIME_LIMIT
 
@@ -2065,24 +2064,3 @@ def test_the_units_already_shown_are_still_shown_beside_a_carrier(
     shown = [u["id"] for u in seen[0]["in_flight"]]
     assert uid in shown
     assert "other/1" in shown
-
-
-def test_the_draft_reconcile_after_a_poll_writes_the_state_a_unit_calls_for(
-    installation: Installation, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    forge = StandInForge()
-    monkeypatch.setattr(installation, "forge_of", lambda name: (forge, forge.repo_id()))
-    Poller(
-        repo="app",
-        state_path=state_path(installation.state_dir, "app"),
-        dispatch=lambda *args, **kwargs: None,
-        list_prs=lambda: [
-            PullRequest(number=7, head="spec/add-marker/1", base="main", state="open", draft=False)
-        ],
-    ).poll()
-    store = UnitStore(tmp_path / "units.json")
-    store.import_units([stored("add-marker/1", state=UnitState.RUNNING, pr=7)])
-
-    cli.reconcile_drafts(installation, store, "app")
-
-    assert forge.calls == [("draft", 7)]

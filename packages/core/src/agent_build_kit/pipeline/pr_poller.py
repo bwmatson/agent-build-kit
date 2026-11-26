@@ -618,7 +618,8 @@ def recorded_drafts(state_dir: Path) -> Callable[[str, int], bool | None]:
 
     def draft_of(repo: str, pr: int) -> bool | None:
         if repo not in loaded:
-            loaded[repo] = PrState.host(state_path(state_dir, repo), repo)
+            # The file is per repo; its section is keyed by the host's slug, not the repo name.
+            loaded[repo] = PrState.host(state_path(state_dir, repo))
         seen = loaded[repo].get(str(pr))
         draft = seen.get("draft") if isinstance(seen, dict) else None
         return draft if isinstance(draft, bool) else None

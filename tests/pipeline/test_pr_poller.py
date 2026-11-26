@@ -204,8 +204,9 @@ def test_a_poll_records_each_pull_requests_draft_state_in_the_hosts_view(
 def test_the_recorded_draft_lookup_reads_true_false_and_none_from_the_polls_record(
     tmp_path: Path,
 ) -> None:
+    # The section is keyed by the host's slug, as `poll_all` keys it, not by the repo's name.
     Poller(
-        repo="app",
+        repo="example/app",
         state_path=state_path(tmp_path, "app"),
         dispatch=lambda *args, **kwargs: None,
         list_prs=lambda: [pr(4, draft=True), pr(5)],
