@@ -164,8 +164,13 @@ agent_build_kit/
 web/               the web UI `abk serve` shows (React, TypeScript, Tailwind; Vite builds it into
                    packages/orchestrator/src/agent_build_kit/serve/static, which is git-ignored and
                    ships in the orchestrator's wheel)
-tests/             mirrors src/ (tests/pipeline/test_<module>.py, tests/hooks/, ...); a module has one
-                   test file, and `placement_baseline.toml` (the files that predate that rule) may only shrink;
+packages/<package>/tests/
+                   the package's unit tests, mirroring its modules (pipeline/test_<module>.py, ...);
+                   a module has one test file, and `placement_baseline.toml` (the files that predate
+                   that rule) may only shrink
+tests/             e2e and integration tests, shared fixtures and helpers, cross-package checks, and
+                   the core's unit tests not yet moved to packages/core/tests/ (listed in
+                   `packages/core/core_tests_baseline.toml`, which may only shrink);
                    tests/integration/ holds what needs node or the network (marked `integration`); a test
                    that scans the whole repository is marked `integration` wherever it sits
 docs/              architecture, configuration, cli, toolchain-profiles, agent-runtimes, unit-graph,
@@ -175,9 +180,22 @@ docs/              architecture, configuration, cli, toolchain-profiles, agent-r
 
 ## Conventions
 
-- **Tests mirror the source layout.** A module's tests sit in the folder
-  matching its package path; only the folder has to match, not the file
-  name. Tests needing node or the network go under `tests/integration/`,
+- **One test file per module, at the mirror path in its package's tests.** The unit tests of a
+  module live in exactly one file, `test_<module>.py`, in `packages/<package>/tests/` at the path
+  that mirrors the module under `packages/<package>/src/agent_build_kit/`: a test of
+  `packages/core/src/agent_build_kit/pipeline/units.py` is
+  `packages/core/tests/pipeline/test_units.py` and nowhere else, and a new test file exists only for
+  a new source file. `tests/test_package_boundaries.py` enforces it, with
+  `placement_baseline.toml` listing the files that predate the rule. What stays in the root
+  `tests/`: e2e and integration tests (`tests/e2e/`, `tests/integration/`), since an end-to-end test
+  of several modules mirrors none; shared fixtures and helpers (`conftest.py`, `factories.py`,
+  `tests/support/`), imported as `tests.<module>`; and cross-package checks (package boundaries,
+  workspace layout, documents and whole-repository scans).
+- **The core's tests are moving into `packages/core/tests/`.** That folder is in `testpaths`, and a
+  new core test goes there. The core's tests not yet moved are still in the root `tests/`, matched
+  by the globs in `packages/core/core_tests_baseline.toml`, which may only shrink: a group that
+  moves some deletes their lines, and none adds one.
+- **Tests needing node or the network** go under `tests/integration/`,
   marked `integration` (excluded by default); so is a test that scans the whole repository,
   wherever it sits: the mark goes on the scan test itself, never on a file that also holds the
   check's `tmp_path` logic tests, and a whole-repository scan runs in CI's `integration` check and
