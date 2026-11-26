@@ -23,7 +23,7 @@ from agent_build_kit.pipeline.units import FAILED, MERGED
 from agent_build_kit.pipeline.work_graph import specification_text
 from tests.calibration_support import write_store
 from tests.conftest import make_installation
-from tests.factories import activate_with, new_unit, unit
+from tests.factories import activate_with, new_unit, unit, write_changes
 from tests.runtimes.stand_in import StandInRuntime
 from tests.tick_pass import isolate
 
@@ -119,8 +119,7 @@ class Replan:
         monkeypatch.setattr(runtimes, "active", lambda: self.runtime)
 
     def write(self, change: str, text: str) -> None:
-        (self.inst.changes_dir / change).mkdir(parents=True, exist_ok=True)
-        (self.inst.changes_dir / change / "tasks.md").write_text(text)
+        write_changes(self.inst.changes_dir, {change: text})
 
     @property
     def calls(self) -> int:

@@ -451,30 +451,11 @@ def write_given_up_plans(inst: Installation) -> None:
     )
 
 
-def write_changes(inst: Installation, tasks: dict[str, str]) -> None:
-    """Active changes: a folder under the changes folder with the given `tasks.md` text each."""
+def write_changes(changes_dir: Path, tasks: dict[str, str]) -> None:
+    """Active changes: a folder under `changes_dir` with the given `tasks.md` text each."""
     for name, text in tasks.items():
-        (inst.changes_dir / name).mkdir(parents=True, exist_ok=True)
-        (inst.changes_dir / name / "tasks.md").write_text(text)
-
-
-def group_text(*groups: tuple[int, str]) -> str:
-    """A `tasks.md` of groups, each `(number, extra lines such as a Needs: line)`."""
-    return "".join(
-        f"## {n}. [app] [unit-test] Group {n}\n\n{extra}\n- [ ] {n}.1 Test: it.\n\n"
-        for n, extra in groups
-    )
-
-
-def give_up_plan(inst: Installation, change: str, reason: str) -> None:
-    """A given-up plan record of the active `change`, for its current `tasks.md`."""
-    from agent_build_kit.cli import pipeline as cli
-
-    digest = cli.plan_digest(inst.changes_dir / change / "tasks.md")
-    cli.record_plans(
-        inst,
-        {change: {"ok": False, "attempts": 3, "reason": reason, "hash": digest, "sizing": ""}},
-    )
+        (changes_dir / name).mkdir(parents=True, exist_ok=True)
+        (changes_dir / name / "tasks.md").write_text(text)
 
 
 def which_all(name: str) -> str | None:

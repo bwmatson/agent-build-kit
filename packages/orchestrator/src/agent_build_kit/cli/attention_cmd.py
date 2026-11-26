@@ -187,7 +187,7 @@ def attention_items(
                 f"the living spec); it is tried again once they change: openspec validate {change}",
             )
         )
-    from agent_build_kit.cli.pipeline import _unmet_needs, given_up_plans
+    from agent_build_kit.cli.pipeline import given_up_plans, unmet_needs_of
 
     built = {
         (member.change, group)
@@ -196,7 +196,7 @@ def attention_items(
         for member in unit.members()
         for group in member.groups
     }
-    for need in _unmet_needs(inst):
+    for need in unmet_needs_of(inst, units):
         if (need.change, need.group) in built:
             continue
         waiting = [

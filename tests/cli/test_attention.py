@@ -13,11 +13,10 @@ from agent_build_kit.pipeline import plan_review
 from agent_build_kit.pipeline.plan_review import Finding, Review
 from agent_build_kit.pipeline.unit_store import Cause
 from agent_build_kit.pipeline.units import FAILED, MERGED, RUNNING
+from tests.cli.replan_driver import record_plan, tasks_md
 from tests.conftest import make_installation
 from tests.factories import (
     BIG_PLAN_REASON,
-    give_up_plan,
-    group_text,
     stored_unit,
     write_changes,
     write_given_up_plans,
@@ -154,15 +153,15 @@ def test_an_unmet_needs_line_is_listed_until_the_group_that_declares_it_is_built
 ) -> None:
     inst = make_installation(tmp_path, planning=dict(state_dir="."))
     write_changes(
-        inst,
+        inst.changes_dir,
         {
-            "feature": group_text((1, "Needs: base group 2 — why")),
-            "base": group_text((1, ""), (2, "")),
-            "early": group_text((1, "Needs: later group 1 — why")),
+            "feature": tasks_md(1, needs={1: "base group 2"}),
+            "base": tasks_md(2),
+            "early": tasks_md(1, needs={1: "later group 1"}),
         },
     )
     write_outline(inst, "later")
-    give_up_plan(inst, "base", "group 2 is too large")
+    record_plan(inst, "base", ok=False, attempts=3, reason="group 2 is too large")
     planned = stored_unit("feature/1", change="feature", groups=(1,))
 
     items = attention_items(inst, [planned], idle=set(), now=NOW)

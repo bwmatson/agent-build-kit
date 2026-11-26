@@ -10,19 +10,20 @@ import pytest
 from agent_build_kit import openspec, run_support
 from agent_build_kit.cli import pipeline as cli
 from agent_build_kit.installation import Installation
+from agent_build_kit.pipeline.unit_store import UnitStore
 from agent_build_kit.pipeline.units import UnitState
 from agent_build_kit.pipeline.vocabulary import WaitReason
+from tests.cli.replan_driver import record_plan, tasks_md
 from tests.cli.test_wait_reasons import workspace_with
 from tests.conftest import make_installation
 from tests.factories import (
     BIG_PLAN_REASON,
-    give_up_plan,
-    group_text,
     stored_unit,
     write_changes,
     write_given_up_plans,
     write_outline,
 )
+from tests.tick_pass import install_builder, isolate, tick, warm_unit_graphs, workspace
 
 
 def outline_lines(inst: Installation, capsys: pytest.CaptureFixture[str]) -> list[str]:
@@ -114,20 +115,19 @@ def test_tags_and_check_refuse_a_needs_line_on_an_outline_or_a_missing_target(
     assert not [line for line in tags_out + check_out if "done" in line]
 
 
-def test_a_planned_unit_whose_needs_target_has_no_unit_waits_blocked_and_a_met_one_is_ready(
-    tmp_path: Path,
-) -> None:
-    inst = workspace_with(tmp_path, {}, {})
+def write_needs_scenario(inst: Installation) -> UnitStore:
+    """`feature/1` needs a group of `base` whose planning gave up, so no unit covers it;
+    `other/1` needs an archived change's group. Both are planned."""
     write_changes(
-        inst,
+        inst.changes_dir,
         {
-            "feature": group_text((1, "Needs: base group 2 — why")),
-            "base": group_text((1, ""), (2, "")),
-            "other": group_text((1, "Needs: done group 1 — why")),
+            "feature": tasks_md(1, needs={1: "base group 2"}),
+            "base": tasks_md(2),
+            "other": tasks_md(1, needs={1: "done group 1"}),
         },
     )
     (inst.changes_dir / "archive" / "2026-11-01-done").mkdir(parents=True)
-    give_up_plan(inst, "base", "group 2 is too large")
+    record_plan(inst, "base", ok=False, attempts=3, reason="group 2 is too large")
     store = run_support.store_for(inst)
     store.upsert(
         [
@@ -135,6 +135,29 @@ def test_a_planned_unit_whose_needs_target_has_no_unit_waits_blocked_and_a_met_o
             stored_unit("other/1", change="other", groups=(1,)),
         ]
     )
+    return store
+
+
+@pytest.mark.usefixtures("scripted_engine")
+def test_a_tick_starts_the_unit_whose_needs_target_is_met_and_not_the_one_whose_is_not(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    warm_unit_graphs(tmp_path)
+    isolate(monkeypatch)
+    builder = install_builder(tmp_path, monkeypatch)
+    inst = workspace(tmp_path)
+    write_needs_scenario(inst)
+
+    assert tick(inst) == 0
+
+    assert builder.started == ["other/1"]
+
+
+def test_a_planned_unit_whose_needs_target_has_no_unit_waits_blocked_and_a_met_one_is_ready(
+    tmp_path: Path,
+) -> None:
+    inst = workspace_with(tmp_path, {}, {})
+    store = write_needs_scenario(inst)
 
     waits = cli.wait_reasons(inst, store.all(), started=set(), building=set(), only=frozenset())
 

@@ -8,24 +8,22 @@ import pytest
 
 from agent_build_kit.pipeline.units import Member, UnitState
 from tests.cli.replan_driver import tasks_md
-from tests.factories import stored_unit
+from tests.factories import stored_unit, write_changes
 
 NO_UNITS: tuple = ()
 
 
 def write_change(changes: Path, folder: str, text: str | None) -> Path:
-    (changes / folder).mkdir(parents=True, exist_ok=True)
-    path = changes / folder / "tasks.md"
     if text is None:
+        (changes / folder).mkdir(parents=True, exist_ok=True)
         (changes / folder / "proposal.md").write_text("# proposal\n")
     else:
-        path.write_text(text)
-    return path
+        write_changes(changes, {folder: text})
+    return changes / folder / "tasks.md"
 
 
 def feature_needing(changes: Path, line: str) -> Path:
-    text = tasks_md(1).replace("- [ ] 1.1", f"Needs: {line} — a reason\n\n- [ ] 1.1", 1)
-    return write_change(changes, "feature", text)
+    return write_change(changes, "feature", tasks_md(1, needs={1: line}))
 
 
 def joined_unit():
