@@ -546,9 +546,13 @@ def test_plan_review_concurrency_accepts_one_and_refuses_below_one_naming_the_se
         == 1
     )
 
-    with pytest.raises(ValidationError) as refused:
+    raised: ValidationError | None = None
+    try:
         WorkspaceConfig(planning={"plan_review_concurrency": value})
+    except ValidationError as error:
+        raised = error
 
+    assert raised is not None, "a value below 1 is accepted"
     # the bound's own message, not the schema's refusal of an unknown key
-    assert "plan_review_concurrency" in str(refused.value)
-    assert "greater than or equal to 1" in str(refused.value)
+    assert "plan_review_concurrency" in str(raised)
+    assert "greater than or equal to 1" in str(raised)
