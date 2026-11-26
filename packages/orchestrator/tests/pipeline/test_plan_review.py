@@ -626,7 +626,7 @@ def test_a_chain_over_the_budget_lists_the_nearest_cuts_long_changes_and_names_t
     review: Review, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setattr(plan_review, "CHAIN_CHANGE_LIMIT", 2)
-    monkeypatch.setattr(plan_review, "CHAIN_BUDGET", 400)
+    monkeypatch.setattr(plan_review, "CHAIN_BUDGET", 300)
     long_paths = tuple(f"packages/core/tests/pipeline/test_long_{n}.py" for n in range(7))
     names = ("aa-big", "bb-mid", "cc-mid", "zz-last")
     review.add_neighbour("aa-big", "Big title", tests=long_paths)

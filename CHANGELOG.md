@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- The plan review now lists the changes in a change's `Needs:` chain, with their titles and the
+  test and support paths their tasks name, so a path convention that differs from the chain's is
+  flagged instead of drifting. The listing is context only: editing a neighbouring change does
+  not ask for a new review.
+
 - The `abk-authoring` skill now carries the rules every task follows (check paths against the
   default branch, edit every check of the old behaviour in the same group, a `Test:` task that the
   red check accepts, test edits only in the `test:` commit, test tiers, a mode for a no-test

@@ -45,6 +45,7 @@ from agent_build_kit.pipeline.unit_store import StoredUnit
 from agent_build_kit.pipeline.units import BUILDS_NOTHING, FINISHED_STATES, IN_REVIEW, MERGED
 from agent_build_kit.pipeline.vocabulary import OverheadNode
 from agent_build_kit.pipeline.work_graph import (
+    group_needs,
     specification_text,
     validate_tasks,
     validate_tasks_text,
@@ -101,6 +102,13 @@ against the order units happen to be listed elsewhere.
 
 Files the tasks name, as they stand on each repo's default branch:
 {repository}
+
+Changes in this change's `Needs:` chain (the changes it names in `Needs:` lines and the changes
+that name it, followed through each other), nearest first, with the test and support paths their
+tasks name. A path whose convention (the folder tests live in, how files are named) differs from
+the chain's is a finding on the group that names it: a blocker when a unit would end red,
+otherwise advice, and its fix names the chain's convention. Never invent a second convention.
+{chain}
 
 Artifacts:
 {artifacts}
@@ -394,6 +402,99 @@ def _repo_checkouts(inst: Installation, tasks: Path) -> list[tuple[str, Path, st
     return list(found.values())
 
 
+def _needed(path: Path) -> set[str]:
+    """The changes the groups of the tasks file at `path` name in `Needs:` lines."""
+    try:
+        return {need.change for needs in group_needs(path).values() for need in needs}
+    except OSError:
+        return set()
+
+
+def _is_test_path(name: str) -> bool:
+    parts = name.split("/")
+    base = parts[-1]
+    return (
+        any(part in ("tests", "test") for part in parts[:-1])
+        or base.startswith("test_")
+        or re.search(r"_test\.\w+$|\.(test|spec)\.\w+$", base) is not None
+    )
+
+
+def _is_support_path(name: str) -> bool:
+    parts = name.split("/")
+    return "fixtures" in parts[:-1] or parts[-1] == "conftest.py"
+
+
+def _chain_paths(text: str) -> list[str]:
+    """The test and support paths a tasks file names, once each, each with its group's repo."""
+    found: list[str] = []
+    repo = ""
+    for line in text.splitlines():
+        if heading := re.match(r"##\s+\d+\.\s+\[([^\]]+)\]", line):
+            repo = heading.group(1)
+        on_support = line.strip().startswith("Support:")
+        for name in _path_names((line,)):
+            if on_support or _is_test_path(name) or _is_support_path(name):
+                found.append(f"{repo}:{name}")
+    return list(dict.fromkeys(found))
+
+
+def _distances(start: str, edges: Mapping[str, set[str]]) -> dict[str, int]:
+    """Steps from `start` to each change reachable along `edges`."""
+    seen: dict[str, int] = {}
+    frontier = [start]
+    steps = 0
+    while frontier:
+        steps += 1
+        following: list[str] = []
+        for name in frontier:
+            for other in sorted(edges.get(name, ())):
+                if other != start and other not in seen:
+                    seen[other] = steps
+                    following.append(other)
+        frontier = following
+    return seen
+
+
+def chain_listing(inst: Installation, tasks: Path) -> str:
+    """The changes in the `Needs:` chain of the change whose tasks file is `tasks`, nearest first
+    then by name, each with its title and its test and support paths, cut to `CHAIN_BUDGET` (and
+    `CHAIN_CHANGE_LIMIT` paths a change); the changes left out are named. Empty without a chain."""
+    me = tasks.parent.name
+    files = {path.parent.name: path for path in inst.tasks_files()}
+    named = {name: _needed(path) & files.keys() - {name} for name, path in files.items()}
+    named_by: dict[str, set[str]] = {}
+    for name, others in named.items():
+        for other in others:
+            named_by.setdefault(other, set()).add(name)
+    nearest: dict[str, int] = {}
+    for edges in (named, named_by):
+        for name, steps in _distances(me, edges).items():
+            nearest[name] = min(steps, nearest.get(name, steps))
+    left = CHAIN_BUDGET
+    shown: list[str] = []
+    skipped: list[str] = []
+    for name in sorted(nearest, key=lambda n: (nearest[n], n)):
+        try:
+            text = files[name].read_text()
+        except OSError:
+            continue
+        title = next((ln[2:].strip() for ln in text.splitlines() if ln.startswith("# ")), "")
+        paths = _chain_paths(text)
+        lines = [f"### {name} — {title}", *(f"- {p}" for p in paths[:CHAIN_CHANGE_LIMIT])]
+        if len(paths) > CHAIN_CHANGE_LIMIT:
+            lines.append(f"- (and {len(paths) - CHAIN_CHANGE_LIMIT} more)")
+        entry = "\n".join(lines)
+        if skipped or len(entry.encode()) > left:
+            skipped.append(name)
+            continue
+        left -= len(entry.encode()) + 1
+        shown.append(entry)
+    if skipped:
+        shown.append(f"not listed, over the size limit: {', '.join(skipped)}")
+    return "\n".join(shown)
+
+
 def _unit_line(unit: StoredUnit) -> str:
     groups = ", ".join(
         f"{member.change} group {number}" for member in unit.members() for number in member.groups
@@ -466,6 +567,7 @@ def build_prompt(
     *,
     question: int = 1,
     repos: Sequence[tuple[str, Path, str]] = (),
+    chain: str = "",
 ) -> str:
     """The request for one question: the question, the repos to read, the artifacts, the units
     and the mechanical checks' report."""
@@ -480,6 +582,7 @@ def build_prompt(
         report="\n".join(report) or "(nothing)",
         units="\n".join(_unit_line(unit) for unit in units),
         repository=repository or "(none)",
+        chain=chain or "(none)",
         artifacts=_artifacts(folder),
     )
 
@@ -583,11 +686,14 @@ async def _pass(
     report: Sequence[str],
     view: str,
     repos: Sequence[tuple[str, Path, str]],
+    chain: str,
     say: Callable[[str], None],
 ) -> tuple[Finding, ...] | PlannerError | None:
     """One question's pass: its findings, the `PlannerError` it ended in, or None when it was
     stopped."""
-    prompt = build_prompt(change, tasks.parent, mine, report, view, question=number, repos=repos)
+    prompt = build_prompt(
+        change, tasks.parent, mine, report, view, question=number, repos=repos, chain=chain
+    )
     try:
         answer = await gate.call(
             lambda: ask_reviewer(
@@ -622,6 +728,7 @@ async def _review_once(
     order, or the error of the lowest-numbered pass that failed. None when a call was stopped."""
     repos = _repo_checkouts(inst, tasks)
     view = repository_view(inst, tasks)
+    chain = chain_listing(inst, tasks)
     async with asyncio.TaskGroup() as group:
         passes = [
             group.create_task(
@@ -635,6 +742,7 @@ async def _review_once(
                     report=report,
                     view=view,
                     repos=repos,
+                    chain=chain,
                     say=say,
                 )
             )
