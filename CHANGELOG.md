@@ -9,6 +9,12 @@
   `placement_baseline.toml`. A `testing/` folder no longer marks a test path, and a `test/`
   folder does everywhere.
 
+- A pull request whose draft state a refused write left wrong now heals. Each poll records
+  whether the host lists a pull request as a draft (a change of draft state is not an event),
+  and after each repo's poll the draft or ready state its unit calls for is written onto any
+  pull request read otherwise, at most `label_sweep_per_tick` per poll, lowest number first.
+  A refused write is logged once and tried again at the next poll.
+
 - A unit's group commits now carry a `Group: <change>/<number>` trailer beside `Unit:`, and
   the build matches a commit to its group by that number. A group whose heading was edited
   after its commits were made is no longer reported as missing its pair: the build says in

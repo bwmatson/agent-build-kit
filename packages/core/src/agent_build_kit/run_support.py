@@ -4,6 +4,7 @@ the event handlers' wiring and the start decision."""
 from __future__ import annotations
 
 import asyncio
+import weakref
 from collections.abc import (
     Callable,
     Sequence,
@@ -143,6 +144,17 @@ def log(message: str, *, at: str | None = None) -> None:
     print(f"[{at or stamp()}] {redact_text(message, where='printed output')}", flush=True)
 
 
+_DRAFTS: weakref.WeakKeyDictionary[Installation, StateDrafts] = weakref.WeakKeyDictionary()
+
+
+def drafts_for(inst: Installation) -> StateDrafts:
+    """The installation's one `StateDrafts` for the process, so the store's hook and the poll's
+    reconcile share what has already been logged."""
+    if inst not in _DRAFTS:
+        _DRAFTS[inst] = StateDrafts(inst.forge_of, log=log)
+    return _DRAFTS[inst]
+
+
 def project_source_notes(inst: Installation, units: Sequence[StoredUnit]) -> dict[str, str]:
     """For each unit whose project a group's resolution or `[repo/<root>]` set, by unit id, the
     note saying so (`project_source_note`): the source of the unit's first group. Empty when no
@@ -192,7 +204,7 @@ def store_for(inst: Installation) -> UnitStore:
 
     limits = inst.config.global_limits
     labels = StateLabels(inst.forge_of, log=log)
-    drafts = StateDrafts(inst.forge_of, log=log)
+    drafts = drafts_for(inst)
 
     def follow(unit: StoredUnit, units: list[StoredUnit], opened: bool) -> None:
         labels.follow(

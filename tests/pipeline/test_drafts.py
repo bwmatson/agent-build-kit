@@ -4,12 +4,13 @@ The forge is the stand-in, which logs each draft call and keeps each pull
 request's state. Drafts are cosmetic: no failure of one is a unit's problem.
 """
 
+from collections.abc import Callable
 from pathlib import Path
 
 import pytest
 
 from agent_build_kit.pipeline.drafts import StateDrafts
-from agent_build_kit.pipeline.unit_store import Cause, UnitStore
+from agent_build_kit.pipeline.unit_store import Cause, StoredUnit, UnitStore
 from agent_build_kit.pipeline.units import (
     CLOSED,
     FAILED,
@@ -26,6 +27,7 @@ from tests.forges.stand_in import StandInForge, lookup
 
 PR = 7
 UID = "add-marker/1"
+REPOS = ["app", "platform"]
 
 
 class NoDraftsForge(StandInForge):
@@ -226,3 +228,199 @@ def test_a_host_with_no_drafts_is_logged_when_a_unit_goes_back_to_planned(
     assert len(logged) == 1, logged
     assert "no drafts" in logged[0]
     assert store.get(UID).state == PLANNED
+
+
+class RefusingForge(StandInForge):
+    """A host that refuses the next `refusals` draft changes and then accepts them."""
+
+    def __init__(self, refusals: int) -> None:
+        super().__init__()
+        self.refusals = refusals
+
+    def set_draft(self, repo, pr: int, draft: bool) -> None:
+        if self.refusals:
+            self.refusals -= 1
+            raise RuntimeError("the stand-in host refuses this change")
+        super().set_draft(repo, pr, draft)
+
+
+def recorded_as(states: dict[tuple[str, int], bool]) -> Callable[[str, int], bool | None]:
+    """The poll's record of each pull request's draft state; none for one it did not list."""
+    return lambda repo, pr: states.get((repo, pr))
+
+
+@pytest.mark.parametrize(
+    ("state", "draft", "expected"),
+    [
+        (RUNNING, False, [("draft", PR)]),
+        (PLANNED, False, [("draft", PR)]),
+        (IN_REVIEW, True, [("ready", PR)]),
+        (RUNNING, True, []),
+        (PLANNED, True, []),
+        (IN_REVIEW, False, []),
+        (RUNNING, None, []),
+        (PLANNED, None, []),
+        (IN_REVIEW, None, []),
+        (HELD, True, []),
+        (HELD, False, []),
+        (FAILED, True, []),
+        (FAILED, False, []),
+        (MERGED, True, []),
+        (MERGED, False, []),
+        (CLOSED, True, []),
+        (CLOSED, False, []),
+        (SATISFIED, True, []),
+        (SATISFIED, False, []),
+    ],
+)
+def test_the_reconcile_writes_only_a_pull_request_whose_recorded_state_differs(
+    state: UnitState,
+    draft: bool | None,
+    expected: list[tuple[str, int]],
+    forge: StandInForge,
+    logged: list[str],
+) -> None:
+    drafts = StateDrafts(lookup(forge), log=logged.append)
+    recorded = {} if draft is None else {("app", PR): draft}
+
+    drafts.reconcile(
+        [unit(UID, state=state, pr=PR)], recorded_as(recorded), limit=20, repo_order=REPOS
+    )
+
+    assert draft_calls(forge) == expected
+    assert logged == []
+
+
+def test_the_reconcile_leaves_a_unit_with_no_pull_request_alone(
+    forge: StandInForge, logged: list[str]
+) -> None:
+    drafts = StateDrafts(lookup(forge), log=logged.append)
+
+    drafts.reconcile(
+        [unit(UID, state=RUNNING, pr=None)],
+        recorded_as({("app", PR): False}),
+        limit=20,
+        repo_order=REPOS,
+    )
+
+    assert forge.calls == []
+
+
+def test_a_refused_write_is_logged_once_per_state_wanted_and_retried_at_each_poll() -> None:
+    forge = RefusingForge(refusals=2)
+    logged: list[str] = []
+    drafts = StateDrafts(lookup(forge), log=logged.append)
+    units = [unit(UID, state=IN_REVIEW, pr=PR)]
+    recorded = recorded_as({("app", PR): True})
+
+    drafts.reconcile(units, recorded, limit=20, repo_order=REPOS)
+    drafts.reconcile(units, recorded, limit=20, repo_order=REPOS)
+
+    assert len(logged) == 1, logged
+    assert f"#{PR}" in logged[0]
+    assert "draft=False" in logged[0]
+    assert forge.calls == []
+
+    drafts.reconcile(units, recorded, limit=20, repo_order=REPOS)
+
+    assert draft_calls(forge) == [("ready", PR)]
+    assert forge.is_draft[PR] is False
+    assert len(logged) == 1, logged
+
+    forge.refusals = 1
+    drafts.reconcile(units, recorded, limit=20, repo_order=REPOS)
+
+    assert len(logged) == 2, logged
+    assert f"#{PR}" in logged[1]
+
+
+def test_the_reconcile_writes_the_limit_lowest_numbers_first_and_the_rest_next_time(
+    forge: StandInForge, logged: list[str]
+) -> None:
+    drafts = StateDrafts(lookup(forge), log=logged.append)
+    numbers = {"app": (5, 3), "platform": (4, 2)}
+    units = [
+        unit(f"{repo}-change/{pr}", repo=repo, state=RUNNING, pr=pr)
+        for repo, prs in numbers.items()
+        for pr in prs
+    ]
+
+    def recorded(repo: str, pr: int) -> bool | None:
+        """What the next poll would read: ready until the forge was asked for a draft."""
+        return forge.is_draft.get(pr, False)
+
+    drafts.reconcile(units, recorded, limit=3, repo_order=REPOS)
+
+    assert draft_calls(forge) == [("draft", 3), ("draft", 5), ("draft", 2)]
+
+    drafts.reconcile(units, recorded, limit=3, repo_order=REPOS)
+
+    assert draft_calls(forge)[3:] == [("draft", 4)]
+
+
+def test_a_host_with_no_drafts_is_logged_once_over_two_reconciles(logged: list[str]) -> None:
+    drafts = StateDrafts(lookup(NoDraftsForge()), log=logged.append)
+    units: list[StoredUnit] = [unit(UID, state=RUNNING, pr=PR)]
+    recorded = recorded_as({("app", PR): False})
+
+    drafts.reconcile(units, recorded, limit=20, repo_order=REPOS)
+    drafts.reconcile(units, recorded, limit=20, repo_order=REPOS)
+
+    assert len(logged) == 1, logged
+    assert "no drafts" in logged[0]
+    assert units[0].state == RUNNING
+
+
+def test_a_repo_on_a_host_with_no_drafts_does_not_stop_the_reconcile_of_another(
+    forge: StandInForge, logged: list[str]
+) -> None:
+    hosts = {"platform": NoDraftsForge(), "app": forge}
+
+    def for_repo(repo: str):
+        return hosts[repo], forge.repo_id()
+
+    drafts = StateDrafts(for_repo, log=logged.append)
+    units = [
+        unit("platform-change/1", repo="platform", state=RUNNING, pr=2),
+        unit("platform-change/2", repo="platform", state=RUNNING, pr=3),
+        unit("app-change/1", repo="app", state=RUNNING, pr=5),
+        unit("app-change/2", repo="app", state=RUNNING, pr=6),
+    ]
+    recorded = recorded_as(
+        {("platform", 2): False, ("platform", 3): False} | {("app", 5): False, ("app", 6): False}
+    )
+
+    drafts.reconcile(units, recorded, limit=20, repo_order=["platform", "app"])
+    drafts.reconcile(units, recorded, limit=20, repo_order=["platform", "app"])
+
+    assert draft_calls(forge) == [("draft", 5), ("draft", 6)] * 2
+    assert len(logged) == 1, logged
+    assert "no drafts" in logged[0]
+
+
+def test_the_reconcile_takes_repos_in_the_order_it_is_given(
+    forge: StandInForge, logged: list[str]
+) -> None:
+    drafts = StateDrafts(lookup(forge), log=logged.append)
+    units = [
+        unit("app-change/1", repo="app", state=RUNNING, pr=2),
+        unit("platform-change/1", repo="platform", state=RUNNING, pr=9),
+    ]
+    recorded = recorded_as({("app", 2): False, ("platform", 9): False})
+
+    drafts.reconcile(units, recorded, limit=1, repo_order=["platform", "app"])
+
+    assert draft_calls(forge) == [("draft", 9)]
+
+
+def test_the_reconcile_logs_how_many_are_left_when_the_limit_is_reached(
+    forge: StandInForge, logged: list[str]
+) -> None:
+    drafts = StateDrafts(lookup(forge), log=logged.append)
+    units = [unit(f"add-marker/{n}", state=RUNNING, pr=n) for n in (1, 2, 3)]
+    recorded = recorded_as({("app", n): False for n in (1, 2, 3)})
+
+    drafts.reconcile(units, recorded, limit=2, repo_order=REPOS)
+
+    assert len(logged) == 1, logged
+    assert "1 more" in logged[0]

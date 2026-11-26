@@ -194,6 +194,8 @@ def snapshot(pull: PullRequest, ignore: Collection[str] = ()) -> dict:
         "head": pull.head,
         # True, False, or None while the host has not worked it out.
         "mergeable": pull.mergeable,
+        # Whether the host lists it as a draft.
+        "draft": pull.draft,
     }
 
 
@@ -205,6 +207,7 @@ def host_view(current: dict) -> dict:
         "mergeable": current["mergeable"],
         "checks": dict(current["checks"]),
         "labels": list(current["labels"]),
+        "draft": current["draft"],
     }
 
 
@@ -606,6 +609,22 @@ class Poller(BaseModel):
                 "rework", number, pull=pull, reason=CONFLICT_REASON, rework=ReworkKind.CONFLICT
             )
         return None
+
+
+def recorded_drafts(state_dir: Path) -> Callable[[str, int], bool | None]:
+    """A lookup of whether a pull request was a draft when the last poll of its repo read it,
+    by repo and number: None for one the poll has not recorded or recorded without the field."""
+    loaded: dict[str, dict] = {}
+
+    def draft_of(repo: str, pr: int) -> bool | None:
+        if repo not in loaded:
+            # The file is per repo; its section is keyed by the host's slug, not the repo name.
+            loaded[repo] = PrState.host(state_path(state_dir, repo))
+        seen = loaded[repo].get(str(pr))
+        draft = seen.get("draft") if isinstance(seen, dict) else None
+        return draft if isinstance(draft, bool) else None
+
+    return draft_of
 
 
 def recorded_checks(state_dir: Path) -> ChecksOf:

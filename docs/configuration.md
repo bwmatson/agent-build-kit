@@ -388,7 +388,8 @@ global_limits:
                                 # one test costs one run
   label_sweep_per_tick: 20      # finished units' pull requests whose stale state
                                 # label a round takes off (each tick and each
-                                # refresh of a pass), at least 1
+                                # refresh of a pass), at least 1; also bounds the
+                                # draft writes made after each poll
   manual_check_seconds: 30      # seconds a manual step's check script may run, at
                                 # least 1
   min_unit_lines: 400           # estimated changed lines before the planner

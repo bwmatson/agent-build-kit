@@ -1284,7 +1284,11 @@ the same.
 
 A pull request is also a **draft** while its unit is `running` or `planned` and
 published when it is `in_review`, written from the same state-change hook; other
-states leave it alone, and a refused write is logged without touching the unit.
+states leave it alone, and a refused write is logged without touching the unit. The draft is
+also reconciled against the unit's state after each repo's poll, from the draft state the poll
+recorded: only a mismatch is written, at most `global_limits.label_sweep_per_tick` per poll, lowest
+number first, so a pull request a person made draft or ready is put back and a lost write is
+retried at the next poll.
 
 A stored `running` unit is shown as `rebasing` (its last event was a conflict or
 a moved base) or `reworking` (it is answering review or check feedback), or `paused` (a
