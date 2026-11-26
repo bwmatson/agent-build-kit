@@ -857,10 +857,14 @@ class UnitStore:
         that is not a change to a unit."""
         return file_lock(self.path.with_name(f"{self.path.name}.lock"))
 
-    def _read(self) -> dict[str, StoredUnit]:
+    def _read(self, *, locked: bool = True) -> dict[str, StoredUnit]:
+        """Every stored unit. Over a store, a read made under the lock (`locked`, the default:
+        every change reads this way) records the versions it saw for the write that follows;
+        `all` and `get` read without the lock and leave them alone."""
         if self.store is not None:
             rows = run_store(self.store.list())
-            self._seen = {row.id: row.version for row in rows}
+            if locked:
+                self._seen = {row.id: row.version for row in rows}
             return {row.id: StoredUnit.model_validate(row.body) for row in rows}
         if not self.path.exists():
             return {}
@@ -888,8 +892,10 @@ class UnitStore:
         return stored
 
     def _write_to_store(self, store: UnitsStore, stored: dict[str, StoredUnit]) -> None:
-        """Write the units that differ from what `_read` saw. Nothing is written when any of
-        them has moved in the store since: `VersionConflict` then names their ids."""
+        """Write the units that differ from what `_read` saw. When any of them has moved in the
+        store since, `VersionConflict` names their ids and nothing is written. A unit that moves
+        after that check makes `put_if` fail: the conflict then names that unit, and the units
+        written before it in the same call stay written."""
         if vanished := [uid for uid in self._seen if uid not in stored]:
             raise NotImplementedError(f"the units store cannot delete units yet: {vanished}")
         records = {uid: _record(unit) for uid, unit in stored.items()}
@@ -903,7 +909,10 @@ class UnitStore:
         if moved:
             raise units_store.VersionConflict(moved)
         for uid in changed:
-            run_store(store.put_if(uid, records[uid], self._seen.get(uid, 0)))
+            try:
+                run_store(store.put_if(uid, records[uid], self._seen.get(uid, 0)))
+            except units_store.VersionConflict as error:
+                raise units_store.VersionConflict([uid]) from error
 
     def _write(self, stored: dict[str, StoredUnit]) -> None:
         if self.store is not None:
@@ -924,10 +933,10 @@ class UnitStore:
             self.on_write(list(stored.values()))
 
     def all(self) -> list[StoredUnit]:
-        return list(self._read().values())
+        return list(self._read(locked=False).values())
 
     def get(self, unit_id: str) -> StoredUnit:
-        return self._read()[unit_id]
+        return self._read(locked=False)[unit_id]
 
     def history(self, unit_id: str) -> list[dict]:
         return list(self.get(unit_id).history)

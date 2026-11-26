@@ -12,12 +12,14 @@ the last process wrote" the property that matters most here.
 
 import asyncio
 import json
+from collections.abc import Awaitable, Callable
 from pathlib import Path
 from typing import Any
 
 import pytest
 
 from agent_build_kit.orchestration.stand_in import InMemoryUnitsStore
+from agent_build_kit.orchestration.store import VersionConflict
 from agent_build_kit.pipeline.unit_store import (
     REQUEUE_BY,
     RETRY_BY,
@@ -494,21 +496,64 @@ def backing_ids(backing: InMemoryUnitsStore) -> list[str]:
 
 
 class RacingStore(InMemoryUnitsStore):
-    """A stand-in on which another writer changes a unit just after the first listing."""
+    """A stand-in on which another writer changes a unit just after the first listing made once
+    `arm` has been called, and which answers that listing as it was before the change."""
 
     def __init__(self, racer: str) -> None:
         super().__init__()
         self.racer = racer
+        self.armed = False
         self.raced = False
+
+    def arm(self) -> None:
+        self.armed = True
 
     async def list(self):  # noqa: ANN201
         listed = await super().list()
-        current = await self.get(self.racer)
-        if not self.raced and current is not None:
+        if self.armed and not self.raced:
             self.raced = True
-            body: dict[str, Any] = {**current.body, "estimated_lines": 777}
-            await self.put_if(self.racer, body, current.version)
+            await self.change_racer()
         return listed
+
+    async def change_racer(self) -> None:
+        current = await self.get(self.racer)
+        assert current is not None
+        body: dict[str, Any] = {**current.body, "estimated_lines": 777}
+        await InMemoryUnitsStore.put_if(self, self.racer, body, current.version)
+
+
+class LateRacingStore(RacingStore):
+    """A stand-in on which the racer changes between the write's check and its `put_if`: every
+    listing is true, and the writer's `put_if` for the racer finds it already moved."""
+
+    async def list(self):  # noqa: ANN201
+        return await InMemoryUnitsStore.list(self)
+
+    async def put_if(self, unit_id, body, version, fence=None):  # noqa: ANN001, ANN201
+        if self.armed and unit_id == self.racer and not self.raced:
+            self.raced = True
+            await self.change_racer()
+        return await super().put_if(unit_id, body, version, fence)
+
+
+class MidWriteStore(InMemoryUnitsStore):
+    """A stand-in that runs `hook` at the start of the second listing after `arm`: between a
+    change's read and its write."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.listings = 0
+        self.hook: Callable[[], Awaitable[None]] | None = None
+
+    def arm(self, hook: Callable[[], Awaitable[None]]) -> None:
+        self.listings = 0
+        self.hook = hook
+
+    async def list(self):  # noqa: ANN201
+        self.listings += 1
+        if self.hook is not None and self.listings == 2:
+            await self.hook()
+        return await super().list()
 
 
 def test_units_upserted_over_the_store_are_read_back_by_get_and_all(tmp_path: Path) -> None:
@@ -577,6 +622,7 @@ def test_replace_if_unchanged_over_the_store_writes_nothing_when_one_unit_moved(
         "feature/1": base["feature/1"].model_copy(update={"estimated_lines": 99}),
         "other/1": base["other/1"].model_copy(update={"estimated_lines": 55}),
     }
+    backing.arm()
 
     moved = store.replace_if_unchanged(base, after)
 
@@ -584,6 +630,50 @@ def test_replace_if_unchanged_over_the_store_writes_nothing_when_one_unit_moved(
     assert moved == ["other/1"]
     assert store.get("feature/1") == base["feature/1"]
     assert store.get("other/1").estimated_lines == 777
+
+
+def test_replace_if_unchanged_over_the_store_names_a_unit_that_moves_during_the_write(
+    tmp_path: Path,
+) -> None:
+    backing = LateRacingStore("other/1")
+    store = UnitStore(tmp_path / "units.json", store=backing)
+    seed_two_changes(store)
+    base = {u.id: u for u in store.all()}
+    after = {
+        **base,
+        "feature/1": base["feature/1"].model_copy(update={"estimated_lines": 99}),
+        "other/1": base["other/1"].model_copy(update={"estimated_lines": 55}),
+    }
+    backing.arm()
+
+    moved = store.replace_if_unchanged(base, after)
+
+    assert backing.raced
+    assert moved == ["other/1"]
+    assert store.get("other/1").estimated_lines == 777
+
+
+def test_a_read_without_the_lock_does_not_hide_a_write_made_by_another_host(
+    tmp_path: Path,
+) -> None:
+    backing = MidWriteStore()
+    store = UnitStore(tmp_path / "units.json", store=backing)
+    seed_two_changes(store)
+
+    async def another_host_writes_then_this_one_reads() -> None:
+        current = await backing.get("feature/1")
+        assert current is not None
+        body: dict[str, Any] = {**current.body, "estimated_lines": 777}
+        await backing.put_if("feature/1", body, current.version)
+        await asyncio.to_thread(store.get, "feature/1")
+
+    backing.arm(another_host_writes_then_this_one_reads)
+
+    with pytest.raises(VersionConflict):
+        store.set_state("feature/1", RUNNING, branch="spec/feature/1")
+
+    assert store.get("feature/1").estimated_lines == 777
+    assert store.get("feature/1").state != RUNNING
 
 
 def test_with_no_store_the_file_is_the_store_and_a_given_store_replaces_it(tmp_path: Path) -> None:

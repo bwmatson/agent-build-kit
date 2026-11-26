@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import inspect
 import threading
 
 import pytest
@@ -40,11 +41,9 @@ def test_run_store_runs_a_coroutine_from_a_thread_with_no_loop() -> None:
 def test_run_store_raises_when_called_inside_a_running_loop() -> None:
     async def inside() -> None:
         coro = answer(1)
-        try:
-            with pytest.raises(RuntimeError) as raised:
-                run_store(coro)
-            assert not isinstance(raised.value, NotImplementedError)
-        finally:
-            coro.close()
+        with pytest.raises(RuntimeError, match="running event loop"):
+            run_store(coro)
+        # Closed by `run_store`, which refused it.
+        assert inspect.getcoroutinestate(coro) == inspect.CORO_CLOSED  # type: ignore[arg-type]
 
     asyncio.run(inside())
