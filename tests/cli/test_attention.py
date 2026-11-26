@@ -14,7 +14,7 @@ from agent_build_kit.pipeline.plan_review import Finding, Review
 from agent_build_kit.pipeline.unit_store import Cause
 from agent_build_kit.pipeline.units import FAILED, RUNNING
 from tests.conftest import make_installation
-from tests.factories import stored_unit, write_outline
+from tests.factories import BIG_PLAN_REASON, stored_unit, write_given_up_plans, write_outline
 
 NOW = datetime(2026, 11, 23, 12, 0, tzinfo=UTC)
 
@@ -126,3 +126,16 @@ def test_an_outline_ready_to_detail_is_listed_with_the_command_that_reads_it(
     assert len(ready) == 1
     assert "abk outlines" in ready[0].action
     assert not [i for i in items if "far" in i.subject or "far" in i.what]
+
+
+def test_a_given_up_plan_of_an_active_change_is_listed_with_the_fix(tmp_path: Path) -> None:
+    inst = make_installation(tmp_path, planning=dict(state_dir="."))
+    write_given_up_plans(inst)
+
+    items = attention_items(inst, [], idle=set(), now=NOW)
+
+    assert len(items) == 1
+    assert items[0].subject == "big"
+    assert BIG_PLAN_REASON in items[0].what
+    assert "tasks.md" in items[0].action
+    assert "abk replan big" in items[0].action
