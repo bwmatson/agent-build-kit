@@ -45,9 +45,9 @@ class IdProfile(ModeProfile):
         self.asked: list[tuple[list[str], list[str] | None]] = []
 
     def interpret_red(
-        self, output: str, exit_code: int, *, stubbed: bool = False
+        self, output: str, exit_code: int, *, stubbed: bool = False, rules: Any = None
     ) -> tuple[bool, list[str]]:
-        return PYTHON.interpret_red(output, exit_code, stubbed=stubbed)
+        return PYTHON.interpret_red(output, exit_code, stubbed=stubbed, rules=rules)
 
     def red_command(self, files: list[str], ids: list[str] | None = None, **options: Any) -> str:
         self.asked.append((files, ids))

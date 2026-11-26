@@ -620,6 +620,18 @@ release could move. The steps:
    not run it. The unit's recorded red result is the check's own, or skipped when it never ran,
    and the pull request says the tests were seen to fail first only for a check that ran.
 
+   Each selected test is judged by a rule read from the same comparison of old and new source
+   that selects it. A new test, and an existing test whose change adds or alters an assertion,
+   must fail in at least one of its cases; a renamed test, a test changed only in setup,
+   arguments or names (or by removing an assertion), and a test of a file run whole because only
+   a helper in it changed, may pass. An assertion is an `assert` statement, a `pytest.raises` or
+   `pytest.warns` call, an expression calling `approx`, a call whose name begins `assert` or a
+   `parametrize` marker, compared as normalised source, so a reformatted assertion is no change.
+   A passing test the rules do not name is a problem as before. The red run's log names each
+   selected test with its rule and outcome, and the cache labels of the check carry a version so
+   verdicts recorded under the earlier rule are not reused. The node-npm profile keeps every
+   passing test a problem.
+
    A group that says `Tests: required` is judged by the tree, not by the agent's word: a tests
    step that leaves the tree unchanged is run once more with a note saying so, and a second
    unchanged tree stops the unit, quoting the start of what the agent said. The implement step of

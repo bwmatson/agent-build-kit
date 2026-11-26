@@ -40,10 +40,15 @@ from agent_build_kit.pipeline.commit_order import (
     classify_paths,
     commits_without_red_check,
 )
+from agent_build_kit.pipeline.red_check import Rule
 from agent_build_kit.pipeline.shell import git
 from agent_build_kit.pipeline.stack_runner import GroupStep
-from agent_build_kit.pipeline.wiring import ids_for, touched_tests
-from agent_build_kit.profiles.base import ReportsNothingCollected, ToolchainProfile, located
+from agent_build_kit.pipeline.wiring import classified_tests, ids_for, tests_in_file, touched_tests
+from agent_build_kit.profiles.base import (
+    ReportsNothingCollected,
+    ToolchainProfile,
+    located,
+)
 from agent_build_kit.redaction import redact_text
 
 
@@ -88,6 +93,58 @@ def _touched_in(repo: Path, sha: str) -> list[tuple[str, str]]:
         return []
 
 
+# The cache labels of a red check carry the version of the rule that judges it, so a verdict
+# recorded when every passing test was a problem is not reused.
+RED_LABEL = "red-v2"
+RED_STUBBED_LABEL = "red-stubbed-v2"
+
+
+def _classified_in(repo: Path, sha: str) -> dict[str, Rule]:
+    """The rule of each test the commit adds or changes (`file::test` from the checkout's root);
+    none when they cannot be listed."""
+    try:
+        return classified_tests(repo, f"{sha}^", sha)
+    except (subprocess.CalledProcessError, OSError):
+        return {}
+
+
+def _runnable(
+    toolchain: ToolchainProfile, owned: list[str], repo: Path, prefix: str, sha: str
+) -> list[str]:
+    """The files of `owned` the red command is given: those the toolchain can run and the
+    commit leaves in place."""
+    return _left_in_place(repo, sha, [f for f in owned if toolchain.runs_path(f)], prefix)
+
+
+def _rules_of(
+    toolchain: ToolchainProfile,
+    owned: list[str],
+    touched: list[tuple[str, str]],
+    classified: dict[str, Rule],
+    repo: Path,
+    prefix: str,
+    sha: str,
+) -> dict[str, Rule]:
+    """How each test the red command selects is judged, keyed `file::test` from the project's
+    root: the rule of each touched test, and `WITH_FILE` for each test of a file that runs whole
+    because none of its tests is selected."""
+    where = repo / prefix
+    rules: dict[str, Rule] = {}
+    selected: set[str] = set()
+    for path, name in touched:
+        (found,) = ids_for([(path, name)], repo, where, toolchain) or [None]
+        if found is None:
+            continue
+        selected.add(found.split("::")[0])
+        if name and (rule := classified.get(f"{path}::{name}")):
+            rules[found] = rule
+    for file in _runnable(toolchain, owned, repo, prefix, sha):
+        if file not in selected:
+            for test in tests_in_file(repo, sha, prefix + file):
+                rules[f"{file}::{test}"] = Rule.WITH_FILE
+    return rules
+
+
 def _red_command(
     toolchain: ToolchainProfile,
     owned: list[str],
@@ -107,7 +164,7 @@ def _red_command(
     A file with no selected test (a helper edit) stays whole beside the selected ids. With no
     test selected in any file the command is the whole-file run.
     """
-    owned = _left_in_place(repo, sha, [f for f in owned if toolchain.runs_path(f)], prefix)
+    owned = _runnable(toolchain, owned, repo, prefix, sha)
     if not owned:
         return None
     ids = ids_for(touched, repo, repo / prefix, toolchain)
@@ -134,13 +191,30 @@ def _run_of(
     sha: str,
     owner: ProjectConfig | None,
     stubbed: bool,
+    rules: dict[str, Rule],
+    log: Callable[[str], None] | None = None,
 ) -> _Run:
-    """The judged red run `red` of the project `owner`. A toolchain with no answer for a run
+    """The judged red run `red` of the project `owner`, judged by `rules`; the log hears each
+    selected test with its rule and outcome. A toolchain with no answer for a run
     that collected nothing never says it did."""
+    output = red.stdout + red.stderr
     empty = isinstance(toolchain, ReportsNothingCollected) and toolchain.collected_nothing(
-        red.stdout + red.stderr, red.exit_code
+        output, red.exit_code
     )
-    return _Run(owner=owner, empty=empty, problems=_judged_red(toolchain, red, sha, owner, stubbed))
+    # Looked up by name, not by `isinstance`, so a toolchain that forwards unknown names
+    # to another still answers.
+    describe: Callable[[str, dict[str, Rule]], list[str]] | None = getattr(
+        toolchain, "red_rule_lines", None
+    )
+    if log is not None and rules and describe is not None:
+        where = _where(sha, owner)
+        for line in describe(output, rules):
+            log(redact_text(f"{where}{line}", where="red check log"))
+    return _Run(
+        owner=owner,
+        empty=empty,
+        problems=_judged_red(toolchain, red, sha, owner, stubbed, rules),
+    )
 
 
 def _settled(sha: str, runs: list[_Run], log: Callable[[str], None] | None) -> list[str]:
@@ -197,14 +271,16 @@ def _judged_red(
     sha: str,
     owner: ProjectConfig | None,
     stubbed: bool,
+    rules: dict[str, Rule],
 ) -> list[str]:
-    """The labelled problems the toolchain finds in one red run of `sha`; none when it is red
-    for the right reason. The one reading both the push gate and the build's red check use."""
+    """The labelled problems the toolchain finds in one red run of `sha`, judged by `rules`;
+    none when it is red for the right reason. The one reading both the push gate and the
+    build's red check use."""
     output = red.stdout + red.stderr
     ok, found = (
-        toolchain.interpret_red(output, red.exit_code, stubbed=True)
+        toolchain.interpret_red(output, red.exit_code, stubbed=True, rules=rules)
         if stubbed
-        else toolchain.interpret_red(output, red.exit_code)
+        else toolchain.interpret_red(output, red.exit_code, rules=rules)
     )
     return [] if ok else [f"{_where(sha, owner)}{problem}" for problem in found]
 
@@ -237,7 +313,7 @@ def red_problems(
     empty list: only its red run, judged as `check_branch` judges it. A commit `cache` holds is
     not run again; its results are kept apart from the gate's, which cover more."""
     projects = projects or []
-    label = "red-stubbed" if stubbed else "red"
+    label = RED_STUBBED_LABEL if stubbed else RED_LABEL
     if cache is not None:
         cached = cache.lookup_entry(repo, sha, mode=label)
         if cached is not None:
@@ -257,6 +333,7 @@ def red_problems(
         return profiles.for_path(projects, path, profile).is_test_path(path)
 
     touched = _touched_in(repo, sha)
+    classified = _classified_in(repo, sha)
     runs: list[_Run] = []
     for owner, owned in by_project(projects, _test_files_in(repo, sha, is_test)):
         toolchain = profiles.for_project(owner, profile)
@@ -264,6 +341,7 @@ def red_problems(
         command = _red_command(toolchain, owned, touched, repo, prefix, sha)
         if command is None:
             continue
+        rules = _rules_of(toolchain, owned, touched, classified, repo, prefix, sha)
 
         (red,) = run_at_commit(
             repo, sha, [_prepared(repo, toolchain, prefix, command)], subdir=prefix or "."
@@ -271,7 +349,7 @@ def red_problems(
         if log is not None:
             for line in _red_log(red, sha, owner, toolchain):
                 log(redact_text(line, where="red check log"))
-        runs.append(_run_of(toolchain, red, sha, owner, stubbed))
+        runs.append(_run_of(toolchain, red, sha, owner, stubbed, rules, log))
     problems = _settled(sha, runs, log)
     if cache is not None:
         cache.record(
@@ -316,7 +394,7 @@ def check_branch(
     """
     profile = profile or profiles.get("python-uv")
     projects = projects or []
-    mode = "stubbed" if stubbed else ""
+    mode = "stubbed-v2" if stubbed else "v2"
     # Every commit `commits_without_red_check` returns (a test-only group's tests commit, and the
     # commits of a `no_code` or `refactor` group) is judged with no red run, so its result is kept
     # apart under this cache label, kept as "test-only" so recorded results stay valid.
@@ -351,10 +429,16 @@ def check_branch(
 
         commit_problems: list[str] = []
         touched = [] if sha in no_red else _touched_in(repo, sha)
+        classified = {} if sha in no_red else _classified_in(repo, sha)
         runs: list[_Run] = []
         for owner, owned in by_project(projects, files):
             toolchain = profiles.for_project(owner, profile)
             prefix = owner.prefix if owner else ""
+            rules = (
+                {}
+                if sha in no_red
+                else _rules_of(toolchain, owned, touched, classified, repo, prefix, sha)
+            )
             where = _where(sha, owner)
             clean_line = (
                 toolchain.clean_command(types=True) if stubbed else toolchain.clean_command()
@@ -385,7 +469,7 @@ def check_branch(
                     f"{where}lint/format did not pass at the tests commit\n"
                     f"{cut_tail(clean.stdout, 2000)}"
                 )
-            runs.extend(_run_of(toolchain, red, sha, owner, stubbed) for red in red_run)
+            runs.extend(_run_of(toolchain, red, sha, owner, stubbed, rules, log) for red in red_run)
         commit_problems.extend(_settled(sha, runs, log))
 
         if cache is not None:

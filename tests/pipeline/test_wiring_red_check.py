@@ -135,7 +135,7 @@ class LeakingProfile(IdProfile):
     """A reading whose rejection quotes a secret."""
 
     def interpret_red(
-        self, output: str, exit_code: int, *, stubbed: bool = False
+        self, output: str, exit_code: int, *, stubbed: bool = False, rules: object = None
     ) -> tuple[bool, list[str]]:
         return False, [f"the run printed {SECRET}"]
 

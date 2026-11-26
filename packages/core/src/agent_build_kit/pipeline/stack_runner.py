@@ -328,8 +328,10 @@ def person_guidance(note: str) -> str:
 
 TESTS_FINISH = """\
 Before you finish: run linting and formatting, which must pass, and run the
-new tests, which must fail. A test that passes now is not testing the
-behaviour this group adds. Do not write the implementation.
+new and changed tests. A new test and a changed assertion must fail, and a test
+changed only in setup, names or helpers may pass. A new test or changed assertion
+that passes now is not testing the behaviour this group adds. Do not write the
+implementation.
 """
 
 # A stubbed build checks the tests statically, then commits them; they run only once the

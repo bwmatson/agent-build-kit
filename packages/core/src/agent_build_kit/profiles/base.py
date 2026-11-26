@@ -9,13 +9,14 @@ asks the profile. A repo names its profile in abk.yaml (`profile:`).
 from __future__ import annotations
 
 import subprocess
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from pathlib import Path
 from typing import TYPE_CHECKING, Literal, Protocol, runtime_checkable
 
 from agent_build_kit.config import AgentCommand, BuildersConfig, EnvironmentConfig, RepoConfig
 from agent_build_kit.model import Frozen
 from agent_build_kit.pipeline.e2e import E2eSelection, TestFailure, TestTime
+from agent_build_kit.pipeline.red_check import Rule
 
 if TYPE_CHECKING:
     from agent_build_kit.installation import Installation
@@ -255,8 +256,17 @@ class ToolchainProfile(Protocol):
         ...
 
     def interpret_red(
-        self, output: str, exit_code: int, *, stubbed: bool = False
-    ) -> tuple[bool, list[str]]: ...
+        self,
+        output: str,
+        exit_code: int,
+        *,
+        stubbed: bool = False,
+        rules: Mapping[str, Rule] | None = None,
+    ) -> tuple[bool, list[str]]:
+        """Whether the red run was red for the right reason, and the problems when not.
+        `rules` says how each selected test (`file::Class::test`, from the project's root) is
+        judged; a profile that cannot tell tests apart accepts and ignores it."""
+        ...
 
     def collection_errors(self, output: str) -> list[str]:
         """For each test file the runner could not load or collect in `output`, a line naming

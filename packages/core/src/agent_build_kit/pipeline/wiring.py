@@ -27,8 +27,10 @@ import re
 import shlex
 import shutil
 import subprocess
+import textwrap
 import time
 import uuid
+from collections import Counter
 from collections.abc import Callable, Collection, Iterable, Iterator, Mapping, Sequence
 from contextlib import AbstractContextManager, contextmanager, nullcontext
 from datetime import UTC, datetime
@@ -172,6 +174,7 @@ from agent_build_kit.pipeline.product_defect import (
     product_defect_record,
     wait_on_product_defect,
 )
+from agent_build_kit.pipeline.red_check import Rule
 from agent_build_kit.pipeline.regression_agent import (
     FixKind,
     RegressionRunCapped,
@@ -5433,7 +5436,18 @@ def _changed_tests(
     gone from the file it was in, even when the same name lives on in another
     file or in a string.
     """
-    changed: list[tuple[str, str, bool]] = []
+    return [
+        (path, name, bool(new))
+        for path, name, _, new in _changed_bodies(tree, ref, qualified=qualified, head=head)
+    ]
+
+
+def _changed_bodies(
+    tree: Path, ref: str, *, qualified: bool, head: str | None = None
+) -> list[tuple[str, str, list[str], list[str]]]:
+    """(file, test, old sources, new sources) for each test `_changed_tests` lists; the new
+    sources are empty for a test that is gone, the old ones for a test that is new."""
+    changed: list[tuple[str, str, list[str], list[str]]] = []
     for path in _changed_paths(tree, ref, head, ["*.py"], deleted=True):
         if head is None:
             file = tree / path
@@ -5450,7 +5464,7 @@ def _changed_tests(
             else {}
         )
         changed += [
-            (path, n, n in current)
+            (path, n, old.get(n, []), current.get(n, []))
             for n in sorted(old.keys() | current.keys())
             if old.get(n) != current.get(n)
         ]
@@ -5495,6 +5509,74 @@ def touched_tests(
 
 def _touched(tree: Path, ref: str, head: str | None) -> list[tuple[str, str]]:
     return [(p, n) for p, n, there in _changed_tests(tree, ref, qualified=True, head=head) if there]
+
+
+_ASSERTING_CALLS = ("raises", "warns", "approx", "parametrize")
+
+
+def _assertions(source: str) -> Counter[str]:
+    """The assertions of one test's source, as normalised source text: its `assert`
+    statements, its `raises`, `warns` and `approx` calls, the calls whose name begins `assert`
+    and its `parametrize` markers. Parsed and unparsed, so a reformatted one reads the same."""
+    try:
+        tree = ast.parse(textwrap.dedent(source))
+    except SyntaxError:
+        return Counter()
+    found: Counter[str] = Counter()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Assert):
+            found[ast.unparse(node)] += 1
+        elif isinstance(node, ast.Call):
+            called = node.func
+            name = called.attr if isinstance(called, ast.Attribute) else getattr(called, "id", "")
+            if name in _ASSERTING_CALLS or name.startswith("assert"):
+                found[ast.unparse(node)] += 1
+    return found
+
+
+def _without_name(source: str) -> str:
+    """A test's source with its function's name blanked, to tell a rename from a new test."""
+    return re.sub(r"\bdef\s+\w+", "def _", source, count=1)
+
+
+def classified_tests(
+    tree: Path, ref: str, head: str | None = None, *, log: Callable[[str], None] | None = None
+) -> dict[str, Rule]:
+    """The rule each test `touched_tests` lists is judged by at its tests commit, keyed
+    `file::test` as it lists them, from the same comparison of old and new source: `NEW`, a
+    test that is not in the file `ref` holds and is no rename of one that left it;
+    `RENAMED`, one whose source is another's under a new name; `ASSERTION_CHANGED`, one whose
+    assertions gain something `ref`'s lack; else `CHANGED` (setup, arguments or a removed
+    assertion)."""
+    changed = _changed_bodies(tree, _listed_from(tree, ref, head, log), qualified=True, head=head)
+    gone: dict[str, set[str]] = {}
+    for path, _, old, new in changed:
+        if old and not new:
+            gone.setdefault(path, set()).update(_without_name(text) for text in old)
+    rules: dict[str, Rule] = {}
+    for path, name, old, new in changed:
+        if not new:
+            continue
+        key = f"{path}::{name}"
+        if not old:
+            renamed = all(_without_name(text) in gone.get(path, set()) for text in new)
+            rules[key] = Rule.RENAMED if renamed else Rule.NEW
+            continue
+        before: Counter[str] = Counter()
+        after: Counter[str] = Counter()
+        for text in old:
+            before.update(_assertions(text))
+        for text in new:
+            after.update(_assertions(text))
+        rules[key] = Rule.ASSERTION_CHANGED if after - before else Rule.CHANGED
+    return rules
+
+
+def tests_in_file(tree: Path, commit: str, path: str) -> list[str]:
+    """The tests (`Group::test_x`, as a runner selects them) of the file `path` at `commit`;
+    none when the file is not there."""
+    shown = git(tree, "show", f"{commit}:{path}", check=False, errors="replace")
+    return sorted(_test_bodies(shown.stdout, qualified=True)) if shown.returncode == 0 else []
 
 
 def touched_in(
