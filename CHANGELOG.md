@@ -6,6 +6,7 @@
   migrations that create its `units` and `unit_history` tables. It runs on SQLite today and shares
   one conformance suite with the in-memory stand-in. `alembic` and `greenlet` are new
   dependencies.
+
 - The group walk now skips the `changelog:` commit the pipeline makes when it separates joined
   bullets, so a restack no longer breaks a group's `test:`/`feat:` pair or hides a built group.
 
