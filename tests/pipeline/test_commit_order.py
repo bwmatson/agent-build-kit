@@ -15,6 +15,7 @@ from pathlib import Path
 import pytest
 
 from agent_build_kit.pipeline.commit_order import (
+    CHANGELOG_SEPARATED,
     STUB_BODY_HINT,
     adopted_names,
     branch_commit_subjects,
@@ -32,6 +33,7 @@ from agent_build_kit.pipeline.group_mode import GroupMode
 from agent_build_kit.pipeline.group_paths import allows_tests_only
 from agent_build_kit.pipeline.stack_runner import GroupStep
 from agent_build_kit.profiles.python_uv import PROFILE
+from tests.attach_driver import head
 from tests.factories import commit_files as commit
 from tests.factories import git, init_repo
 
@@ -350,15 +352,8 @@ def test_an_adopted_commit_after_a_retitled_pair_is_named_for_the_next_group_by_
     assert (subject, group) == ("test: G4", f"{CHANGE}/4")
 
 
-PIPELINE_COMMIT = "changelog: separate bullets joined by the union merge"
-
-
 def pipeline_commit(repo: Path) -> None:
-    commit(repo, PIPELINE_COMMIT, {"CHANGELOG.md": "## Unreleased\n\n- a\n\n- b\n"})
-
-
-def head(repo: Path) -> str:
-    return git(repo, "rev-parse", "HEAD").strip()
+    commit(repo, CHANGELOG_SEPARATED, {"CHANGELOG.md": "## Unreleased\n\n- a\n\n- b\n"})
 
 
 def two_groups_with_pipeline_commit_at(repo: Path, where: str) -> list[list[str]]:
@@ -389,14 +384,22 @@ def test_a_pipeline_made_commit_is_not_part_of_any_group(repo: Path, where: str)
         repo, "HEAD", "main", ["G1", "G2"], [GroupMode.TESTS_AND_CODE] * 2
     )
 
-    assert (progress.done, progress.tests_made, progress.notes) == (2, False, ())
-    assert superseded == pairs
-    assert PIPELINE_COMMIT not in branch_subjects(repo, "main")
-    assert check_structure(repo, "main", paired=True, groups=steps) == []
+    assert (progress.done, progress.tests_made, progress.notes) == (
+        2,
+        False,
+        (),
+    ), "walk_group_progress counted the pipeline commit"
+    assert superseded == pairs, "superseded_pairs counted the pipeline commit"
+    assert CHANGELOG_SEPARATED not in branch_subjects(repo, "main"), (
+        "branch_subjects listed the pipeline commit"
+    )
+    assert check_structure(repo, "main", paired=True, groups=steps) == [], (
+        "check_structure reported the pipeline commit"
+    )
     assert adopted_names("Unit", steps, branch_subjects(repo, "main"), []) == (
         "fix: G2 (adopted)",
         f"{CHANGE}/2",
-    )
+    ), "adopted_names counted the pipeline commit"
 
 
 def test_a_pipeline_made_commit_leaves_the_hashes_and_subjects_aligned(repo: Path) -> None:
