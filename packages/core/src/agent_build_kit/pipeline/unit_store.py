@@ -34,6 +34,7 @@ from pydantic import Field, ValidationError, field_validator, model_validator
 from agent_build_kit.budget import cut_head
 from agent_build_kit.compat_names import Place, new_spelling
 from agent_build_kit.model import Frozen, TestTier, widest_kind
+from agent_build_kit.orchestration.store import UnitsStore
 from agent_build_kit.pipeline import spans
 from agent_build_kit.pipeline.file_lock import atomic_write_text, file_lock
 from agent_build_kit.pipeline.units import (
@@ -827,8 +828,11 @@ class UnitStore:
         on_write: Callable[[list[StoredUnit]], None] | None = None,
         on_state: StateChanged | None = None,
         bounce_span_seconds: int = 120,
+        store: UnitsStore | None = None,
     ) -> None:
-        """`bounce_span_seconds` is the longest run that still counts as a bounce when a unit
+        """`store` is the async units store the units live in; unset, they live in `path`.
+
+        `bounce_span_seconds` is the longest run that still counts as a bounce when a unit
         is put back from `running` (`_bounces`).
 
         `on_write` sees every unit after each change — how the diagram stays
