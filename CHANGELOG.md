@@ -14,6 +14,10 @@
   initiative, the rules for an initiative's changes and the outlines that touch the same paths,
   and its fourth question asks whether it builds something they will redo; such a finding is
   advice and holds nothing.
+- The tests prompt of a group that builds code now states which failures the red check counts
+  as red and which it does not, for a stubbed and an unstubbed build, from the toolchain profile
+  of each project the repository uses. A tests step no longer has to guess why its tests were
+  rejected.
 
 - The `abk-authoring` skill now carries the rules every task follows (check paths against the
   default branch, edit every check of the old behaviour in the same group, a `Test:` task that the

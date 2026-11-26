@@ -92,7 +92,8 @@ def test_projects_that_share_one_placement_use_it() -> None:
 def test_the_first_tests_prompt_states_what_the_profile_counts_as_red(
     tmp_path: Path, profile: str
 ) -> None:
-    words = profiles.get(profile).prompt_words.red_stubbed
+    # The test config turns stubbed builds off (`workspace_config`), so the build is unstubbed.
+    words = profiles.get(profile).prompt_words.red
 
     text = prompt_sent(tmp_path, repo_of(tmp_path, profile=profile))
 

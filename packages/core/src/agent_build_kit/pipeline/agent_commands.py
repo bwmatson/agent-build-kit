@@ -18,7 +18,7 @@ from agent_build_kit.config import (
 )
 from agent_build_kit.pipeline import wiring
 from agent_build_kit.pipeline.stack_runner import WHOLE_FILE_PLACEMENT
-from agent_build_kit.profiles.base import AgentCommands, AgentCommandsIn
+from agent_build_kit.profiles.base import AgentCommands, AgentCommandsIn, RedWords
 from agent_build_kit.tool_patterns import allows
 
 # The most a prompt's section may add, in characters.
@@ -87,7 +87,41 @@ def placement_note(repo: RepoConfig | None) -> str:
 def red_words_note(repo: RepoConfig | None, *, stubbed: bool) -> str:
     """The red words of every profile `repo` uses, for the build asked: one text when they agree,
     else one entry per profile naming the project paths it covers."""
-    raise NotImplementedError
+    if repo is None:
+        return ""
+    covered: dict[str, list[str]] = {}
+    for name, path in ((repo.profile, "."), *((p.profile, p.path) for p in repo.projects)):
+        covered.setdefault(name, []).append(str(path))
+    shown = {
+        name: _render_red(
+            profiles.get(name).prompt_words.red_stubbed
+            if stubbed
+            else profiles.get(name).prompt_words.red
+        )
+        for name in covered
+    }
+    if len(set(shown.values())) == 1:
+        return next(iter(shown.values()))
+    return "\n\n".join(
+        f"For {', '.join(dict.fromkeys(paths))}:\n{shown[name]}"
+        for name, paths in covered.items()
+        if shown[name]
+    )
+
+
+def _render_red(words: RedWords) -> str:
+    lines = []
+    if words.red_types or words.red_cases:
+        lines.append(
+            "The red check counts a new test as red when it fails with: "
+            + "; ".join((*words.red_types, *words.red_cases))
+            + "."
+        )
+    if words.not_red:
+        lines.append("It does not count: " + "; ".join(words.not_red) + ".")
+    if words.advice:
+        lines.append(words.advice)
+    return "\n".join(lines)
 
 
 def allow_list(repo: RepoConfig) -> str:

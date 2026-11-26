@@ -48,6 +48,7 @@ from agent_build_kit.profiles.base import (
     HOME,
     TEST_KINDS,
     PromptWords,
+    RedWords,
     SandboxPaths,
     is_doc_path,
 )
@@ -237,6 +238,15 @@ _NOT_IMPLEMENTED = "not implemented"
 _RED_ERRORS = ("AssertionError", "Error")
 # Failure types that say a name is missing or the test is broken, never missing behaviour.
 _BROKEN_TEST_ERRORS = ("TypeError", "ReferenceError", "SyntaxError")
+# What the tests prompt says counts as red, from the sets above.
+_RED_WORDS = RedWords(
+    red_types=_RED_ERRORS,
+    not_red=(
+        f"{', '.join(_BROKEN_TEST_ERRORS)}: a missing name or a broken test",
+        "any other failure type",
+    ),
+    advice="Reach new names inside the test body, and fail by an assertion.",
+)
 # What the profile's own commands create in a project: type-check build info and the Vite and
 # Vitest caches.
 _CREATED = ["**/*.tsbuildinfo", "node_modules/.vite", "node_modules/.vitest", ".vite"]
@@ -359,6 +369,8 @@ class NodeNpmProfile:
     prompt_words: PromptWords = PromptWords(
         verify="linting and type checks (oxlint, tsc --noEmit)",
         stub='a signature whose body is only `throw new Error("not implemented")`',
+        red=_RED_WORDS,
+        red_stubbed=_RED_WORDS,
     )
     no_tests_collected_exit: int = 0
 

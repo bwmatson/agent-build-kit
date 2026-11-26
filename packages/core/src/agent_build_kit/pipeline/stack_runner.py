@@ -370,6 +370,8 @@ def write_tests_prompt(
         finish = TEST_ONLY_TESTS_FINISH
     else:
         finish = STUBBED_TESTS_FINISH if stubbed else TESTS_FINISH
+        if red_words:
+            finish = f"{red_words}\n\n{finish}"
     return TESTS_PROMPT.format(finish=finish, **fields)
 
 
