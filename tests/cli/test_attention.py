@@ -12,9 +12,17 @@ from agent_build_kit.cli.attention_cmd import attention_items
 from agent_build_kit.pipeline import plan_review
 from agent_build_kit.pipeline.plan_review import Finding, Review
 from agent_build_kit.pipeline.unit_store import Cause
-from agent_build_kit.pipeline.units import FAILED, RUNNING
+from agent_build_kit.pipeline.units import FAILED, MERGED, RUNNING
 from tests.conftest import make_installation
-from tests.factories import BIG_PLAN_REASON, stored_unit, write_given_up_plans, write_outline
+from tests.factories import (
+    BIG_PLAN_REASON,
+    give_up_plan,
+    group_text,
+    stored_unit,
+    write_changes,
+    write_given_up_plans,
+    write_outline,
+)
 
 NOW = datetime(2026, 11, 23, 12, 0, tzinfo=UTC)
 
@@ -139,3 +147,40 @@ def test_a_given_up_plan_of_an_active_change_is_listed_with_the_fix(tmp_path: Pa
     assert BIG_PLAN_REASON in items[0].what
     assert "tasks.md" in items[0].action
     assert "abk replan big" in items[0].action
+
+
+def test_an_unmet_needs_line_is_listed_until_the_group_that_declares_it_is_built(
+    tmp_path: Path,
+) -> None:
+    inst = make_installation(tmp_path, planning=dict(state_dir="."))
+    write_changes(
+        inst,
+        {
+            "feature": group_text((1, "Needs: base group 2 — why")),
+            "base": group_text((1, ""), (2, "")),
+            "early": group_text((1, "Needs: later group 1 — why")),
+        },
+    )
+    write_outline(inst, "later")
+    give_up_plan(inst, "base", "group 2 is too large")
+    planned = stored_unit("feature/1", change="feature", groups=(1,))
+
+    items = attention_items(inst, [planned], idle=set(), now=NOW)
+
+    holds = [i for i in items if i.subject == "feature group 1"]
+    assert len(holds) == 1, items
+    held = holds[0]
+    assert held.blocks == 1
+    assert "base group 2" in held.what
+    assert "abk replan base" in held.action
+    outlines = [i for i in items if i.subject == "early group 1"]
+    assert len(outlines) == 1, items
+    outline = outlines[0]
+    assert outline.blocks == 0
+    assert "Waits on:" in outline.action
+
+    built = stored_unit("feature/1", change="feature", groups=(1,), state=MERGED)
+    after = attention_items(inst, [built], idle=set(), now=NOW)
+
+    assert not [i for i in after if i.subject == "feature group 1"]
+    assert [i for i in after if i.subject == "base"]

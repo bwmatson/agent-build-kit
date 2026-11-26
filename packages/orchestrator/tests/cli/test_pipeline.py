@@ -11,8 +11,18 @@ from agent_build_kit import openspec, run_support
 from agent_build_kit.cli import pipeline as cli
 from agent_build_kit.installation import Installation
 from agent_build_kit.pipeline.units import UnitState
+from agent_build_kit.pipeline.vocabulary import WaitReason
+from tests.cli.test_wait_reasons import workspace_with
 from tests.conftest import make_installation
-from tests.factories import BIG_PLAN_REASON, stored_unit, write_given_up_plans, write_outline
+from tests.factories import (
+    BIG_PLAN_REASON,
+    give_up_plan,
+    group_text,
+    stored_unit,
+    write_changes,
+    write_given_up_plans,
+    write_outline,
+)
 
 
 def outline_lines(inst: Installation, capsys: pytest.CaptureFixture[str]) -> list[str]:
@@ -102,3 +112,33 @@ def test_tags_and_check_refuse_a_needs_line_on_an_outline_or_a_missing_target(
         assert any("base group 9" in line for line in out)
     assert any("warning" in line and "draft group 1" in line for line in tags_out)
     assert not [line for line in tags_out + check_out if "done" in line]
+
+
+def test_a_planned_unit_whose_needs_target_has_no_unit_waits_blocked_and_a_met_one_is_ready(
+    tmp_path: Path,
+) -> None:
+    inst = workspace_with(tmp_path, {}, {})
+    write_changes(
+        inst,
+        {
+            "feature": group_text((1, "Needs: base group 2 — why")),
+            "base": group_text((1, ""), (2, "")),
+            "other": group_text((1, "Needs: done group 1 — why")),
+        },
+    )
+    (inst.changes_dir / "archive" / "2026-11-01-done").mkdir(parents=True)
+    give_up_plan(inst, "base", "group 2 is too large")
+    store = run_support.store_for(inst)
+    store.upsert(
+        [
+            stored_unit("feature/1", change="feature", groups=(1,)),
+            stored_unit("other/1", change="other", groups=(1,)),
+        ]
+    )
+
+    waits = cli.wait_reasons(inst, store.all(), started=set(), building=set(), only=frozenset())
+
+    assert waits["feature/1"].reason is WaitReason.BLOCKED
+    assert "base group 2" in waits["feature/1"].detail
+    assert "given up" in waits["feature/1"].detail
+    assert waits["other/1"].reason is WaitReason.READY
