@@ -1608,6 +1608,16 @@ answers instead of the hook. The details are in
 kernel-enforced sandbox for agent steps, is in
 [sandbox-design.md](designs/sandbox-design.md).
 
+**The rewrite guard** (`pipeline/rewrite_guard.py`). A rework or review-feedback step that
+holds a rewrite request runs through it. The head the step began on is kept under
+`refs/abk/before-rewrite/<branch>/<short sha>`; afterwards the base must be unmoved, every
+commit above it must carry the unit trailer, none may be a merge, and a branch that began with
+commits above its base must not end with all of them still on it (the `unchanged` check:
+commits added on top, or only an edit to the tree). A failed check is returned to the agent
+with its reason, as many times as `max_check_rounds` allows a failing check (3 where it is
+null, which is no limit for a check but not for a rewrite); a branch that fails the others, or the
+`unchanged` check once the returns are spent, goes back to the head the step began on.
+
 **The policy hook** (`hooks/policy.py`, `pipeline/command_policy.py`). Every
 agent run passes `--settings` registering a `PreToolUse` hook for `Bash`,
 `Edit`, `Write`, `MultiEdit` and `NotebookEdit` — per run, never in the user's

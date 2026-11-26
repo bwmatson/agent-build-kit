@@ -245,6 +245,10 @@ FRESH: Update = {
 
 # Paths of uncommitted work named in a prompt or a hold; the rest are counted.
 LEFTOVER_PATHS_SHOWN = 40
+# Returns a rewrite step gets when `max_check_rounds` is null (no limit on a failing check): a
+# rewrite that is still not made after this many is not going to be, and each return is a run.
+UNLIMITED_REWRITE_RETURNS = 3
+RETURNED_FOR_REWRITE = "Your rewrite was returned: {reason}.\nRewrite the commits and finish."
 ACCOUNT_LIMIT = 2000  # characters of the builder's account a recorded group keeps
 ACCOUNT_HEADING = "Already built, the builder's account:"
 WROTE_NO_TEST = (
@@ -1523,13 +1527,16 @@ class BuildPath:
         head = r.head(self.tree())
         stored = r.store.get(unit.id)
         looping = bool(feedback) and stored.feedback_source is FeedbackSource.STUB_CHECKS
+        # A request is of use to the rework step only, and only where there is work to rewrite.
+        asked = bool(existing) and stored.rewrite_request is not None
         return {
             "pushed_head": bool(existing) and head == stored.approved == stored.pushed,
             "opened": stored.pr is not None,
             "base_commits": existing,
             # Output saved by the stub check loop goes back to the loop, not to rework.
             "stub_loop": looping,
-            "had_feedback": bool(feedback) and not looping,
+            "had_feedback": (bool(feedback) or asked) and not looping,
+            "rewrite_asked": asked and not looping,
             "resume": "",
             **self.resumed(existing, ref),
             "head": head,
@@ -2824,6 +2831,42 @@ class BuildPath:
         ran on. Called wherever a rework or an adapt writes one."""
         self.runner.store.record_e2e_state(self.unit.id, None)
 
+    def rewriting(self, state: UnitRun, prompt: str, **run: Any) -> str:
+        """The agent's answer to `prompt` in a rework step. A step that holds a rewrite request
+        runs through the guard and is returned to the agent, with the reason, while the guard
+        fails and returns remain, as many as a failing check gets; the request is cleared when
+        the step ends."""
+        r, unit = self.runner, self.unit
+        tree, stored = self.tree(), r.store.get(unit.id)
+        answers: list[str] = []
+
+        def call(reason: str) -> None:
+            said = (
+                prompt
+                if not reason
+                else f"{prompt}\n\n{RETURNED_FOR_REWRITE.format(reason=reason)}"
+            )
+            answers.append(self.agent(r.run, said, cwd=tree, state=state, **run))
+
+        if stored.rewrite_request is None or not run.get("rewrite"):
+            call("")
+            return answers[0]
+        budget = active().global_limits.max_check_rounds
+        step = r.guarded_step(
+            tree,
+            request=stored.rewrite_request,
+            base=self.ref(state),
+            unit_id=unit.id,
+            store=r.store,
+            agent=call,
+            returns=UNLIMITED_REWRITE_RETURNS if budget is None else budget,
+        )
+        if not step.ok:
+            self.say(
+                f"the rewrite was not made after {step.returned} return(s): {step.verdict.reason}"
+            )
+        return answers[-1]
+
     def rework(self, state: UnitRun) -> Update:
         r, unit = self.runner, self.unit
         tree, ref = self.tree(), self.ref(state)
@@ -2856,8 +2899,8 @@ class BuildPath:
             self.say("the rework commit is already on the branch")
         elif in_loop:
             self.say(f"address review round {state.review_round} ({models().rework})")
-            response = self.agent(
-                r.run,
+            response = self.rewriting(
+                state,
                 self.told(
                     REVIEW_FEEDBACK_PROMPT.format(
                         commands=commands_note(r.repo_config),
@@ -2874,8 +2917,6 @@ class BuildPath:
                     ),
                     outside,
                 ),
-                cwd=tree,
-                state=state,
                 model=models().rework,
                 follow_up=self.told(
                     REVIEW_FEEDBACK_CONTINUATION.format(
@@ -2904,8 +2945,8 @@ class BuildPath:
                 # requeue, so these ids are only marked seen. None is known to have reached the
                 # agent, and the poller reports again any it was not given.
                 kept["seen_comments"] = self.covered(stored.pr)
-            answer = self.agent(
-                r.run,
+            answer = self.rewriting(
+                state,
                 self.told(
                     CHECKS_PROMPT.format(
                         commands=commands_note(r.repo_config),
@@ -2933,8 +2974,6 @@ class BuildPath:
                     ),
                     outside,
                 ),
-                cwd=tree,
-                state=state,
                 model=models().rework,
                 follow_up=self.told(
                     CHECKS_CONTINUATION.format(
@@ -2956,7 +2995,14 @@ class BuildPath:
             )
             if (defect := self.product_defect(answer, stored)) is not None:
                 return defect
-            committed = r.commit(f"fix: {unit.title}", cwd=tree, base=self.ref(state))
+            # A walk that stopped short goes on at its first incomplete group: anything the
+            # rewrite left uncommitted is left for that group's own step, not a `fix:` commit
+            # between the groups.
+            committed = (
+                0
+                if state.resume
+                else r.commit(f"fix: {unit.title}", cwd=tree, base=self.ref(state))
+            )
             r.store.set_guidance(unit.id, "")
             if state.auto_rework and stored.feedback_source is not FeedbackSource.SCOPE:
                 if not committed:
@@ -2981,8 +3027,12 @@ class BuildPath:
             # prompt the agent had it in, and pull request or not.
             kept["guidance_asked"] = guidance_asked(state, guidance)
         self.forget_e2e_result()
+        if state.resume:
+            # The walk was short when the request came: it goes on at the first incomplete group.
+            kept.update({"resume": "", **self.resumed(r.branch_commits(tree, ref), ref)})
         return {
             **kept,
+            "rewrite_asked": False,
             "auto_rework": False,
             "comments_pending": False,
             "verdict": None,
@@ -3843,6 +3893,10 @@ def after_prepare(state: UnitRun) -> Node:
         # Stopped or killed in the check loop on the tests: back to the fix the saved
         # output asks for.
         return Node.FIX_STUB_CHECKS
+    if state.rewrite_asked:
+        # A request reaches the one step that may rewrite, whether or not the walk stopped short;
+        # `rework` sends a build still short back to its first incomplete group.
+        return Node.REWORK
     if state.resume:
         # A stubbed build continues at the first group without its pair, whatever note or
         # restack feedback waits: the groups carry it in their prompts.
@@ -3929,7 +3983,12 @@ def after_review(state: UnitRun) -> Node:
 
 
 def after_rework(state: UnitRun) -> Node:
-    return halted(state) or (Node.UNIT_TEST if state.produced_nothing else Node.CHECKS)
+    if stop := halted(state):
+        return stop
+    if state.resume:
+        # The walk was short when the request came: on at the first incomplete group.
+        return Node.IMPLEMENT if state.resume == RESUME_IMPLEMENT else Node.TESTS
+    return Node.UNIT_TEST if state.produced_nothing else Node.CHECKS
 
 
 def after_unit_test(state: UnitRun) -> Node:
@@ -4082,7 +4141,10 @@ ROUTES: Mapping[Node, tuple[Callable[[UnitRun], Target], tuple[Target, ...]]] = 
         after_review,
         (Node.HELD, Node.FAILED, Node.PUSH, Node.E2E, Node.VERIFY_BASE, Node.REWORK),
     ),
-    Node.REWORK: (after_rework, (Node.HELD, Node.FAILED, Node.UNIT_TEST, Node.CHECKS)),
+    Node.REWORK: (
+        after_rework,
+        (Node.HELD, Node.FAILED, Node.UNIT_TEST, Node.CHECKS, Node.TESTS, Node.IMPLEMENT),
+    ),
     Node.UNIT_TEST: (
         after_unit_test,
         (

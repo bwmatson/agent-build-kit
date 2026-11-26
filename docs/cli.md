@@ -868,6 +868,16 @@ which:
   base branch, where resuming would judge work that was never valid. It clears
   the remembered step and the failure the unit was handed.
 
+**`--rework --rewrite`: let the rework rewrite the unit's own commits.** With a note, the
+request is stored on the unit and reaches the rework step even when the unit stopped part-way
+through its groups; once the rewrite is made, a build that is still short carries on at its
+first incomplete group. Before the step the unit's head is kept under
+`refs/abk/before-rewrite/<branch>/<short sha>` in the repository, never pushed, and the
+unit's history names it. A step that rewrites nothing (it only added commits on top, or only
+edited the tree) is returned to the agent, and once its returns are spent the branch goes back
+to the kept head. To restore an earlier head, run `git reset --hard <that ref>` on the unit's
+branch; nothing deletes these refs.
+
 **A person's note.** `--note TEXT` (or `--note-file PATH`) with `--rework` or
 `--restart` records what a person wants as the unit's guidance, and the first
 200 characters go in the requeue's history entry. The agent's next prompt, fresh
