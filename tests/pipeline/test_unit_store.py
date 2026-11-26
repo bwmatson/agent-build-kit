@@ -361,6 +361,30 @@ def test_the_history_records_that_a_rewrite_request_was_made_and_by_whom(tmp_pat
     assert source.value in said
 
 
+@pytest.mark.parametrize(
+    ("asked_by", "requeued", "expected"),
+    [
+        ([RewriteSource.COMMIT_SHAPE], False, True),
+        ([RewriteSource.COMMIT_SHAPE], True, False),
+        ([RewriteSource.REVIEW], False, False),
+        ([RewriteSource.PERSON], False, False),
+        ([RewriteSource.REVIEW, RewriteSource.COMMIT_SHAPE], False, True),
+    ],
+    ids=["asked", "asked then requeued", "review only", "person only", "review then check"],
+)
+def test_a_commit_shape_ask_counts_only_since_the_latest_requeue_by_a_person(
+    tmp_path, asked_by, requeued, expected
+) -> None:
+    store = UnitStore(tmp_path / "units.json")
+    store.upsert([unit()])
+    for source in asked_by:
+        store.set_rewrite_request("add-marker/1", StoredRewriteRequest(text="x", source=source))
+    if requeued:
+        store.set_state("add-marker/1", PLANNED, by=REQUEUE_BY)
+
+    assert store.rewrite_asked_by("add-marker/1", RewriteSource.COMMIT_SHAPE) is expected
+
+
 def test_ending_a_step_clears_the_rewrite_request_and_the_history_says_it_was_used(
     tmp_path,
 ) -> None:
