@@ -1356,7 +1356,6 @@ files = [
   "pipeline/test_temp_sweep_background.py",
   "pipeline/test_test_run_ledger.py",
   "pipeline/test_tests_line.py",
-  "pipeline/test_tests_prompt_existing_file.py",
   "pipeline/test_touched_tests_fork_point.py",
   "pipeline/test_touched_tests_unittest_class.py",
   "pipeline/test_tracker_file_v2.py",
