@@ -8,6 +8,9 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
+import pytest
+
+from agent_build_kit import profiles
 from agent_build_kit.config import ProjectConfig, RepoConfig
 from agent_build_kit.pipeline.agent_commands import placement_note
 from tests.agent_command_fakes import repo_of
@@ -83,3 +86,17 @@ def test_projects_that_share_one_placement_use_it() -> None:
     )
 
     assert IN_EXISTING_FILE in flat(placement_note(repo))
+
+
+@pytest.mark.parametrize("profile", ["python-uv", "node-npm"])
+def test_the_first_tests_prompt_states_what_the_profile_counts_as_red(
+    tmp_path: Path, profile: str
+) -> None:
+    words = profiles.get(profile).prompt_words.red_stubbed
+
+    text = prompt_sent(tmp_path, repo_of(tmp_path, profile=profile))
+
+    assert words.red_types
+    assert words.not_red
+    for item in (*words.red_types, *(flat(phrase) for phrase in words.not_red)):
+        assert item in text

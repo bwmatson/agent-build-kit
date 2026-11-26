@@ -84,6 +84,12 @@ def placement_note(repo: RepoConfig | None) -> str:
     )
 
 
+def red_words_note(repo: RepoConfig | None, *, stubbed: bool) -> str:
+    """The red words of every profile `repo` uses, for the build asked: one text when they agree,
+    else one entry per profile naming the project paths it covers."""
+    raise NotImplementedError
+
+
 def allow_list(repo: RepoConfig) -> str:
     """The tool list a build is started with for `repo`."""
     return wiring.allowed_tools(profiles.get(repo.profile), forges.get(repo.forge), repo.projects)

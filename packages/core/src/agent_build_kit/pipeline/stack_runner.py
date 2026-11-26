@@ -355,7 +355,9 @@ and fix what they report.
 """
 
 
-def write_tests_prompt(mode: GroupMode, *, stubbed: bool = False, **fields: object) -> str:
+def write_tests_prompt(
+    mode: GroupMode, *, stubbed: bool = False, red_words: str = "", **fields: object
+) -> str:
     """The tests prompt of a group built in `mode`, the one place that decides how it ends: a
     `tests_only` group is told it builds no implementation, a stubbed build that its tests are
     checked statically, any other that its tests must fail. A mode with no tests step is refused,
