@@ -7,6 +7,9 @@
   one conformance suite with the in-memory stand-in. `alembic` and `greenlet` are new
   dependencies.
 
+- The group walk now skips the `changelog:` commit the pipeline makes when it separates joined
+  bullets, so a restack no longer breaks a group's `test:`/`feat:` pair or hides a built group.
+
 - `abk tags` and `abk check` now warn when a task names a new `test_<name>.py` for which no
   module `<name>.py` exists or is named by an earlier group, and say which existing test file
   the case belongs in; the exit status is unchanged. The kit's own placement guard is now exact:

@@ -15,8 +15,10 @@ from pathlib import Path
 import pytest
 
 from agent_build_kit.pipeline.commit_order import (
+    CHANGELOG_SEPARATED,
     STUB_BODY_HINT,
     adopted_names,
+    branch_commit_subjects,
     branch_commit_trailers,
     branch_subjects,
     check_structure,
@@ -24,12 +26,14 @@ from agent_build_kit.pipeline.commit_order import (
     extended_test_file,
     group_progress,
     stub_violations,
+    superseded_pairs,
     walk_group_progress,
 )
 from agent_build_kit.pipeline.group_mode import GroupMode
 from agent_build_kit.pipeline.group_paths import allows_tests_only
 from agent_build_kit.pipeline.stack_runner import GroupStep
 from agent_build_kit.profiles.python_uv import PROFILE
+from tests.attach_driver import head
 from tests.factories import commit_files as commit
 from tests.factories import git, init_repo
 
@@ -346,3 +350,72 @@ def test_an_adopted_commit_after_a_retitled_pair_is_named_for_the_next_group_by_
     )
 
     assert (subject, group) == ("test: G4", f"{CHANGE}/4")
+
+
+def pipeline_commit(repo: Path) -> None:
+    commit(repo, CHANGELOG_SEPARATED, {"CHANGELOG.md": "## Unreleased\n\n- a\n\n- b\n"})
+
+
+def two_groups_with_pipeline_commit_at(repo: Path, where: str) -> list[list[str]]:
+    """Groups 1 and 2, each a trailer-less `test:`/`feat:` pair, with the pipeline's own commit
+    `where`; the hashes of each group's pair."""
+    if where == "before":
+        pipeline_commit(repo)
+    pairs: list[list[str]] = []
+    for number in (1, 2):
+        commit(repo, f"test: G{number}", {f"tests/test_{number}.py": "def test_x(): ...\n"})
+        tests = head(repo)
+        if where == f"between-{number}":
+            pipeline_commit(repo)
+        commit(repo, f"feat: G{number}", {f"src/mod_{number}.py": "x = 1\n"})
+        pairs.append([tests, head(repo)])
+    if where == "after":
+        pipeline_commit(repo)
+    return pairs
+
+
+@pytest.mark.parametrize("where", ["between-1", "between-2", "before", "after"])
+def test_a_pipeline_made_commit_is_not_part_of_any_group(repo: Path, where: str) -> None:
+    pairs = two_groups_with_pipeline_commit_at(repo, where)
+    steps = [step(1, "G1"), step(2, "G2")]
+
+    progress = walk_group_progress(repo, "main", steps)
+    superseded = superseded_pairs(
+        repo, "HEAD", "main", ["G1", "G2"], [GroupMode.TESTS_AND_CODE] * 2
+    )
+
+    assert (progress.done, progress.tests_made, progress.notes) == (
+        2,
+        False,
+        (),
+    ), "walk_group_progress counted the pipeline commit"
+    assert superseded == pairs, "superseded_pairs counted the pipeline commit"
+    assert CHANGELOG_SEPARATED not in branch_subjects(repo, "main"), (
+        "branch_subjects listed the pipeline commit"
+    )
+    assert check_structure(repo, "main", paired=True, groups=steps) == [], (
+        "check_structure reported the pipeline commit"
+    )
+    assert adopted_names("Unit", steps, branch_subjects(repo, "main"), []) == (
+        "fix: G2 (adopted)",
+        f"{CHANGE}/2",
+    ), "adopted_names counted the pipeline commit"
+
+
+def test_a_pipeline_made_commit_leaves_the_hashes_and_subjects_aligned(repo: Path) -> None:
+    pairs = two_groups_with_pipeline_commit_at(repo, "between-1")
+
+    found = branch_commit_subjects(repo, "main")
+
+    assert [sha for sha, _ in found] == [sha for pair in pairs for sha in pair]
+    assert len(branch_commit_trailers(repo, "main")) == len(found)
+
+
+def test_a_commit_with_any_other_subject_between_a_pair_still_breaks_it(repo: Path) -> None:
+    commit(repo, "test: G1", {"tests/test_1.py": "def test_x(): ...\n"})
+    commit(repo, "docs: Reword the readme", {"README.md": "reworded\n"})
+    commit(repo, "feat: G1", {"src/mod_1.py": "x = 1\n"})
+
+    progress = walk_group_progress(repo, "main", [step(1, "G1")])
+
+    assert (progress.done, progress.tests_made) == (0, True)

@@ -46,6 +46,7 @@ from agent_build_kit.pipeline.changelog_convention import (
     changelog_path,
     resolver_changelog_rule,
 )
+from agent_build_kit.pipeline.commit_order import CHANGELOG_SEPARATED
 from agent_build_kit.pipeline.generated import GeneratedFilesFailed, discard_output, regenerate
 from agent_build_kit.pipeline.git_output import (
     PUSH_OPERATION,
@@ -80,7 +81,6 @@ from agent_build_kit.runtimes.base import (
 
 Runner = Callable[[list[str]], str]
 
-CHANGELOG_SEPARATED = "changelog: separate bullets joined by the union merge"
 
 # Takes the prompt and the worktree, and edits the conflicted files in place.
 Resolver = Callable[..., object]
