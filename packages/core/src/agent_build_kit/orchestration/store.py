@@ -26,7 +26,7 @@ class VersionConflict(StoreConflict):
 
 
 class UnitNotFound(Exception):
-    """`append_history` named a unit that is not stored."""
+    """`update` or `append_history` named a unit that is not stored."""
 
 
 class StoredUnit(Frozen):
@@ -63,7 +63,8 @@ class UnitsStore(Protocol):
         attempts: int = UPDATE_ATTEMPTS,
     ) -> StoredUnit:
         """Apply `fn` to the stored body and write the result, retrying against a concurrent
-        change up to `attempts` times, then raise `StoreConflict`."""
+        change up to `attempts` times, then raise `StoreConflict`. Raises `UnitNotFound` when the
+        unit is not stored: `put_if` at version 0 is what creates one."""
         ...
 
     async def append_history(

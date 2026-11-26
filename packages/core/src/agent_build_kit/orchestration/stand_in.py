@@ -54,11 +54,11 @@ class InMemoryUnitsStore:
     ) -> StoredUnit:
         for _ in range(attempts):
             stored = await self.get(unit_id)
-            body = {} if stored is None else stored.body
-            version = 0 if stored is None else stored.version
-            new_body = fn(body)
+            if stored is None:
+                raise UnitNotFound(unit_id)
+            new_body = fn(stored.body)
             try:
-                return await self.put_if(unit_id, new_body, version, fence)
+                return await self.put_if(unit_id, new_body, stored.version, fence)
             except VersionConflict:
                 continue
         raise StoreConflict(f"{unit_id} changed on each of {attempts} attempts")

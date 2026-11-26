@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- The units store now has a SQL implementation over SQLAlchemy and an async engine, with Alembic
+  migrations that create its `units` and `unit_history` tables. It runs on SQLite today and shares
+  one conformance suite with the in-memory stand-in. `alembic` and `greenlet` are new
+  dependencies.
+
 - `abk tags` and `abk check` now warn when a task names a new `test_<name>.py` for which no
   module `<name>.py` exists or is named by an earlier group, and say which existing test file
   the case belongs in; the exit status is unchanged. The kit's own placement guard is now exact:
