@@ -48,13 +48,6 @@ def test_the_convention_states_each_rule() -> None:
     assert "uv run" not in text
 
 
-def test_the_convention_names_no_installation() -> None:
-    text = output_convention()
-
-    assert "/home/" not in text
-    assert not re.search(r"\w+#\d+", text)
-
-
 @pytest.mark.parametrize("prompt", PROMPTS)
 def test_each_prompt_carries_the_convention(prompt: str) -> None:
     assert flat(output_convention()) in flat(prompt)

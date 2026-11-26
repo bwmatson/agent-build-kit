@@ -45,12 +45,6 @@ def test_the_pipeline_skill_names_the_lane_and_says_ordinary_starts_wait() -> No
     assert "ordinary starts wait" in text
 
 
-@pytest.mark.parametrize("name", ["abk-authoring", "abk-config", "abk-pipeline"])
-def test_no_skill_says_priority_zero_bypasses_no_limit(name: str) -> None:
-    assert "emergency lane" in flat(skills.source(name)).lower()
-    assert "bypasses no limit" not in flat(skills.source(name)).lower()
-
-
 @pytest.mark.parametrize("name", DOCUMENTS)
 def test_each_document_names_the_lane_cap_and_none_says_zero_bypasses_no_limit(name: str) -> None:
     text = document(name)

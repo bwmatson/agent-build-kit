@@ -20,18 +20,10 @@ from agent_build_kit.pipeline.stack_runner import (
     REVIEW_FEEDBACK_PROMPT,
     REWORK_CONTINUATION,
     REWORK_PROMPT,
-    TESTS_PROMPT,
 )
 from agent_build_kit.pipeline.wiring import REVIEW_PROMPT
+from tests.exclusions import stub_paragraph
 from tests.prompt_text import filled, flat, placeholders
-
-
-def stub_paragraph() -> str:
-    """The text of the tests prompt from its stub sentence to its stand-in paragraph."""
-    text = flat(TESTS_PROMPT)
-    start = text.index("Stubs contain no logic.")
-    return text[start : text.index("Where a test needs a stand-in")].lower()
-
 
 # 3.1 — decide before stubbing
 
@@ -78,15 +70,6 @@ def test_the_nearest_entry_point_is_preferred_and_a_contract_name_is_stubbed_as_
 
     assert re.search(r"nearest existing entry point[^.]*internal helper", paragraph)
     assert re.search(r"contract[^.]*stubbed as named", paragraph)
-
-
-def test_the_paragraph_names_no_installation_language_tool_or_path() -> None:
-    paragraph = stub_paragraph()
-
-    assert "reused x instead of adding y" in paragraph
-    assert not re.search(r"\w+#\d+|/home/|\b(src|tests)/|\.py\b|\.ts\b", paragraph)
-    for tool in ("pytest", "npm", "ruff", "cargo", "jest", "vitest"):
-        assert tool not in paragraph
 
 
 @pytest.mark.parametrize(

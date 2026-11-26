@@ -13,6 +13,7 @@ import pytest
 import yaml
 
 from agent_build_kit import __version__, skills
+from tests.tracked_files import ROOT
 
 
 def frontmatter(path: Path) -> dict:
@@ -45,6 +46,19 @@ def test_rendered_skill_carries_the_framework_version(name: str) -> None:
 
     assert f"generatedBy: agent-build-kit {__version__}" in rendered
     assert yaml.safe_load(rendered.split("---\n", 2)[1])["name"] == name
+
+
+@pytest.mark.parametrize("name", skills.names())
+def test_the_installed_copy_and_the_repository_mirror_equal_the_rendered_skill(
+    name: str, tmp_path: Path
+) -> None:
+    mirror = tmp_path / ".claude" / "skills"
+    skills.install(mirror)
+    assert (mirror / name / "SKILL.md").read_text(encoding="utf-8") == skills.rendered(name), name
+
+    repo_mirror = ROOT / ".claude" / "skills" / name / "SKILL.md"
+    if repo_mirror.is_file():
+        assert repo_mirror.read_text(encoding="utf-8") == skills.rendered(name), name
 
 
 def test_stale_detection(tmp_path: Path) -> None:
