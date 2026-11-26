@@ -56,9 +56,9 @@ in `abk.yaml`.
   beside the first.
 - Spec text names a package manager or lock file only as an example, never as
   the rule.
-- `tests/test_ecosystem_names_guard.py` fails when source outside `profiles/`
+- `tests/test_exclusions.py` fails when source outside `profiles/`
   and `init/` names a package manager, manifest or lock file from the token
-  list in `tests/ecosystem_names.py`. Today's offenders sit on an allowlist
+  list in `tests/exclusions.py`. Today's offenders sit on an allowlist
   that only shrinks; the framework's own tooling (the OpenSpec CLI, the web
   build, starting a tick) is a separate fixed list, each entry with its reason.
 
@@ -222,7 +222,7 @@ docs/              architecture, configuration, cli, toolchain-profiles, agent-r
   exercised through its caller.
 - **No test is marked as unable to run beside others.** The unit-test run is one pass, with no
   marker selection. A test that cannot run beside others is isolated (per-test ids, ports and
-  paths, from the shared fixtures), not marked; `tests/test_no_serial_marker_guard.py` fails a
+  paths, from the shared fixtures), not marked; `tests/test_exclusions.py` fails a
   test or configuration file that names the marker.
 - **Tests first.** A behaviour change lands with its failing test in the
   same change; the fixture repos are the tests' only installation.
