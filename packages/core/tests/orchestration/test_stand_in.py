@@ -1,4 +1,8 @@
-"""The units store's contract, on the in-memory stand-in."""
+"""The units store's contract, on the in-memory stand-in.
+
+The racing-writer cases use `drive`, which steps a call synchronously and so works only on this
+stand-in, which never awaits; the SQL implementation's conformance suite needs its own form of
+them."""
 
 import asyncio
 from collections.abc import Coroutine
@@ -10,6 +14,7 @@ from agent_build_kit.orchestration.stand_in import InMemoryUnitsStore
 from agent_build_kit.orchestration.store import (
     StoreConflict,
     StoredUnit,
+    UnitNotFound,
     UnitsStore,
     VersionConflict,
 )
@@ -128,7 +133,24 @@ def test_history_entries_keep_the_order_they_were_appended_in(store: UnitsStore)
 
 
 def test_history_is_kept_per_unit(store: UnitsStore) -> None:
+    run(store.put_if("a", {}, 0))
+    run(store.put_if("b", {}, 0))
     run(store.append_history("a", {"event": "x"}))
     run(store.append_history("b", {"event": "y"}))
 
     assert run(store.history("a")) == [{"event": "x"}]
+
+
+def test_appending_history_to_a_missing_unit_raises(store: UnitsStore) -> None:
+    with pytest.raises(UnitNotFound):
+        run(store.append_history("never-stored", {"event": "x"}))
+
+
+def test_mutating_a_returned_body_does_not_change_the_stored_unit(store: UnitsStore) -> None:
+    written = run(store.put_if("u", {"n": 1}, 0))
+    written.body["n"] = 99
+    listed = run(store.list())
+    listed[0].body["n"] = 98
+
+    stored = run(store.get("u"))
+    assert stored is not None and stored.body == {"n": 1}

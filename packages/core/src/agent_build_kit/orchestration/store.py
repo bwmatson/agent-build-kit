@@ -25,6 +25,10 @@ class VersionConflict(StoreConflict):
     """`put_if` was given a version that is not the stored one."""
 
 
+class UnitNotFound(Exception):
+    """`append_history` named a unit that is not stored."""
+
+
 class StoredUnit(Frozen):
     """A unit as stored: its id, JSON body and version."""
 
@@ -40,7 +44,7 @@ class UnitsStore(Protocol):
         """The unit stored under `unit_id`, or None."""
         ...
 
-    async def list(self) -> list[StoredUnit]:
+    async def list(self) -> builtins.list[StoredUnit]:
         """Every stored unit, ordered by id."""
         ...
 
@@ -65,7 +69,8 @@ class UnitsStore(Protocol):
     async def append_history(
         self, unit_id: str, entry: dict[str, Any], fence: int | None = None
     ) -> int:
-        """Append `entry` to the unit's history; return its sequence number, from 1."""
+        """Append `entry` to the unit's history; return its sequence number, from 1. Raises
+        `UnitNotFound` when the unit is not stored, as history belongs to a stored unit."""
         ...
 
     async def history(self, unit_id: str) -> builtins.list[dict[str, Any]]:
