@@ -362,6 +362,20 @@ def test_a_replan_gives_an_unbuilt_group_its_floor_and_a_built_group_keeps_its_s
     assert modes == {"feature/1": "tests_and_code", "feature/2": "tests_only"}
 
 
+def test_a_pair_under_an_older_title_and_its_group_trailer_counts_as_built_in_a_replan(
+    tmp_path: Path,
+) -> None:
+    repo = branch_with(
+        tmp_path,
+        "test: Old one\n\nGroup: feature/1\n",
+        "feat: Old one\n\nGroup: feature/1\n",
+    )
+
+    modes = replanned_modes(repo, FLOORS)
+
+    assert modes == {"feature/1": "tests_and_code", "feature/2": "tests_only"}
+
+
 def test_a_replan_over_a_branch_with_no_commits_gives_every_group_its_current_mode(
     tmp_path: Path,
 ) -> None:

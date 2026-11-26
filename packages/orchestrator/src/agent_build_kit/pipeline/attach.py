@@ -12,13 +12,18 @@ from agent_build_kit import profiles
 from agent_build_kit.config import active
 from agent_build_kit.installation import Installation
 from agent_build_kit.model import Frozen
-from agent_build_kit.pipeline.commit_order import adopted_subject, branch_subjects
+from agent_build_kit.pipeline.commit_order import (
+    GROUP_TRAILER,
+    adopted_names,
+    branch_commit_trailers,
+    branch_subjects,
+)
 from agent_build_kit.pipeline.consequences import Consequence, consequences_of
 from agent_build_kit.pipeline.environment import repo_artifacts
 from agent_build_kit.pipeline.lease import Leases, lease_dir
 from agent_build_kit.pipeline.planning_sync import in_repo_name
 from agent_build_kit.pipeline.shell import git_out
-from agent_build_kit.pipeline.stack_runner import group_steps_of
+from agent_build_kit.pipeline.stack_runner import GroupStep, group_steps_of
 from agent_build_kit.pipeline.unit_store import StoredUnit, UnitStore
 from agent_build_kit.pipeline.units import base_of, local_ref
 from agent_build_kit.pipeline.workspaces import (
@@ -136,8 +141,9 @@ def adopt(
     commit = build_commit(
         unit_id=unit.id, fix=fix, adopted_from=session, repo=inst.repo(unit.repo), base=base
     )
-    subject = subject_for(inst, unit, tree, base)
-    if not commit(f"{subject}\n\n{message}", cwd=tree):
+    subject, group = names_for(inst, unit, tree, base)
+    trailer = f"\n\n{GROUP_TRAILER}: {group}" if group else ""
+    if not commit(f"{subject}\n\n{message}{trailer}", cwd=tree):
         raise NothingToCommit("nothing to commit")
     head = git_out(tree, "rev-parse", "HEAD")
     leases = leases_of(inst)
@@ -146,14 +152,22 @@ def adopt(
     return finish(inst, unit, head, subject)
 
 
-def subject_for(inst: Installation, unit: StoredUnit, tree: Path, base: str) -> str:
-    """The subject an adopted commit of `unit` takes, from its group progress."""
-    steps = (
-        group_steps_of(inst.root, unit)
-        if stubbed_build(active().builders, profiles.get(inst.repo(unit.repo).profile))
-        else ()
+def names_for(inst: Installation, unit: StoredUnit, tree: Path, base: str) -> tuple[str, str]:
+    """The subject and the `Group:` trailer value an adopted commit of `unit` takes, both from
+    one walk of the branch's group progress."""
+    return adopted_names(
+        unit.title,
+        steps_for(inst, unit),
+        branch_subjects(tree, base),
+        branch_commit_trailers(tree, base),
     )
-    return adopted_subject(unit.title, steps, branch_subjects(tree, base))
+
+
+def steps_for(inst: Installation, unit: StoredUnit) -> tuple[GroupStep, ...]:
+    """The groups `unit` is built in, none when it is not built in stubbed groups."""
+    if stubbed_build(active().builders, profiles.get(inst.repo(unit.repo).profile)):
+        return group_steps_of(inst.root, unit)
+    return ()
 
 
 class PlanningCommit(Frozen):

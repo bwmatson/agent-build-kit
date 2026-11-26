@@ -87,7 +87,12 @@ from agent_build_kit.pipeline.command_limit import (
     run_limited,
     timed_out,
 )
-from agent_build_kit.pipeline.commit_order import ALREADY_BUILT_TRAILER, branch_subjects
+from agent_build_kit.pipeline.commit_order import (
+    ALREADY_BUILT_TRAILER,
+    GROUP_TRAILER,
+    branch_commit_trailers,
+    branch_subjects,
+)
 from agent_build_kit.pipeline.config_guard import config_unchanged
 from agent_build_kit.pipeline.determinism_guidance import determinism_guidance
 from agent_build_kit.pipeline.e2e import (
@@ -1187,11 +1192,19 @@ or reconfigure the gate: the pipeline commits once you are done.
 COMMIT_FIX_ROUNDS = 2
 
 
+_GROUP_LINE = re.compile(rf"^({GROUP_TRAILER}: \S+)$\n?", re.MULTILINE)
+
+
 def with_trailers(message: str, *, unit_id: str, adopted_from: str, built: bool = False) -> str:
     """`message` followed by the trailer block a unit's commits carry: the unit, the chat
-    session adopted from, and for a group recorded as built the mark, last."""
+    session adopted from, and for a group recorded as built the mark, last. A `Group:` line
+    anywhere in `message` is the group's trailer: it moves into the block, after the unit's."""
+    group_lines = _GROUP_LINE.findall(message)
+    if group_lines:
+        message = _GROUP_LINE.sub("", message).rstrip("\n")
     trailers = (
         ([f"Unit: {unit_id}"] if unit_id else [])
+        + group_lines[:1]
         + ([f"Adopted-From: {adopted_from}"] if adopted_from else [])
         + ([f"{ALREADY_BUILT_TRAILER}: yes"] if built else [])
     )
@@ -5921,6 +5934,7 @@ def build_runner(
         tree_state=build_tree_state(),
         branch_commits=branch_commits,
         branch_subjects=branch_subjects,
+        branch_trailers=branch_commit_trailers,
         upstream_incomplete=build_upstream_incomplete(
             store, installation.config.global_limits.bounce_limit
         ),

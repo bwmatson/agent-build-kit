@@ -38,7 +38,11 @@ from agent_build_kit.config import (
 )
 from agent_build_kit.model import Frozen, TestTier, pooled_kind
 from agent_build_kit.pipeline.call_record import recorded
-from agent_build_kit.pipeline.commit_order import branch_commit_subjects, group_progress
+from agent_build_kit.pipeline.commit_order import (
+    branch_commit_subjects,
+    branch_commit_trailers,
+    steps_progress,
+)
 from agent_build_kit.pipeline.joins import (
     JoinContext,
     JoinRefused,
@@ -47,6 +51,7 @@ from agent_build_kit.pipeline.joins import (
     mixed_floors_text,
 )
 from agent_build_kit.pipeline.review_paths import is_protected
+from agent_build_kit.pipeline.stack_runner import GroupStep
 from agent_build_kit.pipeline.unit_ids import assign_unit_ids, taken_ids
 from agent_build_kit.pipeline.unit_size import (
     Calibration,
@@ -472,11 +477,16 @@ def built_groups(
     if gone := [n for n in unit.groups if n not in by_number]:
         raise GroupGone(f"group {gone[0]} of {unit.id} is no longer in the change's tasks")
     subjects = [subject for _, subject in branch_commit_subjects(repo, base, ref)]
-    return group_progress(
-        subjects,
-        [by_number[n].title for n in unit.groups],
-        [unit.mode_of(unit.change, by_number[n]) for n in unit.groups],
-    ).done
+    steps = [
+        GroupStep(
+            change_dir=unit.change,
+            number=n,
+            title=by_number[n].title,
+            mode=unit.mode_of(unit.change, by_number[n]),
+        )
+        for n in unit.groups
+    ]
+    return steps_progress(subjects, branch_commit_trailers(repo, base, ref), steps).done
 
 
 def reconcile_group_modes(

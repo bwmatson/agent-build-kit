@@ -1820,6 +1820,9 @@ class UnitRunner(BaseModel):
     # The subject of each commit on the branch beyond its base, oldest first: where a stubbed
     # build reads the groups it has already built.
     branch_subjects: Callable[..., list[str]] = lambda cwd, base: []
+    # The `Group:` trailer of each of those commits, "" for one with none: how the walk matches
+    # a commit to its group by number.
+    branch_trailers: Callable[..., list[str]] = lambda cwd, base: []
     # The cause and words for stopping because something the unit is built on
     # went back, or None. See `wiring.build_upstream_incomplete`.
     upstream_incomplete: Callable[..., tuple[Cause, str] | None]
