@@ -25,6 +25,10 @@ from agent_build_kit.orchestration.store import (
 )
 
 
+async def _nothing_to_close() -> None:
+    return None
+
+
 class Harness(Frozen):
     """A store under test, and a way for another writer to change it behind its back."""
 
@@ -33,6 +37,9 @@ class Harness(Frozen):
     store: SkipValidation[UnitsStore]
     # (unit id, body, version the unit is at): stores the body at version + 1, synchronously.
     write_behind: Callable[[str, dict[str, Any], int], None]
+    # Releases what the store holds (engines, connections); `run_case` awaits it in the case's
+    # own event loop once the case is done, however it ended.
+    close: Callable[[], Coroutine[Any, Any, None]] = _nothing_to_close
 
 
 HarnessFactory = Callable[[], Harness]
@@ -101,6 +108,13 @@ async def _update_applies_the_function_to_the_stored_body(h: Harness) -> None:
     updated = await h.store.update("u", lambda body: {**body, "n": body["n"] + 1})
 
     assert (updated.body, updated.version) == ({"n": 2}, 2)
+
+
+async def _update_of_a_missing_unit_raises(h: Harness) -> None:
+    with pytest.raises(UnitNotFound):
+        await h.store.update("never-stored", lambda body: body)
+
+    assert await h.store.get("never-stored") is None
 
 
 async def _update_applies_the_function_to_the_newer_unit_when_another_writer_changes_it(
@@ -190,6 +204,7 @@ CASES: dict[str, Case] = {
     "update_applies_the_function_to_the_stored_body": (
         _update_applies_the_function_to_the_stored_body
     ),
+    "update_of_a_missing_unit_raises": _update_of_a_missing_unit_raises,
     "update_retries_against_a_concurrent_change": (
         _update_applies_the_function_to_the_newer_unit_when_another_writer_changes_it
     ),
@@ -204,5 +219,15 @@ CASES: dict[str, Case] = {
 
 
 def run_case(name: str, factory: HarnessFactory) -> None:
-    """Run the named case against a fresh harness from `factory`."""
-    asyncio.run(CASES[name](factory()))
+    """Run the named case against a fresh harness from `factory`, then close the harness in the
+    same event loop."""
+
+    harness = factory()  # outside the loop: a factory may run the migrations, which start one
+
+    async def run() -> None:
+        try:
+            await CASES[name](harness)
+        finally:
+            await harness.close()
+
+    asyncio.run(run())

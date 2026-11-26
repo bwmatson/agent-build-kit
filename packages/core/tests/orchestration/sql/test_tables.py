@@ -5,12 +5,16 @@ through Alembic's own API with `sqlalchemy.url` set to the file, as `abk db upgr
 store's cases live here, not in a `test_store.py`: a test file base name is unique across the
 repository and the orchestrator's notify store already holds that one."""
 
-import importlib
 from pathlib import Path
 from typing import Any
 
 import pytest
+from alembic import command
+from alembic.autogenerate import compare_metadata
+from alembic.config import Config
+from alembic.runtime.migration import MigrationContext
 from sqlalchemy import create_engine, inspect, update
+from sqlalchemy.ext.asyncio import create_async_engine
 
 import agent_build_kit.orchestration.sql as sql_package
 from agent_build_kit.orchestration.sql.store import SqlUnitsStore
@@ -20,18 +24,16 @@ from tests.support.units_store_conformance import CASES, Harness, run_case
 MIGRATIONS = Path(sql_package.__file__).parent / "migrations"
 
 
-def alembic_config(database: Path) -> Any:
-    # Alembic is imported by name: the dependency arrives with the implementation (task 2.2).
-    assert MIGRATIONS.is_dir(), "the migrations folder does not exist yet"
-    config = importlib.import_module("alembic.config").Config()
+def alembic_config(database: Path | None) -> Config:
+    config = Config()
     config.set_main_option("script_location", str(MIGRATIONS))
-    config.set_main_option("sqlalchemy.url", f"sqlite+aiosqlite:///{database}")
+    if database is not None:
+        config.set_main_option("sqlalchemy.url", f"sqlite+aiosqlite:///{database}")
     return config
 
 
 def upgrade(database: Path) -> None:
-    config = alembic_config(database)
-    importlib.import_module("alembic.command").upgrade(config, "head")
+    command.upgrade(alembic_config(database), "head")
 
 
 def table_names(database: Path) -> set[str]:
@@ -68,9 +70,34 @@ def test_upgrading_to_head_creates_the_units_and_history_tables(database: Path) 
     assert {"units", "unit_history"} <= table_names(database)
 
 
+def test_the_migrated_schema_matches_the_tables(database: Path) -> None:
+    upgrade(database)
+    engine = create_engine(f"sqlite:///{database}")
+    try:
+        with engine.connect() as connection:
+            differences = compare_metadata(MigrationContext.configure(connection), METADATA)
+    finally:
+        engine.dispose()
+
+    assert differences == []
+
+
+def test_upgrading_on_a_connection_the_caller_holds_needs_no_url(database: Path) -> None:
+    config = alembic_config(None)
+    engine = create_engine(f"sqlite:///{database}")
+    try:
+        with engine.begin() as connection:
+            config.attributes["connection"] = connection
+            command.upgrade(config, "head")
+    finally:
+        engine.dispose()
+
+    assert {"units", "unit_history"} <= table_names(database)
+
+
 def test_downgrading_to_base_leaves_no_table(database: Path) -> None:
     upgrade(database)
-    importlib.import_module("alembic.command").downgrade(alembic_config(database), "base")
+    command.downgrade(alembic_config(database), "base")
 
     assert table_names(database) <= {"alembic_version"}
 
@@ -80,6 +107,7 @@ def test_the_sqlite_store_passes_the_conformance_case(case: str, database: Path)
     def factory() -> Harness:
         upgrade(database)
         sync = create_engine(f"sqlite:///{database}")
+        engine = create_async_engine(f"sqlite+aiosqlite:///{database}")
 
         def write_behind(unit_id: str, body: dict[str, Any], version: int) -> None:
             with sync.begin() as connection:
@@ -89,9 +117,10 @@ def test_the_sqlite_store_passes_the_conformance_case(case: str, database: Path)
                     .values(body=body, version=version + 1)
                 )
 
-        # Imported here: the async extras (greenlet) arrive with the implementation (task 2.2).
-        asyncio_ext = importlib.import_module("sqlalchemy.ext.asyncio")
-        engine = asyncio_ext.create_async_engine(f"sqlite+aiosqlite:///{database}")
-        return Harness(store=SqlUnitsStore(engine), write_behind=write_behind)
+        async def close() -> None:
+            await engine.dispose()
+            sync.dispose()
+
+        return Harness(store=SqlUnitsStore(engine), write_behind=write_behind, close=close)
 
     run_case(case, factory)

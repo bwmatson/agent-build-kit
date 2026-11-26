@@ -1,1 +1,1 @@
-"""The units store over SQLAlchemy Core: its schema, and later its implementation and migrations."""
+"""The units store over SQLAlchemy Core: its tables, the SQL store and its Alembic migrations."""

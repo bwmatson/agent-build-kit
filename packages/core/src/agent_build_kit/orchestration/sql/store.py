@@ -86,7 +86,7 @@ class SqlUnitsStore:
             if current is None:
                 raise UnitNotFound(unit_id)
             try:
-                return await self.put_if(unit_id, fn(current.body), current.version)
+                return await self.put_if(unit_id, fn(current.body), current.version, fence)
             except VersionConflict:
                 continue
         raise StoreConflict(f"{unit_id} kept changing across {attempts} attempts")
