@@ -14,15 +14,46 @@ from pathlib import Path
 import pytest
 import yaml
 
-from tests.exclusions import ENTRIES, Case, Entry, Exemption, Reading, build
+from tests.exclusions import (
+    ALLOWLIST,
+    E2E_CLASSES,
+    E2E_MODULES,
+    ENTRIES,
+    OWN_TOOLING,
+    Case,
+    Entry,
+    Exemption,
+    Reading,
+    build,
+)
 from tests.factories import git, init_repo
+from tests.old_merge_rule import statements
 from tests.time_limit import LOADED_TEST_TIME_LIMIT
-from tests.tracked_files import ROOT
+from tests.tracked_files import ROOT, source_trees
 
 LINE_ENTRIES = [entry for entry in ENTRIES if entry.check is None]
 OFFENDING = [(entry, case) for entry in ENTRIES for case in entry.offends]
 PASSING = [(entry, case) for entry in ENTRIES for case in entry.passes]
 EXEMPT = [(entry, exemption) for entry in LINE_ENTRIES for exemption in entry.exemptions]
+LISTED = [(entry, exemption) for entry, exemption in EXEMPT if exemption.stale]
+BY_NAME = {entry.name: entry for entry in ENTRIES}
+ARCHIVED = "openspec/changes/archive/2026-01-01-drop-key/proposal.md"
+# Until the statement entries are folded, the old rule about who merges is read by its own matcher.
+OLD_MERGE_RULE = Entry(
+    name="old-merge-rule",
+    reason="stands in for the statement entry, which a later group folds into the table",
+    found=lambda line: bool(statements(line)),
+    under=(),
+    names=(),
+    suffixes=frozenset({".md"}),
+    specs=False,
+    offends=(Case(path="docs/a.md", text="A person merges every pull request.\n"),),
+)
+DOCUMENT_GUARDS = [
+    BY_NAME["removed-review-key-in-a-document"],
+    OLD_MERGE_RULE,
+    BY_NAME["old-live-test-module-name"],
+]
 
 
 def named(pairs: list[tuple[Entry, Case]] | list[tuple[Entry, Exemption]]) -> list[str]:
@@ -42,7 +73,7 @@ def reading() -> Reading:
 @pytest.mark.integration
 @pytest.mark.parametrize("entry", ENTRIES, ids=lambda entry: entry.name)
 def test_the_repository_holds_nothing_an_entry_forbids(entry: Entry, reading: Reading) -> None:
-    assert reading.findings(entry) == [], f"{entry.name}: {entry.reason}"
+    assert reading.findings(entry) + reading.stale(entry) == [], f"{entry.name}: {entry.reason}"
 
 
 @pytest.mark.parametrize(("entry", "case"), OFFENDING, ids=named(OFFENDING))
@@ -78,6 +109,62 @@ def test_an_entry_passes_what_its_exemption_covers(
 
     assert tmp_path / exemption.path in reading.files(entry)
     assert reading.findings(entry) == []
+
+
+@pytest.mark.parametrize(("entry", "exemption"), LISTED, ids=named(LISTED))
+def test_a_listing_that_covers_a_hit_is_not_stale(
+    entry: Entry, exemption: Exemption, tmp_path: Path
+) -> None:
+    build(tmp_path, Case(path=exemption.path, text=entry.offends[0].text))
+
+    assert not [line for line in Reading(tmp_path).stale(entry) if exemption.path in line]
+
+
+@pytest.mark.parametrize("present", [True, False], ids=["a file with no name left", "no file"])
+@pytest.mark.parametrize(("entry", "exemption"), LISTED, ids=named(LISTED))
+def test_a_listing_that_covers_no_hit_is_reported_as_stale(
+    entry: Entry, exemption: Exemption, present: bool, tmp_path: Path
+) -> None:
+    if present:
+        build(tmp_path, Case(path=exemption.path, text="x = 1\n"))
+
+    assert [line for line in Reading(tmp_path).stale(entry) if exemption.path in line]
+
+
+def test_the_ecosystem_allowlist_only_shrinks() -> None:
+    assert set(ALLOWLIST) <= {"cli/doctor.py", "tracks/runner.py"}
+
+
+def test_the_ecosystem_own_tooling_list_is_fixed_and_each_listing_has_a_reason() -> None:
+    assert set(OWN_TOOLING) <= {
+        "openspec.py",
+        "serve/server.py",
+        "settings.py",
+        "config.py",
+        "timers.py",
+    }
+    assert all(reason.strip() for reason in [*ALLOWLIST.values(), *OWN_TOOLING.values()])
+
+
+@pytest.mark.parametrize(
+    "relative",
+    [*E2E_MODULES, *(module for module, _ in E2E_CLASSES)],
+)
+def test_each_module_the_e2e_entry_reads_exists_in_a_source_tree(relative: str) -> None:
+    assert any((tree / relative).is_file() for tree in source_trees()), relative
+
+
+@pytest.mark.parametrize("entry", DOCUMENT_GUARDS, ids=lambda entry: entry.name)
+def test_a_document_guard_skips_an_archived_change_and_still_reads_docs(
+    entry: Entry, tmp_path: Path
+) -> None:
+    text = entry.offends[0].text
+    build(tmp_path, Case(path=ARCHIVED, text=text))
+    build(tmp_path, Case(path="docs/a.md", text=text))
+
+    found = Reading(tmp_path).findings(entry)
+
+    assert [line.split(":")[0] for line in found] == ["docs/a.md"]
 
 
 def a_checkout(root: Path, *, config: bool = False, files: int = 6) -> Path:

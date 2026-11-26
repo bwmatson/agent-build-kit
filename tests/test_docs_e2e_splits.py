@@ -13,8 +13,6 @@ ROOT = Path(__file__).resolve().parent.parent
 DOCS = ROOT / "docs"
 SKILLS = ROOT / "src" / "agent_build_kit" / "skills"
 SKILL_NAMES = ("abk-config", "abk-authoring", "abk-pipeline")
-# Spelled in two halves so the file carries no old spelling.
-OLD_NAMES = ("runtimes_blocked", "runtimes_allowed", "tier" + "2_runtimes")
 
 
 def squashed(path: Path) -> str:
@@ -58,16 +56,6 @@ def test_the_runtimes_document_names_the_exclusive_membership_rule() -> None:
 def test_the_runtimes_document_names_each_selector_kind_of_the_profile(kind: str) -> None:
     text = squashed(DOCS / "agent-runtimes.md")
     assert re.search(rf"selector kinds?[^.]*`{kind}`", text, re.I)
-
-
-@pytest.mark.integration
-def test_no_document_names_the_old_runtime_lists_once_the_splits_are_documented() -> None:
-    assert "`e2e_splits`" in squashed(DOCS / "configuration.md")
-    paths = [*DOCS.glob("*.md"), ROOT / "README.md", *SKILLS.glob("*/SKILL.md")]
-    offenders = [
-        (p.name, old) for p in paths for old in OLD_NAMES if old in p.read_text(encoding="utf-8")
-    ]
-    assert offenders == []
 
 
 @pytest.mark.parametrize("skill", SKILL_NAMES)
