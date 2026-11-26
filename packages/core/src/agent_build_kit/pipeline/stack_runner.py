@@ -196,12 +196,14 @@ A rewrite of this unit's history was asked for:
 {request}
 ---
 
-The unit's own commits may be rewritten as it asks (amend, rebase, squash, reorder), and never the
+The unit's own commits may be rewritten as it asks, with `git commit`, `git reset` and
+`git rebase` (amend, squash, reorder), and never the
 base: rewrite only the commits in `{base}..HEAD`; `{base}` and everything below it stays as it is,
 so never rebase onto or past another ref. Each commit you write ends with the trailer
 `Unit: {unit}`, and you make no merge commit. Keep the order: tests stay before implementation in
 the rewritten history. After your step the pipeline checks all of this and returns the step to you
-if it fails. Do not push.
+if it fails. Leave the branch checked out where it is: the pipeline will publish it, and you run
+no push.
 """
 
 OUTPUT_NOTE = "\n" + output_convention()
