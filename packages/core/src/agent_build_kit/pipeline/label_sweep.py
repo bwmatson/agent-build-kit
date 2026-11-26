@@ -9,7 +9,7 @@ clean.
 from __future__ import annotations
 
 import json
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Iterable, Sequence
 from pathlib import Path
 
 from agent_build_kit.pipeline.file_lock import atomic_write_text, file_lock
@@ -36,6 +36,19 @@ def _record(path: Path, repo: str, pr: int) -> None:
         atomic_write_text(path, json.dumps(swept, indent=2, sort_keys=True))
 
 
+def capped_by_repo(
+    pairs: Iterable[tuple[str, int]], repo_order: Sequence[str], limit: int
+) -> tuple[list[tuple[str, int]], int]:
+    """Up to `limit` of the (repo, pull request) pairs, repos in `repo_order` and lowest number
+    first within each, and how many more there are. A pair of a repo not in `repo_order` is left
+    out. The one selection every capped post-poll sweep makes."""
+    wanted = set(pairs)
+    ordered = [
+        (repo, pr) for repo in repo_order for pr in sorted(n for r, n in wanted if r == repo)
+    ]
+    return ordered[:limit], max(len(ordered) - limit, 0)
+
+
 def sweep_finished(
     units: list[StoredUnit],
     *,
@@ -50,19 +63,19 @@ def sweep_finished(
     path = state_dir / SWEPT_NAME
     with file_lock(path.with_name(f"{path.name}.lock")):
         done = _read(path)
-    pending: list[tuple[str, int]] = []
-    for repo in repo_order:
-        numbers = {
-            unit.pr
+    chosen, remaining = capped_by_repo(
+        {
+            (unit.repo, unit.pr)
             for unit in units
-            if unit.repo == repo
-            and unit.pr is not None
+            if unit.pr is not None
             and unit.state in FINISHED
-            and unit.pr not in done.get(repo, [])
-        }
-        pending.extend((repo, pr) for pr in sorted(numbers))
-    for repo, pr in pending[:limit]:
+            and unit.pr not in done.get(unit.repo, [])
+        },
+        repo_order,
+        limit,
+    )
+    for repo, pr in chosen:
         if labels.clear_state(repo, pr) is not ClearOutcome.FAILED:
             _record(path, repo, pr)
-    if len(pending) > limit:
-        log(f"label sweep: {len(pending) - limit} remain")
+    if remaining:
+        log(f"label sweep: {remaining} remain")

@@ -246,6 +246,7 @@ from agent_build_kit.pipeline.pr_poller import (
     PrState,
     conflicts,
     recorded_checks,
+    recorded_drafts,
     state_path,
     unmergeable,
 )
@@ -6667,6 +6668,7 @@ def poll_all(inst: Installation, *, store: UnitStore, lane: Lane | None = None) 
             log=log,
         ).poll()
         _refresh_check_labels(inst, store, repo, labels)
+        reconcile_drafts(inst, store, repo)
     moves = run_support.build_stack_moves(store, inst)
     remove_merged_branches(
         store,
@@ -6702,6 +6704,20 @@ def _refresh_graph_page(inst: Installation, store: UnitStore) -> None:
         )
     except Exception as error:  # noqa: BLE001
         log(f"graph not refreshed — {type(error).__name__}: {error}")
+
+
+def reconcile_drafts(inst: Installation, store: UnitStore, repo: str) -> None:
+    """Write each unit's draft or ready state onto its pull request in `repo` where the last
+    poll read it otherwise. Cosmetic, so a failure is logged and never stops the poll."""
+    try:
+        run_support.drafts_for(inst).reconcile(
+            store.all(),
+            recorded_drafts(inst.state_dir),
+            limit=inst.config.global_limits.label_sweep_per_tick,
+            repo_order=[repo],
+        )
+    except Exception as error:  # noqa: BLE001
+        log(f"drafts not reconciled — {type(error).__name__}: {error}")
 
 
 def _refresh_check_labels(

@@ -20,6 +20,7 @@ from agent_build_kit.forges import PullRequest
 from agent_build_kit.pipeline.pr_poller import (
     Poller,
     PrState,
+    recorded_drafts,
     snapshot,
     state_path,
     unmergeable,
@@ -198,6 +199,23 @@ def test_a_poll_records_each_pull_requests_draft_state_in_the_hosts_view(
     assert (first["4"].get("draft"), first["5"].get("draft")) == (True, False)
     assert (second["4"].get("draft"), second["5"].get("draft")) == (False, True)
     assert seen == [], "a draft state recorded beside the rest is not an event"
+
+
+def test_the_recorded_draft_lookup_reads_true_false_and_none_from_the_polls_record(
+    tmp_path: Path,
+) -> None:
+    Poller(
+        repo="app",
+        state_path=state_path(tmp_path, "app"),
+        dispatch=lambda *args, **kwargs: None,
+        list_prs=lambda: [pr(4, draft=True), pr(5)],
+    ).poll()
+
+    draft_of = recorded_drafts(tmp_path)
+
+    assert (draft_of("app", 4), draft_of("app", 5)) == (True, False)
+    assert draft_of("app", 6) is None, "a pull request the poll did not list"
+    assert draft_of("platform", 4) is None, "a repo that was never polled"
 
 
 def test_the_hold_label_stops_a_stack_advancing(poller) -> None:

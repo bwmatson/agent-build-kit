@@ -611,6 +611,21 @@ class Poller(BaseModel):
         return None
 
 
+def recorded_drafts(state_dir: Path) -> Callable[[str, int], bool | None]:
+    """A lookup of whether a pull request was a draft when the last poll of its repo read it,
+    by repo and number: None for one the poll has not recorded or recorded without the field."""
+    loaded: dict[str, dict] = {}
+
+    def draft_of(repo: str, pr: int) -> bool | None:
+        if repo not in loaded:
+            loaded[repo] = PrState.host(state_path(state_dir, repo), repo)
+        seen = loaded[repo].get(str(pr))
+        draft = seen.get("draft") if isinstance(seen, dict) else None
+        return draft if isinstance(draft, bool) else None
+
+    return draft_of
+
+
 def recorded_checks(state_dir: Path) -> ChecksOf:
     """A lookup of a unit's pull request's checks as the last poll of its repo
     recorded them, read from the snapshot when asked. Links are not kept there."""

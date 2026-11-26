@@ -27,6 +27,7 @@ from tests.forges.stand_in import StandInForge, lookup
 
 PR = 7
 UID = "add-marker/1"
+REPOS = ["app", "platform"]
 
 
 class NoDraftsForge(StandInForge):
@@ -282,7 +283,9 @@ def test_the_reconcile_writes_only_a_pull_request_whose_recorded_state_differs(
     drafts = StateDrafts(lookup(forge), log=logged.append)
     recorded = {} if draft is None else {("app", PR): draft}
 
-    drafts.reconcile([unit(UID, state=state, pr=PR)], recorded_as(recorded), limit=20)
+    drafts.reconcile(
+        [unit(UID, state=state, pr=PR)], recorded_as(recorded), limit=20, repo_order=REPOS
+    )
 
     assert draft_calls(forge) == expected
     assert logged == []
@@ -294,7 +297,10 @@ def test_the_reconcile_leaves_a_unit_with_no_pull_request_alone(
     drafts = StateDrafts(lookup(forge), log=logged.append)
 
     drafts.reconcile(
-        [unit(UID, state=RUNNING, pr=None)], recorded_as({("app", PR): False}), limit=20
+        [unit(UID, state=RUNNING, pr=None)],
+        recorded_as({("app", PR): False}),
+        limit=20,
+        repo_order=REPOS,
     )
 
     assert forge.calls == []
@@ -307,22 +313,22 @@ def test_a_refused_write_is_logged_once_per_state_wanted_and_retried_at_each_pol
     units = [unit(UID, state=IN_REVIEW, pr=PR)]
     recorded = recorded_as({("app", PR): True})
 
-    drafts.reconcile(units, recorded, limit=20)
-    drafts.reconcile(units, recorded, limit=20)
+    drafts.reconcile(units, recorded, limit=20, repo_order=REPOS)
+    drafts.reconcile(units, recorded, limit=20, repo_order=REPOS)
 
     assert len(logged) == 1, logged
     assert f"#{PR}" in logged[0]
     assert "draft=False" in logged[0]
     assert forge.calls == []
 
-    drafts.reconcile(units, recorded, limit=20)
+    drafts.reconcile(units, recorded, limit=20, repo_order=REPOS)
 
     assert draft_calls(forge) == [("ready", PR)]
     assert forge.is_draft[PR] is False
     assert len(logged) == 1, logged
 
     forge.refusals = 1
-    drafts.reconcile(units, recorded, limit=20)
+    drafts.reconcile(units, recorded, limit=20, repo_order=REPOS)
 
     assert len(logged) == 2, logged
     assert f"#{PR}" in logged[1]
@@ -343,11 +349,11 @@ def test_the_reconcile_writes_the_limit_lowest_numbers_first_and_the_rest_next_t
         """What the next poll would read: ready until the forge was asked for a draft."""
         return forge.is_draft.get(pr, False)
 
-    drafts.reconcile(units, recorded, limit=3)
+    drafts.reconcile(units, recorded, limit=3, repo_order=REPOS)
 
     assert draft_calls(forge) == [("draft", 3), ("draft", 5), ("draft", 2)]
 
-    drafts.reconcile(units, recorded, limit=3)
+    drafts.reconcile(units, recorded, limit=3, repo_order=REPOS)
 
     assert draft_calls(forge)[3:] == [("draft", 4)]
 
@@ -357,9 +363,64 @@ def test_a_host_with_no_drafts_is_logged_once_over_two_reconciles(logged: list[s
     units: list[StoredUnit] = [unit(UID, state=RUNNING, pr=PR)]
     recorded = recorded_as({("app", PR): False})
 
-    drafts.reconcile(units, recorded, limit=20)
-    drafts.reconcile(units, recorded, limit=20)
+    drafts.reconcile(units, recorded, limit=20, repo_order=REPOS)
+    drafts.reconcile(units, recorded, limit=20, repo_order=REPOS)
 
     assert len(logged) == 1, logged
     assert "no drafts" in logged[0]
     assert units[0].state == RUNNING
+
+
+def test_a_repo_on_a_host_with_no_drafts_does_not_stop_the_reconcile_of_another(
+    forge: StandInForge, logged: list[str]
+) -> None:
+    hosts = {"platform": NoDraftsForge(), "app": forge}
+
+    def for_repo(repo: str):
+        return hosts[repo], forge.repo_id()
+
+    drafts = StateDrafts(for_repo, log=logged.append)
+    units = [
+        unit("platform-change/1", repo="platform", state=RUNNING, pr=2),
+        unit("platform-change/2", repo="platform", state=RUNNING, pr=3),
+        unit("app-change/1", repo="app", state=RUNNING, pr=5),
+        unit("app-change/2", repo="app", state=RUNNING, pr=6),
+    ]
+    recorded = recorded_as(
+        {("platform", 2): False, ("platform", 3): False} | {("app", 5): False, ("app", 6): False}
+    )
+
+    drafts.reconcile(units, recorded, limit=20, repo_order=["platform", "app"])
+    drafts.reconcile(units, recorded, limit=20, repo_order=["platform", "app"])
+
+    assert draft_calls(forge) == [("draft", 5), ("draft", 6)] * 2
+    assert len(logged) == 1, logged
+    assert "no drafts" in logged[0]
+
+
+def test_the_reconcile_takes_repos_in_the_order_it_is_given(
+    forge: StandInForge, logged: list[str]
+) -> None:
+    drafts = StateDrafts(lookup(forge), log=logged.append)
+    units = [
+        unit("app-change/1", repo="app", state=RUNNING, pr=2),
+        unit("platform-change/1", repo="platform", state=RUNNING, pr=9),
+    ]
+    recorded = recorded_as({("app", 2): False, ("platform", 9): False})
+
+    drafts.reconcile(units, recorded, limit=1, repo_order=["platform", "app"])
+
+    assert draft_calls(forge) == [("draft", 9)]
+
+
+def test_the_reconcile_logs_how_many_are_left_when_the_limit_is_reached(
+    forge: StandInForge, logged: list[str]
+) -> None:
+    drafts = StateDrafts(lookup(forge), log=logged.append)
+    units = [unit(f"add-marker/{n}", state=RUNNING, pr=n) for n in (1, 2, 3)]
+    recorded = recorded_as({("app", n): False for n in (1, 2, 3)})
+
+    drafts.reconcile(units, recorded, limit=2, repo_order=REPOS)
+
+    assert len(logged) == 1, logged
+    assert "1 more" in logged[0]
