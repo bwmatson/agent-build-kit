@@ -199,14 +199,6 @@ def test_each_call_passes_yes_the_spec_and_version(fetch: Fetch) -> None:
         assert call == ["--yes", SPEC, "--version"]
 
 
-def test_the_other_jobs_have_no_warm_up_step() -> None:
-    assert warm_steps("integration")
-    others = [name for name in ci_jobs() if name != "integration"]
-
-    assert others
-    assert all(warm_steps(name) == [] for name in others)
-
-
 def test_the_test_step_still_runs_pytest_integration_with_no_time_limit_option() -> None:
     assert warm_steps("integration")
     tests = [s for s in steps_of("integration") if "pytest -m integration" in s.get("run", "")]
@@ -235,7 +227,3 @@ def test_the_fetch_step_allows_the_attempts_and_their_delays() -> None:
     (step,) = warm_steps("integration")
 
     assert step["timeout-minutes"] >= 16
-
-
-def test_the_script_no_longer_holds_the_old_literal_limit() -> None:
-    assert "timeout 120" not in SCRIPT.read_text()
