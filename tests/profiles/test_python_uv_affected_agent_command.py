@@ -19,7 +19,9 @@ from agent_build_kit.pipeline.scratch import output_convention
 from tests.agent_command_fakes import repo_of
 from tests.conftest import make_installation
 
-AFFECTED = "uv run --with pytest-testmon pytest -q --testmon-forceselect --testmon-env=ctrace"
+AFFECTED = (
+    "uv run --with pytest-testmon==2.4.0 pytest -q --testmon-forceselect --testmon-env=ctrace"
+)
 PROMPTS = [
     "TESTS_PROMPT",
     "IMPLEMENTATION_PROMPT",

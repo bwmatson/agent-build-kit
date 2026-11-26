@@ -148,6 +148,30 @@ def test_the_select_form_forces_the_selection_between_the_plugin_and_the_paths()
     assert selected[-1] == "tests"
 
 
+@pytest.mark.parametrize("select", [False, True])
+def test_the_recording_loads_the_lean_reports_plugin_and_every_form_pins_testmon(
+    select: bool,
+) -> None:
+    command = ["uv", "run", "pytest", "-m", "not slow", "tests"]
+
+    built = PROFILE.seeding_command(command, Path("/seed"), select=select)
+
+    env_words = built[: built.index("uv")]
+    path_words = [word for word in env_words if word.startswith("PYTHONPATH=")]
+    assert built[built.index("--with") + 1] == "pytest-testmon==2.4.0"
+    assert PROFILE.is_seeded(built)
+    if select:
+        assert not path_words
+        assert "abk_lean_reports" not in built
+        return
+    [path_word] = path_words
+    folder = Path(path_word.removeprefix("PYTHONPATH="))
+    assert (folder / "abk_lean_reports.py").is_file()
+    plugin = built.index("-p")
+    assert built[plugin + 1] == "abk_lean_reports"
+    assert built.index("--testmon-env=ctrace") < plugin < built.index("-m")
+
+
 def test_the_recording_form_still_runs_every_test() -> None:
     command = ["uv", "run", "pytest", "-m", "not slow", "tests"]
 
