@@ -64,11 +64,12 @@ FIELDS: dict[str, Any] = dict(
 # convention and the finish line's tests-by-file-or-id wording (every template here), and the
 # local-server sentence (`CHECKS_PROMPT`, `CHECKS_CONTINUATION`), and the source version of the
 # reuse guidance (the three full prompts), and the test standards' placement, scenario and fake
-# rules (`REWORK_PROMPT`).
+# rules (`REWORK_PROMPT`), and the note to write a `BLOCKED:` line for work whose prerequisite
+# does not exist (`REWORK_PROMPT`).
 TEMPLATES = {
     "CHECKS_PROMPT": (CHECKS_PROMPT, "b00d1e69bf9b9d13"),
     "CHECKS_CONTINUATION": (CHECKS_CONTINUATION, "99f524238fc27f52"),
-    "REWORK_PROMPT": (REWORK_PROMPT, "19228d87991adabd"),
+    "REWORK_PROMPT": (REWORK_PROMPT, "375fbd7e2ee0839f"),
     "REWORK_CONTINUATION": (REWORK_CONTINUATION, "0bb826bddf700c15"),
     "REVIEW_FEEDBACK_PROMPT": (REVIEW_FEEDBACK_PROMPT, "f9578bebcda33c91"),
     "REVIEW_FEEDBACK_CONTINUATION": (REVIEW_FEEDBACK_CONTINUATION, "55673cf6125cc43d"),
