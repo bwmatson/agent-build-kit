@@ -23,7 +23,7 @@ Two ship: `python-uv` and `node-npm`, both implemented.
 | `name` | `abk.yaml`, the registry | the key a repo names |
 | `detect_markers` | `abk init` | files whose presence in a repo root suggest this profile |
 | `allowed_tools` | every build run | tool patterns to allow beyond the base list, in `--allowedTools` syntax; no effect under the `acp` runtime (docs/agent-runtimes.md) |
-| `prompt_words` | the build prompts | `verify` ("what the checks pass means") and `stub` ("what a permitted stub looks like"), and `placement` (where a new test goes: empty keeps new tests in files in which every test fails, the rule for a profile whose `red_command` runs whole files; the Python profile says a new case joins the existing test file) |
+| `prompt_words` | the build prompts | `verify` ("what the checks pass means") and `stub` ("what a permitted stub looks like"), and `placement` (where a new test goes: empty keeps new tests in files in which every test fails, the rule for a profile whose `red_command` runs whole files; the Python profile says a new case joins the existing test file; a repo whose profiles differ is told each profile's placement for the projects that use it) |
 | `no_tests_collected_exit` | e2e-test, verify | the runner's exit status when nothing was selected — a pass, not a failure |
 | `lint_command(base)` | unit-test | lint scoped to the diff since `base` |
 | `lint_command_all_files()` | unit-test | lint of the whole repo — used only for a unit with no commits of its own, which has no diff to scope to |

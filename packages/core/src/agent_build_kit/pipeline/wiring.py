@@ -865,7 +865,12 @@ REVIEW_STANDARDS_CHECKLIST = """\
   assertions that fail if the behaviour is removed (T20)? Is it a test of a test (T22)? Does a
   fake satisfy the seam instead of mocking an internal (T23)? Is a missing environment a skip or
   a configuration error, not a failure (T25)? A finding on a standard a guard enforces is not
-  accepted: the guard already fails it.
+  accepted: the guard already fails it. Also ask of each test the diff adds or changes: do a
+  module's unit tests live in one file, `test_<module>.py` at the mirror path, with a new test
+  file only for a new source file, and did the builder extend an existing test or add a case
+  before adding a test? Is it one scenario, one test? Does it assert properties, not prose (no
+  wording test except an exclusion guard or a prompt's directive table)? Does it fake at a
+  boundary rather than patch a collaborator by its import path?
 """
 
 REVIEW_DETERMINISM_RULE = (

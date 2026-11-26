@@ -41,7 +41,7 @@ def test_the_tests_prompt_of_a_test_only_group_says_what_the_group_does_not_do(
     assert re.search(r"every\s+task\s+of\s+the\s+group[^.]*test.support", test_only)
     assert "no implementation" not in ordinary
     assert "every task" not in ordinary
-    assert "live" not in ordinary
+    assert "live" not in ordinary.replace("unit tests live in one file", "")
 
 
 def test_a_test_only_group_in_the_middle_is_passed_over_by_the_implement_step(

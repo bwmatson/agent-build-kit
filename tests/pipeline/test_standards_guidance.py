@@ -8,6 +8,8 @@ import re
 
 import pytest
 
+from agent_build_kit import profiles
+from agent_build_kit.pipeline.group_mode import GroupMode
 from agent_build_kit.pipeline.stack_runner import (
     IMPLEMENTATION_CONTINUATION,
     IMPLEMENTATION_PROMPT,
@@ -16,6 +18,7 @@ from agent_build_kit.pipeline.stack_runner import (
     TESTS_PROMPT,
 )
 from agent_build_kit.pipeline.standards_guidance import standards_guidance
+from agent_build_kit.pipeline.wiring import review_prompt
 from tests.prompt_text import filled, flat
 
 STANDARD_IDS = [*(f"T{n}" for n in range(1, 28)), "T8a", "T12a"]
@@ -80,3 +83,49 @@ def test_a_continuation_prompt_carries_neither_table_nor_request(prompt: str) ->
     assert flat(standards_guidance()) not in text
     assert flat(table_lines()["T1"]) not in text
     assert "cite the id" not in text.lower()
+
+
+PYTHON_PLACEMENT = profiles.get("python-uv").prompt_words.placement
+
+PROMPT_TEXTS = {
+    "tests": lambda: filled(TESTS_PROMPT, placement=PYTHON_PLACEMENT),
+    "implementation": lambda: filled(IMPLEMENTATION_PROMPT),
+    "rework": lambda: filled(REWORK_PROMPT),
+    "review": lambda: review_prompt({"feature/1": GroupMode.TESTS_AND_CODE}),
+}
+
+# Each directive by a short key phrase, in the lower case of the squeezed prompt.
+DIRECTIVES = {
+    "one test file per module": "test_<module>.py",
+    "new test file only for a new source file": "new source file",
+    "extend before adding": "extend an existing test or add a case",
+    "one scenario, one test": "one scenario, one test",
+    "properties, not prose": "assert properties, not prose",
+    "no wording test": "no wording test except an exclusion guard or a prompt's directive table",
+    "fake at a boundary": "fake at a boundary",
+}
+
+
+@pytest.mark.parametrize("directive", DIRECTIVES)
+@pytest.mark.parametrize("prompt", PROMPT_TEXTS)
+def test_each_prompt_carries_each_directive_on_extending_tests(prompt: str, directive: str) -> None:
+    text = flat(PROMPT_TEXTS[prompt]()).lower()
+
+    assert DIRECTIVES[directive] in text
+
+
+def test_the_tests_prompt_for_a_python_repo_places_new_cases_in_the_existing_file() -> None:
+    text = flat(PROMPT_TEXTS["tests"]()).lower()
+
+    assert "extend an existing test or add a case before adding a test" in text
+    assert "files in which every test fails" not in text
+    assert "which must fail" not in text
+    assert "every new test must fail" not in text
+
+
+def test_the_placement_rule_cites_its_standards_once_and_a_whole_file_profile_has_no_init() -> None:
+    node = profiles.get("node-npm").prompt_words.placement
+
+    for standard in ("T2", "T3", "T21"):
+        assert len(re.findall(rf"\b{standard}\b", PYTHON_PLACEMENT)) == 1
+    assert "__init__.py" not in node

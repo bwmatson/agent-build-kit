@@ -14,6 +14,11 @@
   `placement_baseline.toml`. A `testing/` folder no longer marks a test path, and a `test/`
   folder does everywhere.
 
+- The builders and the reviewer are now told to extend a module's one test file, or add a
+  case to it, before adding a test or a test file, and to keep one scenario per test. A
+  repo mixing toolchains is told each one's test placement for its projects, so its Python
+  files are no longer told to keep new tests in files in which every test fails.
+
 - A pull request whose draft state a refused write left wrong now heals. Each poll records
   whether the host lists a pull request as a draft (a change of draft state is not an event),
   and after each repo's poll the draft or ready state its unit calls for is written onto any
