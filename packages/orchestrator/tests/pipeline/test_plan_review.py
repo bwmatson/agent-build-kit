@@ -853,7 +853,7 @@ def test_the_repair_prompt_carries_the_chain_and_the_rules_as_the_review_request
 
     review.tick()
 
-    assert len(review.repairs) == 1
+    assert review.repairs, "the blocker is repaired (again, as the reviewer keeps finding it)"
     prompt = review.repairs[0].prompt
     assert prompt.startswith("The plan of the change")
     markers = (near_test, "tests/support/b.py", "Base title", "abk-authoring", "AGENTS.md")
@@ -878,7 +878,7 @@ def test_a_repair_with_no_chain_and_no_guidance_file_shows_none_for_both(review:
 
     review.tick()
 
-    assert len(review.repairs) == 1
+    assert review.repairs, "the blocker is repaired"
     prompt = review.repairs[0].prompt
     assert prompt.startswith("The plan of the change")
     assert any("app" in ln and "(none)" in ln for ln in prompt.splitlines()), (

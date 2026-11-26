@@ -8,7 +8,8 @@
   each repository's own guidance file (`AGENTS.md`, else `CLAUDE.md`, as committed on its default
   branch), and is told to keep the plan's paths and tasks in agreement with them. The listing and
   the rules are context only: editing a neighbouring change or a guidance file does not ask for a
-  new review.
+  new review. The repair of a blocker is shown the same chain and rules, so it keeps the plan's
+  paths consistent with them.
 
 - The `abk-authoring` skill now carries the rules every task follows (check paths against the
   default branch, edit every check of the old behaviour in the same group, a `Test:` task that the

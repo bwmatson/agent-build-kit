@@ -1033,7 +1033,8 @@ through the others), nearest first, with each change's title and the test and su
 tasks name, so a path convention that differs from the chain's is a finding. An oversized chain
 is cut to `CHAIN_BUDGET` and `CHAIN_CHANGE_LIMIT`, and the changes left out are named. The listing
 is not part of the review hash, so a neighbour's edit does not ask for a new review. A `blocker` finding with a fix is repaired by a rewrite of
-`tasks.md` that keeps every group heading, which is committed and reviewed again (at most
+`tasks.md` that keeps every group heading and every path consistent with the same chain listing
+and rules the request carries, which is committed and reviewed again (at most
 `planning.plan_review_repairs` times); a blocker left over holds the starts of the change's
 units that have not started until `abk review-plan clear`, and `advice` holds nothing. A
 cleared finding is not raised again while its group's text stands; a review that fails holds

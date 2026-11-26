@@ -130,10 +130,20 @@ tasks.md cannot fix, or something you could not check. Report only what you can 
 REPAIR_PROMPT = """The plan of the change `{change}` has review findings that will make a unit
 fail. Rewrite its tasks.md so that each finding below is resolved, using the fix it names. Change
 only what the findings need: keep every group heading line exactly as it is, keep every other
-group and task as written, and follow the rules the file already follows.
+group and task as written, and follow the rules the file already follows. Keep every path
+consistent with the rules and the chain's listing below, and change a path only when a finding
+names it.
 
 Findings:
 {findings}
+
+Changes in this change's `Needs:` chain, nearest first, with the test and support paths their
+tasks name:
+{chain}
+
+Rules the plan follows: the shipped authoring rules every task follows, then each repository's own
+guidance file as it stands on its default branch:
+{rules}
 
 The current tasks.md:
 <<<TASKS
@@ -863,6 +873,8 @@ def repair(
             f"- group {found.group}: {found.evidence} Fix: {found.fix}" for found in blockers
         ),
         tasks=before,
+        chain=chain_listing(inst, tasks) or "(none)",
+        rules=rules_listing(inst, tasks) or "(none)",
     )
     try:
         answer = ask_plan_model(prompt, change=change, say=say)
