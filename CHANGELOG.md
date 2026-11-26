@@ -13,6 +13,7 @@
 
 - The group walk now skips the `changelog:` commit the pipeline makes when it separates joined
   bullets, so a restack no longer breaks a group's `test:`/`feat:` pair or hides a built group.
+
 - A unit that holds a rewrite request now runs it: a unit stopped part-way through its groups
   goes to the rework step with the request instead of failing, and carries on at its first
   incomplete group once the commits are rewritten. A rewrite step that rewrites nothing is
