@@ -10,7 +10,7 @@ from __future__ import annotations
 import json
 import re
 import threading
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from pathlib import Path
 from typing import Any
 
@@ -64,6 +64,26 @@ REPAIRED_TASKS = TASKS.replace(
     "- [ ] 2.1 Test: `tests/test_shared.py` asserts it again.",
     "- [ ] 2.1 Test: `tests/test_shared.py` asserts the new name.",
 )
+
+
+def needing(tasks: str, *changes: str) -> str:
+    """`tasks` with a `Needs:` line on group 1 of each of `changes`, under its first group."""
+    lines = "".join(f"Needs: {change} group 1\n" for change in changes)
+    return tasks.replace("First group\n\n", f"First group\n\n{lines}", 1)
+
+
+def neighbour_tasks(
+    title: str, needs: Sequence[str], tests: Sequence[str], support: Sequence[str]
+) -> str:
+    """The tasks.md of a neighbouring change: its title, a `Needs:` line on group 1 of each of
+    `needs`, a task naming each of `tests` and a `Support:` line naming each of `support`."""
+    body = "".join(f"Needs: {change} group 1\n" for change in needs)
+    body += "".join(f"- [ ] 1.{n} Test: `{path}` asserts it.\n" for n, path in enumerate(tests, 1))
+    body += "".join(f"Support: `{path}`\n" for path in support)
+    return (
+        f"# {title}\n\nAcceptance: none — a neighbour in a fixture\n\n"
+        f"## 1. [app] [unit-test] Its group\n\n{body}"
+    )
 
 
 def reply(*findings: dict) -> str:
@@ -260,6 +280,29 @@ class Review:
         self.builder.store.upsert(
             [stored(f"{name}/{n}", priority=p) for n, p in enumerate(priorities, 1)]
         )
+
+    def add_neighbour(
+        self,
+        name: str,
+        title: str,
+        *,
+        needs: Sequence[str] = (),
+        tests: Sequence[str] = (),
+        support: Sequence[str] = (),
+    ) -> None:
+        """Add a change `name` with no units (so it is never reviewed itself), whose title is
+        `title`, whose first group has a `Needs:` line on each of `needs` and names each of
+        `tests` in its tasks and each of `support` on a `Support:` line. Called again for the same
+        name, it rewrites the change."""
+        folder = self.inst.changes_dir / name
+        folder.mkdir(parents=True, exist_ok=True)
+        (folder / "proposal.md").write_text(f"# {title}\n\nwhy\n")
+        (folder / "tasks.md").write_text(neighbour_tasks(title, needs, tests, support))
+
+    def need(self, *changes: str, tasks: str = TASKS) -> None:
+        """Make the first group of `feature`'s tasks (`tasks`, by default the fixture's) name each
+        of `changes` in a `Needs:` line, and write them."""
+        self.edit_tasks(needing(tasks, *changes))
 
     def finish_default_change(self) -> None:
         """Merge the units of `feature`, so it has nothing open and is not reviewed."""

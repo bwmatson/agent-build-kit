@@ -139,6 +139,10 @@ MAX_ATTEMPTS = 3
 # reads the rest itself.
 VIEW_BUDGET = 60_000
 VIEW_FILE_LIMIT = 12_000
+# The most bytes of the `Needs:` chain's listing the request carries, and of paths for any one
+# change in it.
+CHAIN_BUDGET = 8_000
+CHAIN_CHANGE_LIMIT = 30
 
 Kind = Literal["blocker", "advice"]
 
