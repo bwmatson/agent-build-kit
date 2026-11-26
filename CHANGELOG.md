@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- `scripts/trusted_change_cost.py` reports the cost of changes that lasted (merged, not reverted
+  or fixed within 30 days) and the health thresholds, read-only, from a planning repo's state. It
+  stands in for `abk report --trusted` until that lands.
+
 - The units store now has a SQL implementation over SQLAlchemy and an async engine, with Alembic
   migrations that create its `units` and `unit_history` tables. It runs on SQLite today and shares
   one conformance suite with the in-memory stand-in. `alembic` and `greenlet` are new
