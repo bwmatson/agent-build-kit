@@ -158,8 +158,7 @@ def _raises_not_implemented(node: ast.Raise) -> bool:
 
 
 def _commits(repo: Path, base: str) -> list[str]:
-    out = git_out(repo, "rev-list", "--reverse", f"{base}..HEAD")
-    return out.splitlines() if out else []
+    return [sha for sha, _ in branch_commit_subjects(repo, base)]
 
 
 def _files_in(repo: Path, sha: str) -> list[str]:
@@ -186,11 +185,18 @@ def recorded_built(repo: Path, sha: str, recorded: Collection[str] | None = None
     return marked.strip() == "yes" and not _files_in(repo, sha)
 
 
+# The subject of a commit the pipeline writes itself; the group walk leaves it out.
+CHANGELOG_SEPARATED = "changelog: separate bullets joined by the union merge"
+PIPELINE_SUBJECTS = frozenset({CHANGELOG_SEPARATED})
+
+
 def branch_commit_subjects(repo: Path, base: str, ref: str = "HEAD") -> list[tuple[str, str]]:
     """The hash and subject of each commit the branch at `ref` carries beyond `base`, oldest
-    first."""
+    first, without the commits the pipeline makes itself (`PIPELINE_SUBJECTS`), which belong to
+    no group."""
     out = git_out(repo, "log", "--reverse", "--format=%H%x00%s", f"{base}..{ref}")
-    return [tuple(line.split("\0", 1)) for line in out.splitlines()]  # pyrefly: ignore[bad-return]
+    found = [tuple(line.split("\0", 1)) for line in out.splitlines()]
+    return [pair for pair in found if pair[1] not in PIPELINE_SUBJECTS]  # pyrefly: ignore[bad-return]
 
 
 def branch_subjects(repo: Path, base: str) -> list[str]:
@@ -233,10 +239,13 @@ def branch_commit_trailers(repo: Path, base: str, ref: str = "HEAD") -> list[str
         repo,
         "log",
         "--reverse",
-        f"--format=%(trailers:key={GROUP_TRAILER},valueonly,separator=%x2C)%x00",
+        f"--format=%s%x01%(trailers:key={GROUP_TRAILER},valueonly,separator=%x2C)%x00",
         f"{base}..{ref}",
     )
-    return [value.strip() for value in out.split("\0")[:-1]]
+    entries = [value.split("\x01", 1) for value in out.split("\0")[:-1]]
+    return [
+        trailer.strip() for subject, trailer in entries if subject.strip() not in PIPELINE_SUBJECTS
+    ]
 
 
 def _is_commit(

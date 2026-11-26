@@ -580,7 +580,10 @@ release could move. The steps:
    heading edited after the commits were made does not lose the pair (the
    build's log names the commits counted under the older title). A commit with
    no trailer is matched by its exact subject as before, and a commit whose
-   trailer names another group is not counted for this one. The tests run
+   trailer names another group is not counted for this one. A commit the
+   pipeline makes itself (the changelog separation restack writes) is not part
+   of any group: the walk and the commit-shape checks leave it out, wherever
+   it sits on the branch. The tests run
    writes the group's tests and stubs and the pipeline does not commit them
    yet: `stub_checks` runs lint, format and types over the stubs and tests
    (no test run), and only then commits `test:`. Before that check the pipeline

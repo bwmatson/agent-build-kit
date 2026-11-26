@@ -415,4 +415,4 @@ def test_a_commit_with_any_other_subject_between_a_pair_still_breaks_it(repo: Pa
 
     progress = walk_group_progress(repo, "main", [step(1, "G1")])
 
-    assert (progress.done, progress.tests_made) == (0, False)
+    assert (progress.done, progress.tests_made) == (0, True)
