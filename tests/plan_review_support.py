@@ -299,6 +299,38 @@ class Review:
         (folder / "proposal.md").write_text(f"# {title}\n\nwhy\n")
         (folder / "tasks.md").write_text(neighbour_tasks(title, needs, tests, support))
 
+    def write_proposal(self, *, initiative: str = "", its_part: str = "") -> None:
+        """Rewrite `feature`'s proposal with an `Initiative:` line and a `## Its part` section,
+        each only when given. Call it before the first tick: the proposal is part of the hash."""
+        lines = [PROPOSAL, ""]
+        if initiative:
+            lines += [f"Initiative: {initiative}", ""]
+        if its_part:
+            lines += ["## Its part", "", its_part, ""]
+        (self.inst.changes_dir / CHANGE / "proposal.md").write_text("\n".join(lines))
+
+    def add_outline(
+        self,
+        name: str,
+        *,
+        touches: Sequence[str],
+        initiative: str = "",
+        its_part: str = "",
+        reworks: Sequence[str] = (),
+    ) -> None:
+        """Write an outline proposal under `planning.outlines`: its `Initiative:` line, its
+        `## Its part`, a `Touches:` line naming each of `touches` and a `Reworks:` line per
+        entry of `reworks`. Called again for the same name, it rewrites the outline."""
+        folder = self.inst.root / self.inst.config.planning.outlines / name
+        folder.mkdir(parents=True, exist_ok=True)
+        lines = [f"# {name}", ""]
+        if initiative:
+            lines.append(f"Initiative: {initiative}")
+        lines += [f"Touches: {', '.join(f'`{path}`' for path in touches)}"]
+        lines += [f"Reworks: {rework}" for rework in reworks]
+        lines += ["", "## Its part", "", its_part, ""]
+        (folder / "proposal.md").write_text("\n".join(lines))
+
     def need(self, *changes: str, tasks: str = TASKS) -> None:
         """Make the first group of `feature`'s tasks (`tasks`, by default the fixture's) name each
         of `changes` in a `Needs:` line, and write them."""

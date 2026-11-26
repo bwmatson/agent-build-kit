@@ -171,6 +171,10 @@ CHAIN_CHANGE_LIMIT = 30
 AUTHORING_RULES_SECTION = "Rules every task follows"
 AUTHORING_RULES_LIMIT = 12_000
 REPO_RULES_LIMIT = 12_000
+# The section of the shipped authoring skill that says what an interim and a `Reworks:` line mean,
+# and the most bytes of the overlapping outlines the request carries.
+MATURITY_RULES_SECTION = "Initiatives and change maturity"
+OUTLINES_BUDGET = 8_000
 # A repository's guidance file, the first that is committed at its default branch.
 GUIDANCE_FILES = ("AGENTS.md", "CLAUDE.md")
 

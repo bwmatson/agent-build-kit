@@ -885,3 +885,180 @@ def test_a_repair_with_no_chain_and_no_guidance_file_shows_none_for_both(review:
         "the repository's rules read (none) under its own name"
     )
     assert prompt.count("(none)") >= 2, "the empty chain reads (none) too"
+
+
+INITIATIVE_HEADING = "Its initiative"
+OUTLINES_HEADING = "Outlines that touch the same paths"
+CONFIG_PATH = "packages/core/src/agent_build_kit/config.py"
+INITIATIVE = "orchestration — wave 1: the store"
+OUTLINE_INITIATIVE = "orchestration — wave 2: the worker"
+NAMING_CONFIG = TASKS.replace("- [ ] 1.2 Do it.", f"- [ ] 1.2 Do it in `{CONFIG_PATH}`.")
+
+
+def question_text(prompt: str, number: int) -> str:
+    """The text a request asks as its question `number`, up to the part that follows it."""
+    start = prompt.index(f"{number}. {QUESTIONS[number - 1]}")
+    return prompt[start:].split("\n\nYou may read", 1)[0]
+
+
+def start_initiative_change(review: Review) -> None:
+    """`feature` is a change of an initiative whose first task names a core path, beside an outline
+    that touches the core and one that touches only the docs."""
+    review.write_proposal(initiative=INITIATIVE, its_part="ITS-PART")
+    review.edit_tasks(NAMING_CONFIG)
+    review.add_outline(
+        "core-outline",
+        touches=("packages/core/**",),
+        initiative=OUTLINE_INITIATIVE,
+        its_part="CORE-OUTLINE-PART",
+        reworks=("feature — the config moves",),
+    )
+    review.add_outline(
+        "docs-outline", touches=("docs/**",), initiative=OUTLINE_INITIATIVE, its_part="DOCS-PART"
+    )
+
+
+def test_a_change_of_an_initiative_is_shown_its_initiative_and_the_overlapping_outlines(
+    review: Review,
+) -> None:
+    start_initiative_change(review)
+
+    review.tick()
+
+    assert review.asked == 1
+    assert len(review.passes) == len(QUESTIONS), "no pass is added for an initiative"
+    shipped = plan_review.skill_section(
+        skills.source("abk-authoring"), plan_review.MATURITY_RULES_SECTION
+    )
+    for asked in review.passes:
+        text = asked.prompt
+        assert INITIATIVE_HEADING in text
+        initiative_part = text.split(INITIATIVE_HEADING, 1)[1]
+        for shown in (f"Initiative: {INITIATIVE}", "ITS-PART"):
+            assert shown in initiative_part, "the change's own line and part are shown"
+        assert shipped in initiative_part
+        assert any(
+            "abk-authoring" in ln and plan_review.MATURITY_RULES_SECTION in ln
+            for ln in text.splitlines()
+        ), "the section's source is named"
+        assert OUTLINES_HEADING in text
+        for shown in (
+            "core-outline",
+            f"Initiative: {OUTLINE_INITIATIVE}",
+            "CORE-OUTLINE-PART",
+            "Reworks: feature — the config moves",
+        ):
+            assert shown in text
+        for hidden in ("docs-outline", "DOCS-PART"):
+            assert hidden not in text, "an outline over other paths is not mentioned"
+    ordered = review.passes_in_question_order
+    fourth = question_text(ordered[3].prompt, 4)
+    assert "Reworks:" in fourth and "interim" in fourth, "the fourth question asks about rework"
+    for number in (1, 2, 3):
+        assert "interim" not in question_text(ordered[number - 1].prompt, number), (
+            "only the fourth question is widened"
+        )
+
+    review.add_outline(
+        "core-outline",
+        touches=("packages/core/**",),
+        initiative=OUTLINE_INITIATIVE,
+        its_part="EDITED-OUTLINE-PART",
+    )
+    review.tick()
+
+    assert review.asked == 1, "an outline's edit asks nothing"
+
+
+@pytest.mark.parametrize(
+    ("evidence", "held"),
+    [
+        ("rework: builds the config the outline redoes", False),
+        ("group 2 renames what group 1 asserts", True),
+    ],
+    ids=["a-rework-is-advice", "another-blocker-holds"],
+)
+def test_a_rework_finding_is_recorded_as_advice_and_another_question_four_blocker_holds(
+    review: Review, evidence: str, held: bool
+) -> None:
+    start_initiative_change(review)
+    finding = {"group": 1, "question": 4, "kind": "blocker", "evidence": evidence}
+    review.runtime.respond = lambda request: reply(
+        *([finding] if question_of(request) == 4 else [])
+    )
+
+    review.tick()
+
+    assert len(review.passes) == len(QUESTIONS), "four passes were asked"
+    recorded = plan_review.read_reviews(plan_review.record_path(review.inst))[CHANGE]
+    assert [found.kind for found in recorded.findings] == ["blocker" if held else "advice"]
+    assert (CHANGE in plan_review.held_changes(review.inst)) is held
+    assert bool(review.builder.started) is not held
+
+
+@pytest.mark.parametrize("outline", [False, True], ids=["no-outline", "an-overlapping-outline"])
+def test_a_change_with_no_initiative_is_asked_the_four_questions_with_no_initiative_sections(
+    review: Review, outline: bool
+) -> None:
+    review.edit_tasks(NAMING_CONFIG)
+    if outline:
+        review.add_outline(
+            "core-outline",
+            touches=("packages/core/**",),
+            initiative=OUTLINE_INITIATIVE,
+            its_part="CORE-OUTLINE-PART",
+        )
+
+    review.tick()
+
+    assert review.asked == 1
+    assert len(review.passes) == len(QUESTIONS)
+    for number, asked in enumerate(review.passes_in_question_order, 1):
+        text = asked.prompt
+        assert question_text(text, number) == f"{number}. {QUESTIONS[number - 1]}"
+        for absent in (
+            INITIATIVE_HEADING,
+            OUTLINES_HEADING,
+            plan_review.MATURITY_RULES_SECTION,
+            "core-outline",
+            "CORE-OUTLINE-PART",
+        ):
+            assert absent not in text
+
+    before = len(review.passes)
+    review.write_proposal(initiative=INITIATIVE, its_part="ITS-PART")
+    review.tick()
+
+    later = review.passes[before:]
+    assert later, "giving the change an initiative asks it again"
+    for asked in later:
+        assert INITIATIVE_HEADING in asked.prompt, (
+            "the sections are there once it has an initiative"
+        )
+        assert (OUTLINES_HEADING in asked.prompt) is outline
+
+
+def test_outlines_over_the_budget_are_cut_and_the_left_out_ones_are_named_in_a_closing_line(
+    review: Review, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(plan_review, "OUTLINES_BUDGET", 500)
+    start_initiative_change(review)
+    for name in ("aa-out", "bb-out", "cc-out"):
+        review.add_outline(
+            name,
+            touches=("packages/core/**",),
+            initiative=OUTLINE_INITIATIVE,
+            its_part=f"{name.upper()}-PART " + "x" * 300,
+        )
+
+    review.tick()
+
+    assert review.asked == 1
+    for asked in review.passes:
+        text = asked.prompt
+        assert "AA-OUT-PART" in text, "the first outline fits"
+        for left_out in ("BB-OUT-PART", "CC-OUT-PART"):
+            assert left_out not in text, "an outline over the budget is cut"
+        closing = [ln for ln in text.splitlines() if "bb-out" in ln and "cc-out" in ln]
+        assert closing, "the left-out outlines are named in one line"
+        assert all("aa-out" not in ln for ln in closing)
