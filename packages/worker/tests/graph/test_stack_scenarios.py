@@ -438,4 +438,5 @@ def test_a_review_feedback_step_after_a_review_that_asked_for_a_rewrite_runs_wit
 
     flags = rewrite_flags(recorder, tmp_path)
 
-    assert flags.count(True) == 1, "only the review-feedback step may rewrite"
+    assert flags.count(True) > 1, "the step runs with the policy and is returned for it"
+    assert flags[:2] == [False, False], "the tests and implement steps never get it"

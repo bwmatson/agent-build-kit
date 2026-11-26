@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import Any
 
 from agent_build_kit.pipeline.commit_order import branch_commit_trailers, branch_subjects
+from agent_build_kit.pipeline.rewrite_guard import run_guarded_step
 from agent_build_kit.pipeline.stack_runner import RunOutcome
 from agent_build_kit.pipeline.unit_store import UnitStore
 from agent_build_kit.pipeline.units import Member
@@ -162,6 +163,7 @@ class OnBranch(StubLoop):
             **super().overrides(tmp_path),
             "worktree": lambda u, base: tmp_path / "tree",
             "commit_built": self.commit_built,
+            "guarded_step": run_guarded_step,  # the worktree is a repository
         }
 
 

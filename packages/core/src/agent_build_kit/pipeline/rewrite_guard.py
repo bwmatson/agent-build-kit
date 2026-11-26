@@ -23,6 +23,7 @@ class GuardCheck(StrEnum):
     BASE = "base"
     TRAILER = "trailer"
     MERGE = "merge"
+    UNCHANGED = "unchanged"
 
 
 class GuardVerdict(Frozen):
@@ -74,6 +75,14 @@ def guard_rewrite(
     if not verdict.ok:
         put_back(tree, branch=branch, started_at=started_at)
     return verdict
+
+
+UNCHANGED_REASON = (
+    "the step rewrote none of the unit's commits: every commit above the base that the step "
+    "began with is still on the branch. Rewrite them (amend, or reset to the base and commit "
+    "again) so the history has the shape asked for, and do not add commits on top. Edits in "
+    "the tree are kept"
+)
 
 
 def _current_branch(tree: Path) -> str | None:

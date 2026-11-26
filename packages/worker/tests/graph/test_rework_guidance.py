@@ -15,6 +15,7 @@ from typing import Any
 import pytest
 
 from agent_build_kit.graph.state import EventKind, ResumeEvent
+from agent_build_kit.pipeline.shell import git, git_out
 from agent_build_kit.pipeline.stack_runner import (
     CHECKS_CONTINUATION,
     CHECKS_PROMPT,
@@ -23,6 +24,7 @@ from agent_build_kit.pipeline.stack_runner import (
     REWORK_CONTINUATION,
     REWORK_PROMPT,
     WHOLE_ASK,
+    RunOutcome,
     person_guidance,
 )
 from agent_build_kit.pipeline.unit_store import (
@@ -31,11 +33,21 @@ from agent_build_kit.pipeline.unit_store import (
     RewriteSource,
     StoredRewriteRequest,
 )
+from packages.worker.tests.graph.test_build_path import build
 from tests.factories import unit
+from tests.graph.branch_fakes import (
+    TRAILER,
+    OnBranch,
+    agent_calls,
+    prepared,
+    subjects,
+    titled,
+)
 from tests.graph_driver import fresh, tick
 from tests.runner_fakes import rejecting
 
 UNIT = unit().id
+BUILT = "add-marker/1"  # the unit `tests.graph.branch_fakes.prepared` builds
 NOTE = "give the date exactly as printed"
 FEEDBACK = "FEEDBACK-TEXT"
 FIELDS: dict[str, Any] = dict(
@@ -203,8 +215,8 @@ def ask_for_rewrite(recorder: Any, source: RewriteSource = RewriteSource.PERSON)
     recorder.store.set_rewrite_request(UNIT, StoredRewriteRequest(text=ASKED, source=source))
 
 
-def rework_prompt(tmp_path: Path, *, asking: bool) -> str:
-    """The one prompt of a requeued rework, with a stored rewrite request when `asking`."""
+def rework_prompts(tmp_path: Path, *, asking: bool) -> list[str]:
+    """The prompts of a requeued rework, with a stored rewrite request when `asking`."""
     recorder = fresh(tmp_path)
     tick(tmp_path, recorder)
     recorder.store.set_feedback(UNIT, FEEDBACK, source=FeedbackSource.REVIEW)
@@ -218,8 +230,18 @@ def rework_prompt(tmp_path: Path, *, asking: bool) -> str:
 
     tick(tmp_path, recorder, event=requeue(""))
     tick(tmp_path, recorder, run=agent)
-    [prompt] = prompts
-    return prompt
+    return prompts
+
+
+def rework_prompt(tmp_path: Path, *, asking: bool) -> str:
+    """The first prompt of a requeued rework."""
+    return rework_prompts(tmp_path, asking=asking)[0]
+
+
+def test_a_requeued_rework_with_a_stored_request_that_rewrites_nothing_is_returned_to_rewrite(
+    tmp_path: Path,
+) -> None:
+    assert len(rework_prompts(tmp_path, asking=True)) > 1
 
 
 def test_a_requeued_rework_with_a_stored_request_carries_it_and_allows_the_rewrite(
@@ -258,6 +280,122 @@ def test_the_review_loops_first_rework_prompt_carries_a_stored_request_only_when
 
     tick(tmp_path, recorder, run_review=review, run_rework_review=review)
 
-    [prompt] = [p for p in recorder.prompts if "rename the marker" in p]
+    prompt = [p for p in recorder.prompts if "rename the marker" in p][0]
     assert (ASKED in prompt) is asking
     assert (NO_REWRITE in prompt) is not asking
+
+
+def test_the_review_loops_rework_with_a_stored_request_that_rewrites_nothing_is_returned(
+    tmp_path: Path,
+) -> None:
+    recorder = fresh(tmp_path)
+    recorder.verdicts = [rejecting("rename the marker")]
+    asked = False
+
+    def review(**kwargs: Any) -> str:
+        nonlocal asked
+        if not asked:
+            asked = True
+            ask_for_rewrite(recorder, RewriteSource.REVIEW)
+        return recorder.review(**kwargs)
+
+    tick(tmp_path, recorder, run_review=review, run_rework_review=review)
+
+    assert recorder.rewrites.count(True) > 1, "a rewrite that never came is returned"
+
+
+STOPPED_AT_3 = ["test: G1", "feat: G1", "test: G2", "feat: G2", "wip: the third group"]
+
+
+def rewrite_group_3(cwd: Path) -> None:
+    """What a rework that honours the request does: the stray commit becomes group 3's pair."""
+    git(cwd, "reset", "-q", "--hard", "HEAD~1")
+    for index, subject in enumerate(("test: G3", "feat: G3")):
+        (cwd / f"group-3-{index}.txt").write_text(f"{subject}\n")
+        git(cwd, "add", "-A")
+        git(cwd, "commit", "-q", "-m", f"{subject}\n\n{TRAILER}\nGroup: add-marker/3\n")
+
+
+def stopped_at_group_3_with_a_request(
+    tmp_path: Path, *, leaves_a_file: bool = False
+) -> tuple[OnBranch, Path, RunOutcome]:
+    """A unit of four groups whose branch holds groups 1 and 2, and a person's request; the
+    fake rework rewrites group 3 into its pair, and leaves a file uncommitted when
+    `leaves_a_file`."""
+    recorder, repo = prepared(
+        tmp_path, groups={"add-marker": titled(1, 2, 3, 4)}, seeded=STOPPED_AT_3
+    )
+    recorder.store.set_rewrite_request(
+        BUILT, StoredRewriteRequest(text=ASKED, source=RewriteSource.PERSON)
+    )
+    original = recorder.claude
+
+    def claude(prompt: str, **kwargs: Any) -> str:
+        if not kwargs.get("rewrite"):
+            return original(prompt, **kwargs)
+        recorder.prompts.append(prompt)
+        recorder.rewrites.append(True)
+        rewrite_group_3(kwargs["cwd"])
+        if leaves_a_file:
+            (kwargs["cwd"] / "left-over.txt").write_text("not committed\n")
+        return "done"
+
+    recorder.claude = claude
+    outcome = build(tmp_path, recorder, **recorder.overrides(tmp_path))
+    return recorder, repo, outcome
+
+
+def test_a_unit_stopped_mid_build_with_a_request_goes_to_the_rework_not_the_groups_steps(
+    tmp_path: Path,
+) -> None:
+    recorder, _, _ = stopped_at_group_3_with_a_request(tmp_path)
+
+    assert recorder.rewrites[0] is True
+    assert ASKED in recorder.prompts[0]
+    assert recorder.prompts[0] != recorder.prompts[1], "the first run is not group 3's tests step"
+    assert "test tasks" not in recorder.prompts[0]
+
+
+def test_a_rewrite_of_the_stopped_group_clears_the_request_and_the_build_goes_on_at_group_4(
+    tmp_path: Path,
+) -> None:
+    recorder, repo, outcome = stopped_at_group_3_with_a_request(tmp_path)
+
+    stored = recorder.store.get(BUILT)
+    assert outcome.status != "failed"
+    assert stored.rewrite_request is None
+    assert "history_rewritten" in str(stored.history)
+    assert agent_calls(recorder.events) == ["claude:tests", "claude:impl"], "only group 4 is built"
+    assert subjects(repo)[:6] == [
+        "test: G1",
+        "feat: G1",
+        "test: G2",
+        "feat: G2",
+        "test: G3",
+        "feat: G3",
+    ]
+
+
+def test_a_file_the_rewrite_left_uncommitted_is_not_committed_as_a_fix_between_the_groups(
+    tmp_path: Path,
+) -> None:
+    _, repo, _ = stopped_at_group_3_with_a_request(tmp_path, leaves_a_file=True)
+
+    assert not any(s.startswith("fix:") for s in subjects(repo))
+    assert subjects(repo)[4:6] == ["test: G3", "feat: G3"]
+
+
+def test_the_tests_and_implement_steps_never_get_the_rewrite_policy(tmp_path: Path) -> None:
+    recorder, _, _ = stopped_at_group_3_with_a_request(tmp_path)
+
+    assert recorder.rewrites[0] is True
+    assert recorder.rewrites[1:] and not any(recorder.rewrites[1:])
+
+
+def test_the_head_the_rework_began_on_is_kept_and_named_in_the_history(tmp_path: Path) -> None:
+    recorder, repo, _ = stopped_at_group_3_with_a_request(tmp_path)
+
+    kept = git_out(repo, "for-each-ref", "--format=%(refname)", "refs/abk/before-rewrite/").split()
+    assert len(kept) == 1
+    assert kept[0] in str(recorder.store.get(BUILT).history)
+    assert git_out(repo, "log", "-1", "--format=%s", kept[0]) == "wip: the third group"
