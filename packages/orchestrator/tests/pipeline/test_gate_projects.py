@@ -52,7 +52,9 @@ class Toolchain:
         self.red_files.append(files)
         return 'printf "ran in %s" "$(basename "$PWD")"; exit 1'
 
-    def interpret_red(self, output: str, exit_code: int) -> tuple[bool, list[str]]:
+    def interpret_red(
+        self, output: str, exit_code: int, *, stubbed: bool = False, rules: object = None
+    ) -> tuple[bool, list[str]]:
         self.red_outputs.append(output)
         return self.red_ok, [] if self.red_ok else [f"{self.home} {self.reason}"]
 

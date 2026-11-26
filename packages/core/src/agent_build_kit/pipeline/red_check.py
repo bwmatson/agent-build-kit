@@ -32,6 +32,8 @@ from __future__ import annotations
 
 import logging
 import re
+from collections.abc import Mapping
+from enum import StrEnum
 from typing import Literal
 from xml.etree import ElementTree
 
@@ -191,6 +193,22 @@ class RedResult(Frozen):
 
 REPORT_MARK = "--- abk junit report ---"
 
+
+class Rule(StrEnum):
+    """The rule a selected test is judged by at the tests commit."""
+
+    NEW = "new"
+    ASSERTION_CHANGED = "assertion changed"
+    CHANGED = "changed, no assertion"
+    RENAMED = "renamed"
+    WITH_FILE = "run with its file"
+
+    @property
+    def must_fail(self) -> bool:
+        """Whether a test judged by this rule has to fail at the tests commit."""
+        return self in (Rule.NEW, Rule.ASSERTION_CHANGED)
+
+
 LOG = logging.getLogger(__name__)
 
 _REPORT_SPAN = re.compile(r"<testsuites\b.*?</testsuites>", re.DOTALL)
@@ -243,7 +261,9 @@ def parse_report(report: str) -> ElementTree.Element:
         raise ValueError(f"not a JUnit report: {error}") from error
 
 
-def red_check(report: str, *, stubbed: bool = False) -> RedResult:
+def red_check(
+    report: str, *, stubbed: bool = False, rules: Mapping[str, Rule] | None = None
+) -> RedResult:
     """Judge a run from pytest's JUnit report, by each failing test's exception. `stubbed`
     rejects a test that failed with an import, module or attribute error.
 
@@ -254,11 +274,14 @@ def red_check(report: str, *, stubbed: bool = False) -> RedResult:
     failing: list[str] = []
     problems: list[str] = []
     passed = 0
+    known = rules or {}
+    outcomes = _outcomes(root, known)
     for case in root.iter("testcase"):
         name = "::".join(part for part in (case.get("classname"), case.get("name")) if part)
         bad = [*case.findall("failure"), *case.findall("error")]
         if not bad:
-            passed += case.find("skipped") is None
+            if case.find("skipped") is None and not _may_pass(case, known, outcomes):
+                passed += 1
             continue
         failing.append(name)
         for element in bad:
@@ -276,6 +299,16 @@ def red_check(report: str, *, stubbed: bool = False) -> RedResult:
             elif kind not in ACCEPTED_TYPES:
                 problems.append(f"{name}: {UNRECOGNISED_FAILURE}")
 
+    if known and not outcomes:
+        LOG.warning(
+            "red check: none of the %d rules given matched a case of the report, so each passing "
+            "test is judged as a problem; the report's class names may not be relative to the "
+            "project the rules are",
+            len(known),
+        )
+    for test_id, rule in known.items():
+        if rule.must_fail and outcomes.get(test_id) == "passed":
+            problems.append(f"{test_id}: {rule.value}: must fail")
     if passed:
         problems.append(passed_problem(passed))
     if not failing:
@@ -285,6 +318,62 @@ def red_check(report: str, *, stubbed: bool = False) -> RedResult:
         tests=tuple(failing),
         problems=tuple(problems),
     )
+
+
+def _rule_id(case: ElementTree.Element, rules: Mapping[str, Rule]) -> str | None:
+    """The id in `rules` of the test a JUnit case ran: its file, classes and name, with no
+    parameter brackets. The class name joins the module and the classes by dots, so each split
+    of it into a file and classes is tried."""
+    parts = (case.get("classname") or "").split(".")
+    name = (case.get("name") or "").split("[", 1)[0]
+    for cut in range(len(parts), 0, -1):
+        test_id = "::".join(["/".join(parts[:cut]) + ".py", *parts[cut:], name])
+        if test_id in rules:
+            return test_id
+    return None
+
+
+def _may_pass(
+    case: ElementTree.Element, rules: Mapping[str, Rule], outcomes: Mapping[str, str]
+) -> bool:
+    """Whether a passing case is no problem: its test may pass, or must fail and another of its
+    cases did."""
+    test_id = _rule_id(case, rules)
+    if test_id is None:
+        return False
+    return not rules[test_id].must_fail or outcomes.get(test_id) == "failed"
+
+
+def _outcomes(root: ElementTree.Element, rules: Mapping[str, Rule]) -> dict[str, str]:
+    """How each test in `rules` that the run reported came out: `failed` when any of its cases
+    failed or errored, else `passed` when one passed, else `skipped`."""
+    seen: dict[str, str] = {}
+    for case in root.iter("testcase"):
+        test_id = _rule_id(case, rules)
+        if test_id is None:
+            continue
+        if case.findall("failure") or case.findall("error"):
+            seen[test_id] = "failed"
+        elif case.find("skipped") is not None:
+            seen.setdefault(test_id, "skipped")
+        elif seen.get(test_id) != "failed":
+            seen[test_id] = "passed"
+    return seen
+
+
+def rule_lines(report: str, rules: Mapping[str, Rule]) -> list[str]:
+    """One line for each test in `rules`: its id, its rule, whether it must fail or may pass,
+    and how it came out in the run (`not run` when the report has no case of it). A report that
+    cannot be read gives none."""
+    try:
+        outcomes = _outcomes(parse_report(report), rules)
+    except ValueError:
+        return []
+    return [
+        f"{test_id}: {rule.value}: {'must fail' if rule.must_fail else 'may pass'} "
+        f"— {outcomes.get(test_id, 'not run')}"
+        for test_id, rule in rules.items()
+    ]
 
 
 def _error_reason(element: ElementTree.Element, said: str) -> str | None:
@@ -302,13 +391,18 @@ def _error_reason(element: ElementTree.Element, said: str) -> str | None:
 
 
 def judge_red(
-    report: str | None, output: str, exit_code: int, *, stubbed: bool = False
+    report: str | None,
+    output: str,
+    exit_code: int,
+    *,
+    stubbed: bool = False,
+    rules: Mapping[str, Rule] | None = None,
 ) -> RedResult:
     """Judge a run from its `report`, or from the console `output` (logging
     that it did) when the report could not be written."""
     if report:
         try:
-            return red_check(report, stubbed=stubbed)
+            return red_check(report, stubbed=stubbed, rules=rules)
         except ValueError as error:
             reason = str(error)
     else:

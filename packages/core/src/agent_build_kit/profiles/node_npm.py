@@ -20,6 +20,7 @@ import json
 import posixpath
 import re
 import shlex
+from collections.abc import Mapping
 from pathlib import Path
 from xml.etree import ElementTree
 
@@ -36,6 +37,7 @@ from agent_build_kit.config import (
 from agent_build_kit.pipeline.e2e import TestFailure, TestTime, clip_failure_line
 from agent_build_kit.pipeline.red_check import (
     UNRECOGNISED_FAILURE,
+    Rule,
     parse_report,
     passed_problem,
     split_report,
@@ -702,7 +704,12 @@ class NodeNpmProfile:
         return listed + wrap_report_command(run, "--outputFile")
 
     def interpret_red(
-        self, output: str, exit_code: int, *, stubbed: bool = False
+        self,
+        output: str,
+        exit_code: int,
+        *,
+        stubbed: bool = False,
+        rules: Mapping[str, Rule] | None = None,
     ) -> tuple[bool, list[str]]:
         """Red for the right reason, judged on the suites of the files the red command was
         given (it lists them before the report): every test that ran failed by an assertion

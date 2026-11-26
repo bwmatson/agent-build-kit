@@ -44,7 +44,7 @@ def test_a_tests_and_code_tests_prompt_carries_the_standards_and_says_tests_must
 
     assert "protocol boundary" in text
     assert "recorded from the real system" in text
-    assert "which must fail" in text
+    assert "a new test and a changed assertion must fail" in text
 
 
 def test_a_tests_only_tests_prompt_says_there_is_no_implementation_and_tests_must_pass() -> None:

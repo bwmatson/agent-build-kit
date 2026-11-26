@@ -47,7 +47,7 @@ class Recording:
         return "true"
 
     def interpret_red(
-        self, output: str, exit_code: int, *, stubbed: bool = False
+        self, output: str, exit_code: int, *, stubbed: bool = False, rules: object = None
     ) -> tuple[bool, list[str]]:
         return True, []
 
@@ -274,7 +274,7 @@ class Preparing(Recording):
         return "cat prepared.marker; exit 1"
 
     def interpret_red(
-        self, output: str, exit_code: int, *, stubbed: bool = False
+        self, output: str, exit_code: int, *, stubbed: bool = False, rules: object = None
     ) -> tuple[bool, list[str]]:
         self.outputs.append(output)
         return True, []
@@ -312,7 +312,7 @@ class Observing(Recording):
         return "if test -e prepared.marker; then echo marked; else echo untouched; fi; exit 1"
 
     def interpret_red(
-        self, output: str, exit_code: int, *, stubbed: bool = False
+        self, output: str, exit_code: int, *, stubbed: bool = False, rules: object = None
     ) -> tuple[bool, list[str]]:
         self.runs.append((output, exit_code))
         return True, []
@@ -368,7 +368,7 @@ class MemberAware(Recording):
         return "echo 'error: Failed to spawn: pytest' >&2; exit 2"
 
     def interpret_red(
-        self, output: str, exit_code: int, *, stubbed: bool = False
+        self, output: str, exit_code: int, *, stubbed: bool = False, rules: object = None
     ) -> tuple[bool, list[str]]:
         if exit_code == 1 and "Failed to spawn" not in output:
             return True, []

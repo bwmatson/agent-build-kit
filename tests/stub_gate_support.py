@@ -52,7 +52,7 @@ class ModeProfile:
         return f"{shown}echo 'FAILED tests'; exit 1"
 
     def interpret_red(
-        self, output: str, exit_code: int, *, stubbed: bool = False
+        self, output: str, exit_code: int, *, stubbed: bool = False, rules: object = None
     ) -> tuple[bool, list[str]]:
         self.reads.append(stubbed)
         if stubbed and MISSING in output:

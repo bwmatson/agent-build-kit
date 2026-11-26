@@ -31,7 +31,7 @@ def test_the_tests_prompt_of_a_stubbed_build_says_what_the_stubs_must_pass(
     assert "lint, format and types" in prompt
     assert "stubs hold no logic" in prompt or "stubs contain no logic" in prompt
     assert "do not run the new tests" in prompt
-    assert "run the new tests, which must fail" not in prompt
+    assert "a new test and a changed assertion must fail" not in prompt
 
 
 def test_the_tests_prompt_of_a_build_that_is_not_stubbed_is_as_it_was(tmp_path: Path) -> None:
@@ -42,7 +42,7 @@ def test_the_tests_prompt_of_a_build_that_is_not_stubbed_is_as_it_was(tmp_path: 
     plain = first_tests_prompt(tmp_path / "plain")
 
     assert "types" in stubbed
-    assert "run the new tests, which must fail" in plain
+    assert "a new test and a changed assertion must fail" in plain
     assert "types" not in plain
 
 
@@ -53,8 +53,10 @@ def test_the_closing_paragraph_of_an_unstubbed_tests_prompt_is_byte_for_byte_the
 
     assert (
         "Before you finish: run linting and formatting, which must pass, and run the\n"
-        "new tests, which must fail. A test that passes now is not testing the\n"
-        "behaviour this group adds. Do not write the implementation.\n"
+        "new and changed tests. A new test and a changed assertion must fail, and a test\n"
+        "changed only in setup, names or helpers may pass. A new test or changed assertion\n"
+        "that passes now is not testing the behaviour this group adds. Do not write the\n"
+        "implementation.\n"
         "The change's files are read-only for you: do not tick boxes in its tasks.md\n"
         "or edit anything under CHANGE. The pipeline records a task as done once\n"
         "the unit has passed review, unit-test and been pushed.\n"

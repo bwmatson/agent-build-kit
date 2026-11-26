@@ -29,7 +29,9 @@ class Printing(PythonUvProfile):
     def red_command(self, files: list[str], ids: list[str] | None = None, **_: object) -> str:
         return "exit 1"
 
-    def interpret_red(self, output: str, exit_code: int, *, stubbed: bool = False):
+    def interpret_red(
+        self, output: str, exit_code: int, *, stubbed: bool = False, rules: object = None
+    ):
         return True, []
 
 

@@ -18,7 +18,7 @@ import shlex
 import subprocess
 import sys
 import tomllib
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from pathlib import Path, PurePosixPath
 
 from agent_build_kit.config import (
@@ -44,8 +44,10 @@ from agent_build_kit.pipeline.e2e import (
 )
 from agent_build_kit.pipeline.red_check import (
     NO_TESTS,
+    Rule,
     collection_errors,
     judge_red,
+    rule_lines,
     split_report,
     wrap_report_command,
 )
@@ -751,11 +753,21 @@ class PythonUvProfile:
         )
 
     def interpret_red(
-        self, output: str, exit_code: int, *, stubbed: bool = False
+        self,
+        output: str,
+        exit_code: int,
+        *,
+        stubbed: bool = False,
+        rules: Mapping[str, Rule] | None = None,
     ) -> tuple[bool, list[str]]:
         report, console = split_report(output)
-        result = judge_red(report, console, exit_code, stubbed=stubbed)
+        result = judge_red(report, console, exit_code, stubbed=stubbed, rules=rules)
         return result.verdict == "accepted", list(result.problems)
+
+    def red_rule_lines(self, output: str, rules: Mapping[str, Rule]) -> list[str]:
+        """Each selected test with its rule and how it came out in the red run's report."""
+        report, _ = split_report(output)
+        return rule_lines(report, rules) if report else []
 
     def collected_nothing(self, output: str, exit_code: int) -> bool:
         """Whether pytest collected no test: its exit code 5, or a report that says so."""

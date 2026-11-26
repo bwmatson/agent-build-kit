@@ -15,6 +15,7 @@ from agent_build_kit.pipeline.stack_runner import (
     IMPLEMENTATION_PROMPT,
     REWORK_CONTINUATION,
     REWORK_PROMPT,
+    TESTS_FINISH,
     TESTS_PROMPT,
 )
 from agent_build_kit.pipeline.standards_guidance import standards_guidance
@@ -112,6 +113,23 @@ def test_each_prompt_carries_each_directive_on_extending_tests(prompt: str, dire
     text = flat(PROMPT_TEXTS[prompt]()).lower()
 
     assert DIRECTIVES[directive] in text
+
+
+# What the tests prompt alone says about the red check: the rest of the table is carried by
+# every prompt that writes or reviews tests.
+TESTS_PROMPT_DIRECTIVES = [
+    "a new test and a changed assertion must fail",
+    "a test changed only in setup, names or helpers may pass",
+]
+
+
+@pytest.mark.parametrize("directive", TESTS_PROMPT_DIRECTIVES)
+def test_the_tests_prompt_for_a_python_repo_says_which_tests_must_fail_and_which_may_pass(
+    directive: str,
+) -> None:
+    text = flat(filled(TESTS_PROMPT, placement=PYTHON_PLACEMENT, finish=TESTS_FINISH)).lower()
+
+    assert directive in text
 
 
 def test_the_tests_prompt_for_a_python_repo_places_new_cases_in_the_existing_file() -> None:

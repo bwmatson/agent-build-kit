@@ -14,6 +14,11 @@
   `placement_baseline.toml`. A `testing/` folder no longer marks a test path, and a `test/`
   folder does everywhere.
 
+- An existing test changed without a new or changed assertion (only its setup, arguments,
+  name or helpers) may now pass at the tests commit; a new test and a changed assertion must
+  still fail. For a Python project the red run's log names each selected test with its rule and
+  outcome; a Node project's log does not.
+
 - The builders and the reviewer are now told to extend a module's one test file, or add a
   case to it, before adding a test or a test file, and to keep one scenario per test. A
   repo mixing toolchains is told each one's test placement for its projects, so its Python
