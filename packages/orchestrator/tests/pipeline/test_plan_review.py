@@ -12,6 +12,7 @@ from pathlib import Path
 
 import pytest
 
+from agent_build_kit import __version__, skills
 from agent_build_kit.pipeline import plan_review, shell, spans
 from agent_build_kit.pipeline.plan_review import QUESTIONS, REVIEW_TOOLS
 from agent_build_kit.pipeline.unit_store import Cause, StoredUnit
@@ -673,3 +674,168 @@ def test_a_neighbours_edit_does_not_ask_again_and_the_hash_is_the_changes_own(
     latest = "\n".join(r.prompt for r in review.passes[len(QUESTIONS) :])
     assert "packages/core/tests/test_a.py" in latest
     assert "Renamed base" in latest
+
+
+RULES_HEADING = "Rules the plan follows"
+
+
+def commit_app(review: Review, **files: str) -> None:
+    """Write `files` into the `app` checkout and commit them on `main`, as a repository keeps
+    its rules."""
+    checkout = review.inst.repo("app").path
+    checkout.mkdir(parents=True, exist_ok=True)
+    for name, text in files.items():
+        (checkout / name).write_text(text)
+    for args in (
+        ("init", "-q", "-b", "main"),
+        ("add", "."),
+        ("-c", "user.name=t", "-c", "user.email=t@example.com", "commit", "-q", "-m", "rules"),
+    ):
+        shell.git(checkout, *args)
+
+
+def rules_part(prompt: str) -> str:
+    """What a request says under its rules heading."""
+    assert RULES_HEADING in prompt, "every request has a rules part"
+    return prompt.split(RULES_HEADING, 1)[1]
+
+
+SKILL_TEXT = (
+    "# Skill\n\n## Before\n\nBEFORE-TEXT\n\n"
+    "## Rules every task follows\n\nRULE-ONE\nRULE-TWO\n\n## After\n\nAFTER-TEXT\n"
+)
+
+
+@pytest.mark.parametrize(
+    ("text", "limit", "contains", "absent"),
+    [
+        (SKILL_TEXT, 12_000, ("RULE-ONE", "RULE-TWO"), ("BEFORE-TEXT", "AFTER-TEXT", "## ")),
+        ("# Skill\n\n## Other\n\nOTHER-TEXT\n", 12_000, ("(none)",), ("OTHER-TEXT",)),
+        (
+            "## Rules every task follows\n\n" + "x" * 200 + "TAIL-MARK\n",
+            50,
+            ("x" * 50, "abk-authoring", plan_review.AUTHORING_RULES_SECTION),
+            ("TAIL-MARK", "x" * 51),
+        ),
+    ],
+    ids=["a-section-between-headings", "no-such-section", "over-the-limit"],
+)
+def test_the_section_reader_returns_one_cut_body_or_none(
+    monkeypatch: pytest.MonkeyPatch,
+    text: str,
+    limit: int,
+    contains: tuple[str, ...],
+    absent: tuple[str, ...],
+) -> None:
+    monkeypatch.setattr(plan_review, "AUTHORING_RULES_LIMIT", limit)
+
+    got = plan_review.skill_section(text, plan_review.AUTHORING_RULES_SECTION)
+
+    for shown in contains:
+        assert shown in got
+    for hidden in absent:
+        assert hidden not in got
+
+
+def test_every_request_carries_the_shipped_authoring_rules_and_the_repositorys_rules(
+    review: Review,
+) -> None:
+    commit_app(review, **{"AGENTS.md": "APP-RULES-MARKER\n"})
+
+    review.tick()
+
+    assert review.asked == 1
+    assert len(review.passes) == len(QUESTIONS)
+    for asked in review.passes:
+        text = rules_part(asked.prompt)
+        assert "APP-RULES-MARKER" in text
+        assert any("app" in ln and "AGENTS.md" in ln and "main" in ln for ln in text.splitlines())
+        shipped = plan_review.skill_section(
+            skills.source("abk-authoring"), plan_review.AUTHORING_RULES_SECTION
+        )
+        assert shipped in text
+        assert any(
+            "abk-authoring" in ln
+            and __version__ in ln
+            and plan_review.AUTHORING_RULES_SECTION in ln
+            for ln in text.splitlines()
+        )
+        assert "agree" in text, "the reviewer is told the plan's paths and tasks agree with them"
+
+
+@pytest.mark.parametrize(
+    ("committed", "uncommitted", "shown", "hidden"),
+    [
+        ({"CLAUDE.md": "CLAUDE-TEXT\n"}, {}, ("CLAUDE-TEXT",), ()),
+        (
+            {"AGENTS.md": "AGENTS-TEXT\n", "CLAUDE.md": "CLAUDE-TEXT\n"},
+            {},
+            ("AGENTS-TEXT",),
+            ("CLAUDE-TEXT",),
+        ),
+        (
+            {"CLAUDE.md": "CLAUDE-TEXT\n"},
+            {"AGENTS.md": "UNCOMMITTED-TEXT\n"},
+            ("CLAUDE-TEXT",),
+            ("UNCOMMITTED-TEXT",),
+        ),
+        ({"README.md": "readme\n"}, {}, ("(none)",), ()),
+        (
+            {"AGENTS.md": "LONG-HEAD" + "y" * 200 + "LONG-TAIL\n"},
+            {},
+            ("LONG-HEAD", "cut at the size limit", "AGENTS.md"),
+            ("LONG-TAIL",),
+        ),
+    ],
+    ids=["claude-only", "agents-wins", "uncommitted-ignored", "neither", "over-the-limit"],
+)
+def test_the_repositorys_rules_are_the_first_committed_guidance_file_cut_to_the_limit(
+    review: Review,
+    monkeypatch: pytest.MonkeyPatch,
+    committed: dict[str, str],
+    uncommitted: dict[str, str],
+    shown: tuple[str, ...],
+    hidden: tuple[str, ...],
+) -> None:
+    monkeypatch.setattr(plan_review, "REPO_RULES_LIMIT", 40)
+    commit_app(review, **committed)
+    for name, text in uncommitted.items():
+        (review.inst.repo("app").path / name).write_text(text)
+
+    review.tick()
+
+    assert review.asked == 1
+    for asked in review.passes:
+        text = rules_part(asked.prompt)
+        for item in shown:
+            assert item in text
+        for item in hidden:
+            assert item not in text
+        if "(none)" in shown:
+            assert any("app" in ln and "(none)" in ln for ln in text.splitlines()), (
+                "a repository with no guidance file reads (none) under its own name"
+            )
+
+
+def test_a_rules_edit_does_not_ask_again_and_the_changes_own_edit_reads_the_new_rules(
+    review: Review,
+) -> None:
+    commit_app(review, **{"README.md": "readme\n"})
+    review.tick()
+    assert review.asked == 1
+
+    commit_app(review, **{"AGENTS.md": "FIRST-RULES\n"})
+    review.tick()
+    assert review.asked == 1, "a new guidance file asks nothing"
+
+    commit_app(review, **{"AGENTS.md": "SECOND-RULES\n"})
+    review.tick()
+    assert review.asked == 1, "an edited guidance file asks nothing"
+
+    review.edit_tasks(EDITED_TASKS)
+    review.tick()
+
+    assert review.asked == 2, "the change's own edit is reviewed"
+    latest = "\n".join(r.prompt for r in review.passes[len(QUESTIONS) :])
+    assert "SECOND-RULES" in latest
+    assert "FIRST-RULES" not in latest

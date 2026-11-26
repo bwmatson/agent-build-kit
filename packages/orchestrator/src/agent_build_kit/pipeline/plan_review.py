@@ -151,6 +151,11 @@ VIEW_FILE_LIMIT = 12_000
 # change in it.
 CHAIN_BUDGET = 8_000
 CHAIN_CHANGE_LIMIT = 30
+# The section of the shipped authoring skill the request carries, and the most characters of it and
+# of any one repository's guidance file.
+AUTHORING_RULES_SECTION = "Rules every task follows"
+AUTHORING_RULES_LIMIT = 12_000
+REPO_RULES_LIMIT = 12_000
 
 Kind = Literal["blocker", "advice"]
 
@@ -493,6 +498,12 @@ def chain_listing(inst: Installation, tasks: Path) -> str:
     if skipped:
         shown.append(f"not listed, over the size limit: {', '.join(skipped)}")
     return "\n".join(shown)
+
+
+def skill_section(text: str, section: str) -> str:
+    """The body of the `## <section>` part of a skill's text, cut to `AUTHORING_RULES_LIMIT`
+    with a note naming the skill; `(none)` when the text has no such section."""
+    raise NotImplementedError
 
 
 def _unit_line(unit: StoredUnit) -> str:
