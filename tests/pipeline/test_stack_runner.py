@@ -553,4 +553,19 @@ def test_the_red_words_go_once_before_a_tests_and_code_prompts_ending_not_a_test
     assert RED_WORDS not in tests_only
 
 
+@pytest.mark.parametrize("stubbed", [True, False], ids=["stubbed", "unstubbed"])
+def test_only_a_tests_and_code_prompt_names_the_red_check_command_and_once(stubbed: bool) -> None:
+    text = write_tests_prompt(GroupMode.TESTS_AND_CODE, stubbed=stubbed, **TESTS_FIELDS)
+    tests_only = write_tests_prompt(GroupMode.TESTS_ONLY, **TESTS_FIELDS)
+
+    assert text.count("abk red-check") == 1
+    assert "abk red-check" not in tests_only
+
+
+def test_a_stubbed_prompt_no_longer_tells_the_step_not_to_run_the_new_tests() -> None:
+    text = write_tests_prompt(GroupMode.TESTS_AND_CODE, stubbed=True, **TESTS_FIELDS)
+
+    assert "Do not run the new tests" not in text
+
+
 # --- how many fix rounds, and when they count from -----------------------------

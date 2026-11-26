@@ -360,6 +360,26 @@ def red_problems(
     return problems
 
 
+class TreeVerdict(Frozen):
+    """The red check of a worktree's tree judged in place: whether it changes any test file
+    against `HEAD` (`judged`), and the problems found when it does."""
+
+    judged: bool
+    problems: list[str]
+
+
+def tree_red_problems(
+    repo: Path,
+    *,
+    profile: ToolchainProfile,
+    projects: list[ProjectConfig] | None = None,
+    stubbed: bool = False,
+    log: Callable[[str], None] | None = None,
+) -> TreeVerdict:
+    """The red check of the working tree of `repo` against `HEAD`, run in `repo` itself."""
+    raise NotImplementedError
+
+
 def check_branch(
     repo: Path,
     base: str,

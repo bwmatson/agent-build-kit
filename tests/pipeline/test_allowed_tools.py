@@ -3,13 +3,14 @@
 from __future__ import annotations
 
 from agent_build_kit import forges
-from agent_build_kit.pipeline.wiring import allowed_tools
+from agent_build_kit.pipeline.wiring import REVIEW_TOOLS, allowed_tools
 from agent_build_kit.profiles.python_uv import PROFILE
+from agent_build_kit.tool_patterns import allows
 
 # What a GitHub agent was given before the allow-list came from the forge.
 GITHUB_BEFORE = (
     "Read Edit Write Grep Glob Bash(git *) Bash(abk install-config *) "
-    "Bash(abk manual *) Bash(gh pr view*) Bash(gh pr diff*) "
+    "Bash(abk manual *) Bash(abk red-check *) Bash(gh pr view*) Bash(gh pr diff*) "
     f"{PROFILE.allowed_tools}"
 ).strip()
 
@@ -30,6 +31,11 @@ def test_an_azure_agent_is_given_no_way_to_complete_a_pr() -> None:
 
 def test_a_github_agent_is_given_exactly_what_it_was() -> None:
     assert allowed_tools(PROFILE, forges.get("github")) == GITHUB_BEFORE
+
+
+def test_the_builder_may_run_the_red_check_and_the_review_may_not() -> None:
+    assert allows(allowed_tools(PROFILE, forges.get("github")), "abk red-check")
+    assert not allows(REVIEW_TOOLS, "abk red-check")
 
 
 def test_no_forge_reads_with_a_command_any_forge_denies() -> None:
