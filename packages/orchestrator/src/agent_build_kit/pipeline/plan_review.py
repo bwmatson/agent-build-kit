@@ -32,7 +32,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Literal, TypeVar
 
-from agent_build_kit import runtimes
+from agent_build_kit import __version__, runtimes, skills
 from agent_build_kit.config import models
 from agent_build_kit.installation import Installation
 from agent_build_kit.model import Frozen
@@ -110,6 +110,11 @@ the chain's is a finding on the group that names it: a blocker when a unit would
 otherwise advice, and its fix names the chain's convention. Never invent a second convention.
 {chain}
 
+Rules the plan follows: the shipped authoring rules every task follows, then each repository's own
+guidance file as it stands on its default branch. The plan's paths and tasks must agree with them;
+one that does not is a finding on the group that has it, and its fix names the rule.
+{rules}
+
 Artifacts:
 {artifacts}
 
@@ -156,6 +161,8 @@ CHAIN_CHANGE_LIMIT = 30
 AUTHORING_RULES_SECTION = "Rules every task follows"
 AUTHORING_RULES_LIMIT = 12_000
 REPO_RULES_LIMIT = 12_000
+# A repository's guidance file, the first that is committed at its default branch.
+GUIDANCE_FILES = ("AGENTS.md", "CLAUDE.md")
 
 Kind = Literal["blocker", "advice"]
 
@@ -503,7 +510,48 @@ def chain_listing(inst: Installation, tasks: Path) -> str:
 def skill_section(text: str, section: str) -> str:
     """The body of the `## <section>` part of a skill's text, cut to `AUTHORING_RULES_LIMIT`
     with a note naming the skill; `(none)` when the text has no such section."""
-    raise NotImplementedError
+    lines = text.splitlines()
+    heading = f"## {section}"
+    start = next((i for i, line in enumerate(lines) if line.strip() == heading), None)
+    if start is None:
+        return "(none)"
+    end = next(
+        (i for i in range(start + 1, len(lines)) if re.match(r"#{1,2} ", lines[i])), len(lines)
+    )
+    body = "\n".join(lines[start + 1 : end]).strip()
+    if len(body) > AUTHORING_RULES_LIMIT:
+        body = (
+            body[:AUTHORING_RULES_LIMIT]
+            + f"\n[cut at the size limit: the rest is in the abk-authoring skill, {section}]"
+        )
+    return body
+
+
+def rules_listing(inst: Installation, tasks: Path) -> str:
+    """The rules a request carries: the shipped authoring rules under a line naming the skill and
+    its version, then each repo the change names with its first committed guidance file
+    (`AGENTS.md`, else `CLAUDE.md`) at its default branch, cut to `REPO_RULES_LIMIT`."""
+    shipped = skill_section(skills.source("abk-authoring"), AUTHORING_RULES_SECTION)
+    parts = [
+        f"#### abk-authoring skill, version {__version__}, section {AUTHORING_RULES_SECTION}\n"
+        + shipped
+    ]
+    for name, path, branch in _repo_checkouts(inst, tasks):
+        found = ("(none)", "")
+        for file in GUIDANCE_FILES:
+            try:
+                shown = shell.git(path, "show", f"{branch}:{file}", check=False)
+            except OSError:
+                continue
+            if shown.returncode == 0:
+                found = (file, shown.stdout)
+                break
+        file, content = found
+        body = content[:REPO_RULES_LIMIT]
+        if len(content) > REPO_RULES_LIMIT:
+            body += f"\n[cut at the size limit: the rest of {file} is in the repository]"
+        parts.append(f"#### {name}: {file} at {branch}\n{body}".rstrip())
+    return "\n\n".join(parts)
 
 
 def _unit_line(unit: StoredUnit) -> str:
@@ -579,6 +627,7 @@ def build_prompt(
     question: int = 1,
     repos: Sequence[tuple[str, Path, str]] = (),
     chain: str = "",
+    rules: str = "",
 ) -> str:
     """The request for one question: the question, the repos to read, the artifacts, the units
     and the mechanical checks' report."""
@@ -594,6 +643,7 @@ def build_prompt(
         units="\n".join(_unit_line(unit) for unit in units),
         repository=repository or "(none)",
         chain=chain or "(none)",
+        rules=rules or "(none)",
         artifacts=_artifacts(folder),
     )
 
@@ -698,12 +748,21 @@ async def _pass(
     view: str,
     repos: Sequence[tuple[str, Path, str]],
     chain: str,
+    rules: str,
     say: Callable[[str], None],
 ) -> tuple[Finding, ...] | PlannerError | None:
     """One question's pass: its findings, the `PlannerError` it ended in, or None when it was
     stopped."""
     prompt = build_prompt(
-        change, tasks.parent, mine, report, view, question=number, repos=repos, chain=chain
+        change,
+        tasks.parent,
+        mine,
+        report,
+        view,
+        question=number,
+        repos=repos,
+        chain=chain,
+        rules=rules,
     )
     try:
         answer = await gate.call(
@@ -740,6 +799,7 @@ async def _review_once(
     repos = _repo_checkouts(inst, tasks)
     view = repository_view(inst, tasks)
     chain = chain_listing(inst, tasks)
+    rules = rules_listing(inst, tasks)
     async with asyncio.TaskGroup() as group:
         passes = [
             group.create_task(
@@ -754,6 +814,7 @@ async def _review_once(
                     view=view,
                     repos=repos,
                     chain=chain,
+                    rules=rules,
                     say=say,
                 )
             )

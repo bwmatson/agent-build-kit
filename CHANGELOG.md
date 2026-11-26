@@ -4,8 +4,11 @@
 
 - The plan review now lists the changes in a change's `Needs:` chain, with their titles and the
   test and support paths their tasks name, so a path convention that differs from the chain's is
-  flagged instead of drifting. The listing is context only: editing a neighbouring change does
-  not ask for a new review.
+  flagged instead of drifting. The review also reads the authoring rules every task follows and
+  each repository's own guidance file (`AGENTS.md`, else `CLAUDE.md`, as committed on its default
+  branch), and is told to keep the plan's paths and tasks in agreement with them. The listing and
+  the rules are context only: editing a neighbouring change or a guidance file does not ask for a
+  new review.
 
 - The `abk-authoring` skill now carries the rules every task follows (check paths against the
   default branch, edit every check of the old behaviour in the same group, a `Test:` task that the
