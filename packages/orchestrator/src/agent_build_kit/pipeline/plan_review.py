@@ -62,7 +62,10 @@ _T = TypeVar("_T")
 
 # The fixed questions every review asks, in the order a finding numbers them.
 QUESTIONS: tuple[str, ...] = (
-    "Does each unit end with the suite green, given what its groups move, rename or delete?",
+    "Does each unit end with the suite green, given what its groups move, rename or delete? "
+    "Can each test task fail before its implementation for a reason the red check accepts? "
+    'Behaviour that already holds (an equivalence, "still does X") cannot be red: it '
+    "belongs in the implementation task's Verify.",
     "Does any task need live numbers, an installation edit or an edit to the change's own files?",
     "Can each `Check:` run in the check environment?",
     "Does a later group's test assert something an earlier unit already broke?",
