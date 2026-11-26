@@ -447,6 +447,9 @@ touched; `--forget` only clears the record and leaves the planning to the next t
 A plan state of `waiting for the network` or `waiting for the model service` is an outage,
 not a failure: no attempt is used and the tick plans it again after its next try (or when
 the network pause clears); nothing needs running. `given up` names `abk replan --failed`.
+`abk status` prints a `planning` line for each active change whose planning has given up, and
+`abk attention` lists it with the recorded reason; records of changes no longer in the changes
+folder are ignored.
 
 A unit with a `Needs:` line whose dependency is not yet in review waits instead:
 `abk requeue` leaves it `planned` with the cause `gated` (shown by `abk status` as

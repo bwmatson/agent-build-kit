@@ -994,8 +994,12 @@ def cmd_status(args: argparse.Namespace, inst: Installation) -> int:
     ):
         print(redact_text(line, where="printed output"), flush=True)
 
-    for change, record in planned_hashes(inst).items():
-        if record.get("waiting") in PLAN_WAITS:
+    records = planned_hashes(inst)
+    given_up = given_up_plans(inst)
+    for tasks in inst.tasks_files():
+        change = tasks.parent.name
+        record = records.get(change)
+        if record and (record.get("waiting") in PLAN_WAITS or change in given_up):
             log(f"planning {change}: {_plan_state(record, inst.max_plan_attempts)}")
 
     for line in stale_plan_lines(inst):
@@ -2089,6 +2093,23 @@ def _plan_is_current(record: dict, digest: str, max_attempts: int) -> bool:
     return record.get("hash") == digest and bool(
         record.get("ok") or record.get("attempts", 0) >= max_attempts
     )
+
+
+def given_up_plans(inst: Installation) -> dict[str, dict]:
+    """The active changes whose planning has given up, with their records: not planned, no
+    outage wait, and the attempts used on the text the change's `tasks.md` has now."""
+    records = planned_hashes(inst)
+    given_up: dict[str, dict] = {}
+    for tasks in inst.tasks_files():
+        record = records.get(tasks.parent.name)
+        if (
+            record
+            and not record.get("ok")
+            and not record.get("waiting")
+            and _plan_is_current(record, plan_digest(tasks), inst.max_plan_attempts)
+        ):
+            given_up[tasks.parent.name] = record
+    return given_up
 
 
 def _plan_rests(record: dict, digest: str, max_attempts: int, now: datetime) -> bool:

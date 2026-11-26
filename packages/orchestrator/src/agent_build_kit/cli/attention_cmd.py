@@ -166,6 +166,18 @@ def attention_items(
                 f"the living spec); it is tried again once they change: openspec validate {change}",
             )
         )
+    from agent_build_kit.cli.pipeline import given_up_plans
+
+    for change, record in given_up_plans(inst).items():
+        reason = record.get("reason") or "no reason recorded"
+        items.append(
+            Item(
+                subject=change,
+                what=f"planning gave up: {reason}",
+                action=f"edit openspec/changes/{change}/tasks.md as the reason says (planning "
+                f"tries again once it changes), or abk replan {change}",
+            )
+        )
     return sorted(items, key=lambda item: (-item.blocks, item.subject))
 
 

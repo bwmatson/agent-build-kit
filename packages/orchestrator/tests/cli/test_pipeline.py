@@ -50,7 +50,11 @@ def test_status_prints_a_planning_line_only_for_the_active_change_whose_planning
 
     capsys.readouterr()
     assert cli.cmd_status(argparse.Namespace(), inst) == 0
-    lines = [line for line in capsys.readouterr().out.splitlines() if "planning " in line]
+    lines = [
+        line
+        for line in capsys.readouterr().out.splitlines()
+        if "planning " in line and "guard planning" not in line
+    ]
 
     assert len(lines) == 1
     assert "big" in lines[0]
