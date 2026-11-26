@@ -179,6 +179,28 @@ def test_a_passing_case_of_a_test_that_must_fail_is_a_problem_naming_the_test_an
     assert any(f"{test_id}: {rule.value}: must fail" in problem for problem in result.problems)
 
 
+def test_rules_that_match_no_case_of_the_report_are_warned_of(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    report = junit_report([passing("project.tests.test_thing", "test_x"), ANOTHER_FAILS])
+
+    with caplog.at_level("WARNING"):
+        red_check(report, rules={f"{FILE}::test_x": Rule.CHANGED})
+
+    assert "none of the 1 rules given matched" in caplog.text
+
+
+def test_rules_that_match_a_case_of_the_report_are_not_warned_of(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    report = junit_report([passing(MODULE, "test_x"), ANOTHER_FAILS])
+
+    with caplog.at_level("WARNING"):
+        red_check(report, rules={f"{FILE}::test_x": Rule.CHANGED, **ANOTHER_RULE})
+
+    assert "matched" not in caplog.text
+
+
 def test_a_test_that_must_fail_meets_its_rule_when_one_of_its_cases_failed() -> None:
     report = junit_report(
         [passing(MODULE, "test_p[1]"), passing(MODULE, "test_p[2]"), failing(MODULE, "test_p[-3]")]

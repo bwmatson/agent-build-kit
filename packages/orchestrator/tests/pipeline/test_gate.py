@@ -14,7 +14,7 @@ import pytest
 
 from agent_build_kit import profiles
 from agent_build_kit.pipeline.check_runner import CheckCache
-from agent_build_kit.pipeline.gate import check_branch
+from agent_build_kit.pipeline.gate import check_branch, red_problems
 from agent_build_kit.pipeline.red_check import Rule
 from agent_build_kit.profiles.python_uv import PROFILE as PYTHON
 from tests.factories import commit_files as commit
@@ -144,6 +144,11 @@ def rule_line(test: str, rule: Rule, may_pass: bool, file: str = THING) -> str:
     return f"{file}::{test}: {rule.value}: {'may pass' if may_pass else 'must fail'}"
 
 
+def logged_line(test: str, rule: Rule, outcome: str, file: str = THING) -> str:
+    """The whole line the red run's log holds for a test: its rule and how it came out."""
+    return f"{rule_line(test, rule, not rule.must_fail, file)} — {outcome}"
+
+
 ARRANGED = source_of("test_x()", "items = [1, 2]", "assert len(items) == 2")
 ASSERTS = source_of("test_x()", "value = 2", "assert value == 2")
 PARAMS = (
@@ -208,7 +213,7 @@ JUDGED = [
         {THING: source_of("test_x()", "items = [3, 4]", "assert len(items) == 2") + FAILS},
         [passing(MODULE, "test_x"), *NEW_FAILS],
         [],
-        [rule_line("test_x", Rule.CHANGED, True)],
+        [logged_line("test_x", Rule.CHANGED, "passed")],
         id="changed arranged values may pass beside a failing new test",
     ),
     pytest.param(
@@ -216,7 +221,7 @@ JUDGED = [
         {THING: source_of("test_x(tmp_path)", "items = [1, 2]", "assert len(items) == 2") + FAILS},
         [passing(MODULE, "test_x"), *NEW_FAILS],
         [],
-        [rule_line("test_x", Rule.CHANGED, True)],
+        [logged_line("test_x", Rule.CHANGED, "passed")],
         id="a changed fixture argument may pass beside a failing new test",
     ),
     pytest.param(
@@ -224,7 +229,7 @@ JUDGED = [
         {THING: source_of("test_y()", "items = [1, 2]", "assert len(items) == 2") + FAILS},
         [passing(MODULE, "test_y"), *NEW_FAILS],
         [],
-        [rule_line("test_y", Rule.RENAMED, True)],
+        [logged_line("test_y", Rule.RENAMED, "passed")],
         id="a renamed test may pass beside a failing new test",
     ),
     pytest.param(
@@ -232,7 +237,7 @@ JUDGED = [
         {THING: source_of("test_x()", "assert 1") + FAILS},
         [passing(MODULE, "test_x"), *NEW_FAILS],
         [],
-        [rule_line("test_x", Rule.CHANGED, True)],
+        [logged_line("test_x", Rule.CHANGED, "passed")],
         id="a removed assert may pass beside a failing new test",
     ),
     pytest.param(
@@ -240,7 +245,7 @@ JUDGED = [
         {THING: source_of("test_x()", "value = 2", "assert (value ==\n        2)") + FAILS},
         [passing(MODULE, "test_x"), *NEW_FAILS],
         [],
-        [rule_line("test_x", Rule.CHANGED, True)],
+        [logged_line("test_x", Rule.CHANGED, "passed")],
         id="a reformatted assert is not a changed assertion",
     ),
     pytest.param(
@@ -248,7 +253,7 @@ JUDGED = [
         {THING: PARAMS.format(extra=", -3") + FAILS},
         [*PARAM_CASES, failing(MODULE, "test_p[-3]")],
         [],
-        [rule_line("test_p", Rule.ASSERTION_CHANGED, False)],
+        [logged_line("test_p", Rule.ASSERTION_CHANGED, "failed")],
         id="a new parametrize row that fails beside old rows that pass is accepted",
     ),
     pytest.param(
@@ -270,7 +275,7 @@ JUDGED = [
         },
         [passing("tests.test_helpers", "test_h"), *NEW_FAILS],
         [],
-        [rule_line("test_h", Rule.WITH_FILE, True, HELPERS)],
+        [logged_line("test_h", Rule.WITH_FILE, "passed", HELPERS)],
         id="a test in a file run whole may pass beside a failing selected test",
     ),
     pytest.param(
@@ -278,7 +283,7 @@ JUDGED = [
         {THING: source_of("test_x()", "items = [3, 4]", "assert len(items) == 2")},
         [passing(MODULE, "test_x")],
         ["nothing failed"],
-        [rule_line("test_x", Rule.CHANGED, True)],
+        [logged_line("test_x", Rule.CHANGED, "passed")],
         id="a commit in which nothing fails is rejected",
     ),
     pytest.param(
@@ -290,7 +295,7 @@ JUDGED = [
         },
         [passing(MODULE, "test_x"), passing(MODULE, "test_new"), *NEW_FAILS],
         [rule_line("test_new", Rule.NEW, False)],
-        [rule_line("test_x", Rule.CHANGED, True)],
+        [logged_line("test_x", Rule.CHANGED, "passed")],
         id="a rejection names the new test as one that must fail and the changed one as may pass",
     ),
 ]
@@ -346,6 +351,37 @@ def test_a_cached_failure_still_blocks(repo: Path, fake_commands, tmp_path: Path
     fake_commands(red_output=FAILED)
 
     assert check_branch(repo, "main", cache=cache) != []
+
+
+def test_a_pass_recorded_under_the_earlier_gate_label_is_not_reused(
+    repo: Path, fake_commands, tmp_path: Path
+) -> None:
+    """A verdict recorded when every passing test was a problem was judged by another rule."""
+    tests_first_branch(repo)
+    cache = CheckCache(tmp_path / "cache.json")
+    cache.record(repo, git(repo, "rev-parse", "HEAD~1").strip(), ok=True, mode="")
+    fake_commands(red_output=PASSED, red_exit=0)
+
+    problems = check_branch(repo, "main", cache=cache)
+
+    assert any("passed at the tests commit" in problem for problem in problems), problems
+
+
+@pytest.mark.parametrize("old_mode", ["red", "red-stubbed"])
+def test_a_red_pass_recorded_under_the_earlier_label_is_not_reused(
+    repo: Path, fake_commands, tmp_path: Path, old_mode: str
+) -> None:
+    tests_first_branch(repo)
+    sha = git(repo, "rev-parse", "HEAD~1").strip()
+    cache = CheckCache(tmp_path / "cache.json")
+    cache.record(repo, sha, ok=True, mode=old_mode)
+    fake_commands(red_output=PASSED, red_exit=0)
+
+    problems = red_problems(
+        repo, sha, profile=profiles.get("python-uv"), cache=cache, stubbed=old_mode != "red"
+    )
+
+    assert problems
 
 
 def test_the_gate_does_not_touch_the_working_tree(repo: Path, fake_commands) -> None:

@@ -299,6 +299,13 @@ def red_check(
             elif kind not in ACCEPTED_TYPES:
                 problems.append(f"{name}: {UNRECOGNISED_FAILURE}")
 
+    if known and not outcomes:
+        LOG.warning(
+            "red check: none of the %d rules given matched a case of the report, so each passing "
+            "test is judged as a problem; the report's class names may not be relative to the "
+            "project the rules are",
+            len(known),
+        )
     for test_id, rule in known.items():
         if rule.must_fail and outcomes.get(test_id) == "passed":
             problems.append(f"{test_id}: {rule.value}: must fail")

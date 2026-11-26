@@ -43,7 +43,7 @@ from agent_build_kit.pipeline.commit_order import (
 from agent_build_kit.pipeline.red_check import Rule
 from agent_build_kit.pipeline.shell import git
 from agent_build_kit.pipeline.stack_runner import GroupStep
-from agent_build_kit.pipeline.wiring import classified_tests, ids_for, tests_in_file, touched_tests
+from agent_build_kit.pipeline.wiring import classified_tests, ids_for, tests_in_file
 from agent_build_kit.profiles.base import (
     ReportsNothingCollected,
     ToolchainProfile,
@@ -84,15 +84,6 @@ def _left_in_place(repo: Path, sha: str, files: list[str], prefix: str) -> list[
     return [file for file, path in zip(files, paths, strict=True) if path in held]
 
 
-def _touched_in(repo: Path, sha: str) -> list[tuple[str, str]]:
-    """The tests the commit adds or changes against its parent; none when they cannot be
-    listed (a root commit has no parent), so its files run whole."""
-    try:
-        return touched_tests(repo, f"{sha}^", sha)
-    except (subprocess.CalledProcessError, OSError):
-        return []
-
-
 # The cache labels of a red check carry the version of the rule that judges it, so a verdict
 # recorded when every passing test was a problem is not reused.
 RED_LABEL = "red-v2"
@@ -100,61 +91,68 @@ RED_STUBBED_LABEL = "red-stubbed-v2"
 
 
 def _classified_in(repo: Path, sha: str) -> dict[str, Rule]:
-    """The rule of each test the commit adds or changes (`file::test` from the checkout's root);
-    none when they cannot be listed."""
+    """The rule of each test the commit adds or changes against its parent (`file::test` from
+    the checkout's root); none when they cannot be listed (a root commit has no parent), so its
+    files run whole."""
     try:
         return classified_tests(repo, f"{sha}^", sha)
     except (subprocess.CalledProcessError, OSError):
         return {}
 
 
-def _runnable(
-    toolchain: ToolchainProfile, owned: list[str], repo: Path, prefix: str, sha: str
-) -> list[str]:
-    """The files of `owned` the red command is given: those the toolchain can run and the
-    commit leaves in place."""
-    return _left_in_place(repo, sha, [f for f in owned if toolchain.runs_path(f)], prefix)
+class _Selection(Frozen):
+    """What one project's red run is given: the files it can run, and each selected test's id
+    (from the project's root) beside its `file::test` key from the checkout's root. A file with
+    no selected test runs whole."""
+
+    files: list[str]
+    picked: dict[str, str]
+
+    @property
+    def whole(self) -> list[str]:
+        """The files that run whole, none of their tests being selected."""
+        chosen = {i.split("::")[0] for i in self.picked}
+        return [file for file in self.files if file not in chosen]
 
 
-def _rules_of(
+def _selection(
     toolchain: ToolchainProfile,
     owned: list[str],
-    touched: list[tuple[str, str]],
     classified: dict[str, Rule],
     repo: Path,
     prefix: str,
     sha: str,
+) -> _Selection:
+    """The files of `owned` the red command is given (those the toolchain can run and the commit
+    leaves in place) and the tests it selects among them, from the tests `classified` lists. The
+    one decision the red command and the rules judging its run are both read from."""
+    files = _left_in_place(repo, sha, [f for f in owned if toolchain.runs_path(f)], prefix)
+    picked: dict[str, str] = {}
+    for key in classified:
+        path, name = key.split("::", 1)
+        for found in ids_for([(path, name)], repo, repo / prefix, toolchain):
+            picked[found] = key
+    return _Selection(files=files, picked=picked)
+
+
+def _rules_of(
+    selection: _Selection, classified: dict[str, Rule], repo: Path, sha: str, prefix: str
 ) -> dict[str, Rule]:
     """How each test the red command selects is judged, keyed `file::test` from the project's
     root: the rule of each touched test, and `WITH_FILE` for each test of a file that runs whole
     because none of its tests is selected."""
-    where = repo / prefix
-    rules: dict[str, Rule] = {}
-    selected: set[str] = set()
-    for path, name in touched:
-        (found,) = ids_for([(path, name)], repo, where, toolchain) or [None]
-        if found is None:
-            continue
-        selected.add(found.split("::")[0])
-        if name and (rule := classified.get(f"{path}::{name}")):
-            rules[found] = rule
-    for file in _runnable(toolchain, owned, repo, prefix, sha):
-        if file not in selected:
-            for test in tests_in_file(repo, sha, prefix + file):
-                rules[f"{file}::{test}"] = Rule.WITH_FILE
+    rules = {found: classified[key] for found, key in selection.picked.items()}
+    for file in selection.whole:
+        for test in tests_in_file(repo, sha, prefix + file):
+            rules[f"{file}::{test}"] = Rule.WITH_FILE
     return rules
 
 
 def _red_command(
-    toolchain: ToolchainProfile,
-    owned: list[str],
-    touched: list[tuple[str, str]],
-    repo: Path,
-    prefix: str,
-    sha: str,
+    toolchain: ToolchainProfile, selection: _Selection, repo: Path, prefix: str
 ) -> str | None:
-    """The red command for `owned` (the project's test files at the tests commit `sha`),
-    narrowed to the tests the commit added or changed (`touched`, from the checkout's root).
+    """The red command for the files of `selection` (the project's test files at the tests
+    commit), narrowed to the tests the commit added or changed.
 
     Only the files the toolchain can run and the commit leaves in place are given to the
     runner (a data file under a test folder is part of the commit but is not runnable; a
@@ -164,10 +162,10 @@ def _red_command(
     A file with no selected test (a helper edit) stays whole beside the selected ids. With no
     test selected in any file the command is the whole-file run.
     """
-    owned = _runnable(toolchain, owned, repo, prefix, sha)
+    owned = selection.files
     if not owned:
         return None
-    ids = ids_for(touched, repo, repo / prefix, toolchain)
+    ids = list(selection.picked)
     if not ids:
         return toolchain.red_command(owned, project=repo / prefix)
     chosen = {file: [i for i in ids if i.split("::")[0] == file] for file in owned}
@@ -332,16 +330,16 @@ def red_problems(
     def is_test(path: str) -> bool:
         return profiles.for_path(projects, path, profile).is_test_path(path)
 
-    touched = _touched_in(repo, sha)
     classified = _classified_in(repo, sha)
     runs: list[_Run] = []
     for owner, owned in by_project(projects, _test_files_in(repo, sha, is_test)):
         toolchain = profiles.for_project(owner, profile)
         prefix = owner.prefix if owner else ""
-        command = _red_command(toolchain, owned, touched, repo, prefix, sha)
+        selection = _selection(toolchain, owned, classified, repo, prefix, sha)
+        command = _red_command(toolchain, selection, repo, prefix)
         if command is None:
             continue
-        rules = _rules_of(toolchain, owned, touched, classified, repo, prefix, sha)
+        rules = _rules_of(selection, classified, repo, sha, prefix)
 
         (red,) = run_at_commit(
             repo, sha, [_prepared(repo, toolchain, prefix, command)], subdir=prefix or "."
@@ -428,17 +426,13 @@ def check_branch(
             continue
 
         commit_problems: list[str] = []
-        touched = [] if sha in no_red else _touched_in(repo, sha)
         classified = {} if sha in no_red else _classified_in(repo, sha)
         runs: list[_Run] = []
         for owner, owned in by_project(projects, files):
             toolchain = profiles.for_project(owner, profile)
             prefix = owner.prefix if owner else ""
-            rules = (
-                {}
-                if sha in no_red
-                else _rules_of(toolchain, owned, touched, classified, repo, prefix, sha)
-            )
+            selection = _selection(toolchain, owned, classified, repo, prefix, sha)
+            rules = {} if sha in no_red else _rules_of(selection, classified, repo, sha, prefix)
             where = _where(sha, owner)
             clean_line = (
                 toolchain.clean_command(types=True) if stubbed else toolchain.clean_command()
@@ -456,11 +450,7 @@ def check_branch(
                 return located(profile, ["sh", "-c", line], tree / folder, tree)[-1]
 
             commands: list[str | Callable[[Path], str]] = [clean_in]
-            red_line = (
-                None
-                if sha in no_red
-                else _red_command(toolchain, owned, touched, repo, prefix, sha)
-            )
+            red_line = None if sha in no_red else _red_command(toolchain, selection, repo, prefix)
             if red_line is not None:
                 commands.append(red_line)
             clean, *red_run = run_at_commit(repo, sha, commands, subdir=prefix or ".")

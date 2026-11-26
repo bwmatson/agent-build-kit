@@ -31,7 +31,7 @@ def test_the_tests_prompt_of_a_stubbed_build_says_what_the_stubs_must_pass(
     assert "lint, format and types" in prompt
     assert "stubs hold no logic" in prompt or "stubs contain no logic" in prompt
     assert "do not run the new tests" in prompt
-    assert "run the new tests, which must fail" not in prompt
+    assert "a new test and a changed assertion must fail" not in prompt
 
 
 def test_the_tests_prompt_of_a_build_that_is_not_stubbed_is_as_it_was(tmp_path: Path) -> None:
