@@ -292,24 +292,30 @@ class Crowd:
         project.root.joinpath("calc.py").write_text(CROWD_CALC)
         project.root.joinpath("tests", "test_calc.py").write_text(CROWD_TESTS)
 
-    def record(self, *, strip: tuple[str, ...] = ()) -> None:
-        command = PROFILE.seeding_command(self.project.single, self.project.seed)
+    def record(self, data: Path | None = None, *, strip: tuple[str, ...] = ()) -> None:
+        command = PROFILE.seeding_command(self.project.single, data or self.project.seed)
         done = self.project.run([word for word in command if word not in strip])
         assert done.returncode == 0, done.stdout + done.stderr
 
-    def links(self) -> set[str]:
+    def outcomes(self, data: Path | None = None) -> set[tuple[str, bool]]:
+        """The `(test_name, failed)` rows of the data file's `test_execution` table."""
+        with sqlite3.connect(data or self.project.seed) as file:
+            rows = file.execute("SELECT test_name, failed FROM test_execution").fetchall()
+        return {(name, bool(failed)) for name, failed in rows}
+
+    def links(self, data: Path | None = None) -> set[str]:
         """The tests the data file links to calc.py, by the tables testmon keeps them in."""
-        with sqlite3.connect(self.project.seed) as data:
-            rows = data.execute(
+        with sqlite3.connect(data or self.project.seed) as file:
+            rows = file.execute(
                 "SELECT DISTINCT te.test_name FROM test_execution te"
                 " JOIN test_execution_file_fp tf ON tf.test_execution_id = te.id"
                 " JOIN file_fp f ON f.id = tf.fingerprint_id WHERE f.filename = 'calc.py'"
             ).fetchall()
         return {re.sub(r".*::", "", name) for (name,) in rows}
 
-    def environments(self) -> set[str]:
-        with sqlite3.connect(self.project.seed) as data:
-            return {name for (name,) in data.execute("SELECT environment_name FROM environment")}
+    def environments(self, data: Path | None = None) -> set[str]:
+        with sqlite3.connect(data or self.project.seed) as file:
+            return {name for (name,) in file.execute("SELECT environment_name FROM environment")}
 
 
 @pytest.fixture
@@ -323,6 +329,26 @@ def test_the_recording_and_the_selection_pin_the_coverage_core(crowd: Crowd, sel
 
     assert CORE in command
     assert TESTMON_ENV in command
+
+
+@pytest.mark.time_limit(LOADED_TEST_TIME_LIMIT)
+def test_the_lean_reports_plugin_leaves_the_recorded_rows_and_links_as_they_are(
+    crowd: Crowd,
+) -> None:
+    command = PROFILE.seeding_command(crowd.project.single, crowd.project.seed)
+    path_words = [word for word in command if word.startswith("PYTHONPATH=")]
+    assert path_words
+    assert "-p" in command
+    assert "abk_lean_reports" in command
+    plain = crowd.project.seed.parent / "plain" / "affected"
+    plain.parent.mkdir()
+
+    crowd.record()
+    crowd.record(plain, strip=(*path_words, "-p", "abk_lean_reports"))
+
+    assert crowd.outcomes()
+    assert crowd.outcomes() == crowd.outcomes(plain)
+    assert crowd.links() == crowd.links(plain) == CROWD
 
 
 @pytest.mark.time_limit(LOADED_TEST_TIME_LIMIT)

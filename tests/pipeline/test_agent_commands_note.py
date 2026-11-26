@@ -23,7 +23,7 @@ def test_the_note_for_the_python_defaults_lists_the_five_commands(tmp_path: Path
     assert "uv run pytest -q <path>" in note
     assert "uv run pre-commit run --all-files" in note
     assert "uv run pre-commit run --files <path>" in note
-    assert "uv run --with pytest-testmon pytest -q --testmon-forceselect" in note
+    assert "uv run --with pytest-testmon==2.4.0 pytest -q --testmon-forceselect" in note
     assert "{path}" not in note
     assert len([line for line in note.splitlines() if line.startswith("- ")]) == 5
 

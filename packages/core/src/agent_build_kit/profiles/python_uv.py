@@ -451,7 +451,11 @@ _PRE_COMMIT_CONFIG = ".pre-commit-config.yaml"
 _PRE_COMMIT_RUN = re.compile(r"\bpre-commit run\b")
 
 # The plugin that records, for each test, the source it executed, and selects by it.
-TESTMON = "pytest-testmon"
+TESTMON = "pytest-testmon==2.4.0"
+# The kit's pytest plugin, which the recording loads from its folder. The folder is a path beside
+# this file and the plugin is not imported: it imports pytest, which is not a runtime dependency.
+_LEAN_REPORTS = "abk_lean_reports"
+_PLUGIN_FOLDER = Path(__file__).parent / "pytest_plugin"
 # The default coverage core records a test's dependencies incompletely when several tests call
 # one function in a process; the data of the pinned core is kept in an environment of its own.
 _COVERAGE_CORE = "COVERAGE_CORE=ctrace"
@@ -1279,11 +1283,13 @@ class PythonUvProfile:
             "env",
             f"TESTMON_DATAFILE={seed}",
             _COVERAGE_CORE,
+            *([] if select else [f"PYTHONPATH={_PLUGIN_FOLDER}"]),
             *command[:program],
             *["--with", TESTMON],
             *command[program : program + 1],
             flag,
             _TESTMON_ENV,
+            *([] if select else ["-p", _LEAN_REPORTS]),
             *rest,
             *louder,
         ]

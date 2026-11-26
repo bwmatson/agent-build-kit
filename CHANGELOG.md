@@ -9,6 +9,11 @@
   initiatives, outlines and their `Initiative:`, `Waits on:`, `Touches:` and `Reworks:` lines work.
   Every installation gets them, and `abk doctor` reports an installed copy that is out of date.
 
+- The Python profile pins pytest-testmon 2.4.0 in every command it builds, and its recording run
+  loads a small plugin that drops each batch's coverage once testmon has saved it, and passing
+  tests' captured output, from the reports the run keeps. A full run's memory now stays flat
+  instead of growing with the number of tests.
+
 - `scripts/trusted_change_cost.py` reports the cost of changes that lasted (merged, not reverted
   or fixed within 30 days) and the health thresholds, read-only, from a planning repo's state. It
   stands in for `abk report --trusted` until that lands.
