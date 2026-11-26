@@ -751,6 +751,12 @@ def review_changes(
 
     try:
         asyncio.run(run_all())
+    except ExceptionGroup as group:
+        # The task group wraps what one change's review raised; the tick logs the real error.
+        leaf: BaseException = group
+        while isinstance(leaf, ExceptionGroup):
+            leaf = leaf.exceptions[0]
+        raise leaf from None
     finally:
         for lines in logs:
             for line in lines:

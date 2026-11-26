@@ -519,7 +519,7 @@ def test_repairs_of_two_changes_run_one_at_a_time_and_both_changes_are_reviewed_
             return f"<<<TASKS\n{REPAIRED_TASKS}\nTASKS>>>"
         return reply() if change in repaired else reply(FIXABLE)
 
-    runtime = GatedRuntime(hold_until=2, hold_repairs_until=2, deadline=1.0, respond=respond)
+    runtime = GatedRuntime(hold_until=2, hold_repairs_until=2, repair_deadline=0.2, respond=respond)
     review = Review(tmp_path, monkeypatch, concurrency=4, runtime=runtime)
     review.finish_default_change()
     review.add_change("one", 3)
@@ -554,6 +554,7 @@ def test_a_refused_call_starts_no_more_calls_and_lets_those_in_flight_finish(
     review.tick()
 
     out = capsys.readouterr()
+    assert runtime.most_in_flight == len(QUESTIONS)
     assert {change_of(r) for r in runtime.requests} == {"urgent"}, (
         "no call starts after the refusal"
     )

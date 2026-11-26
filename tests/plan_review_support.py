@@ -100,9 +100,11 @@ class GatedRuntime(StandInRuntime):
     """A stand-in model that counts the calls in flight and keeps the most it saw.
 
     The first calls are held until `hold_until` calls are in flight (and the first repairs until
-    `hold_repairs_until` repairs are), or `deadline` seconds pass, so overlap shows as a count and
-    nothing is timed. `refuse` may return an error for a request: that call raises it, and every
-    other call in flight waits until it has, so what was in flight when it was refused is known.
+    `hold_repairs_until` repairs are), or `deadline` seconds pass (`repair_deadline` for the
+    repairs, which a correct build never overlaps, so it may be short), so overlap shows as a
+    count and nothing is timed. `refuse` may return an error for a request: that call raises it,
+    and every other call in flight waits until it has, so what was in flight when it was refused
+    is known.
     """
 
     def __init__(
@@ -111,6 +113,7 @@ class GatedRuntime(StandInRuntime):
         hold_until: int = 0,
         hold_repairs_until: int = 0,
         deadline: float = 5.0,
+        repair_deadline: float | None = None,
         refuse: Callable[[AgentRequest], Exception | None] | None = None,
         **given: Any,
     ) -> None:
@@ -118,6 +121,7 @@ class GatedRuntime(StandInRuntime):
         self.hold_until = hold_until
         self.hold_repairs_until = hold_repairs_until
         self.deadline = deadline
+        self.repair_deadline = deadline if repair_deadline is None else repair_deadline
         self.refuse = refuse
         self.in_flight = 0
         self.most_in_flight = 0
@@ -147,7 +151,7 @@ class GatedRuntime(StandInRuntime):
                         if is_repair
                         else self.in_flight >= self.hold_until
                     ),
-                    timeout=self.deadline,
+                    timeout=self.repair_deadline if is_repair else self.deadline,
                 )
                 self._opened[kind] = True
                 self._changed.notify_all()
@@ -269,12 +273,7 @@ class Review:
         for request in self.passes:
             if f"1. {QUESTIONS[0]}" not in request.prompt:
                 continue
-            [name] = {
-                line.split("/")[0].removeprefix("- ")
-                for line in request.prompt.splitlines()
-                if line.startswith("- ") and "/1 [app" in line
-            }
-            order.append(name)
+            order.append(change_of(request))
         return order
 
     def edit_tasks(self, text: str) -> None:
@@ -325,8 +324,7 @@ class Review:
 
     @property
     def asked(self) -> int:
-        """How many reviews were asked: each asks every question in its own pass, the first
-        question first, and a failed pass ends its review."""
+        """How many reviews were asked, counted by the passes that ask the first question."""
         return sum(f"1. {QUESTIONS[0]}" in r.prompt for r in self.passes)
 
     @property
