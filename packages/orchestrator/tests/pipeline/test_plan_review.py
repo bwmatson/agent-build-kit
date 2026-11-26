@@ -152,6 +152,17 @@ def test_each_question_is_asked_in_its_own_pass_with_read_only_tools_over_the_re
         )
 
 
+def test_only_the_first_pass_asks_whether_each_test_task_can_be_red(review: Review) -> None:
+    review.tick()
+
+    assert len(review.passes) == len(QUESTIONS), "the red question adds no pass"
+    for number, asked in enumerate(review.passes_in_question_order, 1):
+        own = QUESTIONS[number - 1]
+        has_red_words = "red check" in own and "Verify" in own
+        assert has_red_words is (number == 1), f"pass {number} asks: {own}"
+        assert ("red check" in asked.prompt.split("\n\nYou may read")[0]) is (number == 1)
+
+
 def test_advice_is_recorded_and_shown_but_holds_nothing(review: Review) -> None:
     review.runtime.answer = reply(ADVICE)
 
