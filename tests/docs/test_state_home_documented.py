@@ -6,38 +6,14 @@ from __future__ import annotations
 
 import re
 
-import pytest
-
 from tests.doc_text import ROOT, squashed, unreleased_bullets
 
 DOCS = ROOT / "docs"
-SKILLS = ROOT / "src" / "agent_build_kit" / "skills"
 RUNBOOK = DOCS / "runbooks" / "move-state-out-of-the-repo.md"
-# What an old document says of the store when it is committed: a table cell or a sentence.
-COMMITTED = re.compile(
-    r"units\.json[^\n]*\bCommit it\b"
-    r"|units\.json[^.|\n]{0,60}\b(?:is|are|stays?) (?:committed|tracked)"
-)
 
 
 def read(*parts: str) -> str:
     return (ROOT.joinpath(*parts)).read_text(encoding="utf-8")
-
-
-@pytest.mark.integration
-def test_no_document_says_the_store_is_committed() -> None:
-    paths = [
-        *DOCS.glob("*.md"),
-        *SKILLS.glob("*/SKILL.md"),
-        DOCS / "runbooks" / "move-agent-build-kit-planning.md",
-        ROOT / "CHANGELOG.md",
-    ]
-
-    saying = [
-        str(p.relative_to(ROOT)) for p in paths if COMMITTED.search(p.read_text(encoding="utf-8"))
-    ]
-
-    assert saying == []
 
 
 def test_the_architecture_and_configuration_documents_name_the_state_and_the_reports() -> None:

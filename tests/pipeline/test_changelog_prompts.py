@@ -110,8 +110,6 @@ def test_the_packaged_text_states_the_convention_and_names_no_installation() -> 
     assert "issue number" in text
     assert "dated" in text
     assert "union" in text
-    assert not re.search(r"\w+#\d+", text)
-    assert "/home/" not in text
 
 
 def test_a_repos_own_agents_section_is_its_convention(tmp_path: Path) -> None:

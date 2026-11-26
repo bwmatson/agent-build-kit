@@ -16,7 +16,6 @@ from agent_build_kit import profiles
 from tests.factories import git, scratch_app
 
 PROFILE = profiles.get("python-uv")
-BARE = re.compile(r"(?<![\w-])(?:python -m pytest|pytest|ruff)\b")
 
 
 def allowed(command: list[str]) -> bool:
@@ -42,13 +41,6 @@ def test_the_scratch_app_tells_the_agent_the_profiles_test_and_lint_commands(
     assert shlex.join(lint) in text
     assert shlex.join(test) == "uv run pytest -q --durations=15 --durations-min=3.0 -rfE"
     assert shlex.join(lint) == "uv run pre-commit run --all-files"
-
-
-def test_the_instruction_file_names_no_bare_test_or_lint_program(tmp_path: Path) -> None:
-    _, text = instructions(tmp_path)
-
-    stripped = text.replace("uv run pytest", "").replace("uv run pre-commit", "")
-    assert BARE.findall(stripped) == []
 
 
 def test_both_commands_are_allowed_by_the_profile(tmp_path: Path) -> None:

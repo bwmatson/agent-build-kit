@@ -25,33 +25,24 @@ from tests.exclusions import (
     Exemption,
     Reading,
     build,
+    text_findings,
 )
 from tests.factories import git, init_repo
-from tests.old_merge_rule import statements
 from tests.time_limit import LOADED_TEST_TIME_LIMIT
 from tests.tracked_files import ROOT, source_trees
 
-LINE_ENTRIES = [entry for entry in ENTRIES if entry.check is None]
+FILE_ENTRIES = [entry for entry in ENTRIES if entry.texts is None]
+TEXT_ENTRIES = [entry for entry in ENTRIES if entry.texts is not None]
+LINE_ENTRIES = [entry for entry in FILE_ENTRIES if entry.check is None]
 OFFENDING = [(entry, case) for entry in ENTRIES for case in entry.offends]
 PASSING = [(entry, case) for entry in ENTRIES for case in entry.passes]
 EXEMPT = [(entry, exemption) for entry in LINE_ENTRIES for exemption in entry.exemptions]
 LISTED = [(entry, exemption) for entry, exemption in EXEMPT if exemption.stale]
 BY_NAME = {entry.name: entry for entry in ENTRIES}
 ARCHIVED = "openspec/changes/archive/2026-01-01-drop-key/proposal.md"
-# Until the statement entries are folded, the old rule about who merges is read by its own matcher.
-OLD_MERGE_RULE = Entry(
-    name="old-merge-rule",
-    reason="stands in for the statement entry, which a later group folds into the table",
-    found=lambda line: bool(statements(line)),
-    under=(),
-    names=(),
-    suffixes=frozenset({".md"}),
-    specs=False,
-    offends=(Case(path="docs/a.md", text="A person merges every pull request.\n"),),
-)
 DOCUMENT_GUARDS = [
     BY_NAME["removed-review-key-in-a-document"],
-    OLD_MERGE_RULE,
+    BY_NAME["old-merge-rule-in-a-markdown-file"],
     BY_NAME["old-live-test-module-name"],
 ]
 
@@ -71,16 +62,29 @@ def reading() -> Reading:
 
 @pytest.mark.time_limit(LOADED_TEST_TIME_LIMIT)
 @pytest.mark.integration
-@pytest.mark.parametrize("entry", ENTRIES, ids=lambda entry: entry.name)
+@pytest.mark.parametrize("entry", FILE_ENTRIES, ids=lambda entry: entry.name)
 def test_the_repository_holds_nothing_an_entry_forbids(entry: Entry, reading: Reading) -> None:
     assert reading.findings(entry) + reading.stale(entry) == [], f"{entry.name}: {entry.reason}"
 
 
+@pytest.mark.parametrize("entry", TEXT_ENTRIES, ids=lambda entry: entry.name)
+def test_the_product_returns_no_text_an_entry_forbids(entry: Entry) -> None:
+    assert entry.texts is not None
+    assert text_findings(entry, entry.texts()) == [], f"{entry.name}: {entry.reason}"
+
+
+def found_in(entry: Entry, case: Case, root: Path) -> list[str]:
+    """What the entry finds in the example: in the text it holds for a text entry, in the tree the
+    example is written into for any other."""
+    if entry.texts is not None:
+        return text_findings(entry, {case.path: case.text})
+    build(root, case)
+    return Reading(root).findings(entry)
+
+
 @pytest.mark.parametrize(("entry", "case"), OFFENDING, ids=named(OFFENDING))
 def test_an_entry_reports_its_offending_example(entry: Entry, case: Case, tmp_path: Path) -> None:
-    build(tmp_path, case)
-
-    found = Reading(tmp_path).findings(entry)
+    found = found_in(entry, case, tmp_path)
 
     assert found, entry.name
     if case.line is not None:
@@ -95,9 +99,7 @@ def test_an_entry_reports_its_offending_example(entry: Entry, case: Case, tmp_pa
 
 @pytest.mark.parametrize(("entry", "case"), PASSING, ids=named(PASSING))
 def test_an_entry_passes_its_allowed_example(entry: Entry, case: Case, tmp_path: Path) -> None:
-    build(tmp_path, case)
-
-    assert Reading(tmp_path).findings(entry) == []
+    assert found_in(entry, case, tmp_path) == []
 
 
 @pytest.mark.parametrize(("entry", "exemption"), EXEMPT, ids=named(EXEMPT))
@@ -196,7 +198,7 @@ def test_every_entry_shares_one_read_of_each_file(
     monkeypatch.setattr(Path, "read_text", counting)
     reading = Reading(root)
 
-    for entry in ENTRIES:
+    for entry in FILE_ENTRIES:
         reading.findings(entry)
 
     assert root / "src/agent_build_kit/skills/x/SKILL.md" in reads
@@ -225,8 +227,8 @@ def test_the_configuration_is_parsed_no_more_often_for_more_files(
     few = a_checkout(tmp_path / "few", config=True, files=2)
     many = a_checkout(tmp_path / "many", config=True, files=40)
 
-    assert configuration_parses(many, list(ENTRIES), monkeypatch) == configuration_parses(
-        few, list(ENTRIES), monkeypatch
+    assert configuration_parses(many, FILE_ENTRIES, monkeypatch) == configuration_parses(
+        few, FILE_ENTRIES, monkeypatch
     )
 
 

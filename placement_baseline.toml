@@ -805,7 +805,6 @@ files = [
   "pipeline/test_admission_usage_facts.py",
   "pipeline/test_adopted_subject.py",
   "pipeline/test_affected_selection_deactivated.py",
-  "pipeline/test_agent_commands_no_ecosystem.py",
   "pipeline/test_agent_commands_note.py",
   "pipeline/test_agent_environment_selection.py",
   "pipeline/test_agent_prompts_push.py",

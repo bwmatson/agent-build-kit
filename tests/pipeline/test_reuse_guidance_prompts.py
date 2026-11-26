@@ -100,19 +100,6 @@ def test_the_part_says_how_to_look() -> None:
     assert re.search(r"behaviou?r[^.]*as well as (by )?name", text)
 
 
-@pytest.mark.parametrize("kind", KINDS)
-def test_the_part_names_no_installation_language_tool_or_path(kind: Kind) -> None:
-    text = reuse_guidance(kind)
-
-    assert text.strip()
-    assert "/home/" not in text
-    assert not re.search(r"\w+#\d+", text)
-    assert not re.search(r"\b(example|agent[-_]build[-_]kit|abk)\b", text, re.IGNORECASE)
-    for tool in ("pytest", "uv ", "npm", "ruff", "cargo", "pip", "jest", "vitest"):
-        assert tool not in text
-    assert not re.search(r"\b(src|tests)/|\.py\b|\.ts\b|\.md\b", text)
-
-
 def test_the_pipeline_reads_no_repository_section_for_the_part() -> None:
     assert list(inspect.signature(reuse_guidance).parameters) == ["kind"]
     assert not [name for name in RepoConfig.model_fields if "reuse" in name]

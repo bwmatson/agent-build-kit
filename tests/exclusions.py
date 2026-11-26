@@ -13,15 +13,23 @@ from __future__ import annotations
 
 import ast
 import re
+import tempfile
 from collections.abc import Callable, Iterator
 from pathlib import Path
 from typing import Literal
 
-from agent_build_kit import runtimes, skills
+from agent_build_kit import profiles, runtimes, skills
 from agent_build_kit.cli.doctor import OLD_E2E_MARKER
+from agent_build_kit.config import RepoConfig
 from agent_build_kit.model import Frozen
+from agent_build_kit.pipeline import agent_commands
+from agent_build_kit.pipeline.changelog_convention import changelog_convention
+from agent_build_kit.pipeline.reuse_guidance import reuse_guidance
+from agent_build_kit.pipeline.scratch import output_convention
+from agent_build_kit.pipeline.stack_runner import TESTS_PROMPT
+from agent_build_kit.pipeline.wiring import REVIEW_PROMPT
 from agent_build_kit.runtimes import known_agents, providers
-from tests.factories import git, init_repo
+from tests.factories import git, init_repo, scratch_app
 from tests.installation_leaks import (
     ABSOLUTE_HOME_PATH,
     ANECDOTE,
@@ -42,6 +50,7 @@ from tests.installation_leaks import (
     overlay_leaks,
     repo_path_leaks,
 )
+from tests.old_merge_rule import statements
 from tests.prompt_text import flat
 from tests.serial_marker import MARKER
 from tests.tracked_files import (
@@ -104,9 +113,11 @@ class Entry(Frozen):
     """One forbidden thing. `found` is a predicate over a line (over a paragraph when
     `by_paragraph`), `in_specs` the rule for a line of the specification folder where it differs,
     `named` a predicate over a file's name, and `check` a finding about the whole checkout, for
-    what is no line of a file. `root_suffixes` adds the root files with those suffixes and `where`
-    keeps the files whose path it accepts. `offends` are examples that must be reported and
-    `passes` examples that must not."""
+    what is no line of a file. `texts` makes the entry one over named texts the product returns
+    (a prompt, a skill section, a generated file) and over no file of the repository: `found` is
+    applied to each line of each text, and an empty text is a finding. `root_suffixes` adds the
+    root files with those suffixes and `where` keeps the files whose path it accepts. `offends`
+    are examples that must be reported and `passes` examples that must not."""
 
     name: str
     reason: str
@@ -116,6 +127,7 @@ class Entry(Frozen):
     in_specs: Callable[[str], object] | None = None
     named: Callable[[str], object] | None = None
     check: Callable[[Path], list[str]] | None = None
+    texts: Callable[[], dict[str, str]] | None = None
     by_paragraph: bool = False
     under: tuple[str, ...] = SCANNED
     names: tuple[str, ...] = (*ROOT_FILES, "AGENTS.md")
@@ -411,6 +423,138 @@ def profile_module(profile: str = "    pass\n") -> str:
         f"class ToolchainProfile:\n{profile}\n\nclass AppliesE2eSelection:\n    pass\n\n\n"
         "class ListsRegisteredSelectors:\n    pass\n"
     )
+
+
+STATE_RUNBOOK = "docs/runbooks/move-agent-build-kit-planning.md"
+COMMITTED = re.compile(
+    r"units\.json[^\n]*\bCommit it\b"
+    r"|units\.json[^.|\n]{0,60}\b(?:is|are|stays?) (?:committed|tracked)"
+)
+REUSE_HEADING = "Reuse before you write"
+BYPASS = "bypasses no limit"
+
+
+def a_skill_file(relative: str) -> bool:
+    return bool(SKILL_FILE.fullmatch(relative))
+
+
+def a_state_document(relative: str) -> bool:
+    """A document directly in `docs/`, a skill's `SKILL.md`, the one runbook that moves the
+    store and the changelog."""
+    return bool(
+        re.fullmatch(r"docs/[^/]+\.md", relative)
+        or SKILL_FILE.fullmatch(relative)
+        or relative in (STATE_RUNBOOK, "CHANGELOG.md")
+    )
+
+
+# What the packaged prompts, the authoring skill and the generated files must not name: an
+# installation, a language, a tool or a path. Each is a named text the product returns.
+HASH_NUMBER = re.compile(r"\w+#\d+")
+HOME_FRAGMENT = "/home/"
+DETERMINISM_TOOLS = (
+    "python",
+    "pytest",
+    "time.sleep",
+    "asyncio",
+    "unittest",
+    "threading",
+    "tmp_path",
+    "jest",
+)
+REUSE_TOOLS = ("pytest", "uv ", "npm", "ruff", "cargo", "pip", "jest", "vitest")
+STUB_TOOLS = ("pytest", "npm", "ruff", "cargo", "jest", "vitest")
+KIT_NAMES = re.compile(r"\b(example|agent[-_]build[-_]kit|abk)\b", re.IGNORECASE)
+SOURCE_PATH = re.compile(r"\b(src|tests)/|\.py\b|\.ts\b|\.md\b")
+STUB_PATH = re.compile(r"\b(src|tests)/|\.py\b|\.ts\b")
+AUTHORING_LEAK = re.compile(r"\w+#\d+|/home/|github\.com")
+AUTHORING_FILE = re.compile(r"\.(py|ts|tsx|js|go|rs|java|rb|md|toml|lock)\b")
+AUTHORING_KIT = re.compile(r"\b(agent[-_]build[-_]kit|abk)\b", re.IGNORECASE)
+AUTHORING_DECLARATION = re.compile(r"\b(def|function|fn|func|class|const|let|var|import)\s")
+AUTHORING_CALL = re.compile(r"\w+\([^)]*\)\s*(->|=>|\{|:)")
+AUTHORING_HEADING = "## Describe behaviour, not names"
+BARE_PROGRAM = re.compile(r"(?<![\w-])(?:python -m pytest|pytest|ruff)\b")
+TOOL_WORDS = ["pytest", "vitest", "uv", "npx", "npm", "pre-commit"]
+COMPOSER_WORD = re.compile(
+    "|".join(rf"(?<![\w-]){re.escape(word)}(?![\w-])" for word in [*profiles.names(), *TOOL_WORDS])
+)
+STUB_START = "Stubs contain no logic."
+STUB_END = "Where a test needs a stand-in"
+
+
+def mentions(*words: str) -> Callable[[str], bool]:
+    """A rule that is met by a line holding any of the words, as written."""
+    return lambda line: any(word in line for word in words)
+
+
+def matches(*patterns: re.Pattern[str], words: tuple[str, ...] = ()) -> Callable[[str], bool]:
+    """A rule that is met by a line any of the patterns finds or that holds any of the words."""
+    return lambda line: (
+        any(pattern.search(line) for pattern in patterns) or any(word in line for word in words)
+    )
+
+
+def squeezed(text: str) -> str:
+    return re.sub(r"\s+", " ", text).strip().lower()
+
+
+def rule_blocks(prompt: str) -> list[str]:
+    """The paragraphs and bullets of `prompt` that hold the determinism rules."""
+    blocks = [squeezed(b) for b in re.split(r"\n\s*\n|\n- ", prompt)]
+    return [b for b in blocks if "sleep" in b or "free port" in b or "background" in b]
+
+
+def stub_paragraph() -> str:
+    """The text of the tests prompt from its stub sentence to its stand-in paragraph."""
+    text = flat(TESTS_PROMPT)
+    start = text.index(STUB_START)
+    return text[start : text.index(STUB_END)].lower()
+
+
+def raw_section() -> str:
+    """The authoring skill's section about describing behaviour, up to the next heading."""
+    text = skills.source("abk-authoring")
+    assert AUTHORING_HEADING in text, (
+        "the authoring skill has no section about describing behaviour"
+    )
+    return re.split(r"^## ", text.split(AUTHORING_HEADING, 1)[1], maxsplit=1, flags=re.MULTILINE)[0]
+
+
+def examples() -> list[str]:
+    """The good and bad examples of the authoring skill's section, lower-cased."""
+    return [
+        line.lower()
+        for line in raw_section().splitlines()
+        if re.match(r"- (good|bad):", line, re.IGNORECASE)
+    ]
+
+
+def determinism_texts() -> dict[str, str]:
+    return {
+        "tests prompt": "\n".join(rule_blocks(TESTS_PROMPT)),
+        "review prompt": "\n".join(rule_blocks(REVIEW_PROMPT)),
+    }
+
+
+def reuse_texts() -> dict[str, str]:
+    return {f"reuse guidance, {kind}": reuse_guidance(kind) for kind in ("source", "tests")}
+
+
+def scratch_instructions() -> dict[str, str]:
+    with tempfile.TemporaryDirectory() as folder:
+        app = scratch_app(Path(folder) / "app")
+        return {"the scratch app's instruction file": (app / "CLAUDE.md").read_text()}
+
+
+def packaged_changelog_text() -> dict[str, str]:
+    """The framework's own convention, which a repository with no conventions file is told."""
+    with tempfile.TemporaryDirectory() as folder:
+        root = Path(folder)
+        return {
+            "the packaged changelog text": changelog_convention(
+                root, RepoConfig(path=root, slug="example/app")
+            )
+        }
 
 
 ENTRIES: tuple[Entry, ...] = (
@@ -914,6 +1058,193 @@ ENTRIES: tuple[Entry, ...] = (
             Case(path="docs/x.md", text="usage_limits:\n  five_hour: 1\n"),
         ),
     ),
+    Entry(
+        name="old-merge-rule-in-a-markdown-file",
+        reason="a person merges what was not auto-landed and the pipeline merges the rest; a "
+        "file stating that a person merges every pull request states the rule that was replaced",
+        found=lambda paragraph: bool(statements(paragraph)),
+        by_paragraph=True,
+        under=(),
+        names=(),
+        suffixes=frozenset({".md"}),
+        specs=False,
+        offends=(
+            Case(path="docs/x.md", text="A person merges every pull request.\n"),
+            Case(path="README.md", text="The pipeline never\nmerges anything.\n"),
+            Case(
+                path=f"{SHIPPED[0]}/x/SKILL.md", text="Intro.\n\nA human merges each one.\n", line=3
+            ),
+        ),
+        passes=(
+            Case(path="docs/x.md", text="A person merges what was not auto-landed.\n"),
+            Case(path="docs/x.md", text="A person merges any other pull request.\n"),
+        ),
+        exemptions=(
+            *CHANGELOG,
+            Exemption(
+                path="docs/reports/20260101-health.md",
+                reports=True,
+                reason="a track's report quotes the wording it found elsewhere and proposes "
+                "removing",
+            ),
+            *exempt_paths("a history document keeps the wording it records", *HISTORY),
+        ),
+    ),
+    Entry(
+        name="document-says-the-unit-store-is-committed",
+        reason="the unit store lives in the planning home, so a document, skill or the changelog "
+        "never says it is committed",
+        found=COMMITTED.search,
+        under=("docs", SHIPPED[0]),
+        names=("CHANGELOG.md",),
+        suffixes=frozenset({".md"}),
+        where=a_state_document,
+        specs=False,
+        offends=(
+            Case(path="docs/x.md", text="| `units.json` | Commit it |\n"),
+            Case(path=STATE_RUNBOOK, text="The `units.json` file is committed.\n"),
+            Case(path="CHANGELOG.md", text="# Changelog\nunits.json stays tracked.\n", line=2),
+            Case(path=f"{SHIPPED[0]}/x/SKILL.md", text="units.json are tracked by git.\n"),
+        ),
+        passes=(
+            Case(path="docs/designs/x.md", text="units.json is committed.\n"),
+            Case(path="docs/x.md", text="units.json is kept in the planning home.\n"),
+        ),
+    ),
+    Entry(
+        name="skill-carries-the-reuse-guidance-text",
+        reason="the reuse guidance is one packaged part the prompts carry; no skill repeats it",
+        found=lambda line: REUSE_HEADING in line,
+        under=(SHIPPED[0],),
+        names=(),
+        suffixes=frozenset({".md"}),
+        where=a_skill_file,
+        specs=False,
+        offends=(Case(path=f"{SHIPPED[0]}/x/SKILL.md", text=f"{REUSE_HEADING}.\n"),),
+        passes=(Case(path="docs/x.md", text=f"{REUSE_HEADING}.\n"),),
+    ),
+    Entry(
+        name="skill-says-priority-zero-bypasses-no-limit",
+        reason="priority 0 starts in its own lane with its own cap, so no skill says it "
+        "bypasses no limit",
+        found=lambda paragraph: BYPASS in flat(paragraph).lower(),
+        by_paragraph=True,
+        under=(SHIPPED[0],),
+        names=(),
+        suffixes=frozenset({".md"}),
+        where=a_skill_file,
+        specs=False,
+        offends=(
+            Case(path=f"{SHIPPED[0]}/x/SKILL.md", text="Priority 0 Bypasses\nNo Limit at all.\n"),
+        ),
+        passes=(Case(path="docs/x.md", text=f"Priority 0 {BYPASS}.\n"),),
+    ),
+    Entry(
+        name="determinism-rules-name-a-language-or-tool",
+        reason="the determinism rules of the tests prompt and the review prompt are stated for "
+        "any language and runner",
+        found=mentions(*DETERMINISM_TOOLS),
+        texts=determinism_texts,
+        offends=(Case(path="the prompt", text="never call time.sleep to wait\n"),),
+        passes=(Case(path="the prompt", text="never wait on the clock\n"),),
+    ),
+    Entry(
+        name="output-convention-names-an-installation",
+        reason="the long-output convention is carried by every build prompt of every installation",
+        found=matches(HASH_NUMBER, words=(HOME_FRAGMENT,)),
+        texts=lambda: {"the output convention": output_convention()},
+        offends=(
+            Case(path="the convention", text="see /home/someone/out\n"),
+            Case(path="the convention", text="fixed in contoso#15\n"),
+        ),
+    ),
+    Entry(
+        name="reuse-guidance-names-an-installation-language-tool-or-path",
+        reason="the reuse guidance is one packaged part, carried by prompts of any language",
+        found=matches(HASH_NUMBER, KIT_NAMES, SOURCE_PATH, words=(HOME_FRAGMENT, *REUSE_TOOLS)),
+        texts=reuse_texts,
+        offends=(
+            Case(path="the part", text="see /home/someone\n"),
+            Case(path="the part", text="fixed in contoso#15\n"),
+            Case(path="the part", text="as the kit does\nask abk first\n", line=2),
+            Case(path="the part", text="run uv run it\n"),
+            Case(path="the part", text="look in src/helpers\n"),
+            Case(path="the part", text="a helper in utils.py\n"),
+        ),
+        passes=(Case(path="the part", text="search the shared helpers first\n"),),
+    ),
+    Entry(
+        name="stub-guidance-names-an-installation-language-tool-or-path",
+        reason="the stub paragraph of the tests prompt is stated for any language",
+        found=matches(HASH_NUMBER, STUB_PATH, words=(HOME_FRAGMENT, *STUB_TOOLS)),
+        texts=lambda: {"the stub paragraph": stub_paragraph()},
+        offends=(
+            Case(path="the paragraph", text="fixed in contoso#15\n"),
+            Case(path="the paragraph", text="see /home/someone\n"),
+            Case(path="the paragraph", text="a file under tests/\n"),
+            Case(path="the paragraph", text="run cargo first\n"),
+        ),
+    ),
+    Entry(
+        name="authoring-section-names-an-installation-language-tool-or-path",
+        reason="the authoring skill's section on describing behaviour is stated for any language",
+        found=matches(
+            AUTHORING_LEAK,
+            AUTHORING_FILE,
+            AUTHORING_KIT,
+            words=REUSE_TOOLS,
+        ),
+        texts=lambda: {"the authoring section": raw_section()},
+        offends=(
+            Case(path="the section", text="see github.com/owner\n"),
+            Case(path="the section", text="edit step.py\n"),
+            Case(path="the section", text="ask abk\n"),
+            Case(path="the section", text="run ruff\n"),
+        ),
+    ),
+    Entry(
+        name="authoring-examples-use-language-specific-syntax",
+        reason="the examples of the authoring skill's section read the same in any language",
+        found=matches(AUTHORING_DECLARATION, AUTHORING_CALL),
+        texts=lambda: {"the authoring examples": "\n".join(examples())},
+        offends=(
+            Case(path="the examples", text="- bad: def helper do it\n"),
+            Case(path="the examples", text="- bad: parse(text) -> value\n"),
+        ),
+        passes=(Case(path="the examples", text="- good: the total is the sum of the lines\n"),),
+    ),
+    Entry(
+        name="scratch-app-instructions-name-a-bare-program",
+        reason="a build agent can run only what the profile allows, so the generated "
+        "instructions name the profile's commands and never a bare test or lint program",
+        found=lambda line: bool(
+            BARE_PROGRAM.search(line.replace("uv run pytest", "").replace("uv run pre-commit", ""))
+        ),
+        texts=scratch_instructions,
+        offends=(Case(path="the file", text="Run pytest -q to test.\n"),),
+        passes=(Case(path="the file", text="Run uv run pytest -q to test.\n"),),
+    ),
+    Entry(
+        name="command-composer-source-names-a-profile-or-tool-word",
+        reason="the module that composes the agent commands names no toolchain: the profile does",
+        found=COMPOSER_WORD.search,
+        texts=lambda: {"the command composer": Path(agent_commands.__file__).read_text()},
+        offends=(
+            Case(path="the source", text="RUN = ['npm', 'test']\n"),
+            Case(path="the source", text=f"PROFILE = '{profiles.names()[0]}'\n"),
+        ),
+        passes=(Case(path="the source", text="RUN = 'a pre-commit-like uvula'\n"),),
+    ),
+    Entry(
+        name="packaged-changelog-text-names-an-installation",
+        reason="the packaged convention is told to every repository that has none of its own",
+        found=matches(HASH_NUMBER, words=(HOME_FRAGMENT,)),
+        texts=packaged_changelog_text,
+        offends=(
+            Case(path="the text", text="see /home/someone\n"),
+            Case(path="the text", text="fixed in contoso#15\n"),
+        ),
+    ),
 )
 
 
@@ -931,6 +1262,22 @@ def build(root: Path, case: Case) -> None:
     if case.state == "committed":
         git(root, "add", case.path)
         git(root, "commit", "-qm", "file")
+
+
+def text_findings(entry: Entry, texts: dict[str, str]) -> list[str]:
+    """What the entry forbids in each named text, as `name:line: clipped line`; a text that is
+    empty is a finding too, since a rule over nothing passes whatever the product says."""
+    assert entry.found is not None, entry.name
+    found: list[str] = []
+    for label, text in texts.items():
+        if not text.strip():
+            found.append(f"{label}: the text is empty, so nothing was checked ({entry.name})")
+        found += [
+            f"{label}:{number}: {line.strip()[:100]}"
+            for number, line in enumerate(text.splitlines(), start=1)
+            if entry.found(line)
+        ]
+    return found
 
 
 class Reading:
@@ -1011,6 +1358,8 @@ class Reading:
         wording for a finding about the checkout; a finding about a file's name has no line)."""
         if entry.check is not None:
             return entry.check(self.root)
+        if entry.texts is not None:
+            return text_findings(entry, entry.texts())
         assert entry.found is not None or entry.named is not None, entry.name
         found: list[str] = []
         for path in self.files(entry):
