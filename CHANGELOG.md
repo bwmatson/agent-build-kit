@@ -44,6 +44,10 @@
   not exist, or a group the target does not have, and warn of a target with no `tasks.md` yet, so
   a dependency that could never be met is caught when it is written.
 
+- A unit whose `Needs:` line names a group that has no unit yet now waits as blocked, with the
+  line and why in its wait reason, and `abk attention` lists each such line with the command that
+  clears it, until the group that declares it is built.
+
 - The `abk-authoring` skill now carries the rules every task follows (check paths against the
   default branch, edit every check of the old behaviour in the same group, a `Test:` task that the
   red check accepts, test edits only in the `test:` commit, test tiers, a mode for a no-test

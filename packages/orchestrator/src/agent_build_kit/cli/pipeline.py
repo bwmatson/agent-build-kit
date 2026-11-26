@@ -8415,6 +8415,7 @@ def _waits_in(
     external = held_units(inst.changes_dir, units)
     building = _stacks_building(inst, units, view)
     holds = code_host.holds_of(inst)
+    unmet = _unmet_by_unit(units, _unmet_needs(inst))
     # By the stored state: the view shows what a pass leaves out as held.
     for unit in units:
         # What `--only` leaves out is not waiting for anything this pass decides.
@@ -8447,8 +8448,26 @@ def _waits_in(
                 usage_paused=usage_paused,
                 refusal=(refused or {}).get(unit.id),
                 holds=holds,
+                unmet=unmet.get(unit.id, ()),
             )
     return waits
+
+
+def _unmet_by_unit(
+    units: Sequence[StoredUnit], unmet: Sequence[needs_targets.UnmetNeed]
+) -> dict[str, list[needs_targets.UnmetNeed]]:
+    """The unmet `Needs:` lines of each unit's groups."""
+    found: dict[str, list[needs_targets.UnmetNeed]] = {}
+    for unit in units:
+        for member in unit.members():
+            lines = [
+                need
+                for need in unmet
+                if need.change == member.change and need.group in member.groups
+            ]
+            if lines:
+                found.setdefault(unit.id, []).extend(lines)
+    return found
 
 
 def _planned_wait(
@@ -8465,6 +8484,7 @@ def _planned_wait(
     usage_paused: bool,
     refusal: str | None = None,
     holds: code_host.Holds | None = None,
+    unmet: Sequence[needs_targets.UnmetNeed] = (),
 ) -> Wait:
     holds = holds or code_host.Holds()
     if leases.holder(unit.id) is not None:
@@ -8485,6 +8505,11 @@ def _planned_wait(
                 for parent in parents
                 if parent.id in external
             ),
+        )
+    if unmet:
+        return Wait(
+            reason=WaitReason.BLOCKED,
+            detail="; ".join(f"Needs: {need.wording}" for need in unmet),
         )
     if steps := unmet_steps(unit):
         return Wait(reason=WaitReason.MANUAL, detail=manual_status_line(steps[0]))

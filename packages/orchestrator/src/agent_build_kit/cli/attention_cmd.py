@@ -20,6 +20,12 @@ from agent_build_kit.pipeline import outlines, plan_review, spans
 from agent_build_kit.pipeline.archive import ARCHIVE_FAILURES, read_archive_failures
 from agent_build_kit.pipeline.external_file import held_units
 from agent_build_kit.pipeline.manual_steps import manual_status_line, unmet_steps
+from agent_build_kit.pipeline.needs_targets import (
+    NO_TASKS,
+    NOT_PLANNED,
+    OUTLINE,
+    UnmetNeed,
+)
 from agent_build_kit.pipeline.unit_store import StoredUnit
 from agent_build_kit.pipeline.units import (
     FAILED,
@@ -59,6 +65,21 @@ def _since(unit: StoredUnit) -> datetime | None:
         return datetime.fromisoformat(str(raw)) if raw else None
     except ValueError:
         return None
+
+
+def _needs_action(need: UnmetNeed) -> str:
+    """The command or edit that resolves one unmet `Needs:` line."""
+    where = f"openspec/changes/{need.change}/tasks.md"
+    if need.outcome == NOT_PLANNED:
+        return f"abk replan {need.target}; or edit {need.target}'s tasks.md as its plan says"
+    if need.outcome == NO_TASKS:
+        return f"write {need.target}'s tasks.md; the unit waits until it is planned"
+    if need.outcome == OUTLINE:
+        return (
+            f"detail {need.target} as a change, or make {need.change} an outline with "
+            f"`Waits on: {need.target} group {need.target_group}`"
+        )
+    return f"fix the Needs: line in {where}"
 
 
 def attention_items(
@@ -166,8 +187,32 @@ def attention_items(
                 f"the living spec); it is tried again once they change: openspec validate {change}",
             )
         )
-    from agent_build_kit.cli.pipeline import given_up_plans
+    from agent_build_kit.cli.pipeline import _unmet_needs, given_up_plans
 
+    built = {
+        (member.change, group)
+        for unit in units
+        if unit.state == MERGED
+        for member in unit.members()
+        for group in member.groups
+    }
+    for need in _unmet_needs(inst):
+        if (need.change, need.group) in built:
+            continue
+        waiting = [
+            unit
+            for unit in units
+            if unit.state == PLANNED
+            and any(m.change == need.change and need.group in m.groups for m in unit.members())
+        ]
+        items.append(
+            Item(
+                subject=f"{need.change} group {need.group}",
+                what=f"Needs: {need.wording}",
+                action=_needs_action(need),
+                blocks=len(waiting),
+            )
+        )
     for change, record in given_up_plans(inst).items():
         reason = record.get("reason") or "no reason recorded"
         items.append(
