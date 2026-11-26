@@ -91,6 +91,7 @@ def test_a_cycle_leaves_the_other_changes_and_their_messages_alone(
     )
     run.write("other-independent", tasks_md(1, needs={1: "independent group 2"}))
     run.write("missing-target", tasks_md(1, needs={1: "no-such-change group 1"}))
+    run.write("no-such-change", tasks_md(1))
 
     status = cli.cmd_tags(argparse.Namespace(change=None, all=True), run.inst)
 
