@@ -16,6 +16,7 @@ of the run rather than shelling out to Claude, git and gh.
 """
 
 import json
+import re
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
@@ -25,8 +26,12 @@ import pytest
 from agent_build_kit.pipeline.group_mode import GroupMode
 from agent_build_kit.pipeline.restack import HostMoved
 from agent_build_kit.pipeline.stack_runner import (
+    IMPLEMENTATION_CONTINUATION,
+    IMPLEMENTATION_PROMPT,
+    REWORK_PROMPT,
     STUBBED_TESTS_FINISH,
     TESTS_FINISH,
+    TESTS_PROMPT,
     Restacked,
     UnitRunner,
     write_tests_prompt,
@@ -469,6 +474,25 @@ def test_test_writers_fake_at_the_boundary_and_record_real_fixtures() -> None:
     tests = " ".join(TESTS_PROMPT.split())
     assert "protocol boundary" in tests
     assert "recorded from the real system" in tests
+
+
+@pytest.mark.parametrize(
+    "prompt",
+    [
+        pytest.param(TESTS_PROMPT, id="tests"),
+        pytest.param(IMPLEMENTATION_PROMPT, id="implementation"),
+        pytest.param(IMPLEMENTATION_CONTINUATION, id="continuation"),
+        pytest.param(REWORK_PROMPT, id="rework"),
+    ],
+)
+def test_a_builder_is_told_to_write_a_blocked_line_when_what_it_needs_does_not_exist(
+    prompt: str,
+) -> None:
+    paragraphs = [" ".join(part.split()) for part in re.split(r"\n\s*\n", str(prompt))]
+    directive = [part for part in paragraphs if "BLOCKED:" in part and "refuse" not in part]
+
+    assert directive, "no paragraph tells the builder to write a BLOCKED: line for a missing need"
+    assert any("does not exist" in part or "missing" in part for part in directive)
 
 
 def test_needs_human_only_counts_alongside_a_rejection() -> None:
