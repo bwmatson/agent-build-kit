@@ -6,12 +6,46 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+
+from agent_build_kit.graph.nodes import blocked_update
+from agent_build_kit.graph.state import UnitRun
 from agent_build_kit.pipeline.unit_store import Cause
-from agent_build_kit.pipeline.units import HELD, PLANNED, SATISFIED, branch_name
+from agent_build_kit.pipeline.units import HELD, PLANNED, branch_name
 from packages.worker.tests.graph.test_build_path import build
 from packages.worker.tests.graph.test_remaining_paths import empty_branch, fresh, tasks_file
 from tests.factories import unit
 from tests.graph.branch_fakes import UNIT, built
+
+
+@pytest.mark.parametrize(
+    ("account", "expected"),
+    [
+        ("BLOCKED: X is missing", "BLOCKED: X is missing"),
+        ("  - BLOCKED: X is missing", "BLOCKED: X is missing"),
+        ("1. BLOCKED: X is missing", "BLOCKED: X is missing"),
+        ("- **BLOCKED:** X is missing", "BLOCKED: X is missing"),
+        ("**BLOCKED: X is missing", "BLOCKED: X is missing"),
+        ("BLOCKED: X\nprose\nBLOCKED: X\nBLOCKED: Y", "BLOCKED: X; BLOCKED: Y"),
+        ("it was not BLOCKED: no line starts so", ""),
+    ],
+)
+def test_the_blocked_lines_of_an_account_are_kept_once_each_without_markup(
+    account: str, expected: str
+) -> None:
+    state = UnitRun(unit_id=UNIT, change="add-marker")
+
+    update = blocked_update(state, account)
+
+    assert update.get("blocked_lines", "") == expected
+
+
+def test_a_later_account_adds_to_the_earlier_blocked_lines_and_an_empty_one_keeps_them() -> None:
+    state = UnitRun(unit_id=UNIT, change="add-marker", blocked_lines="BLOCKED: X")
+
+    assert blocked_update(state, "BLOCKED: Y") == {"blocked_lines": "BLOCKED: X; BLOCKED: Y"}
+    assert blocked_update(state, "") == {}
+
 
 TASKS = ("meta", "openspec", "changes", "add-marker", "tasks.md")
 
@@ -27,7 +61,6 @@ def test_a_build_that_made_nothing_is_held_when_the_implementation_agent_reports
     stored = recorder.store.get(UNIT)
     assert outcome.status == "held", outcome.detail
     assert (stored.state, stored.cause) == (HELD, Cause.NEEDS_HUMAN)
-    assert stored.state != SATISFIED
     assert missing in stored.history[-1]["note"]
     assert recorder.closed == []
     assert "- [x]" not in tmp_path.joinpath(*TASKS).read_text()

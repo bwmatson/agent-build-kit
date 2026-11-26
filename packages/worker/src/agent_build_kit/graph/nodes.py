@@ -3877,16 +3877,22 @@ def _round(node: Node, state: UnitRun) -> int:
     return 0
 
 
-BLOCKED_LINE = re.compile(r"^[ \t]*(?:(?:[-*+]|\d+[.)])[ \t]+)?(?:\*\*)?[ \t]*(BLOCKED:.*)$", re.M)
+BLOCKED_LINE = re.compile(
+    r"^[ \t]*(?:(?:[-*+]|\d+[.)])[ \t]+)?(?:\*\*)?[ \t]*BLOCKED:(?:\*\*)?(.*)$", re.M
+)
 
 
 def blocked_update(state: UnitRun, account: str) -> Update:
     """The run's `blocked_lines` with the lines of `account` that start `BLOCKED:` added, or
     nothing when it has none: a later step's empty answer does not clear an earlier one's."""
-    found = [line.group(1).strip() for line in BLOCKED_LINE.finditer(account)]
-    if not found:
+    kept = [line for line in state.blocked_lines.split("; ") if line]
+    for found in BLOCKED_LINE.finditer(account):
+        line = f"BLOCKED: {found.group(1).strip()}"
+        if line not in kept:
+            kept.append(line)
+    if kept == [line for line in state.blocked_lines.split("; ") if line]:
         return {}
-    return {"blocked_lines": "; ".join(filter(None, [state.blocked_lines, *found]))}
+    return {"blocked_lines": "; ".join(kept)}
 
 
 def halted(state: UnitRun) -> Node | None:
