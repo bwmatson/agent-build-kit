@@ -31,6 +31,11 @@ def child_skips() -> None:
     pytest.skip("skipped on purpose")
 
 
+@pytest.mark.xfail(reason="not strict", strict=False)
+def child_xpasses() -> None:
+    print("printed by child_xpasses")
+
+
 @pytest.mark.xfail(reason="expected")
 def child_xfails() -> None:
     print("printed by child_xfails")

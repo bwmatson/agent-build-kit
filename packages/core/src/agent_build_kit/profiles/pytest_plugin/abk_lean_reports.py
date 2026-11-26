@@ -8,6 +8,12 @@ wrapper, so the code after its ``yield`` runs after testmon's save and after the
 reporter and JUnit XML have read the report. Then the saved coverage and a passing report's
 captured output are dropped, so the controller's memory stays flat.
 
+Dropping a report's output frees it only where the report is a copy: on an xdist controller.
+Without xdist, pytest keeps the same strings on the item, so only the coverage drop saves
+memory there. The wrapper is the old-style ``hookwrapper`` so it loads on any pytest 7 or 8.
+On a worker, testmon's collector reports ``_running_as == "worker"`` and the plugin does
+nothing.
+
 This module imports only the standard library and pytest: it is loaded by its bare name in a
 target repository's environment, where ``agent_build_kit`` is not installed.
 """
@@ -44,20 +50,17 @@ class LeanReports:
                 reporter.write_line(f"abk_lean_reports: {missing}; reports are kept as they are")
         return False
 
-    @pytest.hookimpl(wrapper=True)
+    @pytest.hookimpl(hookwrapper=True)
     def pytest_runtest_logreport(self, report: Any) -> Any:
-        result = yield
-        if not self._recording_here():
-            return result
+        outcome = yield
+        if outcome.excinfo is not None or not self._recording_here():
+            return
         if report.when == "teardown":
             report.__dict__.pop("nodes_files_lines", None)
         keeps_output = KEEPING_CHARS & set(self._config.option.reportchars or "")
         if report.passed and not hasattr(report, "wasxfail") and not keeps_output:
             report.sections = []
-        return result
 
 
 def pytest_configure(config: pytest.Config) -> None:
-    if hasattr(config, "workerinput"):
-        return
     config.pluginmanager.register(LeanReports(config), "abk_lean_reports_object")
