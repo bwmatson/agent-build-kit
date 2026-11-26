@@ -15,6 +15,12 @@ from typing import Any
 from agent_build_kit.config import active
 from agent_build_kit.pipeline.commit_order import TESTS_PREFIX
 from agent_build_kit.pipeline.group_mode import GroupMode
+from agent_build_kit.pipeline.rewrite_guard import (
+    UNCHANGED_REASON,
+    GuardCheck,
+    GuardedStep,
+    GuardVerdict,
+)
 from agent_build_kit.pipeline.stack_runner import Recheck, UnitRunner
 from agent_build_kit.pipeline.unit_store import UnitStore
 from agent_build_kit.pipeline.units import Unit
@@ -171,6 +177,34 @@ class Recorder:
     def head(self, cwd: Path) -> str:
         return f"sha-{self.made}"
 
+    def guarded_step(
+        self,
+        tree: Path,
+        *,
+        request: Any,
+        base: str,
+        unit_id: str,
+        store: UnitStore,
+        agent: Callable[[str], None],
+        returns: int,
+    ) -> GuardedStep:
+        """The guard for a worktree that is no repository: the step rewrote when the head moved,
+        and is returned, with the reason, up to `returns` times while it did not."""
+        started, returned, reason = self.head(tree), 0, ""
+        try:
+            while True:
+                agent(reason)
+                moved = self.head(tree) != started
+                if moved or returned >= returns:
+                    verdict = GuardVerdict(
+                        ok=moved, check=None if moved else GuardCheck.UNCHANGED, reason=reason
+                    )
+                    return GuardedStep(ok=moved, returned=returned, verdict=verdict)
+                returned += 1
+                reason = UNCHANGED_REASON
+        finally:
+            store.clear_rewrite_request(unit_id)
+
     def unit_test(
         self,
         *,
@@ -266,6 +300,7 @@ def make_runner(
         branch_diff=recorder.branch_diff,
         base_tip=lambda tree, ref: ref,  # every base resolves, as `wiring.tip` finds one that does
         head=recorder.head,
+        guarded_step=recorder.guarded_step,
         upstream_incomplete=lambda u: None,
         restack_onto=lambda **kw: None,
         run_unit_test=recorder.unit_test,

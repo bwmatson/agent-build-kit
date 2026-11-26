@@ -21,6 +21,13 @@
 - The group walk now skips the `changelog:` commit the pipeline makes when it separates joined
   bullets, so a restack no longer breaks a group's `test:`/`feat:` pair or hides a built group.
 
+- A unit that holds a rewrite request now runs it: a unit stopped part-way through its groups
+  goes to the rework step with the request instead of failing, and carries on at its first
+  incomplete group once the commits are rewritten. A rewrite step that rewrites nothing is
+  returned to the agent, and the branch goes back to where it began once the returns are
+  spent. The head before a rewrite is kept under `refs/abk/before-rewrite/` and named in the
+  unit's history, so it can be restored.
+
 - `abk tags` and `abk check` now warn when a task names a new `test_<name>.py` for which no
   module `<name>.py` exists or is named by an earlier group, and say which existing test file
   the case belongs in; the exit status is unchanged. The kit's own placement guard is now exact:

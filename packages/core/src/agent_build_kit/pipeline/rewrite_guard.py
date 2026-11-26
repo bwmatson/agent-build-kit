@@ -1,9 +1,12 @@
 """The guard after a step that holds a rewrite request: the unit's base must be unchanged.
 
 At the start of such a step the head the branch is on is recorded. After it, the base must still
-be an ancestor of the head, every commit above the base must carry the unit trailer, and none may
-be a merge commit. A branch that fails is put back at the recorded head and the step is returned
-to the agent with the reason, as a failed check is.
+be an ancestor of the head, every commit above the base must carry the unit trailer, none may
+be a merge commit, and a branch that began with commits above its base must not end with all of
+them still on it. The head is kept under `refs/abk/before-rewrite/<branch>/<short sha>`. A
+branch that fails is put back at the recorded head and the step is returned to the agent with
+the reason, as a failed check is; the nothing-rewritten check leaves the branch as it is until
+the returns are spent.
 """
 
 from __future__ import annotations
@@ -23,6 +26,7 @@ class GuardCheck(StrEnum):
     BASE = "base"
     TRAILER = "trailer"
     MERGE = "merge"
+    UNCHANGED = "unchanged"
 
 
 class GuardVerdict(Frozen):
@@ -67,13 +71,40 @@ def guard_rewrite(
             "that branch checked out. The branch was put back to where the step began",
         )
     head = git_out(tree, "rev-parse", "HEAD")
-    if head == started_at:
-        return GuardVerdict(ok=True)
     origin = git_out(tree, "merge-base", base, started_at)
-    verdict = _check(tree, origin=origin, base=base, head=head, unit_id=unit_id)
-    if not verdict.ok:
-        put_back(tree, branch=branch, started_at=started_at)
+    verdict = GuardVerdict(ok=True)
+    if head != started_at:
+        verdict = _check(tree, origin=origin, base=base, head=head, unit_id=unit_id)
+        if not verdict.ok:
+            put_back(tree, branch=branch, started_at=started_at)
+            return verdict
+    if _rewrote_nothing(tree, origin=origin, started_at=started_at, head=head):
+        # Left as it is: the agent may fold what it added, or its edit, into the old commits.
+        return GuardVerdict(ok=False, check=GuardCheck.UNCHANGED, reason=UNCHANGED_REASON)
     return verdict
+
+
+UNCHANGED_REASON = (
+    "the step rewrote none of the unit's commits: every commit above the base that the step "
+    "began with is still on the branch. Rewrite them (amend, or reset to the base and commit "
+    "again) so the history has the shape asked for, and do not add commits on top. Edits in "
+    "the tree are kept"
+)
+BEFORE_REWRITE = "refs/abk/before-rewrite"
+
+
+def _rewrote_nothing(tree: Path, *, origin: str, started_at: str, head: str) -> bool:
+    """Whether the unit began the step with commits above its base and all of them are still
+    under `head`, which is where the step began or something added on top of it."""
+    if not git_out(tree, "rev-list", "-n1", f"{origin}..{started_at}"):
+        return False
+    return git(tree, "merge-base", "--is-ancestor", started_at, head, check=False).returncode == 0
+
+
+def kept_head_ref(tree: Path, *, branch: str | None, head: str) -> str:
+    """The ref a step's starting head is kept under: `refs/abk/before-rewrite/<branch>/<short>`."""
+    short = git_out(tree, "rev-parse", "--short", head)
+    return f"{BEFORE_REWRITE}/{branch or 'detached'}/{short}"
 
 
 def _current_branch(tree: Path) -> str | None:
@@ -152,6 +183,18 @@ def run_guarded_step(
     request is cleared when the step ends, passed, failed or raised."""
     started = git_out(tree, "rev-parse", "HEAD")
     branch = _current_branch(tree)
+    if request is not None:
+        kept = kept_head_ref(tree, branch=branch, head=started)
+        git(tree, "update-ref", kept, started)
+        named = [e for e in store.get(unit_id).history if e.get("event") == "head_kept"]
+        if not named or named[-1].get("ref") != kept:  # a resumed step keeps the same ref
+            store.record_event(
+                unit_id,
+                "head_kept",
+                f"the head {started} is kept at {kept}; `git reset --hard {kept}` on the branch "
+                "restores it",
+                ref=kept,
+            )
     returned = 0
     reason = ""
     try:
@@ -171,6 +214,8 @@ def run_guarded_step(
                 branch=branch,
             )
             if verdict.ok or returned >= returns:
+                if verdict.check is GuardCheck.UNCHANGED:
+                    put_back(tree, branch=branch, started_at=started)
                 if (
                     verdict.ok
                     and request is not None

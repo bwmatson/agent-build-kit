@@ -54,6 +54,7 @@ from agent_build_kit.pipeline.lease import Leases
 from agent_build_kit.pipeline.pr_replies import last_json, parse_answer
 from agent_build_kit.pipeline.product_defect import ProductDefect
 from agent_build_kit.pipeline.reuse_guidance import reuse_guidance
+from agent_build_kit.pipeline.rewrite_guard import GuardedStep, run_guarded_step
 from agent_build_kit.pipeline.scratch import output_convention
 from agent_build_kit.pipeline.standards_guidance import standards_guidance
 from agent_build_kit.pipeline.task_progress import mark_groups, progress_dir
@@ -1818,6 +1819,9 @@ class UnitRunner(BaseModel):
     commit: Callable[..., int]
     # An empty commit marking a group the branch already holds the work of; 0 when unset.
     commit_built: Callable[..., int] = lambda message, *, cwd: 0
+    # Runs an agent step that holds a rewrite request through the guard; tests whose worktree is
+    # not a repository replace it.
+    guarded_step: Callable[..., GuardedStep] = run_guarded_step
     branch_commits: Callable[..., int]
     # The subject of each commit on the branch beyond its base, oldest first: where a stubbed
     # build reads the groups it has already built.

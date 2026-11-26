@@ -141,6 +141,7 @@ class UnitRun(Frozen):
     pushed_head: bool = False  # the approved commit is the pushed head
     opened: bool = False  # the unit has a pull request
     had_feedback: bool = False  # feedback was waiting when the run began
+    rewrite_asked: bool = False  # a rewrite request is held: the rework runs before any resume
     fix_rounds: int = 0  # fixes of failing checks in this round of review
     stub_rounds: int = 0  # fixes of failing static checks in this group's tests
     stub_loop: bool = False  # the tests are written and wait on their static checks
