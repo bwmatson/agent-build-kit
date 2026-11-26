@@ -3,7 +3,7 @@ name = "agent-build-kit-core"
 version = "0.1.0"
 description = "The core modules of the agent build kit"
 requires-python = ">=3.12"
-dependencies = []
+dependencies = ["sqlalchemy>=2.0"]
 
 [build-system]
 requires = ["hatchling"]
