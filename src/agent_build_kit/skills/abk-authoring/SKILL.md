@@ -12,6 +12,23 @@ PRs — without reading anything else about it. Two facts therefore have to be
 on every task group heading: which repo its code lands in, and which test kind it needs. They are written as tags, and `abk tags` checks them. The build agent never merges: a person merges what was
 not auto-landed.
 
+## Before writing: is this change near?
+
+Before writing any task, read "Rules every task follows" below: list everything that asserts the
+old behaviour, make every `Test:` task fail for a reason the red check accepts, keep every test edit
+in the `test:` commit, mind the test tiers, and give a no-test group its mode. Those five rules cover
+most plan-review repairs and red-check returns.
+
+Work that cannot start for more than one unit is an outline in
+`<planning.outlines>/<name>/proposal.md` (`openspec/outlines/` by default), not a change. Nothing
+plans or reviews an outline, so it costs nothing. A `tasks.md` is written only when the change is
+detailed, one unit before it can start, in one batch, and then moved into `openspec/changes/` in one
+commit. Every save inside `openspec/changes/` restarts that change's plan review. Every proposal of an
+initiative opens with `Initiative: <name> — wave <n>: <slice>` and a `## Its part` section. For each
+outline whose `Touches:` overlaps the change's paths, record one of three answers: build the end-state
+shape, pull the refactor forward, or add a `Reworks:` line. The rules are in "Initiatives and change
+maturity" below.
+
 ## The heading contract
 
 ```
@@ -69,6 +86,76 @@ Rules `abk tags` enforces:
 - A `[e2e-test]` group (every `[acceptance]` group is one) is test-only: a stubbed build
   commits it as one `test:` commit and writes no implementation for it, so its tasks are tests
   alone. A `[unit-test]` or `[integration-test]` group still needs its implementation tasks.
+
+Rules for where tests go and what they assert, which `abk tags` does not check but review does:
+
+- One test file per source file. The unit tests of a module live in one file, `test_<module>.py`,
+  at the path that mirrors the module in its package's tests. A task names that file (the existing
+  one, or a new one only for a new source file), and asks for a case in it: never a second file for
+  the same module, and never a file named after a behaviour. A test that spans modules goes in the
+  repo's integration or e2e folder (`tests/integration/`, `tests/e2e/`).
+- Ask for tests that check behaviour: one scenario test for the facts one setup and action produce,
+  parametrize rows for inputs of one shape, a property rather than an exact sentence. Do not ask for
+  a test of a document's, a skill's or a prompt's wording, or of a file's location, except an
+  exclusion guard (content kept out of a project). Extending an existing test is expected: the red
+  check selects new and modified tests by id.
+- Check a path before you name it. A test file's folder must exist on the repo's default branch
+  (`git ls-tree -r --name-only <branch> <folder>`) and be in the test run's collected paths
+  (`testpaths` for pytest), or an earlier group of the same change, or of a change this one
+  `Needs:`, must create it: name that group in the task. Do not copy a neighbouring change's path
+  without checking it. A convention shared by several changes (where a package's tests live) is
+  written once, in the target repo's `AGENTS.md`, and a task follows it.
+
+## Rules every task follows
+
+These rules come from misses that keep recurring in plan reviews and builds.
+
+- **Check the premise and the paths against the current default branch.** A task about adding
+  something the base already has, or about changing a file or name that has since moved, cannot
+  pass. Read the file at `origin/<default branch>` before naming it.
+- **A task that changes a behaviour, a name, a path or a table lists everything that asserts the old
+  one, and edits it in the same group.** Find them with `git grep` on `origin/<default branch>`:
+  tests, support fakes, guard tables, allowlists, baselines and documentation checks, as well as
+  callers in source. A check left out breaks the suite in a later group or another change. This one
+  rule accounts for most plan-review repairs.
+- **Each `Test:` task can fail before its implementation, for a reason the red check accepts.** It
+  fails on an assertion about a value the group changes, or on a call to a stub. In a stubbed build
+  (the default, `builders.stubbed_tdd_commits`, wherever the toolchain profile supports stubs) the
+  red check accepts only a failed `assert` or the stub's `NotImplementedError` (in Python; another
+  profile names its stub's error) in the test body: an `ImportError`, `ModuleNotFoundError` or
+  `AttributeError` there means a stub was not written and is rejected (only an unstubbed build
+  accepts those three). It always rejects an error in a fixture or `conftest.py`, a module that
+  cannot be collected, a `pytest.raises` that did not raise, and any other exception. To expect an
+  error, call the stub, or catch the error and assert on it. Behaviour that already holds (an
+  equivalence, "still does X") is not a test task: it goes in the implementation task's Verify, or
+  is written with the implementation.
+- **Every edit to a test file belongs to the `test:` commit; the `feat:` commit touches no test
+  file.** Say so where a task changes existing tests. A test changed only in setup, names or
+  helpers may pass at the `test:` commit; a changed assertion must fail there.
+- **Test tiers.** A test that reads the whole repository or runs a child test run carries the
+  repo's integration selector (with a time limit when it is slow), and any Verify that relies on it
+  selects that tier explicitly, because the default run leaves it out. A test that needs a database
+  server or Docker is e2e and skips with a reason when the service is absent. A child run's sources
+  are real files in the folder the repo keeps for them, never named like a test file the runner
+  collects: the red check would run them as the group's tests. In the kit, for example, the
+  selector is the pytest `integration` marker with a `time_limit`, a Verify runs `-m integration`
+  because the default `addopts` leaves it out, child sources are under `tests/child_modules/` and
+  never named `test_*.py`, and a child `conftest.py` hook that must see every report is
+  `tryfirst`; the target repo's `AGENTS.md` names its own. A term an exclusion or boundary scan
+  forbids is never written out literally in a test or a document.
+- **A group that adds no failing test says how it is built.** A move, a rename or another
+  reorganization carries a `Mode: refactor — <reason>` line (see "Writing a reorganization group");
+  a settings or documents group names only non-test files, so it is built as `no_code`. Otherwise
+  the commit-shape guard stops the unit.
+
+### When a design splits work
+
+A change or a design that moves code between packages, projects or repositories gives each of these
+an owner (a change and group) and names it: the code, the tests, the CI entry, the boundary or
+layout check, and the documents, and says which change moves what. If one of them has no owner, add
+it before writing the changes that come after. A reorganization that leaves one out, such as the
+tests of the package that is left over when the others are moved out, leaves every later change
+guessing where they go.
 
 ## Flags
 
@@ -455,6 +542,95 @@ search for existing code first.
 - Good: "Two spellings that differ only in case or surrounding spaces select the
   same record."
 - Bad: "Add `normalize_key()` and call it from the lookup and the import."
+
+## Initiatives and change maturity
+
+A larger goal reached through many changes is an **initiative**. An initiative has two parts, kept
+where the installation keeps its designs and runbooks:
+
+- **Design (the end state):** the target shapes (tables, interfaces, package layout) and the
+  decisions.
+- **Map (the rollout runbook):** waves, then changes, each with its slice (what it adds toward the
+  end state), its interims (temporary shapes it leaves, with the change that removes each), what it
+  waits on, and its stage.
+
+**Every change states its part.** The `proposal.md` of every change and outline in an initiative
+starts, under its title, with:
+
+```
+Initiative: <name> — wave <n>: <its slice in one sentence>
+```
+
+and a short `## Its part` section: what earlier changes give it, what it hands to later ones, which
+interims it creates or removes.
+
+**Three stages.**
+
+| Stage | Where | What exists | Pipeline cost |
+|---|---|---|---|
+| Outline | `<planning.outlines>/<name>/` | `proposal.md` in the outline format below; an earlier detailed draft may sit under `draft/`, stale | none: not planned, not reviewed |
+| Detailed | `openspec/changes/<name>/` | proposal, design, specs and `tasks.md`, written in one batch | one plan, one plan review (plus repairs) |
+| Building | same | units running | as usual |
+
+**Outline format** (`<planning.outlines>/<name>/proposal.md`, `openspec/outlines/` by default). `abk
+outlines` reads these lines, each at the start of a line:
+
+```
+# <title>
+
+Initiative: <name> — wave <n>: <slice>
+
+## Its part
+## Why
+## Scope
+## Groups (sketch)
+1. [<repo>] [<kind>] <title>
+2. ...
+## Interims
+- creates <shape>, removed by <change>   (or: removes <shape> created by <change>)
+
+Waits on: <change or outline> group <n> — <why>
+Touches: `<path or glob>`, `<path or glob>`
+Reworks: <change> — <what that change builds that this outline will redo>
+```
+
+- The text under `## Its part` is the outline's part; each numbered line (`1. `) under a heading
+  that begins `## Groups` is one sketched group.
+- `Waits on:` names one detailed change or outline and a group number; a line without `group <n>`
+  is shown as `unreadable` by `abk outlines` and counts nothing. Write one line per prerequisite.
+- `Touches:` reads only backticked paths and globs; anything outside backticks is ignored.
+- `Reworks:` is one line per change the outline will redo.
+
+**When an outline is detailed: one unit ahead.** An outline's distance is the number of units ahead
+of it, along its `Waits on:` lines, that are not yet in review or merged (a detailed prerequisite
+counts its planned and running units and their ancestors; an outlined prerequisite counts one unit
+per sketched group up to the named one, plus its own distance). It is detailed when the distance is
+at most `planning.outline_lead_units` (1 by default): while the last unit before it is still
+building. `abk outlines` prints each outline's distance and marks the ones ready to detail, and `abk
+status` lists those.
+
+**Batching.** Promotion is one step: detail the change against the current default branch in a
+draft folder, from the initiative's design for its slice, the map and the overlapping outlines;
+validate it (`abk check`, `abk tags`) in a scratch worktree of the planning repo; move it into
+`openspec/changes/` in one commit. Edits to a detailed change are collected and applied together in
+one commit; no incremental edits inside `openspec/changes/` (every edit there restarts its plan
+review). Outlines can be edited freely: nothing reads them for cost.
+
+**Alignment: near changes and the end state.** When a change is detailed or edited, compare it with
+its initiative's end state and with every outline whose `Touches:` overlaps the paths it names
+(`abk outlines --overlaps` lists them). Each overlap gets one answer, written down:
+
+1. **Build in the end-state shape now** (the default): the design's names, tables, interfaces and
+   layout. A near change that keeps state keeps it where the end state does, not in a new file of
+   its own.
+2. **Pull the refactor forward:** when the change would add code in a shape an outline replaces,
+   move the outline's group into it, or promote that piece first as its own small change.
+3. **Accept a rework knowingly:** add a `Reworks:` line to the outline and an interim to the map
+   naming who removes it. An outline with more than two `Reworks:` lines is promoted earlier (`abk
+   outlines --overlaps` marks it `promote earlier`).
+
+When a design changes, only outlines and the map are edited; detailed changes are few because only
+near work is detailed.
 
 ## Before committing a change
 

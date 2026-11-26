@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- The `abk-authoring` skill now carries the rules every task follows (check paths against the
+  default branch, edit every check of the old behaviour in the same group, a `Test:` task that the
+  red check accepts, test edits only in the `test:` commit, test tiers, a mode for a no-test
+  group), where tests go, how a design that splits work names an owner for each part, and how
+  initiatives, outlines and their `Initiative:`, `Waits on:`, `Touches:` and `Reworks:` lines work.
+  Every installation gets them, and `abk doctor` reports an installed copy that is out of date.
+
 - `scripts/trusted_change_cost.py` reports the cost of changes that lasted (merged, not reverted
   or fixed within 30 days) and the health thresholds, read-only, from a planning repo's state. It
   stands in for `abk report --trusted` until that lands.
