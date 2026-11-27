@@ -27,6 +27,7 @@ from xml.etree import ElementTree
 import tree_sitter_typescript
 from tree_sitter import Language, Node, Parser
 
+from agent_build_kit.codemap.graph import CodeReader
 from agent_build_kit.config import (
     AgentCommand,
     AgentPurpose,
@@ -872,6 +873,9 @@ class NodeNpmProfile:
                 f'`throw new Error("{_NOT_IMPLEMENTED}")`'
             )
         return problems
+
+    def code_reader(self) -> CodeReader:
+        raise NotImplementedError
 
     def members(self, repo: Path) -> list[str]:
         """The directories the root manifest's `workspaces` patterns name that hold a
