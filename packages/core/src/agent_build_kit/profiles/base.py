@@ -375,6 +375,45 @@ class ChangedTest(Frozen):
     is_test: bool = True
 
 
+class ReadTest(Frozen):
+    """One test of a test file: its assertion count and a key shared by tests whose bodies,
+    with assertions removed and local names normalised, are the same.
+
+    An assertion is an `assert` statement or a call whose callee's last name begins with
+    `assert`; `pytest.raises` blocks are not counted and stay in the key. Decorators, such as
+    parametrize data, are not part of the key."""
+
+    name: str
+    assertions: int
+    key: str
+
+
+class ReadTestFile(Frozen):
+    """What a profile read of a test file's text; `readable` is false for text that does not
+    parse, which has no tests."""
+
+    readable: bool
+    tests: tuple[ReadTest, ...] = ()
+
+
+@runtime_checkable
+class ReadsTestShape(Protocol):
+    """The capability of reading the shape of a test file, or refusing it with
+    `ProfileUnsupported`."""
+
+    def read_test_file(self, path: str, text: str) -> ReadTestFile:
+        """The tests of the file at `path` with the given `text`; unreadable, not raised."""
+        ...
+
+    def test_module_name(self, path: str) -> str | None:
+        """The source module a test file is named for, or None for any other path."""
+        ...
+
+    def is_source_module(self, path: str) -> bool:
+        """Whether `path` is a source module."""
+        ...
+
+
 @runtime_checkable
 class ComparesTests(Protocol):
     """The optional hook of a profile that can read two versions of a test file and say how they

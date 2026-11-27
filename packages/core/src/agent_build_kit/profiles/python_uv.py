@@ -61,6 +61,7 @@ from agent_build_kit.profiles.base import (
     TEST_KINDS,
     ChangedTest,
     PromptWords,
+    ReadTestFile,
     RedWords,
     SandboxPaths,
     is_doc_path,
@@ -70,6 +71,7 @@ from agent_build_kit.profiles.python_test_comparison import (
     compare_python_tests,
     mark_name,
     pytestmark_values,
+    read_python_test_file,
 )
 from agent_build_kit.profiles.workspace_lock import workspace_lock
 
@@ -1129,6 +1131,26 @@ class PythonUvProfile:
         """How a test file differs from its parent's version beyond a mechanical edit; nothing
         for a file that is not Python source (data and documents kept beside the tests)."""
         return compare_python_tests(before, after) if path.endswith(".py") else []
+
+    def read_test_file(self, path: str, text: str) -> ReadTestFile:
+        if not path.endswith(".py"):
+            return ReadTestFile(readable=True)
+        return read_python_test_file(text)
+
+    def test_module_name(self, path: str) -> str | None:
+        """The module a `test_<m>.py` or `<m>_test.py` file is named for; none for a
+        `conftest.py` or any other name."""
+        stem = PurePosixPath(path).name.removesuffix(".py")
+        if not path.endswith(".py") or stem == "conftest":
+            return None
+        if stem.startswith("test_") and len(stem) > 5:
+            return stem[5:]
+        if stem.endswith("_test") and len(stem) > 5:
+            return stem[:-5]
+        return None
+
+    def is_source_module(self, path: str) -> bool:
+        return path.endswith(".py") and not self.is_test_path(path)
 
     def unselected_tests(self, path: str, content: str, tests: list[str]) -> list[str]:
         """The names among `tests` whose function, class or module carries no

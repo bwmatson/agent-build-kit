@@ -14,6 +14,8 @@ import pytest
 
 from agent_build_kit import profiles
 from agent_build_kit.profiles.base import (
+    ProfileUnsupported,
+    ReadsTestShape,
     RepeatsTests,
     RerunsFailedTests,
     SelectsAffectedTests,
@@ -188,3 +190,26 @@ def test_node_provides_the_serial_rerun_and_affected_selection_so_the_baseline_d
     assert isinstance(node, SelectsAffectedTests)
     assert ("node-npm", "RerunsFailedTests") not in GAP_BASELINE
     assert ("node-npm", "SelectsAffectedTests") not in GAP_BASELINE
+
+
+def test_the_test_reading_capability_is_one_every_profile_provides_or_refuses() -> None:
+    assert ReadsTestShape in CAPABILITIES
+    assert ("python-uv", "ReadsTestShape") not in GAP_BASELINE
+    assert ("node-npm", "ReadsTestShape") not in GAP_BASELINE
+    assert capability_problems(registry()) == []
+
+
+@pytest.mark.parametrize(
+    "call",
+    [
+        lambda p: p.read_test_file("src/a.test.ts", "test('a', () => {})\n"),
+        lambda p: p.test_module_name("src/a.test.ts"),
+        lambda p: p.is_source_module("src/a.ts"),
+    ],
+    ids=["read_test_file", "test_module_name", "is_source_module"],
+)
+def test_the_node_profile_refuses_each_answer_of_the_test_reading_capability(call) -> None:  # type: ignore[no-untyped-def]
+    node = profiles.get("node-npm")
+    assert isinstance(node, ReadsTestShape)
+    with pytest.raises(ProfileUnsupported):
+        call(node)

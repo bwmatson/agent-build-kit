@@ -17,7 +17,7 @@ import ast
 import copy
 from typing import NamedTuple
 
-from agent_build_kit.profiles.base import ChangedTest
+from agent_build_kit.profiles.base import ChangedTest, ReadTest, ReadTestFile
 
 _BUILTIN_MARKERS = frozenset(
     {"skip", "skipif", "xfail", "timeout", "parametrize", "usefixtures", "filterwarnings"}
@@ -228,12 +228,17 @@ def _shape(test: _Test, resolved: dict[str, str], renames: dict[str, str]) -> _S
                 renames.get(name, name) if name else None, _normalised(decorator, resolved, renames)
             )
         )
-    fn = test.node
-    own = assigned_names(fn)
-    numbering = _Normalise(resolved, renames, own)
-    body = "".join(ast.dump(numbering.visit(copy.deepcopy(s))) for s in fn.body)
-    signature = ast.dump(copy.deepcopy(fn.args))
+    signature, body = _signature_and_body(test.node, resolved, renames)
     return _Shape(tuple(marks), limit, signature, body)
+
+
+def _signature_and_body(
+    function: _Function, resolved: dict[str, str], renames: dict[str, str]
+) -> tuple[str, str]:
+    """The function's arguments and body as text, its own locals numbered by first use."""
+    numbering = _Normalise(resolved, renames, assigned_names(function))
+    body = "".join(ast.dump(numbering.visit(copy.deepcopy(s))) for s in function.body)
+    return ast.dump(copy.deepcopy(function.args)), body
 
 
 def _differences(name: str, before: _Shape, after: _Shape) -> list[ChangedTest]:
@@ -260,6 +265,58 @@ def _differences(name: str, before: _Shape, after: _Shape) -> list[ChangedTest]:
     if before.body != after.body:
         found.append("an assertion or expected value differs from the parent's")
     return [ChangedTest(test=name, kind="changed", reason=r) for r in found]
+
+
+def _callee_name(node: ast.expr) -> str:
+    target = node.func if isinstance(node, ast.Call) else node
+    if isinstance(target, ast.Attribute):
+        return target.attr
+    return target.id if isinstance(target, ast.Name) else ""
+
+
+def _is_assertion_call(node: ast.AST) -> bool:
+    return isinstance(node, ast.Call) and _callee_name(node).startswith("assert")
+
+
+def _assertion_count(function: _Function) -> int:
+    return sum(isinstance(n, ast.Assert) or _is_assertion_call(n) for n in ast.walk(function))
+
+
+class _WithoutAssertions(ast.NodeTransformer):
+    """Drops every statement that is an assertion, so what is left is setup and action."""
+
+    def visit_Assert(self, node: ast.Assert) -> None:
+        return None
+
+    def visit_Expr(self, node: ast.Expr) -> ast.Expr | None:
+        return None if _is_assertion_call(node.value) else node
+
+
+def _setup_and_action_key(function: _Function, resolved: dict[str, str]) -> str:
+    stripped = _WithoutAssertions().visit(copy.deepcopy(function))
+    signature, body = _signature_and_body(stripped, resolved, {})
+    return f"{signature}|{body}"
+
+
+def read_python_test_file(text: str) -> ReadTestFile:
+    """The tests of a Python test file with their assertion counts and setup-and-action keys;
+    unreadable, not raised, when the text does not parse."""
+    try:
+        tree = ast.parse(text)
+    except SyntaxError:
+        return ReadTestFile(readable=False)
+    resolved = _resolution(tree)
+    return ReadTestFile(
+        readable=True,
+        tests=tuple(
+            ReadTest(
+                name=name,
+                assertions=_assertion_count(test.node),
+                key=_setup_and_action_key(test.node, resolved),
+            )
+            for name, test in _tests(tree).items()
+        ),
+    )
 
 
 def compare_python_tests(before: str, after: str) -> list[ChangedTest]:

@@ -12,6 +12,7 @@ from typing import cast
 from agent_build_kit.profiles.base import (
     AppliesE2eSelection,
     ListsRegisteredSelectors,
+    ReadsTestShape,
     RecordsSelectionData,
     RepeatsTests,
     ReportsRunFacts,
@@ -30,6 +31,7 @@ CAPABILITIES: tuple[type, ...] = (
     ListsRegisteredSelectors,
     RerunsFailedTests,
     SelectsByKind,
+    ReadsTestShape,
 )
 
 # The methods of `SelectsByKind`; add a method of the protocol here too.
