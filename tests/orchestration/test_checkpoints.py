@@ -8,13 +8,14 @@ the saver checkpointed before the interface existed.
 from __future__ import annotations
 
 import asyncio
-from collections.abc import Iterator
-from contextlib import AbstractAsyncContextManager
+from collections.abc import AsyncIterator, Iterator
+from contextlib import AbstractAsyncContextManager, asynccontextmanager
 from pathlib import Path
 from typing import Any
 
 import pytest
 from langgraph.checkpoint.base import BaseCheckpointSaver, empty_checkpoint
+from langgraph.checkpoint.memory import InMemorySaver
 
 from agent_build_kit import orchestration
 from agent_build_kit.graph.build import compile_graph
@@ -199,3 +200,51 @@ def test_only_the_local_implementation_names_the_sqlite_opener() -> None:
         "these modules open a unit's thread without the Checkpoints interface: "
         + ", ".join(offenders)
     )
+
+
+POSTGRES_URL = "postgresql+asyncpg://user:secret@db.example:5432/units"
+
+
+class SaverFactories:
+    """Fake saver factories that record which one was opened and with what."""
+
+    def __init__(self) -> None:
+        self.opened: list[tuple[str, object]] = []
+        self.sqlite_saver = InMemorySaver()
+        self.postgres_saver = InMemorySaver()
+
+    @asynccontextmanager
+    async def sqlite(self, installation: Installation) -> AsyncIterator[BaseCheckpointSaver]:
+        self.opened.append(("sqlite", installation))
+        yield self.sqlite_saver
+
+    @asynccontextmanager
+    async def postgres(self, url: str) -> AsyncIterator[BaseCheckpointSaver]:
+        self.opened.append(("postgres", url))
+        yield self.postgres_saver
+
+
+async def opened_saver(installation: Installation, fakes: SaverFactories) -> BaseCheckpointSaver:
+    checkpoints = LocalCheckpoints(installation, sqlite=fakes.sqlite, postgres=fakes.postgres)
+    async with checkpoints.open() as saver:
+        return saver
+
+
+def test_a_store_url_selects_the_postgres_saver_over_that_url(tmp_path: Path) -> None:
+    installation = make_installation(tmp_path / "planning", store={"url": POSTGRES_URL})
+    fakes = SaverFactories()
+
+    saver = asyncio.run(opened_saver(installation, fakes))
+
+    assert saver is fakes.postgres_saver
+    assert fakes.opened == [("postgres", POSTGRES_URL)]
+
+
+def test_no_store_url_selects_the_sqlite_saver(tmp_path: Path) -> None:
+    installation = make_installation(tmp_path / "planning")
+    fakes = SaverFactories()
+
+    saver = asyncio.run(opened_saver(installation, fakes))
+
+    assert saver is fakes.sqlite_saver
+    assert fakes.opened == [("sqlite", installation)]
