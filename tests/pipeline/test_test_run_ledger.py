@@ -33,6 +33,10 @@ from tests.failure_bundle_fakes import (
 )
 from tests.failure_bundle_fakes import run_ledger_rows as _rows
 from tests.pipeline.test_flake_isolation import HookedProfile
+from tests.pipeline.test_unit_test_affected import CHANGED, FAILED_OUTPUT
+from tests.pipeline.test_unit_test_affected import Commands as SelectingCommands
+from tests.pipeline.test_unit_test_affected import Profile as SelectingProfile
+from tests.pipeline.test_unit_test_affected import repo_config as selecting_repo_config
 from tests.pipeline.test_unit_test_base_check import TEST, Runs
 
 # --- the writer ---------------------------------------------------------------------
@@ -288,6 +292,89 @@ def test_a_row_written_before_the_memory_fields_loads_with_each_of_them_null() -
     assert {name: getattr(row, name, "absent") for name in _MEMORY_FIELDS} == dict.fromkeys(
         _MEMORY_FIELDS
     )
+
+
+def _fix_round_row(
+    tmp_path: Path,
+    profile: SelectingProfile,
+    commands: SelectingCommands,
+    *,
+    whole_repo: bool = False,
+) -> dict[str, object]:
+    """The one row of a fix round's unit-test run (so one with a failed check to answer, the
+    only run a profile's selection is asked for) at a ledger in `tmp_path`."""
+    ledger = tmp_path / "test-runs.jsonl"
+    unit_test = build_unit_test(
+        run=commands,
+        changed=lambda *a: CHANGED,
+        profile=profile,
+        repo=selecting_repo_config(tmp_path),
+        test_runs=ledger,
+    )
+
+    unit_test(cwd=tmp_path, base="main", failed_output=FAILED_OUTPUT, whole_repo=whole_repo)
+
+    (row,) = _rows(ledger)
+    return row
+
+
+def test_a_run_of_a_selection_has_full_false(tmp_path: Path) -> None:
+    row = _fix_round_row(
+        tmp_path, SelectingProfile([["selected"]]), SelectingCommands(selected=(1, "FAILED"))
+    )
+
+    assert row.get("full", "absent") is False
+
+
+@pytest.mark.parametrize(
+    ("profile", "whole_repo"),
+    [
+        (SelectingProfile(None), False),
+        (SelectingProfile([["selected"]]), True),
+    ],
+    ids=["the profile cannot name the affected tests", "a whole-repository run"],
+)
+def test_a_run_of_the_whole_suite_has_full_true(
+    tmp_path: Path, profile: SelectingProfile, whole_repo: bool
+) -> None:
+    row = _fix_round_row(tmp_path, profile, SelectingCommands(), whole_repo=whole_repo)
+
+    assert row.get("full", "absent") is True
+
+
+@pytest.mark.parametrize(
+    ("reruns", "passing"),
+    [([], True), ([1, 1], False), ([0, 0], False)],
+    ids=["passing", "failing", "flaky"],
+)
+def test_a_whole_suite_run_of_any_outcome_has_full_true(
+    scratch: Path, tmp_path: Path, reruns: list[int], passing: bool
+) -> None:
+    ledger = tmp_path / "test-runs.jsonl"
+
+    _run(scratch, BundleMachine(scratch, reruns=reruns, passing=passing), ledger)
+
+    (row,) = _rows(ledger)
+    assert row.get("full", "absent") is True
+
+
+def test_a_row_written_before_the_full_field_loads_with_it_null() -> None:
+    line = {
+        "unit": "old/1",
+        "started": START.isoformat(),
+        "seconds": 1.0,
+        "outcome": "passed",
+        "failed": [],
+        "load_start": None,
+        "load_end": None,
+        "workers": None,
+        "tick": "t1",
+        "units_running": [],
+    }
+
+    row = TestRun.model_validate_json(json.dumps(line))
+
+    assert getattr(row, "full", "absent") is None
 
 
 def test_a_failing_run_adds_a_row_naming_the_tests_that_failed(
