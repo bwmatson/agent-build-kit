@@ -41,6 +41,7 @@
   The tests prompt of
   a group that builds code names the command. A tool pattern ending in a space and a star now
   also covers the command with no arguments.
+
 - `abk tags` and `abk check` now refuse a `Needs:` line that names an outline, a change that does
   not exist, or a group the target does not have, and warn of a target with no `tasks.md` yet, so
   a dependency that could never be met is caught when it is written.
