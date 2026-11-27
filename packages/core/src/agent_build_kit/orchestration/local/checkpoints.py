@@ -32,5 +32,12 @@ class LocalCheckpoints:
         self.postgres = postgres
 
     def open(self) -> AbstractAsyncContextManager[BaseCheckpointSaver]:
-        """The SQLite saver over the unit graphs file, an older database carried over first."""
-        return open_unit_graphs(self.installation)
+        """The PostgreSQL saver over the store when `store.url` is set, else the SQLite saver over
+        the unit graphs file, an older database carried over first."""
+        # Not at module level: the configuration imports this package, and `url` the configuration.
+        from agent_build_kit.orchestration.sql.url import store_url
+
+        url = store_url(self.installation.config.store)
+        if url:
+            return self.postgres(url)
+        return self.sqlite(self.installation)
