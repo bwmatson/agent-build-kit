@@ -1026,10 +1026,10 @@ Before a change's first unit starts, a model reviews its plan (`pipeline/plan_re
 four fixed questions, each in its own pass with read-only tools over the repos' default
 branches, asked once per hash of the change's artifacts and planned units, with the mechanical
 checks' report in the request. The first question also asks whether each test task can be red
-(fail before its implementation for a reason the red check accepts). Changes are reviewed most urgent first: by the most urgent
-stored priority of their open units, ties by name. The passes and the changes run concurrently,
-at most `planning.plan_review_concurrency` calls at a time, and leave the same records and log
-as a one-at-a-time run. The request lists the change's units in the order they are built,
+(fail before its implementation for a reason the red check accepts). Changes are reviewed most
+urgent first: by the most urgent stored priority of their open units, ties by name. The passes
+and the changes run concurrently, at most `planning.plan_review_concurrency` calls at a time,
+and leave the same records and log as a one-at-a-time run. The request lists the change's units in the order they are built,
 merged ones included, each with its state and, once it has one, its pull request. It also lists
 the change's `Needs:` chain (the changes it names, followed through the changes those name, and
 the changes that name it, followed through the changes that name those; a sibling that only

@@ -160,7 +160,7 @@ def test_only_the_first_pass_asks_whether_each_test_task_can_be_red(review: Revi
         own = QUESTIONS[number - 1]
         has_red_words = "red check" in own and "Verify" in own
         assert has_red_words is (number == 1), f"pass {number} asks: {own}"
-        assert ("red check" in asked.prompt.split("\n\nYou may read")[0]) is (number == 1)
+        assert ("red check" in question_text(asked.prompt, number)) is (number == 1)
 
 
 def test_advice_is_recorded_and_shown_but_holds_nothing(review: Review) -> None:
