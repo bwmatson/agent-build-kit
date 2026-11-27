@@ -10,6 +10,9 @@ from pathlib import Path
 
 import httpx
 import pytest
+from alembic import command as alembic_command
+from alembic.config import Config as AlembicConfig
+from alembic.script import ScriptDirectory
 
 from agent_build_kit import __version__, forges, skills
 from agent_build_kit.cli import doctor, main
@@ -27,8 +30,10 @@ from agent_build_kit.config import (
 from agent_build_kit.forges.github import GitHubForge
 from agent_build_kit.forges.transport import clear_credentials
 from agent_build_kit.init.scaffold import RULES_VERSION, render_openspec_config
+from agent_build_kit.orchestration import sql as sql_package
 from agent_build_kit.runtimes import AgentRateLimited, PolicyReport
 from agent_build_kit.settings import reload, settings
+from tests.cli.store_installation import no_store_env, unused_port  # noqa: F401
 from tests.factories import git, init_repo, which_all
 from tests.forges.mock_host import MockHost, ok, recorded
 from tests.runtimes.selectable import SelectableRuntime, select
@@ -1103,3 +1108,58 @@ def test_a_command_provider_whose_program_is_on_path_passes(workspace: Path) -> 
 
     (check,) = notification_checks(checks)
     assert check.status == "ok"
+
+
+STORE_MIGRATIONS = Path(sql_package.__file__).parent / "migrations"
+STORE_SECRET = "hunter2-hunter2"
+
+
+def store_alembic_config(url: str) -> AlembicConfig:
+    config = AlembicConfig()
+    config.set_main_option("script_location", str(STORE_MIGRATIONS))
+    config.set_main_option("sqlalchemy.url", url)
+    return config
+
+
+def store_checks(tmp_path: Path, url: str) -> list[Check]:
+    from tests.cli.public_content_repo import committed_config
+
+    config = committed_config(tmp_path / "plan", {"store": {"url": url}})
+    checks = run_doctor(config, run=Answers(), which=which_all)
+    return [check for check in checks if check.name == "store"]
+
+
+def test_an_unreachable_store_server_fails_the_store_check_without_the_password(
+    tmp_path: Path,
+    no_store_env: None,  # noqa: F811
+) -> None:
+    url = f"postgresql+asyncpg://abk:{STORE_SECRET}@127.0.0.1:{unused_port()}/units"
+
+    found = store_checks(tmp_path, url)
+
+    assert [check.status for check in found] == ["FAIL"]
+    assert STORE_SECRET not in f"{found[0].detail} {found[0].fix}"
+
+
+def test_a_store_behind_the_head_fails_naming_the_head_and_the_upgrade_command(
+    tmp_path: Path,
+    no_store_env: None,  # noqa: F811
+) -> None:
+    url = f"sqlite+aiosqlite:///{tmp_path / 'units.db'}"
+    head = ScriptDirectory.from_config(store_alembic_config(url)).get_current_head()
+
+    found = store_checks(tmp_path, url)
+
+    assert [check.status for check in found] == ["FAIL"]
+    assert head and head in found[0].detail
+    assert "abk db upgrade" in found[0].fix
+
+
+def test_a_store_at_the_head_passes_the_store_check(
+    tmp_path: Path,
+    no_store_env: None,  # noqa: F811
+) -> None:
+    url = f"sqlite+aiosqlite:///{tmp_path / 'units.db'}"
+    alembic_command.upgrade(store_alembic_config(url), "head")
+
+    assert [check.status for check in store_checks(tmp_path, url)] == ["ok"]

@@ -14,6 +14,7 @@ from agent_build_kit.pipeline.unit_store import UnitStore
 from agent_build_kit.pipeline.units import UnitState
 from agent_build_kit.pipeline.vocabulary import WaitReason
 from tests.cli.replan_driver import record_plan, tasks_md
+from tests.cli.store_installation import no_store_env  # noqa: F401
 from tests.cli.test_wait_reasons import workspace_with
 from tests.conftest import make_installation
 from tests.factories import (
@@ -50,6 +51,31 @@ def test_status_prints_one_line_for_the_ready_outline_and_none_for_the_far_one(
 
     assert len([line for line in lines if "next" in line]) == 1
     assert not [line for line in lines if "far" in line]
+
+
+@pytest.mark.parametrize(
+    "store",
+    [
+        {"url": "postgresql+asyncpg://abk:hunter2-hunter2@db.example:5432/units"},
+        {"host": "db.example", "user": "abk", "password": "hunter2-hunter2", "database": "units"},
+    ],
+)
+def test_status_shows_the_store_server_and_never_its_password(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    no_store_env: None,  # noqa: F811
+    store: dict[str, str],
+) -> None:
+    monkeypatch.setattr("agent_build_kit.run_support.current_usage", lambda: None)
+    inst = make_installation(tmp_path, planning=dict(state_dir="."), store=store)
+
+    capsys.readouterr()
+    assert cli.cmd_status(argparse.Namespace(), inst) == 0
+    out = capsys.readouterr().out
+
+    assert "db.example" in out
+    assert "hunter2-hunter2" not in out
 
 
 def test_status_prints_a_planning_line_only_for_the_active_change_whose_planning_gave_up(
