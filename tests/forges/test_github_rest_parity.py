@@ -204,6 +204,16 @@ def test_only_the_branches_with_the_prefix_are_kept() -> None:
     assert [p.number for p in found] == [1, 3]
 
 
+def test_a_pull_request_outside_the_prefix_has_its_workflow_runs_left_unread() -> None:
+    host = GitHubHost(gh.pull(1, head="spec/add-marker/1"), gh.pull(2, head="feature/other"))
+    host.state.workflow_runs[f"{2:040x}"] = [gh.workflow_run(9, "CI", "failure", sha=f"{2:040x}")]
+
+    listing(host, head_prefix="spec/")
+
+    asked = [s.params.get("head_sha") for s in host.seen if s.path.endswith("/actions/runs")]
+    assert asked == [f"{1:040x}"]
+
+
 # --- the traps --------------------------------------------------------------------
 
 

@@ -31,7 +31,7 @@ from githubkit.exception import (
 )
 from githubkit.response import Response
 from githubkit.versions import LATEST_VERSION
-from pydantic import BaseModel, ConfigDict, ValidationError
+from pydantic import BaseModel, ValidationError
 
 from agent_build_kit.budget import cut_tail
 from agent_build_kit.forges.base import (
@@ -75,6 +75,7 @@ from agent_build_kit.forges.github_models import (
     RepoDoc,
     ReviewDoc,
     StackDoc,
+    WorkflowRunsDoc,
 )
 from agent_build_kit.forges.transport import (
     TRANSIENT,
@@ -179,22 +180,6 @@ _ERROR_LINE = "##[error]"
 _FAILED_JOB = ("failure", "timed_out")
 # How a workflow run ends when its file could not be run.
 _RUN_FAILURES = ("failure", "startup_failure")
-
-
-class _WorkflowRun(BaseModel):
-    model_config = ConfigDict(frozen=True, extra="ignore")
-
-    id: int
-    name: str | None = None
-    status: str | None = None
-    conclusion: str | None = None
-    html_url: str = ""
-
-
-class _WorkflowRuns(BaseModel):
-    model_config = ConfigDict(frozen=True, extra="ignore")
-
-    workflow_runs: list[_WorkflowRun] = []
 
 
 # `git@github.com:owner/name.git`, `https://github.com/owner/name`,
@@ -526,7 +511,9 @@ class GitHubForge:
             log.warning("could not post %s on %s of %s: %s", context, sha, key(repo), error)
 
     def list_prs(self, repo: RepoId, *, head_prefix: str = "") -> list[PullRequest]:
-        """Every pull request of the repo, one query to a page."""
+        """Every pull request of the repo, one query to a page. An open pull request with no
+        checks also has its head's workflow runs read (one REST request, only for a pull request
+        `head_prefix` keeps), and a jobless failed run is added as a failed check."""
         nodes: list[PullNode] = []
         cursor: str | None = None
         while True:
@@ -541,8 +528,11 @@ class GitHubForge:
             if not page.page_info.has_next_page or not page.page_info.end_cursor:
                 break
             cursor = page.page_info.end_cursor
-        pulls = [self._with_run_checks(repo, node, _view(node)) for node in nodes]
-        return [p for p in pulls if p.head.startswith(head_prefix)] if head_prefix else pulls
+        return [
+            self._with_run_checks(repo, node, view)
+            for node in nodes
+            if (view := _view(node)).head.startswith(head_prefix)
+        ]
 
     def _with_run_checks(self, repo: RepoId, node: PullNode, pull: PullRequest) -> PullRequest:
         """An open pull request with no checks, plus the failed checks of its head's jobless
@@ -557,14 +547,15 @@ class GitHubForge:
         """The failed checks of commit `sha`'s workflow runs that ended `failure` or
         `startup_failure` with no job: a workflow file the host could not run leaves no check
         run. Asked only of a commit with no check runs. A failure to ask is logged and adds
-        nothing."""
+        nothing, a rate limit included: the spec says a listing failure is never a verdict, and
+        the next poll asks again."""
         found: list[Check] = []
         try:
             with self._on(repo) as gh:
                 reply = gh.rest.actions.list_workflow_runs_for_repo(
                     repo.account, repo.name, head_sha=sha, per_page=_PAGE
                 )
-            runs = _parse(reply, _WorkflowRuns, "GET actions runs").workflow_runs
+            runs = _parse(reply, WorkflowRunsDoc, "GET actions runs").workflow_runs
             for run in runs:
                 if run.status != "completed" or run.conclusion not in _RUN_FAILURES:
                     continue

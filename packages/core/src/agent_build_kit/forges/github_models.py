@@ -101,6 +101,18 @@ class JobsDoc(_Rest):
     jobs: list[JobDoc] = []
 
 
+class WorkflowRunDoc(_Rest):
+    id: int
+    name: str | None = None
+    status: str | None = None
+    conclusion: str | None = None
+    html_url: str = ""
+
+
+class WorkflowRunsDoc(_Rest):
+    workflow_runs: list[WorkflowRunDoc] = []
+
+
 class StackPullDoc(_Rest):
     number: int
 
