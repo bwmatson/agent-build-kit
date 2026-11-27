@@ -8,6 +8,8 @@ the saver checkpointed before the interface existed.
 from __future__ import annotations
 
 import asyncio
+import os
+import uuid
 from collections.abc import AsyncIterator, Iterator
 from contextlib import AbstractAsyncContextManager, asynccontextmanager
 from pathlib import Path
@@ -16,6 +18,7 @@ from typing import Any
 import pytest
 from langgraph.checkpoint.base import BaseCheckpointSaver, empty_checkpoint
 from langgraph.checkpoint.memory import InMemorySaver
+from sqlalchemy.engine import make_url
 
 from agent_build_kit import orchestration
 from agent_build_kit.graph.build import compile_graph
@@ -25,6 +28,7 @@ from agent_build_kit.graph.state import UnitRun
 from agent_build_kit.installation import Installation
 from agent_build_kit.orchestration.checkpoints import INTERFACE, Checkpoints
 from agent_build_kit.orchestration.local.checkpoints import LocalCheckpoints
+from agent_build_kit.orchestration.sql.checkpoints import open_postgres_checkpointer, psycopg_url
 from agent_build_kit.run_support import thread_of
 from tests.conftest import make_installation
 from tests.graph.checkpoint_reads import a_config
@@ -48,8 +52,45 @@ def local_installation(tmp_path: Path) -> Installation:
     )
 
 
-@pytest.fixture(params=["local"])
+# The connection string of a PostgreSQL database; the `azurite` cases skip without it.
+POSTGRES_SETTING = "ABK_TEST_POSTGRES_CONNECTION_STRING"
+
+
+class StoreCheckpoints:
+    """The store's PostgreSQL saver, opened over one URL, as the Checkpoints interface."""
+
+    def __init__(self, url: str) -> None:
+        self.url = url
+
+    def open(self) -> AbstractAsyncContextManager[BaseCheckpointSaver]:
+        return open_postgres_checkpointer(self.url)
+
+
+@pytest.fixture
+def postgres_store_checkpoints() -> Iterator[Checkpoints]:
+    """The store's saver over a schema of its own in the database named by the setting."""
+    dsn = os.environ.get(POSTGRES_SETTING)
+    if not dsn:
+        pytest.skip(f"{POSTGRES_SETTING} is not set: no PostgreSQL database to run against")
+    psycopg = pytest.importorskip("psycopg")
+    schema = f"checkpoints_{uuid.uuid4().hex}"
+    url = (
+        make_url(dsn)
+        .set(drivername="postgresql+asyncpg", query={"options": f"-c search_path={schema}"})
+        .render_as_string(hide_password=False)
+    )
+    with psycopg.connect(dsn, autocommit=True) as admin:
+        admin.execute(f"CREATE SCHEMA {schema}")
+        try:
+            yield StoreCheckpoints(url)
+        finally:
+            admin.execute(f"DROP SCHEMA {schema} CASCADE")
+
+
+@pytest.fixture(params=["local", pytest.param("postgres", marks=pytest.mark.azurite)])
 def checkpoints(request: pytest.FixtureRequest, local_installation: Installation) -> Checkpoints:
+    if request.param == "postgres":
+        return request.getfixturevalue("postgres_store_checkpoints")
     return orchestration.get(INTERFACE, local_installation)
 
 
@@ -238,6 +279,32 @@ def test_a_store_url_selects_the_postgres_saver_over_that_url(tmp_path: Path) ->
 
     assert saver is fakes.postgres_saver
     assert fakes.opened == [("postgres", POSTGRES_URL)]
+
+
+def test_a_store_made_of_host_and_database_parts_selects_the_postgres_saver_over_the_built_url(
+    tmp_path: Path,
+) -> None:
+    installation = make_installation(
+        tmp_path / "planning",
+        store={"host": "db.example", "user": "user", "password": "secret", "database": "units"},
+    )
+    fakes = SaverFactories()
+
+    saver = asyncio.run(opened_saver(installation, fakes))
+
+    assert saver is fakes.postgres_saver
+    assert fakes.opened == [("postgres", POSTGRES_URL)]
+
+
+@pytest.mark.parametrize(
+    "given, expected",
+    [
+        ("postgresql+asyncpg://u:p%40ss@h:5432/d", "postgresql://u:p%40ss@h:5432/d"),
+        ("postgresql://u:p%40ss@h:5432/d", "postgresql://u:p%40ss@h:5432/d"),
+    ],
+)
+def test_the_psycopg_url_is_the_store_url_without_its_driver(given: str, expected: str) -> None:
+    assert psycopg_url(given) == expected
 
 
 def test_no_store_url_selects_the_sqlite_saver(tmp_path: Path) -> None:

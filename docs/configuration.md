@@ -1122,8 +1122,10 @@ builder makes a `postgresql+asyncpg` URL, escaping the password. Each is also re
 `ABK_STORE_DATABASE`, and the environment wins over `abk.local.yaml`, which wins over `abk.yaml`.
 The password is redacted in `abk doctor`, `abk status` and the evidence bundles. `abk db upgrade`
 migrates the database and `abk doctor` checks it is reachable and at the head revision. With
-`store.url` set the unit graphs' checkpoints live in the same database (LangGraph's PostgreSQL
-saver); unset, they stay in the local SQLite file. To share state between devices, point them at
+a store configured, by `store.url` or by `store.host` and `store.database` (the same builder makes
+the URL), the unit graphs' checkpoints live in that database (LangGraph's PostgreSQL saver); with
+neither, they stay in the local SQLite file. Threads already in the SQLite file are not copied
+across, so set the store when no unit is in flight. To share state between devices, point them at
 the store's server through `store.url`, not at a network drive.
 
 ### Network drive

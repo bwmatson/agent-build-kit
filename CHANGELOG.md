@@ -21,9 +21,11 @@
   `store.user`, `store.password` and `store.database`, each also read from `ABK_STORE_*` (the
   environment wins, then `abk.local.yaml`). `abk db up` and `abk db down` start and stop a local
   PostgreSQL container, `abk db upgrade` migrates the database, `abk doctor` checks it is reachable
-  and at the head revision, and its password is hidden in doctor, status and evidence. With
-  `store.url` set the unit graphs' checkpoints are kept in the same database; to share state
-  between devices, use the store's server rather than a network drive.
+  and at the head revision, and its password is hidden in doctor, status and evidence. With a
+  store configured (`store.url`, or `store.host` and `store.database`) the unit graphs'
+  checkpoints, and what `abk serve` reads of them, are kept in the same database; set it when no
+  unit is in flight. To share state between devices, use the store's server rather than a
+  network drive.
 
 - The plan review's first question now also asks whether each test task can fail before its
   implementation for a reason the build's red check accepts. Behaviour that already holds belongs

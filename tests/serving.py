@@ -4,12 +4,17 @@ checkpoint store, and a snapshot of every file the server must leave alone."""
 from __future__ import annotations
 
 import asyncio
+from contextlib import AbstractAsyncContextManager
 from pathlib import Path
 
+from langgraph.checkpoint.base import BaseCheckpointSaver
+
+from agent_build_kit import orchestration
 from agent_build_kit.graph.checkpointer import open_checkpointer, unit_graphs_path
 from agent_build_kit.graph.state import Node, UnitRun
 from agent_build_kit.graph.unit import seed_thread
 from agent_build_kit.installation import Installation
+from agent_build_kit.orchestration.checkpoints import INTERFACE as CHECKPOINTS
 from agent_build_kit.pipeline.unit_store import Cause, HeldBy, UnitStore
 from agent_build_kit.pipeline.units import (
     CLOSED,
@@ -93,6 +98,34 @@ def seed_review_round(installation: Installation, unit_id: str, review_round: in
             await seed_thread(saver, state, as_node=Node.AWAIT_REVIEW)
 
     asyncio.run(write())
+
+
+class HeldThreads:
+    """A Checkpoints implementation that opens the saver over a database file of its own, apart
+    from the installation's unit graphs file, as a store's server is apart from it."""
+
+    def __init__(self, path: Path) -> None:
+        self.path = path
+
+    def open(self) -> AbstractAsyncContextManager[BaseCheckpointSaver]:
+        return open_checkpointer(self.path)
+
+
+def hold_thread(
+    state: UnitRun, path: Path, *, as_node: Node | None = Node.AWAIT_REVIEW
+) -> HeldThreads:
+    """Register a fake Checkpoints for the local deployment, holding a thread for `state` in
+    the database at `path`."""
+    held = HeldThreads(path)
+
+    async def seed() -> None:
+        async with held.open() as saver:
+            await seed_thread(saver, state, as_node=as_node)
+
+    asyncio.run(seed())
+    orchestration.names(CHECKPOINTS)  # load the built-ins first, so this registration is the last
+    orchestration.register(CHECKPOINTS, "local", lambda installation: held)
+    return held
 
 
 def snapshot(directory: Path) -> dict[str, bytes]:
