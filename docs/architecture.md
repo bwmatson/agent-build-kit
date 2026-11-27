@@ -568,7 +568,13 @@ release could move. The steps:
    over the unit's own files) before this commit, in a build with
    `builders.stubbed_tdd_commits` off as in a stubbed one.
 4. **Implementation, commit.** A second run makes those tests pass and may
-   not weaken them; the pipeline runs the fixers, then commits `feat: <title>`. A branch left
+   not weaken them; the pipeline runs the fixers, then commits `feat: <title>`. The `feat:`
+   commit of a group with a tests step touches no test file: the build moves the implement
+   step's test edits into the group's `test:` commit (an empty marked one becomes an ordinary
+   one) and runs the red check there again, and a rejection puts the `test:` commit back with
+   the edits in the tree and runs the implement step again with the reason, one round of
+   `max_check_rounds` each. A later round's `fix:` commit may correct a test beside code, with
+   no red run. A branch left
    with no commits of its own — neither step added one — is not failed
    outright; see the satisfied outcome after unit-test, below.
 
@@ -1838,7 +1844,10 @@ status` shows `waiting for the network — <reason>`.
 `check_runner.py`; `abk gate`). A branch reads as tests-then-implementation
 pairs: the first substantive commit is tests (plus stubs with no logic —
 checked with `ast` for Python), no two tests commits in a row, at least one
-implementation commit. At each tests commit, in a throwaway worktree, lint
+implementation commit. The `feat:` commit of a group with a tests step changes no test file, and
+a `fix:` commit after the groups' commits may change tests beside code: it is no tests commit,
+has no stub check and no red run. The lone `feat:` of a `no_code` or `refactor` group may still
+change tests. At each tests commit, in a throwaway worktree, lint
 and format pass with type checking skipped, and the tests the commit added or changed
 run (selected by id; where the red check has no id to select, or the runner does not collect
 a selected one, it runs the files whole; selection by id does not reach a test marked

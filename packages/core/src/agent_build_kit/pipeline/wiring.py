@@ -227,6 +227,7 @@ from agent_build_kit.pipeline.shell import (
     porcelain,
 )
 from agent_build_kit.pipeline.stack_runner import (
+    TEST_EDIT_RULE,
     FixResult,
     Recheck,
     Restacked,
@@ -1041,8 +1042,9 @@ files the branch does not change. It rides in the same reply; do not run anythin
 Add `"rewrite_request"` only when the fix is to the shape of the commits: which edits sit in
 which commit, a support edit that belongs in the feature commit, a commit that should be
 split or squashed. It is for the shape of the commits, which the structure check and the red
-check cannot judge, and not for taste or a style preference. It is a sentence or two, beside
-the findings; leave it out otherwise.
+check cannot judge, and not for taste or a style preference. Do not ask for one because of the
+commit a test edit sits in: that is a finding against the rule above, which a fix round may
+correct in its own commit. It is a sentence or two, beside the findings; leave it out otherwise.
 
 Reply with JSON and nothing else:
 {"approved": true|false, "feedback": "anything that is not a finding, empty when approved",
@@ -1093,7 +1095,8 @@ def review_prompt(group_modes: Mapping[str, GroupMode] | None = None) -> str:
         if groups:
             rules.append(f"- Group {', '.join(groups)} ({mode.value}): {REVIEW_MODE_RULES[mode]}")
     heading = "**How each group of this unit is built**, and so what the review asks of it:\n\n"
-    return heading + "\n".join(rules) + "\n\n" + text
+    edit_rule = f"{TEST_EDIT_RULE}\n\n" if any(m.writes_tests for m in group_modes.values()) else ""
+    return heading + "\n".join(rules) + "\n\n" + edit_rule + text
 
 
 # What review adds to the prompt when it is enabled: the classification the reviewer gives.

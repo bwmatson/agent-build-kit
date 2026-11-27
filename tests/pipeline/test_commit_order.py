@@ -411,6 +411,70 @@ def test_a_pipeline_made_commit_leaves_the_hashes_and_subjects_aligned(repo: Pat
     assert len(branch_commit_trailers(repo, "main")) == len(found)
 
 
+A_TESTS = "def test_a():\n    assert False\n"
+A_TESTS_FIXED = "def test_a():\n    assert 1 == 2\n"
+A_CODE = "def a() -> int:\n    return 1\n"
+
+
+def pair_then(repo: Path, feat: dict[str, str], later: dict[str, str] | None = None) -> None:
+    """Group A's `test:` commit, its `feat:` commit with these files and, when given, a
+    `fix:` commit after them with `later`."""
+    commit(repo, "test: A", {"tests/test_a.py": A_TESTS})
+    commit(repo, "feat: A", feat)
+    if later is not None:
+        commit(repo, "fix: A (review round 1)", later)
+
+
+# (the build mode of group A, the commits after the base, the file the one problem names)
+TEST_EDITS = [
+    pytest.param(
+        GroupMode.TESTS_AND_CODE,
+        {"feat": {"src/a.py": A_CODE, "tests/test_a.py": A_TESTS_FIXED}},
+        "tests/test_a.py",
+        id="a feat commit of a group with a tests step that changes a test file",
+    ),
+    pytest.param(
+        GroupMode.TESTS_AND_CODE,
+        {"feat": {"src/a.py": A_CODE, "tests/conftest.py": "import pytest\n"}},
+        "tests/conftest.py",
+        id="a feat commit that changes conftest.py",
+    ),
+    pytest.param(
+        GroupMode.TESTS_AND_CODE,
+        {"feat": {"src/a.py": A_CODE}},
+        None,
+        id="a feat commit that changes only code",
+    ),
+    pytest.param(
+        GroupMode.TESTS_AND_CODE,
+        {
+            "feat": {"src/a.py": "def a() -> int:\n    raise NotImplementedError\n"},
+            "later": {"src/a.py": A_CODE, "tests/test_a.py": A_TESTS_FIXED},
+        },
+        None,
+        id="a fix commit after the pair that changes code and a test file",
+    ),
+]
+
+
+@pytest.mark.parametrize(("mode", "commits", "named"), TEST_EDITS)
+def test_a_feat_commit_of_a_group_with_a_tests_step_touches_no_test_file(
+    repo: Path, mode: GroupMode, commits: dict[str, dict[str, str]], named: str | None
+) -> None:
+    pair_then(repo, commits["feat"], commits.get("later"))
+
+    problems = check_structure(repo, "main", paired=True, groups=[step(1, "A", mode)])
+
+    if named is None:
+        assert problems == []
+        return
+    assert len(problems) == 1
+    assert "feat: A" in problems[0]
+    assert named in problems[0]
+    assert "test:" in problems[0]
+    assert not any(STUB_BODY_HINT in problem for problem in problems)
+
+
 def test_a_commit_with_any_other_subject_between_a_pair_still_breaks_it(repo: Path) -> None:
     commit(repo, "test: G1", {"tests/test_1.py": "def test_x(): ...\n"})
     commit(repo, "docs: Reword the readme", {"README.md": "reworded\n"})

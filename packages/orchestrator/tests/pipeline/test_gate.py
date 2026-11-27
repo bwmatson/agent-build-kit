@@ -21,6 +21,7 @@ from tests.factories import commit_files as commit
 from tests.factories import git, init_repo
 from tests.junit_cases import failing, passing, printed
 from tests.scripted_red import script_commands
+from tests.stub_gate_support import plan
 from tests.whole_lines import assert_tail_of_whole_lines
 
 
@@ -49,6 +50,7 @@ def fake_commands(monkeypatch: pytest.MonkeyPatch):
         red_output: str,
         red_exit: int = 1,
         cwd_log: Path | None = None,
+        head_log: Path | None = None,
     ) -> None:
         script_commands(
             monkeypatch,
@@ -56,6 +58,7 @@ def fake_commands(monkeypatch: pytest.MonkeyPatch):
             red_output=red_output,
             red_exit=red_exit,
             cwd_log=cwd_log,
+            head_log=head_log,
         )
 
     return configure
@@ -392,6 +395,57 @@ def test_the_gate_does_not_touch_the_working_tree(repo: Path, fake_commands) -> 
 
     assert git(repo, "status", "--porcelain") == ""
     assert git(repo, "rev-parse", "--abbrev-ref", "HEAD") == "spec/change/1-unit"
+
+
+A_MODULE = "tests.test_a"
+A_REPORT = printed([failing(A_MODULE, "test_a")])
+A_TESTS = "def test_a():\n    assert False\n"
+A_FIXED = "def test_a():\n    assert 1 == 2\n"
+
+
+def a_pair(repo: Path) -> str:
+    """Group A's `test:` commit and then its `feat:` commit, which holds code only; the tests
+    commit's hash."""
+    commit(repo, "test: A", {"tests/test_a.py": A_TESTS})
+    tests = git(repo, "rev-parse", "HEAD").strip()
+    commit(repo, "feat: A", {"src/a.py": "def a() -> int:\n    return 1\n"})
+    return tests
+
+
+def test_a_fix_commit_that_changes_a_test_file_and_code_passes_with_no_red_run(
+    repo: Path, fake_commands, tmp_path: Path
+) -> None:
+    tests = a_pair(repo)
+    commit(
+        repo,
+        "fix: A (review round 1)",
+        {"src/a.py": "def a() -> int:\n    return 2\n", "tests/test_a.py": A_FIXED},
+    )
+    ran_at = tmp_path / "ran-at.log"
+    fake_commands(red_output=A_REPORT, head_log=ran_at)
+
+    problems = check_branch(repo, "main", stubbed=True, groups=plan(("A", False)))
+
+    assert problems == []
+    assert ran_at.read_text().split() == [tests]
+
+
+def test_a_feat_commit_that_changes_a_test_file_is_refused_before_any_red_run(
+    repo: Path, fake_commands, tmp_path: Path
+) -> None:
+    commit(repo, "test: A", {"tests/test_a.py": A_TESTS})
+    commit(
+        repo,
+        "feat: A",
+        {"src/a.py": "def a() -> int:\n    return 1\n", "tests/test_a.py": A_FIXED},
+    )
+    ran_at = tmp_path / "ran-at.log"
+    fake_commands(red_output=A_REPORT, head_log=ran_at)
+
+    problems = check_branch(repo, "main", stubbed=True, groups=plan(("A", False)))
+
+    assert any("feat: A" in problem and "tests/test_a.py" in problem for problem in problems)
+    assert not ran_at.exists()
 
 
 NEW_MODULE = "tests.test_new"

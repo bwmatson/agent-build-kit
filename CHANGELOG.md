@@ -40,6 +40,11 @@
   of each project the repository uses. A tests step no longer has to guess why its tests were
   rejected.
 
+- Every build step and the review are now told one rule for where a test edit goes: in the
+  `test:` commit, never the `feat:` one, with a fix round's correction to a test going in its
+  own `fix:` commit. The review no longer asks for a rewrite of the commits only because a test
+  edit sits in the wrong one.
+
 - A tests step can now run `abk red-check` in its unit's worktree to see, before it finishes,
   the verdict the build's red check will give its new and changed tests. It judges the working
   tree as it stands (without the lock files and build artifacts the build's commit leaves out),
@@ -56,6 +61,10 @@
 - A unit whose `Needs:` line names a group that has no unit yet now waits as blocked, with the
   line and why in its wait reason, and `abk attention` lists each such line with the command that
   clears it, until the group that declares it is built.
+- A test the implementation step edits is now moved into the group's `test:` commit, and the red
+  check runs there again; a rejection puts the implementation step back to work with the reason.
+  The push gate refuses a `feat:` commit of a group with a tests step that changes a test file,
+  and a later round's `fix:` commit may correct a test beside code with no red run.
 
 - The `abk-authoring` skill now carries the rules every task follows (check paths against the
   default branch, edit every check of the old behaviour in the same group, a `Test:` task that the
