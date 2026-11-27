@@ -12,7 +12,7 @@ from agent_build_kit.cli.attention_cmd import attention_items
 from agent_build_kit.pipeline import plan_review
 from agent_build_kit.pipeline.plan_review import Finding, Review
 from agent_build_kit.pipeline.unit_store import Cause
-from agent_build_kit.pipeline.units import FAILED, MERGED, RUNNING
+from agent_build_kit.pipeline.units import FAILED, MERGED, RUNNING, SATISFIED
 from tests.cli.replan_driver import record_plan, tasks_md
 from tests.conftest import make_installation
 from tests.factories import (
@@ -183,3 +183,27 @@ def test_an_unmet_needs_line_is_listed_until_the_group_that_declares_it_is_built
 
     assert not [i for i in after if i.subject == "feature group 1"]
     assert [i for i in after if i.subject == "base"]
+
+    satisfied = stored_unit("feature/1", change="feature", groups=(1,), state=SATISFIED)
+    done = attention_items(inst, [satisfied], idle=set(), now=NOW)
+
+    assert not [i for i in done if i.subject == "feature group 1"]
+
+
+def test_an_unmet_needs_line_on_a_missing_group_or_change_says_how_to_fix_it(
+    tmp_path: Path,
+) -> None:
+    inst = make_installation(tmp_path, planning=dict(state_dir="."))
+    write_changes(
+        inst.changes_dir,
+        {
+            "grouped": tasks_md(1, needs={1: "base group 9"}),
+            "base": tasks_md(2),
+            "named": tasks_md(1, needs={1: "nowhere group 1"}),
+        },
+    )
+
+    items = {i.subject: i for i in attention_items(inst, [], idle=set(), now=NOW)}
+
+    assert "add group 9" in items["grouped group 1"].action
+    assert "abk tags named" in items["named group 1"].action

@@ -457,6 +457,10 @@ waiting), and the tick resumes it in the requeued mode, restacked onto the depen
 branch, once it is in review. The graph draws a `Needs:` dependency as a thick edge
 labelled `needs`.
 
+A planned unit whose `Needs:` target has no unit for the group, is an outline, is missing or lacks
+the group is not started: it waits as `blocked`, with a detail naming the target group and why.
+`abk attention` lists each such line with its fix until the group that declares it is built.
+
 A test that failed under load and passed twice alone is a flake, not a failure: the unit is
 parked the same way (`gated`, its note names the test) with a `Needs:` line on the one
 change the pipeline wrote to fix that test. `abk status` lists each flaky test as `flaky:`

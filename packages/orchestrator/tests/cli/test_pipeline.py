@@ -115,9 +115,9 @@ def test_tags_and_check_refuse_a_needs_line_on_an_outline_or_a_missing_target(
     assert not [line for line in tags_out + check_out if "done" in line]
 
 
-def write_needs_scenario(inst: Installation) -> UnitStore:
-    """`feature/1` needs a group of `base` whose planning gave up, so no unit covers it;
-    `other/1` needs an archived change's group. Both are planned."""
+def write_needs_scenario(inst: Installation, *, branch: str | None = None) -> UnitStore:
+    """`feature/1` needs a group of `base` whose planning gave up, so no unit covers it, and has
+    `branch` recorded when given; `other/1` needs an archived change's group. Both are planned."""
     write_changes(
         inst.changes_dir,
         {
@@ -131,11 +131,33 @@ def write_needs_scenario(inst: Installation) -> UnitStore:
     store = run_support.store_for(inst)
     store.upsert(
         [
-            stored_unit("feature/1", change="feature", groups=(1,)),
+            stored_unit(
+                "feature/1",
+                change="feature",
+                groups=(1,),
+                **({"branch": branch} if branch else {}),
+            ),
             stored_unit("other/1", change="other", groups=(1,)),
         ]
     )
     return store
+
+
+@pytest.mark.usefixtures("scripted_engine")
+def test_a_planned_unit_with_a_branch_and_an_unmet_needs_line_is_blocked_and_not_started(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    warm_unit_graphs(tmp_path)
+    isolate(monkeypatch)
+    builder = install_builder(tmp_path, monkeypatch)
+    inst = workspace(tmp_path)
+    store = write_needs_scenario(inst, branch="spec/feature/1")
+
+    waits = cli.wait_reasons(inst, store.all(), started=set(), building=set(), only=frozenset())
+    assert tick(inst) == 0
+
+    assert waits["feature/1"].reason is WaitReason.BLOCKED
+    assert builder.started == ["other/1"]
 
 
 @pytest.mark.usefixtures("scripted_engine")

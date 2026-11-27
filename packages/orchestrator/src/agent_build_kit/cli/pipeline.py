@@ -4185,7 +4185,7 @@ def _evaluate_round(
             or (unit.change in plan_held and unit.unstarted)
             # A `Needs:` line of its groups names a group no unit covers, so the dependency
             # `link_needs` would add does not exist: it waits until there is one.
-            or (unit.id in unmet and unit.unstarted)
+            or unit.id in unmet
             # Someone else owns what it covers on the board, or the board has no item yet; a
             # unit already in progress is the kit's and is not asked.
             or start_gate(unit, units, changes_dir=inst.changes_dir, reads=reads).outcome != "start"

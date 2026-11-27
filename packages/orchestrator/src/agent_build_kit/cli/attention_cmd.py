@@ -21,6 +21,7 @@ from agent_build_kit.pipeline.archive import ARCHIVE_FAILURES, read_archive_fail
 from agent_build_kit.pipeline.external_file import held_units
 from agent_build_kit.pipeline.manual_steps import manual_status_line, unmet_steps
 from agent_build_kit.pipeline.needs_targets import (
+    NO_GROUP,
     NO_TASKS,
     NOT_PLANNED,
     OUTLINE,
@@ -29,6 +30,7 @@ from agent_build_kit.pipeline.needs_targets import (
 from agent_build_kit.pipeline.unit_store import StoredUnit
 from agent_build_kit.pipeline.units import (
     FAILED,
+    FINISHED_STATES,
     HELD,
     MERGED,
     PLANNED,
@@ -71,15 +73,19 @@ def _needs_action(need: UnmetNeed) -> str:
     """The command or edit that resolves one unmet `Needs:` line."""
     where = f"openspec/changes/{need.change}/tasks.md"
     if need.outcome == NOT_PLANNED:
-        return f"abk replan {need.target}; or edit {need.target}'s tasks.md as its plan says"
+        return f"abk replan {need.target} (or fix its plan as its own item says)"
     if need.outcome == NO_TASKS:
-        return f"write {need.target}'s tasks.md; the unit waits until it is planned"
+        return f"write openspec/changes/{need.target}/tasks.md"
     if need.outcome == OUTLINE:
         return (
             f"detail {need.target} as a change, or make {need.change} an outline with "
             f"`Waits on: {need.target} group {need.target_group}`"
         )
-    return f"fix the Needs: line in {where}"
+    if need.outcome == NO_GROUP:
+        return (
+            f"correct the Needs: line in {where}, or add group {need.target_group} to {need.target}"
+        )
+    return f"correct the name in the Needs: line (abk tags {need.change})"
 
 
 def attention_items(
@@ -192,7 +198,7 @@ def attention_items(
     built = {
         (member.change, group)
         for unit in units
-        if unit.state == MERGED
+        if unit.state in FINISHED_STATES
         for member in unit.members()
         for group in member.groups
     }

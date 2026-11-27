@@ -33,14 +33,15 @@ class UnmetNeed(Frozen):
 
 
 def _wording(outcome: str, target: str, group: int, plan_state: str) -> str:
-    named = f"{target} group {group}"
-    return {
-        NOT_PLANNED: f"{named} has no unit yet ({plan_state})",
-        NO_GROUP: f"{target} has no group {group}",
+    """The target group and the cause, as `<target> group <n>: <cause>`."""
+    cause = {
+        NOT_PLANNED: f"it has no unit yet ({plan_state})",
+        NO_GROUP: f"{target} has no such group",
         NO_TASKS: f"{target} has no tasks.md yet",
         OUTLINE: f"{target} is an outline, which nothing plans",
-        MISSING: f"no change, archived change or outline is named {target}",
+        MISSING: "no change, archived change or outline has that name",
     }[outcome]
+    return f"{target} group {group}: {cause}"
 
 
 def unmet_needs(
@@ -68,7 +69,7 @@ def unmet_needs(
     archived = {name.lower() for name in archived_entries(changes_dir)}
     outline_names = {name.lower() for name in outlines}
     states = {name.lower(): state for name, state in plan_states.items()}
-    target_groups: dict[str, set[int]] = {}
+    target_groups: dict[str, set[int] | None] = {}
     found: list[UnmetNeed] = []
     for path in tasks_files:
         for group, needs in sorted(group_needs(path).items()):
@@ -84,9 +85,19 @@ def unmet_needs(
                     outcome = NO_TASKS
                 else:
                     if need.change not in target_groups:
-                        parsed, _ = validate_tasks(folder / "tasks.md")
-                        target_groups[need.change] = {g.number for g in parsed}
-                    outcome = NOT_PLANNED if need.group in target_groups[need.change] else NO_GROUP
+                        try:
+                            parsed, _ = validate_tasks(folder / "tasks.md")
+                        except (UnicodeDecodeError, OSError):
+                            # A file that does not read as text has no groups to name yet.
+                            parsed = None
+                        target_groups[need.change] = (
+                            None if parsed is None else {g.number for g in parsed}
+                        )
+                    groups = target_groups[need.change]
+                    if groups is None:
+                        outcome = NO_TASKS
+                    else:
+                        outcome = NOT_PLANNED if need.group in groups else NO_GROUP
                 state = states.get(need.change, "never planned")
                 found.append(
                     UnmetNeed(
