@@ -28,6 +28,7 @@ from agent_build_kit.graph.checkpointer import carried_unit_graphs
 from agent_build_kit.installation import Installation
 from agent_build_kit.orchestration.artifacts import INTERFACE as ARTIFACTS
 from agent_build_kit.orchestration.checkpoints import open_checkpoints
+from agent_build_kit.orchestration.local.checkpoints import threads_in_store
 from agent_build_kit.pipeline import attach
 from agent_build_kit.pipeline.call_record import recorded
 from agent_build_kit.pipeline.environment import repo_artifacts
@@ -212,8 +213,10 @@ class Chat:
     def forget_start(self, unit: StoredUnit) -> None:
         """Clear the start a killed node left in the unit's thread: the files it left are
         taken over with the chat's."""
-        path = carried_unit_graphs(self.installation)
-        if not path.exists():
+        if (
+            not threads_in_store(self.installation)
+            and not carried_unit_graphs(self.installation).exists()
+        ):
             return
 
         async def clear() -> None:

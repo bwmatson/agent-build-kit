@@ -1121,7 +1121,14 @@ builder makes a `postgresql+asyncpg` URL, escaping the password. Each is also re
 `ABK_STORE_URL`, `ABK_STORE_HOST`, `ABK_STORE_PORT`, `ABK_STORE_USER`, `ABK_STORE_PASSWORD` and
 `ABK_STORE_DATABASE`, and the environment wins over `abk.local.yaml`, which wins over `abk.yaml`.
 The password is redacted in `abk doctor`, `abk status` and the evidence bundles. `abk db upgrade`
-migrates the database and `abk doctor` checks it is reachable and at the head revision.
+migrates the database and `abk doctor` checks it is reachable and at the head revision. With
+a store configured, by `store.url` or by `store.host` and `store.database` (the same builder makes
+the URL), the unit graphs' checkpoints live in that database (LangGraph's PostgreSQL saver); with
+neither, they stay in the local SQLite file. Threads already in the SQLite file are not copied
+across, so set the store when no unit is in flight. To share state between devices, point them at
+the store's server through `store.url`, not at a network drive. The database role must be
+allowed to create the saver's tables, since each open, including `abk serve`'s reads, runs the
+saver's setup; a role that may not leaves serve's review rounds and sessions blank.
 
 ### Network drive
 
@@ -1129,6 +1136,7 @@ migrates the database and `abk doctor` checks it is reachable and at the head re
 reports, the usage ledger, the logs) survives the machine. One pipeline host is supported: two
 hosts running ticks, timers or `abk serve` against one state directory are not supported, because
 `units.json` is a read-modify-write of one file and two schedulers would start the same unit twice.
+For more than one device, use the store's server through `store.url` instead.
 
 The files tied to this machine's processes live in the local directory, `planning.local_dir` or
 `ABK_LOCAL_DIR` (default `<planning home>/local`): the checkpointer database, the branch, repo and

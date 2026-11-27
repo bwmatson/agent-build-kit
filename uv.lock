@@ -44,7 +44,9 @@ dependencies = [
     { name = "httpx" },
     { name = "langgraph" },
     { name = "langgraph-checkpoint" },
+    { name = "langgraph-checkpoint-postgres" },
     { name = "langgraph-checkpoint-sqlite" },
+    { name = "psycopg", extra = ["binary", "pool"] },
     { name = "pydantic" },
     { name = "pydantic-settings" },
     { name = "pyyaml" },
@@ -105,11 +107,13 @@ requires-dist = [
     { name = "httpx", specifier = ">=0.27" },
     { name = "langgraph", specifier = "==1.2.*" },
     { name = "langgraph-checkpoint", specifier = ">=4.1.1,<5" },
+    { name = "langgraph-checkpoint-postgres", specifier = ">=3,<4" },
     { name = "langgraph-checkpoint-postgres", marker = "extra == 'azure'", specifier = ">=3,<4" },
     { name = "langgraph-checkpoint-sqlite", specifier = "==3.1.*" },
     { name = "modal", marker = "extra == 'modal'", specifier = ">=1.5,<2" },
     { name = "opentelemetry-exporter-otlp-proto-http", marker = "extra == 'telemetry'", specifier = ">=1.35" },
     { name = "opentelemetry-sdk", marker = "extra == 'telemetry'", specifier = ">=1.35" },
+    { name = "psycopg", extras = ["binary", "pool"], specifier = ">=3.2" },
     { name = "psycopg", extras = ["binary", "pool"], marker = "extra == 'azure'", specifier = ">=3.2" },
     { name = "psycopg-pool", marker = "extra == 'azure'", specifier = ">=3.3" },
     { name = "pydantic", specifier = ">=2.0" },
@@ -143,6 +147,8 @@ dependencies = [
     { name = "alembic" },
     { name = "asyncpg" },
     { name = "greenlet" },
+    { name = "langgraph-checkpoint-postgres" },
+    { name = "psycopg", extra = ["binary", "pool"] },
     { name = "sqlalchemy" },
 ]
 
@@ -151,6 +157,8 @@ requires-dist = [
     { name = "alembic", specifier = ">=1.13" },
     { name = "asyncpg", specifier = ">=0.29" },
     { name = "greenlet", specifier = ">=3.0" },
+    { name = "langgraph-checkpoint-postgres", specifier = ">=3,<4" },
+    { name = "psycopg", extras = ["binary", "pool"], specifier = ">=3.2" },
     { name = "sqlalchemy", specifier = ">=2.0" },
 ]
 

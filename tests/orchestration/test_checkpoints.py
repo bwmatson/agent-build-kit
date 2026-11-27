@@ -8,13 +8,15 @@ the saver checkpointed before the interface existed.
 from __future__ import annotations
 
 import asyncio
-from collections.abc import Iterator
-from contextlib import AbstractAsyncContextManager
+from collections.abc import AsyncIterator, Iterator
+from contextlib import AbstractAsyncContextManager, asynccontextmanager
 from pathlib import Path
 from typing import Any
 
 import pytest
 from langgraph.checkpoint.base import BaseCheckpointSaver, empty_checkpoint
+from langgraph.checkpoint.memory import InMemorySaver
+from sqlalchemy.engine import make_url
 
 from agent_build_kit import orchestration
 from agent_build_kit.graph.build import compile_graph
@@ -24,10 +26,12 @@ from agent_build_kit.graph.state import UnitRun
 from agent_build_kit.installation import Installation
 from agent_build_kit.orchestration.checkpoints import INTERFACE, Checkpoints
 from agent_build_kit.orchestration.local.checkpoints import LocalCheckpoints
+from agent_build_kit.orchestration.sql.checkpoints import open_postgres_checkpointer, psycopg_url
 from agent_build_kit.run_support import thread_of
 from tests.conftest import make_installation
 from tests.graph.checkpoint_reads import a_config
 from tests.graph.test_checkpoint_allowlist import Unlisted, populated
+from tests.support.postgres_schema import PostgresSchema
 from tests.tracked_files import guarded_files, source_tree_folders, source_trees
 
 
@@ -47,9 +51,40 @@ def local_installation(tmp_path: Path) -> Installation:
     )
 
 
-@pytest.fixture(params=["local"])
-def checkpoints(request: pytest.FixtureRequest, local_installation: Installation) -> Checkpoints:
+class StoreCheckpoints:
+    """The store's PostgreSQL saver, opened over one URL, as the Checkpoints interface."""
+
+    def __init__(self, url: str) -> None:
+        self.url = url
+
+    def open(self) -> AbstractAsyncContextManager[BaseCheckpointSaver]:
+        return open_postgres_checkpointer(self.url)
+
+
+@pytest.fixture
+def postgres_store_checkpoints(postgres_schema: PostgresSchema) -> Checkpoints:
+    """The store's saver over a schema of its own, for the `azurite` cases (the CI job's
+    PostgreSQL service)."""
+    url = (
+        make_url(postgres_schema.dsn)
+        .set(drivername="postgresql+asyncpg", query={"options": postgres_schema.options})
+        .render_as_string(hide_password=False)
+    )
+    return StoreCheckpoints(url)
+
+
+@pytest.fixture
+def local_checkpoints(local_installation: Installation) -> Checkpoints:
+    """The local implementation, for the cases that only hold for the SQLite saver."""
     return orchestration.get(INTERFACE, local_installation)
+
+
+@pytest.fixture(params=["local", pytest.param("postgres", marks=pytest.mark.azurite)])
+def checkpoints(request: pytest.FixtureRequest, local_checkpoints: Checkpoints) -> Checkpoints:
+    """The implementation the conformance cases run over: the local one and the store's."""
+    if request.param == "postgres":
+        return request.getfixturevalue("postgres_store_checkpoints")
+    return local_checkpoints
 
 
 def test_a_checkpoint_written_is_read_back(checkpoints: Checkpoints) -> None:
@@ -101,8 +136,10 @@ def test_a_stored_type_outside_the_allowlist_is_not_deserialised(checkpoints: Ch
 
 
 def test_the_local_saver_opens_the_installations_unit_graphs_file(
-    checkpoints: Checkpoints, local_installation: Installation
+    local_checkpoints: Checkpoints, local_installation: Installation
 ) -> None:
+    checkpoints = local_checkpoints
+
     async def run() -> None:
         async with checkpoints.open() as saver:
             await saver.aput(a_config("feature/1"), empty_checkpoint(), {}, {})
@@ -117,8 +154,9 @@ def test_the_local_saver_opens_the_installations_unit_graphs_file(
 
 
 def test_an_older_database_in_the_state_directory_is_carried_over_once(
-    checkpoints: Checkpoints, local_installation: Installation
+    local_checkpoints: Checkpoints, local_installation: Installation
 ) -> None:
+    checkpoints = local_checkpoints
     old = unit_graphs_path(local_installation.state_dir)
 
     async def write_old() -> None:
@@ -141,8 +179,9 @@ def test_an_older_database_in_the_state_directory_is_carried_over_once(
 
 
 def test_a_thread_checkpointed_by_the_saver_before_the_interface_resumes(
-    checkpoints: Checkpoints, local_installation: Installation
+    local_checkpoints: Checkpoints, local_installation: Installation
 ) -> None:
+    checkpoints = local_checkpoints
     state = populated(UnitRun)
 
     async def before() -> None:
@@ -199,3 +238,81 @@ def test_only_the_local_implementation_names_the_sqlite_opener() -> None:
         "these modules open a unit's thread without the Checkpoints interface: "
         + ", ".join(offenders)
     )
+
+
+POSTGRES_URL = "postgresql+asyncpg://user:secret@db.example:5432/units"
+
+
+class SaverFactories:
+    """Fake saver factories that record which one was opened and with what."""
+
+    def __init__(self) -> None:
+        self.opened: list[tuple[str, object]] = []
+        self.sqlite_saver = InMemorySaver()
+        self.postgres_saver = InMemorySaver()
+
+    @asynccontextmanager
+    async def sqlite(self, installation: Installation) -> AsyncIterator[BaseCheckpointSaver]:
+        self.opened.append(("sqlite", installation))
+        yield self.sqlite_saver
+
+    @asynccontextmanager
+    async def postgres(self, url: str) -> AsyncIterator[BaseCheckpointSaver]:
+        self.opened.append(("postgres", url))
+        yield self.postgres_saver
+
+
+async def opened_saver(installation: Installation, fakes: SaverFactories) -> BaseCheckpointSaver:
+    checkpoints = LocalCheckpoints(installation, sqlite=fakes.sqlite, postgres=fakes.postgres)
+    async with checkpoints.open() as saver:
+        return saver
+
+
+def test_a_store_url_selects_the_postgres_saver_over_that_url(tmp_path: Path) -> None:
+    installation = make_installation(tmp_path / "planning", store={"url": POSTGRES_URL})
+    fakes = SaverFactories()
+
+    saver = asyncio.run(opened_saver(installation, fakes))
+
+    assert saver is fakes.postgres_saver
+    assert fakes.opened == [("postgres", POSTGRES_URL)]
+
+
+def test_a_store_made_of_host_and_database_parts_selects_the_postgres_saver_over_the_built_url(
+    tmp_path: Path,
+) -> None:
+    installation = make_installation(
+        tmp_path / "planning",
+        store={"host": "db.example", "user": "user", "password": "secret", "database": "units"},
+    )
+    fakes = SaverFactories()
+
+    saver = asyncio.run(opened_saver(installation, fakes))
+
+    assert saver is fakes.postgres_saver
+    assert fakes.opened == [("postgres", POSTGRES_URL)]
+
+
+@pytest.mark.parametrize(
+    "given, expected",
+    [
+        ("postgresql+asyncpg://u:p%40ss@h:5432/d", "postgresql://u:p%40ss@h:5432/d"),
+        ("postgresql://u:p%40ss@h:5432/d", "postgresql://u:p%40ss@h:5432/d"),
+        (
+            "postgresql+asyncpg://u:p@h/d?options=-c%20search_path%3Ds&sslmode=require",
+            "postgresql://u:p@h/d?options=-c%20search_path%3Ds&sslmode=require",
+        ),
+    ],
+)
+def test_the_psycopg_url_is_the_store_url_without_its_driver(given: str, expected: str) -> None:
+    assert psycopg_url(given) == expected
+
+
+def test_no_store_url_selects_the_sqlite_saver(tmp_path: Path) -> None:
+    installation = make_installation(tmp_path / "planning")
+    fakes = SaverFactories()
+
+    saver = asyncio.run(opened_saver(installation, fakes))
+
+    assert saver is fakes.sqlite_saver
+    assert fakes.opened == [("sqlite", installation)]

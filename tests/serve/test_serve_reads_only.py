@@ -5,19 +5,28 @@ from __future__ import annotations
 
 import asyncio
 import json
+from collections.abc import Iterator
 from datetime import UTC, datetime
+from pathlib import Path
+from typing import Any
 
 import httpx
+import pytest
 
+from agent_build_kit import orchestration
 from agent_build_kit.graph.checkpointer import open_checkpointer, unit_graphs_path
 from agent_build_kit.graph.state import Node, UnitRun
-from agent_build_kit.graph.unit import seed_thread
+from agent_build_kit.graph.unit import Position, seed_thread
 from agent_build_kit.installation import Installation
 from agent_build_kit.pipeline.run_log import RunLog, run_log_dir
+from agent_build_kit.pipeline.unit_graph_entry import register_unit_graph
 from agent_build_kit.pipeline.usage_report import GROUPINGS
-from tests.factories import unit
+from agent_build_kit.serve.chat import Chat
+from agent_build_kit.serve.server import review_round
+from tests.conftest import make_installation
+from tests.factories import stored_unit, unit
 from tests.ledger_lines import fixture_ledger
-from tests.serving import EXPECTED, seed_pipeline, seed_review_round, snapshot
+from tests.serving import EXPECTED, hold_thread, seed_pipeline, seed_review_round, snapshot
 
 
 def read_everything(api: httpx.Client, log_name: str) -> None:
@@ -134,6 +143,60 @@ def test_a_read_while_a_writer_holds_the_checkpoints_open_changes_nothing(
 
     assert answer.status_code == 200
     assert answer.json()["review_round"] == 2
+
+
+@pytest.fixture
+def store_inst(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[Installation]:
+    """An installation with a store configured, over a fresh registry of implementations."""
+    orchestration.reset()
+    installation = make_installation(
+        tmp_path / "planning",
+        planning={"worktree_root": str(tmp_path / "worktrees")},
+        store={"url": "postgresql+asyncpg://user:secret@db.example:5432/units"},
+    )
+    monkeypatch.chdir(installation.root)
+    yield installation
+    orchestration.reset()
+
+
+def test_with_a_store_the_review_round_comes_from_the_checkpoints_interface(
+    store_inst: Installation, tmp_path: Path
+) -> None:
+    state = UnitRun(unit_id="feature/2", change="feature", review_round=3)
+    hold_thread(state, tmp_path / "held.sqlite")
+
+    assert review_round(store_inst, "feature/2") == 3
+    assert not unit_graphs_path(store_inst.local_dir).exists()
+
+
+class ClearingGraph:
+    """A unit graph that records the units whose started node it is asked to clear."""
+
+    def __init__(self) -> None:
+        self.cleared: list[str] = []
+
+    async def position(self, saver: Any, unit_id: str) -> Position:
+        return Position()
+
+    async def clear_running_node(self, saver: Any, unit_id: str) -> None:
+        self.cleared.append(unit_id)
+
+
+def test_with_a_store_forgetting_a_start_reaches_the_held_thread_without_a_sqlite_file(
+    store_inst: Installation, tmp_path: Path
+) -> None:
+    hold_thread(UnitRun(unit_id="feature/2", change="feature"), tmp_path / "held.sqlite")
+    graph = ClearingGraph()
+    before = register_unit_graph(graph)
+    chat = Chat(store_inst, units=lambda: [], recorded_session=lambda unit_id: None)
+
+    try:
+        chat.forget_start(stored_unit("feature/2", change="feature"))
+    finally:
+        register_unit_graph(before)
+
+    assert graph.cleared == ["feature/2"]
+    assert not unit_graphs_path(store_inst.local_dir).exists()
 
 
 def test_an_unreadable_checkpoint_database_leaves_the_review_round_empty(

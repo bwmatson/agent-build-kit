@@ -19,6 +19,7 @@ from types import TracebackType
 from typing import Any, Literal, Self
 
 import aiosqlite
+import psycopg
 import uvicorn
 from fastapi import FastAPI, HTTPException, Response
 from fastapi.responses import FileResponse, PlainTextResponse
@@ -37,6 +38,8 @@ from agent_build_kit.installation import Installation
 from agent_build_kit.model import Frozen
 from agent_build_kit.orchestration.artifacts import INTERFACE as ARTIFACTS
 from agent_build_kit.orchestration.artifacts import Artifacts, MissingArtifact
+from agent_build_kit.orchestration.checkpoints import open_checkpoints
+from agent_build_kit.orchestration.local.checkpoints import threads_in_store
 from agent_build_kit.orchestration.local.directories import RUN_LOGS
 from agent_build_kit.pipeline.environment import repo_artifacts
 from agent_build_kit.pipeline.run_log import CONTINUATION
@@ -129,20 +132,32 @@ async def _read_only_checkpointer(path: Path) -> AsyncIterator[AsyncSqliteSaver]
         yield AsyncSqliteSaver(conn, serde=allowlisted_serde())
 
 
+@asynccontextmanager
+async def _thread_saver(installation: Installation, path: Path) -> AsyncIterator[Any]:
+    """The saver the unit threads are read from: the Checkpoints interface's with a store
+    configured, else the read-only SQLite file at `path`."""
+    if threads_in_store(installation):
+        async with open_checkpoints(installation) as saver:
+            yield saver
+    else:
+        async with _read_only_checkpointer(path) as saver:
+            yield saver
+
+
 def _unit_run(installation: Installation, unit_id: str) -> UnitRun | None:
     """The unit's run state as its thread last saved it, None when it has none to read."""
     path = carried_unit_graphs(installation)
-    if not path.exists():
+    if not threads_in_store(installation) and not path.exists():
         return None
 
     async def read() -> UnitRun | None:
-        async with _read_only_checkpointer(path) as saver:
+        async with _thread_saver(installation, path) as saver:
             position = await SERVED_UNIT_GRAPH.position(saver, unit_id)
         return position.state
 
     try:
         return asyncio.run(read())
-    except (sqlite3.Error, aiosqlite.Error):
+    except (sqlite3.Error, aiosqlite.Error, psycopg.Error, OSError):
         return None
 
 
@@ -228,19 +243,8 @@ def _run_keys(artifacts: Artifacts, change: str, number: str) -> list[str]:
 
 def _recorded_session(installation: Installation, unit_id: str) -> AgentSession | None:
     """The unit's latest recorded agent session, from its checkpoint thread."""
-    path = carried_unit_graphs(installation)
-    if not path.exists():
-        return None
-
-    async def read() -> AgentSession | None:
-        async with _read_only_checkpointer(path) as saver:
-            position = await SERVED_UNIT_GRAPH.position(saver, unit_id)
-        return position.state.sessions.get(SessionRole.BUILD) if position.state else None
-
-    try:
-        return asyncio.run(read())
-    except (sqlite3.Error, aiosqlite.Error):
-        return None
+    run = _unit_run(installation, unit_id)
+    return run.sessions.get(SessionRole.BUILD) if run else None
 
 
 def create_app(
