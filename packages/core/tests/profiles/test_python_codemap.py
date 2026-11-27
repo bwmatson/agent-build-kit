@@ -263,6 +263,49 @@ CALL_ROWS = [
         id="call-on-a-local-variable-is-left-out",
     ),
     pytest.param(
+        {
+            "pkg/main.py": (
+                "def f():\n    pass\n\n\ndef g():\n    def f():\n        pass\n\n    f()\n"
+            )
+        },
+        set(),
+        id="call-on-a-nested-function-is-left-out",
+    ),
+    pytest.param(
+        {"pkg/main.py": "def f():\n    pass\n\n\ndef g():\n    from os import f\n\n    f()\n"},
+        set(),
+        id="call-on-a-local-import-is-left-out",
+    ),
+    pytest.param(
+        {
+            "pkg/main.py": (
+                "def f():\n    pass\n\n\ndef g(h):\n    try:\n        h()\n"
+                "    except Exception as f:\n        f()\n"
+            )
+        },
+        set(),
+        id="call-on-an-exception-name-is-left-out",
+    ),
+    pytest.param(
+        {
+            "pkg/main.py": (
+                "class C:\n    pass\n\n\ndef g():\n    class C:\n        pass\n\n    C()\n"
+            )
+        },
+        set(),
+        id="call-on-a-local-class-is-left-out",
+    ),
+    pytest.param(
+        {
+            "pkg/main.py": (
+                "def f():\n    pass\n\n\ndef g(x):\n    match x:\n"
+                "        case f:\n            f()\n"
+            )
+        },
+        set(),
+        id="call-on-a-match-capture-is-left-out",
+    ),
+    pytest.param(
         {"pkg/main.py": "def g(items):\n    print(len(items))\n"},
         set(),
         id="builtin-call-is-left-out",

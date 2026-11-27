@@ -302,6 +302,24 @@ def _bound_names(nodes: Sequence[ast.AST], own: ast.arguments | None) -> set[str
         names |= assigned_names(node)
     if own is not None:
         names |= {a.arg for a in _all_args(own)}
+        names |= _declared_names(nodes)
+    return names
+
+
+def _declared_names(nodes: Sequence[ast.AST]) -> set[str]:
+    """Names a function body binds other than by assignment: nested definitions, imports,
+    `except ... as` and `match` captures."""
+    names: set[str] = set()
+    for node in _walk(nodes):
+        if isinstance(node, (*_SCOPES,)):
+            names.add(node.name)
+        elif isinstance(node, (ast.Import, ast.ImportFrom)):
+            names |= {a.asname or a.name.split(".")[0] for a in node.names if a.name != "*"}
+        elif isinstance(node, (ast.ExceptHandler, ast.MatchAs, ast.MatchStar)):
+            if node.name:
+                names.add(node.name)
+        elif isinstance(node, ast.MatchMapping) and node.rest:
+            names.add(node.rest)
     return names
 
 
