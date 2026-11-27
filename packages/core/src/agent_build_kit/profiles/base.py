@@ -377,7 +377,11 @@ class ChangedTest(Frozen):
 
 class ReadTest(Frozen):
     """One test of a test file: its assertion count and a key shared by tests whose bodies,
-    with assertions removed and local names normalised, are the same."""
+    with assertions removed and local names normalised, are the same.
+
+    An assertion is an `assert` statement or a call whose callee's last name begins with
+    `assert`; `pytest.raises` blocks are not counted and stay in the key. Decorators, such as
+    parametrize data, are not part of the key."""
 
     name: str
     assertions: int

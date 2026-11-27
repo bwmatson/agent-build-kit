@@ -228,12 +228,17 @@ def _shape(test: _Test, resolved: dict[str, str], renames: dict[str, str]) -> _S
                 renames.get(name, name) if name else None, _normalised(decorator, resolved, renames)
             )
         )
-    fn = test.node
-    own = assigned_names(fn)
-    numbering = _Normalise(resolved, renames, own)
-    body = "".join(ast.dump(numbering.visit(copy.deepcopy(s))) for s in fn.body)
-    signature = ast.dump(copy.deepcopy(fn.args))
+    signature, body = _signature_and_body(test.node, resolved, renames)
     return _Shape(tuple(marks), limit, signature, body)
+
+
+def _signature_and_body(
+    function: _Function, resolved: dict[str, str], renames: dict[str, str]
+) -> tuple[str, str]:
+    """The function's arguments and body as text, its own locals numbered by first use."""
+    numbering = _Normalise(resolved, renames, assigned_names(function))
+    body = "".join(ast.dump(numbering.visit(copy.deepcopy(s))) for s in function.body)
+    return ast.dump(copy.deepcopy(function.args)), body
 
 
 def _differences(name: str, before: _Shape, after: _Shape) -> list[ChangedTest]:
@@ -289,9 +294,8 @@ class _WithoutAssertions(ast.NodeTransformer):
 
 def _setup_and_action_key(function: _Function, resolved: dict[str, str]) -> str:
     stripped = _WithoutAssertions().visit(copy.deepcopy(function))
-    numbering = _Normalise(resolved, {}, assigned_names(stripped))
-    body = "".join(ast.dump(numbering.visit(statement)) for statement in stripped.body)
-    return f"{ast.dump(stripped.args)}|{body}"
+    signature, body = _signature_and_body(stripped, resolved, {})
+    return f"{signature}|{body}"
 
 
 def read_python_test_file(text: str) -> ReadTestFile:

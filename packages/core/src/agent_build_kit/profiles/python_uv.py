@@ -1133,6 +1133,8 @@ class PythonUvProfile:
         return compare_python_tests(before, after) if path.endswith(".py") else []
 
     def read_test_file(self, path: str, text: str) -> ReadTestFile:
+        if not path.endswith(".py"):
+            return ReadTestFile(readable=True)
         return read_python_test_file(text)
 
     def test_module_name(self, path: str) -> str | None:
