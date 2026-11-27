@@ -1543,6 +1543,8 @@ class RepoReviewConfig(Frozen):
     """A repo's own review policy: the protected paths that add to the workspace's."""
 
     protected_paths: list[str] = []
+    # File pattern to the key paths that set a bar in it; an empty list protects the whole file.
+    protected_config: dict[str, list[str]] = {}
     ceilings: RepoCeilingsConfig = RepoCeilingsConfig()
 
 
@@ -1909,6 +1911,8 @@ class ReviewConfig(Frozen):
     # Globs added to the framework's defaults; a repo's own list adds to these.
     protected_paths: list[str] = []
     protected_defaults: bool = True
+    # File pattern to the key paths that set a bar in it; an empty list protects the whole file.
+    protected_config: dict[str, list[str]] = {}
     # Class name to path globs, in the order that decides which class a unit belongs to.
     classes: dict[str, list[str]] = {}
     auto_land: AutoLandConfig = AutoLandConfig()

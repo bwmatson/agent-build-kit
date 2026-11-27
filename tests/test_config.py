@@ -22,6 +22,7 @@ from agent_build_kit.config import (
 )
 from agent_build_kit.graph.state import SessionRole
 from tests.conftest import make_installation
+from tests.review_config import workspace
 
 
 def test_a_unit_defaults_to_a_floor_of_400_and_a_ceiling_of_750_lines() -> None:
@@ -556,6 +557,53 @@ def test_plan_review_concurrency_accepts_one_and_refuses_below_one_naming_the_se
     # the bound's own message, not the schema's refusal of an unknown key
     assert "plan_review_concurrency" in str(raised)
     assert "greater than or equal to 1" in str(raised)
+
+
+def test_protected_config_loads_as_a_map_of_pattern_to_key_paths_at_both_levels() -> None:
+    config = workspace(
+        {"protected_config": {"**/pyproject.toml": ["tool.mypy"], "mypy.ini": []}},
+        app={"protected_config": {"svc/package.json": ["scripts.check", "jest"]}},
+    )
+
+    assert config.review.protected_config == {"**/pyproject.toml": ["tool.mypy"], "mypy.ini": []}
+    assert config.repos["app"].review.protected_config == {
+        "svc/package.json": ["scripts.check", "jest"]
+    }
+    refused = False
+    try:
+        workspace({"protected_config": {"/etc/ruff.toml": []}})
+    except ValueError:
+        refused = True
+    assert refused, "an absolute pattern is accepted"
+
+
+@pytest.mark.parametrize(
+    ("entry", "where"),
+    [
+        ({"/etc/ruff.toml": ["tool.ruff"]}, "/etc/ruff.toml"),
+        ({"../ruff.toml": []}, "../ruff.toml"),
+        ({"pyproject.toml": [""]}, "pyproject.toml"),
+        ({"pyproject.toml": ["tool..ruff"]}, "tool..ruff"),
+    ],
+)
+@pytest.mark.parametrize("level", ["workspace", "repo"])
+def test_protected_config_refuses_a_bad_entry_naming_the_setting_and_the_entry(
+    level: str, entry: dict[str, list[str]], where: str
+) -> None:
+    raised: Exception | None = None
+    try:
+        if level == "workspace":
+            workspace({"protected_config": entry})
+        else:
+            workspace(app={"protected_config": entry})
+    except ValueError as error:
+        raised = error
+
+    assert raised is not None, "a bad protected_config entry is accepted"
+    assert (
+        "review.protected_config" if level == "workspace" else "repos.app.review.protected_config"
+    ) in str(raised)
+    assert where in str(raised)
 
 
 def code_map_config(tmp_path: Path, repo_lines: str) -> WorkspaceConfig:

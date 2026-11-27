@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 from agent_build_kit.config import WorkspaceConfig
 from agent_build_kit.path_patterns import matches
 
@@ -49,3 +51,10 @@ def is_protected(config: WorkspaceConfig, repo: str, path: str) -> bool:
     """Whether `path` in `repo` is matched by the repo's protected globs. A glob that does not
     parse protects: the safe answer when the policy cannot be read."""
     return any(glob_matches(g, path, unparsed=True) for g in protected_globs(config, repo))
+
+
+def protected_settings(
+    config: WorkspaceConfig, repo: str, checkout: Path, base: str, paths: tuple[str, ...]
+) -> tuple[str, ...]:
+    """One description per protected change among `paths`, the branch's changed paths."""
+    raise NotImplementedError
