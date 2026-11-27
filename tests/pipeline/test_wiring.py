@@ -1113,11 +1113,13 @@ def test_a_continued_review_does_not_repeat_the_checklist(tmp_path: Path) -> Non
     [
         ({"feature/1": GroupMode.TESTS_AND_CODE}, True),
         ({"feature/1": GroupMode.NO_CODE, "feature/2": GroupMode.REFACTOR}, False),
+        (None, True),
+        ({}, True),
     ],
-    ids=["tests-and-code", "no-code-and-refactor"],
+    ids=["tests-and-code", "no-code-and-refactor", "no-modes", "empty-modes"],
 )
 def test_the_review_is_told_the_test_edit_rule_only_for_a_unit_that_writes_tests(
-    modes: Mapping[str, GroupMode], carries: bool
+    modes: Mapping[str, GroupMode] | None, carries: bool
 ) -> None:
     text = flat(review_prompt(modes))
 

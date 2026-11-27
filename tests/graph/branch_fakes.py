@@ -153,6 +153,9 @@ class OnBranch(StubLoop):
         super().commit(message, cwd=cwd, base=base)  # recorded, and the run may die here
         return made
 
+    def commit_amend(self, message: str, *, cwd: Path, amend_only: list[str]) -> int:
+        return build_commit(unit_id=UNIT)(message, cwd=cwd, amend_only=amend_only)
+
     def commit_built(self, message: str, *, cwd: Path) -> int:
         made = build_commit_built(unit_id=UNIT, store=self.store)(message, cwd=cwd)
         self._after(f"commit_built:{message.split(':')[0]}")  # recorded, and the run may die here
@@ -175,6 +178,7 @@ class OnBranch(StubLoop):
             **super().overrides(tmp_path),
             "worktree": lambda u, base: tmp_path / "tree",
             "commit_built": self.commit_built,
+            "commit_amend": self.commit_amend,
             "guarded_step": run_guarded_step,  # the worktree is a repository
         }
 

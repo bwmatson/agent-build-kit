@@ -63,7 +63,6 @@ from agent_build_kit.pipeline.check_failures import failed_check, with_e2e_hint
 from agent_build_kit.pipeline.command_limit import SUSPENDED_NOTE, suspended, timed_out_after
 from agent_build_kit.pipeline.commit_body import commit_body
 from agent_build_kit.pipeline.commit_order import (
-    ALREADY_BUILT_TRAILER,
     CODE_PREFIX,
     GROUP_TRAILER,
     TESTS_PREFIX,
@@ -2199,14 +2198,18 @@ class BuildPath:
         return config is not None and stubbed_build(active().builders, profiles.get(config.profile))
 
     def move_test_edits(self, state: UnitRun, ref: str) -> str:
-        """Commit the tree's test-file changes into the group's `test:` commit at `HEAD`, keeping
-        its message and trailers (an empty marked one becomes an ordinary one), and run the red
-        check at it. "" when nothing needed moving or the check accepts; the reason when it
-        rejects, with the `test:` commit as it was and the edits left in the tree."""
+        """Commit the tree's test-file changes into the group's `test:` commit at `HEAD` through
+        the runner's amend (an empty marked one becomes an ordinary one), and in a stubbed build
+        run the red check at it. "" when nothing needed moving or the check accepts; the reason
+        when it rejects, with the `test:` commit as it was and the edits left in the tree. An
+        unstubbed build has no group steps and no red check: its edits join the `test:` commit
+        at `HEAD`, and nothing is run."""
         r, unit, tree = self.runner, self.unit, self.tree()
         own = self.group_step(state)
-        if own is None or not (own.mode.writes_tests and own.mode.writes_code):
+        if own is not None and not (own.mode.writes_tests and own.mode.writes_code):
             return ""
+        if not (tree / ".git").exists():
+            return ""  # not a git worktree: no edit to move
         paths = [
             path for _, name, source in porcelain_entries(tree) for path in (name, source) if path
         ]
@@ -2214,37 +2217,17 @@ class BuildPath:
         edited = [path for path in paths if labels[path] == "test"]
         if not edited:
             return ""
-        if state.tests_account.strip() and not r.branch_commits(tree, ref):
-            # The tests step explained that its tests exist, so the group has no tests commit
-            # yet: the empty marked one the edits then fill. Unstaged, so that commit stays empty.
-            git(tree, "reset", "-q")
-            self.commit_no_new_tests(state, ref)
-        progress = self.branch_progress(ref)
-        if progress.done != state.group or not progress.tests_made:
+        if own is not None:
+            progress = self.branch_progress(ref)
+            if progress.done != state.group or not progress.tests_made:
+                return ""
+        elif not git(tree, "log", "-1", "--format=%s").stdout.startswith(TESTS_PREFIX):
             return ""
         original = r.head(tree)
-        message = git(tree, "log", "-1", "--format=%B").stdout
-        if recorded_built(tree, original):
-            message = message.replace(f"{NO_NEW_TESTS}\n\n", "")
-            message = "\n".join(
-                row
-                for row in message.split("\n")
-                if not row.startswith(f"{ALREADY_BUILT_TRAILER}:")
-            )
         self.say(f"moving the test edits into the tests commit: {', '.join(edited)}")
-        git(tree, "add", "-A", "--", *edited)
-        git(
-            tree,
-            "commit",
-            "-q",
-            "--amend",
-            "--allow-empty",
-            "--no-verify",
-            "-m",
-            message.rstrip("\n") + "\n",
-            "--",
-            *edited,
-        )
+        r.commit_amend(self.message(TESTS_PREFIX, True, state), cwd=tree, amend_only=edited)
+        if own is None:
+            return ""
         ok, why = r.run_red_check(cwd=tree)
         if ok:
             if r.store.get(unit.id).feedback_source is FeedbackSource.RED_CHECK:

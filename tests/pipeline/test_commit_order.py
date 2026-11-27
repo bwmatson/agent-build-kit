@@ -416,10 +416,13 @@ A_TESTS_FIXED = "def test_a():\n    assert 1 == 2\n"
 A_CODE = "def a() -> int:\n    return 1\n"
 
 
-def pair_then(repo: Path, feat: dict[str, str], later: dict[str, str] | None = None) -> None:
-    """Group A's `test:` commit, its `feat:` commit with these files and, when given, a
-    `fix:` commit after them with `later`."""
-    commit(repo, "test: A", {"tests/test_a.py": A_TESTS})
+def pair_then(
+    repo: Path, feat: dict[str, str], later: dict[str, str] | None = None, *, lone: bool = False
+) -> None:
+    """Group A's `test:` commit (none when `lone`), its `feat:` commit with these files and,
+    when given, a `fix:` commit after them with `later`."""
+    if not lone:
+        commit(repo, "test: A", {"tests/test_a.py": A_TESTS})
     commit(repo, "feat: A", feat)
     if later is not None:
         commit(repo, "fix: A (review round 1)", later)
@@ -454,6 +457,15 @@ TEST_EDITS = [
         None,
         id="a fix commit after the pair that changes code and a test file",
     ),
+    *(
+        pytest.param(
+            mode,
+            {"feat": {"src/a.py": A_CODE, "tests/test_a.py": A_TESTS_FIXED}, "lone": {}},
+            None,
+            id=f"a lone feat commit of a {mode.value} group that changes a test file",
+        )
+        for mode in (GroupMode.REFACTOR, GroupMode.NO_CODE)
+    ),
 ]
 
 
@@ -461,7 +473,7 @@ TEST_EDITS = [
 def test_a_feat_commit_of_a_group_with_a_tests_step_touches_no_test_file(
     repo: Path, mode: GroupMode, commits: dict[str, dict[str, str]], named: str | None
 ) -> None:
-    pair_then(repo, commits["feat"], commits.get("later"))
+    pair_then(repo, commits["feat"], commits.get("later"), lone="lone" in commits)
 
     problems = check_structure(repo, "main", paired=True, groups=[step(1, "A", mode)])
 

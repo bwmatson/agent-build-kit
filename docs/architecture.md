@@ -574,7 +574,14 @@ release could move. The steps:
    one) and runs the red check there again, and a rejection puts the `test:` commit back with
    the edits in the tree and runs the implement step again with the reason, one round of
    `max_check_rounds` each. A later round's `fix:` commit may correct a test beside code, with
-   no red run. A branch left
+   no red run. In a build with `builders.stubbed_tdd_commits` off the same move is made with
+   no red check, through the runner's amend, which runs the commit hooks like any commit.
+   Every build step and the review are told the one rule: the tests, implementation, checks,
+   review-feedback and rework prompts, and the review of a unit with a group that writes tests,
+   all state that every test edit goes in the `test:` commit and that a fix round's correction
+   goes in its `fix:` commit; the implementation prompt adds that the pipeline moves its test
+   edits and runs the red check again, and the review does not ask for a rewrite because of
+   where a test edit sits. A branch left
    with no commits of its own — neither step added one — is not failed
    outright; see the satisfied outcome after unit-test, below.
 

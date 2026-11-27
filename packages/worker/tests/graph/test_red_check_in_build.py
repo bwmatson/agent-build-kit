@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Any
 
 from agent_build_kit.pipeline.stack_runner import RunOutcome
+from agent_build_kit.pipeline.wiring import build_tree_state
 from packages.worker.tests.graph.test_build_path import limited
 from packages.worker.tests.graph.test_pr_description_wiring import start_section
 from packages.worker.tests.graph.test_remaining_paths import capturing
@@ -184,6 +185,21 @@ def test_moved_tests_that_stay_red_rejected_spend_the_rounds_and_fail_the_unit(
     assert "feat: G1" not in subjects(repo)
 
 
+def test_a_test_the_implementation_edits_in_an_unstubbed_build_is_moved_with_no_red_check(
+    tmp_path: Path,
+) -> None:
+    recorder, repo = prepared(tmp_path, setting=False, impl_writes_test=True)
+    red = RedAnswers(recorder, [(True, "")])
+
+    outcome = build(tmp_path, recorder, run_red_check=red, **recorder.overrides(tmp_path))
+
+    assert outcome.status == "open"
+    assert [subject.split(":")[0] for subject in subjects(repo)] == ["test", "feat"]
+    assert IMPL_TEST_FILE in files_in(repo, "HEAD~1")
+    assert not [path for path in files_in(repo, "HEAD") if path.startswith("tests/")]
+    assert "red-check" not in recorder.events, "an unstubbed build runs no red check"
+
+
 def test_a_test_written_where_the_tests_step_wrote_none_makes_an_ordinary_tests_commit(
     tmp_path: Path,
 ) -> None:
@@ -195,8 +211,11 @@ def test_a_test_written_where_the_tests_step_wrote_none_makes_an_ordinary_tests_
         impl_writes_test=True,
     )
     red = RedAnswers(recorder, [(True, "")])
+    # The real digest of the tree: the edit the implementation makes is what fills the empty
+    # marked commit, and only a tree that changed tells the step it did.
+    wired: dict[str, Any] = {**recorder.overrides(tmp_path), "tree_state": build_tree_state()}
 
-    build(tmp_path, recorder, run_red_check=red, **recorder.overrides(tmp_path))
+    build(tmp_path, recorder, run_red_check=red, **wired)
 
     assert subjects(repo) == ["test: G1", "feat: G1"]
     assert files_in(repo, "HEAD~1") == [IMPL_TEST_FILE]
