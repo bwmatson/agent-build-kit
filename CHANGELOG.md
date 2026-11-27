@@ -6,6 +6,11 @@
   implementation for a reason the build's red check accepts. Behaviour that already holds belongs
   in the implementation task's `Verify`, so a test task that cannot be red is caught at planning.
 
+- A project, or a repository that declares none, takes a `code_map` setting
+  (`enabled`, and `max_bytes` of at least 4096), the start of a code map read from a
+  project's files: the graph, its byte-stable JSON and the build over the files git
+  holds. No command reads it yet.
+
 - The plan review now lists the changes in a change's `Needs:` chain, with the test
   and support paths their tasks name (a test path being what the repository's toolchain profile
   says it is), so a path convention that differs from the chain's is flagged instead of

@@ -310,7 +310,11 @@ repos:                        # ordered; a task group's [repo] tag is a key here
       marker_prefix: abk      # what marks an item the kit created
     projects: []              # [{path, profile, languages}]: a project whose directory is
                               # absent from the checkout is pending: unit-test, e2e-test and
-                              # doctor skip it and say so, until a unit creates it
+                              # doctor skip it and say so, until a unit creates it.
+                              # Each project also takes `code_map: {enabled: true,
+                              # max_bytes: 65536}` (max_bytes at least 4096)
+    code_map: {}              # the same block for the repo's root; used only when the repo
+                              # declares no projects. enabled true, max_bytes 65536
     languages: []             # e.g. [python]
     description: ""           # one paragraph, for prompts and context
     consumes: []              # repos this one depends on: deploy order,

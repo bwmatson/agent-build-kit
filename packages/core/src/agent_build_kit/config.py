@@ -1423,6 +1423,13 @@ class RepoSandboxConfig(ProjectSandboxConfig):
     required: Coverage = Coverage.FILES
 
 
+class CodeMapConfig(Frozen):
+    """Whether a project gets a code map, and the most bytes its Markdown view may hold."""
+
+    enabled: bool = True
+    max_bytes: Annotated[int, Field(ge=4096)] = 65536
+
+
 class ProjectConfig(Frozen):
     """One project inside a repo: where it is, and what it is written in.
 
@@ -1436,6 +1443,7 @@ class ProjectConfig(Frozen):
     languages: list[str] = []
     profile: str = "python-uv"
     sandbox: ProjectSandboxConfig = ProjectSandboxConfig()
+    code_map: CodeMapConfig = CodeMapConfig()
 
     @property
     def prefix(self) -> str:
@@ -1605,6 +1613,8 @@ class RepoConfig(Frozen):
     languages: list[str] = []
     # Every project found in the checkout, root first.
     projects: list[ProjectConfig] = []
+    # The repo's root map, used only when the repo declares no projects.
+    code_map: CodeMapConfig = CodeMapConfig()
     # One paragraph for prompts and the planning context.
     description: str = ""
     # Repos this one depends on. Drives deploy order (consumed first), which

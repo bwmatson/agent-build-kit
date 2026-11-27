@@ -13,6 +13,7 @@ from collections.abc import Callable, Mapping
 from pathlib import Path
 from typing import TYPE_CHECKING, Literal, Protocol, runtime_checkable
 
+from agent_build_kit.codemap.graph import CodeReader
 from agent_build_kit.config import AgentCommand, BuildersConfig, EnvironmentConfig, RepoConfig
 from agent_build_kit.model import Frozen
 from agent_build_kit.pipeline.e2e import E2eSelection, TestFailure, TestTime
@@ -54,6 +55,13 @@ class PromptWords(Frozen):
     # What the red check counts as red in an unstubbed and in a stubbed build.
     red: RedWords = RedWords()
     red_stubbed: RedWords = RedWords()
+
+
+@runtime_checkable
+class MapsCode(Protocol):
+    """The optional hook a profile has to read a project's code for its code map."""
+
+    def code_reader(self) -> CodeReader: ...
 
 
 @runtime_checkable
