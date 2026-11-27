@@ -1,5 +1,6 @@
 """A change holding `external.yaml` keeps it through the real `openspec archive`
-(spec: external-work). Needs node (npx) and, on the first run, the network."""
+(spec: external-work). Needs node (npx) and reads the CLI from the run's npm cache,
+which the `openspec_cli` fixture fills once per run."""
 
 from __future__ import annotations
 
