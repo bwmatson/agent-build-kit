@@ -122,7 +122,8 @@ tasks name only documents, a changelog or configuration files, and only when a r
 the change would be neither costly nor hard to see: keep `tests_and_code` for a setting other
 code relies on, a file a tool reads at start or a rule a check enforces. A group that names a
 source path or no path is `tests_and_code`, and a group whose paths are all test files, like an
-`[e2e-test]` group, is `tests_only`; a mode below that floor is refused. A group you leave out
+`[e2e-test]` group, is `tests_only`; a mode below that floor is refused. The heading of each
+group shows its floors and the modes allowed for it, so read them there. A group you leave out
 takes its floor, which for a documents or configuration group is `no_code`, so name every group
 that must keep its tests as `tests_and_code`. Give `refactor` to a group that is a reorganization:
 it moves, renames or splits code and changes no behaviour, so it adds no test and edits the
@@ -431,6 +432,51 @@ def allowed_modes(floor: GroupMode) -> tuple[GroupMode, ...]:
     }[floor]
 
 
+def _mode_cause_and_fix(group: TaskGroup) -> tuple[str, str]:
+    """Why a group's mode floor is what it is, and what to change in `tasks.md` or the reply."""
+    if group.tier == TestTier.E2E_TEST:
+        return (
+            "it is an `[e2e-test]` group, whose tasks are all tests",
+            "give it `tests_only`, or leave it out of `group_modes`",
+        )
+    if group.test_code and not group.tests_required:
+        named = f" ({', '.join(group.paths[:3])})" if group.paths else ""
+        return (
+            f"it names only test files and documents{named} and has no `Tests: required` line",
+            "put the test edit and the document edits in groups of their own in `tasks.md` (a "
+            "documents group has no test to write); add `Tests: required — <reason>` only when "
+            "the group's code needs tests first",
+        )
+    if group.tests_required:
+        return (
+            "it has a `Tests: required` line, which keeps its tests first",
+            "give it `tests_and_code`, or remove the line from `tasks.md` if the group needs "
+            "no tests",
+        )
+    if group.code_free:
+        return (
+            "it names only documents or configuration",
+            "give it `no_code` or `tests_and_code`; a documents group has no test to write",
+        )
+    return (
+        "it names a source path, or a task changes code and names no path",
+        "give it `tests_and_code`, or `refactor` for a move that changes no behaviour; if the "
+        "group only edits documents or tests, say so in a `Paths:` line in `tasks.md`",
+    )
+
+
+def _refused_mode(label: str, change: str, group: TaskGroup, asked: str) -> str:
+    """The refusal of a mode outside what `group`'s floor allows: the floor, the allowed modes,
+    the likely cause and the fix."""
+    cause, fix = _mode_cause_and_fix(group)
+    allowed = ", ".join(mode.value for mode in allowed_modes(group.mode))
+    return (
+        f"{label} asks for mode {asked!r} for group {group.number}, but its floor is "
+        f"{group.mode.value!r} (change {change}, group {group.number} {group.title!r}; allowed: "
+        f"{allowed}). Likely cause: {cause}. Fix: {fix}."
+    )
+
+
 def _group_modes(
     label: str,
     change: str,
@@ -461,9 +507,7 @@ def _group_modes(
         floor = group.mode
         allowed = allowed_modes(floor)
         if value is not None and value not in allowed:
-            raise PlannerError(
-                f"{label} asks for mode {value!r} for group {n}, but its floor is {floor.value!r}"
-            )
+            raise PlannerError(_refused_mode(label, change, group, value))
         modes[f"{change}/{n}"] = value or floor.value
     return modes
 
@@ -1461,6 +1505,20 @@ def _join_raw(
     return f" For a calibrated kind that is the largest raw estimate it may carry ({figures})."
 
 
+def _floors_note(group: TaskGroup, tasks: str) -> str:
+    """The heading suffix naming a group's review floor and ceiling and its mode floor."""
+    workspace = active()
+    tier, reason = _group_floor(group, group.repo, tasks)
+    ceiling = getattr(ceilings_in_effect(workspace.repos.get(group.repo), workspace), tier)
+    review = f"review {tier}" + (f" — {reason}" if reason else "")
+    if group.declared_mode is not None:
+        mode = f"mode {GroupMode(group.declared_mode).value}, fixed by its Mode: line"
+    else:
+        allowed = ", ".join(mode.value for mode in allowed_modes(group.mode))
+        mode = f"mode {group.mode.value}, one of {allowed}"
+    return f" (floors: {review}, ceiling {ceiling} changed lines; {mode})"
+
+
 def _mark_built(
     change: str, tasks: str, in_flight: list[dict], groups: Sequence[TaskGroup] | None = None
 ) -> str:
@@ -1471,6 +1529,8 @@ def _mark_built(
         for group in (groups if groups is not None else validate_tasks_text(tasks, change)[0])
     }
     priorities = {group.number: group.priority for group in groups or ()}
+    # Only the groups of the change being planned show their floors.
+    shown = {group.number for group in groups or ()}
     splits = {group.number: group.split for group in groups or ()}
     built = {
         number: item["id"]
@@ -1492,6 +1552,8 @@ def _mark_built(
             if group.project != ".":
                 line += f" (project {group.project})"
             line += project_source_note(group)
+            if not unit_id and group.number in shown:
+                line += _floors_note(group, tasks)
         elif heading := GROUP_HEADING.match(line):
             _, project = split_repo_tag(heading["repo"], known_repos())
             if project:

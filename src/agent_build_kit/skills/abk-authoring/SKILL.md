@@ -237,6 +237,11 @@ a slip there is costly and hard to see. Good: a group that rewords a README or a
 needs no test. Where a regression would matter, say `Tests: required — <reason>` on the group; the reason is
 required, and no line lowers a floor.
 
+The planner prompt shows each group's floors on its heading, so a group that should be `full` and is not shows
+it before a build starts. A refused build mode names the group, its floor, the modes it allows, the likely cause
+and the fix. A group that names a test file beside documents is built `tests_only`: put its test edit and its
+documents in groups of their own.
+
 ### Writing a reorganization group
 
 A group that moves, renames or splits code and changes no behaviour is a reorganization. Say so in its
