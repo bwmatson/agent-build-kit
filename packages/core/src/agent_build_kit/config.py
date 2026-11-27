@@ -1427,7 +1427,7 @@ class CodeMapConfig(Frozen):
     """Whether a project gets a code map, and the most bytes its Markdown view may hold."""
 
     enabled: bool = True
-    max_bytes: int = 65536
+    max_bytes: Annotated[int, Field(ge=4096)] = 65536
 
 
 class ProjectConfig(Frozen):
