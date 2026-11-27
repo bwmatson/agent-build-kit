@@ -151,8 +151,8 @@ def test_another_units_worker_is_not_taken_for_this_ones(
         lines = run_status(inst, monkeypatch, capsys)
 
     [line] = worker_lines(lines)
-    assert "256 MiB" in line
-    assert "512" not in line
+    assert "memory 256 MiB" in line
+    assert "512 MiB" not in line
 
 
 def test_the_query_names_the_unit_the_spawner_named(

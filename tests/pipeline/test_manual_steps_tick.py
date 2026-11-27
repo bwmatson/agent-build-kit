@@ -6,6 +6,7 @@ process boundary the tick does: its exit status, its first lines of output and i
 
 from __future__ import annotations
 
+import re
 import time
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -641,8 +642,11 @@ def test_status_counts_the_checks_with_the_same_result_from_the_time_of_the_firs
     finally:
         monkeypatch.undo()
         time.tzset()
-    assert "same result for 3 checks" in line
-    assert "14:30" in line and "09:00" not in line and "15:30" not in line
+    stamp = re.match(r"^\[\d\d:\d\d:\d\d\] ", line)
+    assert stamp, line
+    content = line[stamp.end() :]
+    assert "same result for 3 checks" in content
+    assert "14:30" in content and "09:00" not in content and "15:30" not in content
 
 
 def test_a_count_that_began_on_an_earlier_day_names_the_day(
