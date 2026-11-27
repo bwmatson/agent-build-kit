@@ -43,6 +43,8 @@ from agent_build_kit.pipeline.e2e import (
     parse_pytest_summary,
 )
 from agent_build_kit.pipeline.red_check import (
+    ACCEPTED_TYPES,
+    MISSING_NAMES,
     NO_TESTS,
     Rule,
     collection_errors,
@@ -58,6 +60,7 @@ from agent_build_kit.profiles.base import (
     TEST_KINDS,
     ChangedTest,
     PromptWords,
+    RedWords,
     SandboxPaths,
     is_doc_path,
 )
@@ -73,6 +76,17 @@ from agent_build_kit.profiles.workspace_lock import workspace_lock
 NO_TESTS_COLLECTED = 5
 USAGE_ERROR = 4
 
+# The failures the red check does not count, whichever the build, as the tests prompt says them.
+_NOT_RED = (
+    "an error in a fixture or conftest.py",
+    "a module that cannot be collected",
+    "a pytest.raises that did not raise",
+    "any other exception",
+)
+_RED_ADVICE = (
+    "Reach new names inside the test body; to expect an error, call the stub, or catch the "
+    "error and assert on it."
+)
 _COLLECTED_FILE = re.compile(r"^(test_.*|.*_test)\.py$")
 _TEST_FILE = re.compile(r"^(test_.*|.*_test|conftest)\.py$")
 _DEP_NAME = re.compile(r"^\s*([A-Za-z0-9][A-Za-z0-9._-]*)")
@@ -531,6 +545,21 @@ class PythonUvProfile:
             "file is created only for a new source file; a new behaviour of an existing module is\n"
             "a case, never a new file. One subject has one test file, and test directories carry\n"
             "no `__init__.py`."
+        ),
+        red=RedWords(
+            red_types=tuple(sorted(ACCEPTED_TYPES)),
+            red_cases=("a fixture raising NotImplementedError from a stub",),
+            not_red=_NOT_RED,
+            advice=_RED_ADVICE,
+        ),
+        red_stubbed=RedWords(
+            red_types=tuple(sorted(ACCEPTED_TYPES - set(MISSING_NAMES))),
+            red_cases=("a fixture raising NotImplementedError from a stub",),
+            not_red=(
+                f"{' or '.join(MISSING_NAMES)} for a name that is missing (write a stub)",
+                *_NOT_RED,
+            ),
+            advice=_RED_ADVICE,
         ),
     )
     no_tests_collected_exit: int = NO_TESTS_COLLECTED

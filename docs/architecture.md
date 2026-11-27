@@ -621,7 +621,9 @@ release could move. The steps:
    return one round of `global_limits.max_check_rounds`; the rounds spent stop the unit. A commit
    already judged (same patch id) is not run again. A test-only, no-code or refactor group does
    not run it. The unit's recorded red result is the check's own, or skipped when it never ran,
-   and the pull request says the tests were seen to fail first only for a check that ran.
+   and the pull request says the tests were seen to fail first only for a check that ran. The
+   tests step may run `abk red-check` in its worktree to see the same verdict on its uncommitted
+   tests first; the build's own check on the committed tests still decides.
 
    Each selected test is judged by a rule read from the same comparison of old and new source
    that selects it. A new test, and an existing test whose change adds or alters an assertion,

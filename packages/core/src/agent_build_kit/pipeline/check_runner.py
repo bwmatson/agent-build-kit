@@ -82,6 +82,34 @@ def worktree_at(
                 git_out(repo, "worktree", "prune")
 
 
+def run_command(command: str, cwd: Path) -> CommandResult:
+    """Run a check `command` in the shell in `cwd`, as every check runs: its output captured
+    and a run past `COMMAND_TIMEOUT_SECONDS` answered with exit code 124."""
+    try:
+        completed = subprocess.run(
+            command,
+            shell=True,
+            cwd=cwd,
+            capture_output=True,
+            text=True,
+            timeout=COMMAND_TIMEOUT_SECONDS,
+            check=False,
+        )
+    except subprocess.TimeoutExpired:
+        return CommandResult(
+            command=command,
+            exit_code=124,
+            stdout="",
+            stderr=f"timed out after {COMMAND_TIMEOUT_SECONDS}s",
+        )
+    return CommandResult(
+        command=command,
+        exit_code=completed.returncode,
+        stdout=completed.stdout,
+        stderr=completed.stderr,
+    )
+
+
 def run_at_commit(
     repo: Path, sha: str, commands: list[str | Callable[[Path], str]], *, subdir: str = "."
 ) -> list[CommandResult]:
@@ -93,40 +121,11 @@ def run_at_commit(
     A non-zero exit is data, not an error — the red check expects one — so
     results are returned rather than raised, and every command runs.
     """
-    results: list[CommandResult] = []
-
     with worktree_at(repo, sha) as tree:
-        for planned in commands:
-            command = planned(tree) if callable(planned) else planned
-            try:
-                completed = subprocess.run(
-                    command,
-                    shell=True,
-                    cwd=tree / subdir,
-                    capture_output=True,
-                    text=True,
-                    timeout=COMMAND_TIMEOUT_SECONDS,
-                    check=False,
-                )
-                results.append(
-                    CommandResult(
-                        command=command,
-                        exit_code=completed.returncode,
-                        stdout=completed.stdout,
-                        stderr=completed.stderr,
-                    )
-                )
-            except subprocess.TimeoutExpired:
-                results.append(
-                    CommandResult(
-                        command=command,
-                        exit_code=124,
-                        stdout="",
-                        stderr=f"timed out after {COMMAND_TIMEOUT_SECONDS}s",
-                    )
-                )
-
-    return results
+        return [
+            run_command(planned(tree) if callable(planned) else planned, tree / subdir)
+            for planned in commands
+        ]
 
 
 class CheckCache:

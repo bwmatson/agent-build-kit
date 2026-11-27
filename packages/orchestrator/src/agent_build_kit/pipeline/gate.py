@@ -34,7 +34,12 @@ from agent_build_kit import profiles
 from agent_build_kit.budget import cut_tail
 from agent_build_kit.config import ProjectConfig, by_project
 from agent_build_kit.model import Frozen
-from agent_build_kit.pipeline.check_runner import CheckCache, CommandResult, run_at_commit
+from agent_build_kit.pipeline.check_runner import (
+    CheckCache,
+    CommandResult,
+    run_at_commit,
+    run_command,
+)
 from agent_build_kit.pipeline.commit_order import (
     check_structure,
     classify_paths,
@@ -44,6 +49,7 @@ from agent_build_kit.pipeline.red_check import Rule
 from agent_build_kit.pipeline.shell import git
 from agent_build_kit.pipeline.stack_runner import GroupStep
 from agent_build_kit.pipeline.wiring import classified_tests, ids_for, tests_in_file
+from agent_build_kit.pipeline.workspaces import snapshot_commit
 from agent_build_kit.profiles.base import (
     ReportsNothingCollected,
     ToolchainProfile,
@@ -54,6 +60,16 @@ from agent_build_kit.redaction import redact_text
 
 def _files_of(repo: Path, sha: str) -> list[str]:
     return git(repo, "show", "--name-only", "--pretty=format:", sha).stdout.split()
+
+
+def _is_test(projects: list[ProjectConfig], profile: ToolchainProfile) -> Callable[[str], bool]:
+    """Whether a path is a test file, as the toolchain of the project holding it says (the repo's
+    `profile` for a path no project holds): the one rule for what a gate has to judge."""
+
+    def is_test(path: str) -> bool:
+        return profiles.for_path(projects, path, profile).is_test_path(path)
+
+    return is_test
 
 
 def _tests_commits(repo: Path, base: str, is_test: Callable[[str], bool]) -> list[str]:
@@ -297,6 +313,38 @@ def _red_log(
     ]
 
 
+def _red_runs(
+    repo: Path,
+    sha: str,
+    profile: ToolchainProfile,
+    projects: list[ProjectConfig],
+    stubbed: bool,
+    log: Callable[[str], None] | None,
+    run: Callable[[ToolchainProfile, str, str], CommandResult],
+) -> list[_Run]:
+    """The judged red run of each project the tests commit `sha` touches; `run` runs a
+    project's red command (its toolchain, its prefix, the command) and answers its result."""
+
+    classified = _classified_in(repo, sha)
+    runs: list[_Run] = []
+    for owner, owned in by_project(
+        projects, _test_files_in(repo, sha, _is_test(projects, profile))
+    ):
+        toolchain = profiles.for_project(owner, profile)
+        prefix = owner.prefix if owner else ""
+        selection = _selection(toolchain, owned, classified, repo, prefix, sha)
+        command = _red_command(toolchain, selection, repo, prefix)
+        if command is None:
+            continue
+        rules = _rules_of(selection, classified, repo, sha, prefix)
+        red = run(toolchain, prefix, command)
+        if log is not None:
+            for line in _red_log(red, sha, owner, toolchain):
+                log(redact_text(line, where="red check log"))
+        runs.append(_run_of(toolchain, red, sha, owner, stubbed, rules, log))
+    return runs
+
+
 def red_problems(
     repo: Path,
     sha: str,
@@ -327,27 +375,13 @@ def red_problems(
                 "names; the check was not run again"
             ]
 
-    def is_test(path: str) -> bool:
-        return profiles.for_path(projects, path, profile).is_test_path(path)
-
-    classified = _classified_in(repo, sha)
-    runs: list[_Run] = []
-    for owner, owned in by_project(projects, _test_files_in(repo, sha, is_test)):
-        toolchain = profiles.for_project(owner, profile)
-        prefix = owner.prefix if owner else ""
-        selection = _selection(toolchain, owned, classified, repo, prefix, sha)
-        command = _red_command(toolchain, selection, repo, prefix)
-        if command is None:
-            continue
-        rules = _rules_of(selection, classified, repo, sha, prefix)
-
+    def run_at_sha(toolchain: ToolchainProfile, prefix: str, command: str) -> CommandResult:
         (red,) = run_at_commit(
             repo, sha, [_prepared(repo, toolchain, prefix, command)], subdir=prefix or "."
         )
-        if log is not None:
-            for line in _red_log(red, sha, owner, toolchain):
-                log(redact_text(line, where="red check log"))
-        runs.append(_run_of(toolchain, red, sha, owner, stubbed, rules, log))
+        return red
+
+    runs = _red_runs(repo, sha, profile, projects, stubbed, log, run_at_sha)
     problems = _settled(sha, runs, log)
     if cache is not None:
         cache.record(
@@ -358,6 +392,46 @@ def red_problems(
             reasons=[redact_text(problem, where="red check reasons") for problem in problems],
         )
     return problems
+
+
+class TreeVerdict(Frozen):
+    """The red check of a worktree's tree judged in place: whether it changes any test file
+    against `HEAD` (`judged`), and the problems found when it does."""
+
+    judged: bool
+    problems: list[str]
+
+
+def tree_red_problems(
+    repo: Path,
+    *,
+    profile: ToolchainProfile,
+    projects: list[ProjectConfig] | None = None,
+    stubbed: bool = False,
+    locks: Sequence[str] = (),
+    artifacts: Sequence[str] = (),
+    log: Callable[[str], None] | None = None,
+) -> TreeVerdict:
+    """The red check of the working tree of `repo` against `HEAD`, run in `repo` itself.
+
+    The tree (its untracked files too, not the ignored ones, and without the pipeline's own:
+    the `locks` and the untracked files an `artifacts` pattern matches, as the build's commit
+    leaves them out) is written to a commit on top of `HEAD` that no ref names, which is then
+    judged as `red_problems` judges a tests commit; only the red command runs where the files
+    are, instead of in a throwaway worktree, so `HEAD`, the index and the files are left as they
+    were. A command that writes (a package manager refreshing its lock file) writes there."""
+    projects = projects or []
+    sha, _ = snapshot_commit(
+        repo, "the working tree, judged in place", locks=locks, artifacts=artifacts
+    )
+    if not _test_files_in(repo, sha, _is_test(projects, profile)):
+        return TreeVerdict(judged=False, problems=[])
+
+    def run_in_place(toolchain: ToolchainProfile, prefix: str, command: str) -> CommandResult:
+        return run_command(command, repo / prefix if prefix else repo)
+
+    runs = _red_runs(repo, sha, profile, projects, stubbed, log, run_in_place)
+    return TreeVerdict(judged=True, problems=_settled(sha, runs, log))
 
 
 def check_branch(
@@ -399,8 +473,7 @@ def check_branch(
     only_mode = "test-only" if stubbed else ""
     no_red = commits_without_red_check(repo, base, groups if stubbed else ())
 
-    def is_test(path: str) -> bool:
-        return profiles.for_path(projects, path, profile).is_test_path(path)
+    is_test = _is_test(projects, profile)
 
     def stubs(path: str, content: str) -> list[str]:
         return profiles.for_path(projects, path, profile).stub_violations(path, content)

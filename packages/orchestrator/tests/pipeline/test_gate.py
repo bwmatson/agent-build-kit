@@ -14,12 +14,13 @@ import pytest
 
 from agent_build_kit import profiles
 from agent_build_kit.pipeline.check_runner import CheckCache
-from agent_build_kit.pipeline.gate import check_branch, red_problems
+from agent_build_kit.pipeline.gate import check_branch, red_problems, tree_red_problems
 from agent_build_kit.pipeline.red_check import Rule
 from agent_build_kit.profiles.python_uv import PROFILE as PYTHON
 from tests.factories import commit_files as commit
 from tests.factories import git, init_repo
 from tests.junit_cases import failing, passing, printed
+from tests.scripted_red import script_commands
 from tests.whole_lines import assert_tail_of_whole_lines
 
 
@@ -42,22 +43,20 @@ def tests_first_branch(repo: Path) -> None:
 def fake_commands(monkeypatch: pytest.MonkeyPatch):
     """Stand in for pre-commit and pytest with scripted output."""
 
-    def configure(*, clean_exit: int = 0, red_output: str, red_exit: int = 1) -> None:
-        class Scripted:
-            """The Python profile with its two shell-outs replaced."""
-
-            def clean_command(self) -> str:
-                return f"exit {clean_exit}"
-
-            def red_command(
-                self, files: list[str], ids: list[str] | None = None, **_: object
-            ) -> str:
-                return f"printf '%s' {red_output!r} && exit {red_exit}"
-
-            def __getattr__(self, name):
-                return getattr(PYTHON, name)
-
-        monkeypatch.setattr(profiles, "get", lambda name: Scripted())
+    def configure(
+        *,
+        clean_exit: int = 0,
+        red_output: str,
+        red_exit: int = 1,
+        cwd_log: Path | None = None,
+    ) -> None:
+        script_commands(
+            monkeypatch,
+            clean_exit=clean_exit,
+            red_output=red_output,
+            red_exit=red_exit,
+            cwd_log=cwd_log,
+        )
 
     return configure
 
@@ -393,3 +392,71 @@ def test_the_gate_does_not_touch_the_working_tree(repo: Path, fake_commands) -> 
 
     assert git(repo, "status", "--porcelain") == ""
     assert git(repo, "rev-parse", "--abbrev-ref", "HEAD") == "spec/change/1-unit"
+
+
+NEW_MODULE = "tests.test_new"
+IN_PLACE_REPORT = printed([passing(MODULE, "test_x"), failing(NEW_MODULE, "test_new")])
+
+
+def without_sha(problem: str) -> str:
+    """A problem without the label of the commit it was found in."""
+    return problem.split(": ", 1)[1]
+
+
+def test_a_worktrees_tree_is_judged_in_place_as_the_commit_holding_it_is(
+    repo: Path, fake_commands, tmp_path: Path
+) -> None:
+    commit(repo, "test: the tests that exist", {THING: ASSERTS})
+    (repo / THING).write_text(source_of("test_x()", "value = 2", "assert value == 3"))
+    (repo / "tests/test_new.py").write_text("def test_new():\n    assert False\n")
+    head = git(repo, "rev-parse", "HEAD")
+    status = git(repo, "status", "--porcelain")
+    files = {path: (repo / path).read_text() for path in (THING, "tests/test_new.py")}
+    in_place_log = tmp_path / "in-place.log"
+    fake_commands(red_output=IN_PLACE_REPORT, cwd_log=in_place_log)
+
+    verdict = tree_red_problems(repo, profile=profiles.get("python-uv"))
+
+    ran_in = in_place_log.read_text().split()
+    assert [Path(line).resolve() for line in ran_in] == [repo.resolve()]
+    assert verdict.judged
+    assert verdict.problems
+    assert git(repo, "rev-parse", "HEAD") == head
+    assert git(repo, "diff", "--cached") == ""
+    assert git(repo, "status", "--porcelain") == status
+    assert files == {path: (repo / path).read_text() for path in files}
+
+    git(repo, "add", "-A")
+    git(repo, "commit", "-qm", "test: the same tree")
+    committed = red_problems(
+        repo, git(repo, "rev-parse", "HEAD").strip(), profile=profiles.get("python-uv")
+    )
+    assert [without_sha(p) for p in verdict.problems] == [without_sha(p) for p in committed]
+
+
+def test_a_tree_that_changes_no_test_file_has_nothing_to_judge(repo: Path, fake_commands) -> None:
+    commit(repo, "test: the tests that exist", {THING: ASSERTS})
+    (repo / "README.md").write_text("changed\n")
+    fake_commands(red_output=PASSED, red_exit=0)
+
+    verdict = tree_red_problems(repo, profile=profiles.get("python-uv"))
+
+    assert not verdict.judged
+    assert verdict.problems == []
+    assert git(repo, "diff", "--cached") == ""
+
+
+def test_an_untracked_artifact_is_not_in_the_commit_a_tree_is_judged_as(
+    repo: Path, fake_commands
+) -> None:
+    commit(repo, "test: the tests that exist", {THING: ASSERTS})
+    (repo / "tests/test_built.py").write_text("def test_built():\n    assert False\n")
+    fake_commands(red_output=IN_PLACE_REPORT)
+
+    kept = tree_red_problems(repo, profile=profiles.get("python-uv"))
+    left_out = tree_red_problems(
+        repo, profile=profiles.get("python-uv"), artifacts=("tests/test_built.py",)
+    )
+
+    assert kept.judged
+    assert not left_out.judged

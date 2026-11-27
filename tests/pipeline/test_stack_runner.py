@@ -22,8 +22,15 @@ from typing import Any
 
 import pytest
 
+from agent_build_kit.pipeline.group_mode import GroupMode
 from agent_build_kit.pipeline.restack import HostMoved
-from agent_build_kit.pipeline.stack_runner import Restacked, UnitRunner
+from agent_build_kit.pipeline.stack_runner import (
+    STUBBED_TESTS_FINISH,
+    TESTS_FINISH,
+    Restacked,
+    UnitRunner,
+    write_tests_prompt,
+)
 from agent_build_kit.pipeline.unit_store import UnitStore
 from agent_build_kit.pipeline.units import IN_REVIEW
 from tests.factories import stored_unit, unit
@@ -512,6 +519,53 @@ def checked_runner(
     store = UnitStore(tmp_path / "units.json")
     store.upsert([unit()])
     return make_runner(store, recorder, tmp_path), store
+
+
+# --- the tests prompt's red words ----------------------------------------------
+
+TESTS_FIELDS = {
+    "commands": "",
+    "guidance": "",
+    "groups": "1",
+    "change_dir": "openspec/changes/feature",
+    "boundary": "",
+    "changelog": "",
+}
+RED_WORDS = "RED-WORDS-MARKER"
+
+
+@pytest.mark.parametrize(
+    ("stubbed", "finish"),
+    [(True, STUBBED_TESTS_FINISH), (False, TESTS_FINISH)],
+    ids=["stubbed", "unstubbed"],
+)
+def test_the_red_words_go_once_before_a_tests_and_code_prompts_ending_not_a_tests_only_ones(
+    stubbed: bool, finish: str
+) -> None:
+    text = write_tests_prompt(
+        GroupMode.TESTS_AND_CODE, stubbed=stubbed, red_words=RED_WORDS, **TESTS_FIELDS
+    )
+
+    assert text.count(RED_WORDS) == 1
+    assert text.index(RED_WORDS) < text.index(finish)
+
+    tests_only = write_tests_prompt(GroupMode.TESTS_ONLY, red_words=RED_WORDS, **TESTS_FIELDS)
+    assert RED_WORDS not in tests_only
+
+
+@pytest.mark.parametrize("stubbed", [True, False], ids=["stubbed", "unstubbed"])
+def test_only_a_tests_and_code_prompt_names_the_red_check_command_and_once(stubbed: bool) -> None:
+    text = write_tests_prompt(GroupMode.TESTS_AND_CODE, stubbed=stubbed, **TESTS_FIELDS)
+    tests_only = write_tests_prompt(GroupMode.TESTS_ONLY, **TESTS_FIELDS)
+
+    assert text.count("abk red-check") == 1
+    assert "abk red-check" not in tests_only
+
+
+def test_a_stubbed_prompt_no_longer_tells_the_step_not_to_run_the_new_tests() -> None:
+    text = write_tests_prompt(GroupMode.TESTS_AND_CODE, stubbed=True, **TESTS_FIELDS)
+
+    assert "Do not run the new tests" not in text
 
 
 # --- how many fix rounds, and when they count from -----------------------------

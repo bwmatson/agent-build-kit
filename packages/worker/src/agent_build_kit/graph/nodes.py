@@ -55,7 +55,7 @@ from agent_build_kit.pipeline import (
     spans,
     spec_snapshot,
 )
-from agent_build_kit.pipeline.agent_commands import commands_note, placement_note
+from agent_build_kit.pipeline.agent_commands import commands_note, placement_note, red_words_note
 from agent_build_kit.pipeline.call_record import call_recorder
 from agent_build_kit.pipeline.changelog_convention import changelog_note
 from agent_build_kit.pipeline.check_failures import failed_check, with_e2e_hint
@@ -278,7 +278,8 @@ NO_TESTS_COMMIT = (
 ACCOUNT_QUOTE = 300  # characters of the agent's report a stop quotes
 RED_CHECK_NOTE = (
     "The red check ran your tests before any implementation exists and rejected them:\n"
-    "{reason}\nRewrite them so each new test fails with an assertion, for the right reason."
+    "{reason}\nRewrite them so each new test fails with an assertion, or in another way the "
+    "red words in your instructions count as red."
 )
 SELECTOR_CHECK_NOTE = (
     "This group's tests are integration tests, and the selector check rejected them:\n"
@@ -1755,6 +1756,7 @@ class BuildPath:
                 changelog=changelog_note(tree, r.repo_config),
                 stubbed=stubbed,
                 placement=placement_note(r.repo_config),
+                red_words=red_words_note(r.repo_config, stubbed=stubbed),
             )
             prompt = self.told(prompt, self.scope_note())
             if (stored := r.store.get(unit.id)).feedback_source is FeedbackSource.RED_CHECK:

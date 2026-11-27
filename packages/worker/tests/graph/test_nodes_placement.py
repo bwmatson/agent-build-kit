@@ -7,10 +7,16 @@ from __future__ import annotations
 
 import re
 from pathlib import Path
+from typing import Any
 
+import pytest
+
+from agent_build_kit import profiles
 from agent_build_kit.config import ProjectConfig, RepoConfig
 from agent_build_kit.pipeline.agent_commands import placement_note
+from packages.worker.tests.graph.test_build_path import build
 from tests.agent_command_fakes import repo_of
+from tests.graph.stub_loop_fakes import StubLoop, stubbed_build
 from tests.graph_driver import fresh, tick
 from tests.prompt_text import flat
 
@@ -83,3 +89,32 @@ def test_projects_that_share_one_placement_use_it() -> None:
     )
 
     assert IN_EXISTING_FILE in flat(placement_note(repo))
+
+
+@pytest.mark.parametrize(
+    ("profile", "stubbed"),
+    [("python-uv", False), ("python-uv", True), ("node-npm", False)],
+    ids=["python unstubbed", "python stubbed", "node unstubbed"],
+)
+def test_the_first_tests_prompt_states_what_the_profile_counts_as_red(
+    tmp_path: Path, profile: str, stubbed: bool
+) -> None:
+    # The test config turns stubbed builds off (`workspace_config`), so a stubbed one is asked for.
+    prompt_words = profiles.get(profile).prompt_words
+    words = prompt_words.red_stubbed if stubbed else prompt_words.red
+    repo = repo_of(tmp_path, profile=profile)
+    if stubbed:
+        stubbed_build()
+        recorder = StubLoop(fresh(tmp_path).store)
+        overrides: dict[str, Any] = {**recorder.overrides(tmp_path), "repo_config": repo}
+        build(tmp_path, recorder, **overrides)
+        text = flat(recorder.prompts[0])
+    else:
+        text = prompt_sent(tmp_path, repo)
+
+    assert words.red_types
+    assert words.not_red
+    for item in (*words.red_types, *(flat(phrase) for phrase in words.not_red)):
+        assert item in text
+    if profile == "python-uv":  # the node profile states the same words for both kinds of build
+        assert (flat(prompt_words.red_stubbed.not_red[0]) in text) == stubbed

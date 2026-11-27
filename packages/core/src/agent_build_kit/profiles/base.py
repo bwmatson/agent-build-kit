@@ -26,6 +26,20 @@ class ProfileUnsupported(NotImplementedError):
     """The toolchain profile does not implement what a run needs; held for a person."""
 
 
+class RedWords(Frozen):
+    """What a profile's red check counts as red, for one kind of build, in words the tests
+    prompt shows. Nothing by default: a profile that states none adds nothing to the prompt."""
+
+    # The exception types that count as red.
+    red_types: tuple[str, ...] = ()
+    # Further red cases, as short phrases.
+    red_cases: tuple[str, ...] = ()
+    # Failures that do not count as red, as short phrases.
+    not_red: tuple[str, ...] = ()
+    # One line of advice on writing a test the check accepts.
+    advice: str = ""
+
+
 class PromptWords(Frozen):
     """The toolchain-specific phrases the build prompts use."""
 
@@ -37,6 +51,9 @@ class PromptWords(Frozen):
     # in which every test fails. A profile whose `red_command` selects by id says a new case
     # joins the existing test file.
     placement: str = ""
+    # What the red check counts as red in an unstubbed and in a stubbed build.
+    red: RedWords = RedWords()
+    red_stubbed: RedWords = RedWords()
 
 
 @runtime_checkable

@@ -30,7 +30,7 @@ def test_the_tests_prompt_of_a_stubbed_build_says_what_the_stubs_must_pass(
 
     assert "lint, format and types" in prompt
     assert "stubs hold no logic" in prompt or "stubs contain no logic" in prompt
-    assert "do not run the new tests" in prompt
+    assert "abk red-check" in prompt
     assert "a new test and a changed assertion must fail" not in prompt
 
 
@@ -55,7 +55,9 @@ def test_the_closing_paragraph_of_an_unstubbed_tests_prompt_is_byte_for_byte_the
         "Before you finish: run linting and formatting, which must pass, and run the\n"
         "new and changed tests. A new test and a changed assertion must fail, and a test\n"
         "changed only in setup, names or helpers may pass. A new test or changed assertion\n"
-        "that passes now is not testing the behaviour this group adds. Do not write the\n"
+        "that passes now is not testing the behaviour this group adds. Then run\n"
+        "`abk red-check`: it judges them as the pipeline's red check will; fix what it\n"
+        "prints. Do not write the\n"
         "implementation.\n"
         "The change's files are read-only for you: do not tick boxes in its tasks.md\n"
         "or edit anything under CHANGE. The pipeline records a task as done once\n"
