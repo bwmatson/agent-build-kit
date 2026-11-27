@@ -10,6 +10,7 @@
   a raised unit with the reason, and `abk explain` prints a unit's floor and its reason. The
   planner prompt shows each group's floors on its heading, and a refused mode of a group now
   names the group, its floor, the modes it allows, the likely cause and the fix in `tasks.md`.
+
 - The units store's connection is a `store` setting: `store.url`, or `store.host`, `store.port`,
   `store.user`, `store.password` and `store.database`, each also read from `ABK_STORE_*` (the
   environment wins, then `abk.local.yaml`). `abk db up` and `abk db down` start and stop a local
