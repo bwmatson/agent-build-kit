@@ -596,6 +596,11 @@ repos:                          # ordered: deploy order is derived from
                                 # A change edits this list with a `Project:` line
                                 # in its tasks (add, remove or replace); the kit
                                 # applies it and commits `abk.yaml`.
+                                # Each project also takes `code_map: {enabled: true,
+                                # max_bytes: 65536}`: whether it gets a code map, and the
+                                # most bytes its Markdown view may hold (at least 4096).
+    code_map: {}                # the same block for the repo's root; used only when the
+                                # repo declares no projects. enabled true, max_bytes 65536.
                                 # A file belongs to the deepest project holding
                                 # it. Left empty, checks run at the repo root —
                                 # which fails outright when the repo root is not

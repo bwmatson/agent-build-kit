@@ -70,7 +70,7 @@ def build_graph(
                 signature=symbol.signature,
                 span=symbol.span,
             )
-            owner, dotted, _ = symbol.name.partition(".")
+            owner, dotted, _ = symbol.name.rpartition(".")
             parent = f"{facts.path}::{owner}" if dotted else facts.path
             edges.add(("contains", parent, node_id))
         child = facts.path
@@ -86,11 +86,11 @@ def build_graph(
 
     return CodeMap(
         project=project.path,
-        profile="",
+        profile=project.profile,
         nodes=tuple(nodes.values()),
         edges=tuple(
             Edge(kind=kind, source=source, target=target)
-            for kind, source, target in sorted(edges)
+            for kind, source, target in edges
             if source in nodes and target in nodes
         ),
         entry_points=tuple(

@@ -138,15 +138,10 @@ def _section(name: str, lines: list[str], last: bool = False) -> str:
 
 def dump(graph: CodeMap) -> str:
     """The graph as JSON: sorted, one node, edge or entry point per line, byte-stable."""
-    nodes = [_node_json(node) for node in sorted(graph.nodes, key=lambda n: n.id)]
-    edges = [
-        _json([edge.kind, edge.source, edge.target])
-        for edge in sorted(graph.edges, key=lambda e: (e.kind, e.source, e.target))
-    ]
-    entries = [
-        _entry_json(entry)
-        for entry in sorted(graph.entry_points, key=lambda e: (e.kind, e.name, e.path, e.line))
-    ]
+    # `CodeMap` keeps its nodes, edges and entry points in the dump's order.
+    nodes = [_node_json(node) for node in graph.nodes]
+    edges = [_json([edge.kind, edge.source, edge.target]) for edge in graph.edges]
+    entries = [_entry_json(entry) for entry in graph.entry_points]
     header = (
         f'"format": {_json(FORMAT)},\n"version": {SCHEMA_VERSION},\n'
         f'"project": {_json(graph.project)},\n"profile": {_json(graph.profile)},\n'

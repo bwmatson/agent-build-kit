@@ -114,7 +114,7 @@ def test_a_dump_is_sorted_one_line_each_stable_and_loads_back_equal() -> None:
 def test_a_dump_of_another_format_or_version_is_refused_naming_it(header: str, found: str) -> None:
     text = header[:-1] + ',\n"nodes":[],\n"edges":[],\n"entry_points":[]\n}\n'
 
-    with pytest.raises(Exception) as refused:
+    with pytest.raises(ValueError) as refused:
         load(text)
 
     assert found in str(refused.value)

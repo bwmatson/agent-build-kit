@@ -52,6 +52,16 @@ class FakeReader:
                                 signature="def m(self)",
                             ),
                             Symbol(
+                                kind="class", name="C.D", span=(3, 4), lines=2, signature="class D"
+                            ),
+                            Symbol(
+                                kind="function",
+                                name="C.D.n",
+                                span=(4, 4),
+                                lines=1,
+                                signature="def n(self)",
+                            ),
+                            Symbol(
                                 kind="function", name="f", span=(7, 8), lines=2, signature="def f()"
                             ),
                         )
@@ -133,8 +143,11 @@ def test_a_project_reads_its_own_live_source_files_and_builds_the_graph(checkout
         "pkg/use.py",
         "pkg/mod.py::C",
         "pkg/mod.py::C.m",
+        "pkg/mod.py::C.D",
+        "pkg/mod.py::C.D.n",
         "pkg/mod.py::f",
     }
+    assert first.profile == APP.profile
     assert nodes["pkg/mod.py"].tests == ("tests/test_mod.py",)
     assert {(e.kind, e.source, e.target) for e in first.edges} == {
         ("contains", ".", "pkg"),
@@ -143,6 +156,8 @@ def test_a_project_reads_its_own_live_source_files_and_builds_the_graph(checkout
         ("contains", "pkg/mod.py", "pkg/mod.py::C"),
         ("contains", "pkg/mod.py", "pkg/mod.py::f"),
         ("contains", "pkg/mod.py::C", "pkg/mod.py::C.m"),
+        ("contains", "pkg/mod.py::C", "pkg/mod.py::C.D"),
+        ("contains", "pkg/mod.py::C.D", "pkg/mod.py::C.D.n"),
         ("imports", "pkg/use.py", "pkg/mod.py"),
     }
     assert {(e.name, e.target) for e in first.entry_points} == {
