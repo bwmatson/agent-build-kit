@@ -8,8 +8,8 @@
   longer makes the group `full`. A review tier below a group's floor is now raised to it and
   logged, not refused, and each unit records why its floor is what it is. `abk status` lists
   a raised unit with the reason, and `abk explain` prints a unit's floor and its reason. The
-  planner prompt shows each group's floors on its heading, and a refused build mode now names
-  the group, its floor, the modes it allows, the likely cause and the fix in `tasks.md`.
+  planner prompt shows each group's floors on its heading, and a refused mode of a group now
+  names the group, its floor, the modes it allows, the likely cause and the fix in `tasks.md`.
 
 - The plan review's first question now also asks whether each test task can fail before its
   implementation for a reason the build's red check accepts. Behaviour that already holds belongs
