@@ -16,9 +16,37 @@ _WARM_SECONDS = 240
 
 
 @pytest.fixture(scope="session")
-def openspec_cli() -> None:
-    """The OpenSpec CLI starts, asked once; a test that runs it requests this."""
-    probe()
+def openspec_cache(tmp_path_factory: pytest.TempPathFactory) -> dict[str, str]:
+    """The npm settings of the run's one OpenSpec CLI fetch, which the CLI is probed through.
+
+    The suite gives each test an empty `HOME`, so without a shared npm cache every CLI call in
+    a test would make `npx` fetch and install the package again. The run fetches it once into
+    a run-wide cache, under a lock the workers share; a broken fetch is removed and made once
+    more. Under workers the folder sits beside the workers' folders, else inside the base folder.
+    """
+    basetemp = tmp_path_factory.getbasetemp()
+    base = basetemp.parent if os.environ.get("PYTEST_XDIST_WORKER") else basetemp
+    folder = base / "openspec"
+    folder.mkdir(exist_ok=True)
+    overrides = {"npm_config_cache": str(folder / "npm-cache"), "npm_config_yes": "true"}
+    with (folder / "lock").open("w") as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        ready = folder / "ready"
+        if not ready.exists():
+            try:
+                probe(env=overrides)
+            except pytest.fail.Exception:
+                shutil.rmtree(folder / "npm-cache", ignore_errors=True)
+                probe(env=overrides)
+            ready.write_text("ready\n")
+    return overrides
+
+
+@pytest.fixture
+def openspec_cli(openspec_cache: dict[str, str], monkeypatch: pytest.MonkeyPatch) -> None:
+    """The OpenSpec CLI starts from the run's warm npm cache; a test that runs it requests this."""
+    for key, value in openspec_cache.items():
+        monkeypatch.setenv(key, value)
 
 
 def _warm_vitest(folder: Path, overrides: dict[str, str]) -> str:

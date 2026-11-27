@@ -313,7 +313,7 @@ class Landed(Frozen):
 
 
 @pytest.fixture(scope="module")
-def landed(scratch: Scratch, installed: Installed, openspec_cli: None) -> Landed:
+def landed(scratch: Scratch, installed: Installed, openspec_cache: dict[str, str]) -> Landed:
     """A unit's work landing on the default branch, verified and archived once: it leaves the
     archived `landed` spec and the unit in the pipeline worktree for the tests that need them."""
     worktree = scratch.worktree
