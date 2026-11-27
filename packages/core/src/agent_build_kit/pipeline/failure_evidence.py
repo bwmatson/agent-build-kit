@@ -52,13 +52,41 @@ def machine_sample(proc: Path = Path("/proc")) -> dict[str, object]:
     except OSError:
         pass
     try:
+        readings: dict[str, int] = {}
         for line in (proc / "meminfo").read_text().splitlines():
-            if line.startswith("MemAvailable:"):
-                sample["memory_available_kb"] = int(line.split()[1])
+            name, _, rest = line.partition(":")
+            if name in ("MemAvailable", "SwapTotal", "SwapFree"):
+                readings[name] = int(rest.split()[0])
+        if "MemAvailable" in readings:
+            sample["memory_available_kb"] = readings["MemAvailable"]
+        if "SwapTotal" in readings and "SwapFree" in readings:
+            sample["swap_used_kb"] = readings["SwapTotal"] - readings["SwapFree"]
     except (OSError, ValueError, IndexError):
+        pass
+    try:
+        for line in (proc / "pressure" / "memory").read_text().splitlines():
+            if line.startswith("full "):
+                fields = dict(part.split("=", 1) for part in line.split()[1:] if "=" in part)
+                sample["memory_pressure_full_us"] = int(fields["total"])
+    except (OSError, ValueError, KeyError):
         pass
     sample["cpus"] = os.cpu_count()
     return sample
+
+
+def memory_reading(sample: dict[str, object], key: str) -> int | None:
+    """A kilobyte reading of a machine sample as whole megabytes, None when it has none."""
+    value = sample.get(key)
+    return value // 1024 if isinstance(value, int) else None
+
+
+def pressure_delta(start: dict[str, object], end: dict[str, object]) -> int | None:
+    """The microseconds of full memory stall between two samples; None when either lacks the
+    counter or it went back."""
+    before, after = start.get("memory_pressure_full_us"), end.get("memory_pressure_full_us")
+    if not isinstance(before, int) or not isinstance(after, int) or after < before:
+        return None
+    return after - before
 
 
 def first_load(sample: dict[str, object]) -> float | None:

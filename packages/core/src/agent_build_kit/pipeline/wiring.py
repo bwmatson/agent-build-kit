@@ -2165,6 +2165,21 @@ def build_unit_test(
                         failed_detail=[run_detail[test] for test in failed if test in run_detail],
                         cpus=cpus,
                         load_high=load_high,
+                        mem_available_mb_start=failure_evidence.memory_reading(
+                            sample_start, "memory_available_kb"
+                        ),
+                        mem_available_mb_end=failure_evidence.memory_reading(
+                            sample_end, "memory_available_kb"
+                        ),
+                        swap_used_mb_start=failure_evidence.memory_reading(
+                            sample_start, "swap_used_kb"
+                        ),
+                        swap_used_mb_end=failure_evidence.memory_reading(
+                            sample_end, "swap_used_kb"
+                        ),
+                        memory_pressure_full_us=failure_evidence.pressure_delta(
+                            sample_start, sample_end
+                        ),
                         disturbed_seconds=gap,
                         data_source=data_source,
                         data_age_hours=data_age,

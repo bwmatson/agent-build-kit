@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- The unit-test run ledger now records the memory available and the swap used at the start and
+  end of each run, and how long tasks were stalled on memory during it, so a slow or failed run
+  can be told apart from a host short of memory. A reading the host does not give is null.
+
 - A group's review-tier floor now reads the paths the group changes, as the build-mode floor
   does, and no longer every word of its tasks. A protected file named only in prose, on a
   `Reads:` line, in a `Verify:` clause or in a sentence saying the group only reads it no
