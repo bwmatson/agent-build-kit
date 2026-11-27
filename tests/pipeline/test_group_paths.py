@@ -8,7 +8,7 @@ from pathlib import Path
 
 import pytest
 
-from agent_build_kit.pipeline.group_paths import line_paths, named_paths
+from agent_build_kit.pipeline.group_paths import changed_names, line_paths, named_paths
 from agent_build_kit.pipeline.work_graph import validate_tasks
 from tests.project_workspace import OPT_OUT, app_with_projects
 
@@ -122,6 +122,9 @@ def test_a_verify_segment_of_a_task_line_does_not_name_paths(tmp_path: Path) -> 
         "Do not touch `services/api/src/route.py`.",
         "It must not edit `services/api/src/route.py`.",
         "Everything else is left unchanged, including `services/api/src/route.py`.",
+        "The check only reads `services/api/src/route.py`.",
+        "It merely reads `services/api/src/route.py`.",
+        "The fixture is read-only: `services/api/src/route.py`.",
     ],
 )
 def test_a_sentence_after_unchanged_must_not_or_do_not_does_not_name_paths(
@@ -130,6 +133,35 @@ def test_a_sentence_after_unchanged_must_not_or_do_not_does_not_name_paths(
     body = f"- [ ] 1.1 Edit `web/src/app.ts`. {sentence}\n"
 
     assert named(tmp_path, body) == ["web/src/app.ts"]
+
+
+@pytest.mark.parametrize(
+    ("line", "names"),
+    [
+        (
+            "Edit `services/api/src/route.py` and `CODEOWNERS`.",
+            ["services/api/src/route.py", "CODEOWNERS"],
+        ),
+        ("Add CODEOWNERS covering all four classes.", []),
+        ("Update .github/workflows/ci.yml for it.", [".github/workflows/ci.yml"]),
+        ("Add .env for the key.", [".env"]),
+        ("Edit `.github/**`.", [".github/**"]),
+        ("Reads: `.github/workflows/ci.yml`", []),
+        ("Not changed: `CODEOWNERS`.", []),
+        ("Needs: `.github/workflows/ci.yml`", []),
+        (
+            "Edit `web/src/app.ts`. Verify: red against `.github/workflows/ci.yml`.",
+            ["web/src/app.ts"],
+        ),
+        ("Edit `CODEOWNERS`, the check only reads `web/src/app.ts`.", ["CODEOWNERS"]),
+        ("Run `tests/test_x.py::test_a` and see `src/a.py:12`.", ["tests/test_x.py", "src/a.py"]),
+        ("Use `--flag`, `https://example.com/a/b.html` and `RETRY=3`.", []),
+    ],
+)
+def test_changed_names_are_what_a_line_changes_that_a_protected_glob_could_match(
+    line: str, names: list[str]
+) -> None:
+    assert changed_names(line) == names
 
 
 def test_a_path_the_group_names_twice_in_one_line_is_found_in_order(tmp_path: Path) -> None:

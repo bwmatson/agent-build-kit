@@ -675,3 +675,43 @@ def test_a_split_of_a_shared_test_file_is_recorded_and_keeping_it_together_is_no
     assert first.split_test_files == {LAYOUT_TEST: ("c/14",)}
     assert second.split_test_files == {}
     assert only.split_test_files == {}
+
+
+@pytest.mark.parametrize(
+    ("tasks", "paths", "asked", "expected"),
+    [
+        (
+            (
+                "Test: a check runs with an ownership file covering all four classes: CODEOWNERS.",
+                "Test: an ordinary check.",
+            ),
+            None,
+            "light",
+            "light",
+        ),
+        (("Test: it works. The check only reads `.github/workflows/ci.yml`.",), None, None, "auto"),
+        (("Test: it works.\nReads: `CODEOWNERS`",), None, None, "auto"),
+        (("Test: it works. Verify: red against `.github/workflows/ci.yml`.",), None, None, "auto"),
+        (("Test: edit `CODEOWNERS` to cover it.",), ("src/app.py",), None, "auto"),
+    ],
+    ids=["bare-name", "only-reads", "reads-line", "verify-segment", "paths-line"],
+)
+def test_the_review_tier_floor_reads_what_a_group_changes(
+    tasks: tuple[str, ...], paths: tuple[str, ...] | None, asked: str | None, expected: str
+) -> None:
+    activate_with(review={"enabled": True})
+    text = "# Tasks\n\n"
+    for n, task in enumerate(tasks, start=1):
+        text += f"## {n}. [app] [unit-test] Group {n}\n\n- [ ] {n}.1 {task}\n\n"
+    groups = groups_at(*[3] * len(tasks))
+    if paths is not None:
+        groups[0] = groups[0].model_copy(update={"paths": paths})
+    unit = planned(id="feature/1", change="feature", groups=list(range(1, len(tasks) + 1)))
+    if asked is not None:
+        unit["review_tier"] = asked
+    try:
+        outcome = parse_graph(graph_json([unit]), groups=groups, tasks=text)[0].review_tier
+    except PlannerError as error:
+        outcome = f"refused: {error}"
+
+    assert outcome == expected

@@ -43,6 +43,12 @@ _SENTENCE_END = re.compile(r"(?<=\.)\s+")
 _NOT_A_CHANGE = re.compile(r"\b(?:unchanged|must not|do not)\b.*", re.I)
 
 
+def changed_names(line: str) -> list[str]:
+    """What one line changes that a protected glob could match: backticked tokens and unticked
+    path-shaped words of its change sentences, in order, each once."""
+    raise NotImplementedError
+
+
 def _is_path_token(token: str) -> bool:
     """Whether a backticked token can be a path: not a flag, URL or variable, and no spaces,
     assignments, calls or placeholders."""
