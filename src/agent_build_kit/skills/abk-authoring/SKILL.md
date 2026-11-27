@@ -222,6 +222,10 @@ group where that would be wrong. A group that really edits only test code, and h
 (deleting the originals, noting something in the pull request), lists its files in a `Paths:` line, which says
 what the group names and turns the rule off.
 
+The review-tier floor reads the paths a group changes as the mode floor does: the `Paths:` line, else the paths
+its tasks name as changes. Name a protected file in backticks or in `Paths:`. A path on a `Reads:` line, in a
+`Verify:` clause or in a sentence saying the group only reads it does not count.
+
 ## How the planner judges a change to documents or configuration
 
 In short, only a group that touches code writes its tests first. A group that names only documents, a changelog or

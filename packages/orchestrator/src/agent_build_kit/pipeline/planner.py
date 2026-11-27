@@ -43,6 +43,7 @@ from agent_build_kit.pipeline.commit_order import (
     branch_commit_trailers,
     steps_progress,
 )
+from agent_build_kit.pipeline.group_paths import changed_names
 from agent_build_kit.pipeline.joins import (
     JoinContext,
     JoinRefused,
@@ -367,12 +368,18 @@ def _group_floor(group: TaskGroup, repo: str, tasks: str) -> tuple[str, str]:
     """The review tier a group's tags and task text put under its unit, and why."""
     if group.flag in ("contract", "narrow", "acceptance"):
         return "full", f"it is flagged [{group.flag}]"
-    for section in group_sections(tasks, [group.number]):
-        for word in section.split():
-            # Sentence punctuation ends a word; a leading dot belongs to the path.
-            path = word.lstrip("`'\"([").rstrip("`'\")],;:.")
-            if path and is_protected(active(), repo, path):
-                return "full", f"its tasks name the protected path {path}"
+    if group.paths:
+        names: list[str] = list(group.paths)
+    else:
+        names = [
+            name
+            for section in group_sections(tasks, [group.number])
+            for line in section.splitlines()
+            for name in changed_names(line)
+        ]
+    for path in names:
+        if is_protected(active(), repo, path):
+            return "full", f"its tasks name the protected path {path}"
     return "auto", ""
 
 

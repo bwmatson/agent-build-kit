@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- A group's review-tier floor now reads the paths the group changes, as the build-mode floor
+  does, and no longer every word of its tasks. A protected file named only in prose, on a
+  `Reads:` line, in a `Verify:` clause or in a sentence saying the group only reads it no
+  longer makes the group `full`.
+
 - The plan review's first question now also asks whether each test task can fail before its
   implementation for a reason the build's red check accepts. Behaviour that already holds belongs
   in the implementation task's `Verify`, so a test task that cannot be red is caught at planning.
