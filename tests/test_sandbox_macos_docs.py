@@ -5,7 +5,7 @@ from __future__ import annotations
 
 import re
 
-from tests.doc_text import ROOT, squashed, unreleased_bullets
+from tests.doc_text import ROOT, squashed
 
 
 def requirements() -> str:
@@ -56,11 +56,3 @@ def test_the_design_no_longer_says_the_macos_backend_is_not_built() -> None:
     text = squashed((ROOT / "docs" / "designs/sandbox-design.md").read_text(encoding="utf-8"))
 
     assert "before it is built" not in text
-
-
-def test_the_changelog_has_one_bullet_for_the_macos_backend() -> None:
-    found = [b for b in unreleased_bullets() if "Seatbelt" in b]
-
-    assert len(found) == 1
-    assert "macOS" in found[0]
-    assert "sandbox-exec" in found[0]

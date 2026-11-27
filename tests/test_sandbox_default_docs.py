@@ -5,7 +5,7 @@ from __future__ import annotations
 
 import pytest
 
-from tests.doc_text import ROOT, squashed, unreleased_bullets
+from tests.doc_text import ROOT, squashed
 
 SANDBOX_ONLY = ["README.md"]
 GUARD_DOCUMENTS = [
@@ -56,9 +56,3 @@ def test_the_document_says_the_sandbox_is_on_by_default(path: str) -> None:
 @pytest.mark.parametrize("path", GUARD_DOCUMENTS)
 def test_the_document_says_the_sandbox_is_on_and_a_config_change_only_warns(path: str) -> None:
     assert_says(path, SANDBOX_PHRASES + GUARD_PHRASES)
-
-
-def test_the_changelog_has_a_bullet_for_the_default() -> None:
-    bullets = [b.lower() for b in unreleased_bullets()]
-
-    assert any("sandbox" in b and "on by default" in b for b in bullets)

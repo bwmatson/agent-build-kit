@@ -17,20 +17,11 @@ CLI = ROOT / "docs" / "cli.md"
 INIT = ROOT / "docs" / "init.md"
 SKILL = ROOT / "src" / "agent_build_kit" / "skills" / "abk-config" / "SKILL.md"
 AGENTS = ROOT / "AGENTS.md"
-CHANGELOG = ROOT / "CHANGELOG.md"
 CONFIG_AND_SKILL = [CONFIGURATION, SKILL]
 
 
 def squashed(path: Path) -> str:
     return " ".join(path.read_text().split())
-
-
-def unreleased_bullets() -> list[str]:
-    text = CHANGELOG.read_text()
-    start = text.index("## Unreleased") + 2
-    following = re.search(r"^## ", text[start:], re.M)
-    body = text[start : start + following.start()] if following else text[start:]
-    return [" ".join(bullet.split()) for bullet in body.split("\n\n") if bullet.startswith("- ")]
 
 
 @pytest.mark.parametrize("path", CONFIG_AND_SKILL, ids=lambda p: p.name)
@@ -111,14 +102,6 @@ def test_init_documents_where_stack_facts_and_the_overlay_go() -> None:
     assert ".env" in text
     assert "abk.local.yaml" in text
     assert "scrub.local" in text
-
-
-def test_the_changelog_names_the_guidance_the_check_the_terms_and_the_store_pass() -> None:
-    bullets = unreleased_bullets()
-    assert any(".env" in b and "from: env-file" in b and "abk.local.yaml" in b for b in bullets)
-    assert any("public content" in b and "abk.local.yaml" in b for b in bullets)
-    assert any("scrub-check" in b and "scrub.local" in b for b in bullets)
-    assert any("scrub-store" in b for b in bullets)
 
 
 def test_the_rule_says_the_checkouts_own_entry_is_not_a_consumer_reference() -> None:

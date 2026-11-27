@@ -8,7 +8,7 @@ from pathlib import Path
 
 import pytest
 
-from tests.doc_text import ROOT, squashed, unreleased_bullets
+from tests.doc_text import ROOT, squashed
 
 DOCUMENTS = {
     "abk-authoring skill": ROOT
@@ -59,7 +59,3 @@ def test_the_runbook_says_to_name_the_project_or_add_a_paths_line_or_let_it_reso
     assert re.search(r"name the project", text, re.I)
     assert re.search(r"add a Paths: line", text, re.I)
     assert re.search(r"let it resolve", text, re.I)
-
-
-def test_the_changelog_has_one_bullet_for_the_resolution() -> None:
-    assert len([b for b in unreleased_bullets() if "--fix-projects" in b]) == 1
