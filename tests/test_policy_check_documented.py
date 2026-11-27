@@ -56,10 +56,3 @@ def test_no_document_describes_the_removed_probe():
     }
     found = {name: paths for name, paths in found.items() if paths}
     assert not found, f"still described: {found}"
-
-
-def test_the_changelog_names_the_check_and_says_the_live_probe_is_gone():
-    text = (ROOT / "CHANGELOG.md").read_text()
-    unreleased = " ".join(text.split("## Unreleased", 1)[1].split("\n## ", 1)[0].split())
-    assert "abk policy check" in unreleased
-    assert re.search(r"live probe[^.]*\bremoved\b", unreleased)

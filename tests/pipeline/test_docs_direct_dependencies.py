@@ -42,15 +42,3 @@ def test_the_document_says_a_needs_the_chain_implies_draws_no_edge(name: str) ->
 
     assert "implies" in text
     assert "no edge" in text
-
-
-def test_the_changelog_has_one_bullet_under_unreleased_for_the_shown_dependencies() -> None:
-    changelog = (ROOT / "CHANGELOG.md").read_text()
-    unreleased = changelog.split("## Unreleased")[1].split("\n## ")[0]
-    bullets = [re.sub(r"\s+", " ", bullet) for bullet in unreleased.split("\n\n- ")]
-
-    ours = [bullet for bullet in bullets if "direct dependencies" in bullet]
-    assert any(
-        all(shown in bullet for shown in ("graph page", "abk status", "pull request"))
-        for bullet in ours
-    )

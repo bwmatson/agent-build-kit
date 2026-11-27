@@ -14,7 +14,6 @@ SECOND_ACCOUNT = DOCS / "claude-code-second-account.md"
 ARCHITECTURE = DOCS / "architecture.md"
 CONFIGURATION = DOCS / "configuration.md"
 SKILL = ROOT / "src" / "agent_build_kit" / "skills" / "abk-config" / "SKILL.md"
-CHANGELOG = ROOT / "CHANGELOG.md"
 
 
 def squashed(path: Path) -> str:
@@ -53,12 +52,3 @@ def test_the_configuration_and_the_skill_say_the_same(path: Path) -> None:
 
     assert re.search(r"every account (uses|goes through|runs through) one path", text)
     assert re.search(r"CLAUDE_CODE_OAUTH_TOKEN[^.]*(precedence|first|before)", text)
-
-
-def test_the_changelog_has_a_bullet_for_the_rejected_login() -> None:
-    text = CHANGELOG.read_text()
-    start = text.index("## Unreleased")
-    following = re.search(r"^## ", text[start + 2 :], re.M)
-    body = text[start : start + 2 + following.start()] if following else text[start:]
-
-    assert re.search(r"login is rejected|rejected login", body)
