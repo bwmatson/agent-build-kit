@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import socket
 from pathlib import Path
 from typing import Any
 
@@ -35,10 +34,3 @@ def loaded(
     if local is not None:
         (root / "abk.local.yaml").write_text(yaml.safe_dump({"store": local}))
     return load_installation(config_path=root / "abk.yaml")
-
-
-def unused_port() -> int:
-    """A loopback port nothing listens on."""
-    with socket.socket() as probe:
-        probe.bind(("127.0.0.1", 0))
-        return probe.getsockname()[1]

@@ -2,7 +2,13 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
+from agent_build_kit import redaction
+from agent_build_kit.config import StoreConfig
+from agent_build_kit.orchestration.sql.url import store_url
 from agent_build_kit.redaction import Redactor
+from tests.cli.store_installation import loaded, no_store_env  # noqa: F401
 
 KEY = "k3y-value-0001"
 OTHER = "0th3r-value-02"
@@ -90,3 +96,22 @@ def test_found_names_the_values_and_the_token_shape_in_a_text() -> None:
 
     assert found == ("API_KEY", "token-shape")
     assert Redactor({"API_KEY": KEY}).found("nothing here") == ()
+
+
+def test_the_store_password_is_redacted_whether_it_came_as_a_part_or_inside_the_url(
+    tmp_path: Path,
+    no_store_env: None,  # noqa: F811
+) -> None:
+    secret = "s3cr/t@pass:word"
+    parts = loaded(
+        tmp_path / "parts",
+        {"host": "db.example", "user": "abk", "password": secret, "database": "units"},
+    )
+    written = store_url(StoreConfig(host="h", user="u", password=secret, database="units"))
+    given = loaded(tmp_path / "given", {"url": written})
+
+    for inst in (parts, given):
+        url = store_url(inst.store) or ""
+        text = redaction.gather(inst).redact(f"{secret} {url}")
+        assert "s3cr" not in text
+        assert "t%40pass" not in text

@@ -14,7 +14,7 @@ from alembic import command
 from agent_build_kit.config import StoreConfig
 from agent_build_kit.installation import Installation
 from agent_build_kit.orchestration.sql.migrate import alembic_config
-from agent_build_kit.orchestration.sql.url import redacted, store_url
+from agent_build_kit.orchestration.sql.url import missing_parts, parses, redacted, store_url
 from agent_build_kit.runtimes.base import Run, Which
 
 CONTAINER = "abk-store"
@@ -91,9 +91,15 @@ def cmd_db_down(
 
 def cmd_db_upgrade(args: argparse.Namespace, inst: Installation) -> int:
     """Bring the configured database to the head revision."""
+    if absent := missing_parts(inst.store):
+        print(f"abk db: set store.{' and store.'.join(absent)}, or store.url", file=sys.stderr)
+        return 1
     url = store_url(inst.store)
     if url is None:
         print("abk db: no store is configured; set store.url or store.host", file=sys.stderr)
+        return 1
+    if not parses(url):
+        print("abk db: store.url is not a database URL", file=sys.stderr)
         return 1
     command.upgrade(alembic_config(url), "head")
     print(f"upgraded {redacted(url)}")

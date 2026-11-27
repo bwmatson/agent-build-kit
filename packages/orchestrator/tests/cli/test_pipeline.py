@@ -78,6 +78,24 @@ def test_status_shows_the_store_server_and_never_its_password(
     assert "hunter2-hunter2" not in out
 
 
+def test_status_still_runs_when_the_store_url_does_not_parse(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    no_store_env: None,  # noqa: F811
+) -> None:
+    monkeypatch.setattr("agent_build_kit.run_support.current_usage", lambda: None)
+    inst = make_installation(
+        tmp_path, planning=dict(state_dir="."), store={"url": "localhost:5432/units"}
+    )
+
+    capsys.readouterr()
+    code = cli.cmd_status(argparse.Namespace(), inst)
+
+    assert code == 0
+    assert "localhost:5432" not in capsys.readouterr().out
+
+
 def test_status_prints_a_planning_line_only_for_the_active_change_whose_planning_gave_up(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:

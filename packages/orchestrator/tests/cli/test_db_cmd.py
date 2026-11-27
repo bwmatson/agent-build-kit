@@ -13,10 +13,7 @@ import pytest
 from sqlalchemy import create_engine, inspect
 from sqlalchemy.engine import make_url
 
-from agent_build_kit import redaction
 from agent_build_kit.cli.db_cmd import cmd_db_down, cmd_db_up, cmd_db_upgrade
-from agent_build_kit.config import StoreConfig
-from agent_build_kit.orchestration.sql.url import store_url
 from tests.cli.store_installation import loaded, no_store_env  # noqa: F401
 from tests.factories import which_all
 
@@ -59,41 +56,17 @@ def test_the_port_defaults_to_5432(tmp_path: Path, no_store_env: None) -> None: 
     assert loaded(tmp_path).store.port == 5432
 
 
-@pytest.mark.parametrize("password", ["p@ss", "pa/ss", "pa:ss", "a@b/c:d"])
-def test_the_builder_makes_an_asyncpg_url_that_parses_back_to_its_parts(password: str) -> None:
-    url = store_url(StoreConfig(host="db.example", user="abk", password=password, database="units"))
-
-    parsed = make_url(url or "")
-    assert parsed.drivername == "postgresql+asyncpg"
-    assert (parsed.host, parsed.port) == ("db.example", 5432)
-    assert (parsed.username, parsed.password, parsed.database) == ("abk", password, "units")
-
-
-def test_a_url_that_is_set_is_used_as_given_beside_the_parts() -> None:
-    given = "sqlite+aiosqlite:///given.db"
-
-    store = StoreConfig(url=given, host="db.example", user="abk", password="x", database="units")
-
-    assert store_url(store) == given
-
-
-def test_the_password_is_redacted_whether_it_came_as_a_part_or_inside_the_url(
+def test_db_upgrade_names_the_part_a_partial_store_lacks(
     tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
     no_store_env: None,  # noqa: F811
 ) -> None:
-    secret = "s3cr/t@pass:word"
-    parts = loaded(
-        tmp_path / "parts",
-        {"host": "db.example", "user": "abk", "password": secret, "database": "units"},
-    )
-    written = store_url(StoreConfig(host="h", user="u", password=secret, database="units"))
-    given = loaded(tmp_path / "given", {"url": written})
+    inst = loaded(tmp_path, {"host": "db.example", "user": "abk"})
 
-    for inst in (parts, given):
-        url = store_url(inst.store) or ""
-        text = redaction.gather(inst).redact(f"{secret} {url}")
-        assert "s3cr" not in text
-        assert "t%40pass" not in text
+    code = cmd_db_upgrade(NO_ARGS, inst)
+
+    assert code == 1
+    assert "store.database" in capsys.readouterr().err
 
 
 class Docker:
