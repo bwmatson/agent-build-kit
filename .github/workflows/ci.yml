@@ -64,6 +64,10 @@ jobs:
     # The tests that run the real OpenSpec CLI through npx (pinned in
     # settings.py), so node is needed.
     runs-on: ubuntu-24.04
+    env:
+      # One npm cache for the warm step and the tests: the integration tests give each test
+      # an empty HOME, and the test fixture reads this setting to find the warmed package.
+      npm_config_cache: ${{ runner.temp }}/npm-cache
     steps:
       - uses: actions/checkout@v7.0.1
       - uses: actions/setup-node@v7.1.0

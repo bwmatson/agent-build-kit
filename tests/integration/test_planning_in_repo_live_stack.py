@@ -224,7 +224,9 @@ def write_usage_cache(home: Path) -> None:
 
 
 @pytest.fixture(scope="module")
-def scratch(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Scratch]:
+def scratch(
+    tmp_path_factory: pytest.TempPathFactory, openspec_cache: dict[str, str]
+) -> Iterator[Scratch]:
     base = tmp_path_factory.mktemp("planning-in-repo")
     origin, working_copy = working_copy_of(base)
     record = base / "agent.jsonl"
@@ -248,13 +250,14 @@ def scratch(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Scratch]:
     home = base / "home"
     home.mkdir()
     write_usage_cache(home)
-    # The caches stay the real ones so `npx` and `uv` do not fetch again under the scratch home.
+    # `npx` reads the run's warm OpenSpec cache and `uv` the real one, so neither fetches again
+    # under the scratch home.
     real = Path.home()
     env = {
         **os.environ,
+        **openspec_cache,
         "HOME": str(home),
         "XDG_CONFIG_HOME": str(home / ".config"),
-        "npm_config_cache": os.environ.get("npm_config_cache", str(real / ".npm")),
         "UV_CACHE_DIR": os.environ.get("UV_CACHE_DIR", str(real / ".cache" / "uv")),
         "ABK_RUNTIME": "acp",
     }
@@ -315,7 +318,10 @@ class Landed(Frozen):
 @pytest.fixture(scope="module")
 def landed(scratch: Scratch, installed: Installed, openspec_cache: dict[str, str]) -> Landed:
     """A unit's work landing on the default branch, verified and archived once: it leaves the
-    archived `landed` spec and the unit in the pipeline worktree for the tests that need them."""
+    archived `landed` spec and the unit in the pipeline worktree for the tests that need them.
+
+    It requests `openspec_cache` (which `scratch` also does, to give its `abk` runs the warm npm
+    cache) so the probe has run before the archive step starts."""
     worktree = scratch.worktree
     git(worktree, "fetch", "-q", "origin")
     git(worktree, "merge", "-q", "--ff-only", "origin/main")

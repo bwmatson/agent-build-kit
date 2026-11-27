@@ -41,6 +41,24 @@ def test_probe_returns_on_status_zero_and_asks_for_the_version_in_a_directory() 
     assert runner.cwd_existed == [True]
 
 
+def test_probe_runs_the_default_child_with_the_given_environment_over_the_process_one(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    seen: list[dict[str, str]] = []
+
+    def fake_run(argv, **kwargs):
+        seen.append(kwargs["env"])
+        return completed(0)
+
+    monkeypatch.setenv("ABK_PROBE_INHERITED", "kept")
+    monkeypatch.setattr(subprocess, "run", fake_run)
+
+    probe(env={"npm_config_cache": "/run/cache"})
+
+    assert seen[0]["npm_config_cache"] == "/run/cache"
+    assert seen[0]["ABK_PROBE_INHERITED"] == "kept"
+
+
 @pytest.mark.parametrize("status", [127, 1])
 def test_probe_fails_with_the_status_and_the_last_five_lines_of_stderr(status: int) -> None:
     with pytest.raises(pytest.fail.Exception) as raised:
