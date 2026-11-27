@@ -87,11 +87,18 @@ def postgres_store_checkpoints() -> Iterator[Checkpoints]:
             admin.execute(f"DROP SCHEMA {schema} CASCADE")
 
 
+@pytest.fixture
+def local_checkpoints(local_installation: Installation) -> Checkpoints:
+    """The local implementation, for the cases that only hold for the SQLite saver."""
+    return orchestration.get(INTERFACE, local_installation)
+
+
 @pytest.fixture(params=["local", pytest.param("postgres", marks=pytest.mark.azurite)])
-def checkpoints(request: pytest.FixtureRequest, local_installation: Installation) -> Checkpoints:
+def checkpoints(request: pytest.FixtureRequest, local_checkpoints: Checkpoints) -> Checkpoints:
+    """The implementation the conformance cases run over: the local one and the store's."""
     if request.param == "postgres":
         return request.getfixturevalue("postgres_store_checkpoints")
-    return orchestration.get(INTERFACE, local_installation)
+    return local_checkpoints
 
 
 def test_a_checkpoint_written_is_read_back(checkpoints: Checkpoints) -> None:
@@ -143,8 +150,10 @@ def test_a_stored_type_outside_the_allowlist_is_not_deserialised(checkpoints: Ch
 
 
 def test_the_local_saver_opens_the_installations_unit_graphs_file(
-    checkpoints: Checkpoints, local_installation: Installation
+    local_checkpoints: Checkpoints, local_installation: Installation
 ) -> None:
+    checkpoints = local_checkpoints
+
     async def run() -> None:
         async with checkpoints.open() as saver:
             await saver.aput(a_config("feature/1"), empty_checkpoint(), {}, {})
@@ -159,8 +168,9 @@ def test_the_local_saver_opens_the_installations_unit_graphs_file(
 
 
 def test_an_older_database_in_the_state_directory_is_carried_over_once(
-    checkpoints: Checkpoints, local_installation: Installation
+    local_checkpoints: Checkpoints, local_installation: Installation
 ) -> None:
+    checkpoints = local_checkpoints
     old = unit_graphs_path(local_installation.state_dir)
 
     async def write_old() -> None:
@@ -183,8 +193,9 @@ def test_an_older_database_in_the_state_directory_is_carried_over_once(
 
 
 def test_a_thread_checkpointed_by_the_saver_before_the_interface_resumes(
-    checkpoints: Checkpoints, local_installation: Installation
+    local_checkpoints: Checkpoints, local_installation: Installation
 ) -> None:
+    checkpoints = local_checkpoints
     state = populated(UnitRun)
 
     async def before() -> None:

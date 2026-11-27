@@ -28,7 +28,7 @@ from agent_build_kit.graph.checkpointer import carried_unit_graphs
 from agent_build_kit.installation import Installation
 from agent_build_kit.orchestration.artifacts import INTERFACE as ARTIFACTS
 from agent_build_kit.orchestration.checkpoints import open_checkpoints
-from agent_build_kit.orchestration.sql.url import store_url
+from agent_build_kit.orchestration.local.checkpoints import threads_in_store
 from agent_build_kit.pipeline import attach
 from agent_build_kit.pipeline.call_record import recorded
 from agent_build_kit.pipeline.environment import repo_artifacts
@@ -214,7 +214,7 @@ class Chat:
         """Clear the start a killed node left in the unit's thread: the files it left are
         taken over with the chat's."""
         if (
-            store_url(self.installation.config.store) is None
+            not threads_in_store(self.installation)
             and not carried_unit_graphs(self.installation).exists()
         ):
             return

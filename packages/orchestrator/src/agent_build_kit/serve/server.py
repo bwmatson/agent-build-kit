@@ -39,8 +39,8 @@ from agent_build_kit.model import Frozen
 from agent_build_kit.orchestration.artifacts import INTERFACE as ARTIFACTS
 from agent_build_kit.orchestration.artifacts import Artifacts, MissingArtifact
 from agent_build_kit.orchestration.checkpoints import open_checkpoints
+from agent_build_kit.orchestration.local.checkpoints import threads_in_store
 from agent_build_kit.orchestration.local.directories import RUN_LOGS
-from agent_build_kit.orchestration.sql.url import store_url
 from agent_build_kit.pipeline.environment import repo_artifacts
 from agent_build_kit.pipeline.run_log import CONTINUATION
 from agent_build_kit.pipeline.stack_runner import unit_follow_ups
@@ -132,16 +132,11 @@ async def _read_only_checkpointer(path: Path) -> AsyncIterator[AsyncSqliteSaver]
         yield AsyncSqliteSaver(conn, serde=allowlisted_serde())
 
 
-def _store_configured(installation: Installation) -> bool:
-    """Whether the installation keeps its unit threads in the store's database."""
-    return store_url(installation.config.store) is not None
-
-
 @asynccontextmanager
 async def _thread_saver(installation: Installation, path: Path) -> AsyncIterator[Any]:
     """The saver the unit threads are read from: the Checkpoints interface's with a store
     configured, else the read-only SQLite file at `path`."""
-    if _store_configured(installation):
+    if threads_in_store(installation):
         async with open_checkpoints(installation) as saver:
             yield saver
     else:
@@ -152,7 +147,7 @@ async def _thread_saver(installation: Installation, path: Path) -> AsyncIterator
 def _unit_run(installation: Installation, unit_id: str) -> UnitRun | None:
     """The unit's run state as its thread last saved it, None when it has none to read."""
     path = carried_unit_graphs(installation)
-    if not _store_configured(installation) and not path.exists():
+    if not threads_in_store(installation) and not path.exists():
         return None
 
     async def read() -> UnitRun | None:

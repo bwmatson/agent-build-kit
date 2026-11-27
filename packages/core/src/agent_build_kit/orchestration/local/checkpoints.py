@@ -32,12 +32,24 @@ class LocalCheckpoints:
         self.postgres = postgres
 
     def open(self) -> AbstractAsyncContextManager[BaseCheckpointSaver]:
-        """The PostgreSQL saver over the store when `store.url` is set, else the SQLite saver over
+        """The PostgreSQL saver over the store when `threads_in_store`, else the SQLite saver over
         the unit graphs file, an older database carried over first."""
-        # Not at module level: the configuration imports this package, and `url` the configuration.
-        from agent_build_kit.orchestration.sql.url import store_url
-
-        url = store_url(self.installation.config.store)
+        url = store_url_of(self.installation)
         if url:
             return self.postgres(url)
         return self.sqlite(self.installation)
+
+
+def store_url_of(installation: Installation) -> str | None:
+    """The store's database URL (`store.url`, or the one built from `store.host` and
+    `store.database`), None when no store is configured."""
+    # Not at module level: the configuration imports this package, and `url` the configuration.
+    from agent_build_kit.orchestration.sql.url import store_url
+
+    return store_url(installation.config.store)
+
+
+def threads_in_store(installation: Installation) -> bool:
+    """Whether the installation's unit threads live in the store's database, not the SQLite
+    file: the one rule `LocalCheckpoints.open` and `abk serve`'s reads share."""
+    return store_url_of(installation) is not None

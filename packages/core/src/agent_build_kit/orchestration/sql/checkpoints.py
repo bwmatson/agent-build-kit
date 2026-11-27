@@ -30,5 +30,6 @@ async def _open(url: str) -> AsyncIterator[BaseCheckpointSaver]:
 
 def open_postgres_checkpointer(url: str) -> AbstractAsyncContextManager[BaseCheckpointSaver]:
     """The PostgreSQL saver over the store database at `url`, deserialising only the
-    allowlisted types, its tables created on first use."""
+    allowlisted types, its tables created on first use. Every open runs the saver's setup, so
+    `abk serve`'s reads do too, and need a role that may create the saver's tables."""
     return _open(url)
