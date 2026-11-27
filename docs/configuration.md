@@ -1126,7 +1126,9 @@ a store configured, by `store.url` or by `store.host` and `store.database` (the 
 the URL), the unit graphs' checkpoints live in that database (LangGraph's PostgreSQL saver); with
 neither, they stay in the local SQLite file. Threads already in the SQLite file are not copied
 across, so set the store when no unit is in flight. To share state between devices, point them at
-the store's server through `store.url`, not at a network drive.
+the store's server through `store.url`, not at a network drive. The database role must be
+allowed to create the saver's tables, since each open, including `abk serve`'s reads, runs the
+saver's setup; a role that may not leaves serve's review rounds and sessions blank.
 
 ### Network drive
 

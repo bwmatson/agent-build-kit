@@ -8,8 +8,6 @@ the saver checkpointed before the interface existed.
 from __future__ import annotations
 
 import asyncio
-import os
-import uuid
 from collections.abc import AsyncIterator, Iterator
 from contextlib import AbstractAsyncContextManager, asynccontextmanager
 from pathlib import Path
@@ -33,6 +31,7 @@ from agent_build_kit.run_support import thread_of
 from tests.conftest import make_installation
 from tests.graph.checkpoint_reads import a_config
 from tests.graph.test_checkpoint_allowlist import Unlisted, populated
+from tests.support.postgres_schema import PostgresSchema
 from tests.tracked_files import guarded_files, source_tree_folders, source_trees
 
 
@@ -52,10 +51,6 @@ def local_installation(tmp_path: Path) -> Installation:
     )
 
 
-# The connection string of a PostgreSQL database; the `azurite` cases skip without it.
-POSTGRES_SETTING = "ABK_TEST_POSTGRES_CONNECTION_STRING"
-
-
 class StoreCheckpoints:
     """The store's PostgreSQL saver, opened over one URL, as the Checkpoints interface."""
 
@@ -67,24 +62,15 @@ class StoreCheckpoints:
 
 
 @pytest.fixture
-def postgres_store_checkpoints() -> Iterator[Checkpoints]:
-    """The store's saver over a schema of its own in the database named by the setting."""
-    dsn = os.environ.get(POSTGRES_SETTING)
-    if not dsn:
-        pytest.skip(f"{POSTGRES_SETTING} is not set: no PostgreSQL database to run against")
-    psycopg = pytest.importorskip("psycopg")
-    schema = f"checkpoints_{uuid.uuid4().hex}"
+def postgres_store_checkpoints(postgres_schema: PostgresSchema) -> Checkpoints:
+    """The store's saver over a schema of its own, for the `azurite` cases (the CI job's
+    PostgreSQL service)."""
     url = (
-        make_url(dsn)
-        .set(drivername="postgresql+asyncpg", query={"options": f"-c search_path={schema}"})
+        make_url(postgres_schema.dsn)
+        .set(drivername="postgresql+asyncpg", query={"options": postgres_schema.options})
         .render_as_string(hide_password=False)
     )
-    with psycopg.connect(dsn, autocommit=True) as admin:
-        admin.execute(f"CREATE SCHEMA {schema}")
-        try:
-            yield StoreCheckpoints(url)
-        finally:
-            admin.execute(f"DROP SCHEMA {schema} CASCADE")
+    return StoreCheckpoints(url)
 
 
 @pytest.fixture

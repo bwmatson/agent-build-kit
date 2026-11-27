@@ -159,7 +159,7 @@ def store_inst(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[Inst
     orchestration.reset()
 
 
-def test_with_a_store_the_review_round_and_session_come_from_the_checkpoints_interface(
+def test_with_a_store_the_review_round_comes_from_the_checkpoints_interface(
     store_inst: Installation, tmp_path: Path
 ) -> None:
     state = UnitRun(unit_id="feature/2", change="feature", review_round=3)

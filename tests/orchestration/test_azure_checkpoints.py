@@ -5,8 +5,6 @@ only this implementation has, over a stand-in token source."""
 from __future__ import annotations
 
 import asyncio
-import os
-import uuid
 from collections.abc import Callable, Iterator
 from pathlib import Path
 from typing import Any, NamedTuple
@@ -27,9 +25,7 @@ from tests.orchestration.test_checkpoints import (  # noqa: F401  (the conforman
     test_a_stored_type_outside_the_allowlist_is_not_deserialised,
     test_a_threads_checkpoints_are_listed_newest_first,
 )
-
-# The connection string of a PostgreSQL database; the `azurite` cases skip without it.
-POSTGRES_SETTING = "ABK_TEST_POSTGRES_CONNECTION_STRING"
+from tests.support.postgres_schema import PostgresSchema
 
 
 class IssuedToken(NamedTuple):
@@ -59,19 +55,9 @@ def fresh_registry() -> Iterator[None]:
 
 
 @pytest.fixture
-def postgres_kwargs() -> Iterator[Callable[[], dict[str, Any]]]:
+def postgres_kwargs(postgres_schema: PostgresSchema) -> Callable[[], dict[str, Any]]:
     """Connection arguments for a schema of its own in the database named by the setting."""
-    dsn = os.environ.get(POSTGRES_SETTING)
-    if not dsn:
-        pytest.skip(f"{POSTGRES_SETTING} is not set: no PostgreSQL database to run against")
-    psycopg = pytest.importorskip("psycopg")
-    schema = f"checkpoints_{uuid.uuid4().hex}"
-    with psycopg.connect(dsn, autocommit=True) as admin:
-        admin.execute(f"CREATE SCHEMA {schema}")
-        try:
-            yield lambda: dict(conninfo=dsn, options=f"-c search_path={schema}")
-        finally:
-            admin.execute(f"DROP SCHEMA {schema} CASCADE")
+    return lambda: dict(conninfo=postgres_schema.dsn, options=postgres_schema.options)
 
 
 @pytest.fixture
