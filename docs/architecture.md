@@ -2053,7 +2053,13 @@ approved.
   carries the same `cpus` and `load_high`, and `failed_detail`: the worker (`gw3`) that ran each
   failed test and whether its failure was the test's time limit, and the `head` and `base`
   commit ids the run saw (absent on an older row), and `full`: whether the run was the whole
-  suite and not a selection (null on an older row). Before a unit-test slot is taken, a unit
+  suite and not a selection (null on an older row). Each row also carries
+  `mem_available_mb_start`/`_end` and `swap_used_mb_start`/`_end`, in whole MB from the run's
+  start and end samples, and `memory_pressure_full_us`, the growth of the `full` total of
+  `/proc/pressure/memory` over the run. Each is null where the host does not give the reading
+  (for the pressure, also when the counter went back). A failure bundle's `machine.json` start
+  and end samples carry the same readings, as `memory_available_kb`, `swap_used_kb` and
+  `memory_pressure_full_us`. Before a unit-test slot is taken, a unit
   whose last row failed on the same head and base, with nothing it waited on merged since, no
   rework note pending and the failure not found on the base, is not run again: the run's result
   is that failure, the log says it was unchanged and not run again, and a `reused` row is added.
@@ -2425,7 +2431,7 @@ outside the repository and not committed; for a separate planning repo it is `ru
 | `paused.json`, `paused.<label>.json`, `network-paused.json` | the current pause of the default account, of each named account, and of a network outage (which is every account's): whose, until when and why. | one usage check. |
 | `code-host-paused.<host>.json` | one code host's marker: its host, the repo to probe from, when it began, the last error, when it was last probed, the probes that failed in a row, and `cleared_at` once a probe passed (which releases the units parked before it). Replaced atomically. | one probe of the host; a unit waits its own backoff. |
 | `usage-ledger.jsonl` | the usage ledger: one JSON line per agent call (see below), plus `span`, `sample` and `affected` lines (a fix round's selected run: tests selected and in all, estimated seconds saved, whether the full run agreed). Gitignored. | the spend history, not the work. |
-| `test-runs.jsonl` (and `test-runs.jsonl.1`) | the ledger of unit-test runs: one JSON line per run, passing or not (unit, start, seconds, outcome, failed tests, load at the start and end, workers, tick, units running, whether it was the whole suite), no output. Rotated to `.1` at 1 MB, the older copy replaced. Gitignored. | how long runs take and under what load; the failing output is in `test-failures/`. |
+| `test-runs.jsonl` (and `test-runs.jsonl.1`) | the ledger of unit-test runs: one JSON line per run, passing or not (unit, start, seconds, outcome, failed tests, load at the start and end, memory available and swap used at the start and end, the memory-pressure stall, workers, tick, units running, whether it was the whole suite), no output. Rotated to `.1` at 1 MB, the older copy replaced. Gitignored. | how long runs take and under what load; the failing output is in `test-failures/`. |
 | `decisions.jsonl` | the decision log: `{at, unit, reason, waits_on, tick}`, appended only when a waiting unit's reason (`WaitReason`) or what it waits on changes, with a `none` record when the wait ends. Read from its tail when the pipeline starts; trimmed to `retention.decision_log_mb`, newest lines kept. Gitignored. | why a unit waited, and for how long. |
 | `usage-cache.json.lock` | the lock one process holds while it refreshes the reading. | never needed. |
 | `usage-cache.json` | the live usage reading (kept `usage_cache_minutes` to `usage_cache_max_minutes`) and any rate-limit cool-down. | one endpoint call. |

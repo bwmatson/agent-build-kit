@@ -236,12 +236,11 @@ def test_a_run_of_any_outcome_has_its_memory_figures_in_whole_mb(
 @pytest.mark.parametrize(
     ("start", "end"),
     [
-        ({"load": [1.0] * 3}, {"load": [1.0] * 3}),
         (_memory_sample(1024, 0, None), _memory_sample(1024, 0, 9)),
         (_memory_sample(1024, 0, 9), _memory_sample(1024, 0, None)),
         (_memory_sample(1024, 0, 50), _memory_sample(1024, 0, 9)),
     ],
-    ids=["no readings", "pressure only at end", "pressure only at start", "counter went back"],
+    ids=["pressure only at end", "pressure only at start", "counter went back"],
 )
 def test_a_missing_reading_or_a_backwards_pressure_counter_gives_null_pressure(
     scratch: Path, tmp_path: Path, start: dict[str, object], end: dict[str, object]
@@ -273,21 +272,22 @@ def test_samples_without_the_readings_give_null_for_each_memory_field(
     )
 
 
-def test_a_row_written_before_the_memory_fields_loads_with_each_of_them_null() -> None:
-    line = {
-        "unit": "old/1",
-        "started": START.isoformat(),
-        "seconds": 1.0,
-        "outcome": "passed",
-        "failed": [],
-        "load_start": None,
-        "load_end": None,
-        "workers": None,
-        "tick": "t1",
-        "units_running": [],
-    }
+_LINE_BEFORE_THE_FIELDS = {
+    "unit": "old/1",
+    "started": START.isoformat(),
+    "seconds": 1.0,
+    "outcome": "passed",
+    "failed": [],
+    "load_start": None,
+    "load_end": None,
+    "workers": None,
+    "tick": "t1",
+    "units_running": [],
+}
 
-    row = TestRun.model_validate_json(json.dumps(line))
+
+def test_a_row_written_before_the_memory_fields_loads_with_each_of_them_null() -> None:
+    row = TestRun.model_validate_json(json.dumps(_LINE_BEFORE_THE_FIELDS))
 
     assert {name: getattr(row, name, "absent") for name in _MEMORY_FIELDS} == dict.fromkeys(
         _MEMORY_FIELDS
@@ -359,20 +359,7 @@ def test_a_whole_suite_run_of_any_outcome_has_full_true(
 
 
 def test_a_row_written_before_the_full_field_loads_with_it_null() -> None:
-    line = {
-        "unit": "old/1",
-        "started": START.isoformat(),
-        "seconds": 1.0,
-        "outcome": "passed",
-        "failed": [],
-        "load_start": None,
-        "load_end": None,
-        "workers": None,
-        "tick": "t1",
-        "units_running": [],
-    }
-
-    row = TestRun.model_validate_json(json.dumps(line))
+    row = TestRun.model_validate_json(json.dumps(_LINE_BEFORE_THE_FIELDS))
 
     assert getattr(row, "full", "absent") is None
 
