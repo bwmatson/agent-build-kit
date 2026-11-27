@@ -15,7 +15,14 @@ import json
 
 import pytest
 
-from agent_build_kit.pipeline.planner import GroupTooLarge, PlannerError, parse_graph, plan_round
+from agent_build_kit.config import active, ceilings_in_effect
+from agent_build_kit.pipeline.planner import (
+    GroupTooLarge,
+    PlannerError,
+    build_prompt,
+    parse_graph,
+    plan_round,
+)
 from agent_build_kit.pipeline.work_graph import TaskGroup
 from tests.factories import activate_with, groups_at
 from tests.project_workspace import tasks_editing
@@ -715,3 +722,78 @@ def test_the_review_tier_floor_reads_what_a_group_changes(
         outcome = f"refused: {error}"
 
     assert outcome == expected
+
+
+FLOOR_MIGRATION = "db/migrations/0042_add_index.sql"
+
+
+def floor_tasks(body: str) -> str:
+    return f"# Tasks\n\n## 1. [app] [unit-test] Group 1\n\n- [ ] 1.1 {body}\n\n"
+
+
+def floor_plan(flag: str, body: str, asked: str | None, **unit_fields) -> list:
+    activate_with(review={"enabled": True})
+    groups = [groups_at(3)[0].model_copy(update={"flag": flag})]
+    unit = planned(id="feature/1", change="feature", groups=[1], **unit_fields)
+    if asked is not None:
+        unit["review_tier"] = asked
+    return parse_graph(graph_json([unit]), groups=groups, tasks=floor_tasks(body))
+
+
+@pytest.mark.parametrize(
+    ("flag", "body", "asked", "tier", "reason_parts"),
+    [
+        ("contract", "Test: it behaves.", "full", "full", ("full", "group 1", "contract")),
+        ("", "Test: it behaves.", "full", "full", ()),
+        ("", f"Test: edit `{FLOOR_MIGRATION}` to add it.", None, "full", (FLOOR_MIGRATION,)),
+        ("", "Test: it behaves.", None, "auto", ()),
+    ],
+    ids=["flagged-asks-full", "unflagged-asks-full", "protected-path", "unflagged-asks-nothing"],
+)
+def test_a_unit_records_its_tier_and_the_reason_of_its_floor(
+    flag: str, body: str, asked: str | None, tier: str, reason_parts: tuple[str, ...]
+) -> None:
+    try:
+        (unit,) = floor_plan(flag, body, asked)
+    except PlannerError as refused:
+        raise AssertionError(f"refused: {refused}") from refused
+
+    assert unit.review_tier == tier
+    assert unit.raised_from == ""
+    assert bool(unit.floor_reason) == bool(reason_parts)
+    for part in reason_parts:
+        assert part in unit.floor_reason
+
+
+def test_a_tier_below_the_floor_is_raised_and_logged_in_one_line(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    try:
+        (unit,) = floor_plan("contract", "Test: it behaves.", "light")
+    except PlannerError as refused:
+        raise AssertionError(f"refused: {refused}") from refused
+
+    lines = [line for line in capsys.readouterr().out.splitlines() if "feature/1" in line]
+    assert unit.review_tier == "full"
+    assert unit.raised_from == "light"
+    assert len(lines) == 1
+    for part in ("light", "full", "contract"):
+        assert part in lines[0]
+
+
+def test_a_raised_unit_over_the_full_ceiling_is_refused_for_its_size() -> None:
+    activate_with(review={"enabled": True})
+    over = ceilings_in_effect(active().repos["app"], active()).full + 1
+
+    with pytest.raises(PlannerError, match="ceiling"):
+        floor_plan("contract", "Test: it behaves.", "light", estimated_lines=over)
+
+
+def test_the_prompt_says_a_tier_below_the_floor_is_raised_not_refused() -> None:
+    activate_with(review={"enabled": True})
+    paragraph = next(
+        p for p in build_prompt({}, []).split("\n\n") if p.lstrip().startswith("Review tier:")
+    )
+
+    assert "raised" in paragraph
+    assert "refused" not in paragraph

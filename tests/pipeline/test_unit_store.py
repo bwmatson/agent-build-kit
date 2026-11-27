@@ -687,3 +687,49 @@ def test_with_no_store_the_file_is_the_store_and_a_given_store_replaces_it(tmp_p
 
     assert over_empty_store.all() == []
     assert [u.id for u in UnitStore(path).all()] == ["feature/1", "other/1"]
+
+
+FLOOR_REASON = "full floor, group 1: contract"
+
+
+def test_a_units_floor_reason_and_raise_round_trip_and_empty_ones_are_left_out_of_the_record(
+    tmp_path: Path,
+) -> None:
+    store = UnitStore(tmp_path / "units.json")
+    store.upsert(
+        [
+            app_unit("add-marker/1", floor_reason=FLOOR_REASON, raised_from="light"),
+            app_unit("add-marker/2"),
+        ]
+    )
+
+    reloaded = UnitStore(store.path)
+    written = {r["id"]: r for r in json.loads(store.path.read_text())["units"]}
+    assert reloaded.get("add-marker/1").floor_reason == FLOOR_REASON
+    assert reloaded.get("add-marker/1").raised_from == "light"
+    assert reloaded.get("add-marker/2").floor_reason == ""
+    assert reloaded.get("add-marker/2").raised_from == ""
+    assert written["add-marker/1"]["floor_reason"] == FLOOR_REASON
+    assert written["add-marker/1"]["raised_from"] == "light"
+    assert "floor_reason" not in written["add-marker/2"]
+    assert "raised_from" not in written["add-marker/2"]
+
+
+def test_a_replan_gives_an_unstarted_unit_its_new_floor_and_a_started_one_keeps_its_own(
+    tmp_path: Path,
+) -> None:
+    store = UnitStore(tmp_path / "units.json")
+    store.upsert(
+        [
+            app_unit("add-marker/1", floor_reason=FLOOR_REASON, raised_from="light"),
+            app_unit("add-marker/2", floor_reason=FLOOR_REASON, raised_from="light"),
+        ]
+    )
+    store.set_state("add-marker/1", RUNNING)
+
+    store.upsert([app_unit("add-marker/1"), app_unit("add-marker/2")], change="add-marker")
+
+    assert store.get("add-marker/1").floor_reason == FLOOR_REASON
+    assert store.get("add-marker/1").raised_from == "light"
+    assert store.get("add-marker/2").floor_reason == ""
+    assert store.get("add-marker/2").raised_from == ""
