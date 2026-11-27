@@ -20,11 +20,13 @@ from agent_build_kit.pipeline.planner import (
     GroupTooLarge,
     PlannerError,
     build_prompt,
+    in_flight_item,
     parse_graph,
     plan_round,
 )
+from agent_build_kit.pipeline.units import FAILED
 from agent_build_kit.pipeline.work_graph import TaskGroup
-from tests.factories import activate_with, groups_at
+from tests.factories import activate_with, groups_at, stored_unit
 from tests.project_workspace import tasks_editing
 
 GOOD = {
@@ -797,3 +799,111 @@ def test_the_prompt_says_a_tier_below_the_floor_is_raised_not_refused() -> None:
 
     assert "raised" in paragraph
     assert "refused" not in paragraph
+
+
+def heading_of(prompt: str, number: int) -> str:
+    return next(line for line in prompt.splitlines() if line.startswith(f"## {number}."))
+
+
+@pytest.mark.parametrize(
+    ("fields", "parts", "absent"),
+    [
+        ({"flag": "contract"}, ("full", "contract", "{full_ceiling}"), ()),
+        ({"code_free": True}, ("no_code", "tests_and_code"), ()),
+        ({"tier": "e2e-test"}, ("tests_only",), ()),
+        ({}, ("auto", "tests_and_code"), (" — ",)),
+        ({"declared_mode": "refactor"}, ("refactor", "fixed"), ()),
+    ],
+    ids=["contract", "code-free", "e2e", "unflagged", "declared"],
+)
+def test_the_heading_of_a_group_shows_its_floors(
+    fields: dict, parts: tuple[str, ...], absent: tuple[str, ...]
+) -> None:
+    activate_with(review={"enabled": True})
+    group = groups_at(3)[0].model_copy(update=fields)
+    tasks = f"# Tasks\n\n## 1. [app] [{group.tier}] G1\n\n- [ ] 1.1 Test: it.\n"
+    figure = str(ceilings_in_effect(None, active()).full)
+
+    heading = heading_of(build_prompt({"feature": tasks}, [], groups=[group]), 1)
+
+    assert "floors" in heading
+    for part in parts:
+        assert part.replace("{full_ceiling}", figure) in heading
+    for part in absent:
+        assert part not in heading
+
+
+def test_the_heading_of_a_group_a_started_unit_builds_shows_who_builds_it_not_floors() -> None:
+    activate_with(review={"enabled": True})
+    tasks = (
+        "# Tasks\n\n## 1. [app] [unit-test] G1\n\n- [ ] 1.1 Test: it.\n\n"
+        "## 2. [app] [unit-test] G2\n\n- [ ] 2.1 Test: it.\n"
+    )
+    unit = stored_unit("feature/1", change="feature", groups=(1,), state=FAILED)
+
+    prompt = build_prompt(
+        {"feature": tasks}, [in_flight_item(unit, [unit])], groups=groups_at(3, 3)
+    )
+
+    built, open_group = heading_of(prompt, 1), heading_of(prompt, 2)
+    assert "(built by" in built
+    assert "floors" not in built
+    assert "floors" in open_group
+
+
+def test_the_group_modes_paragraph_says_each_heading_shows_its_floors() -> None:
+    activate_with(review={"enabled": True})
+    paragraph = next(
+        p for p in build_prompt({}, []).split("\n\n") if p.lstrip().startswith("Group modes:")
+    )
+
+    for word in ("heading", "floors", "allowed"):
+        assert word in paragraph
+
+
+REFUSED_PATHS = ("docs/guide.md", "docs/setup.md", "tests/test_feature.py")
+
+
+@pytest.mark.parametrize(
+    ("fields", "asked", "parts"),
+    [
+        (
+            {"test_code": True, "paths": REFUSED_PATHS},
+            "tests_and_code",
+            (
+                "unit feature/1",
+                "group 1",
+                "tests_only",
+                *REFUSED_PATHS,
+                "Tests: required",
+                "tasks.md",
+            ),
+        ),
+        ({"code_free": True}, "tests_only", ("no_code", "tests_and_code")),
+        ({}, "no_code", ("tests_and_code", "refactor", "Paths:")),
+        (
+            {"code_free": True, "tests_required": True},
+            "no_code",
+            ("tests_and_code", "Tests: required"),
+        ),
+        ({"tier": "e2e-test"}, "tests_and_code", ("tests_only",)),
+    ],
+    ids=["test-file-and-documents", "documents-only", "ordinary", "tests-required", "e2e"],
+)
+def test_a_refused_mode_says_the_floor_the_cause_and_the_fix(
+    fields: dict, asked: str, parts: tuple[str, ...]
+) -> None:
+    activate_with(review={"enabled": True})
+    group = groups_at(3)[0].model_copy(update=fields)
+    unit = planned(id="feature/1", change="feature", groups=[1], group_modes={"1": asked})
+
+    try:
+        parse_graph(graph_json([unit]), groups=[group], tasks=floor_tasks("Test: it behaves."))
+    except PlannerError as refused:
+        message = str(refused)
+    else:
+        raise AssertionError("the mode was accepted")
+
+    assert f"asks for mode {asked!r} for group 1" in message
+    for part in ("feature", group.title, *parts):
+        assert part in message
