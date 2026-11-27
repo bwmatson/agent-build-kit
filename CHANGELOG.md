@@ -61,6 +61,7 @@
 - A unit whose `Needs:` line names a group that has no unit yet now waits as blocked, with the
   line and why in its wait reason, and `abk attention` lists each such line with the command that
   clears it, until the group that declares it is built.
+
 - A test the implementation step edits is now moved into the group's `test:` commit, and the red
   check runs there again; a rejection puts the implementation step back to work with the reason.
   The push gate refuses a `feat:` commit of a group with a tests step that changes a test file,
