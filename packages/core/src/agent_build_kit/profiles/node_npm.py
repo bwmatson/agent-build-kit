@@ -24,8 +24,7 @@ from collections.abc import Mapping
 from pathlib import Path
 from xml.etree import ElementTree
 
-import tree_sitter_typescript
-from tree_sitter import Language, Node, Parser
+from tree_sitter import Node
 
 from agent_build_kit.codemap.graph import CodeReader
 from agent_build_kit.config import (
@@ -53,6 +52,7 @@ from agent_build_kit.profiles.base import (
     SandboxPaths,
     is_doc_path,
 )
+from agent_build_kit.profiles.node_codemap import NodeCodeReader, parser_for
 
 _SOURCE = ("ts", "tsx", "js", "jsx", "mts")
 _SOURCE_SUFFIXES = tuple(f".{ext}" for ext in _SOURCE)
@@ -263,16 +263,6 @@ _FUNCTIONS = frozenset(
     }
 )
 _TEST_FILE = re.compile(rf"\.(test|spec)\.({'|'.join(_SOURCE)})$")
-
-
-_TYPESCRIPT = Language(tree_sitter_typescript.language_typescript())
-_TSX = Language(tree_sitter_typescript.language_tsx())
-
-
-def _parser(path: str) -> Parser:
-    """A parser of the TSX grammar for the extensions that may hold JSX (`.tsx`, `.jsx`, and
-    `.js`, which Vite projects sometimes keep JSX in), else of the TypeScript one."""
-    return Parser(_TSX if path.endswith(("x", ".js")) else _TYPESCRIPT)
 
 
 def _text(node: Node | None) -> str:
@@ -855,7 +845,7 @@ class NodeNpmProfile:
         A function without a body (a declaration, an overload) is accepted."""
         if self.is_test_path(path) or not path.endswith(_SOURCE_SUFFIXES):
             return []
-        root = _parser(path).parse(content.encode()).root_node
+        root = parser_for(path).parse(content.encode()).root_node
         if root.has_error:
             return [f"{path}: the file could not be parsed"]
         problems: list[str] = []
@@ -875,7 +865,7 @@ class NodeNpmProfile:
         return problems
 
     def code_reader(self) -> CodeReader:
-        raise NotImplementedError
+        return NodeCodeReader(self.members)
 
     def members(self, repo: Path) -> list[str]:
         """The directories the root manifest's `workspaces` patterns name that hold a

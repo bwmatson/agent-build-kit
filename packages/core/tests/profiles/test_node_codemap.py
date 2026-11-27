@@ -279,11 +279,11 @@ def test_the_reader_does_not_match_a_test_file_of_another_folder(tmp_path: Path)
 def test_a_file_that_does_not_parse_is_a_file_node_and_a_problem(tmp_path: Path) -> None:
     reading = read_project(
         tmp_path,
-        {"broken.ts": "export function f( {{{\n", "ok.ts": "export const x = 1;\n"},
+        {"broken.ts": "export function f( {{{\n", "ok.ts": "export function ok() {}\n"},
     )
 
     facts = facts_of(reading)
     assert facts["broken.ts"].symbols == ()
-    assert [name for name in facts["ok.ts"].symbols] != []
+    assert [s.name for s in facts["ok.ts"].symbols] == ["ok"]
     assert len(reading.problems) == 1
     assert "broken.ts" in reading.problems[0]
