@@ -44,15 +44,15 @@ def probe_output(run: Run, where: Path, probe: list[str]) -> str:
     return f"{result.stdout}\n{result.stderr}"
 
 
-def machine_sample() -> dict[str, object]:
-    """The load averages and the memory free now."""
+def machine_sample(proc: Path = Path("/proc")) -> dict[str, object]:
+    """The load averages and the memory free now, read from `proc` (laid out as `/proc`)."""
     sample: dict[str, object] = {}
     try:
         sample["load"] = list(os.getloadavg())
     except OSError:
         pass
     try:
-        for line in Path("/proc/meminfo").read_text().splitlines():
+        for line in (proc / "meminfo").read_text().splitlines():
             if line.startswith("MemAvailable:"):
                 sample["memory_available_kb"] = int(line.split()[1])
     except (OSError, ValueError, IndexError):
