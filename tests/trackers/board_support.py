@@ -69,6 +69,8 @@ TASKS = """\
 
 ## 1. [app] [unit-test] Gap fill, conflicts and remembered lanes
 
+Needs: base-change group 2 merged — the lane table
+
 - [x] 1.1 Test: `tests/lanes/test_gap.py` — a gap is filled once. Verify: red.
 - [ ] 1.2 Add the fill in `src/app/lanes.py`, covered by `tests/lanes/test_conflict.py`.
       Verify: 1.1 passes.

@@ -23,7 +23,7 @@ from tests.split_start_support import fresh, gate_round, installation, round_ids
 from tests.trackers.ado_work_item_host import WorkItemHost
 from tests.trackers.board_support import CHANGE, board_section, covering
 from tests.trackers.reconciler_support import World
-from tests.trackers.start_support import FIRST, SECOND
+from tests.trackers.start_support import FIRST, SECOND, meet_the_boards_needs
 
 pytestmark = pytest.mark.usefixtures("scripted_engine")
 
@@ -54,6 +54,7 @@ def azure_board(
     assert isinstance(section, AzureDevOpsTracker)
     world = World(folder, section, AzureDevOpsWorkItems(section, http=host))
     world.run([covering(FIRST, (1,)), covering(SECOND, (2,))])
+    meet_the_boards_needs(inst)
     return world, host, inst
 
 
