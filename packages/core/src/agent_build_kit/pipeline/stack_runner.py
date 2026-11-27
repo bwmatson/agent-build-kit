@@ -208,6 +208,13 @@ helper call, the same walk of the directory) in the commit body. Do not edit a t
 neither name in a step nor list as possible.
 """
 
+# Said in every build-side prompt: work that needs something not yet built is reported, not faked.
+BLOCKED_NOTE = """
+If work you were asked for cannot be done because something it needs does not exist yet (code,
+a setting or a file another change adds), make no change for that work and write a line
+starting `BLOCKED:` in your account, naming what is missing and the task group that needs it.
+"""
+
 NO_REWRITE_NOTE = """\
 Do not rewrite history either (no amend, rebase, squash, reset or force): the
 commits that exist stay as they are, and your changes go on top of them in the
@@ -504,6 +511,7 @@ the unit has passed review, unit-test and been pushed.
     + PIPELINE_PUSHES_NOTE
     + PIPELINE_COMMITS_NOTE
     + REFUSED_CALL_NOTE
+    + BLOCKED_NOTE
     + OUTPUT_NOTE
     + TESTS_REUSE_NOTE
     + STANDARDS_NOTE
@@ -998,6 +1006,7 @@ the unit has passed review, unit-test and been pushed.
     + INSTALL_NOTE
     + NO_REWRITE_NOTE
     + POSSIBLE_TESTS_NOTE
+    + BLOCKED_NOTE
 )
 
 
@@ -1042,6 +1051,7 @@ the unit has passed review, unit-test and been pushed.
     + PIPELINE_PUSHES_NOTE
     + PIPELINE_COMMITS_NOTE
     + REFUSED_CALL_NOTE
+    + BLOCKED_NOTE
     + OUTPUT_NOTE
     + REUSE_NOTE
     + STANDARDS_NOTE
@@ -1219,6 +1229,7 @@ suite.
 """
     + CONTINUATION_READONLY
     + "{changelog}"
+    + BLOCKED_NOTE
 )
 
 # Put before the checks prompt when the first attempt of a fix round changed nothing.
@@ -1284,6 +1295,7 @@ REWORK_CONTINUATION = PromptTemplate(
     + _REWORK_ASK
     + CONTINUATION_READONLY
     + "{changelog}"
+    + BLOCKED_NOTE
 )
 
 ADAPT_CONTINUATION = (
