@@ -76,6 +76,12 @@ SYMBOL_ROWS = [
         id="long-default-is-elided",
     ),
     pytest.param(
+        f'def f(é: int, a: str = "{LONG_DEFAULT}") -> None:\n    pass\n',
+        "",
+        {"f": ("function", (1, 2), 2, "def f(é: int, a: str = ...) -> None", "")},
+        id="long-default-after-non-ascii-is-elided",
+    ),
+    pytest.param(
         LONG_SIGNATURE + ":\n    pass\n",
         "",
         {"f": ("function", (1, 2), 2, LONG_SIGNATURE[:199] + "…", "")},
@@ -237,9 +243,24 @@ CALL_ROWS = [
         id="getattr-call-is-left-out",
     ),
     pytest.param(
-        {"pkg/main.py": "def g(callback):\n    callback()\n"},
+        {"pkg/main.py": "def callback():\n    pass\n\n\ndef g(callback):\n    callback()\n"},
         set(),
         id="call-on-a-parameter-is-left-out",
+    ),
+    pytest.param(
+        {"pkg/main.py": "def f():\n    pass\n\n\nclass C:\n    def g(self, f):\n        f()\n"},
+        set(),
+        id="call-on-a-method-parameter-is-left-out",
+    ),
+    pytest.param(
+        {"pkg/main.py": "def f():\n    pass\n\n\ndef g(hs):\n    for f in hs:\n        f()\n"},
+        set(),
+        id="call-on-a-loop-variable-is-left-out",
+    ),
+    pytest.param(
+        {"pkg/main.py": "def f():\n    pass\n\n\ndef g(make):\n    f = make()\n    f()\n"},
+        set(),
+        id="call-on-a-local-variable-is-left-out",
     ),
     pytest.param(
         {"pkg/main.py": "def g(items):\n    print(len(items))\n"},

@@ -13,6 +13,7 @@ from collections.abc import Iterator, Sequence
 from pathlib import Path, PurePosixPath
 
 from agent_build_kit.codemap.graph import Edge, FileFacts, Reading, Symbol
+from agent_build_kit.profiles.python_test_comparison import assigned_names
 
 MAX_DEFAULT = 40
 MAX_SIGNATURE = 200
@@ -66,7 +67,8 @@ class _Source:
     def offset(self, line: int, col: int) -> int:
         """The character offset of an `ast` position, whose column counts UTF-8 bytes."""
         start = self.starts[line - 1]
-        row = self.text[start:].split("\n", 1)[0]
+        end = self.starts[line] if line < len(self.starts) else len(self.text)
+        row = self.text[start:end].split("\n", 1)[0]
         return start + len(row.encode("utf-8")[:col].decode("utf-8", errors="ignore"))
 
     def header_end(self, begin: int, first_line: int) -> int:
@@ -266,7 +268,7 @@ def _test_folder_parts(path: str) -> list[str] | None:
     return None
 
 
-def _module_folder_parts(path: str, paths: Sequence[str]) -> list[str]:
+def _module_folder_parts(path: str, paths: set[str]) -> list[str]:
     parts = list(PurePosixPath(path).parent.parts)
     if "src" in parts:
         return parts[parts.index("src") + 2 :]
@@ -276,19 +278,15 @@ def _module_folder_parts(path: str, paths: Sequence[str]) -> list[str]:
     return parts
 
 
-def _tests_of(path: str, paths: Sequence[str], tests: Sequence[str]) -> tuple[str, ...]:
+def _tests_of(path: str, paths: set[str], tests_by_name: dict[str, list[str]]) -> tuple[str, ...]:
     name = PurePosixPath(path).name
     if name == "__init__.py":
         return ()
-    wanted = f"test_{name}"
+    candidates = tests_by_name.get(f"test_{name}", [])
+    if not candidates:
+        return ()
     folder = _module_folder_parts(path, paths)
-    return tuple(
-        sorted(
-            test
-            for test in tests
-            if PurePosixPath(test).name == wanted and _test_folder_parts(test) == folder
-        )
-    )
+    return tuple(sorted(t for t in candidates if _test_folder_parts(t) == folder))
 
 
 def _walk(nodes: Sequence[ast.AST]) -> Iterator[ast.AST]:
@@ -296,8 +294,15 @@ def _walk(nodes: Sequence[ast.AST]) -> Iterator[ast.AST]:
         yield from ast.walk(node)
 
 
-def _parameters(nodes: Sequence[ast.AST]) -> set[str]:
-    return {a.arg for n in _walk(nodes) if isinstance(n, ast.arguments) for a in _all_args(n)}
+def _bound_names(nodes: Sequence[ast.AST], own: ast.arguments | None) -> set[str]:
+    """Names a scope binds itself: its parameters, those of anything nested in it, and every
+    name it assigns, none of which stands for a module-level definition of the same name."""
+    names = {a.arg for n in _walk(nodes) if isinstance(n, ast.arguments) for a in _all_args(n)}
+    for node in nodes:
+        names |= assigned_names(node)
+    if own is not None:
+        names |= {a.arg for a in _all_args(own)}
+    return names
 
 
 def _all_args(arguments: ast.arguments) -> list[ast.arg]:
@@ -324,6 +329,10 @@ class PythonReader:
             except (SyntaxError, ValueError) as error:
                 problems.append(f"{path}: does not parse: {error}")
         project = _Project(sources, parsed)
+        source_set = set(sources)
+        tests_by_name: dict[str, list[str]] = {}
+        for test in tests:
+            tests_by_name.setdefault(PurePosixPath(test).name, []).append(test)
 
         edges = {Edge(kind="imports", source=a, target=b) for a, b in project.imports}
         files = []
@@ -340,7 +349,7 @@ class PythonReader:
                     lines=lines[path],
                     doc=doc,
                     symbols=facts_symbols,
-                    tests=_tests_of(path, sources, tests),
+                    tests=_tests_of(path, source_set, tests_by_name),
                 )
             )
         return Reading(files=tuple(files), edges=tuple(edges), problems=tuple(problems))
@@ -350,8 +359,13 @@ class PythonReader:
         tree = project.sources[path].tree
         edges: set[Edge] = set()
 
-        def invoke(source: str, scope: Sequence[ast.AST], cls: Ref | None) -> None:
-            shadowed = _parameters(scope)
+        def invoke(
+            source: str,
+            scope: Sequence[ast.AST],
+            cls: Ref | None,
+            own: ast.arguments | None = None,
+        ) -> None:
+            shadowed = _bound_names(scope, own)
             for node in _walk(scope):
                 if not isinstance(node, ast.Call):
                     continue
@@ -374,7 +388,7 @@ class PythonReader:
                         target = f"{resolved[0]}::{resolved[1]}"
                         edges.add(Edge(kind="inherits", source=node_id, target=target))
             elif isinstance(node, _FUNCTIONS):
-                invoke(node_id, node.body, cls)
+                invoke(node_id, node.body, cls, node.args)
         return edges
 
     @staticmethod
@@ -382,11 +396,13 @@ class PythonReader:
         project: _Project, path: str, func: ast.expr, cls: Ref | None, shadowed: set[str]
     ) -> str | None:
         dotted = _dotted(func)
-        if dotted is None or dotted.split(".")[0] in shadowed:
+        if dotted is None:
             return None
         parts = dotted.split(".")
         if parts[0] in ("self", "cls") and len(parts) == 2:
             return project.method(cls, parts[1]) if cls else None
+        if parts[0] in shadowed:
+            return None
         resolved = project.symbol(path, dotted)
         if resolved:
             return f"{resolved[0]}::{resolved[1]}"

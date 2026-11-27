@@ -64,7 +64,7 @@ class _Normalise(ast.NodeTransformer):
         return node
 
 
-def _locals(node: ast.AST) -> set[str]:
+def assigned_names(node: ast.AST) -> set[str]:
     """Names the node assigns: its own variables, which are numbered rather than compared."""
     return {
         n.id for n in ast.walk(node) if isinstance(n, ast.Name) and isinstance(n.ctx, ast.Store)
@@ -73,7 +73,7 @@ def _locals(node: ast.AST) -> set[str]:
 
 def _normalised(node: ast.AST, resolved: dict[str, str], renames: dict[str, str]) -> str:
     copied = copy.deepcopy(node)
-    return ast.dump(_Normalise(resolved, renames, _locals(copied)).visit(copied))
+    return ast.dump(_Normalise(resolved, renames, assigned_names(copied)).visit(copied))
 
 
 def mark_name(expression: ast.expr) -> str | None:
@@ -229,7 +229,7 @@ def _shape(test: _Test, resolved: dict[str, str], renames: dict[str, str]) -> _S
             )
         )
     fn = test.node
-    own = _locals(fn)
+    own = assigned_names(fn)
     numbering = _Normalise(resolved, renames, own)
     body = "".join(ast.dump(numbering.visit(copy.deepcopy(s))) for s in fn.body)
     signature = ast.dump(copy.deepcopy(fn.args))
