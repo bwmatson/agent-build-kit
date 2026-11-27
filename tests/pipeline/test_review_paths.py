@@ -317,6 +317,18 @@ def test_without_the_defaults_and_without_an_entry_a_ruff_change_gives_nothing(
     assert found == ()
 
 
+def test_a_file_whose_bytes_do_not_decode_is_reported_as_unreadable(tmp_path: Path) -> None:
+    checkout = tmp_path / "app"
+    branch_changes(checkout, {"pyproject.toml": PYPROJECT}, {"other.txt": "x"})
+    (checkout / "pyproject.toml").write_bytes(b"x = '\xff'\n")
+    git(checkout, "add", "-A")
+    git(checkout, "commit", "-qm", "bytes")
+
+    found = protected_settings(workspace(), "app", checkout, "main", ("pyproject.toml",))
+
+    assert found == ("pyproject.toml: could not be read",)
+
+
 def test_a_base_that_does_not_resolve_protects_and_raises_nothing(tmp_path: Path) -> None:
     checkout = tmp_path / "app"
     paths = branch_changes(checkout, {"pyproject.toml": PYPROJECT}, {"pyproject.toml": "x = 1"})

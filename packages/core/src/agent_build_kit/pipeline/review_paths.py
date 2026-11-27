@@ -11,7 +11,7 @@ from typing import Any
 
 from agent_build_kit.config import WorkspaceConfig
 from agent_build_kit.path_patterns import matches
-from agent_build_kit.pipeline.shell import git
+from agent_build_kit.pipeline.shell import fork_point, git
 from agent_build_kit.profiles.protected_config import PROTECTED_CONFIG_DEFAULTS
 
 # Database migrations, CI and deploy configuration, container definitions, secrets and key
@@ -97,7 +97,7 @@ def _read(checkout: Path, rev: str, path: str) -> str | None:
         if git(checkout, "cat-file", "-e", spec, check=False).returncode != 0:
             return None
         shown = git(checkout, "show", spec, check=False)
-    except OSError as error:
+    except (OSError, UnicodeDecodeError) as error:
         raise _Unreadable from error
     if shown.returncode != 0:
         raise _Unreadable
@@ -189,14 +189,6 @@ def _keyed_changes(checkout: Path, merge_base: str, path: str, keys: tuple[str, 
     return [key for key in sorted(keys) if _value(before, key) != _value(after, key)]
 
 
-def _merge_base(checkout: Path, base: str) -> str | None:
-    try:
-        result = git(checkout, "merge-base", base, "HEAD", check=False)
-    except OSError:
-        return None
-    return result.stdout.strip() or None if result.returncode == 0 else None
-
-
 def protected_settings(
     config: WorkspaceConfig, repo: str, checkout: Path, base: str, paths: tuple[str, ...]
 ) -> tuple[str, ...]:
@@ -218,7 +210,11 @@ def protected_settings(
         if not keys and not judged_baseline:
             continue
         if not looked:
-            merge_base, looked = _merge_base(checkout, base), True
+            try:
+                merge_base = fork_point(checkout, base) or None
+            except OSError:
+                merge_base = None
+            looked = True
         if merge_base is None:
             found.append(f"{path}: could not be read")
             continue

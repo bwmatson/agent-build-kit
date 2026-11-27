@@ -1540,7 +1540,8 @@ class RepoCeilingsConfig(Frozen):
 
 
 class RepoReviewConfig(Frozen):
-    """A repo's own review policy: the protected paths that add to the workspace's."""
+    """A repo's own review policy: protected paths and protected config entries, which add to
+    the workspace's."""
 
     protected_paths: list[str] = []
     # File pattern to the key paths that set a bar in it; an empty list protects the whole file.
