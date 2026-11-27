@@ -556,3 +556,35 @@ def test_plan_review_concurrency_accepts_one_and_refuses_below_one_naming_the_se
     # the bound's own message, not the schema's refusal of an unknown key
     assert "plan_review_concurrency" in str(raised)
     assert "greater than or equal to 1" in str(raised)
+
+
+def test_the_code_map_block_defaults_on_and_is_read_per_project_and_per_repo(
+    tmp_path: Path,
+) -> None:
+    def loaded(repo_lines: str) -> WorkspaceConfig:
+        path = tmp_path / "abk.yaml"
+        path.write_text(f"repos:\n  app:\n    path: app\n    slug: example/app\n{repo_lines}")
+        return load(path)
+
+    plain = loaded(
+        "    projects:\n      - path: svc\n"
+        "      - path: tools\n        code_map: {enabled: false}\n"
+    ).repos["app"]
+    sized = loaded("    code_map: {max_bytes: 8192}\n").repos["app"]
+
+    assert (plain.projects[0].code_map.enabled, plain.projects[0].code_map.max_bytes) == (
+        True,
+        65536,
+    )
+    assert plain.projects[1].code_map.enabled is False
+    assert sized.code_map.max_bytes == 8192
+
+    def refusal(block: str) -> str:
+        try:
+            loaded(f"    projects:\n      - path: svc\n        code_map: {block}\n")
+        except ConfigError as error:
+            return str(error)
+        return ""
+
+    assert "max_bytes" in refusal("{max_bytes: 100}")
+    assert "unknown_key" in refusal("{unknown_key: 1}")
