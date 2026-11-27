@@ -11,12 +11,14 @@ from __future__ import annotations
 import asyncio
 import uuid
 from collections.abc import Iterator
+from concurrent.futures import ThreadPoolExecutor
 from typing import Any
 
 import pytest
 from alembic import command
-from sqlalchemy import text, update
+from sqlalchemy import Connection, text, update
 from sqlalchemy.ext.asyncio import AsyncEngine, create_async_engine
+from sqlalchemy.pool import NullPool
 
 from agent_build_kit.orchestration.sql.migrate import alembic_config, head_revision
 from agent_build_kit.orchestration.sql.store import SqlUnitsStore
@@ -27,9 +29,11 @@ from tests.support.units_store_conformance import CASES, Harness, run_case
 pytestmark = pytest.mark.e2e
 
 
-def schema_engine(url: str, schema: str) -> AsyncEngine:
+def schema_engine(url: str, schema: str, **options: Any) -> AsyncEngine:
     """An engine whose connections resolve unqualified tables in `schema`."""
-    return create_async_engine(url, connect_args={"server_settings": {"search_path": schema}})
+    return create_async_engine(
+        url, connect_args={"server_settings": {"search_path": schema}}, **options
+    )
 
 
 async def migrate(url: str, schema: str) -> None:
@@ -37,8 +41,12 @@ async def migrate(url: str, schema: str) -> None:
     try:
         async with engine.begin() as connection:
             config = alembic_config("")
-            config.attributes["connection"] = connection
-            await connection.run_sync(lambda _held: command.upgrade(config, "head"))
+
+            def upgrade(held: Connection) -> None:
+                config.attributes["connection"] = held
+                command.upgrade(config, "head")
+
+            await connection.run_sync(upgrade)
     finally:
         await engine.dispose()
 
@@ -84,7 +92,8 @@ def test_the_postgres_store_passes_the_conformance_case(
 ) -> None:
     def factory() -> Harness:
         engine = schema_engine(server, schema)
-        side = schema_engine(server, schema)
+        # No pooled connection outlives the loop that opened it: each write runs on its own loop.
+        side = schema_engine(server, schema, poolclass=NullPool)
 
         def write_behind(unit_id: str, body: dict[str, Any], version: int) -> None:
             async def write() -> None:
@@ -95,12 +104,10 @@ def test_the_postgres_store_passes_the_conformance_case(
                         .values(body=body, version=version + 1)
                     )
 
-            # The case is running in an event loop, so the second writer runs on a loop of its own.
-            loop = asyncio.new_event_loop()
-            try:
-                loop.run_until_complete(write())
-            finally:
-                loop.close()
+            # The case is running in an event loop, so the second writer runs on a thread of its
+            # own, with a loop of its own, and is waited for (its error re-raised here).
+            with ThreadPoolExecutor(max_workers=1) as pool:
+                pool.submit(asyncio.run, write()).result()
 
         async def close() -> None:
             await engine.dispose()

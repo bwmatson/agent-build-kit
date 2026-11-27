@@ -5,6 +5,10 @@ as the store's own settings with `TEST_` added. A host, port, user or password t
 blank falls back to the store's own setting of the same name without `TEST_`; the database never
 does, so a test cannot reach the real store's database by leaving it out. The URL is made by the
 store's one URL builder, and a server, port and database that are the real store's own are refused.
+
+Only the process environment counts, for the test variables and for the store's own `ABK_STORE_*`
+ones; the planning repo's `.env` is not read here. Run e2e tests with the real store's variables
+exported (as `verify.env` does) so the same-server check sees it.
 """
 
 from __future__ import annotations
