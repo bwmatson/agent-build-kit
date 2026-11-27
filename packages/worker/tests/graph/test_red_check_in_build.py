@@ -6,19 +6,27 @@ tdd-loop)."""
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
 from agent_build_kit.pipeline.stack_runner import RunOutcome
+from agent_build_kit.pipeline.unit_store import FeedbackSource
+from agent_build_kit.pipeline.wiring import build_tree_state
+from agent_build_kit.runtimes import AgentResult
 from packages.worker.tests.graph.test_build_path import limited
+from packages.worker.tests.graph.test_outside_commits_prompt import land
 from packages.worker.tests.graph.test_pr_description_wiring import start_section
 from packages.worker.tests.graph.test_remaining_paths import capturing
-from tests.factories import activate_with
+from packages.worker.tests.graph.test_session_continuation import reuse
+from tests.factories import activate_with, git
 from tests.graph.branch_fakes import (
     ACCOUNT,
+    IMPL_TEST_FILE,
     UNIT,
     agent_calls,
     build,
+    files_in,
     key,
     prepared,
     subjects,
@@ -128,6 +136,190 @@ def test_a_rejected_tests_commit_comes_off_the_branch(tmp_path: Path) -> None:
 
     assert recorder.events.count("red-check") == 2
     assert subjects(repo) == ["test: G1", "feat: G1"]
+
+
+def test_a_test_the_implementation_edits_is_moved_into_the_tests_commit_and_checked_again(
+    tmp_path: Path,
+) -> None:
+    recorder, repo = prepared(tmp_path, groups={"add-marker": titled(1)}, impl_writes_test=True)
+    red = RedAnswers(recorder, [(True, "")])
+
+    outcome = build(tmp_path, recorder, run_red_check=red, **recorder.overrides(tmp_path))
+
+    assert outcome.status == "open"
+    assert subjects(repo) == ["test: G1", "feat: G1"]
+    assert IMPL_TEST_FILE in files_in(repo, "HEAD~1")
+    assert len(files_in(repo, "HEAD~1")) == 2, "the tests call's file and the edited one"
+    assert not [path for path in files_in(repo, "HEAD") if path.startswith("tests/")]
+    assert recorder.events.count("red-check") == 2
+    after_impl = recorder.events[recorder.events.index("claude:impl") :]
+    assert "red-check" in after_impl, "the second run came after the implementation call"
+
+
+def test_a_moved_test_that_passes_sends_the_implementation_back_with_the_reason(
+    tmp_path: Path,
+) -> None:
+    recorder, repo = prepared(tmp_path, groups={"add-marker": titled(1)}, impl_writes_test=True)
+    red = RedAnswers(recorder, [(True, ""), (False, PASSED_REASON), (True, "")])
+
+    outcome = build(tmp_path, recorder, run_red_check=red, **recorder.overrides(tmp_path))
+
+    assert outcome.status == "open"
+    assert agent_calls(recorder.events) == ["claude:tests", "claude:impl", "claude:impl"]
+    assert recorder.events.count("red-check") == 3
+    assert PASSED_REASON in recorder.prompts[-1]
+    assert not any(PASSED_REASON in prompt for prompt in recorder.prompts[:-1])
+    first, second = recorder.impl_found
+    assert second == first, "the tests commit is as the tests call left it"
+    assert IMPL_TEST_FILE not in second
+    assert subjects(repo) == ["test: G1", "feat: G1"]
+    assert IMPL_TEST_FILE in files_in(repo, "HEAD~1")
+
+
+def test_moved_tests_that_stay_red_rejected_spend_the_rounds_and_fail_the_unit(
+    tmp_path: Path,
+) -> None:
+    recorder, repo = prepared(tmp_path, groups={"add-marker": titled(1)}, impl_writes_test=True)
+    limited(max_check_rounds=1)
+    red = RedAnswers(recorder, [(True, ""), (False, PASSED_REASON)])
+
+    outcome = build(tmp_path, recorder, run_red_check=red, **recorder.overrides(tmp_path))
+
+    assert outcome.status == "failed"
+    assert PASSED_REASON in recorder.store.get(UNIT).feedback
+    assert "feat: G1" not in subjects(repo)
+
+
+def test_a_test_the_implementation_edits_in_an_unstubbed_build_is_moved_with_no_red_check(
+    tmp_path: Path,
+) -> None:
+    recorder, repo = prepared(tmp_path, setting=False, impl_writes_test=True)
+    red = RedAnswers(recorder, [(True, "")])
+
+    outcome = build(tmp_path, recorder, run_red_check=red, **recorder.overrides(tmp_path))
+
+    assert outcome.status == "open"
+    assert [subject.split(":")[0] for subject in subjects(repo)] == ["test", "feat"]
+    assert IMPL_TEST_FILE in files_in(repo, "HEAD~1")
+    assert not [path for path in files_in(repo, "HEAD") if path.startswith("tests/")]
+    assert "red-check" not in recorder.events, "an unstubbed build runs no red check"
+
+
+class Continuable:
+    """An agent whose every call is one session, as a runtime that can continue it does: what
+    each call is sent (the follow-up when it continues the session, else the prompt) is kept,
+    and the step is answered as the recorder does."""
+
+    def __init__(self, recorder: Recorder) -> None:
+        self.recorder = recorder
+        self.sent: list[str] = []
+
+    def __call__(
+        self,
+        prompt: str,
+        *,
+        cwd: Path,
+        on_session: Callable[[str], None] | None = None,
+        on_result: Callable[..., None] | None = None,
+        model: str = "",
+        follow_up: str = "",
+        resume_session: str = "",
+        **more: Any,
+    ) -> str:
+        if on_session:
+            on_session("impl-session")
+        answer = self.recorder.claude(prompt, cwd=cwd)
+        if self.recorder.events[-1] == "claude:impl":
+            self.sent.append(follow_up if resume_session else prompt)
+        if on_result:
+            result = AgentResult(ok=True, text=answer, session_id="impl-session")
+            on_result(result, role="implement", model=model, runtime="fake")
+        return answer
+
+
+def test_a_continued_implementation_session_is_told_why_the_moved_test_was_rejected(
+    tmp_path: Path,
+) -> None:
+    recorder, _ = prepared(tmp_path, groups={"add-marker": titled(1)}, impl_writes_test=True)
+    reuse(build=True)
+    agent = Continuable(recorder)
+    red = RedAnswers(recorder, [(True, ""), (False, PASSED_REASON), (True, "")])
+    wired: dict[str, Any] = {**recorder.overrides(tmp_path), "run": agent}
+
+    build(tmp_path, recorder, run_red_check=red, **wired)
+
+    first, second = agent.sent
+    assert PASSED_REASON not in first
+    assert PASSED_REASON in second
+
+
+def test_a_rejection_the_step_answers_by_dropping_its_test_edit_leaves_no_stored_reason(
+    tmp_path: Path,
+) -> None:
+    recorder, repo = prepared(
+        tmp_path,
+        groups={"add-marker": titled(1)},
+        impl_writes_test=True,
+        impl_drops_test_edit=True,
+    )
+    red = RedAnswers(recorder, [(True, ""), (False, PASSED_REASON)])
+
+    outcome = build(tmp_path, recorder, run_red_check=red, **recorder.overrides(tmp_path))
+
+    assert outcome.status == "open"
+    assert "feat: G1" in subjects(repo)
+    stored = recorder.store.get(UNIT)
+    assert stored.feedback_source is not FeedbackSource.RED_CHECK
+    assert stored.feedback == ""
+
+
+def test_an_unstubbed_build_with_no_commit_of_its_own_leaves_a_tests_commit_of_its_base_alone(
+    tmp_path: Path,
+) -> None:
+    def base_ends_in_a_tests_commit(repo: Path) -> None:
+        land(repo, "test: Predecessor", {"tests/test_pred.py": "def test_p():\n    assert 1\n"})
+        git(repo, "update-ref", "refs/remotes/origin/main", "HEAD")
+
+    # The tests step writes and commits nothing, so HEAD is still the base's own tests commit.
+    recorder, repo = prepared(
+        tmp_path,
+        groups={"add-marker": titled(1)},
+        setting=False,
+        no_tests_for="1",
+        impl_writes_test=True,
+        meanwhile=base_ends_in_a_tests_commit,
+    )
+    base_tip = git(repo, "rev-parse", "origin/main").strip()
+
+    build(tmp_path, recorder, **recorder.overrides(tmp_path))
+
+    git(repo, "merge-base", "--is-ancestor", base_tip, "HEAD")
+    assert git(repo, "rev-parse", "origin/main").strip() == base_tip
+    assert base_tip in git(repo, "rev-list", "HEAD").split()
+    assert "Predecessor" in git(repo, "log", "-1", "--format=%s", base_tip)
+
+
+def test_a_test_written_where_the_tests_step_wrote_none_makes_an_ordinary_tests_commit(
+    tmp_path: Path,
+) -> None:
+    recorder, repo = prepared(
+        tmp_path,
+        groups={"add-marker": titled(1)},
+        no_tests_for="1",
+        tests_accounts={"1": ACCOUNT},
+        impl_writes_test=True,
+    )
+    red = RedAnswers(recorder, [(True, "")])
+    # The real digest of the tree: the edit the implementation makes is what fills the empty
+    # marked commit, and only a tree that changed tells the step it did.
+    wired: dict[str, Any] = {**recorder.overrides(tmp_path), "tree_state": build_tree_state()}
+
+    build(tmp_path, recorder, run_red_check=red, **wired)
+
+    assert subjects(repo) == ["test: G1", "feat: G1"]
+    assert files_in(repo, "HEAD~1") == [IMPL_TEST_FILE]
+    assert "Already-built" not in git(repo, "log", "-1", "--format=%B", "HEAD~1")
+    assert recorder.events.count("red-check") == 1, "run on the commit the edit made"
 
 
 def opened_start(

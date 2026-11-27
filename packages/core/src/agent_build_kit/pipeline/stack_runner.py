@@ -148,6 +148,29 @@ def unit_follow_ups(planning_repo: Path | str, change: str, unit_id: str) -> tup
     return tuple(line[2:].strip() for line in block.splitlines() if line.startswith("- "))
 
 
+# The one rule for where a test edit goes, carried by every build step and by the review.
+TEST_EDIT_RULE = (
+    "Every edit to a test file is in the `test:` commit; the `feat:` commit touches no test file."
+)
+
+# What the steps add to the rule: the tests step only states it, the implementation step says what
+# the pipeline does with an edit (moves it and runs the red check again), and a fix round says
+# where a correction goes.
+TEST_EDIT_NOTE = "\n" + TEST_EDIT_RULE + "\n"
+IMPLEMENTATION_TEST_EDIT_NOTE = (
+    TEST_EDIT_RULE
+    + " The pipeline moves any test edit this step makes into the group's `test:` commit and"
+    " runs the red check there again, so an edited test must still fail without the"
+    " implementation, by an assertion or another failure the red check counts as red. A"
+    " rejection sends the step back with the reason.\n"
+)
+FIX_EDIT_NOTE = (
+    "\n"
+    + TEST_EDIT_RULE
+    + " A test this round must correct is the exception: edit it in this round's `fix:` commit,"
+    " and do not weaken or delete it to make it pass; say so in your summary.\n"
+)
+
 # Said in every prompt that gives an agent a worktree. The pipeline's push
 # carries a lease on the commit it last published, so a push from anywhere
 # else makes it fail as a stale remote.
@@ -515,6 +538,7 @@ the unit has passed review, unit-test and been pushed.
     + OUTPUT_NOTE
     + TESTS_REUSE_NOTE
     + STANDARDS_NOTE
+    + TEST_EDIT_NOTE
     + INSTALL_NOTE
     + POSSIBLE_TESTS_NOTE
 )
@@ -567,6 +591,7 @@ the unit has passed review, unit-test and been pushed.
     + OUTPUT_NOTE
     + REUSE_NOTE
     + "{tests_guidance}"
+    + FIX_EDIT_NOTE
     + INSTALL_NOTE
     + NO_REWRITE_NOTE
     + POSSIBLE_TESTS_NOTE
@@ -615,6 +640,7 @@ or edit anything under {change_dir}. The pipeline records a task as done once
 the unit has passed review, unit-test and been pushed.
 """
     + REUSE_NOTE
+    + FIX_EDIT_NOTE
     + INSTALL_NOTE,
     unit_test=(
         "The output may be cut short; run the failing tests yourself,\n"
@@ -1003,6 +1029,7 @@ the unit has passed review, unit-test and been pushed.
     + REUSE_NOTE
     + "{tests_guidance}"
     + STANDARDS_NOTE
+    + FIX_EDIT_NOTE
     + INSTALL_NOTE
     + NO_REWRITE_NOTE
     + POSSIBLE_TESTS_NOTE
@@ -1011,12 +1038,15 @@ the unit has passed review, unit-test and been pushed.
 
 
 # What the implementation does after a tests commit.
-IMPLEMENTATION_WORK = """\
+IMPLEMENTATION_WORK = (
+    """\
 Make the tests written in the previous commit pass, keeping the change to what
 those tests require. Do not weaken or delete a test to make it pass. If a stub
 the tests added duplicates existing code, delete the stub and repoint the test at
 the existing function with the same assertions; that is not weakening a test, and
 your summary says so. """
+    + IMPLEMENTATION_TEST_EDIT_NOTE
+)
 
 # What it does for a group built with no tests step (`no_code` or `refactor`).
 NO_TESTS_WORK = """\
@@ -1223,7 +1253,9 @@ The tests are written and committed. Now implement: make them pass, keeping the
 change to what those tests require. Do not weaken or delete a test to make it
 pass. If a stub the tests added duplicates existing code, delete the stub and
 repoint the test at the existing function with the same assertions; that is not
-weakening a test, and your summary says so. Run linting, formatting and types,
+weakening a test, and your summary says so. """
+    + IMPLEMENTATION_TEST_EDIT_NOTE
+    + """Run linting, formatting and types,
 and the tests you changed, by file or test id, before you finish; the pipeline runs the whole
 suite.
 """
@@ -1262,6 +1294,7 @@ are refused with a 403 or a permission error): its failure there is not a defect
 and the pipeline runs it outside the sandbox; this does not cover the live tests of
 an e2e-test unit.
 """
+    + FIX_EDIT_NOTE
     + CONTINUATION_READONLY,
     unit_test=(
         "Run the failing tests yourself first, by file or test id: the output above may be\n"
@@ -1279,6 +1312,7 @@ REVIEW_FEEDBACK_CONTINUATION = PromptTemplate(
 
 """
     + _REVIEW_FEEDBACK_ASK
+    + FIX_EDIT_NOTE
     + CONTINUATION_READONLY
     + "{changelog}"
 )
@@ -1293,6 +1327,7 @@ REWORK_CONTINUATION = PromptTemplate(
 
 """
     + _REWORK_ASK
+    + FIX_EDIT_NOTE
     + CONTINUATION_READONLY
     + "{changelog}"
     + BLOCKED_NOTE
@@ -1834,6 +1869,7 @@ class UnitRunner(BaseModel):
     run: Callable[..., str]
     run_review: Callable[..., str]
     run_rework_review: Callable[..., str]
+    # Given `amend_only` paths it amends HEAD with just those, hooks and fix rounds as ever.
     commit: Callable[..., int]
     # An empty commit marking a group the branch already holds the work of; 0 when unset.
     commit_built: Callable[..., int] = lambda message, *, cwd: 0

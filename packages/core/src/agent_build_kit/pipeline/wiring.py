@@ -227,6 +227,7 @@ from agent_build_kit.pipeline.shell import (
     porcelain,
 )
 from agent_build_kit.pipeline.stack_runner import (
+    TEST_EDIT_RULE,
     FixResult,
     Recheck,
     Restacked,
@@ -863,7 +864,8 @@ def build_run(
 
 # The three parts of the review prompt that hold a change's tests to a standard; a unit with no
 # group that writes tests (see `review_prompt`) is not shown them.
-REVIEW_STANDARDS_CHECKLIST = """\
+REVIEW_STANDARDS_CHECKLIST = (
+    """\
 - **Judge the tests on what a program cannot.** For each test the diff adds, ask: is it one kind
   and in the right place (T1, T2)? Does its name state one behaviour (T3)? Does it use only the
   public surface (T4)? Is the clock injected (T10) and a changing external value read through
@@ -877,7 +879,13 @@ REVIEW_STANDARDS_CHECKLIST = """\
   before adding a test? Is it one scenario, one test? Does it assert properties, not prose (no
   wording test except an exclusion guard or a prompt's directive table)? Does it fake at a
   boundary rather than patch a collaborator by its import path?
+- **Hold test edits to one place.** """
+    + TEST_EDIT_RULE
+    + """ A fix round may correct a test in its own `fix:`
+  commit. Where a test edit sits in the wrong commit, that is a finding, not a reason to ask
+  for a rewrite of the commits.
 """
+)
 
 REVIEW_DETERMINISM_RULE = (
     "- **Hold the tests to the determinism rules.** "
@@ -1041,8 +1049,10 @@ files the branch does not change. It rides in the same reply; do not run anythin
 Add `"rewrite_request"` only when the fix is to the shape of the commits: which edits sit in
 which commit, a support edit that belongs in the feature commit, a commit that should be
 split or squashed. It is for the shape of the commits, which the structure check and the red
-check cannot judge, and not for taste or a style preference. It is a sentence or two, beside
-the findings; leave it out otherwise.
+check cannot judge, and not for taste or a style preference. Do not ask for one because of the
+commit a test edit sits in: a test edit belongs in the `test:` commit, which is a finding and
+not a rewrite, and a fix round may correct a test in its own `fix:` commit. It is a sentence
+or two, beside the findings; leave it out otherwise.
 
 Reply with JSON and nothing else:
 {"approved": true|false, "feedback": "anything that is not a finding, empty when approved",
@@ -1267,16 +1277,22 @@ def build_commit(
 
     default_base = base
 
-    def commit(message: str, *, cwd: Path, base: str = "") -> int:
+    def commit(
+        message: str, *, cwd: Path, base: str = "", amend_only: Sequence[str] | None = None
+    ) -> int:
         # The unit id in the trailer keeps a branch's history readable without
         # the planning repo open beside it.
         body = with_trailers(message, unit_id=unit_id, adopted_from=adopted_from)
+        # `amend_only` makes this an amend of HEAD, limited to those pathspecs, with the
+        # same hooks and fix rounds as any commit.
+        scope_only = amend_only if amend_only is not None else only
+        amending = ["--amend", "--allow-empty"] if amend_only is not None else []
 
         def attempt() -> subprocess.CompletedProcess | None:
             restore_unchanged_locks(repo, cwd, base or default_base)
-            if only is None:
+            if scope_only is None:
                 run(["git", "add", "-A"], cwd=cwd)
-            elif names := [name for _, name in porcelain(cwd, *only)]:
+            elif names := [name for _, name in porcelain(cwd, *scope_only)]:
                 # The changed paths under the pathspecs, not the pathspecs: git refuses
                 # `add` when one of them matches nothing.
                 run(["git", "add", "-A", "--", *names], cwd=cwd)
@@ -1284,17 +1300,20 @@ def build_commit(
             unstage_artifacts(repo, cwd)
             # With `only`, what was staged outside the pathspecs is neither counted nor
             # committed: it stays staged.
-            scope = ["--", *only] if only is not None else []
+            scope = ["--", *scope_only] if scope_only is not None else []
             if not run(["git", "diff", "--cached", "--quiet", *scope], cwd=cwd).returncode:
                 return None  # Nothing staged: an empty commit would be a lie.
             if gate is not None and (rejected := gate(cwd)):
                 return subprocess.CompletedProcess(["gate"], 1, stdout=rejected, stderr="")
-            if only is None:
-                return run(["git", "commit", "-q", "-m", body], cwd=cwd)
+            if scope_only is None:
+                return run(["git", "commit", "-q", *amending, "-m", body], cwd=cwd)
             staged = run(
                 ["git", "diff", "--cached", "--name-only", "--no-renames", *scope], cwd=cwd
             ).stdout
-            return run(["git", "commit", "-q", "-m", body, "--", *staged.splitlines()], cwd=cwd)
+            return run(
+                ["git", "commit", "-q", *amending, "-m", body, "--", *staged.splitlines()],
+                cwd=cwd,
+            )
 
         def head() -> str:
             return run(["git", "rev-parse", "HEAD"], cwd=cwd).stdout.strip()
@@ -5958,6 +5977,13 @@ def build_runner(
         ),
     )
     gate_may_start, gate_resume_at = build_usage_gate(account=account)
+    # A rejected commit goes back to the build run's agent, same policy.
+    commit_all = build_commit(
+        unit_id=unit.id,
+        fix=run,
+        repo=repo,
+        base=local_ref(repo.default_branch, repo=unit.repo),
+    )
     return UnitRunner(
         account=account,
         store=store,
@@ -6002,13 +6028,7 @@ def build_runner(
             repo=repo,
             account=account,
         ),
-        # A rejected commit goes back to the build run's agent, same policy.
-        commit=build_commit(
-            unit_id=unit.id,
-            fix=run,
-            repo=repo,
-            base=local_ref(repo.default_branch, repo=unit.repo),
-        ),
+        commit=commit_all,
         commit_built=build_commit_built(unit_id=unit.id, store=store),
         run_stub_checks=build_stub_checks(profile=profile, projects=repo.projects),
         # Only a stubbed build reaches the red check.

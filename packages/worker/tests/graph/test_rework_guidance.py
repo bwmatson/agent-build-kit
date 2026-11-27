@@ -65,14 +65,16 @@ FIELDS: dict[str, Any] = dict(
 # local-server sentence (`CHECKS_PROMPT`, `CHECKS_CONTINUATION`), and the source version of the
 # reuse guidance (the three full prompts), and the test standards' placement, scenario and fake
 # rules (`REWORK_PROMPT`), and the note to write a `BLOCKED:` line for work whose prerequisite
-# does not exist (`REWORK_PROMPT`, `REWORK_CONTINUATION`).
+# does not exist (`REWORK_PROMPT`, `REWORK_CONTINUATION`), and the test-edit rule (every template
+# here: a test edit goes in the `test:` commit, and a test a fix round corrects goes in its `fix:`
+# commit).
 TEMPLATES = {
-    "CHECKS_PROMPT": (CHECKS_PROMPT, "b00d1e69bf9b9d13"),
-    "CHECKS_CONTINUATION": (CHECKS_CONTINUATION, "99f524238fc27f52"),
-    "REWORK_PROMPT": (REWORK_PROMPT, "375fbd7e2ee0839f"),
-    "REWORK_CONTINUATION": (REWORK_CONTINUATION, "c4d35c67ddf2e69a"),
-    "REVIEW_FEEDBACK_PROMPT": (REVIEW_FEEDBACK_PROMPT, "f9578bebcda33c91"),
-    "REVIEW_FEEDBACK_CONTINUATION": (REVIEW_FEEDBACK_CONTINUATION, "55673cf6125cc43d"),
+    "CHECKS_PROMPT": (CHECKS_PROMPT, "0fbbbbe9d9d956ee"),
+    "CHECKS_CONTINUATION": (CHECKS_CONTINUATION, "5ec858ad153972e6"),
+    "REWORK_PROMPT": (REWORK_PROMPT, "cea0112bbe9eaf3c"),
+    "REWORK_CONTINUATION": (REWORK_CONTINUATION, "24ba2b74de85b0f7"),
+    "REVIEW_FEEDBACK_PROMPT": (REVIEW_FEEDBACK_PROMPT, "6e539dbac35843b6"),
+    "REVIEW_FEEDBACK_CONTINUATION": (REVIEW_FEEDBACK_CONTINUATION, "f6fc1f5e7a4863f4"),
 }
 
 

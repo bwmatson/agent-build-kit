@@ -29,6 +29,7 @@ UNIT = "add-marker/1"
 TRAILER = f"Unit: {UNIT}"
 BASE = "origin/main"
 Groups = Mapping[int, tuple[str, str]]  # number -> (title, "Done when" sentence or "")
+IMPL_TEST_FILE = "tests/test_edited_in_impl.py"  # what `impl_writes_test` makes a call write
 ACCOUNT = "Nothing needed changing. The four tests already pass"
 
 
@@ -103,9 +104,17 @@ class OnBranch(StubLoop):
         silent_groups: Collection[int] = (),
         accounts: Mapping[str, str] | None = None,
         tests_accounts: Mapping[str, str] | None = None,
+        impl_writes_test: bool = False,
+        impl_drops_test_edit: bool = False,
         **options: Any,
     ) -> None:
         super().__init__(store, **options)
+        self.impl_writes_test = impl_writes_test  # each implementation call also edits a test
+        # ... except that, with this, every call after the first removes that edit instead
+        self.impl_drops_test_edit = impl_drops_test_edit
+        self.impl_found: list[
+            list[str]
+        ] = []  # the files of the commit each implementation call found
         self.accounts = accounts or {}
         self.tests_accounts = tests_accounts or {}
         self.no_commit_for = no_commit_for  # as the prompt names them: "3" or "1, 2, 3"
@@ -122,6 +131,8 @@ class OnBranch(StubLoop):
         skipped = skipped or (step == "claude:tests" and built_group == self.no_tests_for)
         if step in ("claude:tests", "claude:impl"):
             self.at_agent.append((step, branch_subjects(kwargs["cwd"], BASE)))
+        if step == "claude:impl":
+            self.impl_found.append(files_in(kwargs["cwd"], "HEAD"))
         if step == "claude:impl" and built_group == self.kill_in_impl:
             self.kill_in_impl = ""
             raise Killed(step)
@@ -130,15 +141,25 @@ class OnBranch(StubLoop):
         )
         if step in ("claude:tests", "claude:impl", "claude:rework") and not skipped:
             (kwargs["cwd"] / f"work-{len(self.prompts)}.txt").write_text(f"{step}\n")
+        if step == "claude:impl" and self.impl_writes_test and not skipped:
+            edited = kwargs["cwd"] / IMPL_TEST_FILE
+            if self.impl_drops_test_edit and len(self.impl_found) > 1:
+                edited.unlink(missing_ok=True)  # answers a rejection by dropping its test edit
+            else:
+                edited.parent.mkdir(exist_ok=True)
+                edited.write_text(f"def test_edited():\n    assert {len(self.prompts)} == 0\n")
         if step == "claude:impl" and built_group in self.accounts:
             return self.accounts[built_group]
         if step == "claude:tests" and built_group in self.tests_accounts:
             return self.tests_accounts[built_group]
         return answer
 
-    def commit(self, message: str, *, cwd: Path, base: str = "") -> int:
-        made = build_commit(unit_id=UNIT)(message, cwd=cwd, base=base)
-        super().commit(message, cwd=cwd, base=base)  # recorded, and the run may die here
+    def commit(
+        self, message: str, *, cwd: Path, base: str = "", amend_only: list[str] | None = None
+    ) -> int:
+        made = build_commit(unit_id=UNIT)(message, cwd=cwd, base=base, amend_only=amend_only)
+        if amend_only is None:  # an amend joins a commit already counted
+            super().commit(message, cwd=cwd, base=base)  # recorded, and the run may die here
         return made
 
     def commit_built(self, message: str, *, cwd: Path) -> int:

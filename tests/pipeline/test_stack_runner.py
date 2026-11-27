@@ -26,10 +26,16 @@ import pytest
 from agent_build_kit.pipeline.group_mode import GroupMode
 from agent_build_kit.pipeline.restack import HostMoved
 from agent_build_kit.pipeline.stack_runner import (
+    CHECKS_CONTINUATION,
+    CHECKS_PROMPT,
     IMPLEMENTATION_CONTINUATION,
     IMPLEMENTATION_PROMPT,
+    REVIEW_FEEDBACK_CONTINUATION,
+    REVIEW_FEEDBACK_PROMPT,
+    REWORK_CONTINUATION,
     REWORK_PROMPT,
     STUBBED_TESTS_FINISH,
+    TEST_EDIT_RULE,
     TESTS_FINISH,
     TESTS_PROMPT,
     Restacked,
@@ -40,6 +46,7 @@ from agent_build_kit.pipeline.unit_store import UnitStore
 from agent_build_kit.pipeline.units import IN_REVIEW
 from tests.factories import stored_unit, unit
 from tests.graph_driver import run_on_graph
+from tests.prompt_text import filled, flat, placeholders
 
 
 class Recorder:
@@ -590,6 +597,57 @@ def test_a_stubbed_prompt_no_longer_tells_the_step_not_to_run_the_new_tests() ->
     text = write_tests_prompt(GroupMode.TESTS_AND_CODE, stubbed=True, **TESTS_FIELDS)
 
     assert "Do not run the new tests" not in text
+
+
+# --- the test-edit rule every build step carries -------------------------------
+
+_IMPLEMENT_WORDS = ("red check",)
+_FIX_WORDS = ("fix:",)
+
+
+@pytest.mark.parametrize(
+    ("template", "beside"),
+    [
+        (TESTS_PROMPT, ()),
+        (IMPLEMENTATION_PROMPT, _IMPLEMENT_WORDS),
+        (IMPLEMENTATION_CONTINUATION, _IMPLEMENT_WORDS),
+        (CHECKS_PROMPT, _FIX_WORDS),
+        (CHECKS_CONTINUATION, _FIX_WORDS),
+        (REVIEW_FEEDBACK_PROMPT, _FIX_WORDS),
+        (REVIEW_FEEDBACK_CONTINUATION, _FIX_WORDS),
+        (REWORK_PROMPT, _FIX_WORDS),
+        (REWORK_CONTINUATION, _FIX_WORDS),
+    ],
+    ids=[
+        "tests",
+        "implementation",
+        "implementation-continuation",
+        "checks",
+        "checks-continuation",
+        "review-feedback",
+        "review-feedback-continuation",
+        "rework",
+        "rework-continuation",
+    ],
+)
+def test_each_build_prompt_carries_the_test_edit_rule_once_with_what_its_step_adds(
+    template: str, beside: tuple[str, ...]
+) -> None:
+    text = flat(filled(template))
+
+    assert text.count(flat(TEST_EDIT_RULE)) == 1
+    for words in beside:
+        assert words in text
+
+
+def test_the_implementation_prompt_of_a_group_with_no_tests_step_does_not_carry_the_rule() -> None:
+    fields: dict[str, object] = dict.fromkeys(placeholders(IMPLEMENTATION_PROMPT), "x")
+
+    with_tests = flat(IMPLEMENTATION_PROMPT.format(**fields))  # pyrefly: ignore
+    without_tests = flat(IMPLEMENTATION_PROMPT.format(**fields, no_tests=True))  # pyrefly: ignore
+
+    assert flat(TEST_EDIT_RULE) in with_tests
+    assert flat(TEST_EDIT_RULE) not in without_tests
 
 
 # --- how many fix rounds, and when they count from -----------------------------

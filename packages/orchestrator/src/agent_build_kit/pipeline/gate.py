@@ -44,6 +44,7 @@ from agent_build_kit.pipeline.commit_order import (
     check_structure,
     classify_paths,
     commits_without_red_check,
+    exempt_fix_commits,
 )
 from agent_build_kit.pipeline.red_check import Rule
 from agent_build_kit.pipeline.shell import git
@@ -484,7 +485,10 @@ def check_branch(
         # the tests commit" isn't yet a meaningful question.
         return problems
 
+    fixes = exempt_fix_commits(repo, base, paired=stubbed, groups=groups)
     for sha in _tests_commits(repo, base, is_test):
+        if sha in fixes:
+            continue  # a later round's correction of a test is no tests commit, and has no red run
         commit_mode = only_mode if sha in no_red else mode
         if cache is not None:
             cached = cache.lookup(repo, sha, mode=commit_mode)

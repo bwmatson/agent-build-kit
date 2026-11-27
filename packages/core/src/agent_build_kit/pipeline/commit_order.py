@@ -548,6 +548,26 @@ def _pair_problems(
     return problems
 
 
+def exempt_fix_commits(
+    repo: Path, base: str, *, paired: bool, groups: Sequence[GroupStep] = ()
+) -> set[str]:
+    """The shas of the `fix:` commits that follow the groups' own commits on a paired branch whose
+    groups are known: a later round's correction of a test beside code is neither a tests commit
+    nor stub-checked, and has no red run. None on a branch whose groups are not known, so there
+    a `fix:` commit is judged like any other. The one place the structure check and the gate
+    decide it."""
+    if not (paired and groups):
+        return set()
+    shas = _commits(repo, base)
+    subjects = branch_subjects(repo, base)
+    owners = _commit_modes(subjects, groups, branch_commit_trailers(repo, base))
+    return {
+        sha
+        for sha, subject, owner in zip(shas, subjects, owners, strict=True)
+        if owner is None and subject.startswith(FIX_PREFIX)
+    }
+
+
 def check_structure(
     repo: Path,
     base: str,
@@ -580,6 +600,7 @@ def check_structure(
     problems: list[str] = []
     kinds: list[str] = []
     stub_problems: dict[int, list[str]] = {}
+    exempt = exempt_fix_commits(repo, base, paired=paired, groups=groups)
 
     for index, sha in enumerate(shas):
         labels = classify_paths(_files_in(repo, sha), is_test)
@@ -594,6 +615,24 @@ def check_structure(
         ):
             # The lone `feat:` of a group with no tests step may edit tests beside code (a
             # reorganization does, mechanically): no stubs to find, and it is code, not tests.
+            kinds.append("code" if code_paths else "tests" if has_tests else "docs")
+        elif (
+            owner is not None
+            and subjects[index].startswith(CODE_PREFIX)
+            and (test_files := [path for path, kind in labels.items() if kind == "test"])
+        ):
+            # The `feat:` of a group with a tests step: every edit to a test file is in the
+            # `test:` commit, which is where it has been seen to fail.
+            named = ", ".join(f"`{path}`" for path in test_files)
+            problems.append(
+                f"`{subjects[index]}` changes {named} — every edit to a test file of a group "
+                f"with a tests step is in its `{TESTS_PREFIX}` commit, and the "
+                f"`{CODE_PREFIX}` commit touches none"
+            )
+            kinds.append("code")
+        elif sha in exempt:
+            # A `fix:` commit after the groups' commits may correct a test beside code: it is
+            # neither a tests commit nor stub-checked, whatever it holds.
             kinds.append("code" if code_paths else "tests" if has_tests else "docs")
         elif has_tests and code_paths:
             # Tests plus code in one commit is only allowed when the code is

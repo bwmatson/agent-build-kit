@@ -23,8 +23,10 @@ import pytest
 
 from agent_build_kit import profiles
 from agent_build_kit.config import ProjectConfig, models
+from agent_build_kit.pipeline.group_mode import GroupMode
 from agent_build_kit.pipeline.pr_replies import MARKER
 from agent_build_kit.pipeline.restack import HostMoved
+from agent_build_kit.pipeline.stack_runner import TEST_EDIT_RULE
 from agent_build_kit.pipeline.unit_store import UnitStore
 from agent_build_kit.pipeline.units import IN_REVIEW, MERGED, RUNNING, SATISFIED, UnitState
 from agent_build_kit.pipeline.wiring import (
@@ -41,6 +43,7 @@ from agent_build_kit.pipeline.wiring import (
     build_upstream_incomplete,
     head_reachable,
     is_linear,
+    review_prompt,
     tip,
 )
 from agent_build_kit.profiles.base import ProfileUnsupported
@@ -48,6 +51,7 @@ from agent_build_kit.profiles.python_uv import UNIT_REPORT_FLAGS, PythonUvProfil
 from tests.conftest import make_installation
 from tests.factories import git, init_repo, unit
 from tests.forges.stand_in import StandInForge, lookup
+from tests.prompt_text import flat
 
 REPORT = UNIT_REPORT_FLAGS
 MODEL = "m"
@@ -1102,6 +1106,30 @@ def test_a_continued_review_does_not_repeat_the_checklist(tmp_path: Path) -> Non
 
     assert not re.search(r"\bT19\b", prompt)
     assert "guard enforces" not in prompt
+
+
+@pytest.mark.parametrize(
+    ("modes", "carries"),
+    [
+        ({"feature/1": GroupMode.TESTS_AND_CODE}, True),
+        ({"feature/1": GroupMode.NO_CODE, "feature/2": GroupMode.REFACTOR}, False),
+        (None, True),
+        ({}, True),
+    ],
+    ids=["tests-and-code", "no-code-and-refactor", "no-modes", "empty-modes"],
+)
+def test_the_review_is_told_the_test_edit_rule_only_for_a_unit_that_writes_tests(
+    modes: Mapping[str, GroupMode] | None, carries: bool
+) -> None:
+    text = flat(review_prompt(modes))
+
+    assert text.count(flat(TEST_EDIT_RULE)) == (1 if carries else 0)
+
+
+def test_a_rewrite_request_is_not_asked_for_because_of_the_commit_a_test_edit_sits_in() -> None:
+    paragraphs = review_prompt({"feature/1": GroupMode.TESTS_AND_CODE}).split("\n\n")
+
+    assert any("rewrite_request" in p and "test edit" in flat(p) for p in paragraphs)
 
 
 def _workspace(tmp_path: Path) -> Path:

@@ -117,7 +117,7 @@ from agent_build_kit.pipeline.restack import (
 from agent_build_kit.pipeline.review_classes import class_of
 from agent_build_kit.pipeline.review_paths import is_protected
 from agent_build_kit.pipeline.run_log import RunLog
-from agent_build_kit.pipeline.shell import git
+from agent_build_kit.pipeline.shell import git, porcelain_entries
 from agent_build_kit.pipeline.stack_runner import (
     ADAPT_CONTINUATION,
     ADAPT_FOLLOWUP_PROMPT,
@@ -281,6 +281,11 @@ RED_CHECK_NOTE = (
     "The red check ran your tests before any implementation exists and rejected them:\n"
     "{reason}\nRewrite them so each new test fails with an assertion, or in another way the "
     "red words in your instructions count as red."
+)
+MOVED_TEST_NOTE = (
+    "You edited a test file, and the red check ran the tests as they now stand, before any "
+    "implementation exists, and rejected them:\n{reason}\nMake each edited test fail with an "
+    "assertion, or in another way the red words in your instructions count as red."
 )
 SELECTOR_CHECK_NOTE = (
     "This group's tests are integration tests, and the selector check rejected them:\n"
@@ -2192,6 +2197,51 @@ class BuildPath:
         config = self.runner.repo_config
         return config is not None and stubbed_build(active().builders, profiles.get(config.profile))
 
+    def move_test_edits(self, state: UnitRun, ref: str) -> str:
+        """Commit the tree's test-file changes into the group's `test:` commit at `HEAD` through
+        the runner's amend (an empty marked one becomes an ordinary one), and in a stubbed build
+        run the red check at it. "" when nothing needed moving or the check accepts; the reason
+        when it rejects, with the `test:` commit as it was and the edits left in the tree. An
+        unstubbed build has no group steps and no red check: its edits join the `test:` commit
+        at `HEAD`, and nothing is run."""
+        r, unit, tree = self.runner, self.unit, self.tree()
+        own = self.group_step(state)
+        if own is not None and not (own.mode.writes_tests and own.mode.writes_code):
+            return ""
+        if not (tree / ".git").exists():
+            # Not a git worktree: no edit to move. A real worktree always has `.git`; the
+            # fake runners whose tree is a bare directory (most unstubbed-build tests) rely on this.
+            return ""
+        paths = [
+            path for _, name, source in porcelain_entries(tree) for path in (name, source) if path
+        ]
+        labels = classify_paths(paths, self._is_test)
+        edited = [path for path in paths if labels[path] == "test"]
+        if not edited:
+            return ""
+        if own is not None:
+            progress = self.branch_progress(ref)
+            if progress.done != state.group or not progress.tests_made:
+                return ""
+        elif not r.branch_commits(tree, ref) or not git(
+            tree, "log", "-1", "--format=%s"
+        ).stdout.startswith(TESTS_PREFIX):
+            return ""  # HEAD must be a tests commit of this branch, never one of its base
+        original = r.head(tree)
+        self.say(f"moving the test edits into the tests commit: {', '.join(edited)}")
+        r.commit(self.message(TESTS_PREFIX, True, state), cwd=tree, base=ref, amend_only=edited)
+        if own is None:
+            return ""
+        ok, why = r.run_red_check(cwd=tree)
+        if ok:
+            if r.store.get(unit.id).feedback_source is FeedbackSource.RED_CHECK:
+                r.store.set_feedback(unit.id, "")
+            return ""
+        self.say(why)
+        r.store.set_feedback(unit.id, why, source=FeedbackSource.RED_CHECK)
+        git(tree, "reset", "-q", original)
+        return why
+
     def implement(self, state: UnitRun) -> Update:
         r, unit = self.runner, self.unit
         tree, ref = self.tree(), self.ref(state)
@@ -2207,55 +2257,82 @@ class BuildPath:
             change_dir, groups = self.scope(state)
             own = self.group_step(state)
             build_boundary, _ = r.boundary_notes(unit, self.graph)
-            self.say(f"implement ({models().implement})")
             guidance = r.store.get(unit.id).guidance
-            prompt = IMPLEMENTATION_PROMPT.format(
-                commands=commands_note(r.repo_config),
-                guidance=person_guidance(guidance),
-                groups=groups,
-                change_dir=change_dir,
-                boundary=build_boundary,
-                changelog=changelog_note(tree, r.repo_config),
-                no_tests=own is not None and not own.mode.writes_tests,
-            )
-            prompt = self.told(prompt, self.scope_note())
-            if note := r.follow_ups_note(unit):
-                prompt = f"{note}\n\n{prompt}"
-            if state.reproduction_guidance:
-                prompt = f"{state.reproduction_guidance}\n\n{prompt}"
-            before_impl = r.tree_state(tree)
-            account = self.agent(
-                r.run,
-                prompt,
-                cwd=tree,
-                state=state,
-                model=models().implement,
-                # A group with no tests step has no tests to continue from: it starts a session on
-                # the full prompt, which names its group and says what it is.
-                follow_up=""
-                if own is not None and not own.mode.writes_tests
-                else IMPLEMENTATION_CONTINUATION.format(
-                    changelog=changelog_note(tree, r.repo_config)
-                ),
-            )
-            statement = account
-            blocked = blocked_update(state, account)
-            kept.update(blocked)
-            self.apply_fixers()
-            if (
-                own is not None
-                and own.mode.writes_tests
-                and own.mode.writes_code
-                and state.tests_account.strip()
-                and not r.branch_commits(tree, ref)
-                and before_impl
-                and r.tree_state(tree) != before_impl
-            ):
-                # The first group's tests step explained that its tests exist: that judgment is
-                # the branch's first commit, so the implementation completes a pair. The digest
-                # staged the tree: unstaged, so that commit stays empty.
-                git(tree, "reset", "-q")
-                self.commit_no_new_tests(state, ref)
+            rounds, moved_reason = state.red_rounds, ""
+            while True:
+                self.say(f"implement ({models().implement})")
+                prompt = IMPLEMENTATION_PROMPT.format(
+                    commands=commands_note(r.repo_config),
+                    guidance=person_guidance(guidance),
+                    groups=groups,
+                    change_dir=change_dir,
+                    boundary=build_boundary,
+                    changelog=changelog_note(tree, r.repo_config),
+                    no_tests=own is not None and not own.mode.writes_tests,
+                )
+                prompt = self.told(prompt, self.scope_note())
+                if moved_reason:
+                    prompt = self.told(prompt, MOVED_TEST_NOTE.format(reason=moved_reason))
+                if note := r.follow_ups_note(unit):
+                    prompt = f"{note}\n\n{prompt}"
+                if state.reproduction_guidance:
+                    prompt = f"{state.reproduction_guidance}\n\n{prompt}"
+                before_impl = r.tree_state(tree)
+                account = self.agent(
+                    r.run,
+                    prompt,
+                    cwd=tree,
+                    state=state,
+                    model=models().implement,
+                    # A group with no tests step has no tests to continue from: it starts a
+                    # session on the full prompt, which names its group and says what it is.
+                    # A continued session is sent only this, so the rejection is said here too.
+                    follow_up=""
+                    if own is not None and not own.mode.writes_tests
+                    else self.told(
+                        IMPLEMENTATION_CONTINUATION.format(
+                            changelog=changelog_note(tree, r.repo_config)
+                        ),
+                        MOVED_TEST_NOTE.format(reason=moved_reason) if moved_reason else "",
+                    ),
+                )
+                statement = account
+                blocked = blocked_update(state, account)
+                kept.update(blocked)
+                self.apply_fixers()
+                if (
+                    own is not None
+                    and own.mode.writes_tests
+                    and own.mode.writes_code
+                    and state.tests_account.strip()
+                    and not r.branch_commits(tree, ref)
+                    and before_impl
+                    and r.tree_state(tree) != before_impl
+                ):
+                    # The first group's tests step explained that its tests exist: that judgment
+                    # is the branch's first commit, so the implementation completes a pair. The
+                    # digest staged the tree: unstaged, so that commit stays empty.
+                    git(tree, "reset", "-q")
+                    self.commit_no_new_tests(state, ref)
+                rejected = moved_reason
+                if not (moved_reason := self.move_test_edits(state, ref)):
+                    if (
+                        rejected
+                        and r.store.get(unit.id).feedback_source is FeedbackSource.RED_CHECK
+                    ):
+                        # The step answered the rejection without a test edit left to judge:
+                        # the reason no longer stands, and a later group's tests step must not
+                        # be told it.
+                        r.store.set_feedback(unit.id, "")
+                    break
+                if (budget := check_loop.out_of_rounds(rounds)) is not None:
+                    return {
+                        "red_result": str(GateResult.FAILED),
+                        **self.stop(
+                            f"the red check rejected the moved tests after {budget} returns"
+                        ),
+                    }
+                rounds += 1
             made = r.commit(self.message(CODE_PREFIX, False, state), cwd=tree, base=ref)
             if (stopped := self.record_built(state, ref, made, account)) is not None:
                 return stopped
