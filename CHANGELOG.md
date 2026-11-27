@@ -2,6 +2,19 @@
 
 ## Unreleased
 
+- The plan review now lists the changes in a change's `Needs:` chain, with the test
+  and support paths their tasks name (a test path being what the repository's toolchain profile
+  says it is), so a path convention that differs from the chain's is flagged instead of
+  drifting. The review also reads the authoring rules every task follows and
+  each repository's own guidance file (`AGENTS.md`, else `CLAUDE.md`, as committed on its default
+  branch), and is told to keep the plan's paths and tasks in agreement with them. The listing and
+  the rules are context only: editing a neighbouring change or a guidance file does not ask for a
+  new review. The repair of a blocker is shown the same chain and rules, so it keeps the plan's
+  paths consistent with them. A change that belongs to an initiative is also shown that
+  initiative, the rules for an initiative's changes and the outlines that touch the same paths,
+  and its fourth question asks whether it builds something they will redo; such a finding is
+  advice and holds nothing.
+
 - The `abk-authoring` skill now carries the rules every task follows (check paths against the
   default branch, edit every check of the old behaviour in the same group, a `Test:` task that the
   red check accepts, test edits only in the `test:` commit, test tiers, a mode for a no-test

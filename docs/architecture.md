@@ -1027,12 +1027,27 @@ checks' report in the request. Changes are reviewed most urgent first: by the mo
 stored priority of their open units, ties by name. The passes and the changes run concurrently,
 at most `planning.plan_review_concurrency` calls at a time, and leave the same records and log
 as a one-at-a-time run. The request lists the change's units in the order they are built,
-merged ones included, each with its state and, once it has one, its pull request. A `blocker` finding with a fix is repaired by a rewrite of
-`tasks.md` that keeps every group heading, which is committed and reviewed again (at most
+merged ones included, each with its state and, once it has one, its pull request. It also lists
+the change's `Needs:` chain (the changes it names, followed through the changes those name, and
+the changes that name it, followed through the changes that name those; a sibling that only
+shares a base with it is not in the chain), nearest first, with the test paths its profile
+recognizes and the `Support:` paths each change's tasks name, so a path convention that differs
+from the chain's is a finding. An oversized chain
+is cut to `CHAIN_BUDGET` and `CHAIN_CHANGE_LIMIT`, and the changes left out are named. The listing
+is not part of the review hash, so a neighbour's edit does not ask for a new review. A `blocker` finding with a fix is repaired by a rewrite of
+`tasks.md` that keeps every group heading and every path consistent with the same chain listing
+and rules the request carries, which is committed and reviewed again (at most
 `planning.plan_review_repairs` times); a blocker left over holds the starts of the change's
 units that have not started until `abk review-plan clear`, and `advice` holds nothing. A
 cleared finding is not raised again while its group's text stands; a review that fails holds
 nothing.
+A change whose proposal has an `Initiative:` line is also shown its initiative and its
+`## Its part`, the shipped `abk-authoring` skill's `## Initiatives and change maturity` section
+and the outlines whose `Touches:` overlap the paths its tasks name (cut to `OUTLINES_BUDGET`, the
+left-out ones named), and its fourth question also asks whether it builds something its
+initiative or an overlapping outline will redo with no `Reworks:` line or interim; there is no
+extra pass. A finding that answers that with a rework is recorded as `advice` and holds nothing.
+The outlines are not part of the review hash.
 `abk carry` does the same on demand for a unit (`--dry-run` writes nothing, `--repair` carries a unit
 recorded merged whose commit is not on the default branch, and `--landed-as <sha>` records a commit
 already on the default branch as the unit's merge). `delete_merged_branches` says whether the

@@ -32,19 +32,23 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Literal, TypeVar
 
-from agent_build_kit import runtimes
+from agent_build_kit import __version__, runtimes, skills
 from agent_build_kit.config import models
 from agent_build_kit.installation import Installation
 from agent_build_kit.model import Frozen
 from agent_build_kit.pipeline import shell, spans
 from agent_build_kit.pipeline.call_record import recorded
+from agent_build_kit.pipeline.e2e_scope import is_test_path
 from agent_build_kit.pipeline.file_lock import atomic_write_text, file_lock
+from agent_build_kit.pipeline.outlines import Outline, overlapping, parse_proposal, read_outlines
 from agent_build_kit.pipeline.planner import PlannerError, ask_plan_model
 from agent_build_kit.pipeline.planning_commit import commit_and_publish
 from agent_build_kit.pipeline.unit_store import StoredUnit
 from agent_build_kit.pipeline.units import BUILDS_NOTHING, FINISHED_STATES, IN_REVIEW, MERGED
 from agent_build_kit.pipeline.vocabulary import OverheadNode
 from agent_build_kit.pipeline.work_graph import (
+    GROUP_HEADING,
+    group_needs,
     specification_text,
     validate_tasks,
     validate_tasks_text,
@@ -102,6 +106,18 @@ against the order units happen to be listed elsewhere.
 Files the tasks name, as they stand on each repo's default branch:
 {repository}
 
+Changes in this change's `Needs:` chain (the changes it names in `Needs:` lines and the changes
+that name it, followed through each other), nearest first, with the test and support paths their
+tasks name. A path whose convention (the folder tests live in, how files are named) differs from
+the chain's is a finding on the group that names it: a blocker when a unit would end red,
+otherwise advice, and its fix names the chain's convention. Never invent a second convention.
+{chain}
+
+Rules the plan follows: the shipped authoring rules every task follows, then each repository's own
+guidance file as it stands on its default branch. The plan's paths and tasks must agree with them;
+one that does not is a finding on the group that has it, and its fix names the rule.
+{rules}
+{initiative}
 Artifacts:
 {artifacts}
 
@@ -117,10 +133,20 @@ tasks.md cannot fix, or something you could not check. Report only what you can 
 REPAIR_PROMPT = """The plan of the change `{change}` has review findings that will make a unit
 fail. Rewrite its tasks.md so that each finding below is resolved, using the fix it names. Change
 only what the findings need: keep every group heading line exactly as it is, keep every other
-group and task as written, and follow the rules the file already follows.
+group and task as written, and follow the rules the file already follows. Keep every path
+consistent with the rules and the chain's listing below, and change a path only when a finding
+names it.
 
 Findings:
 {findings}
+
+Changes in this change's `Needs:` chain, nearest first, with the test and support paths their
+tasks name:
+{chain}
+
+Rules the plan follows: the shipped authoring rules every task follows, then each repository's own
+guidance file as it stands on its default branch:
+{rules}
 
 The current tasks.md:
 <<<TASKS
@@ -139,6 +165,29 @@ MAX_ATTEMPTS = 3
 # reads the rest itself.
 VIEW_BUDGET = 60_000
 VIEW_FILE_LIMIT = 12_000
+# The most bytes of the `Needs:` chain's listing the request carries, and of paths for any one
+# change in it.
+CHAIN_BUDGET = 8_000
+CHAIN_CHANGE_LIMIT = 30
+# The section of the shipped authoring skill the request carries, and the most characters of it and
+# of any one repository's guidance file.
+AUTHORING_RULES_SECTION = "Rules every task follows"
+AUTHORING_RULES_LIMIT = 12_000
+REPO_RULES_LIMIT = 12_000
+# The section of the shipped authoring skill that says what an interim and a `Reworks:` line mean,
+# and the most bytes of the overlapping outlines the request carries.
+MATURITY_RULES_SECTION = "Initiatives and change maturity"
+OUTLINES_BUDGET = 8_000
+# What a change of an initiative adds to the fourth question, and the start of the evidence of a
+# finding that answers it: such a finding is advice whatever kind the reviewer gave it.
+REWORK_QUESTION = (
+    "For a change of an initiative, also: does it build something its initiative or an"
+    " overlapping outline will redo, with no `Reworks:` line or interim naming it? Begin the"
+    " evidence of such a finding with `rework:`."
+)
+REWORK_MARK = "rework:"
+# A repository's guidance file, the first that is committed at its default branch.
+GUIDANCE_FILES = ("AGENTS.md", "CLAUDE.md")
 
 Kind = Literal["blocker", "advice"]
 
@@ -390,6 +439,178 @@ def _repo_checkouts(inst: Installation, tasks: Path) -> list[tuple[str, Path, st
     return list(found.values())
 
 
+def _needed(path: Path) -> set[str]:
+    """The changes the groups of the tasks file at `path` name in `Needs:` lines."""
+    try:
+        return {need.change for needs in group_needs(path).values() for need in needs}
+    except OSError:
+        return set()
+
+
+def _chain_paths(inst: Installation, text: str) -> list[str]:
+    """The test and support paths a tasks file names, once each, each with its group's repo: a path
+    its repo's profile calls a test path, and every path on a `Support:` line."""
+    found: list[str] = []
+    repo = ""
+    for line in text.splitlines():
+        if heading := GROUP_HEADING.match(line):
+            repo = heading.group("repo")
+        try:
+            config = inst.repo(repo)
+        except KeyError:
+            config = None
+        on_support = line.strip().startswith("Support:")
+        for name in _path_names((line,)):
+            if on_support or is_test_path(name, config):
+                found.append(f"{repo}:{name}")
+    return list(dict.fromkeys(found))
+
+
+def _distances(start: str, edges: Mapping[str, set[str]]) -> dict[str, int]:
+    """Steps from `start` to each change reachable along `edges`."""
+    seen: dict[str, int] = {}
+    frontier = [start]
+    steps = 0
+    while frontier:
+        steps += 1
+        following: list[str] = []
+        for name in frontier:
+            for other in sorted(edges.get(name, ())):
+                if other != start and other not in seen:
+                    seen[other] = steps
+                    following.append(other)
+        frontier = following
+    return seen
+
+
+def chain_listing(inst: Installation, tasks: Path) -> str:
+    """The changes in the `Needs:` chain of the change whose tasks file is `tasks`, nearest first
+    then by name, each with its test and support paths, cut to `CHAIN_BUDGET` (and
+    `CHAIN_CHANGE_LIMIT` paths a change); the changes left out are named. Empty without a chain."""
+    me = tasks.parent.name
+    files = {path.parent.name: path for path in inst.tasks_files()}
+    named = {name: _needed(path) & files.keys() - {name} for name, path in files.items()}
+    named_by: dict[str, set[str]] = {}
+    for name, others in named.items():
+        for other in others:
+            named_by.setdefault(other, set()).add(name)
+    nearest: dict[str, int] = {}
+    for edges in (named, named_by):
+        for name, steps in _distances(me, edges).items():
+            nearest[name] = min(steps, nearest.get(name, steps))
+    left = CHAIN_BUDGET
+    shown: list[str] = []
+    skipped: list[str] = []
+    for name in sorted(nearest, key=lambda n: (nearest[n], n)):
+        try:
+            text = files[name].read_text()
+        except OSError:
+            continue
+        paths = _chain_paths(inst, text)
+        lines = [f"### {name}", *(f"- {p}" for p in paths[:CHAIN_CHANGE_LIMIT])]
+        if len(paths) > CHAIN_CHANGE_LIMIT:
+            lines.append(f"- (and {len(paths) - CHAIN_CHANGE_LIMIT} more)")
+        entry = "\n".join(lines)
+        if skipped or len(entry.encode()) > left:
+            skipped.append(name)
+            continue
+        left -= len(entry.encode()) + 1
+        shown.append(entry)
+    if skipped:
+        shown.append(f"not listed, over the size limit: {', '.join(skipped)}")
+    return "\n".join(shown)
+
+
+def skill_section(text: str, section: str) -> str:
+    """The body of the `## <section>` part of a skill's text, cut to `AUTHORING_RULES_LIMIT`
+    with a note naming the skill; `(none)` when the text has no such section."""
+    lines = text.splitlines()
+    heading = f"## {section}"
+    start = next((i for i, line in enumerate(lines) if line.strip() == heading), None)
+    if start is None:
+        return "(none)"
+    end = next(
+        (i for i in range(start + 1, len(lines)) if re.match(r"#{1,2} ", lines[i])), len(lines)
+    )
+    body = "\n".join(lines[start + 1 : end]).strip()
+    if len(body) > AUTHORING_RULES_LIMIT:
+        body = (
+            body[:AUTHORING_RULES_LIMIT]
+            + f"\n[cut at the size limit: the rest is in the abk-authoring skill, {section}]"
+        )
+    return body
+
+
+def rules_listing(inst: Installation, tasks: Path) -> str:
+    """The rules a request carries: the shipped authoring rules under a line naming the skill and
+    its version, then each repo the change names with its first committed guidance file
+    (`AGENTS.md`, else `CLAUDE.md`) at its default branch, cut to `REPO_RULES_LIMIT`."""
+    shipped = skill_section(skills.source("abk-authoring"), AUTHORING_RULES_SECTION)
+    parts = [
+        f"#### abk-authoring skill, version {__version__}, section {AUTHORING_RULES_SECTION}\n"
+        + shipped
+    ]
+    for name, path, branch in _repo_checkouts(inst, tasks):
+        found = ("(none)", "")
+        for file in GUIDANCE_FILES:
+            try:
+                shown = shell.git(path, "show", f"{branch}:{file}", check=False)
+            except OSError:
+                continue
+            if shown.returncode == 0:
+                found = (file, shown.stdout)
+                break
+        file, content = found
+        body = content[:REPO_RULES_LIMIT]
+        if len(content) > REPO_RULES_LIMIT:
+            body += f"\n[cut at the size limit: the rest of {file} is in the repository]"
+        parts.append(f"#### {name}: {file} at {branch}\n{body}".rstrip())
+    return "\n\n".join(parts)
+
+
+def _proposal_lines(outline: Outline) -> str:
+    lines = [f"Initiative: {outline.initiative}"] if outline.initiative else []
+    lines += [f"Reworks: {rework}" for rework in outline.reworks]
+    return "\n".join([*lines, "## Its part", outline.its_part or "(none)"])
+
+
+def initiative_listing(inst: Installation, folder: Path) -> str:
+    """What a change of an initiative is also shown: its `Initiative:` line and `## Its part`
+    under the shipped maturity rules, then the outlines whose `Touches:` overlap the paths its
+    tasks name, cut to `OUTLINES_BUDGET` with the left-out ones named. Empty for a change whose
+    proposal has no `Initiative:` line."""
+    proposal = folder / "proposal.md"
+    mine = parse_proposal(folder.name, proposal.read_text() if proposal.is_file() else "")
+    if not mine.initiative:
+        return ""
+    rules = skill_section(skills.source("abk-authoring"), MATURITY_RULES_SECTION)
+    parts = [
+        "\nIts initiative: the change's own initiative line and part, then the shipped rules for"
+        " an initiative's changes.\n"
+        f"#### {folder.name}\n{_proposal_lines(mine)}\n"
+        f"#### abk-authoring skill, version {__version__}, section {MATURITY_RULES_SECTION}\n"
+        f"{rules}\n"
+    ]
+    shown: list[str] = []
+    left_out: list[str] = []
+    used = 0
+    for outline in overlapping(folder / "tasks.md", read_outlines(inst)):
+        text = f"#### {outline.name}\n{_proposal_lines(outline)}"
+        if left_out or (shown and used + len(text) > OUTLINES_BUDGET):
+            left_out.append(outline.name)
+            continue
+        shown.append(text)
+        used += len(text)
+    if shown:
+        parts.append(
+            "Outlines that touch the same paths as this change's tasks:\n" + "\n".join(shown)
+        )
+        if left_out:
+            parts.append(f"Outlines left out at the size limit: {', '.join(left_out)}")
+        parts.append("")
+    return "\n".join(parts)
+
+
 def _unit_line(unit: StoredUnit) -> str:
     groups = ", ".join(
         f"{member.change} group {number}" for member in unit.members() for number in member.groups
@@ -462,13 +683,21 @@ def build_prompt(
     *,
     question: int = 1,
     repos: Sequence[tuple[str, Path, str]] = (),
+    chain: str = "",
+    rules: str = "",
+    initiative: str = "",
 ) -> str:
     """The request for one question: the question, the repos to read, the artifacts, the units
-    and the mechanical checks' report."""
+    and the mechanical checks' report. A change of an initiative (`initiative` is its
+    `initiative_listing`) is shown it, and its fourth question also asks about rework."""
+    asked = QUESTIONS[question - 1]
+    if initiative and question == len(QUESTIONS):
+        asked = f"{asked} {REWORK_QUESTION}"
     return PROMPT.format(
         change=change,
         number=question,
-        question=QUESTIONS[question - 1],
+        question=asked,
+        initiative=initiative,
         repos="\n".join(
             f"- {name}: {path} (default branch `{branch}`)" for name, path, branch in repos
         )
@@ -476,6 +705,8 @@ def build_prompt(
         report="\n".join(report) or "(nothing)",
         units="\n".join(_unit_line(unit) for unit in units),
         repository=repository or "(none)",
+        chain=chain or "(none)",
+        rules=rules or "(none)",
         artifacts=_artifacts(folder),
     )
 
@@ -579,11 +810,25 @@ async def _pass(
     report: Sequence[str],
     view: str,
     repos: Sequence[tuple[str, Path, str]],
+    chain: str,
+    rules: str,
+    initiative: str,
     say: Callable[[str], None],
 ) -> tuple[Finding, ...] | PlannerError | None:
     """One question's pass: its findings, the `PlannerError` it ended in, or None when it was
     stopped."""
-    prompt = build_prompt(change, tasks.parent, mine, report, view, question=number, repos=repos)
+    prompt = build_prompt(
+        change,
+        tasks.parent,
+        mine,
+        report,
+        view,
+        question=number,
+        repos=repos,
+        chain=chain,
+        rules=rules,
+        initiative=initiative,
+    )
     try:
         answer = await gate.call(
             lambda: ask_reviewer(
@@ -602,7 +847,16 @@ async def _pass(
     except _Stopped:
         return None
     # A pass answers one question; a finding it files under another is that pass's to find.
-    return tuple(item for item in found if item.question == number)
+    answered = tuple(item for item in found if item.question == number)
+    if not initiative or number != len(QUESTIONS):
+        return answered
+    # In a change of an initiative a rework the reviewer marks as the prompt asks is advice.
+    return tuple(
+        item.model_copy(update={"kind": "advice"})
+        if item.evidence.strip().lower().startswith(REWORK_MARK)
+        else item
+        for item in answered
+    )
 
 
 async def _review_once(
@@ -618,6 +872,9 @@ async def _review_once(
     order, or the error of the lowest-numbered pass that failed. None when a call was stopped."""
     repos = _repo_checkouts(inst, tasks)
     view = repository_view(inst, tasks)
+    chain = chain_listing(inst, tasks)
+    rules = rules_listing(inst, tasks)
+    initiative = initiative_listing(inst, tasks.parent)
     async with asyncio.TaskGroup() as group:
         passes = [
             group.create_task(
@@ -631,6 +888,9 @@ async def _review_once(
                     report=report,
                     view=view,
                     repos=repos,
+                    chain=chain,
+                    rules=rules,
+                    initiative=initiative,
                     say=say,
                 )
             )
@@ -679,6 +939,8 @@ def repair(
             f"- group {found.group}: {found.evidence} Fix: {found.fix}" for found in blockers
         ),
         tasks=before,
+        chain=chain_listing(inst, tasks) or "(none)",
+        rules=rules_listing(inst, tasks) or "(none)",
     )
     try:
         answer = ask_plan_model(prompt, change=change, say=say)

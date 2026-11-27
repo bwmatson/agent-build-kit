@@ -12,6 +12,7 @@ from pathlib import Path
 
 import pytest
 
+from agent_build_kit import __version__, skills
 from agent_build_kit.pipeline import plan_review, shell, spans
 from agent_build_kit.pipeline.plan_review import QUESTIONS, REVIEW_TOOLS
 from agent_build_kit.pipeline.unit_store import Cause, StoredUnit
@@ -35,6 +36,15 @@ from tests.plan_review_support import (
     reply,
     run_bounded,
 )
+
+CHAIN_HEADING = "Changes in this change's `Needs:` chain"
+
+
+def chain_part(prompt: str) -> str:
+    """The part of a request or a repair that lists the chain, from its heading to the rules."""
+    start = prompt.index(CHAIN_HEADING)
+    return prompt[start : prompt.index(RULES_HEADING, start)].strip()
+
 
 pytestmark = pytest.mark.usefixtures("scripted_engine")
 
@@ -562,3 +572,558 @@ def test_a_refused_call_starts_no_more_calls_and_lets_those_in_flight_finish(
     assert plan_review.read_reviews(plan_review.record_path(review.inst)) == {}
     assert "reviewing plans failed" in out.out + out.err
     assert "AgentRateLimited" in out.out + out.err
+
+
+def test_the_request_lists_each_chain_change_nearest_first_with_its_paths_once(
+    review: Review,
+) -> None:
+    core_test = "packages/core/tests/test_near.py"
+    review.add_neighbour(
+        "zz-near",
+        needs=("aa-far",),
+        tests=(core_test, core_test),
+        support=("tests/support/near_helper.py",),
+    )
+    review.add_neighbour("aa-far", tests=("tests/test_far.py",))
+    review.add_neighbour("zz-top", needs=(CHANGE,), tests=("tests/test_top.py",))
+    review.add_neighbour("mm-other", tests=("tests/test_other_only.py",))
+    review.need("zz-near")
+
+    review.tick()
+
+    assert review.asked == 1, "the change is reviewed, so a request exists to read"
+    for asked in review.passes:
+        text = asked.prompt
+        assert "convention" in text, "the reviewer is told what to do with a differing convention"
+        assert text.count(core_test) == 1, "a path named twice is listed once"
+        for shown in (
+            "### zz-near",
+            "### aa-far",
+            "### zz-top",
+            "tests/support/near_helper.py",
+            "tests/test_far.py",
+            "tests/test_top.py",
+        ):
+            assert shown in text
+        assert text.index("### zz-near") < text.index("### aa-far"), "nearest first, not by name"
+        assert text.index("### zz-top") < text.index("### aa-far")
+        for outside in ("tests/test_other_only.py", "mm-other"):
+            assert outside not in text, "a change outside the chain is not mentioned"
+
+
+def test_a_chain_change_lists_the_paths_its_repositorys_profile_calls_test_paths(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    checkouts = tmp_path / "checkouts"
+    review = Review(
+        tmp_path,
+        monkeypatch,
+        repos={
+            "app": {"path": str(checkouts / "app"), "slug": "example/app"},
+            "web": {
+                "path": str(checkouts / "web"),
+                "slug": "example/web",
+                "profile": "node-npm",
+            },
+        },
+    )
+    node_test = "web/src/x.test.ts"
+    python_shaped = "web/tests/test_y.py"
+    review.add_neighbour("node-base", repo="web", tests=(node_test, python_shaped))
+    review.add_neighbour("py-base", tests=("tests/test_z.py",))
+    review.need("node-base", "py-base")
+
+    review.tick()
+
+    assert review.asked == 1
+    for asked in review.passes:
+        text = chain_part(asked.prompt)
+        assert f"web:{node_test}" in text, "the node profile calls it a test path"
+        assert python_shaped not in text, "the node profile does not call it one"
+        assert "app:tests/test_z.py" in text, "the python profile still lists its own"
+
+
+@pytest.mark.parametrize(
+    "needs", [(), ("ghost",)], ids=["no-chain", "needs-a-change-with-no-tasks"]
+)
+def test_a_change_with_no_chain_shows_none_and_a_needs_on_a_missing_change_adds_nothing(
+    review: Review, needs: tuple[str, ...]
+) -> None:
+    review.need(*needs)
+
+    review.tick()
+
+    assert review.asked == 1
+    for asked in review.passes:
+        shown = chain_part(asked.prompt).splitlines()
+        assert shown[-1] == "(none)" and sum(ln == "(none)" for ln in shown) == 1, (
+            "the empty chain reads (none) where the entries would be"
+        )
+    own_mentions = len(QUESTIONS) * review.tasks.count("ghost")
+    assert review.prompt.count("ghost") == own_mentions, "only the change's own tasks name it"
+
+
+def test_a_chain_over_the_budget_lists_the_nearest_cuts_long_changes_and_names_the_rest(
+    review: Review, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(plan_review, "CHAIN_CHANGE_LIMIT", 2)
+    monkeypatch.setattr(plan_review, "CHAIN_BUDGET", 250)
+    long_paths = tuple(f"packages/core/tests/pipeline/test_long_{n}.py" for n in range(7))
+    names = ("aa-big", "bb-mid", "cc-mid", "zz-last")
+    review.add_neighbour("aa-big", tests=long_paths)
+    for name in names[1:]:
+        review.add_neighbour(name, tests=(f"packages/core/tests/{name}.py",))
+    review.need(*names)
+
+    review.tick()
+
+    assert review.asked == 1
+    for asked in review.passes:
+        text = asked.prompt
+        assert "### aa-big" in text, "the nearest change is listed"
+        assert long_paths[0] in text
+        assert long_paths[2] not in text, "a change over its path limit is cut"
+        assert "(and 5 more)" in text
+        assert "### zz-last" not in text, "a change that does not fit is not listed"
+        left_out = next(
+            line for line in text.splitlines() if "not listed, over the size limit" in line
+        )
+        assert "zz-last" in left_out
+        assert "aa-big" not in left_out
+
+
+def test_a_neighbours_edit_does_not_ask_again_and_the_hash_is_the_changes_own(
+    review: Review,
+) -> None:
+    review.add_neighbour("base", tests=("tests/test_a.py",))
+    review.need("base")
+    review.tick()
+    assert review.asked == 1
+    recorded = plan_review.read_reviews(plan_review.record_path(review.inst))[CHANGE].hash
+
+    review.add_neighbour("base", tests=("packages/core/tests/test_a.py",))
+    review.tick()
+
+    assert review.asked == 1, "a neighbour's edit asks nothing"
+    own_units = [unit for unit in review.builder.store.all() if unit.change == CHANGE]
+    assert recorded == plan_review.plan_hash(review.inst.changes_dir / CHANGE, own_units), (
+        "the hash is of the change's own artifacts and units alone"
+    )
+
+    review.need("base", tasks=EDITED_TASKS)
+    review.tick()
+
+    assert review.asked == 2, "the change's own edit is reviewed"
+    latest = "\n".join(r.prompt for r in review.passes[len(QUESTIONS) :])
+    assert "packages/core/tests/test_a.py" in latest
+
+
+RULES_HEADING = "Rules the plan follows"
+
+
+def commit_app(review: Review, **files: str) -> None:
+    """Write `files` into the `app` checkout and commit them on `main`, as a repository keeps
+    its rules."""
+    checkout = review.inst.repo("app").path
+    checkout.mkdir(parents=True, exist_ok=True)
+    for name, text in files.items():
+        (checkout / name).write_text(text)
+    for args in (
+        ("init", "-q", "-b", "main"),
+        ("add", "."),
+        ("-c", "user.name=t", "-c", "user.email=t@example.com", "commit", "-q", "-m", "rules"),
+    ):
+        shell.git(checkout, *args)
+
+
+def rules_part(prompt: str) -> str:
+    """What a request says under its rules heading."""
+    assert RULES_HEADING in prompt, "every request has a rules part"
+    return prompt.split(RULES_HEADING, 1)[1]
+
+
+SKILL_TEXT = (
+    "# Skill\n\n## Before\n\nBEFORE-TEXT\n\n"
+    "## Rules every task follows\n\nRULE-ONE\nRULE-TWO\n\n## After\n\nAFTER-TEXT\n"
+)
+
+
+@pytest.mark.parametrize(
+    ("text", "limit", "contains", "absent"),
+    [
+        (SKILL_TEXT, 12_000, ("RULE-ONE", "RULE-TWO"), ("BEFORE-TEXT", "AFTER-TEXT", "## ")),
+        ("# Skill\n\n## Other\n\nOTHER-TEXT\n", 12_000, ("(none)",), ("OTHER-TEXT",)),
+        (
+            "## Rules every task follows\n\n" + "x" * 200 + "TAIL-MARK\n",
+            50,
+            ("x" * 50, "abk-authoring", plan_review.AUTHORING_RULES_SECTION),
+            ("TAIL-MARK", "x" * 51),
+        ),
+    ],
+    ids=["a-section-between-headings", "no-such-section", "over-the-limit"],
+)
+def test_the_section_reader_returns_one_cut_body_or_none(
+    monkeypatch: pytest.MonkeyPatch,
+    text: str,
+    limit: int,
+    contains: tuple[str, ...],
+    absent: tuple[str, ...],
+) -> None:
+    monkeypatch.setattr(plan_review, "AUTHORING_RULES_LIMIT", limit)
+
+    got = plan_review.skill_section(text, plan_review.AUTHORING_RULES_SECTION)
+
+    for shown in contains:
+        assert shown in got
+    for hidden in absent:
+        assert hidden not in got
+
+
+def test_every_request_carries_the_shipped_authoring_rules_and_the_repositorys_rules(
+    review: Review,
+) -> None:
+    commit_app(review, **{"AGENTS.md": "APP-RULES-MARKER\n"})
+
+    review.tick()
+
+    assert review.asked == 1
+    assert len(review.passes) == len(QUESTIONS)
+    for asked in review.passes:
+        text = rules_part(asked.prompt)
+        assert "APP-RULES-MARKER" in text
+        assert any("app" in ln and "AGENTS.md" in ln and "main" in ln for ln in text.splitlines())
+        shipped = plan_review.skill_section(
+            skills.source("abk-authoring"), plan_review.AUTHORING_RULES_SECTION
+        )
+        assert shipped in text
+        assert any(
+            "abk-authoring" in ln
+            and __version__ in ln
+            and plan_review.AUTHORING_RULES_SECTION in ln
+            for ln in text.splitlines()
+        )
+        assert "agree" in text, "the reviewer is told the plan's paths and tasks agree with them"
+
+
+@pytest.mark.parametrize(
+    ("committed", "uncommitted", "shown", "hidden"),
+    [
+        ({"CLAUDE.md": "CLAUDE-TEXT\n"}, {}, ("CLAUDE-TEXT",), ()),
+        (
+            {"AGENTS.md": "AGENTS-TEXT\n", "CLAUDE.md": "CLAUDE-TEXT\n"},
+            {},
+            ("AGENTS-TEXT",),
+            ("CLAUDE-TEXT",),
+        ),
+        (
+            {"CLAUDE.md": "CLAUDE-TEXT\n"},
+            {"AGENTS.md": "UNCOMMITTED-TEXT\n"},
+            ("CLAUDE-TEXT",),
+            ("UNCOMMITTED-TEXT",),
+        ),
+        ({"README.md": "readme\n"}, {}, ("(none)",), ()),
+        (
+            {"AGENTS.md": "LONG-HEAD" + "y" * 200 + "LONG-TAIL\n"},
+            {},
+            ("LONG-HEAD", "cut at the size limit", "AGENTS.md"),
+            ("LONG-TAIL",),
+        ),
+    ],
+    ids=["claude-only", "agents-wins", "uncommitted-ignored", "neither", "over-the-limit"],
+)
+def test_the_repositorys_rules_are_the_first_committed_guidance_file_cut_to_the_limit(
+    review: Review,
+    monkeypatch: pytest.MonkeyPatch,
+    committed: dict[str, str],
+    uncommitted: dict[str, str],
+    shown: tuple[str, ...],
+    hidden: tuple[str, ...],
+) -> None:
+    monkeypatch.setattr(plan_review, "REPO_RULES_LIMIT", 40)
+    commit_app(review, **committed)
+    for name, text in uncommitted.items():
+        (review.inst.repo("app").path / name).write_text(text)
+
+    review.tick()
+
+    assert review.asked == 1
+    for asked in review.passes:
+        text = rules_part(asked.prompt)
+        for item in shown:
+            assert item in text
+        for item in hidden:
+            assert item not in text
+        if "(none)" in shown:
+            assert any("app" in ln and "(none)" in ln for ln in text.splitlines()), (
+                "a repository with no guidance file reads (none) under its own name"
+            )
+
+
+def test_a_rules_edit_does_not_ask_again_and_the_changes_own_edit_reads_the_new_rules(
+    review: Review,
+) -> None:
+    commit_app(review, **{"README.md": "readme\n"})
+    review.tick()
+    assert review.asked == 1
+
+    commit_app(review, **{"AGENTS.md": "FIRST-RULES\n"})
+    review.tick()
+    assert review.asked == 1, "a new guidance file asks nothing"
+
+    commit_app(review, **{"AGENTS.md": "SECOND-RULES\n"})
+    review.tick()
+    assert review.asked == 1, "an edited guidance file asks nothing"
+
+    review.edit_tasks(EDITED_TASKS)
+    review.tick()
+
+    assert review.asked == 2, "the change's own edit is reviewed"
+    latest = "\n".join(r.prompt for r in review.passes[len(QUESTIONS) :])
+    assert "SECOND-RULES" in latest
+    assert "FIRST-RULES" not in latest
+
+
+def test_the_repair_prompt_carries_the_chain_and_the_rules_as_the_review_request_does(
+    review: Review,
+) -> None:
+    near_test = "packages/core/tests/test_near.py"
+    review.add_neighbour("base", tests=(near_test,), support=("tests/support/b.py",))
+    review.need("base")
+    review.commit_planning()
+    commit_app(review, **{"AGENTS.md": "APP-RULES-MARKER\n"})
+    review.repair_with(REPAIRED_TASKS, review_answer=reply(FIXABLE))
+
+    review.tick()
+
+    assert review.repairs, "the blocker is repaired (again, as the reviewer keeps finding it)"
+    prompt = review.repairs[0].prompt
+    assert prompt.startswith("The plan of the change")
+    markers = (near_test, "tests/support/b.py", "### base", "abk-authoring", "AGENTS.md")
+    in_request = [
+        line for line in review.passes[0].prompt.splitlines() if any(m in line for m in markers)
+    ]
+    assert in_request, "the review request lists the chain and the rules' sources"
+    for line in in_request:
+        assert line in prompt, "the repair shows each of them exactly as the request does"
+    assert "APP-RULES-MARKER" in prompt
+    shipped = plan_review.skill_section(
+        skills.source("abk-authoring"), plan_review.AUTHORING_RULES_SECTION
+    )
+    assert shipped in prompt
+    assert "consistent" in prompt, "the repair is told to keep its paths consistent"
+
+
+def test_a_repair_with_no_chain_and_no_guidance_file_shows_none_for_both(review: Review) -> None:
+    review.commit_planning()
+    commit_app(review, **{"README.md": "readme\n"})
+    review.repair_with(REPAIRED_TASKS, review_answer=reply(FIXABLE))
+
+    review.tick()
+
+    assert review.repairs, "the blocker is repaired"
+    prompt = review.repairs[0].prompt
+    assert prompt.startswith("The plan of the change")
+    assert any("app" in ln and "(none)" in ln for ln in prompt.splitlines()), (
+        "the repository's rules read (none) under its own name"
+    )
+    shown = chain_part(prompt).splitlines()
+    assert shown[-1] == "(none)" and sum(ln == "(none)" for ln in shown) == 1, (
+        "the empty chain reads (none) where the entries would be"
+    )
+
+
+INITIATIVE_HEADING = "Its initiative"
+OUTLINES_HEADING = "Outlines that touch the same paths"
+CONFIG_PATH = "packages/core/src/agent_build_kit/config.py"
+INITIATIVE = "orchestration — wave 1: the store"
+OUTLINE_INITIATIVE = "orchestration — wave 2: the worker"
+NAMING_CONFIG = TASKS.replace("- [ ] 1.2 Do it.", f"- [ ] 1.2 Do it in `{CONFIG_PATH}`.")
+
+
+def question_text(prompt: str, number: int) -> str:
+    """The text a request asks as its question `number`, up to the part that follows it."""
+    start = prompt.index(f"{number}. {QUESTIONS[number - 1]}")
+    return prompt[start:].split("\n\nYou may read", 1)[0]
+
+
+def start_initiative_change(review: Review) -> None:
+    """`feature` is a change of an initiative whose first task names a core path, beside an outline
+    that touches the core and one that touches only the docs."""
+    review.write_proposal(initiative=INITIATIVE, its_part="ITS-PART")
+    review.edit_tasks(NAMING_CONFIG)
+    review.add_outline(
+        "core-outline",
+        touches=("packages/core/**",),
+        initiative=OUTLINE_INITIATIVE,
+        its_part="CORE-OUTLINE-PART",
+        reworks=("feature — the config moves",),
+    )
+    review.add_outline(
+        "docs-outline", touches=("docs/**",), initiative=OUTLINE_INITIATIVE, its_part="DOCS-PART"
+    )
+
+
+def test_a_change_of_an_initiative_is_shown_its_initiative_and_the_overlapping_outlines(
+    review: Review,
+) -> None:
+    start_initiative_change(review)
+
+    review.tick()
+
+    assert review.asked == 1
+    assert len(review.passes) == len(QUESTIONS), "no pass is added for an initiative"
+    shipped = plan_review.skill_section(
+        skills.source("abk-authoring"), plan_review.MATURITY_RULES_SECTION
+    )
+    for asked in review.passes:
+        text = asked.prompt
+        assert INITIATIVE_HEADING in text
+        initiative_part = text.split(INITIATIVE_HEADING, 1)[1]
+        for shown in (f"Initiative: {INITIATIVE}", "ITS-PART"):
+            assert shown in initiative_part, "the change's own line and part are shown"
+        assert shipped in initiative_part
+        assert any(
+            "abk-authoring" in ln and plan_review.MATURITY_RULES_SECTION in ln
+            for ln in text.splitlines()
+        ), "the section's source is named"
+        assert OUTLINES_HEADING in text
+        for shown in (
+            "core-outline",
+            f"Initiative: {OUTLINE_INITIATIVE}",
+            "CORE-OUTLINE-PART",
+            "Reworks: feature — the config moves",
+        ):
+            assert shown in text
+        for hidden in ("docs-outline", "DOCS-PART"):
+            assert hidden not in text, "an outline over other paths is not mentioned"
+    ordered = review.passes_in_question_order
+    fourth = question_text(ordered[3].prompt, 4)
+    assert "Reworks:" in fourth and "interim" in fourth, "the fourth question asks about rework"
+    for number in (1, 2, 3):
+        assert "interim" not in question_text(ordered[number - 1].prompt, number), (
+            "only the fourth question is widened"
+        )
+
+    review.add_outline(
+        "core-outline",
+        touches=("packages/core/**",),
+        initiative=OUTLINE_INITIATIVE,
+        its_part="EDITED-OUTLINE-PART",
+    )
+    review.tick()
+
+    assert review.asked == 1, "an outline's edit asks nothing"
+
+
+@pytest.mark.parametrize(
+    ("evidence", "held"),
+    [
+        ("rework: builds the config the outline redoes", False),
+        ("group 2 renames what group 1 asserts", True),
+    ],
+    ids=["a-rework-is-advice", "another-blocker-holds"],
+)
+def test_a_rework_finding_is_recorded_as_advice_and_another_question_four_blocker_holds(
+    review: Review, evidence: str, held: bool
+) -> None:
+    start_initiative_change(review)
+    finding = {"group": 1, "question": 4, "kind": "blocker", "evidence": evidence}
+    review.runtime.respond = lambda request: reply(
+        *([finding] if question_of(request) == 4 else [])
+    )
+
+    review.tick()
+
+    assert len(review.passes) == len(QUESTIONS), "four passes were asked"
+    recorded = plan_review.read_reviews(plan_review.record_path(review.inst))[CHANGE]
+    assert [found.kind for found in recorded.findings] == ["blocker" if held else "advice"]
+    assert (CHANGE in plan_review.held_changes(review.inst)) is held
+    assert bool(review.builder.started) is not held
+
+
+@pytest.mark.parametrize(
+    "evidence",
+    ["rework: builds the config the outline redoes", "Reworking the helper makes group 1 red"],
+    ids=["the-mark", "a-word-that-starts-alike"],
+)
+def test_a_question_four_blocker_of_a_change_with_no_initiative_holds_whatever_it_starts_with(
+    review: Review, evidence: str
+) -> None:
+    finding = {"group": 1, "question": 4, "kind": "blocker", "evidence": evidence}
+    review.runtime.respond = lambda request: reply(
+        *([finding] if question_of(request) == 4 else [])
+    )
+
+    review.tick()
+
+    recorded = plan_review.read_reviews(plan_review.record_path(review.inst))[CHANGE]
+    assert [found.kind for found in recorded.findings] == ["blocker"]
+    assert CHANGE in plan_review.held_changes(review.inst)
+
+
+@pytest.mark.parametrize("outline", [False, True], ids=["no-outline", "an-overlapping-outline"])
+def test_a_change_with_no_initiative_is_asked_the_four_questions_with_no_initiative_sections(
+    review: Review, outline: bool
+) -> None:
+    review.edit_tasks(NAMING_CONFIG)
+    if outline:
+        review.add_outline(
+            "core-outline",
+            touches=("packages/core/**",),
+            initiative=OUTLINE_INITIATIVE,
+            its_part="CORE-OUTLINE-PART",
+        )
+
+    review.tick()
+
+    assert review.asked == 1
+    assert len(review.passes) == len(QUESTIONS)
+    for number, asked in enumerate(review.passes_in_question_order, 1):
+        text = asked.prompt
+        assert question_text(text, number) == f"{number}. {QUESTIONS[number - 1]}"
+        for absent in (
+            INITIATIVE_HEADING,
+            OUTLINES_HEADING,
+            plan_review.MATURITY_RULES_SECTION,
+            "core-outline",
+            "CORE-OUTLINE-PART",
+        ):
+            assert absent not in text
+
+    before = len(review.passes)
+    review.write_proposal(initiative=INITIATIVE, its_part="ITS-PART")
+    review.tick()
+
+    later = review.passes[before:]
+    assert later, "giving the change an initiative asks it again"
+    for asked in later:
+        assert INITIATIVE_HEADING in asked.prompt, (
+            "the sections are there once it has an initiative"
+        )
+        assert (OUTLINES_HEADING in asked.prompt) is outline
+
+
+def test_outlines_over_the_budget_are_cut_and_the_left_out_ones_are_named_in_a_closing_line(
+    review: Review, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(plan_review, "OUTLINES_BUDGET", 500)
+    start_initiative_change(review)
+    for name in ("aa-out", "bb-out", "cc-out"):
+        review.add_outline(
+            name,
+            touches=("packages/core/**",),
+            initiative=OUTLINE_INITIATIVE,
+            its_part=f"{name.upper()}-PART " + "x" * 300,
+        )
+
+    review.tick()
+
+    assert review.asked == 1
+    for asked in review.passes:
+        text = asked.prompt
+        assert "AA-OUT-PART" in text, "the first outline fits"
+        for left_out in ("BB-OUT-PART", "CC-OUT-PART"):
+            assert left_out not in text, "an outline over the budget is cut"
+        closing = [ln for ln in text.splitlines() if "bb-out" in ln and "cc-out" in ln]
+        assert closing, "the left-out outlines are named in one line"
+        assert all("aa-out" not in ln for ln in closing)

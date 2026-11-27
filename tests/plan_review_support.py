@@ -10,7 +10,7 @@ from __future__ import annotations
 import json
 import re
 import threading
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from pathlib import Path
 from typing import Any
 
@@ -64,6 +64,27 @@ REPAIRED_TASKS = TASKS.replace(
     "- [ ] 2.1 Test: `tests/test_shared.py` asserts it again.",
     "- [ ] 2.1 Test: `tests/test_shared.py` asserts the new name.",
 )
+
+
+def needing(tasks: str, *changes: str) -> str:
+    """`tasks` with a `Needs:` line on group 1 of each of `changes`, under its first group."""
+    lines = "".join(f"Needs: {change} group 1\n" for change in changes)
+    return tasks.replace("First group\n\n", f"First group\n\n{lines}", 1)
+
+
+def neighbour_tasks(
+    needs: Sequence[str], tests: Sequence[str], support: Sequence[str], repo: str = "app"
+) -> str:
+    """The tasks.md of a neighbouring change, headed `# Tasks` as a real one is: its one group is
+    in `repo`, with a `Needs:` line on group 1 of each of `needs`, a task naming each of `tests`
+    and a `Support:` line naming each of `support`."""
+    body = "".join(f"Needs: {change} group 1\n" for change in needs)
+    body += "".join(f"- [ ] 1.{n} Test: `{path}` asserts it.\n" for n, path in enumerate(tests, 1))
+    body += "".join(f"Support: `{path}`\n" for path in support)
+    return (
+        f"# Tasks\n\nAcceptance: none — a neighbour in a fixture\n\n"
+        f"## 1. [{repo}] [unit-test] Its group\n\n{body}"
+    )
 
 
 def reply(*findings: dict) -> str:
@@ -222,9 +243,11 @@ class Review:
         review_plans: bool = True,
         concurrency: int | None = None,
         runtime: StandInRuntime | None = None,
+        repos: dict[str, dict] | None = None,
     ) -> None:
         isolate(monkeypatch)
         bound = {} if concurrency is None else {"plan_review_concurrency": concurrency}
+        named = {} if repos is None else {"repos": repos}
         self.inst: Installation = make_installation(
             tmp_path,
             planning={
@@ -234,6 +257,7 @@ class Review:
                 **bound,
             },
             project_limits={"max_concurrent_stacks": 4, "max_units_in_progress": 50},
+            **named,
         )
         self.config = self.inst.root / "abk.yaml"
         self.config.write_text(dump(self.inst.config))
@@ -260,6 +284,61 @@ class Review:
         self.builder.store.upsert(
             [stored(f"{name}/{n}", priority=p) for n, p in enumerate(priorities, 1)]
         )
+
+    def add_neighbour(
+        self,
+        name: str,
+        *,
+        needs: Sequence[str] = (),
+        tests: Sequence[str] = (),
+        support: Sequence[str] = (),
+        repo: str = "app",
+    ) -> None:
+        """Add a change `name` with no units (so it is never reviewed itself), whose first group
+        is in `repo`, has a `Needs:` line on each of `needs` and names each of `tests` in its
+        tasks and each of `support` on a `Support:` line. Called again for the same name, it
+        rewrites the change."""
+        folder = self.inst.changes_dir / name
+        folder.mkdir(parents=True, exist_ok=True)
+        (folder / "proposal.md").write_text("## Why\n\nwhy\n")
+        (folder / "tasks.md").write_text(neighbour_tasks(needs, tests, support, repo))
+
+    def write_proposal(self, *, initiative: str = "", its_part: str = "") -> None:
+        """Rewrite `feature`'s proposal with an `Initiative:` line and a `## Its part` section,
+        each only when given. Call it before the first tick: the proposal is part of the hash."""
+        lines = [PROPOSAL, ""]
+        if initiative:
+            lines += [f"Initiative: {initiative}", ""]
+        if its_part:
+            lines += ["## Its part", "", its_part, ""]
+        (self.inst.changes_dir / CHANGE / "proposal.md").write_text("\n".join(lines))
+
+    def add_outline(
+        self,
+        name: str,
+        *,
+        touches: Sequence[str],
+        initiative: str = "",
+        its_part: str = "",
+        reworks: Sequence[str] = (),
+    ) -> None:
+        """Write an outline proposal under `planning.outlines`: its `Initiative:` line, its
+        `## Its part`, a `Touches:` line naming each of `touches` and a `Reworks:` line per
+        entry of `reworks`. Called again for the same name, it rewrites the outline."""
+        folder = self.inst.root / self.inst.config.planning.outlines / name
+        folder.mkdir(parents=True, exist_ok=True)
+        lines = [f"# {name}", ""]
+        if initiative:
+            lines.append(f"Initiative: {initiative}")
+        lines += [f"Touches: {', '.join(f'`{path}`' for path in touches)}"]
+        lines += [f"Reworks: {rework}" for rework in reworks]
+        lines += ["", "## Its part", "", its_part, ""]
+        (folder / "proposal.md").write_text("\n".join(lines))
+
+    def need(self, *changes: str, tasks: str = TASKS) -> None:
+        """Make the first group of `feature`'s tasks (`tasks`, by default the fixture's) name each
+        of `changes` in a `Needs:` line, and write them."""
+        self.edit_tasks(needing(tasks, *changes))
 
     def finish_default_change(self) -> None:
         """Merge the units of `feature`, so it has nothing open and is not reviewed."""
