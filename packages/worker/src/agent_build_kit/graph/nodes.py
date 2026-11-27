@@ -2209,7 +2209,9 @@ class BuildPath:
         if own is not None and not (own.mode.writes_tests and own.mode.writes_code):
             return ""
         if not (tree / ".git").exists():
-            return ""  # not a git worktree: no edit to move
+            # Not a git worktree: no edit to move. A real worktree always has `.git`; the
+            # fake runners whose tree is a bare directory (most unstubbed-build tests) rely on this.
+            return ""
         paths = [
             path for _, name, source in porcelain_entries(tree) for path in (name, source) if path
         ]
@@ -2221,8 +2223,10 @@ class BuildPath:
             progress = self.branch_progress(ref)
             if progress.done != state.group or not progress.tests_made:
                 return ""
-        elif not git(tree, "log", "-1", "--format=%s").stdout.startswith(TESTS_PREFIX):
-            return ""
+        elif not r.branch_commits(tree, ref) or not git(
+            tree, "log", "-1", "--format=%s"
+        ).stdout.startswith(TESTS_PREFIX):
+            return ""  # HEAD must be a tests commit of this branch, never one of its base
         original = r.head(tree)
         self.say(f"moving the test edits into the tests commit: {', '.join(edited)}")
         r.commit_amend(self.message(TESTS_PREFIX, True, state), cwd=tree, amend_only=edited)

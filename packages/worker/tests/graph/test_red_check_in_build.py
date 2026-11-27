@@ -12,6 +12,7 @@ from typing import Any
 from agent_build_kit.pipeline.stack_runner import RunOutcome
 from agent_build_kit.pipeline.wiring import build_tree_state
 from packages.worker.tests.graph.test_build_path import limited
+from packages.worker.tests.graph.test_outside_commits_prompt import land
 from packages.worker.tests.graph.test_pr_description_wiring import start_section
 from packages.worker.tests.graph.test_remaining_paths import capturing
 from tests.factories import activate_with, git
@@ -198,6 +199,32 @@ def test_a_test_the_implementation_edits_in_an_unstubbed_build_is_moved_with_no_
     assert IMPL_TEST_FILE in files_in(repo, "HEAD~1")
     assert not [path for path in files_in(repo, "HEAD") if path.startswith("tests/")]
     assert "red-check" not in recorder.events, "an unstubbed build runs no red check"
+
+
+def test_an_unstubbed_build_with_no_commit_of_its_own_leaves_a_tests_commit_of_its_base_alone(
+    tmp_path: Path,
+) -> None:
+    def base_ends_in_a_tests_commit(repo: Path) -> None:
+        land(repo, "test: Predecessor", {"tests/test_pred.py": "def test_p():\n    assert 1\n"})
+        git(repo, "update-ref", "refs/remotes/origin/main", "HEAD")
+
+    # The tests step writes and commits nothing, so HEAD is still the base's own tests commit.
+    recorder, repo = prepared(
+        tmp_path,
+        groups={"add-marker": titled(1)},
+        setting=False,
+        no_tests_for="1",
+        impl_writes_test=True,
+        meanwhile=base_ends_in_a_tests_commit,
+    )
+    base_tip = git(repo, "rev-parse", "origin/main").strip()
+
+    build(tmp_path, recorder, **recorder.overrides(tmp_path))
+
+    git(repo, "merge-base", "--is-ancestor", base_tip, "HEAD")
+    assert git(repo, "rev-parse", "origin/main").strip() == base_tip
+    assert base_tip in git(repo, "rev-list", "HEAD").split()
+    assert "Predecessor" in git(repo, "log", "-1", "--format=%s", base_tip)
 
 
 def test_a_test_written_where_the_tests_step_wrote_none_makes_an_ordinary_tests_commit(
