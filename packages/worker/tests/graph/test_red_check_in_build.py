@@ -6,15 +6,19 @@ tdd-loop)."""
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
 from agent_build_kit.pipeline.stack_runner import RunOutcome
+from agent_build_kit.pipeline.unit_store import FeedbackSource
 from agent_build_kit.pipeline.wiring import build_tree_state
+from agent_build_kit.runtimes import AgentResult
 from packages.worker.tests.graph.test_build_path import limited
 from packages.worker.tests.graph.test_outside_commits_prompt import land
 from packages.worker.tests.graph.test_pr_description_wiring import start_section
 from packages.worker.tests.graph.test_remaining_paths import capturing
+from packages.worker.tests.graph.test_session_continuation import reuse
 from tests.factories import activate_with, git
 from tests.graph.branch_fakes import (
     ACCOUNT,
@@ -199,6 +203,74 @@ def test_a_test_the_implementation_edits_in_an_unstubbed_build_is_moved_with_no_
     assert IMPL_TEST_FILE in files_in(repo, "HEAD~1")
     assert not [path for path in files_in(repo, "HEAD") if path.startswith("tests/")]
     assert "red-check" not in recorder.events, "an unstubbed build runs no red check"
+
+
+class Continuable:
+    """An agent whose every call is one session, as a runtime that can continue it does: what
+    each call is sent (the follow-up when it continues the session, else the prompt) is kept,
+    and the step is answered as the recorder does."""
+
+    def __init__(self, recorder: Recorder) -> None:
+        self.recorder = recorder
+        self.sent: list[str] = []
+
+    def __call__(
+        self,
+        prompt: str,
+        *,
+        cwd: Path,
+        on_session: Callable[[str], None] | None = None,
+        on_result: Callable[..., None] | None = None,
+        model: str = "",
+        follow_up: str = "",
+        resume_session: str = "",
+        **more: Any,
+    ) -> str:
+        if on_session:
+            on_session("impl-session")
+        answer = self.recorder.claude(prompt, cwd=cwd)
+        if self.recorder.events[-1] == "claude:impl":
+            self.sent.append(follow_up if resume_session else prompt)
+        if on_result:
+            result = AgentResult(ok=True, text=answer, session_id="impl-session")
+            on_result(result, role="implement", model=model, runtime="fake")
+        return answer
+
+
+def test_a_continued_implementation_session_is_told_why_the_moved_test_was_rejected(
+    tmp_path: Path,
+) -> None:
+    recorder, _ = prepared(tmp_path, groups={"add-marker": titled(1)}, impl_writes_test=True)
+    reuse(build=True)
+    agent = Continuable(recorder)
+    red = RedAnswers(recorder, [(True, ""), (False, PASSED_REASON), (True, "")])
+    wired: dict[str, Any] = {**recorder.overrides(tmp_path), "run": agent}
+
+    build(tmp_path, recorder, run_red_check=red, **wired)
+
+    first, second = agent.sent
+    assert PASSED_REASON not in first
+    assert PASSED_REASON in second
+
+
+def test_a_rejection_the_step_answers_by_dropping_its_test_edit_leaves_no_stored_reason(
+    tmp_path: Path,
+) -> None:
+    recorder, repo = prepared(
+        tmp_path,
+        groups={"add-marker": titled(1)},
+        impl_writes_test=True,
+        impl_drops_test_edit=True,
+    )
+    red = RedAnswers(recorder, [(True, ""), (False, PASSED_REASON)])
+
+    outcome = build(tmp_path, recorder, run_red_check=red, **recorder.overrides(tmp_path))
+
+    assert outcome.status == "open"
+    assert "feat: G1" in subjects(repo)
+    stored = recorder.store.get(UNIT)
+    assert stored.feedback_source is not FeedbackSource.RED_CHECK
+    assert stored.feedback == ""
 
 
 def test_an_unstubbed_build_with_no_commit_of_its_own_leaves_a_tests_commit_of_its_base_alone(

@@ -105,10 +105,13 @@ class OnBranch(StubLoop):
         accounts: Mapping[str, str] | None = None,
         tests_accounts: Mapping[str, str] | None = None,
         impl_writes_test: bool = False,
+        impl_drops_test_edit: bool = False,
         **options: Any,
     ) -> None:
         super().__init__(store, **options)
         self.impl_writes_test = impl_writes_test  # each implementation call also edits a test
+        # ... except that, with this, every call after the first removes that edit instead
+        self.impl_drops_test_edit = impl_drops_test_edit
         self.impl_found: list[
             list[str]
         ] = []  # the files of the commit each implementation call found
@@ -140,21 +143,24 @@ class OnBranch(StubLoop):
             (kwargs["cwd"] / f"work-{len(self.prompts)}.txt").write_text(f"{step}\n")
         if step == "claude:impl" and self.impl_writes_test and not skipped:
             edited = kwargs["cwd"] / IMPL_TEST_FILE
-            edited.parent.mkdir(exist_ok=True)
-            edited.write_text(f"def test_edited():\n    assert {len(self.prompts)} == 0\n")
+            if self.impl_drops_test_edit and len(self.impl_found) > 1:
+                edited.unlink(missing_ok=True)  # answers a rejection by dropping its test edit
+            else:
+                edited.parent.mkdir(exist_ok=True)
+                edited.write_text(f"def test_edited():\n    assert {len(self.prompts)} == 0\n")
         if step == "claude:impl" and built_group in self.accounts:
             return self.accounts[built_group]
         if step == "claude:tests" and built_group in self.tests_accounts:
             return self.tests_accounts[built_group]
         return answer
 
-    def commit(self, message: str, *, cwd: Path, base: str = "") -> int:
-        made = build_commit(unit_id=UNIT)(message, cwd=cwd, base=base)
-        super().commit(message, cwd=cwd, base=base)  # recorded, and the run may die here
+    def commit(
+        self, message: str, *, cwd: Path, base: str = "", amend_only: list[str] | None = None
+    ) -> int:
+        made = build_commit(unit_id=UNIT)(message, cwd=cwd, base=base, amend_only=amend_only)
+        if amend_only is None:  # an amend joins a commit already counted
+            super().commit(message, cwd=cwd, base=base)  # recorded, and the run may die here
         return made
-
-    def commit_amend(self, message: str, *, cwd: Path, amend_only: list[str]) -> int:
-        return build_commit(unit_id=UNIT)(message, cwd=cwd, amend_only=amend_only)
 
     def commit_built(self, message: str, *, cwd: Path) -> int:
         made = build_commit_built(unit_id=UNIT, store=self.store)(message, cwd=cwd)
@@ -178,7 +184,6 @@ class OnBranch(StubLoop):
             **super().overrides(tmp_path),
             "worktree": lambda u, base: tmp_path / "tree",
             "commit_built": self.commit_built,
-            "commit_amend": self.commit_amend,
             "guarded_step": run_guarded_step,  # the worktree is a repository
         }
 

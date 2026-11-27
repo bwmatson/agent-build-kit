@@ -548,6 +548,26 @@ def _pair_problems(
     return problems
 
 
+def exempt_fix_commits(
+    repo: Path, base: str, *, paired: bool, groups: Sequence[GroupStep] = ()
+) -> set[str]:
+    """The shas of the `fix:` commits that follow the groups' own commits on a paired branch whose
+    groups are known: a later round's correction of a test beside code is neither a tests commit
+    nor stub-checked, and has no red run. None on a branch whose groups are not known, so there
+    a `fix:` commit is judged like any other. The one place the structure check and the gate
+    decide it."""
+    if not (paired and groups):
+        return set()
+    shas = _commits(repo, base)
+    subjects = branch_subjects(repo, base)
+    owners = _commit_modes(subjects, groups, branch_commit_trailers(repo, base))
+    return {
+        sha
+        for sha, subject, owner in zip(shas, subjects, owners, strict=True)
+        if owner is None and subject.startswith(FIX_PREFIX)
+    }
+
+
 def check_structure(
     repo: Path,
     base: str,
@@ -580,6 +600,7 @@ def check_structure(
     problems: list[str] = []
     kinds: list[str] = []
     stub_problems: dict[int, list[str]] = {}
+    exempt = exempt_fix_commits(repo, base, paired=paired, groups=groups)
 
     for index, sha in enumerate(shas):
         labels = classify_paths(_files_in(repo, sha), is_test)
@@ -609,7 +630,7 @@ def check_structure(
                 f"`{CODE_PREFIX}` commit touches none"
             )
             kinds.append("code")
-        elif paired and groups and owner is None and subjects[index].startswith(FIX_PREFIX):
+        elif sha in exempt:
             # A `fix:` commit after the groups' commits may correct a test beside code: it is
             # neither a tests commit nor stub-checked, whatever it holds.
             kinds.append("code" if code_paths else "tests" if has_tests else "docs")

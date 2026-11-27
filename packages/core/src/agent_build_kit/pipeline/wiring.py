@@ -1050,8 +1050,9 @@ Add `"rewrite_request"` only when the fix is to the shape of the commits: which 
 which commit, a support edit that belongs in the feature commit, a commit that should be
 split or squashed. It is for the shape of the commits, which the structure check and the red
 check cannot judge, and not for taste or a style preference. Do not ask for one because of the
-commit a test edit sits in: that is a finding against the rule above, which a fix round may
-correct in its own commit. It is a sentence or two, beside the findings; leave it out otherwise.
+commit a test edit sits in: a test edit belongs in the `test:` commit, which is a finding and
+not a rewrite, and a fix round may correct a test in its own `fix:` commit. It is a sentence
+or two, beside the findings; leave it out otherwise.
 
 Reply with JSON and nothing else:
 {"approved": true|false, "feedback": "anything that is not a finding, empty when approved",
@@ -6028,9 +6029,6 @@ def build_runner(
             account=account,
         ),
         commit=commit_all,
-        # The same commit, as an amend of HEAD limited to the paths it is given: how the step's
-        # test edits join the tests commit, with the hooks on and the fix rounds of any commit.
-        commit_amend=commit_all,
         commit_built=build_commit_built(unit_id=unit.id, store=store),
         run_stub_checks=build_stub_checks(profile=profile, projects=repo.projects),
         # Only a stubbed build reaches the red check.

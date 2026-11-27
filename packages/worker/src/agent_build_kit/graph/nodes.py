@@ -2229,7 +2229,7 @@ class BuildPath:
             return ""  # HEAD must be a tests commit of this branch, never one of its base
         original = r.head(tree)
         self.say(f"moving the test edits into the tests commit: {', '.join(edited)}")
-        r.commit_amend(self.message(TESTS_PREFIX, True, state), cwd=tree, amend_only=edited)
+        r.commit(self.message(TESTS_PREFIX, True, state), cwd=tree, base=ref, amend_only=edited)
         if own is None:
             return ""
         ok, why = r.run_red_check(cwd=tree)
@@ -2286,10 +2286,14 @@ class BuildPath:
                     model=models().implement,
                     # A group with no tests step has no tests to continue from: it starts a
                     # session on the full prompt, which names its group and says what it is.
+                    # A continued session is sent only this, so the rejection is said here too.
                     follow_up=""
                     if own is not None and not own.mode.writes_tests
-                    else IMPLEMENTATION_CONTINUATION.format(
-                        changelog=changelog_note(tree, r.repo_config)
+                    else self.told(
+                        IMPLEMENTATION_CONTINUATION.format(
+                            changelog=changelog_note(tree, r.repo_config)
+                        ),
+                        MOVED_TEST_NOTE.format(reason=moved_reason) if moved_reason else "",
                     ),
                 )
                 statement = account
@@ -2310,7 +2314,16 @@ class BuildPath:
                     # digest staged the tree: unstaged, so that commit stays empty.
                     git(tree, "reset", "-q")
                     self.commit_no_new_tests(state, ref)
+                rejected = moved_reason
                 if not (moved_reason := self.move_test_edits(state, ref)):
+                    if (
+                        rejected
+                        and r.store.get(unit.id).feedback_source is FeedbackSource.RED_CHECK
+                    ):
+                        # The step answered the rejection without a test edit left to judge:
+                        # the reason no longer stands, and a later group's tests step must not
+                        # be told it.
+                        r.store.set_feedback(unit.id, "")
                     break
                 if (budget := check_loop.out_of_rounds(rounds)) is not None:
                     return {

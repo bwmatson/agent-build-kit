@@ -430,6 +430,22 @@ def test_a_fix_commit_that_changes_a_test_file_and_code_passes_with_no_red_run(
     assert ran_at.read_text().split() == [tests]
 
 
+def test_a_tests_only_fix_commit_of_a_branch_with_no_known_groups_gets_its_red_run(
+    repo: Path, fake_commands, tmp_path: Path
+) -> None:
+    a_pair(repo)
+    commit(
+        repo, "fix: A (review round 1)", {"tests/test_b.py": "def test_b():\n    assert False\n"}
+    )
+    fix = git(repo, "rev-parse", "HEAD").strip()
+    ran_at = tmp_path / "ran-at.log"
+    fake_commands(red_output=A_REPORT, head_log=ran_at)
+
+    check_branch(repo, "main", stubbed=True, groups=())
+
+    assert fix in ran_at.read_text().split()
+
+
 def test_a_feat_commit_that_changes_a_test_file_is_refused_before_any_red_run(
     repo: Path, fake_commands, tmp_path: Path
 ) -> None:

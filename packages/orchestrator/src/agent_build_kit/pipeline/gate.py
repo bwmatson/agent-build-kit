@@ -41,11 +41,10 @@ from agent_build_kit.pipeline.check_runner import (
     run_command,
 )
 from agent_build_kit.pipeline.commit_order import (
-    FIX_PREFIX,
-    branch_commit_subjects,
     check_structure,
     classify_paths,
     commits_without_red_check,
+    exempt_fix_commits,
 )
 from agent_build_kit.pipeline.red_check import Rule
 from agent_build_kit.pipeline.shell import git
@@ -83,12 +82,6 @@ def _tests_commits(repo: Path, base: str, is_test: Callable[[str], bool]) -> lis
         if _test_files_in(repo, sha, is_test):
             tests_commits.append(sha)
     return tests_commits
-
-
-def _fix_commits(repo: Path, base: str) -> set[str]:
-    """The commits on this branch whose subject is a `fix:` one."""
-    found = branch_commit_subjects(repo, base)
-    return {sha for sha, subject in found if subject.startswith(FIX_PREFIX)}
 
 
 def _test_files_in(repo: Path, sha: str, is_test: Callable[[str], bool]) -> list[str]:
@@ -492,7 +485,7 @@ def check_branch(
         # the tests commit" isn't yet a meaningful question.
         return problems
 
-    fixes = _fix_commits(repo, base) if stubbed else set()
+    fixes = exempt_fix_commits(repo, base, paired=stubbed, groups=groups)
     for sha in _tests_commits(repo, base, is_test):
         if sha in fixes:
             continue  # a later round's correction of a test is no tests commit, and has no red run

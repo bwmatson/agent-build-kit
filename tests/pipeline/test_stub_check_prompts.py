@@ -7,7 +7,7 @@ from pathlib import Path
 from agent_build_kit.pipeline.stack_runner import TESTS_PROMPT
 from agent_build_kit.pipeline.unit_store import FeedbackSource
 from packages.worker.tests.graph.test_build_path import build
-from tests.factories import activate_with, init_repo
+from tests.factories import activate_with
 from tests.graph.stub_loop_fakes import StubLoop, stubbed_build
 from tests.graph_driver import fresh as fresh_store
 from tests.prompt_text import flat
@@ -17,7 +17,6 @@ SAVED = "tests/test_x.py:1:8: F401 `os` imported but unused"
 
 def first_tests_prompt(tmp_path: Path) -> str:
     recorder = StubLoop(fresh_store(tmp_path).store)
-    init_repo(tmp_path / "tree")  # the worktree the runner hands out
     build(tmp_path, recorder, **recorder.overrides(tmp_path))
     return flat(recorder.prompts[0]).lower()
 
@@ -73,7 +72,6 @@ def test_the_fix_prompt_of_a_requeued_stop_carries_the_output_and_the_rules(
     recorder = StubLoop(fresh_store(tmp_path).store, checks=[(False, SAVED), (True, "")])
     recorder.asked = 1
     recorder.store.set_feedback("add-marker/1", SAVED, source=FeedbackSource.STUB_CHECKS)
-    init_repo(tmp_path / "tree")  # the worktree the runner hands out
 
     build(tmp_path, recorder, **recorder.overrides(tmp_path))
 

@@ -1869,9 +1869,8 @@ class UnitRunner(BaseModel):
     run: Callable[..., str]
     run_review: Callable[..., str]
     run_rework_review: Callable[..., str]
+    # Given `amend_only` paths it amends HEAD with just those, hooks and fix rounds as ever.
     commit: Callable[..., int]
-    # `commit` as an amend of HEAD limited to `amend_only` paths; 0 when unset.
-    commit_amend: Callable[..., int] = lambda message, *, cwd, amend_only: 0
     # An empty commit marking a group the branch already holds the work of; 0 when unset.
     commit_built: Callable[..., int] = lambda message, *, cwd: 0
     # Runs an agent step that holds a rewrite request through the guard; tests whose worktree is
