@@ -1113,6 +1113,16 @@ derived term); `abk scrub-check` reads it. `abk doctor`'s `public content` check
 `abk.local.yaml` or `scrub.local` is tracked or not ignored, and when a committed `abk.yaml`
 holds a repo path outside the checkout, a home path or another account's repo.
 
+### `store`
+
+The units store's database. Set `store.url` (used as given), or the parts `store.host`,
+`store.port` (default 5432), `store.user`, `store.password` and `store.database`, from which one
+builder makes a `postgresql+asyncpg` URL, escaping the password. Each is also read from
+`ABK_STORE_URL`, `ABK_STORE_HOST`, `ABK_STORE_PORT`, `ABK_STORE_USER`, `ABK_STORE_PASSWORD` and
+`ABK_STORE_DATABASE`, and the environment wins over `abk.local.yaml`, which wins over `abk.yaml`.
+The password is redacted in `abk doctor`, `abk status` and the evidence bundles. `abk db upgrade`
+migrates the database and `abk doctor` checks it is reachable and at the head revision.
+
 ### Network drive
 
 `planning.state_dir` may sit on a network drive, so the durable state (the unit store, the

@@ -731,6 +731,12 @@ them checked out, and each outline ready to detail (see `abk outlines`). `abk st
 the count. Reads only. The tick retries a kept branch each pass but logs it only when its reason
 appears, changes or clears.
 
+### `abk db up`, `abk db down`, `abk db upgrade`
+
+`up` starts a PostgreSQL container on a free loopback port and prints its URL; `down` stops it.
+Both need Docker and say so, exiting 1, when it is missing. `upgrade` brings the database the
+`store` settings name to the head revision (see `abk doctor`'s `store` check).
+
 ### `abk review-plan show CHANGE`, `abk review-plan clear CHANGE [--note TEXT]`
 
 A model reads each change's plan once (again after `tasks.md` is edited) before its first unit

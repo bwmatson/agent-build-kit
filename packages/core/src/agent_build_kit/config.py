@@ -1975,8 +1975,21 @@ class DeploymentConfig(Frozen):
     azure: AzureDeploymentConfig = AzureDeploymentConfig()
 
 
+class StoreConfig(Frozen):
+    """Where the units store lives (`store`): a URL used as given, or the five parts of a
+    PostgreSQL server the one builder (`orchestration/sql/url.py`) makes a URL from."""
+
+    url: str | None = None
+    host: str | None = None
+    port: int = 5432
+    user: str | None = None
+    password: str | None = None
+    database: str | None = None
+
+
 class WorkspaceConfig(Frozen):
     version: int = 1
+    store: StoreConfig = StoreConfig()
     deployment: DeploymentConfig = DeploymentConfig()
     planning: PlanningConfig = PlanningConfig()
     openspec: OpenSpecConfig = OpenSpecConfig()

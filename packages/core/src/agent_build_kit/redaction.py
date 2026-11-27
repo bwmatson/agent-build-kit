@@ -103,6 +103,25 @@ class Source(NamedTuple):
     origin: str
 
 
+def _store_sources(installation: Installation) -> list[Source]:
+    """The units store's password, as a setting and as it is written inside a URL."""
+    from agent_build_kit.orchestration.sql.url import escaped, password_of
+
+    store = installation.store
+    password = store.password
+    if not password and store.url:
+        try:
+            password = password_of(store.url)
+        except Exception:  # noqa: BLE001 — a URL that does not parse holds nothing to hide
+            password = None
+    if not password:
+        return []
+    return [
+        Source("store.password", password, "store"),
+        Source("store.password.escaped", escaped(password), "store"),
+    ]
+
+
 def sources(installation: Installation) -> list[Source]:
     """Every source of a known value, resolved once: the one enumeration `gather` builds
     the set from."""
@@ -116,6 +135,7 @@ def sources(installation: Installation) -> list[Source]:
             found.append(Source(name, None, "verify.env"))
     for field in settings_module.CREDENTIAL_FIELDS:
         found.append(Source(field, str(getattr(settings_module.settings, field)), "settings"))
+    found += _store_sources(installation)
     env_file = settings_module.readable(installation.env_file)
     for name in installation.config.redact:
         value = settings_module.named_value(name, env_file)

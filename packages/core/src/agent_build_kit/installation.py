@@ -24,6 +24,7 @@ from agent_build_kit.config import (
     EnvFileProvider,
     LiteralProvider,
     RepoConfig,
+    StoreConfig,
     WorkspaceConfig,
     YamlProvider,
 )
@@ -128,6 +129,17 @@ class Installation:
     @property
     def worktree_path(self) -> Path:
         return self.planning_home / "worktree"
+
+    @property
+    def store(self) -> StoreConfig:
+        """The units store's connection: each `ABK_STORE_*` setting over the same key of
+        `store` in the loaded configuration (`abk.local.yaml` already over `abk.yaml`)."""
+        found = {
+            name: value
+            for name in StoreConfig.model_fields
+            if (value := getattr(settings_module.settings, f"store_{name}")) not in (None, "")
+        }
+        return self.config.store.model_copy(update=found)
 
     @property
     def state_dir(self) -> Path:

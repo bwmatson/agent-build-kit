@@ -11,6 +11,7 @@ the checks are tested against recorded answers rather than this machine.
 from __future__ import annotations
 
 import argparse
+import asyncio
 import importlib.util
 import re
 import shlex
@@ -30,6 +31,7 @@ from urllib.parse import urlparse
 
 import httpx
 import yaml
+from sqlalchemy.exc import NoSuchModuleError
 
 from agent_build_kit import (
     __version__,
@@ -39,6 +41,7 @@ from agent_build_kit import (
     openspec,
     orchestration,
     profiles,
+    redaction,
     runtimes,
     sandboxes,
     skills,
@@ -86,6 +89,9 @@ from agent_build_kit.notify.windows import (
     INSTALL_COMMAND,
     MODULE_CHECK_COMMAND,
 )
+from agent_build_kit.orchestration.sql.migrate import current_revision, head_revision
+from agent_build_kit.orchestration.sql.url import missing_parts, parses, redacted, store_url
+from agent_build_kit.orchestration.sync_bridge import run_store
 from agent_build_kit.path_discovery import checkout_root, find_up
 from agent_build_kit.path_patterns import matches, normalize
 from agent_build_kit.pipeline import agent_commands, code_host, lock_probe, mounts, pause, spans
@@ -802,6 +808,56 @@ def _machine_files(inst: Installation) -> list[Check]:
     if bad:
         return [_fail(title, f"not carried into {live}: {', '.join(bad)}", "abk install-timers")]
     return [_ok(title, f"{', '.join(names)} carried into {live}")]
+
+
+STORE_CONNECT_SECONDS = 5.0
+
+
+def _store(inst: Installation) -> list[Check]:
+    """The units store, when one is configured: reachable, and at the head revision."""
+    if absent := missing_parts(inst.store):
+        names = " and store.".join(absent)
+        return [
+            _fail(
+                "store",
+                f"store.{names} not set, though other store settings are",
+                f"set store.{names}, or store.url",
+            )
+        ]
+    url = store_url(inst.store)
+    if url is None:
+        return []
+    if not parses(url):
+        return [
+            _fail("store", f"store.url is not a database URL: {redacted(url)}", "fix store.url")
+        ]
+    shown = redacted(url)
+    try:
+        found = run_store(asyncio.wait_for(current_revision(url), STORE_CONNECT_SECONDS))
+    except (ImportError, NoSuchModuleError) as error:
+        driver = getattr(error, "name", None) or str(error)
+        return [
+            _fail(
+                "store",
+                f"the database driver for {shown} is not installed ({driver})",
+                f"install the driver {driver}",
+            )
+        ]
+    except Exception as error:  # noqa: BLE001 — whatever the driver raises means unreachable
+        reason = redaction.gather(inst).redact(str(error) or type(error).__name__)
+        return [
+            _fail("store", f"cannot reach {shown}: {reason}", "start the server, or fix store.*")
+        ]
+    head = head_revision()
+    if found != head:
+        return [
+            _fail(
+                "store",
+                f"{shown} is at revision {found or 'none'}, the head is {head}",
+                "run `abk db upgrade`",
+            )
+        ]
+    return [_ok("store", f"{shown} at revision {head}")]
 
 
 def _state_ignores(inst: Installation) -> list[Check]:
@@ -2676,6 +2732,7 @@ def run_doctor(
     checks += _planning_publish(inst, run)
     checks += _pipeline_worktree(inst)
     checks += _machine_files(inst)
+    checks += _store(inst)
     checks += _state_ignores(inst)
     deployment: list[Check] = _state_locking(inst, mount_of)
     if temp:

@@ -149,6 +149,15 @@ class Settings(BaseSettings):
     prometheus_url: str = ""
     tempo_url: str = ""
 
+    # The units store's connection, from `ABK_STORE_*`; each one beats the same `store.*` key
+    # in `abk.yaml` and `abk.local.yaml`.
+    store_url: str | None = None
+    store_host: str | None = None
+    store_port: int | None = None
+    store_user: str | None = None
+    store_password: str | None = None
+    store_database: str | None = None
+
     def config_folder(self) -> Path:
         """The folder per-user configuration lives in: `config_home`, else `~/.config`."""
         return Path(self.config_home or Path.home() / ".config").expanduser()

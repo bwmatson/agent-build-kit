@@ -7,9 +7,11 @@ import socket
 import subprocess
 from collections.abc import Callable, Iterator
 from pathlib import Path
+from urllib.parse import urlsplit
 
 import httpx
 import pytest
+from alembic import command as alembic_command
 
 from agent_build_kit import __version__, forges, skills
 from agent_build_kit.cli import doctor, main
@@ -27,10 +29,13 @@ from agent_build_kit.config import (
 from agent_build_kit.forges.github import GitHubForge
 from agent_build_kit.forges.transport import clear_credentials
 from agent_build_kit.init.scaffold import RULES_VERSION, render_openspec_config
+from agent_build_kit.orchestration.sql.migrate import alembic_config, head_revision
 from agent_build_kit.runtimes import AgentRateLimited, PolicyReport
 from agent_build_kit.settings import reload, settings
+from tests.cli.store_installation import no_store_env  # noqa: F401
 from tests.factories import git, init_repo, which_all
 from tests.forges.mock_host import MockHost, ok, recorded
+from tests.replay.support import refused_url
 from tests.runtimes.selectable import SelectableRuntime, select
 
 
@@ -1103,3 +1108,75 @@ def test_a_command_provider_whose_program_is_on_path_passes(workspace: Path) -> 
 
     (check,) = notification_checks(checks)
     assert check.status == "ok"
+
+
+STORE_SECRET = "hunter2-hunter2"
+
+
+def store_checks(tmp_path: Path, store: dict[str, str] | str) -> list[Check]:
+    from tests.cli.public_content_repo import committed_config
+
+    settings_of_store = {"url": store} if isinstance(store, str) else store
+    config = committed_config(tmp_path / "plan", {"store": settings_of_store})
+    checks = run_doctor(config, run=Answers(), which=which_all)
+    return [check for check in checks if check.name == "store"]
+
+
+def test_a_server_that_refuses_the_connection_fails_the_store_check_without_the_password(
+    tmp_path: Path,
+    no_store_env: None,  # noqa: F811
+) -> None:
+    with refused_url() as address:
+        port = urlsplit(address).port
+        url = f"postgresql+asyncpg://abk:{STORE_SECRET}@127.0.0.1:{port}/units"
+
+        found = store_checks(tmp_path, url)
+
+    assert [check.status for check in found] == ["FAIL"]
+    assert "cannot reach" in found[0].detail
+    assert STORE_SECRET not in f"{found[0].detail} {found[0].fix}"
+
+
+def test_a_store_url_that_does_not_parse_fails_the_store_check_before_any_connection(
+    tmp_path: Path,
+    no_store_env: None,  # noqa: F811
+) -> None:
+    found = store_checks(tmp_path, "localhost:5432/units")
+
+    assert [check.status for check in found] == ["FAIL"]
+    assert "store.url" in found[0].fix
+    assert "localhost" not in f"{found[0].detail} {found[0].fix}"
+
+
+def test_a_store_with_some_parts_set_and_the_database_missing_fails_naming_it(
+    tmp_path: Path,
+    no_store_env: None,  # noqa: F811
+) -> None:
+    found = store_checks(tmp_path, {"host": "db.example", "user": "abk"})
+
+    assert [check.status for check in found] == ["FAIL"]
+    assert "store.database" in found[0].detail
+
+
+def test_a_store_behind_the_head_fails_naming_the_head_and_the_upgrade_command(
+    tmp_path: Path,
+    no_store_env: None,  # noqa: F811
+) -> None:
+    url = f"sqlite+aiosqlite:///{tmp_path / 'units.db'}"
+    head = head_revision()
+
+    found = store_checks(tmp_path, url)
+
+    assert [check.status for check in found] == ["FAIL"]
+    assert head and head in found[0].detail
+    assert "abk db upgrade" in found[0].fix
+
+
+def test_a_store_at_the_head_passes_the_store_check(
+    tmp_path: Path,
+    no_store_env: None,  # noqa: F811
+) -> None:
+    url = f"sqlite+aiosqlite:///{tmp_path / 'units.db'}"
+    alembic_command.upgrade(alembic_config(url), "head")
+
+    assert [check.status for check in store_checks(tmp_path, url)] == ["ok"]
