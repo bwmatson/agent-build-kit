@@ -1043,6 +1043,8 @@ class UnitStore:
                         "project": existing.project,
                         "split": existing.split,
                         "review_tier": existing.review_tier,
+                        "floor_reason": existing.floor_reason,
+                        "raised_from": existing.raised_from,
                         "group_modes": existing.group_modes,
                     }
                 )
@@ -2079,6 +2081,10 @@ def _record(unit: StoredUnit) -> dict:
         del record["priority"]
     if not unit.promoted_from:
         del record["promoted_from"]
+    if not unit.floor_reason:
+        del record["floor_reason"]
+    if not unit.raised_from:
+        del record["raised_from"]
     if not unit.superseded_by:
         del record["superseded_by"]
     if unit.description is None:

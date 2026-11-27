@@ -40,7 +40,38 @@ TEST_TASK = re.compile(r"tests?:", re.I)
 CHECK_VERBS = ("Confirm", "Check", "Verify", "Read")
 _CHECK_TASK = re.compile(rf"(?:{'|'.join(CHECK_VERBS)})\b", re.I)
 _SENTENCE_END = re.compile(r"(?<=\.)\s+")
-_NOT_A_CHANGE = re.compile(r"\b(?:unchanged|must not|do not)\b.*", re.I)
+_NOT_A_CHANGE = re.compile(
+    r"\b(?:unchanged|must not|do not|only reads?|merely reads?|read-only)\b.*", re.I
+)
+_QUOTES_OPEN = "`'\"(["
+_QUOTES_CLOSE = "`'\")],;:."
+
+
+def change_sentences(line: str) -> list[str]:
+    """The sentences of one line that are changes: none for a line that says what is not
+    changed, the `Verify:` segment cut, each sentence cut at a skip phrase."""
+    if _NOT_CHANGES.match(line):
+        return []
+    return [_NOT_A_CHANGE.sub("", s) for s in _SENTENCE_END.split(_VERIFY.sub("", line))]
+
+
+def changed_names(line: str) -> list[str]:
+    """What one line changes that a protected glob could match: every backticked token that is
+    not a flag, URL, variable or spaced text (a bare name counts, a glob is kept whole), cleaned
+    of `:<line>` and `::<test id>`, and every unticked word with a `/`, a file extension or a
+    leading dot, in order, each once."""
+    found: list[str] = []
+    for sentence in change_sentences(line):
+        for token in TICKED.findall(sentence):
+            if _is_path_token(token):
+                cleaned = _LINE_SUFFIX.sub("", token.split("::", 1)[0])
+                if cleaned:
+                    found.append(cleaned)
+        for word in TICKED.sub(" ", sentence).split():
+            word = word.lstrip(_QUOTES_OPEN).rstrip(_QUOTES_CLOSE)
+            if word and ("/" in word or word.startswith(".") or _EXTENSION.search(word)):
+                found.append(word)
+    return list(dict.fromkeys(found))
 
 
 def _is_path_token(token: str) -> bool:
@@ -86,17 +117,13 @@ def changed_paths(line: str, projects: Sequence[str]) -> list[str]:
     prefix and unticked words anchored on a declared project (`projects`), in the order they
     appear, leaving out a `Verify:` segment and a sentence from "unchanged", "must not" or
     "do not" on. A line that says what is not changed names none."""
-    if _NOT_CHANGES.match(line):
-        return []
-    text = _VERIFY.sub("", line)
     anchored = (
         re.compile(rf"(?<![\w`/.-])(?:{'|'.join(re.escape(p) for p in projects)})/[^\s`,;)]*")
         if projects
         else None
     )
     found: list[str] = []
-    for sentence in _SENTENCE_END.split(text):
-        sentence = _NOT_A_CHANGE.sub("", sentence)
+    for sentence in change_sentences(line):
         found += line_paths(sentence)
         found += [prefix for t in TICKED.findall(sentence) if (prefix := _glob_prefix(t))]
         if anchored:
@@ -292,11 +319,9 @@ def _command_paths(line: str) -> list[str]:
     """The paths among the words of the backticked commands of `line` (`git mv a/b.py c/d.py`),
     which `line_paths` skips because a token with spaces is not a path. A `Verify:` segment and a
     sentence from "unchanged", "must not" or "do not" on are left out, as `changed_paths` does."""
-    if _NOT_CHANGES.match(line):
-        return []
     found: list[str] = []
-    for sentence in _SENTENCE_END.split(_VERIFY.sub("", line)):
-        for token in TICKED.findall(_NOT_A_CHANGE.sub("", sentence)):
+    for sentence in change_sentences(line):
+        for token in TICKED.findall(sentence):
             found += line_paths(" ".join(f"`{word}`" for word in token.split()))
     return found
 
@@ -325,10 +350,8 @@ def names_unplaced_glob(group: TaskGroup) -> bool:
     if group.paths:
         return False
     for line in group.body:
-        if _NOT_CHANGES.match(line):
-            continue
-        for sentence in _SENTENCE_END.split(_VERIFY.sub("", line)):
-            for token in TICKED.findall(_NOT_A_CHANGE.sub("", sentence)):
+        for sentence in change_sentences(line):
+            for token in TICKED.findall(sentence):
                 if _is_path_token(token) and "*" in token and _glob_prefix(token) is None:
                     return True
     return False

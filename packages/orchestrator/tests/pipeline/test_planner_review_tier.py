@@ -87,14 +87,14 @@ def test_a_unit_takes_the_highest_floor_of_its_groups() -> None:
         plan((1, 2), flags=("", "contract"), tier="auto")
 
 
-def test_an_auto_reply_for_a_full_floor_is_refused_naming_unit_group_and_floor() -> None:
-    with pytest.raises(PlannerError) as refused:
-        plan((1,), flags=("contract",), tier="auto")
+def test_an_auto_reply_for_a_full_floor_is_accepted_at_full_and_records_auto_as_asked() -> None:
+    try:
+        units = plan((1,), flags=("contract",), tier="auto")
+    except PlannerError as refused:
+        raise AssertionError(f"refused: {refused}") from refused
 
-    message = str(refused.value)
-    assert "feature/1" in message
-    assert "group 1" in message
-    assert "full" in message
+    assert units[0].review_tier == "full"
+    assert units[0].raised_from == "auto"
 
 
 def test_a_light_reply_for_an_unflagged_unit_is_accepted() -> None:
@@ -131,8 +131,12 @@ def test_an_unknown_value_is_refused_naming_unit_group_and_floor() -> None:
 )
 def test_a_protected_path_that_begins_with_a_dot_makes_the_floor_full(body: str) -> None:
     assert plan((1,), flags=("",), bodies=(body,), tier=None)[0].review_tier == "full"
-    with pytest.raises(PlannerError, match=r"feature/1.*group 1.*full"):
-        plan((1,), flags=("",), bodies=(body,), tier="auto")
+    try:
+        raised = plan((1,), flags=("",), bodies=(body,), tier="auto")
+    except PlannerError as refused:
+        raise AssertionError(f"refused: {refused}") from refused
+    assert raised[0].review_tier == "full"
+    assert raised[0].raised_from == "auto"
 
 
 def test_an_omitted_value_takes_the_floor() -> None:

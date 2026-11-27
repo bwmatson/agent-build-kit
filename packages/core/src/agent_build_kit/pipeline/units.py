@@ -198,6 +198,10 @@ class Unit(Frozen):
     estimated_lines: int = 0
     # The planner's review tier (`auto`, `light` or `full`); None for a unit planned without one.
     review_tier: str | None = None
+    # Why the review-tier floor is what it is ("<floor> floor, group <n>: <why>"); empty at `auto`.
+    floor_reason: str = ""
+    # The tier the planner asked for when it was below the floor and was raised; empty otherwise.
+    raised_from: str = ""
     # The build mode (a `GroupMode` value) of each group the unit builds, keyed
     # `<change>/<number>`; empty for a unit planned before modes existed.
     group_modes: dict[str, str] = Field(default_factory=dict)

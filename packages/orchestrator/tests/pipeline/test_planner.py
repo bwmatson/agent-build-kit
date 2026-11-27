@@ -15,9 +15,18 @@ import json
 
 import pytest
 
-from agent_build_kit.pipeline.planner import GroupTooLarge, PlannerError, parse_graph, plan_round
+from agent_build_kit.config import active, ceilings_in_effect
+from agent_build_kit.pipeline.planner import (
+    GroupTooLarge,
+    PlannerError,
+    build_prompt,
+    in_flight_item,
+    parse_graph,
+    plan_round,
+)
+from agent_build_kit.pipeline.units import FAILED
 from agent_build_kit.pipeline.work_graph import TaskGroup
-from tests.factories import activate_with, groups_at
+from tests.factories import activate_with, groups_at, stored_unit
 from tests.project_workspace import tasks_editing
 
 GOOD = {
@@ -675,3 +684,226 @@ def test_a_split_of_a_shared_test_file_is_recorded_and_keeping_it_together_is_no
     assert first.split_test_files == {LAYOUT_TEST: ("c/14",)}
     assert second.split_test_files == {}
     assert only.split_test_files == {}
+
+
+@pytest.mark.parametrize(
+    ("tasks", "paths", "asked", "expected"),
+    [
+        (
+            (
+                "Test: a check runs with an ownership file covering all four classes: CODEOWNERS.",
+                "Test: an ordinary check.",
+            ),
+            None,
+            "light",
+            "light",
+        ),
+        (("Test: it works. The check only reads `.github/workflows/ci.yml`.",), None, None, "auto"),
+        (("Test: it works.\nReads: `CODEOWNERS`",), None, None, "auto"),
+        (("Test: it works. Verify: red against `.github/workflows/ci.yml`.",), None, None, "auto"),
+        (("Test: edit `CODEOWNERS` to cover it.",), ("src/app.py",), None, "auto"),
+    ],
+    ids=["bare-name", "only-reads", "reads-line", "verify-segment", "paths-line"],
+)
+def test_the_review_tier_floor_reads_what_a_group_changes(
+    tasks: tuple[str, ...], paths: tuple[str, ...] | None, asked: str | None, expected: str
+) -> None:
+    activate_with(review={"enabled": True})
+    text = "# Tasks\n\n"
+    for n, task in enumerate(tasks, start=1):
+        text += f"## {n}. [app] [unit-test] Group {n}\n\n- [ ] {n}.1 {task}\n\n"
+    groups = groups_at(*[3] * len(tasks))
+    if paths is not None:
+        groups[0] = groups[0].model_copy(update={"paths": paths})
+    unit = planned(id="feature/1", change="feature", groups=list(range(1, len(tasks) + 1)))
+    if asked is not None:
+        unit["review_tier"] = asked
+    try:
+        outcome = parse_graph(graph_json([unit]), groups=groups, tasks=text)[0].review_tier
+    except PlannerError as error:
+        outcome = f"refused: {error}"
+
+    assert outcome == expected
+
+
+FLOOR_MIGRATION = "db/migrations/0042_add_index.sql"
+
+
+def floor_tasks(body: str) -> str:
+    return f"# Tasks\n\n## 1. [app] [unit-test] Group 1\n\n- [ ] 1.1 {body}\n\n"
+
+
+def floor_plan(flag: str, body: str, asked: str | None, **unit_fields) -> list:
+    activate_with(review={"enabled": True})
+    groups = [groups_at(3)[0].model_copy(update={"flag": flag})]
+    unit = planned(id="feature/1", change="feature", groups=[1], **unit_fields)
+    if asked is not None:
+        unit["review_tier"] = asked
+    return parse_graph(graph_json([unit]), groups=groups, tasks=floor_tasks(body))
+
+
+@pytest.mark.parametrize(
+    ("flag", "body", "asked", "tier", "reason_parts"),
+    [
+        ("contract", "Test: it behaves.", "full", "full", ("full", "group 1", "contract")),
+        ("", "Test: it behaves.", "full", "full", ()),
+        ("", f"Test: edit `{FLOOR_MIGRATION}` to add it.", None, "full", (FLOOR_MIGRATION,)),
+        ("", "Test: it behaves.", None, "auto", ()),
+    ],
+    ids=["flagged-asks-full", "unflagged-asks-full", "protected-path", "unflagged-asks-nothing"],
+)
+def test_a_unit_records_its_tier_and_the_reason_of_its_floor(
+    flag: str, body: str, asked: str | None, tier: str, reason_parts: tuple[str, ...]
+) -> None:
+    try:
+        (unit,) = floor_plan(flag, body, asked)
+    except PlannerError as refused:
+        raise AssertionError(f"refused: {refused}") from refused
+
+    assert unit.review_tier == tier
+    assert unit.raised_from == ""
+    assert bool(unit.floor_reason) == bool(reason_parts)
+    for part in reason_parts:
+        assert part in unit.floor_reason
+
+
+def test_a_tier_below_the_floor_is_raised_and_logged_in_one_line(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    try:
+        (unit,) = floor_plan("contract", "Test: it behaves.", "light")
+    except PlannerError as refused:
+        raise AssertionError(f"refused: {refused}") from refused
+
+    lines = [line for line in capsys.readouterr().out.splitlines() if "feature/1" in line]
+    assert unit.review_tier == "full"
+    assert unit.raised_from == "light"
+    assert len(lines) == 1
+    for part in ("light", "full", "contract"):
+        assert part in lines[0]
+
+
+def test_a_raised_unit_over_the_full_ceiling_is_refused_for_its_size() -> None:
+    activate_with(review={"enabled": True})
+    over = ceilings_in_effect(active().repos["app"], active()).full + 1
+
+    with pytest.raises(PlannerError, match="ceiling"):
+        floor_plan("contract", "Test: it behaves.", "light", estimated_lines=over)
+
+
+def test_the_prompt_says_a_tier_below_the_floor_is_raised_not_refused() -> None:
+    activate_with(review={"enabled": True})
+    paragraph = next(
+        p for p in build_prompt({}, []).split("\n\n") if p.lstrip().startswith("Review tier:")
+    )
+
+    assert "raised" in paragraph
+    assert "refused" not in paragraph
+
+
+def heading_of(prompt: str, number: int) -> str:
+    return next(line for line in prompt.splitlines() if line.startswith(f"## {number}."))
+
+
+@pytest.mark.parametrize(
+    ("fields", "parts", "absent"),
+    [
+        ({"flag": "contract"}, ("full", "contract", "{full_ceiling}"), ()),
+        ({"code_free": True}, ("no_code", "tests_and_code"), ()),
+        ({"tier": "e2e-test"}, ("tests_only",), ()),
+        ({}, ("auto", "tests_and_code"), (" — ",)),
+        ({"declared_mode": "refactor"}, ("refactor", "fixed"), ()),
+    ],
+    ids=["contract", "code-free", "e2e", "unflagged", "declared"],
+)
+def test_the_heading_of_a_group_shows_its_floors(
+    fields: dict, parts: tuple[str, ...], absent: tuple[str, ...]
+) -> None:
+    activate_with(review={"enabled": True})
+    group = groups_at(3)[0].model_copy(update=fields)
+    tasks = f"# Tasks\n\n## 1. [app] [{group.tier}] G1\n\n- [ ] 1.1 Test: it.\n"
+    figure = str(ceilings_in_effect(None, active()).full)
+
+    heading = heading_of(build_prompt({"feature": tasks}, [], groups=[group]), 1)
+
+    assert "floors" in heading
+    for part in parts:
+        assert part.replace("{full_ceiling}", figure) in heading
+    for part in absent:
+        assert part not in heading
+
+
+def test_the_heading_of_a_group_a_started_unit_builds_shows_who_builds_it_not_floors() -> None:
+    activate_with(review={"enabled": True})
+    tasks = (
+        "# Tasks\n\n## 1. [app] [unit-test] G1\n\n- [ ] 1.1 Test: it.\n\n"
+        "## 2. [app] [unit-test] G2\n\n- [ ] 2.1 Test: it.\n"
+    )
+    unit = stored_unit("feature/1", change="feature", groups=(1,), state=FAILED)
+
+    prompt = build_prompt(
+        {"feature": tasks}, [in_flight_item(unit, [unit])], groups=groups_at(3, 3)
+    )
+
+    built, open_group = heading_of(prompt, 1), heading_of(prompt, 2)
+    assert "(built by" in built
+    assert "floors" not in built
+    assert "floors" in open_group
+
+
+def test_the_group_modes_paragraph_says_each_heading_shows_its_floors() -> None:
+    activate_with(review={"enabled": True})
+    paragraph = next(
+        p for p in build_prompt({}, []).split("\n\n") if p.lstrip().startswith("Group modes:")
+    )
+
+    for word in ("heading", "floors", "allowed"):
+        assert word in paragraph
+
+
+REFUSED_PATHS = ("docs/guide.md", "docs/setup.md", "tests/test_feature.py")
+
+
+@pytest.mark.parametrize(
+    ("fields", "asked", "parts"),
+    [
+        (
+            {"test_code": True, "paths": REFUSED_PATHS},
+            "tests_and_code",
+            (
+                "unit feature/1",
+                "group 1",
+                "tests_only",
+                *REFUSED_PATHS,
+                "Tests: required",
+                "tasks.md",
+            ),
+        ),
+        ({"code_free": True}, "tests_only", ("no_code", "tests_and_code")),
+        ({}, "no_code", ("tests_and_code", "refactor", "Paths:")),
+        (
+            {"code_free": True, "tests_required": True},
+            "no_code",
+            ("tests_and_code", "Tests: required"),
+        ),
+        ({"tier": "e2e-test"}, "tests_and_code", ("tests_only",)),
+    ],
+    ids=["test-file-and-documents", "documents-only", "ordinary", "tests-required", "e2e"],
+)
+def test_a_refused_mode_says_the_floor_the_cause_and_the_fix(
+    fields: dict, asked: str, parts: tuple[str, ...]
+) -> None:
+    activate_with(review={"enabled": True})
+    group = groups_at(3)[0].model_copy(update=fields)
+    unit = planned(id="feature/1", change="feature", groups=[1], group_modes={"1": asked})
+
+    try:
+        parse_graph(graph_json([unit]), groups=[group], tasks=floor_tasks("Test: it behaves."))
+    except PlannerError as refused:
+        message = str(refused)
+    else:
+        raise AssertionError("the mode was accepted")
+
+    assert f"asks for mode {asked!r} for group 1" in message
+    for part in ("feature", group.title, *parts):
+        assert part in message

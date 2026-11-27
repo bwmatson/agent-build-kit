@@ -222,6 +222,10 @@ group where that would be wrong. A group that really edits only test code, and h
 (deleting the originals, noting something in the pull request), lists its files in a `Paths:` line, which says
 what the group names and turns the rule off.
 
+The review-tier floor reads the paths a group changes as the mode floor does: the `Paths:` line, else the paths
+its tasks name as changes. Name a protected file in backticks or in `Paths:`. A path on a `Reads:` line, in a
+`Verify:` clause or in a sentence saying the group only reads it does not count.
+
 ## How the planner judges a change to documents or configuration
 
 In short, only a group that touches code writes its tests first. A group that names only documents, a changelog or
@@ -232,6 +236,11 @@ code relies on, a file a tool reads at start or a rule a check enforces, left to
 a slip there is costly and hard to see. Good: a group that rewords a README or adds a changelog bullet, which
 needs no test. Where a regression would matter, say `Tests: required — <reason>` on the group; the reason is
 required, and no line lowers a floor.
+
+The planner prompt shows each group's floors on its heading, so a group that should be `full` and is not shows
+it before a build starts. A refused build mode names the group, its floor, the modes it allows, the likely cause
+and the fix. A group that names a test file beside documents is built `tests_only`: put its test edit and its
+documents in groups of their own.
 
 ### Writing a reorganization group
 

@@ -44,7 +44,7 @@ def test_the_planner_prompt_asks_for_a_review_tier() -> None:
     assert "ceiling" in prompt
 
 
-def test_the_planner_holds_a_tier_it_was_given_to_its_floor() -> None:
+def test_the_planner_raises_a_tier_it_was_given_to_its_floor() -> None:
     reply = json.dumps(
         {
             "units": [
@@ -63,8 +63,13 @@ def test_the_planner_holds_a_tier_it_was_given_to_its_floor() -> None:
     flagged = [group.model_copy(update={"flag": "contract"}) for group in groups_at(3)]
     text = "# Tasks\n\n## 1. [app] [unit-test] G\n\n- [ ] 1.1 Test: it behaves.\n"
 
-    with pytest.raises(PlannerError, match=r"feature/1.*full"):
-        parse_graph(reply, groups=flagged, tasks=text)
+    try:
+        units = parse_graph(reply, groups=flagged, tasks=text)
+    except PlannerError as refused:
+        raise AssertionError(f"refused: {refused}") from refused
+
+    assert units[0].review_tier == "full"
+    assert units[0].raised_from == "auto"
 
 
 def test_the_review_prompt_asks_for_the_classification(tmp_path: Path) -> None:

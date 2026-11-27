@@ -29,6 +29,7 @@ from tests.cli.test_admission_asks_own_account import (  # noqa: F401 — fixtur
     round_of,
     unit,
 )
+from tests.factories import stored_unit
 
 
 def explain(
@@ -218,3 +219,38 @@ def test_it_prints_a_unit_with_no_saves_as_before(
     assert saved_ref in saved_out, "a unit with saves prints the line"
     assert "leftover" not in out
     assert "admitted" in out
+
+
+def test_it_prints_a_units_tier_floor_reason_and_the_tier_it_asked(
+    tmp_path: Path, accounts: Accounts, capsys: pytest.CaptureFixture[str]
+) -> None:
+    raised = stored_unit(
+        "one/1",
+        change="one",
+        review_tier="full",
+        raised_from="light",
+        floor_reason="group 3: contract flag",
+    )
+    inst, _store = installation(tmp_path, [raised])
+
+    code, out = explain(inst, "one/1", capsys)
+
+    assert code == 0
+    assert "full" in out
+    assert "group 3" in out
+    assert "contract" in out
+    assert "light" in out
+
+
+def test_it_prints_nothing_of_a_floor_for_a_unit_with_no_reason_and_no_raise(
+    tmp_path: Path, accounts: Accounts, capsys: pytest.CaptureFixture[str]
+) -> None:
+    inst, store = installation(tmp_path, [unit("one/1", "app")])
+    round_of(inst, store)
+
+    code, out = explain(inst, "one/1", capsys)
+
+    assert code == 0
+    assert "admitted" in out
+    assert "floor" not in out
+    assert "raised" not in out

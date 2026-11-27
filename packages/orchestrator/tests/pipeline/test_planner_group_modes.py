@@ -322,8 +322,11 @@ def test_a_join_of_a_change_stores_the_planners_mode() -> None:
 
 
 def test_a_join_below_the_floor_is_refused() -> None:
-    with pytest.raises(PlannerError, match=r"join onto base/1.*group 2"):
+    with pytest.raises(PlannerError, match=r"join onto base/1.*group 2") as refused:
         join_plan({"2": "no_code"})
+
+    assert "tests_and_code" in str(refused.value)
+    assert "refactor" in str(refused.value)
 
 
 def branch_with(tmp_path: Path, *subjects: str) -> Path:
