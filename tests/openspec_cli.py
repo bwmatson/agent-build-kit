@@ -7,8 +7,10 @@ and fails it when the status says the program was not found.
 from __future__ import annotations
 
 import functools
+import os
 import subprocess
 import tempfile
+from collections.abc import Mapping
 from pathlib import Path
 
 import pytest
@@ -27,9 +29,13 @@ def not_installed(status: object, stderr: str) -> str:
     return f"{MESSAGE} (status {status}):\n{tail}".rstrip()
 
 
-def probe(run: openspec.Run | None = None) -> None:
+def probe(run: openspec.Run | None = None, *, env: Mapping[str, str] | None = None) -> None:
     with tempfile.TemporaryDirectory() as directory:
-        runner = run or functools.partial(subprocess.run, timeout=PROBE_TIMEOUT)
+        runner = run or functools.partial(
+            subprocess.run,
+            timeout=PROBE_TIMEOUT,
+            **({"env": {**os.environ, **env}} if env is not None else {}),
+        )
         try:
             result = openspec.run(["--version"], cwd=Path(directory), run=runner)
         except subprocess.TimeoutExpired as error:

@@ -75,6 +75,11 @@ jobs:
       - uses: astral-sh/setup-uv@v10.3.0
         with:
           enable-cache: true
+      - name: Share one npm cache between the warm step and the tests
+        # The integration tests give each test an empty HOME, and the test fixture reads
+        # `npm_config_cache` to find the warmed package. The `runner` context is not available
+        # in a job-level `env`, so the path is set here for the steps that follow.
+        run: echo "npm_config_cache=$RUNNER_TEMP/npm-cache" >> "$GITHUB_ENV"
       - name: Fetch the pinned OpenSpec CLI
         # One retried fetch here, so a failed download is one clear failure
         # before any test. The pin is read from the kit's settings. The limits

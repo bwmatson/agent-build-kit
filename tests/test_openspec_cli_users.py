@@ -42,13 +42,21 @@ def test_every_integration_file_that_runs_the_cli_requests_the_fixture_and_no_ot
     )
 
 
-def test_the_integration_conftest_defines_a_session_fixture_that_probes_the_cli() -> None:
+def test_openspec_cli_sets_the_env_of_a_session_fixture_that_probes_the_cli_once() -> None:
     conftest = INTEGRATION / "conftest.py"
     assert conftest.exists(), "tests/integration/conftest.py defines the fixture"
-    [fixture] = [
-        node
+    functions = {
+        node.name: node
         for node in ast.walk(ast.parse(conftest.read_text()))
-        if isinstance(node, ast.FunctionDef) and node.name == FIXTURE
-    ]
-    assert "session" in ast.unparse(fixture.decorator_list[0])
-    assert "probe" in ast.unparse(fixture)
+        if isinstance(node, ast.FunctionDef)
+    }
+    cache = functions["openspec_cache"]
+    fixture = functions[FIXTURE]
+    assert "session" in ast.unparse(cache.decorator_list[0])
+    assert "scope" not in ast.unparse(fixture.decorator_list[0])
+    assert "openspec_cache" in [arg.arg for arg in fixture.args.args]
+    assert "setenv" in ast.unparse(fixture)
+    # The session fixture reaches `probe` through the warm helper it passes to the shared fetch.
+    assert "_warm_openspec" in ast.unparse(cache)
+    assert "probe(" in ast.unparse(functions["_warm_openspec"])
+    assert "npm_config_cache" in ast.unparse(functions["_openspec_overrides"])
