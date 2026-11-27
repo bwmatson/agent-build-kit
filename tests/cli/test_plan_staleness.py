@@ -4,11 +4,15 @@ there was a review policy, and the reason says which; a stale plan is never work
 
 from __future__ import annotations
 
+import hashlib
+import json
 from pathlib import Path
 
 import pytest
 
+from agent_build_kit import config
 from agent_build_kit.cli import pipeline as cli
+from agent_build_kit.config import dump
 from agent_build_kit.pipeline.units import IN_REVIEW
 from tests.cli.replan_driver import (
     Replan,
@@ -64,6 +68,60 @@ def test_a_changed_review_section_is_named_as_the_cause(
     assert "stale" in line
     assert "review section changed" in line
     assert "ceilings changed" not in line
+
+
+def digest_before_protected_config() -> str:
+    """The sizing digest as it was computed before `protected_config` existed: the ceilings
+    part as now, then the rest of the `review` blocks dumped without that field."""
+    workspace = config.active()
+    exclude = {"ceilings", "protected_config"}
+    rest = {
+        "review": workspace.review.model_dump(mode="json", exclude=exclude),
+        "repos": {
+            name: repo.review.model_dump(mode="json", exclude=exclude)
+            for name, repo in workspace.repos.items()
+        },
+    }
+    rest_part = hashlib.sha256(json.dumps(rest, sort_keys=True).encode()).hexdigest()
+    return f"{cli.sizing_digest().split('.')[0]}.{rest_part}"
+
+
+def set_protected_config(run: Replan, where: str) -> None:
+    """Give the workspace, or each repo, a `protected_config` entry, in the active configuration
+    and in the `abk.yaml` a command loads."""
+    entry = {"**/pyproject.toml": ["tool.mypy"]}
+    current = config.active()
+    if where == "workspace":
+        updated = current.model_copy(
+            update={"review": current.review.model_copy(update={"protected_config": entry})}
+        )
+    else:
+        repos = {
+            name: repo.model_copy(
+                update={"review": repo.review.model_copy(update={"protected_config": entry})}
+            )
+            for name, repo in current.repos.items()
+        }
+        updated = current.model_copy(update={"repos": repos})
+    config.activate(updated, config.active_root())
+    (run.inst.root / "abk.yaml").write_text(dump(updated))
+
+
+@pytest.mark.parametrize("where", ["workspace", "repo"])
+def test_a_plan_recorded_before_protected_config_stays_current_until_one_is_set(
+    where: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    run = Replan(tmp_path, monkeypatch, alpha=tasks_md(1))
+    enable_review(run, ceilings={"full": 750})
+    run.record("alpha", sizing=digest_before_protected_config())
+
+    assert "stale" not in listing(run, capsys)["alpha"]
+
+    set_protected_config(run, where)
+
+    line = listing(run, capsys)["alpha"]
+    assert "stale" in line
+    assert "review section changed" in line
 
 
 def test_a_plan_with_no_policy_digest_is_stale_for_want_of_one_and_is_not_work(

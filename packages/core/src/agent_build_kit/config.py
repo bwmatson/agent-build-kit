@@ -1540,9 +1540,12 @@ class RepoCeilingsConfig(Frozen):
 
 
 class RepoReviewConfig(Frozen):
-    """A repo's own review policy: the protected paths that add to the workspace's."""
+    """A repo's own review policy: protected paths and protected config entries, which add to
+    the workspace's."""
 
     protected_paths: list[str] = []
+    # File pattern to the key paths that set a bar in it; an empty list protects the whole file.
+    protected_config: dict[str, list[str]] = {}
     ceilings: RepoCeilingsConfig = RepoCeilingsConfig()
 
 
@@ -1909,6 +1912,8 @@ class ReviewConfig(Frozen):
     # Globs added to the framework's defaults; a repo's own list adds to these.
     protected_paths: list[str] = []
     protected_defaults: bool = True
+    # File pattern to the key paths that set a bar in it; an empty list protects the whole file.
+    protected_config: dict[str, list[str]] = {}
     # Class name to path globs, in the order that decides which class a unit belongs to.
     classes: dict[str, list[str]] = {}
     auto_land: AutoLandConfig = AutoLandConfig()
@@ -2143,6 +2148,28 @@ class WorkspaceConfig(Frozen):
                     "review.ceilings.full instead, or run `abk config --migrate` to move it"
                 )
         return data
+
+    @model_validator(mode="after")
+    def _protected_config_entries_are_well_formed(self) -> WorkspaceConfig:
+        """Each `protected_config` pattern stays inside the repository and each key path is
+        dotted names with none empty; the message names the setting and the entry."""
+        scopes = [("review.protected_config", self.review.protected_config)]
+        scopes += [
+            (f"repos.{name}.review.protected_config", repo.review.protected_config)
+            for name, repo in self.repos.items()
+        ]
+        for where, entries in scopes:
+            for pattern, keys in entries.items():
+                try:
+                    path_patterns.normalize(pattern)
+                except ValueError as error:
+                    raise ValueError(f"{where}: {pattern!r}: {error}") from error
+                for key in keys:
+                    if not key or "" in key.split("."):
+                        raise ValueError(
+                            f"{where}: {pattern!r}: the key path {key!r} has an empty segment"
+                        )
+        return self
 
     @model_validator(mode="after")
     def _ceilings_ordered_above_floor(self) -> WorkspaceConfig:

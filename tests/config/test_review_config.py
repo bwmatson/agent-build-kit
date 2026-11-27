@@ -22,6 +22,7 @@ def test_a_workspace_with_no_review_section_loads_with_the_defaults() -> None:
 
     assert loaded.review.model_dump() == {
         "protected_paths": [],
+        "protected_config": {},
         "protected_defaults": True,
         "classes": {},
         "auto_land": {
@@ -40,6 +41,7 @@ def test_a_workspace_with_no_review_section_loads_with_the_defaults() -> None:
     }
     assert loaded.repos["app"].review.model_dump() == {
         "protected_paths": [],
+        "protected_config": {},
         "ceilings": {"auto": None, "light": None, "full": None},
     }
 
@@ -58,6 +60,7 @@ def test_each_key_loads_when_set() -> None:
     dumped = loaded.review.model_dump()
     assert dumped == {
         "protected_paths": ["deploy/**"],
+        "protected_config": {},
         "protected_defaults": False,
         "classes": {"docs": ["**/*.md"], "tests": ["tests/**"]},
         "auto_land": {
@@ -77,6 +80,7 @@ def test_each_key_loads_when_set() -> None:
     assert list(dumped["classes"]) == ["docs", "tests"], "the order is kept"
     assert loaded.repos["app"].review.model_dump() == {
         "protected_paths": ["src/billing/**"],
+        "protected_config": {},
         "ceilings": {"auto": None, "light": None, "full": None},
     }
 
