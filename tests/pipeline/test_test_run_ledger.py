@@ -33,6 +33,10 @@ from tests.failure_bundle_fakes import (
 )
 from tests.failure_bundle_fakes import run_ledger_rows as _rows
 from tests.pipeline.test_flake_isolation import HookedProfile
+from tests.pipeline.test_unit_test_affected import CHANGED, FAILED_OUTPUT
+from tests.pipeline.test_unit_test_affected import Commands as SelectingCommands
+from tests.pipeline.test_unit_test_affected import Profile as SelectingProfile
+from tests.pipeline.test_unit_test_affected import repo_config as selecting_repo_config
 from tests.pipeline.test_unit_test_base_check import TEST, Runs
 
 # --- the writer ---------------------------------------------------------------------
@@ -68,11 +72,12 @@ def test_a_row_is_a_line_appended_after_the_others(tmp_path: Path) -> None:
 
 def test_a_ledger_at_its_size_limit_is_rotated_before_the_next_row(tmp_path: Path) -> None:
     path = run_ledger_path(tmp_path)
-    # A short row is a little over 300 bytes, so the limit leaves room for one of them.
-    append_test_run(path, _entry("old/1"), max_bytes=500)
-    append_test_run(path, _entry("old/2", failed=["x" * 400]), max_bytes=500)
+    # A short row is a little over 500 bytes (it carries the memory fields even when null), so
+    # the limit leaves room for one of them.
+    append_test_run(path, _entry("old/1"), max_bytes=800)
+    append_test_run(path, _entry("old/2", failed=["x" * 600]), max_bytes=800)
 
-    append_test_run(path, _entry("new/1"), max_bytes=500)
+    append_test_run(path, _entry("new/1"), max_bytes=800)
 
     assert [row["unit"] for row in _rows(path)] == ["new/1"]
     rotated = path.with_name(path.name + ".1")
@@ -112,9 +117,19 @@ def _run(
     machine: BundleMachine,
     ledger: Path,
     installation: Installation | None = None,
+    samples: tuple[dict[str, object], dict[str, object]] | None = None,
 ) -> tuple[bool, str] | None:
-    """The unit-test run, its ledger at `ledger`; None when it found a flake."""
+    """The unit-test run, its ledger at `ledger`; None when it found a flake. `samples`, when
+    given, is the (start, end) machine sample: the first call answers the start, every later
+    one the end."""
     loads = iter(range(1, 100))
+    taken = iter(range(100))
+
+    def sampled() -> dict[str, object]:
+        if samples is None:
+            return {"load": [float(next(loads))] * 3}
+        return samples[0] if next(taken) == 0 else samples[1]
+
     clock = iter(START + timedelta(seconds=10 * n) for n in range(100))
     unit_test = build_unit_test(
         profile=cast(ToolchainProfile, BundleProfile()),
@@ -124,7 +139,7 @@ def _run(
         test_runs=ledger,
         installation=installation,
         now=lambda: next(clock),
-        machine=lambda: {"load": [float(next(loads))] * 3},
+        machine=sampled,
     )
     try:
         return unit_test(cwd=scratch, base="main")
@@ -171,6 +186,182 @@ def test_a_row_has_the_load_at_the_start_and_at_the_end(scratch: Path, tmp_path:
     (row,) = _rows(ledger)
     assert row["load_start"] == 1.0
     assert row["load_end"] > row["load_start"]
+
+
+_MEMORY_FIELDS = [
+    "mem_available_mb_start",
+    "mem_available_mb_end",
+    "swap_used_mb_start",
+    "swap_used_mb_end",
+    "memory_pressure_full_us",
+]
+
+
+def _memory_sample(available_kb: int, swap_kb: int, pressure_us: int | None) -> dict[str, object]:
+    sample: dict[str, object] = {
+        "load": [1.0] * 3,
+        "cpus": 4,
+        "memory_available_kb": available_kb,
+        "swap_used_kb": swap_kb,
+    }
+    if pressure_us is not None:
+        sample["memory_pressure_full_us"] = pressure_us
+    return sample
+
+
+@pytest.mark.parametrize(
+    ("reruns", "passing"),
+    [([], True), ([1, 1], False), ([0, 0], False)],
+    ids=["passing", "failing", "flaky"],
+)
+def test_a_run_of_any_outcome_has_its_memory_figures_in_whole_mb(
+    scratch: Path, tmp_path: Path, reruns: list[int], passing: bool
+) -> None:
+    ledger = tmp_path / "test-runs.jsonl"
+    samples = (
+        _memory_sample(8 * 1024 * 1024 + 1023, 2 * 1024 * 1024, 1_000),
+        _memory_sample(6 * 1024 * 1024, 3 * 1024 * 1024 + 5, 4_500),
+    )
+
+    _run(scratch, BundleMachine(scratch, reruns=reruns, passing=passing), ledger, samples=samples)
+
+    (row,) = _rows(ledger)
+    assert row.get("mem_available_mb_start", "absent") == 8 * 1024
+    assert row.get("mem_available_mb_end", "absent") == 6 * 1024
+    assert row.get("swap_used_mb_start", "absent") == 2 * 1024
+    assert row.get("swap_used_mb_end", "absent") == 3 * 1024
+    assert row.get("memory_pressure_full_us", "absent") == 3_500
+
+
+@pytest.mark.parametrize(
+    ("start", "end"),
+    [
+        (_memory_sample(1024, 0, None), _memory_sample(1024, 0, 9)),
+        (_memory_sample(1024, 0, 9), _memory_sample(1024, 0, None)),
+        (_memory_sample(1024, 0, 50), _memory_sample(1024, 0, 9)),
+    ],
+    ids=["pressure only at end", "pressure only at start", "counter went back"],
+)
+def test_a_missing_reading_or_a_backwards_pressure_counter_gives_null_pressure(
+    scratch: Path, tmp_path: Path, start: dict[str, object], end: dict[str, object]
+) -> None:
+    ledger = tmp_path / "test-runs.jsonl"
+
+    _run(
+        scratch,
+        BundleMachine(scratch, reruns=[], passing=True),
+        ledger,
+        samples=(start, end),
+    )
+
+    (row,) = _rows(ledger)
+    assert row.get("memory_pressure_full_us", "absent") is None
+
+
+def test_samples_without_the_readings_give_null_for_each_memory_field(
+    scratch: Path, tmp_path: Path
+) -> None:
+    ledger = tmp_path / "test-runs.jsonl"
+    bare: dict[str, object] = {"load": [1.0] * 3}
+
+    _run(scratch, BundleMachine(scratch, reruns=[], passing=True), ledger, samples=(bare, bare))
+
+    (row,) = _rows(ledger)
+    assert {name: row.get(name, "absent") for name in _MEMORY_FIELDS} == dict.fromkeys(
+        _MEMORY_FIELDS
+    )
+
+
+_LINE_BEFORE_THE_FIELDS = {
+    "unit": "old/1",
+    "started": START.isoformat(),
+    "seconds": 1.0,
+    "outcome": "passed",
+    "failed": [],
+    "load_start": None,
+    "load_end": None,
+    "workers": None,
+    "tick": "t1",
+    "units_running": [],
+}
+
+
+def test_a_row_written_before_the_memory_fields_loads_with_each_of_them_null() -> None:
+    row = TestRun.model_validate_json(json.dumps(_LINE_BEFORE_THE_FIELDS))
+
+    assert {name: getattr(row, name, "absent") for name in _MEMORY_FIELDS} == dict.fromkeys(
+        _MEMORY_FIELDS
+    )
+
+
+def _fix_round_row(
+    tmp_path: Path,
+    profile: SelectingProfile,
+    commands: SelectingCommands,
+    *,
+    whole_repo: bool = False,
+) -> dict[str, object]:
+    """The one row of a fix round's unit-test run (so one with a failed check to answer, the
+    only run a profile's selection is asked for) at a ledger in `tmp_path`."""
+    ledger = tmp_path / "test-runs.jsonl"
+    unit_test = build_unit_test(
+        run=commands,
+        changed=lambda *a: CHANGED,
+        profile=profile,
+        repo=selecting_repo_config(tmp_path),
+        test_runs=ledger,
+    )
+
+    unit_test(cwd=tmp_path, base="main", failed_output=FAILED_OUTPUT, whole_repo=whole_repo)
+
+    (row,) = _rows(ledger)
+    return row
+
+
+def test_a_run_of_a_selection_has_full_false(tmp_path: Path) -> None:
+    row = _fix_round_row(
+        tmp_path, SelectingProfile([["selected"]]), SelectingCommands(selected=(1, "FAILED"))
+    )
+
+    assert row.get("full", "absent") is False
+
+
+@pytest.mark.parametrize(
+    ("profile", "whole_repo"),
+    [
+        (SelectingProfile(None), False),
+        (SelectingProfile([["selected"]]), True),
+    ],
+    ids=["the profile cannot name the affected tests", "a whole-repository run"],
+)
+def test_a_run_of_the_whole_suite_has_full_true(
+    tmp_path: Path, profile: SelectingProfile, whole_repo: bool
+) -> None:
+    row = _fix_round_row(tmp_path, profile, SelectingCommands(), whole_repo=whole_repo)
+
+    assert row.get("full", "absent") is True
+
+
+@pytest.mark.parametrize(
+    ("reruns", "passing"),
+    [([], True), ([1, 1], False), ([0, 0], False)],
+    ids=["passing", "failing", "flaky"],
+)
+def test_a_whole_suite_run_of_any_outcome_has_full_true(
+    scratch: Path, tmp_path: Path, reruns: list[int], passing: bool
+) -> None:
+    ledger = tmp_path / "test-runs.jsonl"
+
+    _run(scratch, BundleMachine(scratch, reruns=reruns, passing=passing), ledger)
+
+    (row,) = _rows(ledger)
+    assert row.get("full", "absent") is True
+
+
+def test_a_row_written_before_the_full_field_loads_with_it_null() -> None:
+    row = TestRun.model_validate_json(json.dumps(_LINE_BEFORE_THE_FIELDS))
+
+    assert getattr(row, "full", "absent") is None
 
 
 def test_a_failing_run_adds_a_row_naming_the_tests_that_failed(

@@ -2165,7 +2165,23 @@ def build_unit_test(
                         failed_detail=[run_detail[test] for test in failed if test in run_detail],
                         cpus=cpus,
                         load_high=load_high,
+                        mem_available_mb_start=failure_evidence.memory_reading(
+                            sample_start, "memory_available_kb"
+                        ),
+                        mem_available_mb_end=failure_evidence.memory_reading(
+                            sample_end, "memory_available_kb"
+                        ),
+                        swap_used_mb_start=failure_evidence.memory_reading(
+                            sample_start, "swap_used_kb"
+                        ),
+                        swap_used_mb_end=failure_evidence.memory_reading(
+                            sample_end, "swap_used_kb"
+                        ),
+                        memory_pressure_full_us=failure_evidence.pressure_delta(
+                            sample_start, sample_end
+                        ),
                         disturbed_seconds=gap,
+                        full=run_facts.get("whole_suite") is True,
                         data_source=data_source,
                         data_age_hours=data_age,
                         head=commit_id(cwd, "HEAD") or None,
@@ -2498,6 +2514,7 @@ def build_unit_test(
     ) -> tuple[bool, str]:
         """The unit's unit-test in full; its test time and count are kept, as what a later
         selected run is compared with."""
+        run_facts["whole_suite"] = True
         figures: list[tuple[float, int]] = []
         try:
             return run_full(cwd, base, work, whole_repo, lint, figures)

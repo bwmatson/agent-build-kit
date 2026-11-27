@@ -145,6 +145,16 @@ class TestRun(Frozen):
     # does not say.
     cpus: int | None = None
     load_high: bool | None = None
+    # Memory available and swap used (whole MB) at the start and end of the run, and the
+    # microseconds every non-idle task was stalled on memory over it; None where not read.
+    mem_available_mb_start: int | None = None
+    mem_available_mb_end: int | None = None
+    swap_used_mb_start: int | None = None
+    swap_used_mb_end: int | None = None
+    memory_pressure_full_us: int | None = None
+    # Whether the run ran the whole suite (a whole-repository run, or a selection that fell back
+    # to it) and not a selection; None on a row written before the field.
+    full: bool | None = None
     # The worker and time-limit hit of each test of `failed`.
     failed_detail: list[FailedTest] = []
     # For a `disturbed` run: how many seconds its wall time exceeded the duration pytest reported.
