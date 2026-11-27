@@ -54,7 +54,6 @@ SELF = {
     "test_scrub_references.py",
     "test_scrub_store_references.py",
     "test_split_scrub_references.py",
-    "test_repo_wide_guards_documented.py",
 }
 # Fixture owners, and the placeholder words a regex's own documentation uses.
 FIXTURE_OWNERS = ("example", "acme", "octo", "owner", "o")
