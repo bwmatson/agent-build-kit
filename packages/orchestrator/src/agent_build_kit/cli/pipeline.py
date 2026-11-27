@@ -77,6 +77,7 @@ from agent_build_kit.pipeline import (
     loaded_code,
     lock_probe,
     mounts,
+    needs_targets,
     network_probe,
     outlines,
     plan_review,
@@ -994,8 +995,12 @@ def cmd_status(args: argparse.Namespace, inst: Installation) -> int:
     ):
         print(redact_text(line, where="printed output"), flush=True)
 
-    for change, record in planned_hashes(inst).items():
-        if record.get("waiting") in PLAN_WAITS:
+    records = planned_hashes(inst)
+    given_up = given_up_plans(inst)
+    for tasks in inst.tasks_files():
+        change = tasks.parent.name
+        record = records.get(change)
+        if record and (record.get("waiting") in PLAN_WAITS or change in given_up):
             log(f"planning {change}: {_plan_state(record, inst.max_plan_attempts)}")
 
     for line in stale_plan_lines(inst):
@@ -2091,6 +2096,23 @@ def _plan_is_current(record: dict, digest: str, max_attempts: int) -> bool:
     )
 
 
+def given_up_plans(inst: Installation) -> dict[str, dict]:
+    """The active changes whose planning has given up, with their records: not planned, no
+    outage wait, and the attempts used on the text the change's `tasks.md` has now."""
+    records = planned_hashes(inst)
+    given_up: dict[str, dict] = {}
+    for tasks in inst.tasks_files():
+        record = records.get(tasks.parent.name)
+        if (
+            record
+            and not record.get("ok")
+            and not record.get("waiting")
+            and _plan_is_current(record, plan_digest(tasks), inst.max_plan_attempts)
+        ):
+            given_up[tasks.parent.name] = record
+    return given_up
+
+
 def _plan_rests(record: dict, digest: str, max_attempts: int, now: datetime) -> bool:
     """Whether a tick leaves a change's recorded plan alone: its `tasks.md` is as planned and
     the plan worked, has used its attempts, or waits for an outage whose next try is ahead."""
@@ -2874,10 +2896,12 @@ def run_round(
     )
     overflowed = {unit.id for unit in overflow}
     reads = RoundReads()
+    unmet = _unmet_by_unit(units, unmet_needs_of(inst, units))
     evaluated, view, _excluded, for_the_lane, lane_starts = _evaluate_round(
         inst,
         units,
         reads=reads,
+        unmet=unmet,
         started=set(started),
         building=in_flight | resumed | overflowed | lane_running,
         only=only,
@@ -2948,6 +2972,7 @@ def run_round(
         only=only,
         usage_paused=False,
         refused=refused,
+        unmet=unmet,
     )
     _record_waits(inst, store, units, only, lambda: waits, dry_run=dry_run)
     if not dry_run:
@@ -4077,6 +4102,7 @@ def _evaluate_round(
     owed: Collection[str] | None = None,
     emergency_extra: int | None = None,
     reads: RoundReads | None = None,
+    unmet: Mapping[str, Sequence[needs_targets.UnmetNeed]] | None = None,
 ) -> tuple[list[Unit], list[Unit], frozenset[str], frozenset[str], frozenset[str]]:
     """What this pass may start now, the graph it chose from, the units it left out, the
     planned units owed a restack, which wait for the lane's move and for nothing else, and
@@ -4124,6 +4150,7 @@ def _evaluate_round(
     gates = split_gates(inst.config, inst.state_dir, units)
     external = held_units(inst.changes_dir, units)
     plan_held = plan_review.held_changes(inst)
+    unmet = _unmet_by_unit(units, unmet_needs_of(inst, units)) if unmet is None else unmet
     holds = code_host.holds_of(inst)
     # Planned units a code host's marker holds back: not ready, and not held in the view either,
     # so a parked one keeps its place among the units in progress.
@@ -4156,6 +4183,9 @@ def _evaluate_round(
             # Its change has plan-review blockers no person has cleared, and it has not started:
             # a unit with a branch, a commit or a pull request is never held by the review.
             or (unit.change in plan_held and unit.unstarted)
+            # A `Needs:` line of its groups names a group no unit covers, so the dependency
+            # `link_needs` would add does not exist: it waits until there is one.
+            or unit.id in unmet
             # Someone else owns what it covers on the board, or the board has no item yet; a
             # unit already in progress is the kit's and is not asked.
             or start_gate(unit, units, changes_dir=inst.changes_dir, reads=reads).outcome != "start"
@@ -6744,6 +6774,28 @@ def _refresh_check_labels(
 # --- tags / gate / check / archive / openspec ----------------------------------------
 
 
+def unmet_needs_of(
+    inst: Installation, units: Sequence[StoredUnit] | None = None
+) -> list[needs_targets.UnmetNeed]:
+    """Every unmet `Needs:` line of the active changes, resolved against its target.
+
+    `units` is the store's units the caller already holds (what covers a target is read from
+    them); the store is read when it is not given."""
+    files = [path for path in inst.tasks_files() if _is_text(path)]
+    records = planned_hashes(inst)
+    states = {
+        path.parent.name: _plan_state(records.get(path.parent.name), inst.max_plan_attempts)
+        for path in inst.tasks_files()
+    }
+    return needs_targets.unmet_needs(
+        files,
+        run_support.store_for(inst).all() if units is None else units,
+        inst.changes_dir,
+        [outline.name for outline in outlines.read_outlines(inst)],
+        states,
+    )
+
+
 def _is_text(path: Path) -> bool:
     """Whether `path` reads as text; a file that does not is left out of the cycle check and
     is reported for itself where it is selected."""
@@ -7000,6 +7052,7 @@ def cmd_tags(args: argparse.Namespace, inst: Installation) -> int:
         return 0 if all(handled) else 1
     failed = 0
     cycles = _needs_cycle_problems(inst)
+    unmet = unmet_needs_of(inst)
     for change in changes:
         groups, errors = check_tags(
             change,
@@ -7012,7 +7065,9 @@ def cmd_tags(args: argparse.Namespace, inst: Installation) -> int:
         if change.lower() in cycles:
             errors.append(cycles[change.lower()])
         path = tasks_path(change, inst.changes_dir)
-        for warning in _tag_warnings(inst, path) if path.is_file() else []:
+        need_errors, need_warnings = needs_targets.needs_messages(path, unmet)
+        errors.extend(need_errors)
+        for warning in [*(_tag_warnings(inst, path) if path.is_file() else []), *need_warnings]:
             print(warning)
         for error in errors:
             print(error)
@@ -7059,7 +7114,14 @@ def cmd_check(args: argparse.Namespace, inst: Installation) -> int:
     problems = _needs_cycle_problems(inst)
     for message in problems.values():
         print(message)
-    return 0 if ok and not problems else 1
+    unmet = unmet_needs_of(inst)
+    refused = 0
+    for tasks in inst.tasks_files():
+        need_errors, need_warnings = needs_targets.needs_messages(tasks, unmet)
+        for message in [*need_errors, *need_warnings]:
+            print(message)
+        refused += len(need_errors)
+    return 0 if ok and not problems and not refused else 1
 
 
 def cmd_archive(args: argparse.Namespace, inst: Installation) -> int:
@@ -8327,6 +8389,7 @@ def wait_reasons(
 
     Decided from the facts `_evaluate_round` decides on, so what starts is unchanged:
     a unit it would start is `ready`, one it leaves out is told by what holds it."""
+    unmet = _unmet_by_unit(units, unmet_needs_of(inst, units))
     ready, view, _excluded, for_the_lane, _emergency = _evaluate_round(
         inst,
         units,
@@ -8334,6 +8397,7 @@ def wait_reasons(
         building=building,
         only=only,
         idle=idle,
+        unmet=unmet,
     )
     return _waits_in(
         inst,
@@ -8343,6 +8407,7 @@ def wait_reasons(
         skipped=_parked_starts(units, started) | building,
         only=only,
         usage_paused=usage_paused,
+        unmet=unmet,
     )
 
 
@@ -8356,6 +8421,7 @@ def _waits_in(
     only: frozenset[str],
     usage_paused: bool,
     refused: Mapping[str, str] | None = None,
+    unmet: Mapping[str, Sequence[needs_targets.UnmetNeed]] | None = None,
 ) -> dict[str, Wait]:
     """The reasons of `wait_reasons` from an evaluation a pass has already made: a unit
     in `skipped` is running or started, and one in `startable` is ready."""
@@ -8366,6 +8432,7 @@ def _waits_in(
     external = held_units(inst.changes_dir, units)
     building = _stacks_building(inst, units, view)
     holds = code_host.holds_of(inst)
+    unmet = _unmet_by_unit(units, unmet_needs_of(inst, units)) if unmet is None else unmet
     # By the stored state: the view shows what a pass leaves out as held.
     for unit in units:
         # What `--only` leaves out is not waiting for anything this pass decides.
@@ -8398,8 +8465,26 @@ def _waits_in(
                 usage_paused=usage_paused,
                 refusal=(refused or {}).get(unit.id),
                 holds=holds,
+                unmet=unmet.get(unit.id, ()),
             )
     return waits
+
+
+def _unmet_by_unit(
+    units: Sequence[StoredUnit], unmet: Sequence[needs_targets.UnmetNeed]
+) -> dict[str, list[needs_targets.UnmetNeed]]:
+    """The unmet `Needs:` lines of each unit's groups."""
+    found: dict[str, list[needs_targets.UnmetNeed]] = {}
+    for unit in units:
+        for member in unit.members():
+            lines = [
+                need
+                for need in unmet
+                if need.change == member.change and need.group in member.groups
+            ]
+            if lines:
+                found.setdefault(unit.id, []).extend(lines)
+    return found
 
 
 def _planned_wait(
@@ -8416,6 +8501,7 @@ def _planned_wait(
     usage_paused: bool,
     refusal: str | None = None,
     holds: code_host.Holds | None = None,
+    unmet: Sequence[needs_targets.UnmetNeed] = (),
 ) -> Wait:
     holds = holds or code_host.Holds()
     if leases.holder(unit.id) is not None:
@@ -8436,6 +8522,11 @@ def _planned_wait(
                 for parent in parents
                 if parent.id in external
             ),
+        )
+    if unmet:
+        return Wait(
+            reason=WaitReason.BLOCKED,
+            detail="; ".join(f"Needs: {need.wording}" for need in unmet),
         )
     if steps := unmet_steps(unit):
         return Wait(reason=WaitReason.MANUAL, detail=manual_status_line(steps[0]))

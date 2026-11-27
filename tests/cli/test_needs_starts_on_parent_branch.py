@@ -187,6 +187,8 @@ def two_merged_lines(run: Replan) -> None:
         "## 3. [app] [unit-test] Three\n\nNeeds: base group 1 merged\n\n"
         "- [ ] 3.1 Test: it.\n- [ ] 3.2 Do it.\n",
     )
+    run.write("base", tasks_md(1))
+    run.write("other", tasks_md(1))
 
 
 def warnings_in(capsys: pytest.CaptureFixture[str]) -> list[str]:

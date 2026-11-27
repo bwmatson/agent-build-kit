@@ -357,6 +357,11 @@ A `Needs:` that makes a cycle across changes (counting the order of each change'
 consecutive groups) is an error: `abk tags` and `abk check` report it under each
 change on the cycle, and the dependency is refused when linked.
 
+A `Needs:` line naming an outline, a name that is no change, or a group the target does not
+have is an error of `abk tags` and `abk check` (an outline's own dependency is its `Waits on:`
+line). A target with no `tasks.md` yet is a warning. A line to an archived change is met. A unit
+whose `Needs:` target has no unit for the group does not start until it has one.
+
 ## Do not write a task a builder cannot do
 
 Do not write a task a builder cannot do: a record that needs live numbers, an

@@ -447,12 +447,19 @@ touched; `--forget` only clears the record and leaves the planning to the next t
 A plan state of `waiting for the network` or `waiting for the model service` is an outage,
 not a failure: no attempt is used and the tick plans it again after its next try (or when
 the network pause clears); nothing needs running. `given up` names `abk replan --failed`.
+`abk status` prints a `planning` line for each active change whose planning has given up, and
+`abk attention` lists it with the recorded reason; records of changes no longer in the changes
+folder are ignored.
 
 A unit with a `Needs:` line whose dependency is not yet in review waits instead:
 `abk requeue` leaves it `planned` with the cause `gated` (shown by `abk status` as
 waiting), and the tick resumes it in the requeued mode, restacked onto the dependency's
 branch, once it is in review. The graph draws a `Needs:` dependency as a thick edge
 labelled `needs`.
+
+A planned unit whose `Needs:` target has no unit for the group, is an outline, is missing or lacks
+the group is not started: it waits as `blocked`, with a detail naming the target group and why.
+`abk attention` lists each such line with its fix until the group that declares it is built.
 
 A test that failed under load and passed twice alone is a flake, not a failure: the unit is
 parked the same way (`gated`, its note names the test) with a `Needs:` line on the one

@@ -25,7 +25,14 @@ def board_in(tmp_path: Path) -> tuple[World, Installation]:
     folder.mkdir(parents=True, exist_ok=True)
     world = World(folder, board_section(["change", "group"]), RecordingTracker())
     world.run([covering(FIRST, (1,)), covering(SECOND, (2,))])
+    meet_the_boards_needs(inst)
     return world, inst
+
+
+def meet_the_boards_needs(inst: Installation) -> None:
+    """Archive the change the board's `tasks.md` has a `Needs:` line on, so the line is met and
+    holds none of its units back."""
+    (inst.changes_dir / "archive" / "2026-01-01-base-change").mkdir(parents=True, exist_ok=True)
 
 
 def board(

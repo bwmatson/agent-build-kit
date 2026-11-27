@@ -26,6 +26,10 @@
   and its fourth question asks whether it builds something they will redo; such a finding is
   advice and holds nothing.
 
+- `abk status` prints a `planning` line for each active change whose planning has given up, and
+  `abk attention` lists it with the recorded reason and what to do, so a plan that stopped trying
+  is no longer silent. Records of changes no longer in the changes folder are ignored.
+
 - A build that made nothing is no longer marked satisfied when its builder reported the work
   blocked. The builder is told to write a `BLOCKED:` line naming what is missing when work needs
   something that does not exist yet; such a unit is held for a person, with that line as its note,
@@ -44,6 +48,14 @@
   The tests prompt of
   a group that builds code names the command. A tool pattern ending in a space and a star now
   also covers the command with no arguments.
+
+- `abk tags` and `abk check` now refuse a `Needs:` line that names an outline, a change that does
+  not exist, or a group the target does not have, and warn of a target with no `tasks.md` yet, so
+  a dependency that could never be met is caught when it is written.
+
+- A unit whose `Needs:` line names a group that has no unit yet now waits as blocked, with the
+  line and why in its wait reason, and `abk attention` lists each such line with the command that
+  clears it, until the group that declares it is built.
 
 - The `abk-authoring` skill now carries the rules every task follows (check paths against the
   default branch, edit every check of the old behaviour in the same group, a `Test:` task that the

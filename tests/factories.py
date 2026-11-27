@@ -424,6 +424,40 @@ def write_outline(inst: Installation, name: str, *lines: str) -> None:
     )
 
 
+BIG_PLAN_REASON = "group 5 is estimated at 1100 changed lines, over the full ceiling of 750"
+
+
+def write_given_up_plans(inst: Installation) -> None:
+    """Four given-up plan records: `big` (active, current text), `edited` (active, text changed
+    since), `gone` (no folder) and `old` (archived only). Only `big` is a plan to show."""
+    from agent_build_kit.cli import pipeline as cli
+
+    for name in ("big", "edited"):
+        (inst.changes_dir / name).mkdir(parents=True)
+        (inst.changes_dir / name / "tasks.md").write_text("## 1. [app] [unit-test] Work\n")
+    archived = inst.changes_dir / "archive" / "2026-11-01-old"
+    archived.mkdir(parents=True)
+    (archived / "tasks.md").write_text("## 1. [app] [unit-test] Work\n")
+    record = {"ok": False, "attempts": 3, "reason": BIG_PLAN_REASON, "hash": "", "sizing": ""}
+    digest = cli.plan_digest(inst.changes_dir / "big" / "tasks.md")
+    cli.record_plans(
+        inst,
+        {
+            "big": {**record, "hash": digest},
+            "edited": {**record, "hash": "old"},
+            "gone": dict(record),
+            "old": dict(record),
+        },
+    )
+
+
+def write_changes(changes_dir: Path, tasks: dict[str, str]) -> None:
+    """Active changes: a folder under `changes_dir` with the given `tasks.md` text each."""
+    for name, text in tasks.items():
+        (changes_dir / name).mkdir(parents=True, exist_ok=True)
+        (changes_dir / name / "tasks.md").write_text(text)
+
+
 def which_all(name: str) -> str | None:
     """A `which` that finds every program."""
     return f"/usr/bin/{name}"
