@@ -6293,10 +6293,16 @@ def sizing_digest() -> str:
         },
         "min_unit_lines": workspace.global_limits.min_unit_lines,
     }
+
+    # `protected_config` joins the digest only once something sets it, so a workspace that
+    # sets none hashes as it did before the field existed.
+    def left_out(review: Any) -> set[str]:
+        return {"ceilings"} if review.protected_config else {"ceilings", "protected_config"}
+
     rest = {
-        "review": workspace.review.model_dump(mode="json", exclude={"ceilings"}),
+        "review": workspace.review.model_dump(mode="json", exclude=left_out(workspace.review)),
         "repos": {
-            name: repo.review.model_dump(mode="json", exclude={"ceilings"})
+            name: repo.review.model_dump(mode="json", exclude=left_out(repo.review))
             for name, repo in workspace.repos.items()
         },
     }
