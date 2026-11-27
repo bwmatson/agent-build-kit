@@ -88,7 +88,7 @@ def test_status_lists_a_raised_unit_that_is_not_merged_with_its_tiers_and_reason
                 change="feature",
                 review_tier="full",
                 raised_from="light",
-                floor_reason="full floor, group 1: contract flag",
+                floor_reason="group 1: contract flag",
             ),
             stored_unit(
                 "feature/2",
@@ -101,7 +101,7 @@ def test_status_lists_a_raised_unit_that_is_not_merged_with_its_tiers_and_reason
                 change="other",
                 review_tier="full",
                 raised_from="light",
-                floor_reason="full floor, group 1: contract flag",
+                floor_reason="group 1: contract flag",
             ),
         ]
     )

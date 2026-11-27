@@ -1509,7 +1509,7 @@ def _floors_note(group: TaskGroup, tasks: str) -> str:
     """The heading suffix naming a group's review floor and ceiling and its mode floor."""
     workspace = active()
     tier, reason = _group_floor(group, group.repo, tasks)
-    ceiling = getattr(ceilings_in_effect(workspace.repos.get(group.repo), workspace), tier)
+    ceiling = review_ceiling(workspace.repos.get(group.repo), workspace, ReviewTier(tier))
     review = f"review {tier}" + (f" — {reason}" if reason else "")
     if group.declared_mode is not None:
         mode = f"mode {GroupMode(group.declared_mode).value}, fixed by its Mode: line"

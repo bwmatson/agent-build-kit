@@ -229,7 +229,7 @@ def test_it_prints_a_units_tier_floor_reason_and_the_tier_it_asked(
         change="one",
         review_tier="full",
         raised_from="light",
-        floor_reason="full floor, group 3: contract flag",
+        floor_reason="group 3: contract flag",
     )
     inst, _store = installation(tmp_path, [raised])
 
@@ -240,3 +240,17 @@ def test_it_prints_a_units_tier_floor_reason_and_the_tier_it_asked(
     assert "group 3" in out
     assert "contract" in out
     assert "light" in out
+
+
+def test_it_prints_nothing_of_a_floor_for_a_unit_with_no_reason_and_no_raise(
+    tmp_path: Path, accounts: Accounts, capsys: pytest.CaptureFixture[str]
+) -> None:
+    inst, store = installation(tmp_path, [unit("one/1", "app")])
+    round_of(inst, store)
+
+    code, out = explain(inst, "one/1", capsys)
+
+    assert code == 0
+    assert "admitted" in out
+    assert "floor" not in out
+    assert "raised" not in out
