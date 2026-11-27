@@ -9,7 +9,9 @@
 - A project, or a repository that declares none, takes a `code_map` setting
   (`enabled`, and `max_bytes` of at least 4096), the start of a code map read from a
   project's files: the graph, its byte-stable JSON and the build over the files git
-  holds. No command reads it yet.
+  holds. The Python profile now reads its projects into that graph: symbols with their
+  signatures, imports, resolved calls and bases, and each module's test file. No command
+  reads it yet.
 
 - The plan review now lists the changes in a change's `Needs:` chain, with the test
   and support paths their tasks name (a test path being what the repository's toolchain profile

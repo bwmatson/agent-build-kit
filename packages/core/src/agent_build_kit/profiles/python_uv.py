@@ -21,6 +21,7 @@ import tomllib
 from collections.abc import Callable, Mapping
 from pathlib import Path, PurePosixPath
 
+from agent_build_kit.codemap.graph import CodeReader
 from agent_build_kit.config import (
     AgentCommand,
     AgentPurpose,
@@ -64,6 +65,7 @@ from agent_build_kit.profiles.base import (
     SandboxPaths,
     is_doc_path,
 )
+from agent_build_kit.profiles.python_codemap import PythonReader
 from agent_build_kit.profiles.python_test_comparison import (
     compare_python_tests,
     mark_name,
@@ -567,6 +569,9 @@ class PythonUvProfile:
     usage_error_exit: int = USAGE_ERROR
 
     # --- workspace shape -------------------------------------------------------
+
+    def code_reader(self) -> CodeReader:
+        return PythonReader()
 
     def members(self, repo: Path) -> list[str]:
         """The uv workspace members declared in the root pyproject.toml; empty
