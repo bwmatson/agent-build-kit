@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- A GitHub workflow run that failed without starting a job, such as one whose workflow file is
+  invalid, is now a failed check, so the pull request is no longer left waiting on checks that
+  never come. A failure to list the runs is logged and does not fail the read.
+
 - The unit-test run ledger now records the memory available and the swap used at the start and
   end of each run, and how long tasks were stalled on memory during it, so a slow or failed run
   can be told apart from a host short of memory. A reading the host does not give is null. A

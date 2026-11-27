@@ -150,6 +150,7 @@ class RollupNode(_Graph):
 
 
 class CommitNode(_Graph):
+    oid: str = ""
     status_check_rollup: RollupNode | None = None
 
 

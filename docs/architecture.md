@@ -1239,6 +1239,10 @@ reached over its REST and GraphQL APIs through `githubkit` (`forges/transport.py
 `gh` process: GitHub's listing is one GraphQL query per page, and Azure's reads
 are bounded by a request pool rather than a process count.
 
+On GitHub a commit with no check runs has its workflow runs listed, and a run that ended `failure`
+or `startup_failure` with no jobs is a failed check named for its workflow, in a listed open pull
+request's checks and in `commit_checks`; a commit with check runs is read as before.
+
 On GitHub the commit a merged pull request produced is taken from what the pipeline already
 holds, in this order: the merge request's own answer (the landing keeps it), the pull-request
 listing's `mergeCommit` (the poller records a merge without a further request), and the unit's

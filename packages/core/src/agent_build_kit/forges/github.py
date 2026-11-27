@@ -31,7 +31,7 @@ from githubkit.exception import (
 )
 from githubkit.response import Response
 from githubkit.versions import LATEST_VERSION
-from pydantic import BaseModel, ValidationError
+from pydantic import BaseModel, ConfigDict, ValidationError
 
 from agent_build_kit.budget import cut_tail
 from agent_build_kit.forges.base import (
@@ -109,7 +109,7 @@ _NO_SUCH_LABEL = "Label does not exist"
 # The checks of one pull request's newest commit. A commit status comes through
 # the same rollup as a check run, and is told apart by what it lacks.
 _CHECKS = """
-commits(last: 1) { nodes { commit { statusCheckRollup { contexts(first: 100) { nodes {
+commits(last: 1) { nodes { commit { oid statusCheckRollup { contexts(first: 100) { nodes {
   __typename
   ... on CheckRun { name conclusion detailsUrl }
 } } } } } }
@@ -177,6 +177,25 @@ _LOG_CHARS = 6000
 _JOB_LINE = re.compile(r"^\N{BYTE ORDER MARK}?\d{4}-\d\d-\d\dT[\d:.]+Z ?")
 _ERROR_LINE = "##[error]"
 _FAILED_JOB = ("failure", "timed_out")
+# How a workflow run ends when its file could not be run.
+_RUN_FAILURES = ("failure", "startup_failure")
+
+
+class _WorkflowRun(BaseModel):
+    model_config = ConfigDict(frozen=True, extra="ignore")
+
+    id: int
+    name: str | None = None
+    status: str | None = None
+    conclusion: str | None = None
+    html_url: str = ""
+
+
+class _WorkflowRuns(BaseModel):
+    model_config = ConfigDict(frozen=True, extra="ignore")
+
+    workflow_runs: list[_WorkflowRun] = []
+
 
 # `git@github.com:owner/name.git`, `https://github.com/owner/name`,
 # `ssh://git@github.com/owner/name.git`, `alias:owner/name.git` (an ssh host
@@ -522,8 +541,44 @@ class GitHubForge:
             if not page.page_info.has_next_page or not page.page_info.end_cursor:
                 break
             cursor = page.page_info.end_cursor
-        pulls = [_view(node) for node in nodes]
+        pulls = [self._with_run_checks(repo, node, _view(node)) for node in nodes]
         return [p for p in pulls if p.head.startswith(head_prefix)] if head_prefix else pulls
+
+    def _with_run_checks(self, repo: RepoId, node: PullNode, pull: PullRequest) -> PullRequest:
+        """An open pull request with no checks, plus the failed checks of its head's jobless
+        workflow runs."""
+        edges = node.commits.nodes if node.commits else []
+        if pull.state != "open" or pull.checks or not edges or not edges[-1].commit.oid:
+            return pull
+        extra = self._jobless_failed_runs(repo, edges[-1].commit.oid)
+        return pull.model_copy(update={"checks": extra}) if extra else pull
+
+    def _jobless_failed_runs(self, repo: RepoId, sha: str) -> tuple[Check, ...]:
+        """The failed checks of commit `sha`'s workflow runs that ended `failure` or
+        `startup_failure` with no job: a workflow file the host could not run leaves no check
+        run. Asked only of a commit with no check runs. A failure to ask is logged and adds
+        nothing."""
+        found: list[Check] = []
+        try:
+            with self._on(repo) as gh:
+                reply = gh.rest.actions.list_workflow_runs_for_repo(
+                    repo.account, repo.name, head_sha=sha, per_page=_PAGE
+                )
+            runs = _parse(reply, _WorkflowRuns, "GET actions runs").workflow_runs
+            for run in runs:
+                if run.status != "completed" or run.conclusion not in _RUN_FAILURES:
+                    continue
+                with self._on(repo) as gh:
+                    listed = gh.rest.actions.list_jobs_for_workflow_run(
+                        repo.account, repo.name, run.id, per_page=1
+                    )
+                if not _parse(listed, JobsDoc, "GET jobs").jobs:
+                    name = run.name or "workflow"
+                    found.append(Check(name=name, status=CheckStatus.FAILED, url=run.html_url))
+        except TransportError as error:
+            log.warning("could not list the workflow runs of %s: %s", sha[:10], error)
+            return ()
+        return tuple(found)
 
     def pr_files(self, repo: RepoId, pr: int) -> list[str]:
         return [change.path for change in self.pr_changes(repo, pr)]
@@ -619,24 +674,26 @@ class GitHubForge:
 
     def _runs_with(
         self, repo: RepoId, pr: int, conclusions: Collection[str]
-    ) -> tuple[list[CheckNode], list[str]]:
-        """The checks of a pull request that ended as one of `conclusions`, and
-        the workflow runs they belong to."""
+    ) -> tuple[list[CheckNode], list[str], str]:
+        """The checks of a pull request that ended as one of `conclusions`, the workflow runs
+        they belong to, and the sha of its newest commit."""
         data = self._graphql(
             repo, _CHECKS_OF_ONE, {"owner": repo.account, "name": repo.name, "number": pr}
         )
         found = (data.get("repository") or {}).get("pullRequest")
         if found is None:
             raise TransportError(f"POST graphql: no pull request {pr} in {key(repo)}")
-        checks = _rollup(_model(ChecksPull, found, "pull request checks").commits)
+        commits = _model(ChecksPull, found, "pull request checks").commits
+        checks = _rollup(commits)
         ended = [c for c in checks if (c.conclusion or "").upper() in conclusions]
         runs = sorted({m["run"] for c in ended if (m := _RUN_URL.search(c.details_url or ""))})
-        return ended, runs
+        head = commits.nodes[-1].commit.oid if commits and commits.nodes else ""
+        return ended, runs, head
 
     def rerun_checks(self, repo: RepoId, pull: PullRequest) -> None:
         """Re-run the workflow runs behind the cancelled checks, their cancelled
         jobs included."""
-        _, runs = self._runs_with(repo, pull.number, _CANCELLED)
+        _, runs, _ = self._runs_with(repo, pull.number, _CANCELLED)
         for run in runs:
             try:
                 with self._on(repo) as gh:
@@ -670,6 +727,8 @@ class GitHubForge:
         except TransportError as error:
             log.warning("could not read the checks of %s in %s: %s", sha[:10], key(repo), error)
             return UNKNOWN_CHECKS
+        if not found:
+            found = list(self._jobless_failed_runs(repo, sha))
         return commit_checks_of(found)
 
     def failed_check_logs(self, repo: RepoId, pull: PullRequest) -> str:
@@ -680,9 +739,14 @@ class GitHubForge:
         """
         if not failing_names(pull.checks):
             return ""
-        failed, runs = self._runs_with(repo, pull.number, _FAILING)
+        failed, runs, head = self._runs_with(repo, pull.number, _FAILING)
         names = ", ".join(str(c.name) for c in failed)
         parts = []
+        if not failed and head:
+            parts = [
+                f"The workflow file for {c.name} is invalid or could not start; see {c.url}"
+                for c in self._jobless_failed_runs(repo, head)
+            ]
         for run in runs:
             # A run still in progress has no log as a whole, though a job that
             # has finished does: the check fails in a minute and the slowest
