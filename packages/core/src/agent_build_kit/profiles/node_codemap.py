@@ -13,7 +13,10 @@ from tree_sitter import Language, Node, Parser
 
 from agent_build_kit.codemap.graph import Edge, FileFacts, Reading, Symbol
 
-SUFFIXES = (".ts", ".tsx", ".js", ".jsx", ".mts")
+# The node profile's one list of source extensions, and the one rule for a test file's name.
+SOURCE = ("ts", "tsx", "js", "jsx", "mts")
+SUFFIXES = tuple(f".{ext}" for ext in SOURCE)
+TEST_FILE = re.compile(rf"\.(test|spec)\.({'|'.join(SOURCE)})$")
 _TYPESCRIPT = Language(tree_sitter_typescript.language_typescript())
 _TSX = Language(tree_sitter_typescript.language_tsx())
 _MAX_DEFAULT = 40
@@ -28,8 +31,11 @@ def parser_for(path: str) -> Parser:
     return Parser(_TSX if path.endswith(("x", ".js")) else _TYPESCRIPT)
 
 
-def _text(node: Node | None) -> str:
+def node_text(node: Node | None) -> str:
     return node.text.decode(errors="replace") if node is not None and node.text else ""
+
+
+_text = node_text
 
 
 class _Def:
@@ -106,7 +112,7 @@ def _definitions(source: bytes, root: Node) -> list[_Def]:
                 source, "function", name, outer, node, node.child_by_field_name("body")
             )
             found.append(_Def(symbol, node))
-        elif node.type in {"function_expression", "generator_function", "function"}:
+        elif node.type in _FUNCTION_VALUES | {"generator_function"}:
             body = node.child_by_field_name("body")
             name = _text(node.child_by_field_name("name")) or "default"
             found.append(_Def(_symbol(source, "function", name, outer, node, body), node))
@@ -125,7 +131,9 @@ def _definitions(source: bytes, root: Node) -> list[_Def]:
                 found.append(
                     _Def(_symbol(source, "function", method, member, member, mbody), member)
                 )
-        elif node.type == "lexical_declaration" and len(node.named_children) == 1:
+        elif node.type in {"lexical_declaration", "variable_declaration"} and (
+            len(node.named_children) == 1
+        ):
             declarator = node.named_children[0]
             value = declarator.child_by_field_name("value")
             if declarator.type == "variable_declarator" and (
@@ -200,9 +208,11 @@ def _candidates(base: str) -> list[str]:
     return options
 
 
-def _stem(path: str) -> tuple[str, str] | None:
-    match = re.fullmatch(r"(.+)\.(?:test|spec)(\.[a-z]+)", posixpath.basename(path))
-    return (match.group(1), match.group(2)) if match else None
+def _tested_stem(path: str) -> str | None:
+    """The module stem a test file's name points at, or None when it is not a test file name."""
+    name = posixpath.basename(path)
+    match = TEST_FILE.search(name)
+    return name[: match.start()] if match else None
 
 
 def _tests_of(source: str, tests: Sequence[str]) -> list[str]:
@@ -212,8 +222,7 @@ def _tests_of(source: str, tests: Sequence[str]) -> list[str]:
     below = parts[parts.index("src") + 1 :] if "src" in parts else parts
     matched: list[str] = []
     for test in tests:
-        named = _stem(test)
-        if named is None or named[0] != stem or named[1] not in SUFFIXES:
+        if _tested_stem(test) != stem:
             continue
         where = posixpath.dirname(test)
         if where == folder or where == posixpath.join(folder, "__tests__"):
@@ -314,9 +323,9 @@ class NodeCodeReader:
                 return None
 
             def member(obj: Node, prop: str, owner: str, path: str = path, imported=imported):
-                if obj.type == "this" and "." in owner.split("::", 1)[1]:
-                    cls = owner.split("::", 1)[1].split(".")[0]
-                    name = f"{cls}.{prop}"
+                within = owner.partition("::")[2]
+                if obj.type == "this" and "." in within:
+                    name = f"{within.split('.')[0]}.{prop}"
                     return f"{path}::{name}" if name in names[path] else None
                 bound = imported.get(_text(obj)) if obj.type == "identifier" else None
                 if bound and bound[1] == "*" and bound[0] in names and prop in names[bound[0]]:

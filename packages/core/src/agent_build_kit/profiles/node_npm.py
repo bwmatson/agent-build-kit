@@ -52,10 +52,21 @@ from agent_build_kit.profiles.base import (
     SandboxPaths,
     is_doc_path,
 )
-from agent_build_kit.profiles.node_codemap import NodeCodeReader, parser_for
+from agent_build_kit.profiles.node_codemap import (
+    SOURCE as _SOURCE,
+)
+from agent_build_kit.profiles.node_codemap import (
+    SUFFIXES as _SOURCE_SUFFIXES,
+)
+from agent_build_kit.profiles.node_codemap import (
+    TEST_FILE as _TEST_FILE,
+)
+from agent_build_kit.profiles.node_codemap import (
+    NodeCodeReader,
+    node_text,
+    parser_for,
+)
 
-_SOURCE = ("ts", "tsx", "js", "jsx", "mts")
-_SOURCE_SUFFIXES = tuple(f".{ext}" for ext in _SOURCE)
 # The names of the source files that differ from the base ref `$1`, relative to the project.
 _DIFF = 'git diff --relative --diff-filter=d --name-only{z} "$1...HEAD" -- ' + " ".join(
     f"'*.{ext}'" for ext in _SOURCE
@@ -262,11 +273,7 @@ _FUNCTIONS = frozenset(
         "method_definition",
     }
 )
-_TEST_FILE = re.compile(rf"\.(test|spec)\.({'|'.join(_SOURCE)})$")
-
-
-def _text(node: Node | None) -> str:
-    return node.text.decode() if node is not None and node.text is not None else ""
+_text = node_text
 
 
 def _is_sentinel(node: Node) -> bool:

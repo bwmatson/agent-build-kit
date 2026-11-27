@@ -31,23 +31,49 @@ def edges_of(reading: Reading, *kinds: str) -> set[tuple[str, str, str]]:
     return {(e.kind, e.source, e.target) for e in reading.edges if e.kind in kinds}
 
 
+LONG_SIGNATURE = f"function f({', '.join(f'p{i}: number' for i in range(40))})"
+
 SYMBOL_ROWS = [
     pytest.param(
         "a.ts",
         "export function add(a: number, b: number): number {\n  return a + b;\n}\n",
-        [("add", "function", "function add(a: number, b: number): number", "")],
+        [("add", "function", "function add(a: number, b: number): number", "", (1, 3))],
         id="function-declaration",
     ),
     pytest.param(
         "a.ts",
+        f'export function f(a = "{"x" * 45}") {{\n  return a;\n}}\n',
+        [("f", "function", "function f(a = ...)", "", (1, 3))],
+        id="long-default-is-elided",
+    ),
+    pytest.param(
+        "a.ts",
+        f"export {LONG_SIGNATURE} {{}}\n",
+        [("f", "function", LONG_SIGNATURE[:199] + "…", "", (1, 1))],
+        id="long-signature-is-cut",
+    ),
+    pytest.param(
+        "a.ts",
+        "export default () => 1;\n",
+        [("default", "function", "() =>", "", (1, 1))],
+        id="default-exported-arrow-function",
+    ),
+    pytest.param(
+        "a.js",
+        "var f = function () {};\n",
+        [("f", "function", "var f = function ()", "", (1, 1))],
+        id="var-function-expression",
+    ),
+    pytest.param(
+        "a.ts",
         "export const total = (rows: Row[]): number => {\n  return rows.length;\n};\n",
-        [("total", "function", "const total = (rows: Row[]): number =>", "")],
+        [("total", "function", "const total = (rows: Row[]): number =>", "", (1, 3))],
         id="exported-arrow-function",
     ),
     pytest.param(
         "a.ts",
         "export default function (x: number) {\n  return x;\n}\n",
-        [("default", "function", None, "")],
+        [("default", "function", None, "", (1, 3))],
         id="anonymous-default-export",
     ),
     pytest.param(
@@ -55,10 +81,10 @@ SYMBOL_ROWS = [
         "class C {\n  m(x: number) {\n    return x;\n  }\n}\n"
         "abstract class D {\n  abstract n(): void;\n  o() {}\n}\n",
         [
-            ("C", "class", None, ""),
-            ("C.m", "function", None, ""),
-            ("D", "class", None, ""),
-            ("D.o", "function", None, ""),
+            ("C", "class", None, "", (1, 5)),
+            ("C.m", "function", None, "", (2, 4)),
+            ("D", "class", None, "", (6, 9)),
+            ("D.o", "function", None, "", (8, 8)),
         ],
         id="classes-and-methods",
     ),
@@ -66,13 +92,13 @@ SYMBOL_ROWS = [
         "a.ts",
         "/**\n * Adds two numbers.\n * More detail.\n */\n"
         "export function add(a: number) {\n  return a;\n}\n",
-        [("add", "function", None, "Adds two numbers.")],
+        [("add", "function", None, "Adds two numbers.", (5, 7))],
         id="jsdoc-before-export",
     ),
     pytest.param(
         "a.tsx",
         "export function Page() {\n  return <div>hi</div>;\n}\n",
-        [("Page", "function", None, "")],
+        [("Page", "function", None, "", (1, 3))],
         id="tsx-component",
     ),
     pytest.param(
@@ -92,7 +118,10 @@ SYMBOL_ROWS = [
 
 @pytest.mark.parametrize(("name", "source", "expected"), SYMBOL_ROWS)
 def test_the_reader_finds_a_files_symbols(
-    tmp_path: Path, name: str, source: str, expected: list[tuple[str, str, str | None, str]] | None
+    tmp_path: Path,
+    name: str,
+    source: str,
+    expected: list[tuple[str, str, str | None, str, tuple[int, int]]] | None,
 ) -> None:
     facts = facts_of(read_project(tmp_path, {name: source}))
 
@@ -102,10 +131,10 @@ def test_the_reader_finds_a_files_symbols(
     symbols = facts[name].symbols
     assert [s.name for s in symbols] == [e[0] for e in expected]
     assert [s.kind for s in symbols] == [e[1] for e in expected]
-    for symbol, (_, _, signature, doc) in zip(symbols, expected, strict=True):
+    for symbol, (_, _, signature, doc, span) in zip(symbols, expected, strict=True):
         assert symbol.doc == doc
-        assert symbol.lines >= 1
-        assert symbol.span[0] <= symbol.span[1]
+        assert symbol.span == span
+        assert symbol.lines == span[1] - span[0] + 1
         if signature is not None:
             assert symbol.signature == signature
 
@@ -226,6 +255,19 @@ CALL_ROWS = [
         {"a.ts": 'export function f() {\n  console.log(1);\n  fetch("x");\n}\n'},
         set(),
         id="call-to-a-global",
+    ),
+    pytest.param(
+        {"a.js": "(function () {\n  this.init();\n})();\n"},
+        set(),
+        id="this-call-outside-any-definition",
+    ),
+    pytest.param(
+        {
+            "b.ts": "export default () => 1;\n",
+            "a.ts": 'import X from "./b";\nexport function f() {\n  return X();\n}\n',
+        },
+        {("invokes", "a.ts::f", "b.ts::default")},
+        id="default-exported-arrow-function-call",
     ),
 ]
 
