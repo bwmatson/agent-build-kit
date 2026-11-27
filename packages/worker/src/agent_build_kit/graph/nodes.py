@@ -3109,6 +3109,12 @@ class BuildPath:
         r, unit = self.runner, self.unit
         base = state.base or self.base
         self.say("unit-test")
+        if state.produced_nothing and state.blocked_lines and not state.restack:
+            # A build that made nothing, whose builder said what it lacks, waits for a person
+            # instead of being satisfied; held before the suite runs, so a broken trunk cannot
+            # hide the reason and no whole-suite run is spent on it.
+            why = f"the builder reports the work blocked: {'; '.join(state.blocked_lines)}"
+            return self.hold(HELD, why, why, cause=Cause.NEEDS_HUMAN)
         if (broken := self.environment_problem()) is not None:
             return self.blocked(broken)
         fault = self.worktree_fault(state)
@@ -3168,11 +3174,6 @@ class BuildPath:
                     lead=move_lead("before_review" if state.pre_review else "before_pr"),
                 )
             return self.stop("unit-test failed")
-        if state.produced_nothing and state.blocked_lines and not state.restack:
-            # A build that made nothing, whose builder said what it lacks, waits for a person
-            # instead of being satisfied.
-            why = f"the builder reports the work blocked: {state.blocked_lines}"
-            return self.hold(HELD, why, why, cause=Cause.NEEDS_HUMAN)
         if state.pre_review:
             # Not yet reviewed: the move came before the review, which reads this commit.
             # The flag stays for the router, which sends the unit to the review.
@@ -3827,7 +3828,7 @@ class BuildPath:
             "more_groups": False,
             "test_only_done": False,
             "tests_account": "",
-            "blocked_lines": "",
+            "blocked_lines": (),
             "held": "",
             "hold_state": "",
             "hold_note": "",
@@ -3884,15 +3885,22 @@ BLOCKED_LINE = re.compile(
 
 def blocked_update(state: UnitRun, account: str) -> Update:
     """The run's `blocked_lines` with the lines of `account` that start `BLOCKED:` added, or
-    nothing when it has none: a later step's empty answer does not clear an earlier one's."""
-    kept = [line for line in state.blocked_lines.split("; ") if line]
-    for found in BLOCKED_LINE.finditer(account):
-        line = f"BLOCKED: {found.group(1).strip()}"
-        if line not in kept:
-            kept.append(line)
-    if kept == [line for line in state.blocked_lines.split("; ") if line]:
+    nothing when it has none: a later step's empty answer does not clear an earlier one's.
+
+    A rework answers in JSON (`{"replies": [...], "summary": "..."}`), so the summary and each
+    reply's body are read as text of their own, beside the message itself."""
+    texts = [account]
+    if (answer := parse_answer(account) if account else None) is not None:
+        texts += [answer.summary, *(reply.body for reply in answer.replies)]
+    kept = list(state.blocked_lines)
+    for text in texts:
+        for found in BLOCKED_LINE.finditer(text):
+            line = f"BLOCKED: {found.group(1).strip()}"
+            if line not in kept:
+                kept.append(line)
+    if len(kept) == len(state.blocked_lines):
         return {}
-    return {"blocked_lines": "; ".join(kept)}
+    return {"blocked_lines": tuple(kept)}
 
 
 def halted(state: UnitRun) -> Node | None:

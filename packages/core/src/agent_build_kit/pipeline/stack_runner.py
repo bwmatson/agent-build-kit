@@ -1295,6 +1295,7 @@ REWORK_CONTINUATION = PromptTemplate(
     + _REWORK_ASK
     + CONTINUATION_READONLY
     + "{changelog}"
+    + BLOCKED_NOTE
 )
 
 ADAPT_CONTINUATION = (
