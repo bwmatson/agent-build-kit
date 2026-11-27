@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import AsyncIterator
 from contextlib import AbstractAsyncContextManager, asynccontextmanager
+from urllib.parse import quote, urlencode
 
 from langgraph.checkpoint.base import BaseCheckpointSaver
 from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
@@ -15,8 +16,18 @@ from agent_build_kit.graph.checkpointer import allowlisted_serde
 def psycopg_url(url: str) -> str:
     """`url` as psycopg reads it: the store's URL without the `+asyncpg` driver."""
     parsed = make_url(url)
-    plain = parsed.set(drivername=parsed.drivername.split("+", 1)[0])
-    return plain.render_as_string(hide_password=False)
+    # SQLAlchemy writes a space in a query value as `+`, which libpq reads literally (an
+    # `options=-c search_path=x` would reach the server as `-c+search_path=x`): write `%20`.
+    plain = parsed.set(drivername=parsed.drivername.split("+", 1)[0], query={})
+    query = urlencode(
+        [(k, v) for k, values in parsed.query.items() for v in _each(values)], quote_via=quote
+    )
+    base = plain.render_as_string(hide_password=False)
+    return f"{base}?{query}" if query else base
+
+
+def _each(value: str | tuple[str, ...]) -> tuple[str, ...]:
+    return (value,) if isinstance(value, str) else value
 
 
 @asynccontextmanager

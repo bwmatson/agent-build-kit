@@ -312,6 +312,10 @@ def test_a_store_made_of_host_and_database_parts_selects_the_postgres_saver_over
     [
         ("postgresql+asyncpg://u:p%40ss@h:5432/d", "postgresql://u:p%40ss@h:5432/d"),
         ("postgresql://u:p%40ss@h:5432/d", "postgresql://u:p%40ss@h:5432/d"),
+        (
+            "postgresql+asyncpg://u:p@h/d?options=-c%20search_path%3Ds&sslmode=require",
+            "postgresql://u:p@h/d?options=-c%20search_path%3Ds&sslmode=require",
+        ),
     ],
 )
 def test_the_psycopg_url_is_the_store_url_without_its_driver(given: str, expected: str) -> None:
