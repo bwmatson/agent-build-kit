@@ -2088,13 +2088,8 @@ class BuildPath:
         if above:
             return f"{', '.join(above)} is already built on its branch"
         if store.rewrite_asked_by(unit.id, RewriteSource.COMMIT_SHAPE):
-            # A run killed inside the guarded step leaves its request stored: withdraw it, so a
-            # later rework that may rewrite does not pick it up.
-            if (
-                stored.rewrite_request
-                and stored.rewrite_request.source is RewriteSource.COMMIT_SHAPE
-            ):
-                store.withdraw_rewrite_request(unit.id)
+            # A run killed inside the guarded step leaves its request stored, but a resume reads
+            # it into the rework step first (`standing`), which ends it as used: none is left here.
             return "a rewrite was already asked for since the last requeue"
         return ""
 

@@ -14,7 +14,7 @@ import pytest
 from agent_build_kit.pipeline.commit_order import adopted_subject
 from agent_build_kit.pipeline.shell import git, git_out
 from agent_build_kit.pipeline.stack_runner import GroupStep, RunOutcome
-from agent_build_kit.pipeline.unit_store import RewriteSource, StoredUnit
+from agent_build_kit.pipeline.unit_store import RewriteSource, StoredRewriteRequest, StoredUnit
 from agent_build_kit.pipeline.units import IN_REVIEW, PLANNED, branch_name
 from packages.worker.tests.graph.test_build_path import build
 from tests.factories import stored_unit, unit
@@ -265,3 +265,22 @@ def test_a_unit_the_check_may_not_ask_for_fails_as_before_with_no_request_and_th
     assert len(asks) == int(asked), "the check asked no more than it had"
     assert not any(recorder.rewrites), "no step that may rewrite ran"
     assert subjects(repo) == STALE_12
+
+
+def test_a_shape_request_a_killed_step_left_stored_is_used_by_the_resumed_rework_not_left_stale(
+    tmp_path: Path,
+) -> None:
+    recorder, _ = stale_group_12(tmp_path)
+    recorder.store.set_rewrite_request(
+        UNIT, StoredRewriteRequest(text="rewrite the group", source=RewriteSource.COMMIT_SHAPE)
+    )
+
+    outcome = build(tmp_path, recorder, **recorder.overrides(tmp_path))
+
+    stored = recorder.store.get(UNIT)
+    assert outcome.status == "failed"
+    assert SHAPE_COMMAND in outcome.detail
+    assert stored.rewrite_request is None
+    events = [e.get("event") for e in stored.history]
+    assert "rewrite_used" in events, "the resumed rework step ended the request as used"
+    assert recorder.rewrites[0], "the stored request ran a step that may rewrite, before the stop"
