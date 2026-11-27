@@ -12,6 +12,7 @@ from typing import Any
 from agent_build_kit.config import WorkspaceConfig
 from agent_build_kit.path_patterns import matches
 from agent_build_kit.pipeline.shell import git
+from agent_build_kit.profiles.protected_config import PROTECTED_CONFIG_DEFAULTS
 
 # Database migrations, CI and deploy configuration, container definitions, secrets and key
 # material, and ownership files.
@@ -33,51 +34,6 @@ PROTECTED_DEFAULTS: tuple[str, ...] = (
     "**/*.key",
     "**/CODEOWNERS",
 )
-
-# Files that set a bar, with the key paths of each that do (none: the whole file). A file
-# protected whole is a protected path; a keyed one is judged at the verdict.
-PROTECTED_CONFIG_DEFAULTS: dict[str, tuple[str, ...]] = {
-    "**/pyproject.toml": (
-        "tool.pytest",
-        "tool.ruff",
-        "tool.pyrefly",
-        "tool.coverage",
-        "tool.complexipy",
-        "tool.mutmut",
-    ),
-    "**/package.json": (
-        "scripts.test",
-        "scripts.lint",
-        "scripts.typecheck",
-        "scripts.format:check",
-        "jest",
-        "vitest",
-        "eslintConfig",
-    ),
-    "**/setup.cfg": ("tool:pytest", "flake8", "coverage:run", "coverage:report"),
-    "**/tox.ini": ("pytest", "flake8"),
-    **{
-        pattern: ()
-        for pattern in (
-            "**/.jscpd.json",
-            "**/ruff.toml",
-            "**/.ruff.toml",
-            "**/pyrefly.toml",
-            "**/pytest.ini",
-            "**/.coveragerc",
-            "**/.flake8",
-            "**/.pre-commit-config.yaml",
-            "**/eslint.config.*",
-            "**/.eslintrc*",
-            "**/biome.json",
-            "**/biome.jsonc",
-            "**/.oxlintrc.json",
-            "**/vitest.config.*",
-            "**/vitest.workspace.*",
-            "**/jest.config.*",
-        )
-    },
-}
 
 QUALITY_BASELINE = "quality_baseline.toml"
 
