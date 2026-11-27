@@ -17,7 +17,7 @@ from agent_build_kit.forges.base import PullRequest, RepoId
 from agent_build_kit.forges.github import GitHubForge
 from tests.forges import github_answers as gh
 from tests.forges.github_host import STORAGE, GitHubHost, answer, refusal
-from tests.forges.github_logs import JOB, RUN, logs_host, report
+from tests.forges.github_logs import JOB, RUN, failing_pull, logs_host, report
 
 pytestmark = pytest.mark.usefixtures("github_env")
 
@@ -196,6 +196,19 @@ def test_a_failure_with_no_log_at_all_says_so() -> None:
 
     assert "could not be fetched" in text
     assert "```" not in text, "an empty block reads as an empty log"
+
+
+def test_a_failed_run_that_started_no_job_is_named_with_its_link_not_called_unfetchable() -> None:
+    sha = f"{50:040x}"
+    run = gh.workflow_run(77, "CI", "failure", sha=sha)
+    host = GitHubHost(gh.pull(50))
+    host.state.workflow_runs[sha] = [run]
+
+    text = GitHubForge(http=host).failed_check_logs(REPO, failing_pull(("CI",)))
+
+    assert "CI" in text
+    assert run["html_url"] in text
+    assert "could not be fetched" not in text
 
 
 def test_the_signed_storage_link_is_fetched_without_the_credential() -> None:

@@ -148,6 +148,8 @@ class GitHubState:
         self.statuses: list[tuple[str, str, str]] = []
         self.jobs: dict[int, list[dict]] = {}
         self.job_logs: dict[int, str] = {}
+        # The workflow runs of a commit, by its sha: what `GET /actions/runs?head_sha=` lists.
+        self.workflow_runs: dict[str, list[dict]] = {}
         self.stacks: list[dict[str, Any]] = []
         self.draft_refusal = ""
         self.repo_labels: dict[str, dict] = {
@@ -631,6 +633,11 @@ def _list_jobs(state: GitHubState, seen: Seen, match: re.Match[str]) -> httpx.Re
     return answer({"total_count": len(jobs), "jobs": jobs})
 
 
+def _list_workflow_runs(state: GitHubState, seen: Seen, match: re.Match[str]) -> httpx.Response:
+    runs = state.workflow_runs.get(seen.params.get("head_sha", ""), [])
+    return answer({"total_count": len(runs), "workflow_runs": runs})
+
+
 def _job_log(state: GitHubState, seen: Seen, match: re.Match[str]) -> httpx.Response:
     if int(match["job"]) not in state.job_logs:
         return refusal(404, "Not Found")
@@ -669,6 +676,7 @@ ROUTES: list[Route] = [
     _route("POST", r"/stacks/(?P<stack>\d+)/add", _add_to_stack),
     _route("GET", r"/branches/[^/]+/protection", _branch_protection),
     _route("POST", r"/actions/runs/(?P<run>\d+)/rerun-failed-jobs", _rerun_failed_jobs),
+    _route("GET", r"/actions/runs", _list_workflow_runs),
     _route("GET", r"/actions/runs/(?P<run>\d+)/jobs", _list_jobs),
     _route("GET", r"/actions/jobs/(?P<job>\d+)/logs", _job_log),
 ]

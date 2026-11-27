@@ -133,12 +133,16 @@ def test_a_repository_s_listing_is_the_same_records_as_before() -> None:
 # --- one query per page -----------------------------------------------------------
 
 
-def test_listing_is_one_graphql_query_and_no_rest_call() -> None:
-    host = GitHubHost(*listing_of(3))
+def test_listing_is_one_graphql_query_and_no_rest_call_for_pulls_that_have_checks() -> None:
+    host = GitHubHost(*listing_of(3, checks=[gh.check_run("CI", "SUCCESS")]), gh.pull(9))
 
     listing(host)
 
-    assert [(s.method, s.path) for s in host.seen] == [("POST", "/graphql")]
+    # Only the pull request with no checks makes a REST call: one for its workflow runs.
+    assert [(s.method, s.path.endswith("/actions/runs")) for s in host.seen] == [
+        ("POST", False),
+        ("GET", True),
+    ]
 
 
 def test_the_query_asks_for_everything_a_record_is_made_of() -> None:

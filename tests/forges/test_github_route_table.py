@@ -81,6 +81,7 @@ REMAINING: list[Request] = [
     ("stack-add-unknown", "POST", f"{BASE}/stacks/99/add", {}, {"pull_requests": [3]}),
     ("branch-protection", "GET", f"{BASE}/branches/main/protection", {}, None),
     ("check-rerun", "POST", f"{BASE}/actions/runs/{RUN}/rerun-failed-jobs", {}, {}),
+    ("workflow-run-list", "GET", f"{BASE}/actions/runs", {"head_sha": "c" * 40}, None),
     ("job-list", "GET", f"{BASE}/actions/runs/{RUN}/jobs", {}, None),
     ("job-list-unknown-run", "GET", f"{BASE}/actions/runs/7/jobs", {}, None),
     ("job-log", "GET", f"{BASE}/actions/jobs/{JOB}/logs", {}, None),

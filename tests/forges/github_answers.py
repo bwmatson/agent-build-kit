@@ -162,6 +162,41 @@ def job(job_id: int, name: str, conclusion: str | None, run: int = 1) -> dict[st
     }
 
 
+def workflow_run(
+    run_id: int,
+    name: str,
+    conclusion: str | None,
+    *,
+    status: str = "completed",
+    sha: str = "c" * 40,
+) -> dict[str, Any]:
+    """A workflow run as the run list carries it. A workflow file GitHub cannot run is a run
+    that ended `failure` whose job list is empty."""
+    api = f"https://api.github.com/repos/{OWNER}/{NAME}"
+    return {
+        "id": run_id,
+        "name": name,
+        "node_id": f"WFR_kwLOAAAAAc8AAAAB{run_id:04d}",
+        "head_branch": "spec/add-marker/1",
+        "head_sha": sha,
+        "path": ".github/workflows/ci.yml",
+        "display_title": "add-marker/1: Register the marker",
+        "run_number": 7,
+        "event": "pull_request",
+        "status": status,
+        "conclusion": conclusion,
+        "workflow_id": 4242,
+        "url": f"{api}/actions/runs/{run_id}",
+        "html_url": f"{WEB}/actions/runs/{run_id}",
+        "jobs_url": f"{api}/actions/runs/{run_id}/jobs",
+        "logs_url": f"{api}/actions/runs/{run_id}/logs",
+        "created_at": "2026-10-01T16:30:00Z",
+        "updated_at": "2026-10-01T16:30:05Z",
+        "run_started_at": "2026-10-01T16:30:00Z",
+        "pull_requests": [],
+    }
+
+
 BOM = "\N{BYTE ORDER MARK}"
 
 # A job's whole log: the first line carries a byte order mark, the error is

@@ -40,7 +40,6 @@ HEADER = "x-github-api-version"
 # operation is driven below and must make at least one. Each name here is checked to exist and,
 # driven, to add no REST request, so one that moves to REST stops escaping the version check.
 GRAPHQL_ONLY = {
-    "list_prs": "one GraphQL query per page",
     "merge_commit": "one GraphQL read",
 }
 NO_REQUEST = {
@@ -113,6 +112,8 @@ def drive(host: GitHubHost) -> dict[str, list[Seen]]:
     )
     label = Label(name="running", color="d97706", description="Building")
     calls = {
+        # Pull 8 has no check runs, so listing asks for its workflow runs over REST.
+        "list_prs": lambda: forge.list_prs(REPO),
         "find_pr": lambda: forge.find_pr(REPO, head="spec/x/1"),
         "comment_exists": lambda: forge.comment_exists(REPO, 7, "m", "m body"),
         "create_pr": lambda: forge.create_pr(
@@ -199,7 +200,6 @@ def test_the_exempt_operations_make_no_rest_request() -> None:
     forge = GitHubForge(http=host)
     repo = RepoConfig(path=".", forge="github", slug="example/app")
     calls = {
-        "list_prs": lambda: forge.list_prs(REPO),
         "merge_commit": lambda: forge.merge_commit(REPO, 7),
         "api_url": lambda: forge.api_url(settings),
         "parse_remote": lambda: forge.parse_remote("git@github.com:example/app.git"),
