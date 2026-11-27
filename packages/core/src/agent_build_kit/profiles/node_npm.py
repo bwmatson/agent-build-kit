@@ -47,6 +47,7 @@ from agent_build_kit.profiles import node_environment
 from agent_build_kit.profiles.base import (
     HOME,
     TEST_KINDS,
+    ProfileUnsupported,
     PromptWords,
     ReadTestFile,
     RedWords,
@@ -837,13 +838,13 @@ class NodeNpmProfile:
         return output
 
     def read_test_file(self, path: str, text: str) -> ReadTestFile:
-        raise NotImplementedError
+        raise ProfileUnsupported("the node profile does not read the shape of a test file")
 
     def test_module_name(self, path: str) -> str | None:
-        raise NotImplementedError
+        raise ProfileUnsupported("the node profile does not read the shape of a test file")
 
     def is_source_module(self, path: str) -> bool:
-        raise NotImplementedError
+        raise ProfileUnsupported("the node profile does not read the shape of a test file")
 
     def is_test_path(self, path: str) -> bool:
         parts = path.split("/")

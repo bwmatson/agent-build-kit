@@ -71,6 +71,7 @@ from agent_build_kit.profiles.python_test_comparison import (
     compare_python_tests,
     mark_name,
     pytestmark_values,
+    read_python_test_file,
 )
 from agent_build_kit.profiles.workspace_lock import workspace_lock
 
@@ -1132,13 +1133,22 @@ class PythonUvProfile:
         return compare_python_tests(before, after) if path.endswith(".py") else []
 
     def read_test_file(self, path: str, text: str) -> ReadTestFile:
-        raise NotImplementedError
+        return read_python_test_file(text)
 
     def test_module_name(self, path: str) -> str | None:
-        raise NotImplementedError
+        """The module a `test_<m>.py` or `<m>_test.py` file is named for; none for a
+        `conftest.py` or any other name."""
+        stem = PurePosixPath(path).name.removesuffix(".py")
+        if not path.endswith(".py") or stem == "conftest":
+            return None
+        if stem.startswith("test_") and len(stem) > 5:
+            return stem[5:]
+        if stem.endswith("_test") and len(stem) > 5:
+            return stem[:-5]
+        return None
 
     def is_source_module(self, path: str) -> bool:
-        raise NotImplementedError
+        return path.endswith(".py") and not self.is_test_path(path)
 
     def unselected_tests(self, path: str, content: str, tests: list[str]) -> list[str]:
         """The names among `tests` whose function, class or module carries no
