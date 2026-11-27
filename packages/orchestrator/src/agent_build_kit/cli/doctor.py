@@ -86,6 +86,9 @@ from agent_build_kit.notify.windows import (
     INSTALL_COMMAND,
     MODULE_CHECK_COMMAND,
 )
+from agent_build_kit.orchestration.sql.migrate import current_revision, head_revision
+from agent_build_kit.orchestration.sql.url import password_of, redacted, store_url
+from agent_build_kit.orchestration.sync_bridge import run_store
 from agent_build_kit.path_discovery import checkout_root, find_up
 from agent_build_kit.path_patterns import matches, normalize
 from agent_build_kit.pipeline import agent_commands, code_host, lock_probe, mounts, pause, spans
@@ -802,6 +805,32 @@ def _machine_files(inst: Installation) -> list[Check]:
     if bad:
         return [_fail(title, f"not carried into {live}: {', '.join(bad)}", "abk install-timers")]
     return [_ok(title, f"{', '.join(names)} carried into {live}")]
+
+
+def _store(inst: Installation) -> list[Check]:
+    """The units store, when one is configured: reachable, and at the head revision."""
+    url = store_url(inst.store)
+    if url is None:
+        return []
+    shown = redacted(url)
+    secret = password_of(url)
+    try:
+        found = run_store(current_revision(url))
+    except Exception as error:  # noqa: BLE001 — whatever the driver raises means unreachable
+        reason = str(error).replace(secret, "***") if secret else str(error)
+        return [
+            _fail("store", f"cannot reach {shown}: {reason}", "start the server, or fix store.*")
+        ]
+    head = head_revision()
+    if found != head:
+        return [
+            _fail(
+                "store",
+                f"{shown} is at revision {found or 'none'}, the head is {head}",
+                "run `abk db upgrade`",
+            )
+        ]
+    return [_ok("store", f"{shown} at revision {head}")]
 
 
 def _state_ignores(inst: Installation) -> list[Check]:
@@ -2676,6 +2705,7 @@ def run_doctor(
     checks += _planning_publish(inst, run)
     checks += _pipeline_worktree(inst)
     checks += _machine_files(inst)
+    checks += _store(inst)
     checks += _state_ignores(inst)
     deployment: list[Check] = _state_locking(inst, mount_of)
     if temp:

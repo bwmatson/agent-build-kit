@@ -435,6 +435,18 @@ workers:
   cpu_weight: 100      # optional systemd CPUWeight per worker (1-10000); unset = no limit
 ```
 
+### Store
+
+```yaml
+store:
+  url: null            # used as given; unset, the parts below make a postgresql+asyncpg URL
+  host: null           # also ABK_STORE_HOST (and _URL, _PORT, _USER, _PASSWORD, _DATABASE)
+  port: 5432
+  user: null
+  password: null       # redacted in doctor, status and evidence
+  database: null
+```
+
 ### E2e-test splits
 
 `tests.e2e_splits` (top level, or under a repo's own `tests`, which replaces it for that

@@ -86,9 +86,8 @@ def test_the_password_is_redacted_whether_it_came_as_a_part_or_inside_the_url(
         tmp_path / "parts",
         {"host": "db.example", "user": "abk", "password": secret, "database": "units"},
     )
-    given = loaded(
-        tmp_path / "given", {"url": store_url(StoreConfig(host="h", user="u", password=secret))}
-    )
+    written = store_url(StoreConfig(host="h", user="u", password=secret, database="units"))
+    given = loaded(tmp_path / "given", {"url": written})
 
     for inst in (parts, given):
         url = store_url(inst.store) or ""

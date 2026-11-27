@@ -66,6 +66,7 @@ from agent_build_kit.notify.store import NotificationStore
 from agent_build_kit.orchestration.artifacts import INTERFACE as ARTIFACTS
 from agent_build_kit.orchestration.local.artifacts import DirectoryArtifacts
 from agent_build_kit.orchestration.local.directories import E2E_OUTPUTS, RUN_LOGS
+from agent_build_kit.orchestration.sql.url import redacted, store_url
 from agent_build_kit.pipeline import (
     audit_record,
     code_host,
@@ -935,6 +936,8 @@ def cmd_status(args: argparse.Namespace, inst: Installation) -> int:
         log(code_host.outage_text(outage, spans.clock.now()))
     for line in config_warning_lines(inst.state_dir):
         log(line)
+    if (url := store_url(inst.store)) is not None:
+        log(f"store: {redacted(url)}")
 
     try:
         runtime = runtimes.active()
