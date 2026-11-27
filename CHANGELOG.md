@@ -6,7 +6,8 @@
   does, and no longer every word of its tasks. A protected file named only in prose, on a
   `Reads:` line, in a `Verify:` clause or in a sentence saying the group only reads it no
   longer makes the group `full`. A review tier below a group's floor is now raised to it and
-  logged, not refused, and each unit records why its floor is what it is.
+  logged, not refused, and each unit records why its floor is what it is. `abk status` lists
+  a raised unit with the reason, and `abk explain` prints a unit's floor and its reason.
 
 - The plan review's first question now also asks whether each test task can fail before its
   implementation for a reason the build's red check accepts. Behaviour that already holds belongs

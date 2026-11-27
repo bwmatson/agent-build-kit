@@ -104,6 +104,11 @@ def cmd_explain(args: argparse.Namespace, inst: Installation) -> int:
     unit = next((each for each in store_for(inst).all() if each.id == args.unit), None)
     if unit is not None and (saved_line := leftovers_line(unit)):
         print(saved_line)
+    if unit is not None and (unit.floor_reason or unit.raised_from):
+        floor_line = f"{unit.id} is at tier {unit.review_tier}: {unit.floor_reason}"
+        if unit.raised_from:
+            floor_line += f" (raised from {unit.raised_from})"
+        print(floor_line)
     events = [
         (stamp, entry)
         for entry in (unit.history if unit else ())

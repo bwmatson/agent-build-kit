@@ -1012,6 +1012,9 @@ def cmd_status(args: argparse.Namespace, inst: Installation) -> int:
     for line in split_test_file_lines(run_support.store_for(inst).all()):
         log(line)
 
+    for line in raised_tier_lines(run_support.store_for(inst).all()):
+        log(line)
+
     for name in inst.repos:
         if found := standing(name, ask=False):
             log(found.text if found.state == "invalid" else f"tracker {name}: {found.text}")
@@ -6403,6 +6406,16 @@ def split_test_file_lines(units: Sequence[StoredUnit]) -> list[str]:
         for unit in units
         if unit.state != MERGED
         for file, later in unit.split_test_files.items()
+    ]
+
+
+def raised_tier_lines(units: Sequence[StoredUnit]) -> list[str]:
+    """One line for each unit not yet merged that was raised to its review-tier floor, naming
+    the unit, the tier asked, the tier it is at and the reason of its floor."""
+    return [
+        f"{unit.id} was raised from {unit.raised_from} to {unit.review_tier}: {unit.floor_reason}"
+        for unit in units
+        if unit.state != MERGED and unit.raised_from
     ]
 
 
