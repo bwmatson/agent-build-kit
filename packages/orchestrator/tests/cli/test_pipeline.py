@@ -75,6 +75,51 @@ def test_status_prints_a_planning_line_only_for_the_active_change_whose_planning
         assert not [line for line in lines if other in line]
 
 
+def test_status_lists_a_raised_unit_that_is_not_merged_with_its_tiers_and_reason(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    monkeypatch.setattr("agent_build_kit.run_support.current_usage", lambda: None)
+    inst = make_installation(tmp_path, planning=dict(state_dir="."))
+    store = run_support.store_for(inst)
+    store.upsert(
+        [
+            stored_unit(
+                "feature/1",
+                change="feature",
+                review_tier="full",
+                raised_from="light",
+                floor_reason="full floor, group 1: contract flag",
+            ),
+            stored_unit(
+                "feature/2",
+                change="feature",
+                review_tier="full",
+                floor_reason="full floor, group 2: protected path",
+            ),
+            stored_unit(
+                "other/1",
+                change="other",
+                review_tier="full",
+                raised_from="light",
+                floor_reason="full floor, group 1: contract flag",
+            ),
+        ]
+    )
+    store.set_state("other/1", UnitState.MERGED)
+
+    capsys.readouterr()
+    assert cli.cmd_status(argparse.Namespace(), inst) == 0
+    out = capsys.readouterr().out.splitlines()
+
+    raised = [line for line in out if "light" in line]
+    assert len(raised) == 1
+    assert "feature/1" in raised[0]
+    assert "full" in raised[0]
+    assert "contract" in raised[0]
+    assert "other/1" not in raised[0]
+    assert not [line for line in out if "feature/2" in line and "group 2" in line]
+
+
 def test_tags_and_check_refuse_a_needs_line_on_an_outline_or_a_missing_target(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
