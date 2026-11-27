@@ -48,6 +48,7 @@ from agent_build_kit.profiles.base import (
     HOME,
     TEST_KINDS,
     PromptWords,
+    ReadTestFile,
     RedWords,
     SandboxPaths,
     is_doc_path,
@@ -834,6 +835,15 @@ class NodeNpmProfile:
 
     def without_durations(self, output: str) -> str:
         return output
+
+    def read_test_file(self, path: str, text: str) -> ReadTestFile:
+        raise NotImplementedError
+
+    def test_module_name(self, path: str) -> str | None:
+        raise NotImplementedError
+
+    def is_source_module(self, path: str) -> bool:
+        raise NotImplementedError
 
     def is_test_path(self, path: str) -> bool:
         parts = path.split("/")

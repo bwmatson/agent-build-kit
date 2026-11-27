@@ -61,6 +61,7 @@ from agent_build_kit.profiles.base import (
     TEST_KINDS,
     ChangedTest,
     PromptWords,
+    ReadTestFile,
     RedWords,
     SandboxPaths,
     is_doc_path,
@@ -1129,6 +1130,15 @@ class PythonUvProfile:
         """How a test file differs from its parent's version beyond a mechanical edit; nothing
         for a file that is not Python source (data and documents kept beside the tests)."""
         return compare_python_tests(before, after) if path.endswith(".py") else []
+
+    def read_test_file(self, path: str, text: str) -> ReadTestFile:
+        raise NotImplementedError
+
+    def test_module_name(self, path: str) -> str | None:
+        raise NotImplementedError
+
+    def is_source_module(self, path: str) -> bool:
+        raise NotImplementedError
 
     def unselected_tests(self, path: str, content: str, tests: list[str]) -> list[str]:
         """The names among `tests` whose function, class or module carries no
