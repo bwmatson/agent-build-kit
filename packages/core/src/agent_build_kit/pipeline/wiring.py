@@ -2181,6 +2181,7 @@ def build_unit_test(
                             sample_start, sample_end
                         ),
                         disturbed_seconds=gap,
+                        full=run_facts.get("whole_suite") is True,
                         data_source=data_source,
                         data_age_hours=data_age,
                         head=commit_id(cwd, "HEAD") or None,
@@ -2513,6 +2514,7 @@ def build_unit_test(
     ) -> tuple[bool, str]:
         """The unit's unit-test in full; its test time and count are kept, as what a later
         selected run is compared with."""
+        run_facts["whole_suite"] = True
         figures: list[tuple[float, int]] = []
         try:
             return run_full(cwd, base, work, whole_repo, lint, figures)
