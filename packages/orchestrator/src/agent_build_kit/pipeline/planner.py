@@ -105,7 +105,7 @@ another system depends on, work that is hard to undo, or code the tests do not e
 unit that builds a `[contract]`, `[narrow]` or `[acceptance]` group, or a group whose tasks
 name a protected path (a migration, a CI or container definition, a secrets file, an
 ownership file or a path the installation protects), is `full` at least; a lower value is
-refused. Leave `review_tier` out and the unit takes that floor.
+raised to that floor and the plan records it. Leave `review_tier` out and the unit takes that floor.
 
 Keep a group you expect to get full review in a unit with only such groups, and never put
 ordinary work in a unit with one, because a person must read a full-review unit in full,
@@ -400,12 +400,16 @@ def _with_review_tier(unit: Unit, groups: Sequence[TaskGroup], tasks: str) -> Un
             f"(expected {', '.join(REVIEW_TIERS[:-1])} or {REVIEW_TIERS[-1]}); "
             f"group {number} sets its floor at {floor!r}"
         )
+    raised_from = ""
     if REVIEW_TIERS.index(asked) < REVIEW_TIERS.index(floor):
-        raise PlannerError(
-            f"unit {unit.id} asks for review tier {asked!r}, but group {number} sets its floor "
-            f"at {floor!r}: {why}"
-        )
-    return unit.model_copy(update={"review_tier": asked})
+        from agent_build_kit.run_support import log
+
+        log(f"unit {unit.id}: asked review tier {asked}, raised to {floor}: group {number}: {why}")
+        raised_from, asked = asked, floor
+    floor_reason = f"{floor} floor, group {number}: {why}" if floor != REVIEW_TIERS[0] else ""
+    return unit.model_copy(
+        update={"review_tier": asked, "floor_reason": floor_reason, "raised_from": raised_from}
+    )
 
 
 # The modes a planner reply may give; `refactor` is declared by the reorganization change.
