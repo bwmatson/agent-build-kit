@@ -1992,8 +1992,36 @@ class StoreConfig(Frozen):
     database: str | None = None
 
 
+class ThresholdRow(Frozen):
+    """One health threshold: the limit it breaches above and the correction it names."""
+
+    model_config = ConfigDict(extra="ignore", frozen=True)
+
+    limit: float = 0.0
+    correction: str = ""
+
+
+class HealthThresholds(Frozen):
+    model_config = ConfigDict(extra="ignore", frozen=True)
+
+    plan_review_share: ThresholdRow = ThresholdRow()
+    cost_per_trusted_change: ThresholdRow = ThresholdRow()
+    unit_failure_rate: ThresholdRow = ThresholdRow()
+
+
+class HealthConfig(Frozen):
+    """The `health` block: when a change is trusted and the thresholds the report checks."""
+
+    model_config = ConfigDict(extra="ignore", frozen=True)
+
+    trusted_days: int = 0
+    top: int = 0
+    thresholds: HealthThresholds = HealthThresholds()
+
+
 class WorkspaceConfig(Frozen):
     version: int = 1
+    health: HealthConfig = HealthConfig()
     store: StoreConfig = StoreConfig()
     deployment: DeploymentConfig = DeploymentConfig()
     planning: PlanningConfig = PlanningConfig()

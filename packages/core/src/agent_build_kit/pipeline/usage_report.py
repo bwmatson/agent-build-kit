@@ -1412,3 +1412,16 @@ def roll_up_change(ledger: Path, change: str, units: Sequence[StoredUnit] = ()) 
                 kept.append(line)
         kept += [json.dumps(s) for s in summaries]
         atomic_write_text(ledger, "".join(f"{line}\n" for line in kept))
+
+
+class DaySpend(Frozen):
+    """One UTC day's spend in USD, by role, and over all roles."""
+
+    day: str
+    by_role: dict[str, float]
+    total: float
+
+
+def daily_spend_by_role(ledger: Path, units: list[StoredUnit]) -> tuple[DaySpend, ...]:
+    """Each day's spend by role, from live calls and archived breakdowns, oldest day first."""
+    raise NotImplementedError
