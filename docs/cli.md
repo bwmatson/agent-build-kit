@@ -138,6 +138,33 @@ one test. `--show` then prints the newest bundle's `context`, `machine` and `wor
 `flaky:` line of `abk status` adds `(load 12 to 22)` from the same records, and a `failing:` line
 adds `recorded as load` when its record says the host was loaded (`conditions.load_high`).
 
+### `abk tests report [--repo NAME] [--since DATE]`
+
+`abk tests report` prints, for the named repository or for each configured one, five figures of
+its tests, each a number with its definition. The window runs from `--since` (`YYYY-MM-DD`) to
+now, seven days by default; an unknown repository or a date that does not parse exits non-zero.
+Figures 1, 2 and 4 read the default branch, not the working copy.
+
+1. **Placement:** the unit-test files that are not the one `test_<module>` file of a source module,
+   of all unit-test files. A unit-test file is one the profile reads as a test file by name, not
+   `conftest.py`, outside any `integration` or `e2e` folder.
+2. **New files:** of the unit-test files added in the window (a rename is not an addition), those
+   not for a source module added in the window.
+3. **Added to modified:** over the window's first-parent commits, the tests added and the existing
+   tests whose body changed, and their ratio. A test moved to another file in the same commit, and
+   one changed only by a renamed import, count as neither.
+4. **Shape:** the tests that share setup and action with a sibling in their file (bodies equal
+   once assertions are removed and local names normalised), and the share of tests with exactly one
+   assertion.
+5. **Cost:** the tests and unit-test files at the tip, and the median minutes of the repository's
+   whole-suite runs in the window from the run ledger (`full`, not reused, not timed out, passed
+   or failed), with their count; it says so when there is none.
+
+Each file is read by the profile of the project that holds it. A project whose profile cannot
+read tests is left out and named (`not read: web (node-npm)`); a figure with no file read says
+`unsupported by profile <name>`; figure 5's median of whole-suite runs needs no parser and is
+still printed, with only its test and file counts unsupported. A file that does not parse is counted apart as unreadable.
+
 ### `abk outlines [--overlaps]`
 
 `abk outlines` reads each outline under `planning.outlines` that holds a `proposal.md` and

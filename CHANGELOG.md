@@ -6,6 +6,13 @@
   invalid, is now a failed check, so the pull request is no longer left waiting on checks that
   never come. A failure to list the runs is logged and does not fail the read.
 
+- `abk tests report [--repo NAME] [--since DATE]` prints five figures of a repository's tests,
+  each with its definition: how many unit-test files are not the one file for a source module,
+  how many new test files are not for a new module, tests added against tests modified, how many
+  tests share setup and action with a sibling, and the suite's size with the median minutes of
+  its whole-suite runs. It reads the default branch and the run ledger, and says which projects
+  it could not read.
+
 - A unit that changes a setting that sets a lint, type, test, coverage or quality bar (the
   `tool.ruff`, `tool.pytest`, `tool.pyrefly` and `tool.coverage` tables, a package's test, lint
   and typecheck scripts, linter and runner config files, a growing quality baseline) now never

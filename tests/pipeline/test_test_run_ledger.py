@@ -19,7 +19,13 @@ from agent_build_kit.config import ProjectConfig
 from agent_build_kit.installation import Installation
 from agent_build_kit.pipeline import spans
 from agent_build_kit.pipeline.flakes import FailedOnBase, FlakeFound
-from agent_build_kit.pipeline.run_log import TestRun, append_test_run, run_ledger_path
+from agent_build_kit.pipeline.run_log import (
+    TestRun,
+    append_test_run,
+    read_test_runs,
+    rotated_ledger_path,
+    run_ledger_path,
+)
 from agent_build_kit.pipeline.unit_store import UnitStore
 from agent_build_kit.pipeline.wiring import build_unit_test
 from agent_build_kit.profiles.base import ToolchainProfile
@@ -97,6 +103,23 @@ def test_a_second_rotation_replaces_the_first_one_so_the_ledger_stays_bounded(
     ]
     assert [row["unit"] for row in _rows(path)] == ["u/5"]
     assert [row["unit"] for row in _rows(path.with_name(path.name + ".1"))] == ["u/4"]
+
+
+def test_the_rows_read_are_the_rotated_ledgers_then_the_current_ones_skipping_a_bad_line(
+    tmp_path: Path,
+) -> None:
+    path = run_ledger_path(tmp_path)
+    append_test_run(rotated_ledger_path(path), _entry("old/1"))
+    append_test_run(path, _entry("new/1"))
+    with path.open("a", encoding="utf-8") as handle:
+        handle.write("not a row\n")
+    append_test_run(path, _entry("new/2"))
+
+    assert [row.unit for row in read_test_runs(tmp_path)] == ["old/1", "new/1", "new/2"]
+
+
+def test_the_rows_read_of_a_state_directory_with_no_ledger_are_none(tmp_path: Path) -> None:
+    assert read_test_runs(tmp_path) == []
 
 
 def test_a_ledger_under_its_limit_is_not_rotated(tmp_path: Path) -> None:

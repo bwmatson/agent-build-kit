@@ -93,6 +93,7 @@ def seeds() -> Seeds:
                 "pipeline.planning_view",
                 "pipeline.pr_reconcile",
                 "pipeline.reorg_comparison",
+                "pipeline.suite_shape",
             }
         ),
     )
