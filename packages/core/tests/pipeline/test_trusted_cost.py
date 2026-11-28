@@ -207,7 +207,7 @@ def test_a_change_costs_what_was_recorded_and_one_with_none_is_out_of_the_mean()
     cost = {c.change: c.cost for c in report.changes}
     assert cost == {FEATURE: 7.0, "other": None}
     assert report.latest.cost_per_trusted_change == 7.0
-    assert report.latest.trusted == 1
+    assert report.latest.costed == 1
     assert report.latest.uncosted == 1
 
 
@@ -238,11 +238,11 @@ def test_changes_fall_in_the_window_of_their_merge_date_and_only_trusted_ones_co
 
     report = sort(units, lookup, costs)
 
-    assert report.latest.trusted == 2
+    assert report.latest.costed == 2
     assert report.latest.uncosted == 1
     assert report.latest.cost == 30.0
     assert report.latest.cost_per_trusted_change == 15.0
-    assert report.previous.trusted == 2
+    assert report.previous.costed == 2
     assert report.previous.cost_per_trusted_change == 40.0
     assert report.pending_count == 1
     assert report.pending_cost == 50.0

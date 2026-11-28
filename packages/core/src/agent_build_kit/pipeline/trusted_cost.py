@@ -7,8 +7,8 @@ from datetime import datetime, timedelta
 from enum import StrEnum
 
 from agent_build_kit.model import Frozen
-from agent_build_kit.pipeline.archive import change_merged_at, is_ready_to_archive
-from agent_build_kit.pipeline.unit_store import StoredUnit
+from agent_build_kit.pipeline.archive import change_merged_at, is_ready_to_archive, last_merged_at
+from agent_build_kit.pipeline.unit_store import Cause, StoredUnit
 from agent_build_kit.pipeline.units import UnitState
 
 # Given a merged unit and the bound for its search (its own latest `merged` stamp plus `days`):
@@ -38,7 +38,7 @@ class JudgedChange(Frozen):
 class Window(Frozen):
     """The trusted changes merged in one window of `days` days."""
 
-    trusted: int
+    costed: int
     uncosted: int
     cost: float
     cost_per_trusted_change: float | None
@@ -90,7 +90,7 @@ def sort_changes(
         costed = [c.cost for c in inside if c.cost is not None]
         total = sum(costed)
         return Window(
-            trusted=len(costed),
+            costed=len(costed),
             uncosted=len(inside) - len(costed),
             cost=total,
             cost_per_trusted_change=total / len(costed) if costed else None,
@@ -107,12 +107,6 @@ def sort_changes(
     )
 
 
-def _stamp(unit: StoredUnit) -> datetime | None:
-    """The unit's latest `merged` stamp."""
-    stamps = [e["at"] for e in unit.history if e.get("state") == "merged" and e.get("at")]
-    return datetime.fromisoformat(max(stamps)) if stamps else None
-
-
 def _verdict(
     change: str,
     units: list[StoredUnit],
@@ -127,7 +121,7 @@ def _verdict(
     ids = {u.id for u in mine}
     fixed: list[str] = []
     for unit in mine:
-        if any(e.get("cause") == "late_failure" for e in unit.history):
+        if any(e.get("cause") == Cause.LATE_FAILURE for e in unit.history):
             fixed.append(f"late_failure: {unit.id}")
         if any(p.role == "late-fix" for p in unit.pulls):
             fixed.append(f"late-fix pull request: {unit.id}")
@@ -142,7 +136,7 @@ def _verdict(
     reverted: list[str] = []
     unchecked: list[str] = []
     for unit in mine:
-        stamp = _stamp(unit)
+        stamp = last_merged_at(unit)
         if unit.state != UnitState.MERGED or stamp is None:
             continue
         found = revert_lookup(unit, stamp + span)

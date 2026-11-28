@@ -6,27 +6,30 @@ import re
 from datetime import datetime
 from pathlib import Path
 
-from agent_build_kit.forges.base import RepoId
+from agent_build_kit.forges.base import Forge, RepoId
 from agent_build_kit.pipeline.shell import git
 
 
 def reverts_pull_request(
-    checkout: Path, *, trunk: str, repo: RepoId, pr: int, since: datetime, until: datetime
+    checkout: Path,
+    *,
+    trunk: str,
+    forge: Forge,
+    repo: RepoId,
+    pr: int,
+    since: datetime,
+    until: datetime,
 ) -> bool | None:
-    """Whether the trunk, from `since` to `until`, reverts the pull request `pr`, found by its
-    merge commit's subject or by the line `Reverts <owner>/<repo>#<pr>`; None when the
-    checkout could not be searched."""
+    """Whether the trunk, from `since` to `until`, reverts the pull request `pr`. The merge
+    commit is the one the forge names (`Forge.merge_commit`), searched as `reverts_merge`
+    does; with none, the trunk is searched for the line `Reverts <owner>/<repo>#<pr>` alone.
+    None when the checkout could not be searched."""
+    merge = forge.merge_commit(repo, pr)
+    if merge:
+        return reverts_merge(
+            checkout, trunk=trunk, merge_commit=merge, repo=repo, pr=pr, until=until
+        )
     window = ("--since", since.isoformat(), "--until", until.isoformat())
-    subjects = git(checkout, "log", *window, "--format=%H%x09%s", trunk, check=False)
-    if subjects.returncode:
-        return None
-    ended = rf"\(#{pr}\)$|^Merged PR {pr}:"
-    for line in subjects.stdout.splitlines():
-        sha, _, subject = line.partition("\t")
-        if re.search(ended, subject):
-            return reverts_merge(
-                checkout, trunk=trunk, merge_commit=sha, repo=repo, pr=pr, until=until
-            )
     log = git(checkout, "log", *window, "--format=%B%x00", trunk, check=False)
     if log.returncode:
         return None

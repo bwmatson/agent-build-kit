@@ -28,6 +28,7 @@ import logging
 import shutil
 import subprocess
 from collections.abc import Callable
+from datetime import datetime
 from pathlib import Path
 
 from agent_build_kit import openspec
@@ -100,16 +101,24 @@ def is_ready_to_archive(change: str, units: list[StoredUnit]) -> bool:
     )
 
 
+def last_merged_at(unit: StoredUnit) -> datetime | None:
+    """The newest `merged` stamp in the unit's history that has a time; None when it has none."""
+    stamps = [
+        datetime.fromisoformat(entry["at"])
+        for entry in unit.history
+        if entry.get("state") == UnitState.MERGED and entry.get("at")
+    ]
+    return max(stamps) if stamps else None
+
+
 def change_merged_at(change: str, units: list[StoredUnit]) -> str:
     """When this change's last unit merged, for ordering."""
     stamps = [
-        entry.get("at", "")
+        stamp
         for unit in units
-        if unit.carries(change)
-        for entry in unit.history
-        if entry.get("state") == "merged"
+        if unit.carries(change) and (stamp := last_merged_at(unit)) is not None
     ]
-    return max(stamps) if stamps else ""
+    return max(stamps).isoformat() if stamps else ""
 
 
 FOLLOW_UPS_FILE = "follow-ups.md"

@@ -190,10 +190,15 @@ def test_a_revert_dated_after_the_bound_is_found_only_without_the_bound(app: Pat
     assert unbounded is True
 
 
-def revert_search(app: Path, *, until_days: float = 30) -> bool | None:
+def revert_search(app: Path, *, until_days: float = 30, merge: str | None = None) -> bool | None:
+    """The search, with a host that names `merge` as the pull request's merge commit, or none."""
+    forge = StandInForge()
+    if merge:
+        forge.merged[PR] = merge
     return reverts_pull_request(
         app,
         trunk="main",
+        forge=forge,
         repo=REPO,
         pr=PR,
         since=MERGED_AT - timedelta(hours=1),
@@ -204,12 +209,13 @@ def revert_search(app: Path, *, until_days: float = 30) -> bool | None:
 def test_the_pull_request_search_finds_a_revert_inside_the_bound_not_one_after_it(
     app: Path, dated
 ) -> None:
-    dated(0, f"feature (#{PR})")
+    merge = dated(0, "feature")
     dated(4, f"Revert feature\n\nReverts example/app#{PR}")
     dated(40, f"Revert feature again\n\nReverts example/app#{PR}")
 
-    assert revert_search(app) is True
-    assert revert_search(app, until_days=3) is False
+    for named in (None, merge):
+        assert revert_search(app, merge=named) is True
+        assert revert_search(app, until_days=3, merge=named) is False
 
 
 @pytest.mark.parametrize(
@@ -237,16 +243,13 @@ def test_the_pull_request_search_finds_nothing_when_the_only_revert_is_after_the
     assert revert_search(app) is False
 
 
-@pytest.mark.parametrize(
-    "subject", [f"feature (#{PR})", f"Merged PR {PR}: feature"], ids=["squash", "azure"]
-)
-def test_the_pull_request_search_identifies_the_merge_commit_by_its_subject(
-    app: Path, dated, subject: str
+def test_the_pull_request_search_reads_a_plain_revert_of_the_merge_commit_the_forge_names(
+    app: Path, dated
 ) -> None:
-    merge = dated(0, subject)
+    merge = dated(0, "feature, whatever its subject")
     dated(4, f"Revert feature\n\nThis reverts commit {merge}.")
 
-    assert revert_search(app) is True
+    assert revert_search(app, merge=merge) is True
 
 
 def test_the_pull_request_search_does_not_see_a_plain_revert_of_a_merge_it_cannot_identify(
