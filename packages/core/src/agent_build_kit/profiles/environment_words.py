@@ -20,6 +20,12 @@ FEED_INPUT_NAMES = (
     "pip.conf", "Directory.Packages.props",
 )  # fmt: skip
 
+# File names (any folder, any case) whose change makes a missing-tool failure the unit's own.
+TOOLCHAIN_INPUT_NAMES = (
+    ".tool-versions", "mise.toml", ".mise.toml", ".nvmrc", ".node-version", ".python-version",
+    "global.json",
+)  # fmt: skip
+
 # Executables the machine provides, whose absence is the machine's.
 MACHINE_TOOLS = (
     "uv", "uvx", "node", "npm", "npx", "pnpm", "yarn", "corepack",

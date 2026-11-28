@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
+import logging
 import re
 from collections.abc import Callable, Sequence
-from dataclasses import dataclass
 from enum import StrEnum
 from functools import partial
 from pathlib import PurePosixPath
@@ -28,6 +28,7 @@ LOGIN_REJECTION = re.compile(
 )
 
 _NOTE_CUT = 300
+logger = logging.getLogger(__name__)
 
 
 class Verdict(StrEnum):
@@ -36,8 +37,7 @@ class Verdict(StrEnum):
     UNKNOWN = "unknown"
 
 
-@dataclass(frozen=True)
-class Probes:
+class Probes(Frozen):
     """The four questions a sign's probe asks; each answers a `Verdict`."""
 
     forge_read: Callable[[str, str], Verdict]
@@ -170,10 +170,7 @@ _TABLE = (
 _CONFIRMED = {row.sign for row in _TABLE if row.confirmed}
 
 _FEED_NAMES = frozenset(name.lower() for name in environment_words.FEED_INPUT_NAMES)
-_TOOL_NAMES = frozenset(
-    (".tool-versions", "mise.toml", ".mise.toml", ".nvmrc", ".node-version", ".python-version",
-     "global.json")
-)  # fmt: skip
+_TOOL_NAMES = frozenset(name.lower() for name in environment_words.TOOLCHAIN_INPUT_NAMES)
 _BUILT_IN = {"package_feed": _FEED_NAMES, "missing_tool": _TOOL_NAMES}
 
 
@@ -206,9 +203,7 @@ def distrusted_input(
         if sign in _BUILT_IN and repo_config.environment is not None:
             inputs = repo_config.environment.inputs
             patterns += [*inputs.dependencies, *inputs.lock, *inputs.other]
-        for name, named in repo_config.environment_signs.distrusted.items():
-            if name == sign:
-                patterns += named
+        patterns += repo_config.environment_signs.distrusted.get(sign, [])  # type: ignore[call-overload]
     for path in changed:
         if PurePosixPath(path).name.lower() in names or path_patterns.matches_any(patterns, path):
             return path
@@ -219,6 +214,7 @@ def _verdict(ask: Callable[[], Verdict]) -> Verdict:
     try:
         return ask()
     except Exception:
+        logger.warning("an environment probe raised; its answer is unknown", exc_info=True)
         return Verdict.UNKNOWN
 
 

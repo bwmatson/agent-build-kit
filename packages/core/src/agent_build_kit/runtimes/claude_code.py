@@ -38,6 +38,7 @@ from agent_build_kit.pipeline.claude_stream import (
     started_model,
     stream_run,
 )
+from agent_build_kit.pipeline.environment_signs import LOGIN_REJECTION
 from agent_build_kit.pipeline.usage_guard import (
     USAGE_URL,
     UsageReading,
@@ -615,8 +616,6 @@ def login_rejection(said: str) -> bool:
     token, an authentication failure with a 401 about the OAuth login, or the notice that no one
     is logged in (`Not logged in · Please run /login`). A 401 about anything
     else (a wrong API key) is not."""
-    from agent_build_kit.pipeline.environment_signs import LOGIN_REJECTION
-
     return bool(LOGIN_REJECTION.search(said))
 
 

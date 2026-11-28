@@ -24,8 +24,8 @@ EXPIRED = "Failed to authenticate. API Error: 401 OAuth access token has expired
 WRONG_KEY = 'Failed to authenticate. API Error: 401 {"error":{"message":"invalid x-api-key"}}'
 GRAPHQL = "POST graphql: Something went wrong while executing your query"
 CLIENT_ID = (
-    "Failed: AA_LIVE_CLIENT_ID is not set, or is blank "
-    "(referenced at connections.entra_app.client_id): set it"
+    "Failed: SVC_A_CLIENT_ID is not set, or is blank "
+    "(referenced at connections.svc_a.client_id): set it"
 )
 NUGET = (
     "error NU1301: Unable to load the service index for source "
@@ -77,11 +77,11 @@ def found(output: str, step: str, tools: tuple[str, ...] = ()) -> list[tuple[str
             "WARNING: Could not fetch URL https://pypi.org/simple/x/: connection error",
             ("package_feed", "pypi.org"),
         ),
-        ("e2e", CLIENT_ID, ("live_credential", "AA_LIVE_CLIENT_ID")),
+        ("e2e", CLIENT_ID, ("live_credential", "SVC_A_CLIENT_ID")),
         (
             "e2e",
-            "environment variable AA_LIVE_KEY_VAULT_URL is required",
-            ("live_credential", "AA_LIVE_KEY_VAULT_URL"),
+            "environment variable SVC_A_VAULT_URL is required",
+            ("live_credential", "SVC_A_VAULT_URL"),
         ),
         ("e2e", "value is not set", None),
         ("unit-test", CLIENT_ID, None),
@@ -156,9 +156,7 @@ def test_the_code_host_sign_answers_as_transport_failure_does(sample: str) -> No
 
 ENV_INPUTS = {"environment": {"sync": ["s"], "check": ["c"], "inputs": {"lock": ["deps/*.lock"]}}}
 FEED_NAMED = {"environment_signs": {"distrusted": {"package_feed": ["feed/**"]}}}
-CREDENTIAL_NAMED = {
-    "environment_signs": {"distrusted": {"live_credential": ["agent-assessment/run.yml"]}}
-}
+CREDENTIAL_NAMED = {"environment_signs": {"distrusted": {"live_credential": ["ci/live.yml"]}}}
 TOOL_INPUTS = {
     "environment": {"sync": ["s"], "check": ["c"], "inputs": {"dependencies": ["d.txt"]}}
 }
@@ -180,12 +178,12 @@ TOOL_INPUTS = {
         ("missing_tool", ["web/.nvmrc"], {}, "web/.nvmrc"),
         ("missing_tool", ["d.txt"], TOOL_INPUTS, "d.txt"),
         ("missing_tool", ["pnpm-lock.yaml"], {}, None),
-        ("live_credential", ["agent-assessment/run.yml", "x.py"], {}, None),
+        ("live_credential", ["ci/live.yml", "x.py"], {}, None),
         (
             "live_credential",
-            ["x.py", "agent-assessment/run.yml"],
+            ["x.py", "ci/live.yml"],
             CREDENTIAL_NAMED,
-            "agent-assessment/run.yml",
+            "ci/live.yml",
         ),
         ("code_host_api", ["web/pnpm-lock.yaml", ".nvmrc", "src/app.py"], {}, None),
     ],
@@ -252,12 +250,12 @@ def judged(
             "e2e",
             Verdict.FAILS,
             [],
-            ("live_credential", "AA_LIVE_CLIENT_ID"),
-            [("credential", "AA_LIVE_CLIENT_ID")],
+            ("live_credential", "SVC_A_CLIENT_ID"),
+            [("credential", "SVC_A_CLIENT_ID")],
         ),
-        (CLIENT_ID, "e2e", Verdict.PASSES, [], None, [("credential", "AA_LIVE_CLIENT_ID")]),
-        (CLIENT_ID, "e2e", Verdict.UNKNOWN, [], None, [("credential", "AA_LIVE_CLIENT_ID")]),
-        (CLIENT_ID, "e2e", RuntimeError("boom"), [], None, [("credential", "AA_LIVE_CLIENT_ID")]),
+        (CLIENT_ID, "e2e", Verdict.PASSES, [], None, [("credential", "SVC_A_CLIENT_ID")]),
+        (CLIENT_ID, "e2e", Verdict.UNKNOWN, [], None, [("credential", "SVC_A_CLIENT_ID")]),
+        (CLIENT_ID, "e2e", RuntimeError("boom"), [], None, [("credential", "SVC_A_CLIENT_ID")]),
         (ASSERTION, "unit-test", Verdict.FAILS, [], None, []),
         (
             PNPM_MISSING,
@@ -331,6 +329,6 @@ def test_a_confirmed_note_is_read_back_and_no_other_note_is() -> None:
 
     assert parked_sign(result.note) == ("missing_tool", "pnpm")
     assert parked_sign(feed.note) == ("package_feed", None)
-    assert parked_sign(".env has no AA_KEY=") is None
+    assert parked_sign(".env has no SVC_A_KEY=") is None
     assert parked_sign("") is None
     assert parked_sign("environment failure [nonesuch x]: a line") is None
