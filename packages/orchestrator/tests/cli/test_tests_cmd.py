@@ -17,6 +17,7 @@ from tests.cli.e2e_hold_fakes import abk, planning
 from tests.factories import init_repo
 
 NOW = datetime(2026, 11, 27, 12, tzinfo=UTC)
+WIDE_WINDOW_START = "2026-11-01"
 TEST = "def test_a():\n    assert 1\n"
 
 
@@ -54,7 +55,7 @@ def test_report_for_a_repo_prints_its_five_figures_each_with_its_definition(
     config: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     code, out, err = abk(
-        config, capsys, "tests", "report", "--repo", "app", "--since", "2026-11-01"
+        config, capsys, "tests", "report", "--repo", "app", "--since", WIDE_WINDOW_START
     )
     shown = "\n".join(out)
 
@@ -68,7 +69,7 @@ def test_report_for_a_repo_prints_its_five_figures_each_with_its_definition(
 def test_report_without_a_repo_prints_a_block_for_each_configured_repo(
     config: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    code, out, err = abk(config, capsys, "tests", "report", "--since", "2026-11-01")
+    code, out, err = abk(config, capsys, "tests", "report", "--since", WIDE_WINDOW_START)
     shown = "\n".join(out)
 
     assert code == 0, err
