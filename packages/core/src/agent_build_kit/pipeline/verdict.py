@@ -157,6 +157,10 @@ def compute_verdict(
         floors.append(
             (ReviewTier.FULL, f"it changed the protected path {facts.protected_paths[0]}")
         )
+    if facts.protected_settings:
+        floors.append(
+            (ReviewTier.FULL, f"it changed the protected setting {facts.protected_settings[0]}")
+        )
     for flag in facts.flags:
         if flag in _FLOORED_FLAGS:
             floors.append((ReviewTier.FULL, f"a group it builds is flagged [{flag}]"))

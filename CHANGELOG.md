@@ -5,6 +5,11 @@
 - A GitHub workflow run that failed without starting a job, such as one whose workflow file is
   invalid, is now a failed check, so the pull request is no longer left waiting on checks that
   never come. A failure to list the runs is logged and does not fail the read.
+- A unit that changes a setting that sets a lint, type, test, coverage or quality bar (the
+  `tool.ruff`, `tool.pytest`, `tool.pyrefly` and `tool.coverage` tables, a package's test, lint
+  and typecheck scripts, linter and runner config files, a growing quality baseline) now never
+  lands without a person. Other edits of those files are unaffected. `review.protected_config`
+  adds settings of your own.
 
 - The unit-test run ledger now records the memory available and the swap used at the start and
   end of each run, and how long tasks were stalled on memory during it, so a slow or failed run

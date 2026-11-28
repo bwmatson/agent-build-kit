@@ -1252,6 +1252,40 @@ stale when anything in the `review` section changes (its ceilings, protected pat
 auto_land), a repo's `review` block changes, or `global_limits.min_unit_lines`
 changes (see `abk replan` in `docs/cli.md`).
 
+`review.protected_config` names the settings that set a lint, type, test, coverage or quality bar,
+so a unit that changes one never lands without a person:
+
+```yaml
+review:
+  protected_config:
+    "**/pyproject.toml": [tool.mypy]   # pattern -> key paths added to the defaults
+    "**/mypy.ini": []                  # an empty list protects the whole file
+repos:
+  app:
+    review:
+      protected_config: {"**/tsconfig.json": [compilerOptions.strict]}
+```
+
+A repo's entries add to the workspace's and the defaults; an entry for a pattern already present
+adds its key paths. Each key path is dotted and protects the value at it and everything under it.
+The defaults are:
+
+| Pattern | Key paths |
+|---|---|
+| `**/pyproject.toml` | `tool.pytest`, `tool.ruff`, `tool.pyrefly`, `tool.coverage`, `tool.complexipy`, `tool.mutmut` |
+| `**/package.json` | `scripts.test`, `scripts.lint`, `scripts.typecheck`, `scripts.format:check`, `jest`, `vitest`, `eslintConfig` |
+| `**/setup.cfg` | `tool:pytest`, `flake8`, `coverage:run`, `coverage:report` |
+| `**/tox.ini` | `pytest`, `flake8` |
+| linter, formatter, runner and hook config files (`ruff.toml`, `.pre-commit-config.yaml`, `eslint.config.*`, `vitest.config.*`, ...) | the whole file |
+
+An empty list protects the whole file as a protected path, so the planner floors a group that names
+it and the fixers leave it alone; the planner floors only whole-file entries. A keyed change is
+judged at the verdict from the file parsed before and after: reformatting and reordering change
+nothing. A file that does not parse or cannot be read counts as changed. `quality_baseline.toml`
+is protected only when it grows (an added entry or a raised or added measure); a baseline that only
+shrinks is not. `protected_defaults: false` drops these defaults along with the protected-path
+ones.
+
 Once `auto_land.classes` is not empty, `abk doctor` warns for each repo with no branch protection
 (the command policy hook does nothing against the pipeline's own merge).
 
