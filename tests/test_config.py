@@ -17,7 +17,9 @@ from agent_build_kit.config import (
     NotificationProvider,
     NotificationsConfig,
     ProjectLimitsConfig,
+    QualityConfig,
     WorkspaceConfig,
+    effective_quality,
     load,
 )
 from agent_build_kit.graph.state import SessionRole
@@ -644,3 +646,84 @@ def test_the_code_map_block_refuses_max_bytes_below_4096_and_unknown_keys(
         message = ""
 
     assert named in message
+
+
+QUALITY_BARS = {
+    "cognitive_complexity": 10,
+    "nesting": 3,
+    "parameters": 4,
+    "function_lines": 40,
+    "boolean_operators": 3,
+    "file_lines": 300,
+    "clone_tokens": 50,
+}
+
+
+def quality_workspace(
+    quality: dict | None = None, app_quality: dict | None = None
+) -> WorkspaceConfig:
+    """A two-repo workspace whose `quality` block is `quality` and whose `app` repo carries
+    `app_quality` as its own."""
+    app: dict = {"path": "/work/app", "slug": "example/app"}
+    if app_quality is not None:
+        app["quality"] = app_quality
+    document: dict = {
+        "repos": {"app": app, "platform": {"path": "/work/platform", "slug": "example/platform"}}
+    }
+    if quality is not None:
+        document["quality"] = quality
+    return WorkspaceConfig.model_validate(document)
+
+
+def quality_refusal(quality: dict | None, app_quality: dict | None) -> str:
+    """The message of the load error the blocks give, empty when they load."""
+    try:
+        quality_workspace(quality, app_quality)
+    except ValidationError as error:
+        return str(error)
+    return ""
+
+
+def test_quality_defaults_and_a_repo_block_merge_through_effective_quality() -> None:
+    plain = quality_workspace()
+    config = quality_workspace(app_quality={"function_lines": 30, "mode": "off"})
+
+    app = effective_quality(config, config.repos["app"])
+    platform = effective_quality(config, config.repos["platform"])
+
+    assert plain.quality == QualityConfig(mode="changed", suppression_reason=True, **QUALITY_BARS)
+    assert app == QualityConfig(
+        **{**QUALITY_BARS, "function_lines": 30}, mode="off", suppression_reason=True
+    )
+    assert platform == plain.quality
+
+
+@pytest.mark.parametrize("key", sorted(QUALITY_BARS))
+def test_a_repo_bar_above_the_workspace_s_is_refused_naming_the_key_and_both_values(
+    key: str,
+) -> None:
+    message = quality_refusal({key: 12}, {key: 15})
+
+    assert f"repos.app.quality.{key}" in message
+    assert "15" in message and "12" in message
+
+
+@pytest.mark.parametrize("key", sorted(QUALITY_BARS))
+def test_a_repo_bar_at_or_below_the_workspace_s_loads_and_is_the_one_in_effect(key: str) -> None:
+    for repo_bar in (12, 3):
+        assert quality_refusal({key: 12}, {key: repo_bar}) == ""
+        config = quality_workspace({key: 12}, {key: repo_bar})
+        assert getattr(effective_quality(config, config.repos["app"]), key) == repo_bar
+
+
+def test_a_repo_cannot_switch_off_the_reason_a_workspace_requires() -> None:
+    message = quality_refusal({"suppression_reason": True}, {"suppression_reason": False})
+
+    assert "repos.app.quality.suppression_reason" in message
+
+
+@pytest.mark.parametrize("value", [0, -3])
+@pytest.mark.parametrize("key", sorted(QUALITY_BARS))
+def test_a_bar_below_one_is_refused_at_both_levels(key: str, value: int) -> None:
+    assert key in quality_refusal({key: value}, None)
+    assert key in quality_refusal(None, {key: value})

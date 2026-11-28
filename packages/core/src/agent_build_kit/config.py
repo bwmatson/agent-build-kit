@@ -1549,6 +1549,39 @@ class RepoReviewConfig(Frozen):
     ceilings: RepoCeilingsConfig = RepoCeilingsConfig()
 
 
+class QualityConfig(Frozen):
+    """The quality bars a unit's added or changed code is held to, and whether they are checked."""
+
+    mode: str = "changed"
+    cognitive_complexity: int = 10
+    nesting: int = 3
+    parameters: int = 4
+    function_lines: int = 40
+    boolean_operators: int = 3
+    file_lines: int = 300
+    clone_tokens: int = 50
+    suppression_reason: bool = True
+
+
+class RepoQualityConfig(Frozen):
+    """A repo's own quality bars; a key left unset follows the workspace's."""
+
+    mode: str | None = None
+    cognitive_complexity: int | None = None
+    nesting: int | None = None
+    parameters: int | None = None
+    function_lines: int | None = None
+    boolean_operators: int | None = None
+    file_lines: int | None = None
+    clone_tokens: int | None = None
+    suppression_reason: bool | None = None
+
+
+def effective_quality(workspace: WorkspaceConfig, repo: RepoConfig) -> QualityConfig:
+    """The quality bars in effect for `repo`: the workspace's with the repo's set keys over them."""
+    raise NotImplementedError
+
+
 class RepoWorkersConfig(Frozen):
     """A repo's own worker settings: none now, since every unit runs as a worker."""
 
@@ -1639,6 +1672,7 @@ class RepoConfig(Frozen):
     # How this repo's environment is kept current in a unit's worktree.
     environment: EnvironmentConfig | None = None
     review: RepoReviewConfig = RepoReviewConfig()
+    quality: RepoQualityConfig = RepoQualityConfig()
     sandbox: RepoSandboxConfig = RepoSandboxConfig()
     workers: RepoWorkersConfig = RepoWorkersConfig()
 
@@ -2027,6 +2061,7 @@ class WorkspaceConfig(Frozen):
     # latest session. A role the mapping does not name is off.
     session_reuse: dict[str, bool] = {"build": True, "review": False}
     review: ReviewConfig = ReviewConfig()
+    quality: QualityConfig = QualityConfig()
     # Off by default: no step runs confined until an installation turns it on.
     sandbox: SandboxConfig = SandboxConfig()
     workers: WorkersConfig = WorkersConfig()
