@@ -9,81 +9,20 @@ e2e-test and excluded from the default suite.
 from __future__ import annotations
 
 import asyncio
-import uuid
-from collections.abc import Iterator
 from concurrent.futures import ThreadPoolExecutor
 from typing import Any
 
 import pytest
-from alembic import command
-from sqlalchemy import Connection, text, update
-from sqlalchemy.ext.asyncio import AsyncEngine, create_async_engine
+from sqlalchemy import text, update
 from sqlalchemy.pool import NullPool
 
-from agent_build_kit.orchestration.sql.migrate import alembic_config, head_revision
+from agent_build_kit.orchestration.sql.migrate import head_revision
 from agent_build_kit.orchestration.sql.store import SqlUnitsStore
 from agent_build_kit.orchestration.sql.tables import UNITS
-from tests.support.postgres_url import postgres_url
+from tests.support.postgres_store import schema_engine
 from tests.support.units_store_conformance import CASES, Harness, run_case
 
 pytestmark = pytest.mark.e2e
-
-
-def schema_engine(url: str, schema: str, **options: Any) -> AsyncEngine:
-    """An engine whose connections resolve unqualified tables in `schema`."""
-    return create_async_engine(
-        url, connect_args={"server_settings": {"search_path": schema}}, **options
-    )
-
-
-async def migrate(url: str, schema: str) -> None:
-    engine = schema_engine(url, schema)
-    try:
-        async with engine.begin() as connection:
-            config = alembic_config("")
-
-            def upgrade(held: Connection) -> None:
-                config.attributes["connection"] = held
-                command.upgrade(config, "head")
-
-            await connection.run_sync(upgrade)
-    finally:
-        await engine.dispose()
-
-
-async def create_schema(url: str, schema: str) -> None:
-    engine = create_async_engine(url)
-    try:
-        async with engine.begin() as connection:
-            await connection.execute(text(f'CREATE SCHEMA "{schema}"'))
-    finally:
-        await engine.dispose()
-
-
-async def drop_schema(url: str, schema: str) -> None:
-    engine = create_async_engine(url)
-    try:
-        async with engine.begin() as connection:
-            await connection.execute(text(f'DROP SCHEMA IF EXISTS "{schema}" CASCADE'))
-    finally:
-        await engine.dispose()
-
-
-@pytest.fixture
-def server() -> str:
-    return postgres_url()
-
-
-@pytest.fixture
-def schema(server: str) -> Iterator[str]:
-    """A fresh schema of the test database, migrated to head, dropped when the test is done."""
-    name = f"abk_test_{uuid.uuid4().hex}"
-    asyncio.run(create_schema(server, name))
-    asyncio.run(migrate(server, name))
-    try:
-        yield name
-    finally:
-        asyncio.run(drop_schema(server, name))
 
 
 @pytest.mark.parametrize("case", sorted(CASES))
