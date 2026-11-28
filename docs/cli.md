@@ -435,6 +435,17 @@ and 90th percentile of what a call added, the compactions and the end fill as `u
 the most; and the number of calls with no context figures, which stay out of the means. Rows
 written before context was recorded have none.
 
+`abk report --trusted` prints the cost per trusted change instead of the cost table (`--json`
+prints the same figures as JSON). A change is trusted only after `health.trusted_days` days
+(default 30) without a late failure, a revert or a fix. A fix is seen only through a late
+failure, a late-fix pull request or a `Needs:` line from a `fix-` or `hotfix-` change, so
+hot-fixes are under-counted. It prints the number and cost of changes per verdict, the two
+windows' cost per trusted change, the pending changes (not yet old enough) and the unchecked ones
+(no merge commit or pull request number to search, or no checkout) apart, the trunk ref read
+for each repo with its newest commit date, and each threshold breach with its correction. It
+reads the repos' checkouts without fetching, writes nothing, and exits 0 with a breach; with
+`--waits` or `--context` it exits 2.
+
 ### `abk usage replay [--since TIMESTAMP] [--session-allowance N] [--weekly-allowance N] [--margin N]`
 
 Re-runs the usage estimate over the recorded readings and the ledger. Read-only: no model

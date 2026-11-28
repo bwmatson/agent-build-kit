@@ -121,9 +121,11 @@
   tests' captured output, from the reports the run keeps. A full run's memory now stays flat
   instead of growing with the number of tests.
 
-- `scripts/trusted_change_cost.py` reports the cost of changes that lasted (merged, not reverted
-  or fixed within 30 days) and the health thresholds, read-only, from a planning repo's state. It
-  stands in for `abk report --trusted` until that lands.
+- `abk report --trusted` prints the cost of changes that lasted (merged, not reverted or fixed
+  within `health.trusted_days` days), the pending and unchecked changes apart, and each health
+  threshold breach with its correction, read-only, from the store, the ledger and the repos'
+  checkouts. The `health` settings in `abk.yaml` set the days and each threshold's limit and
+  correction. The command replaces the interim `scripts/trusted_change_cost.py`.
 
 - The units store now has a SQL implementation over SQLAlchemy and an async engine, with Alembic
   migrations that create its `units` and `unit_history` tables. It runs on SQLite today and shares
