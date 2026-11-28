@@ -100,7 +100,7 @@ def is_ready_to_archive(change: str, units: list[StoredUnit]) -> bool:
     )
 
 
-def _merged_at(change: str, units: list[StoredUnit]) -> str:
+def change_merged_at(change: str, units: list[StoredUnit]) -> str:
     """When this change's last unit merged, for ordering."""
     stamps = [
         entry.get("at", "")
@@ -186,7 +186,7 @@ def archive_ready_changes(
 
     archived: list[str] = []
     failed = read_archive_failures(failures) if failures is not None else {}
-    for change in sorted(ready, key=lambda name: _merged_at(name, units)):
+    for change in sorted(ready, key=lambda name: change_merged_at(name, units)):
         directory = changes_dir_under(planning_repo, specs_dir) / change
         if not directory.is_dir():
             logger.warning("not archiving %s: withdrawn, no change directory", change)
