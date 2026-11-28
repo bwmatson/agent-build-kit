@@ -58,7 +58,7 @@ def measure_source(source: str, path: str) -> SourceMeasure:
 
 
 def _unique_name(name: str, seen: Counter[str]) -> str:
-    """`name` for its first definition, `name#2` for the second, and so on."""
+    """`name` for its first definition; a later one takes a hash sign and its ordinal."""
     seen[name] += 1
     return name if seen[name] == 1 else f"{name}#{seen[name]}"
 
