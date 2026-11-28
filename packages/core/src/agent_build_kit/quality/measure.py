@@ -78,8 +78,13 @@ def _functions(
             yield from _functions(child, prefix, in_class)
 
 
+def _first_line(scope: ScopeNode) -> int:
+    """The first line of a `def` or `class`: its first decorator, else the statement itself."""
+    return min([scope.lineno, *(decorator.lineno for decorator in scope.decorator_list)])
+
+
 def _measure_function(node: FunctionNode, name: str, in_class: bool) -> FunctionMeasure:
-    first = min([node.lineno, *(decorator.lineno for decorator in node.decorator_list)])
+    first = _first_line(node)
     last = node.end_lineno or node.lineno
     return FunctionMeasure(
         name=name,
@@ -107,8 +112,7 @@ def _own_lines(node: FunctionNode, last: int) -> int:
     """The physical lines from the `def` line to `last`, less those of nested defs and classes."""
     nested: set[int] = set()
     for scope in _nested_scopes(node):
-        start = min([scope.lineno, *(decorator.lineno for decorator in scope.decorator_list)])
-        nested.update(range(start, (scope.end_lineno or scope.lineno) + 1))
+        nested.update(range(_first_line(scope), (scope.end_lineno or scope.lineno) + 1))
     return last - node.lineno + 1 - len(nested)
 
 

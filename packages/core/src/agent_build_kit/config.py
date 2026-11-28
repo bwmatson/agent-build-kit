@@ -1577,15 +1577,8 @@ class RepoQualityConfig(Frozen):
     suppression_reason: bool | None = None
 
 
-QUALITY_BARS = (
-    "cognitive_complexity",
-    "nesting",
-    "parameters",
-    "function_lines",
-    "boolean_operators",
-    "file_lines",
-    "clone_tokens",
-)
+# The numeric bars, read from the model so a bar added to it is held to the tighten-only rule.
+QUALITY_BARS = tuple(name for name, f in QualityConfig.model_fields.items() if f.annotation is int)
 
 
 def effective_quality(workspace: WorkspaceConfig, repo: RepoConfig) -> QualityConfig:

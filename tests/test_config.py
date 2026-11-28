@@ -676,11 +676,12 @@ def quality_workspace(
 
 
 def quality_refusal(quality: dict | None, app_quality: dict | None) -> str:
-    """The message of the load error the blocks give, empty when they load."""
+    """The refusals of the load error the blocks give (each field's location and the
+    validator's own message, never the echoed input), empty when they load."""
     try:
         quality_workspace(quality, app_quality)
     except ValidationError as error:
-        return str(error)
+        return " ".join(f"{'.'.join(map(str, e['loc']))} {e['msg']}" for e in error.errors())
     return ""
 
 
@@ -704,8 +705,7 @@ def test_a_repo_bar_above_the_workspace_s_is_refused_naming_the_key_and_both_val
 ) -> None:
     message = quality_refusal({key: 12}, {key: 15})
 
-    assert f"repos.app.quality.{key}" in message
-    assert "15" in message and "12" in message
+    assert f"repos.app.quality.{key}: 15 is looser than the workspace's 12" in message
 
 
 @pytest.mark.parametrize("key", sorted(QUALITY_BARS))
@@ -719,7 +719,7 @@ def test_a_repo_bar_at_or_below_the_workspace_s_loads_and_is_the_one_in_effect(k
 def test_a_repo_cannot_switch_off_the_reason_a_workspace_requires() -> None:
     message = quality_refusal({"suppression_reason": True}, {"suppression_reason": False})
 
-    assert "repos.app.quality.suppression_reason" in message
+    assert "repos.app.quality.suppression_reason: false is looser" in message
 
 
 @pytest.mark.parametrize("value", [0, -3])
