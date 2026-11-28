@@ -92,6 +92,12 @@ def commit_id(repo: Path, ref: str) -> str:
     return "" if found.returncode else found.stdout.strip()
 
 
+def trunk_ref(checkout: Path, branch: str) -> str:
+    """The ref to read a repo's trunk at: `origin/<branch>` when the checkout holds it (nothing
+    is fetched), else the local `branch`."""
+    return f"origin/{branch}" if commit_id(checkout, f"origin/{branch}") else branch
+
+
 def changed_files(repo: Path, base: str) -> list[str]:
     """The paths the checked-out branch changes against `base` (`git diff base...HEAD`)."""
     result = git(repo, "diff", "--name-only", f"{base}...HEAD", check=False)

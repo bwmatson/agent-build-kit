@@ -12,8 +12,10 @@ from pathlib import Path
 
 import pytest
 
+from agent_build_kit import forges
 from agent_build_kit.cli import main
 from agent_build_kit.config import dump
+from agent_build_kit.forges.github import GitHubForge
 from agent_build_kit.installation import Installation
 from agent_build_kit.pipeline import spans
 from agent_build_kit.pipeline.unit_store import UnitStore
@@ -21,6 +23,7 @@ from agent_build_kit.pipeline.units import UnitState
 from agent_build_kit.pipeline.usage_ledger import LEDGER_NAME
 from tests.conftest import make_installation
 from tests.factories import commit_files, git, init_repo, stored_unit
+from tests.forges.mock_host import MockHost, ok
 from tests.ledger_lines import agent_line, write_ledger
 
 NOW = datetime(2026, 11, 20, 12, tzinfo=UTC)
@@ -180,13 +183,30 @@ def test_the_table_names_each_verdict_and_a_breach_with_its_correction(
 
     out = capsys.readouterr().out
     assert code == 0
-    for word in ("trusted", "reverted", "pending", "unchecked"):
-        assert word in out
-    for change in ("kept", "undone", "recent", "by-number", "unknown"):
-        assert change in out
+    for pair in (
+        "trusted kept",
+        "reverted undone",
+        "pending recent",
+        "reverted by-number",
+        "unchecked unknown",
+    ):
+        assert pair in out
     assert "plan_review_share" in out
     assert row.correction in out
     assert f"{row.limit}" in out
+
+
+def test_a_unit_the_code_host_cannot_answer_for_is_unchecked_and_the_report_still_succeeds(
+    trusted: Trusted, capsys: pytest.CaptureFixture[str]
+) -> None:
+    trusted.write_ledger(20)
+    forges.register(GitHubForge(http=MockHost(ok({"message": "Bad credentials"}, 401))))
+
+    document = run_json(capsys)
+
+    verdicts = {c["change"]: c["verdict"] for c in document["changes"]}
+    assert verdicts["by-number"] == "unchecked"
+    assert "by-number" in document["unchecked"]
 
 
 def test_the_table_says_no_threshold_is_breached_when_none_is(

@@ -124,8 +124,10 @@
 - `abk report --trusted` prints the cost of changes that lasted (merged, not reverted or fixed
   within `health.trusted_days` days), the pending and unchecked changes apart, and each health
   threshold breach with its correction, read-only, from the store, the ledger and the repos'
-  checkouts. The `health` settings in `abk.yaml` set the days and each threshold's limit and
-  correction. The command replaces the interim `scripts/trusted_change_cost.py`.
+  checkouts. For a unit with a pull request number but no recorded merge commit it asks the
+  code host for that pull request's merge commit (nothing is fetched or written); a unit the
+  host cannot answer for is reported as unchecked. The `health` settings in `abk.yaml` set the
+  days and each threshold's limit and correction. The command replaces the interim `scripts/trusted_change_cost.py`.
 
 - The units store now has a SQL implementation over SQLAlchemy and an async engine, with Alembic
   migrations that create its `units` and `unit_history` tables. It runs on SQLite today and shares

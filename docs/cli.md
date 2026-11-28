@@ -443,8 +443,11 @@ hot-fixes are under-counted. It prints the number and cost of changes per verdic
 windows' cost per trusted change, the pending changes (not yet old enough) and the unchecked ones
 (no merge commit or pull request number to search, or no checkout) apart, the trunk ref read
 for each repo with its newest commit date, and each threshold breach with its correction. It
-reads the repos' checkouts without fetching, writes nothing, and exits 0 with a breach; with
-`--waits` or `--context` it exits 2.
+reads the repos' checkouts without fetching and writes nothing; for a unit with a pull request
+number but no recorded merge commit it also asks the code host for that pull request's merge
+commit, and a unit the host cannot answer for (no credential, rate limit, outage) is reported
+as unchecked. It exits 0 with a breach; with `--waits` or `--context` it exits 2. `--by`,
+`--since`, `--change`, `--unit` and `--include-estimates` do not apply to it and are ignored.
 
 ### `abk usage replay [--since TIMESTAMP] [--session-allowance N] [--weekly-allowance N] [--margin N]`
 

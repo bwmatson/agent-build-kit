@@ -5,15 +5,15 @@ from __future__ import annotations
 import argparse
 import json
 from datetime import datetime
-from pathlib import Path
 
+from agent_build_kit.forges.transport import TransportError
 from agent_build_kit.installation import Installation
 from agent_build_kit.pipeline import spans
 from agent_build_kit.pipeline.archive import last_merged_at
 from agent_build_kit.pipeline.carry import carried_commit
 from agent_build_kit.pipeline.health_thresholds import evaluate_thresholds
 from agent_build_kit.pipeline.review_revert import reverts_merge, reverts_pull_request
-from agent_build_kit.pipeline.shell import commit_id, git
+from agent_build_kit.pipeline.shell import git, trunk_ref
 from agent_build_kit.pipeline.trusted_cost import RevertLookup, Verdict, sort_changes
 from agent_build_kit.pipeline.unit_store import StoredUnit, UnitStore
 from agent_build_kit.pipeline.usage_forecast_record import FORECASTS_NAME
@@ -31,11 +31,6 @@ from agent_build_kit.pipeline.usage_report import (
 )
 from agent_build_kit.pipeline.verdict_record import VERDICTS
 from agent_build_kit.pipeline.wait_log import DECISIONS_NAME
-
-
-def _trunk_of(checkout: Path, branch: str) -> str:
-    """`origin/<branch>` when the checkout holds it (nothing is fetched), else the local branch."""
-    return f"origin/{branch}" if commit_id(checkout, f"origin/{branch}") else branch
 
 
 def _revert_lookup(inst: Installation, trunks: dict[str, str]) -> RevertLookup:
@@ -62,15 +57,18 @@ def _revert_lookup(inst: Installation, trunks: dict[str, str]) -> RevertLookup:
         since = last_merged_at(unit)
         if number is None or since is None:
             return None
-        return reverts_pull_request(
-            checkout,
-            trunk=trunk,
-            forge=forge,
-            repo=identity,
-            pr=number,
-            since=since,
-            until=until,
-        )
+        try:
+            return reverts_pull_request(
+                checkout,
+                trunk=trunk,
+                forge=forge,
+                repo=identity,
+                pr=number,
+                since=since,
+                until=until,
+            )
+        except TransportError:
+            return None  # the host could not answer, so no revert has been ruled out
 
     return lookup
 
@@ -126,7 +124,7 @@ def _trusted(args: argparse.Namespace, inst: Installation) -> int:
     for name, checkout in inst.checkouts.items():
         if not checkout.is_dir():
             continue
-        trunk = _trunk_of(checkout, inst.repo(name).default_branch)
+        trunk = trunk_ref(checkout, inst.repo(name).default_branch)
         trunks[name] = trunk
         newest = git(checkout, "log", "-1", "--format=%cI", trunk, check=False).stdout.strip()
         repos[name] = {"ref": trunk, "newest_commit": newest}
