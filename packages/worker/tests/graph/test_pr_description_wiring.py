@@ -121,6 +121,32 @@ def test_the_start_here_section_lists_the_recorded_results_and_the_verdict_tier(
     assert f"— {reason}" in start, "the tier line carries the recorded verdict's reason"
 
 
+def test_a_build_that_changed_a_protected_setting_records_full_and_names_it_in_start_here(
+    tmp_path: Path,
+) -> None:
+    activate_with(review={"enabled": True})
+    named = "pyproject.toml: tool.ruff"
+    plain, changed = fresh(tmp_path / "plain"), fresh(tmp_path / "changed")
+    plain_bodies: list[dict[str, str]] = []
+    changed_bodies: list[dict[str, str]] = []
+
+    build(tmp_path / "plain", plain, open_pr=capturing(plain, plain_bodies))
+    build(
+        tmp_path / "changed",
+        changed,
+        open_pr=capturing(changed, changed_bodies),
+        protected_settings=lambda tree, base, paths: (named,),
+    )
+
+    recorded = json.loads((tmp_path / "changed" / VERDICTS).read_text())["add-marker/1"]
+    assert recorded["tier"] == "full"
+    assert named in recorded["reason"]
+    assert f"— {recorded['reason']}" in start_section(changed_bodies[0]["body"])
+    default = json.loads((tmp_path / "plain" / VERDICTS).read_text())["add-marker/1"]
+    assert "protected setting" not in default["reason"]
+    assert "protected setting" not in start_section(plain_bodies[0]["body"])
+
+
 def test_with_review_on_and_no_readable_verdict_the_pull_request_opens_without_a_tier_line(
     tmp_path: Path,
 ) -> None:

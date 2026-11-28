@@ -5,7 +5,7 @@ from __future__ import annotations
 import pytest
 
 from agent_build_kit.model import TestTier
-from agent_build_kit.pipeline.verdict import ReviewTier, VerdictFacts, compute_verdict
+from agent_build_kit.pipeline.verdict import ClassHistory, ReviewTier, VerdictFacts, compute_verdict
 from tests.verdict_support import green_facts
 
 AUTO, LIGHT, FULL = ReviewTier.AUTO, ReviewTier.LIGHT, ReviewTier.FULL
@@ -52,6 +52,42 @@ def test_an_integration_test_unit_gets_the_floors_a_unit_test_unit_gets(
 
     assert compute_verdict(as_integration) == compute_verdict(facts)
     assert compute_verdict(as_integration).evidence_tier is expected
+
+
+RULE = "pyproject.toml: tool.ruff"
+
+
+@pytest.mark.parametrize(
+    ("settings", "paths", "tier", "reason"),
+    [
+        pytest.param((RULE,), (), FULL, f"it changed the protected setting {RULE}", id="one-entry"),
+        pytest.param(
+            (RULE, "package.json: scripts.test"),
+            (),
+            FULL,
+            f"it changed the protected setting {RULE}",
+            id="two-entries-name-the-first",
+        ),
+        pytest.param((), (), AUTO, "", id="none-stays-auto"),
+        pytest.param(
+            (RULE,),
+            ("Dockerfile",),
+            FULL,
+            "it changed the protected path Dockerfile",
+            id="the-protected-path-reason-is-kept",
+        ),
+    ],
+)
+def test_a_changed_protected_setting_floors_a_proven_auto_unit_at_full(
+    settings: tuple[str, ...], paths: tuple[str, ...], tier: ReviewTier, reason: str
+) -> None:
+    facts = green_facts(protected_settings=settings, protected_paths=paths)
+
+    verdict = compute_verdict(facts, ClassHistory(samples=20, clean=20))
+
+    assert verdict.tier is tier
+    if reason:
+        assert verdict.reason == reason
 
 
 def test_the_same_facts_give_equal_verdicts() -> None:
