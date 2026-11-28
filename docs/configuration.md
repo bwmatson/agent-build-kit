@@ -868,6 +868,23 @@ the top-level `project_limits` is counted for each project, not across all repos
   `0` waits until nothing it waits on is short of review (a held or failed unit still counts).
 - `planning.outlines` (default `openspec/outlines`): the folder of outlines, relative to the
   planning root.
+- `health.trusted_days` (default `30`, at least `1`): how many days a merged change must go
+  without a late failure, a revert or a fix to be trusted.
+- `health.top` (default `3`, at least `1`): how many of the most expensive trusted changes a
+  cost breach lists as evidence.
+- `health.thresholds`: three rows, `plan_review_share`, `cost_per_trusted_change` and
+  `unit_failure_rate`, each with a `limit` above `0` (at most `1` for the two shares) and a
+  non-empty `correction`. A row that is given must give both fields; a row left out keeps its
+  default; a row of another name is refused. Defaults:
+  - `plan_review_share` (`0.5`): breaches on a day of the last 7 when the plan role's share of
+    the day's spend is above the limit. Correction: "outline far-out work
+    (`docs/runbooks/change-maturity.md`)".
+  - `cost_per_trusted_change` (`0.25`): breaches when the latest window's cost per trusted
+    change is more than the limit above the previous window's. Correction: "read the top
+    changes by cost; split or outline them".
+  - `unit_failure_rate` (`0.25`): breaches when the share of units started in the last 7 days
+    that failed is above the limit. Correction: "read the failures by cause; a recurring cause
+    becomes a change".
 - `planning.plan_review_concurrency` (default `4`, at least `1`): the most plan-model review
   and repair calls in flight at once. The passes of a review and several changes run together
   within it, starting in the changes' order of urgency; `1` is one call at a time. Repairs are

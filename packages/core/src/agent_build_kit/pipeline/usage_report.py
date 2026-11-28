@@ -1424,4 +1424,14 @@ class DaySpend(Frozen):
 
 def daily_spend_by_role(ledger: Path, units: list[StoredUnit]) -> tuple[DaySpend, ...]:
     """Each day's spend by role, from live calls and archived breakdowns, oldest day first."""
-    raise NotImplementedError
+    by_day: dict[str, dict[str, float]] = {}
+    for entry in _all_entries(ledger, units):
+        cost = entry.row.measured.cost_usd
+        if entry.at is None or cost is None:
+            continue
+        roles = by_day.setdefault(_group_key(entry, "day", {}), {})
+        roles[entry.role] = roles.get(entry.role, 0.0) + cost
+    return tuple(
+        DaySpend(day=day, by_role=roles, total=sum(roles.values()))
+        for day, roles in sorted(by_day.items())
+    )
