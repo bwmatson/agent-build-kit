@@ -2885,6 +2885,7 @@ class BuildPath:
                 e2e_state=e2e_state_of(state, r.store.get(unit.id).e2e_state),
                 classification=ReviewTier.parse(weighed.verdict.classification),
                 protected_paths=tuple(p for p in paths if is_protected(active(), unit.repo, p)),
+                protected_settings=r.protected_settings(tree, base, paths),
                 flags=tuple(step.flag for step in r.group_steps(unit) if step.flag),
                 open_required_findings=weighed.open_required,
                 final=weighed.approved,

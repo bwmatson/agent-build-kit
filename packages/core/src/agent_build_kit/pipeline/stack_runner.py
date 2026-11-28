@@ -1895,6 +1895,10 @@ class UnitRunner(BaseModel):
     # The paths the branch changes against a base, and the lines it changes there less
     # generated files; what a review round's verdict is recorded over.
     branch_diff: Callable[[Path, str], tuple[tuple[str, ...], int]] = lambda tree, base: ((), 0)
+    # The protected settings the branch changed among its paths, one description each.
+    protected_settings: Callable[[Path, str, tuple[str, ...]], tuple[str, ...]] = (
+        lambda tree, base, paths: ()
+    )
     # Called with `resolve=False` before a push: then a conflict is reported as
     # `Restacked.conflict` with the branch left where it was, and no agent runs.
     restack_onto: Callable[..., Restacked | None]

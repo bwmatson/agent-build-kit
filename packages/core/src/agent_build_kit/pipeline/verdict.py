@@ -86,6 +86,8 @@ class VerdictFacts(Frozen):
     kind: TestTier
     planned_estimate: ReviewTier | None = None
     protected_paths: tuple[str, ...] = ()
+    # One description per protected setting the branch changed, as `protected_settings` gives.
+    protected_settings: tuple[str, ...] = ()
     flags: tuple[str, ...] = ()
     red_first: GateResult = GateResult.MISSING
     # The build mode of each group the unit builds.
@@ -154,6 +156,10 @@ def compute_verdict(
     if facts.protected_paths:
         floors.append(
             (ReviewTier.FULL, f"it changed the protected path {facts.protected_paths[0]}")
+        )
+    if facts.protected_settings:
+        floors.append(
+            (ReviewTier.FULL, f"it changed the protected setting {facts.protected_settings[0]}")
         )
     for flag in facts.flags:
         if flag in _FLOORED_FLAGS:

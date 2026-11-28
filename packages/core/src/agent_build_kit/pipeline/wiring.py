@@ -196,7 +196,7 @@ from agent_build_kit.pipeline.restack import (
     resolved_move,
     retried_once,
 )
-from agent_build_kit.pipeline.review_paths import is_protected
+from agent_build_kit.pipeline.review_paths import is_protected, protected_settings
 from agent_build_kit.pipeline.run_log import (
     TEST_TRACE_VARIABLE,
     FailedTest,
@@ -6068,6 +6068,9 @@ def build_runner(
         base_moved=build_base_moved(store),
         base_tip=tip,
         branch_diff=branch_diff,
+        protected_settings=lambda tree, base, paths: protected_settings(
+            active(), unit.repo, tree, base, paths
+        ),
         restack_onto=build_restack_onto(store, repo=repo, turn=unit_repo_turn),
         move_empty_branch=build_move_empty_branch(turn=unit_repo_turn),
         run_unit_test=build_unit_test(
