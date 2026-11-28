@@ -1992,8 +1992,43 @@ class StoreConfig(Frozen):
     database: str | None = None
 
 
+class ThresholdRow(Frozen):
+    """One health threshold: the limit it breaches above and the correction it names."""
+
+    limit: float = Field(gt=0)
+    correction: str = Field(min_length=1)
+
+
+class HealthThresholds(Frozen):
+    plan_review_share: ThresholdRow = ThresholdRow(
+        limit=0.5, correction="outline far-out work (`docs/runbooks/change-maturity.md`)"
+    )
+    cost_per_trusted_change: ThresholdRow = ThresholdRow(
+        limit=0.25, correction="read the top changes by cost; split or outline them"
+    )
+    unit_failure_rate: ThresholdRow = ThresholdRow(
+        limit=0.25, correction="read the failures by cause; a recurring cause becomes a change"
+    )
+
+    @model_validator(mode="after")
+    def _shares_are_at_most_one(self) -> HealthThresholds:
+        for name in ("plan_review_share", "unit_failure_rate"):
+            if getattr(self, name).limit > 1:
+                raise ValueError(f"{name}: limit must be at most 1")
+        return self
+
+
+class HealthConfig(Frozen):
+    """The `health` block: when a change is trusted and the thresholds the report checks."""
+
+    trusted_days: int = Field(default=30, ge=1)
+    top: int = Field(default=3, ge=1)
+    thresholds: HealthThresholds = HealthThresholds()
+
+
 class WorkspaceConfig(Frozen):
     version: int = 1
+    health: HealthConfig = HealthConfig()
     store: StoreConfig = StoreConfig()
     deployment: DeploymentConfig = DeploymentConfig()
     planning: PlanningConfig = PlanningConfig()

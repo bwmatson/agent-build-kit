@@ -284,6 +284,99 @@ def test_a_negative_outline_lead_is_refused_naming_the_setting(tmp_path: Path) -
     assert "outline_lead_units" in refusal
 
 
+DEFAULT_LIMITS = {
+    "plan_review_share": 0.5,
+    "cost_per_trusted_change": 0.25,
+    "unit_failure_rate": 0.25,
+}
+
+
+def test_with_no_health_block_the_trusted_days_and_the_three_rows_hold_their_defaults(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "abk.yaml"
+    path.write_text("version: 1\n")
+
+    health = load(path).health
+
+    assert health.trusted_days == 30
+    assert health.top == 3
+    for row, limit in DEFAULT_LIMITS.items():
+        held = getattr(health.thresholds, row)
+        assert held.limit == limit
+        assert held.correction.strip()
+
+
+def test_a_row_that_is_given_replaces_its_own_default_and_leaves_the_others(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "abk.yaml"
+    path.write_text(
+        "health:\n  thresholds:\n    plan_review_share:\n"
+        "      limit: 0.4\n      correction: split the plan\n"
+    )
+
+    health = load(path).health
+    thresholds = health.thresholds
+
+    assert thresholds.plan_review_share.limit == 0.4
+    assert thresholds.plan_review_share.correction == "split the plan"
+    assert thresholds.cost_per_trusted_change.limit == 0.25
+    assert thresholds.unit_failure_rate.limit == 0.25
+    assert thresholds.cost_per_trusted_change.correction.strip()
+    assert thresholds.unit_failure_rate.correction.strip()
+    assert health.trusted_days == 30
+
+
+@pytest.mark.parametrize(
+    ("block", "setting"),
+    [
+        ("thresholds:\n    plan_revue_share: {limit: 0.5, correction: x}", "plan_revue_share"),
+        ("thresholds:\n    plan_review_share: {limit: 0.5}", "correction"),
+        ("thresholds:\n    plan_review_share: {correction: x}", "limit"),
+        ("thresholds:\n    plan_review_share: {limit: 0.5, correction: ''}", "correction"),
+        ("thresholds:\n    plan_review_share: {limit: 1.5, correction: x}", "limit"),
+        ("thresholds:\n    unit_failure_rate: {limit: 1.5, correction: x}", "limit"),
+        ("thresholds:\n    plan_review_share: {limit: 0, correction: x}", "limit"),
+        ("trusted_days: 0", "trusted_days"),
+        ("top: 0", "top"),
+    ],
+)
+def test_a_malformed_health_block_is_refused_naming_the_setting(
+    tmp_path: Path, block: str, setting: str
+) -> None:
+    path = tmp_path / "abk.yaml"
+    path.write_text(f"health:\n  {block}\n")
+
+    refusal = ""
+    try:
+        load(path)
+    except ConfigError as error:
+        refusal = str(error)
+
+    assert setting in refusal
+
+
+def test_the_cost_per_trusted_change_limit_may_exceed_one_but_not_be_zero(tmp_path: Path) -> None:
+    path = tmp_path / "abk.yaml"
+    path.write_text(
+        "health:\n  thresholds:\n    cost_per_trusted_change: {limit: 2.5, correction: x}\n"
+    )
+    zero = tmp_path / "zero.yaml"
+    zero.write_text(
+        "health:\n  thresholds:\n    cost_per_trusted_change: {limit: 0, correction: x}\n"
+    )
+
+    refusal = ""
+    try:
+        load(zero)
+    except ConfigError as error:
+        refusal = str(error)
+
+    assert load(path).health.thresholds.cost_per_trusted_change.limit == 2.5
+    assert "limit" in refusal
+
+
 def test_the_fix_rounds_for_failing_checks_default_to_three_and_may_be_unlimited() -> None:
     from agent_build_kit.config import LimitsConfig, WorkspaceConfig
 

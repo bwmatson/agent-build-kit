@@ -23,6 +23,7 @@ from agent_build_kit.pipeline.usage_report import (
     Report,
     ReportRow,
     build_report,
+    daily_spend_by_role,
     render_json,
     render_table,
     roll_up_change,
@@ -621,3 +622,48 @@ def test_a_line_appended_while_a_change_archives_is_not_lost(tmp_path: Path) -> 
     lines = ledger_lines(ledger)
     assert "sess-late" in [x.get("session_id") for x in lines]
     assert {x["kind"] for x in lines if x["unit"].startswith("add-marker")} == {"summary"}
+
+
+def test_the_daily_split_gives_each_day_the_spend_of_each_role_it_has_and_their_sum(
+    tmp_path: Path,
+) -> None:
+    summary = {
+        "kind": "summary",
+        "at": "2026-01-02T12:00:00+00:00",
+        "unit": "feature/1",
+        "change": "feature",
+        "repo": "app",
+        "measured": {"calls": 2, "cost_usd": 6.0},
+        "estimated": {"calls": 0},
+        "breakdown": [
+            {
+                "node": "plan_review",
+                "role": "plan",
+                "model": "model-a",
+                "measured": {"calls": 1, "cost_usd": 4.0},
+                "estimated": {"calls": 0},
+            },
+            {
+                "node": "implement",
+                "role": "implement",
+                "model": "model-a",
+                "measured": {"calls": 1, "cost_usd": 2.0},
+                "estimated": {"calls": 0},
+            },
+        ],
+    }
+    ledger = write_ledger(
+        tmp_path / "ledger.jsonl",
+        agent_line(node="plan_review", role="plan", session_id="s1", cost_usd=3.0),
+        agent_line(node="implement", role="implement", session_id="s2", cost_usd=5.0),
+        agent_line(node="plan_review", round=1, role="plan", session_id="s3", cost_usd=None),
+        summary,
+    )
+
+    days = {d.day: d for d in daily_spend_by_role(ledger, UNITS)}
+
+    assert sorted(days) == ["2026-01-01", "2026-01-02"]
+    assert days["2026-01-01"].by_role == pytest.approx({"plan": 3.0, "implement": 5.0})
+    assert days["2026-01-01"].total == pytest.approx(8.0)
+    assert days["2026-01-02"].by_role == pytest.approx({"plan": 4.0, "implement": 2.0})
+    assert days["2026-01-02"].total == pytest.approx(6.0)

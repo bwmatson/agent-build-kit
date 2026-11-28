@@ -1412,3 +1412,26 @@ def roll_up_change(ledger: Path, change: str, units: Sequence[StoredUnit] = ()) 
                 kept.append(line)
         kept += [json.dumps(s) for s in summaries]
         atomic_write_text(ledger, "".join(f"{line}\n" for line in kept))
+
+
+class DaySpend(Frozen):
+    """One UTC day's spend in USD, by role, and over all roles."""
+
+    day: str
+    by_role: dict[str, float]
+    total: float
+
+
+def daily_spend_by_role(ledger: Path, units: Sequence[StoredUnit]) -> tuple[DaySpend, ...]:
+    """Each day's spend by role, from live calls and archived breakdowns, oldest day first."""
+    by_day: dict[str, dict[str, float]] = {}
+    for entry in _all_entries(ledger, list(units)):
+        cost = entry.row.measured.cost_usd
+        if entry.at is None or cost is None:
+            continue
+        roles = by_day.setdefault(_group_key(entry, "day", {}), {})
+        roles[entry.role] = roles.get(entry.role, 0.0) + cost
+    return tuple(
+        DaySpend(day=day, by_role=roles, total=sum(roles.values()))
+        for day, roles in sorted(by_day.items())
+    )
