@@ -12,6 +12,7 @@ from types import ModuleType
 from agent_build_kit.forges import github
 from agent_build_kit.init import detect
 from agent_build_kit.pipeline import own_tests, ui_review
+from agent_build_kit.quality import added_lines
 from agent_build_kit.serve import review
 
 ORIGIN = r"^(?:[\w.@-]+:(?!//)|[a-z+]+://[^/]+/)(?P<owner>[\w.-]+)/(?P<name>[\w.-]+?)(?:\.git)?/?$"
@@ -66,7 +67,7 @@ def test_the_host_address_pattern_is_defined_once_and_reads_every_remote() -> No
 
 
 def test_the_diff_hunk_pattern_is_defined_once_and_reads_every_hunk_head() -> None:
-    modules = [own_tests, ui_review, review]
+    modules = [own_tests, ui_review, review, added_lines]
     held = holders(HUNK, modules)
 
     assert sum(defined for _, defined in held.values()) == 1

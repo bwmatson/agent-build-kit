@@ -8,7 +8,7 @@ from collections.abc import Mapping
 from pathlib import Path
 
 from agent_build_kit.model import Frozen
-from agent_build_kit.quality.added_lines import AddedFile
+from agent_build_kit.quality.added_lines import AddedFile, git_lines
 
 OPENERS = ("#", "//", "/*")
 WORD = re.compile(r"[A-Za-z]{3,}")
@@ -79,7 +79,7 @@ def python_comments(text: str) -> dict[int, str]:
                 comments[token.start[0]] = token.string
     except (tokenize.TokenError, SyntaxError):
         comments = {}
-        for number, line in enumerate(text.splitlines(), 1):
+        for number, line in enumerate(git_lines(text), 1):
             at = line.find("#")
             if at >= 0:
                 comments[number] = line[at:]
@@ -89,10 +89,10 @@ def python_comments(text: str) -> dict[int, str]:
 def scan_file(root: Path, file: AddedFile, moved: Counter[str]) -> list[Suppression]:
     """The bare suppressions on the added lines of one file that are not a moved line."""
     try:
-        text = (root / file.path).read_text(encoding="utf-8", errors="replace")
+        text = (root / file.path).read_bytes().decode("utf-8", errors="replace")
     except FileNotFoundError:
         return []
-    lines = text.splitlines()
+    lines = git_lines(text)
     comments = python_comments(text) if file.path.endswith(".py") else None
     found = []
     for number in sorted(file.added):

@@ -375,6 +375,14 @@ def dated_env(when: str) -> dict[str, str]:
     return {**os.environ, "GIT_AUTHOR_DATE": when, "GIT_COMMITTER_DATE": when}
 
 
+def write_files(repo: Path, files: dict[str, str]) -> None:
+    """Write each file (path to content) under `repo`, making its folders, and commit nothing."""
+    for name, content in files.items():
+        path = repo / name
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(content)
+
+
 def commit_files(
     repo: Path,
     message: str,
@@ -389,10 +397,7 @@ def commit_files(
     for old, new in (rename or {}).items():
         (repo / new).parent.mkdir(parents=True, exist_ok=True)
         git(repo, "mv", old, new)
-    for name, content in (files or {}).items():
-        path = repo / name
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(content)
+    write_files(repo, files or {})
     git(repo, "add", "-A")
     if when is None:
         git(repo, "commit", "-qm", message)

@@ -4,9 +4,10 @@ from pathlib import Path
 
 import pytest
 
+from agent_build_kit.pipeline.shell import git
 from agent_build_kit.quality.added_lines import AddedFile, read_added_lines
 from agent_build_kit.quality.suppressions import find_suppressions
-from tests.support.git_checkout import commit_files, fork_unit_branch, repo_with_main, write_files
+from tests.factories import commit_files, init_repo, write_files
 
 # (file name, the added line, whether a finding is expected)
 MARKER_ROWS = [
@@ -58,18 +59,48 @@ def test_an_added_marker_is_a_finding_exactly_when_its_line_has_no_reason(
     assert all(finding.marker and finding.marker in line for finding in found)
 
 
+@pytest.mark.parametrize(
+    ("name", "text"),
+    [
+        ("a.ts", "a\u2028b\n// @ts-ignore\n"),
+        ("a.ts", "a\x0cb\n// @ts-ignore\n"),
+        ("a.py", "a = 1\x0c\nb = 2  # noqa\n"),
+        ("a.py", "a = 1\x1c\nb = 2  # noqa\n"),
+    ],
+)
+def test_a_finding_is_on_the_line_git_numbers_even_after_a_line_break_git_ignores(
+    tmp_path: Path, name: str, text: str
+) -> None:
+    write_files(tmp_path, {name: text})
+    added = {name: AddedFile(path=name, added=frozenset({2}), is_new=True)}
+
+    found = find_suppressions(tmp_path, added)
+
+    assert [(finding.path, finding.line) for finding in found] == [(name, 2)]
+
+
 def suppression_diff(tmp_path: Path) -> Path:
-    """A unit that moves a bare suppression, re-indents one, and adds two new bare ones."""
-    repo = repo_with_main(
-        tmp_path / "repo",
-        {"one.py": "x = 1  # type: ignore\n", "mod.py": "if a:\n    z = 3  # noqa\n"},
-    )
-    fork_unit_branch(repo)
+    """A unit that moves a bare suppression, re-indents one, moves one out of a deleted file,
+    and adds two new bare ones."""
+    repo = init_repo(tmp_path / "repo")
     commit_files(
         repo,
+        "base",
+        {
+            "one.py": "x = 1  # type: ignore\n",
+            "mod.py": "if a:\n    z = 3  # noqa\n",
+            "big.py": "v = g()  # type: ignore\n",
+        },
+    )
+    git(repo, "switch", "-q", "-c", "unit")
+    (repo / "big.py").unlink()
+    commit_files(
+        repo,
+        "unit",
         {
             "one.py": "x = 1\n",
             "two.py": "import os\nx = 1  # type: ignore\n",
+            "part.py": "import os\nv = g()  # type: ignore\n",
             "mod.py": "if a:\n    if b:\n        z = 3  # noqa\n",
             "fresh.py": 's = "# noqa"\nw = 1  # noqa\n',
         },

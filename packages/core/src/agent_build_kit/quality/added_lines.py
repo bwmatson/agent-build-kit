@@ -5,10 +5,20 @@ import stat
 from pathlib import Path
 
 from agent_build_kit.model import Frozen
+from agent_build_kit.pipeline.own_tests import HUNK
 from agent_build_kit.pipeline.shell import git
 
 BINARY_PROBE_BYTES = 8192
-HUNK = re.compile(r"^@@ -\d+(?:,\d+)? \+(\d+)(?:,\d+)? @@")
+ESCAPE = re.compile(rb"\\([0-7]{3}|.)", re.DOTALL)
+SIMPLE_ESCAPES = {
+    b"a": b"\a",
+    b"b": b"\b",
+    b"f": b"\f",
+    b"n": b"\n",
+    b"r": b"\r",
+    b"t": b"\t",
+    b"v": b"\v",
+}
 DIFF_OPTIONS = (
     "-c",
     "core.quotepath=off",
@@ -17,6 +27,8 @@ DIFF_OPTIONS = (
     "--no-ext-diff",
     "--no-textconv",
     "--no-color",
+    "--src-prefix=a/",
+    "--dst-prefix=b/",
     "-M",
     "-U0",
 )
@@ -27,13 +39,15 @@ class AddedLinesError(Exception):
 
 
 class AddedFile(Frozen):
-    """One file's part of a unit's diff."""
+    """One file's part of a unit's diff. A deleted file is listed with no added lines and its
+    removed lines, so a line moved out of it is known to be moved; a judge skips it."""
 
     path: str
     added: frozenset[int]
     is_new: bool
     renamed_from: str | None = None
     removed: tuple[str, ...] = ()
+    deleted: bool = False
 
 
 class FileDraft:
@@ -41,6 +55,7 @@ class FileDraft:
 
     def __init__(self) -> None:
         self.path: str | None = None
+        self.old_path: str | None = None
         self.is_new = False
         self.deleted = False
         self.renamed_from: str | None = None
@@ -50,10 +65,12 @@ class FileDraft:
         self.in_hunk = False
 
     def finish(self) -> AddedFile | None:
-        if self.path is None or self.deleted:
+        path = self.old_path if self.deleted else self.path
+        if path is None:
             return None
         return AddedFile(
-            path=self.path,
+            path=path,
+            deleted=self.deleted,
             added=frozenset(self.added),
             is_new=self.is_new,
             renamed_from=self.renamed_from,
@@ -78,8 +95,24 @@ def unquote(name: str) -> str:
     """A path as git prints it: C-style quoted when it holds a special character."""
     if not name.startswith('"'):
         return name
-    body = name[1:-1].encode("latin-1", errors="backslashreplace")
-    return body.decode("unicode_escape").encode("latin-1").decode("utf-8", errors="replace")
+    return ESCAPE.sub(unescaped, name[1:-1].encode("utf-8")).decode("utf-8", errors="replace")
+
+
+def unescaped(found: re.Match[bytes]) -> bytes:
+    """The byte one backslash escape of a quoted path stands for."""
+    code = found.group(1)
+    if len(code) == 3 and code.isdigit():
+        return bytes([int(code, 8)])
+    return SIMPLE_ESCAPES.get(code, code)
+
+
+def git_lines(text: str) -> list[str]:
+    """The lines of a text as git numbers them: split at `\\n` only, a final newline ending the
+    last line and a `\\r` before a newline not part of it."""
+    pieces = text.split("\n")
+    if pieces and pieces[-1] == "":
+        pieces.pop()
+    return [piece.removesuffix("\r") for piece in pieces]
 
 
 def side_path(text: str) -> str | None:
@@ -98,6 +131,8 @@ def apply_header(draft: FileDraft, line: str) -> None:
         draft.renamed_from = unquote(line[len("rename from ") :])
     elif line.startswith("rename to "):
         draft.path = unquote(line[len("rename to ") :])
+    elif line.startswith("--- "):
+        draft.old_path = side_path(line[4:])
     elif line.startswith("+++ "):
         draft.path = side_path(line[4:]) or draft.path
 
@@ -122,7 +157,7 @@ def parse_diff(text: str) -> dict[str, AddedFile]:
             continue
         elif hunk:
             drafts[-1].in_hunk = True
-            drafts[-1].next_line = int(hunk.group(1))
+            drafts[-1].next_line = int(hunk.group(3))
         elif drafts[-1].in_hunk:
             apply_body(drafts[-1], line)
         else:
@@ -142,7 +177,7 @@ def read_untracked(root: Path, name: str) -> AddedFile | None:
         raise AddedLinesError(f"read untracked file {name}: {error}") from error
     if b"\0" in data[:BINARY_PROBE_BYTES]:
         return None
-    count = len(data.decode("utf-8", errors="replace").splitlines())
+    count = len(git_lines(data.decode("utf-8", errors="replace")))
     return AddedFile(path=name, added=frozenset(range(1, count + 1)), is_new=True)
 
 
