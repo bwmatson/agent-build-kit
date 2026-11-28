@@ -13,6 +13,7 @@ from typing import TYPE_CHECKING, NamedTuple
 from agent_build_kit import path_patterns
 from agent_build_kit.model import Frozen
 from agent_build_kit.pipeline.git_output import transport_failure
+from agent_build_kit.profiles import environment_words
 from agent_build_kit.redaction import redact_text
 from agent_build_kit.runtimes.network import network_failure
 
@@ -74,11 +75,7 @@ class ParkedSign(NamedTuple):
 Reading = tuple[str | None, str]  # the subject and the line that showed the sign
 Reader = Callable[[str], Reading | None]
 
-_FEED = re.compile(
-    r"npm (?:ERR!|error) code (?:E401|E403|ENOTFOUND|EAI_AGAIN|ETIMEDOUT|ECONNRESET|ECONNREFUSED)"
-    r"|ERR_PNPM_(?:META_)?FETCH\w*|NU1301"
-    r"|Failed to (?:fetch|download)\b[^\n]*https?://|Could not fetch URL https?://"
-)
+_FEED = re.compile(environment_words.FEED_FAILURE)
 _URL_HOST = re.compile(r"https?://(?:[^/@\s]*@)?([^/\s:`'\"<>]+)")
 _CREDENTIAL = (
     re.compile(r"\b([A-Z][A-Z0-9_]{2,}) is not set"),
@@ -87,10 +84,6 @@ _CREDENTIAL = (
     ),
 )
 _API = re.compile(r"Something went wrong while executing your query|host answered 5\d\d")
-MACHINE_TOOLS = (
-    "uv", "uvx", "node", "npm", "npx", "pnpm", "yarn", "corepack",
-    "dotnet", "git", "gh", "az", "docker", "python3",
-)  # fmt: skip
 
 
 def _first_line(output: str, found: Callable[[str], bool]) -> str:
@@ -141,7 +134,7 @@ def _credential(output: str) -> Reading | None:
 
 
 def _missing_tool(tools: Sequence[str]) -> Reader:
-    names = "|".join(re.escape(name) for name in (*MACHINE_TOOLS, *tools))
+    names = "|".join(re.escape(name) for name in (*environment_words.MACHINE_TOOLS, *tools))
     pattern = re.compile(
         rf"(?:ba|z|da)?sh: (?:line )?\d+: ({names}): (?:command )?not found"
         rf"|No such file or directory: '({names})'"
@@ -176,14 +169,7 @@ _TABLE = (
 )
 _CONFIRMED = {row.sign for row in _TABLE if row.confirmed}
 
-_FEED_NAMES = frozenset(
-    name.lower()
-    for name in (
-        "package-lock.json", "pnpm-lock.yaml", "yarn.lock", "uv.lock", "packages.lock.json",
-        ".npmrc", ".yarnrc", ".yarnrc.yml", "global.json", "uv.toml", "nuget.config",
-        "pip.conf", "Directory.Packages.props",
-    )
-)  # fmt: skip
+_FEED_NAMES = frozenset(name.lower() for name in environment_words.FEED_INPUT_NAMES)
 _TOOL_NAMES = frozenset(
     (".tool-versions", "mise.toml", ".mise.toml", ".nvmrc", ".node-version", ".python-version",
      "global.json")
