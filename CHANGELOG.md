@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- A `quality` block in `abk.yaml` sets the bars that code a unit adds or changes is held to
+  (cognitive complexity, nesting, parameters, function and file length, boolean operators, clone
+  length) and whether they are checked. A repo's own block may only tighten the workspace's bars;
+  a looser value fails the load, naming the key and both values.
+
 - A GitHub workflow run that failed without starting a job, such as one whose workflow file is
   invalid, is now a failed check, so the pull request is no longer left waiting on checks that
   never come. A failure to list the runs is logged and does not fail the read.

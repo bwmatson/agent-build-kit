@@ -1549,6 +1549,43 @@ class RepoReviewConfig(Frozen):
     ceilings: RepoCeilingsConfig = RepoCeilingsConfig()
 
 
+class QualityConfig(Frozen):
+    """The quality bars a unit's added or changed code is held to, and whether they are checked."""
+
+    mode: Literal["changed", "off"] = "changed"
+    cognitive_complexity: int = Field(default=10, ge=1)
+    nesting: int = Field(default=3, ge=1)
+    parameters: int = Field(default=4, ge=1)
+    function_lines: int = Field(default=40, ge=1)
+    boolean_operators: int = Field(default=3, ge=1)
+    file_lines: int = Field(default=300, ge=1)
+    clone_tokens: int = Field(default=50, ge=1)
+    suppression_reason: bool = True
+
+
+class RepoQualityConfig(Frozen):
+    """A repo's own quality bars; a key left unset follows the workspace's."""
+
+    mode: Literal["changed", "off"] | None = None
+    cognitive_complexity: int | None = Field(default=None, ge=1)
+    nesting: int | None = Field(default=None, ge=1)
+    parameters: int | None = Field(default=None, ge=1)
+    function_lines: int | None = Field(default=None, ge=1)
+    boolean_operators: int | None = Field(default=None, ge=1)
+    file_lines: int | None = Field(default=None, ge=1)
+    clone_tokens: int | None = Field(default=None, ge=1)
+    suppression_reason: bool | None = None
+
+
+# The numeric bars, read from the model so a bar added to it is held to the tighten-only rule.
+QUALITY_BARS = tuple(name for name, f in QualityConfig.model_fields.items() if f.annotation is int)
+
+
+def effective_quality(workspace: WorkspaceConfig, repo: RepoConfig) -> QualityConfig:
+    """The quality bars in effect for `repo`: the workspace's with the repo's set keys over them."""
+    return workspace.quality.model_copy(update=repo.quality.model_dump(exclude_none=True))
+
+
 class RepoWorkersConfig(Frozen):
     """A repo's own worker settings: none now, since every unit runs as a worker."""
 
@@ -1639,6 +1676,7 @@ class RepoConfig(Frozen):
     # How this repo's environment is kept current in a unit's worktree.
     environment: EnvironmentConfig | None = None
     review: RepoReviewConfig = RepoReviewConfig()
+    quality: RepoQualityConfig = RepoQualityConfig()
     sandbox: RepoSandboxConfig = RepoSandboxConfig()
     workers: RepoWorkersConfig = RepoWorkersConfig()
 
@@ -2062,6 +2100,7 @@ class WorkspaceConfig(Frozen):
     # latest session. A role the mapping does not name is off.
     session_reuse: dict[str, bool] = {"build": True, "review": False}
     review: ReviewConfig = ReviewConfig()
+    quality: QualityConfig = QualityConfig()
     # Off by default: no step runs confined until an installation turns it on.
     sandbox: SandboxConfig = SandboxConfig()
     workers: WorkersConfig = WorkersConfig()
@@ -2204,6 +2243,24 @@ class WorkspaceConfig(Frozen):
                         raise ValueError(
                             f"{where}: {pattern!r}: the key path {key!r} has an empty segment"
                         )
+        return self
+
+    @model_validator(mode="after")
+    def _repo_quality_bars_only_tighten(self) -> WorkspaceConfig:
+        """A repo's bar may not be looser than the workspace's; the message names the key and
+        both values."""
+        for name, repo in self.repos.items():
+            for key in QUALITY_BARS:
+                own, shared = getattr(repo.quality, key), getattr(self.quality, key)
+                if own is not None and own > shared:
+                    raise ValueError(
+                        f"repos.{name}.quality.{key}: {own} is looser than the workspace's {shared}"
+                    )
+            if repo.quality.suppression_reason is False and self.quality.suppression_reason:
+                raise ValueError(
+                    f"repos.{name}.quality.suppression_reason: false is looser than the "
+                    "workspace's true"
+                )
         return self
 
     @model_validator(mode="after")
