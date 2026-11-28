@@ -3,14 +3,30 @@
 from __future__ import annotations
 
 import re
+from datetime import datetime
 from pathlib import Path
 
 from agent_build_kit.forges.base import RepoId
 from agent_build_kit.pipeline.shell import git
 
 
+def reverts_pull_request(
+    checkout: Path, *, trunk: str, repo: RepoId, pr: int, since: datetime, until: datetime
+) -> bool | None:
+    """Whether the trunk, from `since` to `until`, reverts the pull request `pr`, found by its
+    merge commit's subject or by the line `Reverts <owner>/<repo>#<pr>`; None when the
+    checkout could not be searched."""
+    raise NotImplementedError
+
+
 def reverts_merge(
-    checkout: Path, *, trunk: str, merge_commit: str, repo: RepoId, pr: int
+    checkout: Path,
+    *,
+    trunk: str,
+    merge_commit: str,
+    repo: RepoId,
+    pr: int,
+    until: datetime | None = None,
 ) -> bool | None:
     """Whether a commit reachable from `trunk`, after `merge_commit`, carries a message line
     `This reverts commit <full sha>` naming it, or `Reverts <owner>/<repo>#<pr>` naming the

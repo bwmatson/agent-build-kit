@@ -5,13 +5,14 @@ merge commit; nothing here talks to a host."""
 
 from __future__ import annotations
 
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import pytest
 
 from agent_build_kit.forges.base import RepoId
 from agent_build_kit.pipeline.review_outcome import with_outcome
-from agent_build_kit.pipeline.review_revert import reverts_merge
+from agent_build_kit.pipeline.review_revert import reverts_merge, reverts_pull_request
 from agent_build_kit.pipeline.units import UnitState
 from tests.factories import commit, commit_files, git, init_repo, stored_unit
 from tests.forges.stand_in import StandInForge
@@ -153,3 +154,111 @@ def test_a_merge_commit_the_checkout_does_not_hold_is_unchecked_not_clear_of_rev
     assert reverts_merge(app, trunk="main", merge_commit=absent, repo=REPO, pr=PR) is None
     assert record["outcome"] == "clean"
     assert record["revert_checked"] is False
+
+
+MERGED_AT = datetime(2026, 9, 1, 12, tzinfo=UTC)
+
+
+def commit_on(app: Path, monkeypatch: pytest.MonkeyPatch, when: datetime, message: str) -> str:
+    """A commit whose author and committer dates are `when`."""
+    monkeypatch.setenv("GIT_COMMITTER_DATE", when.isoformat())
+    monkeypatch.setenv("GIT_AUTHOR_DATE", when.isoformat())
+    commit_files(app, message, {f"{when.timestamp()}-{len(message)}.txt": message})
+    return git(app, "rev-parse", "HEAD")
+
+
+@pytest.fixture
+def dated(app: Path, monkeypatch: pytest.MonkeyPatch):
+    """A function making a commit `days` days after the merge, on top of a dated base."""
+    commit_on(app, monkeypatch, MERGED_AT - timedelta(days=10), "dated base")
+
+    def make(days: float, message: str) -> str:
+        return commit_on(app, monkeypatch, MERGED_AT + timedelta(days=days), message)
+
+    return make
+
+
+def test_a_revert_dated_after_the_bound_is_found_only_without_the_bound(app: Path, dated) -> None:
+    merge = dated(0, "feature")
+    dated(40, f"Revert feature\n\nThis reverts commit {merge}.")
+    bound = MERGED_AT + timedelta(days=30)
+
+    bounded = reverts_merge(app, trunk="main", merge_commit=merge, repo=REPO, pr=PR, until=bound)
+    unbounded = reverts_merge(app, trunk="main", merge_commit=merge, repo=REPO, pr=PR)
+
+    assert bounded is False
+    assert unbounded is True
+
+
+def revert_search(app: Path, *, until_days: float = 30) -> bool | None:
+    return reverts_pull_request(
+        app,
+        trunk="main",
+        repo=REPO,
+        pr=PR,
+        since=MERGED_AT - timedelta(hours=1),
+        until=MERGED_AT + timedelta(days=until_days),
+    )
+
+
+def test_the_pull_request_search_finds_a_revert_inside_the_bound_not_one_after_it(
+    app: Path, dated
+) -> None:
+    dated(0, f"feature (#{PR})")
+    dated(4, f"Revert feature\n\nReverts example/app#{PR}")
+    dated(40, f"Revert feature again\n\nReverts example/app#{PR}")
+
+    assert revert_search(app) is True
+    assert revert_search(app, until_days=3) is False
+
+
+@pytest.mark.parametrize(
+    "line",
+    [
+        pytest.param("Reverts example/app#43", id="another number"),
+        pytest.param("Reverts example/platform#42", id="another repo"),
+    ],
+)
+def test_the_pull_request_search_finds_nothing_for_a_revert_of_another_pull_request(
+    app: Path, dated, line: str
+) -> None:
+    dated(0, f"feature (#{PR})")
+    dated(4, f"Revert other\n\n{line}")
+
+    assert revert_search(app) is False
+
+
+def test_the_pull_request_search_finds_nothing_when_the_only_revert_is_after_the_bound(
+    app: Path, dated
+) -> None:
+    dated(0, f"feature (#{PR})")
+    dated(40, f"Revert feature\n\nReverts example/app#{PR}")
+
+    assert revert_search(app) is False
+
+
+@pytest.mark.parametrize(
+    "subject", [f"feature (#{PR})", f"Merged PR {PR}: feature"], ids=["squash", "azure"]
+)
+def test_the_pull_request_search_identifies_the_merge_commit_by_its_subject(
+    app: Path, dated, subject: str
+) -> None:
+    merge = dated(0, subject)
+    dated(4, f"Revert feature\n\nThis reverts commit {merge}.")
+
+    assert revert_search(app) is True
+
+
+def test_the_pull_request_search_does_not_see_a_plain_revert_of_a_merge_it_cannot_identify(
+    app: Path, dated
+) -> None:
+    merge = dated(0, "feature, merged some other way")
+    dated(4, f"Revert feature\n\nThis reverts commit {merge}.")
+
+    assert revert_search(app) is False
+
+
+def test_the_pull_request_search_answers_none_when_the_checkout_cannot_be_searched(
+    tmp_path: Path,
+) -> None:
+    assert revert_search(tmp_path) is None  # a folder that is no repository
