@@ -374,6 +374,13 @@ repos:                        # ordered; a task group's [repo] tag is a key here
     environment: null         # the same shape as the top-level `environment`, with paths
                               # relative to the repo; run in a unit's worktree.
                               # `abk doctor` warns for a repo without one
+    environment_signs:        # what this repo adds to the environment signs; every key defaults to none
+      distrusted: {}          # {live_credential: [ci/live.yml]}: sign (code_host_api,
+                              # package_feed, live_credential, missing_tool) to repo-relative
+                              # patterns; a branch changing one keeps that failure the unit's
+      package_feed_probe: null  # an argv run in the repo's checkout, exit 0 when the feed
+                              # answers; not empty
+      tools: []               # bare executable names a missing-tool failure also names
     agent_commands: null      # commands the build prompts tell an agent it may run, each
                               # {purpose: test|lint|format|check, command: "uv run pytest -q",
                               # scope: whole|file|node-id|affected}; `{path}` in the command exactly

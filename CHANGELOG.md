@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- A repository can set `environment_signs` in `abk.yaml`: `distrusted` (path patterns per sign
+  whose changes make a failure the unit's own), `package_feed_probe` (an argv that exits 0 when
+  the package feed answers) and `tools` (executables a missing-tool failure also names). Each
+  defaults to none.
+
 - A GitHub workflow run that failed without starting a job, such as one whose workflow file is
   invalid, is now a failed check, so the pull request is no longer left waiting on checks that
   never come. A failure to list the runs is logged and does not fail the read.

@@ -12,7 +12,6 @@ from __future__ import annotations
 
 import json
 import logging
-import re
 import shlex
 import shutil
 import subprocess
@@ -39,6 +38,7 @@ from agent_build_kit.pipeline.claude_stream import (
     started_model,
     stream_run,
 )
+from agent_build_kit.pipeline.environment_signs import LOGIN_REJECTION
 from agent_build_kit.pipeline.usage_guard import (
     USAGE_URL,
     UsageReading,
@@ -611,19 +611,12 @@ def login_command(account: claude_account.Account) -> str:
     )
 
 
-_LOGIN_REJECTION = re.compile(
-    r"OAuth access token has expired|Failed to authenticate\b[^\n]*\b401\b[^\n]*\bOAuth\b"
-    r"|Not logged in\b[^\n]*\bPlease run /login\b",
-    re.IGNORECASE,
-)
-
-
 def login_rejection(said: str) -> bool:
     """Whether the CLI's words say the account's login was rejected: an expired OAuth access
     token, an authentication failure with a 401 about the OAuth login, or the notice that no one
     is logged in (`Not logged in · Please run /login`). A 401 about anything
     else (a wrong API key) is not."""
-    return bool(_LOGIN_REJECTION.search(said))
+    return bool(LOGIN_REJECTION.search(said))
 
 
 def rejected_login_line(account: claude_account.Account) -> str:

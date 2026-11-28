@@ -327,6 +327,17 @@ environment:                    # how the pipeline's own environment is kept
 # `check`. With inputs equal to the base branch's a failure is the environment's
 # (cause `environment`); a failing `sync` or `check` after the unit changed an
 # input is the unit's, and its output is the fix round's feedback.
+# A repository entry also takes `environment_signs`, what it adds to the signs that
+# tell an environment failure from a unit's (all keys default to none):
+#   environment_signs:
+#     distrusted:                 # sign (code_host_api, package_feed, live_credential or
+#       live_credential: [ci/live.yml]  # missing_tool) to path patterns relative to the
+#                                 # repo; a branch changing one keeps that sign's failure
+#                                 # the unit's, with no probe run
+#     package_feed_probe: [feed-check]  # an argv run in the repo's checkout; exit 0 means
+#                                 # the package feed answers. Not empty
+#     tools: [terraform]          # bare executable names (no path separator or space)
+#                                 # that a missing-tool failure also names
 
 context:
   compaction_drop_share: 0.3    # a fall in the context's fill between two requests

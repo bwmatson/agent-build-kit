@@ -116,6 +116,45 @@ class EnvironmentConfig(Frozen):
         return command
 
 
+SignName = Literal["code_host_api", "package_feed", "live_credential", "missing_tool"]
+
+
+class EnvironmentSignsConfig(Frozen):
+    """What a repository adds to the environment signs: the inputs that make a sign's probe
+    untrustworthy, the feed probe's argv and the tools `missing_tool` also reads."""
+
+    distrusted: dict[SignName, list[str]] = {}
+    package_feed_probe: list[str] | None = None
+    tools: list[str] = []
+
+    @field_validator("distrusted")
+    @classmethod
+    def _distrusted_patterns(cls, value: dict[SignName, list[str]]) -> dict[SignName, list[str]]:
+        for patterns in value.values():
+            path_patterns.validate(patterns)
+        return value
+
+    @field_validator("package_feed_probe")
+    @classmethod
+    def _probe_not_empty(cls, argv: list[str] | None) -> list[str] | None:
+        if argv is not None and not (argv and argv[0].strip()):
+            raise ValueError("package_feed_probe must be a non-empty argv")
+        return argv
+
+    @field_validator("tools")
+    @classmethod
+    def _bare_tool_names(cls, names: list[str]) -> list[str]:
+        for name in names:
+            if (
+                not name
+                or any(char in name for char in "/\\")
+                or name != name.strip()
+                or " " in name
+            ):
+                raise ValueError(f"tools lists {name!r}, which is not a bare executable name")
+        return names
+
+
 class DraftedEnvironment(EnvironmentConfig):
     """A section `abk init` drafted, with the comment it writes above it. The note is
     not configuration: it is never dumped and is lost on loading the file back."""
@@ -1638,6 +1677,8 @@ class RepoConfig(Frozen):
     changelog: str | None = "CHANGELOG.md"
     # How this repo's environment is kept current in a unit's worktree.
     environment: EnvironmentConfig | None = None
+    # What the environment signs add for this repo (pipeline/environment_signs.py).
+    environment_signs: EnvironmentSignsConfig = EnvironmentSignsConfig()
     review: RepoReviewConfig = RepoReviewConfig()
     sandbox: RepoSandboxConfig = RepoSandboxConfig()
     workers: RepoWorkersConfig = RepoWorkersConfig()
