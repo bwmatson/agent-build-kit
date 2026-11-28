@@ -15,7 +15,7 @@ from typing import Any
 from agent_build_kit.pipeline.commit_order import branch_commit_trailers, branch_subjects
 from agent_build_kit.pipeline.rewrite_guard import run_guarded_step
 from agent_build_kit.pipeline.stack_runner import RunOutcome
-from agent_build_kit.pipeline.unit_store import UnitStore
+from agent_build_kit.pipeline.unit_store import RewriteSource, StoredRewriteRequest, UnitStore
 from agent_build_kit.pipeline.units import Member
 from agent_build_kit.pipeline.wiring import branch_commits, build_commit, build_commit_built
 from packages.worker.tests.graph.test_build_path import build
@@ -224,10 +224,21 @@ def subjects(repo: Path) -> list[str]:
     return [message.split("\n", 1)[0] for message in messages(repo)]
 
 
+def ask_for_the_shape_already(store: UnitStore, unit_id: str = UNIT) -> None:
+    """The unit's history holds a rewrite the commit-shape check asked for since its last
+    requeue by a person, and a step used it: a shape stop is then final, as it was before the
+    check asked for its own rewrite."""
+    store.set_rewrite_request(
+        unit_id, StoredRewriteRequest(text="rewrite the group", source=RewriteSource.COMMIT_SHAPE)
+    )
+    store.clear_rewrite_request(unit_id)
+
+
 def prepared(
     tmp_path: Path,
     *,
     seeded: list[str] | None = None,
+    asked: bool = False,
     groups: Mapping[str, Groups] | None = None,
     carries: tuple[Member, ...] = (),
     setting: bool = True,
@@ -246,7 +257,8 @@ def prepared(
     `integration` and `tests_only` are the numbers of its own change's groups headed
     `[e2e-test]`, headed `[integration-test]` and holding only tests. `modes` is the stored
     build mode of groups, keyed `<change>/<number>`. `meanwhile` acts on the branch before the
-    build starts, and `guidance` is a person's note saved on the unit before it does."""
+    build starts, and `guidance` is a person's note saved on the unit before it does. `asked`
+    seeds the history of a unit the commit-shape check has already asked once."""
     activate_with(builders={"stubbed_tdd_commits": setting})
     tasks = groups or {"add-marker": titled(1, 2, 3)}
     for change, listed in tasks.items():
@@ -273,6 +285,8 @@ def prepared(
     )
     if guidance:
         store.set_guidance(UNIT, guidance)
+    if asked:
+        ask_for_the_shape_already(store)
     return OnBranch(store, **options), repo
 
 

@@ -30,7 +30,13 @@ from agent_build_kit.forges.base import fit_description
 from agent_build_kit.installation import changes_dir_under
 from agent_build_kit.model import TestTier
 from agent_build_kit.pipeline.group_mode import GroupMode
-from agent_build_kit.pipeline.unit_store import BriefEntry, Description, E2eState, StoredUnit
+from agent_build_kit.pipeline.unit_store import (
+    BriefEntry,
+    Description,
+    E2eState,
+    RewriteSource,
+    StoredUnit,
+)
 from agent_build_kit.pipeline.units import (
     MERGED,
     Member,
@@ -577,11 +583,16 @@ a unit review classified `auto` and policy allowed; a person merges any other, a
     if restack_note:
         sections.append(_fixed("restack", f"## What moved underneath this\n\n{restack_note}"))
     if rewrites := [e for e in unit.history if e.get("event") == "history_rewritten"]:
+        why = (
+            f"the unit's commits were rewritten because the {RewriteSource.COMMIT_SHAPE.value} "
+            "asked for it"
+            if rewrites[-1].get("source") == RewriteSource.COMMIT_SHAPE.value
+            else rewrites[-1].get("note", "")
+        )
         sections.append(
             _fixed(
                 "rewritten",
-                f"**History rewritten:** {rewrites[-1].get('note', '')}. Commits read in an "
-                "earlier round were replaced.",
+                f"**History rewritten:** {why}. Commits read in an earlier round were replaced.",
             )
         )
     if open_points:

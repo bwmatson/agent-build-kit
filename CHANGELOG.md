@@ -131,7 +131,9 @@
   incomplete group once the commits are rewritten. A rewrite step that rewrites nothing is
   returned to the agent, and the branch goes back to where it began once the returns are
   spent. The head before a rewrite is kept under `refs/abk/before-rewrite/` and named in the
-  unit's history, so it can be restored.
+  unit's history, so it can be restored. A commit-shape stop in a unit with no pull request and
+  nothing built on it asks once for its own rewrite, and the build goes on when the commits
+  are rewritten; otherwise the unit fails naming `abk requeue --rework --rewrite`.
 
 - `abk tags` and `abk check` now warn when a task names a new `test_<name>.py` for which no
   module `<name>.py` exists or is named by an earlier group, and say which existing test file

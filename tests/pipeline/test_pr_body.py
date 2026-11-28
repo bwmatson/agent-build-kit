@@ -14,6 +14,7 @@ from agent_build_kit.pipeline.pr_body import (
     satisfied_reason,
     stack_line,
 )
+from agent_build_kit.pipeline.unit_store import RewriteSource
 from tests.factories import stored_unit as unit
 
 
@@ -135,6 +136,16 @@ def test_a_rewritten_branch_says_its_history_was_rewritten_and_who_asked(who: st
     lines = [line for line in body.splitlines() if "rewritten" in line]
     assert len(lines) == 1
     assert who in lines[0]
+
+
+def test_a_branch_rewritten_at_the_commit_shape_checks_request_says_the_check_asked() -> None:
+    who = RewriteSource.COMMIT_SHAPE.value
+    rewritten = unit(history=(rewrite_entry(who),))
+
+    body = build_pr_body(rewritten, graph=[rewritten], base="main")
+
+    [line] = [line for line in body.splitlines() if "rewritten" in line]
+    assert "check" in line and "asked" in line
 
 
 def test_open_points_appear_when_the_rounds_ran_out() -> None:

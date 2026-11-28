@@ -71,7 +71,7 @@ def test_the_same_tests_failing_stop_the_unit_with_the_pair_message_and_record_n
 ) -> None:
     recorded_beside(tmp_path)
     recorder, repo = prepared(
-        tmp_path / "failing", groups=GROUPS, no_commit_for="12", unit_test_ok=False
+        tmp_path / "failing", groups=GROUPS, no_commit_for="12", unit_test_ok=False, asked=True
     )
     recorder.unit_test_output = "E   NotImplementedError"
 
@@ -89,7 +89,7 @@ def test_the_same_tests_failing_stop_the_unit_with_the_pair_message_and_record_n
 
 def test_a_flake_found_on_that_run_counts_as_the_failure(tmp_path: Path) -> None:
     recorded_beside(tmp_path)
-    recorder, repo = prepared(tmp_path / "flaking", groups=GROUPS, no_commit_for="12")
+    recorder, repo = prepared(tmp_path / "flaking", groups=GROUPS, no_commit_for="12", asked=True)
 
     def flaking(*, cwd: Path, base: str = "main", whole_repo: bool = False, **_: Any) -> NoReturn:
         recorder.events.append("unit-test:whole_repo" if whole_repo else "unit-test")

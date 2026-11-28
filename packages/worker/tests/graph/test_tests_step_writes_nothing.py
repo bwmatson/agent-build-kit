@@ -226,7 +226,12 @@ def test_implement_does_not_start_for_a_group_with_no_tests_commit(tmp_path: Pat
     """A lone `feat:` keeps the empty marked `test:` from being recorded, so the route into
     implement finds no `test:` commit for the group."""
     recorder, repo = prepared(
-        tmp_path, groups=LONE_GROUPS, seeded=LONE_SEEDED, silent_groups=(4,), meanwhile=marked_empty
+        tmp_path,
+        groups=LONE_GROUPS,
+        seeded=LONE_SEEDED,
+        silent_groups=(4,),
+        meanwhile=marked_empty,
+        asked=True,
     )
     outcome = build(tmp_path, recorder, **recorder.overrides(tmp_path))
 

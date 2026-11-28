@@ -65,7 +65,9 @@ def test_an_implementation_that_changes_nothing_completes_the_pair_with_an_empty
 def test_failing_unit_tests_leave_the_empty_test_commit_and_make_no_feat_commit_until_a_requeue(
     tmp_path: Path,
 ) -> None:
-    recorder, repo = prepared(tmp_path, groups=GROUPS, silent_groups=(4,), unit_test_ok=False)
+    recorder, repo = prepared(
+        tmp_path, groups=GROUPS, silent_groups=(4,), unit_test_ok=False, asked=True
+    )
 
     outcome = build(tmp_path, recorder, **recorder.overrides(tmp_path))
 

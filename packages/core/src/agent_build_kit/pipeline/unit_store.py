@@ -343,6 +343,7 @@ class RewriteSource(StrEnum):
 
     REVIEW = "review"
     PERSON = "person"
+    COMMIT_SHAPE = "commit-shape check"
 
 
 class StoredRewriteRequest(Frozen):
@@ -1628,7 +1629,19 @@ class UnitStore:
             unit_id,
             "rewrite_requested",
             f"a rewrite of the unit's commits was requested by {request.source.value}",
+            source=request.source.value,
         )
+
+    def rewrite_asked_by(self, unit_id: str, source: RewriteSource) -> bool:
+        """Whether `source` asked for a rewrite of the unit's commits since the latest requeue
+        by a person."""
+        asked = False
+        for entry in self.history(unit_id):
+            if entry.get("by") == REQUEUE_BY:
+                asked = False
+            elif entry.get("event") == "rewrite_requested":
+                asked = asked or entry.get("source") == source.value
+        return asked
 
     def retry_spent(self, unit_id: str, cause: str) -> bool:
         """Whether the unit's retry for `cause` is spent: its history holds a `RETRY_BY` entry

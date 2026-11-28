@@ -78,6 +78,7 @@ def test_a_lone_feat_commit_of_the_group_stops_the_unit_and_no_empty_test_commit
         groups=GROUPS,
         seeded=[*PAIR_3, "feat: G4"],
         silent_groups=(4,),
+        asked=True,
     )
 
     outcome = build(tmp_path / "lone", recorder, **recorder.overrides(tmp_path / "lone"))

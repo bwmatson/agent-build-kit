@@ -15,6 +15,7 @@ from typing import Any
 import pytest
 
 from agent_build_kit.graph.state import EventKind, ResumeEvent
+from agent_build_kit.pipeline.rewrite_guard import UNCHANGED_REASON
 from agent_build_kit.pipeline.shell import git, git_out
 from agent_build_kit.pipeline.stack_runner import (
     CHECKS_CONTINUATION,
@@ -23,6 +24,7 @@ from agent_build_kit.pipeline.stack_runner import (
     REVIEW_FEEDBACK_PROMPT,
     REWORK_CONTINUATION,
     REWORK_PROMPT,
+    REWRITE_REQUEST_NOTE,
     WHOLE_ASK,
     RunOutcome,
     person_guidance,
@@ -34,7 +36,9 @@ from agent_build_kit.pipeline.unit_store import (
     StoredRewriteRequest,
 )
 from packages.worker.tests.graph.test_build_path import build
+from packages.worker.tests.graph.test_session_continuation import Sessions, agents
 from tests.factories import unit
+from tests.graph.agent_fakes import distinct_models
 from tests.graph.branch_fakes import (
     TRAILER,
     OnBranch,
@@ -44,7 +48,7 @@ from tests.graph.branch_fakes import (
     titled,
 )
 from tests.graph_driver import fresh, tick
-from tests.runner_fakes import rejecting
+from tests.runner_fakes import approving, rejecting
 
 UNIT = unit().id
 BUILT = "add-marker/1"  # the unit `tests.graph.branch_fakes.prepared` builds
@@ -393,6 +397,50 @@ def test_the_tests_and_implement_steps_never_get_the_rewrite_policy(tmp_path: Pa
 
     assert recorder.rewrites[0] is True
     assert recorder.rewrites[1:] and not any(recorder.rewrites[1:])
+
+
+def test_a_continued_session_is_told_the_request_and_then_the_guards_reason_in_its_follow_up(
+    tmp_path: Path,
+) -> None:
+    """The review loop's rework continues the author's session, which never sees the full
+    prompt: the request goes in the follow-up, and so does the reason the guard returned the
+    step for (the fake worktree's head never moves, so the step is returned)."""
+    distinct_models()
+    recorder = fresh(tmp_path)
+    runtime = Sessions(verdicts=[rejecting("rename the marker"), approving()])
+    runs = agents(runtime)
+    asked = False
+
+    def review(**kwargs: Any) -> str:
+        nonlocal asked
+        if not asked:
+            asked = True
+            ask_for_rewrite(recorder, RewriteSource.REVIEW)
+        return runs["run_review"](**kwargs)
+
+    tick(
+        tmp_path,
+        recorder,
+        run=runs["run"],
+        run_review=review,
+        run_rework_review=runs["run_rework_review"],
+    )
+
+    _, _, first, *returned = runtime.built
+    assert first.resume_session == "sess-1", "the rework continues the author's session"
+    assert ASKED in first.prompt
+    assert returned, "the guard returned the step"
+    assert all(r.resume_session == "sess-1" for r in returned)
+    assert all(UNCHANGED_REASON in r.prompt for r in returned)
+    assert UNCHANGED_REASON not in first.prompt
+
+
+def test_the_note_given_with_a_rewrite_request_says_the_pipeline_publishes_the_branch() -> None:
+    note = REWRITE_REQUEST_NOTE.format(request=ASKED, base="origin/main", unit=UNIT)
+
+    assert "Do not push." not in note, "it is not only a ban: the agent is told who pushes"
+    assert "pipeline" in note and "publish" in note
+    assert all(command in note for command in ("commit", "reset", "rebase"))
 
 
 def test_the_head_the_rework_began_on_is_kept_and_named_in_the_history(tmp_path: Path) -> None:

@@ -135,6 +135,7 @@ from agent_build_kit.pipeline.stack_runner import (
     REVIEW_FEEDBACK_PROMPT,
     REWORK_CONTINUATION,
     REWORK_PROMPT,
+    REWRITE_REQUEST_NOTE,
     SCOPE_FEEDBACK,
     STUB_CHECKS_PROMPT,
     TRIED_NOTE,
@@ -165,6 +166,8 @@ from agent_build_kit.pipeline.unit_store import (
     FeedbackSource,
     HeldBy,
     RequeueReason,
+    RewriteSource,
+    StoredRewriteRequest,
     StoredSplitRequest,
     StoredUnit,
     guidance_excerpt,
@@ -180,6 +183,7 @@ from agent_build_kit.pipeline.units import (
     Unit,
     UnitState,
     branch_name,
+    current_dependencies,
     depth_of,
     local_ref,
 )
@@ -2034,15 +2038,22 @@ class BuildPath:
             + group
         )
 
+    def short_progress(self, state: UnitRun, ref: str) -> tuple[GroupProgress, GroupStep] | None:
+        """How far the branch got and the group it stops short at, for the group just built or
+        an earlier one; None when it lacks nothing there."""
+        steps = self.runner.group_steps(self.unit)
+        progress = self.branch_progress(ref)
+        if progress.done > state.group:
+            return None
+        return progress, steps[progress.done]
+
     def unpaired(self, state: UnitRun, ref: str) -> str:
         """The stop for what the branch lacks for the group just built or an earlier one: a tests
         and implementation pair, a tests commit for a test-only group, or the tests commit a
         lone `feat:` has none before; "" when it lacks none."""
-        steps = self.runner.group_steps(self.unit)
-        progress = self.branch_progress(ref)
-        if progress.done > state.group:
+        if (short := self.short_progress(state, ref)) is None:
             return ""
-        step = steps[progress.done]
+        progress, step = short
         if progress.lone_feat:
             return (
                 f"a feat: commit for group {step.number} has no test: commit before it "
@@ -2058,6 +2069,72 @@ class BuildPath:
             f"the branch holds no tests and implementation pair for group {step.number} "
             f"({step.title}){found}"
         )
+
+    def shape_refusal(self) -> str:
+        """Why the commit-shape check may not ask for its own rewrite of this unit's commits:
+        "" when it may. A pull request, a started unit built on the branch, or an ask already
+        made since the last requeue by a person each make the stop final."""
+        unit, store = self.unit, self.runner.store
+        stored = store.get(unit.id)
+        if stored.pr:
+            return f"the unit has a pull request (#{stored.pr}) open"
+        graph = self.graph or [stored]
+        above = [
+            d.id
+            for d in graph
+            if unit.id in current_dependencies(d, graph)
+            and d.state not in (PLANNED, UnitState.UNPLANNED)
+        ]
+        if above:
+            return f"{', '.join(above)} is already built on its branch"
+        if store.rewrite_asked_by(unit.id, RewriteSource.COMMIT_SHAPE):
+            # A run killed inside the guarded step leaves its request stored, but a resume reads
+            # it into the rework step first (`standing`), which ends it as used: none is left here.
+            return "a rewrite was already asked for since the last requeue"
+        return ""
+
+    @staticmethod
+    def shape_request(step: GroupStep, stop: str) -> str:
+        """What the check asks a rewrite for: the stop, and the commits the group it names takes."""
+        tests, code = f"`{TESTS_PREFIX}{step.title}`", f"`{CODE_PREFIX}{step.title}`"
+        if step.test_only:
+            takes = f"one {tests}"
+        elif step.mode.writes_tests:
+            takes = f"a {tests} then a {code}"
+        else:
+            takes = f"one {code}"
+        return (
+            f"{stop}. Rewrite the unit's own commits so group {step.number} takes {takes}, "
+            "each group's commits in order, and no commit is added on top."
+        )
+
+    def mended_shape(self, state: UnitRun, ref: str, stop: str) -> str:
+        """Settle a commit-shape stop: "" when a rewrite the check asked for put the branch right
+        (the build goes on), else the reason the unit fails on. The check asks once, and only
+        for a unit with no pull request and nothing built on it."""
+        r, unit = self.runner, self.unit
+        command = f"`abk requeue --rework --rewrite {unit.id} --note <the shape wanted>`"
+        if (short := self.short_progress(state, ref)) is None:
+            return stop
+        step = short[1]
+        if refusal := self.shape_refusal():
+            return f"{stop}; {refusal}, so a person asks for the rewrite with {command}"
+        asked = self.shape_request(step, stop)
+        r.store.set_rewrite_request(
+            unit.id, StoredRewriteRequest(text=asked, source=RewriteSource.COMMIT_SHAPE)
+        )
+        self.say(f"asking for a rewrite: {stop}")
+        prompt, follow_up = self.rework_prompts(
+            state,
+            redact_text(stop, where="rework prompt"),
+            redact_text(asked, where="rework prompt"),
+        )
+        self.rewriting(state, prompt, model=models().rework, follow_up=follow_up, rewrite=True)
+        if not (left := self.unpaired(state, ref)):
+            return ""
+        kept = [e for e in r.store.get(unit.id).history if e.get("event") == "head_kept"]
+        where = f"; the head it began on is kept at {kept[-1].get('ref')}" if kept else ""
+        return f"{stop}; a rewrite was asked for and not made ({left}){where}"
 
     def branch_progress(self, ref: str) -> GroupProgress:
         """How far the branch's commits get through the unit's groups, read from their subjects:
@@ -2141,7 +2218,9 @@ class BuildPath:
                 return held
             if (broken := self.failed_unit_test(output)) is not None:
                 return broken
-            return self.stop(self.unpaired(state, ref))
+            if left := self.mended_shape(state, ref, self.unpaired(state, ref)):
+                return self.stop(left)
+            return None  # the rewrite put the group right; the build goes on from there
         self.say(f"group {step.number} is already built and the unit tests pass: recorded")
         tests = self.message(TESTS_PREFIX, True, state)
         if step.mode.writes_tests and not (resumed or progress.tests_made):
@@ -2161,9 +2240,10 @@ class BuildPath:
         r, unit = self.runner, self.unit
         if commits and (missing := self.unpaired(state, ref)):
             # After every group, so a later group's tests are never written over a gap.
-            return self.stop(missing)
+            if left := self.mended_shape(state, ref, missing):
+                return self.stop(left)
         more = state.group + 1 < len(r.group_steps(unit))
-        kept: Update = {"group": state.group + 1, "more_groups": more}
+        kept: Update = {"group": state.group + 1, "more_groups": more, "head": r.head(self.tree())}
         if not more:
             # Kept until the last group, so every group's prompts carry the note.
             note = r.store.get(unit.id).guidance
@@ -2933,22 +3013,37 @@ class BuildPath:
         r, unit = self.runner, self.unit
         tree, stored = self.tree(), r.store.get(unit.id)
         answers: list[str] = []
+        request = stored.rewrite_request if run.get("rewrite") else None
+        if request is not None and run.get("follow_up"):
+            # A continued session never sees the full prompt, so its follow-up holds the request.
+            run = {
+                **run,
+                "follow_up": run["follow_up"]
+                + "\n"
+                + REWRITE_REQUEST_NOTE.format(
+                    request=redact_text(request.text, where="rework prompt"),
+                    base=self.ref(state),
+                    unit=unit.id,
+                ),
+            }
 
         def call(reason: str) -> None:
-            said = (
-                prompt
-                if not reason
-                else f"{prompt}\n\n{RETURNED_FOR_REWRITE.format(reason=reason)}"
+            returned = RETURNED_FOR_REWRITE.format(reason=reason)
+            said = prompt if not reason else f"{prompt}\n\n{returned}"
+            sent: dict[str, Any] = (
+                {**run, "follow_up": f"{run['follow_up']}\n\n{returned}"}
+                if reason and run.get("follow_up")
+                else run
             )
-            answers.append(self.agent(r.run, said, cwd=tree, state=state, **run))
+            answers.append(self.agent(r.run, said, cwd=tree, state=state, **sent))
 
-        if stored.rewrite_request is None or not run.get("rewrite"):
+        if request is None:
             call("")
             return answers[0]
         budget = active().global_limits.max_check_rounds
         step = r.guarded_step(
             tree,
-            request=stored.rewrite_request,
+            request=request,
             base=self.ref(state),
             unit_id=unit.id,
             store=r.store,
@@ -2960,6 +3055,36 @@ class BuildPath:
                 f"the rewrite was not made after {step.returned} return(s): {step.verdict.reason}"
             )
         return answers[-1]
+
+    def rework_prompts(self, state: UnitRun, feedback: str, asked: str) -> tuple[str, str]:
+        """The rework prompt and its follow-up for a rework that is not a failed check, each told
+        what was committed outside the build session: the one place their arguments are set.
+        `feedback` and `asked` are already redacted."""
+        r, unit = self.runner, self.unit
+        tree, stored = self.tree(), r.store.get(unit.id)
+        change_dir, groups = r.scope(unit)
+        build_boundary, _ = r.boundary_notes(unit, self.graph)
+        note, pr = person_guidance(stored.guidance), stored.pr or "(not yet opened)"
+        changelog = changelog_note(tree, r.repo_config)
+        outside = self.outside_note(state, tree)
+        prompt = REWORK_PROMPT.format(
+            commands=commands_note(r.repo_config),
+            guidance=note,
+            tests_guidance=rework_tests_guidance(r.group_steps(unit)),
+            groups=groups,
+            change_dir=change_dir,
+            feedback=feedback,
+            pr=pr,
+            boundary=build_boundary,
+            changelog=changelog,
+            rewrite_request=asked,
+            base=self.ref(state),
+            unit=unit.id,
+        )
+        follow_up = REWORK_CONTINUATION.format(
+            guidance=note, feedback=feedback, pr=pr, changelog=changelog
+        )
+        return self.told(prompt, outside), self.told(follow_up, outside)
 
     def rework(self, state: UnitRun) -> Update:
         r, unit = self.runner, self.unit
@@ -3039,9 +3164,8 @@ class BuildPath:
                 # requeue, so these ids are only marked seen. None is known to have reached the
                 # agent, and the poller reports again any it was not given.
                 kept["seen_comments"] = self.covered(stored.pr)
-            answer = self.rewriting(
-                state,
-                self.told(
+            if failed_check:
+                prompt = self.told(
                     CHECKS_PROMPT.format(
                         commands=commands_note(r.repo_config),
                         guidance=note,
@@ -3050,40 +3174,24 @@ class BuildPath:
                         feedback=feedback,
                         boundary=build_boundary,
                         rerun=CHECKS_PROMPT.advice(feedback, stored.feedback_source),
-                    )
-                    if failed_check
-                    else REWORK_PROMPT.format(
-                        commands=commands_note(r.repo_config),
-                        guidance=note,
-                        tests_guidance=rework_tests_guidance(r.group_steps(unit)),
-                        groups=groups,
-                        change_dir=change_dir,
-                        feedback=feedback,
-                        pr=stored.pr or "(not yet opened)",
-                        boundary=build_boundary,
-                        changelog=changelog_note(tree, r.repo_config),
-                        rewrite_request=asked,
-                        base=self.ref(state),
-                        unit=unit.id,
                     ),
                     outside,
-                ),
-                model=models().rework,
-                follow_up=self.told(
+                )
+                follow_up = self.told(
                     CHECKS_CONTINUATION.format(
                         guidance=note,
                         feedback=feedback,
                         rerun=CHECKS_CONTINUATION.advice(feedback, stored.feedback_source),
-                    )
-                    if failed_check
-                    else REWORK_CONTINUATION.format(
-                        guidance=note,
-                        feedback=feedback,
-                        pr=stored.pr or "(not yet opened)",
-                        changelog=changelog_note(tree, r.repo_config),
                     ),
                     outside,
-                ),
+                )
+            else:
+                prompt, follow_up = self.rework_prompts(state, feedback, asked)
+            answer = self.rewriting(
+                state,
+                prompt,
+                model=models().rework,
+                follow_up=follow_up,
                 # The failed-check prompt carries no request, so its step may not rewrite.
                 rewrite=bool(asked) and not failed_check,
             )
