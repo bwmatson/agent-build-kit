@@ -1552,34 +1552,45 @@ class RepoReviewConfig(Frozen):
 class QualityConfig(Frozen):
     """The quality bars a unit's added or changed code is held to, and whether they are checked."""
 
-    mode: str = "changed"
-    cognitive_complexity: int = 10
-    nesting: int = 3
-    parameters: int = 4
-    function_lines: int = 40
-    boolean_operators: int = 3
-    file_lines: int = 300
-    clone_tokens: int = 50
+    mode: Literal["changed", "off"] = "changed"
+    cognitive_complexity: int = Field(default=10, ge=1)
+    nesting: int = Field(default=3, ge=1)
+    parameters: int = Field(default=4, ge=1)
+    function_lines: int = Field(default=40, ge=1)
+    boolean_operators: int = Field(default=3, ge=1)
+    file_lines: int = Field(default=300, ge=1)
+    clone_tokens: int = Field(default=50, ge=1)
     suppression_reason: bool = True
 
 
 class RepoQualityConfig(Frozen):
     """A repo's own quality bars; a key left unset follows the workspace's."""
 
-    mode: str | None = None
-    cognitive_complexity: int | None = None
-    nesting: int | None = None
-    parameters: int | None = None
-    function_lines: int | None = None
-    boolean_operators: int | None = None
-    file_lines: int | None = None
-    clone_tokens: int | None = None
+    mode: Literal["changed", "off"] | None = None
+    cognitive_complexity: int | None = Field(default=None, ge=1)
+    nesting: int | None = Field(default=None, ge=1)
+    parameters: int | None = Field(default=None, ge=1)
+    function_lines: int | None = Field(default=None, ge=1)
+    boolean_operators: int | None = Field(default=None, ge=1)
+    file_lines: int | None = Field(default=None, ge=1)
+    clone_tokens: int | None = Field(default=None, ge=1)
     suppression_reason: bool | None = None
+
+
+QUALITY_BARS = (
+    "cognitive_complexity",
+    "nesting",
+    "parameters",
+    "function_lines",
+    "boolean_operators",
+    "file_lines",
+    "clone_tokens",
+)
 
 
 def effective_quality(workspace: WorkspaceConfig, repo: RepoConfig) -> QualityConfig:
     """The quality bars in effect for `repo`: the workspace's with the repo's set keys over them."""
-    raise NotImplementedError
+    return workspace.quality.model_copy(update=repo.quality.model_dump(exclude_none=True))
 
 
 class RepoWorkersConfig(Frozen):
@@ -2204,6 +2215,24 @@ class WorkspaceConfig(Frozen):
                         raise ValueError(
                             f"{where}: {pattern!r}: the key path {key!r} has an empty segment"
                         )
+        return self
+
+    @model_validator(mode="after")
+    def _repo_quality_bars_only_tighten(self) -> WorkspaceConfig:
+        """A repo's bar may not be looser than the workspace's; the message names the key and
+        both values."""
+        for name, repo in self.repos.items():
+            for key in QUALITY_BARS:
+                own, shared = getattr(repo.quality, key), getattr(self.quality, key)
+                if own is not None and own > shared:
+                    raise ValueError(
+                        f"repos.{name}.quality.{key}: {own} is looser than the workspace's {shared}"
+                    )
+            if repo.quality.suppression_reason is False and self.quality.suppression_reason:
+                raise ValueError(
+                    f"repos.{name}.quality.suppression_reason: false is looser than the "
+                    "workspace's true"
+                )
         return self
 
     @model_validator(mode="after")
