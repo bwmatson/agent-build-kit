@@ -51,3 +51,20 @@ def test_an_injected_run_reads_the_login_afresh(monkeypatch: pytest.MonkeyPatch)
         "gh auth token --user example",
     )
     assert seen == [["gh", "auth", "token", "--user", "example"]]
+
+
+def test_the_trunk_ref_is_the_remote_branch_when_the_checkout_holds_it_else_the_local_one(
+    tmp_path: Path,
+) -> None:
+    repo = tmp_path / "repo"
+    subprocess.run(["git", "init", "-q", "-b", "main", str(repo)], check=True)
+    subprocess.run(
+        ["git", "-C", str(repo), "-c", "user.name=t", "-c", "user.email=t@t.t"]
+        + ["commit", "-q", "--allow-empty", "-m", "base"],
+        check=True,
+    )
+
+    assert shell.trunk_ref(repo, "main") == "main"
+
+    subprocess.run(["git", "-C", str(repo), "update-ref", "refs/remotes/origin/main", "HEAD"])
+    assert shell.trunk_ref(repo, "main") == "origin/main"

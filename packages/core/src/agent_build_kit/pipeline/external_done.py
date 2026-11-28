@@ -8,7 +8,7 @@ from datetime import UTC, datetime
 from agent_build_kit.installation import Installation
 from agent_build_kit.pipeline.external_file import HoldRefused, done_groups, record_done
 from agent_build_kit.pipeline.planning_repo import default_branch_of
-from agent_build_kit.pipeline.shell import git
+from agent_build_kit.pipeline.shell import git, trunk_ref
 from agent_build_kit.pipeline.task_progress import mark_groups
 from agent_build_kit.pipeline.unit_store import Cause, StoredUnit, UnitStore
 from agent_build_kit.pipeline.units import MERGED, PLANNED
@@ -39,9 +39,7 @@ def _merge_commit(inst: Installation, repo: str, pr: int | None, commit: str | N
     checkout = inst.repo(repo).path
     git(checkout, "fetch", "-q", "origin", check=False)
     trunk = default_branch_of(checkout)
-    remote = f"origin/{trunk}"
-    known = git(checkout, "rev-parse", "-q", "--verify", remote, check=False).returncode == 0
-    tip = remote if known else trunk
+    tip = trunk_ref(checkout, trunk)
     if not is_ancestor(checkout, commit, tip):
         raise HandMergeRefused(f"commit {commit} is not on the default branch ({trunk})")
     return git(checkout, "rev-parse", commit).stdout.strip()
