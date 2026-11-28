@@ -266,7 +266,10 @@ def test_the_client_is_built_with_caching_off_and_the_configured_timeout(
 @pytest.mark.usefixtures("github_env")
 def test_every_call_has_a_timeout(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(settings, "forge_timeout_seconds", 7.0)
-    host = GitHubHost(gh.pull(1), routes={("GET", f"{BASE}/pulls"): answer([{"number": 1}])})
+    host = GitHubHost(
+        gh.pull(1, checks=[gh.check_run("CI", "SUCCESS")]),
+        routes={("GET", f"{BASE}/pulls"): answer([{"number": 1}])},
+    )
     forge = GitHubForge(http=host)
 
     forge.list_prs(REPO)

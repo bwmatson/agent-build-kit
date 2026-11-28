@@ -20,8 +20,10 @@ MERGED = "b" * 40
 MERGED_AT = "2026-10-01T12:00:00Z"
 
 
-def merged(number: int, commit: str = MERGED) -> dict:
-    return github_answers.pull(number, state="MERGED", merged_at=MERGED_AT, merge_commit=commit)
+def merged(number: int, commit: str = MERGED, **overrides) -> dict:
+    return github_answers.pull(
+        number, state="MERGED", merged_at=MERGED_AT, merge_commit=commit, **overrides
+    )
 
 
 def test_a_merged_pull_request_answers_its_merge_commit_in_one_request() -> None:
@@ -97,7 +99,8 @@ def test_a_null_pull_request_with_no_error_answers_empty() -> None:
 
 
 def test_the_listing_carries_a_merged_pull_request_s_commit_into_its_snapshot() -> None:
-    host = GitHubHost(merged(7), github_answers.pull(8))
+    checks = [github_answers.check_run("CI", "SUCCESS")]
+    host = GitHubHost(merged(7, checks=checks), github_answers.pull(8, checks=checks))
 
     pulls = {pull.number: pull for pull in GitHubForge(http=host).list_prs(REPO)}
 

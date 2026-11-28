@@ -133,12 +133,16 @@ def test_a_repository_s_listing_is_the_same_records_as_before() -> None:
 # --- one query per page -----------------------------------------------------------
 
 
-def test_listing_is_one_graphql_query_and_no_rest_call() -> None:
-    host = GitHubHost(*listing_of(3))
+def test_listing_is_one_graphql_query_and_no_rest_call_for_pulls_that_have_checks() -> None:
+    host = GitHubHost(*listing_of(3, checks=[gh.check_run("CI", "SUCCESS")]), gh.pull(9))
 
     listing(host)
 
-    assert [(s.method, s.path) for s in host.seen] == [("POST", "/graphql")]
+    # Only the pull request with no checks makes a REST call: one for its workflow runs.
+    assert [(s.method, s.path.endswith("/actions/runs")) for s in host.seen] == [
+        ("POST", False),
+        ("GET", True),
+    ]
 
 
 def test_the_query_asks_for_everything_a_record_is_made_of() -> None:
@@ -198,6 +202,16 @@ def test_only_the_branches_with_the_prefix_are_kept() -> None:
     found = listing(host, head_prefix="spec/")
 
     assert [p.number for p in found] == [1, 3]
+
+
+def test_a_pull_request_outside_the_prefix_has_its_workflow_runs_left_unread() -> None:
+    host = GitHubHost(gh.pull(1, head="spec/add-marker/1"), gh.pull(2, head="feature/other"))
+    host.state.workflow_runs[f"{2:040x}"] = [gh.workflow_run(9, "CI", "failure", sha=f"{2:040x}")]
+
+    listing(host, head_prefix="spec/")
+
+    asked = [s.params.get("head_sha") for s in host.seen if s.path.endswith("/actions/runs")]
+    assert asked == [f"{1:040x}"]
 
 
 # --- the traps --------------------------------------------------------------------

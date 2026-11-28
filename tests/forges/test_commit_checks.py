@@ -6,6 +6,7 @@ and the local forge answers from its own records, which hold no checks."""
 
 from __future__ import annotations
 
+import logging
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -19,6 +20,7 @@ from agent_build_kit.forges.local import LocalForge
 from tests.conftest import make_installation
 from tests.factories import init_repo
 from tests.forges import azure_answers
+from tests.forges import github_answers as gh
 from tests.forges.azure_rest_host import RestHost, refusal
 from tests.forges.github_host import GitHubHost, Scripted, answer
 from tests.forges.github_routes import refusal as github_refusal
@@ -30,6 +32,7 @@ OTHER = "d" * 40
 
 GITHUB = RepoId(forge="github", account="example", name="app")
 CHECK_RUNS = f"/repos/example/app/commits/{SHA}/check-runs"
+GITHUB_LOGGER = GitHubForge.__module__
 
 
 def check_run(name: str, conclusion: str | None, *, status: str = "completed") -> dict:
@@ -124,6 +127,119 @@ def test_github_reports_a_host_that_does_not_answer_as_unknown() -> None:
     host = github(httpx.ConnectError("no route to host"))
 
     assert GitHubForge(http=host).commit_checks(GITHUB, SHA).outcome == CommitOutcome.UNKNOWN
+
+
+# --- GitHub: a workflow run that failed without starting a job (spec: ci-checks) ----------
+
+RUNS = "/repos/example/app/actions/runs"
+PULL = 5
+PULL_SHA = f"{PULL:040x}"
+
+
+def with_runs(sha: str, *runs: dict, jobs: dict[int, list[dict]] | None = None) -> GitHubHost:
+    """A host whose commit `sha` has no check runs and the workflow `runs` given, `jobs` by run."""
+    host = GitHubHost(gh.pull(PULL), jobs=jobs, routes={("GET", CHECK_RUNS): listed()})
+    host.state.workflow_runs[sha] = list(runs)
+    return host
+
+
+@pytest.mark.usefixtures("github_env")
+@pytest.mark.parametrize("conclusion", ["failure", "startup_failure"])
+def test_github_reports_a_failed_workflow_run_with_no_jobs_as_a_failed_check(
+    conclusion: str,
+) -> None:
+    run = gh.workflow_run(77, "CI", conclusion, sha=SHA)
+    host = with_runs(SHA, run)
+
+    found = GitHubForge(http=host).commit_checks(GITHUB, SHA)
+
+    assert [(c.name, c.status, c.url) for c in found.checks] == [
+        ("CI", CheckStatus.FAILED, run["html_url"])
+    ]
+    assert found.outcome == CommitOutcome.FAILED
+    assert host.calls("GET", RUNS)[0].params["head_sha"] == SHA
+
+
+@pytest.mark.usefixtures("github_env")
+@pytest.mark.parametrize("conclusion", ["failure", "startup_failure"])
+def test_github_reports_a_failed_workflow_run_with_no_jobs_in_the_pull_request_s_checks(
+    conclusion: str,
+) -> None:
+    run = gh.workflow_run(77, "CI", conclusion, sha=PULL_SHA)
+    host = with_runs(PULL_SHA, run)
+
+    pulls = GitHubForge(http=host).list_prs(GITHUB)
+
+    assert [(c.name, c.status, c.url) for pr in pulls for c in pr.checks] == [
+        ("CI", CheckStatus.FAILED, run["html_url"])
+    ]
+
+
+OTHER_RUNS = [
+    pytest.param(gh.workflow_run(1, "CI", None, status="queued"), False, id="queued"),
+    pytest.param(gh.workflow_run(1, "CI", None, status="in_progress"), False, id="in-progress"),
+    pytest.param(gh.workflow_run(1, "CI", "success"), False, id="succeeded"),
+    pytest.param(gh.workflow_run(1, "CI", "failure"), True, id="failed-with-jobs"),
+]
+
+
+@pytest.mark.usefixtures("github_env")
+@pytest.mark.parametrize(("run", "has_jobs"), OTHER_RUNS)
+def test_github_adds_no_check_for_a_run_that_is_not_a_failure_without_jobs(
+    run: dict, has_jobs: bool
+) -> None:
+    jobs = {1: [gh.job(2, "lint", "failure", 1)]} if has_jobs else None
+    # A run that does fail without jobs sits beside it: only that one is a check.
+    broken = gh.workflow_run(2, "Broken", "failure")
+    commit = GitHubForge(
+        http=with_runs(SHA, {**run, "head_sha": SHA}, broken, jobs=jobs)
+    ).commit_checks(GITHUB, SHA)
+    pulls = GitHubForge(
+        http=with_runs(PULL_SHA, {**run, "head_sha": PULL_SHA}, broken, jobs=jobs)
+    ).list_prs(GITHUB)
+
+    assert [c.name for c in commit.checks] == ["Broken"]
+    assert [c.name for pr in pulls for c in pr.checks] == ["Broken"]
+
+
+@pytest.mark.usefixtures("github_env")
+def test_github_does_not_ask_for_workflow_runs_when_the_commit_has_check_runs() -> None:
+    host = with_runs(SHA, gh.workflow_run(77, "CI", "failure", sha=SHA))
+    host.routes[("GET", CHECK_RUNS)] = [listed(check_run("lint", "success"))]
+
+    host.state.workflow_runs[OTHER] = [gh.workflow_run(78, "CI", "failure", sha=OTHER)]
+    host.routes[("GET", f"/repos/example/app/commits/{OTHER}/check-runs")] = [listed()]
+    forge = GitHubForge(http=host)
+
+    found = forge.commit_checks(GITHUB, SHA)
+    bare = forge.commit_checks(GITHUB, OTHER)
+
+    assert [check.name for check in found.checks] == ["lint"]
+    assert found.outcome == CommitOutcome.PASSED
+    assert [check.name for check in bare.checks] == ["CI"]
+    assert [call.params["head_sha"] for call in host.calls("GET", RUNS)] == [OTHER]
+
+
+@pytest.mark.usefixtures("github_env")
+@pytest.mark.parametrize(
+    "reply",
+    [
+        pytest.param(github_refusal(500, "Server Error"), id="host-error"),
+        pytest.param(httpx.ConnectError("no route to host"), id="transport"),
+    ],
+)
+def test_github_logs_a_workflow_run_listing_that_fails_and_reads_the_commit_as_before(
+    reply: Scripted, caplog: pytest.LogCaptureFixture
+) -> None:
+    host = with_runs(SHA)
+    host.routes[("GET", RUNS)] = [reply]
+
+    with caplog.at_level(logging.WARNING, logger=GITHUB_LOGGER):
+        found = GitHubForge(http=host).commit_checks(GITHUB, SHA)
+
+    assert found.outcome == CommitOutcome.NONE
+    assert found.checks == ()
+    assert [r for r in caplog.records if r.name == GITHUB_LOGGER and r.levelno == logging.WARNING]
 
 
 # --- Azure DevOps -----------------------------------------------------------------------
