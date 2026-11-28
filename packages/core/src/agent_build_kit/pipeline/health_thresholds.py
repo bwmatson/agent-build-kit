@@ -9,6 +9,7 @@ from agent_build_kit.config import HealthConfig
 from agent_build_kit.model import Frozen
 from agent_build_kit.pipeline.trusted_cost import TrustedChanges, Verdict
 from agent_build_kit.pipeline.unit_store import StoredUnit
+from agent_build_kit.pipeline.units import UnitState
 from agent_build_kit.pipeline.usage_report import DaySpend
 
 _WEEK_DAYS = 7
@@ -113,17 +114,13 @@ def _unit_failure_rate(
 ) -> list[Breach]:
     row = health.thresholds.unit_failure_rate
     since = now - timedelta(days=_WEEK_DAYS)
-    started: list[StoredUnit] = []
-    for unit in units:
-        stamp = next((e.get("at") for e in unit.history if e.get("state") == "running"), None)
-        if stamp and since <= datetime.fromisoformat(stamp) <= now:
-            started.append(unit)
-    failed = [u for u in started if any(e.get("state") == "failed" for e in u.history)]
+    started = [u for u in units if (at := u.started_at) is not None and since <= at <= now]
+    failed = [u for u in started if any(e.get("state") == UnitState.FAILED for e in u.history)]
     if not started or len(failed) / len(started) <= row.limit:
         return []
     evidence = [f"{len(failed)} failed of {len(started)} started"]
     for unit in failed:
-        entry = next(e for e in unit.history if e.get("state") == "failed")
+        entry = next(e for e in unit.history if e.get("state") == UnitState.FAILED)
         lines = str(entry.get("note") or "").splitlines()
         evidence.append(
             f"{unit.id}: {entry.get('cause') or 'no cause'}: {lines[0] if lines else ''}"

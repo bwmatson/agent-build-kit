@@ -1422,10 +1422,10 @@ class DaySpend(Frozen):
     total: float
 
 
-def daily_spend_by_role(ledger: Path, units: list[StoredUnit]) -> tuple[DaySpend, ...]:
+def daily_spend_by_role(ledger: Path, units: Sequence[StoredUnit]) -> tuple[DaySpend, ...]:
     """Each day's spend by role, from live calls and archived breakdowns, oldest day first."""
     by_day: dict[str, dict[str, float]] = {}
-    for entry in _all_entries(ledger, units):
+    for entry in _all_entries(ledger, list(units)):
         cost = entry.row.measured.cost_usd
         if entry.at is None or cost is None:
             continue

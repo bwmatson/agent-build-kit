@@ -447,6 +447,22 @@ store:
   database: null
 ```
 
+### Health
+
+```yaml
+health:
+  trusted_days: 30     # days a merged change goes without a late failure, revert or fix (>= 1)
+  top: 3               # costly trusted changes a cost breach lists (>= 1)
+  thresholds:
+    plan_review_share:       {limit: 0.5, correction: "outline far-out work (`docs/runbooks/change-maturity.md`)"}
+    cost_per_trusted_change: {limit: 0.25, correction: "read the top changes by cost; split or outline them"}
+    unit_failure_rate:       {limit: 0.25, correction: "read the failures by cause; a recurring cause becomes a change"}
+```
+
+- A `limit` is above 0; for `plan_review_share` and `unit_failure_rate`, which are shares, at most 1.
+- A row that is given must give both `limit` and a non-empty `correction`; a row left out keeps its default.
+- A row of another name is refused.
+
 ### E2e-test splits
 
 `tests.e2e_splits` (top level, or under a repo's own `tests`, which replaces it for that

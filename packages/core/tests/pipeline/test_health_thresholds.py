@@ -195,6 +195,21 @@ def test_a_week_of_failures_breaches_with_the_failed_units_their_causes_and_firs
     assert "too old" not in evidence
 
 
+def test_a_unit_whose_start_stamp_cannot_be_read_is_not_counted_and_does_not_stop_the_rest() -> (
+    None
+):
+    unreadable = stored_unit(
+        "change-x/1",
+        change="change-x",
+        history=({"state": "running", "at": ""}, {"state": "failed", "at": "", "cause": "c"}),
+    )
+
+    (breach,) = only("unit_failure_rate", units=[*week_of_units(3), unreadable])
+
+    assert breach.observed == pytest.approx(3 / 8)
+    assert "change-x/1" not in "\n".join(breach.evidence)
+
+
 def test_two_failed_units_over_eight_started_do_not_breach() -> None:
     assert only("unit_failure_rate", units=week_of_units(2)) == []
 
