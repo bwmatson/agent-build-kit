@@ -116,6 +116,7 @@ def test_status_and_report_print_for_a_copied_unit_whose_run_log_the_destination
         include_estimates=False,
         waits=False,
         context=False,
+        trusted=False,
         json=False,
     )
     assert cmd_report(arguments, destination) == 0
