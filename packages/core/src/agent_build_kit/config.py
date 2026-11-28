@@ -116,6 +116,18 @@ class EnvironmentConfig(Frozen):
         return command
 
 
+SignName = Literal["code_host_api", "package_feed", "live_credential", "missing_tool"]
+
+
+class EnvironmentSignsConfig(Frozen):
+    """What a repository adds to the environment signs: the inputs that make a sign's probe
+    untrustworthy, the feed probe's argv and the tools `missing_tool` also reads."""
+
+    distrusted: dict[SignName, list[str]] = {}
+    package_feed_probe: list[str] | None = None
+    tools: list[str] = []
+
+
 class DraftedEnvironment(EnvironmentConfig):
     """A section `abk init` drafted, with the comment it writes above it. The note is
     not configuration: it is never dumped and is lost on loading the file back."""
@@ -1638,6 +1650,8 @@ class RepoConfig(Frozen):
     changelog: str | None = "CHANGELOG.md"
     # How this repo's environment is kept current in a unit's worktree.
     environment: EnvironmentConfig | None = None
+    # What the environment signs add for this repo (pipeline/environment_signs.py).
+    environment_signs: EnvironmentSignsConfig = EnvironmentSignsConfig()
     review: RepoReviewConfig = RepoReviewConfig()
     sandbox: RepoSandboxConfig = RepoSandboxConfig()
     workers: RepoWorkersConfig = RepoWorkersConfig()

@@ -644,3 +644,27 @@ def test_the_code_map_block_refuses_max_bytes_below_4096_and_unknown_keys(
         message = ""
 
     assert named in message
+
+
+@pytest.mark.parametrize(
+    ("block", "named"),
+    [
+        ("distrusted: {package_feed: [/etc/x]}", "distrusted"),
+        ("distrusted: {package_feed: ['../x']}", "distrusted"),
+        ("package_feed_probe: []", "package_feed_probe"),
+        ("tools: [bin/tool]", "tools"),
+        ("tools: ['two words']", "tools"),
+    ],
+)
+def test_the_environment_signs_block_refuses_a_bad_key_naming_it(
+    tmp_path: Path, block: str, named: str
+) -> None:
+    try:
+        code_map_config(tmp_path, "    environment_signs: {" + block + "}\n")
+    except ConfigError as error:
+        message = str(error)
+    else:
+        message = ""
+
+    assert "environment_signs" in message
+    assert named in message
