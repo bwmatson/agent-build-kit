@@ -148,8 +148,8 @@ Figures 1, 2 and 4 read the default branch, not the working copy.
 1. **Placement:** the unit-test files that are not the one `test_<module>` file of a source module,
    of all unit-test files. A unit-test file is one the profile reads as a test file by name, not
    `conftest.py`, outside any `integration` or `e2e` folder.
-2. **New files:** of the test files added in the window (a rename is not an addition), those not
-   for a source module added in the window.
+2. **New files:** of the unit-test files added in the window (a rename is not an addition), those
+   not for a source module added in the window.
 3. **Added to modified:** over the window's first-parent commits, the tests added and the existing
    tests whose body changed, and their ratio. A test moved to another file in the same commit, and
    one changed only by a renamed import, count as neither.
@@ -162,7 +162,8 @@ Figures 1, 2 and 4 read the default branch, not the working copy.
 
 Each file is read by the profile of the project that holds it. A project whose profile cannot
 read tests is left out and named (`not read: web (node-npm)`); a figure with no file read says
-`unsupported by profile <name>`. A file that does not parse is counted apart as unreadable.
+`unsupported by profile <name>`; figure 5's median of whole-suite runs needs no parser and is
+still printed, with only its test and file counts unsupported. A file that does not parse is counted apart as unreadable.
 
 ### `abk outlines [--overlaps]`
 

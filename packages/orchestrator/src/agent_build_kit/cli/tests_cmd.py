@@ -33,7 +33,7 @@ def figure_lines(report: ShapeReport) -> list[str]:
         "test_<module> file of a source module",
         refused
         if unsupported
-        else f"{report.new_files_not_for_new_module} of {report.new_files} new test files "
+        else f"{report.new_files_not_for_new_module} of {report.new_files} new unit-test files "
         f"({_percent(report.new_files_not_for_new_module, report.new_files)}) are not for a "
         "new source module",
         refused
@@ -44,9 +44,11 @@ def figure_lines(report: ShapeReport) -> list[str]:
         else f"{report.sharing} of {report.tests_read} tests share setup and action with a "
         f"sibling; {report.single_assertion} of {report.tests_read} "
         f"({_percent(report.single_assertion, report.tests_read)}) have exactly one assertion",
-        refused
-        if unsupported
-        else f"{report.suite_tests} tests in {report.suite_files} unit-test files; "
+        (
+            f"tests and files unsupported by profile {report.unsupported_profile}; "
+            if unsupported
+            else f"{report.tests_read} tests in {report.unit_test_files} unit-test files; "
+        )
         + (
             f"median whole-suite run {report.median_minutes:.1f} minutes over "
             f"{report.full_runs} runs"

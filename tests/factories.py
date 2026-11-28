@@ -9,6 +9,7 @@ imports these, rather than in a tenth near-copy.
 from __future__ import annotations
 
 import json
+import os
 import shlex
 import subprocess
 import zlib
@@ -20,6 +21,7 @@ from agent_build_kit import openspec, profiles
 from agent_build_kit.config import RepoConfig, dump
 from agent_build_kit.installation import Installation
 from agent_build_kit.pipeline.e2e import E2eResult, TestFailure, build_snapshot
+from agent_build_kit.pipeline.shell import git as shell_git
 from agent_build_kit.pipeline.shell import git_out as git
 from agent_build_kit.pipeline.unit_store import (
     BriefEntry,
@@ -41,6 +43,7 @@ __all__ = [
     "commit",
     "commit_files",
     "commit_unit_work",
+    "dated_env",
     "brief_description",
     "deep_store",
     "fake_openspec",
@@ -366,15 +369,35 @@ def commit(repo: Path, name: str, content: str = "x") -> str:
     return git(repo, "rev-parse", "HEAD")
 
 
-def commit_files(repo: Path, message: str, files: dict[str, str]) -> None:
-    """Write `files` (path to content, parents created) and commit them all with this message.
+def dated_env(when: str) -> dict[str, str]:
+    """The environment of a git command whose commit is authored and committed at `when`
+    (an ISO 8601 time), so a history has dates the test fixes."""
+    return {**os.environ, "GIT_AUTHOR_DATE": when, "GIT_COMMITTER_DATE": when}
+
+
+def commit_files(
+    repo: Path,
+    message: str,
+    files: dict[str, str] | None = None,
+    *,
+    when: str | None = None,
+    rename: dict[str, str] | None = None,
+) -> None:
+    """Rename the files of `rename` (old path to new, with `git mv`), write `files` (path to
+    content, parents created) and commit them all with this message, dated `when` if given.
     The one commit helper for tests that need several files in one commit."""
-    for name, content in files.items():
+    for old, new in (rename or {}).items():
+        (repo / new).parent.mkdir(parents=True, exist_ok=True)
+        git(repo, "mv", old, new)
+    for name, content in (files or {}).items():
         path = repo / name
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(content)
     git(repo, "add", "-A")
-    git(repo, "commit", "-qm", message)
+    if when is None:
+        git(repo, "commit", "-qm", message)
+    else:
+        shell_git(repo, "commit", "-qm", message, env=dated_env(when))
 
 
 def commit_unit_work(tree: Path, config: RepoConfig) -> None:

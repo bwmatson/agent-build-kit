@@ -177,13 +177,34 @@ class TestRun(Frozen):
     timed_out: bool = False
 
 
+def rotated_ledger_path(path: Path) -> Path:
+    """Where the ledger at `path` is moved to when it grows past its size."""
+    return path.with_name(path.name + ".1")
+
+
+def read_test_runs(state_dir: Path) -> list[TestRun]:
+    """Every row of the ledger under `state_dir`, the rotated copy's first and so oldest first;
+    a line that does not parse is skipped."""
+    ledger = run_ledger_path(state_dir)
+    rows: list[TestRun] = []
+    for path in (rotated_ledger_path(ledger), ledger):
+        if not path.exists():
+            continue
+        for line in path.read_text(encoding="utf-8").splitlines():
+            try:
+                rows.append(TestRun.model_validate_json(line))
+            except ValueError:
+                continue
+    return rows
+
+
 def append_test_run(path: Path, run: TestRun, *, max_bytes: int = TEST_RUNS_MAX_BYTES) -> None:
     """Add `run` to the ledger at `path`; a ledger already `max_bytes` long is moved to
     `<name>.1` (replacing an older one) first."""
     with file_lock(path.with_suffix(".lock")):
         path.parent.mkdir(parents=True, exist_ok=True)
         if path.exists() and path.stat().st_size >= max_bytes:
-            path.replace(path.with_name(path.name + ".1"))
+            path.replace(rotated_ledger_path(path))
         with path.open("a", encoding="utf-8") as handle:
             handle.write(run.model_dump_json() + "\n")
 

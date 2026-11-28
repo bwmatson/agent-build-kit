@@ -8,28 +8,23 @@ test-reading capability (`ProfileUnsupported`) has its files left out and named.
 
 from __future__ import annotations
 
-import json
 import statistics
 import subprocess
 from collections import Counter
 from collections.abc import Callable
 from datetime import UTC, date, datetime, time
 from pathlib import PurePosixPath
+from typing import Protocol, runtime_checkable
 
 from agent_build_kit import profiles
 from agent_build_kit.config import owning_project
 from agent_build_kit.installation import Installation
 from agent_build_kit.model import Frozen
-from agent_build_kit.pipeline.run_log import TestRun, run_ledger_path
+from agent_build_kit.pipeline.run_log import read_test_runs
 from agent_build_kit.pipeline.shell import git
 from agent_build_kit.pipeline.unit_store import UnitStore
 from agent_build_kit.pipeline.units import local_ref
-from agent_build_kit.profiles.base import (
-    ComparesTests,
-    ProfileUnsupported,
-    ReadsTestShape,
-    ToolchainProfile,
-)
+from agent_build_kit.profiles.base import ComparesTests, ProfileUnsupported, ReadsTestShape
 
 # Folders whose test files are not unit tests.
 WIDER_FOLDERS = frozenset({"integration", "e2e"})
@@ -37,7 +32,7 @@ WIDER_FOLDERS = frozenset({"integration", "e2e"})
 _DEFINITIONS = (
     "Of the unit-test files (named as tests by the profile, not conftest, outside integration "
     "and e2e folders), those that are not the one test_<module> file of a source module.",
-    "Of the test files added in the window (not renamed), those not for a source module "
+    "Of the unit-test files added in the window (not renamed), those not for a source module "
     "added in the window.",
     "Tests added and existing tests whose body changed in the window's first-parent commits "
     "on the default branch, not a test moved to another file, nor one changed by an import "
@@ -60,7 +55,7 @@ class ShapeReport(Frozen):
     # 1. Unit-test files not named `test_<module>` for a source module, of all unit-test files.
     unplaced: int | None = None
     unit_test_files: int | None = None
-    # 2. Test files added in the window that are not for a source module added in it, of all.
+    # 2. Unit-test files added in the window that are not for a source module added in it, of all.
     new_files_not_for_new_module: int | None = None
     new_files: int | None = None
     # 3. Tests added, and existing tests modified, in the window's commits.
@@ -70,9 +65,8 @@ class ShapeReport(Frozen):
     sharing: int | None = None
     single_assertion: int | None = None
     tests_read: int | None = None
-    # 5. The suite at the tip, and the median minutes of the window's whole-suite runs.
-    suite_tests: int | None = None
-    suite_files: int | None = None
+    # 5. The suite's size at the tip is figure 1's `unit_test_files` and figure 4's `tests_read`;
+    # what it adds is the median minutes of the window's whole-suite runs, which needs no parser.
     median_minutes: float | None = None
     full_runs: int = 0
     unsupported_profile: str | None = None
@@ -86,6 +80,13 @@ def definition(figure: int) -> str:
 
 
 Run = Callable[..., subprocess.CompletedProcess[str]]
+
+
+@runtime_checkable
+class ReadingProfile(ReadsTestShape, Protocol):
+    """A profile that reads the shape of test files and tells a test path."""
+
+    def is_test_path(self, path: str) -> bool: ...
 
 
 class _Files:
@@ -106,13 +107,13 @@ class _Files:
             return self.name, self.repo.profile, path
         return project.path, project.profile, path.removeprefix(project.prefix)
 
-    def reader(self, path: str) -> tuple[ToolchainProfile, str] | None:
+    def reader(self, path: str) -> tuple[ReadingProfile, str] | None:
         """The profile that reads `path` and the path relative to its project; None, noted as
         left out, for a profile that refuses."""
         label, profile_name, rel = self.owner(path)
         profile = profiles.get(profile_name)
         try:
-            if isinstance(profile, ReadsTestShape):
+            if isinstance(profile, ReadingProfile):
                 profile.is_source_module(rel)
                 self.reads += 1
                 return profile, rel
@@ -121,11 +122,10 @@ class _Files:
         self.refused[label] = profile_name
         return None
 
-    def is_unit_test(self, profile: ToolchainProfile, rel: str) -> bool:
+    def is_unit_test(self, profile: ReadingProfile, rel: str) -> bool:
         directories = PurePosixPath(rel).parts[:-1]
         return (
             profile.is_test_path(rel)
-            and isinstance(profile, ReadsTestShape)
             and profile.test_module_name(rel) is not None
             and not WIDER_FOLDERS.intersection(directories)
         )
@@ -184,28 +184,23 @@ def _ledger_minutes(
         }
     except (ValueError, OSError):
         return []
-    ledger = run_ledger_path(installation.state_dir)
     start = datetime.combine(since, time.min, UTC)
     minutes: list[float] = []
-    for path in (ledger.with_name(ledger.name + ".1"), ledger):
-        if not path.exists():
+    for run in read_test_runs(installation.state_dir):
+        try:
+            began = datetime.fromisoformat(run.started)
+        except ValueError:
             continue
-        for line in path.read_text(encoding="utf-8").splitlines():
-            try:
-                run = TestRun.model_validate(json.loads(line))
-                began = datetime.fromisoformat(run.started)
-            except ValueError:
-                continue
-            began = began if began.tzinfo else began.replace(tzinfo=UTC)
-            if (
-                run.unit in owned
-                and run.full is True
-                and not run.reused
-                and not run.timed_out
-                and run.outcome in ("passed", "failed")
-                and start <= began <= now
-            ):
-                minutes.append(run.seconds / 60)
+        began = began if began.tzinfo else began.replace(tzinfo=UTC)
+        if (
+            run.unit in owned
+            and run.full is True
+            and not run.reused
+            and not run.timed_out
+            and run.outcome in ("passed", "failed")
+            and start <= began <= now
+        ):
+            minutes.append(run.seconds / 60)
     return minutes
 
 
@@ -224,13 +219,12 @@ def shape_report(
 
     tree = _tree(files, ref)
     sources: set[str] = set()
-    unit_tests: list[tuple[ReadsTestShape, str, str]] = []
+    unit_tests: list[tuple[ReadingProfile, str, str]] = []
     for path in tree:
         found = files.reader(path)
         if found is None:
             continue
         profile, rel = found
-        assert isinstance(profile, ReadsTestShape)
         if profile.is_source_module(rel):
             sources.add(PurePosixPath(rel).stem)
         elif files.is_unit_test(profile, rel):
@@ -262,7 +256,6 @@ def shape_report(
             if found is None:
                 continue
             profile, rel = found
-            assert isinstance(profile, ReadsTestShape)
             if code == "A" and profile.is_source_module(rel):
                 new_sources.add(PurePosixPath(rel).stem)
             if code == "A" and files.is_unit_test(profile, rel):
@@ -300,8 +293,6 @@ def shape_report(
         sharing=sharing,
         single_assertion=single,
         tests_read=total,
-        suite_tests=total,
-        suite_files=len(unit_tests),
     )
     return ShapeReport(
         repo=name,
